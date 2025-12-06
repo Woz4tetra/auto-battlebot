@@ -1,0 +1,57 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build-python/
+.eggs/
+*.egg
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# CMake and C++ build artifacts
+build/
+install/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+*.cmake
+!CMakeLists.txt
+*.a
+*.o
+*.so
+*.dylib
+*.exe
+*.out
+bin/
+lib/
+
+# IDE and Editor
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# ROS and Bag files
+*.bag
+*.bag.active
+log/
+
+# OS specific
+.DS_Store
+Thumbs.db

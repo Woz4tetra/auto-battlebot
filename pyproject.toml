@@ -1,0 +1,24 @@
+[project]
+name = "auto-battlebot"
+version = "0.1.0"
+description = "Auto Battlebot Project"
+requires-python = ">=3.11"
+dependencies = [
+    "ultralytics",
+    "numpy>=2.0.0,<3.0.0",
+    "opencv-python",
+    "matplotlib",
+    "scipy",
+    "minigencpp @ git+https://github.com/Woz4tetra/minigencpp.git",
+]
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = []
