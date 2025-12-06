@@ -12,7 +12,7 @@ build_cpp_project() {
 
 
     echo "Running cmake..."
-    cmake ..
+    cmake .. -Wno-dev
 
     echo "Building project..."
     make -j"$(nproc)"
