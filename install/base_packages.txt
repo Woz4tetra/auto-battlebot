@@ -1,0 +1,12 @@
+# Required packages for auto-battlebot
+# One package per line, lines starting with # are ignored
+
+python3-pip
+python3-venv
+libwebsocketpp-dev
+libjsoncpp-dev
+libssl-dev
+cmake
+build-essential
+libopencv-dev
+libboost-all-dev

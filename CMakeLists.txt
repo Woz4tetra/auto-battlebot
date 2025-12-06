@@ -31,6 +31,10 @@ add_executable(auto_battlebot
     src/main.cpp
 )
 
+add_executable(producer_consumer_example
+    src/example_usage.cpp
+)
+
 # Link libraries
 target_link_libraries(auto_battlebot
     miniros::roscxx
