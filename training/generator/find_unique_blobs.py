@@ -4,6 +4,8 @@ import numpy as np
 from dataclasses import dataclass
 from pathlib import Path
 
+from load_image_render import load_image_render
+
 ColorRgbUint8 = tuple[int, int, int]
 
 
@@ -11,6 +13,28 @@ ColorRgbUint8 = tuple[int, int, int]
 class Blob:
     contour: list[tuple[int, int]]
     color: ColorRgbUint8
+
+
+def get_blob_centroid(blob: Blob) -> tuple[float, float]:
+    contour_np = np.array(blob.contour, dtype=np.int32).reshape((-1, 1, 2))
+    M = cv2.moments(contour_np)
+    if M["m00"] == 0:
+        return None
+    x_centroid = M["m10"] / M["m00"]
+    y_centroid = M["m01"] / M["m00"]
+    return (x_centroid, y_centroid)
+
+
+def get_blob_bounding_rectangle(blob: Blob) -> tuple[float, float, float, float]:
+    xs = [pt[0] for pt in blob.contour]
+    ys = [pt[1] for pt in blob.contour]
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    x_center = (x_min + x_max) / 2
+    y_center = (y_min + y_max) / 2
+    box_w = x_max - x_min
+    box_h = y_max - y_min
+    return x_center, y_center, box_w, box_h
 
 
 def find_unique_blobs(image: np.ndarray) -> list[Blob]:
@@ -39,11 +63,11 @@ def find_unique_blobs(image: np.ndarray) -> list[Blob]:
         # Get the color of the blob (mean color inside the mask)
         mask = labels == label_id
         if np.any(mask):
-            mean_color = tuple([int(np.mean(image[:, :, c][mask])) for c in range(3)])[::-1]
+            mean_color = tuple([int(np.mean(image[:, :, c][mask])) for c in range(3)])
         else:
             mean_color = (0, 0, 0)
 
-        blobs.append(Blob(contour=contour_points, color=mean_color))
+        blobs.append(Blob(contour=contour_points, color=mean_color[::-1]))
 
     return blobs
 
@@ -55,32 +79,18 @@ def draw_blobs(image: np.ndarray, blobs: list[Blob], labels: list[str] = None) -
         # Draw filled contour
         cv2.drawContours(image, [contour_np], -1, blob.color, thickness=5)
         # Draw label (index or provided label) at the center of the bounding box
-        xs = [pt[0] for pt in blob.contour]
-        ys = [pt[1] for pt in blob.contour]
-        x_center = int((min(xs) + max(xs)) / 2)
-        y_center = int((min(ys) + max(ys)) / 2)
+        x_center, y_center = get_blob_centroid(blob)
         label = str(labels[idx]) if labels and idx < len(labels) else str(idx)
         cv2.putText(
             image,
             label,
-            (x_center, y_center),
+            (int(x_center), int(y_center)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.7,
             (255, 255, 255),
             2,
             cv2.LINE_AA,
         )
-
-
-def load_image_render(image_path: Path) -> np.ndarray:
-    if image_path.suffix.lower() == ".png":
-        image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-        alpha = image[..., 3] < 30
-        image = (image[..., :3].astype(np.float32) * 255.0 / 65535.0).astype(np.uint8)
-        image[alpha] = 0
-    else:
-        image = cv2.imread(image_path)
-    return image
 
 
 if __name__ == "__main__":
