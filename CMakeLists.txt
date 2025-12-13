@@ -5,6 +5,9 @@ project(auto_battlebot)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Generate compile_commands.json for IDE support
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Option to enable testing
 option(BUILD_TESTING "Build tests" OFF)
 
