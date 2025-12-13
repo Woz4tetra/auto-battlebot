@@ -13,4 +13,4 @@ source "$SCRIPT_DIR/install/build_cpp_project.sh"
 # Run checks and installation
 check_os_ubuntu
 install_packages "$SCRIPT_DIR/install/base_packages.txt"
-build_cpp_project
+build_cpp_project "$@"

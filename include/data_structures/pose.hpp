@@ -3,16 +3,16 @@
 namespace auto_battlebot {
 
 struct Position {
-    double x;
-    double y;
-    double z;
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
 };
 
 struct Rotation {
-    double w;
-    double x;
-    double y;
-    double z;
+    double w = 0.0;
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
 };
 
 struct Pose {

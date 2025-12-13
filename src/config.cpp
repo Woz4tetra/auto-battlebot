@@ -1,48 +1,41 @@
 #include "config.hpp"
 #include <fstream>
 #include <iostream>
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
+#include <toml++/toml.h>
 
 namespace auto_battlebot {
 
 ClassConfiguration load_classes_from_config(const std::string& config_path) {
-    std::string path = config_path.empty() ? "config/classes.json" : config_path;
+    std::string path = config_path.empty() ? "config/classes.toml" : config_path;
     
     ClassConfiguration config;
     
     try {
-        std::ifstream file(path);
-        if (!file.is_open()) {
-            std::cerr << "Failed to open config file: " << path << std::endl;
-            std::cerr << "Using default configuration" << std::endl;
-            
-            // Default configuration
-            config.camera = "realsense";
-            config.field_model = "default";
-            config.field_filter = "default";
-            config.keypoint_model = "default";
-            config.robot_filter = "default";
-            config.navigation = "default";
-            config.transmitter = "default";
-            
-            return config;
-        }
+        auto toml_data = toml::parse_file(path);
         
-        json j;
-        file >> j;
+        config.camera = toml_data["camera"].value_or("realsense");
+        config.field_model = toml_data["field_model"].value_or("default");
+        config.field_filter = toml_data["field_filter"].value_or("default");
+        config.keypoint_model = toml_data["keypoint_model"].value_or("default");
+        config.robot_filter = toml_data["robot_filter"].value_or("default");
+        config.navigation = toml_data["navigation"].value_or("default");
+        config.transmitter = toml_data["transmitter"].value_or("default");
         
-        config.camera = j.value("camera", "realsense");
-        config.field_model = j.value("field_model", "default");
-        config.field_filter = j.value("field_filter", "default");
-        config.keypoint_model = j.value("keypoint_model", "default");
-        config.robot_filter = j.value("robot_filter", "default");
-        config.navigation = j.value("navigation", "default");
-        config.transmitter = j.value("transmitter", "default");
+    } catch (const toml::parse_error& e) {
+        std::cerr << "Error parsing config file: " << path << std::endl;
+        std::cerr << e.description() << std::endl;
+        std::cerr << "Using default configuration" << std::endl;
         
+        // Default configuration
+        config.camera = "realsense";
+        config.field_model = "default";
+        config.field_filter = "default";
+        config.keypoint_model = "default";
+        config.robot_filter = "default";
+        config.navigation = "default";
+        config.transmitter = "default";
     } catch (const std::exception& e) {
-        std::cerr << "Error parsing config file: " << e.what() << std::endl;
+        std::cerr << "Error reading config file: " << e.what() << std::endl;
         std::cerr << "Using default configuration" << std::endl;
         
         // Default configuration
@@ -59,40 +52,38 @@ ClassConfiguration load_classes_from_config(const std::string& config_path) {
 }
 
 std::vector<RobotConfig> load_robots_from_config(const std::string& config_path) {
-    std::string path = config_path.empty() ? "config/robots.json" : config_path;
+    std::string path = config_path.empty() ? "config/robots.toml" : config_path;
     
     std::vector<RobotConfig> robots;
     
     try {
-        std::ifstream file(path);
-        if (!file.is_open()) {
-            std::cerr << "Failed to open robot config file: " << path << std::endl;
-            std::cerr << "Using empty robot configuration" << std::endl;
-            return robots;
-        }
+        auto toml_data = toml::parse_file(path);
         
-        json j;
-        file >> j;
-        
-        if (j.is_array()) {
-            for (const auto& robot_json : j) {
+        if (auto robots_array = toml_data["robots"].as_array()) {
+            for (const auto& robot_toml : *robots_array) {
                 RobotConfig robot;
-                robot.label = robot_json.value("label", "");
-                robot.group = robot_json.value("group", "");
+                if (auto robot_table = robot_toml.as_table()) {
+                    std::string label_str = (*robot_table)["label"].value_or("");
+                    std::string group_str = (*robot_table)["group"].value_or("");
+                    robot.label = string_to_label(label_str);
+                    robot.group = string_to_group(group_str);
+                }
                 robots.push_back(robot);
             }
         }
         
+    } catch (const toml::parse_error& e) {
+        std::cerr << "Error parsing robot config file: " << path << std::endl;
+        std::cerr << e.description() << std::endl;
+        return robots;
     } catch (const std::exception& e) {
-        std::cerr << "Error parsing robot config file: " << e.what() << std::endl;
+        std::cerr << "Error reading robot config file: " << e.what() << std::endl;
         return robots;
     }
     
     return robots;
 }
 
-// Factory function implementations
-// These return nullptr as placeholders - implement concrete classes later
 std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const std::string& camera_type) {
     std::cerr << "Factory for camera type '" << camera_type << "' not implemented" << std::endl;
     return nullptr;

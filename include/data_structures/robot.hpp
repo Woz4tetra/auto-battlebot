@@ -5,12 +5,13 @@
 #include "header.hpp"
 #include "pose.hpp"
 #include "field.hpp"
+#include "enums.hpp"
 
 namespace auto_battlebot {
 
 struct RobotDescription {
-    std::string label;
-    std::string group;
+    Label label = Label::MR_STABS_MK1;
+    Group group = Group::OURS;
     Pose pose;
     Size size;
 };
@@ -21,8 +22,8 @@ struct RobotDescriptionsStamped {
 };
 
 struct RobotConfig {
-    std::string label;
-    std::string group;
+    Label label = Label::MR_STABS_MK1;
+    Group group = Group::OURS;
 };
 
 }  // namespace auto_battlebot

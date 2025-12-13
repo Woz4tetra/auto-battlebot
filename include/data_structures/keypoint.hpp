@@ -8,10 +8,10 @@
 namespace auto_battlebot {
 
 struct Keypoint {
-    std::string label;
-    std::string keypoint_label;
-    float x;
-    float y;
+    std::string label = "";
+    std::string keypoint_label = "";
+    float x = 0.0f;
+    float y = 0.0f;
 };
 
 struct KeypointsStamped {

@@ -5,8 +5,8 @@
 namespace auto_battlebot {
 
 struct Header {
-    double timestamp;
-    std::string frame_id;
+    double timestamp = 0.0;
+    std::string frame_id = "";
 };
 
 }  // namespace auto_battlebot

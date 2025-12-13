@@ -4,6 +4,14 @@ build_cpp_project() {
     set -e
 
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    # Parse command line arguments
+    BUILD_TESTING_FLAG="OFF"
+    for arg in "$@"; do
+        if [ "$arg" = "--test" ]; then
+            BUILD_TESTING_FLAG="ON"
+        fi
+    done
 
     echo "Creating build directory..."
     cd "${SCRIPT_DIR}/../"
@@ -11,8 +19,8 @@ build_cpp_project() {
     cd build/
 
 
-    echo "Running cmake..."
-    cmake .. -Wno-dev
+    echo "Running cmake with BUILD_TESTING=${BUILD_TESTING_FLAG}..."
+    cmake .. -DBUILD_TESTING="${BUILD_TESTING_FLAG}" -Wno-dev
 
     echo "Building project..."
     make -j"$(nproc)"
