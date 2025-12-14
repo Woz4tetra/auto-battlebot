@@ -3,6 +3,31 @@
 # Script to initialize a Python virtual environment and install project dependencies
 # This script creates a venv in the project root and installs packages from pyproject.toml
 
+# Function to check Python version
+check_python_version() {
+    local python_cmd=$1
+    if ! command -v "$python_cmd" &> /dev/null; then
+        return 1
+    fi
+    
+    local version_output
+    version_output=$($python_cmd --version 2>&1)
+    local version
+    version=$(echo "$version_output" | grep -oP '\d+\.\d+' | head -1)
+    
+    local major
+    major=$(echo "$version" | cut -d. -f1)
+    local minor
+    minor=$(echo "$version" | cut -d. -f2)
+    
+    if [ "$major" -gt "$REQUIRED_MAJOR" ] || 
+        ([ "$major" -eq "$REQUIRED_MAJOR" ] && [ "$minor" -ge "$REQUIRED_MINOR" ]); then
+        echo "$python_cmd"
+        return 0
+    fi
+    return 1
+}
+
 install_python_environment() {
     set -e  # Exit on error
 
@@ -17,15 +42,26 @@ install_python_environment() {
     # Virtual environment directory
     local VENV_DIR="$PROJECT_ROOT/venv"
 
-    # Check if Python 3 is installed
-    if ! command -v python3 &> /dev/null; then
-        echo "Error: python3 is not installed. Please install Python 3."
+    local REQUIRED_MAJOR=3
+    local REQUIRED_MINOR=11
+    
+
+    # Find appropriate Python executable
+    local PYTHON_CMD
+    
+    if PYTHON_CMD=$(check_python_version "python3"); then
+        echo "Found suitable Python: $PYTHON_CMD"
+    elif PYTHON_CMD=$(check_python_version "python$REQUIRED_MAJOR.$REQUIRED_MINOR"); then
+        echo "Found suitable Python: $PYTHON_CMD"
+    else
+        echo "Error: Python $REQUIRED_MAJOR.$REQUIRED_MINOR or higher is required."
+        echo "Please install Python $REQUIRED_MAJOR.$REQUIRED_MINOR or higher."
         return 1
     fi
 
     # Display Python version
     local PYTHON_VERSION
-    PYTHON_VERSION=$(python3 --version)
+    PYTHON_VERSION=$($PYTHON_CMD --version)
     echo "Using $PYTHON_VERSION"
 
     # Create virtual environment if it doesn't exist
@@ -43,7 +79,7 @@ install_python_environment() {
 
     if [ ! -d "$VENV_DIR" ]; then
         echo "Creating virtual environment at $VENV_DIR..."
-        python3 -m venv "$VENV_DIR"
+        $PYTHON_CMD -m venv "$VENV_DIR"
     fi
 
     # Activate virtual environment
