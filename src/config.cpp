@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "config_parser.hpp"
 #include "directories.hpp"
 #include <fstream>
 #include <iostream>
@@ -6,6 +7,25 @@
 
 namespace auto_battlebot
 {
+    template <typename ConfigType>
+    ConfigType parse_config_section(const toml::table &toml_data, const std::string &section_name, std::vector<std::string> &parsed_sections)
+    {
+        ConfigType config;
+
+        auto section = toml_data[section_name].as_table();
+        if (!section)
+        {
+            throw ConfigValidationError("Missing required section [" + section_name + "]");
+        }
+
+        ConfigParser parser(*section, section_name);
+        config.type = parser.get_required_string("type");
+        parser.validate_no_extra_fields();
+
+        parsed_sections.push_back(section_name);
+        return config;
+    }
+
     ClassConfiguration load_classes_from_config(const std::string &config_path)
     {
         std::filesystem::path path = config_path.empty()
@@ -15,15 +35,39 @@ namespace auto_battlebot
 
         ClassConfiguration config;
 
-        auto toml_data = toml::parse_file(path_string);
+        try
+        {
+            auto toml_data = toml::parse_file(path_string);
 
-        config.camera = toml_data["rgbd_camera"].value_or("realsense");
-        config.field_model = toml_data["field_model"].value_or("default");
-        config.field_filter = toml_data["field_filter"].value_or("default");
-        config.keypoint_model = toml_data["keypoint_model"].value_or("default");
-        config.robot_filter = toml_data["robot_filter"].value_or("default");
-        config.navigation = toml_data["navigation"].value_or("default");
-        config.transmitter = toml_data["transmitter"].value_or("default");
+            std::vector<std::string> parsed_sections;
+            config.camera = parse_config_section<RgbdCameraConfiguration>(toml_data, "rgbd_camera", parsed_sections);
+            config.field_model = parse_config_section<FieldModelConfiguration>(toml_data, "field_model", parsed_sections);
+            config.field_filter = parse_config_section<FieldFilterConfiguration>(toml_data, "field_filter", parsed_sections);
+            config.keypoint_model = parse_config_section<KeypointModelConfiguration>(toml_data, "keypoint_model", parsed_sections);
+            config.robot_filter = parse_config_section<RobotFilterConfiguration>(toml_data, "robot_filter", parsed_sections);
+            config.navigation = parse_config_section<NavigationConfiguration>(toml_data, "navigation", parsed_sections);
+            config.transmitter = parse_config_section<TransmitterConfiguration>(toml_data, "transmitter", parsed_sections);
+
+            // Validate no extra sections using the list we built during parsing
+            validate_no_extra_sections(toml_data, parsed_sections, "classes.toml");
+        }
+        catch (const toml::parse_error &e)
+        {
+            std::cerr << "Error parsing classes config file: " << path.string() << std::endl;
+            std::cerr << e.description() << std::endl;
+            throw;
+        }
+        catch (const ConfigValidationError &e)
+        {
+            std::cerr << "Configuration validation error in " << path.string() << ":" << std::endl;
+            std::cerr << e.what() << std::endl;
+            throw;
+        }
+        catch (const std::exception &e)
+        {
+            std::cerr << "Error reading classes config file: " << e.what() << std::endl;
+            throw;
+        }
 
         return config;
     }
