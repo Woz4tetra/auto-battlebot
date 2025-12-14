@@ -1,0 +1,23 @@
+base_render = "base render"
+point_overlay = "Front Point and Back Point"
+mask_overlay = "mask"
+
+[keypoints]
+color_tolerance = 10  # percent
+
+[[keypoints.labels]]
+id = 0
+keypoint_id = 0  # front
+color = [53, 161, 17]
+
+[[keypoints.labels]]
+id = 0
+keypoint_id = 1  # back
+color = [159, 141, 13]
+
+[masks]
+color_tolerance = 10  # percent
+
+[[masks.labels]]
+id = 0  # mr stabs
+color = [219, 57, 33]
