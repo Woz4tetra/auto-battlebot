@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include "directories.hpp"
 #include <fstream>
 #include <iostream>
 #include <toml++/toml.h>
@@ -7,11 +8,14 @@ namespace auto_battlebot
 {
     ClassConfiguration load_classes_from_config(const std::string &config_path)
     {
-        std::string path = config_path.empty() ? "config/classes.toml" : config_path;
+        std::filesystem::path path = config_path.empty()
+                                         ? get_config_dir() / "classes.toml"
+                                         : std::filesystem::path(config_path);
+        std::string path_string = path.u8string();
 
         ClassConfiguration config;
 
-        auto toml_data = toml::parse_file(path);
+        auto toml_data = toml::parse_file(path_string);
 
         config.camera = toml_data["camera"].value_or("realsense");
         config.field_model = toml_data["field_model"].value_or("default");
@@ -26,13 +30,16 @@ namespace auto_battlebot
 
     std::vector<RobotConfig> load_robots_from_config(const std::string &config_path)
     {
-        std::string path = config_path.empty() ? "config/robots.toml" : config_path;
+        std::filesystem::path path = config_path.empty()
+                                         ? get_config_dir() / "robots.toml"
+                                         : std::filesystem::path(config_path);
+        std::string path_string = path.u8string();
 
         std::vector<RobotConfig> robots;
 
         try
         {
-            auto toml_data = toml::parse_file(path);
+            auto toml_data = toml::parse_file(path_string);
 
             if (auto robots_array = toml_data["robots"].as_array())
             {
@@ -52,7 +59,7 @@ namespace auto_battlebot
         }
         catch (const toml::parse_error &e)
         {
-            std::cerr << "Error parsing robot config file: " << path << std::endl;
+            std::cerr << "Error parsing robot config file: " << path.string() << std::endl;
             std::cerr << e.description() << std::endl;
             return robots;
         }

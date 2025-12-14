@@ -160,6 +160,14 @@ else()
     )
 endif()
 
+# Copy config directory to build directory
+add_custom_command(TARGET auto_battlebot POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/config
+        ${CMAKE_BINARY_DIR}/config
+    COMMENT "Copying config directory to build directory"
+)
+
 # Install targets
 install(TARGETS auto_battlebot auto_battlebot_lib
     RUNTIME DESTINATION bin
