@@ -5,19 +5,21 @@
 #include "header.hpp"
 #include "camera.hpp"
 
-namespace auto_battlebot {
+namespace auto_battlebot
+{
+    struct Keypoint
+    {
+        std::string label = "";
+        std::string keypoint_label = "";
+        float x = 0.0f;
+        float y = 0.0f;
+    };
 
-struct Keypoint {
-    std::string label = "";
-    std::string keypoint_label = "";
-    float x = 0.0f;
-    float y = 0.0f;
-};
+    struct KeypointsStamped
+    {
+        Header header;
+        std::vector<Keypoint> keypoints;
+        CameraInfo camera_info;
+    };
 
-struct KeypointsStamped {
-    Header header;
-    std::vector<Keypoint> keypoints;
-    CameraInfo camera_info;
-};
-
-}  // namespace auto_battlebot
+} // namespace auto_battlebot

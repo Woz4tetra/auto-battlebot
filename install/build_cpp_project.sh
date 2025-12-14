@@ -3,9 +3,11 @@
 build_cpp_project() {
     set -e
 
+    local SCRIPT_DIR
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
     # Parse command line arguments
+    local BUILD_TESTING_FLAG
     BUILD_TESTING_FLAG="OFF"
     for arg in "$@"; do
         if [ "$arg" = "--test" ]; then
