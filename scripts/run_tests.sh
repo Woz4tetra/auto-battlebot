@@ -5,9 +5,10 @@
 set -e  # Exit on error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${SCRIPT_DIR}/build"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BUILD_DIR="${PROJECT_ROOT}/build"
 
-source "$SCRIPT_DIR/install/build_cpp_project.sh"
+source "$PROJECT_ROOT/install/build_cpp_project.sh"
 build_cpp_project --test
 
 # Colors for output
