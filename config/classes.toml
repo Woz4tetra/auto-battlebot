@@ -1,10 +1,23 @@
 # Example class configuration for auto_battlebot
 # Specify which implementations to use for each interface
 
-camera = "realsense"
-field_model = "default"
-field_filter = "default"
-keypoint_model = "default"
-robot_filter = "default"
-navigation = "default"
-transmitter = "default"
+[rgbd_camera]
+type = "ZedRgbdCamera"
+
+[field_model]
+type = "NoopFieldModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"

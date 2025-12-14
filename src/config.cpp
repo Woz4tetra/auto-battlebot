@@ -17,7 +17,7 @@ namespace auto_battlebot
 
         auto toml_data = toml::parse_file(path_string);
 
-        config.camera = toml_data["camera"].value_or("realsense");
+        config.camera = toml_data["rgbd_camera"].value_or("realsense");
         config.field_model = toml_data["field_model"].value_or("default");
         config.field_filter = toml_data["field_filter"].value_or("default");
         config.keypoint_model = toml_data["keypoint_model"].value_or("default");
@@ -72,45 +72,45 @@ namespace auto_battlebot
         return robots;
     }
 
-    std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const std::string &camera_type)
+    std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfiguration &config)
     {
-        std::cerr << "Factory for camera type '" << camera_type << "' not implemented" << std::endl;
+        std::cerr << "Factory for camera type '" << config.type << "' not implemented" << std::endl;
         return nullptr;
     }
 
-    std::shared_ptr<FieldModelInterface> make_field_model(const std::string &model_type)
+    std::shared_ptr<FieldModelInterface> make_field_model(const FieldModelConfiguration &config)
     {
-        std::cerr << "Factory for field model type '" << model_type << "' not implemented" << std::endl;
+        std::cerr << "Factory for field model type '" << config.type << "' not implemented" << std::endl;
         return nullptr;
     }
 
-    std::shared_ptr<FieldFilterInterface> make_field_filter(const std::string &filter_type)
+    std::shared_ptr<FieldFilterInterface> make_field_filter(const FieldFilterConfiguration &config)
     {
-        std::cerr << "Factory for field filter type '" << filter_type << "' not implemented" << std::endl;
+        std::cerr << "Factory for field filter type '" << config.type << "' not implemented" << std::endl;
         return nullptr;
     }
 
-    std::shared_ptr<KeypointModelInterface> make_keypoint_model(const std::string &model_type)
+    std::shared_ptr<KeypointModelInterface> make_keypoint_model(const KeypointModelConfiguration &config)
     {
-        std::cerr << "Factory for keypoint model type '" << model_type << "' not implemented" << std::endl;
+        std::cerr << "Factory for keypoint model type '" << config.type << "' not implemented" << std::endl;
         return nullptr;
     }
 
-    std::shared_ptr<RobotFilterInterface> make_robot_filter(const std::string &filter_type)
+    std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfiguration &config)
     {
-        std::cerr << "Factory for robot filter type '" << filter_type << "' not implemented" << std::endl;
+        std::cerr << "Factory for robot filter type '" << config.type << "' not implemented" << std::endl;
         return nullptr;
     }
 
-    std::shared_ptr<NavigationInterface> make_navigation(const std::string &navigation_type)
+    std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config)
     {
-        std::cerr << "Factory for navigation type '" << navigation_type << "' not implemented" << std::endl;
+        std::cerr << "Factory for navigation type '" << config.type << "' not implemented" << std::endl;
         return nullptr;
     }
 
-    std::shared_ptr<TransmitterInterface> make_transmitter(const std::string &transmitter_type)
+    std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config)
     {
-        std::cerr << "Factory for transmitter type '" << transmitter_type << "' not implemented" << std::endl;
+        std::cerr << "Factory for transmitter type '" << config.type << "' not implemented" << std::endl;
         return nullptr;
     }
 
