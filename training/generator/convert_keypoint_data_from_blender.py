@@ -1,9 +1,17 @@
+import math
 import argparse
 from pathlib import Path
 import tomllib
+from multiprocessing import Pool, cpu_count
 
 
-from find_unique_blobs import find_unique_blobs, ColorRgbUint8, Blob, get_blob_centroid, get_blob_bounding_rectangle
+from find_unique_blobs import (
+    find_unique_blobs_with_color_priors,
+    ColorRgbUint8,
+    Blob,
+    get_blob_centroid,
+    get_blob_bounding_rectangle,
+)
 
 from load_image_render import load_image_render
 
@@ -68,9 +76,17 @@ def make_keypoint_annotation(
         return None  # skip unknown blobs
 
     x_centroid, y_centroid = get_blob_centroid(blob)
-    return (matched_class_id, matched_keypoint_id, x_centroid / width, y_centroid / height)
+    return (
+        matched_class_id,
+        matched_keypoint_id,
+        x_centroid / width,
+        y_centroid / height,
+    )
 
-def load_color_configs(config: dict) -> tuple[dict[int, ColorRgbUint8], dict[int, dict[int, ColorRgbUint8]]]:
+
+def load_color_configs(
+    config: dict,
+) -> tuple[dict[int, ColorRgbUint8], dict[int, dict[int, ColorRgbUint8]]]:
     mask_labels = config.get("masks", {}).get("labels", [])
     keypoint_labels = config.get("keypoints", {}).get("labels", [])
 
@@ -86,8 +102,9 @@ def load_color_configs(config: dict) -> tuple[dict[int, ColorRgbUint8], dict[int
         label_id = label["id"]
         color = tuple(label["color"])
         keypoint_colors.setdefault(label_id, {})[label["keypoint_id"]] = color
-    
+
     return label_colors, keypoint_colors
+
 
 def get_image_paths(config: dict, data_dir: Path) -> list[tuple[Path, Path]]:
     # Find mask image directories
@@ -117,18 +134,99 @@ def get_image_paths(config: dict, data_dir: Path) -> list[tuple[Path, Path]]:
     # Find matching pairs
     matched_pairs = []
     all_stems = set(mask_dict.keys()) | set(keypoint_dict.keys())
-    
+
     for stem in sorted(all_stems):
         if stem in mask_dict and stem in keypoint_dict:
             matched_pairs.append((mask_dict[stem], keypoint_dict[stem]))
         elif stem in mask_dict:
             print(f"Warning: No keypoint image found for mask image: {mask_dict[stem]}")
         else:
-            print(f"Warning: No mask image found for keypoint image: {keypoint_dict[stem]}")
-    
+            print(
+                f"Warning: No mask image found for keypoint image: {keypoint_dict[stem]}"
+            )
+
     return matched_pairs
 
 
+def convert_render_pair_to_yolo(
+    mask_path: Path,
+    keypoints_path: Path,
+    output_dir: Path,
+    label_expected_colors: list[ColorRgbUint8],
+    keypoint_expected_colors: list[ColorRgbUint8],
+    color_tolerance: float,
+    label_colors_map: dict[int, dict[int, ColorRgbUint8]],
+    keypoint_colors_map: dict[int, ColorRgbUint8],
+) -> tuple[bool, Path, Path, str | None]:
+    """
+    Returns: (success, mask_path, keypoints_path, error_message)
+    """
+    try:
+        mask_img = load_image_render(mask_path)
+        keypoints_img = load_image_render(keypoints_path)
+        assert mask_img.shape == keypoints_img.shape
+        mask_blobs = find_unique_blobs_with_color_priors(
+            mask_img, label_expected_colors, color_tolerance
+        )
+        keypoint_blobs = find_unique_blobs_with_color_priors(
+            keypoints_img, keypoint_expected_colors, color_tolerance
+        )
+        height, width = mask_img.shape[:2]
+
+        keypoint_annotations: dict[int, list[KeypointAnnotation]] = {}
+        for blob in keypoint_blobs:
+            annotation = make_keypoint_annotation(
+                blob, width, height, keypoint_colors_map, color_tolerance
+            )
+            if annotation:
+                keypoint_annotations.setdefault(annotation[0], []).append(
+                    annotation[1:]
+                )
+        for keypoint_label_annotations in keypoint_annotations.values():
+            keypoint_label_annotations.sort(key=lambda val: val[0])
+
+        bounding_box_annotations: list[BoundingBoxAnnotation] = []
+        for blob in mask_blobs:
+            annotation = make_bounding_box_annotation(
+                blob, width, height, label_colors_map, color_tolerance
+            )
+            if annotation:
+                bounding_box_annotations.append(annotation)
+
+        yolo_lines = []
+        visibility = 2
+        for bbox_anno in bounding_box_annotations:
+            class_id, x_center, y_center, box_w, box_h = bbox_anno
+            keypoint_label_annotations = keypoint_annotations[class_id]
+            
+            expected_keypoints_num = len(keypoint_colors_map[class_id])
+            keypoints_found_num = len(keypoint_label_annotations)
+            if expected_keypoints_num != keypoints_found_num:
+                raise ValueError(f"Found {keypoints_found_num} instead of {expected_keypoints_num} keypoints for class ID {class_id}")
+
+            yolo_base_annotation = (
+                f"{class_id} {x_center:.6f} {y_center:.6f} {box_w:.6f} {box_h:.6f}"
+            )
+            yolo_keypoint_annotations = []
+            for key_anno in keypoint_label_annotations:
+                keypoint_id, key_x, key_y = key_anno
+                yolo_keypoint_annotations.append(
+                    f"{key_x:.6f} {key_y:.6f} {visibility}"
+                )
+            yolo_annotation = " ".join(
+                [yolo_base_annotation] + yolo_keypoint_annotations
+            )
+            yolo_lines.append(yolo_annotation)
+
+        # Write YOLO label file
+        label_path = output_dir / (mask_path.stem + ".txt")
+        with open(label_path, "w") as f:
+            f.write("\n".join(yolo_lines) + "\n")
+        print(f"Wrote {label_path}")
+        return (True, mask_path, keypoints_path, None)
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {str(exc)}"
+        return (False, mask_path, keypoints_path, error_msg)
 
 
 def main() -> None:
@@ -158,63 +256,53 @@ def main() -> None:
         config = tomllib.load(f)
 
     # Get label info and color tolerance
-    label_colors, keypoint_colors = load_color_configs(config)
+    label_colors_map, keypoint_colors_map = load_color_configs(config)
     color_tolerance = config.get("masks", {}).get("color_tolerance", 5)
 
+    label_expected_colors = list(label_colors_map.values())
+    keypoint_expected_colors = []
+    for color_map in keypoint_colors_map.values():
+        keypoint_expected_colors.extend(color_map.values())
+
     matched_images = get_image_paths(config, data_dir)
-    
-    for mask_path, keypoints_path in matched_images:
-        mask_img = load_image_render(mask_path)
-        keypoints_img = load_image_render(keypoints_path)
-        assert mask_img.shape == keypoints_img.shape
-        mask_blobs = find_unique_blobs(mask_img)
-        keypoint_blobs = find_unique_blobs(keypoints_img)
-        height, width = mask_img.shape[:2]
 
-        keypoint_annotations: dict[int, list[KeypointAnnotation]] = {}
-        for blob in keypoint_blobs:
-            annotation = make_keypoint_annotation(
-                blob, width, height, keypoint_colors, color_tolerance
-            )
-            if annotation:
-                keypoint_annotations.setdefault(annotation[0], []).append(
-                    annotation[1:]
-                )
-        for keypoint_label_annotations in keypoint_annotations.values():
-            keypoint_label_annotations.sort(key=lambda val: val[0])
+    # Prepare arguments for parallel processing
+    process_args = [
+        (
+            mask_path,
+            keypoints_path,
+            output_dir,
+            label_expected_colors,
+            keypoint_expected_colors,
+            color_tolerance,
+            label_colors_map,
+            keypoint_colors_map,
+        )
+        for mask_path, keypoints_path in matched_images
+    ]
 
-        bounding_box_annotations: list[BoundingBoxAnnotation] = []
-        for blob in mask_blobs:
-            annotation = make_bounding_box_annotation(
-                blob, width, height, label_colors, color_tolerance
-            )
-            if annotation:
-                bounding_box_annotations.append(annotation)
+    # Process images in parallel
+    num_processes = math.ceil(cpu_count() * 0.8)
+    print(f"Processing {len(matched_images)} images using {num_processes} processes...")
+    with Pool(processes=num_processes) as pool:
+        results = pool.starmap(convert_render_pair_to_yolo, process_args)
 
-        yolo_lines = []
-        visibility = 2
-        for bbox_anno in bounding_box_annotations:
-            class_id, x_center, y_center, box_w, box_h = bbox_anno
-            keypoint_label_annotations = keypoint_annotations[class_id]
-            yolo_base_annotation = (
-                f"{class_id} {x_center:.6f} {y_center:.6f} {box_w:.6f} {box_h:.6f}"
-            )
-            yolo_keypoint_annotations = []
-            for key_anno in keypoint_label_annotations:
-                keypoint_id, key_x, key_y = key_anno
-                yolo_keypoint_annotations.append(
-                    f"{key_x:.6f} {key_y:.6f} {visibility}"
-                )
-            yolo_annotation = " ".join(
-                [yolo_base_annotation] + yolo_keypoint_annotations
-            )
-            yolo_lines.append(yolo_annotation)
+    # Check for failures
+    failures = [
+        (mask_path, keypoints_path, error)
+        for success, mask_path, keypoints_path, error in results
+        if not success
+    ]
 
-        # Write YOLO label file
-        label_path = output_dir / (mask_path.stem + ".txt")
-        with open(label_path, "w") as f:
-            f.write("\n".join(yolo_lines) + "\n")
-        print(f"Wrote {label_path}")
+    if failures:
+        print(f"\n⚠️  {len(failures)} image pair(s) failed to process:")
+        for mask_path, keypoints_path, error in failures:
+            print(f"  - Mask: {mask_path}")
+            print(f"    Keypoints: {keypoints_path}")
+            print(f"    Error: {error}")
+    else:
+        print(f"✓ Successfully processed all {len(matched_images)} images!")
+    print("Done!")
 
 
 if __name__ == "__main__":

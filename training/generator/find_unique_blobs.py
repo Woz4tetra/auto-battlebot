@@ -37,8 +37,21 @@ def get_blob_bounding_rectangle(blob: Blob) -> tuple[float, float, float, float]
     return x_center, y_center, box_w, box_h
 
 
-def find_unique_blobs(image: np.ndarray) -> list[Blob]:
-    nonzero_mask = (cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) > 0).astype(np.uint8) * 255
+def find_unique_blobs(
+    image: np.ndarray,
+    expected_color: ColorRgbUint8 | None = None,
+    color_tolerance: float = 10.0,
+) -> list[Blob]:
+    if expected_color is None:
+        nonzero_mask = (cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) > 0).astype(
+            np.uint8
+        ) * 255
+    else:
+        color_range = color_tolerance * 255 / 100
+        color_array = np.array(expected_color[::-1])
+        lower_color = color_array - color_range
+        upper_color = color_array + color_range
+        nonzero_mask = cv2.inRange(image, lower_color, upper_color)
     num_labels, labels = cv2.connectedComponents(nonzero_mask, connectivity=8)
 
     blobs = []
@@ -72,6 +85,17 @@ def find_unique_blobs(image: np.ndarray) -> list[Blob]:
     return blobs
 
 
+def find_unique_blobs_with_color_priors(
+    image: np.ndarray,
+    expected_colors: list[ColorRgbUint8],
+    color_tolerance: float = 10.0,
+) -> list[Blob]:
+    blobs = []
+    for expected_color in expected_colors:
+        blobs += find_unique_blobs(image, expected_color, color_tolerance)
+    return blobs
+
+
 def draw_blobs(image: np.ndarray, blobs: list[Blob], labels: list[str] = None) -> None:
     for idx, blob in enumerate(blobs):
         # Convert contour points to the format expected by cv2
@@ -100,6 +124,7 @@ if __name__ == "__main__":
         parser = argparse.ArgumentParser("find_unique_blobs")
         parser.add_argument("image", type=Path)
         parser.add_argument("-b", "--base", type=Path)
+        parser.add_argument("-c", "--color", type=str)
         args = parser.parse_args()
 
         image_path: Path = args.image
@@ -109,10 +134,16 @@ if __name__ == "__main__":
         base_path: Path | None = args.base
         if base_path is not None and not base_path.exists():
             raise FileNotFoundError(f"{base_path} doesn't exist")
+        
+        expected_color_str: str | None = args.color
+        if expected_color_str is not None:
+            expected_color = [int(ch) for ch in expected_color_str.split(",")]
+        else:
+            expected_color = None
 
         image = load_image_render(image_path)
 
-        blobs = find_unique_blobs(image)
+        blobs = find_unique_blobs(image, expected_color)
         if base_path is not None:
             gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             nonzero_mask = gray_image > 0
