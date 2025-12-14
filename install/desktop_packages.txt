@@ -1,4 +1,0 @@
-# Required packages for desktop version of auto-battlebot
-# One package per line, lines starting with # are ignored
-
-nvidia-driver-580
