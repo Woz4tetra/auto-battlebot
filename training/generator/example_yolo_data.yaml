@@ -1,0 +1,10 @@
+flip_idx:
+- 0
+- 1
+kpt_shape:
+- 2  # two keypoints
+- 3  # format: x, y, visible
+nc: 1
+test: ../test/images
+train: ../train/images
+val: ../val/images
