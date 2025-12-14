@@ -11,6 +11,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Option to enable testing
 option(BUILD_TESTING "Build tests" OFF)
 
+# Option to enable debug build
+option(BUILD_DEBUG "Build with debug flags" OFF)
+
 # Fetch external dependencies from git
 include(FetchContent)
 
@@ -30,6 +33,14 @@ FetchContent_Declare(
     UPDATE_DISCONNECTED TRUE  # Don't try to update if already fetched
 )
 
+FetchContent_Declare(
+    cli11
+    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+    GIT_TAG v2.4.1
+    GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE  # Don't try to update if already fetched
+)
+
 # Fetch googletest only if testing is enabled
 if(BUILD_TESTING)
     FetchContent_Declare(
@@ -43,9 +54,9 @@ if(BUILD_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus googletest)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 googletest)
 else()
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11)
 endif()
 
 # Find required packages
@@ -69,12 +80,14 @@ link_directories(${ZED_LIBRARY_DIR})
 link_directories(${CUDA_LIBRARY_DIRS})
 
 # Create shared library with all auto_battlebot functionality
+file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES
+    "src/*.cpp"
+    "src/**/*.cpp"
+)
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
+
 add_library(auto_battlebot_lib SHARED
-    src/config.cpp
-    src/runner.cpp
-    src/enums/group.cpp
-    src/enums/keypoint_label.cpp
-    src/enums/label.cpp
+    ${AUTO_BATTLEBOT_SOURCES}
 )
 
 # Set library properties
@@ -101,11 +114,22 @@ target_link_libraries(auto_battlebot_lib PUBLIC
 )
 
 # Compiler flags for the library
-target_compile_options(auto_battlebot_lib PRIVATE
-    -Wall
-    -Wextra
-    -O2
-)
+if(BUILD_DEBUG)
+    target_compile_options(auto_battlebot_lib PRIVATE
+        -Wall
+        -Wextra
+        -g
+        -O0
+        -DDEBUG
+    )
+else()
+    target_compile_options(auto_battlebot_lib PRIVATE
+        -Wall
+        -Wextra
+        -O2
+        -DNDEBUG
+    )
+endif()
 
 # Create main executable
 add_executable(auto_battlebot
@@ -115,14 +139,26 @@ add_executable(auto_battlebot
 # Link the executable to the shared library
 target_link_libraries(auto_battlebot
     auto_battlebot_lib
+    CLI11::CLI11
 )
 
 # Compiler flags for executable
-target_compile_options(auto_battlebot PRIVATE
-    -Wall
-    -Wextra
-    -O2
-)
+if(BUILD_DEBUG)
+    target_compile_options(auto_battlebot PRIVATE
+        -Wall
+        -Wextra
+        -g
+        -O0
+        -DDEBUG
+    )
+else()
+    target_compile_options(auto_battlebot PRIVATE
+        -Wall
+        -Wextra
+        -O2
+        -DNDEBUG
+    )
+endif()
 
 # Install targets
 install(TARGETS auto_battlebot auto_battlebot_lib

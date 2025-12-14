@@ -1,13 +1,26 @@
 
 #include "config.hpp"
 #include "runner.hpp"
+#include <CLI/CLI.hpp>
 
 int main(int argc, char** argv) {
     using namespace auto_battlebot;
     
+    // Parse command line arguments
+    CLI::App app{"Auto BattleBot - Autonomous robot control system"};
+    std::string config_path = "";
+    app.add_option("-c,--config", config_path, "Path to configuration directory")
+        ->check(CLI::ExistingDirectory);
+    
+    try {
+        app.parse(argc, argv);
+    } catch (const CLI::ParseError &e) {
+        return app.exit(e);
+    }
+    
     // Load configurations
-    ClassConfiguration class_config = load_classes_from_config();
-    std::vector<RobotConfig> robot_configs = load_robots_from_config();
+    ClassConfiguration class_config = load_classes_from_config(config_path);
+    std::vector<RobotConfig> robot_configs = load_robots_from_config(config_path);
     
     // Create interface instances using factory functions
     auto camera = make_rgbd_camera(class_config.camera);

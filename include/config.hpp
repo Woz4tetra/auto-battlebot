@@ -4,13 +4,13 @@
 #include <vector>
 #include <memory>
 #include "data_structures.hpp"
-#include "interfaces/rgbd_camera_interface.hpp"
-#include "interfaces/field_model_interface.hpp"
-#include "interfaces/field_filter_interface.hpp"
-#include "interfaces/keypoint_model_interface.hpp"
-#include "interfaces/robot_filter_interface.hpp"
-#include "interfaces/navigation_interface.hpp"
-#include "interfaces/transmitter_interface.hpp"
+#include "rgbd_camera/rgbd_camera_interface.hpp"
+#include "field_model/field_model_interface.hpp"
+#include "field_filter/field_filter_interface.hpp"
+#include "keypoint_model/keypoint_model_interface.hpp"
+#include "robot_filter/robot_filter_interface.hpp"
+#include "navigation/navigation_interface.hpp"
+#include "transmitter/transmitter_interface.hpp"
 
 namespace auto_battlebot {
 
