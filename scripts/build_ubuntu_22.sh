@@ -8,6 +8,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Source helper functions
 source "$PROJECT_ROOT/install/check_os_ubuntu_22.sh"
+source "$PROJECT_ROOT/install/install_packages.sh" "$PROJECT_ROOT/install/ubuntu_22_packages.txt"
 source "$PROJECT_ROOT/install/install_packages.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
 

@@ -1,0 +1,4 @@
+# Required packages for auto-battlebot
+# One package per line, lines starting with # are ignored
+
+python3.11@ppa:deadsnakes/ppa
