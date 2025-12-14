@@ -24,9 +24,15 @@ install_packages() {
         if [[ "$entry" == *@* ]]; then
             local pkg="${entry%%@*}"
             local repo="${entry#*@}"
-            echo "Adding repository: $repo"
-            sudo apt-add-repository -y "$repo"
-            repos_added=true
+            
+            # Check if repository is already added
+            if ! grep -q "^deb .*${repo#ppa:}" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
+                echo "Adding repository: $repo"
+                sudo apt-add-repository -y "$repo"
+                repos_added=true
+            else
+                echo "Repository already added: $repo"
+            fi
         fi
     done <<< "$package_entries"
 
