@@ -1,6 +1,7 @@
 #pragma once
 
 #include "data_structures.hpp"
+#include "field_model/field_model_interface.hpp"
 
 namespace auto_battlebot
 {
@@ -16,4 +17,6 @@ namespace auto_battlebot
             type = "NoopFieldModel";
         }
     };
+
+    std::shared_ptr<FieldModelInterface> make_field_model(const FieldModelConfiguration &config);
 } // namespace auto_battlebot

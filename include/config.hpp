@@ -35,14 +35,4 @@ namespace auto_battlebot
     // Configuration loading functions
     ClassConfiguration load_classes_from_config(const std::string &config_path = "");
     std::vector<RobotConfig> load_robots_from_config(const std::string &config_path = "");
-
-    // Factory functions for creating interface implementations
-    std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfiguration &config);
-    std::shared_ptr<FieldModelInterface> make_field_model(const FieldModelConfiguration &config);
-    std::shared_ptr<FieldFilterInterface> make_field_filter(const FieldFilterConfiguration &config);
-    std::shared_ptr<KeypointModelInterface> make_keypoint_model(const KeypointModelConfiguration &config);
-    std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfiguration &config);
-    std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config);
-    std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config);
-
 } // namespace auto_battlebot
