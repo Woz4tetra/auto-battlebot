@@ -9,7 +9,7 @@ namespace auto_battlebot
     public:
         bool initialize() override { return true; }
 
-        KeypointsStamped update(RgbImage image) override
+        KeypointsStamped update([[maybe_unused]] RgbImage image) override
         {
             return KeypointsStamped{};
         }

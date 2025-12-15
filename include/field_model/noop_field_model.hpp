@@ -9,7 +9,7 @@ namespace auto_battlebot
     public:
         bool initialize() override { return true; }
 
-        FieldMaskStamped update(RgbImage image) override
+        FieldMaskStamped update([[maybe_unused]] RgbImage image) override
         {
             return FieldMaskStamped{};
         }

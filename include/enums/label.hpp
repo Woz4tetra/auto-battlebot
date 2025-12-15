@@ -1,7 +1,5 @@
 #pragma once
 
-#include <string>
-
 namespace auto_battlebot
 {
     enum class Label
@@ -13,8 +11,4 @@ namespace auto_battlebot
         HOUSE_BOT,
         OPPONENT
     };
-
-    std::string label_to_string(Label label);
-    Label string_to_label(const std::string &str);
-
 } // namespace auto_battlebot

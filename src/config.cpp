@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iostream>
 #include <toml++/toml.h>
+#include <magic_enum.hpp>
 
 namespace auto_battlebot
 {
@@ -40,13 +41,70 @@ namespace auto_battlebot
             auto toml_data = toml::parse_file(path_string);
 
             std::vector<std::string> parsed_sections;
-            config.camera = parse_config_section<RgbdCameraConfiguration>(toml_data, "rgbd_camera", parsed_sections);
-            config.field_model = parse_config_section<FieldModelConfiguration>(toml_data, "field_model", parsed_sections);
-            config.field_filter = parse_config_section<FieldFilterConfiguration>(toml_data, "field_filter", parsed_sections);
-            config.keypoint_model = parse_config_section<KeypointModelConfiguration>(toml_data, "keypoint_model", parsed_sections);
-            config.robot_filter = parse_config_section<RobotFilterConfiguration>(toml_data, "robot_filter", parsed_sections);
-            config.navigation = parse_config_section<NavigationConfiguration>(toml_data, "navigation", parsed_sections);
-            config.transmitter = parse_config_section<TransmitterConfiguration>(toml_data, "transmitter", parsed_sections);
+
+            // Parse all sections with polymorphic configs
+            auto camera_section = toml_data["rgbd_camera"].as_table();
+            if (!camera_section)
+            {
+                throw ConfigValidationError("Missing required section [rgbd_camera]");
+            }
+            ConfigParser camera_parser(*camera_section, "rgbd_camera");
+            config.camera = parse_rgbd_camera_config(camera_parser);
+            parsed_sections.push_back("rgbd_camera");
+
+            auto field_model_section = toml_data["field_model"].as_table();
+            if (!field_model_section)
+            {
+                throw ConfigValidationError("Missing required section [field_model]");
+            }
+            ConfigParser field_model_parser(*field_model_section, "field_model");
+            config.field_model = parse_field_model_config(field_model_parser);
+            parsed_sections.push_back("field_model");
+
+            auto field_filter_section = toml_data["field_filter"].as_table();
+            if (!field_filter_section)
+            {
+                throw ConfigValidationError("Missing required section [field_filter]");
+            }
+            ConfigParser field_filter_parser(*field_filter_section, "field_filter");
+            config.field_filter = parse_field_filter_config(field_filter_parser);
+            parsed_sections.push_back("field_filter");
+
+            auto keypoint_model_section = toml_data["keypoint_model"].as_table();
+            if (!keypoint_model_section)
+            {
+                throw ConfigValidationError("Missing required section [keypoint_model]");
+            }
+            ConfigParser keypoint_model_parser(*keypoint_model_section, "keypoint_model");
+            config.keypoint_model = parse_keypoint_model_config(keypoint_model_parser);
+            parsed_sections.push_back("keypoint_model");
+
+            auto robot_filter_section = toml_data["robot_filter"].as_table();
+            if (!robot_filter_section)
+            {
+                throw ConfigValidationError("Missing required section [robot_filter]");
+            }
+            ConfigParser robot_filter_parser(*robot_filter_section, "robot_filter");
+            config.robot_filter = parse_robot_filter_config(robot_filter_parser);
+            parsed_sections.push_back("robot_filter");
+
+            auto navigation_section = toml_data["navigation"].as_table();
+            if (!navigation_section)
+            {
+                throw ConfigValidationError("Missing required section [navigation]");
+            }
+            ConfigParser navigation_parser(*navigation_section, "navigation");
+            config.navigation = parse_navigation_config(navigation_parser);
+            parsed_sections.push_back("navigation");
+
+            auto transmitter_section = toml_data["transmitter"].as_table();
+            if (!transmitter_section)
+            {
+                throw ConfigValidationError("Missing required section [transmitter]");
+            }
+            ConfigParser transmitter_parser(*transmitter_section, "transmitter");
+            config.transmitter = parse_transmitter_config(transmitter_parser);
+            parsed_sections.push_back("transmitter");
 
             // Validate no extra sections using the list we built during parsing
             validate_no_extra_sections(toml_data, parsed_sections, path.stem());
@@ -94,8 +152,18 @@ namespace auto_battlebot
                     {
                         std::string label_str = (*robot_table)["label"].value_or("");
                         std::string group_str = (*robot_table)["group"].value_or("");
-                        robot.label = string_to_label(label_str);
-                        robot.group = string_to_group(group_str);
+
+                        auto label_opt = magic_enum::enum_cast<Label>(label_str);
+                        if (label_opt.has_value())
+                        {
+                            robot.label = label_opt.value();
+                        }
+
+                        auto group_opt = magic_enum::enum_cast<Group>(group_str);
+                        if (group_opt.has_value())
+                        {
+                            robot.group = group_opt.value();
+                        }
                     }
                     robots.push_back(robot);
                 }

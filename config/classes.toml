@@ -2,7 +2,8 @@
 # Specify which implementations to use for each interface
 
 [rgbd_camera]
-type = "NoopRgbdCamera"
+type = "ZedRgbdCamera"
+camera_fps = 60
 
 [field_model]
 type = "NoopFieldModel"

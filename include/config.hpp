@@ -23,13 +23,13 @@ namespace auto_battlebot
 {
     struct ClassConfiguration
     {
-        RgbdCameraConfiguration camera;
-        FieldModelConfiguration field_model;
-        FieldFilterConfiguration field_filter;
-        KeypointModelConfiguration keypoint_model;
-        RobotFilterConfiguration robot_filter;
-        NavigationConfiguration navigation;
-        TransmitterConfiguration transmitter;
+        std::unique_ptr<RgbdCameraConfiguration> camera;
+        std::unique_ptr<FieldModelConfiguration> field_model;
+        std::unique_ptr<FieldFilterConfiguration> field_filter;
+        std::unique_ptr<KeypointModelConfiguration> keypoint_model;
+        std::unique_ptr<RobotFilterConfiguration> robot_filter;
+        std::unique_ptr<NavigationConfiguration> navigation;
+        std::unique_ptr<TransmitterConfiguration> transmitter;
     };
 
     // Configuration loading functions

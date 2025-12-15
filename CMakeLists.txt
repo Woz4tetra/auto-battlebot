@@ -41,6 +41,14 @@ FetchContent_Declare(
     UPDATE_DISCONNECTED TRUE  # Don't try to update if already fetched
 )
 
+FetchContent_Declare(
+    magic_enum
+    GIT_REPOSITORY https://github.com/Neargye/magic_enum.git
+    GIT_TAG v0.9.6
+    GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE  # Don't try to update if already fetched
+)
+
 # Fetch googletest only if testing is enabled
 if(BUILD_TESTING)
     FetchContent_Declare(
@@ -54,9 +62,9 @@ if(BUILD_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 googletest)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum googletest)
 else()
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum)
 endif()
 
 # Find required packages
@@ -106,6 +114,7 @@ target_include_directories(auto_battlebot_lib PUBLIC
 target_link_libraries(auto_battlebot_lib PUBLIC
     miniros::roscxx
     tomlplusplus::tomlplusplus
+    magic_enum::magic_enum
     Eigen3::Eigen
     ${OpenCV_LIBS}
     Threads::Threads
@@ -181,13 +190,14 @@ install(TARGETS auto_battlebot auto_battlebot_lib
 if(BUILD_TESTING)
     enable_testing()
 
+    file(GLOB_RECURSE AUTO_BATTLEBOT_TEST_SOURCES
+        "tests/*.cpp"
+        "tests/**/*.cpp"
+    )
+
     # Test executable for data structures
     add_executable(auto_battlebot_test
-        tests/test_header.cpp
-        tests/test_pose.cpp
-        tests/test_transform.cpp
-        tests/test_robot.cpp
-        tests/test_keypoint.cpp
+        ${AUTO_BATTLEBOT_TEST_SOURCES}
     )
 
     target_link_libraries(auto_battlebot_test

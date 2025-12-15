@@ -7,9 +7,9 @@ namespace auto_battlebot
     class NoopRobotFilter : public RobotFilterInterface
     {
     public:
-        bool initialize(const std::vector<RobotConfig> &robots) override { return true; }
+        bool initialize([[maybe_unused]] const std::vector<RobotConfig> &robots) override { return true; }
 
-        RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field) override
+        RobotDescriptionsStamped update([[maybe_unused]] KeypointsStamped keypoints, [[maybe_unused]] FieldDescription field) override
         {
             return RobotDescriptionsStamped{};
         }

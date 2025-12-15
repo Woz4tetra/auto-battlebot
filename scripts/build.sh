@@ -20,6 +20,5 @@ build_cpp_project
 
 echo ""
 echo -e "${GREEN}✓ Build complete!${NC}"
-echo -e "${YELLOW}Running auto_battlebot...${NC}"
 echo "========================================"
 echo ""

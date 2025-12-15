@@ -76,7 +76,7 @@ namespace auto_battlebot
         if (!camera_->update() || !camera_->get(camera_data))
         {
             // Push error to diagnostics and log
-            std::cerr << "Failed to get camera data" << std::endl;
+            // std::cerr << "Failed to get camera data" << std::endl;
             return true;
         }
 

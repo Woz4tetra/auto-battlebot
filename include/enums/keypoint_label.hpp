@@ -1,7 +1,5 @@
 #pragma once
 
-#include <string>
-
 namespace auto_battlebot
 {
     enum class KeypointLabel
@@ -17,8 +15,4 @@ namespace auto_battlebot
         HOUSE_BOT_FRONT,
         HOUSE_BOT_BACK
     };
-
-    std::string keypoint_label_to_string(KeypointLabel label);
-    KeypointLabel string_to_keypoint_label(const std::string &str);
-
 } // namespace auto_battlebot

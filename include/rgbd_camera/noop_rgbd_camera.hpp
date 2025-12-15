@@ -9,7 +9,7 @@ namespace auto_battlebot
     public:
         bool initialize() override { return true; }
         bool update() override { return true; }
-        bool get(CameraData &data) override { return false; }
+        bool get([[maybe_unused]] CameraData &data) override { return false; }
     };
 
 } // namespace auto_battlebot

@@ -7,14 +7,14 @@ namespace auto_battlebot
     class NoopFieldFilter : public FieldFilterInterface
     {
     public:
-        void reset(TransformStamped tf_visodom_from_camera) override {}
+        void reset([[maybe_unused]] TransformStamped tf_visodom_from_camera) override {}
 
-        FieldDescription compute_field(CameraData camera_data, FieldMaskStamped field_mask) override
+        FieldDescription compute_field([[maybe_unused]] CameraData camera_data, [[maybe_unused]] FieldMaskStamped field_mask) override
         {
             return FieldDescription{};
         }
 
-        FieldDescription track_field(TransformStamped tf_visodom_from_camera, FieldDescription initial_description) override
+        FieldDescription track_field([[maybe_unused]] TransformStamped tf_visodom_from_camera, [[maybe_unused]] FieldDescription initial_description) override
         {
             return FieldDescription{};
         }

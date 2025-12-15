@@ -9,7 +9,7 @@ namespace auto_battlebot
     public:
         bool initialize() override { return true; }
 
-        VelocityCommand update(RobotDescriptionsStamped robots) override
+        VelocityCommand update([[maybe_unused]] RobotDescriptionsStamped robots) override
         {
             return VelocityCommand{};
         }
