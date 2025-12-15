@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <thread>
 #include <sl/Camera.hpp>
 
 #include "rgbd_camera/rgbd_camera_interface.hpp"

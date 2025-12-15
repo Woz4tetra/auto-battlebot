@@ -18,6 +18,8 @@ namespace auto_battlebot
         if (returned_state != sl::ERROR_CODE::SUCCESS)
         {
             std::cerr << "Failed to open ZED camera: " << sl::toString(returned_state) << std::endl;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
             return false;
         }
         return true;
