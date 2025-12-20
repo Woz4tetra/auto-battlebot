@@ -8,7 +8,7 @@ namespace auto_battlebot
     struct Header
     {
         double timestamp = 0.0;
-        FrameId frame_id;
+        FrameId frame_id = FrameId::EMPTY;
     };
 
 } // namespace auto_battlebot

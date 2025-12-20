@@ -16,7 +16,7 @@ namespace auto_battlebot
         EXPECT_TRUE(camera.initialize());
         EXPECT_TRUE(camera.update());
         EXPECT_FALSE(camera.should_close());
-        
+
         CameraData data;
         EXPECT_FALSE(camera.get(data));
     }
@@ -26,14 +26,14 @@ namespace auto_battlebot
         // Verify behavior is consistent across multiple calls
         EXPECT_TRUE(camera.initialize());
         EXPECT_TRUE(camera.initialize());
-        
+
         EXPECT_TRUE(camera.update());
         EXPECT_TRUE(camera.update());
-        
+
         CameraData data;
         EXPECT_FALSE(camera.get(data));
         EXPECT_FALSE(camera.get(data));
-        
+
         EXPECT_FALSE(camera.should_close());
     }
 
@@ -44,9 +44,9 @@ namespace auto_battlebot
         data.tf_visodom_from_camera.header.timestamp = 123.456;
         data.camera_info.width = 640;
         data.camera_info.height = 480;
-        
+
         camera.get(data);
-        
+
         EXPECT_EQ(data.tf_visodom_from_camera.header.timestamp, 123.456);
         EXPECT_EQ(data.camera_info.width, 640);
         EXPECT_EQ(data.camera_info.height, 480);

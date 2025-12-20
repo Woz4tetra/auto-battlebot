@@ -25,7 +25,7 @@ namespace auto_battlebot
             // Create a temporary directory for test configs
             temp_dir = std::filesystem::temp_directory_path() / "auto_battlebot_test_configs";
             std::filesystem::create_directories(temp_dir);
-            temp_config_file = temp_dir / "test_classes.toml";
+            temp_config_file = temp_dir / "classes.toml";
         }
 
         void TearDown() override
@@ -71,7 +71,7 @@ type = "NoopNavigation"
 type = "NoopTransmitter"
 )");
 
-        auto config = load_classes_from_config(temp_config_file.string());
+        auto config = load_classes_from_config(temp_dir.string());
         ASSERT_NE(config.camera, nullptr);
         EXPECT_EQ(config.camera->type, "NoopRgbdCamera");
 
@@ -106,7 +106,7 @@ type = "NoopNavigation"
 type = "NoopTransmitter"
 )");
 
-        auto config = load_classes_from_config(temp_config_file.string());
+        auto config = load_classes_from_config(temp_dir.string());
         ASSERT_NE(config.camera, nullptr);
         EXPECT_EQ(config.camera->type, "ZedRgbdCamera");
 
@@ -148,7 +148,7 @@ type = "NoopNavigation"
 type = "NoopTransmitter"
 )");
 
-        auto config = load_classes_from_config(temp_config_file.string());
+        auto config = load_classes_from_config(temp_dir.string());
         ASSERT_NE(config.camera, nullptr);
 
         auto *zed_config = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
@@ -187,7 +187,7 @@ type = "NoopNavigation"
 type = "NoopTransmitter"
 )");
 
-        auto config = load_classes_from_config(temp_config_file.string());
+        auto config = load_classes_from_config(temp_dir.string());
         auto *zed_config = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
         ASSERT_NE(zed_config, nullptr);
 
@@ -227,7 +227,7 @@ type = "NoopTransmitter"
             {
                 try
                 {
-                    load_classes_from_config(temp_config_file.string());
+                    load_classes_from_config(temp_dir.string());
                 }
                 catch (const std::invalid_argument &e)
                 {
@@ -270,7 +270,7 @@ type = "NoopTransmitter"
             {
                 try
                 {
-                    load_classes_from_config(temp_config_file.string());
+                    load_classes_from_config(temp_dir.string());
                 }
                 catch (const ConfigValidationError &e)
                 {
@@ -297,7 +297,7 @@ type = "NoopFieldModel"
 
         EXPECT_THROW(
             {
-                load_classes_from_config(temp_config_file.string());
+                load_classes_from_config(temp_dir.string());
             },
             ConfigValidationError);
     }
@@ -328,7 +328,7 @@ type = "NoopNavigation"
 type = "NoopTransmitter"
 )");
 
-        auto config = load_classes_from_config(temp_config_file.string());
+        auto config = load_classes_from_config(temp_dir.string());
 
         ASSERT_NE(config.camera, nullptr);
         EXPECT_EQ(config.camera->type, "NoopRgbdCamera");
