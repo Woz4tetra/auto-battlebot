@@ -34,6 +34,7 @@ int main(int argc, char **argv)
     auto robot_filter = make_robot_filter(*class_config.robot_filter);
     auto navigation = make_navigation(*class_config.navigation);
     auto transmitter = make_transmitter(*class_config.transmitter);
+    auto publisher = make_publisher(*class_config.publisher);
 
     // Create runner with all components
     Runner runner(
@@ -44,7 +45,8 @@ int main(int argc, char **argv)
         keypoint_model,
         robot_filter,
         navigation,
-        transmitter);
+        transmitter,
+        publisher);
 
     // Initialize and run
     runner.initialize();

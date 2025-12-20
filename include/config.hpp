@@ -18,6 +18,8 @@
 #include "navigation/config.hpp"
 #include "transmitter/transmitter_interface.hpp"
 #include "transmitter/config.hpp"
+#include "publisher/publisher_interface.hpp"
+#include "publisher/config.hpp"
 
 namespace auto_battlebot
 {
@@ -30,6 +32,7 @@ namespace auto_battlebot
         std::unique_ptr<RobotFilterConfiguration> robot_filter;
         std::unique_ptr<NavigationConfiguration> navigation;
         std::unique_ptr<TransmitterConfiguration> transmitter;
+        std::unique_ptr<PublisherConfiguration> publisher;
     };
 
     // Configuration loading functions

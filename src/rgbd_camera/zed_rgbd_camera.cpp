@@ -123,9 +123,6 @@ namespace auto_battlebot
             prev_tracking_state_ = tracking_state;
         }
 
-        // Lock mutex for updating shared data
-        std::lock_guard<std::mutex> lock(data_mutex_);
-
         // Get timestamp
         sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE);
         latest_data_.tf_visodom_from_camera.header.timestamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
@@ -154,25 +151,9 @@ namespace auto_battlebot
         return true;
     }
 
-    bool ZedRgbdCamera::get(CameraData &data)
+    const CameraData &ZedRgbdCamera::get() const
     {
-        if (!is_initialized_)
-        {
-            return false;
-        }
-
-        // Lock mutex for reading shared data
-        std::lock_guard<std::mutex> lock(data_mutex_);
-
-        // Deep copy the camera data
-        data.tf_visodom_from_camera = latest_data_.tf_visodom_from_camera;
-        data.camera_info = latest_data_.camera_info;
-
-        // Clone OpenCV matrices to ensure independent copies
-        data.rgb.image = latest_data_.rgb.image.clone();
-        data.depth.image = latest_data_.depth.image.clone();
-
-        return true;
+        return latest_data_;
     }
 
     bool ZedRgbdCamera::should_close()

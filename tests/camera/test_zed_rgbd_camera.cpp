@@ -38,8 +38,7 @@ namespace auto_battlebot
         ASSERT_TRUE(camera.initialize());
         ASSERT_TRUE(camera.update());
 
-        CameraData data;
-        ASSERT_TRUE(camera.get(data));
+        const CameraData &data = camera.get();
 
         // Verify camera info
         EXPECT_GT(data.camera_info.width, 0);
@@ -80,14 +79,14 @@ namespace auto_battlebot
         ASSERT_TRUE(camera.initialize());
         ASSERT_TRUE(camera.update());
 
-        CameraData data1;
-        ASSERT_TRUE(camera.get(data1));
+        const CameraData &data1 = camera.get();
+        double timestamp1 = data1.tf_visodom_from_camera.header.timestamp;
 
         // Update again
         ASSERT_TRUE(camera.update());
 
-        CameraData data2;
-        ASSERT_TRUE(camera.get(data2));
+        const CameraData &data2 = camera.get();
+        double timestamp2 = data2.tf_visodom_from_camera.header.timestamp;
 
         // Camera info should remain constant
         EXPECT_EQ(data1.camera_info.width, data2.camera_info.width);
@@ -95,13 +94,16 @@ namespace auto_battlebot
         EXPECT_EQ(cv::norm(data1.camera_info.intrinsics - data2.camera_info.intrinsics), 0.0);
         EXPECT_EQ(cv::norm(data1.camera_info.distortion - data2.camera_info.distortion), 0.0);
 
-        // Timestamps should be different
-        EXPECT_NE(data1.tf_visodom_from_camera.header.timestamp, data2.tf_visodom_from_camera.header.timestamp);
+        // Since get() returns a const reference to internal data that gets updated,
+        // both references point to the same updated data now
+        EXPECT_EQ(&data1, &data2);
+        // Timestamps should have changed after the second update
+        EXPECT_NE(timestamp1, timestamp2);
     }
 
     TEST_F(ZedRgbdCameraTest, DataIndependence)
     {
-        // Verify get() returns independent copies, not shared data
+        // Verify get() returns a const reference, and deep copies are independent
         ZedRgbdCameraConfiguration config;
         config.svo_file_path = svo_file_path;
         config.camera_fps = 30;
@@ -112,22 +114,23 @@ namespace auto_battlebot
         ASSERT_TRUE(camera.initialize());
         ASSERT_TRUE(camera.update());
 
-        CameraData data1;
-        ASSERT_TRUE(camera.get(data1));
+        const CameraData &data_ref = camera.get();
 
-        CameraData data2;
-        ASSERT_TRUE(camera.get(data2));
+        // Make a deep copy to test data independence
+        CameraData data_copy = data_ref;
+        data_copy.rgb.image = data_ref.rgb.image.clone();
+        data_copy.depth.image = data_ref.depth.image.clone();
 
-        // Verify data is copied, not shared
-        EXPECT_NE(data1.rgb.image.data, data2.rgb.image.data);
-        EXPECT_NE(data1.depth.image.data, data2.depth.image.data);
-
-        // Modify one and verify the other is unchanged
-        if (!data1.rgb.image.empty() && data1.rgb.image.isContinuous())
+        // Verify we can make independent copies with clone()
+        if (!data_copy.rgb.image.empty() && data_copy.rgb.image.isContinuous())
         {
-            cv::Vec3b original_pixel = data2.rgb.image.at<cv::Vec3b>(0, 0);
-            data1.rgb.image.at<cv::Vec3b>(0, 0) = cv::Vec3b(255, 255, 255);
-            EXPECT_EQ(data2.rgb.image.at<cv::Vec3b>(0, 0), original_pixel);
+            cv::Vec3b original_pixel = data_ref.rgb.image.at<cv::Vec3b>(0, 0);
+            // Modify the deep copy
+            data_copy.rgb.image.at<cv::Vec3b>(0, 0) = cv::Vec3b(255, 255, 255);
+            // Original should be unchanged
+            EXPECT_EQ(data_ref.rgb.image.at<cv::Vec3b>(0, 0), original_pixel);
+            // Copy should be modified
+            EXPECT_EQ(data_copy.rgb.image.at<cv::Vec3b>(0, 0), cv::Vec3b(255, 255, 255));
         }
     }
 

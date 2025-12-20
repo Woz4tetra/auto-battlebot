@@ -17,8 +17,9 @@ namespace auto_battlebot
         EXPECT_TRUE(camera.update());
         EXPECT_FALSE(camera.should_close());
 
-        CameraData data;
-        EXPECT_FALSE(camera.get(data));
+        const CameraData &data = camera.get();
+        // NoopRgbdCamera returns an empty CameraData
+        EXPECT_EQ(data.camera_info.width, 0);
     }
 
     TEST_F(NoopRgbdCameraTest, MultipleCallsConsistent)
@@ -30,26 +31,23 @@ namespace auto_battlebot
         EXPECT_TRUE(camera.update());
         EXPECT_TRUE(camera.update());
 
-        CameraData data;
-        EXPECT_FALSE(camera.get(data));
-        EXPECT_FALSE(camera.get(data));
+        const CameraData &data1 = camera.get();
+        const CameraData &data2 = camera.get();
+        // Both should return the same empty data
+        EXPECT_EQ(data1.camera_info.width, data2.camera_info.width);
 
         EXPECT_FALSE(camera.should_close());
     }
 
-    TEST_F(NoopRgbdCameraTest, GetDoesNotModifyData)
+    TEST_F(NoopRgbdCameraTest, GetReturnsConstReference)
     {
-        // Verify get() doesn't modify the provided data structure
-        CameraData data;
-        data.tf_visodom_from_camera.header.timestamp = 123.456;
-        data.camera_info.width = 640;
-        data.camera_info.height = 480;
+        // Verify get() returns a const reference to internal data
+        const CameraData &data = camera.get();
 
-        camera.get(data);
-
-        EXPECT_EQ(data.tf_visodom_from_camera.header.timestamp, 123.456);
-        EXPECT_EQ(data.camera_info.width, 640);
-        EXPECT_EQ(data.camera_info.height, 480);
+        // NoopRgbdCamera returns an empty/default CameraData
+        EXPECT_EQ(data.camera_info.width, 0);
+        EXPECT_EQ(data.camera_info.height, 0);
+        EXPECT_EQ(data.tf_visodom_from_camera.header.timestamp, 0.0);
     }
 
 } // namespace auto_battlebot

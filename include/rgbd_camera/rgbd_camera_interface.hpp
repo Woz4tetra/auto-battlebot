@@ -10,7 +10,7 @@ namespace auto_battlebot
         virtual ~RgbdCameraInterface() = default;
         virtual bool initialize() = 0;
         virtual bool update() = 0;
-        virtual bool get(CameraData &data) = 0;
+        virtual const CameraData &get() const = 0;
         virtual bool should_close() = 0;
     };
 

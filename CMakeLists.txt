@@ -75,11 +75,14 @@ find_package(Eigen3 REQUIRED)
 # Find ZED SDK
 find_package(ZED 5 REQUIRED)
 find_package(CUDA REQUIRED)
+
+# Mark ZED SDK headers as system headers to suppress their warnings
+include_directories(SYSTEM ${ZED_INCLUDE_DIRS})
+include_directories(SYSTEM ${CUDA_INCLUDE_DIRS})
+
 # Include directories
 include_directories(${OpenCV_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-include_directories(${ZED_INCLUDE_DIRS})
-include_directories(${CUDA_INCLUDE_DIRS})
 include_directories(${EIGEN3_INCLUDE_DIRS})
 # Note: miniroscpp and tomlplusplus include directories are handled automatically by FetchContent
 

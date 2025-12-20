@@ -1,8 +1,6 @@
 #pragma once
 
 #include <chrono>
-#include <thread>
-#include <mutex>
 #include <sl/Camera.hpp>
 
 #include "rgbd_camera/rgbd_camera_interface.hpp"
@@ -65,7 +63,7 @@ namespace auto_battlebot
         ~ZedRgbdCamera();
         bool initialize() override;
         bool update() override;
-        bool get(CameraData &data) override;
+        const CameraData &get() const override;
         bool should_close() override;
 
     private:

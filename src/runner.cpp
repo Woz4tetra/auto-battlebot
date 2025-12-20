@@ -12,16 +12,18 @@ namespace auto_battlebot
         std::shared_ptr<KeypointModelInterface> keypoint_model,
         std::shared_ptr<RobotFilterInterface> robot_filter,
         std::shared_ptr<NavigationInterface> navigation,
-        std::shared_ptr<TransmitterInterface> transmitter) : robot_configs_(robot_configs),
-                                                             camera_(camera),
-                                                             field_model_(field_model),
-                                                             field_filter_(field_filter),
-                                                             keypoint_model_(keypoint_model),
-                                                             robot_filter_(robot_filter),
-                                                             navigation_(navigation),
-                                                             transmitter_(transmitter),
-                                                             initialized_(false),
-                                                             initial_field_description_()
+        std::shared_ptr<TransmitterInterface> transmitter,
+        std::shared_ptr<PublisherInterface> publisher) : robot_configs_(robot_configs),
+                                                         camera_(camera),
+                                                         field_model_(field_model),
+                                                         field_filter_(field_filter),
+                                                         keypoint_model_(keypoint_model),
+                                                         robot_filter_(robot_filter),
+                                                         navigation_(navigation),
+                                                         transmitter_(transmitter),
+                                                         publisher_(publisher),
+                                                         initialized_(false),
+                                                         initial_field_description_()
     {
     }
 
@@ -50,7 +52,10 @@ namespace auto_battlebot
     {
         field_filter_->reset(camera_data.tf_visodom_from_camera);
         FieldMaskStamped field_mask = field_model_->update(camera_data.rgb);
+        publisher_->publish_field_mask(field_mask);
+
         initial_field_description_ = field_filter_->compute_field(camera_data, field_mask);
+        publisher_->publish_field_description(initial_field_description_);
 
         robot_filter_->initialize(robot_configs_);
         navigation_->initialize();
@@ -72,8 +77,7 @@ namespace auto_battlebot
     {
         transmitter_->update();
 
-        CameraData camera_data;
-        if (!camera_->update() || !camera_->get(camera_data))
+        if (!camera_->update())
         {
             if (camera_->should_close())
             {
@@ -89,6 +93,9 @@ namespace auto_battlebot
             return true;
         }
 
+        const CameraData &camera_data = camera_->get();
+        publisher_->publish_camera_data(camera_data);
+
         if (transmitter_->did_init_button_press())
         {
             initialize_field(camera_data);
@@ -102,8 +109,14 @@ namespace auto_battlebot
         FieldDescription field_description = field_filter_->track_field(
             camera_data.tf_visodom_from_camera,
             initial_field_description_);
+        publisher_->publish_field_description(field_description);
+
         KeypointsStamped keypoints = keypoint_model_->update(camera_data.rgb);
+        publisher_->publish_keypoints(keypoints);
+
         RobotDescriptionsStamped robots = robot_filter_->update(keypoints, field_description);
+        publisher_->publish_robots(robots);
+
         VelocityCommand command = navigation_->update(robots);
         transmitter_->send(command);
 

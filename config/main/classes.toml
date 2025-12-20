@@ -22,3 +22,6 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"

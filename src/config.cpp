@@ -30,7 +30,7 @@ namespace auto_battlebot
     ClassConfiguration load_classes_from_config(const std::string &config_path)
     {
         std::filesystem::path path = (config_path.empty()
-                                          ? get_config_dir()
+                                          ? (get_config_dir() / "main")
                                           : std::filesystem::path(config_path)) /
                                      "classes.toml";
         std::string path_string = path.u8string();
@@ -107,6 +107,15 @@ namespace auto_battlebot
             config.transmitter = parse_transmitter_config(transmitter_parser);
             parsed_sections.push_back("transmitter");
 
+            auto publisher_section = toml_data["publisher"].as_table();
+            if (!publisher_section)
+            {
+                throw ConfigValidationError("Missing required section [publisher]");
+            }
+            ConfigParser publisher_parser(*publisher_section, "publisher");
+            config.publisher = parse_publisher_config(publisher_parser);
+            parsed_sections.push_back("publisher");
+
             // Validate no extra sections using the list we built during parsing
             validate_no_extra_sections(toml_data, parsed_sections, path.stem());
         }
@@ -134,7 +143,7 @@ namespace auto_battlebot
     std::vector<RobotConfig> load_robots_from_config(const std::string &config_path)
     {
         std::filesystem::path path = (config_path.empty()
-                                          ? get_config_dir()
+                                          ? (get_config_dir() / "main")
                                           : std::filesystem::path(config_path)) /
                                      "robots.toml";
         std::string path_string = path.u8string();

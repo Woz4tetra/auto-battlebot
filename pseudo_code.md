@@ -134,7 +134,7 @@ Group
 RgbdCameraInterface
 	bool initialize()
 	bool update()
-	bool get(CameraData& data)
+	bool get(CameraData data)
 
 FieldModelInterface
 	bool initialize()
@@ -162,6 +162,27 @@ TransmitterInterface
 	void update()
 	void send(VelocityCommand command)
 	bool did_init_button_press()
+
+PublisherInterface
+    void publish_camera_data(CameraData data)
+    void publish_field_mask(FieldMaskStamped field_mask)
+    void publish_field_description(FieldDescription field)
+    void publish_keypoints(KeypointsStamped keypoints)
+    void publish_robots(RobotDescriptionsStamped robots)
+    void publish_velocity_command(VelocityCommand command)
+
+DiagnosticsLogger  // singleton, shared instance
+    static DiagnosticsModuleLogger get_logger(string name)
+
+DiagnosticsModuleLogger
+    void debug(string message)
+    void debug_data(std::unordered_map<std::string, std::any> data)
+    void info(string message)
+    void info_data(std::unordered_map<std::string, std::any> data)
+    void warning(string message)
+    void warning_data(std::unordered_map<std::string, std::any> data)
+    void error(string message)
+    void error_data(std::unordered_map<std::string, std::any> data)
 ```
 
 # Pseudo code
@@ -181,7 +202,7 @@ class Runner
 		// assign properties
         initialized = false
         initial_field_description = FieldDescription()
-        
+
     void initialize()
         // initialize all interfaces
 
@@ -198,20 +219,20 @@ class Runner
         while true
             if not tick()
                 return 0
-    
+
     bool tick()
         transmitter.update()
         CameraData camera_data
         if not camera.update() or not camera.get(camera_data)
             // push error to diagnostics and log
             continue
-        
+
         if transmitter.did_init_button_press()
             initialize_field(camera_data)
 
         if not initialized:
             return true
-        
+
         field_description = field_filter.track_field(camera_data.tf_visodom_from_camera, initial_field_description)
         keypoints = keypoint_model.update(camera_data.rgb)
         robots = robot_filter.update(keypoints, field_description)

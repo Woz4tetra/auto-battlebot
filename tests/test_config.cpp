@@ -10,6 +10,7 @@
 #include "robot_filter/config.hpp"
 #include "navigation/config.hpp"
 #include "transmitter/config.hpp"
+#include "publisher/config.hpp"
 
 namespace auto_battlebot
 {
@@ -69,6 +70,9 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
 )");
 
         auto config = load_classes_from_config(temp_dir.string());
@@ -104,6 +108,9 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
 )");
 
         auto config = load_classes_from_config(temp_dir.string());
@@ -146,6 +153,9 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
 )");
 
         auto config = load_classes_from_config(temp_dir.string());
@@ -185,6 +195,9 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
 )");
 
         auto config = load_classes_from_config(temp_dir.string());
@@ -221,6 +234,9 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
 )");
 
         EXPECT_THROW(
@@ -264,6 +280,9 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
 )");
 
         EXPECT_THROW(
@@ -326,6 +345,9 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
 )");
 
         auto config = load_classes_from_config(temp_dir.string());
@@ -600,6 +622,89 @@ depth_mode = "ZED_ULTRA"
         PARSE_ENUM(depth_mode, DepthMode)
 
         EXPECT_EQ(depth_mode, DepthMode::ZED_ULTRA);
+    }
+
+    // Test NoopPublisher configuration
+    TEST_F(ConfigTest, NoopPublisherConfiguration)
+    {
+        write_config_file(R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopFieldModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+)");
+
+        auto config = load_classes_from_config(temp_dir.string());
+        ASSERT_NE(config.publisher, nullptr);
+        EXPECT_EQ(config.publisher->type, "NoopPublisher");
+
+        // Verify it's the correct derived type
+        auto *noop_config = dynamic_cast<NoopPublisherConfiguration *>(config.publisher.get());
+        ASSERT_NE(noop_config, nullptr);
+    }
+
+    // Test unknown publisher type
+    TEST_F(ConfigTest, UnknownPublisherType)
+    {
+        write_config_file(R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopFieldModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "UnknownPublisher"
+)");
+
+        EXPECT_THROW(
+            {
+                try
+                {
+                    load_classes_from_config(temp_dir.string());
+                }
+                catch (const std::invalid_argument &e)
+                {
+                    // The error message comes from the config parser, not the factory
+                    EXPECT_TRUE(std::string(e.what()).find("UnknownPublisher") != std::string::npos);
+                    throw;
+                }
+            },
+            std::invalid_argument);
     }
 
 } // namespace auto_battlebot
