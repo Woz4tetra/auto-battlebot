@@ -75,6 +75,11 @@ namespace auto_battlebot
         CameraData camera_data;
         if (!camera_->update() || !camera_->get(camera_data))
         {
+            if (camera_->should_close())
+            {
+                std::cerr << "Camera signalled to close the application" << std::endl;
+                return false;
+            }
             // Push error to diagnostics and log
             std::cerr << "Failed to get camera data. Reinitializing." << std::endl;
             while (!camera_->initialize())

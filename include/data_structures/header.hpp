@@ -1,13 +1,14 @@
 #pragma once
 
 #include <string>
+#include "enums/frame_id.hpp"
 
 namespace auto_battlebot
 {
     struct Header
     {
         double timestamp = 0.0;
-        std::string frame_id = "";
+        FrameId frame_id;
     };
 
 } // namespace auto_battlebot

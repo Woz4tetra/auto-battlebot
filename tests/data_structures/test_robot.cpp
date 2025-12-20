@@ -64,7 +64,7 @@ namespace auto_battlebot
         RobotDescriptionsStamped stamped;
 
         EXPECT_EQ(stamped.header.timestamp, 0.0);
-        EXPECT_EQ(stamped.header.frame_id, "");
+        EXPECT_EQ(stamped.header.frame_id, FrameId::EMPTY);
         EXPECT_TRUE(stamped.descriptions.empty());
     }
 
@@ -72,7 +72,7 @@ namespace auto_battlebot
     {
         RobotDescriptionsStamped stamped;
         stamped.header.timestamp = 123.456;
-        stamped.header.frame_id = "world";
+        stamped.header.frame_id = FrameId::FIELD;
 
         RobotDescription desc;
         desc.label = Label::MR_STABS_MK2;

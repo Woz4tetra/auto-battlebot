@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <thread>
+#include <mutex>
 #include <sl/Camera.hpp>
 
 #include "rgbd_camera/rgbd_camera_interface.hpp"
@@ -61,13 +62,23 @@ namespace auto_battlebot
     {
     public:
         ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
+        ~ZedRgbdCamera();
         bool initialize() override;
         bool update() override;
         bool get(CameraData &data) override;
+        bool should_close() override;
 
     private:
         sl::Camera zed_;
         sl::InitParameters params_;
+        sl::Mat zed_rgb_;
+        sl::Mat zed_depth_;
+        sl::Pose zed_pose_;
+        CameraData latest_data_;
+        std::mutex data_mutex_;
+        bool is_initialized_;
+        bool should_close_;
+        sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
     };
 
 } // namespace auto_battlebot

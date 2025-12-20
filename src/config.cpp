@@ -29,9 +29,10 @@ namespace auto_battlebot
 
     ClassConfiguration load_classes_from_config(const std::string &config_path)
     {
-        std::filesystem::path path = config_path.empty()
-                                         ? get_config_dir() / "classes.toml"
-                                         : std::filesystem::path(config_path);
+        std::filesystem::path path = (config_path.empty()
+                                          ? get_config_dir()
+                                          : std::filesystem::path(config_path)) /
+                                     "classes.toml";
         std::string path_string = path.u8string();
 
         ClassConfiguration config;
@@ -132,9 +133,10 @@ namespace auto_battlebot
 
     std::vector<RobotConfig> load_robots_from_config(const std::string &config_path)
     {
-        std::filesystem::path path = config_path.empty()
-                                         ? get_config_dir() / "robots.toml"
-                                         : std::filesystem::path(config_path);
+        std::filesystem::path path = (config_path.empty()
+                                          ? get_config_dir()
+                                          : std::filesystem::path(config_path)) /
+                                     "robots.toml";
         std::string path_string = path.u8string();
 
         std::vector<RobotConfig> robots;

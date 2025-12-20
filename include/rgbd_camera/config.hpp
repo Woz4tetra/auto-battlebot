@@ -34,6 +34,7 @@ namespace auto_battlebot
         int camera_fps = 30;
         Resolution camera_resolution = Resolution::RES_1280x720;
         DepthMode depth_mode = DepthMode::ZED_NEURAL;
+        std::string svo_file_path = "";
 
         ZedRgbdCameraConfiguration()
         {
@@ -45,6 +46,7 @@ namespace auto_battlebot
             PARSE_FIELD(camera_fps)
             PARSE_ENUM(camera_resolution, Resolution)
             PARSE_ENUM(depth_mode, DepthMode)
+            PARSE_FIELD_STRING(svo_file_path)
         )
         // clang-format on
     };

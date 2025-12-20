@@ -6,3 +6,4 @@
 #include "enums/group.hpp"
 #include "enums/resolution.hpp"
 #include "enums/depth_mode.hpp"
+#include "enums/frame_id.hpp"

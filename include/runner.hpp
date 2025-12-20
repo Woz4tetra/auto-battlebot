@@ -44,5 +44,4 @@ namespace auto_battlebot
         bool initialized_;
         FieldDescription initial_field_description_;
     };
-
 } // namespace auto_battlebot

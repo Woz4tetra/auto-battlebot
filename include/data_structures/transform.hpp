@@ -2,6 +2,7 @@
 
 #include <Eigen/Dense>
 #include "header.hpp"
+#include "enums/frame_id.hpp"
 
 namespace auto_battlebot
 {
@@ -13,7 +14,7 @@ namespace auto_battlebot
     struct TransformStamped
     {
         Header header;
-        std::string child_frame_id;
+        FrameId child_frame_id;
         Transform transform;
     };
 
