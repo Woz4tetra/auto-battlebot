@@ -13,7 +13,7 @@ def main() -> None:
             "epochs": 500,
             "imgsz": 1280,
         },
-        "yolo11x-pose": {
+        "yolo11l-pose": {
             "batch": 16,
             "epochs": 300,
             "imgsz": 1280,
