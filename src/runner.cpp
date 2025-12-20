@@ -70,6 +70,7 @@ namespace auto_battlebot
             {
                 return 0;
             }
+            DiagnosticsLogger::publish();
         }
     }
 

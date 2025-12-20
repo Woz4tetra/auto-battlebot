@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "data_structures.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "field_model/field_model_interface.hpp"
@@ -9,8 +12,7 @@
 #include "navigation/navigation_interface.hpp"
 #include "transmitter/transmitter_interface.hpp"
 #include "publisher/publisher_interface.hpp"
-#include <memory>
-#include <vector>
+#include "diagnostics_logger/diagnostics_logger.hpp"
 
 namespace auto_battlebot
 {

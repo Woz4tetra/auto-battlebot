@@ -1,5 +1,7 @@
 #pragma once
 
+#include <miniros/ros.h>
+
 #include "data_structures.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "config_factory.hpp"
@@ -25,6 +27,6 @@ namespace auto_battlebot
         )
     };
 
-    std::shared_ptr<PublisherInterface> make_publisher(const PublisherConfiguration &config);
+    std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh, const PublisherConfiguration &config);
     std::unique_ptr<PublisherConfiguration> parse_publisher_config(ConfigParser &parser);
 } // namespace auto_battlebot

@@ -12,7 +12,7 @@ namespace auto_battlebot
         return ConfigFactory<PublisherConfiguration>::instance().create_and_parse(parser);
     }
 
-    std::shared_ptr<PublisherInterface> make_publisher(const PublisherConfiguration &config)
+    std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh, const PublisherConfiguration &config)
     {
         if (config.type == "NoopPublisher")
         {

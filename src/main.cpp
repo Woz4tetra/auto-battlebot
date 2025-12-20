@@ -1,7 +1,9 @@
+#include <miniros/ros.h>
+#include <CLI/CLI.hpp>
 
 #include "config.hpp"
 #include "runner.hpp"
-#include <CLI/CLI.hpp>
+#include "ros/initialize_ros_topics.hpp"
 
 int main(int argc, char **argv)
 {
@@ -26,6 +28,9 @@ int main(int argc, char **argv)
     ClassConfiguration class_config = load_classes_from_config(config_path);
     std::vector<RobotConfig> robot_configs = load_robots_from_config(config_path);
 
+    miniros::NodeHandle nh;
+    initialize_ros_topics(nh);
+
     // Create interface instances using factory functions
     auto camera = make_rgbd_camera(*class_config.camera);
     auto field_model = make_field_model(*class_config.field_model);
@@ -34,7 +39,7 @@ int main(int argc, char **argv)
     auto robot_filter = make_robot_filter(*class_config.robot_filter);
     auto navigation = make_navigation(*class_config.navigation);
     auto transmitter = make_transmitter(*class_config.transmitter);
-    auto publisher = make_publisher(*class_config.publisher);
+    auto publisher = make_publisher(nh, *class_config.publisher);
 
     // Create runner with all components
     Runner runner(

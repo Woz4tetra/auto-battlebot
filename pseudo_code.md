@@ -134,7 +134,7 @@ Group
 RgbdCameraInterface
 	bool initialize()
 	bool update()
-	bool get(CameraData data)
+	bool get(CameraData& data)
 
 FieldModelInterface
 	bool initialize()
@@ -169,20 +169,6 @@ PublisherInterface
     void publish_field_description(FieldDescription field)
     void publish_keypoints(KeypointsStamped keypoints)
     void publish_robots(RobotDescriptionsStamped robots)
-    void publish_velocity_command(VelocityCommand command)
-
-DiagnosticsLogger  // singleton, shared instance
-    static DiagnosticsModuleLogger get_logger(string name)
-
-DiagnosticsModuleLogger
-    void debug(string message)
-    void debug_data(std::unordered_map<std::string, std::any> data)
-    void info(string message)
-    void info_data(std::unordered_map<std::string, std::any> data)
-    void warning(string message)
-    void warning_data(std::unordered_map<std::string, std::any> data)
-    void error(string message)
-    void error_data(std::unordered_map<std::string, std::any> data)
 ```
 
 # Pseudo code
