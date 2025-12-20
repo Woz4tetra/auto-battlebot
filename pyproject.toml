@@ -10,6 +10,7 @@ dependencies = [
     "matplotlib",
     "scipy",
     "minigencpp @ git+https://github.com/Woz4tetra/minigencpp.git",
+    "tqdm",
 ]
 
 [build-system]
