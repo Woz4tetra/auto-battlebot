@@ -104,6 +104,7 @@ def main() -> None:
         model.train(
             data=dataset,
             name="auto_battlebots_keypoints",
+            project="../projects",
             device=0,
             cache="ram",
             **hyper_params,
