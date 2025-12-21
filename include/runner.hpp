@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <vector>
+#include <iostream>
 #include <miniros/ros.h>
 
 #include "data_structures.hpp"
@@ -14,6 +15,7 @@
 #include "transmitter/transmitter_interface.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "diagnostics_logger/function_timer.hpp"
 
 namespace auto_battlebot
 {
@@ -49,5 +51,9 @@ namespace auto_battlebot
 
         bool initialized_;
         FieldDescription initial_field_description_;
+        std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
+        std::chrono::steady_clock::time_point start_time_;
+
+        double elapsed_ms();
     };
 } // namespace auto_battlebot

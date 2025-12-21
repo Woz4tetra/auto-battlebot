@@ -10,9 +10,7 @@ namespace auto_battlebot
     public:
         RosPublisher(
             std::shared_ptr<miniros::Publisher> rgb_image_publisher,       // sensor_msgs::Image
-            std::shared_ptr<miniros::Publisher> depth_image_publisher,     // sensor_msgs::Image
             std::shared_ptr<miniros::Publisher> camera_info_publisher,     // sensor_msgs::CameraInfo
-            std::shared_ptr<miniros::Publisher> point_cloud_publisher,     // sensor_msgs::PointCloud2
             std::shared_ptr<miniros::Publisher> field_mask_publisher,      // sensor_msgs::Image
             std::shared_ptr<miniros::Publisher> tf_publisher,              // tf2_msgs::TFMessage
             std::shared_ptr<miniros::Publisher> static_tf_publisher,       // tf2_msgs::TFMessage
@@ -28,9 +26,7 @@ namespace auto_battlebot
 
     private:
         std::shared_ptr<miniros::Publisher> rgb_image_publisher_;
-        std::shared_ptr<miniros::Publisher> depth_image_publisher_;
         std::shared_ptr<miniros::Publisher> camera_info_publisher_;
-        std::shared_ptr<miniros::Publisher> point_cloud_publisher_;
         std::shared_ptr<miniros::Publisher> field_mask_publisher_;
         std::shared_ptr<miniros::Publisher> tf_publisher_;
         std::shared_ptr<miniros::Publisher> static_tf_publisher_;

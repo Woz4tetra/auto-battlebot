@@ -1,7 +1,6 @@
 #include "publisher/ros_publisher.hpp"
 #include "ros/ros_message_adapters/ros_image.hpp"
 #include "ros/ros_message_adapters/ros_camera_info.hpp"
-#include "ros/ros_message_adapters/ros_point_cloud2.hpp"
 #include "ros/ros_message_adapters/ros_marker.hpp"
 #include "ros/ros_message_adapters/ros_tf2.hpp"
 
@@ -9,9 +8,7 @@ namespace auto_battlebot
 {
     RosPublisher::RosPublisher(
         std::shared_ptr<miniros::Publisher> rgb_image_publisher,       // sensor_msgs::Image
-        std::shared_ptr<miniros::Publisher> depth_image_publisher,     // sensor_msgs::Image
         std::shared_ptr<miniros::Publisher> camera_info_publisher,     // sensor_msgs::CameraInfo
-        std::shared_ptr<miniros::Publisher> point_cloud_publisher,     // sensor_msgs::PointCloud2
         std::shared_ptr<miniros::Publisher> field_mask_publisher,      // sensor_msgs::Image
         std::shared_ptr<miniros::Publisher> tf_publisher,              // tf2_msgs::TFMessage
         std::shared_ptr<miniros::Publisher> static_tf_publisher,       // tf2_msgs::TFMessage
@@ -21,9 +18,7 @@ namespace auto_battlebot
     )
     {
         rgb_image_publisher_ = rgb_image_publisher;
-        depth_image_publisher_ = depth_image_publisher;
         camera_info_publisher_ = camera_info_publisher;
-        point_cloud_publisher_ = point_cloud_publisher;
         field_mask_publisher_ = field_mask_publisher;
         tf_publisher_ = tf_publisher;
         static_tf_publisher_ = static_tf_publisher;
@@ -41,26 +36,11 @@ namespace auto_battlebot
             rgb_image_publisher_->publish(rgb_msg);
         }
 
-        // Publish depth image
-        if (depth_image_publisher_)
-        {
-            auto depth_msg = ros_adapters::to_ros_image(data.depth, data.tf_visodom_from_camera.header);
-            depth_image_publisher_->publish(depth_msg);
-        }
-
         // Publish camera info
         if (camera_info_publisher_)
         {
             auto camera_info_msg = ros_adapters::to_ros_camera_info(data.camera_info, data.tf_visodom_from_camera.header);
             camera_info_publisher_->publish(camera_info_msg);
-        }
-
-        // Publish point cloud
-        if (point_cloud_publisher_)
-        {
-            auto point_cloud_msg = ros_adapters::to_ros_point_cloud2(
-                data.depth, data.rgb, data.camera_info, data.tf_visodom_from_camera.header);
-            point_cloud_publisher_->publish(point_cloud_msg);
         }
 
         // Publish transform

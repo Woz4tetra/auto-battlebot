@@ -1,10 +1,19 @@
 #pragma once
 
 #include <miniros/ros.h>
+#include <miniros/publisher.h>
+#include <sensor_msgs/Image.hxx>
+#include <sensor_msgs/CameraInfo.hxx>
+#include <sensor_msgs/PointCloud2.hxx>
+#include <tf2_msgs/TFMessage.hxx>
+#include <visualization_msgs/Marker.hxx>
 
 #include "data_structures.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "config_factory.hpp"
+#include "publisher/noop_publisher.hpp"
+#include "publisher/ros_publisher.hpp"
+#include "config_parser.hpp"
 
 namespace auto_battlebot
 {
@@ -20,6 +29,18 @@ namespace auto_battlebot
         NoopPublisherConfiguration()
         {
             type = "NoopPublisher";
+        }
+
+        PARSE_CONFIG_FIELDS(
+            // No additional fields
+        )
+    };
+
+    struct RosPublisherConfiguration : public PublisherConfiguration
+    {
+        RosPublisherConfiguration()
+        {
+            type = "RosPublisher";
         }
 
         PARSE_CONFIG_FIELDS(

@@ -5,6 +5,7 @@
 type = "ZedRgbdCamera"
 camera_fps = 60
 svo_file_path = "/media/storage/true-battlebot-media/svo/2025-11-15_15-57-25.svo2"
+svo_real_time_mode = false
 
 [field_model]
 type = "NoopFieldModel"
@@ -25,4 +26,4 @@ type = "NoopNavigation"
 type = "NoopTransmitter"
 
 [publisher]
-type = "NoopPublisher"
+type = "RosPublisher"

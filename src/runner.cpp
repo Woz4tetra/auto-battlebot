@@ -1,5 +1,4 @@
 #include "runner.hpp"
-#include <iostream>
 
 namespace auto_battlebot
 {
@@ -23,8 +22,10 @@ namespace auto_battlebot
                                                          transmitter_(transmitter),
                                                          publisher_(publisher),
                                                          initialized_(false),
-                                                         initial_field_description_()
+                                                         initial_field_description_(),
+                                                         start_time_(std::chrono::steady_clock::now())
     {
+        diagnostics_logger_ = DiagnosticsLogger::get_logger("runner");
     }
 
     void Runner::initialize()
@@ -46,6 +47,8 @@ namespace auto_battlebot
         {
             std::cerr << "Failed to initialize transmitter" << std::endl;
         }
+        diagnostics_logger_->debug({}, "Initialization complete");
+        DiagnosticsLogger::publish();
     }
 
     void Runner::initialize_field(const CameraData &camera_data)
@@ -70,12 +73,17 @@ namespace auto_battlebot
             {
                 return 0;
             }
+            DiagnosticsData rate_data;
+            rate_data["rate"] = 1000.0 / elapsed_ms();
+            diagnostics_logger_->debug(rate_data);
             DiagnosticsLogger::publish();
         }
     }
 
     bool Runner::tick()
     {
+        FunctionTimer timer(diagnostics_logger_, "tick");
+        diagnostics_logger_->debug({}, "Tick");
         if (!miniros::ok())
         {
             miniros::shutdown();
@@ -84,7 +92,13 @@ namespace auto_battlebot
 
         transmitter_->update();
 
-        if (!camera_->update())
+        bool is_camera_ok;
+        {
+            FunctionTimer timer(diagnostics_logger_, "camera.update");
+            is_camera_ok = camera_->update();
+        }
+
+        if (!is_camera_ok)
         {
             if (camera_->should_close())
             {
@@ -113,21 +127,41 @@ namespace auto_battlebot
             return true;
         }
 
-        FieldDescription field_description = field_filter_->track_field(
-            camera_data.tf_visodom_from_camera,
-            initial_field_description_);
+        FieldDescription field_description;
+        {
+            FunctionTimer timer(diagnostics_logger_, "field_filter.track_field");
+            field_description = field_filter_->track_field(
+                camera_data.tf_visodom_from_camera,
+                initial_field_description_);
+        }
         publisher_->publish_field_description(field_description);
 
-        KeypointsStamped keypoints = keypoint_model_->update(camera_data.rgb);
+        KeypointsStamped keypoints;
+        {
+            FunctionTimer timer(diagnostics_logger_, "keypoint_model.update");
+            keypoints = keypoint_model_->update(camera_data.rgb);
+        }
         publisher_->publish_keypoints(keypoints);
 
-        RobotDescriptionsStamped robots = robot_filter_->update(keypoints, field_description);
+        RobotDescriptionsStamped robots;
+        {
+            FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
+            robots = robot_filter_->update(keypoints, field_description);
+        }
         publisher_->publish_robots(robots);
 
         VelocityCommand command = navigation_->update(robots);
         transmitter_->send(command);
 
         return true;
+    }
+
+    double Runner::elapsed_ms()
+    {
+        auto now = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(now - start_time_);
+        start_time_ = now;
+        return duration.count() / 1000.0;
     }
 
 } // namespace auto_battlebot

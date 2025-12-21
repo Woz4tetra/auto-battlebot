@@ -30,22 +30,5 @@ namespace auto_battlebot
             return ros_image;
         }
 
-        sensor_msgs::Image to_ros_image(const DepthImage &depth_image, const Header &header)
-        {
-            sensor_msgs::Image ros_image;
-            ros_image.header = to_ros_header(header);
-            ros_image.height = depth_image.image.rows;
-            ros_image.width = depth_image.image.cols;
-            ros_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
-            ros_image.is_bigendian = false;
-            ros_image.step = depth_image.image.cols * depth_image.image.elemSize();
-
-            size_t data_size = ros_image.step * ros_image.height;
-            ros_image.data.resize(data_size);
-            std::memcpy(ros_image.data.data(), depth_image.image.data, data_size);
-
-            return ros_image;
-        }
-
     } // namespace ros_adapters
 } // namespace auto_battlebot

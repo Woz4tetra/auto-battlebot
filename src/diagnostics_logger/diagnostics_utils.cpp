@@ -25,6 +25,9 @@ namespace auto_battlebot
                     return "";
                 } else if constexpr (std::is_same_v<T, std::vector<std::string>>) {
                     return "";
+                } else if constexpr (std::is_same_v<T, DiagnosticsData>) {
+                    // Should not reach here as nested maps are handled separately
+                    return "";
                 } }, value);
         }
 
@@ -34,6 +37,12 @@ namespace auto_battlebot
             return std::holds_alternative<std::vector<int>>(value) ||
                    std::holds_alternative<std::vector<double>>(value) ||
                    std::holds_alternative<std::vector<std::string>>(value);
+        }
+
+        // Helper to check if value is a nested map
+        bool is_nested_map(const DiagnosticsValue &value)
+        {
+            return std::holds_alternative<DiagnosticsData>(value);
         }
 
         // Helper to get vector size
@@ -82,7 +91,13 @@ namespace auto_battlebot
             {
                 std::string new_key = parent_key.empty() ? key : parent_key + separator + key;
 
-                if (is_vector_type(value))
+                if (is_nested_map(value))
+                {
+                    // Recursively flatten nested map
+                    const auto &nested_data = std::get<DiagnosticsData>(value);
+                    flatten_recursive(nested_data, result, new_key, separator);
+                }
+                else if (is_vector_type(value))
                 {
                     // Flatten vector/array elements
                     size_t size = get_vector_size(value);

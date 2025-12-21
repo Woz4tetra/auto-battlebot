@@ -8,16 +8,23 @@
 
 namespace auto_battlebot
 {
-    // Type to represent nested data structures
-    using DiagnosticsValue = std::variant<
-        int,
-        double,
-        std::string,
-        std::vector<int>,
-        std::vector<double>,
-        std::vector<std::string>>;
+    // Forward declaration for recursive type
+    struct DiagnosticsValue;
 
+    // Type to represent nested data structures
     using DiagnosticsData = std::map<std::string, DiagnosticsValue>;
+
+    struct DiagnosticsValue : std::variant<
+                                  int,
+                                  double,
+                                  std::string,
+                                  std::vector<int>,
+                                  std::vector<double>,
+                                  std::vector<std::string>,
+                                  DiagnosticsData>
+    {
+        using variant::variant;
+    };
 
     /**
      * @brief Flatten a nested map structure with '/' as separator

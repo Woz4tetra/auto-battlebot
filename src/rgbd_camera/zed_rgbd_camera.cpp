@@ -17,6 +17,7 @@ namespace auto_battlebot
         if (!config.svo_file_path.empty())
         {
             params_.input.setFromSVOFile(config.svo_file_path.c_str());
+            params_.svo_real_time_mode = config.svo_real_time_mode;
         }
     }
 
