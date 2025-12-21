@@ -77,6 +77,7 @@ namespace auto_battlebot
         bool is_initialized_;
         bool should_close_;
         sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
+        bool position_tracking_enabled_;
     };
 
 } // namespace auto_battlebot

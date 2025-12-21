@@ -4,7 +4,8 @@ namespace auto_battlebot
 {
     ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config) : zed_(sl::Camera()),
                                                                        is_initialized_(false),
-                                                                       prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST)
+                                                                       prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST),
+                                                                       position_tracking_enabled_(config.position_tracking)
     {
         params_ = sl::InitParameters();
         params_.camera_fps = config.camera_fps;
@@ -39,15 +40,22 @@ namespace auto_battlebot
             return false;
         }
 
-        // Enable positional tracking for getting camera pose
-        sl::PositionalTrackingParameters tracking_params;
-        tracking_params.enable_imu_fusion = true;
-        returned_state = zed_.enablePositionalTracking(tracking_params);
-        if (returned_state != sl::ERROR_CODE::SUCCESS)
+        if (position_tracking_enabled_)
         {
-            std::cerr << "Failed to enable positional tracking: " << sl::toString(returned_state) << std::endl;
-            zed_.close();
-            return false;
+            // Enable positional tracking for getting camera pose
+            sl::PositionalTrackingParameters tracking_params;
+            tracking_params.enable_imu_fusion = true;
+            returned_state = zed_.enablePositionalTracking(tracking_params);
+            if (returned_state != sl::ERROR_CODE::SUCCESS)
+            {
+                std::cerr << "Failed to enable positional tracking: " << sl::toString(returned_state) << std::endl;
+                zed_.close();
+                return false;
+            }
+        }
+        else
+        {
+            std::cout << "Position tracking is disabled" << std::endl;
         }
 
         // Get camera information for intrinsics
@@ -116,29 +124,36 @@ namespace auto_battlebot
             return false;
         }
 
-        // Get camera pose
-        sl::POSITIONAL_TRACKING_STATE tracking_state = zed_.getPosition(zed_pose_, sl::REFERENCE_FRAME::WORLD);
-        if (tracking_state != prev_tracking_state_)
-        {
-            std::cout << "Tracking state: " << tracking_state << std::endl;
-            prev_tracking_state_ = tracking_state;
-        }
-
         // Get timestamp
         sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE);
         latest_data_.tf_visodom_from_camera.header.timestamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
         latest_data_.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
         latest_data_.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
 
-        // Convert pose to transform matrix (4x4 Eigen matrix)
-        sl::Transform zed_transform = zed_pose_.pose_data;
-        latest_data_.tf_visodom_from_camera.transform.tf = Eigen::MatrixXd(4, 4);
-        for (int i = 0; i < 4; i++)
+        // Get camera pose
+        if (position_tracking_enabled_)
         {
-            for (int j = 0; j < 4; j++)
+            sl::POSITIONAL_TRACKING_STATE tracking_state = zed_.getPosition(zed_pose_, sl::REFERENCE_FRAME::WORLD);
+            if (tracking_state != prev_tracking_state_)
             {
-                latest_data_.tf_visodom_from_camera.transform.tf(i, j) = zed_transform(i, j);
+                std::cout << "Tracking state: " << tracking_state << std::endl;
+                prev_tracking_state_ = tracking_state;
             }
+
+            // Convert pose to transform matrix (4x4 Eigen matrix)
+            sl::Transform zed_transform = zed_pose_.pose_data;
+            latest_data_.tf_visodom_from_camera.transform.tf = Eigen::MatrixXd(4, 4);
+            for (int i = 0; i < 4; i++)
+            {
+                for (int j = 0; j < 4; j++)
+                {
+                    latest_data_.tf_visodom_from_camera.transform.tf(i, j) = zed_transform(i, j);
+                }
+            }
+        }
+        else
+        {
+            latest_data_.tf_visodom_from_camera.transform.tf = Eigen::MatrixXd::Identity(4, 4);
         }
 
         // Convert ZED RGB image to OpenCV Mat (BGRA to BGR)

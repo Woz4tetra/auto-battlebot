@@ -4,8 +4,9 @@
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 60
-svo_file_path = "/media/storage/true-battlebot-media/svo/2025-11-15_15-57-25.svo2"
-svo_real_time_mode = false
+svo_file_path = "/media/storage/true-battlebot-media/svo/mini_bot_2024-10-26T13-29-41.svo2"
+svo_real_time_mode = true
+position_tracking = false
 
 [field_model]
 type = "NoopFieldModel"

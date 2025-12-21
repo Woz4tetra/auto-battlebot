@@ -36,6 +36,7 @@ namespace auto_battlebot
         DepthMode depth_mode = DepthMode::ZED_NEURAL;
         std::string svo_file_path = "";
         bool svo_real_time_mode = true;
+        bool position_tracking = true;
 
         ZedRgbdCameraConfiguration()
         {
@@ -49,6 +50,7 @@ namespace auto_battlebot
             PARSE_ENUM(depth_mode, DepthMode)
             PARSE_FIELD_STRING(svo_file_path)
             PARSE_FIELD_BOOL(svo_real_time_mode)
+            PARSE_FIELD_BOOL(position_tracking)
         )
         // clang-format on
     };
