@@ -4,6 +4,7 @@
 #include <opencv2/opencv.hpp>
 #include "header.hpp"
 #include "transform.hpp"
+#include "point_cloud.hpp"
 #include "enums/label.hpp"
 
 namespace auto_battlebot
@@ -36,8 +37,9 @@ namespace auto_battlebot
     struct FieldDescription
     {
         Header header;
-        Transform tf_fieldcenter_from_camera;
+        Transform tf_camera_from_fieldcenter;
         SizeStamped size;
+        PointCloud inlier_points;
     };
 
 } // namespace auto_battlebot

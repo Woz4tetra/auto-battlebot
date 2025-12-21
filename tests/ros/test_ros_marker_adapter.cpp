@@ -20,10 +20,10 @@ namespace auto_battlebot
             field_desc.size.size.z = 0.1;
 
             // Create transform for field
-            field_desc.tf_fieldcenter_from_camera.tf = Eigen::MatrixXd::Identity(4, 4);
-            field_desc.tf_fieldcenter_from_camera.tf(0, 3) = 1.0;
-            field_desc.tf_fieldcenter_from_camera.tf(1, 3) = 2.0;
-            field_desc.tf_fieldcenter_from_camera.tf(2, 3) = 3.0;
+            field_desc.tf_camera_from_fieldcenter.tf = Eigen::MatrixXd::Identity(4, 4);
+            field_desc.tf_camera_from_fieldcenter.tf(0, 3) = 1.0;
+            field_desc.tf_camera_from_fieldcenter.tf(1, 3) = 2.0;
+            field_desc.tf_camera_from_fieldcenter.tf(2, 3) = 3.0;
 
             // Setup keypoints
             keypoints.header = test_header;

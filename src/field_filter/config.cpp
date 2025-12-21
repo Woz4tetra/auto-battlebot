@@ -6,6 +6,7 @@ namespace auto_battlebot
 {
     // Automatic registration of config types
     REGISTER_CONFIG(FieldFilterConfiguration, NoopFieldFilterConfiguration, "NoopFieldFilter")
+    REGISTER_CONFIG(FieldFilterConfiguration, PointCloudFieldFilterConfiguration, "PointCloudFieldFilter")
 
     std::unique_ptr<FieldFilterConfiguration> parse_field_filter_config(ConfigParser &parser)
     {
@@ -15,6 +16,10 @@ namespace auto_battlebot
     std::shared_ptr<FieldFilterInterface> make_field_filter(const FieldFilterConfiguration &config)
     {
         if (config.type == "NoopFieldFilter")
+        {
+            return std::make_shared<NoopFieldFilter>();
+        }
+        else if (config.type == "PointCloudFieldFilter")
         {
             return std::make_shared<NoopFieldFilter>();
         }

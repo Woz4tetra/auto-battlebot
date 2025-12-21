@@ -25,6 +25,22 @@ namespace auto_battlebot
         )
     };
 
+    struct PointCloudFieldFilterConfiguration : public FieldFilterConfiguration
+    {
+        double distance_threshold = 0.01;
+
+        PointCloudFieldFilterConfiguration()
+        {
+            type = "PointCloudFieldFilter";
+        }
+
+        // clang-format off
+        PARSE_CONFIG_FIELDS(
+            PARSE_FIELD_DOUBLE(distance_threshold)
+        )
+        // clang-format on
+    };
+
     std::shared_ptr<FieldFilterInterface> make_field_filter(const FieldFilterConfiguration &config);
     std::unique_ptr<FieldFilterConfiguration> parse_field_filter_config(ConfigParser &parser);
 } // namespace auto_battlebot

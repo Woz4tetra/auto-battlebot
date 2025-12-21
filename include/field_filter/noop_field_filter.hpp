@@ -9,7 +9,7 @@ namespace auto_battlebot
     public:
         void reset([[maybe_unused]] TransformStamped tf_visodom_from_camera) override {}
 
-        FieldDescription compute_field([[maybe_unused]] CameraData camera_data, [[maybe_unused]] FieldMaskStamped field_mask) override
+        FieldDescription compute_field([[maybe_unused]] const CameraData &camera_data, [[maybe_unused]] const FieldMaskStamped &field_mask) override
         {
             return FieldDescription{};
         }

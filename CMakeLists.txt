@@ -71,6 +71,7 @@ endif()
 find_package(Threads REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
 find_package(Eigen3 REQUIRED)
+find_package(PCL REQUIRED COMPONENTS common sample_consensus)
 
 # Find ZED SDK
 find_package(ZED 5 REQUIRED)
@@ -82,6 +83,7 @@ find_package(Torch REQUIRED)
 # Mark ZED SDK headers as system headers to suppress their warnings
 include_directories(SYSTEM ${ZED_INCLUDE_DIRS})
 include_directories(SYSTEM ${CUDA_INCLUDE_DIRS})
+include_directories(SYSTEM ${PCL_INCLUDE_DIRS})
 
 # Include directories
 include_directories(${OpenCV_INCLUDE_DIRS})
@@ -126,6 +128,8 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     Threads::Threads
     ${ZED_LIBRARIES}
     ${CUDA_LIBRARIES}
+    ${TORCH_LIBRARIES}
+    ${PCL_LIBRARIES}
     ${TORCH_LIBRARIES}
 )
 

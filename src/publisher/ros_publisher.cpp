@@ -96,7 +96,7 @@ namespace auto_battlebot
             TransformStamped field_tf;
             field_tf.header = field.header;
             field_tf.child_frame_id = FrameId::FIELD;
-            field_tf.transform = field.tf_fieldcenter_from_camera;
+            field_tf.transform = field.tf_camera_from_fieldcenter;
 
             auto tf_msg = ros_adapters::to_ros_tf_message(field_tf);
             static_tf_publisher_->publish(tf_msg);

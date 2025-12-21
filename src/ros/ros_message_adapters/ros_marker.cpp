@@ -18,7 +18,7 @@ namespace auto_battlebot
             marker.action = visualization_msgs::Marker::ADD;
 
             // Set pose from transform
-            const auto &tf = field.tf_fieldcenter_from_camera.tf;
+            const auto &tf = field.tf_camera_from_fieldcenter.tf;
             if (tf.rows() >= 3 && tf.cols() >= 4)
             {
                 marker.pose.position.x = tf(0, 3);
