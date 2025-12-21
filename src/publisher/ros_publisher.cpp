@@ -3,6 +3,7 @@
 #include "ros/ros_message_adapters/ros_camera_info.hpp"
 #include "ros/ros_message_adapters/ros_marker.hpp"
 #include "ros/ros_message_adapters/ros_tf2.hpp"
+#include "colorize_labels.hpp"
 
 namespace auto_battlebot
 {
@@ -51,17 +52,30 @@ namespace auto_battlebot
         }
     }
 
-    void RosPublisher::publish_field_mask(const FieldMaskStamped &field_mask)
+    void RosPublisher::publish_field_mask(const FieldMaskStamped &field_mask, const RgbImage &image)
     {
         if (field_mask_publisher_)
         {
-            // Convert mask to ROS image
+            // Colorize the mask labels
+            cv::Mat colorized_mask = colorize_labels(field_mask.mask.mask);
+
+            // Overlay the mask on the RGB image with 50% transparency
+            cv::Mat overlay;
+            if (!image.image.empty() &&
+                image.image.size() == colorized_mask.size() &&
+                image.image.type() == CV_8UC3)
+            {
+                cv::addWeighted(image.image, 0.5, colorized_mask, 0.5, 0.0, overlay);
+            }
+            else
+            {
+                // If sizes don't match or image is invalid, just use the colorized mask
+                overlay = colorized_mask;
+            }
+
             RgbImage mask_as_image;
-            cv::Mat rgb_mask;
-            // Convert single channel mask to 3-channel for visualization
-            cv::cvtColor(field_mask.mask.mask, rgb_mask, cv::COLOR_GRAY2BGR);
             mask_as_image.header = field_mask.header;
-            mask_as_image.image = rgb_mask;
+            mask_as_image.image = overlay;
 
             auto mask_msg = ros_adapters::to_ros_image(mask_as_image);
             field_mask_publisher_->publish(mask_msg);

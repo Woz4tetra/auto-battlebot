@@ -8,7 +8,7 @@ namespace auto_battlebot
     {
     public:
         void publish_camera_data([[maybe_unused]] const CameraData &data) override {}
-        void publish_field_mask([[maybe_unused]] const FieldMaskStamped &field_mask) override {}
+        void publish_field_mask([[maybe_unused]] const FieldMaskStamped &field_mask, [[maybe_unused]] const RgbImage &image) override {}
         void publish_field_description([[maybe_unused]] const FieldDescription &field) override {}
         void publish_keypoints([[maybe_unused]] const KeypointsStamped &keypoints) override {}
         void publish_robots([[maybe_unused]] const RobotDescriptionsStamped &robots) override {}

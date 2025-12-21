@@ -17,7 +17,7 @@ namespace auto_battlebot
     class DeepLabFieldModel : public FieldModelInterface
     {
     public:
-        DeepLabFieldModel(const std::string &model_path, DeepLabModelType model_type, int image_size = 512);
+        DeepLabFieldModel(const std::string &model_path, DeepLabModelType model_type, int image_size = 512, int border_crop_padding = 20);
 
         bool initialize() override;
         FieldMaskStamped update(RgbImage image) override;
@@ -26,6 +26,7 @@ namespace auto_battlebot
         std::string model_path_;
         DeepLabModelType model_type_;
         int image_size_;
+        int border_crop_padding_;
         torch::jit::script::Module model_;
         torch::Device device_;
         bool initialized_;

@@ -26,7 +26,8 @@ namespace auto_battlebot
             return std::make_shared<DeepLabFieldModel>(
                 deeplab_config.model_path,
                 deeplab_config.model_type,
-                deeplab_config.image_size);
+                deeplab_config.image_size,
+                deeplab_config.border_crop_padding);
         }
         throw std::invalid_argument("Failed to load FieldModel of type " + config.type);
     }

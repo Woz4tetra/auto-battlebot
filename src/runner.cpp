@@ -56,7 +56,7 @@ namespace auto_battlebot
         std::cout << "Initializing field" << std::endl;
         field_filter_->reset(camera_data.tf_visodom_from_camera);
         FieldMaskStamped field_mask = field_model_->update(camera_data.rgb);
-        publisher_->publish_field_mask(field_mask);
+        publisher_->publish_field_mask(field_mask, camera_data.rgb);
 
         initial_field_description_ = field_filter_->compute_field(camera_data, field_mask);
         publisher_->publish_field_description(initial_field_description_);

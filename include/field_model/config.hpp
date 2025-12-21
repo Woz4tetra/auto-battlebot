@@ -30,17 +30,21 @@ namespace auto_battlebot
     {
         std::string model_path;
         DeepLabModelType model_type = DeepLabModelType::DeepLabV3;
-        int image_size = 512;
+        int image_size = 344;
+        int border_crop_padding = 25;
 
         DeepLabFieldModelConfiguration()
         {
             type = "DeepLabFieldModel";
         }
 
+        // clang-format off
         PARSE_CONFIG_FIELDS(
             PARSE_FIELD_STRING_REQUIRED(model_path)
-                PARSE_ENUM(model_type, DeepLabModelType)
-                    PARSE_FIELD(image_size))
+            PARSE_ENUM(model_type, DeepLabModelType)
+            PARSE_FIELD(image_size)
+            PARSE_FIELD(border_crop_padding))
+        // clang-format on
     };
 
     std::shared_ptr<FieldModelInterface> make_field_model(const FieldModelConfiguration &config);

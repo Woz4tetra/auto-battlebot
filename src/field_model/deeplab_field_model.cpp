@@ -2,8 +2,8 @@
 
 namespace auto_battlebot
 {
-    DeepLabFieldModel::DeepLabFieldModel(const std::string &model_path, DeepLabModelType model_type, int image_size)
-        : model_path_(model_path), model_type_(model_type), image_size_(image_size),
+    DeepLabFieldModel::DeepLabFieldModel(const std::string &model_path, DeepLabModelType model_type, int image_size, int border_crop_padding)
+        : model_path_(model_path), model_type_(model_type), image_size_(image_size), border_crop_padding_(border_crop_padding),
           device_(torch::kCPU), initialized_(false)
     {
         diagnostics_logger_ = DiagnosticsLogger::get_logger("deeplab_field_model");
@@ -179,6 +179,28 @@ namespace auto_battlebot
         // Resize back to original dimensions
         cv::Mat resized_mask;
         cv::resize(mask, resized_mask, cv::Size(original_width, original_height), 0, 0, cv::INTER_NEAREST);
+
+        // Apply border crop padding by setting border pixels to 0 (background)
+        if (border_crop_padding_ > 0)
+        {
+            int top = std::min(border_crop_padding_, resized_mask.rows);
+            int bottom = std::min(border_crop_padding_, resized_mask.rows);
+            int left = std::min(border_crop_padding_, resized_mask.cols);
+            int right = std::min(border_crop_padding_, resized_mask.cols);
+
+            // Set top border
+            if (top > 0)
+                resized_mask(cv::Rect(0, 0, resized_mask.cols, top)).setTo(0);
+            // Set bottom border
+            if (bottom > 0)
+                resized_mask(cv::Rect(0, resized_mask.rows - bottom, resized_mask.cols, bottom)).setTo(0);
+            // Set left border
+            if (left > 0)
+                resized_mask(cv::Rect(0, 0, left, resized_mask.rows)).setTo(0);
+            // Set right border
+            if (right > 0)
+                resized_mask(cv::Rect(resized_mask.cols - right, 0, right, resized_mask.rows)).setTo(0);
+        }
 
         return resized_mask;
     }

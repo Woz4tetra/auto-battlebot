@@ -19,7 +19,7 @@ namespace auto_battlebot
             std::shared_ptr<miniros::Publisher> robot_marker_publisher     // visualization_msgs::Marker
         );
         void publish_camera_data(const CameraData &data) override;
-        void publish_field_mask(const FieldMaskStamped &field_mask) override;
+        void publish_field_mask(const FieldMaskStamped &field_mask, const RgbImage &image) override;
         void publish_field_description(const FieldDescription &field) override;
         void publish_keypoints(const KeypointsStamped &keypoints) override;
         void publish_robots(const RobotDescriptionsStamped &robots) override;
