@@ -22,7 +22,7 @@ namespace auto_battlebot
         bool initialize() override;
         FieldMaskStamped update(RgbImage image) override;
 
-    private:
+    protected:
         std::string model_path_;
         DeepLabModelType model_type_;
         int image_size_;
