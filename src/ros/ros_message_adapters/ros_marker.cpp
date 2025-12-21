@@ -8,7 +8,7 @@ namespace auto_battlebot
 {
     namespace ros_adapters
     {
-        visualization_msgs::Marker to_ros_field_marker(const FieldDescription& field)
+        visualization_msgs::Marker to_ros_field_marker(const FieldDescription &field)
         {
             visualization_msgs::Marker marker;
             marker.header = to_ros_header(field.header);
@@ -18,13 +18,13 @@ namespace auto_battlebot
             marker.action = visualization_msgs::Marker::ADD;
 
             // Set pose from transform
-            const auto& tf = field.tf_fieldcenter_from_camera.tf;
+            const auto &tf = field.tf_fieldcenter_from_camera.tf;
             if (tf.rows() >= 3 && tf.cols() >= 4)
             {
                 marker.pose.position.x = tf(0, 3);
                 marker.pose.position.y = tf(1, 3);
                 marker.pose.position.z = tf(2, 3);
-                
+
                 // Extract rotation (simplified - assumes no rotation for now)
                 marker.pose.orientation.w = 1.0;
                 marker.pose.orientation.x = 0.0;
@@ -35,27 +35,27 @@ namespace auto_battlebot
             // Set scale from size
             marker.scale.x = field.size.size.x;
             marker.scale.y = field.size.size.y;
-            marker.scale.z = 0.01;  // Thin rectangle for field
+            marker.scale.z = 0.01; // Thin rectangle for field
 
             // Set color (green field)
             marker.color.r = 0.0f;
             marker.color.g = 1.0f;
             marker.color.b = 0.0f;
-            marker.color.a = 0.5f;  // Semi-transparent
+            marker.color.a = 0.5f; // Semi-transparent
 
             marker.frame_locked = false;
 
             return marker;
         }
 
-        std::vector<visualization_msgs::Marker> to_ros_keypoint_markers(const KeypointsStamped& keypoints)
+        std::vector<visualization_msgs::Marker> to_ros_keypoint_markers(const KeypointsStamped &keypoints)
         {
             std::vector<visualization_msgs::Marker> markers;
 
             for (size_t i = 0; i < keypoints.keypoints.size(); ++i)
             {
-                const auto& kp = keypoints.keypoints[i];
-                
+                const auto &kp = keypoints.keypoints[i];
+
                 visualization_msgs::Marker marker;
                 marker.header = to_ros_header(keypoints.header);
                 marker.ns = "keypoints";
@@ -67,7 +67,7 @@ namespace auto_battlebot
                 marker.pose.position.x = kp.x;
                 marker.pose.position.y = kp.y;
                 marker.pose.position.z = 0.0;
-                
+
                 marker.pose.orientation.w = 1.0;
                 marker.pose.orientation.x = 0.0;
                 marker.pose.orientation.y = 0.0;
@@ -92,14 +92,14 @@ namespace auto_battlebot
             return markers;
         }
 
-        std::vector<visualization_msgs::Marker> to_ros_robot_markers(const RobotDescriptionsStamped& robots)
+        std::vector<visualization_msgs::Marker> to_ros_robot_markers(const RobotDescriptionsStamped &robots)
         {
             std::vector<visualization_msgs::Marker> markers;
 
             for (size_t i = 0; i < robots.descriptions.size(); ++i)
             {
-                const auto& robot = robots.descriptions[i];
-                
+                const auto &robot = robots.descriptions[i];
+
                 visualization_msgs::Marker marker;
                 marker.header = to_ros_header(robots.header);
                 marker.ns = "robots";
@@ -111,7 +111,7 @@ namespace auto_battlebot
                 marker.pose.position.x = robot.pose.position.x;
                 marker.pose.position.y = robot.pose.position.y;
                 marker.pose.position.z = robot.pose.position.z;
-                
+
                 marker.pose.orientation.w = robot.pose.rotation.w;
                 marker.pose.orientation.x = robot.pose.rotation.x;
                 marker.pose.orientation.y = robot.pose.rotation.y;
@@ -127,13 +127,13 @@ namespace auto_battlebot
                 {
                     marker.color.r = 0.0f;
                     marker.color.g = 0.0f;
-                    marker.color.b = 1.0f;  // Blue for our team
+                    marker.color.b = 1.0f; // Blue for our team
                 }
                 else
                 {
                     marker.color.r = 1.0f;
                     marker.color.g = 0.0f;
-                    marker.color.b = 0.0f;  // Red for opponent
+                    marker.color.b = 0.0f; // Red for opponent
                 }
                 marker.color.a = 0.8f;
 

@@ -11,7 +11,7 @@ namespace auto_battlebot
     {
         /**
          * @brief Convert depth image and camera info to ROS PointCloud2 message
-         * 
+         *
          * @param depth_image Depth image with z-values
          * @param rgb_image RGB image for color information
          * @param camera_info Camera intrinsics for projection
@@ -19,11 +19,10 @@ namespace auto_battlebot
          * @return sensor_msgs::PointCloud2
          */
         sensor_msgs::PointCloud2 to_ros_point_cloud2(
-            const DepthImage& depth_image,
-            const RgbImage& rgb_image,
-            const CameraInfo& camera_info,
-            const Header& header
-        );
+            const DepthImage &depth_image,
+            const RgbImage &rgb_image,
+            const CameraInfo &camera_info,
+            const Header &header);
 
     } // namespace ros_adapters
 } // namespace auto_battlebot

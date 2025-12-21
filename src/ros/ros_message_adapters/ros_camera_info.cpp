@@ -5,7 +5,7 @@ namespace auto_battlebot
 {
     namespace ros_adapters
     {
-        sensor_msgs::CameraInfo to_ros_camera_info(const CameraInfo& camera_info, const Header& header)
+        sensor_msgs::CameraInfo to_ros_camera_info(const CameraInfo &camera_info, const Header &header)
         {
             sensor_msgs::CameraInfo ros_camera_info;
             ros_camera_info.header = to_ros_header(header);
@@ -35,7 +35,7 @@ namespace auto_battlebot
             // Set R to identity (no rectification by default)
             for (int i = 0; i < 9; ++i)
             {
-                ros_camera_info.R[i] = (i % 4 == 0) ? 1.0 : 0.0;  // Identity matrix
+                ros_camera_info.R[i] = (i % 4 == 0) ? 1.0 : 0.0; // Identity matrix
             }
 
             // Set P to [K | 0]
@@ -45,7 +45,7 @@ namespace auto_battlebot
                 {
                     ros_camera_info.P[row * 4 + col] = ros_camera_info.K[row * 3 + col];
                 }
-                ros_camera_info.P[row * 4 + 3] = 0.0;  // Fourth column is zero
+                ros_camera_info.P[row * 4 + 3] = 0.0; // Fourth column is zero
             }
 
             return ros_camera_info;

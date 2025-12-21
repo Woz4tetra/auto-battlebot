@@ -81,7 +81,7 @@ namespace auto_battlebot
             // Convert single channel mask to 3-channel for visualization
             cv::cvtColor(field_mask.mask.mask, rgb_mask, cv::COLOR_GRAY2BGR);
             mask_as_image.image = rgb_mask;
-            
+
             auto mask_msg = ros_adapters::to_ros_image(mask_as_image, field_mask.header);
             field_mask_publisher_->publish(mask_msg);
         }
@@ -102,7 +102,7 @@ namespace auto_battlebot
             field_tf.header = field.header;
             field_tf.child_frame_id = FrameId::FIELD;
             field_tf.transform = field.tf_fieldcenter_from_camera;
-            
+
             auto tf_msg = ros_adapters::to_ros_tf_message(field_tf);
             static_tf_publisher_->publish(tf_msg);
         }
@@ -113,7 +113,7 @@ namespace auto_battlebot
         if (keypoint_marker_publisher_)
         {
             auto markers = ros_adapters::to_ros_keypoint_markers(keypoints);
-            for (const auto& marker : markers)
+            for (const auto &marker : markers)
             {
                 keypoint_marker_publisher_->publish(marker);
             }
@@ -125,7 +125,7 @@ namespace auto_battlebot
         if (robot_marker_publisher_)
         {
             auto markers = ros_adapters::to_ros_robot_markers(robots);
-            for (const auto& marker : markers)
+            for (const auto &marker : markers)
             {
                 robot_marker_publisher_->publish(marker);
             }
@@ -135,28 +135,28 @@ namespace auto_battlebot
         {
             // Publish transforms for each robot
             tf2_msgs::TFMessage tf_msg;
-            for (const auto& robot : robots.descriptions)
+            for (const auto &robot : robots.descriptions)
             {
                 TransformStamped robot_tf;
                 robot_tf.header = robots.header;
                 robot_tf.child_frame_id = static_cast<FrameId>(static_cast<int>(robot.label));
-                
+
                 // Convert pose to transform
                 Eigen::MatrixXd tf_matrix = Eigen::MatrixXd::Identity(4, 4);
                 tf_matrix(0, 3) = robot.pose.position.x;
                 tf_matrix(1, 3) = robot.pose.position.y;
                 tf_matrix(2, 3) = robot.pose.position.z;
-                
+
                 // Convert quaternion to rotation matrix
-                Eigen::Quaterniond quat(robot.pose.rotation.w, robot.pose.rotation.x, 
-                                       robot.pose.rotation.y, robot.pose.rotation.z);
+                Eigen::Quaterniond quat(robot.pose.rotation.w, robot.pose.rotation.x,
+                                        robot.pose.rotation.y, robot.pose.rotation.z);
                 tf_matrix.block<3, 3>(0, 0) = quat.toRotationMatrix();
-                
+
                 robot_tf.transform.tf = tf_matrix;
-                
+
                 tf_msg.transforms.push_back(ros_adapters::to_ros_transform_stamped(robot_tf));
             }
-            
+
             if (!tf_msg.transforms.empty())
             {
                 tf_publisher_->publish(tf_msg);

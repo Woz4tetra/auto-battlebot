@@ -7,10 +7,10 @@ namespace auto_battlebot
     namespace ros_adapters
     {
         sensor_msgs::PointCloud2 to_ros_point_cloud2(
-            const DepthImage& depth_image,
-            const RgbImage& rgb_image,
-            const CameraInfo& camera_info,
-            const Header& header)
+            const DepthImage &depth_image,
+            const RgbImage &rgb_image,
+            const CameraInfo &camera_info,
+            const Header &header)
         {
             sensor_msgs::PointCloud2 cloud;
             cloud.header = to_ros_header(header);
@@ -21,33 +21,33 @@ namespace auto_battlebot
 
             // Define point cloud fields (x, y, z, rgb)
             sensor_msgs::PointField field_x, field_y, field_z, field_rgb;
-            
+
             field_x.name = "x";
             field_x.offset = 0;
             field_x.datatype = sensor_msgs::PointField::FLOAT32;
             field_x.count = 1;
-            
+
             field_y.name = "y";
             field_y.offset = 4;
             field_y.datatype = sensor_msgs::PointField::FLOAT32;
             field_y.count = 1;
-            
+
             field_z.name = "z";
             field_z.offset = 8;
             field_z.datatype = sensor_msgs::PointField::FLOAT32;
             field_z.count = 1;
-            
+
             field_rgb.name = "rgb";
             field_rgb.offset = 12;
             field_rgb.datatype = sensor_msgs::PointField::FLOAT32;
             field_rgb.count = 1;
-            
+
             cloud.fields.push_back(field_x);
             cloud.fields.push_back(field_y);
             cloud.fields.push_back(field_z);
             cloud.fields.push_back(field_rgb);
-            
-            cloud.point_step = 16;  // 4 floats * 4 bytes
+
+            cloud.point_step = 16; // 4 floats * 4 bytes
             cloud.row_step = cloud.point_step * cloud.width;
             cloud.data.resize(cloud.row_step * cloud.height);
 
@@ -80,8 +80,8 @@ namespace auto_battlebot
                         g = bgr[1];
                         r = bgr[2];
                     }
-                    uint32_t rgb = (static_cast<uint32_t>(r) << 16) | 
-                                   (static_cast<uint32_t>(g) << 8) | 
+                    uint32_t rgb = (static_cast<uint32_t>(r) << 16) |
+                                   (static_cast<uint32_t>(g) << 8) |
                                    static_cast<uint32_t>(b);
                     float rgb_float;
                     std::memcpy(&rgb_float, &rgb, sizeof(float));

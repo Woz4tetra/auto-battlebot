@@ -11,12 +11,12 @@ namespace auto_battlebot
         /**
          * @brief Convert TransformStamped to ROS TransformStamped message
          */
-        geometry_msgs::TransformStamped to_ros_transform_stamped(const TransformStamped& transform);
+        geometry_msgs::TransformStamped to_ros_transform_stamped(const TransformStamped &transform);
 
         /**
          * @brief Convert TransformStamped to ROS TFMessage
          */
-        tf2_msgs::TFMessage to_ros_tf_message(const TransformStamped& transform);
+        tf2_msgs::TFMessage to_ros_tf_message(const TransformStamped &transform);
 
     } // namespace ros_adapters
 } // namespace auto_battlebot

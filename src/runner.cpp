@@ -76,6 +76,12 @@ namespace auto_battlebot
 
     bool Runner::tick()
     {
+        if (!miniros::ok())
+        {
+            miniros::shutdown();
+            return false;
+        }
+
         transmitter_->update();
 
         if (!camera_->update())

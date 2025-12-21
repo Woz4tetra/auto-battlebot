@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <vector>
+#include <miniros/ros.h>
 
 #include "data_structures.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"

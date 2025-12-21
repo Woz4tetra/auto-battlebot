@@ -28,6 +28,9 @@ int main(int argc, char **argv)
     ClassConfiguration class_config = load_classes_from_config(config_path);
     std::vector<RobotConfig> robot_configs = load_robots_from_config(config_path);
 
+    std::map<std::string, std::string> remappings;
+    miniros::init(remappings, "auto_battlebot");
+
     miniros::NodeHandle nh;
     initialize_ros_topics(nh);
 
