@@ -47,7 +47,7 @@ namespace auto_battlebot
         // NoopRgbdCamera returns an empty/default CameraData
         EXPECT_EQ(data.camera_info.width, 0);
         EXPECT_EQ(data.camera_info.height, 0);
-        EXPECT_EQ(data.tf_visodom_from_camera.header.timestamp, 0.0);
+        EXPECT_EQ(data.tf_visodom_from_camera.header.stamp, 0.0);
     }
 
 } // namespace auto_battlebot

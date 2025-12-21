@@ -9,7 +9,7 @@ namespace auto_battlebot
     protected:
         void SetUp() override
         {
-            test_header.timestamp = 123.456;
+            test_header.stamp = 123.456;
             test_header.frame_id = FrameId::CAMERA;
 
             // Setup field description

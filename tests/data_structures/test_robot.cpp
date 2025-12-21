@@ -63,7 +63,7 @@ namespace auto_battlebot
     {
         RobotDescriptionsStamped stamped;
 
-        EXPECT_EQ(stamped.header.timestamp, 0.0);
+        EXPECT_EQ(stamped.header.stamp, 0.0);
         EXPECT_EQ(stamped.header.frame_id, FrameId::EMPTY);
         EXPECT_TRUE(stamped.descriptions.empty());
     }
@@ -71,7 +71,7 @@ namespace auto_battlebot
     TEST(RobotDescriptionsStampedTest, AddDescription)
     {
         RobotDescriptionsStamped stamped;
-        stamped.header.timestamp = 123.456;
+        stamped.header.stamp = 123.456;
         stamped.header.frame_id = FrameId::FIELD;
 
         RobotDescription desc;

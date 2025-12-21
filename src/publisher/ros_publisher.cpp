@@ -32,14 +32,14 @@ namespace auto_battlebot
         // Publish RGB image
         if (rgb_image_publisher_)
         {
-            auto rgb_msg = ros_adapters::to_ros_image(data.rgb, data.tf_visodom_from_camera.header);
+            auto rgb_msg = ros_adapters::to_ros_image(data.rgb);
             rgb_image_publisher_->publish(rgb_msg);
         }
 
         // Publish camera info
         if (camera_info_publisher_)
         {
-            auto camera_info_msg = ros_adapters::to_ros_camera_info(data.camera_info, data.tf_visodom_from_camera.header);
+            auto camera_info_msg = ros_adapters::to_ros_camera_info(data.camera_info);
             camera_info_publisher_->publish(camera_info_msg);
         }
 
@@ -60,9 +60,10 @@ namespace auto_battlebot
             cv::Mat rgb_mask;
             // Convert single channel mask to 3-channel for visualization
             cv::cvtColor(field_mask.mask.mask, rgb_mask, cv::COLOR_GRAY2BGR);
+            mask_as_image.header = field_mask.header;
             mask_as_image.image = rgb_mask;
 
-            auto mask_msg = ros_adapters::to_ros_image(mask_as_image, field_mask.header);
+            auto mask_msg = ros_adapters::to_ros_image(mask_as_image);
             field_mask_publisher_->publish(mask_msg);
         }
     }

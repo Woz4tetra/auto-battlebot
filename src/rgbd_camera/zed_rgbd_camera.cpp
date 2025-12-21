@@ -126,7 +126,8 @@ namespace auto_battlebot
 
         // Get timestamp
         sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE);
-        latest_data_.tf_visodom_from_camera.header.timestamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
+        double stamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
+        latest_data_.tf_visodom_from_camera.header.stamp = stamp;
         latest_data_.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
         latest_data_.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
 
@@ -163,6 +164,14 @@ namespace auto_battlebot
         // Convert ZED depth image to OpenCV Mat (float32)
         cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1, zed_depth_.getPtr<sl::uchar1>());
         zed_depth_mat.copyTo(latest_data_.depth.image);
+
+        Header header;
+        header.stamp = stamp;
+        header.frame_id = FrameId::CAMERA;
+
+        latest_data_.rgb.header = header;
+        latest_data_.depth.header = header;
+        latest_data_.camera_info.header = header;
 
         return true;
     }

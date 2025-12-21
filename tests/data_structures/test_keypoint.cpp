@@ -31,7 +31,7 @@ namespace auto_battlebot
     {
         KeypointsStamped stamped;
 
-        EXPECT_EQ(stamped.header.timestamp, 0.0);
+        EXPECT_EQ(stamped.header.stamp, 0.0);
         EXPECT_EQ(stamped.header.frame_id, FrameId::EMPTY);
         EXPECT_TRUE(stamped.keypoints.empty());
     }
@@ -39,7 +39,7 @@ namespace auto_battlebot
     TEST(KeypointsStampedTest, AddKeypoint)
     {
         KeypointsStamped stamped;
-        stamped.header.timestamp = 123.456;
+        stamped.header.stamp = 123.456;
         stamped.header.frame_id = FrameId::CAMERA;
 
         Keypoint kp;

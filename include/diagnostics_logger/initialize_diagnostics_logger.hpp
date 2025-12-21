@@ -5,6 +5,6 @@
 
 namespace auto_battlebot
 {
-    void initialize_ros_topics(miniros::NodeHandle &nh);
+    void initialize_diagnostics_logger(miniros::NodeHandle &nh);
 
 } // namespace auto_battlebot

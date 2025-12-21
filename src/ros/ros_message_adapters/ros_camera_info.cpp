@@ -5,10 +5,10 @@ namespace auto_battlebot
 {
     namespace ros_adapters
     {
-        sensor_msgs::CameraInfo to_ros_camera_info(const CameraInfo &camera_info, const Header &header)
+        sensor_msgs::CameraInfo to_ros_camera_info(const CameraInfo &camera_info)
         {
             sensor_msgs::CameraInfo ros_camera_info;
-            ros_camera_info.header = to_ros_header(header);
+            ros_camera_info.header = to_ros_header(camera_info.header);
             ros_camera_info.height = camera_info.height;
             ros_camera_info.width = camera_info.width;
 

@@ -9,11 +9,9 @@ namespace auto_battlebot
     protected:
         void SetUp() override
         {
-            // Create test header
-            test_header.timestamp = 123.456;
-            test_header.frame_id = FrameId::CAMERA;
-
             // Create test RGB image (3x3 BGR image)
+            test_rgb.header.stamp = 123.456;
+            test_rgb.header.frame_id = FrameId::CAMERA;
             test_rgb.image = cv::Mat(3, 3, CV_8UC3);
             for (int i = 0; i < 9; ++i)
             {
@@ -21,6 +19,8 @@ namespace auto_battlebot
             }
 
             // Create test depth image (3x3 float image)
+            test_depth.header.stamp = 123.456;
+            test_depth.header.frame_id = FrameId::CAMERA;
             test_depth.image = cv::Mat(3, 3, CV_32FC1);
             for (int i = 0; i < 9; ++i)
             {
@@ -28,7 +28,6 @@ namespace auto_battlebot
             }
         }
 
-        Header test_header;
         RgbImage test_rgb;
         DepthImage test_depth;
     };
@@ -36,7 +35,7 @@ namespace auto_battlebot
     // Test header conversion
     TEST_F(RosImageAdapterTest, HeaderConversion)
     {
-        auto ros_header = ros_adapters::to_ros_header(test_header);
+        auto ros_header = ros_adapters::to_ros_header(test_rgb.header);
 
         EXPECT_DOUBLE_EQ(ros_header.stamp.toSec(), 123.456);
         EXPECT_EQ(ros_header.frame_id, "camera");
@@ -45,7 +44,7 @@ namespace auto_battlebot
     // Test RGB image conversion
     TEST_F(RosImageAdapterTest, RgbImageConversion)
     {
-        auto ros_image = ros_adapters::to_ros_image(test_rgb, test_header);
+        auto ros_image = ros_adapters::to_ros_image(test_rgb);
 
         EXPECT_EQ(ros_image.height, 3);
         EXPECT_EQ(ros_image.width, 3);
@@ -63,7 +62,7 @@ namespace auto_battlebot
     // Test depth image conversion
     TEST_F(RosImageAdapterTest, DepthImageConversion)
     {
-        auto ros_image = ros_adapters::to_ros_image(test_depth, test_header);
+        auto ros_image = ros_adapters::to_ros_image(test_depth);
 
         EXPECT_EQ(ros_image.height, 3);
         EXPECT_EQ(ros_image.width, 3);
@@ -79,7 +78,7 @@ namespace auto_battlebot
         RgbImage empty_rgb;
         empty_rgb.image = cv::Mat();
 
-        auto ros_image = ros_adapters::to_ros_image(empty_rgb, test_header);
+        auto ros_image = ros_adapters::to_ros_image(empty_rgb);
 
         EXPECT_EQ(ros_image.height, 0);
         EXPECT_EQ(ros_image.width, 0);
@@ -89,12 +88,12 @@ namespace auto_battlebot
     // Test different frame IDs
     TEST_F(RosImageAdapterTest, DifferentFrameIds)
     {
-        test_header.frame_id = FrameId::VISUAL_ODOMETRY;
-        auto ros_header = ros_adapters::to_ros_header(test_header);
+        test_rgb.header.frame_id = FrameId::VISUAL_ODOMETRY;
+        auto ros_header = ros_adapters::to_ros_header(test_rgb.header);
         EXPECT_EQ(ros_header.frame_id, "visual_odometry");
 
-        test_header.frame_id = FrameId::FIELD;
-        ros_header = ros_adapters::to_ros_header(test_header);
+        test_rgb.header.frame_id = FrameId::FIELD;
+        ros_header = ros_adapters::to_ros_header(test_rgb.header);
         EXPECT_EQ(ros_header.frame_id, "field");
     }
 
@@ -104,7 +103,7 @@ namespace auto_battlebot
         RgbImage large_rgb;
         large_rgb.image = cv::Mat(100, 200, CV_8UC3, cv::Scalar(50, 100, 150));
 
-        auto ros_image = ros_adapters::to_ros_image(large_rgb, test_header);
+        auto ros_image = ros_adapters::to_ros_image(large_rgb);
 
         EXPECT_EQ(ros_image.height, 100);
         EXPECT_EQ(ros_image.width, 200);

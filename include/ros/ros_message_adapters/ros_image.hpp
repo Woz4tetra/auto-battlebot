@@ -19,12 +19,12 @@ namespace auto_battlebot
         /**
          * @brief Convert RgbImage to ROS Image message
          */
-        sensor_msgs::Image to_ros_image(const RgbImage &rgb_image, const Header &header);
+        sensor_msgs::Image to_ros_image(const RgbImage &rgb_image);
 
         /**
          * @brief Convert DepthImage to ROS Image message
          */
-        sensor_msgs::Image to_ros_image(const DepthImage &depth_image, const Header &header);
+        sensor_msgs::Image to_ros_image(const DepthImage &depth_image);
 
     } // namespace ros_adapters
 } // namespace auto_battlebot

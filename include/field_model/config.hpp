@@ -2,6 +2,7 @@
 
 #include "data_structures.hpp"
 #include "field_model/field_model_interface.hpp"
+#include "enums/deeplab_model_type.hpp"
 #include "config_factory.hpp"
 
 namespace auto_battlebot
@@ -23,6 +24,23 @@ namespace auto_battlebot
         PARSE_CONFIG_FIELDS(
             // No additional fields
         )
+    };
+
+    struct DeepLabFieldModelConfiguration : public FieldModelConfiguration
+    {
+        std::string model_path;
+        DeepLabModelType model_type = DeepLabModelType::DeepLabV3;
+        int image_size = 512;
+
+        DeepLabFieldModelConfiguration()
+        {
+            type = "DeepLabFieldModel";
+        }
+
+        PARSE_CONFIG_FIELDS(
+            PARSE_FIELD_STRING_REQUIRED(model_path)
+                PARSE_ENUM(model_type, DeepLabModelType)
+                    PARSE_FIELD(image_size))
     };
 
     std::shared_ptr<FieldModelInterface> make_field_model(const FieldModelConfiguration &config);

@@ -11,3 +11,5 @@ build-essential
 libopencv-dev
 libboost-all-dev
 libeigen3-dev
+unzip
+wget

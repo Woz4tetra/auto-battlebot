@@ -4,12 +4,13 @@
 #include <opencv2/opencv.hpp>
 #include "header.hpp"
 #include "transform.hpp"
+#include "enums/label.hpp"
 
 namespace auto_battlebot
 {
     struct Mask
     {
-        std::string label;
+        Label label;
         cv::Mat mask;
     };
 

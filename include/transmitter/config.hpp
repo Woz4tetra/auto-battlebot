@@ -25,6 +25,19 @@ namespace auto_battlebot
         )
     };
 
+    struct PlaybackTransmitterConfiguration : public TransmitterConfiguration
+    {
+        double init_delay_seconds = 0.0;
+
+        PlaybackTransmitterConfiguration()
+        {
+            type = "PlaybackTransmitter";
+        }
+
+        PARSE_CONFIG_FIELDS(
+            PARSE_FIELD_DOUBLE(init_delay_seconds))
+    };
+
     std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config);
     std::unique_ptr<TransmitterConfiguration> parse_transmitter_config(ConfigParser &parser);
 } // namespace auto_battlebot

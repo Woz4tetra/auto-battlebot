@@ -53,6 +53,7 @@ namespace auto_battlebot
 
     void Runner::initialize_field(const CameraData &camera_data)
     {
+        std::cout << "Initializing field" << std::endl;
         field_filter_->reset(camera_data.tf_visodom_from_camera);
         FieldMaskStamped field_mask = field_model_->update(camera_data.rgb);
         publisher_->publish_field_mask(field_mask);

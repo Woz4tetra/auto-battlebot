@@ -1,8 +1,8 @@
-#include "ros/initialize_ros_topics.hpp"
+#include "diagnostics_logger/initialize_diagnostics_logger.hpp"
 
 namespace auto_battlebot
 {
-    void initialize_ros_topics(miniros::NodeHandle &nh)
+    void initialize_diagnostics_logger(miniros::NodeHandle &nh)
     {
         auto diagnostics_publisher = std::make_shared<miniros::Publisher>(
             nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 100));

@@ -11,7 +11,7 @@ namespace auto_battlebot
         /**
          * @brief Convert CameraInfo to ROS CameraInfo message
          */
-        sensor_msgs::CameraInfo to_ros_camera_info(const CameraInfo &camera_info, const Header &header);
+        sensor_msgs::CameraInfo to_ros_camera_info(const CameraInfo &camera_info);
 
     } // namespace ros_adapters
 } // namespace auto_battlebot

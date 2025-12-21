@@ -9,7 +9,11 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Source helper functions
 source "$PROJECT_ROOT/install/check_jetson_orin_nano.sh"
 source "$PROJECT_ROOT/install/install_packages.sh"
+source "$PROJECT_ROOT/install/install_libtorch_jetson.sh"
+source "$PROJECT_ROOT/install/build_cpp_project.sh"
 
 # Run checks and installation
 check_jetson_orin_nano
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
+install_libtorch_jetson "/usr/local"
+build_cpp_project "$@"

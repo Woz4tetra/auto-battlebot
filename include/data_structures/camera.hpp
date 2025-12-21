@@ -3,11 +3,13 @@
 #include <opencv2/opencv.hpp>
 #include "transform.hpp"
 #include "image.hpp"
+#include "header.hpp"
 
 namespace auto_battlebot
 {
     struct CameraInfo
     {
+        Header header;
         int width;
         int height;
         cv::Mat intrinsics;

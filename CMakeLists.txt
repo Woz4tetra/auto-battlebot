@@ -76,6 +76,9 @@ find_package(Eigen3 REQUIRED)
 find_package(ZED 5 REQUIRED)
 find_package(CUDA REQUIRED)
 
+# Find LibTorch
+find_package(Torch REQUIRED)
+
 # Mark ZED SDK headers as system headers to suppress their warnings
 include_directories(SYSTEM ${ZED_INCLUDE_DIRS})
 include_directories(SYSTEM ${CUDA_INCLUDE_DIRS})
@@ -123,6 +126,7 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     Threads::Threads
     ${ZED_LIBRARIES}
     ${CUDA_LIBRARIES}
+    ${TORCH_LIBRARIES}
 )
 
 # Compiler flags for the library
@@ -182,6 +186,14 @@ add_custom_target(copy_config_files ALL
     COMMENT "Copying config directory to build directory"
 )
 add_dependencies(auto_battlebot copy_config_files)
+
+# Create symlink to models directory in build directory
+add_custom_command(TARGET auto_battlebot POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E create_symlink
+        ${CMAKE_SOURCE_DIR}/models
+        ${CMAKE_BINARY_DIR}/models
+    COMMENT "Creating symlink to models directory"
+)
 
 # Install targets
 install(TARGETS auto_battlebot auto_battlebot_lib

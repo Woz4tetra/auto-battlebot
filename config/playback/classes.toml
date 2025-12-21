@@ -9,7 +9,8 @@ svo_real_time_mode = true
 position_tracking = false
 
 [field_model]
-type = "NoopFieldModel"
+type = "DeepLabFieldModel"
+model_path = "models/field_deeplabv3_r50_2024-09-05.torchscript"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -24,7 +25,8 @@ type = "NoopRobotFilter"
 type = "NoopNavigation"
 
 [transmitter]
-type = "NoopTransmitter"
+type = "PlaybackTransmitter"
+init_delay_seconds = 0.0
 
 [publisher]
 type = "RosPublisher"

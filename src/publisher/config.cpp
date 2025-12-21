@@ -21,7 +21,7 @@ namespace auto_battlebot
         {
             auto rgb_image_publisher = std::make_shared<miniros::Publisher>(nh.advertise<sensor_msgs::Image>("/camera/image", 10));
             auto camera_info_publisher = std::make_shared<miniros::Publisher>(nh.advertise<sensor_msgs::CameraInfo>("/camera/camera_info", 10));
-            auto field_mask_publisher = std::make_shared<miniros::Publisher>(nh.advertise<sensor_msgs::Image>("/field_mask", 10));
+            auto field_mask_publisher = std::make_shared<miniros::Publisher>(nh.advertise<sensor_msgs::Image>("/field_mask", 10, true));
             auto tf_publisher = std::make_shared<miniros::Publisher>(nh.advertise<tf2_msgs::TFMessage>("/tf", 10));
             auto static_tf_publisher = std::make_shared<miniros::Publisher>(nh.advertise<tf2_msgs::TFMessage>("/tf_static", 10));
             auto field_marker_publisher = std::make_shared<miniros::Publisher>(nh.advertise<visualization_msgs::Marker>("/field_markers", 10));

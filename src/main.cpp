@@ -3,7 +3,7 @@
 
 #include "config.hpp"
 #include "runner.hpp"
-#include "ros/initialize_ros_topics.hpp"
+#include "diagnostics_logger/initialize_diagnostics_logger.hpp"
 
 int main(int argc, char **argv)
 {
@@ -32,7 +32,7 @@ int main(int argc, char **argv)
     miniros::init(remappings, "auto_battlebot");
 
     miniros::NodeHandle nh;
-    initialize_ros_topics(nh);
+    initialize_diagnostics_logger(nh);
 
     // Create interface instances using factory functions
     auto camera = make_rgbd_camera(*class_config.camera);

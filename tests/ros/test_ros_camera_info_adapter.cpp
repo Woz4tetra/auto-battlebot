@@ -8,8 +8,8 @@ namespace auto_battlebot
     protected:
         void SetUp() override
         {
-            test_header.timestamp = 123.456;
-            test_header.frame_id = FrameId::CAMERA;
+            test_camera_info.header.stamp = 123.456;
+            test_camera_info.header.frame_id = FrameId::CAMERA;
 
             // Create 3x3 intrinsics matrix
             test_camera_info.width = 640;
@@ -29,14 +29,13 @@ namespace auto_battlebot
             test_camera_info.distortion.at<double>(4) = 0.05;
         }
 
-        Header test_header;
         CameraInfo test_camera_info;
     };
 
     // Test basic conversion
     TEST_F(RosCameraInfoAdapterTest, BasicConversion)
     {
-        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info, test_header);
+        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info);
 
         EXPECT_EQ(ros_camera_info.height, 480);
         EXPECT_EQ(ros_camera_info.width, 640);
@@ -46,7 +45,7 @@ namespace auto_battlebot
     // Test intrinsics matrix (K)
     TEST_F(RosCameraInfoAdapterTest, IntrinsicsMatrix)
     {
-        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info, test_header);
+        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info);
 
         EXPECT_DOUBLE_EQ(ros_camera_info.K[0], 500.0); // fx
         EXPECT_DOUBLE_EQ(ros_camera_info.K[1], 0.0);
@@ -62,7 +61,7 @@ namespace auto_battlebot
     // Test distortion coefficients
     TEST_F(RosCameraInfoAdapterTest, DistortionCoefficients)
     {
-        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info, test_header);
+        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info);
 
         EXPECT_EQ(ros_camera_info.D.size(), 5);
         EXPECT_DOUBLE_EQ(ros_camera_info.D[0], 0.1);
@@ -75,7 +74,7 @@ namespace auto_battlebot
     // Test rectification matrix (R) - should be identity
     TEST_F(RosCameraInfoAdapterTest, RectificationMatrix)
     {
-        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info, test_header);
+        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info);
 
         // R should be identity
         EXPECT_DOUBLE_EQ(ros_camera_info.R[0], 1.0);
@@ -92,7 +91,7 @@ namespace auto_battlebot
     // Test projection matrix (P) - should be [K | 0]
     TEST_F(RosCameraInfoAdapterTest, ProjectionMatrix)
     {
-        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info, test_header);
+        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info);
 
         // First 3x3 should match K
         EXPECT_DOUBLE_EQ(ros_camera_info.P[0], 500.0);
@@ -114,7 +113,7 @@ namespace auto_battlebot
     {
         test_camera_info.distortion = cv::Mat();
 
-        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info, test_header);
+        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info);
 
         EXPECT_EQ(ros_camera_info.D.size(), 0);
     }
@@ -122,7 +121,7 @@ namespace auto_battlebot
     // Test header
     TEST_F(RosCameraInfoAdapterTest, HeaderInfo)
     {
-        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info, test_header);
+        auto ros_camera_info = ros_adapters::to_ros_camera_info(test_camera_info);
 
         EXPECT_DOUBLE_EQ(ros_camera_info.header.stamp.toSec(), 123.456);
         EXPECT_EQ(ros_camera_info.header.frame_id, "camera");

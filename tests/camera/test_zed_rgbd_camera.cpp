@@ -59,7 +59,7 @@ namespace auto_battlebot
         EXPECT_EQ(data.depth.image.rows, data.camera_info.height);
 
         // Verify transform data
-        EXPECT_GT(data.tf_visodom_from_camera.header.timestamp, 0.0);
+        EXPECT_GT(data.tf_visodom_from_camera.header.stamp, 0.0);
         EXPECT_EQ(data.tf_visodom_from_camera.header.frame_id, FrameId::VISUAL_ODOMETRY);
         EXPECT_EQ(data.tf_visodom_from_camera.child_frame_id, FrameId::CAMERA);
         EXPECT_EQ(data.tf_visodom_from_camera.transform.tf.rows(), 4);
@@ -80,13 +80,13 @@ namespace auto_battlebot
         ASSERT_TRUE(camera.update());
 
         const CameraData &data1 = camera.get();
-        double timestamp1 = data1.tf_visodom_from_camera.header.timestamp;
+        double timestamp1 = data1.tf_visodom_from_camera.header.stamp;
 
         // Update again
         ASSERT_TRUE(camera.update());
 
         const CameraData &data2 = camera.get();
-        double timestamp2 = data2.tf_visodom_from_camera.header.timestamp;
+        double timestamp2 = data2.tf_visodom_from_camera.header.stamp;
 
         // Camera info should remain constant
         EXPECT_EQ(data1.camera_info.width, data2.camera_info.width);

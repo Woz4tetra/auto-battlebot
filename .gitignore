@@ -54,3 +54,6 @@ log/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Specific directories
+/models

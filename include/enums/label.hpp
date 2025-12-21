@@ -4,6 +4,7 @@ namespace auto_battlebot
 {
     enum class Label
     {
+        FIELD,
         MR_STABS_MK1,
         MR_STABS_MK2,
         MRS_BUFF_MK1,
