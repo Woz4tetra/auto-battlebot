@@ -1,4 +1,5 @@
 #include "ros/ros_message_adapters/ros_marker.hpp"
+#include "transform_utils.hpp"
 
 namespace auto_battlebot
 {
@@ -20,15 +21,18 @@ namespace auto_battlebot
             const auto &tf = field.tf_camera_from_fieldcenter.tf;
             if (tf.rows() >= 3 && tf.cols() >= 4)
             {
-                field_marker.pose.position.x = tf(0, 3);
-                field_marker.pose.position.y = tf(1, 3);
-                field_marker.pose.position.z = tf(2, 3);
+                Position position;
+                Rotation quaternion;
+                matrix_to_position_quaternion(tf, position, quaternion);
 
-                // Extract rotation (simplified - assumes no rotation for now)
-                field_marker.pose.orientation.w = 1.0;
-                field_marker.pose.orientation.x = 0.0;
-                field_marker.pose.orientation.y = 0.0;
-                field_marker.pose.orientation.z = 0.0;
+                field_marker.pose.position.x = position.x;
+                field_marker.pose.position.y = position.y;
+                field_marker.pose.position.z = position.z;
+
+                field_marker.pose.orientation.w = quaternion.w;
+                field_marker.pose.orientation.x = quaternion.x;
+                field_marker.pose.orientation.y = quaternion.y;
+                field_marker.pose.orientation.z = quaternion.z;
             }
 
             // Set scale from size
