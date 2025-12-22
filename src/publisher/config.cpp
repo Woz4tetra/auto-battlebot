@@ -24,9 +24,9 @@ namespace auto_battlebot
             auto field_mask_publisher = std::make_shared<miniros::Publisher>(nh.advertise<sensor_msgs::Image>("/field_mask", 10, true));
             auto tf_publisher = std::make_shared<miniros::Publisher>(nh.advertise<tf2_msgs::TFMessage>("/tf", 10));
             auto static_tf_publisher = std::make_shared<miniros::Publisher>(nh.advertise<tf2_msgs::TFMessage>("/tf_static", 10));
-            auto field_marker_publisher = std::make_shared<miniros::Publisher>(nh.advertise<visualization_msgs::Marker>("/field_markers", 10));
-            auto keypoint_marker_publisher = std::make_shared<miniros::Publisher>(nh.advertise<visualization_msgs::Marker>("/keypoint_markers", 10));
-            auto robot_marker_publisher = std::make_shared<miniros::Publisher>(nh.advertise<visualization_msgs::Marker>("/robot_markers", 10));
+            auto field_marker_publisher = std::make_shared<miniros::Publisher>(nh.advertise<visualization_msgs::MarkerArray>("/field_markers", 10, true));
+            auto keypoint_marker_publisher = std::make_shared<miniros::Publisher>(nh.advertise<visualization_msgs::MarkerArray>("/keypoint_markers", 10, true));
+            auto robot_marker_publisher = std::make_shared<miniros::Publisher>(nh.advertise<visualization_msgs::MarkerArray>("/robot_markers", 10, true));
 
             return std::make_shared<RosPublisher>(
                 rgb_image_publisher,

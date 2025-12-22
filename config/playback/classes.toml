@@ -13,7 +13,7 @@ type = "DeepLabFieldModel"
 model_path = "models/field_deeplabv3_r50_2024-09-05.torchscript"
 
 [field_filter]
-type = "NoopFieldFilter"
+type = "PointCloudFieldFilter"
 
 [keypoint_model]
 type = "NoopKeypointModel"

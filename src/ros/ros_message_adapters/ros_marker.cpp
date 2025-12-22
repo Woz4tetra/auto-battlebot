@@ -8,44 +8,89 @@ namespace auto_battlebot
 {
     namespace ros_adapters
     {
-        visualization_msgs::Marker to_ros_field_marker(const FieldDescription &field)
+        std::vector<visualization_msgs::Marker> to_ros_field_marker(const FieldDescription &field)
         {
-            visualization_msgs::Marker marker;
-            marker.header = to_ros_header(field.header);
-            marker.ns = "field";
-            marker.id = 0;
-            marker.type = visualization_msgs::Marker::CUBE;
-            marker.action = visualization_msgs::Marker::ADD;
+            std::vector<visualization_msgs::Marker> markers;
+
+            // Create field cuboid marker
+            visualization_msgs::Marker field_marker;
+            field_marker.header = to_ros_header(field.header);
+            field_marker.ns = "field";
+            field_marker.id = 0;
+            field_marker.type = visualization_msgs::Marker::CUBE;
+            field_marker.action = visualization_msgs::Marker::ADD;
 
             // Set pose from transform
             const auto &tf = field.tf_camera_from_fieldcenter.tf;
             if (tf.rows() >= 3 && tf.cols() >= 4)
             {
-                marker.pose.position.x = tf(0, 3);
-                marker.pose.position.y = tf(1, 3);
-                marker.pose.position.z = tf(2, 3);
+                field_marker.pose.position.x = tf(0, 3);
+                field_marker.pose.position.y = tf(1, 3);
+                field_marker.pose.position.z = tf(2, 3);
 
                 // Extract rotation (simplified - assumes no rotation for now)
-                marker.pose.orientation.w = 1.0;
-                marker.pose.orientation.x = 0.0;
-                marker.pose.orientation.y = 0.0;
-                marker.pose.orientation.z = 0.0;
+                field_marker.pose.orientation.w = 1.0;
+                field_marker.pose.orientation.x = 0.0;
+                field_marker.pose.orientation.y = 0.0;
+                field_marker.pose.orientation.z = 0.0;
             }
 
             // Set scale from size
-            marker.scale.x = field.size.size.x;
-            marker.scale.y = field.size.size.y;
-            marker.scale.z = 0.01; // Thin rectangle for field
+            field_marker.scale.x = field.size.size.x;
+            field_marker.scale.y = field.size.size.y;
+            field_marker.scale.z = 0.01; // Thin rectangle for field
 
             // Set color (green field)
-            marker.color.r = 0.0f;
-            marker.color.g = 1.0f;
-            marker.color.b = 0.0f;
-            marker.color.a = 0.5f; // Semi-transparent
+            field_marker.color.r = 0.0f;
+            field_marker.color.g = 1.0f;
+            field_marker.color.b = 0.0f;
+            field_marker.color.a = 0.5f; // Semi-transparent
 
-            marker.frame_locked = false;
+            field_marker.frame_locked = false;
 
-            return marker;
+            markers.push_back(field_marker);
+
+            // Create inlier points marker
+            if (field.inlier_points.cloud && !field.inlier_points.cloud->points.empty())
+            {
+                visualization_msgs::Marker points_marker;
+                points_marker.header = to_ros_header(field.header);
+                points_marker.ns = "field_inliers";
+                points_marker.id = 1;
+                points_marker.type = visualization_msgs::Marker::POINTS;
+                points_marker.action = visualization_msgs::Marker::ADD;
+
+                points_marker.pose.orientation.w = 1.0;
+                points_marker.pose.orientation.x = 0.0;
+                points_marker.pose.orientation.y = 0.0;
+                points_marker.pose.orientation.z = 0.0;
+
+                // Set point size
+                points_marker.scale.x = 0.01; // Point width
+                points_marker.scale.y = 0.01; // Point height
+
+                // Set color (white points)
+                points_marker.color.r = 1.0f;
+                points_marker.color.g = 1.0f;
+                points_marker.color.b = 1.0f;
+                points_marker.color.a = 1.0f;
+
+                // Add all inlier points
+                for (const auto &point : field.inlier_points.cloud->points)
+                {
+                    geometry_msgs::Point p;
+                    p.x = point.x;
+                    p.y = point.y;
+                    p.z = point.z;
+                    points_marker.points.push_back(p);
+                }
+
+                points_marker.frame_locked = false;
+
+                markers.push_back(points_marker);
+            }
+
+            return markers;
         }
 
         std::vector<visualization_msgs::Marker> to_ros_keypoint_markers(const KeypointsStamped &keypoints)

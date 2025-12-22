@@ -16,7 +16,8 @@ namespace auto_battlebot
 
     FieldDescription PointCloudFieldFilter::compute_field(const CameraData &camera_data, const FieldMaskStamped &field_mask)
     {
-        cv::Mat masked_depth_image = mask_depth_image(camera_data.depth.image, field_mask.mask.mask);
+        cv::Mat largest_contour_mask = find_largest_contour_mask(field_mask.mask.mask);
+        cv::Mat masked_depth_image = mask_depth_image(camera_data.depth.image, largest_contour_mask);
         pcl::PointCloud<pcl::PointXYZ>::Ptr field_cloud = create_point_cloud_from_depth(masked_depth_image, camera_data.camera_info.intrinsics);
         std::vector<int> inlier_indices;
         Eigen::Vector4f plane_coefficients = fit_plane_ransac(field_cloud, distance_threshold_, &inlier_indices);
@@ -54,6 +55,37 @@ namespace auto_battlebot
     {
         // Track field implementation
         return FieldDescription{};
+    }
+
+    cv::Mat PointCloudFieldFilter::find_largest_contour_mask(const cv::Mat &mask) const
+    {
+        // Find all contours in the mask
+        std::vector<std::vector<cv::Point>> contours;
+        cv::findContours(mask.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+        if (contours.empty())
+        {
+            return cv::Mat::zeros(mask.size(), mask.type());
+        }
+
+        // Find the contour with the largest area
+        double max_area = 0.0;
+        size_t max_area_idx = 0;
+        for (size_t i = 0; i < contours.size(); ++i)
+        {
+            double area = cv::contourArea(contours[i]);
+            if (area > max_area)
+            {
+                max_area = area;
+                max_area_idx = i;
+            }
+        }
+
+        // Create a new mask with only the largest contour
+        cv::Mat result = cv::Mat::zeros(mask.size(), mask.type());
+        cv::drawContours(result, contours, static_cast<int>(max_area_idx), cv::Scalar(255), cv::FILLED);
+
+        return result;
     }
 
     cv::Mat PointCloudFieldFilter::mask_depth_image(

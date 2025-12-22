@@ -21,6 +21,9 @@ namespace auto_battlebot
     private:
         double distance_threshold_;
 
+        // Helper function to find largest contour and return mask with only that contour
+        cv::Mat find_largest_contour_mask(const cv::Mat &mask) const;
+
         // Helper function to mask depth image with NaNs where mask is zero
         cv::Mat mask_depth_image(
             const cv::Mat &depth_image,

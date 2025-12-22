@@ -6,7 +6,7 @@
 #include <sensor_msgs/CameraInfo.hxx>
 #include <sensor_msgs/PointCloud2.hxx>
 #include <tf2_msgs/TFMessage.hxx>
-#include <visualization_msgs/Marker.hxx>
+#include <visualization_msgs/MarkerArray.hxx>
 
 #include "data_structures.hpp"
 #include "publisher/publisher_interface.hpp"

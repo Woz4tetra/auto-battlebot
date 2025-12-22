@@ -48,12 +48,12 @@ namespace auto_battlebot
             cv::resize(mask, resized_mask, cv::Size(original_width, original_height), 0, 0, cv::INTER_NEAREST);
 
             // Apply border crop padding (same logic as postprocess_output)
-            if (border_crop_padding_ > 0)
+            if (border_padding_ > 0)
             {
-                int top = std::min(border_crop_padding_, resized_mask.rows);
-                int bottom = std::min(border_crop_padding_, resized_mask.rows);
-                int left = std::min(border_crop_padding_, resized_mask.cols);
-                int right = std::min(border_crop_padding_, resized_mask.cols);
+                int top = std::min(border_padding_, resized_mask.rows);
+                int bottom = std::min(border_padding_, resized_mask.rows);
+                int left = std::min(border_padding_, resized_mask.cols);
+                int right = std::min(border_padding_, resized_mask.cols);
 
                 if (top > 0)
                     resized_mask(cv::Rect(0, 0, resized_mask.cols, top)).setTo(0);

@@ -11,9 +11,9 @@ namespace auto_battlebot
     namespace ros_adapters
     {
         /**
-         * @brief Convert FieldDescription to ROS Marker message
+         * @brief Convert FieldDescription to ROS Marker messages (field cuboid and inlier points)
          */
-        visualization_msgs::Marker to_ros_field_marker(const FieldDescription &field);
+        std::vector<visualization_msgs::Marker> to_ros_field_marker(const FieldDescription &field);
 
         /**
          * @brief Convert KeypointsStamped to ROS Marker messages

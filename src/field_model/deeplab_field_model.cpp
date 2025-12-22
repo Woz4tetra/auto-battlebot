@@ -2,8 +2,8 @@
 
 namespace auto_battlebot
 {
-    DeepLabFieldModel::DeepLabFieldModel(const std::string &model_path, DeepLabModelType model_type, int image_size, int border_crop_padding)
-        : model_path_(model_path), model_type_(model_type), image_size_(image_size), border_crop_padding_(border_crop_padding),
+    DeepLabFieldModel::DeepLabFieldModel(const std::string &model_path, DeepLabModelType model_type, int image_size, int border_padding)
+        : model_path_(model_path), model_type_(model_type), image_size_(image_size), border_padding_(border_padding),
           device_(torch::kCPU), initialized_(false)
     {
         diagnostics_logger_ = DiagnosticsLogger::get_logger("deeplab_field_model");
@@ -129,9 +129,23 @@ namespace auto_battlebot
             cv::cvtColor(image, rgb_image, cv::COLOR_BGR2RGB);
         }
 
+        // Add border padding (inflate the image)
+        cv::Mat padded_image;
+        if (border_padding_ > 0)
+        {
+            cv::copyMakeBorder(rgb_image, padded_image,
+                               border_padding_, border_padding_,
+                               border_padding_, border_padding_,
+                               cv::BORDER_REPLICATE);
+        }
+        else
+        {
+            padded_image = rgb_image;
+        }
+
         // Resize to model input size
         cv::Mat resized;
-        cv::resize(rgb_image, resized, cv::Size(image_size_, image_size_));
+        cv::resize(padded_image, resized, cv::Size(image_size_, image_size_));
 
         // Convert to float and normalize to [0, 1]
         cv::Mat float_image;
@@ -176,30 +190,17 @@ namespace auto_battlebot
         cv::Mat mask(image_size_, image_size_, CV_8UC1, segmentation.data_ptr<uint8_t>());
         mask = mask.clone(); // Clone to ensure data ownership
 
-        // Resize back to original dimensions
+        // Resize back to padded dimensions
+        int padded_width = original_width + 2 * border_padding_;
+        int padded_height = original_height + 2 * border_padding_;
         cv::Mat resized_mask;
-        cv::resize(mask, resized_mask, cv::Size(original_width, original_height), 0, 0, cv::INTER_NEAREST);
+        cv::resize(mask, resized_mask, cv::Size(padded_width, padded_height), 0, 0, cv::INTER_NEAREST);
 
-        // Apply border crop padding by setting border pixels to 0 (background)
-        if (border_crop_padding_ > 0)
+        // Crop out the border padding to get back to original dimensions
+        if (border_padding_ > 0)
         {
-            int top = std::min(border_crop_padding_, resized_mask.rows);
-            int bottom = std::min(border_crop_padding_, resized_mask.rows);
-            int left = std::min(border_crop_padding_, resized_mask.cols);
-            int right = std::min(border_crop_padding_, resized_mask.cols);
-
-            // Set top border
-            if (top > 0)
-                resized_mask(cv::Rect(0, 0, resized_mask.cols, top)).setTo(0);
-            // Set bottom border
-            if (bottom > 0)
-                resized_mask(cv::Rect(0, resized_mask.rows - bottom, resized_mask.cols, bottom)).setTo(0);
-            // Set left border
-            if (left > 0)
-                resized_mask(cv::Rect(0, 0, left, resized_mask.rows)).setTo(0);
-            // Set right border
-            if (right > 0)
-                resized_mask(cv::Rect(resized_mask.cols - right, 0, right, resized_mask.rows)).setTo(0);
+            cv::Rect roi(border_padding_, border_padding_, original_width, original_height);
+            resized_mask = resized_mask(roi).clone();
         }
 
         return resized_mask;

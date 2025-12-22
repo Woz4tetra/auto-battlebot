@@ -26,7 +26,7 @@ namespace auto_battlebot
         std::string model_path_;
         DeepLabModelType model_type_;
         int image_size_;
-        int border_crop_padding_;
+        int border_padding_;
         torch::jit::script::Module model_;
         torch::Device device_;
         bool initialized_;

@@ -13,9 +13,9 @@ namespace auto_battlebot
         std::shared_ptr<miniros::Publisher> field_mask_publisher,      // sensor_msgs::Image
         std::shared_ptr<miniros::Publisher> tf_publisher,              // tf2_msgs::TFMessage
         std::shared_ptr<miniros::Publisher> static_tf_publisher,       // tf2_msgs::TFMessage
-        std::shared_ptr<miniros::Publisher> field_marker_publisher,    // visualization_msgs::Marker
-        std::shared_ptr<miniros::Publisher> keypoint_marker_publisher, // visualization_msgs::Marker
-        std::shared_ptr<miniros::Publisher> robot_marker_publisher     // visualization_msgs::Marker
+        std::shared_ptr<miniros::Publisher> field_marker_publisher,    // visualization_msgs::MarkerArray
+        std::shared_ptr<miniros::Publisher> keypoint_marker_publisher, // visualization_msgs::MarkerArray
+        std::shared_ptr<miniros::Publisher> robot_marker_publisher     // visualization_msgs::MarkerArray
     )
     {
         rgb_image_publisher_ = rgb_image_publisher;
@@ -86,8 +86,9 @@ namespace auto_battlebot
     {
         if (field_marker_publisher_)
         {
-            auto marker = ros_adapters::to_ros_field_marker(field);
-            field_marker_publisher_->publish(marker);
+            visualization_msgs::MarkerArray markers;
+            markers.markers = ros_adapters::to_ros_field_marker(field);
+            field_marker_publisher_->publish(markers);
         }
 
         if (static_tf_publisher_)
@@ -107,11 +108,9 @@ namespace auto_battlebot
     {
         if (keypoint_marker_publisher_)
         {
-            auto markers = ros_adapters::to_ros_keypoint_markers(keypoints);
-            for (const auto &marker : markers)
-            {
-                keypoint_marker_publisher_->publish(marker);
-            }
+            visualization_msgs::MarkerArray markers;
+            markers.markers = ros_adapters::to_ros_keypoint_markers(keypoints);
+            keypoint_marker_publisher_->publish(markers);
         }
     }
 
@@ -119,11 +118,9 @@ namespace auto_battlebot
     {
         if (robot_marker_publisher_)
         {
-            auto markers = ros_adapters::to_ros_robot_markers(robots);
-            for (const auto &marker : markers)
-            {
-                robot_marker_publisher_->publish(marker);
-            }
+            visualization_msgs::MarkerArray markers;
+            markers.markers = ros_adapters::to_ros_robot_markers(robots);
+            robot_marker_publisher_->publish(markers);
         }
 
         if (tf_publisher_)

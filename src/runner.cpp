@@ -135,21 +135,21 @@ namespace auto_battlebot
                 camera_data.tf_visodom_from_camera,
                 initial_field_description_);
         }
-        publisher_->publish_field_description(field_description);
+        // publisher_->publish_field_description(field_description);
 
         KeypointsStamped keypoints;
         {
             FunctionTimer timer(diagnostics_logger_, "keypoint_model.update");
             keypoints = keypoint_model_->update(camera_data.rgb);
         }
-        publisher_->publish_keypoints(keypoints);
+        // publisher_->publish_keypoints(keypoints);
 
         RobotDescriptionsStamped robots;
         {
             FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
             robots = robot_filter_->update(keypoints, field_description);
         }
-        publisher_->publish_robots(robots);
+        // publisher_->publish_robots(robots);
 
         VelocityCommand command = navigation_->update(robots);
         transmitter_->send(command);
