@@ -14,6 +14,7 @@ model_path = "models/field_deeplabv3_r50_2024-09-05.torchscript"
 
 [field_filter]
 type = "PointCloudFieldFilter"
+local_visualize_debug = true
 
 [keypoint_model]
 type = "NoopKeypointModel"

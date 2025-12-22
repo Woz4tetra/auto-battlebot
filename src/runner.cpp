@@ -64,6 +64,7 @@ namespace auto_battlebot
         robot_filter_->initialize(robot_configs_);
         navigation_->initialize();
         initialized_ = true;
+        std::cout << "Field initialized" << std::endl;
     }
 
     int Runner::run()

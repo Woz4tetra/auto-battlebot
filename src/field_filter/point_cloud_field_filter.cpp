@@ -4,32 +4,65 @@
 
 namespace auto_battlebot
 {
-    PointCloudFieldFilter::PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config) : distance_threshold_(config.distance_threshold)
+    PointCloudFieldFilter::PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config) : distance_threshold_(config.distance_threshold),
+                                                                                               local_visualize_debug_(config.local_visualize_debug)
     {
-        // Constructor implementation
+        diagnostics_logger_ = DiagnosticsLogger::get_logger("point_cloud_field_filter");
     }
 
     void PointCloudFieldFilter::reset([[maybe_unused]] TransformStamped tf_visodom_from_camera)
     {
-        // Reset implementation
     }
 
     FieldDescription PointCloudFieldFilter::compute_field(const CameraData &camera_data, const FieldMaskStamped &field_mask)
     {
+        std::cout << "Running compute_field" << std::endl;
         cv::Mat largest_contour_mask = find_largest_contour_mask(field_mask.mask.mask);
+        diagnostics_logger_->debug({{"find_largest_contour_mask",
+                                     DiagnosticsData{{"original_mask_size", std::to_string(field_mask.mask.mask.rows) + "x" + std::to_string(field_mask.mask.mask.cols)},
+                                                     {"largest_contour_area", std::to_string(cv::countNonZero(largest_contour_mask))}}}});
+
         cv::Mat masked_depth_image = mask_depth_image(camera_data.depth.image, largest_contour_mask);
+
         pcl::PointCloud<pcl::PointXYZ>::Ptr field_cloud = create_point_cloud_from_depth(masked_depth_image, camera_data.camera_info.intrinsics);
+        diagnostics_logger_->debug({{"create_point_cloud_from_depth",
+                                     DiagnosticsData{{"num_points", std::to_string(field_cloud->points.size())}}}});
+
         std::vector<int> inlier_indices;
         Eigen::Vector4f plane_coefficients = fit_plane_ransac(field_cloud, distance_threshold_, &inlier_indices);
+        diagnostics_logger_->debug({{"fit_plane_ransac",
+                                     DiagnosticsData{{"num_inliers", std::to_string(inlier_indices.size())},
+                                                     {"plane_a", std::to_string(plane_coefficients[0])},
+                                                     {"plane_b", std::to_string(plane_coefficients[1])},
+                                                     {"plane_c", std::to_string(plane_coefficients[2])},
+                                                     {"plane_d", std::to_string(plane_coefficients[3])}}}});
+
         pcl::PointCloud<pcl::PointXYZ>::Ptr inlier_cloud = extract_inliers(field_cloud, &inlier_indices);
         Eigen::Vector3f plane_normal = plane_normal_from_coefficients(plane_coefficients);
         Eigen::Vector3f plane_center = plane_center_from_inliers(inlier_cloud);
+        diagnostics_logger_->debug({{"plane_properties",
+                                     DiagnosticsData{{"plane_normal_x", std::to_string(plane_normal[0])},
+                                                     {"plane_normal_y", std::to_string(plane_normal[1])},
+                                                     {"plane_normal_z", std::to_string(plane_normal[2])},
+                                                     {"plane_center_x", std::to_string(plane_center[0])},
+                                                     {"plane_center_y", std::to_string(plane_center[1])},
+                                                     {"plane_center_z", std::to_string(plane_center[2])}}}});
+
         Eigen::Matrix4d plane_transform = transform_from_plane(plane_center, plane_normal);
         pcl::PointCloud<pcl::PointXYZ>::Ptr flattened_cloud = transform_points(inlier_cloud, plane_transform.inverse());
+
         std::vector<Eigen::Vector2f> flattened_cloud_2d = point_cloud_to_2d(flattened_cloud);
         std::vector<Eigen::Vector2f> rectangle_corners = find_minimum_rectangle(flattened_cloud_2d);
+        diagnostics_logger_->debug({{"find_minimum_rectangle",
+                                     DiagnosticsData{{"num_corners", std::to_string(rectangle_corners.size())}}}});
+
         Eigen::Vector2f rectangle_extents = get_rectangle_extents(rectangle_corners);
         double rectangle_angle = get_rectangle_angle(rectangle_corners);
+        diagnostics_logger_->debug({{"rectangle_properties",
+                                     DiagnosticsData{{"width", std::to_string(rectangle_extents[0])},
+                                                     {"height", std::to_string(rectangle_extents[1])},
+                                                     {"angle_rad", std::to_string(rectangle_angle)}}}});
+
         if (rectangle_angle > 0)
             rectangle_extents = Eigen::Vector2f(rectangle_extents[1], rectangle_extents[0]);
         Eigen::Vector2f rectangle_centroid = get_rectangle_centroid(rectangle_corners);
@@ -48,6 +81,17 @@ namespace auto_battlebot
         field_description.inlier_points.header = camera_data.depth.header;
         field_description.inlier_points.cloud = inlier_cloud;
 
+        diagnostics_logger_->debug({{"field_description",
+                                     DiagnosticsData{{"field_width", std::to_string(field_size.x)},
+                                                     {"field_height", std::to_string(field_size.y)},
+                                                     {"num_inlier_points", std::to_string(inlier_cloud->points.size())}}}});
+
+        if (local_visualize_debug_)
+        {
+            visualize_debug_mosaic(field_mask.mask.mask, largest_contour_mask, masked_depth_image);
+        }
+
+        std::cout << "compute_field complete" << std::endl;
         return field_description;
     }
 
@@ -530,6 +574,51 @@ namespace auto_battlebot
         }
 
         return angle;
+    }
+
+    void PointCloudFieldFilter::visualize_debug_mosaic(
+        const cv::Mat &original_mask,
+        const cv::Mat &largest_contour_mask,
+        const cv::Mat &masked_depth_image) const
+    {
+        // Create debug visualization mosaic
+        cv::Mat original_mask_vis, largest_contour_vis, masked_depth_vis;
+
+        // Convert masks to 3-channel for visualization
+        cv::cvtColor(original_mask, original_mask_vis, cv::COLOR_GRAY2BGR);
+        cv::cvtColor(largest_contour_mask, largest_contour_vis, cv::COLOR_GRAY2BGR);
+
+        // Normalize masked depth for visualization
+        cv::Mat depth_normalized;
+        cv::normalize(masked_depth_image, depth_normalized, 0, 255, cv::NORM_MINMAX, CV_8U);
+        cv::applyColorMap(depth_normalized, masked_depth_vis, cv::COLORMAP_JET);
+
+        // Replace NaN visualization with black
+        for (int v = 0; v < masked_depth_image.rows; ++v)
+        {
+            for (int u = 0; u < masked_depth_image.cols; ++u)
+            {
+                if (std::isnan(masked_depth_image.at<float>(v, u)))
+                {
+                    masked_depth_vis.at<cv::Vec3b>(v, u) = cv::Vec3b(0, 0, 0);
+                }
+            }
+        }
+
+        // Add labels to each image
+        cv::putText(original_mask_vis, "Original Mask", cv::Point(10, 30),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
+        cv::putText(largest_contour_vis, "Largest Contour", cv::Point(10, 30),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
+        cv::putText(masked_depth_vis, "Masked Depth", cv::Point(10, 30),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
+
+        // Create mosaic (1x3 layout)
+        cv::Mat mosaic;
+        cv::hconcat(std::vector<cv::Mat>{original_mask_vis, largest_contour_vis, masked_depth_vis}, mosaic);
+
+        cv::imshow("Field Filter Debug", mosaic);
+        cv::waitKey(1);
     }
 
 } // namespace auto_battlebot

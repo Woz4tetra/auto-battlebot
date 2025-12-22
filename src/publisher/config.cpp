@@ -13,6 +13,7 @@ namespace auto_battlebot
 
     std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh, const PublisherConfiguration &config)
     {
+        std::cout << "Selected " + config.type + " for Publisher" << std::endl;
         if (config.type == "NoopPublisher")
         {
             return std::make_shared<NoopPublisher>();

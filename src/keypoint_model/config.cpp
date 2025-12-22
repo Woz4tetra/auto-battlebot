@@ -14,6 +14,7 @@ namespace auto_battlebot
 
     std::shared_ptr<KeypointModelInterface> make_keypoint_model(const KeypointModelConfiguration &config)
     {
+        std::cout << "Selected " + config.type + " for KeypointModel" << std::endl;
         if (config.type == "NoopKeypointModel")
         {
             return std::make_shared<NoopKeypointModel>();

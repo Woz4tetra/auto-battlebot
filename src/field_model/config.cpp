@@ -16,6 +16,7 @@ namespace auto_battlebot
 
     std::shared_ptr<FieldModelInterface> make_field_model(const FieldModelConfiguration &config)
     {
+        std::cout << "Selected " + config.type + " for FieldModel" << std::endl;
         if (config.type == "NoopFieldModel")
         {
             return std::make_shared<NoopFieldModel>();

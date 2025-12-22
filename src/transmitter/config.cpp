@@ -16,6 +16,7 @@ namespace auto_battlebot
 
     std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config)
     {
+        std::cout << "Selected " + config.type + " for Transmitter" << std::endl;
         if (config.type == "NoopTransmitter")
         {
             return std::make_shared<NoopTransmitter>();

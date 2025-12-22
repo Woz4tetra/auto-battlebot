@@ -14,6 +14,7 @@ namespace auto_battlebot
 
     std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfiguration &config)
     {
+        std::cout << "Selected " + config.type + " for RobotFilter" << std::endl;
         if (config.type == "NoopRobotFilter")
         {
             return std::make_shared<NoopRobotFilter>();

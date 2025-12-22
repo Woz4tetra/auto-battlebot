@@ -14,6 +14,7 @@ namespace auto_battlebot
 
     std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config)
     {
+        std::cout << "Selected " + config.type + " for Navigation" << std::endl;
         if (config.type == "NoopNavigation")
         {
             return std::make_shared<NoopNavigation>();

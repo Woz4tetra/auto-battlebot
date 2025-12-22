@@ -15,6 +15,7 @@ namespace auto_battlebot
 
     std::shared_ptr<FieldFilterInterface> make_field_filter(const FieldFilterConfiguration &config)
     {
+        std::cout << "Selected " + config.type + " for FieldFilter" << std::endl;
         if (config.type == "NoopFieldFilter")
         {
             return std::make_shared<NoopFieldFilter>();

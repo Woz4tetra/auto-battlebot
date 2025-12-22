@@ -16,6 +16,7 @@ namespace auto_battlebot
 
     std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfiguration &config)
     {
+        std::cout << "Selected " + config.type + " for RgbdCamera" << std::endl;
         if (config.type == "NoopRgbdCamera")
         {
             return std::make_shared<NoopRgbdCamera>();
