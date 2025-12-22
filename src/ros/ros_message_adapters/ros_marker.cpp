@@ -1,8 +1,4 @@
 #include "ros/ros_message_adapters/ros_marker.hpp"
-#include "ros/ros_message_adapters/ros_image.hpp"
-#include <geometry_msgs/Point.hxx>
-#include <geometry_msgs/Vector3.hxx>
-#include <std_msgs/ColorRGBA.hxx>
 
 namespace auto_battlebot
 {

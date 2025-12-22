@@ -4,6 +4,8 @@
 #include "field_model/field_model_interface.hpp"
 #include "enums/deeplab_model_type.hpp"
 #include "config_factory.hpp"
+#include "config_cast.hpp"
+#include "config_parser.hpp"
 
 namespace auto_battlebot
 {
@@ -31,7 +33,7 @@ namespace auto_battlebot
         std::string model_path;
         DeepLabModelType model_type = DeepLabModelType::DeepLabV3;
         int image_size = 344;
-        int border_crop_padding = 25;
+        int border_padding = 25;
 
         DeepLabFieldModelConfiguration()
         {
@@ -43,7 +45,7 @@ namespace auto_battlebot
             PARSE_FIELD_STRING_REQUIRED(model_path)
             PARSE_ENUM(model_type, DeepLabModelType)
             PARSE_FIELD(image_size)
-            PARSE_FIELD(border_crop_padding))
+            PARSE_FIELD(border_padding))
         // clang-format on
     };
 

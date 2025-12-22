@@ -1,10 +1,4 @@
 #include "config.hpp"
-#include "config_parser.hpp"
-#include "directories.hpp"
-#include <fstream>
-#include <iostream>
-#include <toml++/toml.h>
-#include <magic_enum.hpp>
 
 namespace auto_battlebot
 {

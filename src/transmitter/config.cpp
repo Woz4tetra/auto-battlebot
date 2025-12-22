@@ -1,7 +1,6 @@
 #include "transmitter/config.hpp"
 #include "transmitter/noop_transmitter.hpp"
 #include "transmitter/playback_transmitter.hpp"
-#include "config_parser.hpp"
 
 namespace auto_battlebot
 {

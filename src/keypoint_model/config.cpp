@@ -1,6 +1,5 @@
 #include "keypoint_model/config.hpp"
 #include "keypoint_model/noop_keypoint_model.hpp"
-#include "config_parser.hpp"
 
 namespace auto_battlebot
 {

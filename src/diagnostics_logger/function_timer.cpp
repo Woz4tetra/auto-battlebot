@@ -1,7 +1,4 @@
 #include "diagnostics_logger/function_timer.hpp"
-#include <sstream>
-#include <iomanip>
-#include <diagnostic_msgs/DiagnosticStatus.hxx>
 
 namespace auto_battlebot
 {

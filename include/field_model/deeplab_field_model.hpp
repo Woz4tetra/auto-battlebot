@@ -10,6 +10,7 @@
 #include "diagnostics_logger/function_timer.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
+#include "field_model/config.hpp"
 #include "time_utils.hpp"
 
 namespace auto_battlebot
@@ -17,7 +18,7 @@ namespace auto_battlebot
     class DeepLabFieldModel : public FieldModelInterface
     {
     public:
-        DeepLabFieldModel(const std::string &model_path, DeepLabModelType model_type, int image_size = 512, int border_crop_padding = 20);
+        DeepLabFieldModel(DeepLabFieldModelConfiguration &config);
 
         bool initialize() override;
         FieldMaskStamped update(RgbImage image) override;

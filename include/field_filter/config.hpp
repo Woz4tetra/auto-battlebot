@@ -27,8 +27,9 @@ namespace auto_battlebot
 
     struct PointCloudFieldFilterConfiguration : public FieldFilterConfiguration
     {
-        double distance_threshold = 0.01;
+        double distance_threshold = 0.1;
         bool local_visualize_debug = false;
+        double depth_units_per_meter = 1000.0;
 
         PointCloudFieldFilterConfiguration()
         {
@@ -39,6 +40,7 @@ namespace auto_battlebot
         PARSE_CONFIG_FIELDS(
             PARSE_FIELD_DOUBLE(distance_threshold)
             PARSE_FIELD_BOOL(local_visualize_debug)
+            PARSE_FIELD_DOUBLE(depth_units_per_meter)
         )
         // clang-format on
     };

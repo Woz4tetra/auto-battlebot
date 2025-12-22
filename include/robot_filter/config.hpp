@@ -3,6 +3,7 @@
 #include "data_structures.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "config_factory.hpp"
+#include "config_parser.hpp"
 
 namespace auto_battlebot
 {

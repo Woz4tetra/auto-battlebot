@@ -1,6 +1,4 @@
 #include "diagnostics_logger/diagnostics_utils.hpp"
-#include <diagnostic_msgs/KeyValue.hxx>
-#include <sstream>
 
 namespace auto_battlebot
 {

@@ -2,11 +2,14 @@
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include <pcl/sample_consensus/ransac.h>
+#include <pcl/sample_consensus/sac_model_plane.h>
 #include <Eigen/Dense>
 #include "field_filter/field_filter_interface.hpp"
 #include "field_filter/config.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
+#include "diagnostics_logger/function_timer.hpp"
 
 namespace auto_battlebot
 {
@@ -23,6 +26,7 @@ namespace auto_battlebot
     private:
         double distance_threshold_;
         bool local_visualize_debug_;
+        double depth_units_per_meter_;
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
         // Helper function to find largest contour and return mask with only that contour

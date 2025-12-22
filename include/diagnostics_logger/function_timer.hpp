@@ -3,6 +3,9 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <sstream>
+#include <iomanip>
+#include <diagnostic_msgs/DiagnosticStatus.hxx>
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 
 namespace auto_battlebot

@@ -2,9 +2,11 @@
 
 namespace auto_battlebot
 {
-    DeepLabFieldModel::DeepLabFieldModel(const std::string &model_path, DeepLabModelType model_type, int image_size, int border_padding)
-        : model_path_(model_path), model_type_(model_type), image_size_(image_size), border_padding_(border_padding),
-          device_(torch::kCPU), initialized_(false)
+    DeepLabFieldModel::DeepLabFieldModel(DeepLabFieldModelConfiguration &config) : model_path_(config.model_path),
+                                                                                   model_type_(config.model_type),
+                                                                                   image_size_(config.image_size),
+                                                                                   border_padding_(config.border_padding),
+                                                                                   device_(torch::kCPU), initialized_(false)
     {
         diagnostics_logger_ = DiagnosticsLogger::get_logger("deeplab_field_model");
         // Check if CUDA is available

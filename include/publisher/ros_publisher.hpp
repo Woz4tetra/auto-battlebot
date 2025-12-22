@@ -2,6 +2,11 @@
 
 #include <miniros/publisher.h>
 #include "publisher/publisher_interface.hpp"
+#include "ros/ros_message_adapters/ros_image.hpp"
+#include "ros/ros_message_adapters/ros_camera_info.hpp"
+#include "ros/ros_message_adapters/ros_marker.hpp"
+#include "ros/ros_message_adapters/ros_tf2.hpp"
+#include "colorize_labels.hpp"
 
 namespace auto_battlebot
 {

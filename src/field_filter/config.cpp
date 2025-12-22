@@ -1,6 +1,8 @@
 #include "field_filter/config.hpp"
 #include "field_filter/noop_field_filter.hpp"
+#include "field_filter/point_cloud_field_filter.hpp"
 #include "config_parser.hpp"
+#include "config_cast.hpp"
 
 namespace auto_battlebot
 {
@@ -22,7 +24,8 @@ namespace auto_battlebot
         }
         else if (config.type == "PointCloudFieldFilter")
         {
-            return std::make_shared<NoopFieldFilter>();
+            return std::make_shared<PointCloudFieldFilter>(
+                config_cast<PointCloudFieldFilterConfiguration>(config));
         }
         throw std::invalid_argument("Failed to load FieldFilter of type " + config.type);
     }

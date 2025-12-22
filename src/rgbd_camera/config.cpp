@@ -1,7 +1,6 @@
 #include "rgbd_camera/config.hpp"
 #include "rgbd_camera/noop_rgbd_camera.hpp"
 #include "rgbd_camera/zed_rgbd_camera.hpp"
-#include "config_parser.hpp"
 
 namespace auto_battlebot
 {
@@ -23,9 +22,8 @@ namespace auto_battlebot
         }
         else if (config.type == "ZedRgbdCamera")
         {
-            auto &zed_config = static_cast<const ZedRgbdCameraConfiguration &>(config);
-            auto zed_config_copy = const_cast<ZedRgbdCameraConfiguration &>(zed_config);
-            return std::make_shared<ZedRgbdCamera>(zed_config_copy);
+            return std::make_shared<ZedRgbdCamera>(
+                config_cast<ZedRgbdCameraConfiguration>(config));
         }
         throw std::invalid_argument("Failed to load RgbdCamera of type " + config.type);
     }

@@ -3,6 +3,10 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <fstream>
+#include <iostream>
+#include <toml++/toml.h>
+#include <magic_enum.hpp>
 #include "data_structures.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "rgbd_camera/config.hpp"
@@ -20,6 +24,8 @@
 #include "transmitter/config.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "publisher/config.hpp"
+#include "config_parser.hpp"
+#include "directories.hpp"
 
 namespace auto_battlebot
 {

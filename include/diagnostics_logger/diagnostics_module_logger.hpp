@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <set>
+#include <algorithm>
 #include <diagnostic_msgs/DiagnosticStatus.hxx>
 #include "diagnostics_logger/diagnostics_utils.hpp"
 

@@ -3,6 +3,7 @@
 #include <sensor_msgs/CameraInfo.hxx>
 #include "data_structures/camera.hpp"
 #include "data_structures/header.hpp"
+#include "ros/ros_message_adapters/ros_image.hpp"
 
 namespace auto_battlebot
 {

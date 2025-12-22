@@ -1,6 +1,5 @@
 #include "navigation/config.hpp"
 #include "navigation/noop_navigation.hpp"
-#include "config_parser.hpp"
 
 namespace auto_battlebot
 {

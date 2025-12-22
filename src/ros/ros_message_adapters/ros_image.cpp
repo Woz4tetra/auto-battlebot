@@ -1,5 +1,4 @@
 #include "ros/ros_message_adapters/ros_image.hpp"
-#include "enum_to_string_lower.hpp"
 
 namespace auto_battlebot
 {

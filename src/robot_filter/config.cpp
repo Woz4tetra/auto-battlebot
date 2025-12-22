@@ -1,6 +1,5 @@
 #include "robot_filter/config.hpp"
 #include "robot_filter/noop_robot_filter.hpp"
-#include "config_parser.hpp"
 
 namespace auto_battlebot
 {

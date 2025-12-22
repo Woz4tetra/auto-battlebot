@@ -5,6 +5,10 @@
 #include "data_structures/field.hpp"
 #include "data_structures/keypoint.hpp"
 #include "data_structures/robot.hpp"
+#include "ros/ros_message_adapters/ros_image.hpp"
+#include <geometry_msgs/Point.hxx>
+#include <geometry_msgs/Vector3.hxx>
+#include <std_msgs/ColorRGBA.hxx>
 
 namespace auto_battlebot
 {

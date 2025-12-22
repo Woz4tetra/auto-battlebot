@@ -1,5 +1,4 @@
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
-#include <algorithm>
 
 namespace auto_battlebot
 {

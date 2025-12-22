@@ -3,7 +3,9 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <stdexcept>
 #include <miniros/publisher.h>
+#include <std_msgs/Header.hxx>
 #include <diagnostic_msgs/DiagnosticArray.hxx>
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 

@@ -1,5 +1,4 @@
 #include "ros/ros_message_adapters/ros_camera_info.hpp"
-#include "ros/ros_message_adapters/ros_image.hpp"
 
 namespace auto_battlebot
 {

@@ -12,7 +12,7 @@ install_libtorch_ubuntu() {
         return 0
     fi
     
-    echo "LibTorch not found. Installing for Ubuntu 24.04..."
+    echo "LibTorch not found. Installing for Ubuntu..."
     
     
     # Detect CUDA availability

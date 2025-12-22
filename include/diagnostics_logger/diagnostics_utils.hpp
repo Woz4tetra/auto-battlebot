@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include <variant>
+#include <sstream>
+#include <diagnostic_msgs/KeyValue.hxx>
 #include <diagnostic_msgs/DiagnosticStatus.hxx>
 
 namespace auto_battlebot

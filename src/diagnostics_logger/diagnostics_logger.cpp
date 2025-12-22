@@ -1,6 +1,4 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
-#include <std_msgs/Header.hxx>
-#include <stdexcept>
 
 namespace auto_battlebot
 {

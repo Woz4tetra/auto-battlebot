@@ -6,6 +6,7 @@
 
 #include "data_structures/image.hpp"
 #include "data_structures/header.hpp"
+#include "enum_to_string_lower.hpp"
 
 namespace auto_battlebot
 {
