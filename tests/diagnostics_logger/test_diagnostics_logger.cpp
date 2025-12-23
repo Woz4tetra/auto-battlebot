@@ -34,7 +34,7 @@ namespace auto_battlebot
     {
         EXPECT_FALSE(DiagnosticsLogger::is_initialized());
 
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         EXPECT_TRUE(DiagnosticsLogger::is_initialized());
     }
@@ -42,17 +42,17 @@ namespace auto_battlebot
     // Test double initialization throws
     TEST_F(DiagnosticsLoggerTest, DoubleInitializationThrows)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         EXPECT_THROW(
-            DiagnosticsLogger::initialize("test_app2", mock_publisher),
+            DiagnosticsLogger::initialize(mock_publisher),
             std::runtime_error);
     }
 
     // Test get_logger creates new logger
     TEST_F(DiagnosticsLoggerTest, GetLoggerCreatesNew)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger1 = DiagnosticsLogger::get_logger("module1");
         EXPECT_NE(logger1, nullptr);
@@ -66,7 +66,7 @@ namespace auto_battlebot
     // Test get_logger returns same instance
     TEST_F(DiagnosticsLoggerTest, GetLoggerReturnsSameInstance)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger1 = DiagnosticsLogger::get_logger("module1");
         auto logger2 = DiagnosticsLogger::get_logger("module1");
@@ -77,10 +77,10 @@ namespace auto_battlebot
     // Test remove_logger
     TEST_F(DiagnosticsLoggerTest, RemoveLogger)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger = DiagnosticsLogger::get_logger("module1");
-        logger->info({{"value", 1}}, "Test");
+        logger->info("", {{"value", 1}}, "Test");
         EXPECT_TRUE(logger->has_status());
 
         DiagnosticsLogger::remove_logger("module1");
@@ -101,7 +101,7 @@ namespace auto_battlebot
     // Test publish with no statuses doesn't crash
     TEST_F(DiagnosticsLoggerTest, PublishWithNoStatuses)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         // Should not throw
         EXPECT_NO_THROW(DiagnosticsLogger::publish());
@@ -110,13 +110,13 @@ namespace auto_battlebot
     // Test publish clears loggers
     TEST_F(DiagnosticsLoggerTest, PublishClearsLoggers)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger1 = DiagnosticsLogger::get_logger("module1");
         auto logger2 = DiagnosticsLogger::get_logger("module2");
 
-        logger1->info({{"value", 1}}, "Message 1");
-        logger2->warning({{"value", 2}}, "Message 2");
+        logger1->info("", {{"value", 1}}, "Message 1");
+        logger2->warning("", {{"value", 2}}, "Message 2");
 
         EXPECT_TRUE(logger1->has_status());
         EXPECT_TRUE(logger2->has_status());
@@ -133,15 +133,15 @@ namespace auto_battlebot
     // Test multiple modules with different levels
     TEST_F(DiagnosticsLoggerTest, MultipleModulesDifferentLevels)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger1 = DiagnosticsLogger::get_logger("sensors");
         auto logger2 = DiagnosticsLogger::get_logger("motors");
         auto logger3 = DiagnosticsLogger::get_logger("navigation");
 
-        logger1->debug({{"temp", 25}}, "Sensor OK");
-        logger2->warning({{"current", 5}}, "High current");
-        logger3->error({{"error_code", 404}}, "Path not found");
+        logger1->debug("", {{"temp", 25}}, "Sensor OK");
+        logger2->warning("", {{"current", 5}}, "High current");
+        logger3->error("", {{"error_code", 404}}, "Path not found");
 
         // All should have status before publish
         EXPECT_TRUE(logger1->has_status());
@@ -159,30 +159,32 @@ namespace auto_battlebot
     // Test logger accumulates across multiple calls
     TEST_F(DiagnosticsLoggerTest, LoggerAccumulatesData)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger = DiagnosticsLogger::get_logger("test");
 
-        logger->info({{"value1", 1}}, "Message 1");
-        logger->warning({{"value2", 2}}, "Message 2");
-        logger->error({{"value3", 3}}, "Message 3");
+        logger->info("", {{"value1", 1}}, "Message 1");
+        logger->warning("", {{"value2", 2}}, "Message 2");
+        logger->error("", {{"value3", 3}}, "Message 3");
 
-        auto status = logger->get_status();
+        auto statuses = logger->get_status();
+
+        ASSERT_EQ(statuses.size(), 1);
 
         // Should have highest level
-        EXPECT_EQ(status.level, diagnostic_msgs::DiagnosticStatus::ERROR);
+        EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::ERROR);
 
         // Should have concatenated messages
-        EXPECT_EQ(status.message, "Message 1 | Message 2 | Message 3");
+        EXPECT_EQ(statuses[0].message, "Message 1 | Message 2 | Message 3");
 
         // Should have all data
-        EXPECT_EQ(status.values.size(), 3);
+        EXPECT_EQ(statuses[0].values.size(), 3);
     }
 
     // Test empty logger doesn't publish
     TEST_F(DiagnosticsLoggerTest, EmptyLoggerDoesntPublish)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger = DiagnosticsLogger::get_logger("test");
 
@@ -195,15 +197,15 @@ namespace auto_battlebot
     // Test mixed empty and non-empty loggers
     TEST_F(DiagnosticsLoggerTest, MixedEmptyAndNonEmptyLoggers)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger1 = DiagnosticsLogger::get_logger("module1");
         auto logger2 = DiagnosticsLogger::get_logger("module2");
         auto logger3 = DiagnosticsLogger::get_logger("module3");
 
-        logger1->info({{"value", 1}}, "Has status");
+        logger1->info("", {{"value", 1}}, "Has status");
         // logger2 has no status
-        logger3->error({{"value", 3}}, "Also has status");
+        logger3->error("", {{"value", 3}}, "Also has status");
 
         EXPECT_TRUE(logger1->has_status());
         EXPECT_FALSE(logger2->has_status());
@@ -220,18 +222,18 @@ namespace auto_battlebot
     // Test publish cycle
     TEST_F(DiagnosticsLoggerTest, PublishCycle)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger = DiagnosticsLogger::get_logger("test");
 
         // First cycle
-        logger->info({{"cycle", 1}}, "Cycle 1");
+        logger->info("", {{"cycle", 1}}, "Cycle 1");
         EXPECT_TRUE(logger->has_status());
         DiagnosticsLogger::publish();
         EXPECT_FALSE(logger->has_status());
 
         // Second cycle
-        logger->warning({{"cycle", 2}}, "Cycle 2");
+        logger->warning("", {{"cycle", 2}}, "Cycle 2");
         EXPECT_TRUE(logger->has_status());
         DiagnosticsLogger::publish();
         EXPECT_FALSE(logger->has_status());
@@ -245,7 +247,7 @@ namespace auto_battlebot
     // Test logger persistence across publish
     TEST_F(DiagnosticsLoggerTest, LoggerPersistenceAcrossPublish)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger1 = DiagnosticsLogger::get_logger("module1");
         auto logger2 = DiagnosticsLogger::get_logger("module2");
@@ -264,7 +266,7 @@ namespace auto_battlebot
     // Test remove non-existent logger doesn't crash
     TEST_F(DiagnosticsLoggerTest, RemoveNonExistentLogger)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         EXPECT_NO_THROW(DiagnosticsLogger::remove_logger("non_existent"));
     }
@@ -272,13 +274,13 @@ namespace auto_battlebot
     // Test multiple sequential publishes
     TEST_F(DiagnosticsLoggerTest, MultipleSequentialPublishes)
     {
-        DiagnosticsLogger::initialize("test_app", mock_publisher);
+        DiagnosticsLogger::initialize(mock_publisher);
 
         auto logger = DiagnosticsLogger::get_logger("test");
 
         for (int i = 0; i < 5; ++i)
         {
-            logger->info({{"iteration", i}}, "Iteration " + std::to_string(i));
+            logger->info("", {{"iteration", i}}, "Iteration " + std::to_string(i));
             EXPECT_TRUE(logger->has_status());
             EXPECT_NO_THROW(DiagnosticsLogger::publish());
             EXPECT_FALSE(logger->has_status());

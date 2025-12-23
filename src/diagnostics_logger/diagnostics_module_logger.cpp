@@ -3,11 +3,26 @@
 namespace auto_battlebot
 {
     DiagnosticsModuleLogger::DiagnosticsModuleLogger(const std::string &logger_name) : logger_name_(logger_name),
-                                                                                       level_(diagnostic_msgs::DiagnosticStatus::OK),
-                                                                                       data_(std::map<std::string, DiagnosticsData>{})
+                                                                                       level_(diagnostic_msgs::DiagnosticStatus::OK)
     {
     }
 
+    void DiagnosticsModuleLogger::log(int8_t level, const std::string &subsection_name, const DiagnosticsData &data)
+    {
+        log(level, subsection_name, data, "");
+    }
+    void DiagnosticsModuleLogger::log(int8_t level, const std::string &subsection_name, const std::string &message)
+    {
+        log(level, subsection_name, {}, message);
+    }
+    void DiagnosticsModuleLogger::log(int8_t level, const DiagnosticsData &data)
+    {
+        log(level, "", data, "");
+    }
+    void DiagnosticsModuleLogger::log(int8_t level, const std::string &message)
+    {
+        log(level, "", {}, message);
+    }
     void DiagnosticsModuleLogger::log(
         int8_t level,
         const std::string &subsection_name,
@@ -17,11 +32,15 @@ namespace auto_battlebot
         // Update level to the highest severity
         level_ = std::max(level, level_);
 
-        // Add message if not empty and not already logged
-        if (!message.empty() && logged_messages_.find(message) == logged_messages_.end())
+        // Add message if not empty
+        if (!message.empty())
         {
-            logged_messages_.insert(message);
-            messages_.push_back(message);
+            // Get or create subsection message list
+            if (messages_.find(subsection_name) == messages_.end())
+            {
+                messages_[subsection_name] = std::vector<std::string>();
+            }
+            messages_[subsection_name].push_back(message);
         }
 
         // Get or create subsection data map
@@ -41,22 +60,18 @@ namespace auto_battlebot
     {
         debug("", data, "");
     }
-
     void DiagnosticsModuleLogger::debug(const std::string &message)
     {
         debug("", {}, message);
     }
-
     void DiagnosticsModuleLogger::debug(const std::string &subsection_name, const DiagnosticsData &data)
     {
-        debug(subsection_name, {}, "");
+        debug(subsection_name, data, "");
     }
-
     void DiagnosticsModuleLogger::debug(const std::string &subsection_name, const std::string &message)
     {
         debug(subsection_name, {}, message);
     }
-
     void DiagnosticsModuleLogger::debug(const std::string &subsection_name, const DiagnosticsData &data, const std::string &message)
     {
         log(diagnostic_msgs::DiagnosticStatus::OK, subsection_name, data, message);
@@ -66,22 +81,18 @@ namespace auto_battlebot
     {
         info("", data, "");
     }
-
     void DiagnosticsModuleLogger::info(const std::string &message)
     {
         info("", {}, message);
     }
-
     void DiagnosticsModuleLogger::info(const std::string &subsection_name, const DiagnosticsData &data)
     {
-        info(subsection_name, {}, "");
+        info(subsection_name, data, "");
     }
-
     void DiagnosticsModuleLogger::info(const std::string &subsection_name, const std::string &message)
     {
-        error(subsection_name, {}, message);
+        info(subsection_name, {}, message);
     }
-
     void DiagnosticsModuleLogger::info(const std::string &subsection_name, const DiagnosticsData &data, const std::string &message)
     {
         log(diagnostic_msgs::DiagnosticStatus::OK, subsection_name, data, message);
@@ -91,19 +102,17 @@ namespace auto_battlebot
     {
         warning("", data, "");
     }
-
     void DiagnosticsModuleLogger::warning(const std::string &message)
     {
         warning("", {}, message);
     }
-
     void DiagnosticsModuleLogger::warning(const std::string &subsection_name, const DiagnosticsData &data)
     {
-        warning(subsection_name, {}, "");
+        warning(subsection_name, data, "");
     }
     void DiagnosticsModuleLogger::warning(const std::string &subsection_name, const std::string &message)
     {
-        error(subsection_name, {}, message);
+        warning(subsection_name, {}, message);
     }
     void DiagnosticsModuleLogger::warning(const std::string &subsection_name, const DiagnosticsData &data, const std::string &message)
     {
@@ -114,15 +123,13 @@ namespace auto_battlebot
     {
         error("", data, "");
     }
-
     void DiagnosticsModuleLogger::error(const std::string &message)
     {
         error("", {}, message);
     }
-
     void DiagnosticsModuleLogger::error(const std::string &subsection_name, const DiagnosticsData &data)
     {
-        error(subsection_name, {}, "");
+        error(subsection_name, data, "");
     }
     void DiagnosticsModuleLogger::error(const std::string &subsection_name, const std::string &message)
     {
@@ -138,7 +145,6 @@ namespace auto_battlebot
         level_ = diagnostic_msgs::DiagnosticStatus::OK;
         messages_.clear();
         data_.clear();
-        logged_messages_.clear();
     }
 
     bool DiagnosticsModuleLogger::has_status() const
@@ -148,20 +154,24 @@ namespace auto_battlebot
 
     std::vector<diagnostic_msgs::DiagnosticStatus> DiagnosticsModuleLogger::get_status() const
     {
-        // Join messages with " | " separator
-        std::string combined_message;
-        for (size_t i = 0; i < messages_.size(); ++i)
-        {
-            if (i > 0)
-            {
-                combined_message += " | ";
-            }
-            combined_message += messages_[i];
-        }
-
         std::vector<diagnostic_msgs::DiagnosticStatus> diagnostics;
         for (const auto &[subsection_name, data_map] : data_)
         {
+            // Join messages for this subsection with " | " separator
+            std::string combined_message;
+            auto messages_it = messages_.find(subsection_name);
+            if (messages_it != messages_.end())
+            {
+                const auto &subsection_messages = messages_it->second;
+                for (size_t i = 0; i < subsection_messages.size(); ++i)
+                {
+                    if (i > 0)
+                    {
+                        combined_message += " | ";
+                    }
+                    combined_message += subsection_messages[i];
+                }
+            }
 
             diagnostics.push_back(dict_to_diagnostics(
                 data_map,

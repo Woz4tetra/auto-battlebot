@@ -103,8 +103,7 @@ namespace auto_battlebot
         std::string logger_name_;
         std::map<std::string, DiagnosticsData> data_;
         int8_t level_;
-        std::vector<std::string> messages_;
-        std::set<std::string> logged_messages_; // To avoid duplicate messages
+        std::map<std::string, std::vector<std::string>> messages_; // Messages per subsection
     };
 
 } // namespace auto_battlebot

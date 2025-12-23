@@ -25,7 +25,6 @@ namespace auto_battlebot
         {
             loggers_.clear();
             diagnostics_publisher_.reset();
-            logger_name_.clear();
         }
     };
 

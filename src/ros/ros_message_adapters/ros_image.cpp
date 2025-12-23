@@ -20,11 +20,19 @@ namespace auto_battlebot
             ros_image.width = rgb_image.image.cols;
             ros_image.encoding = sensor_msgs::image_encodings::BGR8;
             ros_image.is_bigendian = false;
-            ros_image.step = rgb_image.image.cols * rgb_image.image.elemSize();
 
-            size_t data_size = ros_image.step * ros_image.height;
-            ros_image.data.resize(data_size);
-            std::memcpy(ros_image.data.data(), rgb_image.image.data, data_size);
+            if (rgb_image.image.empty())
+            {
+                ros_image.step = 0;
+                ros_image.data.clear();
+            }
+            else
+            {
+                ros_image.step = rgb_image.image.cols * rgb_image.image.elemSize();
+                size_t data_size = ros_image.step * ros_image.height;
+                ros_image.data.resize(data_size);
+                std::memcpy(ros_image.data.data(), rgb_image.image.data, data_size);
+            }
 
             return ros_image;
         }
@@ -37,11 +45,19 @@ namespace auto_battlebot
             ros_image.width = depth_image.image.cols;
             ros_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
             ros_image.is_bigendian = false;
-            ros_image.step = depth_image.image.cols * depth_image.image.elemSize();
 
-            size_t data_size = ros_image.step * ros_image.height;
-            ros_image.data.resize(data_size);
-            std::memcpy(ros_image.data.data(), depth_image.image.data, data_size);
+            if (depth_image.image.empty())
+            {
+                ros_image.step = 0;
+                ros_image.data.clear();
+            }
+            else
+            {
+                ros_image.step = depth_image.image.cols * depth_image.image.elemSize();
+                size_t data_size = ros_image.step * ros_image.height;
+                ros_image.data.resize(data_size);
+                std::memcpy(ros_image.data.data(), depth_image.image.data, data_size);
+            }
 
             return ros_image;
         }

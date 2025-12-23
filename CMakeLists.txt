@@ -151,6 +151,15 @@ else()
     )
 endif()
 
+# ZED SDK doesn't support debug builds - override flags for ZED-related source files
+if(BUILD_DEBUG)
+    set_source_files_properties(
+        src/rgbd_camera/zed_rgbd_camera.hpp
+        src/rgbd_camera/zed_rgbd_camera.cpp
+        PROPERTIES COMPILE_FLAGS "-Wall -Wextra -O2 -DNDEBUG"
+    )
+endif()
+
 # Create main executable
 add_executable(auto_battlebot
     src/main.cpp
