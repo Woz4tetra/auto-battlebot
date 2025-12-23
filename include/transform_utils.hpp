@@ -2,6 +2,7 @@
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
+#include <string>
 #include "data_structures/transform.hpp"
 #include "data_structures/pose.hpp"
 
@@ -99,5 +100,12 @@ namespace auto_battlebot
      * @return Inverted transform with swapped parent/child frames
      */
     TransformStamped invert_transform(const TransformStamped &transform);
+
+    /**
+     * @brief Convert a TransformStamped to a human-readable string representation
+     * @param transform The transform to convert
+     * @return String representation with frame IDs, position, and rotation
+     */
+    std::string transform_to_string(const TransformStamped &transform);
 
 } // namespace auto_battlebot

@@ -37,8 +37,13 @@ namespace auto_battlebot
     struct FieldDescription
     {
         Header header;
+        FrameId child_frame_id = FrameId::EMPTY;
         Transform tf_camera_from_fieldcenter;
         SizeStamped size;
+    };
+
+    struct FieldDescriptionWithInlierPoints : FieldDescription
+    {
         PointCloud inlier_points;
     };
 

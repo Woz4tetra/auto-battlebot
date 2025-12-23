@@ -29,7 +29,7 @@ namespace auto_battlebot
     {
         double distance_threshold = 0.1;
         bool local_visualize_debug = false;
-        double depth_units_per_meter = 1000.0;
+        double depth_units_per_meter = 1.0;
 
         PointCloudFieldFilterConfiguration()
         {

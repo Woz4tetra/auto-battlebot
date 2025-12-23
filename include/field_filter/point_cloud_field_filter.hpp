@@ -20,8 +20,8 @@ namespace auto_battlebot
         ~PointCloudFieldFilter() override = default;
 
         void reset(TransformStamped tf_visodom_from_camera) override;
-        FieldDescription compute_field(const CameraData &camera_data, const FieldMaskStamped &field_mask) override;
-        FieldDescription track_field(TransformStamped tf_visodom_from_camera, FieldDescription initial_description) override;
+        std::shared_ptr<FieldDescriptionWithInlierPoints> compute_field(const CameraData &camera_data, const FieldMaskStamped &field_mask) override;
+        FieldDescription track_field(TransformStamped tf_visodom_from_camera, std::shared_ptr<FieldDescriptionWithInlierPoints> initial_description) override;
 
     private:
         double distance_threshold_;

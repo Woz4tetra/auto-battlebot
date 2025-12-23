@@ -1,4 +1,7 @@
 #include "transform_utils.hpp"
+#include "enum_to_string_lower.hpp"
+#include <sstream>
+#include <iomanip>
 
 namespace auto_battlebot
 {
@@ -153,6 +156,32 @@ namespace auto_battlebot
         inverted.transform.tf = transform.transform.tf.inverse();
 
         return inverted;
+    }
+
+    std::string transform_to_string(const TransformStamped &transform)
+    {
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(4);
+
+        // Extract position and quaternion from the transform matrix
+        Position position;
+        Rotation quaternion;
+        matrix_to_position_quaternion(transform.transform.tf, position, quaternion);
+
+        // Convert quaternion to Euler angles for readability
+        double roll, pitch, yaw;
+        quaternion_to_euler(quaternion, roll, pitch, yaw);
+
+        oss << "TransformStamped(";
+        oss << "parent=" << enum_to_string_lower(transform.header.frame_id);
+        oss << ", child=" << enum_to_string_lower(transform.child_frame_id);
+        oss << ", time=" << transform.header.stamp;
+        oss << ", pos=[" << position.x << ", " << position.y << ", " << position.z << "]";
+        oss << ", quat=[" << quaternion.w << ", " << quaternion.x << ", " << quaternion.y << ", " << quaternion.z << "]";
+        oss << ", rpy=[" << roll << ", " << pitch << ", " << yaw << "]";
+        oss << ")";
+
+        return oss.str();
     }
 
 } // namespace auto_battlebot

@@ -9,12 +9,12 @@ namespace auto_battlebot
     public:
         void reset([[maybe_unused]] TransformStamped tf_visodom_from_camera) override {}
 
-        FieldDescription compute_field([[maybe_unused]] const CameraData &camera_data, [[maybe_unused]] const FieldMaskStamped &field_mask) override
+        std::shared_ptr<FieldDescriptionWithInlierPoints> compute_field([[maybe_unused]] const CameraData &camera_data, [[maybe_unused]] const FieldMaskStamped &field_mask) override
         {
-            return FieldDescription{};
+            return std::make_shared<FieldDescriptionWithInlierPoints>(FieldDescriptionWithInlierPoints{});
         }
 
-        FieldDescription track_field([[maybe_unused]] TransformStamped tf_visodom_from_camera, [[maybe_unused]] FieldDescription initial_description) override
+        FieldDescription track_field([[maybe_unused]] TransformStamped tf_visodom_from_camera, [[maybe_unused]] std::shared_ptr<FieldDescriptionWithInlierPoints> initial_description) override
         {
             return FieldDescription{};
         }

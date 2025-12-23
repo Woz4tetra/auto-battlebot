@@ -5,7 +5,7 @@ namespace auto_battlebot
 {
     namespace ros_adapters
     {
-        std::vector<visualization_msgs::Marker> to_ros_field_marker(const FieldDescription &field)
+        std::vector<visualization_msgs::Marker> to_ros_field_marker(const FieldDescriptionWithInlierPoints &field)
         {
             std::vector<visualization_msgs::Marker> markers;
 

@@ -12,7 +12,7 @@ namespace auto_battlebot
         params_.camera_resolution = get_zed_resolution(config.camera_resolution);
         params_.depth_mode = get_zed_depth_mode(config.depth_mode);
         params_.coordinate_system = sl::COORDINATE_SYSTEM::IMAGE;
-        params_.coordinate_units = sl::UNIT::MILLIMETER;
+        params_.coordinate_units = sl::UNIT::METER;
 
         // Set SVO file path if provided (for playback instead of live camera)
         if (!config.svo_file_path.empty())

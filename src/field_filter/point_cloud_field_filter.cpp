@@ -13,7 +13,7 @@ namespace auto_battlebot
     {
     }
 
-    FieldDescription PointCloudFieldFilter::compute_field(const CameraData &camera_data, const FieldMaskStamped &field_mask)
+    std::shared_ptr<FieldDescriptionWithInlierPoints> PointCloudFieldFilter::compute_field(const CameraData &camera_data, const FieldMaskStamped &field_mask)
     {
         std::cout << "Running compute_field" << std::endl;
         FunctionTimer timer(diagnostics_logger_, "compute_field_timer");
@@ -44,12 +44,14 @@ namespace auto_battlebot
         Eigen::Matrix4d flat_transform = transform_from_position_and_euler(Eigen::Vector3f(rectangle_centroid[0], rectangle_centroid[1], 0.0), 0.0, 0.0, rectangle_angle);
         Eigen::Matrix4d field_centered_transform = plane_transform * flat_transform;
 
-        FieldDescription field_description;
+        FieldDescriptionWithInlierPoints field_description;
         Size field_size;
         field_size.x = rectangle_extents[0];
         field_size.y = rectangle_extents[1];
         field_size.z = 0.0;
-        field_description.header = camera_data.depth.header;
+        field_description.header.stamp = camera_data.depth.header.stamp;
+        field_description.header.frame_id = FrameId::VISUAL_ODOMETRY;
+        field_description.child_frame_id = FrameId::FIELD;
         field_description.tf_camera_from_fieldcenter.tf = field_centered_transform;
         field_description.size.header = camera_data.depth.header;
         field_description.size.size = field_size;
@@ -92,13 +94,18 @@ namespace auto_battlebot
         }
 
         std::cout << "compute_field complete" << std::endl;
-        return field_description;
+        return std::make_shared<FieldDescriptionWithInlierPoints>(field_description);
     }
 
-    FieldDescription PointCloudFieldFilter::track_field([[maybe_unused]] TransformStamped tf_visodom_from_camera, [[maybe_unused]] FieldDescription initial_description)
+    FieldDescription PointCloudFieldFilter::track_field(TransformStamped tf_visodom_from_camera, std::shared_ptr<FieldDescriptionWithInlierPoints> initial_description)
     {
         // Track field implementation
-        return FieldDescription{};
+        FieldDescription next_field_description{};
+        next_field_description.header = tf_visodom_from_camera.header;
+        next_field_description.size = initial_description->size;
+        Transform tf_visodom_from_fieldcenter = initial_description->tf_camera_from_fieldcenter;
+        next_field_description.tf_camera_from_fieldcenter = Transform{tf_visodom_from_camera.transform.tf.inverse() * tf_visodom_from_fieldcenter.tf};
+        return next_field_description;
     }
 
     cv::Mat PointCloudFieldFilter::find_largest_contour_mask(const cv::Mat &mask) const

@@ -50,7 +50,7 @@ namespace auto_battlebot
         std::shared_ptr<PublisherInterface> publisher_;
 
         bool initialized_;
-        FieldDescription initial_field_description_;
+        std::shared_ptr<FieldDescriptionWithInlierPoints> initial_field_description_;
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
         std::chrono::steady_clock::time_point start_time_;
 

@@ -59,7 +59,7 @@ namespace auto_battlebot
         publisher_->publish_field_mask(field_mask, camera_data.rgb);
 
         initial_field_description_ = field_filter_->compute_field(camera_data, field_mask);
-        publisher_->publish_field_description(initial_field_description_);
+        publisher_->publish_field_description(*initial_field_description_);
 
         robot_filter_->initialize(robot_configs_);
         navigation_->initialize();
@@ -136,7 +136,6 @@ namespace auto_battlebot
                 camera_data.tf_visodom_from_camera,
                 initial_field_description_);
         }
-        // publisher_->publish_field_description(field_description);
 
         KeypointsStamped keypoints;
         {
