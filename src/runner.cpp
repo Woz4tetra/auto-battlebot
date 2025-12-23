@@ -105,10 +105,11 @@ namespace auto_battlebot
 
         transmitter_->update();
 
+        CameraData camera_data;
         bool is_camera_ok;
         {
-            FunctionTimer timer(diagnostics_logger_, "camera.update");
-            is_camera_ok = camera_->update();
+            FunctionTimer timer(diagnostics_logger_, "camera.get");
+            is_camera_ok = camera_->get(camera_data);
         }
 
         if (!is_camera_ok)
@@ -127,7 +128,6 @@ namespace auto_battlebot
             return true;
         }
 
-        const CameraData &camera_data = camera_->get();
         publisher_->publish_camera_data(camera_data);
 
         if (transmitter_->did_init_button_press())

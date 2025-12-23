@@ -69,7 +69,7 @@ namespace auto_battlebot
         }
 
         Header test_header;
-        FieldDescription field_desc;
+        FieldDescriptionWithInlierPoints field_desc;
         KeypointsStamped keypoints;
         RobotDescriptionsStamped robots;
     };
@@ -77,7 +77,10 @@ namespace auto_battlebot
     // Test field marker conversion
     TEST_F(RosMarkerAdapterTest, FieldMarkerConversion)
     {
-        auto marker = ros_adapters::to_ros_field_marker(field_desc);
+        auto markers = ros_adapters::to_ros_field_marker(field_desc);
+
+        ASSERT_FALSE(markers.empty());
+        auto &marker = markers[0];
 
         EXPECT_EQ(marker.ns, "field");
         EXPECT_EQ(marker.id, 0);
@@ -186,9 +189,10 @@ namespace auto_battlebot
     // Test header propagation
     TEST_F(RosMarkerAdapterTest, HeaderPropagation)
     {
-        auto field_marker = ros_adapters::to_ros_field_marker(field_desc);
-        EXPECT_DOUBLE_EQ(field_marker.header.stamp.toSec(), 123.456);
-        EXPECT_EQ(field_marker.header.frame_id, "camera");
+        auto field_markers = ros_adapters::to_ros_field_marker(field_desc);
+        ASSERT_FALSE(field_markers.empty());
+        EXPECT_DOUBLE_EQ(field_markers[0].header.stamp.toSec(), 123.456);
+        EXPECT_EQ(field_markers[0].header.frame_id, "camera");
 
         auto keypoint_markers = ros_adapters::to_ros_keypoint_markers(keypoints);
         EXPECT_DOUBLE_EQ(keypoint_markers[0].header.stamp.toSec(), 123.456);

@@ -8,8 +8,11 @@ namespace auto_battlebot
     {
     public:
         bool initialize() override { return true; }
-        bool update() override { return true; }
-        const CameraData &get() const override { return camera_data_; }
+        bool get(CameraData &data) const override
+        {
+            data = camera_data_;
+            return true;
+        }
         bool should_close() override { return false; }
 
     private:

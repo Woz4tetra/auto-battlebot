@@ -14,10 +14,10 @@ namespace auto_battlebot
     {
         // Verify all operations return expected values
         EXPECT_TRUE(camera.initialize());
-        EXPECT_TRUE(camera.update());
         EXPECT_FALSE(camera.should_close());
 
-        const CameraData &data = camera.get();
+        CameraData data;
+        EXPECT_TRUE(camera.get(data));
         // NoopRgbdCamera returns an empty CameraData
         EXPECT_EQ(data.camera_info.width, 0);
     }
@@ -28,21 +28,32 @@ namespace auto_battlebot
         EXPECT_TRUE(camera.initialize());
         EXPECT_TRUE(camera.initialize());
 
-        EXPECT_TRUE(camera.update());
-        EXPECT_TRUE(camera.update());
-
-        const CameraData &data1 = camera.get();
-        const CameraData &data2 = camera.get();
+        CameraData data1;
+        EXPECT_TRUE(camera.get(data1));
+        CameraData data2;
+        EXPECT_TRUE(camera.get(data2));
         // Both should return the same empty data
         EXPECT_EQ(data1.camera_info.width, data2.camera_info.width);
 
         EXPECT_FALSE(camera.should_close());
     }
 
+    TEST_F(NoopRgbdCameraTest, ShouldCloseAlwaysFalse)
+    {
+        // Verify should_close() always returns false
+        EXPECT_FALSE(camera.should_close());
+        camera.initialize();
+        EXPECT_FALSE(camera.should_close());
+        CameraData data;
+        camera.get(data);
+        EXPECT_FALSE(camera.should_close());
+    }
+
     TEST_F(NoopRgbdCameraTest, GetReturnsConstReference)
     {
-        // Verify get() returns a const reference to internal data
-        const CameraData &data = camera.get();
+        // Verify get() populates the provided data reference
+        CameraData data;
+        EXPECT_TRUE(camera.get(data));
 
         // NoopRgbdCamera returns an empty/default CameraData
         EXPECT_EQ(data.camera_info.width, 0);

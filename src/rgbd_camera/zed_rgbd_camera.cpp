@@ -98,12 +98,6 @@ namespace auto_battlebot
         return true;
     }
 
-    bool ZedRgbdCamera::update()
-    {
-        // This method is now a no-op since the thread handles updates
-        return is_initialized_;
-    }
-
     void ZedRgbdCamera::capture_thread_loop()
     {
         while (!stop_thread_)
@@ -128,15 +122,18 @@ namespace auto_battlebot
             return false;
         }
 
-        // Grab new frame
+        // Grab new frame (without lock)
         sl::ERROR_CODE grab_status = zed_.grab();
         if (grab_status != sl::ERROR_CODE::SUCCESS)
         {
             if (grab_status == sl::ERROR_CODE::END_OF_SVOFILE_REACHED)
             {
-                should_close_ = true;
+                {
+                    std::lock_guard<std::mutex> lock(data_mutex_);
+                    should_close_ = true;
+                }
+                data_cv_.notify_all();
                 std::cout << "End of SVO file reached." << std::endl;
-                data_cv_.notify_all(); // Wake up any threads waiting in get()
             }
             else
             {
@@ -144,6 +141,9 @@ namespace auto_battlebot
             }
             return false;
         }
+
+        // Lock mutex to modify data
+        std::lock_guard<std::mutex> lock(data_mutex_);
 
         // Retrieve RGB image
         sl::ERROR_CODE retrieve_status = zed_.retrieveImage(zed_rgb_, sl::VIEW::LEFT);
@@ -164,9 +164,6 @@ namespace auto_battlebot
         // Get timestamp
         sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE);
         double stamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
-
-        // Lock mutex to update latest_data_
-        std::lock_guard<std::mutex> lock(data_mutex_);
 
         latest_data_.tf_visodom_from_camera.header.stamp = stamp;
         latest_data_.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
@@ -217,8 +214,10 @@ namespace auto_battlebot
         return true;
     }
 
-    const CameraData &ZedRgbdCamera::get() const
+    bool ZedRgbdCamera::get(CameraData &data) const
     {
+        if (!is_initialized_)
+            return false;
         std::unique_lock<std::mutex> lock(data_mutex_);
 
         // Wait for a new frame to be available
@@ -226,7 +225,11 @@ namespace auto_battlebot
         data_cv_.wait(lock, [this, current_frame]()
                       { return frame_counter_ > current_frame || should_close_ || stop_thread_; });
 
-        return latest_data_;
+        if (should_close_ || stop_thread_)
+            return false;
+
+        data = latest_data_;
+        return true;
     }
 
     bool ZedRgbdCamera::should_close()
