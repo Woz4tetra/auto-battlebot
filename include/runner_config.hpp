@@ -6,8 +6,8 @@ namespace auto_battlebot
 {
     struct RunnerConfiguration
     {
-        double loop_rate; // Hz
+        double max_loop_rate; // Hz
 
-        RunnerConfiguration() : loop_rate(300.0) {}
+        RunnerConfiguration() : max_loop_rate(1000.0) {}
     };
 } // namespace auto_battlebot

@@ -73,7 +73,7 @@ namespace auto_battlebot
 
     int Runner::run()
     {
-        auto loop_duration = std::chrono::microseconds(static_cast<int64_t>(1000000.0 / runner_config_.loop_rate));
+        auto loop_duration = std::chrono::microseconds(static_cast<int64_t>(1000000.0 / runner_config_.max_loop_rate));
         auto next_tick_time = std::chrono::steady_clock::now();
 
         while (true)

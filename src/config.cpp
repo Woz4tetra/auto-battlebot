@@ -115,7 +115,7 @@ namespace auto_battlebot
             if (runner_section)
             {
                 ConfigParser runner_parser(*runner_section, "runner");
-                config.runner.loop_rate = runner_parser.get_optional_double("loop_rate", 300.0);
+                config.runner.max_loop_rate = runner_parser.get_optional_double("max_loop_rate", 1000.0);
                 runner_parser.validate_no_extra_fields();
                 parsed_sections.push_back("runner");
             }
