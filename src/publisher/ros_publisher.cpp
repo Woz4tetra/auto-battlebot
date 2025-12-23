@@ -42,7 +42,7 @@ namespace auto_battlebot
         // Publish transform
         if (tf_publisher_)
         {
-            auto tf_msg = ros_adapters::to_ros_tf_message(data.tf_visodom_from_camera);
+            auto tf_msg = ros_adapters::to_ros_tf_message(invert_transform(data.tf_visodom_from_camera));
             tf_publisher_->publish(tf_msg);
         }
     }
@@ -94,7 +94,7 @@ namespace auto_battlebot
             field_tf.child_frame_id = FrameId::FIELD;
             field_tf.transform = field.tf_camera_from_fieldcenter;
 
-            auto tf_msg = ros_adapters::to_ros_tf_message(field_tf);
+            auto tf_msg = ros_adapters::to_ros_tf_message(invert_transform(field_tf));
             static_tf_publisher_->publish(tf_msg);
         }
     }

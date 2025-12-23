@@ -61,7 +61,7 @@ namespace auto_battlebot
         Eigen::Matrix4d transform_from_plane(
             const Eigen::Vector3f &plane_center,
             const Eigen::Vector3f &plane_normal,
-            const Eigen::Vector3f &up_vector = Eigen::Vector3f(0.0f, 0.0f, 1.0f)) const;
+            const Eigen::Vector3f &up_vector = Eigen::Vector3f(0.0f, 0.0f, -1.0f)) const;
 
         // Helper function to create a 4x4 transform from position and Euler angles (roll, pitch, yaw)
         Eigen::Matrix4d transform_from_position_and_euler(

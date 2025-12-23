@@ -93,4 +93,11 @@ namespace auto_battlebot
      */
     Rotation euler_to_quaternion(double roll, double pitch, double yaw);
 
+    /**
+     * @brief Invert a TransformStamped (swap parent and child frames)
+     * @param transform The transform to invert
+     * @return Inverted transform with swapped parent/child frames
+     */
+    TransformStamped invert_transform(const TransformStamped &transform);
+
 } // namespace auto_battlebot

@@ -69,13 +69,19 @@ namespace auto_battlebot
                 points_marker.scale.x = 0.01; // Point width
                 points_marker.scale.y = 0.01; // Point height
 
-                // Set color (white points)
-                points_marker.color.r = 1.0f;
-                points_marker.color.g = 1.0f;
-                points_marker.color.b = 1.0f;
-                points_marker.color.a = 1.0f;
+                // Find min/max z values for colorization
+                float min_z = std::numeric_limits<float>::max();
+                float max_z = std::numeric_limits<float>::min();
+                for (const auto &point : field.inlier_points.cloud->points)
+                {
+                    min_z = std::min(min_z, point.z);
+                    max_z = std::max(max_z, point.z);
+                }
+                float z_range = max_z - min_z;
+                if (z_range < 1e-6f)
+                    z_range = 1.0f; // Avoid division by zero
 
-                // Add all inlier points
+                // Add all inlier points with per-point colors
                 for (const auto &point : field.inlier_points.cloud->points)
                 {
                     geometry_msgs::Point p;
@@ -83,6 +89,15 @@ namespace auto_battlebot
                     p.y = point.y;
                     p.z = point.z;
                     points_marker.points.push_back(p);
+
+                    // Color gradient from blue (low) to red (high) based on z-coordinate
+                    float normalized_z = (point.z - min_z) / z_range;
+                    std_msgs::ColorRGBA color;
+                    color.r = normalized_z;
+                    color.g = 0.5f * (1.0f - std::abs(normalized_z - 0.5f) * 2.0f);
+                    color.b = 1.0f - normalized_z;
+                    color.a = 1.0f;
+                    points_marker.colors.push_back(color);
                 }
 
                 points_marker.frame_locked = false;

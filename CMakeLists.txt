@@ -84,11 +84,11 @@ find_package(Torch REQUIRED)
 include_directories(SYSTEM ${ZED_INCLUDE_DIRS})
 include_directories(SYSTEM ${CUDA_INCLUDE_DIRS})
 include_directories(SYSTEM ${PCL_INCLUDE_DIRS})
+include_directories(SYSTEM ${OpenCV_INCLUDE_DIRS})
+include_directories(SYSTEM ${EIGEN3_INCLUDE_DIRS})
 
 # Include directories
-include_directories(${OpenCV_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-include_directories(${EIGEN3_INCLUDE_DIRS})
 # Note: miniroscpp and tomlplusplus include directories are handled automatically by FetchContent
 
 # Link directories

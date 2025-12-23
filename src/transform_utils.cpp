@@ -109,7 +109,7 @@ namespace auto_battlebot
         // Convert quaternion to rotation matrix, then to Euler angles
         Eigen::Quaterniond quat(quaternion.w, quaternion.x, quaternion.y, quaternion.z);
         quat.normalize();
-        
+
         Eigen::Matrix3d rotation_matrix = quat.toRotationMatrix();
         Eigen::Vector3d euler_angles = rotation_matrix.eulerAngles(2, 1, 0); // ZYX order
 
@@ -136,6 +136,23 @@ namespace auto_battlebot
         rotation.z = quat.z();
 
         return rotation;
+    }
+
+    TransformStamped invert_transform(const TransformStamped &transform)
+    {
+        TransformStamped inverted;
+
+        // Swap parent and child frames
+        inverted.header.frame_id = transform.child_frame_id;
+        inverted.child_frame_id = transform.header.frame_id;
+
+        // Copy timestamp
+        inverted.header.stamp = transform.header.stamp;
+
+        // Invert the transformation matrix
+        inverted.transform.tf = transform.transform.tf.inverse();
+
+        return inverted;
     }
 
 } // namespace auto_battlebot

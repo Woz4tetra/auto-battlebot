@@ -42,7 +42,7 @@ namespace auto_battlebot
         Eigen::Vector2f rectangle_centroid = get_rectangle_centroid(rectangle_corners);
 
         Eigen::Matrix4d flat_transform = transform_from_position_and_euler(Eigen::Vector3f(rectangle_centroid[0], rectangle_centroid[1], 0.0), 0.0, 0.0, rectangle_angle);
-        Eigen::Matrix4d field_centered_transform = flat_transform * plane_transform;
+        Eigen::Matrix4d field_centered_transform = plane_transform * flat_transform;
 
         FieldDescription field_description;
         Size field_size;
@@ -277,8 +277,13 @@ namespace auto_battlebot
         Eigen::Vector3d up = up_vector.cast<double>().normalized();
         Eigen::Vector3d normal = plane_normal.cast<double>().normalized();
 
+        // Suppress false positive warning from GCC about uninitialized memory in Eigen's FromTwoVectors
+        // The warning occurs in Eigen's internal SVD computation but the memory is actually properly initialized
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
         // Use Eigen's Quaternion to compute rotation from up to normal
         Eigen::Quaterniond rotation = Eigen::Quaterniond::FromTwoVectors(up, normal);
+#pragma GCC diagnostic pop
 
         // Set rotation part of transform
         transform.block<3, 3>(0, 0) = rotation.toRotationMatrix();

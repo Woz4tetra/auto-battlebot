@@ -4,9 +4,9 @@
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 60
-svo_file_path = "/home/benw/Downloads/mini_bot_2024-10-26T13-29-41.svo2"
+svo_file_path = "/media/storage/true-battlebot-media/svo/1729981242.4295187.svo2"
 svo_real_time_mode = true
-position_tracking = false
+position_tracking = true
 
 [field_model]
 type = "DeepLabFieldModel"
@@ -14,7 +14,8 @@ model_path = "models/field_deeplabv3_r50_2024-09-05.torchscript"
 
 [field_filter]
 type = "PointCloudFieldFilter"
-local_visualize_debug = true
+local_visualize_debug = false
+distance_threshold = 0.03
 
 [keypoint_model]
 type = "NoopKeypointModel"
