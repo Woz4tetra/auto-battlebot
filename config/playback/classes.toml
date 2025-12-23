@@ -4,9 +4,11 @@
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 60
-svo_file_path = "/home/benw/Downloads/1729981242.4295187.svo2"
+# svo_file_path = "/home/benw/Downloads/1729981242.4295187.svo2"
+# position_tracking = true
+svo_file_path = "/home/benw/Downloads/mini_bot_2024-10-26T13-29-41.svo2"
+position_tracking = false
 svo_real_time_mode = true
-position_tracking = true
 
 [field_model]
 type = "DeepLabFieldModel"

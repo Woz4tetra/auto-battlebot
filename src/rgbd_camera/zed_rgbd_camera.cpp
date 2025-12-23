@@ -41,11 +41,25 @@ namespace auto_battlebot
 
     bool ZedRgbdCamera::initialize()
     {
+        // Clean up previous thread if it exists (support re-initialization)
+        if (capture_thread_.joinable())
+        {
+            stop_thread_ = true;
+            data_cv_.notify_all();
+            capture_thread_.join();
+        }
+
+        // Reset state variables for re-initialization
+        stop_thread_ = false;
+        should_close_ = false;
+        has_new_frame_ = false;
+        frame_counter_ = 0;
+        prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST;
+
         sl::ERROR_CODE returned_state = zed_.open(params_);
         if (returned_state != sl::ERROR_CODE::SUCCESS)
         {
             std::cerr << "Failed to open ZED camera: " << sl::toString(returned_state) << std::endl;
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
             return false;
         }
 
