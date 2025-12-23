@@ -1,6 +1,11 @@
 #pragma once
 
 #include <chrono>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <future>
 #include <sl/Camera.hpp>
 
 #include "rgbd_camera/rgbd_camera_interface.hpp"
@@ -67,15 +72,23 @@ namespace auto_battlebot
         bool should_close() override;
 
     private:
+        void capture_thread_loop();
+        bool capture_frame();
+
         sl::Camera zed_;
         sl::InitParameters params_;
         sl::Mat zed_rgb_;
         sl::Mat zed_depth_;
         sl::Pose zed_pose_;
         CameraData latest_data_;
-        std::mutex data_mutex_;
-        bool is_initialized_;
-        bool should_close_;
+        mutable std::mutex data_mutex_;
+        mutable std::condition_variable data_cv_;
+        std::thread capture_thread_;
+        std::atomic<bool> is_initialized_;
+        std::atomic<bool> should_close_;
+        std::atomic<bool> stop_thread_;
+        std::atomic<bool> has_new_frame_;
+        std::atomic<uint64_t> frame_counter_;
         sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
         bool position_tracking_enabled_;
     };

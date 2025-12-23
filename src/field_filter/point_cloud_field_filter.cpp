@@ -256,11 +256,21 @@ namespace auto_battlebot
         float magnitude = normal.norm();
         if (magnitude < 1e-6f)
         {
-            // Return default normal pointing down if magnitude is too small
+            // Return default normal pointing toward camera (negative Z in camera frame)
             return Eigen::Vector3f(0.0f, 0.0f, -1.0f);
         }
 
-        return normal / magnitude;
+        normal = normal / magnitude;
+
+        // Ensure normal points toward the camera (negative Z direction)
+        // RANSAC plane normals can point either way, so we flip if needed
+        // Camera looks down the +Z axis, so field normal should point back (-Z)
+        if (normal.z() < 0.0f)
+        {
+            normal = -normal;
+        }
+
+        return normal;
     }
 
     Eigen::Vector3f PointCloudFieldFilter::plane_center_from_inliers(

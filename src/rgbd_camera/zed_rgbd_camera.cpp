@@ -4,6 +4,10 @@ namespace auto_battlebot
 {
     ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config) : zed_(sl::Camera()),
                                                                        is_initialized_(false),
+                                                                       should_close_(false),
+                                                                       stop_thread_(false),
+                                                                       has_new_frame_(false),
+                                                                       frame_counter_(0),
                                                                        prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST),
                                                                        position_tracking_enabled_(config.position_tracking)
     {
@@ -26,6 +30,11 @@ namespace auto_battlebot
     {
         if (is_initialized_)
         {
+            stop_thread_ = true;
+            if (capture_thread_.joinable())
+            {
+                capture_thread_.join();
+            }
             zed_.close();
         }
     }
@@ -82,10 +91,37 @@ namespace auto_battlebot
         latest_data_.camera_info.distortion.at<double>(0, 4) = calibration.left_cam.disto[4]; // k3
 
         is_initialized_ = true;
+
+        // Start capture thread
+        capture_thread_ = std::thread(&ZedRgbdCamera::capture_thread_loop, this);
+
         return true;
     }
 
     bool ZedRgbdCamera::update()
+    {
+        // This method is now a no-op since the thread handles updates
+        return is_initialized_;
+    }
+
+    void ZedRgbdCamera::capture_thread_loop()
+    {
+        while (!stop_thread_)
+        {
+            if (capture_frame())
+            {
+                has_new_frame_ = true;
+                frame_counter_++;
+                data_cv_.notify_all();
+            }
+            else if (should_close_)
+            {
+                break;
+            }
+        }
+    }
+
+    bool ZedRgbdCamera::capture_frame()
     {
         if (!is_initialized_)
         {
@@ -100,6 +136,7 @@ namespace auto_battlebot
             {
                 should_close_ = true;
                 std::cout << "End of SVO file reached." << std::endl;
+                data_cv_.notify_all(); // Wake up any threads waiting in get()
             }
             else
             {
@@ -127,6 +164,10 @@ namespace auto_battlebot
         // Get timestamp
         sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE);
         double stamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
+
+        // Lock mutex to update latest_data_
+        std::lock_guard<std::mutex> lock(data_mutex_);
+
         latest_data_.tf_visodom_from_camera.header.stamp = stamp;
         latest_data_.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
         latest_data_.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
@@ -178,6 +219,13 @@ namespace auto_battlebot
 
     const CameraData &ZedRgbdCamera::get() const
     {
+        std::unique_lock<std::mutex> lock(data_mutex_);
+
+        // Wait for a new frame to be available
+        uint64_t current_frame = frame_counter_;
+        data_cv_.wait(lock, [this, current_frame]()
+                      { return frame_counter_ > current_frame || should_close_ || stop_thread_; });
+
         return latest_data_;
     }
 
