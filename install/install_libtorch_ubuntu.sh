@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Install LibTorch for Ubuntu 24.04 with CUDA 13.0
+# Install LibTorch for Ubuntu
 install_libtorch_ubuntu() {
     local download_url="${1}"
     local install_dir="${2:-/usr/local}"

@@ -27,4 +27,4 @@ type = "NoopTransmitter"
 type = "NoopPublisher"
 
 [runner]
-max_loop_rate = 1000.0
+max_loop_rate = 300.0

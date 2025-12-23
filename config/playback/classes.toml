@@ -17,10 +17,19 @@ model_path = "models/field_deeplabv3_r50_2024-09-05.torchscript"
 [field_filter]
 type = "PointCloudFieldFilter"
 local_visualize_debug = false
-distance_threshold = 0.03
+distance_threshold = 0.1
 
 [keypoint_model]
-type = "NoopKeypointModel"
+type = "YoloKeypointModel"
+model_path = "models/yolo11x-pose_2024-10-11.torchscript"
+
+[keypoint_model.label_map]
+"MR_STABS_MK1" = ["MR_STABS_MK1_FRONT", "MR_STABS_MK1_BACK"]
+"MR_STABS_MK2" = ["MR_STABS_MK2_FRONT", "MR_STABS_MK2_BACK"]
+"MRS_BUFF_MK1" = ["MRS_BUFF_MK1_FRONT", "MRS_BUFF_MK1_BACK"]
+"MRS_BUFF_MK2" = ["MRS_BUFF_MK2_FRONT", "MRS_BUFF_MK2_BACK"]
+"HOUSE_BOT" = ["HOUSE_BOT_FRONT", "HOUSE_BOT_BACK"]
+"OPPONENT" = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 
 [robot_filter]
 type = "NoopRobotFilter"
@@ -36,4 +45,4 @@ init_delay_seconds = 0.2
 type = "RosPublisher"
 
 [runner]
-max_loop_rate = 1000.0
+max_loop_rate = 300.0

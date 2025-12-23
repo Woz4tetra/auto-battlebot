@@ -25,7 +25,7 @@
 #include "publisher/publisher_interface.hpp"
 #include "publisher/config.hpp"
 #include "runner_config.hpp"
-#include "config_parser.hpp"
+#include "config/config_parser.hpp"
 #include "directories.hpp"
 
 namespace auto_battlebot

@@ -8,6 +8,6 @@ namespace auto_battlebot
     {
         double max_loop_rate; // Hz
 
-        RunnerConfiguration() : max_loop_rate(1000.0) {}
+        RunnerConfiguration() : max_loop_rate(300.0) {}
     };
 } // namespace auto_battlebot

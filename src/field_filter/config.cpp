@@ -1,8 +1,8 @@
 #include "field_filter/config.hpp"
 #include "field_filter/noop_field_filter.hpp"
 #include "field_filter/point_cloud_field_filter.hpp"
-#include "config_parser.hpp"
-#include "config_cast.hpp"
+#include "config/config_parser.hpp"
+#include "config/config_cast.hpp"
 
 namespace auto_battlebot
 {

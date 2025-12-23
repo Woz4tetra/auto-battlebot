@@ -1,6 +1,6 @@
 #pragma once
 
-#include "config_parser.hpp"
+#include "config/config_parser.hpp"
 #include <memory>
 #include <unordered_map>
 #include <functional>

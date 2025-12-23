@@ -6,9 +6,9 @@
 #include "enums.hpp"
 #include "data_structures.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
-#include "config_factory.hpp"
-#include "config_parser.hpp"
-#include "config_cast.hpp"
+#include "config/config_factory.hpp"
+#include "config/config_parser.hpp"
+#include "config/config_cast.hpp"
 
 namespace auto_battlebot
 {

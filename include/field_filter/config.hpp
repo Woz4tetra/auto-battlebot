@@ -2,7 +2,7 @@
 
 #include "data_structures.hpp"
 #include "field_filter/field_filter_interface.hpp"
-#include "config_factory.hpp"
+#include "config/config_factory.hpp"
 
 namespace auto_battlebot
 {

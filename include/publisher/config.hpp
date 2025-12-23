@@ -10,10 +10,10 @@
 
 #include "data_structures.hpp"
 #include "publisher/publisher_interface.hpp"
-#include "config_factory.hpp"
+#include "config/config_factory.hpp"
 #include "publisher/noop_publisher.hpp"
 #include "publisher/ros_publisher.hpp"
-#include "config_parser.hpp"
+#include "config/config_parser.hpp"
 
 namespace auto_battlebot
 {

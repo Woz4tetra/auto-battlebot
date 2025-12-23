@@ -16,5 +16,5 @@ source "$PROJECT_ROOT/install/build_cpp_project.sh"
 check_os_ubuntu_22
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
 install_packages "$PROJECT_ROOT/install/ubuntu_22_packages.txt"
-install_libtorch_ubuntu 'https://download.pytorch.org/libtorch/cu128/libtorch-shared-with-deps-2.9.1%2Bcu128.zip'
+install_libtorch_ubuntu 'https://download.pytorch.org/libtorch/cu130/libtorch-shared-with-deps-2.9.1%2Bcu130.zip'
 build_cpp_project "$@"

@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 #include <fstream>
 #include <filesystem>
-#include "config.hpp"
-#include "config_parser.hpp"
+#include "config/config.hpp"
+#include "config/config_parser.hpp"
 #include "rgbd_camera/config.hpp"
 #include "field_model/config.hpp"
 #include "field_filter/config.hpp"

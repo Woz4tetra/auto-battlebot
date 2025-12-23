@@ -4,13 +4,14 @@
 #include <vector>
 #include "header.hpp"
 #include "camera.hpp"
+#include "enums.hpp"
 
 namespace auto_battlebot
 {
     struct Keypoint
     {
-        std::string label = "";
-        std::string keypoint_label = "";
+        Label label = Label::EMPTY;
+        KeypointLabel keypoint_label = KeypointLabel::EMPTY;
         float x = 0.0f;
         float y = 0.0f;
     };
@@ -19,7 +20,6 @@ namespace auto_battlebot
     {
         Header header;
         std::vector<Keypoint> keypoints;
-        CameraInfo camera_info;
     };
 
 } // namespace auto_battlebot

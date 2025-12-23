@@ -1,7 +1,7 @@
 #include <miniros/ros.h>
 #include <CLI/CLI.hpp>
 
-#include "config.hpp"
+#include "config/config.hpp"
 #include "runner.hpp"
 #include "diagnostics_logger/initialize_diagnostics_logger.hpp"
 
