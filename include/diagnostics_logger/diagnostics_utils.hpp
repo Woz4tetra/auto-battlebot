@@ -15,6 +15,7 @@ namespace auto_battlebot
 
     // Type to represent nested data structures
     using DiagnosticsData = std::map<std::string, DiagnosticsValue>;
+    ;
 
     struct DiagnosticsValue : std::variant<
                                   int,

@@ -7,7 +7,7 @@ namespace auto_battlebot
         const std::string &function_name,
         double warn_threshold_ms)
         : logger_(logger),
-          function_name_(function_name),
+          timer_name_(function_name),
           warn_threshold_ms_(warn_threshold_ms),
           start_time_(std::chrono::steady_clock::now()),
           stopped_(false)
@@ -47,23 +47,18 @@ namespace auto_battlebot
     {
         double elapsed = elapsed_ms();
 
-        DiagnosticsData nested_data;
-        nested_data["elapsed_ms"] = elapsed;
-
         DiagnosticsData data;
-        data[function_name_] = nested_data;
+        data["elapsed_ms"] = elapsed;
 
         // Log as warning if threshold is set and exceeded, otherwise info
         if (warn_threshold_ms_ > 0 && elapsed > warn_threshold_ms_)
         {
-            DiagnosticsData threshold_data = nested_data;
-            threshold_data["threshold_ms"] = warn_threshold_ms_;
-            data[function_name_] = threshold_data;
-            logger_->warning(data);
+            data["threshold_ms"] = warn_threshold_ms_;
+            logger_->warning(timer_name_, data, "");
         }
         else
         {
-            logger_->info(data);
+            logger_->info(timer_name_, data, "");
         }
     }
 

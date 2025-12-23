@@ -5,17 +5,14 @@ namespace auto_battlebot
     // Static member definitions
     std::map<std::string, std::shared_ptr<DiagnosticsModuleLogger>> DiagnosticsLogger::loggers_;
     std::shared_ptr<miniros::Publisher> DiagnosticsLogger::diagnostics_publisher_;
-    std::string DiagnosticsLogger::app_name_;
 
     void DiagnosticsLogger::initialize(
-        const std::string &app_name,
         std::shared_ptr<miniros::Publisher> publisher)
     {
         if (diagnostics_publisher_ != nullptr)
         {
             throw std::runtime_error("DiagnosticsLogger already initialized");
         }
-        app_name_ = app_name;
         diagnostics_publisher_ = publisher;
     }
 
@@ -32,7 +29,7 @@ namespace auto_battlebot
             return it->second;
         }
 
-        auto logger = std::make_shared<DiagnosticsModuleLogger>(app_name_, name);
+        auto logger = std::make_shared<DiagnosticsModuleLogger>(name);
         loggers_[name] = logger;
         return logger;
     }
@@ -63,7 +60,8 @@ namespace auto_battlebot
             {
                 continue;
             }
-            statuses.push_back(logger->get_status());
+            std::vector<diagnostic_msgs::DiagnosticStatus> new_statuses = logger->get_status();
+            statuses.insert(statuses.begin(), new_statuses.begin(), new_statuses.end());
             logger->clear();
         }
 

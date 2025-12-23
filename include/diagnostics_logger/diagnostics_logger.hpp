@@ -47,11 +47,9 @@ namespace auto_battlebot
         /**
          * @brief Initialize the diagnostics logger system
          *
-         * @param app_name Name of the application
          * @param publisher ROS publisher for DiagnosticArray messages
          */
         static void initialize(
-            const std::string &app_name,
             std::shared_ptr<miniros::Publisher> publisher);
 
         /**
@@ -85,7 +83,6 @@ namespace auto_battlebot
     protected:
         static std::map<std::string, std::shared_ptr<DiagnosticsModuleLogger>> loggers_;
         static std::shared_ptr<miniros::Publisher> diagnostics_publisher_;
-        static std::string app_name_;
     };
 
 } // namespace auto_battlebot

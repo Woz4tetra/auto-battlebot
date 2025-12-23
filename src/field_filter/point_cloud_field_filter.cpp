@@ -18,7 +18,8 @@ namespace auto_battlebot
     std::shared_ptr<FieldDescriptionWithInlierPoints> PointCloudFieldFilter::compute_field(const CameraData &camera_data, const FieldMaskStamped &field_mask)
     {
         std::cout << "Running compute_field" << std::endl;
-        FunctionTimer timer(diagnostics_logger_, "compute_field_timer");
+        FunctionTimer timer(diagnostics_logger_, "compute_field");
+
         cv::Mat largest_contour_mask = find_largest_contour_mask(field_mask.mask.mask);
         cv::Mat masked_depth_image = mask_depth_image(camera_data.depth.image, largest_contour_mask);
         pcl::PointCloud<pcl::PointXYZ>::Ptr field_cloud = create_point_cloud_from_depth(masked_depth_image, camera_data.camera_info.intrinsics);
@@ -60,35 +61,27 @@ namespace auto_battlebot
         field_description.inlier_points.header = camera_data.depth.header;
         field_description.inlier_points.cloud = inlier_cloud;
 
-        diagnostics_logger_->debug({{"find_largest_contour_mask",
-                                     DiagnosticsData{{"original_mask_size", std::to_string(field_mask.mask.mask.rows) + "x" + std::to_string(field_mask.mask.mask.cols)},
-                                                     {"largest_contour_area", std::to_string(cv::countNonZero(largest_contour_mask))}}}});
-        diagnostics_logger_->debug({{"create_point_cloud_from_depth",
-                                     DiagnosticsData{{"num_points", std::to_string(field_cloud->points.size())}}}});
-
-        diagnostics_logger_->debug({{"field_description",
-                                     DiagnosticsData{{"field_width", std::to_string(field_size.x)},
-                                                     {"field_height", std::to_string(field_size.y)},
-                                                     {"num_inlier_points", std::to_string(inlier_cloud->points.size())}}}});
-        diagnostics_logger_->debug({{"fit_plane_ransac",
-                                     DiagnosticsData{{"num_inliers", std::to_string(inlier_indices.size())},
-                                                     {"plane_a", std::to_string(plane_coefficients[0])},
-                                                     {"plane_b", std::to_string(plane_coefficients[1])},
-                                                     {"plane_c", std::to_string(plane_coefficients[2])},
-                                                     {"plane_d", std::to_string(plane_coefficients[3])}}}});
-        diagnostics_logger_->debug({{"plane_properties",
-                                     DiagnosticsData{{"plane_normal_x", std::to_string(plane_normal[0])},
-                                                     {"plane_normal_y", std::to_string(plane_normal[1])},
-                                                     {"plane_normal_z", std::to_string(plane_normal[2])},
-                                                     {"plane_center_x", std::to_string(plane_center[0])},
-                                                     {"plane_center_y", std::to_string(plane_center[1])},
-                                                     {"plane_center_z", std::to_string(plane_center[2])}}}});
-        diagnostics_logger_->debug({{"find_minimum_rectangle",
-                                     DiagnosticsData{{"num_corners", std::to_string(rectangle_corners.size())}}}});
-        diagnostics_logger_->debug({{"rectangle_properties",
-                                     DiagnosticsData{{"width", std::to_string(rectangle_extents[0])},
-                                                     {"height", std::to_string(rectangle_extents[1])},
-                                                     {"angle_rad", std::to_string(rectangle_angle)}}}});
+        diagnostics_logger_->debug("find_largest_contour_mask", {{"original_mask_size", std::to_string(field_mask.mask.mask.rows) + "x" + std::to_string(field_mask.mask.mask.cols)},
+                                                                 {"largest_contour_area", std::to_string(cv::countNonZero(largest_contour_mask))}});
+        diagnostics_logger_->debug("create_point_cloud_from_depth", {{"num_points", std::to_string(field_cloud->points.size())}});
+        diagnostics_logger_->debug("field_description", {{"field_width", std::to_string(field_size.x)},
+                                                         {"field_height", std::to_string(field_size.y)},
+                                                         {"num_inlier_points", std::to_string(inlier_cloud->points.size())}});
+        diagnostics_logger_->debug("fit_plane_ransac", {{"num_inliers", std::to_string(inlier_indices.size())},
+                                                        {"plane_a", std::to_string(plane_coefficients[0])},
+                                                        {"plane_b", std::to_string(plane_coefficients[1])},
+                                                        {"plane_c", std::to_string(plane_coefficients[2])},
+                                                        {"plane_d", std::to_string(plane_coefficients[3])}});
+        diagnostics_logger_->debug("plane_properties", {{"plane_normal_x", std::to_string(plane_normal[0])},
+                                                        {"plane_normal_y", std::to_string(plane_normal[1])},
+                                                        {"plane_normal_z", std::to_string(plane_normal[2])},
+                                                        {"plane_center_x", std::to_string(plane_center[0])},
+                                                        {"plane_center_y", std::to_string(plane_center[1])},
+                                                        {"plane_center_z", std::to_string(plane_center[2])}});
+        diagnostics_logger_->debug("find_minimum_rectangle", {{"num_corners", std::to_string(rectangle_corners.size())}});
+        diagnostics_logger_->debug("rectangle_properties", {{"width", std::to_string(rectangle_extents[0])},
+                                                            {"height", std::to_string(rectangle_extents[1])},
+                                                            {"angle_rad", std::to_string(rectangle_angle)}});
 
         if (local_visualize_debug_)
         {
@@ -119,7 +112,7 @@ namespace auto_battlebot
 
     cv::Mat PointCloudFieldFilter::find_largest_contour_mask(const cv::Mat &mask) const
     {
-        FunctionTimer timer(diagnostics_logger_, "find_largest_contour_mask_timer");
+        FunctionTimer timer(diagnostics_logger_, "find_largest_contour_mask");
         // Find all contours in the mask
         std::vector<std::vector<cv::Point>> contours;
         cv::findContours(mask.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
@@ -146,6 +139,11 @@ namespace auto_battlebot
         cv::Mat result = cv::Mat::zeros(mask.size(), mask.type());
         cv::drawContours(result, contours, static_cast<int>(max_area_idx), cv::Scalar(255), cv::FILLED);
 
+        diagnostics_logger_->debug({{"original_mask_size", std::to_string(mask.rows) + "x" + std::to_string(mask.cols)},
+                                    {"original_contour_area", std::to_string(cv::countNonZero(mask))},
+                                    {"largest_mask_size", std::to_string(result.rows) + "x" + std::to_string(result.cols)},
+                                    {"largest_contour_area", std::to_string(cv::countNonZero(result))}});
+
         return result;
     }
 
@@ -153,7 +151,7 @@ namespace auto_battlebot
         const cv::Mat &depth_image,
         const cv::Mat &mask) const
     {
-        FunctionTimer timer(diagnostics_logger_, "mask_depth_image_timer");
+        FunctionTimer timer(diagnostics_logger_, "mask_depth_image");
         // Create a copy of the depth image
         cv::Mat masked_depth = depth_image.clone();
 
@@ -167,7 +165,7 @@ namespace auto_battlebot
         const cv::Mat &depth_image,
         const cv::Mat &intrinsics) const
     {
-        FunctionTimer timer(diagnostics_logger_, "create_point_cloud_from_depth_timer");
+        FunctionTimer timer(diagnostics_logger_, "create_point_cloud_from_depth");
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
         // Extract camera intrinsics (assuming 3x3 matrix)
@@ -206,6 +204,8 @@ namespace auto_battlebot
         cloud->height = 1;
         cloud->is_dense = false;
 
+        diagnostics_logger_->debug({{"num_points", std::to_string(cloud->points.size())}});
+
         return cloud;
     }
 
@@ -214,7 +214,8 @@ namespace auto_battlebot
         double distance_threshold,
         std::vector<int> *inliers) const
     {
-        FunctionTimer timer(diagnostics_logger_, "fit_plane_ransac_timer");
+        FunctionTimer timer(diagnostics_logger_, "fit_plane_ransac");
+
         // Create the plane model
         pcl::SampleConsensusModelPlane<pcl::PointXYZ>::Ptr model(
             new pcl::SampleConsensusModelPlane<pcl::PointXYZ>(cloud));
@@ -241,8 +242,17 @@ namespace auto_battlebot
         if (inliers != nullptr)
         {
             ransac.getInliers(*inliers);
+            diagnostics_logger_->debug({{"num_inliers", (int)inliers->size()}});
+        }
+        else
+        {
+            diagnostics_logger_->debug({{"num_inliers", 0}});
         }
 
+        diagnostics_logger_->debug({{"plane_a", (double)coefficients[0]},
+                                    {"plane_b", (double)coefficients[1]},
+                                    {"plane_c", (double)coefficients[2]},
+                                    {"plane_d", (double)coefficients[3]}});
         return coefficients;
     }
 
@@ -276,7 +286,8 @@ namespace auto_battlebot
     Eigen::Vector3f PointCloudFieldFilter::plane_center_from_inliers(
         const pcl::PointCloud<pcl::PointXYZ>::Ptr &inlier_cloud) const
     {
-        FunctionTimer timer(diagnostics_logger_, "plane_center_from_inliers_timer");
+        FunctionTimer timer(diagnostics_logger_, "plane_center_from_inliers");
+
         Eigen::Vector3f center(0.0f, 0.0f, 0.0f);
 
         // Compute the centroid of inlier points
@@ -350,7 +361,8 @@ namespace auto_battlebot
         const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
         const std::vector<int> *inliers) const
     {
-        FunctionTimer timer(diagnostics_logger_, "extract_inliers_timer");
+        FunctionTimer timer(diagnostics_logger_, "extract_inliers");
+
         pcl::PointCloud<pcl::PointXYZ>::Ptr inlier_cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
         if (inliers == nullptr || inliers->empty())
@@ -376,7 +388,8 @@ namespace auto_battlebot
         const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud,
         const Eigen::Matrix4d &transform) const
     {
-        FunctionTimer timer(diagnostics_logger_, "transform_points_timer");
+        FunctionTimer timer(diagnostics_logger_, "transform_points");
+
         pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud(new pcl::PointCloud<pcl::PointXYZ>);
         transformed_cloud->points.reserve(cloud->points.size());
 
@@ -407,7 +420,8 @@ namespace auto_battlebot
     std::vector<Eigen::Vector2f> PointCloudFieldFilter::point_cloud_to_2d(
         const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud) const
     {
-        FunctionTimer timer(diagnostics_logger_, "point_cloud_to_2d_timer");
+        FunctionTimer timer(diagnostics_logger_, "point_cloud_to_2d");
+
         std::vector<Eigen::Vector2f> points_2d;
         points_2d.reserve(cloud->points.size());
 
@@ -422,7 +436,8 @@ namespace auto_battlebot
     std::vector<Eigen::Vector2f> PointCloudFieldFilter::find_minimum_rectangle(
         const std::vector<Eigen::Vector2f> &points) const
     {
-        FunctionTimer timer(diagnostics_logger_, "find_minimum_rectangle_timer");
+        FunctionTimer timer(diagnostics_logger_, "find_minimum_rectangle");
+
         if (points.size() < 3)
         {
             return points;
@@ -526,6 +541,8 @@ namespace auto_battlebot
             result.push_back(inverse_rotation * corner);
         }
 
+        diagnostics_logger_->debug({{"num_corners", (int)result.size()}});
+
         return result;
     }
 
@@ -580,7 +597,8 @@ namespace auto_battlebot
 
     double PointCloudFieldFilter::get_rectangle_angle(const std::vector<Eigen::Vector2f> &rectangle) const
     {
-        FunctionTimer timer(diagnostics_logger_, "get_rectangle_angle_timer");
+        FunctionTimer timer(diagnostics_logger_, "get_rectangle_angle");
+
         if (rectangle.size() != 4)
         {
             return 0.0f;

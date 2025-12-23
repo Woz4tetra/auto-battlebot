@@ -42,13 +42,14 @@ namespace auto_battlebot
          * @brief Construct a new FunctionTimer
          *
          * @param logger Diagnostics logger to log timing information to
-         * @param function_name Name of the function being timed
+         * @param timer_name Name of the timer. Useful if there are multiple for a single diagnostic logger
+         * submodule
          * @param warn_threshold_ms Optional threshold in milliseconds. If execution time exceeds
          *                          this, log as warning instead of info
          */
         FunctionTimer(
             std::shared_ptr<DiagnosticsModuleLogger> logger,
-            const std::string &function_name,
+            const std::string &timer_name = "timer",
             double warn_threshold_ms = -1.0);
 
         /**
@@ -88,7 +89,7 @@ namespace auto_battlebot
 
     private:
         std::shared_ptr<DiagnosticsModuleLogger> logger_;
-        std::string function_name_;
+        std::string timer_name_;
         double warn_threshold_ms_;
         std::chrono::steady_clock::time_point start_time_;
         bool stopped_;

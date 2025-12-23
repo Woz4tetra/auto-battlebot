@@ -49,7 +49,7 @@ namespace auto_battlebot
 
     FieldMaskStamped DeepLabFieldModel::update(RgbImage image)
     {
-        FunctionTimer timer(diagnostics_logger_, "update", 100.0); // Warn if > 100ms
+        FunctionTimer timer(diagnostics_logger_, "update", 1000.0); // Warn if > 1000ms
 
         if (!initialized_)
         {

@@ -8,6 +8,6 @@ namespace auto_battlebot
             nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 100));
 
         // Initialize the DiagnosticsLogger singleton
-        DiagnosticsLogger::initialize("auto_battlebot", diagnostics_publisher);
+        DiagnosticsLogger::initialize(diagnostics_publisher);
     }
 }
