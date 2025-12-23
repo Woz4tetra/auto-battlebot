@@ -9,10 +9,24 @@ namespace auto_battlebot
     {
     public:
         MockDeepLabFieldModel(int image_size = 512, int border_crop_padding = 20)
-            : DeepLabFieldModel("/fake/path/model.pt", DeepLabModelType::DeepLabV3, image_size, border_crop_padding)
+            : config_(create_config(image_size, border_crop_padding)), DeepLabFieldModel(config_)
         {
         }
 
+    private:
+        static DeepLabFieldModelConfiguration create_config(int image_size, int border_crop_padding)
+        {
+            DeepLabFieldModelConfiguration config;
+            config.model_path = "/fake/path/model.pt";
+            config.model_type = DeepLabModelType::DeepLabV3;
+            config.image_size = image_size;
+            config.border_padding = border_crop_padding;
+            return config;
+        }
+
+        DeepLabFieldModelConfiguration config_;
+
+    public:
         // Override initialize to bypass model loading
         bool initialize() override
         {
@@ -45,24 +59,26 @@ namespace auto_battlebot
         cv::Mat mock_postprocess(const cv::Mat &mask, int original_height, int original_width)
         {
             cv::Mat resized_mask;
-            cv::resize(mask, resized_mask, cv::Size(original_width, original_height), 0, 0, cv::INTER_NEAREST);
+            
+            // Resize to padded dimensions (matching real implementation)
+            int padded_width = original_width + 2 * border_padding_;
+            int padded_height = original_height + 2 * border_padding_;
+            
+            // Guard against zero or negative dimensions
+            if (padded_width <= 0 || padded_height <= 0)
+            {
+                // If padding results in invalid dimensions, just resize to original
+                cv::resize(mask, resized_mask, cv::Size(original_width, original_height), 0, 0, cv::INTER_NEAREST);
+                return resized_mask;
+            }
+            
+            cv::resize(mask, resized_mask, cv::Size(padded_width, padded_height), 0, 0, cv::INTER_NEAREST);
 
-            // Apply border crop padding (same logic as postprocess_output)
+            // Crop out the border padding to get back to original dimensions
             if (border_padding_ > 0)
             {
-                int top = std::min(border_padding_, resized_mask.rows);
-                int bottom = std::min(border_padding_, resized_mask.rows);
-                int left = std::min(border_padding_, resized_mask.cols);
-                int right = std::min(border_padding_, resized_mask.cols);
-
-                if (top > 0)
-                    resized_mask(cv::Rect(0, 0, resized_mask.cols, top)).setTo(0);
-                if (bottom > 0)
-                    resized_mask(cv::Rect(0, resized_mask.rows - bottom, resized_mask.cols, bottom)).setTo(0);
-                if (left > 0)
-                    resized_mask(cv::Rect(0, 0, left, resized_mask.rows)).setTo(0);
-                if (right > 0)
-                    resized_mask(cv::Rect(resized_mask.cols - right, 0, right, resized_mask.rows)).setTo(0);
+                cv::Rect roi(border_padding_, border_padding_, original_width, original_height);
+                resized_mask = resized_mask(roi).clone();
             }
 
             return resized_mask;
@@ -86,7 +102,10 @@ namespace auto_battlebot
     // Test constructor with default parameters
     TEST_F(DeepLabFieldModelTest, ConstructorDefaults)
     {
-        DeepLabFieldModel model("/fake/path/model.pt", DeepLabModelType::DeepLabV3);
+        DeepLabFieldModelConfiguration config;
+        config.model_path = "/fake/path/model.pt";
+        config.model_type = DeepLabModelType::DeepLabV3;
+        DeepLabFieldModel model(config);
         // Should construct without throwing
         SUCCEED();
     }
@@ -94,7 +113,12 @@ namespace auto_battlebot
     // Test constructor with custom parameters
     TEST_F(DeepLabFieldModelTest, ConstructorCustomParams)
     {
-        DeepLabFieldModel model("/fake/path/model.pt", DeepLabModelType::DeepLabV3Plus, 256, 10);
+        DeepLabFieldModelConfiguration config;
+        config.model_path = "/fake/path/model.pt";
+        config.model_type = DeepLabModelType::DeepLabV3Plus;
+        config.image_size = 256;
+        config.border_padding = 10;
+        DeepLabFieldModel model(config);
         // Should construct without throwing
         SUCCEED();
     }
@@ -102,7 +126,10 @@ namespace auto_battlebot
     // Test update returns empty mask when not initialized
     TEST_F(DeepLabFieldModelTest, UpdateWithoutInitialization)
     {
-        DeepLabFieldModel model("/fake/path/model.pt", DeepLabModelType::DeepLabV3);
+        DeepLabFieldModelConfiguration config;
+        config.model_path = "/fake/path/model.pt";
+        config.model_type = DeepLabModelType::DeepLabV3;
+        DeepLabFieldModel model(config);
 
         auto result = model.update(test_image);
 
@@ -153,13 +180,12 @@ namespace auto_battlebot
 
         auto result = mock_model.mock_update(test_image, fake_mask);
 
-        // Check that borders are zeroed
-        EXPECT_EQ(result.mask.mask.at<uint8_t>(0, 50), 0);  // Top border
-        EXPECT_EQ(result.mask.mask.at<uint8_t>(99, 50), 0); // Bottom border
-        EXPECT_EQ(result.mask.mask.at<uint8_t>(50, 0), 0);  // Left border
-        EXPECT_EQ(result.mask.mask.at<uint8_t>(50, 99), 0); // Right border
+        // The result should be 100x100 (original size)
+        EXPECT_EQ(result.mask.mask.rows, 100);
+        EXPECT_EQ(result.mask.mask.cols, 100);
 
-        // Check that center is preserved
+        // With the resize-and-crop approach, the edges will have some interpolation
+        // but the center should be preserved
         EXPECT_EQ(result.mask.mask.at<uint8_t>(50, 50), 5); // Center
     }
 
@@ -174,7 +200,7 @@ namespace auto_battlebot
 
         auto result = mock_model.mock_update(test_image, fake_mask);
 
-        // All pixels should remain unchanged since padding is 0
+        // With zero padding, no cropping occurs and all pixels should remain unchanged
         EXPECT_EQ(result.mask.mask.at<uint8_t>(0, 0), 7);
         EXPECT_EQ(result.mask.mask.at<uint8_t>(49, 49), 7);
         EXPECT_EQ(result.mask.mask.at<uint8_t>(25, 25), 7);
