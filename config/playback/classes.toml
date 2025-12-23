@@ -4,7 +4,7 @@
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 60
-svo_file_path = "/media/storage/true-battlebot-media/svo/1729981242.4295187.svo2"
+svo_file_path = "/home/benw/Downloads/1729981242.4295187.svo2"
 svo_real_time_mode = true
 position_tracking = true
 
@@ -28,7 +28,7 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "PlaybackTransmitter"
-init_delay_seconds = 1.0
+init_delay_seconds = 0.0
 
 [publisher]
 type = "RosPublisher"

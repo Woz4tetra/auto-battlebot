@@ -106,7 +106,7 @@ namespace auto_battlebot
             // filter isn't initialized
             return FieldDescription{};
         }
-        Eigen::MatrixXd tf_cameraworld_from_camera = tf_visodom_from_cameraworld_.transform.tf * tf_visodom_from_camera.transform.tf;
+        Eigen::MatrixXd tf_cameraworld_from_camera = tf_visodom_from_cameraworld_.transform.tf.inverse() * tf_visodom_from_camera.transform.tf;
         FieldDescription next_field_description{};
         next_field_description.header.stamp = tf_visodom_from_camera.header.stamp;
         next_field_description.header.frame_id = FrameId::CAMERA;
