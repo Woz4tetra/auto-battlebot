@@ -161,7 +161,6 @@ namespace auto_battlebot
             FunctionTimer timer(diagnostics_logger_, "keypoint_model.update");
             keypoints = keypoint_model_->update(camera_data.rgb);
         }
-        // publisher_->publish_keypoints(keypoints);
 
         RobotDescriptionsStamped robots;
         {

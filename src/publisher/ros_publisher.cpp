@@ -9,7 +9,6 @@ namespace auto_battlebot
         std::shared_ptr<miniros::Publisher> tf_publisher,              // tf2_msgs::TFMessage
         std::shared_ptr<miniros::Publisher> static_tf_publisher,       // tf2_msgs::TFMessage
         std::shared_ptr<miniros::Publisher> field_marker_publisher,    // visualization_msgs::MarkerArray
-        std::shared_ptr<miniros::Publisher> keypoint_marker_publisher, // visualization_msgs::MarkerArray
         std::shared_ptr<miniros::Publisher> robot_marker_publisher     // visualization_msgs::MarkerArray
     )
     {
@@ -19,7 +18,6 @@ namespace auto_battlebot
         tf_publisher_ = tf_publisher;
         static_tf_publisher_ = static_tf_publisher;
         field_marker_publisher_ = field_marker_publisher;
-        keypoint_marker_publisher_ = keypoint_marker_publisher;
         robot_marker_publisher_ = robot_marker_publisher;
     }
 
@@ -114,16 +112,6 @@ namespace auto_battlebot
         {
             auto tf_msg = ros_adapters::to_ros_tf_message(tfstamped_cameraworld_from_camera);
             tf_publisher_->publish(tf_msg);
-        }
-    }
-
-    void RosPublisher::publish_keypoints(const KeypointsStamped &keypoints)
-    {
-        if (keypoint_marker_publisher_)
-        {
-            visualization_msgs::MarkerArray markers;
-            markers.markers = ros_adapters::to_ros_keypoint_markers(keypoints);
-            keypoint_marker_publisher_->publish(markers);
         }
     }
 
