@@ -28,7 +28,10 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "PlaybackTransmitter"
-init_delay_seconds = 0.0
+init_delay_seconds = 1.0
 
 [publisher]
 type = "RosPublisher"
+
+[runner]
+loop_rate = 300.0

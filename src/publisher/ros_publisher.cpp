@@ -42,7 +42,7 @@ namespace auto_battlebot
         // Publish transform
         if (tf_publisher_)
         {
-            auto tf_msg = ros_adapters::to_ros_tf_message(data.tf_visodom_from_camera);
+            auto tf_msg = ros_adapters::to_ros_tf_message(invert_transform(data.tf_visodom_from_camera));
             tf_publisher_->publish(tf_msg);
         }
     }
@@ -77,12 +77,12 @@ namespace auto_battlebot
         }
     }
 
-    void RosPublisher::publish_field_description(const FieldDescriptionWithInlierPoints &field)
+    void RosPublisher::publish_initial_field_description(const FieldDescriptionWithInlierPoints &field_description)
     {
         if (field_marker_publisher_)
         {
             visualization_msgs::MarkerArray markers;
-            markers.markers = ros_adapters::to_ros_field_marker(field);
+            markers.markers = ros_adapters::to_ros_field_marker(field_description);
             field_marker_publisher_->publish(markers);
         }
 
@@ -90,12 +90,30 @@ namespace auto_battlebot
         {
             // Publish static transform for field
             TransformStamped field_tf;
-            field_tf.header = field.header;
-            field_tf.child_frame_id = field.child_frame_id;
-            field_tf.transform = field.tf_camera_from_fieldcenter;
+            field_tf.header = field_description.header;
+            field_tf.child_frame_id = field_description.child_frame_id;
+            field_tf.transform = field_description.tf_camera_from_fieldcenter;
 
             auto tf_msg = ros_adapters::to_ros_tf_message(invert_transform(field_tf));
             static_tf_publisher_->publish(tf_msg);
+        }
+    }
+
+    void RosPublisher::publish_field_description(const FieldDescription &field_description, const FieldDescriptionWithInlierPoints &initial_field_description)
+    {
+        Eigen::MatrixXd tf_cameraworld_from_fieldcenter = initial_field_description.tf_camera_from_fieldcenter.tf;
+        Eigen::MatrixXd tf_camera_from_fieldcenter = field_description.tf_camera_from_fieldcenter.tf;
+        Eigen::MatrixXd tf_cameraworld_from_camera = tf_cameraworld_from_fieldcenter * tf_camera_from_fieldcenter.inverse();
+        TransformStamped tfstamped_cameraworld_from_camera{};
+        tfstamped_cameraworld_from_camera.header.stamp = field_description.header.stamp;
+        tfstamped_cameraworld_from_camera.header.frame_id = initial_field_description.header.frame_id;
+        tfstamped_cameraworld_from_camera.child_frame_id = field_description.header.frame_id;
+        tfstamped_cameraworld_from_camera.transform.tf = tf_cameraworld_from_camera;
+
+        if (tf_publisher_)
+        {
+            auto tf_msg = ros_adapters::to_ros_tf_message(tfstamped_cameraworld_from_camera);
+            tf_publisher_->publish(tf_msg);
         }
     }
 

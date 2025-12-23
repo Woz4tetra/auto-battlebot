@@ -9,8 +9,10 @@ namespace auto_battlebot
         diagnostics_logger_ = DiagnosticsLogger::get_logger("point_cloud_field_filter");
     }
 
-    void PointCloudFieldFilter::reset([[maybe_unused]] TransformStamped tf_visodom_from_camera)
+    void PointCloudFieldFilter::reset(TransformStamped tf_visodom_from_camera)
     {
+        tf_visodom_from_cameraworld_ = tf_visodom_from_camera;
+        std::cout << "PointCloudFieldFilter reset with transform: " << transform_to_string(tf_visodom_from_camera) << std::endl;
     }
 
     std::shared_ptr<FieldDescriptionWithInlierPoints> PointCloudFieldFilter::compute_field(const CameraData &camera_data, const FieldMaskStamped &field_mask)
@@ -50,7 +52,7 @@ namespace auto_battlebot
         field_size.y = rectangle_extents[1];
         field_size.z = 0.0;
         field_description.header.stamp = camera_data.depth.header.stamp;
-        field_description.header.frame_id = FrameId::VISUAL_ODOMETRY;
+        field_description.header.frame_id = FrameId::CAMERA_WORLD;
         field_description.child_frame_id = FrameId::FIELD;
         field_description.tf_camera_from_fieldcenter.tf = field_centered_transform;
         field_description.size.header = camera_data.depth.header;
@@ -99,12 +101,19 @@ namespace auto_battlebot
 
     FieldDescription PointCloudFieldFilter::track_field(TransformStamped tf_visodom_from_camera, std::shared_ptr<FieldDescriptionWithInlierPoints> initial_description)
     {
-        // Track field implementation
+        if (tf_visodom_from_cameraworld_.header.frame_id == FrameId::EMPTY)
+        {
+            // filter isn't initialized
+            return FieldDescription{};
+        }
+        Eigen::MatrixXd tf_cameraworld_from_camera = tf_visodom_from_cameraworld_.transform.tf * tf_visodom_from_camera.transform.tf;
         FieldDescription next_field_description{};
-        next_field_description.header = tf_visodom_from_camera.header;
+        next_field_description.header.stamp = tf_visodom_from_camera.header.stamp;
+        next_field_description.header.frame_id = FrameId::CAMERA;
+        next_field_description.child_frame_id = initial_description->child_frame_id;
         next_field_description.size = initial_description->size;
-        Transform tf_visodom_from_fieldcenter = initial_description->tf_camera_from_fieldcenter;
-        next_field_description.tf_camera_from_fieldcenter = Transform{tf_visodom_from_camera.transform.tf.inverse() * tf_visodom_from_fieldcenter.tf};
+        Transform tf_cameraworld_from_fieldcenter = initial_description->tf_camera_from_fieldcenter;
+        next_field_description.tf_camera_from_fieldcenter = Transform{tf_cameraworld_from_camera.inverse() * tf_cameraworld_from_fieldcenter.tf};
         return next_field_description;
     }
 

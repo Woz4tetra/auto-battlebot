@@ -25,3 +25,6 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[runner]
+loop_rate = 300.0

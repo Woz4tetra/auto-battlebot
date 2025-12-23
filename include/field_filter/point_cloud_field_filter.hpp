@@ -10,6 +10,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
+#include "transform_utils.hpp"
 
 namespace auto_battlebot
 {
@@ -28,6 +29,7 @@ namespace auto_battlebot
         bool local_visualize_debug_;
         double depth_units_per_meter_;
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
+        TransformStamped tf_visodom_from_cameraworld_;
 
         // Helper function to find largest contour and return mask with only that contour
         cv::Mat find_largest_contour_mask(const cv::Mat &mask) const;

@@ -6,6 +6,7 @@ namespace auto_battlebot
     {
         EMPTY,
         VISUAL_ODOMETRY,
+        CAMERA_WORLD,
         CAMERA,
         OUR_ROBOT_1,
         OUR_ROBOT_2,

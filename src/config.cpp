@@ -110,6 +110,16 @@ namespace auto_battlebot
             config.publisher = parse_publisher_config(publisher_parser);
             parsed_sections.push_back("publisher");
 
+            // Parse runner section (optional, will use defaults if not present)
+            auto runner_section = toml_data["runner"].as_table();
+            if (runner_section)
+            {
+                ConfigParser runner_parser(*runner_section, "runner");
+                config.runner.loop_rate = runner_parser.get_optional_double("loop_rate", 300.0);
+                runner_parser.validate_no_extra_fields();
+                parsed_sections.push_back("runner");
+            }
+
             // Validate no extra sections using the list we built during parsing
             validate_no_extra_sections(toml_data, parsed_sections, path.stem());
         }

@@ -16,6 +16,7 @@
 #include "publisher/publisher_interface.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
+#include "runner_config.hpp"
 
 namespace auto_battlebot
 {
@@ -23,6 +24,7 @@ namespace auto_battlebot
     {
     public:
         Runner(
+            const RunnerConfiguration &runner_config,
             const std::vector<RobotConfig> &robot_configs,
             std::shared_ptr<RgbdCameraInterface> camera,
             std::shared_ptr<FieldModelInterface> field_model,
@@ -39,6 +41,7 @@ namespace auto_battlebot
         bool tick();
 
     private:
+        RunnerConfiguration runner_config_;
         std::vector<RobotConfig> robot_configs_;
         std::shared_ptr<RgbdCameraInterface> camera_;
         std::shared_ptr<FieldModelInterface> field_model_;

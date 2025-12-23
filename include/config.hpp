@@ -24,6 +24,7 @@
 #include "transmitter/config.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "publisher/config.hpp"
+#include "runner_config.hpp"
 #include "config_parser.hpp"
 #include "directories.hpp"
 
@@ -39,6 +40,7 @@ namespace auto_battlebot
         std::unique_ptr<NavigationConfiguration> navigation;
         std::unique_ptr<TransmitterConfiguration> transmitter;
         std::unique_ptr<PublisherConfiguration> publisher;
+        RunnerConfiguration runner;
     };
 
     // Configuration loading functions

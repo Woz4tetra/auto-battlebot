@@ -26,7 +26,8 @@ namespace auto_battlebot
         );
         void publish_camera_data(const CameraData &data) override;
         void publish_field_mask(const FieldMaskStamped &field_mask, const RgbImage &image) override;
-        void publish_field_description(const FieldDescriptionWithInlierPoints &field) override;
+        void publish_initial_field_description(const FieldDescriptionWithInlierPoints &field) override;
+        void publish_field_description(const FieldDescription &field_description, const FieldDescriptionWithInlierPoints &initial_field_description) override;
         void publish_keypoints(const KeypointsStamped &keypoints) override;
         void publish_robots(const RobotDescriptionsStamped &robots) override;
 

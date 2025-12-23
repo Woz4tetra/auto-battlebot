@@ -46,6 +46,7 @@ int main(int argc, char **argv)
 
     // Create runner with all components
     Runner runner(
+        class_config.runner,
         robot_configs,
         camera,
         field_model,

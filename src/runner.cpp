@@ -1,9 +1,12 @@
 #include "runner.hpp"
 
+#include <thread>
+
 namespace auto_battlebot
 {
 
     Runner::Runner(
+        const RunnerConfiguration &runner_config,
         const std::vector<RobotConfig> &robot_configs,
         std::shared_ptr<RgbdCameraInterface> camera,
         std::shared_ptr<FieldModelInterface> field_model,
@@ -12,7 +15,8 @@ namespace auto_battlebot
         std::shared_ptr<RobotFilterInterface> robot_filter,
         std::shared_ptr<NavigationInterface> navigation,
         std::shared_ptr<TransmitterInterface> transmitter,
-        std::shared_ptr<PublisherInterface> publisher) : robot_configs_(robot_configs),
+        std::shared_ptr<PublisherInterface> publisher) : runner_config_(runner_config),
+                                                         robot_configs_(robot_configs),
                                                          camera_(camera),
                                                          field_model_(field_model),
                                                          field_filter_(field_filter),
@@ -59,7 +63,7 @@ namespace auto_battlebot
         publisher_->publish_field_mask(field_mask, camera_data.rgb);
 
         initial_field_description_ = field_filter_->compute_field(camera_data, field_mask);
-        publisher_->publish_field_description(*initial_field_description_);
+        publisher_->publish_initial_field_description(*initial_field_description_);
 
         robot_filter_->initialize(robot_configs_);
         navigation_->initialize();
@@ -69,6 +73,9 @@ namespace auto_battlebot
 
     int Runner::run()
     {
+        auto loop_duration = std::chrono::microseconds(static_cast<int64_t>(1000000.0 / runner_config_.loop_rate));
+        auto next_tick_time = std::chrono::steady_clock::now();
+
         while (true)
         {
             if (!tick())
@@ -79,6 +86,10 @@ namespace auto_battlebot
             rate_data["rate"] = 1000.0 / elapsed_ms();
             diagnostics_logger_->debug(rate_data);
             DiagnosticsLogger::publish();
+
+            // Sleep until next tick to maintain loop rate
+            next_tick_time += loop_duration;
+            std::this_thread::sleep_until(next_tick_time);
         }
     }
 
@@ -136,6 +147,7 @@ namespace auto_battlebot
                 camera_data.tf_visodom_from_camera,
                 initial_field_description_);
         }
+        publisher_->publish_field_description(field_description, *initial_field_description_);
 
         KeypointsStamped keypoints;
         {
