@@ -160,46 +160,103 @@ namespace auto_battlebot
             {
                 const auto &robot = robots.descriptions[i];
 
-                visualization_msgs::Marker marker;
-                marker.header = to_ros_header(robots.header);
-                marker.ns = "robots";
-                marker.id = i;
-                marker.type = visualization_msgs::Marker::CUBE;
-                marker.action = visualization_msgs::Marker::ADD;
+                // Cube marker for robot body
+                visualization_msgs::Marker cube_marker;
+                cube_marker.header = to_ros_header(robots.header);
+                cube_marker.ns = "robot_bounds";
+                cube_marker.id = i;
+                cube_marker.type = visualization_msgs::Marker::CUBE;
+                cube_marker.action = visualization_msgs::Marker::ADD;
 
                 // Set pose
-                marker.pose.position.x = robot.pose.position.x;
-                marker.pose.position.y = robot.pose.position.y;
-                marker.pose.position.z = robot.pose.position.z;
+                cube_marker.pose.position.x = robot.pose.position.x;
+                cube_marker.pose.position.y = robot.pose.position.y;
+                cube_marker.pose.position.z = robot.pose.position.z;
 
-                marker.pose.orientation.w = robot.pose.rotation.w;
-                marker.pose.orientation.x = robot.pose.rotation.x;
-                marker.pose.orientation.y = robot.pose.rotation.y;
-                marker.pose.orientation.z = robot.pose.rotation.z;
+                cube_marker.pose.orientation.w = robot.pose.rotation.w;
+                cube_marker.pose.orientation.x = robot.pose.rotation.x;
+                cube_marker.pose.orientation.y = robot.pose.rotation.y;
+                cube_marker.pose.orientation.z = robot.pose.rotation.z;
 
                 // Set scale from size
-                marker.scale.x = robot.size.x;
-                marker.scale.y = robot.size.y;
-                marker.scale.z = robot.size.z;
+                cube_marker.scale.x = robot.size.x;
+                cube_marker.scale.y = robot.size.y;
+                cube_marker.scale.z = robot.size.z;
 
-                // Color based on group
-                if (robot.group == Group::OURS)
+                cube_marker.color.r = 0.0f;
+                cube_marker.color.g = 0.0f;
+                cube_marker.color.b = 1.0f;
+                cube_marker.color.a = 0.8f;
+
+                cube_marker.frame_locked = false;
+
+                markers.push_back(cube_marker);
+
+                // Arrow marker for robot pose
+                visualization_msgs::Marker arrow_marker;
+                arrow_marker.header = to_ros_header(robots.header);
+                arrow_marker.ns = "robot_poses";
+                arrow_marker.id = i;
+                arrow_marker.type = visualization_msgs::Marker::ARROW;
+                arrow_marker.action = visualization_msgs::Marker::ADD;
+
+                // Set pose
+                arrow_marker.pose.position.x = robot.pose.position.x;
+                arrow_marker.pose.position.y = robot.pose.position.y;
+                arrow_marker.pose.position.z = robot.pose.position.z;
+
+                arrow_marker.pose.orientation.w = robot.pose.rotation.w;
+                arrow_marker.pose.orientation.x = robot.pose.rotation.x;
+                arrow_marker.pose.orientation.y = robot.pose.rotation.y;
+                arrow_marker.pose.orientation.z = robot.pose.rotation.z;
+
+                // Set arrow scale (shaft diameter, head diameter, head length)
+                arrow_marker.scale.x = 0.03 * robot.size.x; // shaft diameter
+                arrow_marker.scale.y = 0.06 * robot.size.x; // head diameter
+                arrow_marker.scale.z = 0.15 * robot.size.x; // head length
+
+                // Color: yellow arrow
+                arrow_marker.color.r = 1.0f;
+                arrow_marker.color.g = 1.0f;
+                arrow_marker.color.b = 0.0f;
+                arrow_marker.color.a = 1.0f;
+
+                arrow_marker.frame_locked = false;
+
+                markers.push_back(arrow_marker);
+
+                int keypoint_index = 0;
+                for (Position keypoint : robot.keypoints)
                 {
-                    marker.color.r = 0.0f;
-                    marker.color.g = 0.0f;
-                    marker.color.b = 1.0f; // Blue for our team
-                }
-                else
-                {
-                    marker.color.r = 1.0f;
-                    marker.color.g = 0.0f;
-                    marker.color.b = 0.0f; // Red for opponent
-                }
-                marker.color.a = 0.8f;
+                    // Sphere marker for robot keypoint
+                    visualization_msgs::Marker keypoint_marker;
+                    keypoint_marker.header = to_ros_header(robots.header);
+                    keypoint_marker.ns = "robot_keypoints";
+                    keypoint_marker.id = 2 * i + keypoint_index;
+                    keypoint_index++;
+                    keypoint_marker.type = visualization_msgs::Marker::SPHERE;
+                    keypoint_marker.action = visualization_msgs::Marker::ADD;
 
-                marker.frame_locked = false;
+                    // Set pose
+                    keypoint_marker.pose.position.x = keypoint.x;
+                    keypoint_marker.pose.position.y = keypoint.y;
+                    keypoint_marker.pose.position.z = keypoint.z;
 
-                markers.push_back(marker);
+                    keypoint_marker.pose.orientation.w = 1.0;
+
+                    keypoint_marker.scale.x = 0.02;
+                    keypoint_marker.scale.y = 0.02;
+                    keypoint_marker.scale.z = 0.02;
+
+                    keypoint_marker.color.r = 1.0f;
+                    keypoint_marker.color.g = 0.0f;
+                    keypoint_marker.color.b = 0.0f;
+                    keypoint_marker.color.a = 1.0f;
+
+                    keypoint_marker.frame_locked = false;
+
+                    markers.push_back(keypoint_marker);
+                }
             }
 
             return markers;

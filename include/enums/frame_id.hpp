@@ -12,6 +12,8 @@ namespace auto_battlebot
         OUR_ROBOT_2,
         THEIR_ROBOT_1,
         THEIR_ROBOT_2,
+        NEUTRAL_ROBOT_1,
+        NEUTRAL_ROBOT_2,
         FIELD
     };
 } // namespace auto_battlebot

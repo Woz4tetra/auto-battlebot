@@ -11,10 +11,11 @@ namespace auto_battlebot
 {
     struct RobotDescription
     {
-        Label label = Label::MR_STABS_MK1;
-        Group group = Group::OURS;
+        FrameId frame_id = FrameId::EMPTY;
+        Label label = Label::EMPTY;
         Pose pose;
         Size size;
+        std::vector<Position> keypoints = std::vector<Position>();
     };
 
     struct RobotDescriptionsStamped

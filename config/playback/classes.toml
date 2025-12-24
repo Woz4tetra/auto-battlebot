@@ -4,9 +4,9 @@
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 60
-# svo_file_path = "/home/benw/Downloads/1729981242.4295187.svo2"
+# svo_file_path = "/media/storage/true-battlebot-media/svo/1729981242.4295187.svo2"
 # position_tracking = true
-svo_file_path = "/home/benw/Downloads/mini_bot_2024-10-26T13-29-41.svo2"
+svo_file_path = "/media/storage/true-battlebot-media/svo/mini_bot_2024-10-26T13-29-41.svo2"
 position_tracking = false
 svo_real_time_mode = true
 
@@ -32,7 +32,32 @@ model_path = "models/yolo11x-pose_2024-10-11.torchscript"
 "OPPONENT" = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 
 [robot_filter]
-type = "NoopRobotFilter"
+type = "RobotKalmanFilter"
+
+front_keypoints = [
+    "MR_STABS_MK1_FRONT",
+    "MR_STABS_MK2_FRONT",
+    "MRS_BUFF_MK1_FRONT",
+    "MRS_BUFF_MK2_FRONT",
+    "HOUSE_BOT_FRONT",
+    "OPPONENT_FRONT",
+]
+back_keypoints = [
+    "MR_STABS_MK1_BACK",
+    "MR_STABS_MK2_BACK",
+    "MRS_BUFF_MK1_BACK",
+    "MRS_BUFF_MK2_BACK",
+    "HOUSE_BOT_BACK",
+    "OPPONENT_BACK",
+]
+
+[robot_filter.label_mapping]
+"MR_STABS_MK1" = ["OUR_ROBOT_1"]
+"MR_STABS_MK2" = ["OUR_ROBOT_1"]
+"MRS_BUFF_MK1" = ["OUR_ROBOT_2"]
+"MRS_BUFF_MK2" = ["OUR_ROBOT_2"]
+"HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
+"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2"]
 
 [navigation]
 type = "NoopNavigation"

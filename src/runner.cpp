@@ -165,9 +165,9 @@ namespace auto_battlebot
         RobotDescriptionsStamped robots;
         {
             FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
-            robots = robot_filter_->update(keypoints, field_description);
+            robots = robot_filter_->update(keypoints, field_description, camera_data.camera_info);
         }
-        // publisher_->publish_robots(robots);
+        publisher_->publish_robots(robots);
 
         VelocityCommand command = navigation_->update(robots);
         transmitter_->send(command);

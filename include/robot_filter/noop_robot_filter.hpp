@@ -9,7 +9,7 @@ namespace auto_battlebot
     public:
         bool initialize([[maybe_unused]] const std::vector<RobotConfig> &robots) override { return true; }
 
-        RobotDescriptionsStamped update([[maybe_unused]] KeypointsStamped keypoints, [[maybe_unused]] FieldDescription field) override
+        RobotDescriptionsStamped update([[maybe_unused]] KeypointsStamped keypoints, [[maybe_unused]] FieldDescription field, [[maybe_unused]] CameraInfo camera_info) override
         {
             return RobotDescriptionsStamped{};
         }

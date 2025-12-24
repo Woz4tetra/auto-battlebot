@@ -166,6 +166,15 @@ namespace auto_battlebot
         }
 
         /**
+         * Get a nested array
+         */
+        const toml::array *get_array(const std::string &key)
+        {
+            mark_accessed(key);
+            return table_[key].as_array();
+        }
+
+        /**
          * Check if all fields in the table were accessed
          * Throws if there are unrecognized fields
          */

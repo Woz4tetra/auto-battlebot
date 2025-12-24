@@ -12,8 +12,8 @@ namespace auto_battlebot
     {
         Label label = Label::EMPTY;
         KeypointLabel keypoint_label = KeypointLabel::EMPTY;
-        float x = 0.0f;
-        float y = 0.0f;
+        double x = 0.0f;
+        double y = 0.0f;
     };
 
     struct KeypointsStamped
