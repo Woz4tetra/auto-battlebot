@@ -125,7 +125,7 @@ namespace auto_battlebot
                                    .clone();
 
         tensor = tensor.permute({2, 0, 1}).contiguous(); // HWC -> CHW
-        tensor = tensor.unsqueeze(0);                     // Add batch dimension
+        tensor = tensor.unsqueeze(0);                    // Add batch dimension
 
         return tensor.to(device_);
     }
@@ -165,13 +165,11 @@ namespace auto_battlebot
         float padw = (target_size[1] - new_shape_w) / 2.0f;
         float padh = (target_size[0] - new_shape_h) / 2.0f;
 
-        // Match ultralytics letterbox: use 0.1 for rounding symmetrically
-        int top = std::round(padh - 0.1f);
-        int bottom = std::round(padh + 0.1f);
-        int left = std::round(padw - 0.1f);
-        int right = std::round(padw + 0.1f);
+        int top = std::round(padh - letterbox_padding_);
+        int bottom = std::round(padh + letterbox_padding_);
+        int left = std::round(padw - letterbox_padding_);
+        int right = std::round(padw + letterbox_padding_);
 
-        // Use INTER_LINEAR for consistency with ultralytics
         cv::resize(input_image, output_image,
                    cv::Size(new_shape_w, new_shape_h),
                    0, 0, cv::INTER_LINEAR);
@@ -318,9 +316,8 @@ namespace auto_battlebot
     Keypoint YoloKeypointModel::scale_keypoint(Keypoint output_keypoint, cv::Size original_image_size, cv::Size input_image_size)
     {
         double gain = std::min((double)input_image_size.width / original_image_size.width, (double)input_image_size.height / original_image_size.height);
-        // Use 0.1 for rounding consistency with letterbox
-        double pad0 = std::round((double)(input_image_size.width - original_image_size.width * gain) / 2.0 - 0.1);
-        double pad1 = std::round((double)(input_image_size.height - original_image_size.height * gain) / 2.0 - 0.1);
+        double pad0 = std::round((double)(input_image_size.width - original_image_size.width * gain) / 2. - letterbox_padding_);
+        double pad1 = std::round((double)(input_image_size.height - original_image_size.height * gain) / 2. - letterbox_padding_);
         double x = output_keypoint.x;
         double y = output_keypoint.y;
         x -= pad0;
@@ -334,9 +331,8 @@ namespace auto_battlebot
     torch::Tensor YoloKeypointModel::scale_boxes(torch::Tensor &boxes, cv::Size original_image_size, cv::Size input_image_size)
     {
         auto gain = (std::min)((float)input_image_size.height / original_image_size.height, (float)input_image_size.width / original_image_size.width);
-        // Use 0.1 for rounding consistency with letterbox
-        auto pad0 = std::round((float)(input_image_size.width - original_image_size.width * gain) / 2.0f - 0.1f);
-        auto pad1 = std::round((float)(input_image_size.height - original_image_size.height * gain) / 2.0f - 0.1f);
+        auto pad0 = std::round((float)(input_image_size.width - original_image_size.width * gain) / 2.0 - letterbox_padding_);
+        auto pad1 = std::round((float)(input_image_size.height - original_image_size.height * gain) / 2.0 - letterbox_padding_);
 
         boxes.index_put_({"...", 0}, boxes.index({"...", 0}) - pad0);
         boxes.index_put_({"...", 2}, boxes.index({"...", 2}) - pad0);
