@@ -4,7 +4,14 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**/include",
-                "/usr/**/include"
+                "/usr/include/boost/**",
+                "/usr/include/c++/**",
+                "/usr/include/CL/**",
+                "/usr/include/cuda/**",
+                "/usr/include/cu*",
+                "/usr/include/eigen3/**",
+                "/usr/include/opencv4/**",
+                "/usr/local/zed/include/**"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/g++",

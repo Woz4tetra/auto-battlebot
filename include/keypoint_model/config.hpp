@@ -33,9 +33,12 @@ namespace auto_battlebot
     struct YoloKeypointModelConfiguration : public KeypointModelConfiguration
     {
         std::string model_path;
-        float threshold = 50.0f;
+        float threshold = 0.50f;
+        float iou_threshold = 0.45f;
+        float letterbox_padding = 0.1f;
         int image_size = 640;
         LabelToKeypointMapConfiguration label_map;
+        bool debug_visualization = false;
 
         YoloKeypointModelConfiguration()
         {
@@ -46,8 +49,11 @@ namespace auto_battlebot
         {
             model_path = parser.get_required_string("model_path");
             threshold = parser.get_optional_double("threshold", threshold);
+            iou_threshold = parser.get_optional_double("iou_threshold", iou_threshold);
+            letterbox_padding = parser.get_optional_double("letterbox_padding", letterbox_padding);
             image_size = parser.get_optional_int("image_size", image_size);
             label_map.parse(parser, "label_map");
+            debug_visualization = parser.get_optional_bool("debug_visualization", debug_visualization);
             parser.validate_no_extra_fields();
         }
     };

@@ -29,16 +29,29 @@ namespace auto_battlebot
     protected:
         std::string model_path_;
         float threshold_;
+        float iou_threshold_;
+        float letterbox_padding_;
         int image_size_;
+        bool debug_visualization_;
         LabelToKeypointMapConfiguration label_map_;
+
         torch::jit::script::Module model_;
         torch::Device device_;
         bool initialized_;
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
         // Helper methods
-        torch::Tensor preprocess_image(const cv::Mat &image);
-        KeypointsStamped postprocess_output(const torch::Tensor &output, const Header &header);
+        float generate_scale(cv::Mat &image, const std::vector<int> &target_size);
+        float letterbox(cv::Mat &input_image, cv::Mat &output_image, const std::vector<int> &target_size);
+        torch::Tensor preprocess_image(const cv::Mat &image, cv::Size input_image_size);
+
+        torch::Tensor nms(const torch::Tensor &bboxes, const torch::Tensor &scores, float iou_threshold);
+        torch::Tensor non_max_suppression(torch::Tensor &prediction, float conf_thres = 0.25, float iou_thres = 0.45, int max_det = 300);
+        torch::Tensor xywh2xyxy(const torch::Tensor &x);
+        Keypoint scale_keypoint(Keypoint output_keypoint, cv::Size original_image_size, cv::Size input_image_size);
+        torch::Tensor scale_boxes(torch::Tensor &boxes, cv::Size original_image_size, cv::Size input_image_size);
+        KeypointsStamped postprocess_output(const torch::Tensor &output, const Header &header, cv::Size original_image_size, cv::Size input_image_size, const cv::Mat &original_image);
+        void visualize_output(const cv::Mat &original_image, const KeypointsStamped &keypoints, const torch::Tensor &boxes);
     };
 
 } // namespace auto_battlebot

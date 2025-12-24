@@ -22,6 +22,7 @@ distance_threshold = 0.1
 [keypoint_model]
 type = "YoloKeypointModel"
 model_path = "models/yolo11x-pose_2024-10-11.torchscript"
+debug_visualization = true
 
 [keypoint_model.label_map]
 "MR_STABS_MK1" = ["MR_STABS_MK1_FRONT", "MR_STABS_MK1_BACK"]
