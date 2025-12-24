@@ -1,6 +1,4 @@
 #include "keypoint_model/yolo_keypoint_model.hpp"
-#include "enums/label.hpp"
-#include <magic_enum.hpp>
 
 namespace auto_battlebot
 {
@@ -89,38 +87,45 @@ namespace auto_battlebot
 
     torch::Tensor YoloKeypointModel::preprocess_image(const cv::Mat &image, cv::Size input_image_size)
     {
-        cv::Mat rgb_image;
+        // Note: ultralytics YOLO models expect RGB input, but the TorchScript export
+        // may handle the conversion internally. Try both BGR and RGB if results are poor.
+        cv::Mat processed_image;
         if (image.channels() == 3)
         {
-            cv::cvtColor(image, rgb_image, cv::COLOR_BGR2RGB);
+            cv::cvtColor(image, processed_image, cv::COLOR_BGR2RGB);
         }
         else if (image.channels() == 4)
         {
-            cv::cvtColor(image, rgb_image, cv::COLOR_BGRA2RGB);
+            cv::cvtColor(image, processed_image, cv::COLOR_BGRA2RGB);
         }
         else
         {
-            rgb_image = image;
+            processed_image = image;
         }
 
-        // Resize to model input size
+        // Resize to model input size with letterboxing
         cv::Mat resized;
-        // letterbox expects {height, width}
-        letterbox(rgb_image, resized, {input_image_size.height, input_image_size.width});
+        letterbox(processed_image, resized, {input_image_size.height, input_image_size.width});
 
         // Convert to float and normalize to [0, 1]
         cv::Mat float_image;
         resized.convertTo(float_image, CV_32F, 1.0 / 255.0);
 
+        // Ensure contiguous memory
+        if (!float_image.isContinuous())
+        {
+            float_image = float_image.clone();
+        }
+
         // Convert to tensor: HWC -> CHW
         torch::Tensor tensor = torch::from_blob(
                                    float_image.data,
-                                   {image_size_, image_size_, 3},
+                                   {float_image.rows, float_image.cols, 3},
                                    torch::kFloat32)
                                    .clone();
 
-        tensor = tensor.permute({2, 0, 1}); // HWC -> CHW
-        tensor = tensor.unsqueeze(0);       // Add batch dimension
+        tensor = tensor.permute({2, 0, 1}).contiguous(); // HWC -> CHW
+        tensor = tensor.unsqueeze(0);                     // Add batch dimension
 
         return tensor.to(device_);
     }
@@ -157,17 +162,19 @@ namespace auto_battlebot
         float resize_scale = generate_scale(input_image, target_size);
         int new_shape_w = std::round(input_image.cols * resize_scale);
         int new_shape_h = std::round(input_image.rows * resize_scale);
-        float padw = (target_size[1] - new_shape_w) / 2.0;
-        float padh = (target_size[0] - new_shape_h) / 2.0;
+        float padw = (target_size[1] - new_shape_w) / 2.0f;
+        float padh = (target_size[0] - new_shape_h) / 2.0f;
 
-        int top = std::round(padh - letterbox_padding_);
-        int bottom = std::round(padh + letterbox_padding_);
-        int left = std::round(padw - letterbox_padding_);
-        int right = std::round(padw + letterbox_padding_);
+        // Match ultralytics letterbox: use 0.1 for rounding symmetrically
+        int top = std::round(padh - 0.1f);
+        int bottom = std::round(padh + 0.1f);
+        int left = std::round(padw - 0.1f);
+        int right = std::round(padw + 0.1f);
 
+        // Use INTER_LINEAR for consistency with ultralytics
         cv::resize(input_image, output_image,
                    cv::Size(new_shape_w, new_shape_h),
-                   0, 0, cv::INTER_AREA);
+                   0, 0, cv::INTER_LINEAR);
 
         cv::copyMakeBorder(output_image, output_image, top, bottom, left, right,
                            cv::BORDER_CONSTANT, /*border color=*/cv::Scalar(114.0, 114.0, 114.0));
@@ -250,18 +257,19 @@ namespace auto_battlebot
         return y;
     }
 
-    torch::Tensor YoloKeypointModel::non_max_suppression(torch::Tensor &prediction, float conf_thres, float iou_thres, int max_det)
+    torch::Tensor YoloKeypointModel::non_max_suppression(torch::Tensor &prediction, int num_keypoints, float conf_thres, float iou_thres, int max_det)
     {
-        // YOLOv11 pose output shape: [batch, 56, num_predictions] for 17 keypoints
-        // Format: [x, y, w, h, class_conf, kp1_x, kp1_y, kp1_conf, kp2_x, ...]
-        // We need to transpose to [batch, num_predictions, 56]
+        // YOLOv11 pose output shape: [batch, features, num_predictions]
+        // Format: [x, y, w, h, class_scores..., kp1_x, kp1_y, kp1_conf, kp2_x, ...]
+        // We need to transpose to [batch, num_predictions, features]
         prediction = prediction.transpose(-1, -2);
 
         auto batch_size = prediction.size(0);
-        // YOLOv11 pose: 4 bbox + 1 class + num_keypoints*3 (x,y,conf per keypoint)
-        // For 17 keypoints: 4 + 1 + 51 = 56
-        auto num_classes = 1;                                            // YOLOv11 pose models have single class confidence
-        auto num_keypoint_values = prediction.size(2) - 4 - num_classes; // Total keypoint values (x,y,conf per keypoint)
+        auto total_features = prediction.size(2);
+        // Each keypoint has 3 values: x, y, confidence
+        auto num_keypoint_values = num_keypoints * 3;
+        // num_classes = total_features - 4 (bbox) - num_keypoint_values
+        auto num_classes = total_features - 4 - num_keypoint_values;
         auto class_score_end_idx = 4 + num_classes;
         auto class_conf_mask = prediction.index({Slice(), Slice(), Slice(4, class_score_end_idx)}).amax(2) > conf_thres;
 
@@ -310,8 +318,9 @@ namespace auto_battlebot
     Keypoint YoloKeypointModel::scale_keypoint(Keypoint output_keypoint, cv::Size original_image_size, cv::Size input_image_size)
     {
         double gain = std::min((double)input_image_size.width / original_image_size.width, (double)input_image_size.height / original_image_size.height);
-        double pad0 = std::round((double)(input_image_size.width - original_image_size.width * gain) / 2. - letterbox_padding_);
-        double pad1 = std::round((double)(input_image_size.height - original_image_size.height * gain) / 2. - letterbox_padding_);
+        // Use 0.1 for rounding consistency with letterbox
+        double pad0 = std::round((double)(input_image_size.width - original_image_size.width * gain) / 2.0 - 0.1);
+        double pad1 = std::round((double)(input_image_size.height - original_image_size.height * gain) / 2.0 - 0.1);
         double x = output_keypoint.x;
         double y = output_keypoint.y;
         x -= pad0;
@@ -325,8 +334,9 @@ namespace auto_battlebot
     torch::Tensor YoloKeypointModel::scale_boxes(torch::Tensor &boxes, cv::Size original_image_size, cv::Size input_image_size)
     {
         auto gain = (std::min)((float)input_image_size.height / original_image_size.height, (float)input_image_size.width / original_image_size.width);
-        auto pad0 = std::round((float)(input_image_size.width - original_image_size.width * gain) / 2.0 - letterbox_padding_);
-        auto pad1 = std::round((float)(input_image_size.height - original_image_size.height * gain) / 2.0 - letterbox_padding_);
+        // Use 0.1 for rounding consistency with letterbox
+        auto pad0 = std::round((float)(input_image_size.width - original_image_size.width * gain) / 2.0f - 0.1f);
+        auto pad1 = std::round((float)(input_image_size.height - original_image_size.height * gain) / 2.0f - 0.1f);
 
         boxes.index_put_({"...", 0}, boxes.index({"...", 0}) - pad0);
         boxes.index_put_({"...", 2}, boxes.index({"...", 2}) - pad0);
@@ -354,8 +364,15 @@ namespace auto_battlebot
             return result;
         }
 
+        // Get number of keypoints from the first label in the map
+        int num_keypoints = 0;
+        if (!label_map_.label_to_keypoints.empty())
+        {
+            num_keypoints = static_cast<int>(label_map_.label_to_keypoints.front().second.size());
+        }
+
         // NMS
-        auto keep = non_max_suppression(cpu_output, threshold_, iou_threshold_)[0];
+        auto keep = non_max_suppression(cpu_output, num_keypoints, threshold_, iou_threshold_)[0];
 
         // Get number of detections (size(0) = rows = detections, size(1) = columns = features)
         int64_t num_detections = keep.size(0);
@@ -391,7 +408,7 @@ namespace auto_battlebot
             // For YOLO with keypoints, format is typically:
             // [x, y, w, h, obj_conf, class_conf, kp1_x, kp1_y, kp1_conf, kp2_x, kp2_y, kp2_conf, ...]
 
-            int num_classes = static_cast<int>(label_map_.label_to_keypoints.size());
+            int num_classes = static_cast<int>(label_map_.size());
             int class_id = keep[i][5].item().toInt();
 
             // Check if class_id is valid
@@ -401,15 +418,14 @@ namespace auto_battlebot
                 continue;
             }
 
-            // Get the label from the map (get the nth label)
-            auto it = label_map_.label_to_keypoints.begin();
-            std::advance(it, class_id);
-            Label object_label = it->first;
+            // Get the label from the map by index
+            Label object_label = label_map_.get_label_at_index(class_id);
 
             // Log detection info
             DiagnosticsData diag_data;
             diag_data["confidence"] = confidence;
             diag_data["class_id"] = class_id;
+            diag_data["stamp"] = header.stamp;
             diagnostics_logger_->info(std::string(magic_enum::enum_name(object_label)) + "-" + std::to_string(i), diag_data);
 
             // Get keypoint labels for this object label
@@ -461,14 +477,15 @@ namespace auto_battlebot
         if (debug_visualization_)
         {
             auto boxes = keep.index({Slice(), Slice(None, 4)});
-            keep.index_put_({Slice(), Slice(None, 4)}, scale_boxes(boxes, original_image_size, input_image_size));
-            visualize_output(original_image, result, boxes);
+            auto scaled_boxes = scale_boxes(boxes, original_image_size, input_image_size);
+            keep.index_put_({Slice(), Slice(None, 4)}, scaled_boxes);
+            visualize_output(original_image, result, keep);
         }
 
         return result;
     }
 
-    void YoloKeypointModel::visualize_output(const cv::Mat &original_image, const KeypointsStamped &keypoints, const torch::Tensor &boxes)
+    void YoloKeypointModel::visualize_output(const cv::Mat &original_image, const KeypointsStamped &keypoints, const torch::Tensor &detections)
     {
         if (original_image.empty())
             return;
@@ -476,35 +493,194 @@ namespace auto_battlebot
         // Copy image for visualization
         cv::Mat vis_img = original_image.clone();
 
-        // Draw bounding boxes
-        if (boxes.defined() && boxes.numel() > 0)
-        {
-            auto boxes_cpu = boxes.to(torch::kCPU);
-            for (int i = 0; i < boxes_cpu.size(0); ++i)
-            {
-                float x1 = boxes_cpu[i][0].item().toFloat();
-                float y1 = boxes_cpu[i][1].item().toFloat();
-                float x2 = boxes_cpu[i][2].item().toFloat();
-                float y2 = boxes_cpu[i][3].item().toFloat();
-                cv::rectangle(vis_img, cv::Point((int)x1, (int)y1), cv::Point((int)x2, (int)y2), cv::Scalar(0, 255, 0), 2);
-            }
-        }
-
-        // Draw keypoints
+        // Group keypoints by label to draw connections
+        std::map<Label, std::vector<cv::Point>> keypoints_by_label;
         for (const auto &kp : keypoints.keypoints)
         {
             int x = static_cast<int>(std::round(kp.x));
             int y = static_cast<int>(std::round(kp.y));
-            cv::circle(vis_img, cv::Point(x, y), 3, cv::Scalar(0, 0, 255), -1);
+            keypoints_by_label[kp.label].push_back(cv::Point(x, y));
+        }
 
-            // Optionally, draw keypoint label
-            std::string label = std::to_string(static_cast<int>(kp.keypoint_label));
-            cv::putText(vis_img, label, cv::Point(x + 4, y - 4), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
+        // Draw bounding boxes with class labels
+        if (detections.defined() && detections.numel() > 0)
+        {
+            auto detections_cpu = detections.to(torch::kCPU);
+
+            // Collect all label rectangles first to check for overlaps
+            struct LabelInfo
+            {
+                cv::Rect rect;
+                std::string text;
+                cv::Scalar color;
+                cv::Point text_pos;
+            };
+            std::vector<LabelInfo> labels;
+
+            for (int i = 0; i < detections_cpu.size(0); ++i)
+            {
+                float x1 = detections_cpu[i][0].item().toFloat();
+                float y1 = detections_cpu[i][1].item().toFloat();
+                float x2 = detections_cpu[i][2].item().toFloat();
+                float y2 = detections_cpu[i][3].item().toFloat();
+                float confidence = detections_cpu[i][4].item().toFloat();
+
+                // Get class_id from detections tensor (index 5)
+                int class_id = detections_cpu[i][5].item().toInt();
+                Label box_label = label_map_.get_label_at_index(class_id);
+
+                cv::Scalar color = get_color_for_label(box_label);
+
+                // Format label with confidence score
+                std::ostringstream label_stream;
+                label_stream << std::string(magic_enum::enum_name(box_label))
+                             << " " << std::fixed << std::setprecision(2) << confidence;
+                std::string label_text = label_stream.str();
+
+                // Draw box with thicker line
+                cv::rectangle(vis_img, cv::Point((int)x1, (int)y1), cv::Point((int)x2, (int)y2), color, 2);
+
+                // Calculate label position
+                int baseline = 0;
+                cv::Size text_size = cv::getTextSize(label_text, cv::FONT_HERSHEY_SIMPLEX, 0.6, 2, &baseline);
+
+                int label_y = (int)y1 - text_size.height - 6;
+                int label_x = (int)x1;
+
+                // Check for overlaps with existing labels and offset if needed
+                cv::Rect proposed_rect(label_x, label_y, text_size.width + 4, text_size.height + 6);
+                int offset_count = 0;
+                bool has_overlap = true;
+                while (has_overlap && offset_count < 10)
+                {
+                    has_overlap = false;
+                    for (const auto &existing : labels)
+                    {
+                        if ((proposed_rect & existing.rect).area() > 0)
+                        {
+                            has_overlap = true;
+                            // Move label up
+                            label_y -= (text_size.height + 8);
+                            proposed_rect = cv::Rect(label_x, label_y, text_size.width + 4, text_size.height + 6);
+                            offset_count++;
+                            break;
+                        }
+                    }
+                }
+
+                labels.push_back({proposed_rect, label_text, color, cv::Point(label_x + 2, label_y + text_size.height + 2)});
+            }
+
+            // Draw all labels
+            for (const auto &label : labels)
+            {
+                cv::rectangle(vis_img, label.rect, label.color, cv::FILLED);
+                cv::putText(vis_img, label.text, label.text_pos,
+                            cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+            }
+        }
+
+        // Draw connections between front and back keypoints for each label
+        for (const auto &[label, points] : keypoints_by_label)
+        {
+            if (points.size() >= 2)
+            {
+                cv::Scalar color = get_color_for_label(label);
+                // Draw line connecting keypoints (front to back)
+                cv::line(vis_img, points[0], points[1], color, 2, cv::LINE_AA);
+            }
+        }
+
+        // Draw keypoints with labels
+        for (const auto &kp : keypoints.keypoints)
+        {
+            int x = static_cast<int>(std::round(kp.x));
+            int y = static_cast<int>(std::round(kp.y));
+
+            cv::Scalar color = get_color_for_label(kp.label);
+            std::string kp_name = get_short_name(std::string(magic_enum::enum_name(kp.keypoint_label)));
+
+            // Draw outer circle (white border)
+            cv::circle(vis_img, cv::Point(x, y), 7, cv::Scalar(255, 255, 255), -1, cv::LINE_AA);
+            // Draw inner circle (class color)
+            cv::circle(vis_img, cv::Point(x, y), 5, color, -1, cv::LINE_AA);
+
+            // Draw keypoint label with shadow for visibility
+            cv::putText(vis_img, kp_name,
+                        cv::Point(x + 9, y + 4),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 2); // Shadow
+            cv::putText(vis_img, kp_name,
+                        cv::Point(x + 8, y + 3),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1); // Text
         }
 
         // Show the image in a window (for debug)
         cv::imshow("YOLO Keypoint Visualization", vis_img);
         cv::waitKey(1);
+    }
+
+    cv::Scalar YoloKeypointModel::get_color_for_label(Label label)
+    {
+        int index = static_cast<int>(label);
+        // Use HSV color wheel for distinct colors, then convert to BGR
+        float hue = fmod(index * 137.5f, 360.0f); // Golden angle for good distribution
+        float sat = 0.8f;
+        float val = 0.9f;
+
+        // HSV to BGR conversion
+        float c = val * sat;
+        float x = c * (1 - fabs(fmod(hue / 60.0f, 2) - 1));
+        float m = val - c;
+        float r, g, b;
+        if (hue < 60)
+        {
+            r = c;
+            g = x;
+            b = 0;
+        }
+        else if (hue < 120)
+        {
+            r = x;
+            g = c;
+            b = 0;
+        }
+        else if (hue < 180)
+        {
+            r = 0;
+            g = c;
+            b = x;
+        }
+        else if (hue < 240)
+        {
+            r = 0;
+            g = x;
+            b = c;
+        }
+        else if (hue < 300)
+        {
+            r = x;
+            g = 0;
+            b = c;
+        }
+        else
+        {
+            r = c;
+            g = 0;
+            b = x;
+        }
+
+        return cv::Scalar((b + m) * 255, (g + m) * 255, (r + m) * 255);
+    }
+
+    std::string YoloKeypointModel::get_short_name(const std::string &enum_name)
+    {
+        size_t last_underscore = enum_name.rfind('_');
+        if (last_underscore != std::string::npos && last_underscore + 1 < enum_name.size())
+        {
+            return enum_name.substr(last_underscore + 1);
+        }
+        // If no underscore or at end, return first 4 chars
+        return enum_name.substr(0, std::min(size_t(4), enum_name.size()));
     }
 
 } // namespace auto_battlebot
