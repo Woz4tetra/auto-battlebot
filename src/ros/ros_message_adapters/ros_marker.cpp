@@ -1,10 +1,30 @@
 #include "ros/ros_message_adapters/ros_marker.hpp"
 #include "transform_utils.hpp"
+#include "enum_to_string_lower.hpp"
+#include "label_utils.hpp"
+#include <cmath>
 
 namespace auto_battlebot
 {
     namespace ros_adapters
     {
+        namespace
+        {
+            /**
+             * @brief Convert ColorRGBf to std_msgs::ColorRGBA
+             */
+            std_msgs::ColorRGBA to_ros_color(Label label, float alpha = 1.0f)
+            {
+                auto color = get_color_for_label(label);
+                std_msgs::ColorRGBA ros_color;
+                ros_color.r = color.r;
+                ros_color.g = color.g;
+                ros_color.b = color.b;
+                ros_color.a = alpha;
+                return ros_color;
+            }
+        } // anonymous namespace
+
         std::vector<visualization_msgs::Marker> to_ros_field_marker(const FieldDescriptionWithInlierPoints &field)
         {
             std::vector<visualization_msgs::Marker> markers;
@@ -108,63 +128,24 @@ namespace auto_battlebot
             return markers;
         }
 
-        std::vector<visualization_msgs::Marker> to_ros_keypoint_markers(const KeypointsStamped &keypoints)
-        {
-            std::vector<visualization_msgs::Marker> markers;
-
-            for (size_t i = 0; i < keypoints.keypoints.size(); ++i)
-            {
-                const auto &kp = keypoints.keypoints[i];
-
-                visualization_msgs::Marker marker;
-                marker.header = to_ros_header(keypoints.header);
-                marker.ns = "keypoints";
-                marker.id = i;
-                marker.type = visualization_msgs::Marker::SPHERE;
-                marker.action = visualization_msgs::Marker::ADD;
-
-                // Project 2D keypoint to 3D (simplified - assumes z=0 or use camera info)
-                marker.pose.position.x = kp.x;
-                marker.pose.position.y = kp.y;
-                marker.pose.position.z = 0.0;
-
-                marker.pose.orientation.w = 1.0;
-                marker.pose.orientation.x = 0.0;
-                marker.pose.orientation.y = 0.0;
-                marker.pose.orientation.z = 0.0;
-
-                // Small sphere for keypoint
-                marker.scale.x = 0.05;
-                marker.scale.y = 0.05;
-                marker.scale.z = 0.05;
-
-                // Color based on label
-                marker.color.r = 1.0f;
-                marker.color.g = 0.0f;
-                marker.color.b = 0.0f;
-                marker.color.a = 1.0f;
-
-                marker.frame_locked = false;
-
-                markers.push_back(marker);
-            }
-
-            return markers;
-        }
-
         std::vector<visualization_msgs::Marker> to_ros_robot_markers(const RobotDescriptionsStamped &robots)
         {
             std::vector<visualization_msgs::Marker> markers;
+            int marker_id = 0;
 
             for (size_t i = 0; i < robots.descriptions.size(); ++i)
             {
                 const auto &robot = robots.descriptions[i];
 
+                // Get color based on robot label for consistency
+                std_msgs::ColorRGBA robot_color = to_ros_color(robot.label, 0.7f);
+                std_msgs::ColorRGBA solid_color = to_ros_color(robot.label, 1.0f);
+
                 // Cube marker for robot body
                 visualization_msgs::Marker cube_marker;
                 cube_marker.header = to_ros_header(robots.header);
                 cube_marker.ns = "robot_bounds";
-                cube_marker.id = i;
+                cube_marker.id = marker_id++;
                 cube_marker.type = visualization_msgs::Marker::CUBE;
                 cube_marker.action = visualization_msgs::Marker::ADD;
 
@@ -183,20 +164,16 @@ namespace auto_battlebot
                 cube_marker.scale.y = robot.size.y;
                 cube_marker.scale.z = robot.size.z;
 
-                cube_marker.color.r = 0.0f;
-                cube_marker.color.g = 0.0f;
-                cube_marker.color.b = 1.0f;
-                cube_marker.color.a = 0.8f;
-
+                cube_marker.color = robot_color;
                 cube_marker.frame_locked = false;
 
                 markers.push_back(cube_marker);
 
-                // Arrow marker for robot pose
+                // Arrow marker for robot pose/heading
                 visualization_msgs::Marker arrow_marker;
                 arrow_marker.header = to_ros_header(robots.header);
                 arrow_marker.ns = "robot_poses";
-                arrow_marker.id = i;
+                arrow_marker.id = marker_id++;
                 arrow_marker.type = visualization_msgs::Marker::ARROW;
                 arrow_marker.action = visualization_msgs::Marker::ADD;
 
@@ -210,30 +187,51 @@ namespace auto_battlebot
                 arrow_marker.pose.orientation.y = robot.pose.rotation.y;
                 arrow_marker.pose.orientation.z = robot.pose.rotation.z;
 
-                // Set arrow scale (shaft diameter, head diameter, head length)
-                arrow_marker.scale.x = 0.03 * robot.size.x; // shaft diameter
-                arrow_marker.scale.y = 0.06 * robot.size.x; // head diameter
-                arrow_marker.scale.z = 0.15 * robot.size.x; // head length
+                // Set arrow scale: length based on robot x-size, fixed diameter
+                arrow_marker.scale.x = robot.size.x * 1.5; // arrow length (along robot x-axis)
+                arrow_marker.scale.y = 0.015;              // shaft diameter (fixed)
+                arrow_marker.scale.z = 0.015;              // head diameter (fixed)
 
-                // Color: yellow arrow
-                arrow_marker.color.r = 1.0f;
-                arrow_marker.color.g = 1.0f;
-                arrow_marker.color.b = 0.0f;
-                arrow_marker.color.a = 1.0f;
-
+                arrow_marker.color = solid_color;
                 arrow_marker.frame_locked = false;
 
                 markers.push_back(arrow_marker);
 
-                int keypoint_index = 0;
-                for (Position keypoint : robot.keypoints)
+                // Text marker for robot label
+                visualization_msgs::Marker text_marker;
+                text_marker.header = to_ros_header(robots.header);
+                text_marker.ns = "robot_labels";
+                text_marker.id = marker_id++;
+                text_marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
+                text_marker.action = visualization_msgs::Marker::ADD;
+
+                // Position text above the robot
+                text_marker.pose.position.x = robot.pose.position.x;
+                text_marker.pose.position.y = robot.pose.position.y;
+                text_marker.pose.position.z = robot.pose.position.z + robot.size.z * 0.6;
+
+                text_marker.pose.orientation.w = 1.0;
+                text_marker.pose.orientation.x = 0.0;
+                text_marker.pose.orientation.y = 0.0;
+                text_marker.pose.orientation.z = 0.0;
+
+                text_marker.scale.z = 0.1; // Text height
+                text_marker.text = enum_to_string_lower(robot.label);
+                text_marker.color = solid_color;
+                text_marker.frame_locked = false;
+
+                markers.push_back(text_marker);
+
+                // Keypoint markers
+                for (size_t kp_idx = 0; kp_idx < robot.keypoints.size(); ++kp_idx)
                 {
+                    const Position &keypoint = robot.keypoints[kp_idx];
+
                     // Sphere marker for robot keypoint
                     visualization_msgs::Marker keypoint_marker;
                     keypoint_marker.header = to_ros_header(robots.header);
                     keypoint_marker.ns = "robot_keypoints";
-                    keypoint_marker.id = 2 * i + keypoint_index;
-                    keypoint_index++;
+                    keypoint_marker.id = marker_id++;
                     keypoint_marker.type = visualization_msgs::Marker::SPHERE;
                     keypoint_marker.action = visualization_msgs::Marker::ADD;
 
@@ -243,19 +241,46 @@ namespace auto_battlebot
                     keypoint_marker.pose.position.z = keypoint.z;
 
                     keypoint_marker.pose.orientation.w = 1.0;
+                    keypoint_marker.pose.orientation.x = 0.0;
+                    keypoint_marker.pose.orientation.y = 0.0;
+                    keypoint_marker.pose.orientation.z = 0.0;
 
                     keypoint_marker.scale.x = 0.02;
                     keypoint_marker.scale.y = 0.02;
                     keypoint_marker.scale.z = 0.02;
 
-                    keypoint_marker.color.r = 1.0f;
-                    keypoint_marker.color.g = 0.0f;
-                    keypoint_marker.color.b = 0.0f;
-                    keypoint_marker.color.a = 1.0f;
-
+                    keypoint_marker.color = solid_color;
                     keypoint_marker.frame_locked = false;
 
                     markers.push_back(keypoint_marker);
+                }
+
+                // Connect keypoints with line strips if there are multiple
+                if (robot.keypoints.size() > 1)
+                {
+                    visualization_msgs::Marker line_marker;
+                    line_marker.header = to_ros_header(robots.header);
+                    line_marker.ns = "robot_keypoint_lines";
+                    line_marker.id = marker_id++;
+                    line_marker.type = visualization_msgs::Marker::LINE_STRIP;
+                    line_marker.action = visualization_msgs::Marker::ADD;
+
+                    line_marker.pose.orientation.w = 1.0;
+                    line_marker.scale.x = 0.005; // Line width
+
+                    line_marker.color = solid_color;
+                    line_marker.frame_locked = false;
+
+                    for (const Position &keypoint : robot.keypoints)
+                    {
+                        geometry_msgs::Point p;
+                        p.x = keypoint.x;
+                        p.y = keypoint.y;
+                        p.z = keypoint.z;
+                        line_marker.points.push_back(p);
+                    }
+
+                    markers.push_back(line_marker);
                 }
             }
 

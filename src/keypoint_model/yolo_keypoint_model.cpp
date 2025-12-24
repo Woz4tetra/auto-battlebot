@@ -525,7 +525,8 @@ namespace auto_battlebot
                 int class_id = detections_cpu[i][5].item().toInt();
                 Label box_label = label_map_.get_label_at_index(class_id);
 
-                cv::Scalar color = get_color_for_label(box_label);
+                auto [b, g, r] = get_color_for_label(box_label).to_bgr_255();
+                cv::Scalar color(b, g, r);
 
                 // Format label with confidence score
                 std::ostringstream label_stream;
@@ -581,7 +582,8 @@ namespace auto_battlebot
         {
             if (points.size() >= 2)
             {
-                cv::Scalar color = get_color_for_label(label);
+                auto [b, g, r] = get_color_for_label(label).to_bgr_255();
+                cv::Scalar color(b, g, r);
                 // Draw line connecting keypoints (front to back)
                 cv::line(vis_img, points[0], points[1], color, 2, cv::LINE_AA);
             }
@@ -593,7 +595,8 @@ namespace auto_battlebot
             int x = static_cast<int>(std::round(kp.x));
             int y = static_cast<int>(std::round(kp.y));
 
-            cv::Scalar color = get_color_for_label(kp.label);
+            auto [b, g, r_val] = get_color_for_label(kp.label).to_bgr_255();
+            cv::Scalar color(b, g, r_val);
             std::string kp_name = get_short_name(std::string(magic_enum::enum_name(kp.keypoint_label)));
 
             // Draw outer circle (white border)
@@ -613,70 +616,6 @@ namespace auto_battlebot
         // Show the image in a window (for debug)
         cv::imshow("YOLO Keypoint Visualization", vis_img);
         cv::waitKey(1);
-    }
-
-    cv::Scalar YoloKeypointModel::get_color_for_label(Label label)
-    {
-        int index = static_cast<int>(label);
-        // Use HSV color wheel for distinct colors, then convert to BGR
-        float hue = fmod(index * 137.5f, 360.0f); // Golden angle for good distribution
-        float sat = 0.8f;
-        float val = 0.9f;
-
-        // HSV to BGR conversion
-        float c = val * sat;
-        float x = c * (1 - fabs(fmod(hue / 60.0f, 2) - 1));
-        float m = val - c;
-        float r, g, b;
-        if (hue < 60)
-        {
-            r = c;
-            g = x;
-            b = 0;
-        }
-        else if (hue < 120)
-        {
-            r = x;
-            g = c;
-            b = 0;
-        }
-        else if (hue < 180)
-        {
-            r = 0;
-            g = c;
-            b = x;
-        }
-        else if (hue < 240)
-        {
-            r = 0;
-            g = x;
-            b = c;
-        }
-        else if (hue < 300)
-        {
-            r = x;
-            g = 0;
-            b = c;
-        }
-        else
-        {
-            r = c;
-            g = 0;
-            b = x;
-        }
-
-        return cv::Scalar((b + m) * 255, (g + m) * 255, (r + m) * 255);
-    }
-
-    std::string YoloKeypointModel::get_short_name(const std::string &enum_name)
-    {
-        size_t last_underscore = enum_name.rfind('_');
-        if (last_underscore != std::string::npos && last_underscore + 1 < enum_name.size())
-        {
-            return enum_name.substr(last_underscore + 1);
-        }
-        // If no underscore or at end, return first 4 chars
-        return enum_name.substr(0, std::min(size_t(4), enum_name.size()));
     }
 
 } // namespace auto_battlebot

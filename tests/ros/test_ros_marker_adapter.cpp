@@ -104,28 +104,6 @@ namespace auto_battlebot
         EXPECT_FLOAT_EQ(marker.color.a, 0.5f);
     }
 
-    // Test keypoint markers conversion
-    TEST_F(RosMarkerAdapterTest, KeypointMarkersConversion)
-    {
-        auto markers = ros_adapters::to_ros_keypoint_markers(keypoints);
-
-        EXPECT_EQ(markers.size(), 2);
-
-        // Check first marker
-        EXPECT_EQ(markers[0].ns, "keypoints");
-        EXPECT_EQ(markers[0].id, 0);
-        EXPECT_EQ(markers[0].type, visualization_msgs::Marker::SPHERE);
-        EXPECT_DOUBLE_EQ(markers[0].pose.position.x, 10.0);
-        EXPECT_DOUBLE_EQ(markers[0].pose.position.y, 20.0);
-        EXPECT_DOUBLE_EQ(markers[0].pose.position.z, 0.0);
-
-        // Check second marker
-        EXPECT_EQ(markers[1].ns, "keypoints");
-        EXPECT_EQ(markers[1].id, 1);
-        EXPECT_DOUBLE_EQ(markers[1].pose.position.x, 30.0);
-        EXPECT_DOUBLE_EQ(markers[1].pose.position.y, 40.0);
-    }
-
     // Test robot markers conversion
     TEST_F(RosMarkerAdapterTest, RobotMarkersConversion)
     {
@@ -152,17 +130,6 @@ namespace auto_battlebot
         EXPECT_FLOAT_EQ(markers[1].color.r, 1.0f); // Red for opponent
         EXPECT_FLOAT_EQ(markers[1].color.g, 0.0f);
         EXPECT_FLOAT_EQ(markers[1].color.b, 0.0f);
-    }
-
-    // Test empty keypoints
-    TEST_F(RosMarkerAdapterTest, EmptyKeypoints)
-    {
-        KeypointsStamped empty_keypoints;
-        empty_keypoints.header = test_header;
-
-        auto markers = ros_adapters::to_ros_keypoint_markers(empty_keypoints);
-
-        EXPECT_EQ(markers.size(), 0);
     }
 
     // Test empty robots
@@ -193,9 +160,6 @@ namespace auto_battlebot
         ASSERT_FALSE(field_markers.empty());
         EXPECT_DOUBLE_EQ(field_markers[0].header.stamp.toSec(), 123.456);
         EXPECT_EQ(field_markers[0].header.frame_id, "camera");
-
-        auto keypoint_markers = ros_adapters::to_ros_keypoint_markers(keypoints);
-        EXPECT_DOUBLE_EQ(keypoint_markers[0].header.stamp.toSec(), 123.456);
 
         auto robot_markers = ros_adapters::to_ros_robot_markers(robots);
         EXPECT_DOUBLE_EQ(robot_markers[0].header.stamp.toSec(), 123.456);

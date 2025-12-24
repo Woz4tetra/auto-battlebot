@@ -19,6 +19,7 @@
 #include "enums/label.hpp"
 #include "enums/keypoint_label.hpp"
 #include "time_utils.hpp"
+#include "label_utils.hpp"
 
 namespace auto_battlebot
 {
@@ -56,10 +57,6 @@ namespace auto_battlebot
         torch::Tensor scale_boxes(torch::Tensor &boxes, cv::Size original_image_size, cv::Size input_image_size);
         KeypointsStamped postprocess_output(const torch::Tensor &output, const Header &header, cv::Size original_image_size, cv::Size input_image_size, const cv::Mat &original_image);
         void visualize_output(const cv::Mat &original_image, const KeypointsStamped &keypoints, const torch::Tensor &detections);
-
-        // Visualization helpers
-        static cv::Scalar get_color_for_label(Label label);
-        static std::string get_short_name(const std::string &enum_name);
     };
 
 } // namespace auto_battlebot

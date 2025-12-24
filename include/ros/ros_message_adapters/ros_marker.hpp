@@ -20,11 +20,6 @@ namespace auto_battlebot
         std::vector<visualization_msgs::Marker> to_ros_field_marker(const FieldDescriptionWithInlierPoints &field);
 
         /**
-         * @brief Convert KeypointsStamped to ROS Marker messages
-         */
-        std::vector<visualization_msgs::Marker> to_ros_keypoint_markers(const KeypointsStamped &keypoints);
-
-        /**
          * @brief Convert RobotDescriptionsStamped to ROS Marker messages
          */
         std::vector<visualization_msgs::Marker> to_ros_robot_markers(const RobotDescriptionsStamped &robots);
