@@ -50,7 +50,7 @@ label = "OPPONENT"
 keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 
 [robot_filter]
-type = "RobotKalmanFilter"
+type = "RobotFrontBackKalmanFilter"
 
 front_keypoints = [
     "MR_STABS_MK1_FRONT",

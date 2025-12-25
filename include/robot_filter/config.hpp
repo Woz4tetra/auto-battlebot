@@ -26,15 +26,15 @@ namespace auto_battlebot
         )
     };
 
-    struct RobotKalmanFilterConfiguration : public RobotFilterConfiguration
+    struct RobotFrontBackKalmanFilterConfiguration : public RobotFilterConfiguration
     {
         std::vector<KeypointLabel> front_keypoints;
         std::vector<KeypointLabel> back_keypoints;
         std::map<Label, std::vector<FrameId>> label_to_frame_ids;
 
-        RobotKalmanFilterConfiguration()
+        RobotFrontBackKalmanFilterConfiguration()
         {
-            type = "RobotKalmanFilter";
+            type = "RobotFrontBackKalmanFilter";
         }
 
         void parse_fields(ConfigParser &parser) override

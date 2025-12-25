@@ -1,13 +1,13 @@
-#include "robot_filter/robot_kalman_filter.hpp"
+#include "robot_filter/robot_front_back_kalman_filter.hpp"
 
 namespace auto_battlebot
 {
-    RobotKalmanFilter::RobotKalmanFilter(RobotKalmanFilterConfiguration &config) : config_(config)
+    RobotFrontBackKalmanFilter::RobotFrontBackKalmanFilter(RobotFrontBackKalmanFilterConfiguration &config) : config_(config)
     {
-        diagnostics_logger_ = DiagnosticsLogger::get_logger("robot_kalman_filter");
+        diagnostics_logger_ = DiagnosticsLogger::get_logger("robot_front_back_kalman_filter");
     }
 
-    bool RobotKalmanFilter::initialize(const std::vector<RobotConfig> &robots)
+    bool RobotFrontBackKalmanFilter::initialize(const std::vector<RobotConfig> &robots)
     {
         robot_configs_.clear();
         for (const auto &robot : robots)
@@ -17,42 +17,47 @@ namespace auto_battlebot
         return true;
     }
 
-    RobotDescriptionsStamped RobotKalmanFilter::update(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info)
+    RobotDescriptionsStamped RobotFrontBackKalmanFilter::update(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info)
     {
         RobotDescriptionsStamped result;
         result.header.frame_id = FrameId::FIELD;
         result.header.stamp = keypoints.header.stamp;
 
-        Transform tf_camera_from_fieldcenter = field.tf_camera_from_fieldcenter;
+        Eigen::Matrix4d tf_fieldcenter_from_camera = field.tf_camera_from_fieldcenter.tf.inverse();
 
         std::map<Label, FrontBackAssignment> front_back_mapping = compute_front_back_mapping(keypoints, field, camera_info);
         for (const auto &[label, assignment] : front_back_mapping)
         {
-            Transform tf_camera_from_robot;
-            bool pose_found = get_pose_from_points(assignment.front, assignment.back, tf_camera_from_robot);
+            FrameId robot_frame_id = config_.label_to_frame_ids[label][0];
+
+            std::vector<Position> keypoints;
+            Eigen::Vector3d front_keypoint_in_field = transform_point(tf_fieldcenter_from_camera, assignment.front);
+            Eigen::Vector3d back_keypoint_in_field = transform_point(tf_fieldcenter_from_camera, assignment.back);
+            double length = (front_keypoint_in_field - back_keypoint_in_field).norm();
+
+            Transform tf_field_from_robot;
+            bool pose_found = get_pose_from_points(front_keypoint_in_field, back_keypoint_in_field, tf_field_from_robot);
 
             std::string label_str = std::string(magic_enum::enum_name(label));
             diagnostics_logger_->debug(label_str, {{"pose_found", pose_found ? "true" : "false"}});
 
             if (!pose_found)
                 continue;
-            Transform tf_fieldcenter_from_robot{tf_camera_from_fieldcenter.tf.inverse() * tf_camera_from_robot.tf};
 
             result.descriptions.push_back(
                 RobotDescription{
-                    config_.label_to_frame_ids[label][0],
+                    robot_frame_id,
                     label,
-                    matrix_to_pose(tf_fieldcenter_from_robot.tf),
-                    Size{0.01, 0.01, 0.01},
-                    {Position{assignment.front[0], assignment.front[0], assignment.front[2]},
-                     Position{assignment.back[0], assignment.back[1], assignment.back[2]}}});
+                    matrix_to_pose(tf_field_from_robot.tf),
+                    Size{length, length, 0.1},
+                    {vector_to_position(front_keypoint_in_field), vector_to_position(back_keypoint_in_field)}});
         }
         diagnostics_logger_->debug({{"num_robots", (int)result.descriptions.size()}});
 
         return result;
     }
 
-    std::map<Label, FrontBackAssignment> RobotKalmanFilter::compute_front_back_mapping(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info)
+    std::map<Label, FrontBackAssignment> RobotFrontBackKalmanFilter::compute_front_back_mapping(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info)
     {
         Pose pose_camera_from_fieldcenter = matrix_to_pose(field.tf_camera_from_fieldcenter.tf);
         Position field_pos = pose_camera_from_fieldcenter.position;
@@ -94,7 +99,7 @@ namespace auto_battlebot
         return front_back_mapping;
     }
 
-    Eigen::Vector3d RobotKalmanFilter::project_keypoint_onto_plane(Keypoint keypoint, Eigen::Vector3d plane_center, Eigen::Vector3d plane_normal, CameraInfo camera_info)
+    Eigen::Vector3d RobotFrontBackKalmanFilter::project_keypoint_onto_plane(Keypoint keypoint, Eigen::Vector3d plane_center, Eigen::Vector3d plane_normal, CameraInfo camera_info)
     {
         // Extract camera intrinsics (assuming 3x3 matrix)
         double fx = camera_info.intrinsics.at<double>(0, 0);
@@ -110,7 +115,7 @@ namespace auto_battlebot
         return point_on_plane;
     }
 
-    Eigen::Vector3d RobotKalmanFilter::plane_from_3_points(Eigen::Vector3d point1, Eigen::Vector3d point2, Eigen::Vector3d point3)
+    Eigen::Vector3d RobotFrontBackKalmanFilter::plane_from_3_points(Eigen::Vector3d point1, Eigen::Vector3d point2, Eigen::Vector3d point3)
     {
         // Calculate the normal vector of the plane defined by 3 points
         Eigen::Vector3d v1 = point2 - point1;
@@ -125,26 +130,29 @@ namespace auto_battlebot
         return normal / magnitude;
     }
 
-    Eigen::Vector3d RobotKalmanFilter::transform_to_plane_normal(Transform transform)
+    Eigen::Vector3d RobotFrontBackKalmanFilter::transform_to_plane_normal(Transform transform)
     {
-        // Assume Transform is a 4x4 Eigen::Matrix4d or similar
         // Define three points in homogeneous coordinates
-        Eigen::Vector4d point0(0, 0, 0, 1);
-        Eigen::Vector4d point1(1, 0, 0, 1);
-        Eigen::Vector4d point2(0, 1, 0, 1);
-
-        // Transform the points
-        Eigen::Vector3d transformed_point1 = (transform.tf * point0).head<3>();
-        Eigen::Vector3d transformed_point2 = (transform.tf * point1).head<3>();
-        Eigen::Vector3d transformed_point3 = (transform.tf * point2).head<3>();
+        Eigen::Vector3d point1(0, 0, 0);
+        Eigen::Vector3d point2(1, 0, 0);
+        Eigen::Vector3d point3(0, 1, 0);
 
         // Compute the plane normal
-        Eigen::Vector3d plane_normal = plane_from_3_points(transformed_point1, transformed_point2, transformed_point3);
+        Eigen::Vector3d plane_normal = plane_from_3_points(
+            transform_point(transform.tf, point1),
+            transform_point(transform.tf, point2),
+            transform_point(transform.tf, point3));
 
         return plane_normal;
     }
+    Eigen::Vector3d RobotFrontBackKalmanFilter::transform_point(Eigen::Matrix4d tf, Eigen::Vector3d point)
+    {
+        Eigen::Vector4d point_homogenous(point[0], point[1], point[2], 1);
+        Eigen::Vector3d transformed_point = (tf * point_homogenous).head<3>();
+        return transformed_point;
+    }
 
-    Eigen::Vector3d RobotKalmanFilter::find_ray_plane_intersection(Eigen::Vector3d ray, Eigen::Vector3d plane_center, Eigen::Vector3d plane_normal)
+    Eigen::Vector3d RobotFrontBackKalmanFilter::find_ray_plane_intersection(Eigen::Vector3d ray, Eigen::Vector3d plane_center, Eigen::Vector3d plane_normal)
     {
         // Find intersection of ray (from origin, direction 'ray') with plane
         constexpr double EPSILON = 1e-6;
@@ -159,12 +167,12 @@ namespace auto_battlebot
         return ray * fac;
     }
 
-    bool RobotKalmanFilter::get_pose_from_points(const Eigen::Vector3d &front_point, const Eigen::Vector3d &back_point, Transform &out_transform)
+    bool RobotFrontBackKalmanFilter::get_pose_from_points(const Eigen::Vector3d &front_point, const Eigen::Vector3d &back_point, Transform &out_transform)
     {
         constexpr double EPSILON = 1e-6;
         Eigen::Vector3d origin_vec(1.0, 0.0, 0.0);
-        // Calculate the direction vector from front_point to back_point
-        Eigen::Vector3d offset_vector = front_point - back_point;
+        // Calculate the direction vector from back_point to front_point
+        Eigen::Vector3d offset_vector = back_point - front_point;
         double magnitude = offset_vector.norm();
         if (magnitude <= EPSILON)
         {

@@ -108,4 +108,11 @@ namespace auto_battlebot
      */
     std::string transform_to_string(const TransformStamped &transform);
 
+    /**
+     * @brief Convert an Eigen Vector3d to a Position struct
+     * @param vector The vector to convert
+     * @return Position struct
+     */
+    Position vector_to_position(const Eigen::Vector3d &vector);
+
 } // namespace auto_battlebot

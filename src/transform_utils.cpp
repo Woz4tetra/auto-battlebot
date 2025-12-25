@@ -103,6 +103,11 @@ namespace auto_battlebot
         return pose;
     }
 
+    Position vector_to_position(const Eigen::Vector3d &vector)
+    {
+        return Position{vector[0], vector[1], vector[2]};
+    }
+
     void quaternion_to_euler(
         const Rotation &quaternion,
         double &roll,
