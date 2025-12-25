@@ -1,5 +1,4 @@
 #include "robot_filter/robot_front_back_kalman_filter.hpp"
-#include "transform_utils.hpp"
 
 namespace auto_battlebot
 {
@@ -24,19 +23,28 @@ namespace auto_battlebot
         return true;
     }
 
-    RobotDescriptionsStamped RobotFrontBackKalmanFilter::update(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info)
+    RobotDescriptionsStamped RobotFrontBackKalmanFilter::update(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info, CommandFeedback command_feedback)
     {
         RobotDescriptionsStamped result;
         result.header.frame_id = FrameId::FIELD;
         result.header.stamp = keypoints.header.stamp;
 
+        std::vector<RobotDescription> filter_measurements = convert_keypoints_to_measurements(keypoints, field, camera_info);
+        diagnostics_logger_->debug({{"num_measurements", (int)filter_measurements.size()}});
+
+        result.descriptions = update_filter(filter_measurements, command_feedback);
+
+        return result;
+    }
+
+    std::vector<RobotDescription> RobotFrontBackKalmanFilter::convert_keypoints_to_measurements(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info)
+    {
         Eigen::Matrix4d tf_fieldcenter_from_camera = field.tf_camera_from_fieldcenter.tf.inverse();
 
+        std::vector<RobotDescription> filter_measurements;
         std::map<Label, FrontBackAssignment> front_back_mapping = keypoint_converter_->convert(keypoints, field, camera_info);
         for (const auto &[label, assignment] : front_back_mapping)
         {
-            FrameId robot_frame_id = config_.label_to_frame_ids[label][0];
-
             Eigen::Vector3d front_keypoint_in_field = FrontBackKeypointConverter::transform_point(tf_fieldcenter_from_camera, assignment.front);
             Eigen::Vector3d back_keypoint_in_field = FrontBackKeypointConverter::transform_point(tf_fieldcenter_from_camera, assignment.back);
             double length = (front_keypoint_in_field - back_keypoint_in_field).norm();
@@ -50,17 +58,20 @@ namespace auto_battlebot
             if (!pose_found)
                 continue;
 
-            result.descriptions.push_back(
+            filter_measurements.push_back(
                 RobotDescription{
-                    robot_frame_id,
+                    FrameId::EMPTY,
                     label,
                     matrix_to_pose(tf_field_from_robot.tf),
                     Size{length, length, 0.1},
                     {vector_to_position(front_keypoint_in_field), vector_to_position(back_keypoint_in_field)}});
         }
-        diagnostics_logger_->debug({{"num_robots", (int)result.descriptions.size()}});
+        return filter_measurements;
+    }
 
-        return result;
+    std::vector<RobotDescription> RobotFrontBackKalmanFilter::update_filter(std::vector<RobotDescription> inputs, CommandFeedback command_feedback)
+    {
+        return inputs;
     }
 
 } // namespace auto_battlebot

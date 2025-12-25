@@ -8,7 +8,7 @@ namespace auto_battlebot
     {
     public:
         bool initialize() override { return true; }
-        void update() override {}
+        CommandFeedback update() override { return CommandFeedback{}; }
         void send([[maybe_unused]] VelocityCommand command) override {}
         bool did_init_button_press() override { return false; }
     };

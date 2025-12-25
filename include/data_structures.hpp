@@ -11,3 +11,4 @@
 #include "data_structures/keypoint.hpp"
 #include "data_structures/robot.hpp"
 #include "data_structures/velocity.hpp"
+#include "data_structures/command_feedback.hpp"

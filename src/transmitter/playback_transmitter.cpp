@@ -18,11 +18,11 @@ namespace auto_battlebot
         return true;
     }
 
-    void PlaybackTransmitter::update()
+    CommandFeedback PlaybackTransmitter::update()
     {
         if (!initialized_ || init_button_pressed_)
         {
-            return;
+            return CommandFeedback{};
         }
 
         auto now = std::chrono::steady_clock::now();
@@ -32,6 +32,8 @@ namespace auto_battlebot
         {
             init_button_pressed_ = true;
         }
+
+        return CommandFeedback{};
     }
 
     void PlaybackTransmitter::send([[maybe_unused]] VelocityCommand command)

@@ -11,7 +11,7 @@ namespace auto_battlebot
         PlaybackTransmitter(double init_delay_seconds = 0.0);
 
         bool initialize() override;
-        void update() override;
+        CommandFeedback update() override;
         void send(VelocityCommand command) override;
         bool did_init_button_press() override;
 

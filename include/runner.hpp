@@ -17,6 +17,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
 #include "runner_config.hpp"
+#include "data_structures/command_feedback.hpp"
 
 namespace auto_battlebot
 {

@@ -103,7 +103,7 @@ namespace auto_battlebot
             return false;
         }
 
-        transmitter_->update();
+        CommandFeedback command_feedback = transmitter_->update();
 
         CameraData camera_data;
         bool is_camera_ok;
@@ -165,7 +165,7 @@ namespace auto_battlebot
         RobotDescriptionsStamped robots;
         {
             FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
-            robots = robot_filter_->update(keypoints, field_description, camera_data.camera_info);
+            robots = robot_filter_->update(keypoints, field_description, camera_data.camera_info, command_feedback);
         }
         publisher_->publish_robots(robots);
 
