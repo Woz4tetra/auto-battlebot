@@ -25,4 +25,5 @@ install_sam3() {
 
     pip install -e .
     pip install -e ".[notebooks]"
+    pip install 'numpy>=2.0.0'  # reinstall numpy 2
 }
