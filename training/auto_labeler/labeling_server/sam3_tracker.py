@@ -12,12 +12,25 @@ from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
 from natsort import natsorted
 
+# Import pynvml for GPU temperature monitoring
+try:
+    import pynvml
+    pynvml.nvmlInit()
+    PYNVML_AVAILABLE = True
+except (ImportError, Exception):
+    print("Warning: pynvml not available. GPU temperature monitoring disabled.")
+    PYNVML_AVAILABLE = False
+
 # Import SAM3 components
 try:
     from sam3.model_builder import build_sam3_video_model
 except ImportError:
     print("Warning: SAM3 not installed. Install with: pip install sam3")
     build_sam3_video_model = None
+
+
+# Temperature threshold for warning (Celsius)
+GPU_TEMP_WARNING_THRESHOLD = 37
 
 
 # Supported image extensions
@@ -137,10 +150,66 @@ class SAM3Tracker:
         
         print(f"Model unloaded from cuda:{old_gpu}")
 
+    def _get_gpu_temperature(self, gpu_id: int) -> Optional[int]:
+        """Get the temperature of a specific GPU in Celsius."""
+        if not PYNVML_AVAILABLE:
+            return None
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
+            temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+            return temp
+        except Exception as e:
+            print(f"Warning: Could not get temperature for GPU {gpu_id}: {e}")
+            return None
+
+    def _get_all_gpu_temperatures(self) -> Dict[int, Optional[int]]:
+        """Get temperatures for all configured GPUs."""
+        temps = {}
+        for gpu_id in self.gpu_ids:
+            temps[gpu_id] = self._get_gpu_temperature(gpu_id)
+        return temps
+
+    def _select_coolest_gpu(self) -> int:
+        """Select the GPU with the lowest temperature from the pool."""
+        temps = self._get_all_gpu_temperatures()
+        
+        # Print all temperatures
+        temp_strs = [f"GPU {gid}: {t}°C" if t is not None else f"GPU {gid}: N/A" 
+                     for gid, t in temps.items()]
+        print(f"GPU temperatures: {', '.join(temp_strs)}")
+        
+        # Filter out GPUs with unknown temperatures and find the coolest
+        valid_temps = {gid: t for gid, t in temps.items() if t is not None}
+        
+        if valid_temps:
+            coolest_gpu = min(valid_temps, key=valid_temps.get)
+            coolest_temp = valid_temps[coolest_gpu]
+            
+            # Warn if even the coolest GPU is above threshold
+            if coolest_temp > GPU_TEMP_WARNING_THRESHOLD:
+                print(f"⚠️  WARNING: Coolest GPU {coolest_gpu} is at {coolest_temp}°C "
+                      f"(above {GPU_TEMP_WARNING_THRESHOLD}°C threshold). "
+                      f"Consider adding more GPUs or increasing cooling.")
+            
+            return coolest_gpu
+        else:
+            # Fall back to sequential cycling if temperatures unavailable
+            next_index = (self.current_gpu_index + 1) % len(self.gpu_ids)
+            return self.gpu_ids[next_index]
+
     def _load_model_on_current_gpu(self):
         """Load SAM3 model on the current GPU device."""
         if build_sam3_video_model is None:
             raise RuntimeError("SAM3 not installed")
+
+        # Check temperature before loading
+        temp = self._get_gpu_temperature(self.gpu_id)
+        if temp is not None:
+            if temp > GPU_TEMP_WARNING_THRESHOLD:
+                print(f"⚠️  WARNING: GPU {self.gpu_id} starting at {temp}°C "
+                      f"(above {GPU_TEMP_WARNING_THRESHOLD}°C threshold)")
+            else:
+                print(f"GPU {self.gpu_id} temperature: {temp}°C")
 
         print(f"Loading SAM3 model on cuda:{self.gpu_id}...")
 
@@ -157,10 +226,10 @@ class SAM3Tracker:
 
     def cycle_gpu(self):
         """
-        Cycle to the next GPU in the pool.
+        Switch to the coolest GPU in the pool.
 
-        This fully unloads the model from the current GPU before loading on the next,
-        allowing the previous GPU to cool down completely.
+        This fully unloads the model from the current GPU before selecting
+        the coolest available GPU, allowing hot GPUs to cool down.
         """
         if len(self.gpu_ids) <= 1:
             return  # Only one GPU, nothing to cycle
@@ -170,12 +239,12 @@ class SAM3Tracker:
         # Fully unload from current GPU (this frees all GPU memory)
         self._unload_model()
 
-        # Move to next GPU
-        self.current_gpu_index = (self.current_gpu_index + 1) % len(self.gpu_ids)
-        self.gpu_id = self.gpu_ids[self.current_gpu_index]
+        # Select the coolest GPU instead of sequential cycling
+        self.gpu_id = self._select_coolest_gpu()
+        self.current_gpu_index = self.gpu_ids.index(self.gpu_id)
         self.device = self._setup_device(self.gpu_id)
 
-        print(f"Cycled GPU: {old_gpu} -> {self.gpu_id} (model will load on next use)")
+        print(f"Switched GPU: {old_gpu} -> {self.gpu_id} (selected coolest, model will load on next use)")
         
         # Model will be loaded lazily on next propagation
 
