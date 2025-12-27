@@ -27,15 +27,17 @@ Keyboard shortcuts:
 """,
     )
     parser.add_argument(
-        "--server", "-s",
+        "--server",
+        "-s",
         default="http://localhost:8765",
         help="Server URL (default: http://localhost:8765)",
     )
-    
+
     args = parser.parse_args()
-    
+
     try:
         from labeling_client.ui import run_client
+
         run_client(args.server)
     except KeyboardInterrupt:
         print("\nClient stopped")
