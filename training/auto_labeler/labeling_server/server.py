@@ -156,7 +156,11 @@ def create_app(config: ServerConfig) -> Flask:
                             center_x = int((np.min(xs) + np.max(xs)) // 2)
                             # Get label name
                             label_name = next(
-                                (l.name for l in config.object_labels if l.id == obj_id),
+                                (
+                                    l.name
+                                    for l in config.object_labels
+                                    if l.id == obj_id
+                                ),
                                 str(obj_id),
                             )
                             color = color_map.get(obj_id, (255, 255, 255))[::-1]
@@ -448,7 +452,7 @@ def create_app(config: ServerConfig) -> Flask:
                     "error": "Propagation already in progress",
                 }
             ), 429  # Too Many Requests
-        
+
         try:
             data = request.json
             frame_idx = data.get("frame_idx", 0)
@@ -536,7 +540,7 @@ def create_app(config: ServerConfig) -> Flask:
                     "error": str(e),
                 }
             ), 500
-        
+
         finally:
             propagate_lock.release()
 
@@ -625,7 +629,11 @@ def run_server(config_path: str):
     print(f"Images: {config.images_dir}")
     print(f"Objects: {[label.name for label in config.object_labels]}")
     print(f"Propagate length: {config.propagate_length} frames")
-    print(f"GPU IDs: {config.gpu_ids} (cycling enabled)" if len(config.gpu_ids) > 1 else f"GPU ID: {config.gpu_ids[0]}")
+    print(
+        f"GPU IDs: {config.gpu_ids} (cycling enabled)"
+        if len(config.gpu_ids) > 1
+        else f"GPU ID: {config.gpu_ids[0]}"
+    )
     print(f"Manual annotations: {config.manual_annotations_dir}")
     print(f"Generated annotations: {config.generated_annotations_dir}")
     print(f"{'=' * 60}")

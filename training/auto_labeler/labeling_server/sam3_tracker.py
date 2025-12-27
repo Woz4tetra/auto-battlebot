@@ -49,7 +49,7 @@ class SAM3Tracker:
             gpu_ids = [0]
         elif isinstance(gpu_ids, int):
             gpu_ids = [gpu_ids]
-        
+
         self.gpu_ids = gpu_ids
         self.current_gpu_index = 0
         self.gpu_id = self.gpu_ids[self.current_gpu_index]
@@ -98,22 +98,22 @@ class SAM3Tracker:
     def cycle_gpu(self):
         """
         Cycle to the next GPU in the pool.
-        
+
         This helps keep GPUs cool by distributing work across multiple GPUs.
         Call this after each propagation query completes.
         """
         if len(self.gpu_ids) <= 1:
             return  # Only one GPU, nothing to cycle
-        
+
         # Move to next GPU
         self.current_gpu_index = (self.current_gpu_index + 1) % len(self.gpu_ids)
         new_gpu_id = self.gpu_ids[self.current_gpu_index]
-        
+
         if new_gpu_id == self.gpu_id:
             return  # Same GPU, nothing to do
-        
+
         print(f"Cycling GPU: {self.gpu_id} -> {new_gpu_id}")
-        
+
         # Clean up current GPU
         self._reset_inference_state()
         if self.model is not None:
@@ -124,15 +124,15 @@ class SAM3Tracker:
                 pass
             self.model = None
             self.predictor = None
-        
+
         # Clear old GPU cache
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        
+
         # Switch to new GPU
         self.gpu_id = new_gpu_id
         self.device = self._setup_device()
-        
+
         # Model will be reloaded lazily on next use
 
     def load_model(self):
@@ -320,9 +320,7 @@ class SAM3Tracker:
                 # SAM3 only supports JPEG format - must convert if not JPEG
                 if image_path.suffix.lower() in {".jpg", ".jpeg"}:
                     # Create symlink with sequential naming
-                    link_path = os.path.join(
-                        self._temp_dir, f"{local_idx:06d}.jpg"
-                    )
+                    link_path = os.path.join(self._temp_dir, f"{local_idx:06d}.jpg")
                     os.symlink(image_path.absolute(), link_path)
                 else:
                     # Convert to JPEG for SAM3 compatibility
@@ -337,7 +335,7 @@ class SAM3Tracker:
         # Ensure model is loaded (may have been unloaded during GPU cycling)
         if self.predictor is None:
             self.load_model()
-        
+
         print(f"Initializing inference state from: {frames_dir}")
         self.inference_state = self.predictor.init_state(video_path=frames_dir)
         print("Inference state initialized")

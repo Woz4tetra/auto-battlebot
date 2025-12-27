@@ -72,7 +72,7 @@ port: 8765
 
 # GPU settings - single ID or list to cycle through
 # Using multiple GPUs helps keep them cool between propagation queries
-gpu_ids: [0]        # Single GPU
+gpu_ids: [0] # Single GPU
 # gpu_ids: [0, 1]   # Cycle between two GPUs
 # gpu_ids: [0, 1, 2, 3]  # Cycle between four GPUs
 ```
