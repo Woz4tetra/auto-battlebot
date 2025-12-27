@@ -131,11 +131,44 @@ class AnnotationManager:
                     [ann["id"] for ann in self.coco.get("annotations", [])] + [0]
                 )
 
+            # Load mask images from disk for generated frames
+            self._load_masks_from_disk()
+
             return True
 
         except Exception as e:
             print(f"Error loading state: {e}")
+            import traceback
+            traceback.print_exc()
             return False
+
+    def _load_masks_from_disk(self):
+        """Load saved mask images from disk into memory."""
+        masks_dir = self.generated_dir / "masks"
+        if not masks_dir.exists():
+            return
+
+        # Get all object IDs from labels
+        obj_ids = [label["id"] for label in self.object_labels]
+
+        loaded_count = 0
+        for frame_idx in self.generated_frames:
+            # Ensure frame annotation exists
+            if frame_idx not in self.annotations:
+                self.annotations[frame_idx] = FrameAnnotation(frame_idx=frame_idx)
+
+            # Try to load mask for each object
+            for obj_id in obj_ids:
+                mask_path = masks_dir / f"frame_{frame_idx:06d}_obj_{obj_id}.png"
+                if mask_path.exists():
+                    # Load mask image and convert to boolean
+                    mask_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+                    if mask_img is not None:
+                        mask = (mask_img > 127).astype(bool)
+                        self.annotations[frame_idx].masks[obj_id] = mask
+                        loaded_count += 1
+
+        print(f"Loaded {loaded_count} masks from disk")
 
     def save_state(self):
         """Save annotation state to disk."""
