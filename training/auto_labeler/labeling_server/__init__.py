@@ -4,7 +4,7 @@
 from .config import ServerConfig
 from .video_handler import VideoHandler
 from .annotation_manager import AnnotationManager
-from .sam3_tracker import SAM3Tracker, MultiGPUTracker
+from .sam3_tracker import SAM3Tracker
 from .server import create_app
 
 __all__ = [
@@ -12,6 +12,5 @@ __all__ = [
     "VideoHandler",
     "AnnotationManager",
     "SAM3Tracker",
-    "MultiGPUTracker",
     "create_app",
 ]

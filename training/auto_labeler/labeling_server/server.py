@@ -3,7 +3,7 @@
 import io
 import json
 import traceback
-from typing import Dict, Optional, Union
+from typing import Dict, Optional
 
 import cv2
 import numpy as np
@@ -12,7 +12,7 @@ from flask_cors import CORS
 
 from .annotation_manager import AnnotationManager
 from .config import ServerConfig
-from .sam3_tracker import SAM3Tracker, MultiGPUTracker
+from .sam3_tracker import SAM3Tracker
 from .video_handler import VideoHandler
 
 
@@ -43,24 +43,15 @@ def create_app(config: ServerConfig) -> Flask:
         print("Starting with fresh annotation state")
 
     # Initialize SAM3 tracker (lazy loading)
-    # Use MultiGPUTracker if multiple GPUs configured, otherwise single SAM3Tracker
-    tracker: Optional[Union[SAM3Tracker, MultiGPUTracker]] = None
+    tracker: Optional[SAM3Tracker] = None
 
-    def get_tracker() -> Union[SAM3Tracker, MultiGPUTracker]:
+    def get_tracker() -> SAM3Tracker:
         nonlocal tracker
         if tracker is None:
-            if len(config.gpu_ids) > 1:
-                print(f"Using MultiGPUTracker with GPUs: {config.gpu_ids}")
-                tracker = MultiGPUTracker(
-                    gpu_ids=config.gpu_ids,
-                    inference_scale=config.inference_scale,
-                )
-            else:
-                print(f"Using single GPU tracker on GPU {config.gpu_ids[0]}")
-                tracker = SAM3Tracker(
-                    gpu_id=config.gpu_ids[0],
-                    inference_scale=config.inference_scale,
-                )
+            tracker = SAM3Tracker(
+                gpu_id=config.gpu_id,
+                inference_scale=config.inference_scale,
+            )
             tracker.set_video(config.video_path)
         return tracker
 

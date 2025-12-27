@@ -146,11 +146,16 @@ class AnnotationManager:
     def _load_masks_from_disk(self):
         """Load saved mask images from disk into memory."""
         masks_dir = self.generated_dir / "masks"
+        print(f"Looking for masks in: {masks_dir.resolve()}")
         if not masks_dir.exists():
+            print("Masks directory does not exist")
             return
 
         # Get all object IDs from labels
         obj_ids = [label["id"] for label in self.object_labels]
+        print(
+            f"Loading masks for {len(self.generated_frames)} frames, {len(obj_ids)} objects each"
+        )
 
         loaded_count = 0
 

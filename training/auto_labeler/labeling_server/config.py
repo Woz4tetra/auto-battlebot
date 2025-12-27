@@ -38,8 +38,8 @@ class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 7547
 
-    # GPU settings - can use single gpu_id or list of gpu_ids for multi-GPU
-    gpu_ids: List[int] = field(default_factory=lambda: [0])
+    # GPU settings
+    gpu_id: int = 0
 
     # Mask overlay settings
     mask_alpha: float = 0.5
@@ -69,14 +69,6 @@ class ServerConfig:
         manual_dir = data.get("manual_annotations_dir", "./manual_annotations")
         generated_dir = data.get("generated_annotations_dir", "./generated_annotations")
 
-        # Parse GPU IDs - support both single gpu_id and list gpu_ids
-        if "gpu_ids" in data:
-            gpu_ids = data["gpu_ids"]
-        elif "gpu_id" in data:
-            gpu_ids = [data["gpu_id"]]
-        else:
-            gpu_ids = [0]
-
         return cls(
             video_path=data["video_path"],
             object_labels=object_labels,
@@ -85,7 +77,7 @@ class ServerConfig:
             propagate_length=data.get("propagate_length", 300),
             host=data.get("host", "0.0.0.0"),
             port=data.get("port", 7547),
-            gpu_ids=gpu_ids,
+            gpu_id=data.get("gpu_id", 0),
             mask_alpha=data.get("mask_alpha", 0.5),
             inference_scale=data.get("inference_scale", 0.5),
         )
