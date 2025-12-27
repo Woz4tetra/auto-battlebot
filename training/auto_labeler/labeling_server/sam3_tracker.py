@@ -9,6 +9,7 @@ import torch
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
+from natsort import natsorted
 
 # Import SAM3 components
 try:
@@ -18,14 +19,17 @@ except ImportError:
     build_sam3_video_model = None
 
 
+# Supported image extensions
+SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+
+
 class SAM3Tracker:
     """
     Wrapper for SAM3 video segmentation model with memory-efficient frame loading.
 
-    Instead of loading the entire video into GPU memory, this extracts only the
-    frames needed for the current propagation operation into a temporary directory.
-    Frames are optionally scaled down to reduce memory usage, and masks are
-    scaled back to original resolution after inference.
+    Works with folders of images. For propagation, creates a temporary directory
+    with symlinks to the original images (scaled if needed). This avoids copying
+    images while still providing SAM3 with the sequential file naming it expects.
     """
 
     def __init__(self, gpu_id: int = 0, inference_width: int = 960):
@@ -44,21 +48,22 @@ class SAM3Tracker:
         self.predictor = None
         self.inference_state = None
 
-        # Video info (loaded lazily)
-        self.video_path: Optional[str] = None
-        self.video_width: int = 0
-        self.video_height: int = 0
+        # Image folder info (loaded lazily)
+        self.images_dir: Optional[Path] = None
+        self.image_files: List[Path] = []  # Sorted list of image paths
+        self.image_width: int = 0
+        self.image_height: int = 0
         self.total_frames: int = 0
-        self.fps: float = 0.0
 
         # Scaled dimensions for inference
         self.scaled_width: int = 0
         self.scaled_height: int = 0
 
-        # Temporary directory for frame extraction
+        # Temporary directory for scaled frames (only used if scaling needed)
         self._temp_dir: Optional[str] = None
-        self._extracted_frames: Dict[int, str] = {}  # frame_idx -> file path
-        self._original_frames: Dict[int, np.ndarray] = {}  # frame_idx -> original resolution frame
+        self._original_frames: Dict[
+            int, np.ndarray
+        ] = {}  # frame_idx -> original resolution frame
 
     def _setup_device(self) -> torch.device:
         """Set up computation device with optimizations."""
@@ -92,44 +97,69 @@ class SAM3Tracker:
 
     def set_video(self, video_path: str):
         """
-        Set the video file to work with (does NOT load it into memory).
+        Set the images directory to work with.
 
         Args:
-            video_path: Path to the video file
+            video_path: Path to directory containing images (named 'video_path' for compatibility)
+        """
+        self.set_images_dir(video_path)
+
+    def set_images_dir(self, images_dir: str):
+        """
+        Set the images directory to work with.
+
+        Args:
+            images_dir: Path to directory containing images
         """
         if self.predictor is None:
             self.load_model()
 
-        self.video_path = video_path
+        self.images_dir = Path(images_dir)
 
-        # Load video metadata only
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise ValueError(f"Cannot open video: {video_path}")
+        if not self.images_dir.exists():
+            raise FileNotFoundError(f"Images directory not found: {images_dir}")
 
-        self.video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        self.video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        self.fps = cap.get(cv2.CAP_PROP_FPS)
-        cap.release()
+        if not self.images_dir.is_dir():
+            raise ValueError(f"Path is not a directory: {images_dir}")
+
+        # Load and sort image files
+        self.image_files = []
+        for ext in SUPPORTED_EXTENSIONS:
+            self.image_files.extend(self.images_dir.glob(f"*{ext}"))
+            self.image_files.extend(self.images_dir.glob(f"*{ext.upper()}"))
+
+        # Natural sort to handle numeric naming correctly
+        self.image_files = natsorted(self.image_files, key=lambda p: p.name)
+
+        if not self.image_files:
+            raise ValueError(f"No images found in: {images_dir}")
+
+        self.total_frames = len(self.image_files)
+
+        # Load first image to get dimensions
+        first_image = cv2.imread(str(self.image_files[0]))
+        if first_image is None:
+            raise ValueError(f"Cannot read image: {self.image_files[0]}")
+
+        self.image_height, self.image_width = first_image.shape[:2]
 
         # Calculate scaled dimensions from target width
-        if self.inference_width >= self.video_width:
+        if self.inference_width >= self.image_width:
             # No scaling needed if target is >= original
-            self.scaled_width = self.video_width
-            self.scaled_height = self.video_height
+            self.scaled_width = self.image_width
+            self.scaled_height = self.image_height
         else:
             # Scale to target width, maintain aspect ratio
-            scale = self.inference_width / self.video_width
+            scale = self.inference_width / self.image_width
             self.scaled_width = self.inference_width
-            self.scaled_height = int(self.video_height * scale)
+            self.scaled_height = int(self.image_height * scale)
 
         # Ensure dimensions are even (required by many video codecs)
         self.scaled_width = self.scaled_width - (self.scaled_width % 2)
         self.scaled_height = self.scaled_height - (self.scaled_height % 2)
 
         print(
-            f"Video: {self.video_width}x{self.video_height}, {self.total_frames} frames"
+            f"Images: {self.image_width}x{self.image_height}, {self.total_frames} frames"
         )
         print(
             f"Inference width: {self.inference_width} -> {self.scaled_width}x{self.scaled_height}"
@@ -143,7 +173,6 @@ class SAM3Tracker:
         if self._temp_dir and os.path.exists(self._temp_dir):
             shutil.rmtree(self._temp_dir, ignore_errors=True)
         self._temp_dir = None
-        self._extracted_frames = {}
         self._original_frames = {}
 
     def _reset_inference_state(self):
@@ -163,65 +192,88 @@ class SAM3Tracker:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    def _extract_frames_for_propagation(
+    def _prepare_frames_for_propagation(
         self,
         start_frame: int,
         num_frames: int,
     ) -> str:
         """
-        Extract and scale frames to a temporary directory for SAM3 inference.
+        Prepare frames for SAM3 inference by creating a temp directory with
+        sequential file naming. Uses symlinks if no scaling needed, otherwise
+        creates scaled copies.
 
         Args:
             start_frame: Starting frame index
-            num_frames: Number of frames to extract
+            num_frames: Number of frames to process
 
         Returns:
-            Path to temporary directory containing frames
+            Path to directory containing prepared frames
         """
         # Reset inference state first to free GPU memory
         self._reset_inference_state()
 
-        # Clean up previous extraction
+        # Clean up previous temp directory
         self._cleanup_temp_dir()
 
-        # Create new temp directory
-        self._temp_dir = tempfile.mkdtemp(prefix="sam3_frames_")
-
-        print(f"Extracting {num_frames} frames starting at {start_frame}...")
-
-        cap = cv2.VideoCapture(self.video_path)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-
         end_frame = min(start_frame + num_frames, self.total_frames)
+        actual_num_frames = end_frame - start_frame
 
-        for frame_idx in tqdm(range(start_frame, end_frame), desc="Extracting frames"):
-            ret, frame = cap.read()
-            if not ret:
-                break
+        print(f"Preparing {actual_num_frames} frames starting at {start_frame}...")
 
-            # Store original resolution frame for later use
-            self._original_frames[frame_idx] = frame.copy()
+        # Check if scaling is needed
+        needs_scaling = self.scaled_width != self.image_width
 
-            # Scale down frame if needed for inference
-            if self.scaled_width != self.video_width:
-                frame = cv2.resize(
+        if needs_scaling:
+            # Create temp directory for scaled frames
+            self._temp_dir = tempfile.mkdtemp(prefix="sam3_frames_")
+
+            for local_idx, frame_idx in enumerate(
+                tqdm(range(start_frame, end_frame), desc="Scaling frames")
+            ):
+                # Load original image
+                image_path = self.image_files[frame_idx]
+                frame = cv2.imread(str(image_path))
+                if frame is None:
+                    raise ValueError(f"Cannot read image: {image_path}")
+
+                # Store original resolution frame for later use
+                self._original_frames[frame_idx] = frame.copy()
+
+                # Scale down frame
+                scaled_frame = cv2.resize(
                     frame,
                     (self.scaled_width, self.scaled_height),
                     interpolation=cv2.INTER_AREA,
                 )
 
-            # Save as JPEG (SAM3 expects image files)
-            # Use sequential naming starting from 0 for the temp directory
-            local_idx = frame_idx - start_frame
-            frame_path = os.path.join(self._temp_dir, f"{local_idx:06d}.jpg")
-            cv2.imwrite(frame_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                # Save with sequential naming
+                frame_path = os.path.join(self._temp_dir, f"{local_idx:06d}.jpg")
+                cv2.imwrite(frame_path, scaled_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
 
-            self._extracted_frames[frame_idx] = frame_path
+            print(f"Created {actual_num_frames} scaled frames in {self._temp_dir}")
+            return self._temp_dir
 
-        cap.release()
+        else:
+            # No scaling needed - create temp directory with symlinks
+            self._temp_dir = tempfile.mkdtemp(prefix="sam3_frames_")
 
-        print(f"Extracted {len(self._extracted_frames)} frames to {self._temp_dir}")
-        return self._temp_dir
+            for local_idx, frame_idx in enumerate(range(start_frame, end_frame)):
+                image_path = self.image_files[frame_idx]
+
+                # Load and store original frame for later use
+                frame = cv2.imread(str(image_path))
+                if frame is None:
+                    raise ValueError(f"Cannot read image: {image_path}")
+                self._original_frames[frame_idx] = frame
+
+                # Create symlink with sequential naming
+                link_path = os.path.join(
+                    self._temp_dir, f"{local_idx:06d}{image_path.suffix}"
+                )
+                os.symlink(image_path.absolute(), link_path)
+
+            print(f"Created {actual_num_frames} symlinks in {self._temp_dir}")
+            return self._temp_dir
 
     def _init_inference_state(self, frames_dir: str):
         """Initialize SAM3 inference state with extracted frames directory."""
@@ -231,16 +283,16 @@ class SAM3Tracker:
 
     def _scale_mask_to_original(self, mask: np.ndarray) -> np.ndarray:
         """
-        Scale a mask from inference resolution back to original video resolution.
+        Scale a mask from inference resolution back to original image resolution.
 
         Args:
             mask: Binary mask at inference resolution
 
         Returns:
-            Binary mask at original video resolution
+            Binary mask at original image resolution
         """
         # No scaling needed if dimensions match
-        if self.scaled_width == self.video_width:
+        if self.scaled_width == self.image_width:
             return mask
 
         # Ensure mask is 2D
@@ -250,7 +302,7 @@ class SAM3Tracker:
         # Scale up using nearest neighbor to preserve binary values
         scaled = cv2.resize(
             mask.astype(np.uint8),
-            (self.video_width, self.video_height),
+            (self.image_width, self.image_height),
             interpolation=cv2.INTER_NEAREST,
         )
 
@@ -312,36 +364,36 @@ class SAM3Tracker:
         callback=None,
     ) -> Tuple[Dict[int, Dict[int, np.ndarray]], Dict[int, np.ndarray]]:
         """
-        Extract frames, add points, and propagate masks.
+        Prepare frames, add points, and propagate masks.
 
         This is the main entry point for propagation. It:
-        1. Extracts only the needed frames to a temp directory
+        1. Prepares frames in a temp directory (symlinks or scaled copies)
         2. Initializes SAM3 with those frames
         3. Adds the point prompts
         4. Propagates through the frames
         5. Scales masks back to original resolution
 
         Args:
-            source_frame: Frame index in the original video to start from
+            source_frame: Frame index to start from
             points_by_obj: Dict of {obj_id: (points, labels)} with normalized coords
             propagate_length: Number of frames to propagate
             callback: Optional callback(frame_idx, progress) for progress updates
 
         Returns:
             Tuple of:
-            - Dict of {original_frame_idx: {obj_id: mask_at_original_resolution}}
-            - Dict of {original_frame_idx: frame_at_original_resolution}
+            - Dict of {frame_idx: {obj_id: mask_at_original_resolution}}
+            - Dict of {frame_idx: frame_at_original_resolution}
         """
-        if self.video_path is None:
-            raise RuntimeError("No video set. Call set_video() first.")
+        if self.images_dir is None:
+            raise RuntimeError("No images directory set. Call set_images_dir() first.")
 
-        # Clamp propagate_length to not exceed video length
+        # Clamp propagate_length to not exceed available frames
         max_frames = min(propagate_length, self.total_frames - source_frame)
 
-        # Extract frames to temp directory
-        frames_dir = self._extract_frames_for_propagation(source_frame, max_frames)
+        # Prepare frames in temp directory
+        frames_dir = self._prepare_frames_for_propagation(source_frame, max_frames)
 
-        # Initialize inference state with extracted frames
+        # Initialize inference state with prepared frames
         self._init_inference_state(frames_dir)
 
         # Add points for each object (at local frame index 0)
@@ -356,7 +408,7 @@ class SAM3Tracker:
                     clear_old=True,
                 )
 
-        # Propagate through extracted frames
+        # Propagate through frames
         video_segments = {}
 
         for (
@@ -419,16 +471,16 @@ class SAM3Tracker:
         if len(points) == 0:
             return None
 
-        if self.video_path is None:
-            raise RuntimeError("No video set. Call set_video() first.")
+        if self.images_dir is None:
+            raise RuntimeError("No images directory set. Call set_images_dir() first.")
 
-        # Extract just a few frames around the target (SAM3 needs some context)
-        # We'll extract 3 frames: target-1, target, target+1
+        # Prepare just a few frames around the target (SAM3 needs some context)
+        # We'll use 3 frames: target-1, target, target+1
         start = max(0, frame_idx - 1)
         num_frames = min(3, self.total_frames - start)
         local_idx = frame_idx - start
 
-        frames_dir = self._extract_frames_for_propagation(start, num_frames)
+        frames_dir = self._prepare_frames_for_propagation(start, num_frames)
         self._init_inference_state(frames_dir)
 
         # Add points and get mask
@@ -455,21 +507,21 @@ class SAM3Tracker:
         Get preview masks for multiple objects on a single frame.
 
         Args:
-            frame_idx: Frame index in original video
+            frame_idx: Frame index
             points_by_obj: Dict of {obj_id: (points, labels)}
 
         Returns:
             Dict of {obj_id: mask_at_original_resolution}
         """
-        if self.video_path is None:
-            raise RuntimeError("No video set. Call set_video() first.")
+        if self.images_dir is None:
+            raise RuntimeError("No images directory set. Call set_images_dir() first.")
 
-        # Extract just a few frames around the target
+        # Prepare just a few frames around the target
         start = max(0, frame_idx - 1)
         num_frames = min(3, self.total_frames - start)
         local_idx = frame_idx - start
 
-        frames_dir = self._extract_frames_for_propagation(start, num_frames)
+        frames_dir = self._prepare_frames_for_propagation(start, num_frames)
         self._init_inference_state(frames_dir)
 
         masks = {}

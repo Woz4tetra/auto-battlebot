@@ -203,8 +203,8 @@ class ObjectLabel:
 class ServerConfig:
     """Server configuration loaded from YAML file."""
 
-    # Video settings
-    video_path: str
+    # Images directory (folder containing image files)
+    images_dir: str
 
     # Object labels to track
     object_labels: List[ObjectLabel]
@@ -258,7 +258,9 @@ class ServerConfig:
         generated_dir = data.get("generated_annotations_dir", "./generated_annotations")
 
         return cls(
-            video_path=data["video_path"],
+            images_dir=data.get(
+                "images_dir", data.get("video_path")
+            ),  # Support both names
             object_labels=object_labels,
             manual_annotations_dir=manual_dir,
             generated_annotations_dir=generated_dir,
@@ -300,7 +302,7 @@ class ServerConfig:
     def to_dict(self) -> Dict:
         """Convert config to dictionary for API responses."""
         return {
-            "video_path": self.video_path,
+            "images_dir": self.images_dir,
             "object_labels": [
                 {"id": l.id, "name": l.name, "color": l.color}
                 for l in self.object_labels

@@ -1,4 +1,4 @@
-"""REST API server for video labeling."""
+"""REST API server for image labeling."""
 
 import time
 import io
@@ -15,7 +15,7 @@ from tqdm import tqdm
 from .annotation_manager import AnnotationManager
 from .config import ServerConfig
 from .sam3_tracker import SAM3Tracker
-from .video_handler import VideoHandler
+from .image_folder_handler import ImageFolderHandler
 
 
 def create_app(config: ServerConfig) -> Flask:
@@ -28,16 +28,21 @@ def create_app(config: ServerConfig) -> Flask:
     config.ensure_directories()
 
     # Initialize components
-    video_handler = VideoHandler(config.video_path)
+    image_handler = ImageFolderHandler(config.images_dir)
 
     annotation_manager = AnnotationManager(
         manual_dir=config.manual_annotations_dir,
         generated_dir=config.generated_annotations_dir,
-        video_width=video_handler.width,
-        video_height=video_handler.height,
+        video_width=image_handler.width,
+        video_height=image_handler.height,
         object_labels=[{"id": l.id, "name": l.name} for l in config.object_labels],
         output_width=config.output_width,
     )
+
+    # Save image mapping for annotation output
+    image_mapping_path = f"{config.generated_annotations_dir}/image_mapping.json"
+    image_handler.save_image_mapping(image_mapping_path)
+    print(f"Saved image mapping to {image_mapping_path}")
 
     # Try to load existing state
     if annotation_manager.load_state():
@@ -55,7 +60,7 @@ def create_app(config: ServerConfig) -> Flask:
                 gpu_id=config.gpu_id,
                 inference_width=config.inference_width,
             )
-            tracker.set_video(config.video_path)
+            tracker.set_images_dir(config.images_dir)
         return tracker
 
     # Build color map from config
@@ -77,19 +82,19 @@ def create_app(config: ServerConfig) -> Flask:
     def get_config():
         """Get server configuration."""
         # Calculate display dimensions (resized to inference_width)
-        video_meta = video_handler.get_metadata()
-        if video_meta["width"] > config.inference_width:
-            scale = config.inference_width / video_meta["width"]
+        image_meta = image_handler.get_metadata()
+        if image_meta["width"] > config.inference_width:
+            scale = config.inference_width / image_meta["width"]
             display_width = config.inference_width
-            display_height = int(video_meta["height"] * scale)
+            display_height = int(image_meta["height"] * scale)
         else:
-            display_width = video_meta["width"]
-            display_height = video_meta["height"]
+            display_width = image_meta["width"]
+            display_height = image_meta["height"]
 
         return jsonify(
             {
                 **config.to_dict(),
-                "video": video_meta,
+                "images": image_meta,
                 "display_width": display_width,
                 "display_height": display_height,
             }
@@ -108,7 +113,7 @@ def create_app(config: ServerConfig) -> Flask:
         include_points = request.args.get("points", "false").lower() == "true"
         quality = int(request.args.get("quality", 90))
 
-        frame = video_handler.get_frame(frame_idx)
+        frame = image_handler.get_frame(frame_idx)
         if frame is None:
             return jsonify({"error": "Frame not found"}), 404
 
@@ -130,7 +135,7 @@ def create_app(config: ServerConfig) -> Flask:
                     ).astype(bool)
                     for obj_id, mask in masks.items()
                 }
-                frame = video_handler.overlay_masks(
+                frame = image_handler.overlay_masks(
                     frame, scaled_masks, color_map, config.mask_alpha
                 )
 
@@ -141,7 +146,7 @@ def create_app(config: ServerConfig) -> Flask:
                 if points:
                     pts = [(int(p.x * scale), int(p.y * scale)) for p in points]
                     labels = [p.label for p in points]
-                    frame = video_handler.draw_points(
+                    frame = image_handler.draw_points(
                         frame, pts, labels, label.id, tuple(label.color)
                     )
 
@@ -194,8 +199,8 @@ def create_app(config: ServerConfig) -> Flask:
         obj_id = data["obj_id"]
 
         # Scale coordinates from display space to original video space
-        if video_handler.width > config.inference_width:
-            scale = video_handler.width / config.inference_width
+        if image_handler.width > config.inference_width:
+            scale = image_handler.width / config.inference_width
             x = int(x * scale)
             y = int(y * scale)
 
@@ -297,7 +302,7 @@ def create_app(config: ServerConfig) -> Flask:
             all_masks = t.get_multi_object_preview(frame_idx, points_by_obj)
 
         # Get frame and resize first for faster drawing operations
-        frame = video_handler.get_frame(frame_idx)
+        frame = image_handler.get_frame(frame_idx)
         orig_h, orig_w = frame.shape[:2]
         frame = resize_for_client(frame)
         new_h, new_w = frame.shape[:2]
@@ -313,7 +318,7 @@ def create_app(config: ServerConfig) -> Flask:
                 ).astype(bool)
                 for obj_id, mask in all_masks.items()
             }
-            frame = video_handler.overlay_masks(
+            frame = image_handler.overlay_masks(
                 frame, scaled_masks, color_map, config.mask_alpha
             )
 
@@ -323,7 +328,7 @@ def create_app(config: ServerConfig) -> Flask:
             if points:
                 pts = [(int(p.x * scale), int(p.y * scale)) for p in points]
                 lbls = [p.label for p in points]
-                frame = video_handler.draw_points(
+                frame = image_handler.draw_points(
                     frame, pts, lbls, label.id, tuple(label.color)
                 )
 
@@ -427,7 +432,7 @@ def create_app(config: ServerConfig) -> Flask:
         current = int(request.args.get("current", 0))
 
         next_frame = annotation_manager.get_next_unlabeled_frame(
-            current, video_handler.total_frames
+            current, image_handler.total_frames
         )
 
         return jsonify(
@@ -501,10 +506,10 @@ def run_server(config_path: str):
     app = create_app(config)
 
     print(f"\n{'=' * 60}")
-    print(f"Video Labeling Server")
+    print("Image Labeling Server")
     print(f"{'=' * 60}")
-    print(f"Video: {config.video_path}")
-    print(f"Objects: {[l.name for l in config.object_labels]}")
+    print(f"Images: {config.images_dir}")
+    print(f"Objects: {[label.name for label in config.object_labels]}")
     print(f"Propagate length: {config.propagate_length} frames")
     print(f"Manual annotations: {config.manual_annotations_dir}")
     print(f"Generated annotations: {config.generated_annotations_dir}")

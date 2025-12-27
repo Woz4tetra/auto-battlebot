@@ -1,8 +1,10 @@
-# Video Labeling Server Configuration
+# Image Labeling Server Configuration
 # ====================================
 
-# Path to the input video file
-video_path: "/media/storage/true-battlebot-media/videos/Cage-2-Overhead-High-2024-10-26_15-30-33.608.mp4"
+# Path to the directory containing images
+# Supports: .jpg, .jpeg, .png, .bmp, .tiff, .tif, .webp
+# Images are naturally sorted (1, 2, 10 not 1, 10, 2)
+images_dir: "/media/storage/true-battlebot-media/videos/Cage-2-Overhead-High-2024-10-26_15-30-33.608/"
 
 # Object labels to track
 # Each object needs:

@@ -21,6 +21,7 @@ dependencies = [
     "pyyaml>=6.0",
     "tqdm>=4.60.0",
     "pycocotools>=2.0.0",
+    "natsort>=8.0.0",
 
     # Label client dependencies
     "requests>=2.25.0",
