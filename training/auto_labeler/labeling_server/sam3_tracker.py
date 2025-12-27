@@ -36,7 +36,9 @@ class SAM3Tracker:
     and cycling switches between them without reloading.
     """
 
-    def __init__(self, gpu_ids: list = None, inference_width: int = 960, preload: bool = False):
+    def __init__(
+        self, gpu_ids: list = None, inference_width: int = 960, preload: bool = False
+    ):
         """
         Initialize the tracker.
 
@@ -55,10 +57,10 @@ class SAM3Tracker:
         self.gpu_ids = gpu_ids
         self.current_gpu_index = 0
         self.inference_width = inference_width
-        
+
         # Models stored per GPU: {gpu_id: (model, predictor, device)}
         self._gpu_models: Dict[int, Tuple] = {}
-        
+
         # Current active model references
         self.model = None
         self.predictor = None
@@ -82,10 +84,10 @@ class SAM3Tracker:
         self._original_frames: Dict[
             int, np.ndarray
         ] = {}  # frame_idx -> original resolution frame
-        
+
         # Set up initial GPU
         self._switch_to_gpu(self.gpu_ids[self.current_gpu_index])
-        
+
         # Pre-load models on all GPUs if requested
         if preload:
             self.preload_all_gpus()
@@ -112,12 +114,12 @@ class SAM3Tracker:
         """Switch to using a specific GPU, loading model if needed."""
         if self.gpu_id == gpu_id and self.model is not None:
             return  # Already on this GPU with model loaded
-        
+
         # Clear inference state from previous GPU
         self._reset_inference_state()
-        
+
         self.gpu_id = gpu_id
-        
+
         if gpu_id in self._gpu_models:
             # Use cached model
             self.model, self.predictor, self.device = self._gpu_models[gpu_id]
@@ -127,42 +129,46 @@ class SAM3Tracker:
             # Load model on this GPU
             self.device = self._setup_device(gpu_id)
             self._load_model_on_device(gpu_id)
-    
+
     def _load_model_on_device(self, gpu_id: int):
         """Load SAM3 model on a specific GPU device."""
         if build_sam3_video_model is None:
             raise RuntimeError("SAM3 not installed")
 
         device = self._setup_device(gpu_id)
-        
+
         print(f"Loading SAM3 model on cuda:{gpu_id}...")
-        model = build_sam3_video_model()
-        
-        # Move model to the correct GPU device
-        model = model.to(device)
-        
+
+        # CRITICAL: Set the default CUDA device BEFORE building the model
+        # This ensures all tensors are created on the correct GPU from the start
+        # Simply calling .to(device) after doesn't move all nested components
+        with torch.cuda.device(gpu_id):
+            model = build_sam3_video_model()
+            # Ensure model is on the correct device
+            model = model.to(device)
+
         predictor = model.tracker
         predictor.backbone = model.detector.backbone
-        
+
         # Cache the model
         self._gpu_models[gpu_id] = (model, predictor, device)
-        
+
         # Set as current if this is our active GPU
         if gpu_id == self.gpu_id:
             self.model = model
             self.predictor = predictor
             self.device = device
-        
+
         print(f"SAM3 model loaded successfully on cuda:{gpu_id}")
         return model, predictor, device
-    
+
     def preload_all_gpus(self):
         """Pre-load models on all configured GPUs."""
         print(f"Pre-loading SAM3 models on GPUs: {self.gpu_ids}")
         for gpu_id in self.gpu_ids:
             if gpu_id not in self._gpu_models:
                 self._load_model_on_device(gpu_id)
-        
+
         # Make sure we're set to the first GPU
         self._switch_to_gpu(self.gpu_ids[self.current_gpu_index])
         print(f"All models pre-loaded. Active GPU: cuda:{self.gpu_id}")
@@ -185,7 +191,7 @@ class SAM3Tracker:
         new_gpu_id = self.gpu_ids[self.current_gpu_index]
 
         print(f"Cycling GPU: {self.gpu_id} -> {new_gpu_id}")
-        
+
         self._switch_to_gpu(new_gpu_id)
 
     def load_model(self):
@@ -400,8 +406,12 @@ class SAM3Tracker:
         if self.predictor is None:
             self.load_model()
 
-        print(f"Initializing inference state from: {frames_dir}")
-        self.inference_state = self.predictor.init_state(video_path=frames_dir)
+        print(f"Initializing inference state from: {frames_dir} on cuda:{self.gpu_id}")
+
+        # Ensure we're on the correct GPU when initializing inference state
+        with torch.cuda.device(self.gpu_id):
+            self.inference_state = self.predictor.init_state(video_path=frames_dir)
+
         print("Inference state initialized")
 
     def _scale_mask_to_original(self, mask: np.ndarray) -> np.ndarray:
@@ -458,17 +468,23 @@ class SAM3Tracker:
         if len(points) == 0:
             return None
 
-        points_tensor = torch.tensor(points, dtype=torch.float32)
-        labels_tensor = torch.tensor(labels, dtype=torch.int32)
+        # Create tensors on the correct device
+        with torch.cuda.device(self.gpu_id):
+            points_tensor = torch.tensor(
+                points, dtype=torch.float32, device=self.device
+            )
+            labels_tensor = torch.tensor(labels, dtype=torch.int32, device=self.device)
 
-        _, out_obj_ids, low_res_masks, video_res_masks = self.predictor.add_new_points(
-            inference_state=self.inference_state,
-            frame_idx=local_frame_idx,
-            obj_id=obj_id,
-            points=points_tensor,
-            labels=labels_tensor,
-            clear_old_points=clear_old,
-        )
+            _, out_obj_ids, low_res_masks, video_res_masks = (
+                self.predictor.add_new_points(
+                    inference_state=self.inference_state,
+                    frame_idx=local_frame_idx,
+                    obj_id=obj_id,
+                    points=points_tensor,
+                    labels=labels_tensor,
+                    clear_old_points=clear_old,
+                )
+            )
 
         # Return the mask for this object, scaled to original size
         if video_res_masks is not None:
@@ -531,35 +547,36 @@ class SAM3Tracker:
                     clear_old=True,
                 )
 
-        # Propagate through frames
+        # Propagate through frames (ensure correct GPU context)
         video_segments = {}
 
-        for (
-            local_frame_idx,
-            obj_ids,
-            low_res_masks,
-            video_res_masks,
-            obj_scores,
-        ) in self.predictor.propagate_in_video(
-            self.inference_state,
-            start_frame_idx=0,
-            max_frame_num_to_track=max_frames,
-            reverse=False,
-            propagate_preflight=True,
-        ):
-            # Convert local frame index back to original video frame index
-            original_frame_idx = source_frame + local_frame_idx
+        with torch.cuda.device(self.gpu_id):
+            for (
+                local_frame_idx,
+                obj_ids,
+                low_res_masks,
+                video_res_masks,
+                obj_scores,
+            ) in self.predictor.propagate_in_video(
+                self.inference_state,
+                start_frame_idx=0,
+                max_frame_num_to_track=max_frames,
+                reverse=False,
+                propagate_preflight=True,
+            ):
+                # Convert local frame index back to original video frame index
+                original_frame_idx = source_frame + local_frame_idx
 
-            # Scale masks to original resolution
-            video_segments[original_frame_idx] = {}
-            for i, out_obj_id in enumerate(obj_ids):
-                mask = (video_res_masks[i] > 0.0).cpu().numpy()
-                scaled_mask = self._scale_mask_to_original(mask)
-                video_segments[original_frame_idx][out_obj_id] = scaled_mask
+                # Scale masks to original resolution
+                video_segments[original_frame_idx] = {}
+                for i, out_obj_id in enumerate(obj_ids):
+                    mask = (video_res_masks[i] > 0.0).cpu().numpy()
+                    scaled_mask = self._scale_mask_to_original(mask)
+                    video_segments[original_frame_idx][out_obj_id] = scaled_mask
 
-            if callback:
-                progress = (local_frame_idx + 1) / max_frames
-                callback(original_frame_idx, progress)
+                if callback:
+                    progress = (local_frame_idx + 1) / max_frames
+                    callback(original_frame_idx, progress)
 
         # Copy original frames before cleanup
         original_frames = dict(self._original_frames)
