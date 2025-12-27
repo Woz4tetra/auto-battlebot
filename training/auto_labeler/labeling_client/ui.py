@@ -630,7 +630,7 @@ class LabelingUI:
                 self.root.after(0, lambda: self._on_propagate_complete(result))
 
             except Exception as e:
-                self.root.after(0, lambda: self._on_propagate_error(e))
+                self.root.after(0, lambda err=e: self._on_propagate_error(err))
 
         thread = threading.Thread(target=do_propagate)
         thread.start()

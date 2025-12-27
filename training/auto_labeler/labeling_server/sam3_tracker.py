@@ -328,6 +328,10 @@ class SAM3Tracker:
 
     def _init_inference_state(self, frames_dir: str):
         """Initialize SAM3 inference state with extracted frames directory."""
+        # Ensure model is loaded (may have been unloaded during GPU cycling)
+        if self.predictor is None:
+            self.load_model()
+        
         print(f"Initializing inference state from: {frames_dir}")
         self.inference_state = self.predictor.init_state(video_path=frames_dir)
         print("Inference state initialized")
