@@ -204,6 +204,9 @@ class VideoHandler:
         """
         result = frame.copy()
 
+        # Border color for contrast (black or white depending on point color)
+        border_color = (0, 0, 0)  # Black border
+
         for point, label in zip(points, labels):
             x, y = int(point[0]), int(point[1])
 
@@ -213,7 +216,13 @@ class VideoHandler:
                 # Green for positive, red for negative
                 pt_color = (0, 255, 0) if label == 1 else (0, 0, 255)
 
-            # Draw marker
+            # Draw border/outline first (slightly larger, black)
+            cv2.drawMarker(
+                result, (x, y), border_color, cv2.MARKER_CROSS, markerSize=17, thickness=4
+            )
+            cv2.circle(result, (x, y), 11, border_color, 3)
+
+            # Draw marker on top
             cv2.drawMarker(
                 result, (x, y), pt_color, cv2.MARKER_CROSS, markerSize=15, thickness=2
             )
@@ -221,8 +230,19 @@ class VideoHandler:
             # Draw circle around marker
             cv2.circle(result, (x, y), 10, pt_color, 2)
 
-            # Draw + or - sign
+            # Draw + or - sign with border
             sign = "+" if label == 1 else "-"
+            # Border for text
+            cv2.putText(
+                result,
+                sign,
+                (x + 12, y - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                border_color,
+                4,
+            )
+            # Text on top
             cv2.putText(
                 result,
                 sign,
