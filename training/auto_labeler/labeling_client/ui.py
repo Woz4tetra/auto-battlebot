@@ -244,6 +244,23 @@ class LabelingUI:
             command=self._go_next_manual,
         ).pack(side="left", padx=2)
 
+        # Frame jump input
+        jump_frame = ttk.Frame(nav_frame)
+        jump_frame.pack(fill="x", pady=5)
+        
+        ttk.Label(jump_frame, text="Go to frame:").pack(side="left", padx=2)
+        
+        self.frame_entry = ttk.Entry(jump_frame, width=8)
+        self.frame_entry.pack(side="left", padx=2)
+        self.frame_entry.bind("<Return>", lambda e: self._jump_to_frame())
+        
+        ttk.Button(
+            jump_frame,
+            text="Go",
+            command=self._jump_to_frame,
+            width=4,
+        ).pack(side="left", padx=2)
+
         ttk.Button(
             nav_frame,
             text="🔎 Go to Next Unlabeled",
@@ -558,6 +575,22 @@ class LabelingUI:
                 messagebox.showinfo("Info", "All frames are labeled!")
         except Exception as e:
             messagebox.showerror("Error", str(e))
+
+    def _jump_to_frame(self):
+        """Jump to frame number entered in text box."""
+        try:
+            frame_text = self.frame_entry.get().strip()
+            if not frame_text:
+                return
+            
+            frame = int(frame_text)
+            if 0 <= frame < self.total_frames:
+                self._go_to_frame(frame)
+                self.frame_entry.delete(0, tk.END)
+            else:
+                messagebox.showerror("Error", f"Frame must be between 0 and {self.total_frames - 1}")
+        except ValueError:
+            messagebox.showerror("Error", "Please enter a valid frame number")
 
     def _on_undo(self):
         """Undo last point."""
