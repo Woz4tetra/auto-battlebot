@@ -165,6 +165,7 @@ class LabelingAPIClient:
         frame_idx: int,
         include_masks: bool = False,
         include_points: bool = False,
+        include_labels: bool = True,
         quality: int = 90,
     ) -> Image.Image:
         """
@@ -174,6 +175,7 @@ class LabelingAPIClient:
             frame_idx: Frame index
             include_masks: Whether to overlay masks
             include_points: Whether to draw points
+            include_labels: Whether to draw label names above masks
             quality: JPEG quality
 
         Returns:
@@ -182,6 +184,7 @@ class LabelingAPIClient:
         params = {
             "masks": str(include_masks).lower(),
             "points": str(include_points).lower(),
+            "labels": str(include_labels).lower(),
             "quality": quality,
         }
         return self._get_image(f"frame/{frame_idx}", **params)

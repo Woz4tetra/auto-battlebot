@@ -111,12 +111,13 @@ def create_app(config: ServerConfig) -> Flask:
         t0 = time.monotonic()
         include_masks = request.args.get("masks", "false").lower() == "true"
         include_points = request.args.get("points", "false").lower() == "true"
+        include_labels = request.args.get("labels", "true").lower() == "true"
         quality = int(request.args.get("quality", 90))
 
         t_start = time.monotonic()
         frame = image_handler.get_frame(frame_idx)
         t_load = time.monotonic()
-        
+
         if frame is None:
             return jsonify({"error": "Frame not found"}), 404
 
@@ -124,7 +125,7 @@ def create_app(config: ServerConfig) -> Flask:
         orig_h, orig_w = frame.shape[:2]
         frame = resize_for_client(frame)
         t_resize = time.monotonic()
-        
+
         new_h, new_w = frame.shape[:2]
         scale = new_w / orig_w
 
@@ -144,40 +145,46 @@ def create_app(config: ServerConfig) -> Flask:
                     frame, scaled_masks, color_map, config.mask_alpha
                 )
                 # Draw label names above each mask
-                for obj_id, mask in scaled_masks.items():
-                    ys, xs = np.where(mask)
-                    if len(ys) > 0:
-                        # Find top-center of mask
-                        top_y = int(np.min(ys))
-                        center_x = int((np.min(xs) + np.max(xs)) // 2)
-                        # Get label name
-                        label_name = next(
-                            (l.name for l in config.object_labels if l.id == obj_id),
-                            str(obj_id)
-                        )
-                        color = color_map.get(obj_id, (255, 255, 255))
-                        # Draw text with background for readability
-                        font = cv2.FONT_HERSHEY_SIMPLEX
-                        font_scale = 0.6
-                        thickness = 2
-                        (text_w, text_h), baseline = cv2.getTextSize(
-                            label_name, font, font_scale, thickness
-                        )
-                        text_x = max(0, center_x - text_w // 2)
-                        text_y = max(text_h + 5, top_y - 5)
-                        # Background rectangle
-                        cv2.rectangle(
-                            frame,
-                            (text_x - 2, text_y - text_h - 2),
-                            (text_x + text_w + 2, text_y + baseline + 2),
-                            (0, 0, 0),
-                            -1
-                        )
-                        # Text
-                        cv2.putText(
-                            frame, label_name, (text_x, text_y),
-                            font, font_scale, color, thickness
-                        )
+                if include_labels:
+                    for obj_id, mask in scaled_masks.items():
+                        ys, xs = np.where(mask)
+                        if len(ys) > 0:
+                            # Find top-center of mask
+                            top_y = int(np.min(ys))
+                            center_x = int((np.min(xs) + np.max(xs)) // 2)
+                            # Get label name
+                            label_name = next(
+                                (l.name for l in config.object_labels if l.id == obj_id),
+                                str(obj_id),
+                            )
+                            color = color_map.get(obj_id, (255, 255, 255))[::-1]
+                            # Draw text with background for readability
+                            font = cv2.FONT_HERSHEY_SIMPLEX
+                            font_scale = 0.6
+                            thickness = 2
+                            (text_w, text_h), baseline = cv2.getTextSize(
+                                label_name, font, font_scale, thickness
+                            )
+                            text_x = max(0, center_x - text_w // 2)
+                            text_y = max(text_h + 5, top_y - 5)
+                            # Background rectangle
+                            cv2.rectangle(
+                                frame,
+                                (text_x - 2, text_y - text_h - 2),
+                                (text_x + text_w + 2, text_y + baseline + 2),
+                                (0, 0, 0),
+                                -1,
+                            )
+                            # Text
+                            cv2.putText(
+                                frame,
+                                label_name,
+                                (text_x, text_y),
+                                font,
+                                font_scale,
+                                color,
+                                thickness,
+                            )
 
         # Draw points if requested (scale coordinates to display size)
         if include_points:
@@ -200,8 +207,8 @@ def create_app(config: ServerConfig) -> Flask:
 
         print(
             f"Frame {frame_idx}: {orig_w}x{orig_h} -> {new_w}x{new_h}, {image_size_kb:.1f} KB | "
-            f"load: {(t_load - t_start)*1000:.0f}ms, resize: {(t_resize - t_load)*1000:.0f}ms, "
-            f"encode: {(t_encode - t_resize)*1000:.0f}ms, total: {(t_encode - t0)*1000:.0f}ms"
+            f"load: {(t_load - t_start) * 1000:.0f}ms, resize: {(t_resize - t_load) * 1000:.0f}ms, "
+            f"encode: {(t_encode - t_resize) * 1000:.0f}ms, total: {(t_encode - t0) * 1000:.0f}ms"
         )
 
         return send_file(
@@ -378,12 +385,12 @@ def create_app(config: ServerConfig) -> Flask:
                     # Get label name
                     label_name = next(
                         (l.name for l in config.object_labels if l.id == obj_id),
-                        str(obj_id)
+                        str(obj_id),
                     )
                     color = color_map.get(obj_id, (255, 255, 255))
                     # Draw text with background for readability
                     font = cv2.FONT_HERSHEY_SIMPLEX
-                    font_scale = 0.6
+                    font_scale = 0.3
                     thickness = 2
                     (text_w, text_h), baseline = cv2.getTextSize(
                         label_name, font, font_scale, thickness
@@ -396,12 +403,17 @@ def create_app(config: ServerConfig) -> Flask:
                         (text_x - 2, text_y - text_h - 2),
                         (text_x + text_w + 2, text_y + baseline + 2),
                         (0, 0, 0),
-                        -1
+                        -1,
                     )
                     # Text
                     cv2.putText(
-                        frame, label_name, (text_x, text_y),
-                        font, font_scale, color, thickness
+                        frame,
+                        label_name,
+                        (text_x, text_y),
+                        font,
+                        font_scale,
+                        color,
+                        thickness,
                     )
 
         # Draw points (scale coordinates to display size)

@@ -262,6 +262,14 @@ class LabelingUI:
             command=self._update_display,
         ).pack(anchor="w")
 
+        self.show_labels_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            display_frame,
+            text="Show Labels",
+            variable=self.show_labels_var,
+            command=self._update_display,
+        ).pack(anchor="w")
+
         self.show_points_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             display_frame,
@@ -437,6 +445,7 @@ class LabelingUI:
                 self.current_frame,
                 include_masks=self.show_masks_var.get(),
                 include_points=self.show_points_var.get(),
+                include_labels=self.show_labels_var.get(),
             )
 
             # Scale to fit canvas
