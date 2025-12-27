@@ -584,11 +584,12 @@ class LabelingUI:
                 return
             
             frame = int(frame_text)
-            if 0 <= frame < self.total_frames:
+            total_frames = self.client.config.video.total_frames
+            if 0 <= frame < total_frames:
                 self._go_to_frame(frame)
                 self.frame_entry.delete(0, tk.END)
             else:
-                messagebox.showerror("Error", f"Frame must be between 0 and {self.total_frames - 1}")
+                messagebox.showerror("Error", f"Frame must be between 0 and {total_frames - 1}")
         except ValueError:
             messagebox.showerror("Error", "Please enter a valid frame number")
 
