@@ -60,15 +60,37 @@ def create_app(config: ServerConfig) -> Flask:
     # Build color map from config
     color_map = {label.id: tuple(label.color) for label in config.object_labels}
 
+    def resize_for_client(frame: np.ndarray) -> np.ndarray:
+        """Resize frame to inference width for faster client downloads."""
+        h, w = frame.shape[:2]
+        if w <= config.inference_width:
+            return frame
+        scale = config.inference_width / w
+        new_w = config.inference_width
+        new_h = int(h * scale)
+        return cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
     # ==================== API Routes ====================
 
     @app.route("/api/config", methods=["GET"])
     def get_config():
         """Get server configuration."""
+        # Calculate display dimensions (resized to inference_width)
+        video_meta = video_handler.get_metadata()
+        if video_meta["width"] > config.inference_width:
+            scale = config.inference_width / video_meta["width"]
+            display_width = config.inference_width
+            display_height = int(video_meta["height"] * scale)
+        else:
+            display_width = video_meta["width"]
+            display_height = video_meta["height"]
+
         return jsonify(
             {
                 **config.to_dict(),
-                "video": video_handler.get_metadata(),
+                "video": video_meta,
+                "display_width": display_width,
+                "display_height": display_height,
             }
         )
 
@@ -88,20 +110,30 @@ def create_app(config: ServerConfig) -> Flask:
         if frame is None:
             return jsonify({"error": "Frame not found"}), 404
 
-        # Overlay masks if requested
+        # Resize frame first for faster drawing operations
+        orig_h, orig_w = frame.shape[:2]
+        frame = resize_for_client(frame)
+        new_h, new_w = frame.shape[:2]
+        scale = new_w / orig_w
+
+        # Overlay masks if requested (resize masks to display size)
         if include_masks:
             masks = annotation_manager.get_all_masks(frame_idx)
             if masks:
+                scaled_masks = {
+                    obj_id: cv2.resize(mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                    for obj_id, mask in masks.items()
+                }
                 frame = video_handler.overlay_masks(
-                    frame, masks, color_map, config.mask_alpha
+                    frame, scaled_masks, color_map, config.mask_alpha
                 )
 
-        # Draw points if requested
+        # Draw points if requested (scale coordinates to display size)
         if include_points:
             for label in config.object_labels:
                 points = annotation_manager.get_points(frame_idx, label.id)
                 if points:
-                    pts = [(p.x, p.y) for p in points]
+                    pts = [(int(p.x * scale), int(p.y * scale)) for p in points]
                     labels = [p.label for p in points]
                     frame = video_handler.draw_points(
                         frame, pts, labels, label.id, tuple(label.color)
@@ -151,6 +183,12 @@ def create_app(config: ServerConfig) -> Flask:
         y = data["y"]
         label = data["label"]  # 1 or 0
         obj_id = data["obj_id"]
+
+        # Scale coordinates from display space to original video space
+        if video_handler.width > config.inference_width:
+            scale = video_handler.width / config.inference_width
+            x = int(x * scale)
+            y = int(y * scale)
 
         ann = annotation_manager.add_point(frame_idx, x, y, label, obj_id)
 
@@ -249,18 +287,28 @@ def create_app(config: ServerConfig) -> Flask:
         if points_by_obj:
             all_masks = t.get_multi_object_preview(frame_idx, points_by_obj)
 
-        # Get frame and overlay masks
+        # Get frame and resize first for faster drawing operations
         frame = video_handler.get_frame(frame_idx)
+        orig_h, orig_w = frame.shape[:2]
+        frame = resize_for_client(frame)
+        new_h, new_w = frame.shape[:2]
+        scale = new_w / orig_w
+
+        # Overlay masks (resize to display size)
         if all_masks:
+            scaled_masks = {
+                obj_id: cv2.resize(mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                for obj_id, mask in all_masks.items()
+            }
             frame = video_handler.overlay_masks(
-                frame, all_masks, color_map, config.mask_alpha
+                frame, scaled_masks, color_map, config.mask_alpha
             )
 
-        # Draw points
+        # Draw points (scale coordinates to display size)
         for label in config.object_labels:
             points = annotation_manager.get_points(frame_idx, label.id)
             if points:
-                pts = [(p.x, p.y) for p in points]
+                pts = [(int(p.x * scale), int(p.y * scale)) for p in points]
                 lbls = [p.label for p in points]
                 frame = video_handler.draw_points(
                     frame, pts, lbls, label.id, tuple(label.color)
@@ -309,11 +357,12 @@ def create_app(config: ServerConfig) -> Flask:
                 propagate_length=length,
             )
 
-            # Save masks in memory and collect frames for parallel I/O
+            # Save masks in memory and fetch frames sequentially
+            # (Video seeking doesn't parallelize well - single VideoCapture)
             frames_data = []
             for fid, masks in tqdm(
-                segments.items(),
-                desc="Processing masks",
+                sorted(segments.items()),  # Process in frame order for efficient seeking
+                desc="Processing frames",
                 unit="frame",
             ):
                 for obj_id, mask in masks.items():
@@ -321,12 +370,11 @@ def create_app(config: ServerConfig) -> Flask:
                         fid, obj_id, mask, propagated_from=frame_idx
                     )
 
-                # Collect frame data for batch processing
                 frame = video_handler.get_frame(fid)
                 if frame is not None:
                     frames_data.append((fid, frame, masks))
 
-            # Save frames and masks to disk in parallel
+            # Save frames and masks to disk in parallel (I/O bound, parallelizes well)
             print("Saving frames and masks to disk...")
             with tqdm(total=0, desc="Writing files", unit="file") as pbar:
                 def update_progress(current, total):
