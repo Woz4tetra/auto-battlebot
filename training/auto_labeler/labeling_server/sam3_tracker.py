@@ -12,13 +12,13 @@ from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
 from natsort import natsorted
 
-# Import pynvml for GPU temperature monitoring
+# Import nvidia-ml-py for GPU temperature monitoring
 try:
     import pynvml
     pynvml.nvmlInit()
     PYNVML_AVAILABLE = True
 except (ImportError, Exception):
-    print("Warning: pynvml not available. GPU temperature monitoring disabled.")
+    print("Warning: nvidia-ml-py not available. GPU temperature monitoring disabled.")
     PYNVML_AVAILABLE = False
 
 # Import SAM3 components

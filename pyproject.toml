@@ -22,7 +22,7 @@ dependencies = [
     "tqdm>=4.60.0",
     "pycocotools>=2.0.0",
     "natsort>=8.0.0",
-    "pynvml>=13.0.0",
+    "nvidia-ml-py",
 
     # Label client dependencies
     "requests>=2.25.0",
