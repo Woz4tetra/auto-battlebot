@@ -11,7 +11,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
-    python run_client.py --server http://192.168.1.100:8765
+    python run_client.py --server http://192.168.1.100:7547
     
 The client will connect to the server and open the labeling interface.
 
@@ -29,8 +29,8 @@ Keyboard shortcuts:
     parser.add_argument(
         "--server",
         "-s",
-        default="http://localhost:8765",
-        help="Server URL (default: http://localhost:8765)",
+        default="http://localhost:7547",
+        help="Server URL (default: http://localhost:7547)",
     )
 
     args = parser.parse_args()

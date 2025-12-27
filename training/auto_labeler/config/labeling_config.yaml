@@ -34,8 +34,11 @@ generated_annotations_dir: "./output/generated_annotations"
 # Number of frames to propagate forward when user clicks "Propagate"
 propagate_length: 300
 
-# GPU device ID to use for SAM3 model
-gpu_id: 0
+# GPU settings - use gpu_ids list for multi-GPU parallel processing
+# Single GPU example: gpu_ids: [0]
+# Multi-GPU example: gpu_ids: [0, 1, 2, 3]
+# Frame ranges are split across GPUs for faster propagation
+gpu_ids: [0, 1, 2]
 
 # Mask overlay transparency (0-1)
 mask_alpha: 0.5
