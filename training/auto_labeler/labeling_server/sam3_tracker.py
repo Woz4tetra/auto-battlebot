@@ -28,17 +28,17 @@ class SAM3Tracker:
     scaled back to original resolution after inference.
     """
 
-    def __init__(self, gpu_id: int = 0, inference_scale: float = 0.5):
+    def __init__(self, gpu_id: int = 0, inference_width: int = 960):
         """
         Initialize the tracker.
 
         Args:
             gpu_id: GPU device ID to use
-            inference_scale: Scale factor for frames during inference (0.0-1.0)
-                           e.g., 0.5 = half resolution
+            inference_width: Target width in pixels for inference
+                           Height is calculated to maintain aspect ratio
         """
         self.gpu_id = gpu_id
-        self.inference_scale = inference_scale
+        self.inference_width = inference_width
         self.device = self._setup_device()
         self.model = None
         self.predictor = None
@@ -112,9 +112,16 @@ class SAM3Tracker:
         self.fps = cap.get(cv2.CAP_PROP_FPS)
         cap.release()
 
-        # Calculate scaled dimensions
-        self.scaled_width = int(self.video_width * self.inference_scale)
-        self.scaled_height = int(self.video_height * self.inference_scale)
+        # Calculate scaled dimensions from target width
+        if self.inference_width >= self.video_width:
+            # No scaling needed if target is >= original
+            self.scaled_width = self.video_width
+            self.scaled_height = self.video_height
+        else:
+            # Scale to target width, maintain aspect ratio
+            scale = self.inference_width / self.video_width
+            self.scaled_width = self.inference_width
+            self.scaled_height = int(self.video_height * scale)
 
         # Ensure dimensions are even (required by many video codecs)
         self.scaled_width = self.scaled_width - (self.scaled_width % 2)
@@ -124,7 +131,7 @@ class SAM3Tracker:
             f"Video: {self.video_width}x{self.video_height}, {self.total_frames} frames"
         )
         print(
-            f"Inference scale: {self.inference_scale} -> {self.scaled_width}x{self.scaled_height}"
+            f"Inference width: {self.inference_width} -> {self.scaled_width}x{self.scaled_height}"
         )
 
         # Clean up any previous temp directory
@@ -190,8 +197,8 @@ class SAM3Tracker:
             if not ret:
                 break
 
-            # Scale down frame
-            if self.inference_scale != 1.0:
+            # Scale down frame if needed
+            if self.scaled_width != self.video_width:
                 frame = cv2.resize(
                     frame,
                     (self.scaled_width, self.scaled_height),
@@ -227,7 +234,8 @@ class SAM3Tracker:
         Returns:
             Binary mask at original video resolution
         """
-        if self.inference_scale == 1.0:
+        # No scaling needed if dimensions match
+        if self.scaled_width == self.video_width:
             return mask
 
         # Ensure mask is 2D

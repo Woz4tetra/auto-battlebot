@@ -226,10 +226,10 @@ class ServerConfig:
     # Mask overlay settings
     mask_alpha: float = 0.5
 
-    # Inference scale - scale down frames for SAM3 inference to save GPU memory
-    # e.g., 0.5 = half resolution, 1.0 = full resolution
+    # Inference width - target width in pixels for SAM3 inference
+    # Height is calculated automatically to maintain aspect ratio
     # Masks are scaled back to original size after inference
-    inference_scale: float = 0.5
+    inference_width: int = 960
 
     @classmethod
     def from_yaml(cls, config_path: str) -> "ServerConfig":
@@ -262,7 +262,7 @@ class ServerConfig:
             port=data.get("port", 7547),
             gpu_id=data.get("gpu_id", 0),
             mask_alpha=data.get("mask_alpha", 0.5),
-            inference_scale=data.get("inference_scale", 0.5),
+            inference_width=data.get("inference_width", 960),
         )
 
     def ensure_directories(self):

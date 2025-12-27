@@ -64,8 +64,9 @@ gpu_id: 0
 # Mask overlay transparency (0-1)
 mask_alpha: 0.5
 
-# Inference scale - scale down frames for SAM3 inference to save GPU memory
-# For large videos (1GB+), use smaller values like 0.25-0.5
-# e.g., 0.5 = half resolution, 1.0 = full resolution
+# Inference width - target width in pixels for SAM3 inference to save GPU memory
+# The height is calculated automatically to maintain aspect ratio
+# For large videos (1GB+), use smaller values like 480-720
+# e.g., 960 for a 1920x1080 video = half resolution
 # Masks are automatically scaled back to original resolution after inference
-inference_scale: 0.5
+inference_width: 720

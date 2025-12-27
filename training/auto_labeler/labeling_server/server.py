@@ -51,7 +51,7 @@ def create_app(config: ServerConfig) -> Flask:
         if tracker is None:
             tracker = SAM3Tracker(
                 gpu_id=config.gpu_id,
-                inference_scale=config.inference_scale,
+                inference_width=config.inference_width,
             )
             tracker.set_video(config.video_path)
         return tracker
