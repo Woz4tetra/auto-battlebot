@@ -51,7 +51,7 @@ def create_app(config: ServerConfig) -> Flask:
     else:
         print("Starting with fresh annotation state")
 
-    # Initialize SAM3 tracker (lazy loading)
+    # Initialize SAM3 tracker with pre-loaded models on all GPUs
     tracker: Optional[SAM3Tracker] = None
     propagate_lock = threading.Lock()  # Prevent concurrent propagation requests
 
@@ -61,6 +61,7 @@ def create_app(config: ServerConfig) -> Flask:
             tracker = SAM3Tracker(
                 gpu_ids=config.gpu_ids,
                 inference_width=config.inference_width,
+                preload=True,  # Pre-load models on all GPUs for fast switching
             )
             tracker.set_images_dir(config.images_dir)
         return tracker
