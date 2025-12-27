@@ -317,11 +317,17 @@ class SAM3Tracker:
                     raise ValueError(f"Cannot read image: {image_path}")
                 self._original_frames[frame_idx] = frame
 
-                # Create symlink with sequential naming
-                link_path = os.path.join(
-                    self._temp_dir, f"{local_idx:06d}{image_path.suffix}"
-                )
-                os.symlink(image_path.absolute(), link_path)
+                # SAM3 only supports JPEG format - must convert if not JPEG
+                if image_path.suffix.lower() in {".jpg", ".jpeg"}:
+                    # Create symlink with sequential naming
+                    link_path = os.path.join(
+                        self._temp_dir, f"{local_idx:06d}.jpg"
+                    )
+                    os.symlink(image_path.absolute(), link_path)
+                else:
+                    # Convert to JPEG for SAM3 compatibility
+                    frame_path = os.path.join(self._temp_dir, f"{local_idx:06d}.jpg")
+                    cv2.imwrite(frame_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
 
             print(f"Created {actual_num_frames} symlinks in {self._temp_dir}")
             return self._temp_dir
