@@ -56,7 +56,7 @@ manual_annotations_dir: "./output/manual_annotations"
 generated_annotations_dir: "./output/generated_annotations"
 
 # Number of frames to propagate forward when user clicks "Propagate"
-propagate_length: 300
+propagate_length: 600
 
 # GPU device ID to use for SAM3 model
 gpu_id: 0
