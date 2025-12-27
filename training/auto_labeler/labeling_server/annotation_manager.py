@@ -523,7 +523,12 @@ class AnnotationManager:
             all_points = np.array(all_points)
             x_min, y_min = all_points.min(axis=0)
             x_max, y_max = all_points.max(axis=0)
-            bbox = [float(x_min), float(y_min), float(x_max - x_min), float(y_max - y_min)]
+            bbox = [
+                float(x_min),
+                float(y_min),
+                float(x_max - x_min),
+                float(y_max - y_min),
+            ]
         else:
             bbox = [0, 0, 0, 0]
 

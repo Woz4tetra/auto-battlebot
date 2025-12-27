@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 from flask import Flask, jsonify, request, send_file, Response
 from flask_cors import CORS
+from tqdm import tqdm
 
 from .annotation_manager import AnnotationManager
 from .config import ServerConfig
@@ -307,9 +308,12 @@ def create_app(config: ServerConfig) -> Flask:
                 propagate_length=length,
             )
 
-            print("Saving masks")
             # Save masks and add to COCO
-            for fid, masks in segments.items():
+            for fid, masks in tqdm(
+                segments.items(),
+                desc="Saving masks",
+                unit="frame",
+            ):
                 for obj_id, mask in masks.items():
                     annotation_manager.set_mask(
                         fid, obj_id, mask, propagated_from=frame_idx
@@ -320,7 +324,7 @@ def create_app(config: ServerConfig) -> Flask:
                 if frame is not None:
                     annotation_manager.add_to_coco(fid, frame, masks)
 
-            print("Saving state")
+            print("Saving state...")
             annotation_manager.save_state()
 
             return jsonify(
