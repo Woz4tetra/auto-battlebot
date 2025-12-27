@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import pycocotools.mask as mask_utils
+import traceback
+from tqdm import tqdm
 
 
 @dataclass
@@ -138,7 +140,6 @@ class AnnotationManager:
 
         except Exception as e:
             print(f"Error loading state: {e}")
-            import traceback
             traceback.print_exc()
             return False
 
@@ -151,7 +152,11 @@ class AnnotationManager:
         # Get all object IDs from labels
         obj_ids = [label["id"] for label in self.object_labels]
 
-        loaded_count = 0
+        loaded_count = tqdm(
+            sorted(self.generated_frames),
+            desc="Loading masks from disk",
+            unit="frame",
+        )
         for frame_idx in self.generated_frames:
             # Ensure frame annotation exists
             if frame_idx not in self.annotations:
