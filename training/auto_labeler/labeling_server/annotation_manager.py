@@ -4,6 +4,7 @@ import json
 import os
 import cv2
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -157,29 +158,52 @@ class AnnotationManager:
             f"Loading masks for {len(self.generated_frames)} frames, {len(obj_ids)} objects each"
         )
 
-        loaded_count = 0
-
-        for frame_idx in tqdm(
-            sorted(self.generated_frames),
-            desc="Loading masks from disk",
-            unit="frame",
-        ):
-            # Ensure frame annotation exists
-            if frame_idx not in self.annotations:
-                self.annotations[frame_idx] = FrameAnnotation(frame_idx=frame_idx)
-
-            # Try to load mask for each object
+        # Build list of all mask files to load
+        mask_tasks = []
+        for frame_idx in sorted(self.generated_frames):
             for obj_id in obj_ids:
                 mask_path = masks_dir / f"frame_{frame_idx:06d}_obj_{obj_id}.png"
                 if mask_path.exists():
-                    # Load mask image and convert to boolean
-                    mask_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-                    if mask_img is not None:
-                        mask = (mask_img > 127).astype(bool)
-                        self.annotations[frame_idx].masks[obj_id] = mask
-                        loaded_count += 1
+                    mask_tasks.append((frame_idx, obj_id, mask_path))
 
-        print(f"Loaded {loaded_count} masks from disk")
+        if not mask_tasks:
+            print("No mask files found to load")
+            return
+
+        def load_single_mask(task):
+            """Load a single mask from disk."""
+            frame_idx, obj_id, mask_path = task
+            mask_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+            if mask_img is not None:
+                mask = (mask_img > 127).astype(bool)
+                return (frame_idx, obj_id, mask)
+            return None
+
+        # Use ThreadPoolExecutor for parallel I/O
+        loaded_count = 0
+        num_workers = min(os.cpu_count() or 4, 16)  # Cap at 16 workers
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = {executor.submit(load_single_mask, task): task for task in mask_tasks}
+
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="Loading masks from disk",
+                unit="mask",
+            ):
+                result = future.result()
+                if result is not None:
+                    frame_idx, obj_id, mask = result
+
+                    # Ensure frame annotation exists
+                    if frame_idx not in self.annotations:
+                        self.annotations[frame_idx] = FrameAnnotation(frame_idx=frame_idx)
+
+                    self.annotations[frame_idx].masks[obj_id] = mask
+                    loaded_count += 1
+
+        print(f"Loaded {loaded_count} masks from disk using {num_workers} workers")
 
     def save_state(self):
         """Save annotation state to disk."""
