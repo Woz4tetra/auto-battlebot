@@ -143,6 +143,41 @@ def create_app(config: ServerConfig) -> Flask:
                 frame = image_handler.overlay_masks(
                     frame, scaled_masks, color_map, config.mask_alpha
                 )
+                # Draw label names above each mask
+                for obj_id, mask in scaled_masks.items():
+                    ys, xs = np.where(mask)
+                    if len(ys) > 0:
+                        # Find top-center of mask
+                        top_y = int(np.min(ys))
+                        center_x = int((np.min(xs) + np.max(xs)) // 2)
+                        # Get label name
+                        label_name = next(
+                            (l.name for l in config.object_labels if l.id == obj_id),
+                            str(obj_id)
+                        )
+                        color = color_map.get(obj_id, (255, 255, 255))
+                        # Draw text with background for readability
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        font_scale = 0.6
+                        thickness = 2
+                        (text_w, text_h), baseline = cv2.getTextSize(
+                            label_name, font, font_scale, thickness
+                        )
+                        text_x = max(0, center_x - text_w // 2)
+                        text_y = max(text_h + 5, top_y - 5)
+                        # Background rectangle
+                        cv2.rectangle(
+                            frame,
+                            (text_x - 2, text_y - text_h - 2),
+                            (text_x + text_w + 2, text_y + baseline + 2),
+                            (0, 0, 0),
+                            -1
+                        )
+                        # Text
+                        cv2.putText(
+                            frame, label_name, (text_x, text_y),
+                            font, font_scale, color, thickness
+                        )
 
         # Draw points if requested (scale coordinates to display size)
         if include_points:
@@ -333,6 +368,41 @@ def create_app(config: ServerConfig) -> Flask:
             frame = image_handler.overlay_masks(
                 frame, scaled_masks, color_map, config.mask_alpha
             )
+            # Draw label names above each mask
+            for obj_id, mask in scaled_masks.items():
+                ys, xs = np.where(mask)
+                if len(ys) > 0:
+                    # Find top-center of mask
+                    top_y = int(np.min(ys))
+                    center_x = int((np.min(xs) + np.max(xs)) // 2)
+                    # Get label name
+                    label_name = next(
+                        (l.name for l in config.object_labels if l.id == obj_id),
+                        str(obj_id)
+                    )
+                    color = color_map.get(obj_id, (255, 255, 255))
+                    # Draw text with background for readability
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    font_scale = 0.6
+                    thickness = 2
+                    (text_w, text_h), baseline = cv2.getTextSize(
+                        label_name, font, font_scale, thickness
+                    )
+                    text_x = max(0, center_x - text_w // 2)
+                    text_y = max(text_h + 5, top_y - 5)
+                    # Background rectangle
+                    cv2.rectangle(
+                        frame,
+                        (text_x - 2, text_y - text_h - 2),
+                        (text_x + text_w + 2, text_y + baseline + 2),
+                        (0, 0, 0),
+                        -1
+                    )
+                    # Text
+                    cv2.putText(
+                        frame, label_name, (text_x, text_y),
+                        font, font_scale, color, thickness
+                    )
 
         # Draw points (scale coordinates to display size)
         for label in config.object_labels:

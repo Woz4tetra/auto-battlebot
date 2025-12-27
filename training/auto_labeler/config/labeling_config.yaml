@@ -4,7 +4,7 @@
 # Path to the directory containing images
 # Supports: .jpg, .jpeg, .png, .bmp, .tiff, .tif, .webp
 # Images are naturally sorted (1, 2, 10 not 1, 10, 2)
-images_dir: "/media/storage/true-battlebot-media/videos/Cage-2-Overhead-High-2024-10-26_15-30-33.608/"
+images_dir: "/home/ben/Videos/Cage-2-Overhead-High-2024-10-26_15-30-33.608/"
 
 # Object labels to track
 # Each object needs:
@@ -58,7 +58,7 @@ manual_annotations_dir: "./output/manual_annotations"
 generated_annotations_dir: "./output/generated_annotations"
 
 # Number of frames to propagate forward when user clicks "Propagate"
-propagate_length: 600
+propagate_length: 500
 
 # GPU device ID to use for SAM3 model
 gpu_id: 0
