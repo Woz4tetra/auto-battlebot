@@ -30,18 +30,29 @@ class SAM3Tracker:
     Works with folders of images. For propagation, creates a temporary directory
     with symlinks to the original images (scaled if needed). This avoids copying
     images while still providing SAM3 with the sequential file naming it expects.
+
+    Supports GPU cycling to keep GPUs cool - after each propagation, call
+    cycle_gpu() to switch to the next GPU in the pool.
     """
 
-    def __init__(self, gpu_id: int = 0, inference_width: int = 960):
+    def __init__(self, gpu_ids: list = None, inference_width: int = 960):
         """
         Initialize the tracker.
 
         Args:
-            gpu_id: GPU device ID to use
+            gpu_ids: List of GPU device IDs to cycle through, or single int for one GPU
             inference_width: Target width in pixels for inference
                            Height is calculated to maintain aspect ratio
         """
-        self.gpu_id = gpu_id
+        # Handle both single gpu_id (int) and gpu_ids (list) for backwards compatibility
+        if gpu_ids is None:
+            gpu_ids = [0]
+        elif isinstance(gpu_ids, int):
+            gpu_ids = [gpu_ids]
+        
+        self.gpu_ids = gpu_ids
+        self.current_gpu_index = 0
+        self.gpu_id = self.gpu_ids[self.current_gpu_index]
         self.inference_width = inference_width
         self.device = self._setup_device()
         self.model = None
@@ -83,6 +94,46 @@ class SAM3Tracker:
 
         print(f"SAM3 Tracker using device: {device}")
         return device
+
+    def cycle_gpu(self):
+        """
+        Cycle to the next GPU in the pool.
+        
+        This helps keep GPUs cool by distributing work across multiple GPUs.
+        Call this after each propagation query completes.
+        """
+        if len(self.gpu_ids) <= 1:
+            return  # Only one GPU, nothing to cycle
+        
+        # Move to next GPU
+        self.current_gpu_index = (self.current_gpu_index + 1) % len(self.gpu_ids)
+        new_gpu_id = self.gpu_ids[self.current_gpu_index]
+        
+        if new_gpu_id == self.gpu_id:
+            return  # Same GPU, nothing to do
+        
+        print(f"Cycling GPU: {self.gpu_id} -> {new_gpu_id}")
+        
+        # Clean up current GPU
+        self._reset_inference_state()
+        if self.model is not None:
+            # Move model to CPU first to free GPU memory
+            try:
+                self.model = self.model.cpu()
+            except Exception:
+                pass
+            self.model = None
+            self.predictor = None
+        
+        # Clear old GPU cache
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Switch to new GPU
+        self.gpu_id = new_gpu_id
+        self.device = self._setup_device()
+        
+        # Model will be reloaded lazily on next use
 
     def load_model(self):
         """Load SAM3 model."""

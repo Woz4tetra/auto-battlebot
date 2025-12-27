@@ -220,8 +220,12 @@ class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 7547
 
-    # GPU settings
-    gpu_id: int = 0
+    # GPU settings - list of GPU IDs to cycle through
+    gpu_ids: List[int] = None  # Default set in __post_init__
+
+    def __post_init__(self):
+        if self.gpu_ids is None:
+            self.gpu_ids = [0]
 
     # Mask overlay settings
     mask_alpha: float = 0.5
@@ -257,6 +261,15 @@ class ServerConfig:
         manual_dir = data.get("manual_annotations_dir", "./manual_annotations")
         generated_dir = data.get("generated_annotations_dir", "./generated_annotations")
 
+        # Parse GPU IDs - support both old 'gpu_id' and new 'gpu_ids' formats
+        gpu_ids_raw = data.get("gpu_ids", data.get("gpu_id", 0))
+        if isinstance(gpu_ids_raw, int):
+            gpu_ids = [gpu_ids_raw]
+        elif isinstance(gpu_ids_raw, list):
+            gpu_ids = [int(g) for g in gpu_ids_raw]
+        else:
+            gpu_ids = [0]
+
         return cls(
             images_dir=data.get(
                 "images_dir", data.get("video_path")
@@ -267,7 +280,7 @@ class ServerConfig:
             propagate_length=data.get("propagate_length", 300),
             host=data.get("host", "0.0.0.0"),
             port=data.get("port", 7547),
-            gpu_id=data.get("gpu_id", 0),
+            gpu_ids=gpu_ids,
             mask_alpha=data.get("mask_alpha", 0.5),
             inference_width=data.get("inference_width", 960),
             output_width=data.get("output_width", 0),

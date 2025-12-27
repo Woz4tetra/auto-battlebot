@@ -57,7 +57,7 @@ def create_app(config: ServerConfig) -> Flask:
         nonlocal tracker
         if tracker is None:
             tracker = SAM3Tracker(
-                gpu_id=config.gpu_id,
+                gpu_ids=config.gpu_ids,
                 inference_width=config.inference_width,
             )
             tracker.set_images_dir(config.images_dir)
@@ -503,6 +503,9 @@ def create_app(config: ServerConfig) -> Flask:
             print("Saving state...")
             annotation_manager.save_state()
 
+            # Cycle to next GPU to keep GPUs cool
+            t.cycle_gpu()
+
             return jsonify(
                 {
                     "success": True,
@@ -513,6 +516,9 @@ def create_app(config: ServerConfig) -> Flask:
 
         except Exception as e:
             traceback.print_exc()
+            # Still cycle GPU on error to avoid overheating one GPU
+            if tracker is not None:
+                tracker.cycle_gpu()
             return jsonify(
                 {
                     "success": False,
@@ -605,6 +611,7 @@ def run_server(config_path: str):
     print(f"Images: {config.images_dir}")
     print(f"Objects: {[label.name for label in config.object_labels]}")
     print(f"Propagate length: {config.propagate_length} frames")
+    print(f"GPU IDs: {config.gpu_ids} (cycling enabled)" if len(config.gpu_ids) > 1 else f"GPU ID: {config.gpu_ids[0]}")
     print(f"Manual annotations: {config.manual_annotations_dir}")
     print(f"Generated annotations: {config.generated_annotations_dir}")
     print(f"{'=' * 60}")

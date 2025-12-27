@@ -69,7 +69,12 @@ propagate_length: 30 # frames to propagate forward
 # Server settings
 host: "0.0.0.0"
 port: 8765
-gpu_id: 0
+
+# GPU settings - single ID or list to cycle through
+# Using multiple GPUs helps keep them cool between propagation queries
+gpu_ids: [0]        # Single GPU
+# gpu_ids: [0, 1]   # Cycle between two GPUs
+# gpu_ids: [0, 1, 2, 3]  # Cycle between four GPUs
 ```
 
 ### 2. Start the server
