@@ -1,0 +1,48 @@
+# Video Labeling Server Configuration
+# ====================================
+
+# Path to the input video file
+video_path: "/path/to/your/video.mp4"
+
+# Object labels to track
+# Each object needs:
+#   - id: unique integer ID (used in COCO annotations)
+#   - name: human-readable name (displayed in UI)
+#   - color: RGB color for visualization [R, G, B]
+object_labels:
+  - id: 1
+    name: "robot_blue"
+    color: [0, 120, 255]
+  - id: 2
+    name: "robot_red"
+    color: [255, 50, 50]
+  - id: 3
+    name: "arena"
+    color: [50, 255, 50]
+
+# Directory for manual annotations
+# Contains user-clicked points and session state
+manual_annotations_dir: "./output/manual_annotations"
+
+# Directory for generated annotations
+# Contains COCO format annotations, images, and masks
+generated_annotations_dir: "./output/generated_annotations"
+
+# Number of frames to propagate forward when user clicks "Propagate"
+propagate_length: 30
+
+# Server settings
+host: "0.0.0.0"  # Listen on all interfaces
+port: 8765
+
+# GPU device ID to use for SAM3 model
+gpu_id: 0
+
+# Mask overlay transparency (0-1)
+mask_alpha: 0.5
+
+# Inference scale - scale down frames for SAM3 inference to save GPU memory
+# For large videos (1GB+), use smaller values like 0.25-0.5
+# e.g., 0.5 = half resolution, 1.0 = full resolution
+# Masks are automatically scaled back to original resolution after inference
+inference_scale: 0.5

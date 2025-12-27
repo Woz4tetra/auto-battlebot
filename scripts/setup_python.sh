@@ -10,6 +10,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Source the install_python_environment function
 source "$PROJECT_ROOT/install/install_python_environment.sh"
+source "$PROJECT_ROOT/install/install_sam3.sh"
 
 # Run the installation
 install_python_environment
+install_sam3

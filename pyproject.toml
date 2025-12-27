@@ -11,6 +11,21 @@ dependencies = [
     "scipy",
     "minigencpp @ git+https://github.com/Woz4tetra/minigencpp.git",
     "tqdm",
+
+    # Label server dependencies
+    "flask>=2.0.0",
+    "flask-cors>=3.0.0",
+    "opencv-python>=4.5.0",
+    "numpy>=1.20.0",
+    "torch>=2.0.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.60.0",
+    "pycocotools>=2.0.0",
+
+    # Label client dependencies
+    "requests>=2.25.0",
+    "pillow>=9.0.0",
+
 ]
 
 [build-system]
