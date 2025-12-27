@@ -137,6 +137,23 @@ class SAM3Tracker:
         self._temp_dir = None
         self._extracted_frames = {}
 
+    def _reset_inference_state(self):
+        """Reset the inference state to free GPU memory."""
+        if self.inference_state is not None:
+            # Use SAM3's reset_state if available
+            if hasattr(self.predictor, 'reset_state'):
+                try:
+                    self.predictor.reset_state(self.inference_state)
+                except Exception:
+                    pass  # Ignore errors during reset
+            
+            # Clear references to allow garbage collection
+            self.inference_state = None
+        
+        # Clear GPU memory cache
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     def _extract_frames_for_propagation(
         self,
         start_frame: int,
@@ -152,6 +169,9 @@ class SAM3Tracker:
         Returns:
             Path to temporary directory containing frames
         """
+        # Reset inference state first to free GPU memory
+        self._reset_inference_state()
+        
         # Clean up previous extraction
         self._cleanup_temp_dir()
 
@@ -357,7 +377,8 @@ class SAM3Tracker:
                 progress = (local_frame_idx + 1) / max_frames
                 callback(original_frame_idx, progress)
 
-        # Clean up temp directory to free disk space
+        # Clean up to free GPU memory and disk space
+        self._reset_inference_state()
         self._cleanup_temp_dir()
 
         return video_segments
@@ -407,7 +428,8 @@ class SAM3Tracker:
             clear_old=True,
         )
 
-        # Clean up
+        # Clean up to free GPU memory
+        self._reset_inference_state()
         self._cleanup_temp_dir()
 
         return mask
@@ -451,15 +473,16 @@ class SAM3Tracker:
                 if mask is not None:
                     masks[obj_id] = mask
 
-        # Clean up
+        # Clean up to free GPU memory
+        self._reset_inference_state()
         self._cleanup_temp_dir()
 
         return masks
 
     def cleanup(self):
         """Clean up all resources."""
+        self._reset_inference_state()
         self._cleanup_temp_dir()
-        self.inference_state = None
 
     def __del__(self):
         """Destructor to ensure cleanup."""
