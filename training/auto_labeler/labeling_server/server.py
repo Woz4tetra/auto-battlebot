@@ -121,7 +121,7 @@ def create_app(config: ServerConfig) -> Flask:
             masks = annotation_manager.get_all_masks(frame_idx)
             if masks:
                 scaled_masks = {
-                    obj_id: cv2.resize(mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                    obj_id: cv2.resize(mask.astype(np.uint8), (new_w, new_h), interpolation=cv2.INTER_NEAREST).astype(bool)
                     for obj_id, mask in masks.items()
                 }
                 frame = video_handler.overlay_masks(
@@ -297,7 +297,7 @@ def create_app(config: ServerConfig) -> Flask:
         # Overlay masks (resize to display size)
         if all_masks:
             scaled_masks = {
-                obj_id: cv2.resize(mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+                obj_id: cv2.resize(mask.astype(np.uint8), (new_w, new_h), interpolation=cv2.INTER_NEAREST).astype(bool)
                 for obj_id, mask in all_masks.items()
             }
             frame = video_handler.overlay_masks(
