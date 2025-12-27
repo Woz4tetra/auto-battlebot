@@ -546,7 +546,7 @@ class AnnotationManager:
             polygons.append(polygon)
 
             # Accumulate area (scaled)
-            total_area += cv2.contourArea(contour) * (self.output_scale ** 2)
+            total_area += cv2.contourArea(contour) * (self.output_scale**2)
 
             # Collect points for bbox calculation (scaled)
             all_points.extend(scaled_approx.reshape(-1, 2).tolist())
@@ -572,10 +572,17 @@ class AnnotationManager:
         frame_idx: int,
         frame: np.ndarray,
         masks: Dict[int, np.ndarray],
-    ):
-        """Add frame and masks to COCO annotations."""
-        # Save frame image
-        image_path = self.save_frame_image(frame_idx, frame, is_manual=False)
+    ) -> List[Tuple]:
+        """
+        Add frame and masks to COCO annotations.
+        
+        Returns a list of I/O tasks to be executed (can be parallelized).
+        Each task is a tuple of (method_name, args) to call later.
+        """
+        io_tasks = []
+        
+        # Queue frame image save
+        io_tasks.append(("save_frame", frame_idx, frame, False))
 
         # Check if image already exists in COCO
         existing_img = None
@@ -597,7 +604,7 @@ class AnnotationManager:
             self.coco["images"].append(
                 {
                     "id": image_id,
-                    "file_name": os.path.basename(image_path),
+                    "file_name": f"frame_{frame_idx:06d}.jpg",
                     "width": self.output_width,
                     "height": self.output_height,
                     "frame_idx": frame_idx,
@@ -608,8 +615,8 @@ class AnnotationManager:
         for obj_id, mask in masks.items():
             self._annotation_id_counter += 1
 
-            # Save mask image
-            self.save_mask_image(frame_idx, obj_id, mask)
+            # Queue mask image save
+            io_tasks.append(("save_mask", frame_idx, obj_id, mask))
 
             # Convert mask to polygon contours (much more compact than RLE)
             polygons, area, bbox = self._mask_to_polygons(mask)
@@ -631,6 +638,53 @@ class AnnotationManager:
             )
 
         self.mark_generated(frame_idx)
+        return io_tasks
+
+    def execute_io_task(self, task: Tuple) -> None:
+        """Execute a single I/O task (for use with thread pool)."""
+        task_type = task[0]
+        if task_type == "save_frame":
+            _, frame_idx, frame, is_manual = task
+            self.save_frame_image(frame_idx, frame, is_manual)
+        elif task_type == "save_mask":
+            _, frame_idx, obj_id, mask = task
+            self.save_mask_image(frame_idx, obj_id, mask)
+
+    def add_frames_to_coco_parallel(
+        self,
+        frames_data: List[Tuple[int, np.ndarray, Dict[int, np.ndarray]]],
+        progress_callback=None,
+        num_workers: int = None,
+    ) -> None:
+        """
+        Add multiple frames to COCO with parallel I/O.
+        
+        Args:
+            frames_data: List of (frame_idx, frame, masks) tuples
+            progress_callback: Optional callback(current, total) for progress updates
+            num_workers: Number of worker threads (default: min(cpu_count, 8))
+        """
+        if num_workers is None:
+            num_workers = min(os.cpu_count() or 4, 8)
+
+        # First pass: collect all I/O tasks and update COCO metadata
+        all_io_tasks = []
+        for frame_idx, frame, masks in frames_data:
+            io_tasks = self.add_to_coco(frame_idx, frame, masks)
+            all_io_tasks.extend(io_tasks)
+
+        # Second pass: execute I/O in parallel
+        completed = 0
+        total = len(all_io_tasks)
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = [executor.submit(self.execute_io_task, task) for task in all_io_tasks]
+
+            for future in as_completed(futures):
+                future.result()  # Raise any exceptions
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, total)
 
     def get_status(self) -> dict:
         """Get annotation status summary."""

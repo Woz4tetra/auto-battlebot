@@ -309,10 +309,11 @@ def create_app(config: ServerConfig) -> Flask:
                 propagate_length=length,
             )
 
-            # Save masks and add to COCO
+            # Save masks in memory and collect frames for parallel I/O
+            frames_data = []
             for fid, masks in tqdm(
                 segments.items(),
-                desc="Saving masks",
+                desc="Processing masks",
                 unit="frame",
             ):
                 for obj_id, mask in masks.items():
@@ -320,10 +321,23 @@ def create_app(config: ServerConfig) -> Flask:
                         fid, obj_id, mask, propagated_from=frame_idx
                     )
 
-                # Add to COCO format
+                # Collect frame data for batch processing
                 frame = video_handler.get_frame(fid)
                 if frame is not None:
-                    annotation_manager.add_to_coco(fid, frame, masks)
+                    frames_data.append((fid, frame, masks))
+
+            # Save frames and masks to disk in parallel
+            print("Saving frames and masks to disk...")
+            with tqdm(total=0, desc="Writing files", unit="file") as pbar:
+                def update_progress(current, total):
+                    pbar.total = total
+                    pbar.n = current
+                    pbar.refresh()
+
+                annotation_manager.add_frames_to_coco_parallel(
+                    frames_data,
+                    progress_callback=update_progress,
+                )
 
             print("Saving state...")
             annotation_manager.save_state()
