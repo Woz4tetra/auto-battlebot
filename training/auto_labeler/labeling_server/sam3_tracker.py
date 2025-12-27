@@ -96,25 +96,15 @@ class SAM3Tracker:
 
         # Set up initial GPU (model loaded lazily on first use)
         self.gpu_id = self.gpu_ids[self.current_gpu_index]
-        self.device = self._setup_device(self.gpu_id)
+        self.device = torch.device(f"cuda:{self.gpu_id}" if torch.cuda.is_available() else "cpu")
 
-    def _setup_device(self, gpu_id: int) -> torch.device:
-        """Set up computation device with optimizations for a specific GPU."""
+    def _setup_device_optimizations(self, gpu_id: int):
+        """Enable optimizations for a specific GPU (call once before using GPU)."""
         if torch.cuda.is_available():
-            device = torch.device(f"cuda:{gpu_id}")
             torch.cuda.set_device(gpu_id)
-
-            # Enable optimizations
-            torch.autocast("cuda", dtype=torch.bfloat16).__enter__()
             if torch.cuda.get_device_properties(gpu_id).major >= 8:
                 torch.backends.cuda.matmul.allow_tf32 = True
                 torch.backends.cudnn.allow_tf32 = True
-        elif torch.backends.mps.is_available():
-            device = torch.device("mps")
-        else:
-            device = torch.device("cpu")
-
-        return device
 
     def _unload_model(self):
         """Fully unload model from current GPU to allow it to cool down."""
@@ -127,26 +117,38 @@ class SAM3Tracker:
         # Clear inference state first
         self._reset_inference_state()
         
-        # Delete model references
+        # Delete predictor reference (it references model internals)
         self.predictor = None
         
-        # Move model to CPU then delete to ensure GPU memory is freed
+        # Move all model parameters and buffers to CPU explicitly
         try:
             self.model.cpu()
-        except Exception:
-            pass
+            # Also clear any cached states in the model
+            if hasattr(self.model, 'tracker') and self.model.tracker is not None:
+                if hasattr(self.model.tracker, '_cached_features'):
+                    self.model.tracker._cached_features = None
+                if hasattr(self.model.tracker, 'memory_bank'):
+                    self.model.tracker.memory_bank = None
+        except Exception as e:
+            print(f"Warning during model CPU transfer: {e}")
         
+        # Delete model
         del self.model
         self.model = None
         
-        # Force garbage collection
-        gc.collect()
+        # Force multiple rounds of garbage collection
+        for _ in range(3):
+            gc.collect()
         
-        # Clear GPU cache
+        # Clear GPU cache aggressively
         if torch.cuda.is_available() and old_gpu is not None:
             with torch.cuda.device(old_gpu):
                 torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()  # Also collect IPC memory
                 torch.cuda.synchronize()
+        
+        # Additional gc after CUDA cleanup
+        gc.collect()
         
         print(f"Model unloaded from cuda:{old_gpu}")
 
@@ -213,11 +215,17 @@ class SAM3Tracker:
 
         print(f"Loading SAM3 model on cuda:{self.gpu_id}...")
 
+        # Set up device and optimizations
+        self.device = torch.device(f"cuda:{self.gpu_id}")
+        self._setup_device_optimizations(self.gpu_id)
+
         # CRITICAL: Set the default CUDA device BEFORE building the model
         # This ensures all tensors are created on the correct GPU from the start
+        # Use autocast only during model building, not as a persistent context
         with torch.cuda.device(self.gpu_id):
-            self.model = build_sam3_video_model()
-            self.model = self.model.to(self.device)
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                self.model = build_sam3_video_model()
+                self.model = self.model.to(self.device)
 
         self.predictor = self.model.tracker
         self.predictor.backbone = self.model.detector.backbone
@@ -242,7 +250,7 @@ class SAM3Tracker:
         # Select the coolest GPU instead of sequential cycling
         self.gpu_id = self._select_coolest_gpu()
         self.current_gpu_index = self.gpu_ids.index(self.gpu_id)
-        self.device = self._setup_device(self.gpu_id)
+        self.device = torch.device(f"cuda:{self.gpu_id}")
 
         print(f"Switched GPU: {old_gpu} -> {self.gpu_id} (selected coolest, model will load on next use)")
         
