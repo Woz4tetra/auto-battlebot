@@ -32,12 +32,12 @@ class SAM3Tracker:
     with symlinks to the original images (scaled if needed). This avoids copying
     images while still providing SAM3 with the sequential file naming it expects.
 
-    Supports GPU cycling to keep GPUs cool - models are pre-loaded on all GPUs
-    and cycling switches between them without reloading.
+    Supports GPU cycling to keep GPUs cool - only one GPU has a model loaded at a time,
+    and cycling fully unloads from the current GPU before loading on the next.
     """
 
     def __init__(
-        self, gpu_ids: list = None, inference_width: int = 960, preload: bool = False
+        self, gpu_ids: list = None, inference_width: int = 960
     ):
         """
         Initialize the tracker.
@@ -46,7 +46,6 @@ class SAM3Tracker:
             gpu_ids: List of GPU device IDs to cycle through, or single int for one GPU
             inference_width: Target width in pixels for inference
                            Height is calculated to maintain aspect ratio
-            preload: If True, pre-load models on all GPUs at init time
         """
         # Handle both single gpu_id (int) and gpu_ids (list) for backwards compatibility
         if gpu_ids is None:
@@ -58,10 +57,7 @@ class SAM3Tracker:
         self.current_gpu_index = 0
         self.inference_width = inference_width
 
-        # Models stored per GPU: {gpu_id: (model, predictor, device)}
-        self._gpu_models: Dict[int, Tuple] = {}
-
-        # Current active model references
+        # Current active model references (only one GPU has model loaded at a time)
         self.model = None
         self.predictor = None
         self.device = None
@@ -85,12 +81,9 @@ class SAM3Tracker:
             int, np.ndarray
         ] = {}  # frame_idx -> original resolution frame
 
-        # Set up initial GPU
-        self._switch_to_gpu(self.gpu_ids[self.current_gpu_index])
-
-        # Pre-load models on all GPUs if requested
-        if preload:
-            self.preload_all_gpus()
+        # Set up initial GPU (model loaded lazily on first use)
+        self.gpu_id = self.gpu_ids[self.current_gpu_index]
+        self.device = self._setup_device(self.gpu_id)
 
     def _setup_device(self, gpu_id: int) -> torch.device:
         """Set up computation device with optimizations for a specific GPU."""
@@ -110,95 +103,87 @@ class SAM3Tracker:
 
         return device
 
-    def _switch_to_gpu(self, gpu_id: int):
-        """Switch to using a specific GPU, loading model if needed."""
-        if self.gpu_id == gpu_id and self.model is not None:
-            return  # Already on this GPU with model loaded
-
-        # Clear inference state from previous GPU
+    def _unload_model(self):
+        """Fully unload model from current GPU to allow it to cool down."""
+        if self.model is None:
+            return
+        
+        old_gpu = self.gpu_id
+        print(f"Unloading model from cuda:{old_gpu}...")
+        
+        # Clear inference state first
         self._reset_inference_state()
+        
+        # Delete model references
+        self.predictor = None
+        
+        # Move model to CPU then delete to ensure GPU memory is freed
+        try:
+            self.model.cpu()
+        except Exception:
+            pass
+        
+        del self.model
+        self.model = None
+        
+        # Force garbage collection
+        gc.collect()
+        
+        # Clear GPU cache
+        if torch.cuda.is_available() and old_gpu is not None:
+            with torch.cuda.device(old_gpu):
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        
+        print(f"Model unloaded from cuda:{old_gpu}")
 
-        self.gpu_id = gpu_id
-
-        if gpu_id in self._gpu_models:
-            # Use cached model
-            self.model, self.predictor, self.device = self._gpu_models[gpu_id]
-            torch.cuda.set_device(gpu_id)
-            print(f"Switched to pre-loaded model on cuda:{gpu_id}")
-        else:
-            # Load model on this GPU
-            self.device = self._setup_device(gpu_id)
-            self._load_model_on_device(gpu_id)
-
-    def _load_model_on_device(self, gpu_id: int):
-        """Load SAM3 model on a specific GPU device."""
+    def _load_model_on_current_gpu(self):
+        """Load SAM3 model on the current GPU device."""
         if build_sam3_video_model is None:
             raise RuntimeError("SAM3 not installed")
 
-        device = self._setup_device(gpu_id)
-
-        print(f"Loading SAM3 model on cuda:{gpu_id}...")
+        print(f"Loading SAM3 model on cuda:{self.gpu_id}...")
 
         # CRITICAL: Set the default CUDA device BEFORE building the model
         # This ensures all tensors are created on the correct GPU from the start
-        # Simply calling .to(device) after doesn't move all nested components
-        with torch.cuda.device(gpu_id):
-            model = build_sam3_video_model()
-            # Ensure model is on the correct device
-            model = model.to(device)
+        with torch.cuda.device(self.gpu_id):
+            self.model = build_sam3_video_model()
+            self.model = self.model.to(self.device)
 
-        predictor = model.tracker
-        predictor.backbone = model.detector.backbone
+        self.predictor = self.model.tracker
+        self.predictor.backbone = self.model.detector.backbone
 
-        # Cache the model
-        self._gpu_models[gpu_id] = (model, predictor, device)
-
-        # Set as current if this is our active GPU
-        if gpu_id == self.gpu_id:
-            self.model = model
-            self.predictor = predictor
-            self.device = device
-
-        print(f"SAM3 model loaded successfully on cuda:{gpu_id}")
-        return model, predictor, device
-
-    def preload_all_gpus(self):
-        """Pre-load models on all configured GPUs."""
-        print(f"Pre-loading SAM3 models on GPUs: {self.gpu_ids}")
-        for gpu_id in self.gpu_ids:
-            if gpu_id not in self._gpu_models:
-                self._load_model_on_device(gpu_id)
-
-        # Make sure we're set to the first GPU
-        self._switch_to_gpu(self.gpu_ids[self.current_gpu_index])
-        print(f"All models pre-loaded. Active GPU: cuda:{self.gpu_id}")
+        print(f"SAM3 model loaded successfully on cuda:{self.gpu_id}")
 
     def cycle_gpu(self):
         """
         Cycle to the next GPU in the pool.
 
-        This helps keep GPUs cool by distributing work across multiple GPUs.
-        Call this after each propagation query completes.
+        This fully unloads the model from the current GPU before loading on the next,
+        allowing the previous GPU to cool down completely.
         """
         if len(self.gpu_ids) <= 1:
             return  # Only one GPU, nothing to cycle
 
-        # Reset inference state on current GPU to free memory
-        self._reset_inference_state()
+        old_gpu = self.gpu_id
+        
+        # Fully unload from current GPU (this frees all GPU memory)
+        self._unload_model()
 
         # Move to next GPU
         self.current_gpu_index = (self.current_gpu_index + 1) % len(self.gpu_ids)
-        new_gpu_id = self.gpu_ids[self.current_gpu_index]
+        self.gpu_id = self.gpu_ids[self.current_gpu_index]
+        self.device = self._setup_device(self.gpu_id)
 
-        print(f"Cycling GPU: {self.gpu_id} -> {new_gpu_id}")
-
-        self._switch_to_gpu(new_gpu_id)
+        print(f"Cycled GPU: {old_gpu} -> {self.gpu_id} (model will load on next use)")
+        
+        # Model will be loaded lazily on next propagation
 
     def load_model(self):
-        """Load SAM3 model on the current GPU device (for backwards compatibility)."""
+        """Load SAM3 model on the current GPU device."""
         if self.model is not None:
             return  # Already loaded
-        self._load_model_on_device(self.gpu_id)
+        self._load_model_on_current_gpu()
 
     def set_video(self, video_path: str):
         """

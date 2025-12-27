@@ -61,7 +61,6 @@ def create_app(config: ServerConfig) -> Flask:
             tracker = SAM3Tracker(
                 gpu_ids=config.gpu_ids,
                 inference_width=config.inference_width,
-                preload=True,  # Pre-load models on all GPUs for fast switching
             )
             tracker.set_images_dir(config.images_dir)
         return tracker
