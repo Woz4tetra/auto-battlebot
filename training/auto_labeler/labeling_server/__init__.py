@@ -9,7 +9,9 @@ from .server import create_app
 
 __all__ = [
     "ServerConfig",
-    "VideoHandler", 
+    "VideoHandler",
     "AnnotationManager",
     "SAM3Tracker",
     "MultiGPUTracker",
+    "create_app",
+]
