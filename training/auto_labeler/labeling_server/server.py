@@ -1,5 +1,6 @@
 """REST API server for video labeling."""
 
+import time
 import io
 import json
 import traceback
@@ -102,6 +103,7 @@ def create_app(config: ServerConfig) -> Flask:
     @app.route("/api/frame/<int:frame_idx>", methods=["GET"])
     def get_frame(frame_idx: int):
         """Get a frame image."""
+        t0 = time.monotonic()
         include_masks = request.args.get("masks", "false").lower() == "true"
         include_points = request.args.get("points", "false").lower() == "true"
         quality = int(request.args.get("quality", 90))
@@ -121,7 +123,11 @@ def create_app(config: ServerConfig) -> Flask:
             masks = annotation_manager.get_all_masks(frame_idx)
             if masks:
                 scaled_masks = {
-                    obj_id: cv2.resize(mask.astype(np.uint8), (new_w, new_h), interpolation=cv2.INTER_NEAREST).astype(bool)
+                    obj_id: cv2.resize(
+                        mask.astype(np.uint8),
+                        (new_w, new_h),
+                        interpolation=cv2.INTER_NEAREST,
+                    ).astype(bool)
                     for obj_id, mask in masks.items()
                 }
                 frame = video_handler.overlay_masks(
@@ -142,6 +148,9 @@ def create_app(config: ServerConfig) -> Flask:
         # Encode as JPEG
         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
         _, buffer = cv2.imencode(".jpg", frame, encode_param)
+        t1 = time.monotonic()
+
+        print(f"Image took {t1 - t0} seconds to load")
 
         return send_file(
             io.BytesIO(buffer.tobytes()),
@@ -297,7 +306,11 @@ def create_app(config: ServerConfig) -> Flask:
         # Overlay masks (resize to display size)
         if all_masks:
             scaled_masks = {
-                obj_id: cv2.resize(mask.astype(np.uint8), (new_w, new_h), interpolation=cv2.INTER_NEAREST).astype(bool)
+                obj_id: cv2.resize(
+                    mask.astype(np.uint8),
+                    (new_w, new_h),
+                    interpolation=cv2.INTER_NEAREST,
+                ).astype(bool)
                 for obj_id, mask in all_masks.items()
             }
             frame = video_handler.overlay_masks(
@@ -361,7 +374,9 @@ def create_app(config: ServerConfig) -> Flask:
             # (Video seeking doesn't parallelize well - single VideoCapture)
             frames_data = []
             for fid, masks in tqdm(
-                sorted(segments.items()),  # Process in frame order for efficient seeking
+                sorted(
+                    segments.items()
+                ),  # Process in frame order for efficient seeking
                 desc="Processing frames",
                 unit="frame",
             ):
@@ -377,6 +392,7 @@ def create_app(config: ServerConfig) -> Flask:
             # Save frames and masks to disk in parallel (I/O bound, parallelizes well)
             print("Saving frames and masks to disk...")
             with tqdm(total=0, desc="Writing files", unit="file") as pbar:
+
                 def update_progress(current, total):
                     pbar.total = total
                     pbar.n = current

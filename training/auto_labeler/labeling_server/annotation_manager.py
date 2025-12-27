@@ -575,12 +575,12 @@ class AnnotationManager:
     ) -> List[Tuple]:
         """
         Add frame and masks to COCO annotations.
-        
+
         Returns a list of I/O tasks to be executed (can be parallelized).
         Each task is a tuple of (method_name, args) to call later.
         """
         io_tasks = []
-        
+
         # Queue frame image save
         io_tasks.append(("save_frame", frame_idx, frame, False))
 
@@ -658,7 +658,7 @@ class AnnotationManager:
     ) -> None:
         """
         Add multiple frames to COCO with parallel I/O.
-        
+
         Args:
             frames_data: List of (frame_idx, frame, masks) tuples
             progress_callback: Optional callback(current, total) for progress updates
@@ -678,7 +678,9 @@ class AnnotationManager:
         total = len(all_io_tasks)
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = [executor.submit(self.execute_io_task, task) for task in all_io_tasks]
+            futures = [
+                executor.submit(self.execute_io_task, task) for task in all_io_tasks
+            ]
 
             for future in as_completed(futures):
                 future.result()  # Raise any exceptions
