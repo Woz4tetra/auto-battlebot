@@ -113,13 +113,18 @@ def create_app(config: ServerConfig) -> Flask:
         include_points = request.args.get("points", "false").lower() == "true"
         quality = int(request.args.get("quality", 90))
 
+        t_start = time.monotonic()
         frame = image_handler.get_frame(frame_idx)
+        t_load = time.monotonic()
+        
         if frame is None:
             return jsonify({"error": "Frame not found"}), 404
 
         # Resize frame first for faster drawing operations
         orig_h, orig_w = frame.shape[:2]
         frame = resize_for_client(frame)
+        t_resize = time.monotonic()
+        
         new_h, new_w = frame.shape[:2]
         scale = new_w / orig_w
 
@@ -153,12 +158,19 @@ def create_app(config: ServerConfig) -> Flask:
         # Encode as JPEG
         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
         _, buffer = cv2.imencode(".jpg", frame, encode_param)
-        t1 = time.monotonic()
+        t_encode = time.monotonic()
 
-        print(f"Image took {t1 - t0} seconds to load")
+        image_bytes = buffer.tobytes()
+        image_size_kb = len(image_bytes) / 1024
+
+        print(
+            f"Frame {frame_idx}: {orig_w}x{orig_h} -> {new_w}x{new_h}, {image_size_kb:.1f} KB | "
+            f"load: {(t_load - t_start)*1000:.0f}ms, resize: {(t_resize - t_load)*1000:.0f}ms, "
+            f"encode: {(t_encode - t_resize)*1000:.0f}ms, total: {(t_encode - t0)*1000:.0f}ms"
+        )
 
         return send_file(
-            io.BytesIO(buffer.tobytes()),
+            io.BytesIO(image_bytes),
             mimetype="image/jpeg",
         )
 
