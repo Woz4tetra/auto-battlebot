@@ -256,7 +256,7 @@ class VideoHandler:
                 markerSize=9,
                 thickness=2,
             )
-            cv2.circle(result, (x, y), 6, border_color, 2)
+            cv2.circle(result, (x, y), 5, border_color, 1)
 
             # Draw marker on top
             cv2.drawMarker(
@@ -264,7 +264,7 @@ class VideoHandler:
             )
 
             # Draw circle around marker
-            cv2.circle(result, (x, y), 5, pt_color, 1)
+            cv2.circle(result, (x, y), 4, pt_color, 1)
 
             # Draw + or - sign with border
             sign = "+" if label == 1 else "-"
