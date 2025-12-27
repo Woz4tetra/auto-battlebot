@@ -152,12 +152,13 @@ class AnnotationManager:
         # Get all object IDs from labels
         obj_ids = [label["id"] for label in self.object_labels]
 
-        loaded_count = tqdm(
+        loaded_count = 0
+
+        for frame_idx in tqdm(
             sorted(self.generated_frames),
             desc="Loading masks from disk",
             unit="frame",
-        )
-        for frame_idx in self.generated_frames:
+        ):
             # Ensure frame annotation exists
             if frame_idx not in self.annotations:
                 self.annotations[frame_idx] = FrameAnnotation(frame_idx=frame_idx)
