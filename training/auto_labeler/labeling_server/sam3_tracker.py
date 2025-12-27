@@ -58,6 +58,7 @@ class SAM3Tracker:
         # Temporary directory for frame extraction
         self._temp_dir: Optional[str] = None
         self._extracted_frames: Dict[int, str] = {}  # frame_idx -> file path
+        self._original_frames: Dict[int, np.ndarray] = {}  # frame_idx -> original resolution frame
 
     def _setup_device(self) -> torch.device:
         """Set up computation device with optimizations."""
@@ -143,6 +144,7 @@ class SAM3Tracker:
             shutil.rmtree(self._temp_dir, ignore_errors=True)
         self._temp_dir = None
         self._extracted_frames = {}
+        self._original_frames = {}
 
     def _reset_inference_state(self):
         """Reset the inference state to free GPU memory."""
@@ -197,7 +199,10 @@ class SAM3Tracker:
             if not ret:
                 break
 
-            # Scale down frame if needed
+            # Store original resolution frame for later use
+            self._original_frames[frame_idx] = frame.copy()
+
+            # Scale down frame if needed for inference
             if self.scaled_width != self.video_width:
                 frame = cv2.resize(
                     frame,
@@ -305,7 +310,7 @@ class SAM3Tracker:
         points_by_obj: Dict[int, Tuple[np.ndarray, np.ndarray]],
         propagate_length: int,
         callback=None,
-    ) -> Dict[int, Dict[int, np.ndarray]]:
+    ) -> Tuple[Dict[int, Dict[int, np.ndarray]], Dict[int, np.ndarray]]:
         """
         Extract frames, add points, and propagate masks.
 
@@ -323,7 +328,9 @@ class SAM3Tracker:
             callback: Optional callback(frame_idx, progress) for progress updates
 
         Returns:
-            Dict of {original_frame_idx: {obj_id: mask_at_original_resolution}}
+            Tuple of:
+            - Dict of {original_frame_idx: {obj_id: mask_at_original_resolution}}
+            - Dict of {original_frame_idx: frame_at_original_resolution}
         """
         if self.video_path is None:
             raise RuntimeError("No video set. Call set_video() first.")
@@ -379,11 +386,14 @@ class SAM3Tracker:
                 progress = (local_frame_idx + 1) / max_frames
                 callback(original_frame_idx, progress)
 
+        # Copy original frames before cleanup
+        original_frames = dict(self._original_frames)
+
         # Clean up to free GPU memory and disk space
         self._reset_inference_state()
         self._cleanup_temp_dir()
 
-        return video_segments
+        return video_segments, original_frames
 
     def get_preview_mask(
         self,

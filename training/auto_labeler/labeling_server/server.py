@@ -363,20 +363,18 @@ def create_app(config: ServerConfig) -> Flask:
                     }
                 )
 
-            # Propagate
-            segments = t.propagate_from_frame(
+            # Propagate - returns both masks and original frames
+            segments, original_frames = t.propagate_from_frame(
                 source_frame=frame_idx,
                 points_by_obj=points_by_obj,
                 propagate_length=length,
             )
 
-            # Save masks in memory and fetch frames sequentially
-            # (Video seeking doesn't parallelize well - single VideoCapture)
+            # Save masks in memory and pair with original frames
+            # (Using frames returned by tracker ensures perfect correspondence)
             frames_data = []
             for fid, masks in tqdm(
-                sorted(
-                    segments.items()
-                ),  # Process in frame order for efficient seeking
+                sorted(segments.items()),
                 desc="Processing frames",
                 unit="frame",
             ):
@@ -385,7 +383,7 @@ def create_app(config: ServerConfig) -> Flask:
                         fid, obj_id, mask, propagated_from=frame_idx
                     )
 
-                frame = video_handler.get_frame(fid)
+                frame = original_frames.get(fid)
                 if frame is not None:
                     frames_data.append((fid, frame, masks))
 
