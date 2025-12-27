@@ -181,6 +181,37 @@ class VideoHandler:
             result = self.overlay_mask(result, mask, color, alpha)
         return result
 
+    def _get_contrasting_border_color(
+        self, frame: np.ndarray, x: int, y: int, radius: int = 15
+    ) -> Tuple[int, int, int]:
+        """
+        Get a border color that contrasts with the local background.
+        
+        Samples the area around the point and returns black or white
+        based on the average luminance.
+        """
+        h, w = frame.shape[:2]
+        
+        # Define sampling region (clamped to frame bounds)
+        x1 = max(0, x - radius)
+        x2 = min(w, x + radius)
+        y1 = max(0, y - radius)
+        y2 = min(h, y + radius)
+        
+        # Sample the region
+        region = frame[y1:y2, x1:x2]
+        
+        if region.size == 0:
+            return (0, 0, 0)  # Default to black
+        
+        # Calculate average luminance (using standard luminance formula)
+        # BGR format: 0.114*B + 0.587*G + 0.299*R
+        avg_color = np.mean(region, axis=(0, 1))
+        luminance = 0.114 * avg_color[0] + 0.587 * avg_color[1] + 0.299 * avg_color[2]
+        
+        # Return black for light backgrounds, white for dark backgrounds
+        return (0, 0, 0) if luminance > 127 else (255, 255, 255)
+
     def draw_points(
         self,
         frame: np.ndarray,
@@ -204,9 +235,6 @@ class VideoHandler:
         """
         result = frame.copy()
 
-        # Border color for contrast (black or white depending on point color)
-        border_color = (0, 0, 0)  # Black border
-
         for point, label in zip(points, labels):
             x, y = int(point[0]), int(point[1])
 
@@ -216,7 +244,10 @@ class VideoHandler:
                 # Green for positive, red for negative
                 pt_color = (0, 255, 0) if label == 1 else (0, 0, 255)
 
-            # Draw border/outline first (slightly larger, black)
+            # Get contrasting border color based on local background
+            border_color = self._get_contrasting_border_color(frame, x, y)
+
+            # Draw border/outline first (slightly larger)
             cv2.drawMarker(
                 result, (x, y), border_color, cv2.MARKER_CROSS, markerSize=17, thickness=4
             )
