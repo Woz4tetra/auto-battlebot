@@ -82,9 +82,9 @@ class LabelingUI:
             to=100,
             orient="horizontal",
             variable=self.frame_var,
-            command=self._on_slider_change,
         )
         self.frame_slider.pack(side="left", fill="x", expand=True, padx=5)
+        self.frame_slider.bind("<ButtonRelease-1>", self._on_slider_release)
 
         # Frame counter
         self.frame_label = ttk.Label(nav_frame, text="Frame: 0 / 0")
@@ -367,9 +367,9 @@ class LabelingUI:
         """Handle label selection."""
         self.current_label = label
 
-    def _on_slider_change(self, value):
-        """Handle slider change."""
-        frame_idx = int(float(value))
+    def _on_slider_release(self, event):
+        """Handle slider release - only load frame when user lets go."""
+        frame_idx = int(self.frame_var.get())
         if frame_idx != self.current_frame:
             self._go_to_frame(frame_idx)
 
