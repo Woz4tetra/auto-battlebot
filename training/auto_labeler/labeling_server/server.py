@@ -307,6 +307,7 @@ def create_app(config: ServerConfig) -> Flask:
                 propagate_length=length,
             )
 
+            print("Saving masks")
             # Save masks and add to COCO
             for fid, masks in segments.items():
                 for obj_id, mask in masks.items():
@@ -319,6 +320,7 @@ def create_app(config: ServerConfig) -> Flask:
                 if frame is not None:
                     annotation_manager.add_to_coco(fid, frame, masks)
 
+            print("Saving state")
             annotation_manager.save_state()
 
             return jsonify(

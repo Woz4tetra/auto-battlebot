@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-import pycocotools.mask as mask_utils
 import traceback
 from tqdm import tqdm
 
@@ -466,6 +465,70 @@ class AnnotationManager:
 
         return str(output_path)
 
+    def _mask_to_polygons(
+        self, mask: np.ndarray, epsilon_factor: float = 0.001
+    ) -> Tuple[List[List[float]], float, List[float]]:
+        """
+        Convert a binary mask to polygon contours (COCO segmentation format).
+
+        Args:
+            mask: Binary mask array
+            epsilon_factor: Contour approximation factor (smaller = more points, more accurate)
+
+        Returns:
+            Tuple of (polygons, area, bbox) where:
+            - polygons: List of [x1, y1, x2, y2, ...] coordinate lists
+            - area: Total mask area in pixels
+            - bbox: [x, y, width, height] bounding box
+        """
+        mask_binary = mask.squeeze().astype(np.uint8)
+
+        # Find contours
+        contours, _ = cv2.findContours(
+            mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours:
+            return [], 0.0, [0, 0, 0, 0]
+
+        polygons = []
+        total_area = 0.0
+        all_points = []
+
+        for contour in contours:
+            # Skip very small contours (noise)
+            if cv2.contourArea(contour) < 10:
+                continue
+
+            # Approximate contour to reduce points
+            epsilon = epsilon_factor * cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, epsilon, True)
+
+            # Need at least 3 points for a valid polygon
+            if len(approx) < 3:
+                continue
+
+            # Flatten to [x1, y1, x2, y2, ...] format
+            polygon = approx.flatten().tolist()
+            polygons.append(polygon)
+
+            # Accumulate area
+            total_area += cv2.contourArea(contour)
+
+            # Collect points for bbox calculation
+            all_points.extend(approx.reshape(-1, 2).tolist())
+
+        # Calculate bounding box from all points
+        if all_points:
+            all_points = np.array(all_points)
+            x_min, y_min = all_points.min(axis=0)
+            x_max, y_max = all_points.max(axis=0)
+            bbox = [float(x_min), float(y_min), float(x_max - x_min), float(y_max - y_min)]
+        else:
+            bbox = [0, 0, 0, 0]
+
+        return polygons, total_area, bbox
+
     def add_to_coco(
         self,
         frame_idx: int,
@@ -510,22 +573,19 @@ class AnnotationManager:
             # Save mask image
             self.save_mask_image(frame_idx, obj_id, mask)
 
-            # Encode mask as RLE
-            mask_binary = mask.squeeze().astype(np.uint8)
-            mask_fortran = np.asfortranarray(mask_binary)
-            rle = mask_utils.encode(mask_fortran)
-            rle["counts"] = rle["counts"].decode("utf-8")
+            # Convert mask to polygon contours (much more compact than RLE)
+            polygons, area, bbox = self._mask_to_polygons(mask)
 
-            # Calculate bounding box and area
-            bbox = mask_utils.toBbox(mask_utils.encode(mask_fortran)).tolist()
-            area = float(mask_utils.area(mask_utils.encode(mask_fortran)))
+            # Skip if no valid polygons
+            if not polygons:
+                continue
 
             self.coco["annotations"].append(
                 {
                     "id": self._annotation_id_counter,
                     "image_id": image_id,
                     "category_id": obj_id,
-                    "segmentation": rle,
+                    "segmentation": polygons,
                     "bbox": bbox,
                     "area": area,
                     "iscrowd": 0,

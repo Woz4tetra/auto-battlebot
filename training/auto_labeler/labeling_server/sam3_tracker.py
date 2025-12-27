@@ -141,15 +141,15 @@ class SAM3Tracker:
         """Reset the inference state to free GPU memory."""
         if self.inference_state is not None:
             # Use SAM3's reset_state if available
-            if hasattr(self.predictor, 'reset_state'):
+            if hasattr(self.predictor, "reset_state"):
                 try:
                     self.predictor.reset_state(self.inference_state)
                 except Exception:
                     pass  # Ignore errors during reset
-            
+
             # Clear references to allow garbage collection
             self.inference_state = None
-        
+
         # Clear GPU memory cache
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -171,7 +171,7 @@ class SAM3Tracker:
         """
         # Reset inference state first to free GPU memory
         self._reset_inference_state()
-        
+
         # Clean up previous extraction
         self._cleanup_temp_dir()
 
@@ -344,25 +344,19 @@ class SAM3Tracker:
         # Propagate through extracted frames
         video_segments = {}
 
-        pbar = tqdm(
-            self.predictor.propagate_in_video(
-                self.inference_state,
-                start_frame_idx=0,
-                max_frame_num_to_track=max_frames,
-                reverse=False,
-                propagate_preflight=True,
-            ),
-            total=max_frames,
-            desc="Propagating",
-        )
-
         for (
             local_frame_idx,
             obj_ids,
             low_res_masks,
             video_res_masks,
             obj_scores,
-        ) in pbar:
+        ) in self.predictor.propagate_in_video(
+            self.inference_state,
+            start_frame_idx=0,
+            max_frame_num_to_track=max_frames,
+            reverse=False,
+            propagate_preflight=True,
+        ):
             # Convert local frame index back to original video frame index
             original_frame_idx = source_frame + local_frame_idx
 
