@@ -35,6 +35,7 @@ def create_app(config: ServerConfig) -> Flask:
         video_width=video_handler.width,
         video_height=video_handler.height,
         object_labels=[{"id": l.id, "name": l.name} for l in config.object_labels],
+        output_width=config.output_width,
     )
 
     # Try to load existing state

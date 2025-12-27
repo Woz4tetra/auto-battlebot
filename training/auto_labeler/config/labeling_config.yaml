@@ -70,3 +70,9 @@ mask_alpha: 0.5
 # e.g., 960 for a 1920x1080 video = half resolution
 # Masks are automatically scaled back to original resolution after inference
 inference_width: 720
+
+# Output width - target width in pixels for saved images and annotations
+# The height is calculated automatically to maintain aspect ratio
+# Set to 0 or omit to use original video resolution
+# Annotations (polygons, bboxes) are scaled to match this resolution
+output_width: 960

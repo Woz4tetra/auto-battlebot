@@ -231,6 +231,11 @@ class ServerConfig:
     # Masks are scaled back to original size after inference
     inference_width: int = 960
 
+    # Output width - target width in pixels for saved images and annotations
+    # Height is calculated automatically to maintain aspect ratio
+    # Set to 0 to use original video resolution
+    output_width: int = 0
+
     @classmethod
     def from_yaml(cls, config_path: str) -> "ServerConfig":
         """Load configuration from YAML file."""
@@ -263,6 +268,7 @@ class ServerConfig:
             gpu_id=data.get("gpu_id", 0),
             mask_alpha=data.get("mask_alpha", 0.5),
             inference_width=data.get("inference_width", 960),
+            output_width=data.get("output_width", 0),
         )
 
     def ensure_directories(self):
@@ -302,4 +308,5 @@ class ServerConfig:
             "propagate_length": self.propagate_length,
             "mask_alpha": self.mask_alpha,
             "inference_width": self.inference_width,
+            "output_width": self.output_width,
         }

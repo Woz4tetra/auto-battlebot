@@ -44,12 +44,25 @@ class AnnotationManager:
         video_width: int,
         video_height: int,
         object_labels: List[dict],
+        output_width: int = 0,
     ):
         self.manual_dir = Path(manual_dir)
         self.generated_dir = Path(generated_dir)
         self.video_width = video_width
         self.video_height = video_height
         self.object_labels = object_labels
+
+        # Calculate output dimensions
+        if output_width > 0 and output_width < video_width:
+            self.output_scale = output_width / video_width
+            self.output_width = output_width
+            self.output_height = int(video_height * self.output_scale)
+            # Ensure even dimensions
+            self.output_height = self.output_height - (self.output_height % 2)
+        else:
+            self.output_scale = 1.0
+            self.output_width = video_width
+            self.output_height = video_height
 
         # Frame annotations: frame_idx -> FrameAnnotation
         self.annotations: Dict[int, FrameAnnotation] = {}
@@ -432,13 +445,21 @@ class AnnotationManager:
         frame: np.ndarray,
         is_manual: bool = False,
     ) -> str:
-        """Save a frame image to disk."""
+        """Save a frame image to disk, scaled to output dimensions."""
         if is_manual:
             output_dir = self.manual_dir / "images"
         else:
             output_dir = self.generated_dir / "images"
 
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Scale frame if needed
+        if self.output_scale != 1.0:
+            frame = cv2.resize(
+                frame,
+                (self.output_width, self.output_height),
+                interpolation=cv2.INTER_AREA,
+            )
 
         filename = f"frame_{frame_idx:06d}.jpg"
         output_path = output_dir / filename
@@ -452,7 +473,7 @@ class AnnotationManager:
         obj_id: int,
         mask: np.ndarray,
     ) -> str:
-        """Save a mask as PNG image."""
+        """Save a mask as PNG image, scaled to output dimensions."""
         output_dir = self.generated_dir / "masks"
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -461,6 +482,15 @@ class AnnotationManager:
 
         # Save as binary mask (0 or 255)
         mask_img = (mask.squeeze() * 255).astype(np.uint8)
+
+        # Scale mask if needed
+        if self.output_scale != 1.0:
+            mask_img = cv2.resize(
+                mask_img,
+                (self.output_width, self.output_height),
+                interpolation=cv2.INTER_NEAREST,
+            )
+
         cv2.imwrite(str(output_path), mask_img)
 
         return str(output_path)
@@ -471,15 +501,17 @@ class AnnotationManager:
         """
         Convert a binary mask to polygon contours (COCO segmentation format).
 
+        Coordinates are scaled to output dimensions.
+
         Args:
-            mask: Binary mask array
+            mask: Binary mask array (at video resolution)
             epsilon_factor: Contour approximation factor (smaller = more points, more accurate)
 
         Returns:
             Tuple of (polygons, area, bbox) where:
-            - polygons: List of [x1, y1, x2, y2, ...] coordinate lists
-            - area: Total mask area in pixels
-            - bbox: [x, y, width, height] bounding box
+            - polygons: List of [x1, y1, x2, y2, ...] coordinate lists (at output resolution)
+            - area: Total mask area in pixels (at output resolution)
+            - bbox: [x, y, width, height] bounding box (at output resolution)
         """
         mask_binary = mask.squeeze().astype(np.uint8)
 
@@ -508,15 +540,16 @@ class AnnotationManager:
             if len(approx) < 3:
                 continue
 
-            # Flatten to [x1, y1, x2, y2, ...] format
-            polygon = approx.flatten().tolist()
+            # Flatten to [x1, y1, x2, y2, ...] format and scale to output dimensions
+            scaled_approx = approx.astype(np.float32) * self.output_scale
+            polygon = scaled_approx.flatten().tolist()
             polygons.append(polygon)
 
-            # Accumulate area
-            total_area += cv2.contourArea(contour)
+            # Accumulate area (scaled)
+            total_area += cv2.contourArea(contour) * (self.output_scale ** 2)
 
-            # Collect points for bbox calculation
-            all_points.extend(approx.reshape(-1, 2).tolist())
+            # Collect points for bbox calculation (scaled)
+            all_points.extend(scaled_approx.reshape(-1, 2).tolist())
 
         # Calculate bounding box from all points
         if all_points:
@@ -565,8 +598,8 @@ class AnnotationManager:
                 {
                     "id": image_id,
                     "file_name": os.path.basename(image_path),
-                    "width": self.video_width,
-                    "height": self.video_height,
+                    "width": self.output_width,
+                    "height": self.output_height,
                     "frame_idx": frame_idx,
                 }
             )
