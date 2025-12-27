@@ -1,5 +1,6 @@
 """API client for communicating with the labeling server."""
 
+import traceback
 import io
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -117,14 +118,15 @@ class LabelingAPIClient:
                 for l in data["object_labels"]
             ]
 
-            # Parse video metadata
+            # Parse images metadata (supports both 'images' and legacy 'video' key)
+            images_data = data.get("images", data.get("video", {}))
             video = VideoMetadata(
-                path=data["video"]["video_path"],
-                width=data["video"]["width"],
-                height=data["video"]["height"],
-                fps=data["video"]["fps"],
-                total_frames=data["video"]["total_frames"],
-                duration=data["video"]["duration"],
+                path=images_data.get("images_dir", images_data.get("video_path", "")),
+                width=images_data["width"],
+                height=images_data["height"],
+                fps=images_data["fps"],
+                total_frames=images_data["total_frames"],
+                duration=images_data["duration"],
             )
 
             self._config = ServerConfig(
@@ -138,6 +140,7 @@ class LabelingAPIClient:
 
         except Exception as e:
             print(f"Connection failed: {e}")
+            traceback.print_exc()
             return False
 
     @property
