@@ -1,5 +1,6 @@
 """REST API server for image labeling."""
 
+import threading
 import time
 import io
 import json
@@ -52,6 +53,7 @@ def create_app(config: ServerConfig) -> Flask:
 
     # Initialize SAM3 tracker (lazy loading)
     tracker: Optional[SAM3Tracker] = None
+    propagate_lock = threading.Lock()  # Prevent concurrent propagation requests
 
     def get_tracker() -> SAM3Tracker:
         nonlocal tracker
@@ -438,11 +440,20 @@ def create_app(config: ServerConfig) -> Flask:
     @app.route("/api/propagate", methods=["POST"])
     def propagate_masks():
         """Propagate masks from a frame."""
-        data = request.json
-        frame_idx = data.get("frame_idx", 0)
-        length = data.get("length", config.propagate_length)
-
+        # Use lock to prevent concurrent propagation (shared tracker state)
+        if not propagate_lock.acquire(blocking=False):
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "Propagation already in progress",
+                }
+            ), 429  # Too Many Requests
+        
         try:
+            data = request.json
+            frame_idx = data.get("frame_idx", 0)
+            length = data.get("length", config.propagate_length)
+
             t = get_tracker()
 
             # Collect points for all objects
@@ -525,6 +536,9 @@ def create_app(config: ServerConfig) -> Flask:
                     "error": str(e),
                 }
             ), 500
+        
+        finally:
+            propagate_lock.release()
 
     @app.route("/api/navigation/next-unlabeled", methods=["GET"])
     def get_next_unlabeled():
