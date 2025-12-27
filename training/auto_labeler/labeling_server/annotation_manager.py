@@ -184,7 +184,9 @@ class AnnotationManager:
         num_workers = min(os.cpu_count() or 4, 16)  # Cap at 16 workers
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = {executor.submit(load_single_mask, task): task for task in mask_tasks}
+            futures = {
+                executor.submit(load_single_mask, task): task for task in mask_tasks
+            }
 
             for future in tqdm(
                 as_completed(futures),
@@ -198,7 +200,9 @@ class AnnotationManager:
 
                     # Ensure frame annotation exists
                     if frame_idx not in self.annotations:
-                        self.annotations[frame_idx] = FrameAnnotation(frame_idx=frame_idx)
+                        self.annotations[frame_idx] = FrameAnnotation(
+                            frame_idx=frame_idx
+                        )
 
                     self.annotations[frame_idx].masks[obj_id] = mask
                     loaded_count += 1

@@ -8,20 +8,44 @@ video_path: "/media/storage/true-battlebot-media/videos/Cage-2-Overhead-High-202
 # Each object needs:
 #   - id: unique integer ID (used in COCO annotations)
 #   - name: human-readable name (displayed in UI)
-#   - color: RGB color for visualization [R, G, B]
+#   - color: RGB color for visualization - can be [R, G, B] array or named color string
+#
+# Available named colors (140+ colors):
+#   Primary: red, green, blue
+#   Secondary: yellow, cyan, magenta, aqua, fuchsia
+#   Light: lightred, lightblue, lightgreen, lightpink, lightyellow, lightcyan,
+#          lightorange, lightpurple, lightcoral, lightsalmon, lightskyblue, etc.
+#   Dark: darkred, darkgreen, darkblue, darkcyan, darkmagenta, darkorange,
+#         darkviolet, darkturquoise, darksalmon, darkseagreen, etc.
+#   Reds/Pinks: crimson, firebrick, indianred, tomato, hotpink, deeppink, coral, salmon
+#   Oranges/Yellows: orange, gold, khaki, goldenrod, peachpuff, moccasin, lemonchiffon
+#   Greens: lime, limegreen, forestgreen, seagreen, springgreen, chartreuse, olive
+#   Blues: skyblue, deepskyblue, dodgerblue, royalblue, navy, steelblue, powderblue
+#   Purples: purple, violet, indigo, orchid, plum, lavender, mediumpurple, thistle
+#   Browns: brown, sienna, chocolate, peru, tan, wheat, burlywood, sandybrown
+#   Grayscale: white, gray/grey, black, silver, lightgray, darkgray, dimgray, gainsboro
+#   Pastels: ivory, beige, linen, azure, honeydew, lavenderblush, mistyrose, snow
+#
+# Examples:
+#   color: "red"           # Named color
+#   color: "lightred"      # Light variant
+#   color: [255, 0, 0]     # RGB array
 object_labels:
   - id: 1
     name: "mr_stabs_mk2"
-    color: [255, 0, 0]
+    color: "red"
   - id: 2
     name: "mrs_buff_mk2"
-    color: [0, 0, 255]
+    color: "blue"
   - id: 3
-    name: "opponent_1"
-    color: [50, 255, 50]
+    name: "aj_wedge_1"
+    color: "lightred"
   - id: 4
-    name: "opponent_2"
-    color: [100, 100, 50]
+    name: "oj_wedge_1"
+    color: "lightpink"
+  - id: 5
+    name: "house_bot"
+    color: "gray"
 
 # Directory for manual annotations
 # Contains user-clicked points and session state
