@@ -22,7 +22,7 @@ distance_threshold = 0.1
 [keypoint_model]
 type = "YoloKeypointModel"
 model_path = "models/yolo11x-pose_2024-10-26.torchscript"
-debug_visualization = true
+debug_visualization = false
 threshold = 0.5
 
 [[keypoint_model.label_map]]
