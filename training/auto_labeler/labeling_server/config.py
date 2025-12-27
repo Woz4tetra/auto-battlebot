@@ -301,5 +301,5 @@ class ServerConfig:
             ],
             "propagate_length": self.propagate_length,
             "mask_alpha": self.mask_alpha,
-            "inference_scale": self.inference_scale,
+            "inference_width": self.inference_width,
         }
