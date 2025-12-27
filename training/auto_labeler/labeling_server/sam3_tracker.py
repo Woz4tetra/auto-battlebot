@@ -136,15 +136,19 @@ class SAM3Tracker:
         # Model will be reloaded lazily on next use
 
     def load_model(self):
-        """Load SAM3 model."""
+        """Load SAM3 model on the current GPU device."""
         if build_sam3_video_model is None:
             raise RuntimeError("SAM3 not installed")
 
-        print("Loading SAM3 model...")
+        print(f"Loading SAM3 model on {self.device}...")
         self.model = build_sam3_video_model()
+        
+        # Move model to the correct GPU device
+        self.model = self.model.to(self.device)
+        
         self.predictor = self.model.tracker
         self.predictor.backbone = self.model.detector.backbone
-        print("SAM3 model loaded successfully")
+        print(f"SAM3 model loaded successfully on {self.device}")
 
     def set_video(self, video_path: str):
         """
