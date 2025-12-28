@@ -2,6 +2,7 @@
 
 import gc
 import os
+import random
 import shutil
 import tempfile
 import cv2
@@ -16,7 +17,10 @@ from sam3.model_builder import build_sam3_video_model
 
 
 # Temperature threshold for warning (Celsius)
-GPU_TEMP_WARNING_THRESHOLD = 37
+GPU_TEMP_WARNING_THRESHOLD = 50
+
+# Temperature threshold for selection (Celsius)
+GPU_TEMP_SELECTION_THRESHOLD = 40
 
 
 # Supported image extensions
@@ -157,7 +161,7 @@ class SAM3Tracker:
             temps[gpu_id] = self._get_gpu_temperature(gpu_id)
         return temps
 
-    def _select_coolest_gpu(self) -> int:
+    def _select_gpu(self) -> int:
         """Select the GPU with the lowest temperature from the pool."""
         temps = self._get_all_gpu_temperatures()
 
@@ -168,22 +172,43 @@ class SAM3Tracker:
         ]
         print(f"GPU temperatures: {', '.join(temp_strs)}")
 
-        # Filter out GPUs with unknown temperatures and find the coolest
+        # Filter out GPUs with unknown temperatures
         valid_temps = {gid: t for gid, t in temps.items() if t is not None}
 
         if valid_temps:
-            coolest_gpu = min(valid_temps, key=valid_temps.get)
-            coolest_temp = valid_temps[coolest_gpu]
+            # Find GPUs under the selection threshold
+            cool_gpus = {
+                gid: t
+                for gid, t in valid_temps.items()
+                if t < GPU_TEMP_SELECTION_THRESHOLD
+            }
 
-            # Warn if even the coolest GPU is above threshold
-            if coolest_temp > GPU_TEMP_WARNING_THRESHOLD:
+            if cool_gpus:
+                # Randomly select from GPUs under threshold
+                selected_gpu = random.choice(list(cool_gpus.keys()))
+                selected_temp = cool_gpus[selected_gpu]
                 print(
-                    f"⚠️  WARNING: Coolest GPU {coolest_gpu} is at {coolest_temp}°C "
-                    f"(above {GPU_TEMP_WARNING_THRESHOLD}°C threshold). "
-                    f"Consider adding more GPUs or increasing cooling."
+                    f"Randomly selected GPU {selected_gpu} at {selected_temp}°C (under {GPU_TEMP_SELECTION_THRESHOLD}°C threshold)"
                 )
+                return selected_gpu
+            else:
+                # No GPUs under threshold, select the coolest
+                coolest_gpu = min(valid_temps, key=valid_temps.get)
+                coolest_temp = valid_temps[coolest_gpu]
 
-            return coolest_gpu
+                # Warn if even the coolest GPU is above warning threshold
+                if coolest_temp > GPU_TEMP_WARNING_THRESHOLD:
+                    print(
+                        f"⚠️  WARNING: Coolest GPU {coolest_gpu} is at {coolest_temp}°C "
+                        f"(above {GPU_TEMP_WARNING_THRESHOLD}°C threshold). "
+                        f"Consider adding more GPUs or increasing cooling."
+                    )
+                else:
+                    print(
+                        f"Selected coolest GPU {coolest_gpu} at {coolest_temp}°C (all GPUs above {GPU_TEMP_SELECTION_THRESHOLD}°C threshold)"
+                    )
+
+                return coolest_gpu
         else:
             # Fall back to sequential cycling if temperatures unavailable
             next_index = (self.current_gpu_index + 1) % len(self.gpu_ids)
@@ -240,7 +265,7 @@ class SAM3Tracker:
         self._unload_model()
 
         # Select the coolest GPU instead of sequential cycling
-        self.gpu_id = self._select_coolest_gpu()
+        self.gpu_id = self._select_gpu()
         self.current_gpu_index = self.gpu_ids.index(self.gpu_id)
         self.device = torch.device(f"cuda:{self.gpu_id}")
 
