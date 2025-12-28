@@ -11,22 +11,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
 from natsort import natsorted
-
-# Import nvidia-ml-py for GPU temperature monitoring
-try:
-    import pynvml
-    pynvml.nvmlInit()
-    PYNVML_AVAILABLE = True
-except (ImportError, Exception):
-    print("Warning: nvidia-ml-py not available. GPU temperature monitoring disabled.")
-    PYNVML_AVAILABLE = False
-
-# Import SAM3 components
-try:
-    from sam3.model_builder import build_sam3_video_model
-except ImportError:
-    print("Warning: SAM3 not installed. Install with: pip install sam3")
-    build_sam3_video_model = None
+import pynvml
+from sam3.model_builder import build_sam3_video_model
 
 
 # Temperature threshold for warning (Celsius)
@@ -49,9 +35,7 @@ class SAM3Tracker:
     and cycling fully unloads from the current GPU before loading on the next.
     """
 
-    def __init__(
-        self, gpu_ids: list = None, inference_width: int = 960
-    ):
+    def __init__(self, gpu_ids: list = None, inference_width: int = 960):
         """
         Initialize the tracker.
 
@@ -60,6 +44,8 @@ class SAM3Tracker:
             inference_width: Target width in pixels for inference
                            Height is calculated to maintain aspect ratio
         """
+        pynvml.nvmlInit()
+
         # Handle both single gpu_id (int) and gpu_ids (list) for backwards compatibility
         if gpu_ids is None:
             gpu_ids = [0]
@@ -96,7 +82,9 @@ class SAM3Tracker:
 
         # Set up initial GPU (model loaded lazily on first use)
         self.gpu_id = self.gpu_ids[self.current_gpu_index]
-        self.device = torch.device(f"cuda:{self.gpu_id}" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(
+            f"cuda:{self.gpu_id}" if torch.cuda.is_available() else "cpu"
+        )
 
     def _setup_device_optimizations(self, gpu_id: int):
         """Enable optimizations for a specific GPU (call once before using GPU)."""
@@ -110,52 +98,50 @@ class SAM3Tracker:
         """Fully unload model from current GPU to allow it to cool down."""
         if self.model is None:
             return
-        
+
         old_gpu = self.gpu_id
         print(f"Unloading model from cuda:{old_gpu}...")
-        
+
         # Clear inference state first
         self._reset_inference_state()
-        
+
         # Delete predictor reference (it references model internals)
         self.predictor = None
-        
+
         # Move all model parameters and buffers to CPU explicitly
         try:
             self.model.cpu()
             # Also clear any cached states in the model
-            if hasattr(self.model, 'tracker') and self.model.tracker is not None:
-                if hasattr(self.model.tracker, '_cached_features'):
+            if hasattr(self.model, "tracker") and self.model.tracker is not None:
+                if hasattr(self.model.tracker, "_cached_features"):
                     self.model.tracker._cached_features = None
-                if hasattr(self.model.tracker, 'memory_bank'):
+                if hasattr(self.model.tracker, "memory_bank"):
                     self.model.tracker.memory_bank = None
         except Exception as e:
             print(f"Warning during model CPU transfer: {e}")
-        
+
         # Delete model
         del self.model
         self.model = None
-        
+
         # Force multiple rounds of garbage collection
         for _ in range(3):
             gc.collect()
-        
+
         # Clear GPU cache aggressively
         if torch.cuda.is_available() and old_gpu is not None:
             with torch.cuda.device(old_gpu):
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()  # Also collect IPC memory
                 torch.cuda.synchronize()
-        
+
         # Additional gc after CUDA cleanup
         gc.collect()
-        
+
         print(f"Model unloaded from cuda:{old_gpu}")
 
     def _get_gpu_temperature(self, gpu_id: int) -> Optional[int]:
         """Get the temperature of a specific GPU in Celsius."""
-        if not PYNVML_AVAILABLE:
-            return None
         try:
             handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_id)
             temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
@@ -174,25 +160,29 @@ class SAM3Tracker:
     def _select_coolest_gpu(self) -> int:
         """Select the GPU with the lowest temperature from the pool."""
         temps = self._get_all_gpu_temperatures()
-        
+
         # Print all temperatures
-        temp_strs = [f"GPU {gid}: {t}°C" if t is not None else f"GPU {gid}: N/A" 
-                     for gid, t in temps.items()]
+        temp_strs = [
+            f"GPU {gid}: {t}°C" if t is not None else f"GPU {gid}: N/A"
+            for gid, t in temps.items()
+        ]
         print(f"GPU temperatures: {', '.join(temp_strs)}")
-        
+
         # Filter out GPUs with unknown temperatures and find the coolest
         valid_temps = {gid: t for gid, t in temps.items() if t is not None}
-        
+
         if valid_temps:
             coolest_gpu = min(valid_temps, key=valid_temps.get)
             coolest_temp = valid_temps[coolest_gpu]
-            
+
             # Warn if even the coolest GPU is above threshold
             if coolest_temp > GPU_TEMP_WARNING_THRESHOLD:
-                print(f"⚠️  WARNING: Coolest GPU {coolest_gpu} is at {coolest_temp}°C "
-                      f"(above {GPU_TEMP_WARNING_THRESHOLD}°C threshold). "
-                      f"Consider adding more GPUs or increasing cooling.")
-            
+                print(
+                    f"⚠️  WARNING: Coolest GPU {coolest_gpu} is at {coolest_temp}°C "
+                    f"(above {GPU_TEMP_WARNING_THRESHOLD}°C threshold). "
+                    f"Consider adding more GPUs or increasing cooling."
+                )
+
             return coolest_gpu
         else:
             # Fall back to sequential cycling if temperatures unavailable
@@ -208,8 +198,10 @@ class SAM3Tracker:
         temp = self._get_gpu_temperature(self.gpu_id)
         if temp is not None:
             if temp > GPU_TEMP_WARNING_THRESHOLD:
-                print(f"⚠️  WARNING: GPU {self.gpu_id} starting at {temp}°C "
-                      f"(above {GPU_TEMP_WARNING_THRESHOLD}°C threshold)")
+                print(
+                    f"⚠️  WARNING: GPU {self.gpu_id} starting at {temp}°C "
+                    f"(above {GPU_TEMP_WARNING_THRESHOLD}°C threshold)"
+                )
             else:
                 print(f"GPU {self.gpu_id} temperature: {temp}°C")
 
@@ -243,7 +235,7 @@ class SAM3Tracker:
             return  # Only one GPU, nothing to cycle
 
         old_gpu = self.gpu_id
-        
+
         # Fully unload from current GPU (this frees all GPU memory)
         self._unload_model()
 
@@ -252,8 +244,10 @@ class SAM3Tracker:
         self.current_gpu_index = self.gpu_ids.index(self.gpu_id)
         self.device = torch.device(f"cuda:{self.gpu_id}")
 
-        print(f"Switched GPU: {old_gpu} -> {self.gpu_id} (selected coolest, model will load on next use)")
-        
+        print(
+            f"Switched GPU: {old_gpu} -> {self.gpu_id} (selected coolest, model will load on next use)"
+        )
+
         # Model will be loaded lazily on next propagation
 
     def load_model(self):
