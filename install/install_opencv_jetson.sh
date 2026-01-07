@@ -1,4 +1,5 @@
 #!/bin/bash
+# based on https://github.com/AastaNV/JEP/blob/master/script/install_opencv4.10.0_Jetpack6.1.sh
 
 # Install OpenCV on Jetson (ARM64) by building from source, with resume support
 install_opencv_jetson() {
