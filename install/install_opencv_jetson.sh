@@ -36,18 +36,28 @@ install_opencv_jetson() {
     fi
     echo "OpenCV not found via pkg-config/CMake. Proceeding with source build..."
 
-    # Prompt to remove default OpenCV (idempotent)
-    while true; do
-        echo "Do you want to remove the default OpenCV (yes/no)?"
-        read rm_old
-        if [[ "${rm_old}" == "yes" ]]; then
-            echo "** Removing other OpenCV packages (if any)"
-            sudo apt -y purge 'libopencv*' 'opencv*' || true
-            break
-        elif [[ "${rm_old}" == "no" ]]; then
-            break
-        fi
-    done
+    # Prompt to remove default OpenCV (only if apt packages are installed)
+    local has_apt_opencv="false"
+    if dpkg -l | awk '/^ii/ && ($2 ~ /^libopencv/ || $2 ~ /^opencv/ || $2 == "python3-opencv") {found=1} END {exit found ? 0 : 1}'; then
+        has_apt_opencv="true"
+    fi
+
+    if [[ "${has_apt_opencv}" == "true" ]]; then
+        while true; do
+            echo "Detected OpenCV packages installed via apt."
+            echo "Do you want to remove the default OpenCV (yes/no)?"
+            read rm_old
+            if [[ "${rm_old}" == "yes" ]]; then
+                echo "** Removing OpenCV apt packages"
+                sudo apt -y purge 'libopencv*' 'opencv*' 'python3-opencv' || true
+                break
+            elif [[ "${rm_old}" == "no" ]]; then
+                break
+            fi
+        done
+    else
+        echo "No OpenCV apt packages found; skipping removal prompt."
+    fi
 
     echo "------------------------------------"
     echo "** Install requirements (1/4)"
@@ -67,6 +77,7 @@ install_opencv_jetson() {
     # Helper paths (within build folder)
     local opencv_src_dir="opencv-${version}"
     local opencv_contrib_dir="opencv_contrib-${version}"
+    local opencv_contrib_modules="${build_folder}/${opencv_contrib_dir}/modules"
     local build_dir="${opencv_src_dir}/release"
 
     # Download sources only if directories don't exist
@@ -106,7 +117,7 @@ install_opencv_jetson() {
             -D CUDA_ARCH_BIN="${cuda_arch_bin}" \
             -D CUDA_ARCH_PTX="" \
             -D OPENCV_GENERATE_PKGCONFIG=ON \
-            -D OPENCV_EXTRA_MODULES_PATH="${opencv_contrib_dir}/modules" \
+            -D OPENCV_EXTRA_MODULES_PATH="${opencv_contrib_modules}" \
             -D WITH_GSTREAMER=ON \
             -D WITH_LIBV4L=ON \
             -D BUILD_opencv_python3=ON \
@@ -119,7 +130,7 @@ install_opencv_jetson() {
         echo "CMake cache found; ensuring configuration is up-to-date..."
         cmake -S . -B "${build_dir}" \
             -D WITH_CUDA=ON -D WITH_CUDNN=ON -D CUDA_ARCH_BIN="${cuda_arch_bin}" -D CUDA_ARCH_PTX="" \
-            -D OPENCV_GENERATE_PKGCONFIG=ON -D OPENCV_EXTRA_MODULES_PATH="${opencv_contrib_dir}/modules" \
+            -D OPENCV_GENERATE_PKGCONFIG=ON -D OPENCV_EXTRA_MODULES_PATH="${opencv_contrib_modules}" \
             -D WITH_GSTREAMER=ON -D WITH_LIBV4L=ON -D BUILD_opencv_python3=ON \
             -D BUILD_TESTS=OFF -D BUILD_PERF_TESTS=OFF -D BUILD_EXAMPLES=OFF \
             -D CMAKE_BUILD_TYPE=RELEASE -D CMAKE_INSTALL_PREFIX="${install_prefix}"
