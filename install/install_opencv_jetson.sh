@@ -3,7 +3,8 @@
 # Install OpenCV on Jetson (ARM64) by building from source, with resume support
 install_opencv_jetson() {
     local version="${1:-4.10.0}"
-    local build_folder="${2:-workspace}"
+    # Use a build folder in the user's home directory by default
+    local build_folder="${2:-${HOME}/opencv_build}"
     local cuda_arch_bin="${3:-8.7}"
     local python_ver="${4:-3.10}"
     local install_prefix="/usr/local"
@@ -16,20 +17,24 @@ install_opencv_jetson() {
     # Trap errors to provide resume guidance
     trap 'echo "\nInstallation interrupted. You can re-run this script; it will resume from the last successful step."' ERR
 
-    # Helper paths
-    local opencv_src_dir="${build_folder}/opencv-${version}"
-    local opencv_contrib_dir="${build_folder}/opencv_contrib-${version}"
-    local build_dir="${opencv_src_dir}/release"
+    # Helper paths (global install paths)
     local opencv_pkgconfig="${install_prefix}/lib/pkgconfig/opencv4.pc"
     local opencv_cmake_config="${install_prefix}/lib/cmake/opencv4/OpenCVConfig.cmake"
 
-    # Step 0: Check existing installation state
+    # Step 0: Early exit if OpenCV is already installed
     if pkg-config --exists opencv4 || [[ -f "${opencv_pkgconfig}" ]] || [[ -f "${opencv_cmake_config}" ]]; then
-        echo "OpenCV appears to be installed (found opencv4 via pkg-config or CMake config)."
-        echo "If you need to rebuild, consider purging existing packages or removing ${install_prefix}/lib/cmake/opencv4."
-    else
-        echo "OpenCV not found via pkg-config/CMake. Proceeding with source build..."
+        local existing_ver
+        existing_ver=$(pkg-config --modversion opencv4 2>/dev/null || echo "unknown")
+        echo "OpenCV is already installed (version: ${existing_ver})."
+        # Optional: check Python bindings for the requested Python version
+        if python${python_ver} -c "import cv2; print(cv2.__version__)" >/dev/null 2>&1; then
+            echo "Python bindings detected for Python ${python_ver}. Exiting early."
+        else
+            echo "Note: Python bindings for Python ${python_ver} not detected; C++ install present. Exiting early."
+        fi
+        return 0
     fi
+    echo "OpenCV not found via pkg-config/CMake. Proceeding with source build..."
 
     # Prompt to remove default OpenCV (idempotent)
     while true; do
@@ -59,6 +64,11 @@ install_opencv_jetson() {
     mkdir -p "${build_folder}"
     pushd "${build_folder}" >/dev/null
 
+    # Helper paths (within build folder)
+    local opencv_src_dir="opencv-${version}"
+    local opencv_contrib_dir="opencv_contrib-${version}"
+    local build_dir="${opencv_src_dir}/release"
+
     # Download sources only if directories don't exist
     if [[ ! -d "${opencv_src_dir}" ]]; then
         echo "Fetching opencv-${version} sources..."
@@ -82,7 +92,7 @@ install_opencv_jetson() {
     echo "------------------------------------"
     echo "** Configure build (3/4)"
     echo "------------------------------------"
-    cd "${opencv_src_dir}" || { echo "Missing source dir: ${opencv_src_dir}"; exit 1; }
+    cd "${opencv_src_dir}" || { echo "Missing source dir: ${build_folder}/${opencv_src_dir}"; exit 1; }
     mkdir -p "${build_dir}"
 
     # Configure only if cache missing; otherwise reconfigure to ensure flags
