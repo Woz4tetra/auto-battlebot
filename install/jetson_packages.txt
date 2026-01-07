@@ -1,2 +1,0 @@
-# Required packages for auto-battlebot
-# One package per line, lines starting with # are ignored

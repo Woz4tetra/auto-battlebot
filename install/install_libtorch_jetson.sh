@@ -20,6 +20,19 @@ install_libtorch_jetson() {
     local python_torch
     python_torch=$(python3 -c "import torch; print(torch.__path__[0])" 2>/dev/null || echo "")
     
+    if [ -z "$python_torch" ]; then
+        echo "Could not find a suitable PyTorch installation. Attempting to install one from a prebuilt wheel."
+
+        # references:
+        # https://forums.developer.nvidia.com/t/installing-pytorch-torchvision-for-jetpack-6-2-and-cuda-12-6/346074/7
+        # https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048
+        python -m pip install https://pypi.jetson-ai-lab.io/jp6/cu126/torch/2.8.0
+        python -m pip install https://pypi.jetson-ai-lab.io/jp6/cu126/torchvision/0.23.0
+        python -m pip install https://pypi.jetson-ai-lab.io/jp6/cu126/+f/81a/775c8af36ac85/torchaudio-2.8.0-cp310-cp310-linux_aarch64.whl#sha256=81a775c8af36ac859fb3f4a1b2f662d5fcf284a835b6bb4ed8d0827a6aa9c0b7
+        
+        python_torch=$(python3 -c "import torch; print(torch.__path__[0])" 2>/dev/null || echo "")
+    fi
+
     if [ -n "$python_torch" ]; then
         echo "Found PyTorch at: $python_torch"
         
