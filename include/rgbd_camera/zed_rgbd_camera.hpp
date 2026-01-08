@@ -95,6 +95,7 @@ namespace auto_battlebot
         std::atomic<bool> has_new_frame_;
         std::atomic<uint64_t> frame_counter_;
         uint64_t depth_frame_counter_;
+        mutable uint64_t last_returned_frame_counter_;
         mutable std::queue<int> depth_request_queue_;
         sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
         bool position_tracking_enabled_;

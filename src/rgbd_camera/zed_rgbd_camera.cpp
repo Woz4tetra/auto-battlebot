@@ -9,6 +9,7 @@ namespace auto_battlebot
                                                                        has_new_frame_(false),
                                                                        frame_counter_(0),
                                                                        depth_frame_counter_(0),
+                                                                       last_returned_frame_counter_(0),
                                                                        prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST),
                                                                        position_tracking_enabled_(config.position_tracking)
     {
@@ -63,6 +64,7 @@ namespace auto_battlebot
         has_new_frame_ = false;
         frame_counter_ = 0;
         depth_frame_counter_ = 0;
+        last_returned_frame_counter_ = 0;
         prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST;
         reset_capture_timing_stats();
         {
@@ -295,22 +297,35 @@ namespace auto_battlebot
 
         if (get_depth)
         {
+            // Request depth for the next frame and wait for a new frame with depth
             depth_request_queue_.push(1);
-        }
 
-        // Wait for a new frame to be available
-        uint64_t current_frame = frame_counter_;
-        uint64_t current_depth_frame = depth_frame_counter_;
-        data_cv_.wait(lock, [this, current_frame, get_depth, current_depth_frame]()
-                      {
-                          bool new_frame = frame_counter_ > current_frame;
-                          bool depth_ready = !get_depth || depth_frame_counter_ > current_depth_frame;
-                          return (new_frame && depth_ready) || should_close_ || stop_thread_; });
+            uint64_t current_frame = frame_counter_;
+            uint64_t current_depth_frame = depth_frame_counter_;
+            data_cv_.wait(lock, [this, current_frame, current_depth_frame]()
+                          {
+                              bool new_frame = frame_counter_ > current_frame;
+                              bool depth_ready = depth_frame_counter_ > current_depth_frame;
+                              return (new_frame && depth_ready) || should_close_ || stop_thread_; });
+        }
+        else
+        {
+            // If a prefetched frame is available, return immediately; otherwise, wait for one
+            if (!(frame_counter_ > last_returned_frame_counter_))
+            {
+                data_cv_.wait(lock, [this]()
+                              {
+                                  bool new_frame_available = frame_counter_ > last_returned_frame_counter_;
+                                  return new_frame_available || should_close_ || stop_thread_; });
+            }
+        }
 
         if (should_close_ || stop_thread_)
             return false;
 
         data = latest_data_;
+        // Mark the frame as consumed for non-depth path; harmless for depth path
+        last_returned_frame_counter_ = frame_counter_;
 
         if (diagnostics_logger_ && captures_since_last_report_ > 0)
         {
