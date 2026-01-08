@@ -132,7 +132,6 @@ namespace auto_battlebot
             if (capture_frame())
             {
                 has_new_frame_ = true;
-                frame_counter_++;
                 data_cv_.notify_all();
             }
             else if (should_close_)
@@ -259,6 +258,8 @@ namespace auto_battlebot
         latest_data_.rgb.header = header;
         latest_data_.depth.header = header;
         latest_data_.camera_info.header = header;
+
+        frame_counter_++;
 
         return true;
     }
