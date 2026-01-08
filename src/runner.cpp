@@ -1,7 +1,4 @@
 #include "runner.hpp"
-
-#include <thread>
-
 namespace auto_battlebot
 {
 

@@ -4,6 +4,7 @@
 #include <vector>
 #include <iostream>
 #include <miniros/ros.h>
+#include <thread>
 
 #include "data_structures.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"

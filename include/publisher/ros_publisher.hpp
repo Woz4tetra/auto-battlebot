@@ -8,6 +8,8 @@
 #include "ros/ros_message_adapters/ros_tf2.hpp"
 #include "transform_utils.hpp"
 #include "colorize_labels.hpp"
+#include "diagnostics_logger/diagnostics_logger.hpp"
+#include "diagnostics_logger/function_timer.hpp"
 
 namespace auto_battlebot
 {
@@ -37,5 +39,7 @@ namespace auto_battlebot
         std::shared_ptr<miniros::Publisher> static_tf_publisher_;
         std::shared_ptr<miniros::Publisher> field_marker_publisher_;
         std::shared_ptr<miniros::Publisher> robot_marker_publisher_;
+
+        std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
     };
 } // namespace auto_battlebot
