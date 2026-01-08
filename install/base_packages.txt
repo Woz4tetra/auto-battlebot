@@ -4,6 +4,7 @@
 python3-pip
 python3-venv
 python3-tk
+python3-openssl
 libwebsocketpp-dev
 libjsoncpp-dev
 libssl-dev
@@ -14,3 +15,4 @@ libeigen3-dev
 unzip
 wget
 libpcl-dev
+libffi-dev

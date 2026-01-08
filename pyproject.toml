@@ -28,6 +28,8 @@ dependencies = [
     "requests>=2.25.0",
     "pillow>=9.0.0",
 
+    # docker dependencies
+    "docker-compose>=1.29.0",
 ]
 
 [build-system]
