@@ -1,0 +1,8 @@
+services:
+    roscore:
+        image: ros:noetic-robot
+        container_name: roscore
+        restart: "no"
+        network_mode: "host"
+        command: roscore
+        stop_signal: SIGTERM
