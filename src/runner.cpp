@@ -133,8 +133,6 @@ namespace auto_battlebot
             return true;
         }
 
-        publisher_->publish_camera_data(camera_data);
-
         if (did_request_initialization)
         {
             initialize_field(camera_data);
@@ -152,7 +150,6 @@ namespace auto_battlebot
                 camera_data.tf_visodom_from_camera,
                 initial_field_description_);
         }
-        publisher_->publish_field_description(field_description, *initial_field_description_);
 
         KeypointsStamped keypoints;
         {
@@ -165,7 +162,13 @@ namespace auto_battlebot
             FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
             robots = robot_filter_->update(keypoints, field_description, camera_data.camera_info, command_feedback);
         }
-        publisher_->publish_robots(robots);
+
+        {
+            FunctionTimer timer(diagnostics_logger_, "publishers");
+            publisher_->publish_camera_data(camera_data);
+            publisher_->publish_field_description(field_description, *initial_field_description_);
+            publisher_->publish_robots(robots);
+        }
 
         VelocityCommand command = navigation_->update(robots);
         transmitter_->send(command);
