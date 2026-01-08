@@ -12,6 +12,9 @@ namespace auto_battlebot
                                                                        prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST),
                                                                        position_tracking_enabled_(config.position_tracking)
     {
+        diagnostics_logger_ = DiagnosticsLogger::get_logger("zed_rgbd_camera");
+        reset_capture_timing_stats();
+
         params_ = sl::InitParameters();
         params_.camera_fps = config.camera_fps;
         params_.camera_resolution = get_zed_resolution(config.camera_resolution);
@@ -61,6 +64,7 @@ namespace auto_battlebot
         frame_counter_ = 0;
         depth_frame_counter_ = 0;
         prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST;
+        reset_capture_timing_stats();
         {
             std::lock_guard<std::mutex> lock(data_mutex_);
             while (!depth_request_queue_.empty())
@@ -125,6 +129,14 @@ namespace auto_battlebot
         return true;
     }
 
+    void ZedRgbdCamera::reset_capture_timing_stats() const
+    {
+        captures_since_last_report_ = 0;
+        capture_time_sum_ms_ = 0.0;
+        capture_time_min_ms_ = std::numeric_limits<double>::infinity();
+        capture_time_max_ms_ = 0.0;
+    }
+
     void ZedRgbdCamera::capture_thread_loop()
     {
         while (!stop_thread_)
@@ -132,6 +144,7 @@ namespace auto_battlebot
             if (capture_frame())
             {
                 has_new_frame_ = true;
+                frame_counter_++;
                 data_cv_.notify_all();
             }
             else if (should_close_)
@@ -148,6 +161,8 @@ namespace auto_battlebot
             return false;
         }
 
+        auto capture_start = std::chrono::steady_clock::now();
+
         bool need_depth = false;
         {
             std::lock_guard<std::mutex> lock(data_mutex_);
@@ -160,6 +175,7 @@ namespace auto_battlebot
 
         // Grab new frame (without lock)
         sl::ERROR_CODE grab_status = zed_.grab();
+
         if (grab_status != sl::ERROR_CODE::SUCCESS)
         {
             if (grab_status == sl::ERROR_CODE::END_OF_SVOFILE_REACHED)
@@ -183,6 +199,7 @@ namespace auto_battlebot
 
         // Retrieve RGB image
         sl::ERROR_CODE retrieve_status = zed_.retrieveImage(zed_rgb_, sl::VIEW::LEFT);
+
         if (retrieve_status != sl::ERROR_CODE::SUCCESS)
         {
             std::cerr << "Failed to retrieve RGB image: " << sl::toString(retrieve_status) << std::endl;
@@ -259,7 +276,13 @@ namespace auto_battlebot
         latest_data_.depth.header = header;
         latest_data_.camera_info.header = header;
 
-        frame_counter_++;
+        auto capture_end = std::chrono::steady_clock::now();
+        double capture_time_ms = std::chrono::duration<double, std::milli>(capture_end - capture_start).count();
+
+        captures_since_last_report_++;
+        capture_time_sum_ms_ += capture_time_ms;
+        capture_time_min_ms_ = std::min(capture_time_min_ms_, capture_time_ms);
+        capture_time_max_ms_ = std::max(capture_time_max_ms_, capture_time_ms);
 
         return true;
     }
@@ -288,6 +311,18 @@ namespace auto_battlebot
             return false;
 
         data = latest_data_;
+
+        if (diagnostics_logger_ && captures_since_last_report_ > 0)
+        {
+            double avg_ms = capture_time_sum_ms_ / static_cast<double>(captures_since_last_report_);
+
+            diagnostics_logger_->info("capture_frame", {{"frames_since_last", std::to_string(captures_since_last_report_)},
+                                                        {"capture_ms_avg", std::to_string(avg_ms)},
+                                                        {"capture_ms_min", std::to_string(capture_time_min_ms_)},
+                                                        {"capture_ms_max", std::to_string(capture_time_max_ms_)}});
+
+            reset_capture_timing_stats();
+        }
         return true;
     }
 

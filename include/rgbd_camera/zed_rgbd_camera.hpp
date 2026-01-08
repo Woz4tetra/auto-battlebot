@@ -9,9 +9,12 @@
 #include <filesystem>
 #include <queue>
 #include <sl/Camera.hpp>
+#include <algorithm>
+#include <limits>
 
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "rgbd_camera/config.hpp"
+#include "diagnostics_logger/diagnostics_logger.hpp"
 
 namespace auto_battlebot
 {
@@ -75,6 +78,7 @@ namespace auto_battlebot
     private:
         void capture_thread_loop();
         bool capture_frame();
+        void reset_capture_timing_stats() const;
 
         sl::Camera zed_;
         sl::InitParameters params_;
@@ -94,6 +98,14 @@ namespace auto_battlebot
         mutable std::queue<int> depth_request_queue_;
         sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
         bool position_tracking_enabled_;
+
+        std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
+
+        // Capture timing statistics (protected by data_mutex_)
+        mutable uint64_t captures_since_last_report_;
+        mutable double capture_time_sum_ms_;
+        mutable double capture_time_min_ms_;
+        mutable double capture_time_max_ms_;
     };
 
 } // namespace auto_battlebot
