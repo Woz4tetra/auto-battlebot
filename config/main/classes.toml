@@ -3,7 +3,7 @@
 
 [rgbd_camera]
 type = "ZedRgbdCamera"
-camera_fps = 60
+camera_fps = 30
 
 [field_model]
 type = "DeepLabFieldModel"
@@ -16,7 +16,7 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "models/yolo11x-pose_2024-10-26.torchscript"
+model_path = "models/yolo11n-pose_2024-10-09.torchscript"
 debug_visualization = false
 threshold = 0.5
 
@@ -80,7 +80,7 @@ type = "PlaybackTransmitter"
 init_delay_seconds = 0.2
 
 [publisher]
-type = "RosPublisher"
+type = "NoopPublisher"
 
 [runner]
 max_loop_rate = 300.0
