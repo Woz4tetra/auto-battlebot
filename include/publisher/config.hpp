@@ -2,7 +2,7 @@
 
 #include <miniros/ros.h>
 #include <miniros/publisher.h>
-#include <sensor_msgs/Image.hxx>
+#include <sensor_msgs/CompressedImage.hxx>
 #include <sensor_msgs/CameraInfo.hxx>
 #include <sensor_msgs/PointCloud2.hxx>
 #include <tf2_msgs/TFMessage.hxx>

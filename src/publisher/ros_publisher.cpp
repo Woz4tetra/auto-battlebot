@@ -3,9 +3,9 @@
 namespace auto_battlebot
 {
     RosPublisher::RosPublisher(
-        std::shared_ptr<miniros::Publisher> rgb_image_publisher,    // sensor_msgs::Image
+        std::shared_ptr<miniros::Publisher> rgb_image_publisher,    // sensor_msgs::CompressedImage
         std::shared_ptr<miniros::Publisher> camera_info_publisher,  // sensor_msgs::CameraInfo
-        std::shared_ptr<miniros::Publisher> field_mask_publisher,   // sensor_msgs::Image
+        std::shared_ptr<miniros::Publisher> field_mask_publisher,   // sensor_msgs::CompressedImage
         std::shared_ptr<miniros::Publisher> tf_publisher,           // tf2_msgs::TFMessage
         std::shared_ptr<miniros::Publisher> static_tf_publisher,    // tf2_msgs::TFMessage
         std::shared_ptr<miniros::Publisher> field_marker_publisher, // visualization_msgs::MarkerArray
@@ -26,7 +26,7 @@ namespace auto_battlebot
         // Publish RGB image
         if (rgb_image_publisher_)
         {
-            auto rgb_msg = ros_adapters::to_ros_image(data.rgb);
+            auto rgb_msg = ros_adapters::to_ros_image_compressed(data.rgb);
             rgb_image_publisher_->publish(rgb_msg);
         }
 
@@ -70,7 +70,7 @@ namespace auto_battlebot
             mask_as_image.header = field_mask.header;
             mask_as_image.image = overlay;
 
-            auto mask_msg = ros_adapters::to_ros_image(mask_as_image);
+            auto mask_msg = ros_adapters::to_ros_image_compressed(mask_as_image);
             field_mask_publisher_->publish(mask_msg);
         }
     }

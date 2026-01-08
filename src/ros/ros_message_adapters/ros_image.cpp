@@ -62,5 +62,48 @@ namespace auto_battlebot
             return ros_image;
         }
 
+        sensor_msgs::CompressedImage to_ros_image_compressed(const RgbImage &rgb_image)
+        {
+            sensor_msgs::CompressedImage ros_image;
+            const auto base_image = to_ros_image(rgb_image);
+            ros_image.header = base_image.header;
+            ros_image.format = "jpeg";
+
+            if (rgb_image.image.empty())
+            {
+                ros_image.data.clear();
+                return ros_image;
+            }
+
+            std::vector<uint8_t> buffer;
+            cv::imencode(".jpg", rgb_image.image, buffer);
+            ros_image.data = std::move(buffer);
+
+            return ros_image;
+        }
+
+        sensor_msgs::CompressedImage to_ros_image_compressed(const DepthImage &depth_image)
+        {
+            sensor_msgs::CompressedImage ros_image;
+            const auto base_image = to_ros_image(depth_image);
+            ros_image.header = base_image.header;
+            ros_image.format = "jpeg";
+
+            if (depth_image.image.empty())
+            {
+                ros_image.data.clear();
+                return ros_image;
+            }
+
+            cv::Mat depth_uint16;
+            depth_image.image.convertTo(depth_uint16, CV_16UC1, 1000.0); // scale to millimeters for jpeg encoding
+
+            std::vector<uint8_t> buffer;
+            cv::imencode(".jpg", depth_uint16, buffer);
+            ros_image.data = std::move(buffer);
+
+            return ros_image;
+        }
+
     } // namespace ros_adapters
 } // namespace auto_battlebot
