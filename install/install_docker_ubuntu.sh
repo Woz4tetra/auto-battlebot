@@ -13,8 +13,9 @@ install_docker_ubuntu() {
     curl https://get.docker.com | sh && sudo systemctl --now enable docker
 
     # Add your user to the 'docker' group to run commands without sudo
-    sudo usermod -aG docker $USER
+    sudo usermod -aG docker "${USER}"
     newgrp docker # Apply group changes immediately
+    sudo setfacl --modify user:"${USER}":rw /var/run/docker.sock
 
     docker run hello-world  # test docker installation
 }

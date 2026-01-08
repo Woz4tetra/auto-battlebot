@@ -1,0 +1,8 @@
+services:
+    auto-battlebot-ros:
+        image: ros-connector:latest
+        container_name: auto-battlebot-ros
+        restart: "no"
+        network_mode: "host"
+        command: bash /launch_ros_connector.sh
+        stop_signal: SIGTERM
