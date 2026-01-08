@@ -101,12 +101,13 @@ namespace auto_battlebot
         }
 
         CommandFeedback command_feedback = transmitter_->update();
+        bool did_request_initialization = transmitter_->did_init_button_press();
 
         CameraData camera_data;
         bool is_camera_ok;
         {
             FunctionTimer timer(diagnostics_logger_, "camera.get");
-            is_camera_ok = camera_->get(camera_data);
+            is_camera_ok = camera_->get(camera_data, did_request_initialization);
         }
 
         if (!is_camera_ok)
@@ -134,7 +135,7 @@ namespace auto_battlebot
 
         publisher_->publish_camera_data(camera_data);
 
-        if (transmitter_->did_init_button_press())
+        if (did_request_initialization)
         {
             initialize_field(camera_data);
         }

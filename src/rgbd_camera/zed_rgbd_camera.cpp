@@ -8,6 +8,7 @@ namespace auto_battlebot
                                                                        stop_thread_(false),
                                                                        has_new_frame_(false),
                                                                        frame_counter_(0),
+                                                                       depth_frame_counter_(0),
                                                                        prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST),
                                                                        position_tracking_enabled_(config.position_tracking)
     {
@@ -58,7 +59,15 @@ namespace auto_battlebot
         should_close_ = false;
         has_new_frame_ = false;
         frame_counter_ = 0;
+        depth_frame_counter_ = 0;
         prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST;
+        {
+            std::lock_guard<std::mutex> lock(data_mutex_);
+            while (!depth_request_queue_.empty())
+            {
+                depth_request_queue_.pop();
+            }
+        }
 
         sl::ERROR_CODE returned_state = zed_.open(params_);
         if (returned_state != sl::ERROR_CODE::SUCCESS)
@@ -140,6 +149,16 @@ namespace auto_battlebot
             return false;
         }
 
+        bool need_depth = false;
+        {
+            std::lock_guard<std::mutex> lock(data_mutex_);
+            need_depth = !depth_request_queue_.empty();
+            if (need_depth)
+            {
+                depth_request_queue_.pop();
+            }
+        }
+
         // Grab new frame (without lock)
         sl::ERROR_CODE grab_status = zed_.grab();
         if (grab_status != sl::ERROR_CODE::SUCCESS)
@@ -171,12 +190,16 @@ namespace auto_battlebot
             return false;
         }
 
-        // Retrieve depth map
-        retrieve_status = zed_.retrieveMeasure(zed_depth_, sl::MEASURE::DEPTH);
-        if (retrieve_status != sl::ERROR_CODE::SUCCESS)
+        // Retrieve depth map only if requested
+        if (need_depth)
         {
-            std::cerr << "Failed to retrieve depth image: " << sl::toString(retrieve_status) << std::endl;
-            return false;
+            retrieve_status = zed_.retrieveMeasure(zed_depth_, sl::MEASURE::DEPTH);
+            if (retrieve_status != sl::ERROR_CODE::SUCCESS)
+            {
+                std::cerr << "Failed to retrieve depth image: " << sl::toString(retrieve_status) << std::endl;
+                depth_request_queue_.push(1);
+                return false;
+            }
         }
 
         // Get timestamp
@@ -217,9 +240,17 @@ namespace auto_battlebot
         cv::Mat zed_rgb_mat(zed_rgb_.getHeight(), zed_rgb_.getWidth(), CV_8UC4, zed_rgb_.getPtr<sl::uchar1>());
         cv::cvtColor(zed_rgb_mat, latest_data_.rgb.image, cv::COLOR_BGRA2BGR);
 
-        // Convert ZED depth image to OpenCV Mat (float32)
-        cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1, zed_depth_.getPtr<sl::uchar1>());
-        zed_depth_mat.copyTo(latest_data_.depth.image);
+        // Convert ZED depth image to OpenCV Mat (float32) if requested
+        if (need_depth)
+        {
+            cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1, zed_depth_.getPtr<sl::uchar1>());
+            zed_depth_mat.copyTo(latest_data_.depth.image);
+            depth_frame_counter_ = frame_counter_ + 1; // capture_thread_loop will increment after this function returns
+        }
+        else
+        {
+            latest_data_.depth.image.release();
+        }
 
         Header header;
         header.stamp = stamp;
@@ -232,16 +263,25 @@ namespace auto_battlebot
         return true;
     }
 
-    bool ZedRgbdCamera::get(CameraData &data) const
+    bool ZedRgbdCamera::get(CameraData &data, bool get_depth) const
     {
         if (!is_initialized_)
             return false;
         std::unique_lock<std::mutex> lock(data_mutex_);
 
+        if (get_depth)
+        {
+            depth_request_queue_.push(1);
+        }
+
         // Wait for a new frame to be available
         uint64_t current_frame = frame_counter_;
-        data_cv_.wait(lock, [this, current_frame]()
-                      { return frame_counter_ > current_frame || should_close_ || stop_thread_; });
+        uint64_t current_depth_frame = depth_frame_counter_;
+        data_cv_.wait(lock, [this, current_frame, get_depth, current_depth_frame]()
+                      {
+                          bool new_frame = frame_counter_ > current_frame;
+                          bool depth_ready = !get_depth || depth_frame_counter_ > current_depth_frame;
+                          return (new_frame && depth_ready) || should_close_ || stop_thread_; });
 
         if (should_close_ || stop_thread_)
             return false;

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <future>
 #include <filesystem>
+#include <queue>
 #include <sl/Camera.hpp>
 
 #include "rgbd_camera/rgbd_camera_interface.hpp"
@@ -68,7 +69,7 @@ namespace auto_battlebot
         ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
         ~ZedRgbdCamera();
         bool initialize() override;
-        bool get(CameraData &data) const override;
+        bool get(CameraData &data, bool get_depth) const override;
         bool should_close() override;
 
     private:
@@ -89,6 +90,8 @@ namespace auto_battlebot
         std::atomic<bool> stop_thread_;
         std::atomic<bool> has_new_frame_;
         std::atomic<uint64_t> frame_counter_;
+        uint64_t depth_frame_counter_;
+        mutable std::queue<int> depth_request_queue_;
         sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
         bool position_tracking_enabled_;
     };
