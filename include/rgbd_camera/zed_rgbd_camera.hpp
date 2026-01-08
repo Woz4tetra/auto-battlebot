@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <atomic>
 #include <future>
+#include <filesystem>
 #include <sl/Camera.hpp>
 
 #include "rgbd_camera/rgbd_camera_interface.hpp"

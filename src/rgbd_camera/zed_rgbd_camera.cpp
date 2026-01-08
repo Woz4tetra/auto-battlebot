@@ -21,7 +21,11 @@ namespace auto_battlebot
         // Set SVO file path if provided (for playback instead of live camera)
         if (!config.svo_file_path.empty())
         {
-            params_.input.setFromSVOFile(config.svo_file_path.c_str());
+            std::filesystem::path svo_file_path = config.svo_file_path.c_str();
+            std::filesystem::path svo_file_abs_path = std::filesystem::absolute(svo_file_path);
+            std::cout << "Resolved SVO path: " << svo_file_abs_path << std::endl;
+
+            params_.input.setFromSVOFile(svo_file_abs_path.c_str());
             params_.svo_real_time_mode = config.svo_real_time_mode;
         }
     }
