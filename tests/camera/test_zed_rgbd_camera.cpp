@@ -38,7 +38,7 @@ namespace auto_battlebot
         ASSERT_TRUE(camera.initialize());
 
         CameraData data;
-        ASSERT_TRUE(camera.get(data));
+        ASSERT_TRUE(camera.get(data, true));
 
         // Verify camera info
         EXPECT_GT(data.camera_info.width, 0);
@@ -79,12 +79,12 @@ namespace auto_battlebot
         ASSERT_TRUE(camera.initialize());
 
         CameraData data1;
-        ASSERT_TRUE(camera.get(data1));
+        ASSERT_TRUE(camera.get(data1, true));
         double timestamp1 = data1.tf_visodom_from_camera.header.stamp;
 
         // Get again
         CameraData data2;
-        ASSERT_TRUE(camera.get(data2));
+        ASSERT_TRUE(camera.get(data2, true));
         double timestamp2 = data2.tf_visodom_from_camera.header.stamp;
 
         // Camera info should remain constant
@@ -111,12 +111,12 @@ namespace auto_battlebot
         ASSERT_TRUE(camera.initialize());
 
         CameraData data_ref;
-        ASSERT_TRUE(camera.get(data_ref));
-        ASSERT_TRUE(camera.get(data_ref));
+        ASSERT_TRUE(camera.get(data_ref, true));
+        ASSERT_TRUE(camera.get(data_ref, true));
 
         // Make another call to verify independence
         CameraData data_copy;
-        ASSERT_TRUE(camera.get(data_copy));
+        ASSERT_TRUE(camera.get(data_copy, true));
         data_copy.rgb.image = data_ref.rgb.image.clone();
         data_copy.depth.image = data_ref.depth.image.clone();
 
@@ -153,7 +153,7 @@ namespace auto_battlebot
         int frame_count = 0;
         while (!camera.should_close() && frame_count < max_frames)
         {
-            camera.get(data);
+            camera.get(data, true);
             frame_count++;
         }
 

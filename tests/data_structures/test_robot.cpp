@@ -27,8 +27,8 @@ namespace auto_battlebot
         RobotDescription desc;
 
         // Verify default values are set
-        EXPECT_EQ(desc.label, Label::MR_STABS_MK1);
-        EXPECT_EQ(desc.group, Group::OURS);
+        EXPECT_EQ(desc.label, Label::EMPTY);
+        EXPECT_EQ(desc.frame_id, FrameId::EMPTY);
         EXPECT_EQ(desc.pose.position.x, 0.0);
         EXPECT_EQ(desc.pose.position.y, 0.0);
         EXPECT_EQ(desc.pose.position.z, 0.0);
@@ -41,7 +41,7 @@ namespace auto_battlebot
     {
         RobotDescription desc;
         desc.label = Label::MR_STABS_MK2;
-        desc.group = Group::OURS;
+        desc.frame_id = FrameId::FIELD;
         desc.pose.position.x = 1.0;
         desc.pose.position.y = 2.0;
         desc.pose.position.z = 0.0;
@@ -51,7 +51,7 @@ namespace auto_battlebot
         desc.size.z = 0.2;
 
         EXPECT_EQ(desc.label, Label::MR_STABS_MK2);
-        EXPECT_EQ(desc.group, Group::OURS);
+        EXPECT_EQ(desc.frame_id, FrameId::FIELD);
         EXPECT_DOUBLE_EQ(desc.pose.position.x, 1.0);
         EXPECT_DOUBLE_EQ(desc.pose.position.y, 2.0);
         EXPECT_DOUBLE_EQ(desc.size.x, 0.3);
@@ -76,13 +76,13 @@ namespace auto_battlebot
 
         RobotDescription desc;
         desc.label = Label::MR_STABS_MK2;
-        desc.group = Group::OURS;
+        desc.frame_id = FrameId::FIELD;
 
         stamped.descriptions.push_back(desc);
 
         EXPECT_EQ(stamped.descriptions.size(), 1);
         EXPECT_EQ(stamped.descriptions[0].label, Label::MR_STABS_MK2);
-        EXPECT_EQ(stamped.descriptions[0].group, Group::OURS);
+        EXPECT_EQ(stamped.descriptions[0].frame_id, FrameId::FIELD);
     }
 
     TEST(RobotDescriptionsStampedTest, MultipleDescriptions)
@@ -91,11 +91,11 @@ namespace auto_battlebot
 
         RobotDescription desc1;
         desc1.label = Label::MR_STABS_MK2;
-        desc1.group = Group::OURS;
+        desc1.frame_id = FrameId::FIELD;
 
         RobotDescription desc2;
         desc2.label = Label::OPPONENT;
-        desc2.group = Group::THEIRS;
+        desc2.frame_id = FrameId::FIELD;
 
         stamped.descriptions.push_back(desc1);
         stamped.descriptions.push_back(desc2);

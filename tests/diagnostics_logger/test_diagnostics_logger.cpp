@@ -1,8 +1,5 @@
 #include <gtest/gtest.h>
 #include "test_diagnostics_logger.hpp"
-#include <miniros/ros.h>
-#include <miniros/node_handle.h>
-#include <diagnostic_msgs/DiagnosticArray.hxx>
 
 namespace auto_battlebot
 {
@@ -11,22 +8,20 @@ namespace auto_battlebot
     protected:
         void SetUp() override
         {
-            // Initialize ROS time for tests
             miniros::Time::init();
 
-            // Create a mock publisher
-            // Note: In a real test, you might want to use a mock or test publisher
-            mock_publisher = std::make_shared<miniros::Publisher>();
+            // Create a mock publisher (casted to the base type for DiagnosticsLogger)
+            mock_publisher_ = std::make_shared<MockPublisher>();
         }
 
         void TearDown() override
         {
             // Reset the singleton state for next test using test-only subclass
             TestDiagnosticsLogger::reset();
-            mock_publisher.reset();
+            mock_publisher_.reset();
         }
 
-        std::shared_ptr<miniros::Publisher> mock_publisher;
+        std::shared_ptr<MockPublisher> mock_publisher_;
     };
 
     // Test initialization
@@ -34,7 +29,7 @@ namespace auto_battlebot
     {
         EXPECT_FALSE(DiagnosticsLogger::is_initialized());
 
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         EXPECT_TRUE(DiagnosticsLogger::is_initialized());
     }
@@ -42,17 +37,17 @@ namespace auto_battlebot
     // Test double initialization throws
     TEST_F(DiagnosticsLoggerTest, DoubleInitializationThrows)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         EXPECT_THROW(
-            DiagnosticsLogger::initialize(mock_publisher),
+            DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_)),
             std::runtime_error);
     }
 
     // Test get_logger creates new logger
     TEST_F(DiagnosticsLoggerTest, GetLoggerCreatesNew)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger1 = DiagnosticsLogger::get_logger("module1");
         EXPECT_NE(logger1, nullptr);
@@ -66,7 +61,7 @@ namespace auto_battlebot
     // Test get_logger returns same instance
     TEST_F(DiagnosticsLoggerTest, GetLoggerReturnsSameInstance)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger1 = DiagnosticsLogger::get_logger("module1");
         auto logger2 = DiagnosticsLogger::get_logger("module1");
@@ -77,7 +72,7 @@ namespace auto_battlebot
     // Test remove_logger
     TEST_F(DiagnosticsLoggerTest, RemoveLogger)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger = DiagnosticsLogger::get_logger("module1");
         logger->info("", {{"value", 1}}, "Test");
@@ -101,7 +96,7 @@ namespace auto_battlebot
     // Test publish with no statuses doesn't crash
     TEST_F(DiagnosticsLoggerTest, PublishWithNoStatuses)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         // Should not throw
         EXPECT_NO_THROW(DiagnosticsLogger::publish());
@@ -110,7 +105,7 @@ namespace auto_battlebot
     // Test publish clears loggers
     TEST_F(DiagnosticsLoggerTest, PublishClearsLoggers)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger1 = DiagnosticsLogger::get_logger("module1");
         auto logger2 = DiagnosticsLogger::get_logger("module2");
@@ -133,7 +128,7 @@ namespace auto_battlebot
     // Test multiple modules with different levels
     TEST_F(DiagnosticsLoggerTest, MultipleModulesDifferentLevels)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger1 = DiagnosticsLogger::get_logger("sensors");
         auto logger2 = DiagnosticsLogger::get_logger("motors");
@@ -159,7 +154,7 @@ namespace auto_battlebot
     // Test logger accumulates across multiple calls
     TEST_F(DiagnosticsLoggerTest, LoggerAccumulatesData)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger = DiagnosticsLogger::get_logger("test");
 
@@ -184,7 +179,7 @@ namespace auto_battlebot
     // Test empty logger doesn't publish
     TEST_F(DiagnosticsLoggerTest, EmptyLoggerDoesntPublish)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger = DiagnosticsLogger::get_logger("test");
 
@@ -197,7 +192,7 @@ namespace auto_battlebot
     // Test mixed empty and non-empty loggers
     TEST_F(DiagnosticsLoggerTest, MixedEmptyAndNonEmptyLoggers)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger1 = DiagnosticsLogger::get_logger("module1");
         auto logger2 = DiagnosticsLogger::get_logger("module2");
@@ -222,7 +217,7 @@ namespace auto_battlebot
     // Test publish cycle
     TEST_F(DiagnosticsLoggerTest, PublishCycle)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger = DiagnosticsLogger::get_logger("test");
 
@@ -247,7 +242,7 @@ namespace auto_battlebot
     // Test logger persistence across publish
     TEST_F(DiagnosticsLoggerTest, LoggerPersistenceAcrossPublish)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger1 = DiagnosticsLogger::get_logger("module1");
         auto logger2 = DiagnosticsLogger::get_logger("module2");
@@ -266,7 +261,7 @@ namespace auto_battlebot
     // Test remove non-existent logger doesn't crash
     TEST_F(DiagnosticsLoggerTest, RemoveNonExistentLogger)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         EXPECT_NO_THROW(DiagnosticsLogger::remove_logger("non_existent"));
     }
@@ -274,7 +269,7 @@ namespace auto_battlebot
     // Test multiple sequential publishes
     TEST_F(DiagnosticsLoggerTest, MultipleSequentialPublishes)
     {
-        DiagnosticsLogger::initialize(mock_publisher);
+        DiagnosticsLogger::initialize(std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_));
 
         auto logger = DiagnosticsLogger::get_logger("test");
 

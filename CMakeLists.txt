@@ -14,6 +14,14 @@ option(BUILD_TESTING "Build tests" OFF)
 # Option to enable debug build
 option(BUILD_DEBUG "Build with debug flags" OFF)
 
+if (BUILD_TESTING)
+    message("Building tests")
+endif()
+
+if (BUILD_DEBUG)
+    message("Building with debug flags")
+endif()
+
 # Fetch external dependencies from git
 include(FetchContent)
 
@@ -133,21 +141,34 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     ${TORCH_LIBRARIES}
 )
 
+# Common compiler flags
+set(COMMON_COMPILE_FLAGS
+    -Wall
+    -Wextra
+    -Werror
+    -Wno-dev
+    -O2
+)
+
+set(DEBUG_COMPILE_FLAGS
+    -g
+    -DDEBUG
+)
+
+set(RELEASE_COMPILE_FLAGS
+    -DNDEBUG
+)
+
 # Compiler flags for the library
 if(BUILD_DEBUG)
     target_compile_options(auto_battlebot_lib PRIVATE
-        -Wall
-        -Wextra
-        -g
-        -O0
-        -DDEBUG
+        ${COMMON_COMPILE_FLAGS}
+        ${DEBUG_COMPILE_FLAGS}
     )
 else()
     target_compile_options(auto_battlebot_lib PRIVATE
-        -Wall
-        -Wextra
-        -O2
-        -DNDEBUG
+        ${COMMON_COMPILE_FLAGS}
+        ${RELEASE_COMPILE_FLAGS}
     )
 endif()
 
@@ -156,7 +177,8 @@ if(BUILD_DEBUG)
     set_source_files_properties(
         src/rgbd_camera/zed_rgbd_camera.hpp
         src/rgbd_camera/zed_rgbd_camera.cpp
-        PROPERTIES COMPILE_FLAGS "-Wall -Wextra -O2 -DNDEBUG"
+        src/rgbd_camera/config.cpp
+        PROPERTIES COMPILE_FLAGS "-Wall -Wno-extra -Wno-error -O2 -DNDEBUG"
     )
 endif()
 
@@ -174,18 +196,13 @@ target_link_libraries(auto_battlebot
 # Compiler flags for executable
 if(BUILD_DEBUG)
     target_compile_options(auto_battlebot PRIVATE
-        -Wall
-        -Wextra
-        -g
-        -O0
-        -DDEBUG
+        ${COMMON_COMPILE_FLAGS}
+        ${DEBUG_COMPILE_FLAGS}
     )
 else()
     target_compile_options(auto_battlebot PRIVATE
-        -Wall
-        -Wextra
-        -O2
-        -DNDEBUG
+        ${COMMON_COMPILE_FLAGS}
+        ${RELEASE_COMPILE_FLAGS}
     )
 endif()
 

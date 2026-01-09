@@ -69,7 +69,7 @@ namespace auto_battlebot
         return filter_measurements;
     }
 
-    std::vector<RobotDescription> RobotFrontBackKalmanFilter::update_filter(std::vector<RobotDescription> inputs, CommandFeedback command_feedback)
+    std::vector<RobotDescription> RobotFrontBackKalmanFilter::update_filter(std::vector<RobotDescription> inputs, [[maybe_unused]] CommandFeedback command_feedback)
     {
         return inputs;
     }
