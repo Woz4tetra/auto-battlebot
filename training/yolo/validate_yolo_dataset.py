@@ -7,6 +7,8 @@ Users can review images with their bounding boxes and labels, marking them as
 pass or fail. The validation state is saved and can be resumed later.
 """
 
+import re
+import yaml
 import json
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -178,10 +180,10 @@ NAMED_COLORS: Dict[str, List[int]] = {
 
 
 class YOLODatasetValidator:
-    def __init__(self, dataset_path: str, class_labels_path: str):
-        self.dataset_path = Path(dataset_path)
+    def __init__(self, dataset_path: Path, class_labels_path: Path):
+        self.dataset_path = dataset_path
         self.state_file = self.dataset_path / "validation_state.json"
-        self.class_labels_path = Path(class_labels_path)
+        self.class_labels_path = class_labels_path
 
         # Data structures
         self.image_annotation_pairs: List[Tuple[Path, Path]] = []
@@ -282,16 +284,15 @@ class YOLODatasetValidator:
         print(f"Loading class information from {class_labels_path}")
         try:
             with open(class_labels_path, "r") as f:
-                data = json.load(f)
+                data = yaml.safe_load(f)
 
             # Parse class info
-            for class_id_str, info in data.items():
-                class_id = int(class_id_str)
+            for class_id, (class_name, color_hex) in enumerate(
+                zip(data["names"], data["colors"])
+            ):
                 self.class_info[class_id] = {
-                    "name": info.get("name", f"Class {class_id}"),
-                    "color": info.get(
-                        "color", self.colors[class_id % len(self.colors)]
-                    ),
+                    "name": class_name,
+                    "color": color_hex,
                 }
 
             print(f"Loaded {len(self.class_info)} class definitions")
@@ -512,13 +513,7 @@ class YOLODatasetValidator:
         # Parse annotations
         annotations = self.parse_yolo_annotation(label_path)
 
-        # Try to load a font
-        try:
-            font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20
-            )
-        except:
-            font = ImageFont.load_default()
+        font = ImageFont.load_default(size=20)
 
         # Draw each annotation
         for ann in annotations:
@@ -558,7 +553,6 @@ class YOLODatasetValidator:
 
     def draw_feedback_overlay(self, image: Image.Image, passed: bool) -> Image.Image:
         """Draw checkmark or X overlay on image."""
-        draw = ImageDraw.Draw(image)
         img_width, img_height = image.size
 
         # Semi-transparent overlay
@@ -781,19 +775,36 @@ def main():
     args = parser.parse_args()
 
     if args.dataset_path:
-        dataset_path = args.dataset_path
+        dataset_path_str = args.dataset_path
     else:
         # Ask user to select directory
         root = tk.Tk()
         root.withdraw()
-        dataset_path = filedialog.askdirectory(title="Select YOLO Dataset Directory")
+        dataset_path_str = filedialog.askdirectory(
+            title="Select YOLO Dataset Directory"
+        )
         root.destroy()
 
-        if not dataset_path:
+        if not dataset_path_str:
             print("No dataset selected. Exiting.")
             return
 
-    classes_path = args.classes
+    dataset_path = Path(dataset_path_str)
+
+    classes_path_str = args.classes
+
+    if not classes_path_str:
+        classes_path = None
+        for path in dataset_path.iterdir():
+            match = re.search(r".*(ya?ml)", str(path))
+            if not match:
+                continue
+            classes_path = dataset_path / path.name
+    else:
+        classes_path = Path(classes_path_str)
+
+    if classes_path is None:
+        raise ValueError("Failed to find YOLO data file")
 
     validator = YOLODatasetValidator(dataset_path, classes_path)
     validator.run()
