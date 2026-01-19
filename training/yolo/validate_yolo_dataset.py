@@ -513,13 +513,7 @@ class YOLODatasetValidator:
         # Parse annotations
         annotations = self.parse_yolo_annotation(label_path)
 
-        # Try to load a font
-        try:
-            font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20
-            )
-        except:
-            font = ImageFont.load_default()
+        font = ImageFont.load_default(size=20)
 
         # Draw each annotation
         for ann in annotations:
@@ -559,7 +553,6 @@ class YOLODatasetValidator:
 
     def draw_feedback_overlay(self, image: Image.Image, passed: bool) -> Image.Image:
         """Draw checkmark or X overlay on image."""
-        draw = ImageDraw.Draw(image)
         img_width, img_height = image.size
 
         # Semi-transparent overlay
