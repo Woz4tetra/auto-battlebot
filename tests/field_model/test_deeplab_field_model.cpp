@@ -54,7 +54,7 @@ namespace auto_battlebot
 
         // Should return empty mask when not initialized
         EXPECT_TRUE(result.mask.mask.empty());
-        EXPECT_EQ(result.mask.label, Label::FIELD);
+        EXPECT_EQ(result.mask.label, Label::EMPTY);
         // Header is not preserved when returning early due to no initialization
         EXPECT_DOUBLE_EQ(result.header.stamp, 0.0);
         EXPECT_EQ(result.header.frame_id, FrameId::EMPTY);

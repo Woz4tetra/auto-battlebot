@@ -28,15 +28,15 @@ namespace auto_battlebot
             // Setup keypoints
             keypoints.header = test_header;
             Keypoint kp1;
-            kp1.label = "robot1";
-            kp1.keypoint_label = "center";
+            kp1.label = Label::MR_STABS_MK1;
+            kp1.keypoint_label = KeypointLabel::MR_STABS_MK1_FRONT;
             kp1.x = 10.0f;
             kp1.y = 20.0f;
             keypoints.keypoints.push_back(kp1);
 
             Keypoint kp2;
-            kp2.label = "robot2";
-            kp2.keypoint_label = "corner";
+            kp2.label = Label::MR_STABS_MK2;
+            kp2.keypoint_label = KeypointLabel::MR_STABS_MK2_FRONT;
             kp2.x = 30.0f;
             kp2.y = 40.0f;
             keypoints.keypoints.push_back(kp2);
@@ -45,7 +45,7 @@ namespace auto_battlebot
             robots.header = test_header;
             RobotDescription robot1;
             robot1.label = Label::MR_STABS_MK1;
-            robot1.group = Group::OURS;
+            robot1.frame_id = FrameId::FIELD;
             robot1.pose.position.x = 1.0;
             robot1.pose.position.y = 2.0;
             robot1.pose.position.z = 0.5;
@@ -56,8 +56,8 @@ namespace auto_battlebot
             robots.descriptions.push_back(robot1);
 
             RobotDescription robot2;
-            robot2.label = Label::MR_STABS_MK1;
-            robot2.group = Group::THEIRS;
+            robot2.label = Label::MR_STABS_MK2;
+            robot2.frame_id = FrameId::FIELD;
             robot2.pose.position.x = -1.0;
             robot2.pose.position.y = -2.0;
             robot2.pose.position.z = 0.5;
