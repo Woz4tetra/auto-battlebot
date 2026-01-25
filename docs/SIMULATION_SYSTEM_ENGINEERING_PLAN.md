@@ -797,7 +797,7 @@ Execution Order Reference:
 
 ---
 
-### SIM-002: Implement Shared Memory Writer for Unity (C#)
+### ✅️ SIM-002: Implement Shared Memory Writer for Unity (C#)
 
 **Sprint:** 1  
 **Estimate:** 5 points  
@@ -847,7 +847,7 @@ struct FrameHeader {
 
 ---
 
-### SIM-003: Implement Shared Memory Reader for Unity (C#)
+### ✅️ SIM-003: Implement Shared Memory Reader for Unity (C#)
 
 **Sprint:** 1  
 **Estimate:** 3 points  
