@@ -1,5 +1,8 @@
 #pragma once
 
+#include <thread>
+#include <chrono>
+
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "rgbd_camera/config.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
@@ -25,6 +28,11 @@ namespace auto_battlebot
 
         size_t buffer_size_;
         std::unique_ptr<SharedMemoryReader> frame_reader_;
+
+        // Diagnostics tracking (mutable for const get() method)
+        mutable uint64_t frames_received_;
+        mutable uint64_t last_frame_id_;
+        mutable std::chrono::steady_clock::time_point last_log_time_;
     };
 
 } // namespace auto_battlebot

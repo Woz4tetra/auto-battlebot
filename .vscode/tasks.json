@@ -15,6 +15,22 @@
                 "isDefault": true
             },
             "detail": "Build the project using CMake"
+        },
+        {
+            "type": "shell",
+            "label": "Debug build auto_battlebot",
+            "command": "${workspaceFolder}/scripts/build_debug.sh",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Build the project using CMake"
         }
     ],
     "version": "2.0.0"

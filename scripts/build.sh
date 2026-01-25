@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to build and run auto_battlebot with debug flags enabled
+# Script to build auto_battlebot
 
 set -e  # Exit on error
 

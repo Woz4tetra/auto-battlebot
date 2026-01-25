@@ -912,7 +912,7 @@ Implement a lightweight synchronization mechanism using Unix domain sockets (Lin
 
 ---
 
-### SIM-005: Implement SimRgbdCamera and SimTransmitter C++ Classes
+### ✅️ SIM-005: Implement SimRgbdCamera and SimTransmitter C++ Classes
 
 **Sprint:** 1  
 **Estimate:** 5 points  
@@ -969,7 +969,7 @@ Implement the RGB camera capture system that renders the scene and extracts pixe
 1. Create `CameraSimulator` MonoBehaviour
 2. Configure camera with ZED 2i intrinsics:
    - Resolution: 1280x720 (configurable to 1920x1080, 640x360)
-   - FOV: 110° horizontal
+   - FOV: 110° horizontal, 70° vertical
    - Intrinsic matrix matching ZED SDK values
 3. Set up RenderTexture for off-screen rendering
 4. Implement efficient GPU→CPU texture readback using `AsyncGPUReadback`
@@ -977,7 +977,7 @@ Implement the RGB camera capture system that renders the scene and extracts pixe
 6. Profile and optimize for target frame rate
 
 **Acceptance Criteria:**
-- [ ] Renders at 30+ FPS at 720p
+- [ ] Renders at 30+ FPS at 1080p
 - [ ] Camera intrinsics match ZED 2i specifications
 - [ ] AsyncGPUReadback reduces CPU stalls
 - [ ] Output format is BGR uint8 (OpenCV compatible)
@@ -988,10 +988,10 @@ Implement the RGB camera capture system that renders the scene and extracts pixe
 
 **Technical Notes:**
 ```
-ZED 2i Intrinsics (720p):
-fx = 528.0, fy = 528.0
-cx = 640.0, cy = 360.0
-k1, k2, p1, p2, k3 = [distortion coefficients]
+ZED 2i Intrinsics (1080p):
+fx = 1061.4892578125, fy = 1061.4892578125
+cx = 971.2513427734375, cy = 561.7954711914062
+k1, k2, p1, p2, k3 = [0, 0, 0, 0, 0]
 ```
 
 ---

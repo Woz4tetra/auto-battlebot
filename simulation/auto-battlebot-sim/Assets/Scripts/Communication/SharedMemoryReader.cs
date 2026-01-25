@@ -319,17 +319,22 @@ namespace AutoBattlebot.Communication
                     _linuxFileStream.SetLength(VelocityCommand.SIZE);
                 }
 
+                // Use the actual file size (may be larger if C++ uses double buffering)
+                // but ensure it's at least VelocityCommand.SIZE
+                long mapSize = Math.Max(_linuxFileStream.Length, VelocityCommand.SIZE);
+
                 _memoryMappedFile = MemoryMappedFile.CreateFromFile(
                     _linuxFileStream,
                     null,
-                    VelocityCommand.SIZE,
+                    mapSize,
                     MemoryMappedFileAccess.ReadWrite,
                     HandleInheritability.None,
                     true);  // leaveOpen = true
 
+                // Only access the first command-sized region (we read from offset 0)
                 _accessor = _memoryMappedFile.CreateViewAccessor(0, VelocityCommand.SIZE);
 
-                Debug.Log($"[SharedMemoryReader] Opened Linux shared memory at: {filePath}");
+                Debug.Log($"[SharedMemoryReader] Opened Linux shared memory at: {filePath} (file size: {_linuxFileStream.Length} bytes)");
             }
             else
             {

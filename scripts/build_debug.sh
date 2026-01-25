@@ -1,12 +1,11 @@
 #!/bin/bash
 
-# Script to build and run auto_battlebot with debug flags enabled
+# Script to build auto_battlebot with debug flags enabled
 
 set -e  # Exit on error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="${PROJECT_ROOT}/build"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -17,16 +16,9 @@ echo -e "${YELLOW}Building auto_battlebot with debug flags...${NC}"
 
 # Build with debug flags
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
-build_cpp_project --debug
+build_cpp_project --test
 
 echo ""
-echo -e "${GREEN}✓ Build complete!${NC}"
-echo -e "${YELLOW}Running auto_battlebot in debug mode...${NC}"
+echo -e "${GREEN}✓ Debug build complete!${NC}"
 echo "========================================"
 echo ""
-
-# Launch roscore
-${SCRIPT_DIR}/run_ros_connector.sh
-
-# Run the executable with any additional arguments passed to this script
-${BUILD_DIR}/auto_battlebot "$@"

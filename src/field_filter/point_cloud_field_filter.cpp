@@ -26,6 +26,12 @@ namespace auto_battlebot
 
         std::vector<int> inlier_indices;
         Eigen::Vector4f plane_coefficients = fit_plane_ransac(field_cloud, distance_threshold_, &inlier_indices);
+        bool plane_found = !(plane_coefficients.array() == 0).all();
+
+        if (!plane_found)
+        {
+            return std::make_shared<FieldDescriptionWithInlierPoints>(FieldDescriptionWithInlierPoints{});
+        }
 
         pcl::PointCloud<pcl::PointXYZ>::Ptr inlier_cloud = extract_inliers(field_cloud, &inlier_indices);
         Eigen::Vector3f plane_normal = plane_normal_from_coefficients(plane_coefficients);
@@ -139,9 +145,9 @@ namespace auto_battlebot
         cv::Mat result = cv::Mat::zeros(mask.size(), mask.type());
         cv::drawContours(result, contours, static_cast<int>(max_area_idx), cv::Scalar(255), cv::FILLED);
 
-        diagnostics_logger_->debug({{"original_mask_size", std::to_string(mask.rows) + "x" + std::to_string(mask.cols)},
+        diagnostics_logger_->debug({{"original_mask_size", std::to_string(mask.cols) + "x" + std::to_string(mask.rows)},
                                     {"original_contour_area", std::to_string(cv::countNonZero(mask))},
-                                    {"largest_mask_size", std::to_string(result.rows) + "x" + std::to_string(result.cols)},
+                                    {"largest_mask_size", std::to_string(result.cols) + "x" + std::to_string(result.rows)},
                                     {"largest_contour_area", std::to_string(cv::countNonZero(result))}});
 
         return result;
@@ -249,10 +255,18 @@ namespace auto_battlebot
             diagnostics_logger_->debug({{"num_inliers", 0}});
         }
 
-        diagnostics_logger_->debug({{"plane_a", (double)coefficients[0]},
-                                    {"plane_b", (double)coefficients[1]},
-                                    {"plane_c", (double)coefficients[2]},
-                                    {"plane_d", (double)coefficients[3]}});
+        if (coefficients.size() == 4)
+        {
+            diagnostics_logger_->debug({{"plane_a", (double)coefficients[0]},
+                                        {"plane_b", (double)coefficients[1]},
+                                        {"plane_c", (double)coefficients[2]},
+                                        {"plane_d", (double)coefficients[3]}});
+        }
+        else
+        {
+            coefficients = Eigen::Vector4f::Zero();
+        }
+
         return coefficients;
     }
 

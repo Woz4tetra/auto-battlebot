@@ -3,6 +3,8 @@
 
 [rgbd_camera]
 type = "SimRgbdCamera"
+width = 1920
+height = 1080
 
 [field_model]
 type = "DeepLabFieldModel"

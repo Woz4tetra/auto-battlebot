@@ -27,7 +27,7 @@ namespace auto_battlebot
             return std::make_shared<PlaybackTransmitter>(
                 config_cast<PlaybackTransmitterConfiguration>(config));
         }
-        else if (config.type == "PlaybackTransmitter")
+        else if (config.type == "SimTransmitter")
         {
             return std::make_shared<SimTransmitter>(
                 config_cast<SimTransmitterConfiguration>(config));

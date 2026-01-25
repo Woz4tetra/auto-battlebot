@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(gdb) Launch",
+            "name": "(gdb) Launch Playback",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/auto_battlebot",
@@ -15,7 +15,32 @@
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb",
-            "preLaunchTask": "Build auto_battlebot",
+            "preLaunchTask": "Debug build auto_battlebot",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "(gdb) Launch Simulation",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/auto_battlebot",
+            "args": ["-c", "./config/simulation"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "Debug build auto_battlebot",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
