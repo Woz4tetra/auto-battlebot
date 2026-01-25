@@ -5,6 +5,10 @@
 # This script builds the project with testing enabled and runs the test suite.
 # All arguments are passed directly to the Google Test executable.
 #
+# Options:
+#   --valgrind                     Run tests under Valgrind memory analyzer
+#   --help-gtest                   Show GTest options (instead of running tests)
+#
 # Common GTest arguments:
 #   --gtest_filter=PATTERN         Run only tests matching the pattern
 #                                  Examples: --gtest_filter=KeypointTest.*
@@ -20,13 +24,25 @@
 #   ./scripts/build_and_test.sh                                    # Run all tests
 #   ./scripts/build_and_test.sh --gtest_filter=KeypointTest.*      # Run only Keypoint tests
 #   ./scripts/build_and_test.sh --gtest_list_tests                 # List all tests
-#   ./scripts/build_and_test.sh --gtest_filter=*Camera* --gtest_brief=1
+#   ./scripts/build_and_test.sh --valgrind                         # Run all tests under Valgrind
+#   ./scripts/build_and_test.sh --valgrind --gtest_filter=*Camera* # Run Camera tests under Valgrind
 
 set -e  # Exit on error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="${PROJECT_ROOT}/build"
+USE_VALGRIND=false
+
+# Parse script-specific arguments
+GTEST_ARGS=()
+for arg in "$@"; do
+    if [ "$arg" = "--valgrind" ]; then
+        USE_VALGRIND=true
+    else
+        GTEST_ARGS+=("$arg")
+    fi
+done
 
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
 build_cpp_project --test
@@ -54,11 +70,23 @@ if [ ! -f "$TEST_EXECUTABLE" ]; then
 fi
 
 # Run the tests
-echo -e "${YELLOW}Running data structures tests...${NC}"
-echo "========================================"
+if [ "$USE_VALGRIND" = true ]; then
+    echo -e "${YELLOW}Running tests under Valgrind (memory analysis)...${NC}"
+    echo "========================================"
+else
+    echo -e "${YELLOW}Running data structures tests...${NC}"
+    echo "========================================"
+fi
 cd "$BUILD_DIR"
 
-if "$TEST_EXECUTABLE" "$@"; then
+# Build the command
+if [ "$USE_VALGRIND" = true ]; then
+    TEST_CMD="valgrind --suppressions=${PROJECT_ROOT}/valgrind.supp --leak-check=full $TEST_EXECUTABLE"
+else
+    TEST_CMD="$TEST_EXECUTABLE"
+fi
+
+if $TEST_CMD "${GTEST_ARGS[@]}"; then
     echo ""
     echo -e "${GREEN}✓ All tests passed!${NC}"
     exit 0

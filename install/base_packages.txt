@@ -16,3 +16,4 @@ unzip
 wget
 libpcl-dev
 libffi-dev
+valgrind

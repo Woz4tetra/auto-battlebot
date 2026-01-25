@@ -1,0 +1,23 @@
+# Suppress OpenCV internal allocations
+{
+   opencv_mat_alloc
+   Memcheck:Leak
+   ...
+   fun:*cv*Mat*
+}
+
+# Suppress libtorch allocations
+{
+   torch_allocator
+   Memcheck:Leak
+   ...
+   fun:*c10*Allocator*
+}
+
+# Suppress ZED SDK known leaks and false positives
+{
+   zed_sdk_leak
+   Memcheck:Leak
+   ...
+   obj:*libsl_zed*
+}
