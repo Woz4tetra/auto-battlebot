@@ -881,7 +881,7 @@ Implement a shared memory reader in C# that reads velocity commands from the C++
 
 ---
 
-### SIM-004: Implement Synchronization Socket for Frame Timing
+### ✅️ SIM-004: Implement Synchronization Socket for Frame Timing
 
 **Sprint:** 1  
 **Estimate:** 3 points  

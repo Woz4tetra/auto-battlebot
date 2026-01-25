@@ -1,7 +1,7 @@
 ﻿<Solution>
   <Project Path="AutoBattlebot.Robots.csproj" />
-  <Project Path="AutoBattlebot.Tests.Editor.csproj" />
   <Project Path="AutoBattlebot.Communication.csproj" />
+  <Project Path="AutoBattlebot.Tests.Editor.csproj" />
   <Project Path="AutoBattlebot.DataGeneration.csproj" />
   <Project Path="AutoBattlebot.Configuration.csproj" />
   <Project Path="AutoBattlebot.Core.csproj" />

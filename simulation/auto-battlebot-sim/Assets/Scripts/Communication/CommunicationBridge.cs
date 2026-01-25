@@ -13,6 +13,7 @@ namespace AutoBattlebot.Communication
     /// 
     /// - Writes: RGB, depth, and pose data to C++ (via SharedMemoryWriter)
     /// - Reads: Velocity commands from C++ (via SharedMemoryReader)
+    /// - Sync: Frame timing coordination (via SyncSocket)
     /// 
     /// Script Execution Order: -100
     /// </summary>
@@ -51,6 +52,27 @@ namespace AutoBattlebot.Communication
         [Tooltip("Maximum allowed angular velocity in rad/s")]
         private double _maxAngularVelocity = VelocityCommand.DEFAULT_MAX_ANGULAR_VELOCITY;
 
+        [Header("Synchronization Settings")]
+        [SerializeField]
+        [Tooltip("Enable synchronization socket for frame timing")]
+        private bool _enableSyncSocket = true;
+
+        [SerializeField]
+        [Tooltip("Synchronization mode")]
+        private SyncMode _syncMode = SyncMode.Lockstep;
+
+        [SerializeField]
+        [Tooltip("Socket path for Unix domain sockets (Linux)")]
+        private string _socketPath = SyncSocket.DEFAULT_SOCKET_PATH;
+
+        [SerializeField]
+        [Tooltip("TCP port for Windows fallback")]
+        private int _tcpPort = SyncSocket.DEFAULT_TCP_PORT;
+
+        [SerializeField]
+        [Tooltip("Timeout for synchronization operations in milliseconds")]
+        private int _syncTimeoutMs = SyncSocket.DEFAULT_TIMEOUT_MS;
+
         [Header("Diagnostics")]
         [SerializeField]
         [Tooltip("Log performance metrics periodically")]
@@ -66,9 +88,11 @@ namespace AutoBattlebot.Communication
 
         private SharedMemoryWriter _frameWriter;
         private SharedMemoryReader _commandReader;
+        private SyncSocket _syncSocket;
         private bool _isActive = false;
         private float _lastMetricsLogTime = 0f;
         private VelocityCommand _currentCommand = VelocityCommand.Zero;
+        private ulong _frameId = 0;
 
         #endregion
 
@@ -85,14 +109,29 @@ namespace AutoBattlebot.Communication
         public SharedMemoryReader CommandReader => _commandReader;
 
         /// <summary>
+        /// The synchronization socket for frame timing.
+        /// </summary>
+        public SyncSocket SyncSocket => _syncSocket;
+
+        /// <summary>
         /// Whether the communication bridge is active and ready.
         /// </summary>
         public bool IsActive => _isActive;
 
         /// <summary>
+        /// Whether the sync socket is connected to C++.
+        /// </summary>
+        public bool IsSyncConnected => _syncSocket?.IsConnected ?? false;
+
+        /// <summary>
         /// The most recent valid velocity command received.
         /// </summary>
         public VelocityCommand CurrentCommand => _currentCommand;
+
+        /// <summary>
+        /// Current frame ID (incremented each WriteFrame call).
+        /// </summary>
+        public ulong FrameId => _frameId;
 
         #endregion
 
@@ -102,6 +141,16 @@ namespace AutoBattlebot.Communication
         /// Fired when a new velocity command is received from C++.
         /// </summary>
         public event System.Action<VelocityCommand> OnCommandReceived;
+
+        /// <summary>
+        /// Fired when the sync socket connects.
+        /// </summary>
+        public event System.Action OnSyncConnected;
+
+        /// <summary>
+        /// Fired when the sync socket disconnects.
+        /// </summary>
+        public event System.Action OnSyncDisconnected;
 
         #endregion
 
@@ -118,12 +167,13 @@ namespace AutoBattlebot.Communication
                 return;
             }
 
-            Debug.Log("[CommunicationBridge] Initializing shared memory communication...");
+            Debug.Log("[CommunicationBridge] Initializing communication...");
 
             bool writerOk = InitializeFrameWriter();
             bool readerOk = InitializeCommandReader();
+            bool syncOk = InitializeSyncSocket();
 
-            if (writerOk && readerOk)
+            if (writerOk && readerOk && (_enableSyncSocket ? syncOk : true))
             {
                 _isActive = true;
                 Debug.Log("[CommunicationBridge] Communication bridge ready");
@@ -140,15 +190,11 @@ namespace AutoBattlebot.Communication
 
             if (_logPerformanceMetrics)
             {
-                if (_frameWriter != null)
-                {
-                    Debug.Log(_frameWriter.GetPerformanceReport());
-                }
-                if (_commandReader != null)
-                {
-                    Debug.Log(_commandReader.GetPerformanceReport());
-                }
+                LogAllPerformanceMetrics();
             }
+
+            _syncSocket?.Dispose();
+            _syncSocket = null;
 
             _frameWriter?.Dispose();
             _frameWriter = null;
@@ -170,22 +216,19 @@ namespace AutoBattlebot.Communication
                 return;
             }
 
-            // Poll for new commands
-            PollCommands();
+            // In free-running mode, poll for commands
+            // In lockstep mode, commands are read after frame sync
+            if (_syncMode == SyncMode.FreeRunning || !_enableSyncSocket)
+            {
+                PollCommands();
+            }
 
             // Log performance metrics periodically if enabled
             if (_logPerformanceMetrics)
             {
                 if (Time.time - _lastMetricsLogTime >= _metricsLogInterval)
                 {
-                    if (_frameWriter != null)
-                    {
-                        Debug.Log(_frameWriter.GetPerformanceReport());
-                    }
-                    if (_commandReader != null)
-                    {
-                        Debug.Log(_commandReader.GetPerformanceReport());
-                    }
+                    LogAllPerformanceMetrics();
                     _lastMetricsLogTime = Time.time;
                 }
             }
@@ -194,6 +237,9 @@ namespace AutoBattlebot.Communication
         private void OnDestroy()
         {
             // Ensure cleanup if not already done
+            _syncSocket?.Dispose();
+            _syncSocket = null;
+
             _frameWriter?.Dispose();
             _frameWriter = null;
 
@@ -206,12 +252,13 @@ namespace AutoBattlebot.Communication
         #region Public Methods
 
         /// <summary>
-        /// Writes a frame to shared memory.
+        /// Writes a frame to shared memory and signals C++ if sync is enabled.
+        /// In lockstep mode, blocks until C++ responds with command-ready.
         /// </summary>
         /// <param name="rgbTexture">RGB texture to write.</param>
         /// <param name="depthTexture">Depth texture to write.</param>
         /// <param name="cameraPose">Camera pose matrix.</param>
-        /// <returns>True if write was successful.</returns>
+        /// <returns>True if write (and sync if enabled) was successful.</returns>
         public bool WriteFrame(Texture2D rgbTexture, Texture2D depthTexture, Matrix4x4 cameraPose)
         {
             if (!_isActive || _frameWriter == null)
@@ -219,16 +266,24 @@ namespace AutoBattlebot.Communication
                 return false;
             }
 
-            return _frameWriter.WriteFrame(rgbTexture, depthTexture, cameraPose, Time.timeAsDouble);
+            bool writeOk = _frameWriter.WriteFrame(rgbTexture, depthTexture, cameraPose, Time.timeAsDouble);
+            if (!writeOk)
+            {
+                return false;
+            }
+
+            _frameId++;
+            return SignalAndSync();
         }
 
         /// <summary>
         /// Writes a frame to shared memory using raw data arrays.
+        /// In lockstep mode, blocks until C++ responds with command-ready.
         /// </summary>
         /// <param name="rgbData">BGR image data.</param>
         /// <param name="depthData">Depth data as float array.</param>
         /// <param name="poseMatrix">Pose matrix as double array.</param>
-        /// <returns>True if write was successful.</returns>
+        /// <returns>True if write (and sync if enabled) was successful.</returns>
         public bool WriteFrame(byte[] rgbData, float[] depthData, double[] poseMatrix)
         {
             if (!_isActive || _frameWriter == null)
@@ -236,7 +291,14 @@ namespace AutoBattlebot.Communication
                 return false;
             }
 
-            return _frameWriter.WriteFrame(rgbData, depthData, poseMatrix, Time.timeAsDouble);
+            bool writeOk = _frameWriter.WriteFrame(rgbData, depthData, poseMatrix, Time.timeAsDouble);
+            if (!writeOk)
+            {
+                return false;
+            }
+
+            _frameId++;
+            return SignalAndSync();
         }
 
         /// <summary>
@@ -256,6 +318,35 @@ namespace AutoBattlebot.Communication
             }
 
             return _commandReader.TryReadCommand(out command, out isNewCommand);
+        }
+
+        /// <summary>
+        /// Manually signals frame ready without writing new frame data.
+        /// Useful for synchronization testing.
+        /// </summary>
+        /// <returns>True if signal was successful.</returns>
+        public bool SignalFrameReady()
+        {
+            if (!_enableSyncSocket || _syncSocket == null)
+            {
+                return true;  // No sync required
+            }
+
+            return _syncSocket.SignalFrameReady(_frameId);
+        }
+
+        /// <summary>
+        /// Attempts to reconnect the sync socket.
+        /// </summary>
+        /// <returns>True if reconnection was successful or not needed.</returns>
+        public bool TryReconnectSync()
+        {
+            if (!_enableSyncSocket || _syncSocket == null)
+            {
+                return true;
+            }
+
+            return _syncSocket.TryReconnect();
         }
 
         #endregion
@@ -296,6 +387,66 @@ namespace AutoBattlebot.Communication
             return true;
         }
 
+        private bool InitializeSyncSocket()
+        {
+            if (!_enableSyncSocket)
+            {
+                Debug.Log("[CommunicationBridge] Sync socket disabled");
+                return true;
+            }
+
+            _syncSocket = new SyncSocket(
+                isServer: true,
+                mode: _syncMode,
+                socketPath: _socketPath,
+                tcpPort: _tcpPort,
+                timeoutMs: _syncTimeoutMs);
+
+            // Subscribe to events
+            _syncSocket.OnConnected += HandleSyncConnected;
+            _syncSocket.OnDisconnected += HandleSyncDisconnected;
+            _syncSocket.OnCommandReady += HandleCommandReady;
+
+            if (!_syncSocket.Initialize())
+            {
+                Debug.LogError("[CommunicationBridge] Failed to initialize sync socket");
+                return false;
+            }
+
+            Debug.Log($"[CommunicationBridge] Sync socket initialized (mode: {_syncMode})");
+            return true;
+        }
+
+        private bool SignalAndSync()
+        {
+            if (!_enableSyncSocket || _syncSocket == null)
+            {
+                return true;  // No sync required
+            }
+
+            if (!_syncSocket.IsConnected)
+            {
+                // In free-running mode, continue even without sync
+                if (_syncMode == SyncMode.FreeRunning)
+                {
+                    return true;
+                }
+                // In lockstep mode, we can't proceed without connection
+                Debug.LogWarning("[CommunicationBridge] Sync socket not connected, cannot signal frame ready");
+                return false;
+            }
+
+            bool signalOk = _syncSocket.SignalFrameReady(_frameId);
+
+            // In lockstep mode, command was received during SignalFrameReady
+            if (signalOk && _syncMode == SyncMode.Lockstep)
+            {
+                PollCommands();
+            }
+
+            return signalOk;
+        }
+
         private void PollCommands()
         {
             if (_commandReader == null)
@@ -310,6 +461,40 @@ namespace AutoBattlebot.Communication
                     _currentCommand = command;
                     OnCommandReceived?.Invoke(command);
                 }
+            }
+        }
+
+        private void HandleSyncConnected()
+        {
+            Debug.Log("[CommunicationBridge] C++ application connected");
+            OnSyncConnected?.Invoke();
+        }
+
+        private void HandleSyncDisconnected()
+        {
+            Debug.LogWarning("[CommunicationBridge] C++ application disconnected");
+            OnSyncDisconnected?.Invoke();
+        }
+
+        private void HandleCommandReady()
+        {
+            // In lockstep mode, this is called after each frame sync
+            // Commands are polled immediately
+        }
+
+        private void LogAllPerformanceMetrics()
+        {
+            if (_frameWriter != null)
+            {
+                Debug.Log(_frameWriter.GetPerformanceReport());
+            }
+            if (_commandReader != null)
+            {
+                Debug.Log(_commandReader.GetPerformanceReport());
+            }
+            if (_syncSocket != null)
+            {
+                Debug.Log(_syncSocket.GetPerformanceReport());
             }
         }
 
