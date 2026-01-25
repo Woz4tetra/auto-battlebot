@@ -57,6 +57,24 @@ namespace auto_battlebot
         // clang-format on
     };
 
+    struct SimRgbdCameraConfiguration : public RgbdCameraConfiguration
+    {
+        int width = 1280;
+        int height = 720;
+
+        SimRgbdCameraConfiguration()
+        {
+            type = "SimRgbdCamera";
+        }
+
+        // clang-format off
+        PARSE_CONFIG_FIELDS(
+            PARSE_FIELD(width)
+            PARSE_FIELD(height)
+        )
+        // clang-format on
+    };
+
     std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfiguration &config);
     std::unique_ptr<RgbdCameraConfiguration> parse_rgbd_camera_config(ConfigParser &parser);
 } // namespace auto_battlebot

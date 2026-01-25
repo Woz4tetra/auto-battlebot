@@ -8,6 +8,7 @@ namespace AutoBattlebot.Communication
     /// <summary>
     /// Header structure for shared memory frame data.
     /// Total size: 64 bytes (aligned for optimal memory access)
+    /// Ensure the data layout matches include/shared_memory/simulation/simulation_frame_header.hpp
     /// 
     /// This struct must match the C++ side exactly for binary compatibility.
     /// </summary>

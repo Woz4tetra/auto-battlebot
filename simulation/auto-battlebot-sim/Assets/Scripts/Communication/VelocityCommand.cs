@@ -8,6 +8,7 @@ namespace AutoBattlebot.Communication
     /// <summary>
     /// Velocity command structure received from the C++ application.
     /// Total size: 32 bytes (fixed-size for efficient IPC)
+    /// Ensure the data layout matches include/shared_memory/simulation/simulation_velocity_command.hpp
     /// 
     /// This struct must match the C++ side exactly for binary compatibility.
     /// </summary>
