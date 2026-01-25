@@ -143,6 +143,12 @@ namespace AutoBattlebot.Core
             }
 
             _instance = this;
+
+            // Ensure we're a root GameObject before calling DontDestroyOnLoad
+            if (transform.parent != null)
+            {
+                transform.SetParent(null);
+            }
             DontDestroyOnLoad(gameObject);
 
             // Configure frame rate

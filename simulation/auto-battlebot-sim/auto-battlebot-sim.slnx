@@ -5,6 +5,7 @@
   <Project Path="AutoBattlebot.Configuration.csproj" />
   <Project Path="AutoBattlebot.Core.csproj" />
   <Project Path="AutoBattlebot.AI.csproj" />
+  <Project Path="AutoBattlebot.Tests.Editor.csproj" />
   <Project Path="AutoBattlebot.Camera.csproj" />
   <Project Path="AutoBattlebot.Arena.csproj" />
 </Solution>

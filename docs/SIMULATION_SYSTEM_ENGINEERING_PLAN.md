@@ -754,7 +754,7 @@ digraph DomainRandomization {
 
 ---
 
-### SIM-001: Create Unity Project Structure and Script Execution Framework
+### ✅️ SIM-001: Create Unity Project Structure and Script Execution Framework
 
 **Sprint:** 1  
 **Estimate:** 3 points  
@@ -2381,6 +2381,14 @@ Create comprehensive documentation for developers working with the simulation sy
 | Ground Truth | Correct annotations used for training/evaluation (vs. predictions) |
 | Instance Segmentation | Per-pixel labeling that distinguishes individual object instances |
 | Keypoint Detection | Locating specific semantic points on objects (e.g., wheel centers) |
+
+## Appendix D: AI code generation rules
+
+Don't AI generate code for the C++ code without understand every line.
+The preferred method, if generation is used, is to rewrite the generated code once you 
+understand the methodology.
+
+The AI should not generate .meta files. These are auto generated.
 
 ---
 
