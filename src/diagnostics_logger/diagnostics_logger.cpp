@@ -5,6 +5,7 @@ namespace auto_battlebot
     // Static member definitions
     std::map<std::string, std::shared_ptr<DiagnosticsModuleLogger>> DiagnosticsLogger::loggers_;
     std::shared_ptr<miniros::Publisher> DiagnosticsLogger::diagnostics_publisher_;
+    bool DiagnosticsLogger::test_mode_ = false;
 
     void DiagnosticsLogger::initialize(
         std::shared_ptr<miniros::Publisher> publisher)
@@ -81,8 +82,11 @@ namespace auto_battlebot
         // Add all statuses
         diagnostics.status = statuses;
 
-        // Publish
-        diagnostics_publisher_->publish(diagnostics);
+        // Publish (skip in test mode to avoid needing a real ROS publisher)
+        if (!test_mode_)
+        {
+            diagnostics_publisher_->publish(diagnostics);
+        }
     }
 
 } // namespace auto_battlebot

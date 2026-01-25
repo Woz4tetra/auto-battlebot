@@ -79,15 +79,4 @@ namespace auto_battlebot
         ::close(fd_);
         fd_ = -1;
     }
-
-    template <typename T>
-    void SharedMemoryWriter::write_at(size_t offset, const T &value)
-    {
-        std::memcpy(data_ + offset, &value, sizeof(T));
-    }
-
-    void SharedMemoryWriter::write_bytes(size_t offset, const std::byte *src, size_t len)
-    {
-        std::memcpy(data_ + offset, src, len);
-    }
 } // namespace auto_battlebot

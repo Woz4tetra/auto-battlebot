@@ -18,9 +18,15 @@ namespace auto_battlebot
         bool is_open() const { return data_ != nullptr; }
 
         template <typename T>
-        void write_at(size_t offset, const T &value);
+        void write_at(size_t offset, const T &value)
+        {
+            std::memcpy(data_ + offset, &value, sizeof(T));
+        }
 
-        void write_bytes(size_t offset, const std::byte *src, size_t len);
+        void write_bytes(size_t offset, const std::byte *src, size_t len)
+        {
+            std::memcpy(data_ + offset, src, len);
+        }
 
     private:
         std::string name_;

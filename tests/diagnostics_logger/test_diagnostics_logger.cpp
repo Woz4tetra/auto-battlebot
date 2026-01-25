@@ -10,6 +10,9 @@ namespace auto_battlebot
         {
             miniros::Time::init();
 
+            // Enable test mode to skip actual ROS publishing
+            TestDiagnosticsLogger::enable_test_mode();
+
             // Create a mock publisher (casted to the base type for DiagnosticsLogger)
             mock_publisher_ = std::make_shared<MockPublisher>();
         }

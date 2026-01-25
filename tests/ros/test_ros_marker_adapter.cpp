@@ -105,31 +105,52 @@ namespace auto_battlebot
     }
 
     // Test robot markers conversion
+    // Each robot generates 3 markers: cube (bounds), arrow (pose), text (label)
     TEST_F(RosMarkerAdapterTest, RobotMarkersConversion)
     {
         auto markers = ros_adapters::to_ros_robot_markers(robots);
 
-        EXPECT_EQ(markers.size(), 2);
+        // 2 robots * 3 markers each = 6 markers
+        EXPECT_EQ(markers.size(), 6);
 
-        // Check first robot (ours - blue)
-        EXPECT_EQ(markers[0].ns, "robots");
+        // Check first robot's cube marker (bounds)
+        EXPECT_EQ(markers[0].ns, "robot_bounds");
         EXPECT_EQ(markers[0].id, 0);
         EXPECT_EQ(markers[0].type, visualization_msgs::Marker::CUBE);
         EXPECT_DOUBLE_EQ(markers[0].pose.position.x, 1.0);
         EXPECT_DOUBLE_EQ(markers[0].pose.position.y, 2.0);
         EXPECT_DOUBLE_EQ(markers[0].pose.position.z, 0.5);
-        EXPECT_FLOAT_EQ(markers[0].color.r, 0.0f);
-        EXPECT_FLOAT_EQ(markers[0].color.g, 0.0f);
-        EXPECT_FLOAT_EQ(markers[0].color.b, 1.0f); // Blue for our team
+        // Color is determined by label via get_color_for_label()
+        EXPECT_GT(markers[0].color.a, 0.0f);  // Has some alpha
 
-        // Check second robot (theirs - red)
-        EXPECT_EQ(markers[1].ns, "robots");
+        // Check first robot's arrow marker (pose)
+        EXPECT_EQ(markers[1].ns, "robot_poses");
         EXPECT_EQ(markers[1].id, 1);
-        EXPECT_DOUBLE_EQ(markers[1].pose.position.x, -1.0);
-        EXPECT_DOUBLE_EQ(markers[1].pose.position.y, -2.0);
-        EXPECT_FLOAT_EQ(markers[1].color.r, 1.0f); // Red for opponent
-        EXPECT_FLOAT_EQ(markers[1].color.g, 0.0f);
-        EXPECT_FLOAT_EQ(markers[1].color.b, 0.0f);
+        EXPECT_EQ(markers[1].type, visualization_msgs::Marker::ARROW);
+        EXPECT_DOUBLE_EQ(markers[1].pose.position.x, 1.0);
+        EXPECT_DOUBLE_EQ(markers[1].pose.position.y, 2.0);
+
+        // Check first robot's text marker (label)
+        EXPECT_EQ(markers[2].ns, "robot_labels");
+        EXPECT_EQ(markers[2].id, 2);
+        EXPECT_EQ(markers[2].type, visualization_msgs::Marker::TEXT_VIEW_FACING);
+
+        // Check second robot's cube marker (bounds)
+        EXPECT_EQ(markers[3].ns, "robot_bounds");
+        EXPECT_EQ(markers[3].id, 3);
+        EXPECT_EQ(markers[3].type, visualization_msgs::Marker::CUBE);
+        EXPECT_DOUBLE_EQ(markers[3].pose.position.x, -1.0);
+        EXPECT_DOUBLE_EQ(markers[3].pose.position.y, -2.0);
+
+        // Check second robot's arrow marker (pose)
+        EXPECT_EQ(markers[4].ns, "robot_poses");
+        EXPECT_EQ(markers[4].id, 4);
+        EXPECT_EQ(markers[4].type, visualization_msgs::Marker::ARROW);
+
+        // Check second robot's text marker (label)
+        EXPECT_EQ(markers[5].ns, "robot_labels");
+        EXPECT_EQ(markers[5].id, 5);
+        EXPECT_EQ(markers[5].type, visualization_msgs::Marker::TEXT_VIEW_FACING);
     }
 
     // Test empty robots

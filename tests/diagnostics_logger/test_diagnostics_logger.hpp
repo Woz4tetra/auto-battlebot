@@ -64,6 +64,18 @@ namespace auto_battlebot
         {
             loggers_.clear();
             diagnostics_publisher_.reset();
+            test_mode_ = false;
+        }
+
+        /**
+         * @brief Enable test mode to skip actual ROS publishing
+         *
+         * Call this before initialize() in tests to avoid needing
+         * a real ROS publisher.
+         */
+        static void enable_test_mode()
+        {
+            test_mode_ = true;
         }
     };
 

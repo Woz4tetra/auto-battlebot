@@ -83,6 +83,7 @@ namespace auto_battlebot
     protected:
         static std::map<std::string, std::shared_ptr<DiagnosticsModuleLogger>> loggers_;
         static std::shared_ptr<miniros::Publisher> diagnostics_publisher_;
+        static bool test_mode_;  // When true, skip actual ROS publish
     };
 
 } // namespace auto_battlebot
