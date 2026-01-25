@@ -2,8 +2,8 @@
 
 namespace auto_battlebot
 {
-    PlaybackTransmitter::PlaybackTransmitter(double init_delay_seconds)
-        : init_delay_seconds_(init_delay_seconds),
+    PlaybackTransmitter::PlaybackTransmitter(PlaybackTransmitterConfiguration &config)
+        : init_delay_seconds_(config.init_delay_seconds),
           initialized_(false),
           start_time_(),
           init_button_pressed_(false),

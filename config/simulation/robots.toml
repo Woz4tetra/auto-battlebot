@@ -1,0 +1,10 @@
+# Example robot configuration for auto_battlebot
+# Define the robots participating in the battle
+
+[[robots]]
+label = "MR_STABS_MK1"
+group = "OURS"
+
+[[robots]]
+label = "OPPONENT"
+group = "THEIRS"

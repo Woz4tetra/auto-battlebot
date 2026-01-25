@@ -8,7 +8,7 @@
 namespace auto_battlebot
 {
 #pragma pack(push, 1) // ensures there's no bit padding in memory
-    struct FrameHeader
+    struct SimulationFrameHeader
     {
         uint64_t frame_id;       // 8 bytes (offset 0)
         double timestamp;        // 8 bytes (offset 8)
@@ -38,6 +38,6 @@ namespace auto_battlebot
         size_t rgb_size = expected_width * expected_height * 3;
         size_t depth_size = expected_width * expected_height * sizeof(float);
         size_t pose_size = 128; // 4x4 double matrix
-        return FrameHeader::SIZE + rgb_size + depth_size + pose_size;
+        return SimulationFrameHeader::SIZE + rgb_size + depth_size + pose_size;
     }
 }

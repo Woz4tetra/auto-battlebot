@@ -25,12 +25,12 @@ namespace auto_battlebot
             int rgb_size = width_ * height_ * 3;
             int depth_size = width_ * height_ * sizeof(float);
 
-            FrameHeader header{};
+            SimulationFrameHeader header{};
             header.frame_id = frame_id;
             header.timestamp = timestamp;
             header.width = width_;
             header.height = height_;
-            header.rgb_offset = FrameHeader::SIZE;  // RGB starts after header
+            header.rgb_offset = SimulationFrameHeader::SIZE;  // RGB starts after header
             header.depth_offset = header.rgb_offset + rgb_size;
             header.pose_offset = header.depth_offset + depth_size;
             header.active_buffer = 0;  // Not using double buffering in test

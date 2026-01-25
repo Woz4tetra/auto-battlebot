@@ -6,5 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="${PROJECT_ROOT}/build"
 
+# Launch roscore
+${SCRIPT_DIR}/run_ros_connector.sh
+
 # Run the executable with any additional arguments passed to this script
 ${BUILD_DIR}/auto_battlebot "$@"

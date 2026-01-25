@@ -1,6 +1,7 @@
 #pragma once
 
 #include "transmitter/transmitter_interface.hpp"
+#include "transmitter/config.hpp"
 #include <chrono>
 
 namespace auto_battlebot
@@ -8,7 +9,7 @@ namespace auto_battlebot
     class PlaybackTransmitter : public TransmitterInterface
     {
     public:
-        PlaybackTransmitter(double init_delay_seconds = 0.0);
+        PlaybackTransmitter(PlaybackTransmitterConfiguration &config);
 
         bool initialize() override;
         CommandFeedback update() override;

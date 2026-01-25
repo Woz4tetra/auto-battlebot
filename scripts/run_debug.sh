@@ -25,5 +25,8 @@ echo -e "${YELLOW}Running auto_battlebot in debug mode...${NC}"
 echo "========================================"
 echo ""
 
+# Launch roscore
+${SCRIPT_DIR}/run_ros_connector.sh
+
 # Run the executable with any additional arguments passed to this script
 ${BUILD_DIR}/auto_battlebot "$@"

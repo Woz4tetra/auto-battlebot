@@ -2,9 +2,10 @@
 
 namespace auto_battlebot
 {
-    SimRgbdCamera::SimRgbdCamera(SimRgbdCameraConfiguration &config) : expected_width_(config.width),
-                                                                       expected_height_(config.height),
-                                                                       enable_double_buffering_(config.enable_double_buffering)
+    SimRgbdCamera::SimRgbdCamera(SimRgbdCameraConfiguration &config)
+        : expected_width_(config.width),
+          expected_height_(config.height),
+          enable_double_buffering_(config.enable_double_buffering)
     {
         buffer_size_ = get_simulation_frame_size(expected_width_, expected_height_);
 
@@ -31,7 +32,7 @@ namespace auto_battlebot
     {
         data = CameraData();
 
-        const auto *frame_header = frame_reader_->read_at<FrameHeader>(0);
+        const auto *frame_header = frame_reader_->read_at<SimulationFrameHeader>(0);
         double stamp = frame_header->timestamp;
 
         Header header;
@@ -49,7 +50,7 @@ namespace auto_battlebot
                                 : 0;
         }
 
-        const auto *active_header = frame_reader_->read_at<FrameHeader>(buffer_offset);
+        const auto *active_header = frame_reader_->read_at<SimulationFrameHeader>(buffer_offset);
 
         // Parse color image (cv::Mat takes rows, cols = height, width)
         const uint8_t *rgb = frame_reader_->read_at<uint8_t>(buffer_offset + active_header->rgb_offset);

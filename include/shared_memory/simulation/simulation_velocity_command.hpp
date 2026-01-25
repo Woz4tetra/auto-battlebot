@@ -8,7 +8,7 @@
 namespace auto_battlebot
 {
 #pragma pack(push, 1) // ensures there's no bit padding in memory
-    struct VelocityCommand
+    struct SimulationVelocityCommand
     {
         uint64_t command_id;
         double linear_x;

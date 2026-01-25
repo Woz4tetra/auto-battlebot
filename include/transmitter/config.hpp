@@ -4,6 +4,7 @@
 #include "transmitter/transmitter_interface.hpp"
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
+#include "config/config_cast.hpp"
 
 namespace auto_battlebot
 {
@@ -37,6 +38,22 @@ namespace auto_battlebot
 
         PARSE_CONFIG_FIELDS(
             PARSE_FIELD_DOUBLE(init_delay_seconds))
+    };
+
+    struct SimTransmitterConfiguration : public TransmitterConfiguration
+    {
+        bool enable_double_buffering = true;
+
+        SimTransmitterConfiguration()
+        {
+            type = "SimTransmitter";
+        }
+
+        // clang-format off
+        PARSE_CONFIG_FIELDS(
+            PARSE_FIELD_BOOL(enable_double_buffering)
+        )
+        // clang-format on
     };
 
     std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config);

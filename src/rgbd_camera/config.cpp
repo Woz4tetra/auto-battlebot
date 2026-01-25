@@ -1,12 +1,14 @@
 #include "rgbd_camera/config.hpp"
 #include "rgbd_camera/noop_rgbd_camera.hpp"
 #include "rgbd_camera/zed_rgbd_camera.hpp"
+#include "rgbd_camera/sim_rgbd_camera.hpp"
 
 namespace auto_battlebot
 {
     // Automatic registration of config types
     REGISTER_CONFIG(RgbdCameraConfiguration, NoopRgbdCameraConfiguration, "NoopRgbdCamera")
     REGISTER_CONFIG(RgbdCameraConfiguration, ZedRgbdCameraConfiguration, "ZedRgbdCamera")
+    REGISTER_CONFIG(RgbdCameraConfiguration, SimRgbdCameraConfiguration, "SimRgbdCamera")
 
     std::unique_ptr<RgbdCameraConfiguration> parse_rgbd_camera_config(ConfigParser &parser)
     {
@@ -24,6 +26,11 @@ namespace auto_battlebot
         {
             return std::make_shared<ZedRgbdCamera>(
                 config_cast<ZedRgbdCameraConfiguration>(config));
+        }
+        else if (config.type == "SimRgbdCamera")
+        {
+            return std::make_shared<SimRgbdCamera>(
+                config_cast<SimRgbdCameraConfiguration>(config));
         }
         throw std::invalid_argument("Failed to load RgbdCamera of type " + config.type);
     }
