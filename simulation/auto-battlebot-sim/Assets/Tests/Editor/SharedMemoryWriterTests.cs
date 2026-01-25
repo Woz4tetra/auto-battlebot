@@ -89,13 +89,13 @@ namespace AutoBattlebot.Tests.Editor
             Assert.IsTrue(_writer.Initialize());
 
             // Expected sizes:
-            // Header: 64 bytes
+            // Header: 128 bytes
             // RGB: 64 * 48 * 3 = 9,216 bytes
             // Depth: 64 * 48 * 4 = 12,288 bytes
             // Pose: 128 bytes (16 doubles × 8 bytes)
-            // Total single buffer: 64 + 9,216 + 12,288 + 128 = 21,696 bytes
+            // Total single buffer: 128 + 9,216 + 12,288 + 128 = 21,760 bytes
             int expectedSize = FrameHeader.CalculateTotalSize(TEST_WIDTH, TEST_HEIGHT);
-            Assert.AreEqual(21696, expectedSize, "Total frame size calculation should match expected");
+            Assert.AreEqual(21760, expectedSize, "Total frame size calculation should match expected");
         }
 
         #endregion
@@ -425,15 +425,96 @@ namespace AutoBattlebot.Tests.Editor
         #region FrameHeader Tests
 
         [Test]
-        public void FrameHeader_Size_Is64Bytes()
+        public void FrameHeader_Size_Is128Bytes()
         {
-            Assert.AreEqual(64, FrameHeader.SIZE, "FrameHeader.SIZE should be 64 bytes");
+            Assert.AreEqual(128, FrameHeader.SIZE, "FrameHeader.SIZE should be 128 bytes");
         }
 
         [Test]
         public void FrameHeader_PoseSize_Is128Bytes()
         {
             Assert.AreEqual(128, FrameHeader.POSE_SIZE, "FrameHeader.POSE_SIZE should be 128 bytes (16 doubles)");
+        }
+
+        [Test]
+        public void FrameHeader_Create_SetsDefaultIntrinsics()
+        {
+            // Arrange & Act
+            var header = FrameHeader.Create(1280, 720);
+
+            // Assert - default intrinsics based on ~90° FOV
+            Assert.AreEqual(640.0, header.Fx, 0.001, "Default Fx should be width/2");
+            Assert.AreEqual(640.0, header.Fy, 0.001, "Default Fy should be width/2");
+            Assert.AreEqual(640.0, header.Cx, 0.001, "Default Cx should be width/2");
+            Assert.AreEqual(360.0, header.Cy, 0.001, "Default Cy should be height/2");
+        }
+
+        [Test]
+        public void FrameHeader_Create_WithIntrinsics_SetsCorrectValues()
+        {
+            // Arrange & Act
+            var header = FrameHeader.Create(1280, 720, 500.0, 500.0, 640.0, 360.0);
+
+            // Assert
+            Assert.AreEqual(500.0, header.Fx, 0.001);
+            Assert.AreEqual(500.0, header.Fy, 0.001);
+            Assert.AreEqual(640.0, header.Cx, 0.001);
+            Assert.AreEqual(360.0, header.Cy, 0.001);
+        }
+
+        [Test]
+        public void FrameHeader_CreateFromFov_CalculatesCorrectIntrinsics()
+        {
+            // Arrange - 60° vertical FOV on 1080p
+            int width = 1920;
+            int height = 1080;
+            float fov = 60.0f;
+
+            // Act
+            var header = FrameHeader.CreateFromFov(width, height, fov);
+
+            // Assert
+            // fy = height / (2 * tan(fov/2)) = 1080 / (2 * tan(30°)) = 1080 / 1.1547 ≈ 935.3
+            double expectedFy = height / (2.0 * System.Math.Tan(fov * System.Math.PI / 360.0));
+            Assert.AreEqual(expectedFy, header.Fy, 0.1, "Fy should be calculated from FOV");
+            Assert.AreEqual(expectedFy, header.Fx, 0.1, "Fx should equal Fy (square pixels)");
+            Assert.AreEqual(width / 2.0, header.Cx, 0.001, "Cx should be image center");
+            Assert.AreEqual(height / 2.0, header.Cy, 0.001, "Cy should be image center");
+        }
+
+        [Test]
+        public void FrameHeader_Create_SetsZeroDistortionByDefault()
+        {
+            // Arrange & Act
+            var header = FrameHeader.Create(1280, 720);
+
+            // Assert - default should have no distortion
+            Assert.AreEqual(0.0, header.K1, 0.0001, "K1 should be 0 by default");
+            Assert.AreEqual(0.0, header.K2, 0.0001, "K2 should be 0 by default");
+            Assert.AreEqual(0.0, header.P1, 0.0001, "P1 should be 0 by default");
+            Assert.AreEqual(0.0, header.P2, 0.0001, "P2 should be 0 by default");
+            Assert.AreEqual(0.0, header.K3, 0.0001, "K3 should be 0 by default");
+        }
+
+        [Test]
+        public void FrameHeader_Create_WithDistortion_SetsCorrectValues()
+        {
+            // Arrange - typical ZED camera distortion coefficients
+            double k1 = -0.0412;
+            double k2 = 0.0135;
+            double p1 = 0.0001;
+            double p2 = -0.0002;
+            double k3 = -0.0053;
+
+            // Act
+            var header = FrameHeader.Create(1280, 720, 700.0, 700.0, 640.0, 360.0, k1, k2, p1, p2, k3);
+
+            // Assert
+            Assert.AreEqual(k1, header.K1, 0.0001);
+            Assert.AreEqual(k2, header.K2, 0.0001);
+            Assert.AreEqual(p1, header.P1, 0.0001);
+            Assert.AreEqual(p2, header.P2, 0.0001);
+            Assert.AreEqual(k3, header.K3, 0.0001);
         }
 
         [Test]
@@ -445,13 +526,13 @@ namespace AutoBattlebot.Tests.Editor
             // Assert
             Assert.AreEqual(1280, header.Width);
             Assert.AreEqual(720, header.Height);
-            Assert.AreEqual(64, header.RgbOffset, "RGB should start after header");
+            Assert.AreEqual(128, header.RgbOffset, "RGB should start after header");
 
             int expectedRgbSize = 1280 * 720 * 3;
-            Assert.AreEqual(64 + expectedRgbSize, header.DepthOffset, "Depth should start after RGB");
+            Assert.AreEqual(128 + expectedRgbSize, header.DepthOffset, "Depth should start after RGB");
 
             int expectedDepthSize = 1280 * 720 * 4;
-            Assert.AreEqual(64 + expectedRgbSize + expectedDepthSize, header.PoseOffset, "Pose should start after depth");
+            Assert.AreEqual(128 + expectedRgbSize + expectedDepthSize, header.PoseOffset, "Pose should start after depth");
         }
 
         [Test]
@@ -465,12 +546,12 @@ namespace AutoBattlebot.Tests.Editor
             int totalSize = FrameHeader.CalculateTotalSize(width, height);
 
             // Assert
-            // Header: 64
+            // Header: 128
             // RGB: 1280 * 720 * 3 = 2,764,800
             // Depth: 1280 * 720 * 4 = 3,686,400
             // Pose: 128 (16 doubles × 8 bytes)
-            // Total: 6,451,392
-            int expected = 64 + (1280 * 720 * 3) + (1280 * 720 * 4) + 128;
+            // Total: 6,451,456
+            int expected = 128 + (1280 * 720 * 3) + (1280 * 720 * 4) + 128;
             Assert.AreEqual(expected, totalSize);
         }
 

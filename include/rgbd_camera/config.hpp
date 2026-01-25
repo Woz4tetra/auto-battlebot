@@ -61,6 +61,7 @@ namespace auto_battlebot
     {
         int width = 1280;
         int height = 720;
+        bool enable_double_buffering = true;
 
         SimRgbdCameraConfiguration()
         {
@@ -71,6 +72,7 @@ namespace auto_battlebot
         PARSE_CONFIG_FIELDS(
             PARSE_FIELD(width)
             PARSE_FIELD(height)
+            PARSE_FIELD_BOOL(enable_double_buffering)
         )
         // clang-format on
     };

@@ -19,7 +19,10 @@ namespace auto_battlebot
         const void *data() const { return data_; }
 
         template <typename T>
-        const T *read_at(size_t offset) const;
+        const T *read_at(size_t offset) const
+        {
+            return reinterpret_cast<const T *>(data_ + offset);
+        }
 
     private:
         std::string name_;

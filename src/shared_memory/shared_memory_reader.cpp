@@ -56,9 +56,4 @@ namespace auto_battlebot
         fd_ = -1;
     }
 
-    template <typename T>
-    const T *SharedMemoryReader::read_at(size_t offset) const
-    {
-        return reinterpret_cast<const T *>(data_ + offset);
-    }
 } // namespace auto_battlebot

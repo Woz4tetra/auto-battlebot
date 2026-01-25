@@ -137,7 +137,33 @@ namespace AutoBattlebot.Communication
         /// Enable double-buffering to prevent tearing. Can be disabled when using
         /// SyncSocket in lockstep mode, as synchronization prevents race conditions.
         /// </param>
+        /// <summary>
+        /// Creates a new SharedMemoryWriter with default camera intrinsics.
+        /// </summary>
         public SharedMemoryWriter(int width, int height, string memoryName = null, bool useDoubleBuffering = true)
+            : this(width, height, 0, 0, 0, 0, memoryName, useDoubleBuffering, useDefaultIntrinsics: true)
+        {
+        }
+
+        /// <summary>
+        /// Creates a new SharedMemoryWriter with specified camera intrinsics.
+        /// </summary>
+        /// <param name="width">Image width in pixels.</param>
+        /// <param name="height">Image height in pixels.</param>
+        /// <param name="fx">Focal length X in pixels.</param>
+        /// <param name="fy">Focal length Y in pixels.</param>
+        /// <param name="cx">Principal point X in pixels.</param>
+        /// <param name="cy">Principal point Y in pixels.</param>
+        /// <param name="memoryName">Name for the shared memory region.</param>
+        /// <param name="useDoubleBuffering">Enable double-buffering to prevent tearing.</param>
+        public SharedMemoryWriter(int width, int height, double fx, double fy, double cx, double cy,
+            string memoryName = null, bool useDoubleBuffering = true)
+            : this(width, height, fx, fy, cx, cy, memoryName, useDoubleBuffering, useDefaultIntrinsics: false)
+        {
+        }
+
+        private SharedMemoryWriter(int width, int height, double fx, double fy, double cx, double cy,
+            string memoryName, bool useDoubleBuffering, bool useDefaultIntrinsics)
         {
             _width = width;
             _height = height;
@@ -152,13 +178,116 @@ namespace AutoBattlebot.Communication
             _singleBufferSize = FrameHeader.SIZE + _rgbSize + _depthSize + _poseSize;
             _totalSize = _useDoubleBuffering ? _singleBufferSize * 2 : _singleBufferSize;
 
-            // Initialize header template
-            _header = FrameHeader.Create(width, height);
+            // Initialize header template with intrinsics
+            if (useDefaultIntrinsics)
+            {
+                _header = FrameHeader.Create(width, height);
+            }
+            else
+            {
+                _header = FrameHeader.Create(width, height, fx, fy, cx, cy);
+            }
+        }
+
+        #endregion
+
+        #region Factory Methods
+
+        /// <summary>
+        /// Creates a SharedMemoryWriter with camera intrinsics calculated from Unity camera FOV.
+        /// </summary>
+        /// <param name="width">Image width in pixels.</param>
+        /// <param name="height">Image height in pixels.</param>
+        /// <param name="verticalFovDegrees">Vertical field of view in degrees (Unity Camera.fieldOfView).</param>
+        /// <param name="memoryName">Name for the shared memory region.</param>
+        /// <param name="useDoubleBuffering">Enable double-buffering to prevent tearing.</param>
+        public static SharedMemoryWriter CreateFromFov(int width, int height, float verticalFovDegrees,
+            string memoryName = null, bool useDoubleBuffering = true)
+        {
+            // Calculate focal length from vertical FOV
+            // fy = height / (2 * tan(fov/2))
+            double fovRadians = verticalFovDegrees * System.Math.PI / 180.0;
+            double fy = height / (2.0 * System.Math.Tan(fovRadians / 2.0));
+            double fx = fy;  // Assume square pixels
+            double cx = width / 2.0;
+            double cy = height / 2.0;
+
+            return new SharedMemoryWriter(width, height, fx, fy, cx, cy, memoryName, useDoubleBuffering);
         }
 
         #endregion
 
         #region Public Methods
+
+        /// <summary>
+        /// Updates the camera intrinsics (no distortion). Call before Initialize() or the intrinsics
+        /// will be written with the next frame.
+        /// </summary>
+        /// <param name="fx">Focal length X in pixels.</param>
+        /// <param name="fy">Focal length Y in pixels.</param>
+        /// <param name="cx">Principal point X in pixels.</param>
+        /// <param name="cy">Principal point Y in pixels.</param>
+        public void SetIntrinsics(double fx, double fy, double cx, double cy)
+        {
+            _header.Fx = fx;
+            _header.Fy = fy;
+            _header.Cx = cx;
+            _header.Cy = cy;
+        }
+
+        /// <summary>
+        /// Updates the camera intrinsics from Unity camera FOV.
+        /// </summary>
+        /// <param name="verticalFovDegrees">Vertical field of view in degrees.</param>
+        public void SetIntrinsicsFromFov(float verticalFovDegrees)
+        {
+            double fovRadians = verticalFovDegrees * System.Math.PI / 180.0;
+            double fy = _height / (2.0 * System.Math.Tan(fovRadians / 2.0));
+            SetIntrinsics(fy, fy, _width / 2.0, _height / 2.0);
+        }
+
+        /// <summary>
+        /// Gets the current camera intrinsics.
+        /// </summary>
+        public (double fx, double fy, double cx, double cy) GetIntrinsics()
+        {
+            return (_header.Fx, _header.Fy, _header.Cx, _header.Cy);
+        }
+
+        /// <summary>
+        /// Sets the distortion coefficients (Brown-Conrady model).
+        /// </summary>
+        /// <param name="k1">Radial distortion coefficient k1.</param>
+        /// <param name="k2">Radial distortion coefficient k2.</param>
+        /// <param name="p1">Tangential distortion coefficient p1.</param>
+        /// <param name="p2">Tangential distortion coefficient p2.</param>
+        /// <param name="k3">Radial distortion coefficient k3.</param>
+        public void SetDistortion(double k1, double k2, double p1, double p2, double k3)
+        {
+            _header.K1 = k1;
+            _header.K2 = k2;
+            _header.P1 = p1;
+            _header.P2 = p2;
+            _header.K3 = k3;
+        }
+
+        /// <summary>
+        /// Gets the current distortion coefficients.
+        /// </summary>
+        public (double k1, double k2, double p1, double p2, double k3) GetDistortion()
+        {
+            return (_header.K1, _header.K2, _header.P1, _header.P2, _header.K3);
+        }
+
+        /// <summary>
+        /// Sets the full camera model (intrinsics + distortion).
+        /// </summary>
+        public void SetCameraModel(double fx, double fy, double cx, double cy,
+            double k1, double k2, double p1, double p2, double k3)
+        {
+            SetIntrinsics(fx, fy, cx, cy);
+            SetDistortion(k1, k2, p1, p2, k3);
+        }
 
         /// <summary>
         /// Initializes the shared memory region.
