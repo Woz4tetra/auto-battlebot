@@ -1,0 +1,17 @@
+{
+    "name": "AutoBattlebot.Communication",
+    "rootNamespace": "AutoBattlebot.Communication",
+    "references": [
+        "AutoBattlebot.Core",
+        "AutoBattlebot.Configuration"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,21 @@
+{
+    "name": "AutoBattlebot.DataGeneration",
+    "rootNamespace": "AutoBattlebot.DataGeneration",
+    "references": [
+        "AutoBattlebot.Core",
+        "AutoBattlebot.Configuration",
+        "AutoBattlebot.Communication",
+        "AutoBattlebot.Camera",
+        "AutoBattlebot.Robots",
+        "AutoBattlebot.Arena"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

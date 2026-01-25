@@ -1,0 +1,16 @@
+{
+    "name": "AutoBattlebot.Configuration",
+    "rootNamespace": "AutoBattlebot.Configuration",
+    "references": [
+        "AutoBattlebot.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
