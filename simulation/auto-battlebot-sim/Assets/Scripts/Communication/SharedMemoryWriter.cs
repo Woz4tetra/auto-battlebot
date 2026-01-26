@@ -287,6 +287,7 @@ namespace AutoBattlebot.Communication
         {
             SetIntrinsics(fx, fy, cx, cy);
             SetDistortion(k1, k2, p1, p2, k3);
+            Debug.Log($"[SharedMemoryWriter] Camera model set: fx={fx:F2}, fy={fy:F2}, cx={cx:F2}, cy={cy:F2}");
         }
 
         /// <summary>
@@ -526,6 +527,7 @@ namespace AutoBattlebot.Communication
         private void WriteHeader(int offset)
         {
             // Write header fields individually for reliability
+            // Must match FrameHeader struct layout exactly
             _accessor.Write(offset + 0, _header.FrameId);
             _accessor.Write(offset + 8, _header.Timestamp);
             _accessor.Write(offset + 16, _header.Width);
@@ -534,7 +536,21 @@ namespace AutoBattlebot.Communication
             _accessor.Write(offset + 28, _header.DepthOffset);
             _accessor.Write(offset + 32, _header.PoseOffset);
             _accessor.Write(offset + 36, _header.ActiveBuffer);
-            // Reserved bytes are left as zeros
+
+            // Camera intrinsics
+            _accessor.Write(offset + 40, _header.Fx);
+            _accessor.Write(offset + 48, _header.Fy);
+            _accessor.Write(offset + 56, _header.Cx);
+            _accessor.Write(offset + 64, _header.Cy);
+
+            // Distortion coefficients
+            _accessor.Write(offset + 72, _header.K1);
+            _accessor.Write(offset + 80, _header.K2);
+            _accessor.Write(offset + 88, _header.P1);
+            _accessor.Write(offset + 96, _header.P2);
+            _accessor.Write(offset + 104, _header.K3);
+
+            // Reserved bytes (offset 112-127) are left as zeros
         }
 
         private void WriteFloatArray(int offset, float[] data)

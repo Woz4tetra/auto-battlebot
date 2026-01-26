@@ -4,7 +4,9 @@
     "references": [
         "AutoBattlebot.Core",
         "AutoBattlebot.Configuration",
-        "AutoBattlebot.Communication"
+        "AutoBattlebot.Communication",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.HighDefinition.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -13,6 +15,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.render-pipelines.high-definition",
+            "expression": "",
+            "define": "UNITY_HDRP"
+        }
+    ],
     "noEngineReferences": false
 }

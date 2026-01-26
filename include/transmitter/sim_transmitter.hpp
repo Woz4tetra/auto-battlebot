@@ -22,6 +22,7 @@ namespace auto_battlebot
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
         bool enable_double_buffering_;
+        bool enable_sync_socket_;
 
         size_t buffer_size_;
         uint64_t num_commands_sent;

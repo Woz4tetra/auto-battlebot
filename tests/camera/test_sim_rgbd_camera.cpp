@@ -26,7 +26,7 @@ namespace auto_battlebot
             int depth_size = width_ * height_ * sizeof(float);
 
             SimulationFrameHeader header{};
-            header.frame_id = frame_id;
+            header.frame_counter = frame_id;
             header.timestamp = timestamp;
             header.width = width_;
             header.height = height_;

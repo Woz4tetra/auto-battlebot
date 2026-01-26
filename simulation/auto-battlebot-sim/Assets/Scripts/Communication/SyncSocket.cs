@@ -63,6 +63,21 @@ namespace AutoBattlebot.Communication
         public const byte SIGNAL_PONG = 0x04;
 
         /// <summary>
+        /// Signal byte for frame request without depth (C++ → Unity).
+        /// </summary>
+        public const byte SIGNAL_REQUEST_FRAME = 0x05;
+
+        /// <summary>
+        /// Signal byte for frame request with depth (C++ → Unity).
+        /// </summary>
+        public const byte SIGNAL_REQUEST_FRAME_WITH_DEPTH = 0x06;
+
+        /// <summary>
+        /// Signal byte indicating frame without depth is ready (Unity → C++).
+        /// </summary>
+        public const byte SIGNAL_FRAME_NO_DEPTH_READY = 0x07;
+
+        /// <summary>
         /// Default timeout in milliseconds.
         /// </summary>
         public const int DEFAULT_TIMEOUT_MS = 1000;
@@ -167,6 +182,11 @@ namespace AutoBattlebot.Communication
         /// Fired when a command-ready signal is received from C++.
         /// </summary>
         public event Action OnCommandReady;
+
+        /// <summary>
+        /// Fired when C++ requests a frame. Parameter indicates whether depth is requested.
+        /// </summary>
+        public event Action<bool> OnFrameRequested;
 
         #endregion
 
@@ -295,6 +315,179 @@ namespace AutoBattlebot.Communication
             catch (Exception ex)
             {
                 HandleDisconnection(ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Sends frame-ready signal with depth status to C++.
+        /// </summary>
+        /// <param name="hasDepth">Whether the frame includes depth data.</param>
+        /// <param name="frameId">Frame ID for logging.</param>
+        /// <returns>True if signal was sent.</returns>
+        public bool SignalFrameReady(bool hasDepth, ulong frameId = 0)
+        {
+            if (!IsConnected)
+            {
+                Debug.LogWarning("[SyncSocket] Cannot signal - not connected");
+                return false;
+            }
+
+            _signalStopwatch.Restart();
+
+            try
+            {
+                // Send appropriate frame-ready signal
+                _writeBuffer[0] = hasDepth ? SIGNAL_FRAME_READY : SIGNAL_FRAME_NO_DEPTH_READY;
+                GetActiveStream().Write(_writeBuffer, 0, 1);
+
+                if (_mode == SyncMode.Lockstep)
+                {
+                    // Wait for command-ready response
+                    if (!WaitForSignal(SIGNAL_COMMAND_READY, _timeoutMs))
+                    {
+                        _timeoutCount++;
+                        Debug.LogWarning($"[SyncSocket] Timeout waiting for command-ready (frame {frameId})");
+                        return false;
+                    }
+                }
+
+                _signalStopwatch.Stop();
+                UpdateSignalMetrics();
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                HandleDisconnection(ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Waits for a frame request from C++.
+        /// </summary>
+        /// <param name="timeoutMs">Timeout in milliseconds.</param>
+        /// <param name="withDepth">Output: whether depth was requested.</param>
+        /// <returns>True if a frame request was received.</returns>
+        public bool WaitForFrameRequest(int timeoutMs, out bool withDepth)
+        {
+            withDepth = false;
+
+            if (!IsConnected)
+            {
+                return false;
+            }
+
+            try
+            {
+                var stream = GetActiveStream();
+                stream.ReadTimeout = timeoutMs;
+
+                int bytesRead = stream.Read(_readBuffer, 0, 1);
+                if (bytesRead == 0)
+                {
+                    HandleDisconnection(null);
+                    return false;
+                }
+
+                byte signal = _readBuffer[0];
+
+                if (signal == SIGNAL_REQUEST_FRAME)
+                {
+                    withDepth = false;
+                    _signalCount++;
+                    OnFrameRequested?.Invoke(false);
+                    return true;
+                }
+                else if (signal == SIGNAL_REQUEST_FRAME_WITH_DEPTH)
+                {
+                    withDepth = true;
+                    _signalCount++;
+                    OnFrameRequested?.Invoke(true);
+                    return true;
+                }
+                else if (signal == SIGNAL_PING)
+                {
+                    // Respond to ping and continue waiting
+                    _writeBuffer[0] = SIGNAL_PONG;
+                    stream.Write(_writeBuffer, 0, 1);
+                    return WaitForFrameRequest(timeoutMs, out withDepth);
+                }
+                else if (signal == SIGNAL_COMMAND_READY)
+                {
+                    // C++ sent command ready without requesting frame first
+                    // This is valid in free-running mode
+                    OnCommandReady?.Invoke();
+                    return WaitForFrameRequest(timeoutMs, out withDepth);
+                }
+                else
+                {
+                    Debug.LogWarning($"[SyncSocket] Unexpected signal while waiting for frame request: 0x{signal:X2}");
+                    return false;
+                }
+            }
+            catch (IOException ex) when (ex.InnerException is SocketException se &&
+                                         (se.SocketErrorCode == SocketError.TimedOut ||
+                                          se.SocketErrorCode == SocketError.WouldBlock))
+            {
+                return false;
+            }
+            catch (SocketException se) when (se.SocketErrorCode == SocketError.TimedOut ||
+                                              se.SocketErrorCode == SocketError.WouldBlock)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                HandleDisconnection(ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Checks if there's a pending frame request without blocking.
+        /// </summary>
+        /// <param name="withDepth">Output: whether depth was requested.</param>
+        /// <returns>True if a frame request is pending.</returns>
+        public bool TryGetFrameRequest(out bool withDepth)
+        {
+            withDepth = false;
+
+            if (!IsConnected)
+            {
+                return false;
+            }
+
+            try
+            {
+                var stream = GetActiveStream();
+                
+                // Check if data is available without blocking
+                if (_isServer && _clientSocket != null)
+                {
+                    if (_clientSocket.Available == 0)
+                    {
+                        return false;
+                    }
+                }
+                else if (_socket != null)
+                {
+                    if (_socket.Available == 0)
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+
+                // Data available, read with short timeout
+                return WaitForFrameRequest(10, out withDepth);
+            }
+            catch
+            {
                 return false;
             }
         }

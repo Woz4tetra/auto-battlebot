@@ -8,6 +8,10 @@ using UnityEngine.Rendering;
 using AutoBattlebot.Core;
 using AutoBattlebot.Communication;
 
+#if UNITY_HDRP
+using UnityEngine.Rendering.HighDefinition;
+#endif
+
 namespace AutoBattlebot.Camera
 {
     using UnityCamera = UnityEngine.Camera;
@@ -57,6 +61,15 @@ namespace AutoBattlebot.Camera
         [SerializeField]
         private double _zedCy1080p = 561.7954711914062;
 
+        [Header("Depth Settings")]
+        [SerializeField]
+        [Tooltip("Minimum depth value in meters. Closer objects are clamped to this value.")]
+        private float _minDepth = 0.3f;
+
+        [SerializeField]
+        [Tooltip("Maximum depth value in meters. Farther objects are clamped to this value.")]
+        private float _maxDepth = 20f;
+
         [Header("Distortion (Brown-Conrady)")]
         [SerializeField]
         [Tooltip("Apply lens distortion to the output buffer")]
@@ -73,6 +86,15 @@ namespace AutoBattlebot.Camera
         [Tooltip("Optional CommunicationBridge to write frames to shared memory")]
         private CommunicationBridge _communicationBridge;
 
+        [Header("Performance")]
+        [SerializeField]
+        [Tooltip("Use synchronous GPU readback for lower latency (but blocks main thread). Reduces latency from ~200ms to ~50ms.")]
+        private bool _useLowLatencyMode = false;
+
+        [SerializeField]
+        [Tooltip("Wait for frame requests from C++ before capturing. If disabled, captures at fixed frame rate.")]
+        private bool _useRequestDrivenCapture = false;
+
         #endregion
 
         #region Properties
@@ -80,6 +102,13 @@ namespace AutoBattlebot.Camera
         public int ImageWidth => _imageWidth;
         public int ImageHeight => _imageHeight;
         public int CaptureFrameRate => _captureFrameRate;
+        public float MinDepth => _minDepth;
+        public float MaxDepth => _maxDepth;
+
+        /// <summary>
+        /// The RenderTexture used for depth capture. Used by HDRPDepthCopyPass.
+        /// </summary>
+        public RenderTexture DepthTarget => _depthTarget;
 
         #endregion
 
@@ -107,8 +136,19 @@ namespace AutoBattlebot.Camera
         private float _nearClip;
         private float _farClip;
 
-        // Depth capture material (unused but kept for potential future use)
+        // Depth capture material
         private Material _depthCopyMaterial;
+
+        // Command buffer for depth capture
+        private CommandBuffer _depthCommandBuffer;
+        private bool _useCommandBufferDepth;
+
+        // Synchronous readback textures (for low-latency mode)
+        private Texture2D _syncColorTexture;
+        private Texture2D _syncDepthTexture;
+
+        // Request-driven capture state
+        private bool _captureDepthThisFrame = true;  // Whether to capture depth for current frame
 
         #endregion
 
@@ -139,6 +179,7 @@ namespace AutoBattlebot.Camera
             }
 
             Debug.Log($"[CameraSimulator] Initializing camera ({_imageWidth}x{_imageHeight} @ {_captureFrameRate}fps)...");
+            Debug.Log($"[CameraSimulator] Render Pipeline: {(GraphicsSettings.currentRenderPipeline != null ? GraphicsSettings.currentRenderPipeline.name : "Built-in")}");
             if (!SystemInfo.supportsAsyncGPUReadback)
             {
                 Debug.LogWarning("[CameraSimulator] AsyncGPUReadback not supported on this device");
@@ -146,7 +187,7 @@ namespace AutoBattlebot.Camera
             ConfigureCamera();
             AllocateBuffers();
             ConfigureCommunicationBridge();
-            Debug.Log("[CameraSimulator] Camera ready");
+            Debug.Log($"[CameraSimulator] Camera ready (near={_nearClip}, far={_farClip})");
         }
 
         public void Shutdown()
@@ -171,17 +212,31 @@ namespace AutoBattlebot.Camera
                 TryApplyCameraModel();
             }
 
-            if (_captureFrameRate > 0 && Time.time < _nextCaptureTime)
-            {
-                return;
-            }
-
+            // Check if we're waiting for readback to complete
             if (_colorReadbackInFlight || _depthReadbackInFlight)
             {
                 return;
             }
 
+            // In request-driven mode, only capture when C++ requests a frame
+            if (_useRequestDrivenCapture)
+            {
+                if (_communicationBridge != null && _communicationBridge.HasPendingFrameRequest)
+                {
+                    _captureDepthThisFrame = _communicationBridge.PendingRequestIncludesDepth;
+                    CaptureFrame();
+                }
+                return;
+            }
+
+            // Standard frame-rate limited capture
+            if (_captureFrameRate > 0 && Time.time < _nextCaptureTime)
+            {
+                return;
+            }
+
             _nextCaptureTime = _captureFrameRate > 0 ? Time.time + (1f / _captureFrameRate) : Time.time;
+            _captureDepthThisFrame = true;  // Always capture depth in free-running mode
             CaptureFrame();
         }
 
@@ -230,28 +285,12 @@ namespace AutoBattlebot.Camera
                 _depthTarget.Create();
             }
 
-            // Create depth copy material from shader source
-            if (_depthCopyMaterial == null)
-            {
-                var shader = Shader.Find("Hidden/Internal-DepthNormalsTexture");
-                if (shader == null)
-                {
-                    // Fallback: try to find any depth shader
-                    shader = Shader.Find("Hidden/Camera/CopyDepth");
-                }
-                if (shader == null)
-                {
-                    Debug.LogWarning("[CameraSimulator] Could not find depth copy shader. Using fallback depth.");
-                }
-                else
-                {
-                    _depthCopyMaterial = new Material(shader);
-                }
-            }
-
             _camera.targetTexture = _colorTarget;
 
-            // Subscribe to render pipeline events for depth capture
+            // Set up depth capture using CommandBuffer (more reliable across render pipelines)
+            SetupDepthCapture();
+
+            // Subscribe to render pipeline events as fallback for depth capture
             RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
             RenderPipelineManager.endCameraRendering += OnEndCameraRendering;
 
@@ -279,16 +318,226 @@ namespace AutoBattlebot.Camera
 
         private void OnEndCameraRendering(ScriptableRenderContext context, UnityCamera cam)
         {
-            if (cam != _camera || _depthTarget == null)
+            // This callback is kept for potential future use with SRP depth capture
+            // Currently, depth capture is handled in CaptureFrame()
+        }
+
+        private void FillFallbackDepth()
+        {
+            // Fill with max depth as fallback (indicates no valid depth data)
+            for (int i = 0; i < _depthBuffer.Length; i++)
+            {
+                _depthBuffer[i] = _maxDepth;
+            }
+        }
+
+        private void SetupDepthCapture()
+        {
+            // Remove existing command buffer if any
+            if (_depthCommandBuffer != null)
+            {
+                _camera.RemoveCommandBuffer(CameraEvent.AfterDepthTexture, _depthCommandBuffer);
+                _depthCommandBuffer.Dispose();
+                _depthCommandBuffer = null;
+            }
+
+            // Check if we're using HDRP
+            bool isHDRP = GraphicsSettings.currentRenderPipeline != null &&
+                          GraphicsSettings.currentRenderPipeline.GetType().Name.Contains("HDRenderPipeline");
+
+            if (isHDRP)
+            {
+                SetupHDRPDepthCapture();
+                return;
+            }
+
+            // Built-in or URP pipeline - use command buffer approach
+            string[] depthShaderNames = new[]
+            {
+                "Hidden/Internal-DepthNormalsTexture",
+                "Hidden/Camera/CopyDepth",
+                "Hidden/BlitCopy"
+            };
+
+            Shader shader = null;
+            foreach (var name in depthShaderNames)
+            {
+                shader = Shader.Find(name);
+                if (shader != null && shader.isSupported)
+                {
+                    Debug.Log($"[CameraSimulator] Found depth shader: {name}");
+                    break;
+                }
+                shader = null;
+            }
+
+            if (shader != null)
+            {
+                _depthCopyMaterial = new Material(shader);
+
+                // Create command buffer to copy depth
+                _depthCommandBuffer = new CommandBuffer();
+                _depthCommandBuffer.name = "CameraSimulator Depth Copy";
+                _depthCommandBuffer.Blit(BuiltinRenderTextureType.Depth, _depthTarget);
+
+                try
+                {
+                    _camera.AddCommandBuffer(CameraEvent.AfterDepthTexture, _depthCommandBuffer);
+                    _useCommandBufferDepth = true;
+                    Debug.Log("[CameraSimulator] Using CommandBuffer for depth capture (AfterDepthTexture)");
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[CameraSimulator] Could not add command buffer: {e.Message}");
+                    _useCommandBufferDepth = false;
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[CameraSimulator] No depth shader found. Depth data may be unavailable.");
+                _useCommandBufferDepth = false;
+            }
+        }
+
+        private void SetupHDRPDepthCapture()
+        {
+            Debug.Log("[CameraSimulator] Setting up HDRP depth capture...");
+
+            // Method 1: Try to find/create Custom Pass Volume
+            var customPassType = System.Type.GetType("AutoBattlebot.Camera.HDRPDepthCopyPass, Assembly-CSharp");
+            if (customPassType != null)
+            {
+                var existingVolume = FindCustomPassVolumeWithDepthCopy();
+                if (existingVolume != null)
+                {
+                    Debug.Log("[CameraSimulator] Found existing HDRP Custom Pass Volume with depth copy");
+                    _useCommandBufferDepth = true;
+                    return;
+                }
+
+                try
+                {
+                    CreateHDRPCustomPassVolume();
+                    _useCommandBufferDepth = true;
+                    Debug.Log("[CameraSimulator] Created HDRP Custom Pass Volume for depth capture");
+                    return;
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[CameraSimulator] Auto-setup failed: {e.Message}");
+                }
+            }
+
+            // Method 2: Use render pipeline callback to capture depth
+            Debug.Log("[CameraSimulator] Using RenderPipelineManager callback for HDRP depth");
+            _useCommandBufferDepth = false;
+
+            // Subscribe to end of frame rendering to capture depth
+            RenderPipelineManager.endContextRendering -= OnEndContextRendering;
+            RenderPipelineManager.endContextRendering += OnEndContextRendering;
+
+            Debug.LogWarning("[CameraSimulator] HDRP depth capture: For best results, add a Custom Pass Volume with HDRPDepthCopyPass to your scene.\n" +
+                           "Steps:\n" +
+                           "1. Create empty GameObject\n" +
+                           "2. Add 'Custom Pass Volume' component\n" +
+                           "3. Set Mode = Global, Injection Point = After Opaque Depth And Normal\n" +
+                           "4. Add 'HDRPDepthCopyPass' pass");
+        }
+
+        private void OnEndContextRendering(ScriptableRenderContext context, System.Collections.Generic.List<UnityCamera> cameras)
+        {
+            // This is called after HDRP finishes rendering all cameras
+            // Try to capture depth texture here
+            if (_depthTarget == null || !_depthReadbackInFlight)
             {
                 return;
             }
 
-            // Try to copy depth texture after rendering completes
+            // In HDRP, _CameraDepthTexture should be available after rendering
             var depthTexture = Shader.GetGlobalTexture("_CameraDepthTexture");
             if (depthTexture != null)
             {
                 Graphics.Blit(depthTexture, _depthTarget);
+            }
+        }
+
+        private GameObject FindCustomPassVolumeWithDepthCopy()
+        {
+            // Find all CustomPassVolume components in the scene
+            var volumes = FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None);
+            foreach (var volume in volumes)
+            {
+                if (volume.GetType().Name == "CustomPassVolume")
+                {
+                    // Check if it has our depth copy pass
+                    var customPassesField = volume.GetType().GetField("customPasses",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    if (customPassesField != null)
+                    {
+                        var passes = customPassesField.GetValue(volume) as System.Collections.IList;
+                        if (passes != null)
+                        {
+                            foreach (var pass in passes)
+                            {
+                                if (pass != null && pass.GetType().Name == "HDRPDepthCopyPass")
+                                {
+                                    // Set the target texture
+                                    var targetField = pass.GetType().GetField("targetDepthTexture");
+                                    if (targetField != null)
+                                    {
+                                        targetField.SetValue(pass, _depthTarget);
+                                    }
+                                    return volume.gameObject;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        private void CreateHDRPCustomPassVolume()
+        {
+            // This requires HDRP assembly reference - use reflection to avoid compile errors
+            var customPassVolumeType = System.Type.GetType("UnityEngine.Rendering.HighDefinition.CustomPassVolume, Unity.RenderPipelines.HighDefinition.Runtime");
+            var depthCopyPassType = System.Type.GetType("AutoBattlebot.Camera.HDRPDepthCopyPass, Assembly-CSharp");
+
+            if (customPassVolumeType == null || depthCopyPassType == null)
+            {
+                throw new Exception("Required HDRP types not found");
+            }
+
+            // Create a game object for the custom pass volume
+            var volumeGO = new GameObject("CameraSimulator_DepthCaptureVolume");
+            volumeGO.transform.SetParent(transform);
+
+            // Add CustomPassVolume component
+            var volume = volumeGO.AddComponent(customPassVolumeType);
+
+            // Set to global mode
+            var modeProperty = customPassVolumeType.GetProperty("isGlobal");
+            if (modeProperty != null)
+            {
+                modeProperty.SetValue(volume, true);
+            }
+
+            // Add the depth copy pass
+            var addPassMethod = customPassVolumeType.GetMethod("AddPassOfType");
+            if (addPassMethod != null)
+            {
+                var genericMethod = addPassMethod.MakeGenericMethod(depthCopyPassType);
+                var pass = genericMethod.Invoke(volume, null);
+
+                // Set the target texture on the pass
+                if (pass != null)
+                {
+                    var targetField = depthCopyPassType.GetField("targetDepthTexture");
+                    if (targetField != null)
+                    {
+                        targetField.SetValue(pass, _depthTarget);
+                    }
+                }
             }
         }
 
@@ -333,17 +582,120 @@ namespace AutoBattlebot.Camera
 
         private void CaptureFrame()
         {
+            if (_useLowLatencyMode)
+            {
+                CaptureFrameSynchronous();
+            }
+            else
+            {
+                CaptureFrameAsync();
+            }
+        }
+
+        /// <summary>
+        /// Low-latency synchronous capture. Blocks main thread but reduces latency from ~200ms to ~50ms.
+        /// </summary>
+        private void CaptureFrameSynchronous()
+        {
+            // Render the camera
             _camera.Render();
 
-            // Depth is captured in OnEndCameraRendering callback after full render completes
-            // Request readbacks for both color and depth
-            _colorReadbackInFlight = true;
-            _depthReadbackInFlight = true;
-            _colorReady = false;
-            _depthReady = false;
+            // Handle depth capture (must happen before we change active render texture)
+            if (_captureDepthThisFrame && _depthTarget != null && !_useCommandBufferDepth)
+            {
+                var depthTexture = Shader.GetGlobalTexture("_CameraDepthTexture");
+                if (depthTexture != null)
+                {
+                    Graphics.Blit(depthTexture, _depthTarget);
+                }
+                else if (_depthCopyMaterial != null)
+                {
+                    Graphics.Blit(null, _depthTarget, _depthCopyMaterial);
+                }
+            }
 
+            // Synchronous color readback using ReadPixels
+            RenderTexture prevRT = RenderTexture.active;
+
+            // Read color
+            RenderTexture.active = _colorTarget;
+            if (_syncColorTexture == null)
+            {
+                _syncColorTexture = new Texture2D(_imageWidth, _imageHeight, TextureFormat.RGBA32, false);
+            }
+            _syncColorTexture.ReadPixels(new Rect(0, 0, _imageWidth, _imageHeight), 0, 0, false);
+            var colorData = _syncColorTexture.GetRawTextureData<byte>();
+            ConvertRgbaToBgr(colorData, _bgrBuffer);
+
+            // Read depth only if requested
+            if (_captureDepthThisFrame && _depthTarget != null)
+            {
+                RenderTexture.active = _depthTarget;
+                if (_syncDepthTexture == null)
+                {
+                    _syncDepthTexture = new Texture2D(_imageWidth, _imageHeight, TextureFormat.RFloat, false);
+                }
+                _syncDepthTexture.ReadPixels(new Rect(0, 0, _imageWidth, _imageHeight), 0, 0, false);
+                var depthData = _syncDepthTexture.GetRawTextureData<float>();
+                ConvertDepthToMetric(depthData, _depthBuffer);
+            }
+
+            RenderTexture.active = prevRT;
+
+            // Write immediately (no waiting for callbacks)
+            _colorReady = true;
+            _depthReady = true;
+            TryWriteFrame();
+        }
+
+        /// <summary>
+        /// Standard async capture. Lower CPU usage but ~200ms latency due to GPU pipeline.
+        /// </summary>
+        private void CaptureFrameAsync()
+        {
+            // Set up readback flags before render
+            _colorReadbackInFlight = true;
+            _colorReady = false;
+
+            // Only set up depth capture if requested
+            if (_captureDepthThisFrame && _depthTarget != null)
+            {
+                _depthReadbackInFlight = true;
+                _depthReady = false;
+            }
+            else
+            {
+                _depthReadbackInFlight = false;
+                _depthReady = true;  // Mark as ready (empty)
+            }
+
+            // Render the camera
+            _camera.Render();
+
+            // Request color readback
             AsyncGPUReadback.Request(_colorTarget, 0, TextureFormat.RGBA32, OnColorReadbackComplete);
-            AsyncGPUReadback.Request(_depthTarget, 0, TextureFormat.RFloat, OnDepthReadbackComplete);
+
+            // Handle depth capture only if requested
+            if (_captureDepthThisFrame && _depthTarget != null)
+            {
+                // If command buffer is set up, it already copied depth during render
+                // Otherwise, try to copy _CameraDepthTexture now
+                if (!_useCommandBufferDepth)
+                {
+                    var depthTexture = Shader.GetGlobalTexture("_CameraDepthTexture");
+                    if (depthTexture != null)
+                    {
+                        Graphics.Blit(depthTexture, _depthTarget);
+                    }
+                    else if (_depthCopyMaterial != null)
+                    {
+                        // Try using the depth copy material with current render state
+                        Graphics.Blit(null, _depthTarget, _depthCopyMaterial);
+                    }
+                }
+
+                AsyncGPUReadback.Request(_depthTarget, 0, TextureFormat.RFloat, OnDepthReadbackComplete);
+            }
         }
 
         private void OnColorReadbackComplete(AsyncGPUReadbackRequest request)
@@ -382,10 +734,38 @@ namespace AutoBattlebot.Camera
             if (request.hasError)
             {
                 Debug.LogWarning("[CameraSimulator] Depth GPU readback error");
+                FillFallbackDepth();
+                _depthReady = true;
+                TryWriteFrame();
                 return;
             }
 
             var data = request.GetData<float>();
+
+            // Debug: Check if depth data contains valid values
+            float minDepth = float.MaxValue;
+            float maxDepth = float.MinValue;
+            int validCount = 0;
+            for (int i = 0; i < Math.Min(1000, data.Length); i++)
+            {
+                float v = data[i];
+                if (v > 0f && v < 1f)
+                {
+                    validCount++;
+                    minDepth = Math.Min(minDepth, v);
+                    maxDepth = Math.Max(maxDepth, v);
+                }
+            }
+
+            if (validCount == 0)
+            {
+                Debug.LogWarning($"[CameraSimulator] Depth data appears empty (all 0 or 1). First values: {data[0]}, {data[1]}, {data[2]}");
+            }
+            else if (Time.frameCount % 150 == 0) // Log every ~5 seconds at 30fps
+            {
+                Debug.Log($"[CameraSimulator] Depth stats: min={minDepth:F4}, max={maxDepth:F4}, validSamples={validCount}/1000");
+            }
+
             ConvertDepthToMetric(data, _depthBuffer);
             _depthReady = true;
 
@@ -409,7 +789,8 @@ namespace AutoBattlebot.Camera
             if (_communicationBridge != null && _communicationBridge.IsActive)
             {
                 Matrix4x4 pose = _camera.transform.localToWorldMatrix;
-                _communicationBridge.WriteFrame(outputBuffer, _depthBuffer, ConvertMatrixToRowMajor(pose));
+                // Pass depth flag to communication bridge so it can signal C++ appropriately
+                _communicationBridge.WriteFrame(outputBuffer, _depthBuffer, ConvertMatrixToRowMajor(pose), _captureDepthThisFrame);
             }
 
             _colorReady = false;
@@ -435,14 +816,16 @@ namespace AutoBattlebot.Camera
                     // Solve for z: z = 1 / (z_buffer * (1/near - 1/far) + 1/far)
                     if (rawValue <= 0f || rawValue >= 1f)
                     {
-                        metricDepth[dstRow + x] = _farClip;
+                        metricDepth[dstRow + x] = _maxDepth;
                     }
                     else
                     {
                         float invNear = 1f / _nearClip;
                         float invFar = 1f / _farClip;
                         float linearDepth = 1f / (rawValue * (invNear - invFar) + invFar);
-                        metricDepth[dstRow + x] = linearDepth;
+
+                        // Clamp to configured min/max depth range
+                        metricDepth[dstRow + x] = Math.Clamp(linearDepth, _minDepth, _maxDepth);
                     }
                 }
             }
@@ -526,6 +909,18 @@ namespace AutoBattlebot.Camera
         {
             // Unsubscribe from render pipeline events
             RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
+            RenderPipelineManager.endContextRendering -= OnEndContextRendering;
+
+            // Remove and dispose command buffer
+            if (_depthCommandBuffer != null)
+            {
+                if (_camera != null)
+                {
+                    _camera.RemoveCommandBuffer(CameraEvent.AfterDepthTexture, _depthCommandBuffer);
+                }
+                _depthCommandBuffer.Dispose();
+                _depthCommandBuffer = null;
+            }
 
             if (_colorTarget != null)
             {
@@ -556,12 +951,27 @@ namespace AutoBattlebot.Camera
             _depthBuffer = null;
             _colorReadbackInFlight = false;
             _depthReadbackInFlight = false;
+            _useCommandBufferDepth = false;
+
+            // Clean up synchronous readback textures
+            if (_syncColorTexture != null)
+            {
+                Destroy(_syncColorTexture);
+                _syncColorTexture = null;
+            }
+            if (_syncDepthTexture != null)
+            {
+                Destroy(_syncDepthTexture);
+                _syncDepthTexture = null;
+            }
         }
 
         private void OnValidate()
         {
             if (_imageWidth < 1) _imageWidth = 1;
             if (_imageHeight < 1) _imageHeight = 1;
+            if (_minDepth < 0.01f) _minDepth = 0.01f;
+            if (_maxDepth < _minDepth) _maxDepth = _minDepth + 0.1f;
             if (_camera == null)
             {
                 _camera = GetComponent<UnityCamera>();

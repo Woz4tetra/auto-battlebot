@@ -1,4 +1,5 @@
 #include "rgbd_camera/sim_rgbd_camera.hpp"
+#include "communication/simulation_sync_manager.hpp"
 
 namespace auto_battlebot
 {
@@ -6,9 +7,11 @@ namespace auto_battlebot
         : expected_width_(config.width),
           expected_height_(config.height),
           enable_double_buffering_(config.enable_double_buffering),
+          enable_sync_socket_(config.enable_sync_socket),
+          sync_timeout_ms_(config.sync_timeout_ms),
           frame_reader_(nullptr),
           frames_received_(0),
-          last_frame_id_(0),
+          last_frame_count_(0),
           last_log_time_(std::chrono::steady_clock::now())
     {
         buffer_size_ = get_simulation_frame_size(expected_width_, expected_height_);
@@ -26,6 +29,8 @@ namespace auto_battlebot
                                   {{"expected_width", expected_width_},
                                    {"expected_height", expected_height_},
                                    {"enable_double_buffering", enable_double_buffering_ ? 1 : 0},
+                                   {"enable_sync_socket", enable_sync_socket_ ? 1 : 0},
+                                   {"sync_timeout_ms", sync_timeout_ms_},
                                    {"buffer_size", static_cast<int>(buffer_size_)}},
                                   "Initializing SimRgbdCamera");
 
@@ -51,20 +56,36 @@ namespace auto_battlebot
         frame_reader_ = std::make_unique<SharedMemoryReader>("auto_battlebot_frame", total_size);
 
         bool success = frame_reader_->open();
-        if (success)
-        {
-            diagnostics_logger_->info("SimRgbdCamera initialized successfully");
-            // Reset stats on re-initialization
-            frames_received_ = 0;
-            last_frame_id_ = 0;
-            last_log_time_ = std::chrono::steady_clock::now();
-        }
-        else
+        if (!success)
         {
             std::cerr << "Failed to open shared memory for SimRgbdCamera" << std::endl;
+            return false;
         }
 
-        return success;
+        // Initialize sync socket if enabled
+        if (enable_sync_socket_)
+        {
+            SyncSocketConfiguration sync_config;
+            sync_config.timeout_ms = sync_timeout_ms_;
+            
+            if (!SimulationSyncManager::instance().initialize(sync_config))
+            {
+                diagnostics_logger_->warning("Failed to connect to Unity sync socket. Running in free-running mode.");
+                enable_sync_socket_ = false;  // Fall back to free-running
+            }
+            else
+            {
+                diagnostics_logger_->info("Connected to Unity sync socket");
+            }
+        }
+
+        diagnostics_logger_->info("SimRgbdCamera initialized successfully");
+        // Reset stats on re-initialization
+        frames_received_ = 0;
+        last_frame_count_ = 0;
+        last_log_time_ = std::chrono::steady_clock::now();
+
+        return true;
     }
 
     bool SimRgbdCamera::get(CameraData &data, bool get_depth) const
@@ -77,62 +98,107 @@ namespace auto_battlebot
             return false;
         }
 
-        const auto *frame_header = frame_reader_->read_at<SimulationFrameHeader>(0);
+        // If sync socket is enabled, request frame and wait
+        if (enable_sync_socket_ && SimulationSyncManager::instance().is_connected())
+        {
+            // Request frame from Unity with depth flag
+            if (!SimulationSyncManager::instance().request_frame(get_depth))
+            {
+                diagnostics_logger_->warning("Failed to send frame request to Unity");
+                return false;
+            }
+
+            // Wait for Unity to signal frame ready
+            bool has_depth = false;
+            if (!SimulationSyncManager::instance().wait_for_frame(sync_timeout_ms_, &has_depth))
+            {
+                diagnostics_logger_->warning("Timeout waiting for frame from Unity");
+                return false;
+            }
+
+            // Verify we got depth if we requested it
+            if (get_depth && !has_depth)
+            {
+                diagnostics_logger_->warning("Requested depth but frame has no depth data");
+                // Continue anyway - depth will be empty
+            }
+        }
+
+        // Read frame from shared memory
+        return read_frame_from_shared_memory(data, get_depth);
+    }
+
+    bool SimRgbdCamera::read_frame_from_shared_memory(CameraData &data, bool get_depth) const
+    {
+        // Determine which buffer to read from (for double buffering)
+        // Each buffer has its own header. We need to find the most recently written buffer.
+        size_t buffer_offset = 0;
+        if (enable_double_buffering_)
+        {
+            // Read headers from both buffers and pick the one with higher frame_id
+            const auto *header0 = frame_reader_->read_at<SimulationFrameHeader>(0);
+            const auto *header1 = frame_reader_->read_at<SimulationFrameHeader>(buffer_size_);
+
+            // Validate both headers have reasonable dimensions
+            bool header0_valid = (header0->width > 0 && header0->width <= 4096 &&
+                                  header0->height > 0 && header0->height <= 4096);
+            bool header1_valid = (header1->width > 0 && header1->width <= 4096 &&
+                                  header1->height > 0 && header1->height <= 4096);
+
+            if (header0_valid && header1_valid)
+            {
+                // Both valid - pick the one with higher frame_id
+                buffer_offset = (header1->frame_counter > header0->frame_counter) ? buffer_size_ : 0;
+            }
+            else if (header0_valid)
+            {
+                buffer_offset = 0;
+            }
+            else if (header1_valid)
+            {
+                buffer_offset = buffer_size_;
+            }
+            // else: both invalid, use buffer 0 (default)
+        }
+
+        const auto *active_header = frame_reader_->read_at<SimulationFrameHeader>(buffer_offset);
 
         // Log raw header values for debugging
         diagnostics_logger_->debug("header",
-                                   {{"frame_id", static_cast<int>(frame_header->frame_id)},
-                                    {"timestamp", frame_header->timestamp},
-                                    {"width", frame_header->width},
-                                    {"height", frame_header->height},
-                                    {"active_buffer", frame_header->active_buffer},
-                                    {"rgb_offset", frame_header->rgb_offset},
-                                    {"depth_offset", frame_header->depth_offset},
-                                    {"pose_offset", frame_header->pose_offset}});
+                                   {{"frame_id", static_cast<int>(active_header->frame_counter)},
+                                    {"num_received", static_cast<int>(frames_received_)},
+                                    {"timestamp", active_header->timestamp},
+                                    {"width", active_header->width},
+                                    {"height", active_header->height},
+                                    {"buffer_offset", static_cast<int>(buffer_offset)},
+                                    {"rgb_offset", active_header->rgb_offset},
+                                    {"depth_offset", active_header->depth_offset},
+                                    {"pose_offset", active_header->pose_offset}});
 
-        if (frame_header->width <= 0 || frame_header->height <= 0)
+        if (active_header->width <= 0 || active_header->height <= 0)
         {
             diagnostics_logger_->warning("dimensions",
-                                         {{"width", frame_header->width},
-                                          {"height", frame_header->height}},
+                                         {{"width", active_header->width},
+                                          {"height", active_header->height}},
                                          "Invalid frame header dimensions (zero or negative)");
             return false;
         }
-        if (frame_header->width != expected_width_ || frame_header->height != expected_height_)
+        if (active_header->width != expected_width_ || active_header->height != expected_height_)
         {
             diagnostics_logger_->warning("dimensions",
-                                         {{"received_width", frame_header->width},
-                                          {"received_height", frame_header->height},
+                                         {{"received_width", active_header->width},
+                                          {"received_height", active_header->height},
                                           {"expected_width", expected_width_},
                                           {"expected_height", expected_height_}},
                                          "Frame dimensions mismatch");
             return false;
         }
 
-        double stamp = frame_header->timestamp;
+        double stamp = active_header->timestamp;
 
         Header header;
         header.stamp = stamp;
         header.frame_id = FrameId::CAMERA;
-
-        // Determine which buffer to read from (for double buffering)
-        // When double buffering is enabled, read the inactive buffer
-        // When disabled, always read from offset 0
-        size_t buffer_offset = 0;
-        if (enable_double_buffering_)
-        {
-            int active_buffer = frame_header->active_buffer;
-            if (active_buffer != 0 && active_buffer != 1)
-            {
-                diagnostics_logger_->warning("Invalid active buffer index");
-                active_buffer = 0;
-            }
-            buffer_offset = active_buffer == 0
-                                ? buffer_size_ // Read inactive buffer
-                                : 0;
-        }
-
-        const auto *active_header = frame_reader_->read_at<SimulationFrameHeader>(buffer_offset);
 
         const size_t rgb_size = static_cast<size_t>(expected_width_) * expected_height_ * 3;
         const size_t depth_size = static_cast<size_t>(expected_width_) * expected_height_ * sizeof(float);
@@ -188,6 +254,8 @@ namespace auto_battlebot
         // Set intrinsics matrix from header (fx, 0, cx; 0, fy, cy; 0, 0, 1)
         // Intrinsics are stored directly in the header, not as offsets
         CameraInfo camera_info;
+        camera_info.width = expected_width_;
+        camera_info.height = expected_height_;
         camera_info.intrinsics = cv::Mat::eye(3, 3, CV_64F);
         camera_info.intrinsics.at<double>(0, 0) = active_header->fx;
         camera_info.intrinsics.at<double>(1, 1) = active_header->fy;
@@ -207,12 +275,21 @@ namespace auto_battlebot
 
         // Track frame statistics
         frames_received_++;
-        bool is_new_frame = (frame_header->frame_id != last_frame_id_);
-        last_frame_id_ = frame_header->frame_id;
+        bool is_new_frame = (active_header->frame_counter != last_frame_count_);
+        last_frame_count_ = active_header->frame_counter;
 
-        // Log intrinsics on first frame or when they change
-        if (frames_received_ == 1)
+        // Periodic stats logging (every 1 second)
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time_).count();
+        if (elapsed >= 1)
         {
+            double fps = static_cast<double>(frames_received_) / elapsed;
+            diagnostics_logger_->info("stats",
+                                      {{"frames_received", static_cast<int>(frames_received_)},
+                                       {"fps", fps},
+                                       {"last_frame_id", static_cast<int>(last_frame_count_)},
+                                       {"last_timestamp", stamp},
+                                       {"is_new_frame", is_new_frame ? 1 : 0}});
             diagnostics_logger_->info("intrinsics",
                                       {{"fx", active_header->fx},
                                        {"fy", active_header->fy},
@@ -223,20 +300,6 @@ namespace auto_battlebot
                                        {"p1", active_header->p1},
                                        {"p2", active_header->p2},
                                        {"k3", active_header->k3}});
-        }
-
-        // Periodic stats logging (every 5 seconds)
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time_).count();
-        if (elapsed >= 5)
-        {
-            double fps = static_cast<double>(frames_received_) / elapsed;
-            diagnostics_logger_->info("stats",
-                                      {{"frames_received", static_cast<int>(frames_received_)},
-                                       {"fps", fps},
-                                       {"last_frame_id", static_cast<int>(last_frame_id_)},
-                                       {"last_timestamp", stamp},
-                                       {"is_new_frame", is_new_frame ? 1 : 0}});
             frames_received_ = 0;
             last_log_time_ = now;
         }

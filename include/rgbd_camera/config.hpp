@@ -62,6 +62,8 @@ namespace auto_battlebot
         int width = 1280;
         int height = 720;
         bool enable_double_buffering = true;
+        bool enable_sync_socket = true;  // Use sync socket for frame requests
+        int sync_timeout_ms = 1000;      // Timeout for frame requests
 
         SimRgbdCameraConfiguration()
         {
@@ -73,6 +75,8 @@ namespace auto_battlebot
             PARSE_FIELD(width)
             PARSE_FIELD(height)
             PARSE_FIELD_BOOL(enable_double_buffering)
+            PARSE_FIELD_BOOL(enable_sync_socket)
+            PARSE_FIELD(sync_timeout_ms)
         )
         // clang-format on
     };

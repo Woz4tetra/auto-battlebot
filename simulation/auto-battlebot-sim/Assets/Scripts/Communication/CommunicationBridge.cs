@@ -94,6 +94,10 @@ namespace AutoBattlebot.Communication
         private VelocityCommand _currentCommand = VelocityCommand.Zero;
         private ulong _frameId = 0;
 
+        // Frame request tracking (for request-driven capture)
+        private bool _pendingFrameRequest = false;
+        private bool _pendingDepthRequest = false;
+
         #endregion
 
         #region Properties
@@ -133,6 +137,16 @@ namespace AutoBattlebot.Communication
         /// </summary>
         public ulong FrameId => _frameId;
 
+        /// <summary>
+        /// Whether a frame request is pending from C++.
+        /// </summary>
+        public bool HasPendingFrameRequest => _pendingFrameRequest;
+
+        /// <summary>
+        /// Whether the pending frame request includes depth.
+        /// </summary>
+        public bool PendingRequestIncludesDepth => _pendingDepthRequest;
+
         #endregion
 
         #region Events
@@ -141,6 +155,11 @@ namespace AutoBattlebot.Communication
         /// Fired when a new velocity command is received from C++.
         /// </summary>
         public event System.Action<VelocityCommand> OnCommandReceived;
+
+        /// <summary>
+        /// Fired when C++ requests a frame. Parameter indicates whether depth is requested.
+        /// </summary>
+        public event System.Action<bool> OnFrameRequested;
 
         /// <summary>
         /// Fired when the sync socket connects.
@@ -216,6 +235,17 @@ namespace AutoBattlebot.Communication
                 return;
             }
 
+            // Check for frame requests from C++ (request-driven capture mode)
+            if (_enableSyncSocket && _syncSocket != null && _syncSocket.IsConnected)
+            {
+                if (_syncSocket.TryGetFrameRequest(out bool withDepth))
+                {
+                    _pendingFrameRequest = true;
+                    _pendingDepthRequest = withDepth;
+                    OnFrameRequested?.Invoke(withDepth);
+                }
+            }
+
             // In free-running mode, poll for commands
             // In lockstep mode, commands are read after frame sync
             if (_syncMode == SyncMode.FreeRunning || !_enableSyncSocket)
@@ -286,6 +316,21 @@ namespace AutoBattlebot.Communication
         /// <returns>True if write (and sync if enabled) was successful.</returns>
         public bool WriteFrame(byte[] rgbData, float[] depthData, double[] poseMatrix)
         {
+            // Determine if this frame has depth (non-null and non-empty depth data)
+            bool hasDepth = depthData != null && depthData.Length > 0;
+            return WriteFrame(rgbData, depthData, poseMatrix, hasDepth);
+        }
+
+        /// <summary>
+        /// Writes a frame to shared memory with explicit depth availability flag.
+        /// </summary>
+        /// <param name="rgbData">BGR image data.</param>
+        /// <param name="depthData">Depth data as float array (can be empty if hasDepth is false).</param>
+        /// <param name="poseMatrix">Pose matrix as double array.</param>
+        /// <param name="hasDepth">Whether this frame includes valid depth data.</param>
+        /// <returns>True if write (and sync if enabled) was successful.</returns>
+        public bool WriteFrame(byte[] rgbData, float[] depthData, double[] poseMatrix, bool hasDepth)
+        {
             if (!_isActive || _frameWriter == null)
             {
                 return false;
@@ -298,7 +343,11 @@ namespace AutoBattlebot.Communication
             }
 
             _frameId++;
-            return SignalAndSync();
+
+            // Clear pending request since we're fulfilling it
+            _pendingFrameRequest = false;
+
+            return SignalAndSync(hasDepth);
         }
 
         /// <summary>
@@ -417,7 +466,7 @@ namespace AutoBattlebot.Communication
             return true;
         }
 
-        private bool SignalAndSync()
+        private bool SignalAndSync(bool hasDepth = true)
         {
             if (!_enableSyncSocket || _syncSocket == null)
             {
@@ -436,7 +485,8 @@ namespace AutoBattlebot.Communication
                 return false;
             }
 
-            bool signalOk = _syncSocket.SignalFrameReady(_frameId);
+            // Use the overload that specifies depth availability
+            bool signalOk = _syncSocket.SignalFrameReady(hasDepth, _frameId);
 
             // In lockstep mode, command was received during SignalFrameReady
             if (signalOk && _syncMode == SyncMode.Lockstep)

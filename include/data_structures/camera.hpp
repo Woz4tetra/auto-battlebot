@@ -10,8 +10,8 @@ namespace auto_battlebot
     struct CameraInfo
     {
         Header header;
-        int width;
-        int height;
+        int width = 0;
+        int height = 0;
         cv::Mat intrinsics;
         cv::Mat distortion;
     };

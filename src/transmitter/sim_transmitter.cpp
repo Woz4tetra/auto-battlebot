@@ -1,9 +1,11 @@
 #include "transmitter/sim_transmitter.hpp"
+#include "communication/simulation_sync_manager.hpp"
 
 namespace auto_battlebot
 {
     SimTransmitter::SimTransmitter(SimTransmitterConfiguration &config)
         : enable_double_buffering_(config.enable_double_buffering),
+          enable_sync_socket_(config.enable_sync_socket),
           init_button_done_pressing_(false)
     {
         buffer_size_ = SimulationVelocityCommand::SIZE;
@@ -43,6 +45,12 @@ namespace auto_battlebot
                                                      command.angular_z,
                                                  });
         num_commands_sent++;
+
+        // Signal to Unity that command is ready (if sync socket is enabled and connected)
+        if (enable_sync_socket_ && SimulationSyncManager::instance().is_connected())
+        {
+            SimulationSyncManager::instance().signal_command_ready();
+        }
     }
 
     bool SimTransmitter::did_init_button_press()

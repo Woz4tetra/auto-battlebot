@@ -91,10 +91,6 @@ namespace AutoBattlebot.Core
         private bool _autoStart = true;
 
         [SerializeField]
-        [Tooltip("Target frame rate for the simulation (0 = unlimited)")]
-        private int _targetFrameRate = 60;
-
-        [SerializeField]
         [Tooltip("Enable verbose logging for debugging")]
         private bool _verboseLogging = false;
 
@@ -126,11 +122,6 @@ namespace AutoBattlebot.Core
         /// </summary>
         public SimulationMode CurrentMode => _currentMode;
 
-        /// <summary>
-        /// Target frame rate for the simulation.
-        /// </summary>
-        public int TargetFrameRate => _targetFrameRate;
-
         #endregion
 
         #region Unity Lifecycle
@@ -153,12 +144,6 @@ namespace AutoBattlebot.Core
                 transform.SetParent(null);
             }
             DontDestroyOnLoad(gameObject);
-
-            // Configure frame rate
-            if (_targetFrameRate > 0)
-            {
-                Application.targetFrameRate = _targetFrameRate;
-            }
 
             Log("SimulationManager initialized");
         }

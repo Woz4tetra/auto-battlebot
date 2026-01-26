@@ -1,11 +1,13 @@
 ﻿<Solution>
+  <Project Path="AutoBattlebot.Camera.csproj" />
   <Project Path="AutoBattlebot.Robots.csproj" />
   <Project Path="AutoBattlebot.Communication.csproj" />
+  <Project Path="Assembly-CSharp.csproj" />
   <Project Path="AutoBattlebot.Tests.Editor.csproj" />
   <Project Path="AutoBattlebot.DataGeneration.csproj" />
-  <Project Path="AutoBattlebot.Configuration.csproj" />
   <Project Path="AutoBattlebot.Core.csproj" />
+  <Project Path="AutoBattlebot.Configuration.csproj" />
+  <Project Path="AutoBattlebot.SimulationUI.csproj" />
   <Project Path="AutoBattlebot.AI.csproj" />
-  <Project Path="AutoBattlebot.Camera.csproj" />
   <Project Path="AutoBattlebot.Arena.csproj" />
 </Solution>
