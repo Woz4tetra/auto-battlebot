@@ -107,10 +107,6 @@ namespace AutoBattlebot.Camera
         private bool _enableGpuMemoryShare = false;
 
         [SerializeField]
-        [Tooltip("If enabled, do not read back RGB/depth to CPU or write shared memory. Only notifies GPU-share consumers and signals the sync socket.")]
-        private bool _gpuMemoryShareOnly = false;
-
-        [SerializeField]
         [Tooltip("Preferred backend for GPU sharing (Auto recommended).")]
         private GpuShareBackend _gpuMemoryShareBackend = GpuShareBackend.Auto;
 
@@ -450,12 +446,35 @@ namespace AutoBattlebot.Camera
 
             // Method 1: Try to find/create Custom Pass Volume
             var customPassType = System.Type.GetType("AutoBattlebot.Camera.HDRPDepthCopyPass, Assembly-CSharp");
-            if (customPassType != null)
+            var customPassVolumeType = System.Type.GetType("UnityEngine.Rendering.HighDefinition.CustomPassVolume, Unity.RenderPipelines.HighDefinition.Runtime");
+            
+            if (customPassType != null && customPassVolumeType != null)
             {
+                // Try direct type search first (more reliable)
+                var volumes = FindObjectsByType(customPassVolumeType, FindObjectsSortMode.None);
+                if (volumes != null && volumes.Length > 0)
+                {
+                    Debug.Log($"[CameraSimulator] Found {volumes.Length} CustomPassVolume(s) in scene");
+                    
+                    foreach (var volume in volumes)
+                    {
+                        if (CheckVolumeForDepthPass(volume, customPassType))
+                        {
+                            Debug.Log($"[CameraSimulator] Found existing HDRP Custom Pass Volume '{volume.name}' with depth copy");
+                            _useCommandBufferDepth = true;
+                            return;
+                        }
+                    }
+                    
+                    Debug.LogWarning($"[CameraSimulator] Found CustomPassVolume(s) but none contain HDRPDepthCopyPass. " +
+                                   $"Please add 'HDRPDepthCopyPass' to one of the volumes in the Inspector.");
+                }
+                
+                // Fallback: try reflection-based search
                 var existingVolume = FindCustomPassVolumeWithDepthCopy();
                 if (existingVolume != null)
                 {
-                    Debug.Log("[CameraSimulator] Found existing HDRP Custom Pass Volume with depth copy");
+                    Debug.Log("[CameraSimulator] Found existing HDRP Custom Pass Volume with depth copy (via reflection)");
                     _useCommandBufferDepth = true;
                     return;
                 }
@@ -486,7 +505,8 @@ namespace AutoBattlebot.Camera
                            "1. Create empty GameObject\n" +
                            "2. Add 'Custom Pass Volume' component\n" +
                            "3. Set Mode = Global, Injection Point = After Opaque Depth And Normal\n" +
-                           "4. Add 'HDRPDepthCopyPass' pass");
+                           "4. In the 'Custom Passes' list, click '+' and select 'HDRPDepthCopyPass'\n" +
+                           "   (The pass name 'Depth Copy Pass' is just a display name - the type must be HDRPDepthCopyPass)");
         }
 
         private void OnEndContextRendering(ScriptableRenderContext context, System.Collections.Generic.List<UnityCamera> cameras)
@@ -506,40 +526,200 @@ namespace AutoBattlebot.Camera
             }
         }
 
+        private bool CheckVolumeForDepthPass(UnityEngine.Object volume, System.Type depthCopyPassType)
+        {
+            if (volume == null || depthCopyPassType == null)
+            {
+                return false;
+            }
+            
+            var volumeType = volume.GetType();
+            
+            // Try to get the passes list via property (HDRP often uses properties)
+            var passesProp = volumeType.GetProperty("customPasses",
+                System.Reflection.BindingFlags.NonPublic | 
+                System.Reflection.BindingFlags.Instance | 
+                System.Reflection.BindingFlags.Public);
+            
+            if (passesProp != null)
+            {
+                try
+                {
+                    var passes = passesProp.GetValue(volume) as System.Collections.IList;
+                    if (passes != null)
+                    {
+                        return CheckPassesInList(passes, depthCopyPassType, volume as GameObject);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[CameraSimulator] Error reading customPasses property: {ex.Message}");
+                }
+            }
+            
+            // Fallback: try field
+            var passesField = volumeType.GetField("customPasses",
+                System.Reflection.BindingFlags.NonPublic | 
+                System.Reflection.BindingFlags.Instance | 
+                System.Reflection.BindingFlags.Public);
+            
+            if (passesField != null)
+            {
+                try
+                {
+                    var passes = passesField.GetValue(volume) as System.Collections.IList;
+                    if (passes != null)
+                    {
+                        return CheckPassesInList(passes, depthCopyPassType, volume as GameObject);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[CameraSimulator] Error reading customPasses field: {ex.Message}");
+                }
+            }
+            
+            return false;
+        }
+
         private GameObject FindCustomPassVolumeWithDepthCopy()
         {
+            // Find the HDRPDepthCopyPass type for comparison
+            var depthCopyPassType = System.Type.GetType("AutoBattlebot.Camera.HDRPDepthCopyPass, Assembly-CSharp");
+            if (depthCopyPassType == null)
+            {
+                Debug.LogWarning("[CameraSimulator] HDRPDepthCopyPass type not found");
+                return null;
+            }
+
             // Find all CustomPassVolume components in the scene
             var volumes = FindObjectsByType<MonoBehaviour>(FindObjectsSortMode.None);
+            int volumeCount = 0;
             foreach (var volume in volumes)
             {
-                if (volume.GetType().Name == "CustomPassVolume")
+                var volumeType = volume.GetType();
+                if (volumeType.Name == "CustomPassVolume" || 
+                    volumeType.FullName?.Contains("CustomPassVolume") == true)
                 {
-                    // Check if it has our depth copy pass
-                    var customPassesField = volume.GetType().GetField("customPasses",
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    if (customPassesField != null)
+                    volumeCount++;
+                    
+                    // Try multiple possible field names for the passes list
+                    string[] possibleFieldNames = { "customPasses", "m_CustomPasses", "passes", "m_Passes" };
+                    System.Reflection.FieldInfo customPassesField = null;
+                    
+                    foreach (var fieldName in possibleFieldNames)
                     {
-                        var passes = customPassesField.GetValue(volume) as System.Collections.IList;
-                        if (passes != null)
+                        customPassesField = volumeType.GetField(fieldName,
+                            System.Reflection.BindingFlags.NonPublic | 
+                            System.Reflection.BindingFlags.Instance | 
+                            System.Reflection.BindingFlags.Public);
+                        if (customPassesField != null)
                         {
-                            foreach (var pass in passes)
+                            break;
+                        }
+                    }
+                    
+                    if (customPassesField == null)
+                    {
+                        // Try properties instead
+                        var props = volumeType.GetProperties(
+                            System.Reflection.BindingFlags.NonPublic | 
+                            System.Reflection.BindingFlags.Instance | 
+                            System.Reflection.BindingFlags.Public);
+                        foreach (var prop in props)
+                        {
+                            if (prop.Name.Contains("Pass") && prop.PropertyType.IsGenericType)
                             {
-                                if (pass != null && pass.GetType().Name == "HDRPDepthCopyPass")
+                                try
                                 {
-                                    // Set the target texture
-                                    var targetField = pass.GetType().GetField("targetDepthTexture");
-                                    if (targetField != null)
+                                    var passesList = prop.GetValue(volume) as System.Collections.IList;
+                                    if (passesList != null)
                                     {
-                                        targetField.SetValue(pass, _depthTarget);
+                                        customPassesField = null; // Mark that we found it via property
+                                        if (CheckPassesInList(passesList, depthCopyPassType, volume.gameObject))
+                                        {
+                                            return volume.gameObject;
+                                        }
                                     }
-                                    return volume.gameObject;
                                 }
+                                catch { }
                             }
+                        }
+                        continue;
+                    }
+                    
+                    var passes = customPassesField.GetValue(volume) as System.Collections.IList;
+                    if (passes != null)
+                    {
+                        if (CheckPassesInList(passes, depthCopyPassType, volume.gameObject))
+                        {
+                            return volume.gameObject;
                         }
                     }
                 }
             }
+            
+            if (volumeCount == 0)
+            {
+                Debug.LogWarning("[CameraSimulator] No CustomPassVolume found in scene");
+            }
+            
             return null;
+        }
+
+        private bool CheckPassesInList(System.Collections.IList passes, System.Type depthCopyPassType, GameObject volumeGO)
+        {
+            if (passes == null || depthCopyPassType == null)
+            {
+                return false;
+            }
+            
+            Debug.Log($"[CameraSimulator] Checking {passes.Count} pass(es) in volume '{volumeGO?.name ?? "unknown"}'");
+            
+            foreach (var pass in passes)
+            {
+                if (pass == null)
+                {
+                    Debug.Log("[CameraSimulator] Found null pass in list");
+                    continue;
+                }
+                
+                var passType = pass.GetType();
+                Debug.Log($"[CameraSimulator] Found pass type: {passType.Name} (FullName: {passType.FullName})");
+                
+                // Check if this pass is of type HDRPDepthCopyPass (by name or by type)
+                bool isDepthCopyPass = 
+                    passType.Name == "HDRPDepthCopyPass" ||
+                    passType.FullName == depthCopyPassType.FullName ||
+                    depthCopyPassType.IsAssignableFrom(passType) ||
+                    passType.IsSubclassOf(depthCopyPassType);
+                
+                if (isDepthCopyPass)
+                {
+                    Debug.Log($"[CameraSimulator] ✓ Found HDRPDepthCopyPass in volume '{volumeGO?.name ?? "unknown"}'");
+                    
+                    // Set the target texture
+                    var targetField = passType.GetField("targetDepthTexture",
+                        System.Reflection.BindingFlags.NonPublic | 
+                        System.Reflection.BindingFlags.Instance | 
+                        System.Reflection.BindingFlags.Public);
+                    if (targetField != null)
+                    {
+                        targetField.SetValue(pass, _depthTarget);
+                        Debug.Log($"[CameraSimulator] ✓ Assigned depth target to HDRPDepthCopyPass");
+                        _useCommandBufferDepth = true;
+                        return true;
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[CameraSimulator] HDRPDepthCopyPass found but 'targetDepthTexture' field not accessible");
+                    }
+                }
+            }
+            
+            Debug.LogWarning($"[CameraSimulator] No HDRPDepthCopyPass found in volume '{volumeGO?.name ?? "unknown"}'. " +
+                           $"Please add 'HDRPDepthCopyPass' to the Custom Passes list in the Inspector.");
+            return false;
         }
 
         private void CreateHDRPCustomPassVolume()
@@ -627,26 +807,13 @@ namespace AutoBattlebot.Camera
 
         private void CaptureFrame()
         {
-            // GPU-share-only mode: render and notify the native plugin, skip CPU readback/shared memory.
-            if (_enableGpuMemoryShare && _gpuMemoryShareOnly && _gpuShareInitialized)
-            {
-                Profiler.BeginSample("CameraSimulator CaptureFrameGpuShareOnly");
-                CaptureFrameGpuShareOnly();
-                Profiler.EndSample();
-                return;
-            }
-
             if (_useLowLatencyMode)
             {
-                Profiler.BeginSample("CameraSimulator CaptureFrameSynchronous");
                 CaptureFrameSynchronous();
-                Profiler.EndSample();
             }
             else
             {
-                Profiler.BeginSample("CameraSimulator CaptureFrameAsync");
                 CaptureFrameAsync();
-                Profiler.EndSample();
             }
         }
 
@@ -808,42 +975,6 @@ namespace AutoBattlebot.Camera
                 }
 
                 AsyncGPUReadback.Request(_depthTarget, 0, TextureFormat.RFloat, OnDepthReadbackComplete);
-            }
-        }
-
-        private void CaptureFrameGpuShareOnly()
-        {
-            // Render into the GPU textures
-            _camera.Render();
-
-            // Update depth target if requested and not handled by a command buffer
-            if (_captureDepthThisFrame && _depthTarget != null && !_useCommandBufferDepth)
-            {
-                var depthTexture = Shader.GetGlobalTexture("_CameraDepthTexture");
-                if (depthTexture != null)
-                {
-                    Graphics.Blit(depthTexture, _depthTarget);
-                }
-                else if (_depthCopyMaterial != null)
-                {
-                    Graphics.Blit(null, _depthTarget, _depthCopyMaterial);
-                }
-            }
-
-            // Notify GPU-share consumers. Use the frame id that will be signaled on the sync socket.
-            if (_communicationBridge != null && _communicationBridge.IsActive)
-            {
-                ulong nextFrameId = _communicationBridge.FrameId + 1;
-                GpuMemoryShare.NotifyFrameReady(nextFrameId, Time.timeAsDouble, hasColor: true, hasDepth: _captureDepthThisFrame);
-
-                // Fulfill the pending request and signal the sync socket without writing shared memory.
-                _communicationBridge.SignalFrameReadyWithoutWrite(_captureDepthThisFrame);
-            }
-            else
-            {
-                // No comm bridge; still notify with a local counter for debugging.
-                _gpuShareFrameId++;
-                GpuMemoryShare.NotifyFrameReady(_gpuShareFrameId, Time.timeAsDouble, hasColor: true, hasDepth: _captureDepthThisFrame);
             }
         }
 
