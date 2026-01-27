@@ -107,8 +107,7 @@ namespace AutoBattlebot.Camera
         private bool _enableGpuMemoryShare = false;
 
         [SerializeField]
-        [Tooltip("If enabled, skip CPU readback/shared memory writes and use GPU sharing only. " +
-                 "Requires enable_gpu_sharing=true in SimRgbdCamera config on C++ side.")]
+        [Tooltip("If enabled, do not read back RGB/depth to CPU or write shared memory. Only notifies GPU-share consumers and signals the sync socket.")]
         private bool _gpuMemoryShareOnly = false;
 
         [SerializeField]
@@ -629,7 +628,7 @@ namespace AutoBattlebot.Camera
         private void CaptureFrame()
         {
             // GPU-share-only mode: render and notify the native plugin, skip CPU readback/shared memory.
-            if (_enableGpuMemoryShare && _gpuMemoryShareOnly && _gpuShareInitialized && _gpuColorRegistered)
+            if (_enableGpuMemoryShare && _gpuMemoryShareOnly && _gpuShareInitialized)
             {
                 Profiler.BeginSample("CameraSimulator CaptureFrameGpuShareOnly");
                 CaptureFrameGpuShareOnly();

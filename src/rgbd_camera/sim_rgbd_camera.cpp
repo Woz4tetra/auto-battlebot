@@ -1,14 +1,6 @@
 #include "rgbd_camera/sim_rgbd_camera.hpp"
 #include "communication/simulation_sync_manager.hpp"
 
-// Include GPU memory share header
-#include "gpu_memory_share/gpu_memory_share.h"
-
-#ifdef CUDA_AVAILABLE
-#include <cuda_runtime.h>
-#include <opencv2/core/cuda.hpp>
-#endif
-
 namespace auto_battlebot
 {
     SimRgbdCamera::SimRgbdCamera(SimRgbdCameraConfiguration &config)
@@ -17,7 +9,6 @@ namespace auto_battlebot
           enable_double_buffering_(config.enable_double_buffering),
           enable_sync_socket_(config.enable_sync_socket),
           sync_timeout_ms_(config.sync_timeout_ms),
-          enable_gpu_sharing_(config.enable_gpu_sharing),
           frame_reader_(nullptr),
           frames_received_(0),
           last_frame_count_(0),
@@ -26,12 +17,6 @@ namespace auto_battlebot
         buffer_size_ = get_simulation_frame_size(expected_width_, expected_height_);
 
         diagnostics_logger_ = DiagnosticsLogger::get_logger("sim_rgbd_camera");
-        
-        // Pre-allocate GPU copy buffers if GPU sharing is enabled
-        if (enable_gpu_sharing_) {
-            gpu_color_buffer_.resize(expected_width_ * expected_height_ * 3);  // BGR
-            gpu_depth_buffer_.resize(expected_width_ * expected_height_);       // float
-        }
     }
 
     SimRgbdCamera::~SimRgbdCamera()
@@ -49,53 +34,30 @@ namespace auto_battlebot
                                    {"buffer_size", static_cast<int>(buffer_size_)}},
                                   "Initializing SimRgbdCamera");
 
-        // Initialize GPU sharing if enabled
-        if (enable_gpu_sharing_)
+        if (frame_reader_ && frame_reader_->is_open())
         {
-            GpuShareConfig gpu_config{};
-            gpu_config.backend = GPU_SHARE_BACKEND_AUTO;  // Auto-detect CUDA/OpenGL
-            gpu_config.timeout_ms = sync_timeout_ms_;
-            
-            GpuShareError init_err = GpuMemoryShare_Initialize(&gpu_config);
-            if (init_err != GPU_SHARE_SUCCESS)
-            {
-                diagnostics_logger_->warning("GPU sharing initialization failed, falling back to shared memory");
-                enable_gpu_sharing_ = false;
-            }
-            else
-            {
-                diagnostics_logger_->info("GPU sharing initialized successfully");
-            }
+            std::cout << "Closing existing shared memory reader" << std::endl;
+            frame_reader_->close();
         }
-        
-        // Initialize shared memory reader (fallback or primary path)
-        if (!enable_gpu_sharing_)
+
+        size_t total_size;
+        if (enable_double_buffering_)
+            total_size = buffer_size_ * 2; // Double buffering
+        else
+            total_size = buffer_size_;
+
+        diagnostics_logger_->info("shm",
+                                  {{"total_size", static_cast<int>(total_size)},
+                                   {"shm_name", "auto_battlebot_frame"}},
+                                  "Opening shared memory");
+
+        frame_reader_ = std::make_unique<SharedMemoryReader>("auto_battlebot_frame", total_size);
+
+        bool success = frame_reader_->open();
+        if (!success)
         {
-            if (frame_reader_ && frame_reader_->is_open())
-            {
-                std::cout << "Closing existing shared memory reader" << std::endl;
-                frame_reader_->close();
-            }
-
-            size_t total_size;
-            if (enable_double_buffering_)
-                total_size = buffer_size_ * 2; // Double buffering
-            else
-                total_size = buffer_size_;
-
-            diagnostics_logger_->info("shm",
-                                      {{"total_size", static_cast<int>(total_size)},
-                                       {"shm_name", "auto_battlebot_frame"}},
-                                      "Opening shared memory");
-
-            frame_reader_ = std::make_unique<SharedMemoryReader>("auto_battlebot_frame", total_size);
-
-            bool success = frame_reader_->open();
-            if (!success)
-            {
-                std::cerr << "Failed to open shared memory for SimRgbdCamera" << std::endl;
-                return false;
-            }
+            std::cerr << "Failed to open shared memory for SimRgbdCamera" << std::endl;
+            return false;
         }
 
         // Initialize sync socket if enabled
@@ -128,13 +90,6 @@ namespace auto_battlebot
     {
         data = CameraData();
 
-        // GPU sharing path
-        if (enable_gpu_sharing_)
-        {
-            return read_frame_from_gpu(data, get_depth);
-        }
-
-        // Shared memory path (fallback or primary)
         if (!frame_reader_ || !frame_reader_->is_open())
         {
             diagnostics_logger_->warning("Shared memory not open");
@@ -347,99 +302,6 @@ namespace auto_battlebot
             last_log_time_ = now;
         }
 
-        return true;
-    }
-
-    bool SimRgbdCamera::read_frame_from_gpu(CameraData &data, bool get_depth) const
-    {
-        // Wait for Unity to signal frame ready via GPU share
-        GpuShareFrameInfo frame_info;
-        GpuShareError wait_err = GpuMemoryShare_WaitForFrame(sync_timeout_ms_, &frame_info);
-        if (wait_err != GPU_SHARE_SUCCESS)
-        {
-            if (wait_err == GPU_SHARE_ERROR_TIMEOUT)
-            {
-                diagnostics_logger_->warning("Timeout waiting for GPU frame from Unity");
-            }
-            else
-            {
-                diagnostics_logger_->warning("Failed to wait for GPU frame");
-            }
-            return false;
-        }
-
-        // Look up texture handles by name (Unity registers with "auto_battlebot_color" and "auto_battlebot_depth")
-        GpuShareError color_lookup = GpuMemoryShare_GetTextureByName("auto_battlebot_color", &gpu_color_texture_);
-        if (color_lookup != GPU_SHARE_SUCCESS)
-        {
-            diagnostics_logger_->warning("Failed to find GPU color texture by name");
-            return false;
-        }
-        
-        // Copy color from GPU to CPU
-        GpuShareError color_err = GpuMemoryShare_CopyToCpu(
-            &gpu_color_texture_,
-            gpu_color_buffer_.data(),
-            gpu_color_buffer_.size());
-        
-        if (color_err != GPU_SHARE_SUCCESS)
-        {
-            diagnostics_logger_->warning("Failed to copy color from GPU");
-            return false;
-        }
-
-        // Create OpenCV Mat from BGR buffer (Unity writes BGR format)
-        cv::Mat color_image(expected_height_, expected_width_, CV_8UC3, gpu_color_buffer_.data());
-        data.rgb.image = color_image.clone();  // Clone to own the data
-        data.rgb.header.stamp = frame_info.timestamp;
-        data.rgb.header.frame_id = FrameId::CAMERA;
-
-        // Copy depth if requested and available
-        if (get_depth && frame_info.has_depth)
-        {
-            GpuShareError depth_lookup = GpuMemoryShare_GetTextureByName("auto_battlebot_depth", &gpu_depth_texture_);
-            if (depth_lookup == GPU_SHARE_SUCCESS)
-            {
-                GpuShareError depth_err = GpuMemoryShare_CopyToCpu(
-                    &gpu_depth_texture_,
-                    gpu_depth_buffer_.data(),
-                    gpu_depth_buffer_.size() * sizeof(float));
-            
-                if (depth_err == GPU_SHARE_SUCCESS)
-                {
-                    cv::Mat depth_image(expected_height_, expected_width_, CV_32FC1, gpu_depth_buffer_.data());
-                    data.depth.image = depth_image.clone();
-                    data.depth.header.stamp = frame_info.timestamp;
-                    data.depth.header.frame_id = FrameId::CAMERA;
-                }
-                else
-                {
-                    diagnostics_logger_->warning("Failed to copy depth from GPU");
-                }
-            }
-            else
-            {
-                diagnostics_logger_->warning("Failed to find GPU depth texture by name");
-            }
-        }
-
-        // TODO: Get intrinsics/pose from GPU share metadata or separate API
-        // For now, use defaults (caller should set these separately)
-        CameraInfo camera_info;
-        camera_info.width = expected_width_;
-        camera_info.height = expected_height_;
-        camera_info.intrinsics = cv::Mat::eye(3, 3, CV_64F);
-        camera_info.distortion = cv::Mat::zeros(1, 5, CV_64F);
-        camera_info.header = data.rgb.header;
-        data.camera_info = camera_info;
-
-        // TODO: Get pose from GPU share metadata
-        data.tf_visodom_from_camera = TransformStamped{};
-        data.tf_visodom_from_camera.header.stamp = frame_info.timestamp;
-        data.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
-        data.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
-
-        frames_received_++;
         return true;
     }
 

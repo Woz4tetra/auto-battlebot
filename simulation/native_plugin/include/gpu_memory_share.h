@@ -139,16 +139,6 @@ GPU_SHARE_EXPORT GpuShareError GpuMemoryShare_RegisterTexture(
 GPU_SHARE_EXPORT void GpuMemoryShare_UnregisterTexture(GpuShareTexture* texture);
 
 /**
- * @brief Look up a texture by name (for C++ consumers)
- * @param name Texture name (e.g., "auto_battlebot_color")
- * @param out_texture Output: texture handle if found
- * @return GPU_SHARE_SUCCESS if found, GPU_SHARE_ERROR_INVALID_HANDLE if not found
- */
-GPU_SHARE_EXPORT GpuShareError GpuMemoryShare_GetTextureByName(
-    const char* name,
-    GpuShareTexture* out_texture);
-
-/**
  * @brief Notify that a frame is ready (call after Unity renders)
  * @param frame_info Frame metadata
  * @return GPU_SHARE_SUCCESS or error code
