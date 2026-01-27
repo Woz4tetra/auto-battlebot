@@ -578,6 +578,23 @@ namespace AutoBattlebot.Communication
             // Clean up existing connection
             CloseClientConnection();
 
+            // If server socket stopped listening for some reason, restart the server listener.
+            if (_isServer && !_isListening)
+            {
+                try
+                {
+                    // Close and recreate the server socket
+                    try { _socket?.Close(); _socket?.Dispose(); } catch { }
+                    _socket = null;
+                    return InitializeServer();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"[SyncSocket] Failed to restart server listener: {ex.Message}");
+                    return false;
+                }
+            }
+
             if (_isServer)
             {
                 // Server just waits for new client

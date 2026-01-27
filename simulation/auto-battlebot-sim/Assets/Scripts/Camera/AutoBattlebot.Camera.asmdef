@@ -5,6 +5,7 @@
         "AutoBattlebot.Core",
         "AutoBattlebot.Configuration",
         "AutoBattlebot.Communication",
+        "AutoBattlebot.NativePlugins",
         "Unity.RenderPipelines.Core.Runtime",
         "Unity.RenderPipelines.HighDefinition.Runtime"
     ],

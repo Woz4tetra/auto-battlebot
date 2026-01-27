@@ -21,16 +21,21 @@ target_include_directories(gpu_memory_share PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# CUDA support
+# CUDA support (requires OpenGL for CUDA-OpenGL interop)
 if(ENABLE_CUDA)
     find_package(CUDA QUIET)
-    if(CUDA_FOUND)
+    find_package(OpenGL QUIET)  # CUDA-OpenGL interop requires OpenGL
+    if(CUDA_FOUND && OpenGL_FOUND)
         message(STATUS "CUDA found: ${CUDA_VERSION}")
+        message(STATUS "OpenGL found (required for CUDA-OpenGL interop)")
         target_compile_definitions(gpu_memory_share PRIVATE CUDA_AVAILABLE)
-        target_include_directories(gpu_memory_share PRIVATE ${CUDA_INCLUDE_DIRS})
-        target_link_libraries(gpu_memory_share PRIVATE ${CUDA_LIBRARIES})
+        target_include_directories(gpu_memory_share PRIVATE ${CUDA_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIR})
+        target_link_libraries(gpu_memory_share PRIVATE ${CUDA_LIBRARIES} OpenGL::GL)
     else()
-        message(STATUS "CUDA not found, disabling CUDA backend")
+        if(CUDA_FOUND && !OpenGL_FOUND)
+            message(WARNING "CUDA found but OpenGL not found - CUDA-OpenGL interop will not work")
+        endif()
+        message(STATUS "CUDA not available, disabling CUDA backend")
     endif()
 endif()
 

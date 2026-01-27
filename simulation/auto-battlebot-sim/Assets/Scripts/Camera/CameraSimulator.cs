@@ -7,6 +7,8 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using AutoBattlebot.Core;
 using AutoBattlebot.Communication;
+using AutoBattlebot.NativePlugins;
+using UnityEngine.Profiling;
 
 #if UNITY_HDRP
 using UnityEngine.Rendering.HighDefinition;
@@ -95,6 +97,32 @@ namespace AutoBattlebot.Camera
         [Tooltip("Wait for frame requests from C++ before capturing. If disabled, captures at fixed frame rate.")]
         private bool _useRequestDrivenCapture = false;
 
+        [SerializeField]
+        [Tooltip("Disable depth capture entirely for maximum performance. Depth will always be empty/max range.")]
+        private bool _disableDepthCapture = false;
+
+        [Header("GPU Memory Sharing (Native Plugin)")]
+        [SerializeField]
+        [Tooltip("Enable the native GPU sharing plugin (GpuMemoryShare). If unavailable, falls back to CPU readback.")]
+        private bool _enableGpuMemoryShare = false;
+
+        [SerializeField]
+        [Tooltip("If enabled, skip CPU readback/shared memory writes and use GPU sharing only. " +
+                 "Requires enable_gpu_sharing=true in SimRgbdCamera config on C++ side.")]
+        private bool _gpuMemoryShareOnly = false;
+
+        [SerializeField]
+        [Tooltip("Preferred backend for GPU sharing (Auto recommended).")]
+        private GpuShareBackend _gpuMemoryShareBackend = GpuShareBackend.Auto;
+
+        [SerializeField]
+        [Tooltip("Texture name identifier for the shared color texture.")]
+        private string _gpuMemoryShareColorName = "auto_battlebot_color";
+
+        [SerializeField]
+        [Tooltip("Texture name identifier for the shared depth texture.")]
+        private string _gpuMemoryShareDepthName = "auto_battlebot_depth";
+
         #endregion
 
         #region Properties
@@ -148,7 +176,15 @@ namespace AutoBattlebot.Camera
         private Texture2D _syncDepthTexture;
 
         // Request-driven capture state
-        private bool _captureDepthThisFrame = true;  // Whether to capture depth for current frame
+        private bool _captureDepthThisFrame = false;  // Whether to capture depth for current frame (default: no)
+
+        // GPU memory sharing (native plugin) state
+        private bool _gpuShareInitialized;
+        private GpuShareTexture _gpuSharedColorTexture;
+        private GpuShareTexture _gpuSharedDepthTexture;
+        private bool _gpuColorRegistered;
+        private bool _gpuDepthRegistered;
+        private ulong _gpuShareFrameId;
 
         #endregion
 
@@ -187,6 +223,7 @@ namespace AutoBattlebot.Camera
             ConfigureCamera();
             AllocateBuffers();
             ConfigureCommunicationBridge();
+            SetupGpuMemoryShareIfEnabled();
             Debug.Log($"[CameraSimulator] Camera ready (near={_nearClip}, far={_farClip})");
         }
 
@@ -202,6 +239,7 @@ namespace AutoBattlebot.Camera
 
         private void Update()
         {
+
             if (_camera == null || _colorTarget == null)
             {
                 return;
@@ -223,7 +261,15 @@ namespace AutoBattlebot.Camera
             {
                 if (_communicationBridge != null && _communicationBridge.HasPendingFrameRequest)
                 {
-                    _captureDepthThisFrame = _communicationBridge.PendingRequestIncludesDepth;
+                    // Honor request but also check if depth is globally disabled
+                    bool requestWantsDepth = _communicationBridge.PendingRequestIncludesDepth;
+                    _captureDepthThisFrame = requestWantsDepth && !_disableDepthCapture;
+
+                    if (Time.frameCount % 100 == 0)  // Log every 100 frames
+                    {
+                        Debug.Log($"[CameraSimulator] Frame request: depth={requestWantsDepth}, willCapture={_captureDepthThisFrame}, disabled={_disableDepthCapture}");
+                    }
+
                     CaptureFrame();
                 }
                 return;
@@ -236,7 +282,7 @@ namespace AutoBattlebot.Camera
             }
 
             _nextCaptureTime = _captureFrameRate > 0 ? Time.time + (1f / _captureFrameRate) : Time.time;
-            _captureDepthThisFrame = true;  // Always capture depth in free-running mode
+            _captureDepthThisFrame = !_disableDepthCapture;  // Capture depth unless disabled
             CaptureFrame();
         }
 
@@ -582,13 +628,26 @@ namespace AutoBattlebot.Camera
 
         private void CaptureFrame()
         {
+            // GPU-share-only mode: render and notify the native plugin, skip CPU readback/shared memory.
+            if (_enableGpuMemoryShare && _gpuMemoryShareOnly && _gpuShareInitialized && _gpuColorRegistered)
+            {
+                Profiler.BeginSample("CameraSimulator CaptureFrameGpuShareOnly");
+                CaptureFrameGpuShareOnly();
+                Profiler.EndSample();
+                return;
+            }
+
             if (_useLowLatencyMode)
             {
+                Profiler.BeginSample("CameraSimulator CaptureFrameSynchronous");
                 CaptureFrameSynchronous();
+                Profiler.EndSample();
             }
             else
             {
+                Profiler.BeginSample("CameraSimulator CaptureFrameAsync");
                 CaptureFrameAsync();
+                Profiler.EndSample();
             }
         }
 
@@ -597,8 +656,16 @@ namespace AutoBattlebot.Camera
         /// </summary>
         private void CaptureFrameSynchronous()
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
             // Render the camera
             _camera.Render();
+
+            if (Time.frameCount % 100 == 0)
+            {
+                Debug.Log($"[CameraSimulator] Render: {sw.ElapsedMilliseconds}ms");
+                sw.Restart();
+            }
 
             // Handle depth capture (must happen before we change active render texture)
             if (_captureDepthThisFrame && _depthTarget != null && !_useCommandBufferDepth)
@@ -614,6 +681,9 @@ namespace AutoBattlebot.Camera
                 }
             }
 
+            // Notify GPU-share consumers as early as possible (right after rendering into textures)
+            MaybeNotifyGpuShareFrameReady();
+
             // Synchronous color readback using ReadPixels
             RenderTexture prevRT = RenderTexture.active;
 
@@ -623,29 +693,70 @@ namespace AutoBattlebot.Camera
             {
                 _syncColorTexture = new Texture2D(_imageWidth, _imageHeight, TextureFormat.RGBA32, false);
             }
+
+            if (Time.frameCount % 100 == 0) sw.Restart();
             _syncColorTexture.ReadPixels(new Rect(0, 0, _imageWidth, _imageHeight), 0, 0, false);
+            if (Time.frameCount % 100 == 0)
+            {
+                Debug.Log($"[CameraSimulator] ReadPixels RGB: {sw.ElapsedMilliseconds}ms");
+                sw.Restart();
+            }
+
             var colorData = _syncColorTexture.GetRawTextureData<byte>();
             ConvertRgbaToBgr(colorData, _bgrBuffer);
+
+            if (Time.frameCount % 100 == 0)
+            {
+                Debug.Log($"[CameraSimulator] ConvertRgbaToBgr: {sw.ElapsedMilliseconds}ms");
+            }
 
             // Read depth only if requested
             if (_captureDepthThisFrame && _depthTarget != null)
             {
+                if (Time.frameCount % 100 == 0)
+                {
+                    Debug.Log($"[CameraSimulator] Performing depth ReadPixels (frame {Time.frameCount})");
+                    sw.Restart();
+                }
+
                 RenderTexture.active = _depthTarget;
                 if (_syncDepthTexture == null)
                 {
                     _syncDepthTexture = new Texture2D(_imageWidth, _imageHeight, TextureFormat.RFloat, false);
                 }
                 _syncDepthTexture.ReadPixels(new Rect(0, 0, _imageWidth, _imageHeight), 0, 0, false);
+
+                if (Time.frameCount % 100 == 0)
+                {
+                    Debug.Log($"[CameraSimulator] ReadPixels Depth: {sw.ElapsedMilliseconds}ms");
+                    sw.Restart();
+                }
+
                 var depthData = _syncDepthTexture.GetRawTextureData<float>();
                 ConvertDepthToMetric(depthData, _depthBuffer);
+
+                if (Time.frameCount % 100 == 0)
+                {
+                    Debug.Log($"[CameraSimulator] ConvertDepthToMetric: {sw.ElapsedMilliseconds}ms");
+                }
+            }
+            else if (Time.frameCount % 100 == 0)
+            {
+                Debug.Log($"[CameraSimulator] Skipping depth capture (frame {Time.frameCount}, flag={_captureDepthThisFrame})");
             }
 
             RenderTexture.active = prevRT;
 
             // Write immediately (no waiting for callbacks)
             _colorReady = true;
-            _depthReady = true;
+            _depthReady = true;  // Always mark ready; WriteFrame will handle whether to actually write depth
+
+            if (Time.frameCount % 100 == 0) sw.Restart();
             TryWriteFrame();
+            if (Time.frameCount % 100 == 0)
+            {
+                Debug.Log($"[CameraSimulator] TryWriteFrame total: {sw.ElapsedMilliseconds}ms");
+            }
         }
 
         /// <summary>
@@ -672,6 +783,9 @@ namespace AutoBattlebot.Camera
             // Render the camera
             _camera.Render();
 
+            // Notify GPU-share consumers as early as possible (right after rendering into textures)
+            MaybeNotifyGpuShareFrameReady();
+
             // Request color readback
             AsyncGPUReadback.Request(_colorTarget, 0, TextureFormat.RGBA32, OnColorReadbackComplete);
 
@@ -696,6 +810,132 @@ namespace AutoBattlebot.Camera
 
                 AsyncGPUReadback.Request(_depthTarget, 0, TextureFormat.RFloat, OnDepthReadbackComplete);
             }
+        }
+
+        private void CaptureFrameGpuShareOnly()
+        {
+            // Render into the GPU textures
+            _camera.Render();
+
+            // Update depth target if requested and not handled by a command buffer
+            if (_captureDepthThisFrame && _depthTarget != null && !_useCommandBufferDepth)
+            {
+                var depthTexture = Shader.GetGlobalTexture("_CameraDepthTexture");
+                if (depthTexture != null)
+                {
+                    Graphics.Blit(depthTexture, _depthTarget);
+                }
+                else if (_depthCopyMaterial != null)
+                {
+                    Graphics.Blit(null, _depthTarget, _depthCopyMaterial);
+                }
+            }
+
+            // Notify GPU-share consumers. Use the frame id that will be signaled on the sync socket.
+            if (_communicationBridge != null && _communicationBridge.IsActive)
+            {
+                ulong nextFrameId = _communicationBridge.FrameId + 1;
+                GpuMemoryShare.NotifyFrameReady(nextFrameId, Time.timeAsDouble, hasColor: true, hasDepth: _captureDepthThisFrame);
+
+                // Fulfill the pending request and signal the sync socket without writing shared memory.
+                _communicationBridge.SignalFrameReadyWithoutWrite(_captureDepthThisFrame);
+            }
+            else
+            {
+                // No comm bridge; still notify with a local counter for debugging.
+                _gpuShareFrameId++;
+                GpuMemoryShare.NotifyFrameReady(_gpuShareFrameId, Time.timeAsDouble, hasColor: true, hasDepth: _captureDepthThisFrame);
+            }
+        }
+
+        private void SetupGpuMemoryShareIfEnabled()
+        {
+            if (!_enableGpuMemoryShare)
+            {
+                return;
+            }
+
+            // Try to initialize the plugin (safe if missing)
+            _gpuShareInitialized = GpuMemoryShare.Initialize(_gpuMemoryShareBackend, timeoutMs: 1000);
+            if (!_gpuShareInitialized)
+            {
+                Debug.LogWarning("[CameraSimulator] GPU memory sharing requested, but plugin failed to initialize. Falling back to CPU readback.");
+                return;
+            }
+
+            // Register textures (can be consumed by C++ side).
+            if (!_gpuColorRegistered && _colorTarget != null)
+            {
+                _gpuColorRegistered = GpuMemoryShare.RegisterTexture(_colorTarget, _gpuMemoryShareColorName, out _gpuSharedColorTexture);
+            }
+
+            // Depth texture registration is optional; only register if depth target exists.
+            if (!_gpuDepthRegistered && _depthTarget != null)
+            {
+                _gpuDepthRegistered = GpuMemoryShare.RegisterTexture(_depthTarget, _gpuMemoryShareDepthName, out _gpuSharedDepthTexture);
+            }
+
+            Debug.Log($"[CameraSimulator] GPU sharing enabled. Initialized={_gpuShareInitialized}, ColorRegistered={_gpuColorRegistered}, DepthRegistered={_gpuDepthRegistered}, Backend={GpuMemoryShare.Backend}");
+        }
+
+        private void TeardownGpuMemoryShare()
+        {
+            if (!_gpuShareInitialized)
+            {
+                return;
+            }
+
+            try
+            {
+                if (_gpuColorRegistered)
+                {
+                    GpuMemoryShare.UnregisterTexture(ref _gpuSharedColorTexture);
+                    _gpuColorRegistered = false;
+                }
+
+                if (_gpuDepthRegistered)
+                {
+                    GpuMemoryShare.UnregisterTexture(ref _gpuSharedDepthTexture);
+                    _gpuDepthRegistered = false;
+                }
+            }
+            finally
+            {
+                GpuMemoryShare.Shutdown();
+                _gpuShareInitialized = false;
+            }
+        }
+
+        private void MaybeNotifyGpuShareFrameReady()
+        {
+            if (!_enableGpuMemoryShare || !_gpuShareInitialized)
+            {
+                return;
+            }
+
+            // Ensure textures are registered (in case Initialize ran before RTs were created)
+            if (!_gpuColorRegistered && _colorTarget != null)
+            {
+                _gpuColorRegistered = GpuMemoryShare.RegisterTexture(_colorTarget, _gpuMemoryShareColorName, out _gpuSharedColorTexture);
+            }
+            if (!_gpuDepthRegistered && _depthTarget != null)
+            {
+                _gpuDepthRegistered = GpuMemoryShare.RegisterTexture(_depthTarget, _gpuMemoryShareDepthName, out _gpuSharedDepthTexture);
+            }
+
+            // Try to align GPU-share frame id with the sync socket/shared memory frame id.
+            ulong frameId = 0;
+            if (_communicationBridge != null && _communicationBridge.IsActive)
+            {
+                frameId = _communicationBridge.FrameId + 1;
+            }
+            else
+            {
+                _gpuShareFrameId++;
+                frameId = _gpuShareFrameId;
+            }
+
+            GpuMemoryShare.NotifyFrameReady(frameId, Time.timeAsDouble, hasColor: true, hasDepth: _captureDepthThisFrame);
         }
 
         private void OnColorReadbackComplete(AsyncGPUReadbackRequest request)
@@ -789,8 +1029,9 @@ namespace AutoBattlebot.Camera
             if (_communicationBridge != null && _communicationBridge.IsActive)
             {
                 Matrix4x4 pose = _camera.transform.localToWorldMatrix;
-                // Pass depth flag to communication bridge so it can signal C++ appropriately
-                _communicationBridge.WriteFrame(outputBuffer, _depthBuffer, ConvertMatrixToRowMajor(pose), _captureDepthThisFrame);
+                // Pass depth buffer only if captured (avoids passing 3.7MB array when not needed)
+                float[] depthToWrite = _captureDepthThisFrame ? _depthBuffer : null;
+                _communicationBridge.WriteFrame(outputBuffer, depthToWrite, ConvertMatrixToRowMajor(pose), _captureDepthThisFrame);
             }
 
             _colorReady = false;
@@ -907,6 +1148,8 @@ namespace AutoBattlebot.Camera
 
         private void ReleaseResources()
         {
+            TeardownGpuMemoryShare();
+
             // Unsubscribe from render pipeline events
             RenderPipelineManager.endCameraRendering -= OnEndCameraRendering;
             RenderPipelineManager.endContextRendering -= OnEndContextRendering;

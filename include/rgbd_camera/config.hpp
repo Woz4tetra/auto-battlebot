@@ -64,6 +64,7 @@ namespace auto_battlebot
         bool enable_double_buffering = true;
         bool enable_sync_socket = true;  // Use sync socket for frame requests
         int sync_timeout_ms = 1000;      // Timeout for frame requests
+        bool enable_gpu_sharing = false; // Use GPU memory sharing (CUDA) instead of shared memory
 
         SimRgbdCameraConfiguration()
         {
@@ -77,6 +78,7 @@ namespace auto_battlebot
             PARSE_FIELD_BOOL(enable_double_buffering)
             PARSE_FIELD_BOOL(enable_sync_socket)
             PARSE_FIELD(sync_timeout_ms)
+            PARSE_FIELD_BOOL(enable_gpu_sharing)
         )
         // clang-format on
     };

@@ -20,11 +20,19 @@ namespace auto_battlebot
         template <typename T>
         void write_at(size_t offset, const T &value)
         {
+            if (data_ == nullptr)
+            {
+                return;
+            }
             std::memcpy(data_ + offset, &value, sizeof(T));
         }
 
         void write_bytes(size_t offset, const std::byte *src, size_t len)
         {
+            if (data_ == nullptr)
+            {
+                return;
+            }
             std::memcpy(data_ + offset, src, len);
         }
 

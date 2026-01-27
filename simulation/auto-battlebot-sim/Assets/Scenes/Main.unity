@@ -641,7 +641,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _currentMode: 1
   _autoStart: 1
-  _targetFrameRate: 120
   _verboseLogging: 1
 --- !u!114 &100000004
 MonoBehaviour:
@@ -661,6 +660,7 @@ MonoBehaviour:
   _targetFrameRate: 120
   _vSyncCount: 0
   _qualityLevel: -1
+  _runInBackground: 1
   _logSettings: 1
 --- !u!1 &100000011
 GameObject:
@@ -752,9 +752,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _frameMemoryName: auto_battlebot_frame
-  _imageWidth: 1920
-  _imageHeight: 1080
-  _useDoubleBuffering: 1
+  _imageWidth: 1280
+  _imageHeight: 720
+  _useDoubleBuffering: 0
   _commandMemoryName: auto_battlebot_command
   _maxLinearVelocity: 10
   _maxAngularVelocity: 20
@@ -763,8 +763,10 @@ MonoBehaviour:
   _socketPath: /tmp/auto_battlebot_sync.sock
   _tcpPort: 47821
   _syncTimeoutMs: 1000
-  _logPerformanceMetrics: 0
-  _metricsLogInterval: 5
+  _logPerformanceMetrics: 1
+  _metricsLogInterval: 1
+  _autoRecover: 1
+  _recoverIntervalSeconds: 0.5
 --- !u!1 &100000041
 GameObject:
   m_ObjectHideFlags: 0
@@ -1889,8 +1891,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: AutoBattlebot.Camera::AutoBattlebot.Camera.CameraSimulator
   _camera: {fileID: 1221643277}
-  _imageWidth: 1920
-  _imageHeight: 1080
+  _imageWidth: 1280
+  _imageHeight: 720
   _captureFrameRate: 30
   _verticalFovDegrees: 70
   _useZedIntrinsics: 1
@@ -1909,6 +1911,12 @@ MonoBehaviour:
   _communicationBridge: {fileID: 100000023}
   _useLowLatencyMode: 1
   _useRequestDrivenCapture: 1
+  _disableDepthCapture: 0
+  _enableGpuMemoryShare: 1
+  _gpuMemoryShareOnly: 0
+  _gpuMemoryShareBackend: 0
+  _gpuMemoryShareColorName: auto_battlebot_color
+  _gpuMemoryShareDepthName: auto_battlebot_depth
 --- !u!20 &1221643277
 Camera:
   m_ObjectHideFlags: 0

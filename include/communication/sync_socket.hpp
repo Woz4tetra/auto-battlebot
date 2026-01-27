@@ -94,6 +94,7 @@ public:
 private:
     bool connect_unix();
     bool connect_tcp();
+    bool ensure_connected();
     bool send_signal(uint8_t signal);
     bool wait_for_signal(uint8_t expected_signal, int timeout_ms);
     int wait_for_any_signal(int timeout_ms);
@@ -106,6 +107,7 @@ private:
     // Statistics
     mutable Stats stats_;
     std::chrono::steady_clock::time_point last_request_time_;
+    std::chrono::steady_clock::time_point next_reconnect_attempt_{};
     int64_t total_latency_us_ = 0;
     uint64_t latency_count_ = 0;
 

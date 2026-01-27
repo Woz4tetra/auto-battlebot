@@ -2,7 +2,7 @@
   <Project Path="AutoBattlebot.Camera.csproj" />
   <Project Path="AutoBattlebot.Robots.csproj" />
   <Project Path="AutoBattlebot.Communication.csproj" />
-  <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="AutoBattlebot.NativePlugins.csproj" />
   <Project Path="AutoBattlebot.Tests.Editor.csproj" />
   <Project Path="AutoBattlebot.DataGeneration.csproj" />
   <Project Path="AutoBattlebot.Core.csproj" />

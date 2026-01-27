@@ -3,8 +3,9 @@
 
 [rgbd_camera]
 type = "SimRgbdCamera"
-width = 1920
-height = 1080
+width = 1280
+height = 720
+enable_double_buffering = false
 
 [field_model]
 type = "DeepLabFieldModel"
@@ -78,6 +79,7 @@ type = "NoopNavigation"
 
 [transmitter]
 type = "SimTransmitter"
+enable_double_buffering = false
 
 [publisher]
 type = "RosPublisher"

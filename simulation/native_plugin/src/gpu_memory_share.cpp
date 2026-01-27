@@ -20,9 +20,20 @@
 
 #ifdef CUDA_AVAILABLE
 #include <cuda_runtime.h>
+#include <cuda_gl_interop.h>
+#include <GL/gl.h>
+#include <GL/glext.h>
 #endif
 
 namespace {
+
+// Per-texture CUDA resources (for CUDA backend)
+struct CudaTextureResource {
+    cudaGraphicsResource_t resource = nullptr;
+    bool mapped = false;
+    void* cuda_ptr = nullptr;
+    size_t size = 0;
+};
 
 // Global state
 struct GpuShareState {
@@ -33,6 +44,8 @@ struct GpuShareState {
     
     // Registered textures
     std::unordered_map<uint64_t, GpuShareTexture> textures;
+    std::unordered_map<std::string, uint64_t> texture_names;  // name -> handle lookup
+    std::unordered_map<uint64_t, CudaTextureResource> cuda_resources;  // CUDA backend only
     uint64_t next_handle = 1;
     
     // Frame synchronization
@@ -90,10 +103,19 @@ GpuShareError GpuMemoryShare_Initialize(const GpuShareConfig* config) {
     // Initialize the selected backend
     switch (g_state.backend) {
         case GPU_SHARE_BACKEND_CUDA:
+#ifdef CUDA_AVAILABLE
             std::cout << "[GpuMemoryShare] Initializing CUDA backend..." << std::endl;
-            // TODO: Initialize CUDA context sharing
-            // cudaSetDevice(0);
-            // cudaDeviceEnablePeerAccess(...)
+            // Ensure CUDA device is set (default device 0)
+            cudaError_t err = cudaSetDevice(0);
+            if (err != cudaSuccess) {
+                std::cerr << "[GpuMemoryShare] Failed to set CUDA device: " << cudaGetErrorString(err) << std::endl;
+                return GPU_SHARE_ERROR_CUDA_NOT_AVAILABLE;
+            }
+            std::cout << "[GpuMemoryShare] CUDA device 0 selected" << std::endl;
+#else
+            std::cerr << "[GpuMemoryShare] CUDA backend requested but CUDA not available" << std::endl;
+            return GPU_SHARE_ERROR_CUDA_NOT_AVAILABLE;
+#endif
             break;
             
         case GPU_SHARE_BACKEND_OPENGL:
@@ -125,13 +147,26 @@ void GpuMemoryShare_Shutdown() {
     // Cleanup registered textures
     g_state.textures.clear();
     
+    // Cleanup registered CUDA resources
+#ifdef CUDA_AVAILABLE
+    for (auto& [handle, cuda_res] : g_state.cuda_resources) {
+        if (cuda_res.mapped && cuda_res.resource) {
+            cudaGraphicsUnmapResources(1, &cuda_res.resource, 0);
+        }
+        if (cuda_res.resource) {
+            cudaGraphicsUnregisterResource(cuda_res.resource);
+        }
+    }
+    g_state.cuda_resources.clear();
+#endif
+    
     // Cleanup backend
     switch (g_state.backend) {
         case GPU_SHARE_BACKEND_CUDA:
-            // TODO: Cleanup CUDA resources
+            // CUDA resources cleaned above
             break;
         case GPU_SHARE_BACKEND_OPENGL:
-            // TODO: Cleanup OpenGL resources
+            // OpenGL cleanup (if needed)
             break;
         default:
             break;
@@ -180,13 +215,42 @@ GpuShareError GpuMemoryShare_RegisterTexture(
     // Backend-specific registration
     switch (g_state.backend) {
         case GPU_SHARE_BACKEND_CUDA:
-            // TODO: Register Unity texture with CUDA
-            // cudaGraphicsGLRegisterImage(&resource, glTextureId, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsReadOnly);
+#ifdef CUDA_AVAILABLE
+            {
+                // Unity's GetNativeTexturePtr() on Linux/OpenGL returns GLuint (texture ID)
+                // Cast the void* pointer to GLuint
+                GLuint gl_texture_id = reinterpret_cast<GLuint>(reinterpret_cast<uintptr_t>(info->native_texture_ptr));
+                
+                if (gl_texture_id == 0) {
+                    std::cerr << "[GpuMemoryShare] Invalid OpenGL texture ID (0)" << std::endl;
+                    return GPU_SHARE_ERROR_INVALID_TEXTURE;
+                }
+                
+                CudaTextureResource cuda_res;
+                cudaError_t err = cudaGraphicsGLRegisterImage(
+                    &cuda_res.resource,
+                    gl_texture_id,
+                    GL_TEXTURE_2D,
+                    cudaGraphicsRegisterFlagsReadOnly);
+                
+                if (err != cudaSuccess) {
+                    std::cerr << "[GpuMemoryShare] Failed to register OpenGL texture with CUDA: " 
+                              << cudaGetErrorString(err) << std::endl;
+                    return GPU_SHARE_ERROR_SHARING_FAILED;
+                }
+                
+                g_state.cuda_resources[texture.handle] = cuda_res;
+                std::cout << "[GpuMemoryShare] Registered OpenGL texture " << gl_texture_id 
+                          << " with CUDA (handle=" << texture.handle << ")" << std::endl;
+            }
+#else
+            return GPU_SHARE_ERROR_CUDA_NOT_AVAILABLE;
+#endif
             break;
             
         case GPU_SHARE_BACKEND_OPENGL:
-            // TODO: Create shared OpenGL texture
-            // Use EXT_memory_object to create exportable memory
+            // OpenGL backend: texture ID is already in native_texture_ptr
+            // No additional registration needed for basic OpenGL sharing
             break;
             
         default:
@@ -194,6 +258,13 @@ GpuShareError GpuMemoryShare_RegisterTexture(
     }
     
     g_state.textures[texture.handle] = texture;
+    
+    // Store name->handle mapping for lookup
+    if (info->name && strlen(info->name) > 0)
+    {
+        g_state.texture_names[std::string(info->name)] = texture.handle;
+    }
+    
     *out_texture = texture;
     
     return GPU_SHARE_SUCCESS;
@@ -208,12 +279,52 @@ void GpuMemoryShare_UnregisterTexture(GpuShareTexture* texture) {
     
     auto it = g_state.textures.find(texture->handle);
     if (it != g_state.textures.end()) {
-        // TODO: Backend-specific cleanup
+        // Backend-specific cleanup
+        if (g_state.backend == GPU_SHARE_BACKEND_CUDA) {
+#ifdef CUDA_AVAILABLE
+            auto cuda_it = g_state.cuda_resources.find(texture->handle);
+            if (cuda_it != g_state.cuda_resources.end()) {
+                CudaTextureResource& cuda_res = cuda_it->second;
+                if (cuda_res.mapped && cuda_res.resource) {
+                    cudaGraphicsUnmapResources(1, &cuda_res.resource, 0);
+                }
+                if (cuda_res.resource) {
+                    cudaGraphicsUnregisterResource(cuda_res.resource);
+                }
+                g_state.cuda_resources.erase(cuda_it);
+            }
+#endif
+        }
+        
         g_state.textures.erase(it);
         std::cout << "[GpuMemoryShare] Unregistered texture handle=" << texture->handle << std::endl;
     }
     
     texture->handle = 0;
+}
+
+GpuShareError GpuMemoryShare_GetTextureByName(
+    const char* name,
+    GpuShareTexture* out_texture) {
+    
+    std::lock_guard<std::mutex> lock(g_state_mutex);
+    
+    if (!g_state.initialized || !name || !out_texture) {
+        return GPU_SHARE_ERROR_INVALID_HANDLE;
+    }
+    
+    auto name_it = g_state.texture_names.find(std::string(name));
+    if (name_it == g_state.texture_names.end()) {
+        return GPU_SHARE_ERROR_INVALID_HANDLE;
+    }
+    
+    auto tex_it = g_state.textures.find(name_it->second);
+    if (tex_it == g_state.textures.end()) {
+        return GPU_SHARE_ERROR_INVALID_HANDLE;
+    }
+    
+    *out_texture = tex_it->second;
+    return GPU_SHARE_SUCCESS;
 }
 
 GpuShareError GpuMemoryShare_NotifyFrameReady(const GpuShareFrameInfo* frame_info) {
@@ -273,12 +384,44 @@ GpuShareError GpuMemoryShare_GetCudaPtr(
         return GPU_SHARE_ERROR_INVALID_HANDLE;
     }
     
-    // TODO: Map CUDA graphics resource and return device pointer
-    // cudaGraphicsMapResources(1, &resource, 0);
-    // cudaGraphicsResourceGetMappedPointer(out_cuda_ptr, &size, resource);
+#ifdef CUDA_AVAILABLE
+    auto cuda_it = g_state.cuda_resources.find(texture->handle);
+    if (cuda_it == g_state.cuda_resources.end() || !cuda_it->second.resource) {
+        return GPU_SHARE_ERROR_INVALID_HANDLE;
+    }
     
-    *out_cuda_ptr = nullptr;
+    CudaTextureResource& cuda_res = cuda_it->second;
+    
+    // Map the resource if not already mapped
+    if (!cuda_res.mapped) {
+        cudaError_t err = cudaGraphicsMapResources(1, &cuda_res.resource, 0);
+        if (err != cudaSuccess) {
+            std::cerr << "[GpuMemoryShare] Failed to map CUDA graphics resource: " 
+                      << cudaGetErrorString(err) << std::endl;
+            return GPU_SHARE_ERROR_SHARING_FAILED;
+        }
+        cuda_res.mapped = true;
+    }
+    
+    // Get the device pointer
+    cudaArray_t cuda_array = nullptr;
+    cudaGraphicsResourceGetMappedArray(&cuda_array, cuda_res.resource);
+    
+    if (cuda_array == nullptr) {
+        std::cerr << "[GpuMemoryShare] Failed to get mapped CUDA array" << std::endl;
+        return GPU_SHARE_ERROR_SHARING_FAILED;
+    }
+    
+    // For 2D textures, we need to get the device pointer differently
+    // cudaGraphicsResourceGetMappedPointer works for buffers, not arrays
+    // For arrays, we'd need to use cudaMemcpy2DFromArray or similar
+    // For now, return the array pointer cast (caller must handle array access)
+    *out_cuda_ptr = reinterpret_cast<void*>(cuda_array);
+    
+    return GPU_SHARE_SUCCESS;
+#else
     return GPU_SHARE_ERROR_CUDA_NOT_AVAILABLE;
+#endif
 }
 
 GpuShareError GpuMemoryShare_GetOpenGLTexture(
@@ -339,11 +482,71 @@ GpuShareError GpuMemoryShare_CopyToCpu(
         return GPU_SHARE_ERROR_INVALID_HANDLE;
     }
     
-    // TODO: Copy from GPU to CPU
-    // For CUDA: cudaMemcpy(dst_buffer, cuda_ptr, expected_size, cudaMemcpyDeviceToHost);
-    // For OpenGL: glGetTextureImage(gl_texture, 0, format, type, buffer_size, dst_buffer);
-    
-    return GPU_SHARE_ERROR_SHARING_FAILED;
+    // Backend-specific copy
+    switch (g_state.backend) {
+        case GPU_SHARE_BACKEND_CUDA:
+#ifdef CUDA_AVAILABLE
+            {
+                auto cuda_it = g_state.cuda_resources.find(texture->handle);
+                if (cuda_it == g_state.cuda_resources.end() || !cuda_it->second.resource) {
+                    return GPU_SHARE_ERROR_INVALID_HANDLE;
+                }
+                
+                CudaTextureResource& cuda_res = cuda_it->second;
+                
+                // Map the resource if not already mapped
+                if (!cuda_res.mapped) {
+                    cudaError_t err = cudaGraphicsMapResources(1, &cuda_res.resource, 0);
+                    if (err != cudaSuccess) {
+                        std::cerr << "[GpuMemoryShare] Failed to map CUDA resource for copy: " 
+                                  << cudaGetErrorString(err) << std::endl;
+                        return GPU_SHARE_ERROR_SHARING_FAILED;
+                    }
+                    cuda_res.mapped = true;
+                }
+                
+                // Get the mapped array
+                cudaArray_t cuda_array = nullptr;
+                cudaGraphicsResourceGetMappedArray(&cuda_array, cuda_res.resource);
+                if (cuda_array == nullptr) {
+                    return GPU_SHARE_ERROR_SHARING_FAILED;
+                }
+                
+                // Copy from 2D array to linear buffer
+                // cudaMemcpy2DFromArray copies from a CUDA array to host memory
+                // Parameters: dst, dst_pitch, src_array, src_x, src_y, width, height, kind
+                size_t dst_pitch = texture->width * bytes_per_pixel;
+                size_t width_bytes = texture->width * bytes_per_pixel;
+                
+                cudaError_t err = cudaMemcpy2DFromArray(
+                    dst_buffer,           // dst
+                    dst_pitch,            // dst pitch (bytes per row)
+                    cuda_array,           // src array
+                    0, 0,                 // src offset (x, y)
+                    width_bytes,          // width in bytes
+                    texture->height,      // height in rows
+                    cudaMemcpyDeviceToHost);
+                
+                if (err != cudaSuccess) {
+                    std::cerr << "[GpuMemoryShare] Failed to copy from CUDA array: " 
+                              << cudaGetErrorString(err) << std::endl;
+                    return GPU_SHARE_ERROR_SHARING_FAILED;
+                }
+                
+                return GPU_SHARE_SUCCESS;
+            }
+#else
+            return GPU_SHARE_ERROR_CUDA_NOT_AVAILABLE;
+#endif
+            
+        case GPU_SHARE_BACKEND_OPENGL:
+            // OpenGL: use glGetTextureImage (requires OpenGL 4.5+)
+            // For now, return not implemented
+            return GPU_SHARE_ERROR_OPENGL_NOT_AVAILABLE;
+            
+        default:
+            return GPU_SHARE_ERROR_SHARING_FAILED;
+    }
 }
 
 } // extern "C"

@@ -27,8 +27,8 @@ public:
     /// Shutdown and cleanup
     void shutdown();
 
-    /// Check if initialized and connected
-    bool is_connected() const;
+    /// Check if initialized and connected (auto-reconnects if needed)
+    bool is_connected();
 
     /// Request a frame from Unity
     /// @param with_depth Whether to include depth data

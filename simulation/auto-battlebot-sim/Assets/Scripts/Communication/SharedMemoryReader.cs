@@ -53,6 +53,14 @@ namespace AutoBattlebot.Communication
         private bool _isDisposed = false;
         private bool _isInitialized = false;
 
+        // Recovery / re-init behavior
+        private bool _createIfNotExists = true;
+        private bool _deleteFileOnDispose = false;
+        private float _nextInitAttemptTime = 0f;
+        private const float REINIT_BACKOFF_SECONDS = 0.5f;
+        private float _lastInitErrorLogTime = -999f;
+        private const float INIT_ERROR_LOG_INTERVAL_SECONDS = 2f;
+
         // Performance metrics
         private readonly Stopwatch _readStopwatch = new Stopwatch();
         private long _totalReadTimeUs = 0;  // Microseconds for precision
@@ -134,8 +142,12 @@ namespace AutoBattlebot.Communication
         /// Creates the memory region if it doesn't exist (for testing without C++).
         /// </summary>
         /// <param name="createIfNotExists">Create the shared memory if it doesn't exist.</param>
+        /// <param name="deleteFileOnDispose">
+        /// If true, deletes the underlying /dev/shm file when disposed (Linux only).
+        /// For HIL runtime, this should usually be false so C++ can restart cleanly.
+        /// </param>
         /// <returns>True if initialization was successful.</returns>
-        public bool Initialize(bool createIfNotExists = true)
+        public bool Initialize(bool createIfNotExists = true, bool deleteFileOnDispose = false)
         {
             if (_isInitialized)
             {
@@ -145,6 +157,12 @@ namespace AutoBattlebot.Communication
 
             try
             {
+                _createIfNotExists = createIfNotExists;
+                _deleteFileOnDispose = deleteFileOnDispose;
+
+                // Clean up any partially-initialized state before reinitializing
+                Reset(keepFile: true);
+
                 if (IsLinux())
                 {
                     InitializeLinux(createIfNotExists);
@@ -163,7 +181,13 @@ namespace AutoBattlebot.Communication
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SharedMemoryReader] Failed to initialize: {ex.Message}");
+                float now = Time.realtimeSinceStartup;
+                if (now - _lastInitErrorLogTime >= INIT_ERROR_LOG_INTERVAL_SECONDS)
+                {
+                    Debug.LogWarning($"[SharedMemoryReader] Failed to initialize (will retry): {ex.Message}");
+                    _lastInitErrorLogTime = now;
+                }
+                _nextInitAttemptTime = now + REINIT_BACKOFF_SECONDS;
                 return false;
             }
         }
@@ -179,9 +203,8 @@ namespace AutoBattlebot.Communication
             command = VelocityCommand.Zero;
             isNewCommand = false;
 
-            if (!_isInitialized)
+            if (!_isInitialized && !EnsureInitialized())
             {
-                Debug.LogError("[SharedMemoryReader] Not initialized");
                 return false;
             }
 
@@ -233,8 +256,63 @@ namespace AutoBattlebot.Communication
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SharedMemoryReader] Read failed: {ex.Message}");
+                Debug.LogWarning($"[SharedMemoryReader] Read failed (will reinitialize): {ex.Message}");
+                MarkBrokenAndScheduleReinit();
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to (re)initialize with a small backoff. Designed to be called frequently (per-frame).
+        /// </summary>
+        public bool EnsureInitialized()
+        {
+            if (_isDisposed)
+            {
+                return false;
+            }
+            if (_isInitialized)
+            {
+                return true;
+            }
+
+            float now = Time.realtimeSinceStartup;
+            if (now < _nextInitAttemptTime)
+            {
+                return false;
+            }
+
+            _nextInitAttemptTime = now + REINIT_BACKOFF_SECONDS;
+            return Initialize(_createIfNotExists, _deleteFileOnDispose);
+        }
+
+        /// <summary>
+        /// Closes the current mapping/accessor without disposing the object.
+        /// Use this when the other process restarts and the mapping becomes stale.
+        /// </summary>
+        public void Reset(bool keepFile = true)
+        {
+            try { _accessor?.Dispose(); } catch { }
+            try { _memoryMappedFile?.Dispose(); } catch { }
+            try { _linuxFileStream?.Dispose(); } catch { }
+
+            _accessor = null;
+            _memoryMappedFile = null;
+            _linuxFileStream = null;
+
+            _isInitialized = false;
+
+            if (!keepFile && IsLinux())
+            {
+                try
+                {
+                    string filePath = Path.Combine(LINUX_SHM_PATH, _memoryName);
+                    if (File.Exists(filePath))
+                    {
+                        File.Delete(filePath);
+                    }
+                }
+                catch { }
             }
         }
 
@@ -424,8 +502,8 @@ namespace AutoBattlebot.Communication
                 _memoryMappedFile?.Dispose();
                 _linuxFileStream?.Dispose();
 
-                // On Linux, clean up the shared memory file if we created it
-                if (IsLinux())
+                // On Linux, optionally clean up the shared memory file
+                if (IsLinux() && _deleteFileOnDispose)
                 {
                     try
                     {
@@ -458,5 +536,11 @@ namespace AutoBattlebot.Communication
         }
 
         #endregion
+
+        private void MarkBrokenAndScheduleReinit()
+        {
+            Reset(keepFile: true);
+            _nextInitAttemptTime = Time.realtimeSinceStartup + REINIT_BACKOFF_SECONDS;
+        }
     }
 }

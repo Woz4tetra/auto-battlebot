@@ -17,10 +17,19 @@ namespace auto_battlebot
         void close();
         bool is_open() const { return data_ != nullptr; }
         const void *data() const { return data_; }
+        size_t mapped_size() const { return mapped_size_; }
 
         template <typename T>
         const T *read_at(size_t offset) const
         {
+            if (data_ == nullptr)
+            {
+                return nullptr;
+            }
+            if (mapped_size_ > 0 && (offset + sizeof(T) > mapped_size_))
+            {
+                return nullptr;
+            }
             return reinterpret_cast<const T *>(data_ + offset);
         }
 
@@ -29,5 +38,6 @@ namespace auto_battlebot
         size_t size_;
         int fd_;
         std::byte *data_;
+        size_t mapped_size_ = 0;
     };
 } // namespace auto_battlebot

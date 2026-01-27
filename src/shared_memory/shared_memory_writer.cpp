@@ -18,6 +18,12 @@ namespace auto_battlebot
     {
         std::string path = "/dev/shm/" + name_; // Linux specific
 
+        // If already open, close and reopen (supports recovery after restarts)
+        if (is_open())
+        {
+            close();
+        }
+
         int flags = O_RDWR;
         if (create)
         {

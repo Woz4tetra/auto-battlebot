@@ -64,11 +64,22 @@ namespace AutoBattlebot.Communication
 
         private bool _isDisposed = false;
         private bool _isInitialized = false;
+        private bool _deleteFileOnDispose = false;
+
+        // Recovery / re-init behavior
+        private float _nextInitAttemptTime = 0f;
+        private const float REINIT_BACKOFF_SECONDS = 0.5f;
+        private float _lastInitErrorLogTime = -999f;
+        private const float INIT_ERROR_LOG_INTERVAL_SECONDS = 2f;
 
         // Performance metrics
         private readonly Stopwatch _writeStopwatch = new Stopwatch();
         private long _totalWriteTimeMs = 0;
         private long _writeCount = 0;
+        private long _framesWithDepth = 0;
+        private long _framesWithoutDepth = 0;
+        private long _prevPerformanceLogWriteCount = 0;
+        private float _prevPerformanceLogTime = 0.0f;
         private long _maxWriteTimeMs = 0;
 
         // Pre-calculated sizes and offsets
@@ -293,8 +304,12 @@ namespace AutoBattlebot.Communication
         /// <summary>
         /// Initializes the shared memory region.
         /// </summary>
+        /// <param name="deleteFileOnDispose">
+        /// If true, deletes the underlying /dev/shm file when disposed (Linux only).
+        /// For HIL runtime, this should usually be false so C++ can restart without remapping.
+        /// </param>
         /// <returns>True if initialization was successful.</returns>
-        public bool Initialize()
+        public bool Initialize(bool deleteFileOnDispose = false)
         {
             if (_isInitialized)
             {
@@ -304,6 +319,11 @@ namespace AutoBattlebot.Communication
 
             try
             {
+                _deleteFileOnDispose = deleteFileOnDispose;
+
+                // Clean up any partially-initialized state before reinitializing
+                Reset(keepFile: true);
+
                 CreateMemoryMappedFile();
                 _isInitialized = true;
 
@@ -316,7 +336,13 @@ namespace AutoBattlebot.Communication
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SharedMemoryWriter] Failed to initialize: {ex.Message}");
+                float now = Time.realtimeSinceStartup;
+                if (now - _lastInitErrorLogTime >= INIT_ERROR_LOG_INTERVAL_SECONDS)
+                {
+                    Debug.LogWarning($"[SharedMemoryWriter] Failed to initialize (will retry): {ex.Message}");
+                    _lastInitErrorLogTime = now;
+                }
+                _nextInitAttemptTime = now + REINIT_BACKOFF_SECONDS;
                 return false;
             }
         }
@@ -325,15 +351,15 @@ namespace AutoBattlebot.Communication
         /// Writes a complete frame to shared memory.
         /// </summary>
         /// <param name="rgbData">RGB image data in BGR format (width * height * 3 bytes).</param>
-        /// <param name="depthData">Depth image data as float array (width * height floats).</param>
+        /// <param name="depthData">Depth image data as float array (width * height floats). Can be null if writeDepth is false.</param>
         /// <param name="poseMatrix">4x4 pose matrix as double array (16 doubles, row-major).</param>
         /// <param name="timestamp">Frame timestamp in seconds.</param>
+        /// <param name="writeDepth">Whether to write depth data. Set to false to skip depth write for better performance.</param>
         /// <returns>True if write was successful.</returns>
-        public bool WriteFrame(byte[] rgbData, float[] depthData, double[] poseMatrix, double timestamp)
+        public bool WriteFrame(byte[] rgbData, float[] depthData, double[] poseMatrix, double timestamp, bool writeDepth = true)
         {
-            if (!_isInitialized)
+            if (!_isInitialized && !EnsureInitialized())
             {
-                Debug.LogError("[SharedMemoryWriter] Not initialized");
                 return false;
             }
 
@@ -350,7 +376,7 @@ namespace AutoBattlebot.Communication
                 return false;
             }
 
-            if (depthData == null || depthData.Length != _width * _height)
+            if (writeDepth && (depthData == null || depthData.Length != _width * _height))
             {
                 Debug.LogError($"[SharedMemoryWriter] Invalid depth data size. Expected {_width * _height}, got {depthData?.Length ?? 0}");
                 return false;
@@ -382,9 +408,14 @@ namespace AutoBattlebot.Communication
                 int rgbOffset = bufferOffset + _header.RgbOffset;
                 _accessor.WriteArray(rgbOffset, rgbData, 0, rgbData.Length);
 
-                // Write depth data (convert float[] to bytes)
-                int depthOffset = bufferOffset + _header.DepthOffset;
-                WriteFloatArray(depthOffset, depthData);
+                // Write depth data only if requested (saves ~40% write time for 1920x1080)
+                if (writeDepth && depthData != null)
+                {
+                    int depthOffset = bufferOffset + _header.DepthOffset;
+                    WriteFloatArray(depthOffset, depthData);
+                }
+                // NOTE: When depth is skipped, old depth data remains in shared memory.
+                // C++ should check the sync socket signal to know if this frame has depth.
 
                 // Write pose matrix (convert double[] to bytes)
                 int poseOffset = bufferOffset + _header.PoseOffset;
@@ -402,6 +433,14 @@ namespace AutoBattlebot.Communication
                 long writeTimeMs = _writeStopwatch.ElapsedMilliseconds;
                 _totalWriteTimeMs += writeTimeMs;
                 _writeCount++;
+                if (writeDepth)
+                {
+                    _framesWithDepth++;
+                }
+                else
+                {
+                    _framesWithoutDepth++;
+                }
                 if (writeTimeMs > _maxWriteTimeMs)
                 {
                     _maxWriteTimeMs = writeTimeMs;
@@ -411,8 +450,63 @@ namespace AutoBattlebot.Communication
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[SharedMemoryWriter] Write failed: {ex.Message}");
+                Debug.LogWarning($"[SharedMemoryWriter] Write failed (will reinitialize): {ex.Message}");
+                MarkBrokenAndScheduleReinit();
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// Attempts to (re)initialize with a small backoff. Designed to be called frequently (per-frame).
+        /// </summary>
+        public bool EnsureInitialized()
+        {
+            if (_isDisposed)
+            {
+                return false;
+            }
+            if (_isInitialized)
+            {
+                return true;
+            }
+
+            float now = Time.realtimeSinceStartup;
+            if (now < _nextInitAttemptTime)
+            {
+                return false;
+            }
+
+            _nextInitAttemptTime = now + REINIT_BACKOFF_SECONDS;
+            return Initialize(_deleteFileOnDispose);
+        }
+
+        /// <summary>
+        /// Closes the current mapping/accessor without disposing the object.
+        /// Use this when the other process restarts and the mapping becomes stale.
+        /// </summary>
+        public void Reset(bool keepFile = true)
+        {
+            try { _accessor?.Dispose(); } catch { }
+            try { _memoryMappedFile?.Dispose(); } catch { }
+            try { _linuxFileStream?.Dispose(); } catch { }
+
+            _accessor = null;
+            _memoryMappedFile = null;
+            _linuxFileStream = null;
+
+            _isInitialized = false;
+
+            if (!keepFile && IsLinux())
+            {
+                try
+                {
+                    string filePath = Path.Combine(LINUX_SHM_PATH, _memoryName);
+                    if (File.Exists(filePath))
+                    {
+                        File.Delete(filePath);
+                    }
+                }
+                catch { }
             }
         }
 
@@ -420,28 +514,35 @@ namespace AutoBattlebot.Communication
         /// Writes a complete frame using Unity texture data directly.
         /// </summary>
         /// <param name="rgbTexture">RGB texture (will be read as BGR).</param>
-        /// <param name="depthTexture">Depth texture (R32 float format).</param>
+        /// <param name="depthTexture">Depth texture (R32 float format). Can be null if writeDepth is false.</param>
         /// <param name="poseMatrix">4x4 pose matrix.</param>
         /// <param name="timestamp">Frame timestamp.</param>
+        /// <param name="writeDepth">Whether to write depth data. Set to false to skip depth write for better performance.</param>
         /// <returns>True if write was successful.</returns>
-        public bool WriteFrame(Texture2D rgbTexture, Texture2D depthTexture, Matrix4x4 poseMatrix, double timestamp)
+        public bool WriteFrame(Texture2D rgbTexture, Texture2D depthTexture, Matrix4x4 poseMatrix, double timestamp, bool writeDepth = true)
         {
-            if (rgbTexture == null || depthTexture == null)
+            if (rgbTexture == null)
             {
-                Debug.LogError("[SharedMemoryWriter] Null texture provided");
+                Debug.LogError("[SharedMemoryWriter] Null RGB texture provided");
+                return false;
+            }
+
+            if (writeDepth && depthTexture == null)
+            {
+                Debug.LogError("[SharedMemoryWriter] Depth requested but null depth texture provided");
                 return false;
             }
 
             // Convert RGB texture to BGR byte array
             byte[] rgbData = ConvertTextureToBGR(rgbTexture);
 
-            // Get depth data as float array
-            float[] depthData = ConvertDepthTexture(depthTexture);
+            // Get depth data as float array (only if requested)
+            float[] depthData = writeDepth && depthTexture != null ? ConvertDepthTexture(depthTexture) : null;
 
             // Convert Unity Matrix4x4 to double array (row-major)
             double[] poseArray = ConvertMatrix4x4ToDoubleArray(poseMatrix);
 
-            return WriteFrame(rgbData, depthData, poseArray, timestamp);
+            return WriteFrame(rgbData, depthData, poseArray, timestamp, writeDepth);
         }
 
         /// <summary>
@@ -449,8 +550,21 @@ namespace AutoBattlebot.Communication
         /// </summary>
         public string GetPerformanceReport()
         {
+            long deltaWriteCount = _writeCount - _prevPerformanceLogWriteCount;
+            _prevPerformanceLogWriteCount = _writeCount;
+
+            float now = Time.realtimeSinceStartup;
+            float dt = now - _prevPerformanceLogTime;
+            _prevPerformanceLogTime = now;
+
+            float fps = 0.0f;
+            if (dt > 0)
+                fps = deltaWriteCount / dt;
             return $"[SharedMemoryWriter] Performance Report:\n" +
                    $"  Frames written: {_writeCount}\n" +
+                   $"  FPS: {fps}\n" +
+                   $"  Frames with depth: {_framesWithDepth}\n" +
+                   $"  Frames without depth: {_framesWithoutDepth}\n" +
                    $"  Avg write time: {AverageWriteTimeMs:F2}ms\n" +
                    $"  Max write time: {_maxWriteTimeMs}ms\n" +
                    $"  Throughput: {ThroughputMBps:F1} MB/s";
@@ -463,6 +577,8 @@ namespace AutoBattlebot.Communication
         {
             _totalWriteTimeMs = 0;
             _writeCount = 0;
+            _framesWithDepth = 0;
+            _framesWithoutDepth = 0;
             _maxWriteTimeMs = 0;
         }
 
@@ -497,15 +613,22 @@ namespace AutoBattlebot.Communication
             // On Linux, create a file in /dev/shm/ which is a tmpfs mount
             string filePath = Path.Combine(LINUX_SHM_PATH, _memoryName);
 
-            // Create or open the file and set its size
-            _linuxFileStream = new FileStream(filePath, FileMode.Create, FileAccess.ReadWrite, FileShare.ReadWrite);
-            _linuxFileStream.SetLength(_totalSize);
+            // Open or create the file and ensure correct size.
+            // Important: avoid FileMode.Create (truncate-to-0) because it can invalidate a live reader mapping.
+            _linuxFileStream = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite);
+            if (_linuxFileStream.Length < _totalSize)
+            {
+                _linuxFileStream.SetLength(_totalSize);
+            }
+
+            // MemoryMappedFile capacity cannot be smaller than the underlying file size.
+            long mapSize = Math.Max(_linuxFileStream.Length, _totalSize);
 
             // Memory-map the file (leaveOpen: true so we manage the stream ourselves)
             _memoryMappedFile = MemoryMappedFile.CreateFromFile(
                 _linuxFileStream,
                 null,
-                _totalSize,
+                mapSize,
                 MemoryMappedFileAccess.ReadWrite,
                 HandleInheritability.None,
                 true);  // leaveOpen = true, we'll close the stream in Dispose
@@ -650,8 +773,8 @@ namespace AutoBattlebot.Communication
                 _memoryMappedFile?.Dispose();
                 _linuxFileStream?.Dispose();  // Close the file stream after memory-mapped file
 
-                // On Linux, clean up the shared memory file
-                if (IsLinux())
+                // On Linux, optionally clean up the shared memory file
+                if (IsLinux() && _deleteFileOnDispose)
                 {
                     try
                     {
@@ -684,5 +807,11 @@ namespace AutoBattlebot.Communication
         }
 
         #endregion
+
+        private void MarkBrokenAndScheduleReinit()
+        {
+            Reset(keepFile: true);
+            _nextInitAttemptTime = Time.realtimeSinceStartup + REINIT_BACKOFF_SECONDS;
+        }
     }
 }

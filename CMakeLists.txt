@@ -103,12 +103,71 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 link_directories(${ZED_LIBRARY_DIR})
 link_directories(${CUDA_LIBRARY_DIRS})
 
+# Find OpenGL (required for CUDA-OpenGL interop)
+find_package(OpenGL QUIET)
+
+# Create GPU memory share library (separate shared library for Unity plugin)
+add_library(gpu_memory_share SHARED
+    src/gpu_memory_share/gpu_memory_share.cpp
+)
+
+set_target_properties(gpu_memory_share PROPERTIES
+    OUTPUT_NAME "GpuMemoryShare"
+    VERSION 1.0.0
+    SOVERSION 1
+    POSITION_INDEPENDENT_CODE ON
+)
+
+target_include_directories(gpu_memory_share PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+# CUDA support (requires OpenGL for CUDA-OpenGL interop)
+if(CUDA_FOUND AND OpenGL_FOUND)
+    message(STATUS "CUDA found: ${CUDA_VERSION}")
+    message(STATUS "OpenGL found (required for CUDA-OpenGL interop)")
+    target_compile_definitions(gpu_memory_share PRIVATE CUDA_AVAILABLE)
+    target_include_directories(gpu_memory_share PRIVATE ${CUDA_INCLUDE_DIRS} ${OPENGL_INCLUDE_DIR})
+    target_link_libraries(gpu_memory_share PRIVATE ${CUDA_LIBRARIES} OpenGL::GL)
+else()
+    if(CUDA_FOUND AND NOT OpenGL_FOUND)
+        message(WARNING "CUDA found but OpenGL not found - CUDA-OpenGL interop will not work")
+    endif()
+    message(STATUS "CUDA-OpenGL interop not available, GPU sharing will be limited")
+endif()
+
+# OpenGL support (even without CUDA)
+# Note: OpenGL::GL is already linked above if CUDA is enabled, so only link if CUDA is not available
+if(OpenGL_FOUND AND NOT CUDA_FOUND)
+    target_compile_definitions(gpu_memory_share PRIVATE OPENGL_AVAILABLE)
+    target_link_libraries(gpu_memory_share PRIVATE OpenGL::GL)
+endif()
+
+# Platform-specific settings
+if(UNIX AND NOT APPLE)
+    target_link_libraries(gpu_memory_share PRIVATE pthread)
+endif()
+
+# Compiler flags for GPU memory share library
+if(BUILD_DEBUG)
+    target_compile_options(gpu_memory_share PRIVATE
+        ${COMMON_COMPILE_FLAGS}
+        ${DEBUG_COMPILE_FLAGS}
+    )
+else()
+    target_compile_options(gpu_memory_share PRIVATE
+        ${COMMON_COMPILE_FLAGS}
+        ${RELEASE_COMPILE_FLAGS}
+    )
+endif()
+
 # Create shared library with all auto_battlebot functionality
 file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES
     "src/*.cpp"
     "src/**/*.cpp"
 )
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*gpu_memory_share\\.cpp$")
 
 add_library(auto_battlebot_lib SHARED
     ${AUTO_BATTLEBOT_SOURCES}
@@ -139,6 +198,7 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     ${TORCH_LIBRARIES}
     ${PCL_LIBRARIES}
     ${TORCH_LIBRARIES}
+    gpu_memory_share
 )
 
 # Common compiler flags
@@ -230,6 +290,37 @@ install(TARGETS auto_battlebot auto_battlebot_lib
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
 )
+
+# Install GPU memory share library and symlink to Unity
+set(UNITY_PLUGINS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/simulation/auto-battlebot-sim/Assets/Plugins")
+set(UNITY_PLUGINS_X86_64_DIR "${UNITY_PLUGINS_DIR}/x86_64")
+
+# Install the library to system lib directory
+install(TARGETS gpu_memory_share
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+)
+
+# Create symlink to Unity Plugins folder after build
+# This allows Unity to use the library during development without installing
+if(UNIX AND NOT APPLE)
+    add_custom_command(TARGET gpu_memory_share POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${UNITY_PLUGINS_X86_64_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E remove -f "${UNITY_PLUGINS_X86_64_DIR}/libGpuMemoryShare.so"
+        COMMAND ${CMAKE_COMMAND} -E create_symlink
+            "$<TARGET_FILE:gpu_memory_share>"
+            "${UNITY_PLUGINS_X86_64_DIR}/libGpuMemoryShare.so"
+        COMMENT "Creating symlink to Unity Plugins folder: ${UNITY_PLUGINS_X86_64_DIR}/libGpuMemoryShare.so -> $<TARGET_FILE:gpu_memory_share>"
+    )
+    
+    # Also copy header to Unity Plugins folder
+    add_custom_command(TARGET gpu_memory_share POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/include/gpu_memory_share/gpu_memory_share.h"
+            "${UNITY_PLUGINS_DIR}/gpu_memory_share.h"
+        COMMENT "Copying header to Unity Plugins folder"
+    )
+endif()
 
 # Conditionally enable testing
 if(BUILD_TESTING)

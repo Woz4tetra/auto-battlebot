@@ -124,10 +124,10 @@ namespace auto_battlebot
             }
             // Push error to diagnostics and log
             std::cerr << "Failed to get camera data. Reinitializing." << std::endl;
-            while (!camera_->initialize() && miniros::ok())
+            do
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
+            } while (!camera_->initialize() && miniros::ok());
 
             if (!miniros::ok())
             {

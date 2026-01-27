@@ -82,6 +82,15 @@ namespace AutoBattlebot.Communication
         [Tooltip("Interval in seconds between performance logs")]
         private float _metricsLogInterval = 5f;
 
+        [Header("Recovery")]
+        [SerializeField]
+        [Tooltip("Automatically reinitialize IPC if Unity or C++ restarts.")]
+        private bool _autoRecover = true;
+
+        [SerializeField]
+        [Tooltip("Seconds between recovery attempts when a component is down.")]
+        private float _recoverIntervalSeconds = 0.5f;
+
         #endregion
 
         #region Private Fields
@@ -91,6 +100,7 @@ namespace AutoBattlebot.Communication
         private SyncSocket _syncSocket;
         private bool _isActive = false;
         private float _lastMetricsLogTime = 0f;
+        private float _nextRecoverTime = 0f;
         private VelocityCommand _currentCommand = VelocityCommand.Zero;
         private ulong _frameId = 0;
 
@@ -230,8 +240,18 @@ namespace AutoBattlebot.Communication
 
         private void Update()
         {
+            // Auto-recover if we're in HIL mode but init failed (e.g., after restarts)
             if (!_isActive)
             {
+                if (_autoRecover && SimulationManager.Instance.CurrentMode == SimulationMode.HardwareInLoop)
+                {
+                    float now = Time.realtimeSinceStartup;
+                    if (now >= _nextRecoverTime)
+                    {
+                        _nextRecoverTime = now + Mathf.Max(0.1f, _recoverIntervalSeconds);
+                        TryRecover();
+                    }
+                }
                 return;
             }
 
@@ -243,6 +263,11 @@ namespace AutoBattlebot.Communication
                     _pendingFrameRequest = true;
                     _pendingDepthRequest = withDepth;
                     OnFrameRequested?.Invoke(withDepth);
+                    
+                    if (Time.frameCount % 100 == 0)
+                    {
+                        Debug.Log($"[CommunicationBridge] Received frame request: withDepth={withDepth}");
+                    }
                 }
             }
 
@@ -251,6 +276,14 @@ namespace AutoBattlebot.Communication
             if (_syncMode == SyncMode.FreeRunning || !_enableSyncSocket)
             {
                 PollCommands();
+            }
+            else
+            {
+                // In lockstep mode we depend on a live sync connection. If it drops, keep trying.
+                if (_enableSyncSocket && (_syncSocket == null || !_syncSocket.IsConnected))
+                {
+                    _syncSocket?.TryReconnect();
+                }
             }
 
             // Log performance metrics periodically if enabled
@@ -325,7 +358,7 @@ namespace AutoBattlebot.Communication
         /// Writes a frame to shared memory with explicit depth availability flag.
         /// </summary>
         /// <param name="rgbData">BGR image data.</param>
-        /// <param name="depthData">Depth data as float array (can be empty if hasDepth is false).</param>
+        /// <param name="depthData">Depth data as float array (can be null/empty if hasDepth is false).</param>
         /// <param name="poseMatrix">Pose matrix as double array.</param>
         /// <param name="hasDepth">Whether this frame includes valid depth data.</param>
         /// <returns>True if write (and sync if enabled) was successful.</returns>
@@ -336,8 +369,68 @@ namespace AutoBattlebot.Communication
                 return false;
             }
 
-            bool writeOk = _frameWriter.WriteFrame(rgbData, depthData, poseMatrix, Time.timeAsDouble);
+            // Pass hasDepth flag to writer to skip depth write when not available
+            bool writeOk = _frameWriter.WriteFrame(rgbData, depthData, poseMatrix, Time.timeAsDouble, hasDepth);
             if (!writeOk)
+            {
+                return false;
+            }
+
+            _frameId++;
+            
+            // Clear pending request since we're fulfilling it
+            _pendingFrameRequest = false;
+            _pendingDepthRequest = false;
+            
+            return SignalAndSync(hasDepth);
+        }
+
+        private void TryRecover()
+        {
+            bool ok = true;
+
+            // Recreate missing/broken components. Each init is expected to be idempotent/safe.
+            if (_frameWriter == null || !_frameWriter.IsInitialized)
+            {
+                try { _frameWriter?.Dispose(); } catch { }
+                _frameWriter = null;
+                ok &= InitializeFrameWriter();
+            }
+
+            if (_commandReader == null || !_commandReader.IsInitialized)
+            {
+                try { _commandReader?.Dispose(); } catch { }
+                _commandReader = null;
+                ok &= InitializeCommandReader();
+            }
+
+            if (_enableSyncSocket)
+            {
+                // For server mode: "connected" is optional, but we must be listening.
+                if (_syncSocket == null || !_syncSocket.IsListening)
+                {
+                    try { _syncSocket?.Dispose(); } catch { }
+                    _syncSocket = null;
+                    ok &= InitializeSyncSocket();
+                }
+            }
+
+            if (ok)
+            {
+                _isActive = true;
+                Debug.Log("[CommunicationBridge] Recovery succeeded");
+            }
+        }
+
+        /// <summary>
+        /// Signals that a frame is ready without writing shared memory.
+        /// This is intended for GPU-share (native plugin) transport, where the image/depth live on the GPU.
+        /// </summary>
+        /// <param name="hasDepth">Whether the corresponding GPU-shared frame includes valid depth.</param>
+        /// <returns>True if the signal (and lockstep sync if enabled) succeeded.</returns>
+        public bool SignalFrameReadyWithoutWrite(bool hasDepth)
+        {
+            if (!_isActive)
             {
                 return false;
             }
@@ -346,6 +439,7 @@ namespace AutoBattlebot.Communication
 
             // Clear pending request since we're fulfilling it
             _pendingFrameRequest = false;
+            _pendingDepthRequest = false;
 
             return SignalAndSync(hasDepth);
         }
@@ -410,7 +504,7 @@ namespace AutoBattlebot.Communication
                 _frameMemoryName,
                 _useDoubleBuffering);
 
-            if (!_frameWriter.Initialize())
+            if (!_frameWriter.Initialize(deleteFileOnDispose: false))
             {
                 Debug.LogError("[CommunicationBridge] Failed to initialize frame writer");
                 return false;
@@ -427,7 +521,7 @@ namespace AutoBattlebot.Communication
                 _maxAngularVelocity);
 
             // Create the shared memory if it doesn't exist (C++ may not be running yet)
-            if (!_commandReader.Initialize(createIfNotExists: true))
+            if (!_commandReader.Initialize(createIfNotExists: true, deleteFileOnDispose: false))
             {
                 Debug.LogError("[CommunicationBridge] Failed to initialize command reader");
                 return false;
@@ -475,6 +569,9 @@ namespace AutoBattlebot.Communication
 
             if (!_syncSocket.IsConnected)
             {
+                // Try to recover the connection before failing.
+                _syncSocket.TryReconnect();
+
                 // In free-running mode, continue even without sync
                 if (_syncMode == SyncMode.FreeRunning)
                 {
