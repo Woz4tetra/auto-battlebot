@@ -289,7 +289,7 @@ namespace auto_battlebot
         return true;
     }
 
-    bool ZedRgbdCamera::get(CameraData &data, bool get_depth) const
+    bool ZedRgbdCamera::get(CameraData &data, bool get_depth)
     {
         if (!is_initialized_)
             return false;

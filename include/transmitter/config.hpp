@@ -42,19 +42,14 @@ namespace auto_battlebot
 
     struct SimTransmitterConfiguration : public TransmitterConfiguration
     {
-        bool enable_double_buffering = true;
-        bool enable_sync_socket = true;  // Signal command ready via sync socket
-
         SimTransmitterConfiguration()
         {
             type = "SimTransmitter";
         }
 
         // clang-format off
-        PARSE_CONFIG_FIELDS(
-            PARSE_FIELD_BOOL(enable_double_buffering)
-            PARSE_FIELD_BOOL(enable_sync_socket)
-        )
+        // PARSE_CONFIG_FIELDS(
+        // )
         // clang-format on
     };
 

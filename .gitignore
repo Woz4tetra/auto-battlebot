@@ -20,6 +20,7 @@ htmlcov/
 
 # CMake and C++ build artifacts
 build/
+build-test/
 CMakeCache.txt
 CMakeFiles/
 Makefile

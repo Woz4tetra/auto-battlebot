@@ -72,7 +72,7 @@ namespace auto_battlebot
         ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
         ~ZedRgbdCamera();
         bool initialize() override;
-        bool get(CameraData &data, bool get_depth) const override;
+        bool get(CameraData &data, bool get_depth) override;
         bool should_close() override;
 
     private:

@@ -8,7 +8,7 @@ namespace auto_battlebot
     {
     public:
         bool initialize() override { return true; }
-        bool get(CameraData &data, [[maybe_unused]] bool get_depth) const override
+        bool get(CameraData &data, [[maybe_unused]] bool get_depth) override
         {
             data = camera_data_;
             return true;
