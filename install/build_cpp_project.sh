@@ -20,14 +20,20 @@ build_cpp_project() {
 
     echo "Creating build directory..."
     cd "${SCRIPT_DIR}/../"
-    mkdir -p build
-    cd build/
+    # Use different build directory when testing is enabled
+    if [ "$BUILD_TESTING_FLAG" = "ON" ]; then
+        BUILD_DIR="build-test"
+    else
+        BUILD_DIR="build"
+    fi
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}/"
 
     # Add LibTorch to CMAKE_PREFIX_PATH if it exists
     local LIBTORCH_DIR="/usr/local/libtorch"
     if [ -d "$LIBTORCH_DIR" ]; then
-        echo "Found LibTorch at $LIBTORCH_DIR"
-        export CMAKE_PREFIX_PATH="$LIBTORCH_DIR:${CMAKE_PREFIX_PATH:-}"
+        echo "Found LibTorch at ${LIBTORCH_DIR}"
+        export CMAKE_PREFIX_PATH="${LIBTORCH_DIR}:${CMAKE_PREFIX_PATH:-}"
     fi
 
     echo "Running cmake with BUILD_TESTING=${BUILD_TESTING_FLAG} and BUILD_TYPE=${BUILD_TYPE}..."
