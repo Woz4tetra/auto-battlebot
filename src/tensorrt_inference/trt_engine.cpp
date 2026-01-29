@@ -15,7 +15,7 @@ namespace
     class TrtLogger : public nvinfer1::ILogger
     {
     public:
-        void log(Severity severity, AsciiChar const* msg) noexcept override
+        void log(Severity severity, nvinfer1::AsciiChar const* msg) noexcept override
         {
             if (severity <= Severity::kWARNING)
             {

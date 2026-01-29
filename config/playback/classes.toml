@@ -12,7 +12,7 @@ svo_real_time_mode = true
 
 [field_model]
 type = "DeepLabFieldModel"
-model_path = "models/field_deeplabv3_r50_2024-09-05.onnx"
+model_path = "models/field_deeplabv3_r50_2024-09-05.engine"
 
 [field_filter]
 type = "PointCloudFieldFilter"
@@ -21,7 +21,7 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "models/yolo11x-pose_2024-10-26.onnx"
+model_path = "models/yolo11x-pose_2024-10-26.engine"
 debug_visualization = false
 threshold = 0.5
 

@@ -1,7 +1,6 @@
 #pragma once
 
-#include <torch/script.h>
-#include <torch/cuda.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <opencv2/opencv.hpp>
@@ -20,9 +19,13 @@
 #include "enums/keypoint_label.hpp"
 #include "time_utils.hpp"
 #include "label_utils.hpp"
+#include "tensorrt_inference/trt_engine.hpp"
 
 namespace auto_battlebot
 {
+    // One detection row: [x1, y1, x2, y2, conf, class_id, kp1_x, kp1_y, kp1_conf, ...]
+    using DetectionRow = std::vector<float>;
+
     class YoloKeypointModel : public KeypointModelInterface
     {
     public:
@@ -40,23 +43,27 @@ namespace auto_battlebot
         bool debug_visualization_;
         LabelToKeypointMapConfiguration label_map_;
 
-        torch::jit::script::Module model_;
-        torch::Device device_;
+        TrtEngine engine_;
         bool initialized_;
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
         // Helper methods
         float generate_scale(cv::Mat &image, const std::vector<int> &target_size);
         float letterbox(cv::Mat &input_image, cv::Mat &output_image, const std::vector<int> &target_size);
-        torch::Tensor preprocess_image(const cv::Mat &image, cv::Size input_image_size);
+        void preprocess_image(const cv::Mat &image, cv::Size input_image_size, std::vector<float> &buffer);
 
-        torch::Tensor nms(const torch::Tensor &bboxes, const torch::Tensor &scores, float iou_threshold);
-        torch::Tensor non_max_suppression(torch::Tensor &prediction, int num_keypoints, float conf_thres = 0.25, float iou_thres = 0.45, int max_det = 300);
-        torch::Tensor xywh2xyxy(const torch::Tensor &x);
+        std::vector<int64_t> nms(const float *bboxes, const float *scores, int64_t ndets, float iou_threshold);
+        std::vector<DetectionRow> non_max_suppression(const float *prediction, int num_features, int num_predictions,
+                                                      int num_keypoints, float conf_thres, float iou_thres, int max_det);
+        void xywh2xyxy(float *boxes, int64_t n);
+
         Keypoint scale_keypoint(Keypoint output_keypoint, cv::Size original_image_size, cv::Size input_image_size);
-        torch::Tensor scale_boxes(torch::Tensor &boxes, cv::Size original_image_size, cv::Size input_image_size);
-        KeypointsStamped postprocess_output(const torch::Tensor &output, const Header &header, cv::Size original_image_size, cv::Size input_image_size, const cv::Mat &original_image);
-        void visualize_output(const cv::Mat &original_image, const KeypointsStamped &keypoints, const torch::Tensor &detections);
+        void scale_boxes(std::vector<DetectionRow> &detections, cv::Size original_image_size, cv::Size input_image_size);
+
+        KeypointsStamped postprocess_output(const float *output, const Header &header, cv::Size original_image_size,
+                                            cv::Size input_image_size, const cv::Mat &original_image);
+        void visualize_output(const cv::Mat &original_image, const KeypointsStamped &keypoints,
+                              const std::vector<DetectionRow> &detections);
     };
 
 } // namespace auto_battlebot

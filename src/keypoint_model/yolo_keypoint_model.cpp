@@ -1,10 +1,11 @@
 #include "keypoint_model/yolo_keypoint_model.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+
 namespace auto_battlebot
 {
-    using torch::indexing::None;
-    using torch::indexing::Slice;
-
     YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config)
         : model_path_(config.model_path),
           threshold_(config.threshold),
@@ -13,82 +14,64 @@ namespace auto_battlebot
           image_size_(config.image_size),
           debug_visualization_(config.debug_visualization),
           label_map_(config.label_map),
-          device_(torch::kCPU),
           initialized_(false)
     {
         diagnostics_logger_ = DiagnosticsLogger::get_logger("yolo_keypoint_model");
-        // Check if CUDA is available
-        if (torch::cuda::is_available())
-        {
-            std::cout << "CUDA is available. Using GPU." << std::endl;
-            device_ = torch::Device(torch::kCUDA);
-        }
-        else
-        {
-            std::cout << "CUDA not available. Using CPU." << std::endl;
-        }
     }
 
     bool YoloKeypointModel::initialize()
     {
-        try
+        std::cout << "Loading TensorRT engine from: " << model_path_ << std::endl;
+        if (!engine_.load(model_path_))
         {
-            // Load the TorchScript model
-            std::cout << "Loading model from: " << model_path_ << std::endl;
-            model_ = torch::jit::load(model_path_);
-            model_.to(device_);
-            model_.eval();
-
-            // Warmup inference
-            std::cout << "Warming up model with dummy input..." << std::endl;
-            auto warmup_input = torch::randn({1, 3, image_size_, image_size_}).to(device_);
-            for (int i = 0; i < 3; i++)
-            {
-                model_.forward({warmup_input});
-            }
-
-            initialized_ = true;
-            diagnostics_logger_->info({}, "YoloKeypointModel initialized successfully");
-            return true;
-        }
-        catch (const c10::Error &e)
-        {
-            std::cerr << "Error loading model: " << e.what() << std::endl;
+            std::cerr << "Failed to load YOLO TensorRT engine: " << model_path_ << std::endl;
             return false;
         }
+
+        std::cout << "Warming up model with dummy input..." << std::endl;
+        std::vector<float> warmup_input(static_cast<size_t>(engine_.getInputNumElements()), 0.0f);
+        std::vector<float> warmup_output(static_cast<size_t>(engine_.getOutputNumElements()), 0.0f);
+        for (int i = 0; i < 3; i++)
+        {
+            if (!engine_.execute(warmup_input.data(), warmup_output.data()))
+            {
+                std::cerr << "YOLO warmup inference failed" << std::endl;
+                return false;
+            }
+        }
+
+        initialized_ = true;
+        diagnostics_logger_->info({}, "YoloKeypointModel initialized successfully");
+        return true;
     }
 
     KeypointsStamped YoloKeypointModel::update(RgbImage image)
     {
-        FunctionTimer timer(diagnostics_logger_, "update", 1000.0); // Warn if > 1000ms
+        FunctionTimer timer(diagnostics_logger_, "update", 1000.0);
 
         if (!initialized_)
         {
             diagnostics_logger_->error({}, "Model not initialized");
             return KeypointsStamped{};
         }
-        cv::Size input_image_size = cv::Size(image_size_, image_size_);
-        cv::Size original_image_size = cv::Size(image.image.cols, image.image.rows);
+        const cv::Size input_image_size(image_size_, image_size_);
+        const cv::Size original_image_size(image.image.cols, image.image.rows);
 
-        // Preprocess the image
-        torch::Tensor input_tensor = preprocess_image(image.image, input_image_size);
+        std::vector<float> input_buffer;
+        preprocess_image(image.image, input_image_size, input_buffer);
 
-        // Run inference
-        std::vector<torch::jit::IValue> inputs;
-        inputs.push_back(input_tensor);
+        std::vector<float> output_buffer(static_cast<size_t>(engine_.getOutputNumElements()));
+        if (!engine_.execute(input_buffer.data(), output_buffer.data()))
+        {
+            diagnostics_logger_->error({}, "YOLO inference failed");
+            return KeypointsStamped{};
+        }
 
-        torch::Tensor output = model_.forward(inputs).toTensor();
-
-        // Postprocess the output
-        KeypointsStamped result = postprocess_output(output, image.header, original_image_size, input_image_size, image.image);
-
-        return result;
+        return postprocess_output(output_buffer.data(), image.header, original_image_size, input_image_size, image.image);
     }
 
-    torch::Tensor YoloKeypointModel::preprocess_image(const cv::Mat &image, cv::Size input_image_size)
+    void YoloKeypointModel::preprocess_image(const cv::Mat &image, cv::Size input_image_size, std::vector<float> &buffer)
     {
-        // Note: ultralytics YOLO models expect RGB input, but the TorchScript export
-        // may handle the conversion internally. Try both BGR and RGB if results are poor.
         cv::Mat processed_image;
         if (image.channels() == 3)
         {
@@ -103,45 +86,42 @@ namespace auto_battlebot
             processed_image = image;
         }
 
-        // Resize to model input size with letterboxing
         cv::Mat resized;
         letterbox(processed_image, resized, {input_image_size.height, input_image_size.width});
 
-        // Convert to float and normalize to [0, 1]
         cv::Mat float_image;
         resized.convertTo(float_image, CV_32F, 1.0 / 255.0);
-
-        // Ensure contiguous memory
         if (!float_image.isContinuous())
         {
             float_image = float_image.clone();
         }
 
-        // Convert to tensor: HWC -> CHW
-        torch::Tensor tensor = torch::from_blob(
-                                   float_image.data,
-                                   {float_image.rows, float_image.cols, 3},
-                                   torch::kFloat32)
-                                   .clone();
-
-        tensor = tensor.permute({2, 0, 1}).contiguous(); // HWC -> CHW
-        tensor = tensor.unsqueeze(0);                    // Add batch dimension
-
-        return tensor.to(device_);
+        const int H = float_image.rows;
+        const int W = float_image.cols;
+        const int64_t num_elements = 1 * 3 * H * W;
+        buffer.resize(static_cast<size_t>(num_elements));
+        float *ptr = buffer.data();
+        for (int c = 0; c < 3; c++)
+        {
+            for (int y = 0; y < H; y++)
+            {
+                for (int x = 0; x < W; x++)
+                {
+                    ptr[c * H * W + y * W + x] = float_image.at<cv::Vec3f>(y, x)[c];
+                }
+            }
+        }
     }
 
     float YoloKeypointModel::generate_scale(cv::Mat &image, const std::vector<int> &target_size)
     {
-        int origin_w = image.cols;
-        int origin_h = image.rows;
-
-        int target_h = target_size[0];
-        int target_w = target_size[1];
-
-        float ratio_h = static_cast<float>(target_h) / static_cast<float>(origin_h);
-        float ratio_w = static_cast<float>(target_w) / static_cast<float>(origin_w);
-        float resize_scale = std::min(ratio_h, ratio_w);
-        return resize_scale;
+        const int origin_w = image.cols;
+        const int origin_h = image.rows;
+        const int target_h = target_size[0];
+        const int target_w = target_size[1];
+        const float ratio_h = static_cast<float>(target_h) / static_cast<float>(origin_h);
+        const float ratio_w = static_cast<float>(target_w) / static_cast<float>(origin_w);
+        return std::min(ratio_h, ratio_w);
     }
 
     float YoloKeypointModel::letterbox(cv::Mat &input_image, cv::Mat &output_image, const std::vector<int> &target_size)
@@ -150,232 +130,273 @@ namespace auto_battlebot
         {
             if (input_image.data == output_image.data)
             {
-                return 1.;
+                return 1.f;
             }
-            else
-            {
-                output_image = input_image.clone();
-                return 1.;
-            }
+            output_image = input_image.clone();
+            return 1.f;
         }
 
-        float resize_scale = generate_scale(input_image, target_size);
-        int new_shape_w = std::round(input_image.cols * resize_scale);
-        int new_shape_h = std::round(input_image.rows * resize_scale);
-        float padw = (target_size[1] - new_shape_w) / 2.0f;
-        float padh = (target_size[0] - new_shape_h) / 2.0f;
+        const float resize_scale = generate_scale(input_image, target_size);
+        const int new_shape_w = static_cast<int>(std::round(input_image.cols * resize_scale));
+        const int new_shape_h = static_cast<int>(std::round(input_image.rows * resize_scale));
+        const float padw = (target_size[1] - new_shape_w) / 2.0f;
+        const float padh = (target_size[0] - new_shape_h) / 2.0f;
 
-        int top = std::round(padh - letterbox_padding_);
-        int bottom = std::round(padh + letterbox_padding_);
-        int left = std::round(padw - letterbox_padding_);
-        int right = std::round(padw + letterbox_padding_);
+        const int top = static_cast<int>(std::round(padh - letterbox_padding_));
+        const int bottom = static_cast<int>(std::round(padh + letterbox_padding_));
+        const int left = static_cast<int>(std::round(padw - letterbox_padding_));
+        const int right = static_cast<int>(std::round(padw + letterbox_padding_));
 
-        cv::resize(input_image, output_image,
-                   cv::Size(new_shape_w, new_shape_h),
-                   0, 0, cv::INTER_LINEAR);
-
+        cv::resize(input_image, output_image, cv::Size(new_shape_w, new_shape_h), 0, 0, cv::INTER_LINEAR);
         cv::copyMakeBorder(output_image, output_image, top, bottom, left, right,
-                           cv::BORDER_CONSTANT, /*border color=*/cv::Scalar(114.0, 114.0, 114.0));
+                           cv::BORDER_CONSTANT, cv::Scalar(114.0, 114.0, 114.0));
         return resize_scale;
     }
 
-    // Reference: https://github.com/pytorch/vision/blob/main/torchvision/csrc/ops/cpu/nms_kernel.cpp
-    torch::Tensor YoloKeypointModel::nms(const torch::Tensor &bboxes, const torch::Tensor &scores, float iou_threshold)
+    // NMS: bboxes is ndets x 4 (x1,y1,x2,y2), scores is ndets. Returns indices to keep.
+    std::vector<int64_t> YoloKeypointModel::nms(const float *bboxes, const float *scores, int64_t ndets, float iou_threshold)
     {
-        if (bboxes.numel() == 0)
-            return torch::empty({0}, bboxes.options().dtype(torch::kLong));
+        std::vector<int64_t> keep;
+        if (ndets == 0)
+            return keep;
 
-        auto x1_t = bboxes.select(1, 0).contiguous();
-        auto y1_t = bboxes.select(1, 1).contiguous();
-        auto x2_t = bboxes.select(1, 2).contiguous();
-        auto y2_t = bboxes.select(1, 3).contiguous();
+        std::vector<float> areas(static_cast<size_t>(ndets));
+        for (int64_t i = 0; i < ndets; i++)
+        {
+            const float x1 = bboxes[i * 4 + 0];
+            const float y1 = bboxes[i * 4 + 1];
+            const float x2 = bboxes[i * 4 + 2];
+            const float y2 = bboxes[i * 4 + 3];
+            areas[i] = (x2 - x1) * (y2 - y1);
+        }
 
-        torch::Tensor areas_t = (x2_t - x1_t) * (y2_t - y1_t);
+        std::vector<int64_t> order(static_cast<size_t>(ndets));
+        for (int64_t i = 0; i < ndets; i++)
+            order[i] = i;
+        std::stable_sort(order.begin(), order.end(), [&scores](int64_t a, int64_t b) { return scores[a] > scores[b]; });
 
-        auto order_t = std::get<1>(
-            scores.sort(/*stable=*/true, /*dim=*/0, /* descending=*/true));
-
-        auto ndets = bboxes.size(0);
-        torch::Tensor suppressed_t = torch::zeros({ndets}, bboxes.options().dtype(torch::kByte));
-        torch::Tensor keep_t = torch::zeros({ndets}, bboxes.options().dtype(torch::kLong));
-
-        auto suppressed = suppressed_t.data_ptr<uint8_t>();
-        auto keep = keep_t.data_ptr<int64_t>();
-        auto order = order_t.data_ptr<int64_t>();
-        auto x1 = x1_t.data_ptr<float>();
-        auto y1 = y1_t.data_ptr<float>();
-        auto x2 = x2_t.data_ptr<float>();
-        auto y2 = y2_t.data_ptr<float>();
-        auto areas = areas_t.data_ptr<float>();
-
-        int64_t num_to_keep = 0;
+        std::vector<uint8_t> suppressed(static_cast<size_t>(ndets), 0);
 
         for (int64_t _i = 0; _i < ndets; _i++)
         {
-            auto i = order[_i];
-            if (suppressed[i] == 1)
+            const int64_t i = order[_i];
+            if (suppressed[i])
                 continue;
-            keep[num_to_keep++] = i;
-            auto ix1 = x1[i];
-            auto iy1 = y1[i];
-            auto ix2 = x2[i];
-            auto iy2 = y2[i];
-            auto iarea = areas[i];
+            keep.push_back(i);
+            const float ix1 = bboxes[i * 4 + 0];
+            const float iy1 = bboxes[i * 4 + 1];
+            const float ix2 = bboxes[i * 4 + 2];
+            const float iy2 = bboxes[i * 4 + 3];
+            const float iarea = areas[i];
 
             for (int64_t _j = _i + 1; _j < ndets; _j++)
             {
-                auto j = order[_j];
-                if (suppressed[j] == 1)
+                const int64_t j = order[_j];
+                if (suppressed[j])
                     continue;
-                auto xx1 = std::max(ix1, x1[j]);
-                auto yy1 = std::max(iy1, y1[j]);
-                auto xx2 = std::min(ix2, x2[j]);
-                auto yy2 = std::min(iy2, y2[j]);
-
-                auto w = std::max(static_cast<float>(0), xx2 - xx1);
-                auto h = std::max(static_cast<float>(0), yy2 - yy1);
-                auto inter = w * h;
-                auto ovr = inter / (iarea + areas[j] - inter);
+                const float xx1 = std::max(ix1, bboxes[j * 4 + 0]);
+                const float yy1 = std::max(iy1, bboxes[j * 4 + 1]);
+                const float xx2 = std::min(ix2, bboxes[j * 4 + 2]);
+                const float yy2 = std::min(iy2, bboxes[j * 4 + 3]);
+                const float w = std::max(0.f, xx2 - xx1);
+                const float h = std::max(0.f, yy2 - yy1);
+                const float inter = w * h;
+                const float ovr = inter / (iarea + areas[j] - inter);
                 if (ovr > iou_threshold)
                     suppressed[j] = 1;
             }
         }
-        return keep_t.narrow(0, 0, num_to_keep);
+        return keep;
     }
 
-    torch::Tensor YoloKeypointModel::xywh2xyxy(const torch::Tensor &x)
+    void YoloKeypointModel::xywh2xyxy(float *boxes, int64_t n)
     {
-        auto y = torch::empty_like(x);
-        auto dw = x.index({"...", 2}).div(2);
-        auto dh = x.index({"...", 3}).div(2);
-        y.index_put_({"...", 0}, x.index({"...", 0}) - dw);
-        y.index_put_({"...", 1}, x.index({"...", 1}) - dh);
-        y.index_put_({"...", 2}, x.index({"...", 0}) + dw);
-        y.index_put_({"...", 3}, x.index({"...", 1}) + dh);
-        return y;
+        for (int64_t i = 0; i < n; i++)
+        {
+            float *b = boxes + i * 4;
+            const float dw = b[2] / 2.f;
+            const float dh = b[3] / 2.f;
+            const float cx = b[0];
+            const float cy = b[1];
+            b[0] = cx - dw;
+            b[1] = cy - dh;
+            b[2] = cx + dw;
+            b[3] = cy + dh;
+        }
     }
 
-    torch::Tensor YoloKeypointModel::non_max_suppression(torch::Tensor &prediction, int num_keypoints, float conf_thres, float iou_thres, int max_det)
+    // prediction layout: [num_predictions, num_features] (row-major). YOLO raw output is [1, num_features, num_predictions], we interpret as num_predictions rows of num_features.
+    std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(const float *prediction, int num_features,
+                                                                     int num_predictions, int num_keypoints,
+                                                                     float conf_thres, float iou_thres, int max_det)
     {
-        // YOLOv11 pose output shape: [batch, features, num_predictions]
-        // Format: [x, y, w, h, class_scores..., kp1_x, kp1_y, kp1_conf, kp2_x, ...]
-        // We need to transpose to [batch, num_predictions, features]
-        prediction = prediction.transpose(-1, -2);
+        const int num_keypoint_values = num_keypoints * 3;
+        const int num_classes = num_features - 4 - num_keypoint_values;
+        const int class_score_end = 4 + num_classes;
+        if (num_classes <= 0 || num_predictions <= 0)
+            return {};
 
-        auto batch_size = prediction.size(0);
-        auto total_features = prediction.size(2);
-        // Each keypoint has 3 values: x, y, confidence
-        auto num_keypoint_values = num_keypoints * 3;
-        // num_classes = total_features - 4 (bbox) - num_keypoint_values
-        auto num_classes = total_features - 4 - num_keypoint_values;
-        auto class_score_end_idx = 4 + num_classes;
-        auto class_conf_mask = prediction.index({Slice(), Slice(), Slice(4, class_score_end_idx)}).amax(2) > conf_thres;
-
-        // Convert boxes from xywh to xyxy format
-        prediction.index_put_({"...", Slice(None, 4)}, xywh2xyxy(prediction.index({"...", Slice(None, 4)})));
-
-        // Prepare output tensor with the maximum possible data slots for this model
-        std::vector<torch::Tensor> output;
-        for (int batch_index = 0; batch_index < batch_size; batch_index++)
+        std::vector<float> transposed(static_cast<size_t>(num_predictions) * num_features);
+        for (int p = 0; p < num_predictions; p++)
         {
-            output.push_back(torch::zeros({0, 6 + num_keypoint_values}, prediction.device()));
+            for (int f = 0; f < num_features; f++)
+            {
+                transposed[p * num_features + f] = prediction[f * num_predictions + p];
+            }
         }
 
-        for (int batch_index = 0; batch_index < prediction.size(0); batch_index++)
+        std::vector<int> class_conf_mask(static_cast<size_t>(num_predictions));
+        for (int p = 0; p < num_predictions; p++)
         {
-            auto detections = prediction[batch_index];
-            detections = detections.index({class_conf_mask[batch_index]});
-            if (detections.size(0) == 0)
+            float max_cls = transposed[p * num_features + 4];
+            for (int c = 1; c < num_classes; c++)
             {
-                continue;
+                const float v = transposed[p * num_features + 4 + c];
+                if (v > max_cls)
+                    max_cls = v;
             }
-            auto detections_split = detections.split({4, num_classes, num_keypoint_values}, 1);
-            auto box = detections_split[0], cls = detections_split[1], keypoints = detections_split[2];
-            auto [conf, class_index] = cls.max(1, true);
-            detections = torch::cat({box, conf, class_index.toType(torch::kFloat), keypoints}, 1);
-            detections = detections.index({conf.view(-1) > conf_thres});
-            int num_detections = detections.size(0);
-            if (!num_detections)
-            {
-                continue;
-            }
-
-            // NMS
-            // Multiply box coordinates by class index * a large number so NMS doesn't suppress boxes of different classes overlapping each other
-            auto class_offset = detections.index({Slice(), Slice{5, 6}}) * 7680;
-            auto boxes = detections.index({Slice(), Slice(None, 4)}) + class_offset;
-            auto scores = detections.index({Slice(), 4});
-            auto selected_indices = nms(boxes, scores, iou_thres);
-            selected_indices = selected_indices.index({Slice(None, max_det)});
-            output[batch_index] = detections.index({selected_indices});
+            class_conf_mask[p] = (max_cls > conf_thres) ? 1 : 0;
         }
 
-        return torch::stack(output);
+        std::vector<float> boxes_xywh(static_cast<size_t>(num_predictions) * 4);
+        for (int p = 0; p < num_predictions; p++)
+        {
+            for (int j = 0; j < 4; j++)
+                boxes_xywh[p * 4 + j] = transposed[p * num_features + j];
+        }
+        xywh2xyxy(boxes_xywh.data(), num_predictions);
+
+        std::vector<DetectionRow> out_rows;
+        std::vector<float> det_boxes(static_cast<size_t>(num_predictions) * 4);
+        std::vector<float> det_scores(static_cast<size_t>(num_predictions));
+
+        int det_count = 0;
+        for (int p = 0; p < num_predictions; p++)
+        {
+            if (!class_conf_mask[p])
+                continue;
+            float max_conf = transposed[p * num_features + 4];
+            int best_cls = 0;
+            for (int c = 1; c < num_classes; c++)
+            {
+                const float v = transposed[p * num_features + 4 + c];
+                if (v > max_conf)
+                {
+                    max_conf = v;
+                    best_cls = c;
+                }
+            }
+            if (max_conf < conf_thres)
+                continue;
+
+            for (int j = 0; j < 4; j++)
+                det_boxes[det_count * 4 + j] = boxes_xywh[p * 4 + j];
+            det_scores[det_count] = max_conf;
+
+            DetectionRow row;
+            row.reserve(static_cast<size_t>(6 + num_keypoint_values));
+            row.push_back(boxes_xywh[p * 4 + 0]);
+            row.push_back(boxes_xywh[p * 4 + 1]);
+            row.push_back(boxes_xywh[p * 4 + 2]);
+            row.push_back(boxes_xywh[p * 4 + 3]);
+            row.push_back(max_conf);
+            row.push_back(static_cast<float>(best_cls));
+            for (int k = 0; k < num_keypoint_values; k++)
+                row.push_back(transposed[p * num_features + class_score_end + k]);
+            out_rows.push_back(std::move(row));
+            det_count++;
+        }
+
+        if (out_rows.empty())
+            return out_rows;
+
+        det_boxes.resize(static_cast<size_t>(det_count) * 4);
+        det_scores.resize(static_cast<size_t>(det_count));
+
+        std::vector<float> nms_boxes(static_cast<size_t>(det_count) * 4);
+        for (int64_t i = 0; i < det_count; i++)
+        {
+            const float class_offset = out_rows[i][5] * 7680.f;
+            nms_boxes[i * 4 + 0] = out_rows[i][0] + class_offset;
+            nms_boxes[i * 4 + 1] = out_rows[i][1] + class_offset;
+            nms_boxes[i * 4 + 2] = out_rows[i][2] + class_offset;
+            nms_boxes[i * 4 + 3] = out_rows[i][3] + class_offset;
+        }
+        std::vector<float> nms_scores(static_cast<size_t>(det_count));
+        for (int64_t i = 0; i < det_count; i++)
+            nms_scores[i] = out_rows[i][4];
+
+        std::vector<int64_t> keep = nms(nms_boxes.data(), nms_scores.data(), det_count, iou_thres);
+        if (static_cast<int>(keep.size()) > max_det)
+            keep.resize(static_cast<size_t>(max_det));
+
+        std::vector<DetectionRow> result;
+        result.reserve(keep.size());
+        for (int64_t k : keep)
+            result.push_back(out_rows[k]);
+        return result;
     }
 
     Keypoint YoloKeypointModel::scale_keypoint(Keypoint output_keypoint, cv::Size original_image_size, cv::Size input_image_size)
     {
-        double gain = std::min((double)input_image_size.width / original_image_size.width, (double)input_image_size.height / original_image_size.height);
-        double pad0 = std::round((double)(input_image_size.width - original_image_size.width * gain) / 2. - letterbox_padding_);
-        double pad1 = std::round((double)(input_image_size.height - original_image_size.height * gain) / 2. - letterbox_padding_);
+        const double gain = std::min(static_cast<double>(input_image_size.width) / original_image_size.width,
+                                     static_cast<double>(input_image_size.height) / original_image_size.height);
+        const double pad0 = std::round((input_image_size.width - original_image_size.width * gain) / 2.0 - letterbox_padding_);
+        const double pad1 = std::round((input_image_size.height - original_image_size.height * gain) / 2.0 - letterbox_padding_);
         double x = output_keypoint.x;
         double y = output_keypoint.y;
         x -= pad0;
         y -= pad1;
         x /= gain;
         y /= gain;
-
         return Keypoint{output_keypoint.label, output_keypoint.keypoint_label, x, y};
     }
 
-    torch::Tensor YoloKeypointModel::scale_boxes(torch::Tensor &boxes, cv::Size original_image_size, cv::Size input_image_size)
+    void YoloKeypointModel::scale_boxes(std::vector<DetectionRow> &detections, cv::Size original_image_size, cv::Size input_image_size)
     {
-        auto gain = (std::min)((float)input_image_size.height / original_image_size.height, (float)input_image_size.width / original_image_size.width);
-        auto pad0 = std::round((float)(input_image_size.width - original_image_size.width * gain) / 2.0 - letterbox_padding_);
-        auto pad1 = std::round((float)(input_image_size.height - original_image_size.height * gain) / 2.0 - letterbox_padding_);
-
-        boxes.index_put_({"...", 0}, boxes.index({"...", 0}) - pad0);
-        boxes.index_put_({"...", 2}, boxes.index({"...", 2}) - pad0);
-        boxes.index_put_({"...", 1}, boxes.index({"...", 1}) - pad1);
-        boxes.index_put_({"...", 3}, boxes.index({"...", 3}) - pad1);
-        boxes.index_put_({"...", Slice(None, 4)}, boxes.index({"...", Slice(None, 4)}).div(gain));
-        return boxes;
+        const float gain = std::min(static_cast<float>(input_image_size.height) / original_image_size.height,
+                                    static_cast<float>(input_image_size.width) / original_image_size.width);
+        const float pad0 = static_cast<float>(std::round((input_image_size.width - original_image_size.width * gain) / 2.0 - letterbox_padding_));
+        const float pad1 = static_cast<float>(std::round((input_image_size.height - original_image_size.height * gain) / 2.0 - letterbox_padding_));
+        for (auto &row : detections)
+        {
+            if (row.size() < 4)
+                continue;
+            row[0] = (row[0] - pad0) / gain;
+            row[2] = (row[2] - pad0) / gain;
+            row[1] = (row[1] - pad1) / gain;
+            row[3] = (row[3] - pad1) / gain;
+        }
     }
 
-    KeypointsStamped YoloKeypointModel::postprocess_output(const torch::Tensor &output, const Header &header, cv::Size original_image_size, cv::Size input_image_size, const cv::Mat &original_image)
+    KeypointsStamped YoloKeypointModel::postprocess_output(const float *output, const Header &header,
+                                                           cv::Size original_image_size, cv::Size input_image_size,
+                                                           const cv::Mat &original_image)
     {
         KeypointsStamped result;
         result.header = header;
 
-        // Move output to CPU
-        torch::Tensor cpu_output = output.to(torch::kCPU);
-
-        // YOLO output format typically: [batch, num_detections, attributes]
-        // attributes include: [x, y, w, h, confidence, class_scores..., keypoints...]
-        // For YOLO-pose models, keypoints are typically at the end of the tensor
-
-        if (cpu_output.dim() < 2)
+        const std::vector<int64_t> out_shape = engine_.getOutputShape();
+        if (out_shape.size() < 3)
         {
             diagnostics_logger_->warning({}, "Invalid output dimensions");
             return result;
         }
+        const int num_features = static_cast<int>(out_shape[1]);
+        const int num_predictions = static_cast<int>(out_shape[2]);
 
-        // Get number of keypoints from the first label in the map
         int num_keypoints = 0;
         if (!label_map_.label_to_keypoints.empty())
         {
             num_keypoints = static_cast<int>(label_map_.label_to_keypoints.front().second.size());
         }
 
-        // NMS
-        auto keep = non_max_suppression(cpu_output, num_keypoints, threshold_, iou_threshold_)[0];
+        std::vector<DetectionRow> keep = non_max_suppression(output, num_features, num_predictions, num_keypoints,
+                                                             threshold_, iou_threshold_, 300);
 
-        // Get number of detections (size(0) = rows = detections, size(1) = columns = features)
-        int64_t num_detections = keep.size(0);
-
+        const int num_detections = static_cast<int>(keep.size());
         int valid_detections = 0;
 
-        // Early return if no detections
         if (num_detections == 0)
         {
             DiagnosticsData summary_data;
@@ -386,124 +407,87 @@ namespace auto_battlebot
             return result;
         }
 
-        for (int64_t i = 0; i < num_detections; i++)
+        const int num_classes = static_cast<int>(label_map_.size());
+        const int keypoint_start_idx = 6;
+
+        for (int i = 0; i < num_detections; i++)
         {
-            // Extract confidence (typically at index 4)
-            float confidence = keep[i][4].item().toFloat();
-
-            // Apply confidence threshold
-            if (confidence < threshold_)
-            {
+            const DetectionRow &row = keep[i];
+            if (row.size() < 6)
                 continue;
-            }
-
+            const float confidence = row[4];
+            if (confidence < threshold_)
+                continue;
             valid_detections++;
 
-            // Extract class scores and find the best class
-            // The exact structure depends on the YOLO model variant
-            // For YOLO with keypoints, format is typically:
-            // [x, y, w, h, obj_conf, class_conf, kp1_x, kp1_y, kp1_conf, kp2_x, kp2_y, kp2_conf, ...]
-
-            int num_classes = static_cast<int>(label_map_.size());
-            int class_id = keep[i][5].item().toInt();
-
-            // Check if class_id is valid
+            const int class_id = static_cast<int>(row[5]);
             if (class_id >= num_classes)
             {
                 diagnostics_logger_->warning({}, "Invalid class ID: " + std::to_string(class_id));
                 continue;
             }
+            const Label object_label = label_map_.get_label_at_index(class_id);
 
-            // Get the label from the map by index
-            Label object_label = label_map_.get_label_at_index(class_id);
-
-            // Log detection info
             DiagnosticsData diag_data;
             diag_data["confidence"] = confidence;
             diag_data["class_id"] = class_id;
             diag_data["stamp"] = header.stamp;
             diagnostics_logger_->info(std::string(magic_enum::enum_name(object_label)) + "-" + std::to_string(i), diag_data);
 
-            // Get keypoint labels for this object label
             const std::vector<KeypointLabel> &keypoint_labels = label_map_.get_keypoint_labels(object_label);
+            const int n_kp = static_cast<int>(keypoint_labels.size());
 
-            // Extract keypoints (starting after box + conf + class_id = index 6)
-            // YOLOv11 keypoints have 3 values each: x, y, confidence
-            int keypoint_start_idx = 6;
-            int num_keypoints = static_cast<int>(keypoint_labels.size());
-
-            for (int k = 0; k < num_keypoints; k++)
+            for (int k = 0; k < n_kp; k++)
             {
-                // Each keypoint has 3 values: x, y, conf
-                int kp_idx = keypoint_start_idx + k * 3;
-
-                if (kp_idx + 2 >= keep.size(1))
-                {
+                const int kp_idx = keypoint_start_idx + k * 3;
+                if (kp_idx + 2 >= static_cast<int>(row.size()))
                     break;
-                }
-
-                // Check keypoint confidence (third value)
-                float kp_conf = keep[i][kp_idx + 2].item().toFloat();
+                const float kp_conf = row[static_cast<size_t>(kp_idx + 2)];
                 if (kp_conf < threshold_)
-                {
-                    continue; // Skip low-confidence keypoints
-                }
-
+                    continue;
                 Keypoint keypoint;
-                keypoint.x = keep[i][kp_idx].item().toFloat();
-                keypoint.y = keep[i][kp_idx + 1].item().toFloat();
+                keypoint.x = row[static_cast<size_t>(kp_idx)];
+                keypoint.y = row[static_cast<size_t>(kp_idx + 1)];
                 keypoint = scale_keypoint(keypoint, original_image_size, input_image_size);
-
-                // Set keypoint label from keypoint_labels for this object
-                keypoint.keypoint_label = keypoint_labels[k];
-
-                // Set object label
+                keypoint.keypoint_label = keypoint_labels[static_cast<size_t>(k)];
                 keypoint.label = object_label;
-
                 result.keypoints.push_back(keypoint);
             }
         }
 
         DiagnosticsData summary_data;
-        summary_data["total_detections"] = (int)num_detections;
+        summary_data["total_detections"] = num_detections;
         summary_data["valid_detections"] = valid_detections;
         summary_data["threshold"] = threshold_;
         diagnostics_logger_->info(summary_data);
 
         if (debug_visualization_)
         {
-            auto boxes = keep.index({Slice(), Slice(None, 4)});
-            auto scaled_boxes = scale_boxes(boxes, original_image_size, input_image_size);
-            keep.index_put_({Slice(), Slice(None, 4)}, scaled_boxes);
+            scale_boxes(keep, original_image_size, input_image_size);
             visualize_output(original_image, result, keep);
         }
 
         return result;
     }
 
-    void YoloKeypointModel::visualize_output(const cv::Mat &original_image, const KeypointsStamped &keypoints, const torch::Tensor &detections)
+    void YoloKeypointModel::visualize_output(const cv::Mat &original_image, const KeypointsStamped &keypoints,
+                                             const std::vector<DetectionRow> &detections)
     {
         if (original_image.empty())
             return;
 
-        // Copy image for visualization
         cv::Mat vis_img = original_image.clone();
 
-        // Group keypoints by label to draw connections
         std::map<Label, std::vector<cv::Point>> keypoints_by_label;
         for (const auto &kp : keypoints.keypoints)
         {
-            int x = static_cast<int>(std::round(kp.x));
-            int y = static_cast<int>(std::round(kp.y));
+            const int x = static_cast<int>(std::round(kp.x));
+            const int y = static_cast<int>(std::round(kp.y));
             keypoints_by_label[kp.label].push_back(cv::Point(x, y));
         }
 
-        // Draw bounding boxes with class labels
-        if (detections.defined() && detections.numel() > 0)
+        if (!detections.empty())
         {
-            auto detections_cpu = detections.to(torch::kCPU);
-
-            // Collect all label rectangles first to check for overlaps
             struct LabelInfo
             {
                 cv::Rect rect;
@@ -513,38 +497,34 @@ namespace auto_battlebot
             };
             std::vector<LabelInfo> labels;
 
-            for (int i = 0; i < detections_cpu.size(0); ++i)
+            for (size_t i = 0; i < detections.size(); i++)
             {
-                float x1 = detections_cpu[i][0].item().toFloat();
-                float y1 = detections_cpu[i][1].item().toFloat();
-                float x2 = detections_cpu[i][2].item().toFloat();
-                float y2 = detections_cpu[i][3].item().toFloat();
-                float confidence = detections_cpu[i][4].item().toFloat();
-
-                // Get class_id from detections tensor (index 5)
-                int class_id = detections_cpu[i][5].item().toInt();
-                Label box_label = label_map_.get_label_at_index(class_id);
+                const DetectionRow &row = detections[i];
+                if (row.size() < 6)
+                    continue;
+                const float x1 = row[0];
+                const float y1 = row[1];
+                const float x2 = row[2];
+                const float y2 = row[3];
+                const float confidence = row[4];
+                const int class_id = static_cast<int>(row[5]);
+                const Label box_label = label_map_.get_label_at_index(class_id);
 
                 auto [b, g, r] = get_color_for_label(box_label).to_bgr_255();
-                cv::Scalar color(b, g, r);
+                const cv::Scalar color(b, g, r);
 
-                // Format label with confidence score
                 std::ostringstream label_stream;
                 label_stream << std::string(magic_enum::enum_name(box_label))
                              << " " << std::fixed << std::setprecision(2) << confidence;
-                std::string label_text = label_stream.str();
+                const std::string label_text = label_stream.str();
 
-                // Draw box with thicker line
-                cv::rectangle(vis_img, cv::Point((int)x1, (int)y1), cv::Point((int)x2, (int)y2), color, 2);
+                cv::rectangle(vis_img, cv::Point(static_cast<int>(x1), static_cast<int>(y1)),
+                              cv::Point(static_cast<int>(x2), static_cast<int>(y2)), color, 2);
 
-                // Calculate label position
                 int baseline = 0;
-                cv::Size text_size = cv::getTextSize(label_text, cv::FONT_HERSHEY_SIMPLEX, 0.6, 2, &baseline);
-
-                int label_y = (int)y1 - text_size.height - 6;
-                int label_x = (int)x1;
-
-                // Check for overlaps with existing labels and offset if needed
+                const cv::Size text_size = cv::getTextSize(label_text, cv::FONT_HERSHEY_SIMPLEX, 0.6, 2, &baseline);
+                int label_y = static_cast<int>(y1) - text_size.height - 6;
+                const int label_x = static_cast<int>(x1);
                 cv::Rect proposed_rect(label_x, label_y, text_size.width + 4, text_size.height + 6);
                 int offset_count = 0;
                 bool has_overlap = true;
@@ -556,7 +536,6 @@ namespace auto_battlebot
                         if ((proposed_rect & existing.rect).area() > 0)
                         {
                             has_overlap = true;
-                            // Move label up
                             label_y -= (text_size.height + 8);
                             proposed_rect = cv::Rect(label_x, label_y, text_size.width + 4, text_size.height + 6);
                             offset_count++;
@@ -564,56 +543,39 @@ namespace auto_battlebot
                         }
                     }
                 }
-
                 labels.push_back({proposed_rect, label_text, color, cv::Point(label_x + 2, label_y + text_size.height + 2)});
             }
 
-            // Draw all labels
             for (const auto &label : labels)
             {
                 cv::rectangle(vis_img, label.rect, label.color, cv::FILLED);
-                cv::putText(vis_img, label.text, label.text_pos,
-                            cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
+                cv::putText(vis_img, label.text, label.text_pos, cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 255, 255), 2);
             }
         }
 
-        // Draw connections between front and back keypoints for each label
         for (const auto &[label, points] : keypoints_by_label)
         {
             if (points.size() >= 2)
             {
                 auto [b, g, r] = get_color_for_label(label).to_bgr_255();
                 cv::Scalar color(b, g, r);
-                // Draw line connecting keypoints (front to back)
                 cv::line(vis_img, points[0], points[1], color, 2, cv::LINE_AA);
             }
         }
 
-        // Draw keypoints with labels
         for (const auto &kp : keypoints.keypoints)
         {
-            int x = static_cast<int>(std::round(kp.x));
-            int y = static_cast<int>(std::round(kp.y));
-
+            const int x = static_cast<int>(std::round(kp.x));
+            const int y = static_cast<int>(std::round(kp.y));
             auto [b, g, r_val] = get_color_for_label(kp.label).to_bgr_255();
             cv::Scalar color(b, g, r_val);
-            std::string kp_name = get_short_name(std::string(magic_enum::enum_name(kp.keypoint_label)));
-
-            // Draw outer circle (white border)
+            const std::string kp_name = get_short_name(std::string(magic_enum::enum_name(kp.keypoint_label)));
             cv::circle(vis_img, cv::Point(x, y), 7, cv::Scalar(255, 255, 255), -1, cv::LINE_AA);
-            // Draw inner circle (class color)
             cv::circle(vis_img, cv::Point(x, y), 5, color, -1, cv::LINE_AA);
-
-            // Draw keypoint label with shadow for visibility
-            cv::putText(vis_img, kp_name,
-                        cv::Point(x + 9, y + 4),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 2); // Shadow
-            cv::putText(vis_img, kp_name,
-                        cv::Point(x + 8, y + 3),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1); // Text
+            cv::putText(vis_img, kp_name, cv::Point(x + 9, y + 4), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 2);
+            cv::putText(vis_img, kp_name, cv::Point(x + 8, y + 3), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1);
         }
 
-        // Show the image in a window (for debug)
         cv::imshow("YOLO Keypoint Visualization", vis_img);
         cv::waitKey(1);
     }
