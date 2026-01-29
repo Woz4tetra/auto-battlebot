@@ -85,9 +85,6 @@ find_package(PCL REQUIRED COMPONENTS common sample_consensus)
 find_package(ZED 5 REQUIRED)
 find_package(CUDA REQUIRED)
 
-# Find LibTorch
-find_package(Torch REQUIRED)
-
 # Mark ZED SDK headers as system headers to suppress their warnings
 include_directories(SYSTEM ${ZED_INCLUDE_DIRS})
 include_directories(SYSTEM ${CUDA_INCLUDE_DIRS})
@@ -136,9 +133,7 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     Threads::Threads
     ${ZED_LIBRARIES}
     ${CUDA_LIBRARIES}
-    ${TORCH_LIBRARIES}
     ${PCL_LIBRARIES}
-    ${TORCH_LIBRARIES}
 )
 
 # Common compiler flags

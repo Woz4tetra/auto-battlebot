@@ -9,7 +9,6 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Source helper functions
 source "$PROJECT_ROOT/install/check_os_ubuntu_24.sh"
 source "$PROJECT_ROOT/install/install_packages.sh"
-source "$PROJECT_ROOT/install/install_libtorch_ubuntu.sh"
 source "$PROJECT_ROOT/install/install_docker_ubuntu.sh"
 source "$PROJECT_ROOT/install/install_ros_connector.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
@@ -18,7 +17,6 @@ source "$PROJECT_ROOT/install/build_cpp_project.sh"
 check_os_ubuntu_24
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
 install_packages "$PROJECT_ROOT/install/ubuntu_24_packages.txt"
-install_libtorch_ubuntu 'https://download.pytorch.org/libtorch/cu130/libtorch-shared-with-deps-2.9.1%2Bcu130.zip'
 install_docker_ubuntu
 install_ros_connector
 build_cpp_project "$@"

@@ -7,7 +7,7 @@ camera_fps = 30
 
 [field_model]
 type = "DeepLabFieldModel"
-model_path = "models/field_deeplabv3_r50_2024-09-05.torchscript"
+model_path = "models/field_deeplabv3_r50_2024-09-05.onnx"
 
 [field_filter]
 type = "PointCloudFieldFilter"
@@ -16,7 +16,7 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "models/yolo11n-pose_2024-10-09.torchscript"
+model_path = "models/yolo11n-pose_2024-10-09.onnx"
 debug_visualization = false
 threshold = 0.5
 

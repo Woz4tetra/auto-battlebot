@@ -29,13 +29,6 @@ build_cpp_project() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}/"
 
-    # Add LibTorch to CMAKE_PREFIX_PATH if it exists
-    local LIBTORCH_DIR="/usr/local/libtorch"
-    if [ -d "$LIBTORCH_DIR" ]; then
-        echo "Found LibTorch at ${LIBTORCH_DIR}"
-        export CMAKE_PREFIX_PATH="${LIBTORCH_DIR}:${CMAKE_PREFIX_PATH:-}"
-    fi
-
     echo "Running cmake with BUILD_TESTING=${BUILD_TESTING_FLAG} and BUILD_TYPE=${BUILD_TYPE}..."
     cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_TESTING="${BUILD_TESTING_FLAG}" -DBUILD_DEBUG="${BUILD_TESTING_FLAG}"
 
