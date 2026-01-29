@@ -1,0 +1,4 @@
+# TensorRT runtime + dev (headers for building). Installed by install_tensorrt_runtime_ubuntu.sh
+# after adding NVIDIA repo if needed. One package per line.
+
+libnvinfer-dev

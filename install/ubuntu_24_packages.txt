@@ -1,4 +1,6 @@
-# Required packages for auto-battlebot
+# Required packages for auto-battlebot (Ubuntu 24.04)
 # One package per line, lines starting with # are ignored
+# TensorRT runtime (libnvinfer-dev) is installed in step 0; listed here so apt install runs after repo is added.
 
 libopencv-dev
+libnvinfer-dev

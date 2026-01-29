@@ -1,0 +1,5 @@
+# Platform-specific packages for Jetson (TensorRT runtime + dev for building)
+# L4T/JetPack repo is configured by check_jetson_orin_nano / JetPack install
+# One package per line, lines starting with # are ignored
+
+libnvinfer-dev

@@ -15,6 +15,8 @@ source "$PROJECT_ROOT/install/build_cpp_project.sh"
 
 # Run checks and installation
 check_jetson_orin_nano
+# Step 0: Install TensorRT runtime (before CMake)
+install_packages "$PROJECT_ROOT/install/jetson_packages.txt"
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
 install_opencv_jetson
 install_ros_connector
