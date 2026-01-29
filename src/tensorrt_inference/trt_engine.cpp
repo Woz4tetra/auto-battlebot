@@ -1,6 +1,7 @@
 #include "tensorrt_inference/trt_engine.hpp"
 
 #include <NvInferRuntime.h>
+#include <NvInferRuntimeBase.h>
 #include <cuda_runtime.h>
 #include <cstring>
 #include <fstream>
@@ -109,10 +110,23 @@ bool TrtEngine::load(const std::string& engine_path)
     }
     runtime_ = rt;
 
+    // Allow version-compatible engines (built with VERSION_COMPATIBLE) to load.
+    rt->setEngineHostCodeAllowed(true);
+
     nvinfer1::ICudaEngine* eng = rt->deserializeCudaEngine(blob.data(), size);
     if (!eng)
     {
-        std::cerr << "TrtEngine: deserializeCudaEngine failed" << std::endl;
+        std::cerr << "TrtEngine: deserializeCudaEngine failed." << std::endl;
+        std::cerr << "  Engine files are tied to the TensorRT version and GPU they were built with."
+                  << std::endl;
+        std::cerr << "  Rebuild the engine on this machine (or on the target device, e.g. Jetson)"
+                  << std::endl;
+        std::cerr << "  using the conversion script:"
+                  << std::endl;
+        std::cerr << "    DeepLab: python training/deeplab/convert_to_tensorrt.py <checkpoint.pth> -o <path>.engine"
+                  << std::endl;
+        std::cerr << "    YOLO:    python training/yolo/convert_to_onnx.py <model.pt>  then  python training/yolo/convert_to_tensorrt.py <model.onnx> --from-onnx -o <path>.engine"
+                  << std::endl;
         delete rt;
         runtime_ = nullptr;
         engine_ = nullptr;
@@ -145,8 +159,35 @@ bool TrtEngine::load(const std::string& engine_path)
         return false;
     }
 
-    const char* input_name = eng->getIOTensorName(0);
-    const char* output_name = eng->getIOTensorName(1);
+    const char* input_name = nullptr;
+    const char* output_name = nullptr;
+    for (int32_t i = 0; i < nb_io; ++i)
+    {
+        const char* name = eng->getIOTensorName(i);
+        const nvinfer1::TensorIOMode mode = eng->getTensorIOMode(name);
+        if (mode == nvinfer1::TensorIOMode::kINPUT)
+        {
+            input_name = name;
+            input_io_index_ = i;
+        }
+        else if (mode == nvinfer1::TensorIOMode::kOUTPUT)
+        {
+            output_name = name;
+            output_io_index_ = i;
+        }
+    }
+    if (!input_name || !output_name)
+    {
+        std::cerr << "TrtEngine: could not identify input and output tensors by mode" << std::endl;
+        delete ctx;
+        delete eng;
+        delete rt;
+        context_ = nullptr;
+        engine_ = nullptr;
+        runtime_ = nullptr;
+        return false;
+    }
+
     nvinfer1::Dims input_dims = eng->getTensorShape(input_name);
     nvinfer1::Dims output_dims = eng->getTensorShape(output_name);
     const int64_t input_vol = volume(input_dims);
@@ -210,6 +251,15 @@ bool TrtEngine::load(const std::string& engine_path)
     output_shape_ = dimsToVector(output_dims);
     input_num_elements_ = input_vol;
     output_num_elements_ = output_vol;
+
+    std::cout << "TrtEngine: input \"" << input_name << "\" shape [";
+    for (size_t i = 0; i < input_shape_.size(); ++i)
+        std::cout << (i ? ", " : "") << input_shape_[i];
+    std::cout << "], output \"" << output_name << "\" shape [";
+    for (size_t i = 0; i < output_shape_.size(); ++i)
+        std::cout << (i ? ", " : "") << output_shape_[i];
+    std::cout << "]" << std::endl;
+
     return true;
 }
 
@@ -235,7 +285,11 @@ bool TrtEngine::execute(const float* host_input, float* host_output)
         return false;
     }
 
-    void* bindings[2] = {d_input_, d_output_};
+    // executeV2(bindings): bindings[i] must match getIOTensorName(i).
+    void* bindings[2] = {nullptr, nullptr};
+    bindings[input_io_index_] = d_input_;
+    bindings[output_io_index_] = d_output_;
+
     auto* ctx = static_cast<nvinfer1::IExecutionContext*>(context_);
     if (!ctx->executeV2(bindings))
     {

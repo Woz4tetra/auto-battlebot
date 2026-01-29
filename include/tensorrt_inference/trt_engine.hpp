@@ -55,6 +55,8 @@ private:
     void* runtime_{nullptr};
     int64_t input_num_elements_{0};
     int64_t output_num_elements_{0};
+    int32_t input_io_index_{-1};
+    int32_t output_io_index_{-1};
     std::vector<int64_t> input_shape_;
     std::vector<int64_t> output_shape_;
 };

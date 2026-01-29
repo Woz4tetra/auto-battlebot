@@ -1,5 +1,10 @@
 """Convert a YOLO pose model (.pt or .onnx) to TensorRT engine format.
 
+Engines are GPU- and TensorRT-version specific: an engine built on x86 cannot
+run on Jetson (or vice versa). For Jetson deployment, copy the .pt or .onnx
+to the Jetson and run this script there (e.g. --from-onnx if you have .onnx)
+to produce the .engine used by the C++ app.
+
 The C++ YoloKeypointModel expects:
 - Input: single tensor, shape [1, 3, H, W] (NCHW, float32), e.g. [1, 3, 640, 640].
 - Output: single tensor, shape [1, num_features, num_predictions], e.g. [1, 56, 8400]
@@ -7,10 +12,26 @@ The C++ YoloKeypointModel expects:
 
 Export from .pt uses Ultralytics model.export(format="engine"). Export from .onnx
 uses TensorRT Builder + OnnxParser (no Ultralytics required).
+
+For C++ YoloKeypointModel compatibility, prefer building from ONNX (--from-onnx):
+  python training/yolo/convert_to_onnx.py model.pt
+  python training/yolo/convert_to_tensorrt.py model.onnx --from-onnx -o models/model_x86_64.engine
+Engines built from .pt via Ultralytics may use a different plan format and fail to load in the C++ runtime.
+
+Output filenames include a platform tag (e.g. _x86_64, _aarch64) so the wrong
+engine is not used by accident.
 """
 
 import argparse
+import platform
 from pathlib import Path
+
+
+def engine_path_with_platform_tag(path: Path) -> Path:
+    """Append platform tag to engine path stem so x86 vs Jetson engines are distinct."""
+    tag = platform.machine()
+    suffix = path.suffix if path.suffix else ".engine"
+    return path.parent / f"{path.stem}_{tag}{suffix}"
 
 try:
     import tensorrt as trt
@@ -47,6 +68,9 @@ def build_engine_from_onnx(
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_gib << 30)
     if fp16 and builder.platform_has_fast_fp16:
         config.set_flag(trt.BuilderFlag.FP16)
+    # Build version-compatible engine so it can load on runtimes with a different TensorRT patch version.
+    if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE"):
+        config.set_flag(trt.BuilderFlag.VERSION_COMPATIBLE)
 
     serialized = builder.build_serialized_network(network, config)
     if serialized is None:
@@ -111,7 +135,7 @@ def main() -> None:
         "-o",
         "--output",
         type=str,
-        help="Output path for TensorRT engine (default: same name with .engine extension)",
+        help="Output path for TensorRT engine; platform tag (e.g. _x86_64) is appended to stem (default: same name with .engine)",
     )
     parser.add_argument(
         "--imgsz",
@@ -146,6 +170,7 @@ def main() -> None:
         output_path = Path(args.output)
     else:
         output_path = model_path.parent / f"{model_path.stem}.engine"
+    output_path = engine_path_with_platform_tag(output_path)
 
     if args.from_onnx:
         if model_path.suffix.lower() != ".onnx":
@@ -173,6 +198,7 @@ def main() -> None:
         )
 
     print("Done. Use the .engine path as model_path in config for YoloKeypointModel.")
+    print("For Jetson: run this script on the Jetson to build an engine that runs there.")
 
 
 if __name__ == "__main__":

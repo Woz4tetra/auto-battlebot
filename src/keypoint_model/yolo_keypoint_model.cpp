@@ -54,11 +54,22 @@ namespace auto_battlebot
             diagnostics_logger_->error({}, "Model not initialized");
             return KeypointsStamped{};
         }
-        const cv::Size input_image_size(image_size_, image_size_);
+        const std::vector<int64_t> in_shape = engine_.getInputShape();
+        if (in_shape.size() < 4 || in_shape[0] != 1 || in_shape[1] != 3)
+        {
+            diagnostics_logger_->error({}, "YOLO engine input shape invalid");
+            return KeypointsStamped{};
+        }
+        const cv::Size input_image_size(static_cast<int>(in_shape[3]), static_cast<int>(in_shape[2]));
         const cv::Size original_image_size(image.image.cols, image.image.rows);
 
         std::vector<float> input_buffer;
         preprocess_image(image.image, input_image_size, input_buffer);
+        if (static_cast<int64_t>(input_buffer.size()) != engine_.getInputNumElements())
+        {
+            diagnostics_logger_->error({}, "YOLO input buffer size mismatch");
+            return KeypointsStamped{};
+        }
 
         std::vector<float> output_buffer(static_cast<size_t>(engine_.getOutputNumElements()));
         if (!engine_.execute(input_buffer.data(), output_buffer.data()))

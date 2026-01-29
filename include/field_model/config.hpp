@@ -33,7 +33,7 @@ namespace auto_battlebot
         std::string model_path;
         DeepLabModelType model_type = DeepLabModelType::DeepLabV3;
         int image_size = 344;
-        int border_padding = 25;
+        int border_padding = 20;
 
         DeepLabFieldModelConfiguration()
         {

@@ -1,7 +1,18 @@
-"""Convert a DeepLab v3 .pth checkpoint to TensorRT engine format."""
+"""Convert a DeepLab v3 .pth checkpoint to TensorRT engine format.
+
+Engines are GPU- and TensorRT-version specific: an engine built on x86 cannot
+run on Jetson (or vice versa). For Jetson deployment, copy the .pth checkpoint
+to the Jetson and run this script there to produce the .engine used by the C++
+app. Same TensorRT version (or VERSION_COMPATIBLE build) helps across patch
+versions on the same platform.
+
+Output filenames include a platform tag (e.g. _x86_64, _aarch64) so the wrong
+engine is not used by accident.
+"""
 
 import argparse
 import os
+import platform
 import tempfile
 from pathlib import Path
 
@@ -21,6 +32,13 @@ except ImportError as e:
     raise ImportError(
         "TensorRT is not installed. Install it (e.g. pip install tensorrt, or use JetPack on Jetson)"
     ) from e
+
+
+def engine_path_with_platform_tag(path: Path) -> Path:
+    """Append platform tag to engine path stem so x86 vs Jetson engines are distinct."""
+    tag = platform.machine()
+    suffix = path.suffix if path.suffix else ".engine"
+    return path.parent / f"{path.stem}_{tag}{suffix}"
 
 
 def get_backbone_from_stem(stem: str) -> str:
@@ -117,6 +135,9 @@ def build_tensorrt_engine(
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_gib << 30)
     if fp16 and builder.platform_has_fast_fp16:
         config.set_flag(trt.BuilderFlag.FP16)
+    # Build version-compatible engine so it can load on runtimes with a different TensorRT patch version.
+    if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE"):
+        config.set_flag(trt.BuilderFlag.VERSION_COMPATIBLE)
 
     serialized = builder.build_serialized_network(network, config)
     if serialized is None:
@@ -140,7 +161,7 @@ def main() -> None:
         "-o",
         "--output",
         type=str,
-        help="Output path for TensorRT engine (default: same name with .engine extension)",
+        help="Output path for TensorRT engine; platform tag (e.g. _x86_64) is appended to stem (default: same name with .engine)",
     )
     parser.add_argument(
         "--backbone",
@@ -195,6 +216,7 @@ def main() -> None:
         output_path = Path(args.output)
     else:
         output_path = model_path.parent / f"{model_path.stem}.engine"
+    output_path = engine_path_with_platform_tag(output_path)
 
     input_size = args.input_size
 
@@ -230,6 +252,9 @@ def main() -> None:
             workspace_gib=args.workspace,
         )
         print(f"Engine saved to: {output_path}")
+        print(
+            "For Jetson: run this script on the Jetson to build an engine that runs there."
+        )
     finally:
         if use_temp and onnx_path.exists():
             try:

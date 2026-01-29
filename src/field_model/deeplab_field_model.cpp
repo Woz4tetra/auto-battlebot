@@ -72,6 +72,14 @@ namespace auto_battlebot
 
     void DeepLabFieldModel::preprocess_image(const cv::Mat &image, std::vector<float> &buffer)
     {
+        const std::vector<int64_t> in_shape = engine_.getInputShape();
+        if (in_shape.size() < 4 || in_shape[0] != 1 || in_shape[1] != 3)
+        {
+            return;
+        }
+        const int model_h = static_cast<int>(in_shape[2]);
+        const int model_w = static_cast<int>(in_shape[3]);
+
         cv::Mat rgb_image;
         if (image.channels() == 3)
         {
@@ -100,7 +108,7 @@ namespace auto_battlebot
         }
 
         cv::Mat resized;
-        cv::resize(padded_image, resized, cv::Size(image_size_, image_size_));
+        cv::resize(padded_image, resized, cv::Size(model_w, model_h));
 
         cv::Mat float_image;
         resized.convertTo(float_image, CV_32F, 1.0 / 255.0);
@@ -116,17 +124,17 @@ namespace auto_battlebot
         }
         cv::merge(channels, float_image);
 
-        // NCHW: 1 * 3 * H * W
-        const int64_t num_elements = 1 * 3 * image_size_ * image_size_;
+        // NCHW: 1 * 3 * H * W — size must match engine input
+        const int64_t num_elements = engine_.getInputNumElements();
         buffer.resize(static_cast<size_t>(num_elements));
         float *ptr = buffer.data();
         for (int c = 0; c < 3; c++)
         {
-            for (int y = 0; y < image_size_; y++)
+            for (int y = 0; y < model_h; y++)
             {
-                for (int x = 0; x < image_size_; x++)
+                for (int x = 0; x < model_w; x++)
                 {
-                    ptr[c * image_size_ * image_size_ + y * image_size_ + x] =
+                    ptr[c * model_h * model_w + y * model_w + x] =
                         float_image.at<cv::Vec3f>(y, x)[c];
                 }
             }
