@@ -2,49 +2,38 @@
 
 namespace auto_battlebot
 {
-    DeepLabFieldModel::DeepLabFieldModel(DeepLabFieldModelConfiguration &config) : model_path_(config.model_path),
-                                                                                   model_type_(config.model_type),
-                                                                                   image_size_(config.image_size),
-                                                                                   border_padding_(config.border_padding),
-                                                                                   device_(torch::kCPU), initialized_(false)
+    DeepLabFieldModel::DeepLabFieldModel(DeepLabFieldModelConfiguration &config)
+        : model_path_(config.model_path),
+          model_type_(config.model_type),
+          image_size_(config.image_size),
+          border_padding_(config.border_padding),
+          initialized_(false)
     {
         diagnostics_logger_ = DiagnosticsLogger::get_logger("deeplab_field_model");
-        // Check if CUDA is available
-        if (torch::cuda::is_available())
-        {
-            std::cout << "CUDA is available. Using GPU." << std::endl;
-            device_ = torch::Device(torch::kCUDA);
-        }
-        else
-        {
-            std::cout << "CUDA not available. Using CPU." << std::endl;
-        }
     }
 
     bool DeepLabFieldModel::initialize()
     {
-        try
+        std::cout << "Loading TensorRT engine from: " << model_path_ << std::endl;
+        if (!engine_.load(model_path_))
         {
-            // Load the TorchScript model
-            std::cout << "Loading model from: " << model_path_ << std::endl;
-            model_ = torch::jit::load(model_path_);
-            model_.to(device_);
-            model_.eval();
-
-            // Warmup inference
-            std::cout << "Warming up model with dummy input..." << std::endl;
-            auto warmup_input = torch::randn({1, 3, image_size_, image_size_}).to(device_);
-            model_.forward({warmup_input});
-
-            initialized_ = true;
-            diagnostics_logger_->info({}, "DeepLabFieldModel initialized successfully");
-            return true;
-        }
-        catch (const c10::Error &e)
-        {
-            std::cerr << "Error loading model: " << e.what() << std::endl;
+            std::cerr << "Failed to load DeepLab TensorRT engine: " << model_path_ << std::endl;
             return false;
         }
+
+        // Warmup inference
+        std::cout << "Warming up model with dummy input..." << std::endl;
+        std::vector<float> warmup_input(static_cast<size_t>(engine_.getInputNumElements()), 0.0f);
+        std::vector<float> warmup_output(static_cast<size_t>(engine_.getOutputNumElements()), 0.0f);
+        if (!engine_.execute(warmup_input.data(), warmup_output.data()))
+        {
+            std::cerr << "DeepLab warmup inference failed" << std::endl;
+            return false;
+        }
+
+        initialized_ = true;
+        diagnostics_logger_->info({}, "DeepLabFieldModel initialized successfully");
+        return true;
     }
 
     FieldMaskStamped DeepLabFieldModel::update(RgbImage image)
@@ -57,56 +46,22 @@ namespace auto_battlebot
             return FieldMaskStamped{};
         }
 
-        // Store original dimensions
-        int original_height = image.image.rows;
-        int original_width = image.image.cols;
+        const int original_height = image.image.rows;
+        const int original_width = image.image.cols;
 
-        // Preprocess the image
-        torch::Tensor input_tensor = preprocess_image(image.image);
+        std::vector<float> input_buffer;
+        preprocess_image(image.image, input_buffer);
 
-        // Run inference
-        std::vector<torch::jit::IValue> inputs;
-        inputs.push_back(input_tensor);
+        std::vector<float> output_buffer(static_cast<size_t>(engine_.getOutputNumElements()));
 
-        torch::Tensor output;
+        if (!engine_.execute(input_buffer.data(), output_buffer.data()))
         {
-            torch::NoGradGuard no_grad;
-            auto model_output = model_.forward(inputs);
-
-            // Handle different output formats
-            if (model_output.isTuple())
-            {
-                // DeepLabV3 returns a dict-like tuple with 'out' key
-                auto output_dict = model_output.toTuple()->elements();
-                if (!output_dict.empty())
-                {
-                    // Typically the first element is the segmentation output
-                    if (output_dict[0].isGenericDict())
-                    {
-                        auto dict = output_dict[0].toGenericDict();
-                        output = dict.at("out").toTensor();
-                    }
-                    else if (output_dict[0].isTensor())
-                    {
-                        output = output_dict[0].toTensor();
-                    }
-                }
-            }
-            else if (model_output.isGenericDict())
-            {
-                auto dict = model_output.toGenericDict();
-                output = dict.at("out").toTensor();
-            }
-            else if (model_output.isTensor())
-            {
-                output = model_output.toTensor();
-            }
+            diagnostics_logger_->error({}, "DeepLab inference failed");
+            return FieldMaskStamped{};
         }
 
-        // Postprocess the output
-        cv::Mat mask = postprocess_output(output, original_height, original_width);
+        cv::Mat mask = postprocess_output(output_buffer.data(), original_height, original_width);
 
-        // Create FieldMaskStamped result
         FieldMaskStamped result;
         result.header = image.header;
         result.mask.label = Label::FIELD;
@@ -115,7 +70,7 @@ namespace auto_battlebot
         return result;
     }
 
-    torch::Tensor DeepLabFieldModel::preprocess_image(const cv::Mat &image)
+    void DeepLabFieldModel::preprocess_image(const cv::Mat &image, std::vector<float> &buffer)
     {
         cv::Mat rgb_image;
         if (image.channels() == 3)
@@ -131,7 +86,6 @@ namespace auto_battlebot
             cv::cvtColor(image, rgb_image, cv::COLOR_BGR2RGB);
         }
 
-        // Add border padding (inflate the image)
         cv::Mat padded_image;
         if (border_padding_ > 0)
         {
@@ -145,63 +99,81 @@ namespace auto_battlebot
             padded_image = rgb_image;
         }
 
-        // Resize to model input size
         cv::Mat resized;
         cv::resize(padded_image, resized, cv::Size(image_size_, image_size_));
 
-        // Convert to float and normalize to [0, 1]
         cv::Mat float_image;
         resized.convertTo(float_image, CV_32F, 1.0 / 255.0);
 
-        // ImageNet normalization
-        std::vector<float> mean = {0.485f, 0.456f, 0.406f};
-        std::vector<float> std = {0.229f, 0.224f, 0.225f};
+        const std::vector<float> mean = {0.485f, 0.456f, 0.406f};
+        const std::vector<float> std_dev = {0.229f, 0.224f, 0.225f};
 
         std::vector<cv::Mat> channels(3);
         cv::split(float_image, channels);
-
         for (int i = 0; i < 3; i++)
         {
-            channels[i] = (channels[i] - mean[i]) / std[i];
+            channels[i] = (channels[i] - mean[i]) / std_dev[i];
         }
-
         cv::merge(channels, float_image);
 
-        // Convert to tensor: HWC -> CHW
-        torch::Tensor tensor = torch::from_blob(
-                                   float_image.data,
-                                   {image_size_, image_size_, 3},
-                                   torch::kFloat32)
-                                   .clone();
-
-        tensor = tensor.permute({2, 0, 1}); // HWC -> CHW
-        tensor = tensor.unsqueeze(0);       // Add batch dimension
-
-        return tensor.to(device_);
+        // NCHW: 1 * 3 * H * W
+        const int64_t num_elements = 1 * 3 * image_size_ * image_size_;
+        buffer.resize(static_cast<size_t>(num_elements));
+        float *ptr = buffer.data();
+        for (int c = 0; c < 3; c++)
+        {
+            for (int y = 0; y < image_size_; y++)
+            {
+                for (int x = 0; x < image_size_; x++)
+                {
+                    ptr[c * image_size_ * image_size_ + y * image_size_ + x] =
+                        float_image.at<cv::Vec3f>(y, x)[c];
+                }
+            }
+        }
     }
 
-    cv::Mat DeepLabFieldModel::postprocess_output(const torch::Tensor &output, int original_height, int original_width)
+    cv::Mat DeepLabFieldModel::postprocess_output(const float *output, int original_height, int original_width)
     {
-        // Get the segmentation mask (argmax over classes)
-        torch::Tensor segmentation = output.squeeze(0).argmax(0);
+        const std::vector<int64_t> out_shape = engine_.getOutputShape();
+        if (out_shape.size() < 4)
+        {
+            return cv::Mat();
+        }
+        const int64_t num_classes = out_shape[1];
+        const int H = static_cast<int>(out_shape[2]);
+        const int W = static_cast<int>(out_shape[3]);
 
-        // Convert to CPU and to uint8
-        segmentation = segmentation.to(torch::kCPU).to(torch::kUInt8);
+        cv::Mat mask(H, W, CV_8UC1);
+        uint8_t *mask_ptr = mask.data;
 
-        // Create OpenCV Mat
-        cv::Mat mask(image_size_, image_size_, CV_8UC1, segmentation.data_ptr<uint8_t>());
-        mask = mask.clone(); // Clone to ensure data ownership
+        for (int y = 0; y < H; y++)
+        {
+            for (int x = 0; x < W; x++)
+            {
+                int best_c = 0;
+                float best_val = output[0 * H * W + y * W + x];
+                for (int64_t c = 1; c < num_classes; c++)
+                {
+                    const float v = output[c * H * W + y * W + x];
+                    if (v > best_val)
+                    {
+                        best_val = v;
+                        best_c = static_cast<int>(c);
+                    }
+                }
+                mask_ptr[y * W + x] = static_cast<uint8_t>(best_c);
+            }
+        }
 
-        // Resize back to padded dimensions
-        int padded_width = original_width + 2 * border_padding_;
-        int padded_height = original_height + 2 * border_padding_;
+        const int padded_width = original_width + 2 * border_padding_;
+        const int padded_height = original_height + 2 * border_padding_;
         cv::Mat resized_mask;
         cv::resize(mask, resized_mask, cv::Size(padded_width, padded_height), 0, 0, cv::INTER_NEAREST);
 
-        // Crop out the border padding to get back to original dimensions
         if (border_padding_ > 0)
         {
-            cv::Rect roi(border_padding_, border_padding_, original_width, original_height);
+            const cv::Rect roi(border_padding_, border_padding_, original_width, original_height);
             resized_mask = resized_mask(roi).clone();
         }
 

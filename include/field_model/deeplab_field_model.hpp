@@ -1,8 +1,8 @@
 #pragma once
 
-#include <torch/script.h>
-#include <torch/cuda.h>
+#include <memory>
 #include <string>
+#include <vector>
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include "field_model/field_model_interface.hpp"
@@ -11,6 +11,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "field_model/config.hpp"
+#include "tensorrt_inference/trt_engine.hpp"
 #include "time_utils.hpp"
 
 namespace auto_battlebot
@@ -28,14 +29,13 @@ namespace auto_battlebot
         DeepLabModelType model_type_;
         int image_size_;
         int border_padding_;
-        torch::jit::script::Module model_;
-        torch::Device device_;
+        TrtEngine engine_;
         bool initialized_;
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
-        // Helper methods
-        torch::Tensor preprocess_image(const cv::Mat &image);
-        cv::Mat postprocess_output(const torch::Tensor &output, int original_height, int original_width);
+        // Helper methods: preprocess writes NCHW float into buffer; postprocess takes host float output and dimensions.
+        void preprocess_image(const cv::Mat &image, std::vector<float> &buffer);
+        cv::Mat postprocess_output(const float *output, int original_height, int original_width);
     };
 
 } // namespace auto_battlebot
