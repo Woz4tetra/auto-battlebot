@@ -14,11 +14,11 @@ option(BUILD_TESTING "Build tests" OFF)
 # Option to enable debug build
 option(BUILD_DEBUG "Build with debug flags" OFF)
 
-if (BUILD_TESTING)
+if(BUILD_TESTING)
     message("Building tests")
 endif()
 
-if (BUILD_DEBUG)
+if(BUILD_DEBUG)
     message("Building with debug flags")
 endif()
 
@@ -30,7 +30,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/dkargin/miniroscpp.git
     GIT_TAG master
     GIT_SHALLOW TRUE
-    UPDATE_DISCONNECTED TRUE  # Don't try to update if already fetched
+    UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
 )
 
 FetchContent_Declare(
@@ -38,7 +38,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
     GIT_TAG v3.4.0
     GIT_SHALLOW TRUE
-    UPDATE_DISCONNECTED TRUE  # Don't try to update if already fetched
+    UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
 )
 
 FetchContent_Declare(
@@ -46,7 +46,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
     GIT_TAG v2.4.1
     GIT_SHALLOW TRUE
-    UPDATE_DISCONNECTED TRUE  # Don't try to update if already fetched
+    UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
 )
 
 FetchContent_Declare(
@@ -54,7 +54,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/Neargye/magic_enum.git
     GIT_TAG v0.9.6
     GIT_SHALLOW TRUE
-    UPDATE_DISCONNECTED TRUE  # Don't try to update if already fetched
+    UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
 )
 
 # Fetch googletest only if testing is enabled
@@ -64,7 +64,7 @@ if(BUILD_TESTING)
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG v1.14.0
         GIT_SHALLOW TRUE
-        UPDATE_DISCONNECTED TRUE  # Don't try to update if already fetched
+        UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
     )
 
     # For Windows: Prevent overriding the parent project's compiler/linker settings
@@ -135,7 +135,7 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     Threads::Threads
     ${ZED_LIBRARIES}
     ${CUDA_LIBRARIES}
-    TensorRT::nvinfer
+    TensorRT::TensorRT
     ${PCL_LIBRARIES}
 )
 
@@ -209,8 +209,8 @@ file(GLOB CONFIG_FILES ${CMAKE_SOURCE_DIR}/config/*)
 add_custom_target(copy_config_files ALL
     DEPENDS ${CONFIG_FILES}
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/config
-        ${CMAKE_BINARY_DIR}/config
+    ${CMAKE_SOURCE_DIR}/config
+    ${CMAKE_BINARY_DIR}/config
     COMMENT "Copying config directory to build directory"
 )
 add_dependencies(auto_battlebot copy_config_files)
@@ -218,8 +218,8 @@ add_dependencies(auto_battlebot copy_config_files)
 # Create symlink to models directory in build directory
 add_custom_command(TARGET auto_battlebot POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E create_symlink
-        ${CMAKE_SOURCE_DIR}/models
-        ${CMAKE_BINARY_DIR}/models
+    ${CMAKE_SOURCE_DIR}/models
+    ${CMAKE_BINARY_DIR}/models
     COMMENT "Creating symlink to models directory"
 )
 
