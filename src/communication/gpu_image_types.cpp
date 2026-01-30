@@ -16,8 +16,8 @@ namespace auto_battlebot
 RgbImage GpuRgbImage::to_cpu([[maybe_unused]] void* stream) const
 {
     RgbImage result;
-    result.header.frame_id = frame_id;
-    result.header.timestamp = timestamp;
+    result.header.stamp = timestamp;
+    result.header.frame_id = FrameId::CAMERA;
 
     if (!is_valid())
     {
@@ -71,8 +71,8 @@ RgbImage GpuRgbImage::to_cpu([[maybe_unused]] void* stream) const
 DepthImage GpuDepthImage::to_cpu([[maybe_unused]] void* stream) const
 {
     DepthImage result;
-    result.header.frame_id = frame_id;
-    result.header.timestamp = timestamp;
+    result.header.stamp = timestamp;
+    result.header.frame_id = FrameId::CAMERA;
 
     if (!is_valid())
     {

@@ -116,7 +116,7 @@ bool SimTcpClient::connect()
     // Wait for intrinsics message from Unity
     if (!set_socket_timeout(config_.connect_timeout_ms))
     {
-        logger_->warning("set_timeout_failed", {});
+        logger_->warning("set_timeout_failed", "Failed to set socket timeout");
     }
 
     // Read the intrinsics message that Unity sends on connection
@@ -135,7 +135,7 @@ bool SimTcpClient::connect()
             }
             else
             {
-                logger_->warning("intrinsics_read_failed", {});
+                logger_->warning("intrinsics_read_failed", "Failed to read intrinsics message");
             }
         }
         else
@@ -145,7 +145,7 @@ bool SimTcpClient::connect()
     }
     else
     {
-        logger_->warning("no_intrinsics_received", {});
+        logger_->warning("no_intrinsics_received", "No intrinsics message received from server");
     }
 
     return true;
@@ -162,7 +162,7 @@ void SimTcpClient::disconnect()
     }
 
     connected_ = false;
-    logger_->info("disconnected", {});
+    logger_->info("disconnected", "Disconnected from server");
 }
 
 bool SimTcpClient::is_connected() const
@@ -177,7 +177,7 @@ bool SimTcpClient::try_reconnect()
     if (config_.auto_reconnect)
     {
         reconnect_count_++;
-        logger_->info("attempting_reconnect", {{"attempt", reconnect_count_.load()}});
+        logger_->info("attempting_reconnect", {{"attempt", static_cast<int>(reconnect_count_.load())}});
         return connect();
     }
 

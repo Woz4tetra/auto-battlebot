@@ -21,19 +21,19 @@ typedef int CudaInteropError;
 #define CUDA_INTEROP_ERROR_NOT_INITIALIZED -1
 #define CUDA_INTEROP_ERROR_CUDA_NOT_AVAILABLE -3
 
-// Stub function declarations
-static CudaInteropError CudaInterop_Initialize(int) { return CUDA_INTEROP_ERROR_CUDA_NOT_AVAILABLE; }
-static void CudaInterop_Shutdown() {}
-static bool CudaInterop_IsInitialized() { return false; }
-static const char* CudaInterop_GetLastError() { return "CUDA Interop not available"; }
-static CudaInteropError CudaInterop_WaitForFrame(int, void*) { return CUDA_INTEROP_ERROR_NOT_INITIALIZED; }
-static CudaInteropError CudaInterop_MapResources() { return CUDA_INTEROP_ERROR_NOT_INITIALIZED; }
-static CudaInteropError CudaInterop_UnmapResources() { return CUDA_INTEROP_ERROR_NOT_INITIALIZED; }
-static bool CudaInterop_AreMapped() { return false; }
-static void* CudaInterop_GetCudaArray(int) { return nullptr; }
+// Stub function declarations (marked maybe_unused to avoid warnings when not all are called)
+[[maybe_unused]] static CudaInteropError CudaInterop_Initialize(int) { return CUDA_INTEROP_ERROR_CUDA_NOT_AVAILABLE; }
+[[maybe_unused]] static void CudaInterop_Shutdown() {}
+[[maybe_unused]] static bool CudaInterop_IsInitialized() { return false; }
+[[maybe_unused]] static const char* CudaInterop_GetLastError() { return "CUDA Interop not available"; }
+[[maybe_unused]] static CudaInteropError CudaInterop_WaitForFrame(int, void*) { return CUDA_INTEROP_ERROR_NOT_INITIALIZED; }
+[[maybe_unused]] static CudaInteropError CudaInterop_MapResources() { return CUDA_INTEROP_ERROR_NOT_INITIALIZED; }
+[[maybe_unused]] static CudaInteropError CudaInterop_UnmapResources() { return CUDA_INTEROP_ERROR_NOT_INITIALIZED; }
+[[maybe_unused]] static bool CudaInterop_AreMapped() { return false; }
+[[maybe_unused]] static void* CudaInterop_GetCudaArray(int) { return nullptr; }
 struct CudaInteropMetricsStub { double d[8]; uint64_t u[3]; };
-static CudaInteropError CudaInterop_GetMetrics(void*) { return CUDA_INTEROP_ERROR_NOT_INITIALIZED; }
-static void CudaInterop_ResetMetrics() {}
+[[maybe_unused]] static CudaInteropError CudaInterop_GetMetrics(void*) { return CUDA_INTEROP_ERROR_NOT_INITIALIZED; }
+[[maybe_unused]] static void CudaInterop_ResetMetrics() {}
 #endif
 
 namespace auto_battlebot
@@ -56,7 +56,7 @@ bool CudaInteropWrapper::initialize()
 
     if (initialized_)
     {
-        logger_->warning("already_initialized", {});
+        logger_->warning("already_initialized", "Already initialized");
         return true;
     }
 
@@ -98,7 +98,7 @@ void CudaInteropWrapper::shutdown()
         CudaInterop_Shutdown();
 #endif
         initialized_ = false;
-        logger_->info("shutdown", {});
+        logger_->info("shutdown", "Shutdown complete");
     }
 }
 

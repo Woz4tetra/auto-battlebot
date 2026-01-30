@@ -14,6 +14,7 @@
 
 #include "data_structures/image.hpp"
 #include "data_structures/header.hpp"
+#include "enums/frame_id.hpp"
 
 namespace auto_battlebot
 {
@@ -62,8 +63,8 @@ struct GpuRgbImage
     RgbImage to_placeholder() const
     {
         RgbImage result;
-        result.header.frame_id = frame_id;
-        result.header.timestamp = timestamp;
+        result.header.stamp = timestamp;
+        result.header.frame_id = FrameId::CAMERA;
         // image Mat left empty intentionally
         return result;
     }
@@ -112,8 +113,8 @@ struct GpuDepthImage
     DepthImage to_placeholder() const
     {
         DepthImage result;
-        result.header.frame_id = frame_id;
-        result.header.timestamp = timestamp;
+        result.header.stamp = timestamp;
+        result.header.frame_id = FrameId::CAMERA;
         // image Mat left empty intentionally
         return result;
     }

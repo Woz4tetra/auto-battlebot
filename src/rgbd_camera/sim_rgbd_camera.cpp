@@ -1,5 +1,6 @@
 #include "rgbd_camera/sim_rgbd_camera.hpp"
 #include "time_utils.hpp"
+#include "enums/frame_id.hpp"
 
 #include <opencv2/opencv.hpp>
 
@@ -74,7 +75,7 @@ bool SimRgbdCamera::initialize()
         // Verify we received intrinsics
         if (!tcp_client_->has_intrinsics())
         {
-            diagnostics_logger_->warning("no_intrinsics_received", {});
+            diagnostics_logger_->warning("no_intrinsics_received", "No intrinsics received from server");
         }
         else
         {
@@ -213,7 +214,7 @@ bool SimRgbdCamera::get_gpu_frame(CameraData& data, bool get_depth)
     // Map resources for CUDA access
     if (!cuda_interop_->map_resources())
     {
-        diagnostics_logger_->warning("gpu_map_failed", {});
+        diagnostics_logger_->warning("gpu_map_failed", "Failed to map CUDA resources");
         return false;
     }
     resources_mapped_ = true;
@@ -271,24 +272,16 @@ bool SimRgbdCamera::get_cpu_frame(CameraData& data, bool get_depth, const TcpFra
     // In a full implementation, these would be transferred from Unity via TCP
     // or the CPU fallback path of the CUDA Interop plugin
 
-    data.rgb.is_gpu_resident = false;
-    data.rgb.cuda_array = nullptr;
-    data.rgb.header.timestamp = frame.timestamp_seconds();
-    data.rgb.header.frame_id = frame.frame_id;
-    data.rgb.width = expected_width_;
-    data.rgb.height = expected_height_;
+    data.rgb.header.stamp = frame.timestamp_seconds();
+    data.rgb.header.frame_id = FrameId::CAMERA;
 
     // Create black placeholder image
     data.rgb.image = cv::Mat(expected_height_, expected_width_, CV_8UC3, cv::Scalar(0, 0, 0));
 
     if (get_depth)
     {
-        data.depth.is_gpu_resident = false;
-        data.depth.cuda_array = nullptr;
-        data.depth.header.timestamp = frame.timestamp_seconds();
-        data.depth.header.frame_id = frame.frame_id;
-        data.depth.width = expected_width_;
-        data.depth.height = expected_height_;
+        data.depth.header.stamp = frame.timestamp_seconds();
+        data.depth.header.frame_id = FrameId::CAMERA;
 
         // Create zero depth placeholder
         data.depth.image = cv::Mat(expected_height_, expected_width_, CV_32FC1, cv::Scalar(0.0f));
@@ -399,30 +392,21 @@ void SimRgbdCamera::populate_pose(CameraData& data, const TcpFrameReadyMessage& 
     // Convert pose array to Transform
     // Pose is 4x4 matrix in row-major order
     Transform tf;
+    tf.tf = Eigen::Matrix4d::Identity();
 
-    // Create rotation matrix from pose
-    Eigen::Matrix3d rotation_matrix;
-    rotation_matrix(0, 0) = frame.pose[0];
-    rotation_matrix(0, 1) = frame.pose[1];
-    rotation_matrix(0, 2) = frame.pose[2];
-    rotation_matrix(1, 0) = frame.pose[4];
-    rotation_matrix(1, 1) = frame.pose[5];
-    rotation_matrix(1, 2) = frame.pose[6];
-    rotation_matrix(2, 0) = frame.pose[8];
-    rotation_matrix(2, 1) = frame.pose[9];
-    rotation_matrix(2, 2) = frame.pose[10];
-
-    // Convert rotation matrix to quaternion
-    tf.rotation = Eigen::Quaterniond(rotation_matrix);
-
-    // Extract translation (4th column)
-    tf.translation.x() = frame.pose[3];
-    tf.translation.y() = frame.pose[7];
-    tf.translation.z() = frame.pose[11];
+    // Copy 4x4 matrix from row-major pose array
+    for (int row = 0; row < 4; row++)
+    {
+        for (int col = 0; col < 4; col++)
+        {
+            tf.tf(row, col) = frame.pose[row * 4 + col];
+        }
+    }
 
     data.tf_visodom_from_camera.transform = tf;
-    data.tf_visodom_from_camera.header.timestamp = frame.timestamp_seconds();
-    data.tf_visodom_from_camera.header.frame_id = frame.frame_id;
+    data.tf_visodom_from_camera.header.stamp = frame.timestamp_seconds();
+    data.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
+    data.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
 }
 
 } // namespace auto_battlebot
