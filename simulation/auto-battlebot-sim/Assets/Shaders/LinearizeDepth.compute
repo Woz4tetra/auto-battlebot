@@ -1,0 +1,79 @@
+// Auto-Battlebot Simulation System
+// LinearizeDepth.compute - Compute shader for depth buffer linearization
+//
+// Converts Unity's non-linear depth buffer to linear depth in meters.
+// Used by LinearDepthCapturePass for CUDA Interop depth capture.
+
+#pragma kernel LinearizeDepth
+
+// Input: Unity's depth buffer (non-linear, 0-1 range)
+Texture2D<float> _DepthInput;
+
+// Output: Linearized depth in meters
+RWTexture2D<float> _LinearDepthOutput;
+
+// Unity's Z buffer parameters for linearization
+// x = 1 - far/near
+// y = far/near  
+// z = x/far
+// w = y/far
+float4 _ZBufferParams;
+
+// Depth range (x = near, y = far)
+float4 _DepthRange;
+
+// Value for invalid depth (sky, out of range)
+float _InvalidDepth;
+
+// Texture dimensions
+float4 _TextureSize;
+
+// Convert Unity depth buffer value to linear eye depth
+float LinearEyeDepth(float z)
+{
+    // Unity's reversed Z-buffer linearization formula
+    // LinearEyeDepth = 1.0 / (_ZBufferParams.z * z + _ZBufferParams.w)
+    return 1.0 / (_ZBufferParams.z * z + _ZBufferParams.w);
+}
+
+[numthreads(8, 8, 1)]
+void LinearizeDepth(uint3 id : SV_DispatchThreadID)
+{
+    // Bounds check
+    if (id.x >= (uint)_TextureSize.x || id.y >= (uint)_TextureSize.y)
+    {
+        return;
+    }
+
+    // Sample depth buffer
+    float rawDepth = _DepthInput[id.xy];
+
+    // Handle invalid depth (sky/far plane)
+    // In Unity's reversed Z-buffer, 0 = far plane, 1 = near plane
+    // A value of exactly 0 indicates far plane/sky
+    if (rawDepth <= 0.0)
+    {
+        _LinearDepthOutput[id.xy] = _InvalidDepth;
+        return;
+    }
+
+    // Convert to linear depth in meters
+    float linearDepth = LinearEyeDepth(rawDepth);
+
+    // Clamp to valid range
+    float nearClip = _DepthRange.x;
+    float farClip = _DepthRange.y;
+
+    if (linearDepth < nearClip)
+    {
+        // Too close - clamp to near
+        linearDepth = nearClip;
+    }
+    else if (linearDepth > farClip)
+    {
+        // Too far - treat as invalid
+        linearDepth = _InvalidDepth;
+    }
+
+    _LinearDepthOutput[id.xy] = linearDepth;
+}

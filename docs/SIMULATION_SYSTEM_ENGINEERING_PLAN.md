@@ -1123,7 +1123,7 @@ FRAME_PROCESSED (9 bytes):
 
 ---
 
-### SIM-005: Implement SimRgbdCamera and SimTransmitter C++ Classes with CUDA Interop
+### ✅️ SIM-005: Implement SimRgbdCamera and SimTransmitter C++ Classes with CUDA Interop
 
 **Sprint:** 1  
 **Estimate:** 8 points  
