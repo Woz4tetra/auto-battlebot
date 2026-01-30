@@ -61,9 +61,13 @@ namespace auto_battlebot
     {
         int width = 1280;
         int height = 720;
-        bool enable_double_buffering = true;
-        bool enable_sync_socket = true;  // Use sync socket for frame requests
-        int sync_timeout_ms = 1000;      // Timeout for frame requests
+
+        // TCP settings
+        std::string tcp_host = "127.0.0.1";
+        int tcp_port = 18707;
+        int tcp_connect_timeout_ms = 5000;
+        int tcp_read_timeout_ms = 100;
+        bool tcp_auto_reconnect = true;
 
         SimRgbdCameraConfiguration()
         {
@@ -74,9 +78,11 @@ namespace auto_battlebot
         PARSE_CONFIG_FIELDS(
             PARSE_FIELD(width)
             PARSE_FIELD(height)
-            PARSE_FIELD_BOOL(enable_double_buffering)
-            PARSE_FIELD_BOOL(enable_sync_socket)
-            PARSE_FIELD(sync_timeout_ms)
+            PARSE_FIELD_STRING(tcp_host)
+            PARSE_FIELD(tcp_port)
+            PARSE_FIELD(tcp_connect_timeout_ms)
+            PARSE_FIELD(tcp_read_timeout_ms)
+            PARSE_FIELD_BOOL(tcp_auto_reconnect)
         )
         // clang-format on
     };

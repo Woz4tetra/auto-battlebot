@@ -1,15 +1,25 @@
 #pragma once
 
+#include <memory>
+
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "transmitter/transmitter_interface.hpp"
 #include "transmitter/config.hpp"
+#include "communication/sim_tcp_client.hpp"
 
 namespace auto_battlebot
 {
+    /**
+     * @brief Simulation transmitter that sends velocity commands via TCP to Unity
+     *
+     * This class implements TransmitterInterface for simulation mode.
+     * It uses the shared TCP client (created by SimRgbdCamera) to send
+     * velocity commands to Unity.
+     */
     class SimTransmitter : public TransmitterInterface
     {
     public:
-        SimTransmitter(SimTransmitterConfiguration &config);
+        SimTransmitter(SimTransmitterConfiguration& config);
 
         bool initialize() override;
         CommandFeedback update() override;
@@ -18,10 +28,10 @@ namespace auto_battlebot
 
     private:
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
+        std::weak_ptr<SimTcpClient> tcp_client_;
 
-        size_t buffer_size_;
-        uint64_t num_commands_sent;
-        bool init_button_done_pressing_;
+        uint64_t num_commands_sent_ = 0;
+        bool init_button_done_pressing_ = false;
     };
 
 } // namespace auto_battlebot

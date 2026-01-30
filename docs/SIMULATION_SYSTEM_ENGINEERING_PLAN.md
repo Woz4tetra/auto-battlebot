@@ -1051,7 +1051,7 @@ public class TcpBridge
 
 ---
 
-### SIM-004: Implement TCP Communication Protocol for Small Data
+### ✅️ SIM-004: Implement TCP Communication Protocol for Small Data
 
 **Sprint:** 1  
 **Estimate:** 3 points  
