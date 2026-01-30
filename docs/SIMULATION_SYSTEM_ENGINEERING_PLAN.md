@@ -10,6 +10,7 @@
 |---------|------|-------------|
 | 1.0 | 2026-01-24 | Initial draft with shared memory IPC approach |
 | 1.1 | 2026-01-29 | Replaced IPC bridge with CUDA Interop for zero-copy GPU texture sharing |
+| 1.2 | 2026-01-29 | Changed small data transfer (velocity commands, pose, camera intrinsics) from shared memory to TCP sockets |
 
 ---
 
@@ -161,9 +162,18 @@ The approach uses a **Unity Native Plugin** written in C++/CUDA that:
 1. Registers Unity's OpenGL textures with CUDA using `cudaGraphicsGLRegisterImage`
 2. Maps the textures to CUDA arrays each frame
 3. Exposes the CUDA arrays to the C++ application for direct use in the perception pipeline
-4. Receives velocity commands via a small shared memory region (commands are only 32 bytes)
 
-A lightweight **Unix domain socket** handles frame synchronization signals and pose metadata.
+A **TCP socket** handles all small data exchange including:
+- Frame synchronization signals
+- Pose metadata (camera transform)
+- Velocity commands (linear_x, linear_y, angular_z)
+- Camera intrinsics (sent once on connection, cached by C++ application)
+
+TCP is chosen over shared memory for small data because:
+- **Portability:** Works across network boundaries and different platforms
+- **Debuggability:** Standard tools (Wireshark, netcat) can inspect traffic
+- **Simplicity:** Avoids platform-specific shared memory APIs
+- **Sufficient performance:** Sub-millisecond latency for small messages over localhost
 
 ### Data Flow
 
@@ -173,15 +183,15 @@ Unity Simulation                    CUDA Interop Layer              C++ Applicat
 │  Scene Renderer │──GPU Texture──▶│ Native Plugin   │──cudaArray─▶│ SimRgbdCamera   │
 │  (OpenGL/Vulkan)│                │ (CUDA Interop)  │             │ (implements     │
 │                 │                │                 │             │  RgbdCameraInterface)
-│  Camera System  │────Pose───────▶│ Sync Socket     │────Pose────▶│                 │
-│                 │                │                 │             │                 │
-│  Robot Physics  │◀───Velocity────│ Cmd SharedMem   │◀──Velocity──│ SimTransmitter  │
-│  Motor Control  │                │ (32 bytes)      │             │ (implements     │
+│  Camera System  │────Pose───────▶│                 │             │                 │
+│                 │                │  TCP Socket     │◀───────────▶│                 │
+│  Robot Physics  │◀───Velocity────│  (localhost)    │             │ SimTransmitter  │
+│  Motor Control  │                │                 │             │ (implements     │
 │                 │                │                 │             │  TransmitterInterface)
 └─────────────────┘                └─────────────────┘             └─────────────────┘
 
-Note: RGB and Depth textures remain on GPU throughout. Only pose metadata and velocity
-commands use CPU memory (total ~100 bytes per frame).
+Note: RGB and Depth textures remain on GPU throughout. Small data (pose, velocity commands,
+camera intrinsics, frame sync) transfers via TCP socket over localhost (~200 bytes per frame).
 ```
 
 ### Unity Component Architecture
@@ -194,9 +204,11 @@ SimulationManager (Singleton)
 │   └── PoseTracker
 ├── CudaInteropBridge (Native Plugin)
 │   ├── TextureRegistrar (registers RenderTextures with CUDA)
-│   ├── FrameSynchronizer (signals frame ready via Unix socket)
-│   ├── CommandReader (reads velocity from small shared memory)
-│   └── PoseWriter (writes pose metadata to shared memory)
+│   └── TcpBridge (handles all small data via TCP socket)
+│       ├── FrameSynchronizer (signals frame ready)
+│       ├── CommandReader (reads velocity commands)
+│       ├── PoseWriter (writes pose metadata)
+│       └── IntrinsicsProvider (sends camera intrinsics on connection)
 ├── RobotManager
 │   ├── ControlledRobot
 │   │   ├── DriveController
@@ -306,9 +318,7 @@ digraph SystemDataFlow {
 
         cuda_rgb [label="cudaArray\n(RGB)", shape=box3d, fillcolor=gold];
         cuda_depth [label="cudaArray\n(Depth)", shape=box3d, fillcolor=gold];
-        shm_cmd [label="Shared Memory\n(Commands 32B)", shape=cylinder, fillcolor=white];
-        shm_pose [label="Shared Memory\n(Pose 64B)", shape=cylinder, fillcolor=white];
-        sync [label="Sync\nSocket", shape=diamond, fillcolor=white];
+        tcp_socket [label="TCP Socket\n(localhost:18707)", shape=diamond, fillcolor=white];
     }
 
     subgraph cluster_cpp {
@@ -330,13 +340,11 @@ digraph SystemDataFlow {
     depth_tex -> cuda_depth [label="cudaGraphics\nRegisterImage", style=bold, color=red];
     cuda_rgb -> sim_camera [label="zero-copy", style=bold];
     cuda_depth -> sim_camera [label="zero-copy", style=bold];
-    camera -> shm_pose [label="pose\nmetadata"];
-    shm_pose -> sim_camera;
-    sim_tx -> shm_cmd [label="velocity"];
-    shm_cmd -> motor;
-
-    sync -> camera [dir=both, style=dashed, label="frame sync"];
-    sync -> sim_camera [dir=both, style=dashed];
+    
+    camera -> tcp_socket [label="pose +\nframe sync"];
+    tcp_socket -> sim_camera [label="pose +\nintrinsics"];
+    sim_tx -> tcp_socket [label="velocity\ncommands"];
+    tcp_socket -> motor [label="velocity"];
 }
 ```
 
@@ -376,18 +384,22 @@ digraph UnityClassStructure {
         ArenaManager [label="{ArenaManager|− lighting : LightingConfig\l− boundaries : Collider[]\l|+ SetLighting(config: LightingConfig) : void\l+ GetBounds() : Bounds\l}", fillcolor=lightblue];
     }
 
-    // Communication - CUDA Interop
+    // Communication - CUDA Interop + TCP
     subgraph cluster_comm {
-        label="CUDA Interop Communication";
+        label="CUDA Interop + TCP Communication";
         color=orange;
 
-        CudaInteropBridge [label="{CudaInteropBridge|− rgbTextureHandle : IntPtr\l− depthTextureHandle : IntPtr\l− cudaRgbResource : cudaGraphicsResource\l− cudaDepthResource : cudaGraphicsResource\l− syncSocket : UnixSocket\l|+ RegisterTextures() : void\l+ SignalFrameReady() : void\l+ ReceiveCommand() : VelocityCommand\l+ GetTextureHandles() : (IntPtr, IntPtr)\l}", fillcolor=gold];
+        CudaInteropBridge [label="{CudaInteropBridge|− rgbTextureHandle : IntPtr\l− depthTextureHandle : IntPtr\l− cudaRgbResource : cudaGraphicsResource\l− cudaDepthResource : cudaGraphicsResource\l− tcpBridge : TcpBridge\l|+ RegisterTextures() : void\l+ SignalFrameReady() : void\l+ ReceiveCommand() : VelocityCommand\l+ GetTextureHandles() : (IntPtr, IntPtr)\l}", fillcolor=gold];
 
         NativePlugin [label="{CudaInteropPlugin (C++/CUDA)|− registeredTextures : map\l− cudaStream : cudaStream_t\l|+ RegisterGLTexture(texId: uint) : void\l+ MapResources() : cudaArray*[]\l+ UnmapResources() : void\l+ GetCudaArray(texId: uint) : cudaArray*\l}", fillcolor=gold];
 
-        PoseWriter [label="{PoseWriter|− poseMemory : IntPtr\l|+ WritePose(pose: Matrix4x4) : void\l}", fillcolor=palegreen];
+        TcpBridge [label="{TcpBridge|− tcpClient : TcpClient\l− port : int\l− intrinsicsSent : bool\l|+ Connect(host: string, port: int) : void\l+ SendFrameData(pose: Matrix4x4, frameId: ulong) : void\l+ SendIntrinsics(intrinsics: CameraIntrinsics) : void\l+ ReceiveCommand() : VelocityCommand\l+ Disconnect() : void\l}", fillcolor=palegreen];
 
-        CommandReader [label="{CommandReader|− cmdMemory : IntPtr\l|+ ReadCommand() : VelocityCommand\l}", fillcolor=palegreen];
+        PoseWriter [label="{PoseWriter|− tcpBridge : TcpBridge\l|+ WritePose(pose: Matrix4x4, frameId: ulong) : void\l}", fillcolor=palegreen];
+
+        CommandReader [label="{CommandReader|− tcpBridge : TcpBridge\l|+ ReadCommand() : VelocityCommand\l}", fillcolor=palegreen];
+
+        IntrinsicsProvider [label="{IntrinsicsProvider|− tcpBridge : TcpBridge\l− intrinsics : CameraIntrinsics\l|+ SendIntrinsicsOnConnect() : void\l}", fillcolor=palegreen];
     }
 
     // Robots
@@ -547,40 +559,49 @@ digraph CommunicationSequence {
     node [shape=box];
 
     subgraph cluster_sequence {
-        label="Frame Communication Sequence (CUDA Interop)";
+        label="Frame Communication Sequence (CUDA Interop + TCP)";
         color=gray;
 
         // Nodes represent states/actions
         unity_render [label="Unity: Render to RenderTexture\n(RGB + Depth)", fillcolor=lightblue, style=filled];
-        unity_pose [label="Unity: Write Pose to SharedMem\n(64 bytes)", fillcolor=palegreen, style=filled];
-        unity_signal [label="Unity: Signal Frame Ready\n(Unix Socket)", fillcolor=lightyellow, style=filled];
+        unity_send [label="Unity: Send Frame Ready + Pose\n(TCP, ~73 bytes)", fillcolor=palegreen, style=filled];
 
-        cpp_wait [label="C++: Wait for Signal", fillcolor=lightyellow, style=filled];
+        cpp_wait [label="C++: Wait for TCP Message", fillcolor=palegreen, style=filled];
         cpp_map [label="C++: cudaGraphicsMapResources\n(map textures to CUDA)", fillcolor=gold, style=filled];
         cpp_getcuda [label="C++: Get cudaArray Pointers\n(zero-copy access)", fillcolor=gold, style=filled];
         cpp_inference [label="C++: TensorRT Inference\n(directly on cudaArray)", fillcolor=lightcoral, style=filled];
         cpp_unmap [label="C++: cudaGraphicsUnmapResources", fillcolor=gold, style=filled];
         cpp_command [label="C++: Generate Command", fillcolor=lightcoral, style=filled];
-        cpp_write [label="C++: Write Command to SharedMem\n(32 bytes)", fillcolor=palegreen, style=filled];
-        cpp_signal [label="C++: Signal Command Ready", fillcolor=lightyellow, style=filled];
+        cpp_sendcmd [label="C++: Send Velocity Command\n(TCP, 33 bytes)", fillcolor=palegreen, style=filled];
 
-        unity_readcmd [label="Unity: Read Command", fillcolor=palegreen, style=filled];
+        unity_readcmd [label="Unity: Receive Command (TCP)", fillcolor=palegreen, style=filled];
         unity_apply [label="Unity: Apply to Motors", fillcolor=lightblue, style=filled];
 
         // Sequence flow
-        unity_render -> unity_pose;
-        unity_pose -> unity_signal;
-        unity_signal -> cpp_wait [style=dashed, label="sync signal"];
+        unity_render -> unity_send;
+        unity_send -> cpp_wait [style=dashed, label="TCP message"];
         cpp_wait -> cpp_map;
         cpp_map -> cpp_getcuda;
         cpp_getcuda -> cpp_inference [label="GPU-only\npath", style=bold, color=red];
         cpp_inference -> cpp_unmap;
         cpp_unmap -> cpp_command;
-        cpp_command -> cpp_write;
-        cpp_write -> cpp_signal;
-        cpp_signal -> unity_readcmd [style=dashed, label="sync signal"];
+        cpp_command -> cpp_sendcmd;
+        cpp_sendcmd -> unity_readcmd [style=dashed, label="TCP message"];
         unity_readcmd -> unity_apply;
         unity_apply -> unity_render [label="next frame", style=dotted];
+    }
+
+    // Note about initial connection
+    subgraph cluster_init {
+        label="Initial Connection (once)";
+        color=lightgray;
+
+        cpp_connect [label="C++: Connect to TCP Server", fillcolor=palegreen, style=filled];
+        unity_intrinsics [label="Unity: Send Camera Intrinsics\n(TCP, 89 bytes)", fillcolor=palegreen, style=filled];
+        cpp_cache [label="C++: Cache Intrinsics", fillcolor=palegreen, style=filled];
+
+        cpp_connect -> unity_intrinsics [style=dashed];
+        unity_intrinsics -> cpp_cache [style=dashed];
     }
 }
 ```
@@ -695,7 +716,7 @@ digraph DomainRandomization {
 
 | ID     | Risk                                                            | Probability | Impact | Mitigation Strategy                                                                |
 | ------ | --------------------------------------------------------------- | ----------- | ------ | ---------------------------------------------------------------------------------- |
-| TR-001 | CUDA Interop texture registration fails on target GPU           | Low         | High   | Prototype native plugin first; verify on Jetson early; have shared memory fallback |
+| TR-001 | CUDA Interop texture registration fails on target GPU           | Low         | High   | Prototype native plugin first; verify on Jetson early; have CPU image transfer fallback |
 | TR-002 | Unity physics does not accurately model robot dynamics          | Medium      | Medium | Tune physics parameters against real robot telemetry; accept approximation         |
 | TR-003 | Depth rendering does not match ZED sensor characteristics       | Medium      | Medium | Apply post-processing to simulate sensor noise and artifacts                       |
 | TR-004 | CUDA/OpenGL interop synchronization issues cause artifacts      | Medium      | Medium | Use proper GL sync fences before CUDA mapping; test thoroughly                     |
@@ -713,7 +734,7 @@ digraph DomainRandomization {
 
 | ID     | Risk                                                    | Probability | Impact | Mitigation Strategy                                                      |
 | ------ | ------------------------------------------------------- | ----------- | ------ | ------------------------------------------------------------------------ |
-| SR-001 | CUDA Interop native plugin takes longer than estimated  | Medium      | High   | Allocate buffer time; can use shared memory as MVP fallback              |
+| SR-001 | CUDA Interop native plugin takes longer than estimated  | Medium      | High   | Allocate buffer time; can use TCP image transfer as MVP fallback         |
 | SR-002 | Robot archetype system over-engineered                  | Medium      | Medium | Start with concrete implementations; abstract later                      |
 | SR-003 | Lighting tuning requires many iterations                | High        | Low    | Capture reference images early; accept subpar accuracy                   |
 | SR-004 | Domain randomization parameter tuning is time-consuming | High        | Medium | Start with literature-based defaults; iterate based on model performance |
@@ -928,16 +949,20 @@ Create the Unity C# wrapper that interfaces with the native CUDA Interop plugin,
    - Register with native plugin on camera initialization
    - Handle texture recreation (e.g., resolution change)
 4. Implement frame synchronization callback using `GL.IssuePluginEvent`
-5. Create `CommandReader` for velocity commands (small shared memory, 32 bytes)
-6. Create `PoseWriter` for camera pose (small shared memory, 64 bytes)
-7. Implement proper cleanup in `OnDestroy`
+5. Create `TcpBridge` for TCP socket communication with C++ application
+6. Create `CommandReader` for velocity commands (via TCP)
+7. Create `PoseWriter` for camera pose (via TCP)
+8. Create `IntrinsicsProvider` to send camera intrinsics on connection
+9. Implement proper cleanup in `OnDestroy`
 
 **Acceptance Criteria:**
 
 - [ ] RenderTextures successfully registered with CUDA
 - [ ] Plugin events fire at correct point in render pipeline
-- [ ] Velocity commands read correctly from C++ application
-- [ ] Pose data written correctly for C++ application
+- [ ] TCP connection established with C++ application
+- [ ] Velocity commands read correctly from C++ application via TCP
+- [ ] Pose data written correctly for C++ application via TCP
+- [ ] Camera intrinsics sent to C++ on connection
 - [ ] No memory leaks or dangling references
 - [ ] Works with Unity's render thread
 
@@ -966,6 +991,7 @@ public class CudaInteropBridge : MonoBehaviour
 
     private RenderTexture rgbTexture;
     private RenderTexture depthTexture;
+    private TcpBridge tcpBridge;
 
     // Register textures after camera setup
     public void RegisterTextures(RenderTexture rgb, RenderTexture depth)
@@ -980,11 +1006,52 @@ public class CudaInteropBridge : MonoBehaviour
         CudaInterop_RegisterTexture(depthId, depth.width, depth.height, 1);
     }
 }
+
+// TCP Bridge for small data exchange
+public class TcpBridge
+{
+    private TcpClient client;
+    private NetworkStream stream;
+    private const int DEFAULT_PORT = 18707;
+    
+    public void Connect(string host = "127.0.0.1", int port = DEFAULT_PORT)
+    {
+        client = new TcpClient(host, port);
+        stream = client.GetStream();
+    }
+    
+    public void SendFrameData(Matrix4x4 pose, ulong frameId)
+    {
+        // Frame data message: type(1) + frameId(8) + pose(64) = 73 bytes
+        byte[] buffer = new byte[73];
+        buffer[0] = (byte)MessageType.FrameReady;
+        // ... serialize frameId and pose
+        stream.Write(buffer, 0, buffer.Length);
+    }
+    
+    public void SendIntrinsics(CameraIntrinsics intrinsics)
+    {
+        // Intrinsics message: type(1) + fx,fy,cx,cy(32) + distortion(40) = 73 bytes
+        byte[] buffer = new byte[73];
+        buffer[0] = (byte)MessageType.CameraIntrinsics;
+        // ... serialize intrinsics
+        stream.Write(buffer, 0, buffer.Length);
+    }
+    
+    public VelocityCommand ReceiveCommand()
+    {
+        // Command message: type(1) + commandId(8) + linear_x,linear_y,angular_z(24) = 33 bytes
+        byte[] buffer = new byte[33];
+        stream.Read(buffer, 0, buffer.Length);
+        // ... deserialize command
+        return new VelocityCommand();
+    }
+}
 ```
 
 ---
 
-### ✅️ SIM-004: Implement Synchronization Socket and Metadata Transfer
+### SIM-004: Implement TCP Communication Protocol for Small Data
 
 **Sprint:** 1  
 **Estimate:** 3 points  
@@ -993,35 +1060,70 @@ public class CudaInteropBridge : MonoBehaviour
 
 **Description:**
 
-Implement a lightweight synchronization mechanism using Unix domain sockets to coordinate frame timing between Unity and C++. Also implement small shared memory regions for pose metadata and velocity commands (the only data that traverses CPU memory).
+Implement a TCP socket-based communication protocol for transferring small data between Unity and C++. This includes frame synchronization, pose metadata, velocity commands, and camera intrinsics. TCP provides better portability and debuggability compared to shared memory while maintaining sufficient performance for small data over localhost.
 
 **Tasks:**
 
-1. Create `SyncSocket` class with Unix domain socket implementation
-2. Implement frame-ready signal from Unity to C++ (includes frame_id, timestamp)
-3. Implement command-ready signal from C++ to Unity
-4. Create `PoseSharedMemory` class for 64-byte pose data:
-   - 4x4 transformation matrix (float64, row-major)
-5. Create `CommandSharedMemory` class for 32-byte velocity commands:
-   - command_id (8 bytes): incrementing counter
-   - linear_x, linear_y, angular_z (8 bytes each): double
-6. Support blocking wait with timeout
-7. Handle connection/disconnection gracefully
+1. Define message protocol with typed messages:
+   - `FRAME_READY` (Unity→C++): frame_id, timestamp, pose matrix
+   - `VELOCITY_COMMAND` (C++→Unity): command_id, linear_x, linear_y, angular_z
+   - `CAMERA_INTRINSICS` (Unity→C++): fx, fy, cx, cy, distortion coefficients
+   - `FRAME_PROCESSED` (C++→Unity): frame_id acknowledgment
+2. Create `TcpServer` class in Unity (listens on configurable port, default 18707)
+3. Create `TcpClient` class in C++ application
+4. Implement message serialization/deserialization (little-endian, fixed-size messages)
+5. Send camera intrinsics once on initial connection
+6. Send pose + frame_id with each frame-ready signal
+7. Receive velocity commands asynchronously (non-blocking read)
+8. Support connection timeout and automatic reconnection
+9. Add message checksums for integrity verification (optional)
+
+**Message Format:**
+
+```
+All messages: [type: u8][payload_length: u16][payload: bytes][checksum: u16 optional]
+
+FRAME_READY (73 bytes):
+  - type: 0x01
+  - frame_id: u64
+  - timestamp_ns: u64
+  - pose: f64[16] (4x4 matrix, row-major)
+
+VELOCITY_COMMAND (33 bytes):
+  - type: 0x02
+  - command_id: u64
+  - linear_x: f64
+  - linear_y: f64
+  - angular_z: f64
+
+CAMERA_INTRINSICS (89 bytes):
+  - type: 0x03
+  - width: u32
+  - height: u32
+  - fx, fy, cx, cy: f64[4]
+  - distortion: f64[5] (k1, k2, p1, p2, k3)
+
+FRAME_PROCESSED (9 bytes):
+  - type: 0x04
+  - frame_id: u64
+```
 
 **Acceptance Criteria:**
 
-- [ ] Signal latency <0.5ms
-- [ ] Pose data correctly transferred (64 bytes)
-- [ ] Velocity commands correctly transferred (32 bytes)
-- [ ] C++ can timeout if Unity stops sending
+- [ ] TCP round-trip latency <1ms over localhost
+- [ ] Pose data correctly transferred with each frame
+- [ ] Velocity commands correctly transferred from C++ to Unity
+- [ ] Camera intrinsics sent once on connection and cached by C++
+- [ ] C++ can timeout if Unity stops sending (configurable timeout)
 - [ ] Reconnection works without restarting either application
-- [ ] Error states are logged clearly
+- [ ] Error states are logged clearly with message context
+- [ ] Protocol handles partial reads/writes correctly
 
 **Dependencies:** SIM-001
 
 ---
 
-### ✅️ SIM-005: Implement SimRgbdCamera and SimTransmitter C++ Classes with CUDA Interop
+### SIM-005: Implement SimRgbdCamera and SimTransmitter C++ Classes with CUDA Interop
 
 **Sprint:** 1  
 **Estimate:** 8 points  
@@ -1030,40 +1132,50 @@ Implement a lightweight synchronization mechanism using Unix domain sockets to c
 
 **Description:**
 
-Create C++ implementations of `RgbdCameraInterface` and `TransmitterInterface` that access Unity textures directly via CUDA Interop. The `SimRgbdCamera` receives `cudaArray_t` pointers from the native plugin and provides them to the TensorRT inference pipeline without CPU copies.
+Create C++ implementations of `RgbdCameraInterface` and `TransmitterInterface` that access Unity textures directly via CUDA Interop. The `SimRgbdCamera` receives `cudaArray_t` pointers from the native plugin and provides them to the TensorRT inference pipeline without CPU copies. Small data (pose, velocity commands, camera intrinsics) is exchanged via TCP socket.
 
 **Tasks:**
 
 1. Create `SimRgbdCamera` class implementing `RgbdCameraInterface`
-   - Implement `initialize()`: connect to Unity native plugin, connect sync socket
+   - Implement `initialize()`: connect to Unity native plugin, connect TCP socket, receive camera intrinsics
    - Implement `get()`:
-     - Wait for frame-ready signal from Unity
+     - Wait for frame-ready message from Unity (via TCP)
      - Call native plugin to map CUDA resources
      - Get `cudaArray_t` pointers for RGB and depth textures
-     - Read pose from shared memory (64 bytes)
+     - Parse pose from TCP message payload
      - Populate `CameraData` with GPU pointers (extend `CameraData` if needed)
      - Unmap CUDA resources after TensorRT inference completes
-   - Implement `should_close()`: check for shutdown signal
+   - Implement `should_close()`: check for TCP disconnect or shutdown signal
+   - Cache camera intrinsics received on connection
 2. Extend `CameraData` struct to support GPU-resident image data:
    - Add `cudaArray_t rgb_cuda` and `cudaArray_t depth_cuda` fields
    - Add `bool is_gpu_resident` flag
    - Ensure existing CPU-based paths still work
-3. Create `SimTransmitter` class implementing `TransmitterInterface`
-   - Implement `initialize()`: open command shared memory (32 bytes)
-   - Implement `send()`: write `VelocityCommand` to shared memory
+3. Create `SimTcpClient` class for TCP communication:
+   - Connect to Unity server (host, port configurable)
+   - Receive and parse `CAMERA_INTRINSICS` message on connect
+   - Receive and parse `FRAME_READY` messages with pose data
+   - Send `VELOCITY_COMMAND` messages
+   - Send `FRAME_PROCESSED` acknowledgments
+   - Handle reconnection on disconnect
+4. Create `SimTransmitter` class implementing `TransmitterInterface`
+   - Implement `initialize()`: store reference to TCP client
+   - Implement `send()`: send `VelocityCommand` via TCP
    - Implement `update()`: return empty `CommandFeedback` (simulation mode)
    - Implement `did_init_button_press()`: return true after first frame
-4. Update TensorRT inference to accept `cudaArray_t` directly (or copy to existing CUDA buffer)
-5. Add configuration options for socket paths
-6. Create factory functions for simulation mode
+5. Update TensorRT inference to accept `cudaArray_t` directly (or copy to existing CUDA buffer)
+6. Add configuration options for TCP host/port
+7. Create factory functions for simulation mode
 
 **Acceptance Criteria:**
 
 - [ ] `SimRgbdCamera::get()` returns valid `CameraData` with GPU-resident RGB and depth
 - [ ] TensorRT inference can process frames without CPU copies
 - [ ] End-to-end frame latency <2ms (excluding inference time)
-- [ ] `SimTransmitter::send()` correctly writes velocity commands
+- [ ] `SimTransmitter::send()` correctly sends velocity commands via TCP
+- [ ] Camera intrinsics received and cached on connection
 - [ ] Integration test passes with Unity simulation running
+- [ ] TCP reconnection works if Unity restarts
 - [ ] Memory leaks checked with cuda-memcheck and Valgrind
 - [ ] Existing CPU-based camera paths still work (e.g., ZED camera)
 - [ ] Configuration via TOML matches existing patterns
@@ -1076,11 +1188,22 @@ Create C++ implementations of `RgbdCameraInterface` and `TransmitterInterface` t
 - `src/rgbd_camera/sim_rgbd_camera.cpp`
 - `include/transmitter/sim_transmitter.hpp`
 - `src/transmitter/sim_transmitter.cpp`
+- `include/communication/sim_tcp_client.hpp` (new)
+- `src/communication/sim_tcp_client.cpp` (new)
 - `include/data_structures/camera_data.hpp` (extend for GPU data)
+- `include/data_structures/camera_intrinsics.hpp` (new)
 
 **Technical Notes:**
 
 ```cpp
+// Camera intrinsics struct (received via TCP on connection)
+struct CameraIntrinsics {
+    uint32_t width;
+    uint32_t height;
+    double fx, fy, cx, cy;
+    double distortion[5];  // k1, k2, p1, p2, k3
+};
+
 // Extended CameraData for GPU-resident images
 struct CameraData {
     // Existing CPU fields
@@ -1098,10 +1221,37 @@ struct CameraData {
     bool hasGpuData() const { return is_gpu_resident && rgb_cuda && depth_cuda; }
 };
 
+// SimTcpClient for small data exchange
+class SimTcpClient {
+public:
+    bool connect(const std::string& host, int port);
+    void disconnect();
+    
+    // Receive camera intrinsics (called once on connect)
+    CameraIntrinsics receiveIntrinsics();
+    
+    // Receive frame-ready message with pose (blocking with timeout)
+    std::optional<FrameReadyMessage> waitForFrame(std::chrono::milliseconds timeout);
+    
+    // Send velocity command (non-blocking)
+    void sendVelocityCommand(const VelocityCommand& cmd);
+    
+    // Acknowledge frame processed
+    void sendFrameProcessed(uint64_t frame_id);
+    
+private:
+    int socket_fd_;
+    std::string host_;
+    int port_;
+};
+
 // SimRgbdCamera::get() pseudocode
 CameraData SimRgbdCamera::get() {
-    // Wait for Unity to signal frame ready
-    sync_socket_.waitForFrameReady();
+    // Wait for Unity to signal frame ready (via TCP)
+    auto frame_msg = tcp_client_.waitForFrame(std::chrono::milliseconds(100));
+    if (!frame_msg) {
+        throw std::runtime_error("Frame timeout");
+    }
 
     // Map CUDA resources
     cudaGraphicsMapResources(2, resources_, stream_);
@@ -1111,17 +1261,18 @@ CameraData SimRgbdCamera::get() {
     cudaGraphicsSubResourceGetMappedArray(&data.rgb_cuda, rgb_resource_, 0, 0);
     cudaGraphicsSubResourceGetMappedArray(&data.depth_cuda, depth_resource_, 0, 0);
 
-    // Read pose from shared memory
-    data.pose = pose_shared_mem_.read();
-    data.header.timestamp = getCurrentTime();
+    // Parse pose from TCP message
+    data.pose = frame_msg->pose;
+    data.header.timestamp = frame_msg->timestamp;
+    data.header.frame_id = frame_msg->frame_id;
 
     return data;
 }
 
-// After inference, call unmap
-void SimRgbdCamera::releaseFrame() {
+// After inference, call unmap and acknowledge
+void SimRgbdCamera::releaseFrame(uint64_t frame_id) {
     cudaGraphicsUnmapResources(2, resources_, stream_);
-    sync_socket_.signalFrameProcessed();
+    tcp_client_.sendFrameProcessed(frame_id);
 }
 ```
 
@@ -1320,16 +1471,18 @@ Connect the camera capture system to the CUDA Interop bridge, registering Render
 1. Wire `CameraSimulator` to `CudaInteropBridge`
 2. Register RGB and Depth RenderTextures with native plugin on initialization
 3. Implement render callback to signal frame ready after render completes
-4. Wire pose data to `PoseWriter` shared memory
-5. Implement frame rate limiting
-6. Add frame skip detection and logging
-7. Create performance dashboard showing map/unmap times (optional)
+4. Wire pose data to `TcpBridge` for transmission with frame-ready signal
+5. Send camera intrinsics via TCP on initial connection
+6. Implement frame rate limiting
+7. Add frame skip detection and logging
+8. Create performance dashboard showing map/unmap times and TCP latency (optional)
 
 **Acceptance Criteria:**
 
 - [ ] RenderTextures successfully registered with CUDA native plugin
-- [ ] Frame ready signal sent after each render
-- [ ] Pose data correctly written to shared memory
+- [ ] Frame ready signal sent after each render (via TCP)
+- [ ] Pose data correctly transmitted to C++ via TCP with each frame
+- [ ] Camera intrinsics sent on initial TCP connection
 - [ ] C++ application receives valid CameraData with GPU pointers
 - [ ] End-to-end latency <2ms (render complete to C++ access ready)
 - [ ] Dropped frames are logged with reason
@@ -1448,7 +1601,7 @@ Create the `ControlledRobot` class representing the robot controlled by the C++ 
 
 **Acceptance Criteria:**
 
-- [ ] Receives commands from C++ application via shared memory
+- [ ] Receives commands from C++ application via TCP
 - [ ] Applies commands to drive system immediately
 - [ ] Stops gracefully if commands timeout (>100ms)
 - [ ] Command history available for debugging
@@ -2636,8 +2789,7 @@ Create comprehensive documentation for developers working with the simulation sy
 | Render Pipeline        | URP or Built-in (OpenGL) | Latest  | OpenGL backend required for CUDA interop                  |
 | GPU Interop            | CUDA Toolkit             | 12.x    | cudaGraphicsGLRegisterImage for zero-copy texture sharing |
 | Native Plugin          | C++/CUDA                 | C++17   | Unity Native Plugin for CUDA interop bridge               |
-| IPC (Metadata)         | Memory-mapped files      | N/A     | Small buffer for pose (64B) and commands (32B)            |
-| IPC (Sync)             | Unix domain sockets      | N/A     | Low-latency frame synchronization signaling               |
+| IPC (Small Data)       | TCP sockets              | N/A     | Pose, velocity commands, camera intrinsics, frame sync    |
 | IPC (Data Gen)         | TCP sockets              | N/A     | Cross-process Python↔Unity communication                  |
 | Configuration          | TOML                     | 1.0     | Consistent with C++ application                           |
 | Testing                | Unity Test Framework     | Latest  | Native Unity integration                                  |

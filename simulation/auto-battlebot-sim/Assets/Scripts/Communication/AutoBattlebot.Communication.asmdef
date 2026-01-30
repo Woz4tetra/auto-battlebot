@@ -3,7 +3,8 @@
     "rootNamespace": "AutoBattlebot.Communication",
     "references": [
         "AutoBattlebot.Core",
-        "AutoBattlebot.Configuration"
+        "AutoBattlebot.Configuration",
+        "AutoBattlebot.NativePlugins"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
