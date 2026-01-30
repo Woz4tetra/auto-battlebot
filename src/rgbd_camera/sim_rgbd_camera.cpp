@@ -14,6 +14,7 @@ SimRgbdCamera::SimRgbdCamera(SimRgbdCameraConfiguration& config)
     : expected_width_(config.width),
       expected_height_(config.height),
       frames_received_(0),
+      gpu_frames_received_(0),
       last_log_time_(std::chrono::steady_clock::now())
 {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("sim_rgbd_camera");
@@ -24,68 +25,107 @@ SimRgbdCamera::SimRgbdCamera(SimRgbdCameraConfiguration& config)
     tcp_config_.connect_timeout_ms = config.tcp_connect_timeout_ms;
     tcp_config_.read_timeout_ms = config.tcp_read_timeout_ms;
     tcp_config_.auto_reconnect = config.tcp_auto_reconnect;
+
+    // CUDA Interop config
+    cuda_config_.cuda_device_id = 0;
+    cuda_config_.enable_metrics = true;
 }
 
 SimRgbdCamera::~SimRgbdCamera()
 {
+    // Clear GPU frame data first (invalidates cuda_array pointers)
+    last_gpu_frame_ = GpuFrameData{};
+
+    // Ensure resources are unmapped before destruction
+    if (cuda_interop_ && resources_mapped_)
+    {
+        cuda_interop_->unmap_resources();
+        resources_mapped_ = false;
+    }
+
     // Note: We don't destroy the static TCP client here as it may be
     // shared with SimTransmitter. It will be cleaned up on program exit.
 }
 
 bool SimRgbdCamera::initialize()
 {
-    std::lock_guard<std::mutex> lock(tcp_client_mutex_);
-
-    // Create TCP client if not already created
-    if (!tcp_client_)
+    // Initialize TCP client
     {
-        tcp_client_ = std::make_shared<SimTcpClient>(tcp_config_);
-    }
+        std::lock_guard<std::mutex> lock(tcp_client_mutex_);
 
-    // Connect to Unity
-    if (!tcp_client_->is_connected())
-    {
-        if (!tcp_client_->connect())
+        // Create TCP client if not already created
+        if (!tcp_client_)
         {
-            diagnostics_logger_->error("tcp_connect_failed",
-                {{"host", tcp_config_.host},
-                 {"port", tcp_config_.port}});
-            return false;
+            tcp_client_ = std::make_shared<SimTcpClient>(tcp_config_);
         }
-    }
 
-    // Verify we received intrinsics
-    if (!tcp_client_->has_intrinsics())
-    {
-        diagnostics_logger_->warning("no_intrinsics_received", {});
-    }
-    else
-    {
-        auto intrinsics = tcp_client_->get_intrinsics();
-        if (intrinsics)
+        // Connect to Unity
+        if (!tcp_client_->is_connected())
         {
-            // Validate intrinsics match expected dimensions
-            if (intrinsics->width != expected_width_ || intrinsics->height != expected_height_)
+            if (!tcp_client_->connect())
             {
-                diagnostics_logger_->warning("intrinsics_dimension_mismatch",
-                    {{"expected_width", expected_width_},
-                     {"expected_height", expected_height_},
-                     {"received_width", intrinsics->width},
-                     {"received_height", intrinsics->height}});
+                diagnostics_logger_->error("tcp_connect_failed",
+                    {{"host", tcp_config_.host},
+                     {"port", tcp_config_.port}});
+                return false;
+            }
+        }
+
+        // Verify we received intrinsics
+        if (!tcp_client_->has_intrinsics())
+        {
+            diagnostics_logger_->warning("no_intrinsics_received", {});
+        }
+        else
+        {
+            auto intrinsics = tcp_client_->get_intrinsics();
+            if (intrinsics)
+            {
+                // Update expected dimensions from intrinsics
+                if (intrinsics->width != expected_width_ || intrinsics->height != expected_height_)
+                {
+                    diagnostics_logger_->info("using_intrinsics_dimensions",
+                        {{"width", intrinsics->width},
+                         {"height", intrinsics->height}});
+                    expected_width_ = intrinsics->width;
+                    expected_height_ = intrinsics->height;
+                }
             }
         }
     }
+
+    // Try to initialize CUDA Interop (optional - will fall back to CPU if not available)
+    cuda_interop_enabled_ = try_initialize_cuda_interop();
 
     diagnostics_logger_->info("initialized",
         {{"width", expected_width_},
          {"height", expected_height_},
          {"tcp_host", tcp_config_.host},
-         {"tcp_port", tcp_config_.port}});
+         {"tcp_port", tcp_config_.port},
+         {"cuda_interop_enabled", cuda_interop_enabled_}});
 
     // Reset stats on re-initialization
     frames_received_ = 0;
+    gpu_frames_received_ = 0;
     last_log_time_ = std::chrono::steady_clock::now();
 
+    return true;
+}
+
+bool SimRgbdCamera::try_initialize_cuda_interop()
+{
+    cuda_interop_ = std::make_unique<CudaInteropWrapper>(cuda_config_);
+
+    if (!cuda_interop_->initialize())
+    {
+        diagnostics_logger_->info("cuda_interop_unavailable",
+            {{"fallback", "Using CPU image transfer"}});
+        cuda_interop_.reset();
+        return false;
+    }
+
+    diagnostics_logger_->info("cuda_interop_initialized",
+        {{"device_id", cuda_config_.cuda_device_id}});
     return true;
 }
 
@@ -107,7 +147,7 @@ bool SimRgbdCamera::get(CameraData& data, bool get_depth)
         }
     }
 
-    // Wait for frame-ready message from Unity
+    // Wait for frame-ready message from Unity via TCP
     auto frame = tcp_client_->wait_for_frame(
         std::chrono::milliseconds(tcp_config_.read_timeout_ms));
 
@@ -126,18 +166,22 @@ bool SimRgbdCamera::get(CameraData& data, bool get_depth)
     // Populate pose from frame message
     populate_pose(data, *frame);
 
-    // Note: In the full CUDA Interop implementation, the RGB and depth
-    // images would be accessed via shared GPU memory here.
-    // For now, we just create placeholder images.
-    data.rgb.header.timestamp = frame->timestamp_seconds();
-    data.rgb.header.frame_id = frame->frame_id;
-    data.rgb.data = cv::Mat(expected_height_, expected_width_, CV_8UC3, cv::Scalar(0, 0, 0));
+    // Get image data - try GPU path first, fall back to CPU
+    bool success = false;
 
-    if (get_depth)
+    if (cuda_interop_enabled_)
     {
-        data.depth.header.timestamp = frame->timestamp_seconds();
-        data.depth.header.frame_id = frame->frame_id;
-        data.depth.data = cv::Mat(expected_height_, expected_width_, CV_32FC1, cv::Scalar(0.0f));
+        success = get_gpu_frame(data, get_depth);
+        if (success)
+        {
+            gpu_frames_received_++;
+        }
+    }
+
+    if (!success)
+    {
+        // Fall back to CPU placeholder images
+        success = get_cpu_frame(data, get_depth, *frame);
     }
 
     // Acknowledge frame processed
@@ -146,23 +190,143 @@ bool SimRgbdCamera::get(CameraData& data, bool get_depth)
     // Log stats periodically
     log_stats();
 
+    return success;
+}
+
+bool SimRgbdCamera::get_gpu_frame(CameraData& data, bool get_depth)
+{
+    if (!cuda_interop_)
+    {
+        return false;
+    }
+
+    // Clear previous GPU frame data
+    last_gpu_frame_ = GpuFrameData{};
+
+    // Wait for GPU frame from CUDA Interop
+    auto frame_info = cuda_interop_->wait_for_frame(tcp_config_.read_timeout_ms);
+    if (!frame_info)
+    {
+        return false;
+    }
+
+    // Map resources for CUDA access
+    if (!cuda_interop_->map_resources())
+    {
+        diagnostics_logger_->warning("gpu_map_failed", {});
+        return false;
+    }
+    resources_mapped_ = true;
+
+    // Get RGB CUDA array
+    void* rgb_cuda = cuda_interop_->get_cuda_array(CudaInteropTextureType::RGB);
+    if (rgb_cuda && frame_info->rgb_valid)
+    {
+        // Populate GPU frame data
+        last_gpu_frame_.rgb.cuda_array = rgb_cuda;
+        last_gpu_frame_.rgb.width = frame_info->rgb_width;
+        last_gpu_frame_.rgb.height = frame_info->rgb_height;
+        last_gpu_frame_.rgb.frame_id = frame_info->frame_id;
+        last_gpu_frame_.rgb.timestamp = frame_info->timestamp;
+
+        // Populate CameraData with placeholder (header only, no image data)
+        data.rgb = last_gpu_frame_.rgb.to_placeholder();
+    }
+    else
+    {
+        // RGB not available
+        cuda_interop_->unmap_resources();
+        resources_mapped_ = false;
+        return false;
+    }
+
+    // Get Depth CUDA array (if requested)
+    if (get_depth)
+    {
+        void* depth_cuda = cuda_interop_->get_cuda_array(CudaInteropTextureType::Depth);
+        if (depth_cuda && frame_info->depth_valid)
+        {
+            // Populate GPU frame data
+            last_gpu_frame_.depth.cuda_array = depth_cuda;
+            last_gpu_frame_.depth.width = frame_info->depth_width;
+            last_gpu_frame_.depth.height = frame_info->depth_height;
+            last_gpu_frame_.depth.frame_id = frame_info->frame_id;
+            last_gpu_frame_.depth.timestamp = frame_info->timestamp;
+
+            // Populate CameraData with placeholder
+            data.depth = last_gpu_frame_.depth.to_placeholder();
+        }
+    }
+
+    // Note: Resources will be unmapped after inference completes
+    // The caller is responsible for accessing GPU data via get_gpu_frame_data()
+    // before the next get() call which will unmap resources
+
+    return true;
+}
+
+bool SimRgbdCamera::get_cpu_frame(CameraData& data, bool get_depth, const TcpFrameReadyMessage& frame)
+{
+    // Create placeholder CPU images
+    // In a full implementation, these would be transferred from Unity via TCP
+    // or the CPU fallback path of the CUDA Interop plugin
+
+    data.rgb.is_gpu_resident = false;
+    data.rgb.cuda_array = nullptr;
+    data.rgb.header.timestamp = frame.timestamp_seconds();
+    data.rgb.header.frame_id = frame.frame_id;
+    data.rgb.width = expected_width_;
+    data.rgb.height = expected_height_;
+
+    // Create black placeholder image
+    data.rgb.image = cv::Mat(expected_height_, expected_width_, CV_8UC3, cv::Scalar(0, 0, 0));
+
+    if (get_depth)
+    {
+        data.depth.is_gpu_resident = false;
+        data.depth.cuda_array = nullptr;
+        data.depth.header.timestamp = frame.timestamp_seconds();
+        data.depth.header.frame_id = frame.frame_id;
+        data.depth.width = expected_width_;
+        data.depth.height = expected_height_;
+
+        // Create zero depth placeholder
+        data.depth.image = cv::Mat(expected_height_, expected_width_, CV_32FC1, cv::Scalar(0.0f));
+    }
+
     return true;
 }
 
 void SimRgbdCamera::log_stats()
 {
-    // Track frame statistics
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_log_time_).count();
 
     if (elapsed >= 1)
     {
         double fps = static_cast<double>(frames_received_) / elapsed;
+        double gpu_ratio = frames_received_ > 0 ?
+            static_cast<double>(gpu_frames_received_) / frames_received_ : 0.0;
+
         diagnostics_logger_->info("stats",
             {{"frames_received", static_cast<int>(frames_received_)},
-             {"fps", fps},
-             {"tcp_frames_total", static_cast<int>(tcp_client_ ? tcp_client_->get_frames_received() : 0)}});
+             {"gpu_frames", static_cast<int>(gpu_frames_received_)},
+             {"gpu_ratio", gpu_ratio},
+             {"fps", fps}});
+
+        // Log CUDA Interop metrics if available
+        if (cuda_interop_enabled_ && cuda_interop_)
+        {
+            auto metrics = cuda_interop_->get_metrics();
+            diagnostics_logger_->debug("cuda_metrics",
+                {{"avg_map_ms", metrics.avg_map_time_ms},
+                 {"avg_unmap_ms", metrics.avg_unmap_time_ms},
+                 {"total_frames", static_cast<int>(metrics.total_frames)},
+                 {"map_errors", static_cast<int>(metrics.map_errors)}});
+        }
+
         frames_received_ = 0;
+        gpu_frames_received_ = 0;
         last_log_time_ = now;
     }
 }
@@ -236,9 +400,6 @@ void SimRgbdCamera::populate_pose(CameraData& data, const TcpFrameReadyMessage& 
     // Pose is 4x4 matrix in row-major order
     Transform tf;
 
-    // Extract rotation matrix (top-left 3x3)
-    tf.rotation.w() = 0;  // Will be computed from rotation matrix
-    
     // Create rotation matrix from pose
     Eigen::Matrix3d rotation_matrix;
     rotation_matrix(0, 0) = frame.pose[0];
