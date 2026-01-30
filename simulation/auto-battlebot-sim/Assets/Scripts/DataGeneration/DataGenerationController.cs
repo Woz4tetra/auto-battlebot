@@ -3,7 +3,7 @@
 
 using UnityEngine;
 using AutoBattlebot.Core;
-using SimulationMode = AutoBattlebot.Core.SimulationMode;
+using RobotSimulationMode = AutoBattlebot.Core.RobotSimulationMode;
 
 namespace AutoBattlebot.DataGeneration
 {
@@ -41,7 +41,7 @@ namespace AutoBattlebot.DataGeneration
         public void Initialize()
         {
             // Only initialize in data generation mode
-            if (SimulationManager.Instance.CurrentMode != SimulationMode.DataGeneration)
+            if (SimulationManager.Instance.CurrentMode != RobotSimulationMode.DataGeneration)
             {
                 Debug.Log("[DataGenerationController] Skipping initialization (not in data generation mode)");
                 return;

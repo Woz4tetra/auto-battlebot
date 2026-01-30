@@ -9,7 +9,7 @@ using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
-namespace AutoBattlebot.Communication
+namespace AutoBattlebot.Core
 {
     /// <summary>
     /// Camera intrinsic parameters for the simulated camera.

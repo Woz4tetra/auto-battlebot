@@ -203,7 +203,7 @@ namespace AutoBattlebot.Communication
         {
             // Only initialize in HIL mode
             if (SimulationManager.Instance != null &&
-                SimulationManager.Instance.CurrentMode != SimulationMode.HardwareInLoop)
+                SimulationManager.Instance.CurrentMode != RobotSimulationMode.HardwareInLoop)
             {
                 Debug.Log("[CudaInteropBridge] Skipping initialization (not in HIL mode)");
                 return;

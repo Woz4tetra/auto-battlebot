@@ -8,7 +8,7 @@
 using System;
 using UnityEngine;
 
-namespace AutoBattlebot.Communication
+namespace AutoBattlebot.Core
 {
     /// <summary>
     /// Provides camera intrinsic parameters for simulation.
@@ -95,8 +95,7 @@ namespace AutoBattlebot.Communication
         #region Private Fields
 
         private Camera _camera;
-        private CameraIntrinsics _cachedIntrinsics;
-        private bool _intrinsicsDirty = true;
+        CameraIntrinsics _intrinsics;
 
         #endregion
 
@@ -105,17 +104,7 @@ namespace AutoBattlebot.Communication
         /// <summary>
         /// The camera intrinsics as a struct for TCP communication.
         /// </summary>
-        public CameraIntrinsics Intrinsics
-        {
-            get
-            {
-                if (_intrinsicsDirty)
-                {
-                    UpdateCachedIntrinsics();
-                }
-                return _cachedIntrinsics;
-            }
-        }
+        public CameraIntrinsics Intrinsics => _intrinsics;
 
         /// <summary>
         /// The attached Camera component.
@@ -125,56 +114,43 @@ namespace AutoBattlebot.Communication
         /// <summary>
         /// Image width in pixels.
         /// </summary>
-        public int Width
-        {
-            get => _width;
-            set { _width = value; _intrinsicsDirty = true; }
-        }
+        public int Width => _width;
 
         /// <summary>
         /// Image height in pixels.
         /// </summary>
-        public int Height
-        {
-            get => _height;
-            set { _height = value; _intrinsicsDirty = true; }
-        }
+        public int Height => _height;
 
         /// <summary>
         /// Focal length X (pixels).
         /// </summary>
-        public double Fx
-        {
-            get => _fx;
-            set { _fx = value; _intrinsicsDirty = true; }
-        }
+        public double Fx => _fx;
 
         /// <summary>
         /// Focal length Y (pixels).
         /// </summary>
-        public double Fy
-        {
-            get => _fy;
-            set { _fy = value; _intrinsicsDirty = true; }
-        }
+        public double Fy => _fy;
 
         /// <summary>
         /// Principal point X (pixels).
         /// </summary>
-        public double Cx
-        {
-            get => _cx;
-            set { _cx = value; _intrinsicsDirty = true; }
-        }
+        public double Cx => _cx;
 
         /// <summary>
         /// Principal point Y (pixels).
         /// </summary>
-        public double Cy
-        {
-            get => _cy;
-            set { _cy = value; _intrinsicsDirty = true; }
-        }
+        public double Cy => _cy;
+
+        /// <summary>
+        /// Near clip plane (meters)
+        /// </summary>
+        public float NearClip => _nearClip;
+
+        /// <summary>
+        /// Far clip plane (meters)
+        /// </summary>
+        public float FarClip => _farClip;
+
 
         #endregion
 
@@ -183,6 +159,10 @@ namespace AutoBattlebot.Communication
         private void Awake()
         {
             _camera = GetComponent<Camera>();
+            _intrinsics = CameraIntrinsics.Create(
+                _width, _height,
+                _fx, _fy, _cx, _cy,
+                _k1, _k2, _p1, _p2, _k3);
         }
 
         private void Start()
@@ -192,8 +172,6 @@ namespace AutoBattlebot.Communication
 
         private void OnValidate()
         {
-            _intrinsicsDirty = true;
-
             if (_applyCameraFov && _camera == null)
             {
                 _camera = GetComponent<Camera>();
@@ -257,8 +235,6 @@ namespace AutoBattlebot.Communication
             _p2 = intrinsics.P2;
             _k3 = intrinsics.K3;
 
-            _intrinsicsDirty = true;
-
             if (_applyCameraFov)
             {
                 ApplyToCamera();
@@ -293,22 +269,6 @@ namespace AutoBattlebot.Communication
 
             // No distortion
             _k1 = 0; _k2 = 0; _p1 = 0; _p2 = 0; _k3 = 0;
-
-            _intrinsicsDirty = true;
-        }
-
-        #endregion
-
-        #region Private Methods
-
-        private void UpdateCachedIntrinsics()
-        {
-            _cachedIntrinsics = CameraIntrinsics.Create(
-                _width, _height,
-                _fx, _fy, _cx, _cy,
-                _k1, _k2, _p1, _p2, _k3);
-
-            _intrinsicsDirty = false;
         }
 
         #endregion

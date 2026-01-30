@@ -84,7 +84,7 @@ namespace AutoBattlebot.Core
         [Header("Simulation Settings")]
         [SerializeField]
         [Tooltip("Simulation mode: Standalone (no C++ app), HardwareInLoop (with C++ app), or DataGeneration")]
-        private SimulationMode _currentMode = SimulationMode.Standalone;
+        private RobotSimulationMode _currentMode = RobotSimulationMode.Standalone;
 
         [SerializeField]
         [Tooltip("Whether to automatically start the simulation after initialization")]
@@ -120,7 +120,7 @@ namespace AutoBattlebot.Core
         /// <summary>
         /// Current simulation mode (HIL with C++ app, data generation, or standalone).
         /// </summary>
-        public SimulationMode CurrentMode => _currentMode;
+        public RobotSimulationMode CurrentMode => _currentMode;
 
         #endregion
 
@@ -215,7 +215,7 @@ namespace AutoBattlebot.Core
         /// <summary>
         /// Sets the simulation mode. Should be called before initialization.
         /// </summary>
-        public void SetMode(SimulationMode mode)
+        public void SetMode(RobotSimulationMode mode)
         {
             if (_isInitialized)
             {

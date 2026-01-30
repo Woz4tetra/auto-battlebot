@@ -209,26 +209,6 @@ namespace AutoBattlebot.Camera
             _isInitialized = false;
         }
 
-        /// <summary>
-        /// Resize both RGB and depth textures.
-        /// </summary>
-        public bool Resize(int width, int height)
-        {
-            bool success = true;
-
-            if (_cameraSimulator != null)
-            {
-                success &= _cameraSimulator.Resize(width, height);
-            }
-
-            if (_depthPass != null)
-            {
-                _depthPass.Resize(width, height);
-            }
-
-            return success;
-        }
-
         #endregion
 
         #region Private Methods

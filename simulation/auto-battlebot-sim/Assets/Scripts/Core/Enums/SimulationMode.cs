@@ -6,7 +6,7 @@ namespace AutoBattlebot.Core
     /// <summary>
     /// Defines the operating mode of the simulation.
     /// </summary>
-    public enum SimulationMode
+    public enum RobotSimulationMode
     {
         /// <summary>
         /// Standalone mode - simulation runs independently without external connections.

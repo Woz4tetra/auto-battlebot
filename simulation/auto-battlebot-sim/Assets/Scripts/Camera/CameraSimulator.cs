@@ -7,7 +7,7 @@
 
 using System;
 using UnityEngine;
-using UnityEngine.Rendering;
+using AutoBattlebot.Core;
 
 namespace AutoBattlebot.Camera
 {
@@ -26,45 +26,11 @@ namespace AutoBattlebot.Camera
     /// 3. Access RgbTexture.GetNativeTexturePtr() for CUDA registration
     /// </summary>
     [RequireComponent(typeof(UnityEngine.Camera))]
+    [RequireComponent(typeof(CameraIntrinsicsProvider))]
     [ExecuteInEditMode]
     public class CameraSimulator : MonoBehaviour
     {
         #region Serialized Fields
-
-        [Header("Resolution")]
-        [SerializeField]
-        [Tooltip("Render texture width in pixels")]
-        private int _width = 1280;
-
-        [SerializeField]
-        [Tooltip("Render texture height in pixels")]
-        private int _height = 720;
-
-        [Header("Camera Intrinsics")]
-        [SerializeField]
-        [Tooltip("Focal length X in pixels (affects FOV calculation)")]
-        private double _fx = 707.66;
-
-        [SerializeField]
-        [Tooltip("Focal length Y in pixels")]
-        private double _fy = 707.66;
-
-        [SerializeField]
-        [Tooltip("Principal point X (typically width/2)")]
-        private double _cx = 640.0;
-
-        [SerializeField]
-        [Tooltip("Principal point Y (typically height/2)")]
-        private double _cy = 360.0;
-
-        [Header("Depth Range")]
-        [SerializeField]
-        [Tooltip("Near clip plane in meters")]
-        private float _nearClip = 0.3f;
-
-        [SerializeField]
-        [Tooltip("Far clip plane in meters")]
-        private float _farClip = 20.0f;
 
         [Header("Options")]
         [SerializeField]
@@ -80,6 +46,7 @@ namespace AutoBattlebot.Camera
         #region Private Fields
 
         private UnityEngine.Camera _camera;
+        private CameraIntrinsicsProvider _intrinsics_provider;
         private RenderTexture _rgbTexture;
         private Texture2D _cpuTexture;
         private bool _isInitialized = false;
@@ -102,12 +69,12 @@ namespace AutoBattlebot.Camera
         /// <summary>
         /// Render width in pixels.
         /// </summary>
-        public int Width => _width;
+        public int Width => _intrinsics_provider.Width;
 
         /// <summary>
         /// Render height in pixels.
         /// </summary>
-        public int Height => _height;
+        public int Height => _intrinsics_provider.Height;
 
         /// <summary>
         /// Whether the camera system is initialized.
@@ -131,6 +98,7 @@ namespace AutoBattlebot.Camera
         private void Awake()
         {
             _camera = GetComponent<UnityEngine.Camera>();
+            _intrinsics_provider = GetComponent<CameraIntrinsicsProvider>();
         }
 
         private void Start()
@@ -148,14 +116,6 @@ namespace AutoBattlebot.Camera
 
         private void OnValidate()
         {
-            // Clamp values
-            _width = Mathf.Max(64, _width);
-            _height = Mathf.Max(64, _height);
-            _fx = Math.Max(1.0, _fx);
-            _fy = Math.Max(1.0, _fy);
-            _nearClip = Mathf.Max(0.01f, _nearClip);
-            _farClip = Mathf.Max(_nearClip + 0.1f, _farClip);
-
             // Update camera settings in editor
             if (_camera == null)
             {
@@ -204,7 +164,7 @@ namespace AutoBattlebot.Camera
             ApplyCameraSettings();
 
             _isInitialized = true;
-            Debug.Log($"[CameraSimulator] Initialized: {_width}x{_height}, " +
+            Debug.Log($"[CameraSimulator] Initialized: {Width}x{Height}, " +
                       $"FOV={_camera.fieldOfView:F1}°, " +
                       $"NativePtr=0x{NativeTexturePtr.ToInt64():X}");
 
@@ -252,18 +212,6 @@ namespace AutoBattlebot.Camera
         }
 
         /// <summary>
-        /// Recreate the RenderTexture with new dimensions.
-        /// </summary>
-        public bool Resize(int width, int height)
-        {
-            _width = width;
-            _height = height;
-
-            Cleanup();
-            return Initialize();
-        }
-
-        /// <summary>
         /// Read pixels to CPU (for debugging or data generation).
         /// Only works if _enableCpuReadback is true.
         /// </summary>
@@ -282,36 +230,23 @@ namespace AutoBattlebot.Camera
             }
 
             // Create CPU texture if needed
-            if (_cpuTexture == null || _cpuTexture.width != _width || _cpuTexture.height != _height)
+            if (_cpuTexture == null || _cpuTexture.width != Width || _cpuTexture.height != Height)
             {
                 if (_cpuTexture != null)
                 {
                     Destroy(_cpuTexture);
                 }
-                _cpuTexture = new Texture2D(_width, _height, TextureFormat.RGBA32, false);
+                _cpuTexture = new Texture2D(Width, Height, TextureFormat.RGBA32, false);
             }
 
             // Read from GPU to CPU
             var prevActive = RenderTexture.active;
             RenderTexture.active = _rgbTexture;
-            _cpuTexture.ReadPixels(new Rect(0, 0, _width, _height), 0, 0);
+            _cpuTexture.ReadPixels(new Rect(0, 0, Width, Height), 0, 0);
             _cpuTexture.Apply();
             RenderTexture.active = prevActive;
 
             return _cpuTexture;
-        }
-
-        /// <summary>
-        /// Set camera intrinsics programmatically.
-        /// </summary>
-        public void SetIntrinsics(double fx, double fy, double cx, double cy)
-        {
-            _fx = fx;
-            _fy = fy;
-            _cx = cx;
-            _cy = cy;
-
-            ApplyCameraSettings();
         }
 
         #endregion
@@ -325,14 +260,14 @@ namespace AutoBattlebot.Camera
             // - No MSAA (CUDA doesn't support MSAA textures)
             // - No mipmaps (not needed for inference)
             // - Depth buffer bits = 0 (separate depth texture via LinearDepthCapturePass)
-            _rgbTexture = new RenderTexture(_width, _height, 0, RenderTextureFormat.ARGB32)
+            _rgbTexture = new RenderTexture(Width, Height, 0, RenderTextureFormat.ARGB32)
             {
                 antiAliasing = 1,
                 useMipMap = false,
                 autoGenerateMips = false,
                 filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp,
-                name = $"CameraSimulator_RGB_{_width}x{_height}"
+                name = $"CameraSimulator_RGB_{Width}x{Height}"
             };
 
             if (!_rgbTexture.Create())
@@ -349,24 +284,24 @@ namespace AutoBattlebot.Camera
 
         private void ApplyCameraSettings()
         {
-            if (_camera == null)
+            if (_camera == null || _intrinsics_provider == null)
             {
                 return;
             }
 
             // Calculate vertical FOV from focal length
             // FOV = 2 * atan(height / (2 * fy))
-            double fovRadians = 2.0 * Math.Atan(_height / (2.0 * _fy));
+            double fovRadians = 2.0 * Math.Atan(Height / (2.0 * _intrinsics_provider.Fx));
             float fovDegrees = (float)(fovRadians * 180.0 / Math.PI);
 
             _camera.fieldOfView = fovDegrees;
-            _camera.nearClipPlane = _nearClip;
-            _camera.farClipPlane = _farClip;
+            _camera.nearClipPlane = _intrinsics_provider.NearClip;
+            _camera.farClipPlane = _intrinsics_provider.FarClip;
 
             // Note: Unity doesn't natively support off-center principal points.
             // For accurate simulation with cx != width/2 or cy != height/2,
             // a custom projection matrix would be needed.
-            if (Math.Abs(_cx - _width / 2.0) > 1.0 || Math.Abs(_cy - _height / 2.0) > 1.0)
+            if (Math.Abs(_intrinsics_provider.Cx - Width / 2.0) > 1.0 || Math.Abs(_intrinsics_provider.Cy - Height / 2.0) > 1.0)
             {
                 // Apply custom projection matrix for off-center principal point
                 ApplyCustomProjectionMatrix();
@@ -377,14 +312,14 @@ namespace AutoBattlebot.Camera
         {
             // Create asymmetric projection matrix for off-center principal point
             // This is important for accurate camera simulation
-            float near = _nearClip;
-            float far = _farClip;
+            float near = _intrinsics_provider.NearClip;
+            float far = _intrinsics_provider.FarClip;
 
             // Calculate frustum boundaries at near plane
-            float left = (float)(-_cx * near / _fx);
-            float right = (float)((_width - _cx) * near / _fx);
-            float bottom = (float)(-(_height - _cy) * near / _fy);
-            float top = (float)(_cy * near / _fy);
+            float left = (float)(-_intrinsics_provider.Cx * near / _intrinsics_provider.Fx);
+            float right = (float)((Width - _intrinsics_provider.Cx) * near / _intrinsics_provider.Fx);
+            float bottom = (float)(-(Height - _intrinsics_provider.Cy) * near / _intrinsics_provider.Fy);
+            float top = (float)(_intrinsics_provider.Cy * near / _intrinsics_provider.Fy);
 
             // Create OpenGL-style projection matrix
             Matrix4x4 proj = Matrix4x4.zero;
@@ -423,56 +358,6 @@ namespace AutoBattlebot.Camera
             else
             {
                 Debug.Log("[CameraSimulator] No texture created");
-            }
-        }
-
-        [ContextMenu("Apply ZED 2i 720p Preset")]
-        private void EditorApplyZed720p()
-        {
-            _width = 1280;
-            _height = 720;
-            _fx = 707.66;
-            _fy = 707.66;
-            _cx = 647.50;
-            _cy = 374.53;
-            _nearClip = 0.3f;
-            _farClip = 20.0f;
-
-            if (_camera == null)
-            {
-                _camera = GetComponent<UnityEngine.Camera>();
-            }
-            ApplyCameraSettings();
-
-            if (_isInitialized)
-            {
-                Cleanup();
-                Initialize();
-            }
-        }
-
-        [ContextMenu("Apply ZED 2i 1080p Preset")]
-        private void EditorApplyZed1080p()
-        {
-            _width = 1920;
-            _height = 1080;
-            _fx = 1061.49;
-            _fy = 1061.49;
-            _cx = 971.25;
-            _cy = 561.80;
-            _nearClip = 0.3f;
-            _farClip = 20.0f;
-
-            if (_camera == null)
-            {
-                _camera = GetComponent<UnityEngine.Camera>();
-            }
-            ApplyCameraSettings();
-
-            if (_isInitialized)
-            {
-                Cleanup();
-                Initialize();
             }
         }
 #endif
