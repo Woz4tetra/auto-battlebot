@@ -1,5 +1,17 @@
 cmake_minimum_required(VERSION 3.18)
 
+# Help CMake find CUDA compiler if not already set
+# This must be done BEFORE project() when using LANGUAGES CUDA
+if(NOT DEFINED CMAKE_CUDA_COMPILER)
+    find_program(CMAKE_CUDA_COMPILER nvcc
+        HINTS
+            ENV CUDA_PATH
+            ENV CUDA_HOME
+            /usr/local/cuda
+        PATH_SUFFIXES bin
+    )
+endif()
+
 # Enable CUDA language
 project(CudaInteropPlugin LANGUAGES CXX CUDA)
 

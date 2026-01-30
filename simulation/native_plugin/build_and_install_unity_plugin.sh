@@ -21,6 +21,7 @@ set -euo pipefail
 #   BUILD_TYPE      - Release (default) or Debug
 #   ENABLE_CUDA     - ON (default) or OFF
 #   ENABLE_OPENGL   - ON (default) or OFF
+#   CUDA_HOME       - Path to CUDA toolkit (auto-detected if not set)
 #
 # =============================================================================
 
@@ -48,15 +49,30 @@ echo "  Build:         ${BUILD_DIR}"
 echo "  Unity Plugins: ${UNITY_LINUX_DIR}"
 echo ""
 
-# Check for CUDA
+# Check for CUDA and detect CUDA_HOME
+CUDA_CMAKE_ARGS=""
 if [[ "${ENABLE_CUDA}" == "ON" ]]; then
+    # Find nvcc
     if command -v nvcc &> /dev/null; then
+        NVCC_PATH=$(command -v nvcc)
         NVCC_VERSION=$(nvcc --version | grep "release" | awk '{print $5}' | tr -d ',')
-        echo "Found CUDA: nvcc ${NVCC_VERSION}"
+        echo "Found CUDA: nvcc ${NVCC_VERSION} at ${NVCC_PATH}"
+        
+        # Auto-detect CUDA_HOME from nvcc path if not set
+        if [[ -z "${CUDA_HOME:-}" ]]; then
+            # nvcc is typically at /usr/local/cuda/bin/nvcc or similar
+            CUDA_HOME="$(dirname "$(dirname "${NVCC_PATH}")")"
+        fi
     else
         echo "ERROR: CUDA enabled but nvcc not found in PATH"
         echo "Please install CUDA Toolkit and ensure nvcc is in your PATH"
         exit 1
+    fi
+    
+    # Verify CUDA_HOME
+    if [[ -n "${CUDA_HOME:-}" ]] && [[ -d "${CUDA_HOME}" ]]; then
+        echo "Using CUDA_HOME: ${CUDA_HOME}"
+        CUDA_CMAKE_ARGS="-DCMAKE_CUDA_COMPILER=${CUDA_HOME}/bin/nvcc"
     fi
 fi
 
@@ -76,11 +92,13 @@ echo ""
 echo "Configuring with CMake..."
 echo ""
 
+# shellcheck disable=SC2086
 cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DENABLE_CUDA="${ENABLE_CUDA}" \
     -DENABLE_OPENGL="${ENABLE_OPENGL}" \
-    -DUNITY_PLUGINS_DIR="${UNITY_PLUGINS_DIR}"
+    -DUNITY_PLUGINS_DIR="${UNITY_PLUGINS_DIR}" \
+    ${CUDA_CMAKE_ARGS}
 
 echo ""
 echo "Building..."
