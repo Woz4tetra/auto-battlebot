@@ -18,7 +18,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ENABLE_CUDA "Enable CUDA backend (required for CUDA Interop)" ON)
 option(ENABLE_OPENGL "Enable OpenGL support" ON)
-option(BUILD_LEGACY_PLUGIN "Build legacy GpuMemoryShare plugin" OFF)
 
 # ============================================================================
 # Find Dependencies
@@ -104,47 +103,6 @@ elseif(WIN32)
 endif()
 
 # ============================================================================
-# Legacy GpuMemoryShare Plugin (Optional, for backward compatibility)
-# ============================================================================
-
-if(BUILD_LEGACY_PLUGIN)
-    set(LEGACY_SOURCES
-        src/gpu_memory_share.cpp
-    )
-
-    add_library(GpuMemoryShare SHARED ${LEGACY_SOURCES})
-
-    target_include_directories(GpuMemoryShare PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-
-    if(ENABLE_CUDA)
-        target_compile_definitions(GpuMemoryShare PRIVATE CUDA_AVAILABLE)
-        target_include_directories(GpuMemoryShare PRIVATE ${CUDAToolkit_INCLUDE_DIRS})
-        target_link_libraries(GpuMemoryShare PRIVATE CUDA::cudart)
-    endif()
-
-    if(ENABLE_OPENGL)
-        target_compile_definitions(GpuMemoryShare PRIVATE OPENGL_AVAILABLE)
-        target_link_libraries(GpuMemoryShare PRIVATE OpenGL::GL)
-    endif()
-
-    if(UNIX AND NOT APPLE)
-        set_target_properties(GpuMemoryShare PROPERTIES
-            OUTPUT_NAME "GpuMemoryShare"
-            PREFIX "lib"
-            SUFFIX ".so"
-        )
-        target_link_libraries(GpuMemoryShare PRIVATE pthread)
-    elseif(WIN32)
-        set_target_properties(GpuMemoryShare PROPERTIES
-            OUTPUT_NAME "GpuMemoryShare"
-            SUFFIX ".dll"
-        )
-    endif()
-endif()
-
-# ============================================================================
 # Installation
 # ============================================================================
 
@@ -162,21 +120,10 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/cuda_interop.h
     DESTINATION ${UNITY_PLUGINS_DIR}
 )
 
-if(BUILD_LEGACY_PLUGIN)
-    install(TARGETS GpuMemoryShare
-        LIBRARY DESTINATION ${UNITY_PLUGINS_DIR}/x86_64
-        RUNTIME DESTINATION ${UNITY_PLUGINS_DIR}/x86_64
-    )
-    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/gpu_memory_share.h
-        DESTINATION ${UNITY_PLUGINS_DIR}
-    )
-endif()
-
 message(STATUS "")
 message(STATUS "=== CUDA Interop Plugin Configuration ===")
 message(STATUS "  CUDA enabled: ${ENABLE_CUDA}")
 message(STATUS "  OpenGL enabled: ${ENABLE_OPENGL}")
-message(STATUS "  Legacy plugin: ${BUILD_LEGACY_PLUGIN}")
 message(STATUS "  Install directory: ${UNITY_PLUGINS_DIR}/x86_64")
 message(STATUS "==========================================")
 message(STATUS "")

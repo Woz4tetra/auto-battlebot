@@ -58,19 +58,17 @@ cmake --install . --config Release
 
 ### Build Options
 
-| Option                | Default | Description                                |
-| --------------------- | ------- | ------------------------------------------ |
-| `ENABLE_CUDA`         | ON      | Enable CUDA backend (required for interop) |
-| `ENABLE_OPENGL`       | ON      | Enable OpenGL support                      |
-| `BUILD_LEGACY_PLUGIN` | OFF     | Also build legacy GpuMemoryShare plugin    |
-| `UNITY_PLUGINS_DIR`   | Auto    | Override Unity Plugins installation path   |
+| Option              | Default | Description                                |
+| ------------------- | ------- | ------------------------------------------ |
+| `ENABLE_CUDA`       | ON      | Enable CUDA backend (required for interop) |
+| `ENABLE_OPENGL`     | ON      | Enable OpenGL support                      |
+| `UNITY_PLUGINS_DIR` | Auto    | Override Unity Plugins installation path   |
 
 ### Environment Variables
 
 ```bash
 BUILD_TYPE=Debug    # Build debug version
 ENABLE_CUDA=OFF     # Disable CUDA (for testing only)
-BUILD_LEGACY=ON     # Also build legacy plugin
 ```
 
 ## Output

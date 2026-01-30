@@ -21,7 +21,6 @@ set -euo pipefail
 #   BUILD_TYPE      - Release (default) or Debug
 #   ENABLE_CUDA     - ON (default) or OFF
 #   ENABLE_OPENGL   - ON (default) or OFF
-#   BUILD_LEGACY    - OFF (default) or ON to also build legacy GpuMemoryShare
 #
 # =============================================================================
 
@@ -33,7 +32,6 @@ UNITY_LINUX_DIR="${UNITY_PLUGINS_DIR}/x86_64"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 ENABLE_CUDA="${ENABLE_CUDA:-ON}"
 ENABLE_OPENGL="${ENABLE_OPENGL:-ON}"
-BUILD_LEGACY="${BUILD_LEGACY:-OFF}"
 
 echo "=============================================="
 echo "  CUDA Interop Unity Plugin Builder"
@@ -43,7 +41,6 @@ echo "Build configuration:"
 echo "  BUILD_TYPE:    ${BUILD_TYPE}"
 echo "  ENABLE_CUDA:   ${ENABLE_CUDA}"
 echo "  ENABLE_OPENGL: ${ENABLE_OPENGL}"
-echo "  BUILD_LEGACY:  ${BUILD_LEGACY}"
 echo ""
 echo "Directories:"
 echo "  Source:        ${ROOT_DIR}"
@@ -83,7 +80,6 @@ cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DENABLE_CUDA="${ENABLE_CUDA}" \
     -DENABLE_OPENGL="${ENABLE_OPENGL}" \
-    -DBUILD_LEGACY_PLUGIN="${BUILD_LEGACY}" \
     -DUNITY_PLUGINS_DIR="${UNITY_PLUGINS_DIR}"
 
 echo ""
@@ -123,7 +119,6 @@ fi
 
 # Clean up any old plugin files that might cause conflicts
 OLD_PLUGINS=(
-    "${UNITY_LINUX_DIR}/GpuMemoryShare.so"
     "${UNITY_LINUX_DIR}/CudaInteropPlugin.so"  # Without lib prefix
 )
 
