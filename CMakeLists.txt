@@ -87,9 +87,10 @@ find_package(ZED 5 REQUIRED)
 find_package(CUDA REQUIRED)
 find_package(TensorRT REQUIRED)
 
-# Mark ZED SDK headers as system headers to suppress their warnings
+# Mark SDK headers as system headers to suppress their warnings
 include_directories(SYSTEM ${ZED_INCLUDE_DIRS})
 include_directories(SYSTEM ${CUDA_INCLUDE_DIRS})
+include_directories(SYSTEM ${TensorRT_INCLUDE_DIRS})
 include_directories(SYSTEM ${PCL_INCLUDE_DIRS})
 include_directories(SYSTEM ${OpenCV_INCLUDE_DIRS})
 include_directories(SYSTEM ${EIGEN3_INCLUDE_DIRS})
@@ -135,7 +136,7 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     Threads::Threads
     ${ZED_LIBRARIES}
     ${CUDA_LIBRARIES}
-    TensorRT::TensorRT
+    ${TensorRT_LIBRARIES}
     ${PCL_LIBRARIES}
 )
 
