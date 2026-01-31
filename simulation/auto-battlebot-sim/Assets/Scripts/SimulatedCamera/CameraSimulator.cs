@@ -389,15 +389,25 @@ namespace AutoBattlebot.SimulatedCamera
             }
 
             // Create AsyncGPUReadback-compatible RenderTexture
-            // - ARGB32 format (compatible with all platforms and AsyncGPUReadback)
+            // Use GraphicsFormat for explicit format control in HDRP
+            // - R8G8B8A8_SRGB: Standard sRGB format, compatible with AsyncGPUReadback
             // - No MSAA (AsyncGPUReadback doesn't support MSAA textures)
             // - No mipmaps (not needed for readback)
             // - Depth buffer bits = 0 (separate depth texture via LinearDepthCapturePass)
-            _rgbTexture = new RenderTexture(Width, Height, 0, RenderTextureFormat.ARGB32)
+            var desc = new RenderTextureDescriptor(Width, Height)
             {
-                antiAliasing = 1,
+                graphicsFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R8G8B8A8_SRGB,
+                depthBufferBits = 0,
+                msaaSamples = 1,
                 useMipMap = false,
                 autoGenerateMips = false,
+                enableRandomWrite = false,
+                dimension = UnityEngine.Rendering.TextureDimension.Tex2D,
+                volumeDepth = 1
+            };
+
+            _rgbTexture = new RenderTexture(desc)
+            {
                 filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp,
                 name = $"CameraSimulator_RGB_{Width}x{Height}"
@@ -408,6 +418,10 @@ namespace AutoBattlebot.SimulatedCamera
                 Debug.LogError("[CameraSimulator] Failed to create RenderTexture");
                 return false;
             }
+
+            Debug.Log($"[CameraSimulator] Created RenderTexture: {Width}x{Height}, " +
+                      $"Format={_rgbTexture.graphicsFormat}, " +
+                      $"ColorFormat={_rgbTexture.format}");
 
             // Set as camera target
             _camera.targetTexture = _rgbTexture;

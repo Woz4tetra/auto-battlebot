@@ -100,6 +100,14 @@ namespace AutoBattlebot.Communication
         private int _framesSinceLastLog = 0;
         private float _lastStatsTime = 0;
 
+        // Error tracking (to avoid log spam)
+        private int _rgbReadbackErrorCount = 0;
+        private int _depthReadbackErrorCount = 0;
+
+        // Startup delay to ensure camera has rendered
+        private int _startupFrameDelay = 3;
+        private bool _readyToCapture = false;
+
         #endregion
 
         #region Properties
@@ -266,6 +274,18 @@ namespace AutoBattlebot.Communication
                 return;
             }
 
+            // Wait for startup frames to ensure camera has rendered
+            if (!_readyToCapture)
+            {
+                if (_startupFrameDelay > 0)
+                {
+                    _startupFrameDelay--;
+                    return;
+                }
+                _readyToCapture = true;
+                Log("Ready to capture frames");
+            }
+
             // Check if we can start a new capture
             if (_pendingRgbReadbacks.Count < _maxPendingReadbacks)
             {
@@ -384,22 +404,48 @@ namespace AutoBattlebot.Communication
                 return;
             }
 
+            // Verify texture is valid
+            var rgbTexture = _cameraSimulator.RgbTexture;
+            if (rgbTexture == null || !rgbTexture.IsCreated())
+            {
+                return;
+            }
+
             _frameId++;
             _pendingFrameId = _frameId;
             _pendingTimestamp = Time.timeAsDouble;
             _pendingPose = GetCurrentPose();
 
-            // Request RGB readback
-            var rgbRequest = AsyncGPUReadback.Request(_cameraSimulator.RgbTexture, 0, TextureFormat.RGBA32);
+            // Log texture info on first capture
+            if (_frameId == 1)
+            {
+                Debug.Log($"[CommunicationBridge] First capture - RGB texture: " +
+                    $"{rgbTexture.width}x{rgbTexture.height}, " +
+                    $"Format={rgbTexture.format}, " +
+                    $"GraphicsFormat={rgbTexture.graphicsFormat}, " +
+                    $"IsCreated={rgbTexture.IsCreated()}");
+            }
+
+            // Request RGB readback - don't specify format, let Unity use native format
+            // This avoids format conversion errors in HDRP
+            var rgbRequest = AsyncGPUReadback.Request(rgbTexture);
             _pendingRgbReadbacks.Enqueue(rgbRequest);
             _rgbReady = false;
 
             // Request depth readback if enabled
             if (_captureDepth && _depthCapturePass != null && _depthCapturePass.HasTexture)
             {
-                var depthRequest = AsyncGPUReadback.Request(_depthCapturePass.DepthTexture, 0, TextureFormat.RFloat);
-                _pendingDepthReadbacks.Enqueue(depthRequest);
-                _depthReady = false;
+                var depthTexture = _depthCapturePass.DepthTexture;
+                if (depthTexture != null && depthTexture.IsCreated())
+                {
+                    var depthRequest = AsyncGPUReadback.Request(depthTexture);
+                    _pendingDepthReadbacks.Enqueue(depthRequest);
+                    _depthReady = false;
+                }
+                else
+                {
+                    _depthReady = true;
+                }
             }
             else
             {
@@ -416,7 +462,15 @@ namespace AutoBattlebot.Communication
 
                 if (request.hasError)
                 {
-                    Debug.LogError("[CommunicationBridge] RGB readback error");
+                    // Log more detailed error information
+                    if (_verboseLogging || _rgbReadbackErrorCount < 5)
+                    {
+                        Debug.LogError($"[CommunicationBridge] RGB readback error. " +
+                            $"Texture valid: {_cameraSimulator?.HasTexture}, " +
+                            $"Width: {request.width}, Height: {request.height}, " +
+                            $"LayerCount: {request.layerCount}");
+                    }
+                    _rgbReadbackErrorCount++;
                     _pendingRgbReadbacks.Dequeue();
                     continue;
                 }
@@ -426,17 +480,21 @@ namespace AutoBattlebot.Communication
                     break; // Still waiting
                 }
 
-                // Copy data to buffer
+                // Reset error count on success
+                _rgbReadbackErrorCount = 0;
+
+                // Copy data to buffer - reallocate if size changed
                 var data = request.GetData<byte>();
-                if (data.Length <= _rgbBuffer.Length)
+                if (data.Length != _rgbBuffer.Length)
                 {
-                    data.CopyTo(_rgbBuffer);
-                    _rgbReady = true;
+                    if (_verboseLogging)
+                    {
+                        Debug.Log($"[CommunicationBridge] Reallocating RGB buffer: {_rgbBuffer.Length} -> {data.Length}");
+                    }
+                    _rgbBuffer = new byte[data.Length];
                 }
-                else
-                {
-                    Debug.LogWarning($"[CommunicationBridge] RGB data size mismatch: {data.Length} vs {_rgbBuffer.Length}");
-                }
+                data.CopyTo(_rgbBuffer);
+                _rgbReady = true;
 
                 _pendingRgbReadbacks.Dequeue();
                 break; // Process one at a time
@@ -449,7 +507,12 @@ namespace AutoBattlebot.Communication
 
                 if (request.hasError)
                 {
-                    Debug.LogError("[CommunicationBridge] Depth readback error");
+                    if (_verboseLogging || _depthReadbackErrorCount < 5)
+                    {
+                        Debug.LogError($"[CommunicationBridge] Depth readback error. " +
+                            $"Texture valid: {_depthCapturePass?.HasTexture}");
+                    }
+                    _depthReadbackErrorCount++;
                     _pendingDepthReadbacks.Dequeue();
                     _depthReady = true; // Skip depth for this frame
                     continue;
@@ -460,13 +523,21 @@ namespace AutoBattlebot.Communication
                     break; // Still waiting
                 }
 
-                // Copy data to buffer
+                // Reset error count on success
+                _depthReadbackErrorCount = 0;
+
+                // Copy data to buffer - reallocate if size changed
                 var data = request.GetData<byte>();
-                if (_depthBuffer != null && data.Length <= _depthBuffer.Length)
+                if (_depthBuffer == null || data.Length != _depthBuffer.Length)
                 {
-                    data.CopyTo(_depthBuffer);
-                    _depthReady = true;
+                    if (_verboseLogging)
+                    {
+                        Debug.Log($"[CommunicationBridge] Reallocating depth buffer: {_depthBuffer?.Length ?? 0} -> {data.Length}");
+                    }
+                    _depthBuffer = new byte[data.Length];
                 }
+                data.CopyTo(_depthBuffer);
+                _depthReady = true;
 
                 _pendingDepthReadbacks.Dequeue();
                 break; // Process one at a time
@@ -521,6 +592,13 @@ namespace AutoBattlebot.Communication
         private void HandleClientConnected()
         {
             Log("C++ client connected");
+
+            // Reset capture state - wait a few frames before starting capture
+            // This ensures the camera has rendered at least once
+            _startupFrameDelay = 3;
+            _readyToCapture = false;
+            _rgbReadbackErrorCount = 0;
+            _depthReadbackErrorCount = 0;
 
             // Send camera intrinsics
             if (_intrinsicsProvider != null)
