@@ -86,6 +86,10 @@ namespace AutoBattlebot.SimulatedCamera
         [Tooltip("Enable performance profiling")]
         public bool enableProfiling = false;
 
+        [Tooltip("Debug mode: 0=normal, 1=constant 5m, 2=UV gradient, 3=raw depth")]
+        [Range(0, 3)]
+        public int debugMode = 0;
+
         #endregion
 
         #region Private Fields
@@ -106,6 +110,7 @@ namespace AutoBattlebot.SimulatedCamera
         private static readonly int _TextureSizeId = Shader.PropertyToID("_TextureSize");
         private static readonly int _NoiseParamsId = Shader.PropertyToID("_NoiseParams");
         private static readonly int _TimeId = Shader.PropertyToID("_Time");
+        private static readonly int _DebugModeId = Shader.PropertyToID("_DebugMode");
 
         // Profiling
         private Stopwatch _profilerStopwatch = new Stopwatch();
@@ -267,6 +272,15 @@ namespace AutoBattlebot.SimulatedCamera
             // Set material parameters
             _blitMaterial.SetVector(_DepthRangeId, new Vector4(nearClip, farClip, 0, 0));
             _blitMaterial.SetFloat(_InvalidDepthId, invalidDepthValue);
+            _blitMaterial.SetFloat(_DebugModeId, debugMode);
+
+            // Debug logging on first frame
+            if (_executeCount == 0)
+            {
+                Debug.Log($"[LinearDepthCapturePass] ExecuteBlitShader: debugMode={debugMode}, " +
+                          $"depthRange=({nearClip}, {farClip}), " +
+                          $"renderTarget={_depthTexture.width}x{_depthTexture.height}");
+            }
 
             // Blit using HDRP's full-screen triangle
             // SetRenderTarget and draw full-screen triangle

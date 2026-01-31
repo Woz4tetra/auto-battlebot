@@ -484,12 +484,24 @@ namespace AutoBattlebot.Communication
                 var depthTexture = _depthCapturePass.DepthTexture;
                 if (depthTexture != null && depthTexture.IsCreated())
                 {
+                    // Log depth texture info on first depth capture
+                    if (_frameId <= 3)
+                    {
+                        Debug.Log($"[CommunicationBridge] Depth capture requested: " +
+                                  $"texture={depthTexture.width}x{depthTexture.height}, " +
+                                  $"format={depthTexture.graphicsFormat}, " +
+                                  $"isCreated={depthTexture.IsCreated()}, " +
+                                  $"nativePtr={depthTexture.GetNativeTexturePtr()}");
+                    }
+
                     var depthRequest = AsyncGPUReadback.Request(depthTexture);
                     _pendingDepthReadbacks.Enqueue(depthRequest);
                     _depthReady = false;
                 }
                 else
                 {
+                    Debug.LogWarning($"[CommunicationBridge] Depth texture not ready: " +
+                                     $"texture={depthTexture}, isCreated={depthTexture?.IsCreated()}");
                     _depthReady = true;
                 }
             }
@@ -588,15 +600,32 @@ namespace AutoBattlebot.Communication
                 var data = request.GetData<byte>();
                 if (_depthBuffer == null || data.Length != _depthBuffer.Length)
                 {
-                    if (_verboseLogging)
-                    {
-                        Debug.Log($"[CommunicationBridge] Reallocating depth buffer: {_depthBuffer?.Length ?? 0} -> {data.Length}");
-                    }
+                    Debug.Log($"[CommunicationBridge] Reallocating depth buffer: {_depthBuffer?.Length ?? 0} -> {data.Length}");
                     _depthBuffer = new byte[data.Length];
                 }
                 data.CopyTo(_depthBuffer);
-                _depthReady = true;
 
+                // Debug: check depth buffer content (first few frames or verbose)
+                if (_pendingFrameId <= 5 || _verboseLogging)
+                {
+                    int nonZeroBytes = 0;
+                    float firstNonZeroValue = 0;
+                    for (int i = 0; i < Mathf.Min(400, _depthBuffer.Length); i += 4)
+                    {
+                        // Read as float (4 bytes)
+                        float val = System.BitConverter.ToSingle(_depthBuffer, i);
+                        if (val != 0)
+                        {
+                            nonZeroBytes++;
+                            if (firstNonZeroValue == 0) firstNonZeroValue = val;
+                        }
+                    }
+                    Debug.Log($"[CommunicationBridge] Depth readback: {data.Length} bytes, " +
+                              $"non-zero floats in first 100: {nonZeroBytes}, " +
+                              $"first non-zero value: {firstNonZeroValue:F3}m");
+                }
+
+                _depthReady = true;
                 _pendingDepthReadbacks.Dequeue();
                 break; // Process one at a time
             }

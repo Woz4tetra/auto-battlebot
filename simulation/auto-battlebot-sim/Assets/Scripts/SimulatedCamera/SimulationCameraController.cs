@@ -79,6 +79,12 @@ namespace AutoBattlebot.SimulatedCamera
         [Range(0f, 0.01f)]
         private float _distanceNoiseFactor = 0.001f;
 
+        [Header("Debug")]
+        [SerializeField]
+        [Tooltip("Debug mode: 0=normal, 1=constant 5m, 2=UV gradient, 3=raw depth")]
+        [Range(0, 3)]
+        private int _depthDebugMode = 0;
+
         #endregion
 
         #region Private Fields
@@ -302,6 +308,7 @@ namespace AutoBattlebot.SimulatedCamera
                 enableNoise = _enableDepthNoise,
                 baseNoiseLevel = _baseNoiseLevel,
                 distanceNoiseFactor = _distanceNoiseFactor,
+                debugMode = _depthDebugMode,
                 targetColorBuffer = CustomPass.TargetBuffer.None,
                 targetDepthBuffer = CustomPass.TargetBuffer.None,
                 clearFlags = ClearFlag.None,

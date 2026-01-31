@@ -35,14 +35,35 @@ Shader "AutoBattlebot/LinearizeDepthBlit"
         return output;
     }
     
+    // Debug mode: 0 = normal, 1 = constant output, 2 = UV gradient, 3 = raw depth
+    float _DebugMode;
+    
     float4 Frag(Varyings input) : SV_Target
     {
-        // Sample depth using HDRP's proper depth access
         float2 uv = input.texcoord;
         
+        // Debug mode 1: Write constant value to verify pipeline
+        if (_DebugMode >= 0.5 && _DebugMode < 1.5)
+        {
+            return float4(5.0, 0, 0, 1);  // Constant 5 meters
+        }
+        
+        // Debug mode 2: Write UV gradient to verify texture coordinates
+        if (_DebugMode >= 1.5 && _DebugMode < 2.5)
+        {
+            return float4(uv.x * 10.0, 0, 0, 1);  // 0-10 gradient
+        }
+        
+        // Sample depth using HDRP's proper depth access
         // Load depth from HDRP's depth buffer
-        // LOAD_TEXTURE2D_X samples from the correct slice in XR
-        float rawDepth = LoadCameraDepth(uv * _ScreenSize.xy);
+        float2 pixelCoord = uv * _ScreenSize.xy;
+        float rawDepth = LoadCameraDepth(pixelCoord);
+        
+        // Debug mode 3: Output raw depth value
+        if (_DebugMode >= 2.5 && _DebugMode < 3.5)
+        {
+            return float4(rawDepth, 0, 0, 1);
+        }
         
         // Handle invalid depth (sky/far plane)
         // In Unity's reversed Z-buffer, 0 = far plane (sky)
