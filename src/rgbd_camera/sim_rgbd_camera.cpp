@@ -63,6 +63,7 @@ namespace auto_battlebot
 
         if (!client.is_connected())
         {
+            std::cout << "TCP client isn't connected" << std::endl;
             // Try to reconnect
             if (tcp_config_.auto_reconnect)
             {
@@ -98,9 +99,10 @@ namespace auto_battlebot
         // This tells Unity to include depth data in the next frame
         if (get_depth)
         {
+            std::cout << "Requesting simulated frame with depth" << std::endl;
             if (!client.request_frame(true))
             {
-                diagnostics_logger_->error("request_frame", {{"with_depth", true}, {"success", false}});
+                std::cerr << "Depth request failed!" << std::endl;
                 return false;
             }
         }
@@ -111,20 +113,19 @@ namespace auto_battlebot
         auto start_time = std::chrono::steady_clock::now();
         int timeout_ms = get_depth ? tcp_config_.read_timeout_ms * 3 : tcp_config_.read_timeout_ms;
         int frames_skipped = 0;
-        const int max_frames_to_skip = 5;  // Don't skip forever
+        const int max_frames_to_skip = 10; // Don't skip forever
 
         std::optional<TcpFrameReadyWithDataMessage> frame;
 
         while (true)
         {
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start_time).count();
-            
+                               std::chrono::steady_clock::now() - start_time)
+                               .count();
+
             if (elapsed >= timeout_ms)
             {
-                diagnostics_logger_->error("get_frame", {{"error", "timeout"},
-                                                         {"get_depth", get_depth},
-                                                         {"frames_skipped", frames_skipped}});
+                std::cerr << "Took too long waiting for depth frame" << std::endl;
                 return false;
             }
 
@@ -134,34 +135,37 @@ namespace auto_battlebot
 
             if (!frame)
             {
-                diagnostics_logger_->error("get_frame", {{"get_depth", get_depth}, {"success", false}});
+                std::cerr << "Failed to receive depth frame" << std::endl;
                 return false;
             }
 
             // If we requested depth, wait until we get a frame with depth data
             // (skip RGB-only frames that were in flight before our request)
-            if (get_depth && frame->depth_data_size == 0)
+            if (get_depth)
             {
-                frames_skipped++;
-                if (frames_skipped >= max_frames_to_skip)
+                if (frame->depth_data_size == 0)
                 {
-                    diagnostics_logger_->error("get_frame", {{"error", "depth_not_received_after_skips"},
-                                                             {"frames_skipped", frames_skipped}});
-                    return false;
+                    frames_skipped++;
+                    if (frames_skipped >= max_frames_to_skip)
+                    {
+                        std::cerr << "Skipped too many frames waiting for depth frame" << std::endl;
+                        return false;
+                    }
+                    // Acknowledge this frame and wait for next one
+                    client.send_frame_processed(frame->frame_id);
+                    continue;
                 }
-                // Acknowledge this frame and wait for next one
-                client.send_frame_processed(frame->frame_id);
-                continue;
+                else
+                {
+                    std::cout << "Received depth frame" << std::endl;
+                }
             }
 
             // Got a suitable frame
             break;
         }
 
-        if (frames_skipped > 0)
-        {
-            diagnostics_logger_->debug("get_frame_skipped", {{"frames_skipped", frames_skipped}});
-        }
+        diagnostics_logger_->debug("get_frame_skipped", {{"frames_skipped", frames_skipped}});
 
         last_frame_id_ = frame->frame_id;
         frames_received_++;
@@ -194,8 +198,9 @@ namespace auto_battlebot
 
             // Depth is float32 raw bytes
             cv::Mat depth_raw(frame->depth_height, frame->depth_width, CV_32FC1, frame->depth_data.data());
-            cv::flip(depth_raw, depth_raw, 0);  // Flip to match RGB
+            cv::flip(depth_raw, depth_raw, 0); // Flip to match RGB
             data.depth.image = depth_raw.clone();
+            cv::imwrite("depth.jpg", depth_raw);
         }
 
         // Acknowledge frame processed
