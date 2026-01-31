@@ -64,10 +64,6 @@ namespace AutoBattlebot.Communication
         [Tooltip("Enable depth capture (set false for RGB-only mode)")]
         private bool _captureDepth = true;
 
-        [SerializeField]
-        [Tooltip("Maximum number of pending AsyncGPUReadback requests (1 recommended for stability)")]
-        private int _maxPendingReadbacks = 1;
-
         [Header("Debug")]
         [SerializeField]
         [Tooltip("Enable verbose logging")]
@@ -151,9 +147,10 @@ namespace AutoBattlebot.Communication
         #region IInitializable Implementation
 
         /// <summary>
-        /// Initialization phase - runs during Init phase.
+        /// Initialization phase - runs during PostInit phase.
+        /// This ensures CameraSimulator and SimulationCameraController have initialized first.
         /// </summary>
-        public InitializationPhase Phase => InitializationPhase.Init;
+        public InitializationPhase Phase => InitializationPhase.PostInit;
 
         /// <summary>
         /// Initialize the communication bridge.
@@ -354,49 +351,62 @@ namespace AutoBattlebot.Communication
                 _intrinsicsProvider = FindFirstObjectByType<CameraIntrinsicsProvider>();
             }
 
-            // Find depth capture pass - first try SimulationCameraController, then Custom Pass Volumes
-            if (_depthCapturePass == null && _captureDepth)
-            {
-                // Try to find via SimulationCameraController first
-                var cameraController = _cameraSimulator?.GetComponent<SimulationCameraController>();
-                if (cameraController == null)
-                {
-                    cameraController = FindFirstObjectByType<SimulationCameraController>();
-                }
-                
-                if (cameraController != null && cameraController.DepthPass != null)
-                {
-                    _depthCapturePass = cameraController.DepthPass;
-                }
-                else
-                {
-                    // Fallback: search Custom Pass Volumes directly
-                    var volumes = FindObjectsByType<UnityEngine.Rendering.HighDefinition.CustomPassVolume>(FindObjectsSortMode.None);
-                    foreach (var volume in volumes)
-                    {
-                        foreach (var pass in volume.customPasses)
-                        {
-                            if (pass is LinearDepthCapturePass depthPass)
-                            {
-                                _depthCapturePass = depthPass;
-                                break;
-                            }
-                        }
-                        if (_depthCapturePass != null) break;
-                    }
-                }
+            // Try to find depth capture pass (may not be available yet during early initialization)
+            TryFindDepthPass();
+        }
 
-                if (_depthCapturePass == null)
+        /// <summary>
+        /// Attempts to find the depth capture pass. Can be called multiple times
+        /// as the pass may be created later by SimulationCameraController.
+        /// </summary>
+        private bool TryFindDepthPass()
+        {
+            if (_depthCapturePass != null)
+            {
+                return true;  // Already found
+            }
+
+            if (!_captureDepth)
+            {
+                return false;  // Depth capture disabled by user
+            }
+
+            // Try to find via SimulationCameraController first
+            var cameraController = _cameraSimulator?.GetComponent<SimulationCameraController>();
+            if (cameraController == null)
+            {
+                cameraController = FindFirstObjectByType<SimulationCameraController>();
+            }
+            
+            if (cameraController != null && cameraController.DepthPass != null)
+            {
+                _depthCapturePass = cameraController.DepthPass;
+            }
+            else
+            {
+                // Fallback: search Custom Pass Volumes directly
+                var volumes = FindObjectsByType<UnityEngine.Rendering.HighDefinition.CustomPassVolume>(FindObjectsSortMode.None);
+                foreach (var volume in volumes)
                 {
-                    Debug.LogWarning("[CommunicationBridge] No LinearDepthCapturePass found - depth capture disabled. " +
-                        "Add SimulationCameraController with a LinearizeDepth compute shader to enable depth.");
-                    _captureDepth = false;
-                }
-                else
-                {
-                    Debug.Log($"[CommunicationBridge] Found depth capture: {_depthCapturePass.width}x{_depthCapturePass.height}");
+                    foreach (var pass in volume.customPasses)
+                    {
+                        if (pass is LinearDepthCapturePass depthPass)
+                        {
+                            _depthCapturePass = depthPass;
+                            break;
+                        }
+                    }
+                    if (_depthCapturePass != null) break;
                 }
             }
+
+            if (_depthCapturePass != null)
+            {
+                Debug.Log($"[CommunicationBridge] Found depth capture: {_depthCapturePass.width}x{_depthCapturePass.height}");
+                return true;
+            }
+
+            return false;
         }
 
         private void AllocateBuffers()
@@ -437,14 +447,21 @@ namespace AutoBattlebot.Communication
             _pendingTimestamp = Time.timeAsDouble;
             _pendingPose = GetCurrentPose();
 
-            // Log texture info on first capture
+            // On first capture, try to find depth pass again if not found during init
+            // (SimulationCameraController may have created it in Start())
             if (_frameId == 1)
             {
+                if (_captureDepth && _depthCapturePass == null)
+                {
+                    TryFindDepthPass();
+                }
+
                 Debug.Log($"[CommunicationBridge] First capture - RGB texture: " +
                     $"{rgbTexture.width}x{rgbTexture.height}, " +
                     $"Format={rgbTexture.format}, " +
                     $"GraphicsFormat={rgbTexture.graphicsFormat}, " +
-                    $"IsCreated={rgbTexture.IsCreated()}");
+                    $"IsCreated={rgbTexture.IsCreated()}, " +
+                    $"Depth={(_depthCapturePass != null ? "enabled" : "disabled")}");
             }
 
             // Request RGB readback - don't specify format, let Unity use native format
