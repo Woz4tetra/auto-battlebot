@@ -94,15 +94,73 @@ namespace auto_battlebot
     {
         auto &client = SimTcpClient::instance();
 
-        // Wait for frame with image data from Unity via TCP
-        auto frame = client.wait_for_frame_with_data(
-            std::chrono::milliseconds(tcp_config_.read_timeout_ms));
-
-        if (!frame)
+        // If depth is requested, send a frame request to Unity
+        // This tells Unity to include depth data in the next frame
+        if (get_depth)
         {
-            diagnostics_logger_->error("get_frame", {{"success", false}});
-            // Timeout or error
-            return false;
+            if (!client.request_frame(true))
+            {
+                diagnostics_logger_->error("request_frame", {{"with_depth", true}, {"success", false}});
+                return false;
+            }
+        }
+
+        // Wait for frame with image data from Unity via TCP
+        // When depth is requested, we may need to skip RGB-only frames that were
+        // already in flight before our request was processed
+        auto start_time = std::chrono::steady_clock::now();
+        int timeout_ms = get_depth ? tcp_config_.read_timeout_ms * 3 : tcp_config_.read_timeout_ms;
+        int frames_skipped = 0;
+        const int max_frames_to_skip = 5;  // Don't skip forever
+
+        std::optional<TcpFrameReadyWithDataMessage> frame;
+
+        while (true)
+        {
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start_time).count();
+            
+            if (elapsed >= timeout_ms)
+            {
+                diagnostics_logger_->error("get_frame", {{"error", "timeout"},
+                                                         {"get_depth", get_depth},
+                                                         {"frames_skipped", frames_skipped}});
+                return false;
+            }
+
+            int remaining_ms = timeout_ms - static_cast<int>(elapsed);
+            frame = client.wait_for_frame_with_data(
+                std::chrono::milliseconds(remaining_ms));
+
+            if (!frame)
+            {
+                diagnostics_logger_->error("get_frame", {{"get_depth", get_depth}, {"success", false}});
+                return false;
+            }
+
+            // If we requested depth, wait until we get a frame with depth data
+            // (skip RGB-only frames that were in flight before our request)
+            if (get_depth && frame->depth_data_size == 0)
+            {
+                frames_skipped++;
+                if (frames_skipped >= max_frames_to_skip)
+                {
+                    diagnostics_logger_->error("get_frame", {{"error", "depth_not_received_after_skips"},
+                                                             {"frames_skipped", frames_skipped}});
+                    return false;
+                }
+                // Acknowledge this frame and wait for next one
+                client.send_frame_processed(frame->frame_id);
+                continue;
+            }
+
+            // Got a suitable frame
+            break;
+        }
+
+        if (frames_skipped > 0)
+        {
+            diagnostics_logger_->debug("get_frame_skipped", {{"frames_skipped", frames_skipped}});
         }
 
         last_frame_id_ = frame->frame_id;
@@ -124,38 +182,29 @@ namespace auto_battlebot
         }
         else
         {
+            diagnostics_logger_->error("get_frame", {{"error", "no_rgb_data"}});
             return false;
         }
 
-        // Process depth image data
+        // Process depth image data if requested
         if (get_depth)
         {
             data.depth.header.stamp = frame->timestamp_seconds();
             data.depth.header.frame_id = FrameId::CAMERA;
 
-            if (frame->depth_data_size > 0 && frame->depth_width > 0 && frame->depth_height > 0)
-            {
-                // Depth is float32 raw bytes
-                cv::Mat depth_raw(frame->depth_height, frame->depth_width, CV_32FC1, frame->depth_data.data());
-                data.depth.image = depth_raw.clone();
-                diagnostics_logger_->info("get_frame", {{"depth_data_size", frame->depth_data_size},
-                                                        {"depth_width", frame->depth_width},
-                                                        {"depth_height", frame->depth_height}});
-            }
-            else
-            {
-                return false;
-            }
+            // Depth is float32 raw bytes
+            cv::Mat depth_raw(frame->depth_height, frame->depth_width, CV_32FC1, frame->depth_data.data());
+            cv::flip(depth_raw, depth_raw, 0);  // Flip to match RGB
+            data.depth.image = depth_raw.clone();
         }
 
         // Acknowledge frame processed
         client.send_frame_processed(frame->frame_id);
 
-        diagnostics_logger_->info("get_frame", {{"frames_received", static_cast<int>(last_frame_id_)},
-                                                {"rgb_data_size", frame->rgb_data_size},
-                                                {"rgb_width", frame->rgb_width},
-                                                {"rgb_height", frame->rgb_height},
-                                                {"success", true}});
+        diagnostics_logger_->debug("get_frame", {{"frame_id", static_cast<int>(last_frame_id_)},
+                                                 {"rgb_size", frame->rgb_data_size},
+                                                 {"depth_size", frame->depth_data_size},
+                                                 {"get_depth", get_depth}});
         return true;
     }
 
