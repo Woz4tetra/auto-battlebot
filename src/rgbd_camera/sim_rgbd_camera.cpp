@@ -7,10 +7,6 @@
 namespace auto_battlebot
 {
 
-// Static member definitions
-std::shared_ptr<SimTcpClient> SimRgbdCamera::tcp_client_ = nullptr;
-std::mutex SimRgbdCamera::tcp_client_mutex_;
-
 SimRgbdCamera::SimRgbdCamera(SimRgbdCameraConfiguration& config)
     : expected_width_(config.width),
       expected_height_(config.height),
@@ -29,52 +25,45 @@ SimRgbdCamera::SimRgbdCamera(SimRgbdCameraConfiguration& config)
 
 SimRgbdCamera::~SimRgbdCamera()
 {
-    
+    // Singleton handles cleanup
 }
 
 bool SimRgbdCamera::initialize()
 {
-    // Initialize TCP client
+    // Configure and connect to the singleton TCP client
+    auto& client = SimTcpClient::instance();
+    client.configure(tcp_config_);
+
+    // Connect to Unity
+    if (!client.is_connected())
     {
-        std::lock_guard<std::mutex> lock(tcp_client_mutex_);
-
-        // Create TCP client if not already created
-        if (!tcp_client_)
+        if (!client.connect())
         {
-            tcp_client_ = std::make_shared<SimTcpClient>(tcp_config_);
+            diagnostics_logger_->error("tcp_connect_failed",
+                {{"host", tcp_config_.host},
+                 {"port", tcp_config_.port}});
+            return false;
         }
+    }
 
-        // Connect to Unity
-        if (!tcp_client_->is_connected())
+    // Verify we received intrinsics
+    if (!client.has_intrinsics())
+    {
+        diagnostics_logger_->warning("no_intrinsics_received", "No intrinsics received from server");
+    }
+    else
+    {
+        auto intrinsics = client.get_intrinsics();
+        if (intrinsics)
         {
-            if (!tcp_client_->connect())
+            // Update expected dimensions from intrinsics
+            if (intrinsics->width != expected_width_ || intrinsics->height != expected_height_)
             {
-                diagnostics_logger_->error("tcp_connect_failed",
-                    {{"host", tcp_config_.host},
-                     {"port", tcp_config_.port}});
-                return false;
-            }
-        }
-
-        // Verify we received intrinsics
-        if (!tcp_client_->has_intrinsics())
-        {
-            diagnostics_logger_->warning("no_intrinsics_received", "No intrinsics received from server");
-        }
-        else
-        {
-            auto intrinsics = tcp_client_->get_intrinsics();
-            if (intrinsics)
-            {
-                // Update expected dimensions from intrinsics
-                if (intrinsics->width != expected_width_ || intrinsics->height != expected_height_)
-                {
-                    diagnostics_logger_->info("using_intrinsics_dimensions",
-                        {{"width", intrinsics->width},
-                         {"height", intrinsics->height}});
-                    expected_width_ = intrinsics->width;
-                    expected_height_ = intrinsics->height;
-                }
+                diagnostics_logger_->info("using_intrinsics_dimensions",
+                    {{"width", intrinsics->width},
+                     {"height", intrinsics->height}});
+                expected_width_ = intrinsics->width;
+                expected_height_ = intrinsics->height;
             }
         }
     }
@@ -83,11 +72,10 @@ bool SimRgbdCamera::initialize()
         {{"width", expected_width_},
          {"height", expected_height_},
          {"tcp_host", tcp_config_.host},
-         {"tcp_port", tcp_config_.port},
+         {"tcp_port", tcp_config_.port}});
 
     // Reset stats on re-initialization
     frames_received_ = 0;
-    gpu_frames_received_ = 0;
     last_log_time_ = std::chrono::steady_clock::now();
 
     return true;
@@ -95,12 +83,14 @@ bool SimRgbdCamera::initialize()
 
 bool SimRgbdCamera::get(CameraData& data, bool get_depth)
 {
-    if (!tcp_client_ || !tcp_client_->is_connected())
+    auto& client = SimTcpClient::instance();
+    
+    if (!client.is_connected())
     {
         // Try to reconnect
-        if (tcp_client_ && tcp_config_.auto_reconnect)
+        if (tcp_config_.auto_reconnect)
         {
-            if (!tcp_client_->try_reconnect())
+            if (!client.try_reconnect())
             {
                 return false;
             }
@@ -111,8 +101,24 @@ bool SimRgbdCamera::get(CameraData& data, bool get_depth)
         }
     }
 
-    // Wait for frame-ready message from Unity via TCP
-    auto frame = tcp_client_->wait_for_frame(
+    // Populate camera info from intrinsics
+    populate_camera_info(data);
+
+    // Get frame with image data from TCP
+    bool success = get_frame_with_data(data, get_depth);
+
+    // Log stats periodically
+    log_stats();
+
+    return success;
+}
+
+bool SimRgbdCamera::get_frame_with_data(CameraData& data, bool get_depth)
+{
+    auto& client = SimTcpClient::instance();
+    
+    // Wait for frame with image data from Unity via TCP
+    auto frame = client.wait_for_frame_with_data(
         std::chrono::milliseconds(tcp_config_.read_timeout_ms));
 
     if (!frame)
@@ -124,50 +130,50 @@ bool SimRgbdCamera::get(CameraData& data, bool get_depth)
     last_frame_id_ = frame->frame_id;
     frames_received_++;
 
-    // Populate camera info from intrinsics
-    populate_camera_info(data);
-
     // Populate pose from frame message
     populate_pose(data, *frame);
 
-    // Get image data - try GPU path first, fall back to CPU
-    bool success = false;
+    // Process RGB image data
+    data.rgb.header.stamp = frame->timestamp_seconds();
+    data.rgb.header.frame_id = FrameId::CAMERA;
 
-    if (!success)
+    if (frame->rgb_data_size > 0 && frame->rgb_width > 0 && frame->rgb_height > 0)
     {
-        // Fall back to CPU placeholder images
-        success = get_cpu_frame(data, get_depth, *frame);
+        // Convert RGBA raw bytes to BGR cv::Mat
+        cv::Mat rgba(frame->rgb_height, frame->rgb_width, CV_8UC4, frame->rgb_data.data());
+        cv::cvtColor(rgba, data.rgb.image, cv::COLOR_RGBA2BGR);
+        
+        // Update expected dimensions
+        expected_width_ = frame->rgb_width;
+        expected_height_ = frame->rgb_height;
+    }
+    else
+    {
+        // No image data - create placeholder
+        data.rgb.image = cv::Mat(expected_height_, expected_width_, CV_8UC3, cv::Scalar(0, 0, 0));
+    }
+
+    // Process depth image data
+    if (get_depth)
+    {
+        data.depth.header.stamp = frame->timestamp_seconds();
+        data.depth.header.frame_id = FrameId::CAMERA;
+
+        if (frame->depth_data_size > 0 && frame->depth_width > 0 && frame->depth_height > 0)
+        {
+            // Depth is float32 raw bytes
+            cv::Mat depth_raw(frame->depth_height, frame->depth_width, CV_32FC1, frame->depth_data.data());
+            data.depth.image = depth_raw.clone();
+        }
+        else
+        {
+            // No depth data - create placeholder
+            data.depth.image = cv::Mat(expected_height_, expected_width_, CV_32FC1, cv::Scalar(0.0f));
+        }
     }
 
     // Acknowledge frame processed
-    tcp_client_->send_frame_processed(frame->frame_id);
-
-    // Log stats periodically
-    log_stats();
-
-    return success;
-}
-
-bool SimRgbdCamera::get_frame(CameraData& data, bool get_depth, const TcpFrameReadyMessage& frame)
-{
-    // Create placeholder CPU images
-    // In a full implementation, these would be transferred from Unity via TCP
-    // or the CPU fallback path of the CUDA Interop plugin
-
-    data.rgb.header.stamp = frame.timestamp_seconds();
-    data.rgb.header.frame_id = FrameId::CAMERA;
-
-    // Create black placeholder image
-    data.rgb.image = cv::Mat(expected_height_, expected_width_, CV_8UC3, cv::Scalar(0, 0, 0));
-
-    if (get_depth)
-    {
-        data.depth.header.stamp = frame.timestamp_seconds();
-        data.depth.header.frame_id = FrameId::CAMERA;
-
-        // Create zero depth placeholder
-        data.depth.image = cv::Mat(expected_height_, expected_width_, CV_32FC1, cv::Scalar(0.0f));
-    }
+    client.send_frame_processed(frame->frame_id);
 
     return true;
 }
@@ -180,17 +186,12 @@ void SimRgbdCamera::log_stats()
     if (elapsed >= 1)
     {
         double fps = static_cast<double>(frames_received_) / elapsed;
-        double gpu_ratio = frames_received_ > 0 ?
-            static_cast<double>(gpu_frames_received_) / frames_received_ : 0.0;
 
         diagnostics_logger_->info("stats",
             {{"frames_received", static_cast<int>(frames_received_)},
-             {"gpu_frames", static_cast<int>(gpu_frames_received_)},
-             {"gpu_ratio", gpu_ratio},
              {"fps", fps}});
 
         frames_received_ = 0;
-        gpu_frames_received_ = 0;
         last_log_time_ = now;
     }
 }
@@ -198,22 +199,12 @@ void SimRgbdCamera::log_stats()
 bool SimRgbdCamera::should_close()
 {
     // Check if TCP connection is still alive
-    if (tcp_client_ && !tcp_client_->is_connected())
-    {
-        return true;
-    }
-    return false;
-}
-
-std::shared_ptr<SimTcpClient> SimRgbdCamera::get_tcp_client()
-{
-    std::lock_guard<std::mutex> lock(tcp_client_mutex_);
-    return tcp_client_;
+    return !SimTcpClient::instance().is_connected();
 }
 
 void SimRgbdCamera::populate_camera_info(CameraData& data)
 {
-    auto intrinsics = tcp_client_->get_intrinsics();
+    auto intrinsics = SimTcpClient::instance().get_intrinsics();
 
     if (intrinsics)
     {
@@ -258,7 +249,7 @@ void SimRgbdCamera::populate_camera_info(CameraData& data)
     }
 }
 
-void SimRgbdCamera::populate_pose(CameraData& data, const TcpFrameReadyMessage& frame)
+void SimRgbdCamera::populate_pose(CameraData& data, const TcpFrameReadyWithDataMessage& frame)
 {
     // Convert pose array to Transform
     // Pose is 4x4 matrix in row-major order

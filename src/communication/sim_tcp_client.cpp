@@ -18,15 +18,73 @@
 namespace auto_battlebot
 {
 
-SimTcpClient::SimTcpClient(const SimTcpClientConfig& config)
-    : config_(config)
+SimTcpClient& SimTcpClient::instance()
+{
+    static SimTcpClient instance;
+    return instance;
+}
+
+SimTcpClient::SimTcpClient()
 {
     logger_ = DiagnosticsLogger::get_logger("sim_tcp_client");
+    // Pre-allocate receive buffer for image data (8MB)
+    recv_buffer_.resize(8 * 1024 * 1024);
 }
 
 SimTcpClient::~SimTcpClient()
 {
     disconnect();
+}
+
+void SimTcpClient::configure(const SimTcpClientConfig& config)
+{
+    std::lock_guard<std::mutex> lock(socket_mutex_);
+    
+    if (connected_)
+    {
+        logger_->warning("configure_while_connected", 
+            "Configuration changed while connected - will apply on next connect");
+    }
+    
+    config_ = config;
+    configured_ = true;
+    
+    logger_->info("configured", 
+        {{"host", config_.host}, 
+         {"port", config_.port},
+         {"buffer_size", config_.socket_buffer_size}});
+}
+
+void SimTcpClient::configure_optimizations()
+{
+    if (socket_fd_ < 0) return;
+    
+    // Large socket buffers for image data (4MB default)
+    int buf_size = config_.socket_buffer_size;
+    if (setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, &buf_size, sizeof(buf_size)) < 0)
+    {
+        logger_->warning("so_rcvbuf_failed", {{"error", strerror(errno)}});
+    }
+    if (setsockopt(socket_fd_, SOL_SOCKET, SO_SNDBUF, &buf_size, sizeof(buf_size)) < 0)
+    {
+        logger_->warning("so_sndbuf_failed", {{"error", strerror(errno)}});
+    }
+    
+    // Disable Nagle's algorithm for low latency
+    int flag = 1;
+    if (setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) < 0)
+    {
+        logger_->warning("tcp_nodelay_failed", {{"error", strerror(errno)}});
+    }
+    
+    // Disable delayed ACKs (Linux-specific)
+    if (setsockopt(socket_fd_, IPPROTO_TCP, TCP_QUICKACK, &flag, sizeof(flag)) < 0)
+    {
+        logger_->warning("tcp_quickack_failed", {{"error", strerror(errno)}});
+    }
+    
+    logger_->info("optimizations_configured", 
+        {{"buffer_size", buf_size}});
 }
 
 bool SimTcpClient::connect()
@@ -37,6 +95,12 @@ bool SimTcpClient::connect()
     {
         return true;
     }
+    
+    if (!configured_)
+    {
+        logger_->warning("connect_without_configure", 
+            "Connecting with default configuration");
+    }
 
     // Create socket
     socket_fd_ = socket(AF_INET, SOCK_STREAM, 0);
@@ -46,12 +110,8 @@ bool SimTcpClient::connect()
         return false;
     }
 
-    // Set TCP_NODELAY for low latency
-    int flag = 1;
-    if (setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) < 0)
-    {
-        logger_->warning("tcp_nodelay_failed", {{"error", strerror(errno)}});
-    }
+    // Apply Linux socket optimizations
+    configure_optimizations();
 
     // Set up address
     struct sockaddr_in server_addr{};
@@ -707,7 +767,8 @@ std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::read_frame_ready_with_
     if (frame.rgb_data_size < 0 || frame.depth_data_size < 0)
     {
         logger_->warning("frame_with_data_invalid_sizes",
-            {{"rgb_size", frame.rgb_data_size}, {"depth_size", frame.depth_data_size}});
+            {{"rgb_size", static_cast<int>(frame.rgb_data_size)}, 
+             {"depth_size", static_cast<int>(frame.depth_data_size)}});
         return std::nullopt;
     }
 
@@ -718,7 +779,7 @@ std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::read_frame_ready_with_
         if (!read_exact(frame.rgb_data.data(), frame.rgb_data_size, config_.read_timeout_ms * 10))
         {
             logger_->warning("frame_with_data_rgb_read_failed",
-                {{"expected_size", frame.rgb_data_size}});
+                {{"expected_size", static_cast<int>(frame.rgb_data_size)}});
             return std::nullopt;
         }
     }
@@ -730,15 +791,15 @@ std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::read_frame_ready_with_
         if (!read_exact(frame.depth_data.data(), frame.depth_data_size, config_.read_timeout_ms * 10))
         {
             logger_->warning("frame_with_data_depth_read_failed",
-                {{"expected_size", frame.depth_data_size}});
+                {{"expected_size", static_cast<int>(frame.depth_data_size)}});
             return std::nullopt;
         }
     }
 
     logger_->debug("frame_with_data_received",
-        {{"frame_id", frame.frame_id},
-         {"rgb_size", frame.rgb_data_size},
-         {"depth_size", frame.depth_data_size}});
+        {{"frame_id", static_cast<int>(frame.frame_id)},
+         {"rgb_size", static_cast<int>(frame.rgb_data_size)},
+         {"depth_size", static_cast<int>(frame.depth_data_size)}});
 
     return frame;
 }

@@ -13,7 +13,7 @@ namespace auto_battlebot
      * @brief Simulation transmitter that sends velocity commands via TCP to Unity
      *
      * This class implements TransmitterInterface for simulation mode.
-     * It uses the shared TCP client (created by SimRgbdCamera) to send
+     * It uses the SimTcpClient singleton (shared with SimRgbdCamera) to send
      * velocity commands to Unity.
      */
     class SimTransmitter : public TransmitterInterface
@@ -28,7 +28,6 @@ namespace auto_battlebot
 
     private:
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
-        std::weak_ptr<SimTcpClient> tcp_client_;
 
         uint64_t num_commands_sent_ = 0;
         bool init_button_done_pressing_ = false;

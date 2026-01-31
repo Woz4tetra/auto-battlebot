@@ -1,10 +1,10 @@
 /**
  * @file sim_tcp_client.hpp
- * @brief TCP client for communication with Unity simulation
+ * @brief Singleton TCP client for communication with Unity simulation
  *
  * This class handles TCP socket communication with the Unity simulation
- * for exchanging small data like pose, velocity commands, and camera intrinsics.
- * Large data (images) is handled separately via CUDA Interop.
+ * for exchanging all data including images, pose, velocity commands, and camera intrinsics.
+ * Uses Linux socket optimizations for low-latency localhost communication.
  */
 
 #pragma once
@@ -33,36 +33,51 @@ struct SimTcpClientConfig
     int read_timeout_ms = 100;
     bool auto_reconnect = true;
     int reconnect_interval_ms = 1000;
+    int socket_buffer_size = 4 * 1024 * 1024;  // 4MB for image data
 };
 
 /**
- * @brief TCP client for Unity simulation communication
+ * @brief Singleton TCP client for Unity simulation communication
  *
+ * This is a singleton class shared between SimRgbdCamera and SimTransmitter.
+ * 
  * Responsibilities:
  * - Connect to Unity TCP server
  * - Receive camera intrinsics on connection
- * - Receive frame-ready messages with pose data
+ * - Receive frame-ready messages with image data and pose
  * - Send velocity commands
  * - Send frame-processed acknowledgments
  * - Handle reconnection on disconnect
+ * - Apply Linux socket optimizations for low latency
  */
 class SimTcpClient
 {
 public:
     /**
-     * @brief Construct a new SimTcpClient
-     * @param config Client configuration
+     * @brief Get the singleton instance
+     * @return Reference to the singleton SimTcpClient
      */
-    explicit SimTcpClient(const SimTcpClientConfig& config);
+    static SimTcpClient& instance();
+
+    /**
+     * @brief Configure the singleton before first use
+     * @param config Client configuration
+     * 
+     * Must be called before connect(). If called after connect(),
+     * will disconnect and apply new config on next connect().
+     */
+    void configure(const SimTcpClientConfig& config);
 
     /**
      * @brief Destructor - closes connection
      */
     ~SimTcpClient();
 
-    // Non-copyable
+    // Singleton - delete copy/move
     SimTcpClient(const SimTcpClient&) = delete;
     SimTcpClient& operator=(const SimTcpClient&) = delete;
+    SimTcpClient(SimTcpClient&&) = delete;
+    SimTcpClient& operator=(SimTcpClient&&) = delete;
 
     /**
      * @brief Connect to the Unity server
@@ -86,6 +101,14 @@ public:
      * @return true if reconnection succeeded
      */
     bool try_reconnect();
+
+    /**
+     * @brief Apply Linux socket optimizations for low latency
+     * 
+     * Sets large socket buffers, TCP_NODELAY, TCP_QUICKACK for optimal
+     * localhost performance. Called automatically after connect().
+     */
+    void configure_optimizations();
 
     /**
      * @brief Wait for a frame-ready message from Unity
@@ -159,14 +182,22 @@ public:
     uint64_t get_reconnect_count() const { return reconnect_count_; }
 
 private:
+    // Private constructor for singleton
+    SimTcpClient();
+
     SimTcpClientConfig config_;
+    bool configured_ = false;
     int socket_fd_ = -1;
     std::atomic<bool> connected_{false};
     mutable std::mutex socket_mutex_;
+    mutable std::mutex send_mutex_;  // Thread-safe sending
 
     // Received data
     std::optional<TcpCameraIntrinsics> intrinsics_;
     uint64_t command_id_ = 0;
+
+    // Large buffer for image data
+    std::vector<uint8_t> recv_buffer_;
 
     // Statistics
     std::atomic<uint64_t> frames_received_{0};
@@ -176,8 +207,8 @@ private:
     // Diagnostics
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
 
-    // Fallback mode state
-    std::atomic<bool> fallback_mode_detected_{false};
+    // Image transfer mode state (always true now - no CUDA interop)
+    std::atomic<bool> fallback_mode_detected_{true};
 
     // Internal helpers
     bool read_exact(void* buffer, size_t size, int timeout_ms);

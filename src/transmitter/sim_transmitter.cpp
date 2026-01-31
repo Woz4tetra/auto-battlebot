@@ -1,5 +1,4 @@
 #include "transmitter/sim_transmitter.hpp"
-#include "rgbd_camera/sim_rgbd_camera.hpp"
 
 namespace auto_battlebot
 {
@@ -11,21 +10,19 @@ SimTransmitter::SimTransmitter([[maybe_unused]] SimTransmitterConfiguration& con
 
 bool SimTransmitter::initialize()
 {
-    // Get the shared TCP client from SimRgbdCamera
-    tcp_client_ = SimRgbdCamera::get_tcp_client();
-
-    auto client = tcp_client_.lock();
-    if (!client)
+    // Use the SimTcpClient singleton (should be connected by SimRgbdCamera)
+    auto& client = SimTcpClient::instance();
+    
+    if (!client.is_connected())
     {
-        diagnostics_logger_->warning("tcp_client_not_available",
-            {{"message", "SimRgbdCamera must be initialized first"}});
-        // Not an error - the TCP client may not be ready yet
-        // We'll try again when sending commands
+        diagnostics_logger_->warning("tcp_client_not_connected",
+            {{"message", "SimRgbdCamera should be initialized first to establish connection"}});
+        // Not a fatal error - connection may be established later
     }
     else
     {
         diagnostics_logger_->info("initialized",
-            {{"tcp_connected", client->is_connected()}});
+            {{"tcp_connected", true}});
     }
 
     return true;
@@ -39,29 +36,16 @@ CommandFeedback SimTransmitter::update()
 
 void SimTransmitter::send(VelocityCommand command)
 {
-    // Get TCP client (may have been initialized after us)
-    auto client = tcp_client_.lock();
-    if (!client)
-    {
-        tcp_client_ = SimRgbdCamera::get_tcp_client();
-        client = tcp_client_.lock();
-    }
+    auto& client = SimTcpClient::instance();
 
-    if (!client)
-    {
-        diagnostics_logger_->warning("send_failed",
-            {{"reason", "TCP client not available"}});
-        return;
-    }
-
-    if (!client->is_connected())
+    if (!client.is_connected())
     {
         diagnostics_logger_->warning("send_failed",
             {{"reason", "TCP not connected"}});
         return;
     }
 
-    if (client->send_velocity_command(command))
+    if (client.send_velocity_command(command))
     {
         num_commands_sent_++;
 
