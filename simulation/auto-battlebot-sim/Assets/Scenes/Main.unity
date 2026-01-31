@@ -1369,7 +1369,7 @@ MonoBehaviour:
   _cameraSimulator: {fileID: 1806760295}
   _intrinsicsProvider: {fileID: 1806760297}
   _captureDepth: 1
-  _verboseLogging: 0
+  _verboseLogging: 1
   _statsLogFrameInterval: 120
 --- !u!1 &647600305
 GameObject:
@@ -2533,7 +2533,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: AutoBattlebot.Camera::AutoBattlebot.Camera.SimulationCameraController
   _useBlitShader: 1
-  _linearizeDepthBlitShader: {fileID: 0}
+  _linearizeDepthBlitShader: {fileID: 4800000, guid: 42fc8f1b2b45246f98a191d9e11fef41, type: 3}
   _linearizeDepthShader: {fileID: 7200000, guid: 575f98e5c182fb978a8b4d6621f4d324, type: 3}
   _customPassVolume: {fileID: 0}
   _autoInitialize: 1
@@ -2542,7 +2542,7 @@ MonoBehaviour:
   _enableDepthNoise: 0
   _baseNoiseLevel: 0.002
   _distanceNoiseFactor: 0.001
-  _depthDebugMode: 1
+  _depthDebugMode: 0
 --- !u!114 &1806760295
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2577,7 +2577,7 @@ Camera:
   m_ShutterSpeed: 0.005
   m_Aperture: 16
   m_FocusDistance: 10
-  m_FocalLength: 50
+  m_FocalLength: 23.588652
   m_BladeCount: 5
   m_Curvature: {x: 2, y: 11}
   m_BarrelClipping: 0.25

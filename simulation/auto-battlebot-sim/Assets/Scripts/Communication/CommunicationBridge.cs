@@ -52,10 +52,6 @@ namespace AutoBattlebot.Communication
         private CameraSimulator _cameraSimulator;
 
         [SerializeField]
-        [Tooltip("Reference to the depth capture pass (optional, via Custom Pass Volume)")]
-        private LinearDepthCapturePass _depthCapturePass;
-
-        [SerializeField]
         [Tooltip("Reference to the camera intrinsics provider")]
         private CameraIntrinsicsProvider _intrinsicsProvider;
 
@@ -80,6 +76,7 @@ namespace AutoBattlebot.Communication
         private TcpBridge _tcpBridge;
         private bool _isInitialized = false;
         private ulong _frameId = 0;
+        private LinearDepthCapturePass _depthCapturePass;
 
         // AsyncGPUReadback state
         private Queue<AsyncGPUReadbackRequest> _pendingRgbReadbacks = new Queue<AsyncGPUReadbackRequest>();
@@ -355,9 +352,6 @@ namespace AutoBattlebot.Communication
             {
                 _intrinsicsProvider = FindFirstObjectByType<CameraIntrinsicsProvider>();
             }
-
-            // Try to find depth capture pass (may not be available yet during early initialization)
-            TryFindDepthPass();
         }
 
         /// <summary>
@@ -368,11 +362,13 @@ namespace AutoBattlebot.Communication
         {
             if (_depthCapturePass != null)
             {
+                Debug.Log($"[CommunicationBridge] Depth capture is already found");
                 return true;  // Already found
             }
 
             if (!_captureDepth)
             {
+                Debug.Log($"[CommunicationBridge] Depth capture is disabled");
                 return false;  // Depth capture disabled by user
             }
 
@@ -382,7 +378,7 @@ namespace AutoBattlebot.Communication
             {
                 cameraController = FindFirstObjectByType<SimulationCameraController>();
             }
-            
+
             if (cameraController != null && cameraController.DepthPass != null)
             {
                 _depthCapturePass = cameraController.DepthPass;
@@ -411,6 +407,7 @@ namespace AutoBattlebot.Communication
                 return true;
             }
 
+            Debug.LogWarning($"[CommunicationBridge] Failed to find depth capture");
             return false;
         }
 
@@ -452,15 +449,9 @@ namespace AutoBattlebot.Communication
             _pendingTimestamp = Time.timeAsDouble;
             _pendingPose = GetCurrentPose();
 
-            // On first capture, try to find depth pass again if not found during init
-            // (SimulationCameraController may have created it in Start())
-            if (_frameId == 1)
+            if (_captureDepth && _depthCapturePass == null)
             {
-                if (_captureDepth && _depthCapturePass == null)
-                {
-                    TryFindDepthPass();
-                }
-
+                TryFindDepthPass();
                 Debug.Log($"[CommunicationBridge] First capture - RGB texture: " +
                     $"{rgbTexture.width}x{rgbTexture.height}, " +
                     $"Format={rgbTexture.format}, " +
@@ -479,35 +470,39 @@ namespace AutoBattlebot.Communication
             // 1. Depth capture is enabled in inspector (_captureDepth)
             // 2. C++ requested depth for this frame (_depthRequested)
             // 3. Depth pass is available and has a valid texture
-            if (_captureDepth && _depthRequested && _depthCapturePass != null && _depthCapturePass.HasTexture)
+            if (!_captureDepth || !_depthRequested)
             {
-                var depthTexture = _depthCapturePass.DepthTexture;
-                if (depthTexture != null && depthTexture.IsCreated())
-                {
-                    // Log depth texture info on first depth capture
-                    if (_frameId <= 3)
-                    {
-                        Debug.Log($"[CommunicationBridge] Depth capture requested: " +
-                                  $"texture={depthTexture.width}x{depthTexture.height}, " +
-                                  $"format={depthTexture.graphicsFormat}, " +
-                                  $"isCreated={depthTexture.IsCreated()}, " +
-                                  $"nativePtr={depthTexture.GetNativeTexturePtr()}");
-                    }
+                _depthReady = true; // No depth to wait for
+                return;
+            }
+            if (_depthCapturePass == null)
+            {
+                Debug.LogWarning($"[CommunicationBridge] Depth pass failed to initialize");
+                return;
+            }
+            if (!_depthCapturePass.HasTexture)
+            {
+                Debug.LogWarning($"[CommunicationBridge] Depth pass failed to create texture");
+                return;
+            }
+            var depthTexture = _depthCapturePass.DepthTexture;
+            if (depthTexture != null && depthTexture.IsCreated())
+            {
+                Debug.Log($"[CommunicationBridge] Depth capture requested: " +
+                    $"texture={depthTexture.width}x{depthTexture.height}, " +
+                    $"format={depthTexture.graphicsFormat}, " +
+                    $"isCreated={depthTexture.IsCreated()}, " +
+                    $"nativePtr={depthTexture.GetNativeTexturePtr()}");
 
-                    var depthRequest = AsyncGPUReadback.Request(depthTexture);
-                    _pendingDepthReadbacks.Enqueue(depthRequest);
-                    _depthReady = false;
-                }
-                else
-                {
-                    Debug.LogWarning($"[CommunicationBridge] Depth texture not ready: " +
-                                     $"texture={depthTexture}, isCreated={depthTexture?.IsCreated()}");
-                    _depthReady = true;
-                }
+                var depthRequest = AsyncGPUReadback.Request(depthTexture);
+                _pendingDepthReadbacks.Enqueue(depthRequest);
+                _depthReady = false;
             }
             else
             {
-                _depthReady = true; // No depth to wait for
+                Debug.LogWarning($"[CommunicationBridge] Depth texture not ready: " +
+                                    $"texture={depthTexture}, isCreated={depthTexture?.IsCreated()}");
+                _depthReady = true;
             }
         }
 
@@ -653,7 +648,7 @@ namespace AutoBattlebot.Communication
 
             // Include depth only if it was requested and we have the data
             bool sendDepth = _captureDepth && _depthRequested && _depthBuffer != null && _depthBuffer.Length > 0;
-            
+
             // Reset depth request after this frame
             if (_depthRequested)
             {
@@ -668,7 +663,7 @@ namespace AutoBattlebot.Communication
                 {
                     if (_rgbBuffer[i] != 0) rgbNonZero++;
                 }
-                Debug.Log($"[CommunicationBridge] SendFrame {_pendingFrameId}: " +
+                Log($"[CommunicationBridge] SendFrame {_pendingFrameId}: " +
                     $"RGB={_rgbBuffer.Length} bytes (non-zero in first 1000: {rgbNonZero}), " +
                     $"Depth={(sendDepth ? _depthBuffer.Length.ToString() : "none")}, " +
                     $"Dims={width}x{height}");
