@@ -1,12 +1,19 @@
 // Auto-Battlebot Simulation System
-// LinearizeDepth.compute - Compute shader for depth buffer linearization
+// LinearizeDepth.compute - Compute shader for depth buffer linearization (SIM-007)
 //
 // Converts Unity's non-linear depth buffer to linear depth in meters.
-// Used by LinearDepthCapturePass for CUDA Interop depth capture.
+// Used by LinearDepthCapturePass for AsyncGPUReadback and TCP transfer.
+//
+// Depth output characteristics (matching ZED 2i):
+// - Values are in meters (linearized from Unity's reversed Z-buffer)
+// - Valid range: configurable (default 0.3m - 20m)
+// - Invalid depth (sky, out of range): configurable (default 0.0)
+// - Format: R32_SFloat (32-bit float per pixel)
 
 #pragma kernel LinearizeDepth
+#pragma kernel LinearizeDepthNoisy
 
-// Input: Unity's depth buffer (non-linear, 0-1 range)
+// Input: Unity's depth buffer (non-linear, reversed Z, 0-1 range)
 // HDRP uses Texture2DArray for depth buffer (for XR/stereo support)
 Texture2DArray<float> _DepthInput;
 
@@ -29,7 +36,14 @@ float _InvalidDepth;
 // Texture dimensions (x = width, y = height, z = slice index for array textures)
 float4 _TextureSize;
 
+// Noise parameters (x = base noise, y = distance factor)
+float4 _NoiseParams;
+
+// Time for noise variation
+float _Time;
+
 // Convert Unity depth buffer value to linear eye depth
+// Unity uses reversed Z-buffer where 1 = near, 0 = far
 float LinearEyeDepth(float z)
 {
     // Unity's reversed Z-buffer linearization formula
@@ -37,27 +51,40 @@ float LinearEyeDepth(float z)
     return 1.0 / (_ZBufferParams.z * z + _ZBufferParams.w);
 }
 
-[numthreads(8, 8, 1)]
-void LinearizeDepth(uint3 id : SV_DispatchThreadID)
+// Simple hash function for pseudo-random noise
+float hash(float2 p)
 {
-    // Bounds check
-    if (id.x >= (uint)_TextureSize.x || id.y >= (uint)_TextureSize.y)
-    {
-        return;
-    }
+    float3 p3 = frac(float3(p.xyx) * 0.13);
+    p3 += dot(p3, p3.yzx + 3.333);
+    return frac((p3.x + p3.y) * p3.z);
+}
 
-    // Sample depth buffer from slice 0 (main camera view)
-    // HDRP uses Texture2DArray, we sample with uint3(x, y, slice)
-    uint sliceIndex = (uint)_TextureSize.z;
-    float rawDepth = _DepthInput[uint3(id.xy, sliceIndex)];
+// Generate Gaussian-like noise from uniform noise
+float gaussianNoise(float2 uv, float time)
+{
+    // Box-Muller approximation using multiple uniform samples
+    float u1 = hash(uv + float2(time * 0.1, 0.0));
+    float u2 = hash(uv + float2(0.0, time * 0.1 + 0.5));
+    
+    // Avoid log(0)
+    u1 = max(u1, 0.0001);
+    
+    // Box-Muller transform
+    float r = sqrt(-2.0 * log(u1));
+    float theta = 6.28318530718 * u2;
+    
+    return r * cos(theta);
+}
 
+// Process depth value (shared logic)
+float ProcessDepth(float rawDepth)
+{
     // Handle invalid depth (sky/far plane)
     // In Unity's reversed Z-buffer, 0 = far plane, 1 = near plane
     // A value of exactly 0 indicates far plane/sky
     if (rawDepth <= 0.0)
     {
-        _LinearDepthOutput[id.xy] = _InvalidDepth;
-        return;
+        return _InvalidDepth;
     }
 
     // Convert to linear depth in meters
@@ -70,12 +97,86 @@ void LinearizeDepth(uint3 id : SV_DispatchThreadID)
     if (linearDepth < nearClip)
     {
         // Too close - clamp to near
-        linearDepth = nearClip;
+        return nearClip;
     }
     else if (linearDepth > farClip)
     {
         // Too far - treat as invalid
-        linearDepth = _InvalidDepth;
+        return _InvalidDepth;
+    }
+
+    return linearDepth;
+}
+
+// Standard kernel - no noise
+[numthreads(8, 8, 1)]
+void LinearizeDepth(uint3 id : SV_DispatchThreadID)
+{
+    // Bounds check
+    if (id.x >= (uint)_TextureSize.x || id.y >= (uint)_TextureSize.y)
+    {
+        return;
+    }
+
+    // Sample depth buffer from the specified slice (main camera view)
+    // HDRP uses Texture2DArray, we sample with uint3(x, y, slice)
+    uint sliceIndex = (uint)_TextureSize.z;
+    float rawDepth = _DepthInput[uint3(id.xy, sliceIndex)];
+
+    // Process and output
+    _LinearDepthOutput[id.xy] = ProcessDepth(rawDepth);
+}
+
+// Noisy kernel - adds sensor noise simulation
+// Simulates depth sensor characteristics:
+// - Base noise: constant noise level (sensor noise)
+// - Distance-dependent noise: noise increases with depth (laser/IR dispersion)
+[numthreads(8, 8, 1)]
+void LinearizeDepthNoisy(uint3 id : SV_DispatchThreadID)
+{
+    // Bounds check
+    if (id.x >= (uint)_TextureSize.x || id.y >= (uint)_TextureSize.y)
+    {
+        return;
+    }
+
+    // Sample depth buffer
+    uint sliceIndex = (uint)_TextureSize.z;
+    float rawDepth = _DepthInput[uint3(id.xy, sliceIndex)];
+
+    // Process depth
+    float linearDepth = ProcessDepth(rawDepth);
+
+    // Add noise only to valid depth values
+    if (linearDepth > 0.0 && linearDepth != _InvalidDepth)
+    {
+        // Calculate noise level
+        float baseNoise = _NoiseParams.x;      // Base sensor noise (meters)
+        float distFactor = _NoiseParams.y;     // Distance-dependent factor
+        
+        // Total noise standard deviation increases with distance
+        // This models real depth sensor behavior where accuracy decreases with range
+        float noiseStdDev = baseNoise + distFactor * linearDepth;
+        
+        // Generate Gaussian noise
+        float2 uv = float2(id.xy) / _TextureSize.xy;
+        float noise = gaussianNoise(uv, _Time) * noiseStdDev;
+        
+        // Apply noise
+        linearDepth += noise;
+        
+        // Clamp to valid range after noise
+        float nearClip = _DepthRange.x;
+        float farClip = _DepthRange.y;
+        
+        if (linearDepth < nearClip)
+        {
+            linearDepth = nearClip;
+        }
+        else if (linearDepth > farClip)
+        {
+            linearDepth = _InvalidDepth;
+        }
     }
 
     _LinearDepthOutput[id.xy] = linearDepth;

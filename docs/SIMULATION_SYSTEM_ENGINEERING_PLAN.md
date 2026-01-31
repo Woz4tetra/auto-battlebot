@@ -1433,7 +1433,7 @@ void SimTcpClient::configure_optimizations() {
 
 ---
 
-### SIM-006: Implement RGB Camera Capture in Unity
+### ✅️ SIM-006: Implement RGB Camera Capture in Unity
 
 **Sprint:** 2  
 **Estimate:** 5 points  

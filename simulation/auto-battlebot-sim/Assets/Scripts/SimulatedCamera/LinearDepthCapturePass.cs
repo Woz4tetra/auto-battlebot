@@ -1,30 +1,40 @@
 // Auto-Battlebot Simulation System
-// LinearDepthCapturePass - Depth camera capture for CUDA Interop (SIM-007)
+// LinearDepthCapturePass - Depth camera capture for TCP transfer (SIM-007)
 //
 // HDRP Custom Pass that captures the depth buffer and linearizes it
-// using a compute shader. Outputs to a RenderTexture for CUDA Interop.
+// using a compute shader. Outputs to a RenderTexture for AsyncGPUReadback
+// and TCP transfer to the C++ application.
 
 using System;
+using System.Diagnostics;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.HighDefinition;
+using Debug = UnityEngine.Debug;
 
 namespace AutoBattlebot.SimulatedCamera
 {
     /// <summary>
-    /// HDRP Custom Pass that captures linearized depth for CUDA Interop.
+    /// HDRP Custom Pass that captures linearized depth for AsyncGPUReadback and TCP transfer.
     /// 
     /// This pass:
     /// - Runs after opaque depth rendering (AfterOpaqueDepthAndNormal)
     /// - Copies and linearizes the depth buffer using a compute shader
     /// - Outputs to a R32_SFloat RenderTexture (float meters)
-    /// - Exposes native texture pointer for CUDA registration
+    /// - Optionally adds sensor noise for realism
+    /// - Compatible with AsyncGPUReadback for TCP transfer
+    /// 
+    /// Depth output characteristics (matching ZED 2i):
+    /// - Values are in meters (linearized)
+    /// - Valid range: 0.3m - 20m
+    /// - Invalid depth (sky, out of range): 0.0 or configurable
+    /// - Format: R32_SFloat (32-bit float per pixel)
     /// 
     /// Usage:
     /// 1. Add a Custom Pass Volume to the scene
     /// 2. Add this pass to the volume
     /// 3. Assign the compute shader
-    /// 4. Access DepthTexture.GetNativeTexturePtr() for CUDA registration
+    /// 4. CommunicationBridge will use AsyncGPUReadback on DepthTexture
     /// </summary>
     public class LinearDepthCapturePass : CustomPass
     {
@@ -37,23 +47,38 @@ namespace AutoBattlebot.SimulatedCamera
         [Tooltip("Height of the output depth texture (should match RGB camera)")]
         public int height = 720;
 
-        [Header("Depth Range")]
-        [Tooltip("Near clip plane in meters (values closer are clamped)")]
+        [Header("Depth Range (ZED 2i defaults)")]
+        [Tooltip("Near clip plane in meters (ZED 2i min: 0.3m)")]
         public float nearClip = 0.3f;
 
-        [Tooltip("Far clip plane in meters (values farther are clamped to maxDepth)")]
+        [Tooltip("Far clip plane in meters (ZED 2i max: 20m)")]
         public float farClip = 20.0f;
 
-        [Tooltip("Value to use for invalid/sky depth")]
+        [Tooltip("Value to use for invalid/sky depth (0 = no depth)")]
         public float invalidDepthValue = 0.0f;
 
         [Header("Compute Shader")]
         [Tooltip("Compute shader for depth linearization")]
         public ComputeShader linearizeDepthShader;
 
-        [Header("Options")]
+        [Header("Depth Noise (Optional)")]
+        [Tooltip("Enable depth noise simulation for realism")]
+        public bool enableNoise = false;
+
+        [Tooltip("Base noise level (meters) - adds uniform noise")]
+        [Range(0f, 0.01f)]
+        public float baseNoiseLevel = 0.002f;
+
+        [Tooltip("Distance-dependent noise factor (noise increases with depth)")]
+        [Range(0f, 0.01f)]
+        public float distanceNoiseFactor = 0.001f;
+
+        [Header("Debug Options")]
         [Tooltip("Enable CPU readback for debugging (slower)")]
         public bool enableCpuReadback = false;
+
+        [Tooltip("Enable performance profiling")]
+        public bool enableProfiling = false;
 
         #endregion
 
@@ -62,6 +87,7 @@ namespace AutoBattlebot.SimulatedCamera
         private RenderTexture _depthTexture;
         private Texture2D _cpuTexture;
         private int _kernelId = -1;
+        private int _kernelIdNoisy = -1;
         private bool _isInitialized = false;
 
         // Shader property IDs (cached for performance)
@@ -71,13 +97,20 @@ namespace AutoBattlebot.SimulatedCamera
         private static readonly int _DepthRangeId = Shader.PropertyToID("_DepthRange");
         private static readonly int _InvalidDepthId = Shader.PropertyToID("_InvalidDepth");
         private static readonly int _TextureSizeId = Shader.PropertyToID("_TextureSize");
+        private static readonly int _NoiseParamsId = Shader.PropertyToID("_NoiseParams");
+        private static readonly int _TimeId = Shader.PropertyToID("_Time");
+
+        // Profiling
+        private Stopwatch _profilerStopwatch = new Stopwatch();
+        private long _totalExecuteTimeUs = 0;
+        private int _executeCount = 0;
 
         #endregion
 
         #region Properties
 
         /// <summary>
-        /// The linearized depth RenderTexture for CUDA registration.
+        /// The linearized depth RenderTexture for AsyncGPUReadback.
         /// Format: R32_SFloat (single-channel float, values in meters)
         /// </summary>
         public RenderTexture DepthTexture => _depthTexture;
@@ -93,9 +126,14 @@ namespace AutoBattlebot.SimulatedCamera
         public bool HasTexture => _depthTexture != null && _depthTexture.IsCreated();
 
         /// <summary>
-        /// Native texture pointer for CUDA registration.
+        /// Native texture pointer (for debugging/logging).
         /// </summary>
         public IntPtr NativeTexturePtr => HasTexture ? _depthTexture.GetNativeTexturePtr() : IntPtr.Zero;
+
+        /// <summary>
+        /// Average execute time in microseconds.
+        /// </summary>
+        public double AverageExecuteTimeUs => _executeCount > 0 ? (double)_totalExecuteTimeUs / _executeCount : 0;
 
         #endregion
 
@@ -111,7 +149,7 @@ namespace AutoBattlebot.SimulatedCamera
                 return;
             }
 
-            // Find kernel
+            // Find kernels
             _kernelId = linearizeDepthShader.FindKernel("LinearizeDepth");
             if (_kernelId < 0)
             {
@@ -119,12 +157,20 @@ namespace AutoBattlebot.SimulatedCamera
                 return;
             }
 
+            // Try to find noisy kernel (optional)
+            if (linearizeDepthShader.HasKernel("LinearizeDepthNoisy"))
+            {
+                _kernelIdNoisy = linearizeDepthShader.FindKernel("LinearizeDepthNoisy");
+            }
+
             // Create output texture
             CreateDepthTexture();
 
             _isInitialized = true;
             Debug.Log($"[LinearDepthCapturePass] Setup complete: {width}x{height}, " +
-                      $"NativePtr=0x{NativeTexturePtr.ToInt64():X}");
+                      $"Range={nearClip}m-{farClip}m, " +
+                      $"Noise={enableNoise}, " +
+                      $"Format={_depthTexture.graphicsFormat}");
         }
 
         protected override void Execute(CustomPassContext ctx)
@@ -132,6 +178,11 @@ namespace AutoBattlebot.SimulatedCamera
             if (!_isInitialized || _kernelId < 0)
             {
                 return;
+            }
+
+            if (enableProfiling)
+            {
+                _profilerStopwatch.Restart();
             }
 
             // Ensure texture exists and matches size
@@ -144,22 +195,40 @@ namespace AutoBattlebot.SimulatedCamera
             var camera = ctx.hdCamera.camera;
             Vector4 zBufferParams = CalculateZBufferParams(camera);
 
+            // Select kernel based on noise setting
+            int kernelToUse = (enableNoise && _kernelIdNoisy >= 0) ? _kernelIdNoisy : _kernelId;
+
             // Set compute shader parameters
-            // Note: HDRP's cameraDepthBuffer is a Texture2DArray, we sample slice 0 (main view)
+            // HDRP's cameraDepthBuffer is a Texture2DArray, we sample slice 0 (main view)
             int sliceIndex = 0;
-            ctx.cmd.SetComputeTextureParam(linearizeDepthShader, _kernelId, _DepthInputId, ctx.cameraDepthBuffer);
-            ctx.cmd.SetComputeTextureParam(linearizeDepthShader, _kernelId, _LinearDepthOutputId, _depthTexture);
+            ctx.cmd.SetComputeTextureParam(linearizeDepthShader, kernelToUse, _DepthInputId, ctx.cameraDepthBuffer);
+            ctx.cmd.SetComputeTextureParam(linearizeDepthShader, kernelToUse, _LinearDepthOutputId, _depthTexture);
             ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _ZBufferParamsId, zBufferParams);
             ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _DepthRangeId, new Vector4(nearClip, farClip, 0, 0));
             ctx.cmd.SetComputeFloatParam(linearizeDepthShader, _InvalidDepthId, invalidDepthValue);
             ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _TextureSizeId, new Vector4(width, height, sliceIndex, 0));
+
+            // Set noise parameters if using noisy kernel
+            if (enableNoise && _kernelIdNoisy >= 0)
+            {
+                ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _NoiseParamsId, 
+                    new Vector4(baseNoiseLevel, distanceNoiseFactor, 0, 0));
+                ctx.cmd.SetComputeFloatParam(linearizeDepthShader, _TimeId, Time.time);
+            }
 
             // Dispatch compute shader
             // Thread group size is 8x8, so we need (width/8) x (height/8) groups
             int groupsX = Mathf.CeilToInt(width / 8.0f);
             int groupsY = Mathf.CeilToInt(height / 8.0f);
 
-            ctx.cmd.DispatchCompute(linearizeDepthShader, _kernelId, groupsX, groupsY, 1);
+            ctx.cmd.DispatchCompute(linearizeDepthShader, kernelToUse, groupsX, groupsY, 1);
+
+            if (enableProfiling)
+            {
+                _profilerStopwatch.Stop();
+                _totalExecuteTimeUs += _profilerStopwatch.ElapsedTicks * 1000000 / Stopwatch.Frequency;
+                _executeCount++;
+            }
         }
 
         protected override void Cleanup()
@@ -197,12 +266,13 @@ namespace AutoBattlebot.SimulatedCamera
         /// <summary>
         /// Read depth to CPU (for debugging or data generation).
         /// Only works if enableCpuReadback is true.
+        /// Warning: This is slow and blocks. Use AsyncGPUReadback for production.
         /// </summary>
         public Texture2D ReadToCpu()
         {
             if (!enableCpuReadback)
             {
-                Debug.LogWarning("[LinearDepthCapturePass] CPU readback is disabled");
+                Debug.LogWarning("[LinearDepthCapturePass] CPU readback is disabled. Use AsyncGPUReadback for production.");
                 return null;
             }
 
@@ -231,6 +301,26 @@ namespace AutoBattlebot.SimulatedCamera
             return _cpuTexture;
         }
 
+        /// <summary>
+        /// Get a performance report string.
+        /// </summary>
+        public string GetPerformanceReport()
+        {
+            return $"[LinearDepthCapturePass] Performance:\n" +
+                   $"  Resolution: {width}x{height}\n" +
+                   $"  Executions: {_executeCount}\n" +
+                   $"  Avg Execute Time: {AverageExecuteTimeUs:F1}µs";
+        }
+
+        /// <summary>
+        /// Reset performance statistics.
+        /// </summary>
+        public void ResetProfilingStats()
+        {
+            _totalExecuteTimeUs = 0;
+            _executeCount = 0;
+        }
+
         #endregion
 
         #region Private Methods
@@ -244,16 +334,23 @@ namespace AutoBattlebot.SimulatedCamera
                 CoreUtils.Destroy(_depthTexture);
             }
 
-            // Create CUDA-compatible depth texture
-            // - RFloat format (single-channel 32-bit float)
-            // - enableRandomWrite for compute shader output
-            // - No MSAA
-            _depthTexture = new RenderTexture(width, height, 0, RenderTextureFormat.RFloat)
+            // Create AsyncGPUReadback-compatible depth texture
+            // Use RenderTextureDescriptor for explicit format control
+            var desc = new RenderTextureDescriptor(width, height)
             {
-                enableRandomWrite = true,
+                graphicsFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R32_SFloat,
+                depthBufferBits = 0,
+                msaaSamples = 1,
                 useMipMap = false,
                 autoGenerateMips = false,
-                filterMode = FilterMode.Point,
+                enableRandomWrite = true,  // Required for compute shader output
+                dimension = TextureDimension.Tex2D,
+                volumeDepth = 1
+            };
+
+            _depthTexture = new RenderTexture(desc)
+            {
+                filterMode = FilterMode.Point,  // No filtering for depth
                 wrapMode = TextureWrapMode.Clamp,
                 name = $"LinearDepthCapture_{width}x{height}"
             };
@@ -264,9 +361,9 @@ namespace AutoBattlebot.SimulatedCamera
             }
         }
 
-        private Vector4 CalculateZBufferParams(UnityEngine.Camera camera)
+        private Vector4 CalculateZBufferParams(Camera camera)
         {
-            // Unity's _ZBufferParams calculation
+            // Unity's _ZBufferParams calculation for reversed Z-buffer
             // x = 1 - far/near
             // y = far/near
             // z = x/far

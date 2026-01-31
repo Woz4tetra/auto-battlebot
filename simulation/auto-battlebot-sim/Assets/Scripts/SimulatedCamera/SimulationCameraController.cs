@@ -2,12 +2,13 @@
 // SimulationCameraController - Unified controller for RGB and Depth capture
 //
 // Coordinates CameraSimulator (RGB) and LinearDepthCapturePass (Depth)
-// to provide synchronized RGB-D frames for CUDA Interop.
+// to provide synchronized RGB-D frames for AsyncGPUReadback and TCP transfer.
 
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.HighDefinition;
+using AutoBattlebot.Core;
 
 namespace AutoBattlebot.SimulatedCamera
 {
@@ -17,13 +18,16 @@ namespace AutoBattlebot.SimulatedCamera
     /// Coordinates:
     /// - CameraSimulator for RGB capture
     /// - LinearDepthCapturePass for depth capture
-    /// - Provides synchronized access to both textures
+    /// - Provides synchronized access to both textures for AsyncGPUReadback
+    /// 
+    /// This component ensures RGB and depth are aligned and captured at the same resolution.
+    /// The CommunicationBridge uses AsyncGPUReadback on both textures and sends them over TCP.
     /// 
     /// Usage:
     /// 1. Attach to the same GameObject as the Camera
     /// 2. Assign the compute shader and (optionally) a Custom Pass Volume
     /// 3. Call Initialize() or rely on auto-initialization
-    /// 4. Access RgbTexture and DepthTexture for CUDA registration
+    /// 4. CommunicationBridge will auto-detect and use both textures
     /// </summary>
     [RequireComponent(typeof(CameraSimulator))]
     public class SimulationCameraController : MonoBehaviour
@@ -51,6 +55,21 @@ namespace AutoBattlebot.SimulatedCamera
         [SerializeField]
         [Tooltip("Value for invalid/sky depth (0 = no depth)")]
         private float _invalidDepthValue = 0.0f;
+
+        [Header("Depth Noise (Optional)")]
+        [SerializeField]
+        [Tooltip("Enable depth noise simulation for realism")]
+        private bool _enableDepthNoise = false;
+
+        [SerializeField]
+        [Tooltip("Base noise level (meters)")]
+        [Range(0f, 0.01f)]
+        private float _baseNoiseLevel = 0.002f;
+
+        [SerializeField]
+        [Tooltip("Distance-dependent noise factor")]
+        [Range(0f, 0.01f)]
+        private float _distanceNoiseFactor = 0.001f;
 
         #endregion
 
@@ -86,12 +105,12 @@ namespace AutoBattlebot.SimulatedCamera
         public RenderTexture DepthTexture => _depthPass?.DepthTexture;
 
         /// <summary>
-        /// Native pointer for RGB texture (for CUDA registration).
+        /// Native pointer for RGB texture (for debugging/logging).
         /// </summary>
         public IntPtr RgbNativePtr => _cameraSimulator?.NativeTexturePtr ?? IntPtr.Zero;
 
         /// <summary>
-        /// Native pointer for depth texture (for CUDA registration).
+        /// Native pointer for depth texture (for debugging/logging).
         /// </summary>
         public IntPtr DepthNativePtr => _depthPass?.NativeTexturePtr ?? IntPtr.Zero;
 
@@ -99,6 +118,11 @@ namespace AutoBattlebot.SimulatedCamera
         /// Whether both RGB and depth are initialized.
         /// </summary>
         public bool IsInitialized => _isInitialized;
+
+        /// <summary>
+        /// Whether depth capture is enabled and working.
+        /// </summary>
+        public bool HasDepth => _depthPass != null && _depthPass.HasTexture;
 
         /// <summary>
         /// Width of the capture textures.
@@ -176,8 +200,8 @@ namespace AutoBattlebot.SimulatedCamera
 
             _isInitialized = true;
             Debug.Log($"[SimulationCameraController] Initialized: " +
-                      $"RGB={_cameraSimulator.Width}x{_cameraSimulator.Height} (0x{RgbNativePtr.ToInt64():X}), " +
-                      $"Depth={(_depthPass != null ? $"{_depthPass.width}x{_depthPass.height} (0x{DepthNativePtr.ToInt64():X})" : "disabled")}");
+                      $"RGB={_cameraSimulator.Width}x{_cameraSimulator.Height} ({_cameraSimulator.RgbTexture?.graphicsFormat}), " +
+                      $"Depth={(_depthPass != null ? $"{_depthPass.width}x{_depthPass.height} ({_depthPass.DepthTexture?.graphicsFormat})" : "disabled")}");
 
             return true;
         }
@@ -209,6 +233,23 @@ namespace AutoBattlebot.SimulatedCamera
             _isInitialized = false;
         }
 
+        /// <summary>
+        /// Enable or disable depth noise at runtime.
+        /// </summary>
+        public void SetDepthNoise(bool enabled, float baseNoise = 0.002f, float distanceFactor = 0.001f)
+        {
+            _enableDepthNoise = enabled;
+            _baseNoiseLevel = baseNoise;
+            _distanceNoiseFactor = distanceFactor;
+
+            if (_depthPass != null)
+            {
+                _depthPass.enableNoise = enabled;
+                _depthPass.baseNoiseLevel = baseNoise;
+                _depthPass.distanceNoiseFactor = distanceFactor;
+            }
+        }
+
         #endregion
 
         #region Private Methods
@@ -234,15 +275,23 @@ namespace AutoBattlebot.SimulatedCamera
                 return false;
             }
 
+            // Get camera intrinsics for depth configuration
+            var intrinsicsProvider = _cameraSimulator.GetComponent<CameraIntrinsicsProvider>();
+            float nearClip = intrinsicsProvider?.NearClip ?? _cameraSimulator.Camera.nearClipPlane;
+            float farClip = intrinsicsProvider?.FarClip ?? _cameraSimulator.Camera.farClipPlane;
+
             // Create and add the depth pass
             _depthPass = new LinearDepthCapturePass
             {
                 width = _cameraSimulator.Width,
                 height = _cameraSimulator.Height,
-                nearClip = _cameraSimulator.Camera.nearClipPlane,
-                farClip = _cameraSimulator.Camera.farClipPlane,
+                nearClip = nearClip,
+                farClip = farClip,
                 invalidDepthValue = _invalidDepthValue,
                 linearizeDepthShader = _linearizeDepthShader,
+                enableNoise = _enableDepthNoise,
+                baseNoiseLevel = _baseNoiseLevel,
+                distanceNoiseFactor = _distanceNoiseFactor,
                 targetColorBuffer = CustomPass.TargetBuffer.None,
                 targetDepthBuffer = CustomPass.TargetBuffer.None,
                 clearFlags = ClearFlag.None,
@@ -257,7 +306,7 @@ namespace AutoBattlebot.SimulatedCamera
         private CustomPassVolume FindOrCreateCustomPassVolume()
         {
             // First, try to find an existing global volume
-            var existingVolume = FindObjectOfType<CustomPassVolume>();
+            var existingVolume = FindFirstObjectByType<CustomPassVolume>();
             if (existingVolume != null && existingVolume.isGlobal)
             {
                 return existingVolume;
@@ -284,13 +333,14 @@ namespace AutoBattlebot.SimulatedCamera
         {
             Debug.Log($"[SimulationCameraController] RGB: " +
                       $"{_cameraSimulator?.Width}x{_cameraSimulator?.Height}, " +
-                      $"Ptr=0x{RgbNativePtr.ToInt64():X}");
+                      $"Format={_cameraSimulator?.RgbTexture?.graphicsFormat}");
 
             if (_depthPass != null)
             {
                 Debug.Log($"[SimulationCameraController] Depth: " +
                           $"{_depthPass.width}x{_depthPass.height}, " +
-                          $"Ptr=0x{DepthNativePtr.ToInt64():X}");
+                          $"Format={_depthPass.DepthTexture?.graphicsFormat}, " +
+                          $"Noise={_depthPass.enableNoise}");
             }
             else
             {
@@ -303,6 +353,13 @@ namespace AutoBattlebot.SimulatedCamera
         {
             Cleanup();
             Initialize();
+        }
+
+        [ContextMenu("Toggle Depth Noise")]
+        private void EditorToggleDepthNoise()
+        {
+            SetDepthNoise(!_enableDepthNoise, _baseNoiseLevel, _distanceNoiseFactor);
+            Debug.Log($"[SimulationCameraController] Depth noise: {(_enableDepthNoise ? "enabled" : "disabled")}");
         }
 #endif
 

@@ -354,27 +354,47 @@ namespace AutoBattlebot.Communication
                 _intrinsicsProvider = FindFirstObjectByType<CameraIntrinsicsProvider>();
             }
 
-            // Find depth capture pass in Custom Pass Volumes
+            // Find depth capture pass - first try SimulationCameraController, then Custom Pass Volumes
             if (_depthCapturePass == null && _captureDepth)
             {
-                var volumes = FindObjectsByType<UnityEngine.Rendering.HighDefinition.CustomPassVolume>(FindObjectsSortMode.None);
-                foreach (var volume in volumes)
+                // Try to find via SimulationCameraController first
+                var cameraController = _cameraSimulator?.GetComponent<SimulationCameraController>();
+                if (cameraController == null)
                 {
-                    foreach (var pass in volume.customPasses)
+                    cameraController = FindFirstObjectByType<SimulationCameraController>();
+                }
+                
+                if (cameraController != null && cameraController.DepthPass != null)
+                {
+                    _depthCapturePass = cameraController.DepthPass;
+                }
+                else
+                {
+                    // Fallback: search Custom Pass Volumes directly
+                    var volumes = FindObjectsByType<UnityEngine.Rendering.HighDefinition.CustomPassVolume>(FindObjectsSortMode.None);
+                    foreach (var volume in volumes)
                     {
-                        if (pass is LinearDepthCapturePass depthPass)
+                        foreach (var pass in volume.customPasses)
                         {
-                            _depthCapturePass = depthPass;
-                            break;
+                            if (pass is LinearDepthCapturePass depthPass)
+                            {
+                                _depthCapturePass = depthPass;
+                                break;
+                            }
                         }
+                        if (_depthCapturePass != null) break;
                     }
-                    if (_depthCapturePass != null) break;
                 }
 
                 if (_depthCapturePass == null)
                 {
-                    Debug.LogWarning("[CommunicationBridge] No LinearDepthCapturePass found - depth capture disabled");
+                    Debug.LogWarning("[CommunicationBridge] No LinearDepthCapturePass found - depth capture disabled. " +
+                        "Add SimulationCameraController with a LinearizeDepth compute shader to enable depth.");
                     _captureDepth = false;
+                }
+                else
+                {
+                    Debug.Log($"[CommunicationBridge] Found depth capture: {_depthCapturePass.width}x{_depthCapturePass.height}");
                 }
             }
         }
