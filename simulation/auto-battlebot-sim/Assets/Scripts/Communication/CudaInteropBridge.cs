@@ -8,6 +8,7 @@
 // Script Execution Order: -100 (runs before most other scripts)
 
 using System;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 using AutoBattlebot.Core;
@@ -109,6 +110,14 @@ namespace AutoBattlebot.Communication
 
         private CommandBuffer _renderCommandBuffer;
 
+        // Fallback mode fields (AsyncGPUReadback when CUDA interop unavailable)
+        private bool _readbackPending = false;
+        private Matrix4x4 _pendingPose;
+        private bool _pendingHasDepth;
+        private byte[] _rgbReadbackData;
+        private byte[] _depthReadbackData;
+        private int _pendingReadbacks = 0;
+
         #endregion
 
         #region Properties
@@ -168,6 +177,12 @@ namespace AutoBattlebot.Communication
                 }
             }
         }
+
+        /// <summary>
+        /// Whether the system is using fallback mode (AsyncGPUReadback instead of zero-copy CUDA).
+        /// This happens when Vulkan interop is unavailable.
+        /// </summary>
+        public bool UseFallbackMode => CudaInterop.UseFallbackMode;
 
         #endregion
 
@@ -375,6 +390,7 @@ namespace AutoBattlebot.Communication
         /// <summary>
         /// Signals that a frame is ready for processing by C++.
         /// This triggers CUDA sync and sends pose data via TCP.
+        /// In fallback mode, uses AsyncGPUReadback to read textures and send raw data.
         /// </summary>
         /// <param name="cameraPose">Camera pose matrix.</param>
         /// <param name="hasDepth">Whether the frame includes depth data.</param>
@@ -388,7 +404,13 @@ namespace AutoBattlebot.Communication
 
             _frameId++;
 
-            // Signal CUDA sync (inserts GL fence)
+            // Check if we need to use fallback mode
+            if (UseFallbackMode)
+            {
+                return SignalFrameReadyFallback(cameraPose, hasDepth);
+            }
+
+            // Normal mode: Signal CUDA sync (inserts GL fence)
             if (_texturesRegistered)
             {
                 CudaInterop.SyncAndNotify();
@@ -500,6 +522,12 @@ namespace AutoBattlebot.Communication
             report += $"  Textures Registered: {_texturesRegistered}\n";
             report += $"  TCP Connected: {IsTcpConnected}\n";
             report += $"  Frame ID: {_frameId}\n";
+            report += $"  Fallback Mode: {UseFallbackMode}\n";
+
+            if (UseFallbackMode)
+            {
+                report += $"  Fallback Reason: {CudaInterop.FallbackReason}\n";
+            }
 
             if (_cudaInitialized)
             {
@@ -660,6 +688,151 @@ namespace AutoBattlebot.Communication
         private void LogPerformanceMetrics()
         {
             Debug.Log(GetPerformanceReport());
+        }
+
+        #endregion
+
+        #region Fallback Mode (AsyncGPUReadback)
+
+        /// <summary>
+        /// Signals frame ready using AsyncGPUReadback fallback.
+        /// Reads textures from GPU and sends raw data over TCP.
+        /// </summary>
+        private bool SignalFrameReadyFallback(Matrix4x4 cameraPose, bool hasDepth)
+        {
+            // Don't start new readback if one is still pending
+            if (_readbackPending)
+            {
+                Debug.LogWarning("[CudaInteropBridge] Readback still pending, skipping frame");
+                return false;
+            }
+
+            if (_rgbTexture == null)
+            {
+                Debug.LogError("[CudaInteropBridge] RGB texture not set for fallback mode");
+                return false;
+            }
+
+            // Store pose for when readback completes
+            _pendingPose = cameraPose;
+            _pendingHasDepth = hasDepth && _depthTexture != null;
+            _readbackPending = true;
+            _pendingReadbacks = _pendingHasDepth ? 2 : 1;
+
+            // Allocate buffers if needed
+            int rgbSize = _rgbTexture.width * _rgbTexture.height * 4;  // RGBA
+            if (_rgbReadbackData == null || _rgbReadbackData.Length != rgbSize)
+            {
+                _rgbReadbackData = new byte[rgbSize];
+            }
+
+            if (_pendingHasDepth)
+            {
+                int depthSize = _depthTexture.width * _depthTexture.height * 4;  // R32F
+                if (_depthReadbackData == null || _depthReadbackData.Length != depthSize)
+                {
+                    _depthReadbackData = new byte[depthSize];
+                }
+            }
+
+            // Request async readback of RGB texture
+            AsyncGPUReadback.Request(_rgbTexture, 0, request =>
+            {
+                OnRgbReadbackComplete(request);
+            });
+
+            // Request async readback of depth texture if needed
+            if (_pendingHasDepth)
+            {
+                AsyncGPUReadback.Request(_depthTexture, 0, request =>
+                {
+                    OnDepthReadbackComplete(request);
+                });
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Called when RGB texture readback completes.
+        /// </summary>
+        private void OnRgbReadbackComplete(AsyncGPUReadbackRequest request)
+        {
+            if (request.hasError)
+            {
+                Debug.LogError("[CudaInteropBridge] RGB readback failed");
+                _readbackPending = false;
+                _pendingReadbacks = 0;
+                return;
+            }
+
+            // Copy data to buffer
+            var data = request.GetData<byte>();
+            NativeArray<byte>.Copy(data, _rgbReadbackData, data.Length);
+
+            _pendingReadbacks--;
+            TrySendFallbackFrame();
+        }
+
+        /// <summary>
+        /// Called when depth texture readback completes.
+        /// </summary>
+        private void OnDepthReadbackComplete(AsyncGPUReadbackRequest request)
+        {
+            if (request.hasError)
+            {
+                Debug.LogError("[CudaInteropBridge] Depth readback failed");
+                _readbackPending = false;
+                _pendingReadbacks = 0;
+                return;
+            }
+
+            // Copy data to buffer
+            var data = request.GetData<byte>();
+            NativeArray<byte>.Copy(data, _depthReadbackData, data.Length);
+
+            _pendingReadbacks--;
+            TrySendFallbackFrame();
+        }
+
+        /// <summary>
+        /// Sends frame data over TCP once all readbacks are complete.
+        /// </summary>
+        private void TrySendFallbackFrame()
+        {
+            if (_pendingReadbacks > 0)
+            {
+                return;  // Still waiting for more readbacks
+            }
+
+            _readbackPending = false;
+
+            if (_tcpBridge == null || !_tcpBridge.IsConnected)
+            {
+                return;  // No connection
+            }
+
+            // Send frame data with raw image bytes
+            bool sent = _tcpBridge.SendFrameReadyWithData(
+                _frameId,
+                Time.timeAsDouble,
+                _pendingPose,
+                _rgbTexture.width,
+                _rgbTexture.height,
+                _rgbReadbackData,
+                _pendingHasDepth ? _depthTexture.width : 0,
+                _pendingHasDepth ? _depthTexture.height : 0,
+                _pendingHasDepth ? _depthReadbackData : null);
+
+            if (_useLockstep && sent)
+            {
+                // Wait for command response
+                if (_tcpBridge.WaitForCommand(_lockstepTimeoutMs, out var command))
+                {
+                    _currentCommand = command;
+                    OnCommandReceived?.Invoke(command);
+                }
+            }
         }
 
         #endregion

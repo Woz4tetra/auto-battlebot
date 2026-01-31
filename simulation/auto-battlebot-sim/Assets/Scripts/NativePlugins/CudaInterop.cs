@@ -508,6 +508,13 @@ namespace AutoBattlebot.NativePlugins
 
             ulong textureId = (ulong)nativePtr.ToInt64();
 
+            // If already in fallback mode, skip native registration
+            if (_useFallbackMode)
+            {
+                Debug.Log($"[CudaInterop] Fallback mode active - skipping native registration for {textureType} texture");
+                return true;
+            }
+
             try
             {
                 var result = CudaInterop_RegisterTexture(
@@ -533,12 +540,28 @@ namespace AutoBattlebot.NativePlugins
                 }
                 else
                 {
+                    // Check if this is Vulkan - enable fallback mode instead of failing
+                    if (IsVulkan)
+                    {
+                        Debug.LogWarning($"[CudaInterop] Vulkan texture registration failed ({result}), enabling fallback mode");
+                        EnableFallbackMode($"Vulkan texture registration not supported - using AsyncGPUReadback");
+                        return true;  // Return success so caller can proceed with fallback
+                    }
+
                     Debug.LogError($"[CudaInterop] Failed to register texture: {result} - {GetLastError()}");
                     return false;
                 }
             }
             catch (Exception e)
             {
+                // For Vulkan, enable fallback mode on exceptions too
+                if (IsVulkan)
+                {
+                    Debug.LogWarning($"[CudaInterop] Vulkan texture registration exception, enabling fallback mode: {e.Message}");
+                    EnableFallbackMode($"Vulkan texture registration exception - using AsyncGPUReadback");
+                    return true;
+                }
+
                 Debug.LogError($"[CudaInterop] RegisterTexture exception: {e}");
                 return false;
             }

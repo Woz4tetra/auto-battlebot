@@ -219,6 +219,26 @@ std::optional<TcpFrameReadyMessage> SimTcpClient::wait_for_frame(std::chrono::mi
                 return std::nullopt;
             }
 
+            case TcpMessageType::FrameReadyWithData:
+            case TcpMessageType::FrameReadyWithDataNoDepth:
+            {
+                // Fallback mode detected - read the message with data
+                // and convert to basic frame message (caller should use wait_for_frame_with_data)
+                fallback_mode_detected_ = true;
+                auto frame_with_data = read_frame_ready_with_data_message();
+                if (frame_with_data)
+                {
+                    frames_received_++;
+                    // Return just the frame metadata
+                    TcpFrameReadyMessage frame;
+                    frame.frame_id = frame_with_data->frame_id;
+                    frame.timestamp_ns = frame_with_data->timestamp_ns;
+                    frame.pose = frame_with_data->pose;
+                    return frame;
+                }
+                return std::nullopt;
+            }
+
             case TcpMessageType::CameraIntrinsics:
                 // Intrinsics can be re-sent, handle it
                 read_intrinsics_message();
@@ -227,6 +247,85 @@ std::optional<TcpFrameReadyMessage> SimTcpClient::wait_for_frame(std::chrono::mi
             case TcpMessageType::Ping:
             {
                 // Respond with pong
+                uint8_t pong = static_cast<uint8_t>(TcpMessageType::Pong);
+                write_exact(&pong, 1);
+                break;
+            }
+
+            default:
+                logger_->warning("unexpected_message_type", {{"type", static_cast<int>(msg_type)}});
+                return std::nullopt;
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::wait_for_frame_with_data(std::chrono::milliseconds timeout)
+{
+    if (!connected_)
+    {
+        return std::nullopt;
+    }
+
+    std::lock_guard<std::mutex> lock(socket_mutex_);
+
+    // Set timeout
+    if (!set_socket_timeout(static_cast<int>(timeout.count())))
+    {
+        return std::nullopt;
+    }
+
+    // Read message type
+    uint8_t msg_type;
+    while (read_exact(&msg_type, 1, static_cast<int>(timeout.count())))
+    {
+        auto type = static_cast<TcpMessageType>(msg_type);
+
+        switch (type)
+        {
+            case TcpMessageType::FrameReadyWithData:
+            case TcpMessageType::FrameReadyWithDataNoDepth:
+            {
+                fallback_mode_detected_ = true;
+                auto frame = read_frame_ready_with_data_message();
+                if (frame)
+                {
+                    frames_received_++;
+                    return frame;
+                }
+                return std::nullopt;
+            }
+
+            case TcpMessageType::FrameReady:
+            case TcpMessageType::FrameReadyNoDepth:
+            {
+                // Non-fallback mode - convert to with-data format (no image data)
+                auto basic_frame = read_frame_ready_message();
+                if (basic_frame)
+                {
+                    frames_received_++;
+                    TcpFrameReadyWithDataMessage frame;
+                    frame.frame_id = basic_frame->frame_id;
+                    frame.timestamp_ns = basic_frame->timestamp_ns;
+                    frame.pose = basic_frame->pose;
+                    frame.rgb_width = 0;
+                    frame.rgb_height = 0;
+                    frame.depth_width = 0;
+                    frame.depth_height = 0;
+                    frame.rgb_data_size = 0;
+                    frame.depth_data_size = 0;
+                    return frame;
+                }
+                return std::nullopt;
+            }
+
+            case TcpMessageType::CameraIntrinsics:
+                read_intrinsics_message();
+                break;
+
+            case TcpMessageType::Ping:
+            {
                 uint8_t pong = static_cast<uint8_t>(TcpMessageType::Pong);
                 write_exact(&pong, 1);
                 break;
@@ -562,6 +661,84 @@ std::optional<TcpFrameReadyMessage> SimTcpClient::read_frame_ready_message()
         frame.pose[i] = read_double(buffer + offset);
         offset += 8;
     }
+
+    return frame;
+}
+
+std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::read_frame_ready_with_data_message()
+{
+    // Read header first
+    uint8_t header_buffer[TcpFrameReadyWithDataMessage::header_payload_size];
+
+    if (!read_exact(header_buffer, sizeof(header_buffer), config_.read_timeout_ms))
+    {
+        logger_->warning("frame_with_data_header_read_failed", "Failed to read frame header");
+        return std::nullopt;
+    }
+
+    TcpFrameReadyWithDataMessage frame;
+    size_t offset = 0;
+
+    // Parse header
+    frame.frame_id = read_uint64(header_buffer + offset);
+    offset += 8;
+    frame.timestamp_ns = read_uint64(header_buffer + offset);
+    offset += 8;
+
+    for (int i = 0; i < 16; i++)
+    {
+        frame.pose[i] = read_double(header_buffer + offset);
+        offset += 8;
+    }
+
+    frame.rgb_width = read_int32(header_buffer + offset);
+    offset += 4;
+    frame.rgb_height = read_int32(header_buffer + offset);
+    offset += 4;
+    frame.depth_width = read_int32(header_buffer + offset);
+    offset += 4;
+    frame.depth_height = read_int32(header_buffer + offset);
+    offset += 4;
+    frame.rgb_data_size = read_int32(header_buffer + offset);
+    offset += 4;
+    frame.depth_data_size = read_int32(header_buffer + offset);
+
+    // Validate sizes
+    if (frame.rgb_data_size < 0 || frame.depth_data_size < 0)
+    {
+        logger_->warning("frame_with_data_invalid_sizes",
+            {{"rgb_size", frame.rgb_data_size}, {"depth_size", frame.depth_data_size}});
+        return std::nullopt;
+    }
+
+    // Read RGB data
+    if (frame.rgb_data_size > 0)
+    {
+        frame.rgb_data.resize(frame.rgb_data_size);
+        if (!read_exact(frame.rgb_data.data(), frame.rgb_data_size, config_.read_timeout_ms * 10))
+        {
+            logger_->warning("frame_with_data_rgb_read_failed",
+                {{"expected_size", frame.rgb_data_size}});
+            return std::nullopt;
+        }
+    }
+
+    // Read depth data
+    if (frame.depth_data_size > 0)
+    {
+        frame.depth_data.resize(frame.depth_data_size);
+        if (!read_exact(frame.depth_data.data(), frame.depth_data_size, config_.read_timeout_ms * 10))
+        {
+            logger_->warning("frame_with_data_depth_read_failed",
+                {{"expected_size", frame.depth_data_size}});
+            return std::nullopt;
+        }
+    }
+
+    logger_->debug("frame_with_data_received",
+        {{"frame_id", frame.frame_id},
+         {"rgb_size", frame.rgb_data_size},
+         {"depth_size", frame.depth_data_size}});
 
     return frame;
 }

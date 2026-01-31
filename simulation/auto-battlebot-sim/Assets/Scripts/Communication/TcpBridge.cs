@@ -356,6 +356,121 @@ namespace AutoBattlebot.Communication
         }
 
         /// <summary>
+        /// Sends a frame-ready message with raw image data (fallback mode).
+        /// Used when CUDA interop is unavailable (e.g., Vulkan backend).
+        /// </summary>
+        /// <param name="frameId">Current frame ID.</param>
+        /// <param name="timestampSeconds">Timestamp in seconds.</param>
+        /// <param name="pose">Camera pose matrix (4x4, row-major).</param>
+        /// <param name="rgbWidth">RGB image width.</param>
+        /// <param name="rgbHeight">RGB image height.</param>
+        /// <param name="rgbData">Raw RGB image data (RGBA format).</param>
+        /// <param name="depthWidth">Depth image width (0 if no depth).</param>
+        /// <param name="depthHeight">Depth image height (0 if no depth).</param>
+        /// <param name="depthData">Raw depth image data (R32F format), or null.</param>
+        /// <returns>True if sent successfully.</returns>
+        public bool SendFrameReadyWithData(
+            ulong frameId,
+            double timestampSeconds,
+            Matrix4x4 pose,
+            int rgbWidth,
+            int rgbHeight,
+            byte[] rgbData,
+            int depthWidth,
+            int depthHeight,
+            byte[] depthData)
+        {
+            if (!IsConnected)
+            {
+                return false;
+            }
+
+            if (rgbData == null || rgbData.Length == 0)
+            {
+                Debug.LogError("[TcpBridge] RGB data is null or empty");
+                return false;
+            }
+
+            bool hasDepth = depthData != null && depthData.Length > 0;
+
+            _stopwatch.Restart();
+
+            try
+            {
+                lock (_writeLock)
+                {
+                    // Calculate total message size
+                    int headerSize = TcpMessageSizes.FrameReadyWithDataHeader;
+                    int totalSize = headerSize + rgbData.Length + (hasDepth ? depthData.Length : 0);
+
+                    // Allocate buffer if needed (reuse if possible)
+                    byte[] buffer = totalSize <= _writeBuffer.Length 
+                        ? _writeBuffer 
+                        : new byte[totalSize];
+
+                    // Message type
+                    buffer[0] = hasDepth
+                        ? (byte)TcpMessageType.FrameReadyWithData
+                        : (byte)TcpMessageType.FrameReadyWithDataNoDepth;
+
+                    int offset = 1;
+
+                    // Frame ID (8 bytes)
+                    offset += WriteUInt64(buffer, offset, frameId);
+
+                    // Timestamp in nanoseconds (8 bytes)
+                    ulong timestampNs = (ulong)(timestampSeconds * 1_000_000_000);
+                    offset += WriteUInt64(buffer, offset, timestampNs);
+
+                    // Pose matrix (128 bytes = 16 doubles)
+                    for (int row = 0; row < 4; row++)
+                    {
+                        for (int col = 0; col < 4; col++)
+                        {
+                            offset += WriteDouble(buffer, offset, pose[row, col]);
+                        }
+                    }
+
+                    // Image dimensions
+                    offset += WriteInt32(buffer, offset, rgbWidth);
+                    offset += WriteInt32(buffer, offset, rgbHeight);
+                    offset += WriteInt32(buffer, offset, hasDepth ? depthWidth : 0);
+                    offset += WriteInt32(buffer, offset, hasDepth ? depthHeight : 0);
+
+                    // Data sizes
+                    offset += WriteInt32(buffer, offset, rgbData.Length);
+                    offset += WriteInt32(buffer, offset, hasDepth ? depthData.Length : 0);
+
+                    // RGB data
+                    Buffer.BlockCopy(rgbData, 0, buffer, offset, rgbData.Length);
+                    offset += rgbData.Length;
+
+                    // Depth data (if present)
+                    if (hasDepth)
+                    {
+                        Buffer.BlockCopy(depthData, 0, buffer, offset, depthData.Length);
+                        offset += depthData.Length;
+                    }
+
+                    // Send the entire message
+                    _stream.Write(buffer, 0, totalSize);
+                }
+
+                _sendCount++;
+
+                _stopwatch.Stop();
+                _totalSendTimeUs += _stopwatch.ElapsedTicks * 1000000 / Stopwatch.Frequency;
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                HandleDisconnection(ex);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Tries to read a velocity command without blocking.
         /// </summary>
         /// <param name="command">The received command.</param>

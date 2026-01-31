@@ -95,10 +95,23 @@ public:
     std::optional<TcpFrameReadyMessage> wait_for_frame(std::chrono::milliseconds timeout);
 
     /**
+     * @brief Wait for a frame-ready message with raw image data (fallback mode)
+     * @param timeout Timeout duration
+     * @return Frame message with data if received, nullopt on timeout or error
+     */
+    std::optional<TcpFrameReadyWithDataMessage> wait_for_frame_with_data(std::chrono::milliseconds timeout);
+
+    /**
      * @brief Check if a frame-ready message is available (non-blocking)
      * @return Frame message if available, nullopt otherwise
      */
     std::optional<TcpFrameReadyMessage> try_get_frame();
+
+    /**
+     * @brief Check if the server is sending frames with raw data (fallback mode)
+     * @return true if fallback mode is detected
+     */
+    bool is_fallback_mode() const { return fallback_mode_detected_; }
 
     /**
      * @brief Send a velocity command to Unity
@@ -163,6 +176,9 @@ private:
     // Diagnostics
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
 
+    // Fallback mode state
+    std::atomic<bool> fallback_mode_detected_{false};
+
     // Internal helpers
     bool read_exact(void* buffer, size_t size, int timeout_ms);
     bool write_exact(const void* buffer, size_t size);
@@ -170,6 +186,7 @@ private:
     bool handle_incoming_message();
     bool read_intrinsics_message();
     std::optional<TcpFrameReadyMessage> read_frame_ready_message();
+    std::optional<TcpFrameReadyWithDataMessage> read_frame_ready_with_data_message();
 
     // Binary serialization helpers (little-endian)
     static void write_uint64(uint8_t* buffer, uint64_t value);

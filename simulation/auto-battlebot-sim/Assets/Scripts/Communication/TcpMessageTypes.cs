@@ -69,6 +69,21 @@ namespace AutoBattlebot.Communication
         RequestFrame = 0x08,
 
         /// <summary>
+        /// Frame ready with raw image data (Unity → C++, fallback mode).
+        /// Used when CUDA interop is unavailable (e.g., Vulkan backend).
+        /// Payload: frame_id (8) + timestamp_ns (8) + pose (128) + 
+        ///          rgb_width (4) + rgb_height (4) + depth_width (4) + depth_height (4) +
+        ///          rgb_size (4) + depth_size (4) + rgb_data (variable) + depth_data (variable)
+        /// </summary>
+        FrameReadyWithData = 0x09,
+
+        /// <summary>
+        /// Frame ready with raw RGB data only, no depth (Unity → C++, fallback mode).
+        /// Same as FrameReadyWithData but depth_size = 0 and no depth_data.
+        /// </summary>
+        FrameReadyWithDataNoDepth = 0x0A,
+
+        /// <summary>
         /// Shutdown notification.
         /// Payload: none
         /// </summary>
@@ -89,6 +104,12 @@ namespace AutoBattlebot.Communication
         public const int Pong = TypeHeader;  // 1 byte
         public const int RequestFrame = TypeHeader + 1;  // 2 bytes
         public const int Shutdown = TypeHeader;  // 1 byte
+
+        /// <summary>
+        /// Header size for FrameReadyWithData (variable-length message).
+        /// Actual message size = Header + rgb_size + depth_size
+        /// </summary>
+        public const int FrameReadyWithDataHeader = TypeHeader + 8 + 8 + 128 + 4 + 4 + 4 + 4 + 4 + 4;  // 169 bytes
     }
 
     /// <summary>
@@ -192,5 +213,105 @@ namespace AutoBattlebot.Communication
         /// Payload size in bytes.
         /// </summary>
         public const int PayloadSize = 1;
+    }
+
+    /// <summary>
+    /// Frame ready with raw image data header structure.
+    /// Used in fallback mode when CUDA interop is unavailable.
+    /// The actual image data follows this header.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct FrameReadyWithDataHeader
+    {
+        /// <summary>
+        /// Incrementing frame identifier.
+        /// </summary>
+        public ulong FrameId;
+
+        /// <summary>
+        /// Timestamp in nanoseconds since simulation start.
+        /// </summary>
+        public ulong TimestampNs;
+
+        /// <summary>
+        /// Camera pose as 4x4 matrix (row-major, 16 doubles).
+        /// Transform from camera to world coordinates.
+        /// </summary>
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
+        public double[] Pose;
+
+        /// <summary>
+        /// RGB image width in pixels.
+        /// </summary>
+        public int RgbWidth;
+
+        /// <summary>
+        /// RGB image height in pixels.
+        /// </summary>
+        public int RgbHeight;
+
+        /// <summary>
+        /// Depth image width in pixels.
+        /// </summary>
+        public int DepthWidth;
+
+        /// <summary>
+        /// Depth image height in pixels.
+        /// </summary>
+        public int DepthHeight;
+
+        /// <summary>
+        /// Size of RGB data in bytes (width * height * 4 for RGBA).
+        /// </summary>
+        public int RgbDataSize;
+
+        /// <summary>
+        /// Size of depth data in bytes (width * height * 4 for R32F).
+        /// 0 if no depth data included.
+        /// </summary>
+        public int DepthDataSize;
+
+        /// <summary>
+        /// Header size in bytes (excluding type byte and image data).
+        /// </summary>
+        public const int PayloadSize = 8 + 8 + 128 + 4 + 4 + 4 + 4 + 4 + 4;  // 168 bytes
+
+        /// <summary>
+        /// Creates a new FrameReadyWithDataHeader.
+        /// </summary>
+        public static FrameReadyWithDataHeader Create(
+            ulong frameId,
+            double timestampSeconds,
+            UnityEngine.Matrix4x4 pose,
+            int rgbWidth,
+            int rgbHeight,
+            int depthWidth,
+            int depthHeight,
+            int rgbDataSize,
+            int depthDataSize)
+        {
+            // Convert Unity Matrix4x4 to row-major double array
+            var poseArray = new double[16];
+            for (int row = 0; row < 4; row++)
+            {
+                for (int col = 0; col < 4; col++)
+                {
+                    poseArray[row * 4 + col] = pose[row, col];
+                }
+            }
+
+            return new FrameReadyWithDataHeader
+            {
+                FrameId = frameId,
+                TimestampNs = (ulong)(timestampSeconds * 1_000_000_000),
+                Pose = poseArray,
+                RgbWidth = rgbWidth,
+                RgbHeight = rgbHeight,
+                DepthWidth = depthWidth,
+                DepthHeight = depthHeight,
+                RgbDataSize = rgbDataSize,
+                DepthDataSize = depthDataSize
+            };
+        }
     }
 }

@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <array>
+#include <vector>
 
 namespace auto_battlebot
 {
@@ -51,6 +52,12 @@ enum class TcpMessageType : uint8_t
     /// Request frame from Unity (C++ → Unity)
     RequestFrame = 0x08,
 
+    /// Frame ready with raw image data (Unity → C++, fallback mode)
+    FrameReadyWithData = 0x09,
+
+    /// Frame ready with raw RGB data only, no depth (Unity → C++, fallback mode)
+    FrameReadyWithDataNoDepth = 0x0A,
+
     /// Shutdown notification
     Shutdown = 0xFF,
 };
@@ -69,6 +76,10 @@ namespace TcpMessageSize
     constexpr size_t Pong = TypeHeader;                            // 1 byte
     constexpr size_t RequestFrame = TypeHeader + 1;                // 2 bytes
     constexpr size_t Shutdown = TypeHeader;                        // 1 byte
+
+    /// Header size for FrameReadyWithData (variable-length message)
+    /// Actual message size = Header + rgb_size + depth_size
+    constexpr size_t FrameReadyWithDataHeader = TypeHeader + 8 + 8 + 128 + 4 + 4 + 4 + 4 + 4 + 4; // 169 bytes
 } // namespace TcpMessageSize
 
 /**
@@ -110,6 +121,48 @@ struct TcpFrameReadyMessage
 
     /// Payload size in bytes (excluding type header)
     static constexpr size_t payload_size = 8 + 8 + 128;
+};
+
+/**
+ * @brief Frame ready message with raw image data (fallback mode)
+ *
+ * Used when CUDA interop is unavailable (e.g., Vulkan backend).
+ * Contains the frame metadata plus raw image bytes.
+ */
+struct TcpFrameReadyWithDataMessage
+{
+    uint64_t frame_id;
+    uint64_t timestamp_ns;
+    std::array<double, 16> pose; // 4x4 matrix, row-major
+
+    // Image dimensions
+    int32_t rgb_width;
+    int32_t rgb_height;
+    int32_t depth_width;
+    int32_t depth_height;
+
+    // Data sizes
+    int32_t rgb_data_size;
+    int32_t depth_data_size;
+
+    // Image data (dynamically sized)
+    std::vector<uint8_t> rgb_data;
+    std::vector<uint8_t> depth_data;
+
+    /// Check if this message has depth data
+    bool has_depth() const
+    {
+        return depth_data_size > 0 && !depth_data.empty();
+    }
+
+    /// Get timestamp in seconds
+    double timestamp_seconds() const
+    {
+        return static_cast<double>(timestamp_ns) / 1'000'000'000.0;
+    }
+
+    /// Header payload size in bytes (excluding type header and image data)
+    static constexpr size_t header_payload_size = 8 + 8 + 128 + 4 + 4 + 4 + 4 + 4 + 4;
 };
 
 /**
