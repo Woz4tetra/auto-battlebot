@@ -7,7 +7,6 @@
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "rgbd_camera/config.hpp"
 #include "communication/sim_tcp_client.hpp"
-#include "communication/cuda_interop_wrapper.hpp"
 #include "communication/gpu_image_types.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 
@@ -49,37 +48,11 @@ namespace auto_battlebot
          */
         static std::shared_ptr<SimTcpClient> get_tcp_client();
 
-        /**
-         * @brief Check if CUDA Interop is enabled and working
-         */
-        bool is_cuda_interop_enabled() const { return cuda_interop_enabled_; }
-
-        /**
-         * @brief Get the last GPU frame data
-         *
-         * Returns the GPU-resident frame data from the most recent get() call.
-         * Only valid when is_cuda_interop_enabled() returns true.
-         *
-         * @note The returned data is only valid while CUDA resources are mapped
-         *       (between get() calls). Do not store references to cuda_array.
-         */
-        const GpuFrameData& get_gpu_frame_data() const { return last_gpu_frame_; }
-
-        /**
-         * @brief Check if last frame has GPU data
-         */
-        bool has_gpu_data() const { return last_gpu_frame_.is_valid(); }
-
     private:
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
         int expected_width_, expected_height_;
         SimTcpClientConfig tcp_config_;
-
-        // CUDA Interop
-        std::unique_ptr<CudaInteropWrapper> cuda_interop_;
-        CudaInteropConfig cuda_config_;
-        bool cuda_interop_enabled_ = false;
 
         // Shared TCP client (static so SimTransmitter can access it)
         static std::shared_ptr<SimTcpClient> tcp_client_;
@@ -88,12 +61,10 @@ namespace auto_battlebot
         // Last received frame info
         uint64_t last_frame_id_ = 0;
         bool resources_mapped_ = false;
-        GpuFrameData last_gpu_frame_;
 
         // Diagnostics tracking
         void log_stats();
         uint64_t frames_received_;
-        uint64_t gpu_frames_received_;
         std::chrono::steady_clock::time_point last_log_time_;
 
         // Helper to populate CameraData from TCP messages
@@ -101,9 +72,7 @@ namespace auto_battlebot
         void populate_pose(CameraData& data, const TcpFrameReadyMessage& frame);
 
         // CUDA Interop helpers
-        bool try_initialize_cuda_interop();
-        bool get_gpu_frame(CameraData& data, bool get_depth);
-        bool get_cpu_frame(CameraData& data, bool get_depth, const TcpFrameReadyMessage& frame);
+        bool get_frame(CameraData& data, bool get_depth, const TcpFrameReadyMessage& frame);
     };
 
 } // namespace auto_battlebot

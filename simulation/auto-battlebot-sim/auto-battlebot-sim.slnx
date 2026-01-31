@@ -1,5 +1,4 @@
 ﻿<Solution>
-  <Project Path="AutoBattlebot.NativePlugins.csproj" />
   <Project Path="AutoBattlebot.Robots.csproj" />
   <Project Path="AutoBattlebot.Communication.csproj" />
   <Project Path="AutoBattlebot.DataGeneration.csproj" />
