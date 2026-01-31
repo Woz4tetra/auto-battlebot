@@ -15,33 +15,17 @@ using Debug = UnityEngine.Debug;
 namespace AutoBattlebot.SimulatedCamera
 {
     /// <summary>
-    /// Resolution presets matching ZED 2i supported modes.
-    /// </summary>
-    public enum CameraResolutionPreset
-    {
-        /// <summary>HD720 - 1280x720 @ up to 60fps</summary>
-        HD720,
-        /// <summary>HD1080 - 1920x1080 @ up to 30fps</summary>
-        HD1080,
-        /// <summary>VGA - 640x360 @ up to 100fps</summary>
-        VGA,
-        /// <summary>Custom resolution</summary>
-        Custom
-    }
-
-    /// <summary>
     /// Simulates an RGB camera that renders to a RenderTexture for AsyncGPUReadback.
     /// 
     /// This component:
     /// - Creates a RenderTexture compatible with AsyncGPUReadback (ARGB32, no MSAA)
     /// - Configures the camera FOV based on intrinsic parameters
-    /// - Supports resolution presets matching ZED 2i modes
     /// - Provides performance profiling for optimization
     /// - Integrates with CommunicationBridge for TCP transfer
     /// 
     /// Usage:
     /// 1. Attach to a GameObject with a Camera component
-    /// 2. Select a resolution preset or use custom resolution
+    /// 2. Fill out the CameraIntrinsicsProvider component
     /// 3. CommunicationBridge will automatically use this texture for AsyncGPUReadback
     /// </summary>
     [RequireComponent(typeof(Camera))]
@@ -50,11 +34,6 @@ namespace AutoBattlebot.SimulatedCamera
     public class CameraSimulator : MonoBehaviour, IInitializable
     {
         #region Serialized Fields
-
-        [Header("Resolution")]
-        [SerializeField]
-        [Tooltip("Resolution preset matching ZED 2i modes")]
-        private CameraResolutionPreset _resolutionPreset = CameraResolutionPreset.HD720;
 
         [Header("Options")]
         [SerializeField]
@@ -113,12 +92,12 @@ namespace AutoBattlebot.SimulatedCamera
         /// <summary>
         /// Render width in pixels.
         /// </summary>
-        public int Width => _intrinsicsProvider?.Width ?? GetPresetWidth(_resolutionPreset);
+        public int Width => _intrinsicsProvider.Width;
 
         /// <summary>
         /// Render height in pixels.
         /// </summary>
-        public int Height => _intrinsicsProvider?.Height ?? GetPresetHeight(_resolutionPreset);
+        public int Height => _intrinsicsProvider.Height;
 
         /// <summary>
         /// Whether the camera system is initialized.
@@ -134,11 +113,6 @@ namespace AutoBattlebot.SimulatedCamera
         /// Native texture pointer (for debugging/logging).
         /// </summary>
         public IntPtr NativeTexturePtr => HasTexture ? _rgbTexture.GetNativeTexturePtr() : IntPtr.Zero;
-
-        /// <summary>
-        /// Current resolution preset.
-        /// </summary>
-        public CameraResolutionPreset ResolutionPreset => _resolutionPreset;
 
         /// <summary>
         /// Average render time in microseconds.
@@ -217,12 +191,6 @@ namespace AutoBattlebot.SimulatedCamera
                 _intrinsicsProvider = GetComponent<CameraIntrinsicsProvider>();
             }
 
-            // Apply resolution preset to intrinsics provider
-            if (_intrinsicsProvider != null && _resolutionPreset != CameraResolutionPreset.Custom)
-            {
-                ApplyResolutionPreset();
-            }
-
             if (_camera != null)
             {
                 ApplyCameraSettings();
@@ -275,12 +243,6 @@ namespace AutoBattlebot.SimulatedCamera
                 _intrinsicsProvider = GetComponent<CameraIntrinsicsProvider>();
             }
 
-            // Apply resolution preset if not custom
-            if (_resolutionPreset != CameraResolutionPreset.Custom)
-            {
-                ApplyResolutionPreset();
-            }
-
             // Create RenderTexture
             if (!CreateRenderTexture())
             {
@@ -292,7 +254,6 @@ namespace AutoBattlebot.SimulatedCamera
 
             _isInitialized = true;
             Debug.Log($"[CameraSimulator] Initialized: {Width}x{Height}, " +
-                      $"Preset={_resolutionPreset}, " +
                       $"FOV={_camera.fieldOfView:F1}°, " +
                       $"Format={_rgbTexture.format}");
 
@@ -337,25 +298,6 @@ namespace AutoBattlebot.SimulatedCamera
             }
 
             _isInitialized = false;
-        }
-
-        /// <summary>
-        /// Change resolution preset at runtime.
-        /// </summary>
-        public void SetResolutionPreset(CameraResolutionPreset preset)
-        {
-            if (_resolutionPreset == preset)
-            {
-                return;
-            }
-
-            _resolutionPreset = preset;
-            
-            if (_isInitialized)
-            {
-                ApplyResolutionPreset();
-                RecreateRenderTexture();
-            }
         }
 
         /// <summary>
@@ -412,7 +354,6 @@ namespace AutoBattlebot.SimulatedCamera
         {
             return $"[CameraSimulator] Performance:\n" +
                    $"  Resolution: {Width}x{Height}\n" +
-                   $"  Preset: {_resolutionPreset}\n" +
                    $"  Frames: {_frameCount}\n" +
                    $"  Avg Readback: {AverageReadbackTimeUs:F1}µs";
         }
@@ -430,21 +371,6 @@ namespace AutoBattlebot.SimulatedCamera
         #endregion
 
         #region Private Methods
-
-        private void ApplyResolutionPreset()
-        {
-            if (_intrinsicsProvider == null)
-            {
-                return;
-            }
-
-            int width = GetPresetWidth(_resolutionPreset);
-            int height = GetPresetHeight(_resolutionPreset);
-
-            // Get ZED 2i intrinsics for this resolution
-            var intrinsics = GetZed2iIntrinsics(_resolutionPreset);
-            _intrinsicsProvider.SetIntrinsics(intrinsics);
-        }
 
         private bool CreateRenderTexture()
         {
@@ -564,79 +490,6 @@ namespace AutoBattlebot.SimulatedCamera
 
         #endregion
 
-        #region Static Helper Methods
-
-        /// <summary>
-        /// Get width for a resolution preset.
-        /// </summary>
-        public static int GetPresetWidth(CameraResolutionPreset preset)
-        {
-            return preset switch
-            {
-                CameraResolutionPreset.HD720 => 1280,
-                CameraResolutionPreset.HD1080 => 1920,
-                CameraResolutionPreset.VGA => 640,
-                _ => 1280
-            };
-        }
-
-        /// <summary>
-        /// Get height for a resolution preset.
-        /// </summary>
-        public static int GetPresetHeight(CameraResolutionPreset preset)
-        {
-            return preset switch
-            {
-                CameraResolutionPreset.HD720 => 720,
-                CameraResolutionPreset.HD1080 => 1080,
-                CameraResolutionPreset.VGA => 360,
-                _ => 720
-            };
-        }
-
-        /// <summary>
-        /// Get ZED 2i camera intrinsics for a resolution preset.
-        /// Values from ZED SDK calibration.
-        /// </summary>
-        public static CameraIntrinsics GetZed2iIntrinsics(CameraResolutionPreset preset)
-        {
-            // ZED 2i intrinsics from SDK (left camera, rectified)
-            // Note: These are typical values; actual values vary per camera
-            return preset switch
-            {
-                CameraResolutionPreset.HD1080 => CameraIntrinsics.Create(
-                    width: 1920,
-                    height: 1080,
-                    fx: 1061.4892578125,
-                    fy: 1061.4892578125,
-                    cx: 971.2513427734375,
-                    cy: 561.7954711914062,
-                    k1: 0, k2: 0, p1: 0, p2: 0, k3: 0  // Rectified = no distortion
-                ),
-                CameraResolutionPreset.HD720 => CameraIntrinsics.Create(
-                    width: 1280,
-                    height: 720,
-                    fx: 707.6595458984375,  // Scaled from 1080p
-                    fy: 707.6595458984375,
-                    cx: 647.5008544921875,
-                    cy: 374.5303039550781,
-                    k1: 0, k2: 0, p1: 0, p2: 0, k3: 0
-                ),
-                CameraResolutionPreset.VGA => CameraIntrinsics.Create(
-                    width: 640,
-                    height: 360,
-                    fx: 353.82977294921875,  // Scaled from 1080p
-                    fy: 353.82977294921875,
-                    cx: 323.75042724609375,
-                    cy: 187.26515197753906,
-                    k1: 0, k2: 0, p1: 0, p2: 0, k3: 0
-                ),
-                _ => CameraIntrinsics.CreateDefault(1280, 720)
-            };
-        }
-
-        #endregion
-
         #region Editor Support
 
 #if UNITY_EDITOR
@@ -654,30 +507,11 @@ namespace AutoBattlebot.SimulatedCamera
             {
                 Debug.Log($"[CameraSimulator] Texture: {_rgbTexture.width}x{_rgbTexture.height}, " +
                           $"Format={_rgbTexture.format}, " +
-                          $"Preset={_resolutionPreset}");
             }
             else
             {
                 Debug.Log("[CameraSimulator] No texture created");
             }
-        }
-
-        [ContextMenu("Apply HD720 Preset")]
-        private void EditorApplyHD720()
-        {
-            SetResolutionPreset(CameraResolutionPreset.HD720);
-        }
-
-        [ContextMenu("Apply HD1080 Preset")]
-        private void EditorApplyHD1080()
-        {
-            SetResolutionPreset(CameraResolutionPreset.HD1080);
-        }
-
-        [ContextMenu("Apply VGA Preset")]
-        private void EditorApplyVGA()
-        {
-            SetResolutionPreset(CameraResolutionPreset.VGA);
         }
 
         [ContextMenu("Log Performance Report")]
