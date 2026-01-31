@@ -65,8 +65,8 @@ namespace AutoBattlebot.Communication
         private bool _captureDepth = true;
 
         [SerializeField]
-        [Tooltip("Maximum number of pending AsyncGPUReadback requests")]
-        private int _maxPendingReadbacks = 2;
+        [Tooltip("Maximum number of pending AsyncGPUReadback requests (1 recommended for stability)")]
+        private int _maxPendingReadbacks = 1;
 
         [Header("Debug")]
         [SerializeField]
@@ -286,8 +286,9 @@ namespace AutoBattlebot.Communication
                 Log("Ready to capture frames");
             }
 
-            // Check if we can start a new capture
-            if (_pendingRgbReadbacks.Count < _maxPendingReadbacks)
+            // Only capture when no pending readbacks exist
+            // This ensures we don't queue multiple requests that can interfere
+            if (_pendingRgbReadbacks.Count == 0 && !_rgbReady)
             {
                 CaptureFrame();
             }
