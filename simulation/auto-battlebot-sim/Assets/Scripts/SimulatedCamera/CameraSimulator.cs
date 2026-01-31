@@ -9,7 +9,7 @@ using System;
 using UnityEngine;
 using AutoBattlebot.Core;
 
-namespace AutoBattlebot.Camera
+namespace AutoBattlebot.SimulatedCamera
 {
     /// <summary>
     /// Simulates an RGB camera that renders to a RenderTexture for CUDA Interop.
@@ -25,7 +25,7 @@ namespace AutoBattlebot.Camera
     /// 2. Configure resolution and intrinsics in Inspector
     /// 3. Access RgbTexture.GetNativeTexturePtr() for CUDA registration
     /// </summary>
-    [RequireComponent(typeof(UnityEngine.Camera))]
+    [RequireComponent(typeof(Camera))]
     [RequireComponent(typeof(CameraIntrinsicsProvider))]
     [ExecuteInEditMode]
     public class CameraSimulator : MonoBehaviour
@@ -45,7 +45,7 @@ namespace AutoBattlebot.Camera
 
         #region Private Fields
 
-        private UnityEngine.Camera _camera;
+        private Camera _camera;
         private CameraIntrinsicsProvider _intrinsics_provider;
         private RenderTexture _rgbTexture;
         private Texture2D _cpuTexture;
@@ -64,7 +64,7 @@ namespace AutoBattlebot.Camera
         /// <summary>
         /// The attached Camera component.
         /// </summary>
-        public UnityEngine.Camera Camera => _camera;
+        public Camera Camera => _camera;
 
         /// <summary>
         /// Render width in pixels.
@@ -97,7 +97,7 @@ namespace AutoBattlebot.Camera
 
         private void Awake()
         {
-            _camera = GetComponent<UnityEngine.Camera>();
+            _camera = GetComponent<Camera>();
             _intrinsics_provider = GetComponent<CameraIntrinsicsProvider>();
         }
 
@@ -119,7 +119,7 @@ namespace AutoBattlebot.Camera
             // Update camera settings in editor
             if (_camera == null)
             {
-                _camera = GetComponent<UnityEngine.Camera>();
+                _camera = GetComponent<Camera>();
             }
 
             if (_camera != null)
@@ -145,7 +145,7 @@ namespace AutoBattlebot.Camera
 
             if (_camera == null)
             {
-                _camera = GetComponent<UnityEngine.Camera>();
+                _camera = GetComponent<Camera>();
             }
 
             if (_camera == null)

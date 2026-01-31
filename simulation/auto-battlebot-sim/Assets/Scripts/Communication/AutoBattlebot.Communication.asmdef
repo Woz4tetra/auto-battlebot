@@ -4,7 +4,9 @@
     "references": [
         "AutoBattlebot.Core",
         "AutoBattlebot.Configuration",
-        "AutoBattlebot.NativePlugins"
+        "AutoBattlebot.NativePlugins",
+        "AutoBattlebot.SimulatedCamera",
+        "Unity.RenderPipelines.HighDefinition.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -5,7 +5,7 @@
         "AutoBattlebot.Core",
         "AutoBattlebot.Configuration",
         "AutoBattlebot.Communication",
-        "AutoBattlebot.Camera",
+        "AutoBattlebot.SimulatedCamera",
         "AutoBattlebot.Robots",
         "AutoBattlebot.Arena"
     ],

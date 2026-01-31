@@ -1,6 +1,6 @@
 {
-    "name": "AutoBattlebot.Camera",
-    "rootNamespace": "AutoBattlebot.Camera",
+    "name": "AutoBattlebot.SimulatedCamera",
+    "rootNamespace": "AutoBattlebot.SimulatedCamera",
     "references": [
         "AutoBattlebot.Core",
         "Unity.RenderPipelines.Core.Runtime",

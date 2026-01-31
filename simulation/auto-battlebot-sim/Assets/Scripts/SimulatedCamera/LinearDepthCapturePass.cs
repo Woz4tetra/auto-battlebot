@@ -9,7 +9,7 @@ using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.HighDefinition;
 
-namespace AutoBattlebot.Camera
+namespace AutoBattlebot.SimulatedCamera
 {
     /// <summary>
     /// HDRP Custom Pass that captures linearized depth for CUDA Interop.

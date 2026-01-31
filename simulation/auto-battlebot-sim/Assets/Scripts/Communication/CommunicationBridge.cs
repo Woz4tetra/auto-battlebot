@@ -13,7 +13,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using AutoBattlebot.Core;
-using AutoBattlebot.Camera;
+using AutoBattlebot.SimulatedCamera;
 
 namespace AutoBattlebot.Communication
 {

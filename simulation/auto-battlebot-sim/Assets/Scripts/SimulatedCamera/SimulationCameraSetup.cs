@@ -7,7 +7,7 @@
 using System;
 using UnityEngine;
 
-namespace AutoBattlebot.Camera
+namespace AutoBattlebot.SimulatedCamera
 {
     /// <summary>
     /// Automatic setup component for simulation camera system.
@@ -23,7 +23,7 @@ namespace AutoBattlebot.Camera
     /// 3. Optionally assign a CudaInteropBridge reference to auto-wire textures
     /// 4. The component handles the rest on Start()
     /// </summary>
-    [RequireComponent(typeof(UnityEngine.Camera))]
+    [RequireComponent(typeof(Camera))]
     public class SimulationCameraSetup : MonoBehaviour
     {
         #region Serialized Fields
@@ -195,7 +195,7 @@ namespace AutoBattlebot.Camera
             {
                 // Use reflection or direct field access to configure
                 // For now, we'll rely on the CameraSimulator's own preset methods
-                var cam = GetComponent<UnityEngine.Camera>();
+                var cam = GetComponent<Camera>();
                 if (cam != null)
                 {
                     cam.nearClipPlane = near;
