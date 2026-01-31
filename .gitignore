@@ -35,6 +35,7 @@ cmake_install.cmake
 *.out
 bin/
 lib/
+.cache/
 
 # IDE and Editor
 *.swp

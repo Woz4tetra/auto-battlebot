@@ -2,10 +2,11 @@
 // C# bindings for the CudaInteropPlugin native library
 //
 // This enables zero-copy GPU texture sharing between Unity and C++
-// via CUDA-OpenGL interop. Textures remain on GPU throughout the pipeline.
+// via CUDA interop. Supports both OpenGL and Vulkan graphics backends.
+// Textures remain on GPU throughout the pipeline.
 //
 // Usage:
-//   1. Call CudaInterop.Initialize() at startup
+//   1. Call CudaInterop.Initialize() at startup (auto-detects graphics API)
 //   2. Register RenderTextures via CudaInterop.RegisterTexture()
 //   3. After rendering, call CudaInterop.SyncAndNotify() or use GL.IssuePluginEvent
 //   4. C++ application maps textures via CudaInterop_MapResources() native call
@@ -17,6 +18,16 @@ using UnityEngine.Rendering;
 
 namespace AutoBattlebot.NativePlugins
 {
+    /// <summary>
+    /// Graphics API types supported by CUDA Interop.
+    /// </summary>
+    public enum CudaInteropGraphicsAPI
+    {
+        Unknown = 0,
+        OpenGL = 1,
+        Vulkan = 2,
+    }
+
     /// <summary>
     /// Error codes from the CUDA Interop native plugin.
     /// </summary>
@@ -34,6 +45,8 @@ namespace AutoBattlebot.NativePlugins
         UnmapFailed = -9,
         SyncFailed = -10,
         Timeout = -11,
+        VulkanNotAvailable = -12,
+        UnsupportedGraphicsAPI = -13,
         Internal = -99,
     }
 
@@ -92,6 +105,14 @@ namespace AutoBattlebot.NativePlugins
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         private static extern CudaInteropError CudaInterop_Initialize(int deviceId);
+
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        private static extern CudaInteropError CudaInterop_InitializeWithAPI(
+            int deviceId,
+            CudaInteropGraphicsAPI graphicsApi);
+
+        [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
+        private static extern CudaInteropGraphicsAPI CudaInterop_GetGraphicsAPI();
 
         [DllImport(DLL_NAME, CallingConvention = CallingConvention.Cdecl)]
         private static extern void CudaInterop_Shutdown();
@@ -165,6 +186,14 @@ namespace AutoBattlebot.NativePlugins
         private static ulong _rgbTextureId = 0;
         private static ulong _depthTextureId = 0;
 
+        // Graphics API detection
+        private static CudaInteropGraphicsAPI _detectedGraphicsAPI = CudaInteropGraphicsAPI.Unknown;
+        private static CudaInteropGraphicsAPI _activeGraphicsAPI = CudaInteropGraphicsAPI.Unknown;
+
+        // Fallback mode for when zero-copy interop is unavailable
+        private static bool _useFallbackMode = false;
+        private static string _fallbackReason = null;
+
         #endregion
 
         #region Properties
@@ -194,16 +223,81 @@ namespace AutoBattlebot.NativePlugins
         /// </summary>
         public static bool HasDepthTexture => _depthTextureId != 0;
 
+        /// <summary>
+        /// The detected graphics API based on Unity's current settings.
+        /// </summary>
+        public static CudaInteropGraphicsAPI DetectedGraphicsAPI => _detectedGraphicsAPI;
+
+        /// <summary>
+        /// The active graphics API that the native plugin is using.
+        /// </summary>
+        public static CudaInteropGraphicsAPI ActiveGraphicsAPI => _activeGraphicsAPI;
+
+        /// <summary>
+        /// Whether the system is using Vulkan backend.
+        /// </summary>
+        public static bool IsVulkan => _activeGraphicsAPI == CudaInteropGraphicsAPI.Vulkan;
+
+        /// <summary>
+        /// Whether the system is using OpenGL backend.
+        /// </summary>
+        public static bool IsOpenGL => _activeGraphicsAPI == CudaInteropGraphicsAPI.OpenGL;
+
+        /// <summary>
+        /// Whether the system is using fallback mode (AsyncGPUReadback instead of zero-copy).
+        /// This happens when Vulkan interop fails or is unavailable.
+        /// </summary>
+        public static bool UseFallbackMode => _useFallbackMode;
+
+        /// <summary>
+        /// The reason fallback mode was enabled, if applicable.
+        /// </summary>
+        public static string FallbackReason => _fallbackReason;
+
         #endregion
 
         #region Public API
 
         /// <summary>
-        /// Initialize the CUDA Interop system.
+        /// Detect the graphics API from Unity's current settings.
+        /// </summary>
+        /// <returns>The detected graphics API</returns>
+        public static CudaInteropGraphicsAPI DetectGraphicsAPI()
+        {
+            var deviceType = SystemInfo.graphicsDeviceType;
+
+            var api = deviceType switch
+            {
+                GraphicsDeviceType.OpenGLCore => CudaInteropGraphicsAPI.OpenGL,
+                GraphicsDeviceType.OpenGLES2 => CudaInteropGraphicsAPI.OpenGL,
+                GraphicsDeviceType.OpenGLES3 => CudaInteropGraphicsAPI.OpenGL,
+                GraphicsDeviceType.Vulkan => CudaInteropGraphicsAPI.Vulkan,
+                _ => CudaInteropGraphicsAPI.Unknown
+            };
+
+            Debug.Log($"[CudaInterop] Detected graphics API: {deviceType} -> {api}");
+            return api;
+        }
+
+        /// <summary>
+        /// Initialize the CUDA Interop system with automatic graphics API detection.
         /// </summary>
         /// <param name="deviceId">CUDA device ID (default: 0)</param>
         /// <returns>True if initialization succeeded</returns>
         public static bool Initialize(int deviceId = 0)
+        {
+            // Auto-detect graphics API
+            var graphicsApi = DetectGraphicsAPI();
+            return Initialize(deviceId, graphicsApi);
+        }
+
+        /// <summary>
+        /// Initialize the CUDA Interop system with specific graphics API.
+        /// </summary>
+        /// <param name="deviceId">CUDA device ID (default: 0)</param>
+        /// <param name="graphicsApi">Graphics API to use</param>
+        /// <returns>True if initialization succeeded</returns>
+        public static bool Initialize(int deviceId, CudaInteropGraphicsAPI graphicsApi)
         {
             if (_initialized)
             {
@@ -217,26 +311,48 @@ namespace AutoBattlebot.NativePlugins
                 return false;
             }
 
+            _detectedGraphicsAPI = graphicsApi;
+
+            if (graphicsApi == CudaInteropGraphicsAPI.Unknown)
+            {
+                Debug.LogError($"[CudaInterop] Unsupported graphics API: {SystemInfo.graphicsDeviceType}");
+                return false;
+            }
+
             try
             {
-                var result = CudaInterop_Initialize(deviceId);
+                var result = CudaInterop_InitializeWithAPI(deviceId, graphicsApi);
 
                 if (result == CudaInteropError.Success)
                 {
                     _initialized = true;
+                    _activeGraphicsAPI = graphicsApi;
                     _renderEventFunc = CudaInterop_GetRenderEventFunc();
-                    Debug.Log($"[CudaInterop] Initialized successfully on device {deviceId}");
+                    Debug.Log($"[CudaInterop] Initialized successfully on device {deviceId} with {graphicsApi} backend");
                     return true;
                 }
                 else if (result == CudaInteropError.AlreadyInitialized)
                 {
                     _initialized = true;
+                    _activeGraphicsAPI = CudaInterop_GetGraphicsAPI();
                     _renderEventFunc = CudaInterop_GetRenderEventFunc();
-                    Debug.Log("[CudaInterop] Already initialized (native side)");
+                    Debug.Log($"[CudaInterop] Already initialized (native side) with {_activeGraphicsAPI} backend");
                     return true;
+                }
+                else if (result == CudaInteropError.VulkanNotAvailable && graphicsApi == CudaInteropGraphicsAPI.Vulkan)
+                {
+                    // Vulkan interop not available - enable fallback mode
+                    return EnableFallbackMode($"Vulkan CUDA interop not available: {GetLastError()}");
                 }
                 else
                 {
+                    // For Vulkan, try fallback mode before failing
+                    if (graphicsApi == CudaInteropGraphicsAPI.Vulkan)
+                    {
+                        Debug.LogWarning($"[CudaInterop] Vulkan initialization failed ({result}), enabling fallback mode");
+                        return EnableFallbackMode($"Vulkan initialization failed: {result}");
+                    }
+
                     Debug.LogError($"[CudaInterop] Initialization failed: {result} - {GetLastError()}");
                     return false;
                 }
@@ -249,13 +365,60 @@ namespace AutoBattlebot.NativePlugins
             }
             catch (EntryPointNotFoundException e)
             {
-                Debug.LogWarning($"[CudaInterop] Native function not found: {e.Message}");
-                _pluginAvailable = false;
-                return false;
+                // Fall back to legacy Initialize for backward compatibility
+                Debug.LogWarning($"[CudaInterop] InitializeWithAPI not found, trying legacy Initialize: {e.Message}");
+                return InitializeLegacy(deviceId);
             }
             catch (Exception e)
             {
                 Debug.LogError($"[CudaInterop] Initialization exception: {e}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Enable fallback mode when zero-copy interop is unavailable.
+        /// In fallback mode, AsyncGPUReadback is used instead of direct CUDA access.
+        /// </summary>
+        private static bool EnableFallbackMode(string reason)
+        {
+            _useFallbackMode = true;
+            _fallbackReason = reason;
+            _initialized = true; // Still mark as initialized so callers can proceed
+            _activeGraphicsAPI = _detectedGraphicsAPI;
+
+            Debug.LogWarning($"[CudaInterop] Fallback mode enabled: {reason}");
+            Debug.LogWarning("[CudaInterop] Using AsyncGPUReadback for texture transfer (slower but compatible)");
+
+            return true;
+        }
+
+        /// <summary>
+        /// Legacy initialization for backward compatibility with older native plugins.
+        /// </summary>
+        private static bool InitializeLegacy(int deviceId)
+        {
+            try
+            {
+                var result = CudaInterop_Initialize(deviceId);
+
+                if (result == CudaInteropError.Success || result == CudaInteropError.AlreadyInitialized)
+                {
+                    _initialized = true;
+                    _activeGraphicsAPI = CudaInteropGraphicsAPI.OpenGL; // Legacy only supports OpenGL
+                    _renderEventFunc = CudaInterop_GetRenderEventFunc();
+                    Debug.Log($"[CudaInterop] Initialized (legacy) on device {deviceId}");
+                    return true;
+                }
+                else
+                {
+                    Debug.LogError($"[CudaInterop] Legacy initialization failed: {result} - {GetLastError()}");
+                    return false;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[CudaInterop] Legacy initialization exception: {e}");
                 return false;
             }
         }
@@ -272,11 +435,17 @@ namespace AutoBattlebot.NativePlugins
 
             try
             {
-                CudaInterop_Shutdown();
+                if (!_useFallbackMode)
+                {
+                    CudaInterop_Shutdown();
+                }
                 _initialized = false;
                 _rgbTextureId = 0;
                 _depthTextureId = 0;
                 _renderEventFunc = IntPtr.Zero;
+                _activeGraphicsAPI = CudaInteropGraphicsAPI.Unknown;
+                _useFallbackMode = false;
+                _fallbackReason = null;
                 Debug.Log("[CudaInterop] Shutdown complete");
             }
             catch (Exception e)
@@ -329,7 +498,7 @@ namespace AutoBattlebot.NativePlugins
                 texture.Create();
             }
 
-            // Get native texture pointer (OpenGL texture ID)
+            // Get native texture pointer (OpenGL texture ID or VkImage)
             IntPtr nativePtr = texture.GetNativeTexturePtr();
             if (nativePtr == IntPtr.Zero)
             {
@@ -428,8 +597,8 @@ namespace AutoBattlebot.NativePlugins
         }
 
         /// <summary>
-        /// Synchronize with OpenGL and notify that a frame is ready.
-        /// Call this after rendering completes.
+        /// Synchronize with graphics API and notify that a frame is ready.
+        /// Call this after rendering completes. Works with both OpenGL and Vulkan.
         /// </summary>
         /// <returns>True if sync succeeded</returns>
         public static bool SyncAndNotify()
@@ -534,12 +703,22 @@ namespace AutoBattlebot.NativePlugins
         /// </summary>
         public static string GetPerformanceReport()
         {
-            if (!GetMetrics(out var metrics))
+            var report = $"[CudaInterop] Status:\n" +
+                         $"  Graphics API: {_activeGraphicsAPI}\n" +
+                         $"  Fallback mode: {_useFallbackMode}\n";
+
+            if (_useFallbackMode)
             {
-                return "[CudaInterop] Metrics not available";
+                report += $"  Fallback reason: {_fallbackReason}\n";
+                return report + "  (Metrics not available in fallback mode)";
             }
 
-            return $"[CudaInterop] Performance:\n" +
+            if (!GetMetrics(out var metrics))
+            {
+                return report + "  Metrics not available";
+            }
+
+            return report +
                    $"  Total frames: {metrics.TotalFrames}\n" +
                    $"  Last map time: {metrics.LastMapTimeMs:F3} ms\n" +
                    $"  Last unmap time: {metrics.LastUnmapTimeMs:F3} ms\n" +

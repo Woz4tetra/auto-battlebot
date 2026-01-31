@@ -1,15 +1,22 @@
 # CUDA Interop Unity Native Plugin
 
-This native plugin enables zero-copy GPU texture sharing between Unity and the C++ application using CUDA-OpenGL interop. Textures rendered by Unity remain on the GPU and are accessed directly by the C++ application's TensorRT inference pipeline.
+This native plugin enables zero-copy GPU texture sharing between Unity and the C++ application using CUDA graphics interop. Textures rendered by Unity remain on the GPU and are accessed directly by the C++ application's TensorRT inference pipeline.
+
+## Supported Graphics APIs
+
+- **OpenGL** (recommended): Uses `cudaGraphicsGLRegisterImage` for texture registration
+- **Vulkan**: Uses CUDA external memory interop (`cudaImportExternalMemory`)
+
+The graphics API is automatically detected at runtime based on Unity's settings.
 
 ## Requirements
 
-- **NVIDIA GPU** with CUDA Compute Capability 5.0+ (Jetson Orin Nano: 8.7)
+- **NVIDIA GPU** with CUDA Compute Capability 7.5+ (RTX 20xx or newer, Jetson Orin: 8.7)
 - **CUDA Toolkit 12.x** installed and in PATH
 - **CMake 3.18+**
 - **GCC/G++** with C++17 support
-- **OpenGL development libraries**: `libgl1-mesa-dev`
-- **Unity** must use **OpenGL graphics API** (not Vulkan or DirectX)
+- **OpenGL development libraries**: `libgl1-mesa-dev` (for OpenGL support)
+- **Vulkan SDK** (optional, for Vulkan support): `libvulkan-dev`
 
 ### Ubuntu/Debian Installation
 
@@ -17,6 +24,9 @@ This native plugin enables zero-copy GPU texture sharing between Unity and the C
 # Install build dependencies
 sudo apt-get update
 sudo apt-get install -y cmake build-essential libgl1-mesa-dev
+
+# For Vulkan support (optional):
+sudo apt-get install -y libvulkan-dev
 
 # CUDA Toolkit should be installed separately from NVIDIA
 # Verify with:
@@ -50,7 +60,8 @@ mkdir build && cd build
 cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DENABLE_CUDA=ON \
-    -DENABLE_OPENGL=ON
+    -DENABLE_OPENGL=ON \
+    -DENABLE_VULKAN=ON
 
 cmake --build . --config Release -j$(nproc)
 cmake --install . --config Release
@@ -58,11 +69,12 @@ cmake --install . --config Release
 
 ### Build Options
 
-| Option              | Default | Description                                |
-| ------------------- | ------- | ------------------------------------------ |
-| `ENABLE_CUDA`       | ON      | Enable CUDA backend (required for interop) |
-| `ENABLE_OPENGL`     | ON      | Enable OpenGL support                      |
-| `UNITY_PLUGINS_DIR` | Auto    | Override Unity Plugins installation path   |
+| Option              | Default | Description                                      |
+| ------------------- | ------- | ------------------------------------------------ |
+| `ENABLE_CUDA`       | ON      | Enable CUDA backend (required for interop)       |
+| `ENABLE_OPENGL`     | ON      | Enable OpenGL support                            |
+| `ENABLE_VULKAN`     | ON      | Enable Vulkan support (requires Vulkan SDK)      |
+| `UNITY_PLUGINS_DIR` | Auto    | Override Unity Plugins installation path         |
 
 ### Environment Variables
 
@@ -84,11 +96,28 @@ auto-battlebot-sim/Assets/Plugins/
 
 ## Unity Setup
 
-### 1. Set Graphics API to OpenGL
+### 1. Graphics API Configuration
 
 **Edit > Project Settings > Player > Other Settings**
 
-Under "Graphics APIs", ensure **OpenGL Core** is at the top of the list (or the only entry). Remove Vulkan if present.
+The plugin supports both OpenGL and Vulkan:
+
+- **OpenGL Core** (recommended): Best compatibility and performance
+- **Vulkan**: Supported with automatic detection
+
+The graphics API is detected automatically at runtime. If both APIs are in the list, Unity uses the first one.
+
+### Testing with Different Graphics APIs
+
+You can force Unity to use a specific graphics API:
+
+```bash
+# Force OpenGL
+./Unity -force-opengl
+
+# Force Vulkan  
+./Unity -force-vulkan
+```
 
 ### 2. Import Native Plugin
 
@@ -194,25 +223,27 @@ CudaInterop_Shutdown();
 Unity Process                     C++ Process
 ┌─────────────────┐              ┌─────────────────┐
 │  RenderTexture  │              │  TensorRT       │
-│  (OpenGL)       │              │  Inference      │
+│  (OpenGL/Vulkan)│              │  Inference      │
 └────────┬────────┘              └────────▲────────┘
          │                                │
          │ GetNativeTexturePtr()          │ cudaArray_t
          ▼                                │
-┌────────────────────────────────────────────────────┐
-│              CudaInteropPlugin (Native)             │
-│  ┌──────────────────────────────────────────────┐  │
-│  │  cudaGraphicsGLRegisterImage()               │  │
-│  │  cudaGraphicsMapResources()                  │  │
-│  │  cudaGraphicsSubResourceGetMappedArray()     │  │
-│  └──────────────────────────────────────────────┘  │
-│                                                     │
-│  ┌──────────────────────────────────────────────┐  │
-│  │  Frame Sync (mutex + condition variable)     │  │
-│  └──────────────────────────────────────────────┘  │
+┌─────────────────────────────────────────────────────┐
+│              CudaInteropPlugin (Native)              │
+│  ┌────────────────────────────────────────────────┐ │
+│  │                Graphics API Router              │ │
+│  │  ┌─────────────────┐  ┌──────────────────────┐ │ │
+│  │  │  OpenGL Backend │  │    Vulkan Backend    │ │ │
+│  │  │  - cudaGraphics │  │  - cudaImportExtMem  │ │ │
+│  │  │    GLRegister   │  │  - cudaExtSemaphore  │ │ │
+│  │  └─────────────────┘  └──────────────────────┘ │ │
+│  └────────────────────────────────────────────────┘ │
+│  ┌────────────────────────────────────────────────┐ │
+│  │  Frame Sync (mutex + condition variable)        │ │
+│  └────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────┘
          │                                │
-         │ GL Sync Fence                  │ CUDA Stream
+         │ GL Fence / Vulkan Semaphore    │ CUDA Stream
          ▼                                ▼
 ┌─────────────────────────────────────────────────────┐
 │                    GPU Memory                        │
@@ -242,12 +273,35 @@ Use `CudaInterop.GetPerformanceReport()` in Unity or `CudaInterop_GetMetrics()` 
 
 1. Verify Unity is using OpenGL (check Player Settings)
 2. Check OpenGL is working: `glxinfo | grep "OpenGL version"`
+3. Try launching Unity with `-force-opengl`
+
+### "Vulkan not available" error
+
+1. Check if Vulkan SDK is installed: `vulkaninfo`
+2. Verify Unity is using Vulkan: check `SystemInfo.graphicsDeviceType`
+3. Ensure the plugin was built with `ENABLE_VULKAN=ON`
+
+### "invalid OpenGL or DirectX context" error
+
+This error occurs when Unity is using Vulkan but the plugin tries OpenGL interop:
+
+1. The plugin now auto-detects the graphics API - update to the latest version
+2. If using an older plugin, force OpenGL: `./Unity -force-opengl`
 
 ### "Registration failed" error
 
 1. Ensure RenderTexture is created before registering
 2. Check texture format is supported (RGBA32, R32F)
 3. Verify texture has `antiAliasing = 1` (no MSAA)
+4. For Vulkan: ensure external memory extensions are supported by the driver
+
+### Fallback mode enabled
+
+When Vulkan interop fails, the plugin enables fallback mode using AsyncGPUReadback:
+
+1. Check `CudaInterop.FallbackReason` for details
+2. Fallback is slower but still functional
+3. Consider using OpenGL for better performance
 
 ### Unity crashes on startup
 

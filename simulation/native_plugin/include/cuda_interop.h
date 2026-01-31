@@ -3,11 +3,15 @@
  * @brief CUDA Interop API for Unity Native Plugin
  *
  * This header defines the public API for zero-copy GPU texture sharing between
- * Unity (OpenGL) and the C++ application via CUDA. This eliminates CPU-GPU
- * round-trips by keeping image data on the GPU throughout the pipeline.
+ * Unity (OpenGL or Vulkan) and the C++ application via CUDA. This eliminates
+ * CPU-GPU round-trips by keeping image data on the GPU throughout the pipeline.
+ *
+ * Supported Graphics APIs:
+ *   - OpenGL: Uses cudaGraphicsGLRegisterImage for texture registration
+ *   - Vulkan: Uses cudaImportExternalMemory for texture registration
  *
  * Usage from Unity:
- *   1. Call CudaInterop_Initialize() once at startup
+ *   1. Call CudaInterop_InitializeWithAPI() once at startup with detected graphics API
  *   2. Get RenderTexture native pointers via GetNativeTexturePtr()
  *   3. Call CudaInterop_RegisterTexture() for RGB and Depth textures
  *   4. After each frame renders, call CudaInterop_SyncAndNotify()
@@ -18,7 +22,7 @@
  *   3. Call CudaInterop_GetCudaArray() to get cudaArray_t for inference
  *   4. After processing, call CudaInterop_UnmapResources()
  *
- * @note Requires NVIDIA GPU with CUDA support and Unity using OpenGL backend
+ * @note Requires NVIDIA GPU with CUDA support
  */
 
 #ifndef CUDA_INTEROP_H
@@ -46,6 +50,16 @@ extern "C" {
 #define UNITY_INTERFACE_EXPORT CUDA_INTEROP_API
 
 // ============================================================================
+// Graphics API Types
+// ============================================================================
+
+typedef enum {
+    CUDA_INTEROP_GRAPHICS_API_UNKNOWN = 0,
+    CUDA_INTEROP_GRAPHICS_API_OPENGL = 1,
+    CUDA_INTEROP_GRAPHICS_API_VULKAN = 2,
+} CudaInteropGraphicsAPI;
+
+// ============================================================================
 // Error Codes
 // ============================================================================
 
@@ -62,6 +76,8 @@ typedef enum {
     CUDA_INTEROP_ERROR_UNMAP_FAILED = -9,
     CUDA_INTEROP_ERROR_SYNC_FAILED = -10,
     CUDA_INTEROP_ERROR_TIMEOUT = -11,
+    CUDA_INTEROP_ERROR_VULKAN_NOT_AVAILABLE = -12,
+    CUDA_INTEROP_ERROR_UNSUPPORTED_GRAPHICS_API = -13,
     CUDA_INTEROP_ERROR_INTERNAL = -99,
 } CudaInteropError;
 
@@ -109,15 +125,36 @@ typedef struct {
 // ============================================================================
 
 /**
- * @brief Initialize the CUDA Interop system
+ * @brief Initialize the CUDA Interop system with specific graphics API
  *
  * This must be called once before any other functions. It initializes the
- * CUDA context and prepares for OpenGL-CUDA interop.
+ * CUDA context and prepares for interop with the specified graphics API.
+ *
+ * @param device_id CUDA device ID to use (typically 0)
+ * @param graphics_api The graphics API Unity is using (OpenGL or Vulkan)
+ * @return CUDA_INTEROP_SUCCESS on success, error code otherwise
+ */
+CUDA_INTEROP_API CudaInteropError CudaInterop_InitializeWithAPI(
+    int device_id,
+    CudaInteropGraphicsAPI graphics_api);
+
+/**
+ * @brief Initialize the CUDA Interop system (legacy, defaults to OpenGL)
+ *
+ * This is a convenience wrapper that calls CudaInterop_InitializeWithAPI
+ * with CUDA_INTEROP_GRAPHICS_API_OPENGL for backward compatibility.
  *
  * @param device_id CUDA device ID to use (typically 0)
  * @return CUDA_INTEROP_SUCCESS on success, error code otherwise
+ * @deprecated Use CudaInterop_InitializeWithAPI instead
  */
 CUDA_INTEROP_API CudaInteropError CudaInterop_Initialize(int device_id);
+
+/**
+ * @brief Get the currently active graphics API
+ * @return The graphics API that was used during initialization
+ */
+CUDA_INTEROP_API CudaInteropGraphicsAPI CudaInterop_GetGraphicsAPI(void);
 
 /**
  * @brief Shutdown and cleanup all resources
@@ -143,12 +180,16 @@ CUDA_INTEROP_API const char* CudaInterop_GetLastError(void);
 // ============================================================================
 
 /**
- * @brief Register a Unity OpenGL texture for CUDA access
+ * @brief Register a Unity texture for CUDA access
  *
  * Call this after creating a RenderTexture in Unity. The texture_id is
  * obtained from RenderTexture.GetNativeTexturePtr().ToInt64().
  *
- * @param texture_id OpenGL texture ID from Unity
+ * The meaning of texture_id depends on the graphics API:
+ *   - OpenGL: GL texture name (GLuint)
+ *   - Vulkan: VkImage handle
+ *
+ * @param texture_id Native texture handle from Unity
  * @param width Texture width in pixels
  * @param height Texture height in pixels
  * @param texture_type Type of texture (RGB or Depth)
@@ -161,9 +202,33 @@ CUDA_INTEROP_API CudaInteropError CudaInterop_RegisterTexture(
     CudaInteropTextureType texture_type);
 
 /**
+ * @brief Register a Vulkan texture with additional memory info
+ *
+ * For Vulkan, this extended registration function provides the memory
+ * handle required for CUDA external memory import.
+ *
+ * @param texture_id VkImage handle from Unity
+ * @param width Texture width in pixels
+ * @param height Texture height in pixels
+ * @param texture_type Type of texture (RGB or Depth)
+ * @param memory_handle Platform-specific memory handle (fd on Linux, HANDLE on Windows)
+ * @param memory_size Total size of the Vulkan memory allocation
+ * @param is_dedicated True if the memory is a dedicated allocation for this image
+ * @return CUDA_INTEROP_SUCCESS on success, error code otherwise
+ */
+CUDA_INTEROP_API CudaInteropError CudaInterop_RegisterTextureVulkan(
+    uint64_t texture_id,
+    int width,
+    int height,
+    CudaInteropTextureType texture_type,
+    int memory_handle,
+    uint64_t memory_size,
+    bool is_dedicated);
+
+/**
  * @brief Unregister a previously registered texture
  *
- * @param texture_id OpenGL texture ID to unregister
+ * @param texture_id Native texture handle to unregister
  * @return CUDA_INTEROP_SUCCESS on success, error code otherwise
  */
 CUDA_INTEROP_API CudaInteropError CudaInterop_UnregisterTexture(uint64_t texture_id);
@@ -178,16 +243,30 @@ CUDA_INTEROP_API void CudaInterop_UnregisterAllTextures(void);
 // ============================================================================
 
 /**
- * @brief Insert GL sync fence and notify that frame is ready
+ * @brief Synchronize graphics pipeline and notify that frame is ready
  *
  * This should be called from Unity after rendering completes (e.g., in
- * OnPostRender or via GL.IssuePluginEvent). It inserts a GL fence to
- * ensure all rendering is complete before CUDA access.
+ * OnPostRender or via GL.IssuePluginEvent). It performs synchronization
+ * appropriate for the active graphics API:
+ *   - OpenGL: Inserts a GL fence
+ *   - Vulkan: Uses external semaphores or CUDA stream sync
  *
  * @param frame_id Current frame number
  * @return CUDA_INTEROP_SUCCESS on success, error code otherwise
  */
 CUDA_INTEROP_API CudaInteropError CudaInterop_SyncAndNotify(uint64_t frame_id);
+
+/**
+ * @brief Register a Vulkan semaphore for synchronization
+ *
+ * For Vulkan, this allows importing an external semaphore that Unity
+ * signals after rendering. CUDA will wait on this semaphore before
+ * accessing textures.
+ *
+ * @param semaphore_handle Platform-specific semaphore handle (fd on Linux)
+ * @return CUDA_INTEROP_SUCCESS on success, error code otherwise
+ */
+CUDA_INTEROP_API CudaInteropError CudaInterop_RegisterVulkanSemaphore(int semaphore_handle);
 
 /**
  * @brief Wait for a frame to be ready (called from C++ application)
@@ -209,8 +288,12 @@ CUDA_INTEROP_API CudaInteropError CudaInterop_WaitForFrame(
 /**
  * @brief Map all registered textures for CUDA access
  *
- * This must be called before GetCudaArray. After mapping, OpenGL cannot
- * access the textures until UnmapResources is called.
+ * This must be called before GetCudaArray. After mapping, the graphics API
+ * cannot access the textures until UnmapResources is called.
+ *
+ * Behavior by graphics API:
+ *   - OpenGL: Uses cudaGraphicsMapResources
+ *   - Vulkan: Resources are always accessible (no-op, returns success)
  *
  * @return CUDA_INTEROP_SUCCESS on success, error code otherwise
  */
@@ -219,7 +302,11 @@ CUDA_INTEROP_API CudaInteropError CudaInterop_MapResources(void);
 /**
  * @brief Unmap all resources after CUDA processing
  *
- * This must be called after processing to allow OpenGL to render again.
+ * This must be called after processing to allow the graphics API to render again.
+ *
+ * Behavior by graphics API:
+ *   - OpenGL: Uses cudaGraphicsUnmapResources
+ *   - Vulkan: Signals completion (may signal external semaphore)
  *
  * @return CUDA_INTEROP_SUCCESS on success, error code otherwise
  */

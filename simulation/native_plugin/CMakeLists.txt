@@ -30,6 +30,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ENABLE_CUDA "Enable CUDA backend (required for CUDA Interop)" ON)
 option(ENABLE_OPENGL "Enable OpenGL support" ON)
+option(ENABLE_VULKAN "Enable Vulkan support for CUDA external memory interop" ON)
 
 # ============================================================================
 # Find Dependencies
@@ -42,10 +43,21 @@ if(ENABLE_CUDA)
     message(STATUS "CUDA include dir: ${CUDAToolkit_INCLUDE_DIRS}")
 endif()
 
-# OpenGL (required for CUDA-GL interop)
+# OpenGL (optional, for CUDA-GL interop)
 if(ENABLE_OPENGL)
     find_package(OpenGL REQUIRED)
     message(STATUS "OpenGL found")
+endif()
+
+# Vulkan (optional, for CUDA external memory interop)
+if(ENABLE_VULKAN)
+    find_package(Vulkan QUIET)
+    if(Vulkan_FOUND)
+        message(STATUS "Vulkan found: ${Vulkan_INCLUDE_DIRS}")
+    else()
+        message(STATUS "Vulkan not found - Vulkan support will be disabled")
+        set(ENABLE_VULKAN OFF)
+    endif()
 endif()
 
 # ============================================================================
@@ -85,17 +97,38 @@ target_include_directories(CudaInteropPlugin PRIVATE
     ${CUDAToolkit_INCLUDE_DIRS}
 )
 
-# Link libraries
+# Link libraries - start with CUDA
 target_link_libraries(CudaInteropPlugin PRIVATE
     CUDA::cudart
     CUDA::cuda_driver
-    OpenGL::GL
 )
+
+# Conditionally link OpenGL
+if(ENABLE_OPENGL)
+    target_link_libraries(CudaInteropPlugin PRIVATE OpenGL::GL)
+endif()
+
+# Conditionally link Vulkan
+if(ENABLE_VULKAN AND Vulkan_FOUND)
+    target_include_directories(CudaInteropPlugin PRIVATE ${Vulkan_INCLUDE_DIRS})
+    target_link_libraries(CudaInteropPlugin PRIVATE Vulkan::Vulkan)
+endif()
 
 # Compile definitions
 target_compile_definitions(CudaInteropPlugin PRIVATE
     CUDA_INTEROP_EXPORTS
 )
+
+# Conditional compile definitions for graphics API support
+if(ENABLE_OPENGL)
+    # OpenGL is enabled by default (no special define needed)
+else()
+    target_compile_definitions(CudaInteropPlugin PRIVATE DISABLE_OPENGL)
+endif()
+
+if(ENABLE_VULKAN AND Vulkan_FOUND)
+    target_compile_definitions(CudaInteropPlugin PRIVATE ENABLE_VULKAN)
+endif()
 
 # Platform-specific settings
 if(UNIX AND NOT APPLE)
@@ -136,6 +169,7 @@ message(STATUS "")
 message(STATUS "=== CUDA Interop Plugin Configuration ===")
 message(STATUS "  CUDA enabled: ${ENABLE_CUDA}")
 message(STATUS "  OpenGL enabled: ${ENABLE_OPENGL}")
+message(STATUS "  Vulkan enabled: ${ENABLE_VULKAN}")
 message(STATUS "  Install directory: ${UNITY_PLUGINS_DIR}/x86_64")
 message(STATUS "==========================================")
 message(STATUS "")

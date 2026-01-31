@@ -145,12 +145,14 @@ namespace AutoBattlebot.Camera
             Vector4 zBufferParams = CalculateZBufferParams(camera);
 
             // Set compute shader parameters
+            // Note: HDRP's cameraDepthBuffer is a Texture2DArray, we sample slice 0 (main view)
+            int sliceIndex = 0;
             ctx.cmd.SetComputeTextureParam(linearizeDepthShader, _kernelId, _DepthInputId, ctx.cameraDepthBuffer);
             ctx.cmd.SetComputeTextureParam(linearizeDepthShader, _kernelId, _LinearDepthOutputId, _depthTexture);
             ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _ZBufferParamsId, zBufferParams);
             ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _DepthRangeId, new Vector4(nearClip, farClip, 0, 0));
             ctx.cmd.SetComputeFloatParam(linearizeDepthShader, _InvalidDepthId, invalidDepthValue);
-            ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _TextureSizeId, new Vector4(width, height, 0, 0));
+            ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _TextureSizeId, new Vector4(width, height, sliceIndex, 0));
 
             // Dispatch compute shader
             // Thread group size is 8x8, so we need (width/8) x (height/8) groups

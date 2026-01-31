@@ -7,7 +7,8 @@
 #pragma kernel LinearizeDepth
 
 // Input: Unity's depth buffer (non-linear, 0-1 range)
-Texture2D<float> _DepthInput;
+// HDRP uses Texture2DArray for depth buffer (for XR/stereo support)
+Texture2DArray<float> _DepthInput;
 
 // Output: Linearized depth in meters
 RWTexture2D<float> _LinearDepthOutput;
@@ -25,7 +26,7 @@ float4 _DepthRange;
 // Value for invalid depth (sky, out of range)
 float _InvalidDepth;
 
-// Texture dimensions
+// Texture dimensions (x = width, y = height, z = slice index for array textures)
 float4 _TextureSize;
 
 // Convert Unity depth buffer value to linear eye depth
@@ -45,8 +46,10 @@ void LinearizeDepth(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    // Sample depth buffer
-    float rawDepth = _DepthInput[id.xy];
+    // Sample depth buffer from slice 0 (main camera view)
+    // HDRP uses Texture2DArray, we sample with uint3(x, y, slice)
+    uint sliceIndex = (uint)_TextureSize.z;
+    float rawDepth = _DepthInput[uint3(id.xy, sliceIndex)];
 
     // Handle invalid depth (sky/far plane)
     // In Unity's reversed Z-buffer, 0 = far plane, 1 = near plane
