@@ -8,9 +8,7 @@ namespace auto_battlebot
 {
 
     SimRgbdCamera::SimRgbdCamera(SimRgbdCameraConfiguration &config)
-        : expected_width_(config.width),
-          expected_height_(config.height),
-          frames_received_(0),
+        : frames_received_(0),
           last_log_time_(std::chrono::steady_clock::now())
     {
         diagnostics_logger_ = DiagnosticsLogger::get_logger("sim_rgbd_camera");
@@ -39,40 +37,18 @@ namespace auto_battlebot
         {
             if (!client.connect())
             {
-                diagnostics_logger_->error("tcp_connect_failed",
+                diagnostics_logger_->error("initialized",
                                            {{"host", tcp_config_.host},
-                                            {"port", tcp_config_.port}});
+                                            {"port", tcp_config_.port},
+                                            {"success", false}});
                 return false;
             }
         }
 
-        // Verify we received intrinsics
-        if (!client.has_intrinsics())
-        {
-            diagnostics_logger_->warning("no_intrinsics_received", "No intrinsics received from server");
-        }
-        else
-        {
-            auto intrinsics = client.get_intrinsics();
-            if (intrinsics)
-            {
-                // Update expected dimensions from intrinsics
-                if (intrinsics->width != expected_width_ || intrinsics->height != expected_height_)
-                {
-                    diagnostics_logger_->info("using_intrinsics_dimensions",
-                                              {{"width", intrinsics->width},
-                                               {"height", intrinsics->height}});
-                    expected_width_ = intrinsics->width;
-                    expected_height_ = intrinsics->height;
-                }
-            }
-        }
-
         diagnostics_logger_->info("initialized",
-                                  {{"width", expected_width_},
-                                   {"height", expected_height_},
-                                   {"tcp_host", tcp_config_.host},
-                                   {"tcp_port", tcp_config_.port}});
+                                  {{"tcp_host", tcp_config_.host},
+                                   {"tcp_port", tcp_config_.port},
+                                   {"success", true}});
 
         // Reset stats on re-initialization
         frames_received_ = 0;
@@ -102,7 +78,8 @@ namespace auto_battlebot
         }
 
         // Populate camera info from intrinsics
-        populate_camera_info(data);
+        if (!populate_camera_info(data))
+            return false;
 
         // Get frame with image data from TCP
         bool success = get_frame_with_data(data, get_depth);
@@ -123,6 +100,7 @@ namespace auto_battlebot
 
         if (!frame)
         {
+            diagnostics_logger_->error("get_frame", {{"success", false}});
             // Timeout or error
             return false;
         }
@@ -141,16 +119,12 @@ namespace auto_battlebot
         {
             // Convert RGBA raw bytes to BGR cv::Mat
             cv::Mat rgba(frame->rgb_height, frame->rgb_width, CV_8UC4, frame->rgb_data.data());
+            cv::flip(rgba, rgba, 0);
             cv::cvtColor(rgba, data.rgb.image, cv::COLOR_RGBA2BGR);
-
-            // Update expected dimensions
-            expected_width_ = frame->rgb_width;
-            expected_height_ = frame->rgb_height;
         }
         else
         {
-            // No image data - create placeholder
-            data.rgb.image = cv::Mat(expected_height_, expected_width_, CV_8UC3, cv::Scalar(0, 0, 0));
+            return false;
         }
 
         // Process depth image data
@@ -167,14 +141,18 @@ namespace auto_battlebot
             }
             else
             {
-                // No depth data - create placeholder
-                data.depth.image = cv::Mat(expected_height_, expected_width_, CV_32FC1, cv::Scalar(0.0f));
+                return false;
             }
         }
 
         // Acknowledge frame processed
         client.send_frame_processed(frame->frame_id);
 
+        diagnostics_logger_->info("get_frame", {{"frames_received", static_cast<int>(last_frame_id_)},
+                                                {"rgb_data_size", frame->rgb_data_size},
+                                                {"rgb_width", frame->rgb_width},
+                                                {"rgb_height", frame->rgb_height},
+                                                {"success", true}});
         return true;
     }
 
@@ -201,51 +179,33 @@ namespace auto_battlebot
         return false;
     }
 
-    void SimRgbdCamera::populate_camera_info(CameraData &data)
+    bool SimRgbdCamera::populate_camera_info(CameraData &data)
     {
         auto intrinsics = SimTcpClient::instance().get_intrinsics();
 
-        if (intrinsics)
+        if (!intrinsics)
         {
-            data.camera_info.width = intrinsics->width;
-            data.camera_info.height = intrinsics->height;
-
-            // Create 3x3 intrinsic matrix (OpenCV format)
-            data.camera_info.intrinsics = cv::Mat::eye(3, 3, CV_64F);
-            data.camera_info.intrinsics.at<double>(0, 0) = intrinsics->fx;
-            data.camera_info.intrinsics.at<double>(1, 1) = intrinsics->fy;
-            data.camera_info.intrinsics.at<double>(0, 2) = intrinsics->cx;
-            data.camera_info.intrinsics.at<double>(1, 2) = intrinsics->cy;
-
-            // Create distortion coefficients (k1, k2, p1, p2, k3)
-            data.camera_info.distortion = cv::Mat(1, 5, CV_64F);
-            data.camera_info.distortion.at<double>(0, 0) = intrinsics->k1;
-            data.camera_info.distortion.at<double>(0, 1) = intrinsics->k2;
-            data.camera_info.distortion.at<double>(0, 2) = intrinsics->p1;
-            data.camera_info.distortion.at<double>(0, 3) = intrinsics->p2;
-            data.camera_info.distortion.at<double>(0, 4) = intrinsics->k3;
+            std::cerr << "No intrinsics found." << std::endl;
+            return false;
         }
-        else
-        {
-            // Use expected dimensions with default intrinsics
-            data.camera_info.width = expected_width_;
-            data.camera_info.height = expected_height_;
+        data.camera_info.width = intrinsics->width;
+        data.camera_info.height = intrinsics->height;
 
-            // Default intrinsics (approximately 90 degree FOV)
-            double fx = expected_width_ / 2.0;
-            double fy = expected_width_ / 2.0;
-            double cx = expected_width_ / 2.0;
-            double cy = expected_height_ / 2.0;
+        // Create 3x3 intrinsic matrix (OpenCV format)
+        data.camera_info.intrinsics = cv::Mat::eye(3, 3, CV_64F);
+        data.camera_info.intrinsics.at<double>(0, 0) = intrinsics->fx;
+        data.camera_info.intrinsics.at<double>(1, 1) = intrinsics->fy;
+        data.camera_info.intrinsics.at<double>(0, 2) = intrinsics->cx;
+        data.camera_info.intrinsics.at<double>(1, 2) = intrinsics->cy;
 
-            data.camera_info.intrinsics = cv::Mat::eye(3, 3, CV_64F);
-            data.camera_info.intrinsics.at<double>(0, 0) = fx;
-            data.camera_info.intrinsics.at<double>(1, 1) = fy;
-            data.camera_info.intrinsics.at<double>(0, 2) = cx;
-            data.camera_info.intrinsics.at<double>(1, 2) = cy;
-
-            // No distortion
-            data.camera_info.distortion = cv::Mat::zeros(1, 5, CV_64F);
-        }
+        // Create distortion coefficients (k1, k2, p1, p2, k3)
+        data.camera_info.distortion = cv::Mat(1, 5, CV_64F);
+        data.camera_info.distortion.at<double>(0, 0) = intrinsics->k1;
+        data.camera_info.distortion.at<double>(0, 1) = intrinsics->k2;
+        data.camera_info.distortion.at<double>(0, 2) = intrinsics->p1;
+        data.camera_info.distortion.at<double>(0, 3) = intrinsics->p2;
+        data.camera_info.distortion.at<double>(0, 4) = intrinsics->k3;
+        return true;
     }
 
     void SimRgbdCamera::populate_pose(CameraData &data, const TcpFrameReadyWithDataMessage &frame)

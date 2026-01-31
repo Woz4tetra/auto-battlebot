@@ -1368,10 +1368,10 @@ MonoBehaviour:
   _timeoutMs: 100
   _cameraSimulator: {fileID: 1806760295}
   _intrinsicsProvider: {fileID: 1806760297}
-  _captureDepth: 1
+  _captureDepth: 0
   _maxPendingReadbacks: 2
   _verboseLogging: 0
-  _statsLogInterval: 300
+  _statsLogFrameInterval: 120
 --- !u!1 &647600305
 GameObject:
   m_ObjectHideFlags: 1
@@ -2550,8 +2550,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: AutoBattlebot.Camera::AutoBattlebot.Camera.CameraSimulator
-  _enableCpuReadback: 0
+  _enableSyncCpuReadback: 0
   _autoCreate: 1
+  _enableProfiling: 0
+  _profilingLogInterval: 300
 --- !u!20 &1806760296
 Camera:
   m_ObjectHideFlags: 0
@@ -2585,7 +2587,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 20
-  field of view: 53.926598
+  field of view: 53.92663
   orthographic: 0
   orthographic size: 5
   m_Depth: 0
@@ -2617,10 +2619,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: AutoBattlebot.Communication::AutoBattlebot.Communication.CameraIntrinsicsProvider
   _width: 1280
   _height: 720
-  _fx: 707.66
-  _fy: 707.66
-  _cx: 647.5
-  _cy: 374.53
+  _fx: 707.6595458984375
+  _fy: 707.6595458984375
+  _cx: 647.5008544921875
+  _cy: 374.5303039550781
   _k1: 0
   _k2: 0
   _p1: 0

@@ -43,7 +43,8 @@ namespace auto_battlebot
         if (!keypoint_model_->initialize())
         {
             std::cerr << "Failed to initialize keypoint model. Rebuild the engine on this machine; for YOLO use "
-                         "--from-onnx (see training/yolo/convert_to_tensorrt.py)." << std::endl;
+                         "--from-onnx (see training/yolo/convert_to_tensorrt.py)."
+                      << std::endl;
         }
         if (!transmitter_->initialize())
         {
@@ -152,6 +153,7 @@ namespace auto_battlebot
 
         if (!initialized_)
         {
+            publisher_->publish_camera_data(camera_data);
             return true;
         }
 

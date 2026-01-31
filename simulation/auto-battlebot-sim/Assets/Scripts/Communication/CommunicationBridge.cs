@@ -75,7 +75,7 @@ namespace AutoBattlebot.Communication
 
         [SerializeField]
         [Tooltip("Log performance stats every N frames (0 to disable)")]
-        private int _statsLogInterval = 300;
+        private int _statsLogFrameInterval = 300;
 
         #endregion
 
@@ -256,10 +256,10 @@ namespace AutoBattlebot.Communication
             ProcessPendingReadbacks();
 
             // Log stats periodically
-            if (_statsLogInterval > 0)
+            if (_statsLogFrameInterval > 0)
             {
                 _framesSinceLastLog++;
-                if (_framesSinceLastLog >= _statsLogInterval)
+                if (_framesSinceLastLog >= _statsLogFrameInterval)
                 {
                     LogPerformanceStats();
                     _framesSinceLastLog = 0;

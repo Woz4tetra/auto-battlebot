@@ -59,9 +59,6 @@ namespace auto_battlebot
 
     struct SimRgbdCameraConfiguration : public RgbdCameraConfiguration
     {
-        int width = 1280;
-        int height = 720;
-
         // TCP settings
         std::string tcp_host = "127.0.0.1";
         int tcp_port = 18707;
@@ -76,8 +73,6 @@ namespace auto_battlebot
 
         // clang-format off
         PARSE_CONFIG_FIELDS(
-            PARSE_FIELD(width)
-            PARSE_FIELD(height)
             PARSE_FIELD_STRING(tcp_host)
             PARSE_FIELD(tcp_port)
             PARSE_FIELD(tcp_connect_timeout_ms)

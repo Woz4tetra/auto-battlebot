@@ -27,17 +27,16 @@ namespace auto_battlebot
     class SimRgbdCamera : public RgbdCameraInterface
     {
     public:
-        SimRgbdCamera(SimRgbdCameraConfiguration& config);
+        SimRgbdCamera(SimRgbdCameraConfiguration &config);
         ~SimRgbdCamera();
 
         bool initialize() override;
-        bool get(CameraData& data, bool get_depth) override;
+        bool get(CameraData &data, bool get_depth) override;
         bool should_close() override;
 
     private:
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
-        int expected_width_, expected_height_;
         SimTcpClientConfig tcp_config_;
 
         // Last received frame info
@@ -49,11 +48,11 @@ namespace auto_battlebot
         std::chrono::steady_clock::time_point last_log_time_;
 
         // Helper to populate CameraData from TCP messages
-        void populate_camera_info(CameraData& data);
-        void populate_pose(CameraData& data, const TcpFrameReadyWithDataMessage& frame);
+        bool populate_camera_info(CameraData &data);
+        void populate_pose(CameraData &data, const TcpFrameReadyWithDataMessage &frame);
 
         // Get frame with image data from TCP
-        bool get_frame_with_data(CameraData& data, bool get_depth);
+        bool get_frame_with_data(CameraData &data, bool get_depth);
     };
 
 } // namespace auto_battlebot
