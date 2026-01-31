@@ -138,6 +138,9 @@ namespace auto_battlebot
                 // Depth is float32 raw bytes
                 cv::Mat depth_raw(frame->depth_height, frame->depth_width, CV_32FC1, frame->depth_data.data());
                 data.depth.image = depth_raw.clone();
+                diagnostics_logger_->info("get_frame", {{"depth_data_size", frame->depth_data_size},
+                                                        {"depth_width", frame->depth_width},
+                                                        {"depth_height", frame->depth_height}});
             }
             else
             {
