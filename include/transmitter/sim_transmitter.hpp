@@ -19,7 +19,7 @@ namespace auto_battlebot
     class SimTransmitter : public TransmitterInterface
     {
     public:
-        SimTransmitter(SimTransmitterConfiguration& config);
+        SimTransmitter(SimTransmitterConfiguration &config);
 
         bool initialize() override;
         CommandFeedback update() override;

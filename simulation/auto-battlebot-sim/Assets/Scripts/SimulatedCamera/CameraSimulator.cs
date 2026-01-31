@@ -506,7 +506,7 @@ namespace AutoBattlebot.SimulatedCamera
             if (HasTexture)
             {
                 Debug.Log($"[CameraSimulator] Texture: {_rgbTexture.width}x{_rgbTexture.height}, " +
-                          $"Format={_rgbTexture.format}, " +
+                          $"Format={_rgbTexture.format}, ");
             }
             else
             {
