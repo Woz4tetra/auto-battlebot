@@ -36,7 +36,15 @@ namespace AutoBattlebot.SimulatedCamera
 
         [Header("Depth Capture")]
         [SerializeField]
-        [Tooltip("Compute shader for depth linearization")]
+        [Tooltip("Use blit shader instead of compute (more HDRP compatible)")]
+        private bool _useBlitShader = true;
+
+        [SerializeField]
+        [Tooltip("Blit shader for depth linearization (HDRP compatible)")]
+        private Shader _linearizeDepthBlitShader;
+
+        [SerializeField]
+        [Tooltip("Compute shader for depth linearization (alternative)")]
         private ComputeShader _linearizeDepthShader;
 
         [SerializeField]
@@ -288,6 +296,8 @@ namespace AutoBattlebot.SimulatedCamera
                 nearClip = nearClip,
                 farClip = farClip,
                 invalidDepthValue = _invalidDepthValue,
+                useBlitShader = _useBlitShader,
+                linearizeDepthBlitShader = _linearizeDepthBlitShader,
                 linearizeDepthShader = _linearizeDepthShader,
                 enableNoise = _enableDepthNoise,
                 baseNoiseLevel = _baseNoiseLevel,

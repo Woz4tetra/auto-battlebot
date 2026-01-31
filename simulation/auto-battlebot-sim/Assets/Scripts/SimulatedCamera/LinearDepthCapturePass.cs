@@ -57,8 +57,14 @@ namespace AutoBattlebot.SimulatedCamera
         [Tooltip("Value to use for invalid/sky depth (0 = no depth)")]
         public float invalidDepthValue = 0.0f;
 
-        [Header("Compute Shader")]
-        [Tooltip("Compute shader for depth linearization")]
+        [Header("Shader Configuration")]
+        [Tooltip("Use blit shader instead of compute shader (more HDRP compatible)")]
+        public bool useBlitShader = true;
+
+        [Tooltip("Blit shader for depth linearization (HDRP compatible)")]
+        public Shader linearizeDepthBlitShader;
+
+        [Tooltip("Compute shader for depth linearization (alternative)")]
         public ComputeShader linearizeDepthShader;
 
         [Header("Depth Noise (Optional)")]
@@ -89,6 +95,7 @@ namespace AutoBattlebot.SimulatedCamera
         private int _kernelId = -1;
         private int _kernelIdNoisy = -1;
         private bool _isInitialized = false;
+        private Material _blitMaterial;
 
         // Shader property IDs (cached for performance)
         private static readonly int _DepthInputId = Shader.PropertyToID("_DepthInput");
@@ -143,24 +150,50 @@ namespace AutoBattlebot.SimulatedCamera
         {
             name = "Linear Depth Capture";
 
-            if (linearizeDepthShader == null)
+            if (useBlitShader)
             {
-                Debug.LogError("[LinearDepthCapturePass] Compute shader not assigned");
-                return;
-            }
+                // Use blit shader approach (more HDRP compatible)
+                if (linearizeDepthBlitShader == null)
+                {
+                    // Try to find the shader by name
+                    linearizeDepthBlitShader = Shader.Find("AutoBattlebot/LinearizeDepthBlit");
+                }
 
-            // Find kernels
-            _kernelId = linearizeDepthShader.FindKernel("LinearizeDepth");
-            if (_kernelId < 0)
-            {
-                Debug.LogError("[LinearDepthCapturePass] Kernel 'LinearizeDepth' not found in compute shader");
-                return;
-            }
+                if (linearizeDepthBlitShader == null)
+                {
+                    Debug.LogError("[LinearDepthCapturePass] Blit shader not assigned and not found");
+                    return;
+                }
 
-            // Try to find noisy kernel (optional)
-            if (linearizeDepthShader.HasKernel("LinearizeDepthNoisy"))
+                _blitMaterial = CoreUtils.CreateEngineMaterial(linearizeDepthBlitShader);
+                if (_blitMaterial == null)
+                {
+                    Debug.LogError("[LinearDepthCapturePass] Failed to create blit material");
+                    return;
+                }
+            }
+            else
             {
-                _kernelIdNoisy = linearizeDepthShader.FindKernel("LinearizeDepthNoisy");
+                // Use compute shader approach
+                if (linearizeDepthShader == null)
+                {
+                    Debug.LogError("[LinearDepthCapturePass] Compute shader not assigned");
+                    return;
+                }
+
+                // Find kernels
+                _kernelId = linearizeDepthShader.FindKernel("LinearizeDepth");
+                if (_kernelId < 0)
+                {
+                    Debug.LogError("[LinearDepthCapturePass] Kernel 'LinearizeDepth' not found in compute shader");
+                    return;
+                }
+
+                // Try to find noisy kernel (optional)
+                if (linearizeDepthShader.HasKernel("LinearizeDepthNoisy"))
+                {
+                    _kernelIdNoisy = linearizeDepthShader.FindKernel("LinearizeDepthNoisy");
+                }
             }
 
             // Create output texture
@@ -170,12 +203,23 @@ namespace AutoBattlebot.SimulatedCamera
             Debug.Log($"[LinearDepthCapturePass] Setup complete: {width}x{height}, " +
                       $"Range={nearClip}m-{farClip}m, " +
                       $"Noise={enableNoise}, " +
+                      $"UseBlitShader={useBlitShader}, " +
                       $"Format={_depthTexture.graphicsFormat}");
         }
 
         protected override void Execute(CustomPassContext ctx)
         {
-            if (!_isInitialized || _kernelId < 0)
+            if (!_isInitialized)
+            {
+                return;
+            }
+
+            if (useBlitShader && _blitMaterial == null)
+            {
+                return;
+            }
+
+            if (!useBlitShader && _kernelId < 0)
             {
                 return;
             }
@@ -191,6 +235,47 @@ namespace AutoBattlebot.SimulatedCamera
                 CreateDepthTexture();
             }
 
+            // Debug logging (first frame only)
+            if (_executeCount == 0)
+            {
+                var camera = ctx.hdCamera.camera;
+                Debug.Log($"[LinearDepthCapturePass] Execute first frame: " +
+                          $"output={_depthTexture.width}x{_depthTexture.height}, " +
+                          $"useBlitShader={useBlitShader}, " +
+                          $"nearClip={nearClip}, farClip={farClip}");
+            }
+
+            if (useBlitShader)
+            {
+                ExecuteBlitShader(ctx);
+            }
+            else
+            {
+                ExecuteComputeShader(ctx);
+            }
+
+            if (enableProfiling)
+            {
+                _profilerStopwatch.Stop();
+                _totalExecuteTimeUs += _profilerStopwatch.ElapsedTicks * 1000000 / Stopwatch.Frequency;
+            }
+            _executeCount++;
+        }
+
+        private void ExecuteBlitShader(CustomPassContext ctx)
+        {
+            // Set material parameters
+            _blitMaterial.SetVector(_DepthRangeId, new Vector4(nearClip, farClip, 0, 0));
+            _blitMaterial.SetFloat(_InvalidDepthId, invalidDepthValue);
+
+            // Blit using HDRP's full-screen triangle
+            // SetRenderTarget and draw full-screen triangle
+            ctx.cmd.SetRenderTarget(_depthTexture);
+            ctx.cmd.DrawProcedural(Matrix4x4.identity, _blitMaterial, 0, MeshTopology.Triangles, 3, 1);
+        }
+
+        private void ExecuteComputeShader(CustomPassContext ctx)
+        {
             // Get ZBufferParams from the camera
             var camera = ctx.hdCamera.camera;
             Vector4 zBufferParams = CalculateZBufferParams(camera);
@@ -222,13 +307,6 @@ namespace AutoBattlebot.SimulatedCamera
             int groupsY = Mathf.CeilToInt(height / 8.0f);
 
             ctx.cmd.DispatchCompute(linearizeDepthShader, kernelToUse, groupsX, groupsY, 1);
-
-            if (enableProfiling)
-            {
-                _profilerStopwatch.Stop();
-                _totalExecuteTimeUs += _profilerStopwatch.ElapsedTicks * 1000000 / Stopwatch.Frequency;
-                _executeCount++;
-            }
         }
 
         protected override void Cleanup()
@@ -244,6 +322,12 @@ namespace AutoBattlebot.SimulatedCamera
                 _depthTexture.Release();
                 CoreUtils.Destroy(_depthTexture);
                 _depthTexture = null;
+            }
+
+            if (_blitMaterial != null)
+            {
+                CoreUtils.Destroy(_blitMaterial);
+                _blitMaterial = null;
             }
 
             _isInitialized = false;
