@@ -291,8 +291,11 @@ namespace AutoBattlebot.Communication
             // PollCommands was already called above, so request_frame can be received
             if (_startupFrameDelay > 0)
             {
-                Debug.Log($"[CommunicationBridge] Startup delay: {_startupFrameDelay} frames remaining, DepthPending={_depthRequestPending}");
                 _startupFrameDelay--;
+                if (_startupFrameDelay == 0)
+                {
+                    Debug.Log($"[CommunicationBridge] Startup delay complete, DepthPending={_depthRequestPending}");
+                }
                 return;
             }
 
@@ -305,12 +308,6 @@ namespace AutoBattlebot.Communication
 
         private void PollCommands()
         {
-            // During startup delay, log if we're receiving any data
-            if (_startupFrameDelay > 0 && _tcpBridge.IsConnected)
-            {
-                Debug.Log($"[CommunicationBridge] PollCommands during startup delay, calling TryReceiveCommand");
-            }
-            
             if (_tcpBridge.TryReceiveCommand(out var command, out bool isNew))
             {
                 if (isNew && _verboseLogging)
@@ -704,24 +701,25 @@ namespace AutoBattlebot.Communication
         {
             Debug.Log("[CommunicationBridge] C++ client connected");
 
+            // Send camera intrinsics FIRST before any other state changes
+            // This ensures C++ can process intrinsics and send request_frame
+            // before we start polling or sending frames
+            if (_intrinsicsProvider != null)
+            {
+                _tcpBridge.SendIntrinsics(_intrinsicsProvider.Intrinsics);
+            }
+
             // Reset all state
-            // Add a small startup delay to let the connection stabilize 
-            // before sending large frame data. This gives C++ time to:
-            // 1. Process intrinsics
-            // 2. Send request_frame (if requesting depth)
-            // 3. Be ready to receive frames
-            _startupFrameDelay = 2;
+            // Add a longer startup delay to allow for full round-trip:
+            // Unity sends intrinsics -> C++ receives -> C++ sends request_frame -> Unity receives
+            // At 120 FPS, each frame is ~8ms. Network round-trip could be 10-50ms.
+            // Use 10 frames (~80ms) to be safe.
+            _startupFrameDelay = 10;
             _state = CaptureState.Idle;
             _depthRequestPending = false;
             _currentCaptureHasDepth = false;
             _rgbReadback = null;
             _depthReadback = null;
-
-            // Send camera intrinsics
-            if (_intrinsicsProvider != null)
-            {
-                _tcpBridge.SendIntrinsics(_intrinsicsProvider.Intrinsics);
-            }
 
             OnClientConnected?.Invoke();
         }

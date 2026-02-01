@@ -490,13 +490,6 @@ namespace AutoBattlebot.Communication
             {
                 // Check if data is available
                 int available = _clientSocket.Available;
-                
-                // Log during startup to debug request_frame reception
-                if (available > 0)
-                {
-                    Debug.Log($"[TcpBridge] TryReceiveCommand: {available} bytes available, reading...");
-                }
-                
                 if (available == 0)
                 {
                     // Return cached command if we have one
