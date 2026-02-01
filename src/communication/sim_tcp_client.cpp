@@ -223,11 +223,16 @@ namespace auto_battlebot
         return connected_;
     }
 
-    void SimTcpClient::wait_for_connection()
+    bool SimTcpClient::wait_for_connection()
     {
         disconnect();
         while (!is_connected())
         {
+            if (!miniros::ok())
+            {
+                miniros::shutdown();
+                return false;
+            }
             if (!connect())
             {
                 std::cerr << "Failed to initialize client." << std::endl;
@@ -235,6 +240,7 @@ namespace auto_battlebot
                 continue;
             }
         }
+        return true;
         std::cout << "Done waiting for connection" << std::endl;
     }
 

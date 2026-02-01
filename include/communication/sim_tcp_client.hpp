@@ -15,6 +15,7 @@
 #include <mutex>
 #include <atomic>
 #include <thread>
+#include <miniros/ros.h>
 
 #include "communication/tcp_message_types.hpp"
 #include "data_structures/velocity.hpp"
@@ -179,8 +180,9 @@ namespace auto_battlebot
 
         /**
          * @brief Block until connected to the server
+         * @return true if success. false if program should exit.
          */
-        void wait_for_connection();
+        bool wait_for_connection();
 
         // Statistics
         uint64_t get_frames_received() const { return frames_received_; }

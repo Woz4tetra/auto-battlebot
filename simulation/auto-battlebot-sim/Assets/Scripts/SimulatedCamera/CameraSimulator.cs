@@ -62,6 +62,7 @@ namespace AutoBattlebot.SimulatedCamera
         private RenderTexture _rgbTexture;
         private Texture2D _cpuTexture;
         private bool _isInitialized = false;
+        private Matrix4x4 tfWorldFromCamerastart;
 
         // Profiling
         private Stopwatch _profilerStopwatch = new Stopwatch();
@@ -368,6 +369,12 @@ namespace AutoBattlebot.SimulatedCamera
             _frameCount = 0;
         }
 
+        public Matrix4x4 GetCameraPose()
+        {
+            Matrix4x4 tfWorldFromCamera = _camera.worldToCameraMatrix;
+            return tfWorldFromCamerastart.inverse * tfWorldFromCamera;
+        }
+
         #endregion
 
         #region Private Methods
@@ -464,7 +471,7 @@ namespace AutoBattlebot.SimulatedCamera
             _camera.farClipPlane = _intrinsicsProvider.FarClip;
 
             // Apply custom projection matrix for off-center principal point
-            if (Math.Abs(_intrinsicsProvider.Cx - Width / 2.0) > 1.0 || 
+            if (Math.Abs(_intrinsicsProvider.Cx - Width / 2.0) > 1.0 ||
                 Math.Abs(_intrinsicsProvider.Cy - Height / 2.0) > 1.0)
             {
                 ApplyCustomProjectionMatrix();
@@ -500,6 +507,11 @@ namespace AutoBattlebot.SimulatedCamera
         private void LogProfilingStats()
         {
             Debug.Log(GetPerformanceReport());
+        }
+
+        private void InitializeCameraPose()
+        {
+            tfWorldFromCamerastart = _camera.worldToCameraMatrix;
         }
 
         #endregion

@@ -323,7 +323,7 @@ namespace AutoBattlebot.Communication
             if (_cameraSimulator != null && _cameraSimulator.Camera != null)
             {
                 // Get camera's world-to-local matrix (view matrix)
-                return _cameraSimulator.Camera.worldToCameraMatrix;
+                return _cameraSimulator.GetCameraPose();
             }
             return Matrix4x4.identity;
         }

@@ -1369,7 +1369,7 @@ MonoBehaviour:
   _cameraSimulator: {fileID: 1806760295}
   _intrinsicsProvider: {fileID: 1806760297}
   _captureDepth: 1
-  _verboseLogging: 1
+  _verboseLogging: 0
   _statsLogFrameInterval: 120
 --- !u!1 &647600305
 GameObject:
@@ -2224,12 +2224,12 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1709384585}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
   m_LocalPosition: {x: 0, y: 1.193, z: 0}
   m_LocalScale: {x: 2.45, y: 0.07, z: 2.45}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 0}
+  m_Father: {fileID: 543450653043509868}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1792874714
 GameObject:
@@ -2592,7 +2592,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 20
-  field of view: 53.92663
+  field of view: 53.926632
   orthographic: 0
   orthographic size: 5
   m_Depth: 0
@@ -2622,12 +2622,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 463bb59d42ccaf281b9bfb32351ef4b6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: AutoBattlebot.Communication::AutoBattlebot.Communication.CameraIntrinsicsProvider
-  _width: 1280
-  _height: 720
-  _fx: 707.6595458984375
-  _fy: 707.6595458984375
-  _cx: 647.5008544921875
-  _cy: 374.5303039550781
+  _width: 1920
+  _height: 1080
+  _fx: 1061.4892578125
+  _fy: 1061.4892578125
+  _cx: 971.2513427734375
+  _cy: 561.7954711914062
   _k1: 0
   _k2: 0
   _p1: 0
@@ -2975,6 +2975,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 618099531099087011}
+  - {fileID: 1709384589}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &618099531099087011
@@ -3100,6 +3101,5 @@ SceneRoots:
   - {fileID: 647600307}
   - {fileID: 1488012293}
   - {fileID: 1792874718}
-  - {fileID: 1709384589}
   - {fileID: 860687164}
   - {fileID: 1261947569}

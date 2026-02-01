@@ -32,7 +32,8 @@ namespace auto_battlebot
         auto &client = SimTcpClient::instance();
         client.configure(tcp_config_);
 
-        client.wait_for_connection();
+        if (!client.wait_for_connection())
+            return false;
 
         std::cout << "Initialized client. Host: " << tcp_config_.host << ". Port: " << tcp_config_.port << std::endl;
 
@@ -89,7 +90,8 @@ namespace auto_battlebot
             if (!client.is_connected())
             {
                 std::cerr << "TCP client isn't connected." << std::endl;
-                client.wait_for_connection();
+                if (!client.wait_for_connection())
+                    return false;
                 request_frame(get_depth);
             }
 
@@ -158,6 +160,9 @@ namespace auto_battlebot
             cv::flip(depth_raw, depth_raw, 0); // Flip to match RGB
             data.depth.image = depth_raw.clone();
         }
+
+        data.camera_info.header.stamp = data.rgb.header.stamp;
+        data.camera_info.header.frame_id = data.rgb.header.frame_id;
 
         // Acknowledge frame processed
         client.send_frame_processed(frame->frame_id);
@@ -235,6 +240,10 @@ namespace auto_battlebot
             {
                 tf.tf(row, col) = frame.pose[row * 4 + col];
             }
+        }
+        if (tf.tf.isZero())
+        {
+            tf.tf = Eigen::Matrix4d::Identity();
         }
 
         data.tf_visodom_from_camera.transform = tf;
