@@ -544,6 +544,7 @@ namespace auto_battlebot
     {
         uint8_t *ptr = static_cast<uint8_t *>(buffer);
         size_t remaining = size;
+        size_t total_read = 0;
 
         // Use poll for timeout
         struct pollfd pfd{};
@@ -561,13 +562,14 @@ namespace auto_battlebot
                     continue;
                 }
                 connected_ = false;
+                std::cerr << "Read poll error: errno=" << errno << ", read " << total_read << "/" << size << " bytes" << std::endl;
                 return false;
             }
 
             if (poll_result == 0)
             {
                 // Timeout
-                std::cerr << "Read poll timed out" << std::endl;
+                std::cerr << "Read poll timed out after reading " << total_read << "/" << size << " bytes" << std::endl;
                 return false;
             }
 
@@ -580,7 +582,7 @@ namespace auto_battlebot
                     continue;
                 }
                 connected_ = false;
-                std::cerr << "Read failed (" << errno << ")" << std::endl;
+                std::cerr << "Read failed (" << errno << ") after reading " << total_read << "/" << size << " bytes" << std::endl;
                 return false;
             }
 
@@ -588,12 +590,13 @@ namespace auto_battlebot
             {
                 // Connection closed
                 connected_ = false;
-                std::cerr << "Read failed. No data." << std::endl;
+                std::cerr << "Read failed. Connection closed after reading " << total_read << "/" << size << " bytes" << std::endl;
                 return false;
             }
 
             ptr += bytes_read;
             remaining -= bytes_read;
+            total_read += bytes_read;
         }
 
         return true;
@@ -739,12 +742,16 @@ namespace auto_battlebot
     {
         // Read header first
         uint8_t header_buffer[TcpFrameReadyWithDataMessage::header_payload_size];
+        
+        std::cout << "Reading frame header (" << sizeof(header_buffer) << " bytes)..." << std::endl;
 
         if (!read_exact(header_buffer, sizeof(header_buffer), config_.read_timeout_ms))
         {
             std::cerr << "Failed to read frame header" << std::endl;
             return std::nullopt;
         }
+        
+        std::cout << "Frame header read successfully" << std::endl;
 
         TcpFrameReadyWithDataMessage frame;
         size_t offset = 0;
@@ -772,6 +779,12 @@ namespace auto_battlebot
         frame.rgb_data_size = read_int32(header_buffer + offset);
         offset += 4;
         frame.depth_data_size = read_int32(header_buffer + offset);
+        
+        std::cout << "Frame header parsed: frame_id=" << frame.frame_id 
+                  << ", rgb=" << frame.rgb_width << "x" << frame.rgb_height
+                  << ", depth=" << frame.depth_width << "x" << frame.depth_height
+                  << ", rgb_size=" << frame.rgb_data_size 
+                  << ", depth_size=" << frame.depth_data_size << std::endl;
 
         // Validate sizes
         if (frame.rgb_data_size < 0 || frame.depth_data_size < 0)
@@ -783,12 +796,14 @@ namespace auto_battlebot
         // Read RGB data
         if (frame.rgb_data_size > 0)
         {
+            std::cout << "Reading RGB data (" << frame.rgb_data_size << " bytes)..." << std::endl;
             frame.rgb_data.resize(frame.rgb_data_size);
             if (!read_exact(frame.rgb_data.data(), frame.rgb_data_size, config_.read_timeout_ms * 10))
             {
                 std::cerr << "RGB read failed." << std::endl;
                 return std::nullopt;
             }
+            std::cout << "RGB data read successfully" << std::endl;
         }
 
         // Read depth data
