@@ -287,9 +287,11 @@ namespace AutoBattlebot.Communication
                 return;
             }
 
-            // Wait for startup frames to ensure camera has rendered
+            // Wait for startup frames to let connection stabilize
+            // PollCommands was already called above, so request_frame can be received
             if (_startupFrameDelay > 0)
             {
+                Debug.Log($"[CommunicationBridge] Startup delay: {_startupFrameDelay} frames remaining, DepthPending={_depthRequestPending}");
                 _startupFrameDelay--;
                 return;
             }
@@ -301,16 +303,8 @@ namespace AutoBattlebot.Communication
             ProcessStateMachine();
         }
 
-        int _framesSent = 0;
         private void PollCommands()
         {
-            // Log every 100th call to avoid spam
-            if (_framesSent % 100 == 0)
-            {
-                Debug.Log($"[CommunicationBridge] PollCommands called, connected={_tcpBridge?.IsConnected}");
-            }
-            _framesSent++;
-            
             if (_tcpBridge.TryReceiveCommand(out var command, out bool isNew))
             {
                 if (isNew && _verboseLogging)
@@ -704,8 +698,13 @@ namespace AutoBattlebot.Communication
         {
             Debug.Log("[CommunicationBridge] C++ client connected");
 
-            // Reset all state - no startup delay, start immediately
-            _startupFrameDelay = 0;
+            // Reset all state
+            // Add a small startup delay to let the connection stabilize 
+            // before sending large frame data. This gives C++ time to:
+            // 1. Process intrinsics
+            // 2. Send request_frame (if requesting depth)
+            // 3. Be ready to receive frames
+            _startupFrameDelay = 2;
             _state = CaptureState.Idle;
             _depthRequestPending = false;
             _currentCaptureHasDepth = false;

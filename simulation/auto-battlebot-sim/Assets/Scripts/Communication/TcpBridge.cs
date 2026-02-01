@@ -503,9 +503,6 @@ namespace AutoBattlebot.Communication
                     return false;
                 }
                 
-                // Log when we have data available (first time only to avoid spam)
-                Debug.Log($"[TcpBridge] TryReceiveCommand: {available} bytes available");
-
                 // Read available messages
                 while (_clientSocket.Available > 0)
                 {
