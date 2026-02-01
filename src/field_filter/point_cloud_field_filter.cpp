@@ -197,10 +197,12 @@ namespace auto_battlebot
                 }
 
                 // Back-project pixel to 3D point
+                // Note: Unity camera space has Y-up, but image coordinates have Y-down (v increases downward)
+                // So we need to invert the Y calculation: Y = (cy - v) * depth / fy
                 pcl::PointXYZ point;
                 point.z = depth;
                 point.x = (u - cx) * depth / fx;
-                point.y = (v - cy) * depth / fy;
+                point.y = (cy - v) * depth / fy;  // Sign flipped for Y-up camera space
 
                 cloud->points.push_back(point);
             }

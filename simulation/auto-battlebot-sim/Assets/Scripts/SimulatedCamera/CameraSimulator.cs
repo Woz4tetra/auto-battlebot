@@ -71,6 +71,10 @@ namespace AutoBattlebot.SimulatedCamera
         private int _frameCount = 0;
         private int _framesSinceLastLog = 0;
 
+        // Projection matrix verification
+        private Matrix4x4 _expectedProjectionMatrix;
+        private bool _projectionMatrixWarned = false;
+
         #endregion
 
         #region Properties
@@ -200,7 +204,15 @@ namespace AutoBattlebot.SimulatedCamera
 
         private void LateUpdate()
         {
-            if (!_isInitialized || !_enableProfiling)
+            if (!_isInitialized)
+            {
+                return;
+            }
+
+            // Verify projection matrix hasn't been overridden by HDRP
+            VerifyProjectionMatrix();
+
+            if (!_enableProfiling)
             {
                 return;
             }
@@ -461,47 +473,113 @@ namespace AutoBattlebot.SimulatedCamera
                 return;
             }
 
-            // Calculate vertical FOV from focal length
-            // FOV = 2 * atan(height / (2 * fy))
-            double fovRadians = 2.0 * Math.Atan(Height / (2.0 * _intrinsicsProvider.Fy));
-            float fovDegrees = (float)(fovRadians * 180.0 / Math.PI);
-
-            _camera.fieldOfView = fovDegrees;
             _camera.nearClipPlane = _intrinsicsProvider.NearClip;
             _camera.farClipPlane = _intrinsicsProvider.FarClip;
 
-            // Apply custom projection matrix for off-center principal point
-            if (Math.Abs(_intrinsicsProvider.Cx - Width / 2.0) > 1.0 ||
-                Math.Abs(_intrinsicsProvider.Cy - Height / 2.0) > 1.0)
-            {
-                ApplyCustomProjectionMatrix();
-            }
+            // ALWAYS apply custom projection matrix to ensure exact intrinsic matching
+            // Unity's FOV-based projection doesn't account for:
+            // - Off-center principal points
+            // - Non-square pixels (fx != fy)
+            // - Exact focal length values
+            ApplyCustomProjectionMatrix();
         }
 
         private void ApplyCustomProjectionMatrix()
         {
-            // Create asymmetric projection matrix for off-center principal point
-            // This is important for accurate camera simulation
+            // Create projection matrix that exactly matches the camera intrinsics
+            // This ensures depth-to-point-cloud conversion will align with the RGB image
             float near = _intrinsicsProvider.NearClip;
             float far = _intrinsicsProvider.FarClip;
+            float fx = (float)_intrinsicsProvider.Fx;
+            float fy = (float)_intrinsicsProvider.Fy;
+            float cx = (float)_intrinsicsProvider.Cx;
+            float cy = (float)_intrinsicsProvider.Cy;
+            float w = Width;
+            float h = Height;
 
             // Calculate frustum boundaries at near plane
-            float left = (float)(-_intrinsicsProvider.Cx * near / _intrinsicsProvider.Fx);
-            float right = (float)((Width - _intrinsicsProvider.Cx) * near / _intrinsicsProvider.Fx);
-            float bottom = (float)(-(Height - _intrinsicsProvider.Cy) * near / _intrinsicsProvider.Fy);
-            float top = (float)(_intrinsicsProvider.Cy * near / _intrinsicsProvider.Fy);
+            // For pixel (u, v), the 3D point is at ((u - cx) * Z / fx, (v - cy) * Z / fy, Z)
+            // At the edges of the image:
+            //   u = 0      -> X = -cx * Z / fx
+            //   u = width  -> X = (width - cx) * Z / fx
+            //   v = 0      -> Y = -cy * Z / fy  (top of image)
+            //   v = height -> Y = (height - cy) * Z / fy (bottom of image)
+            //
+            // Unity's camera has Y-up, so we need to flip Y:
+            //   top (v=0) in image -> top in Unity (positive Y)
+            //   bottom (v=height) in image -> bottom in Unity (negative Y)
+            float left = -cx * near / fx;
+            float right = (w - cx) * near / fx;
+            float bottom = -(h - cy) * near / fy;  // v=height maps to negative Y
+            float top = cy * near / fy;            // v=0 maps to positive Y
 
-            // Create OpenGL-style projection matrix
+            // Create OpenGL-style projection matrix (Unity uses OpenGL conventions)
+            // This matrix transforms from camera space to clip space
             Matrix4x4 proj = Matrix4x4.zero;
-            proj[0, 0] = 2.0f * near / (right - left);
-            proj[1, 1] = 2.0f * near / (top - bottom);
-            proj[0, 2] = (right + left) / (right - left);
-            proj[1, 2] = (top + bottom) / (top - bottom);
+            proj[0, 0] = 2.0f * near / (right - left);           // = 2 * fx / width
+            proj[1, 1] = 2.0f * near / (top - bottom);           // = 2 * fy / height
+            proj[0, 2] = (right + left) / (right - left);        // = (width - 2*cx) / width
+            proj[1, 2] = (top + bottom) / (top - bottom);        // = (2*cy - height) / height
             proj[2, 2] = -(far + near) / (far - near);
             proj[2, 3] = -2.0f * far * near / (far - near);
             proj[3, 2] = -1.0f;
 
             _camera.projectionMatrix = proj;
+            _expectedProjectionMatrix = proj;
+            _projectionMatrixWarned = false;
+
+            // Log projection matrix details for debugging
+            Debug.Log($"[CameraSimulator] Applied projection matrix from intrinsics:\n" +
+                      $"  Intrinsics: fx={fx:F2}, fy={fy:F2}, cx={cx:F2}, cy={cy:F2}\n" +
+                      $"  Resolution: {w}x{h}\n" +
+                      $"  Frustum: left={left:F4}, right={right:F4}, bottom={bottom:F4}, top={top:F4}\n" +
+                      $"  proj[0,0]={proj[0,0]:F4} (expected: {2*fx/w:F4})\n" +
+                      $"  proj[1,1]={proj[1,1]:F4} (expected: {2*fy/h:F4})\n" +
+                      $"  proj[0,2]={proj[0,2]:F4} (expected: {(w - 2*cx)/w:F4})\n" +
+                      $"  proj[1,2]={proj[1,2]:F4} (expected: {(2*cy - h)/h:F4})");
+        }
+
+        /// <summary>
+        /// Verify the projection matrix hasn't been overridden by HDRP or other systems.
+        /// Call this in LateUpdate or after rendering to detect issues.
+        /// </summary>
+        private void VerifyProjectionMatrix()
+        {
+            if (_camera == null || _expectedProjectionMatrix == Matrix4x4.zero)
+            {
+                return;
+            }
+
+            var actual = _camera.projectionMatrix;
+            bool mismatch = false;
+            
+            // Check key projection matrix elements
+            // Allow small tolerance for floating point differences
+            const float tolerance = 0.001f;
+            if (Math.Abs(actual[0, 0] - _expectedProjectionMatrix[0, 0]) > tolerance ||
+                Math.Abs(actual[1, 1] - _expectedProjectionMatrix[1, 1]) > tolerance ||
+                Math.Abs(actual[0, 2] - _expectedProjectionMatrix[0, 2]) > tolerance ||
+                Math.Abs(actual[1, 2] - _expectedProjectionMatrix[1, 2]) > tolerance)
+            {
+                mismatch = true;
+            }
+
+            if (mismatch && !_projectionMatrixWarned)
+            {
+                _projectionMatrixWarned = true;
+                Debug.LogError($"[CameraSimulator] PROJECTION MATRIX MISMATCH DETECTED!\n" +
+                              $"The camera's projection matrix was overridden (likely by HDRP).\n" +
+                              $"This will cause point cloud misalignment.\n" +
+                              $"Expected:\n" +
+                              $"  [0,0]={_expectedProjectionMatrix[0,0]:F4}, [1,1]={_expectedProjectionMatrix[1,1]:F4}\n" +
+                              $"  [0,2]={_expectedProjectionMatrix[0,2]:F4}, [1,2]={_expectedProjectionMatrix[1,2]:F4}\n" +
+                              $"Actual:\n" +
+                              $"  [0,0]={actual[0,0]:F4}, [1,1]={actual[1,1]:F4}\n" +
+                              $"  [0,2]={actual[0,2]:F4}, [1,2]={actual[1,2]:F4}");
+                
+                // Re-apply the projection matrix
+                _camera.projectionMatrix = _expectedProjectionMatrix;
+            }
         }
 
         private void LogProfilingStats()
