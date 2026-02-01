@@ -301,6 +301,7 @@ namespace AutoBattlebot.Communication
             ProcessStateMachine();
         }
 
+        int _framesSent = 0;
         private void PollCommands()
         {
             // Log every 100th call to avoid spam
@@ -308,6 +309,7 @@ namespace AutoBattlebot.Communication
             {
                 Debug.Log($"[CommunicationBridge] PollCommands called, connected={_tcpBridge?.IsConnected}");
             }
+            _framesSent++;
             
             if (_tcpBridge.TryReceiveCommand(out var command, out bool isNew))
             {
