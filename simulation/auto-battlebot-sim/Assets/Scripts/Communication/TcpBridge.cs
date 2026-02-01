@@ -756,6 +756,12 @@ namespace AutoBattlebot.Communication
                 }
 
                 var msgType = (TcpMessageType)_readBuffer[0];
+                
+                // Log received message types for debugging
+                if (msgType != TcpMessageType.FrameProcessed)  // Don't spam logs with common message
+                {
+                    Debug.Log($"[TcpBridge] Received message type: {msgType} (0x{(byte)msgType:X2})");
+                }
 
                 switch (msgType)
                 {
@@ -863,11 +869,14 @@ namespace AutoBattlebot.Communication
             int bytesRead = ReadFully(_readBuffer, 0, 1);
             if (bytesRead != 1)
             {
+                Debug.LogWarning("[TcpBridge] ReadFrameRequest failed to read with_depth byte");
                 return false;
             }
 
             bool withDepth = _readBuffer[0] != 0;
             _receiveCount++;
+            
+            Debug.Log($"[TcpBridge] Received RequestFrame: withDepth={withDepth}");
             OnFrameRequested?.Invoke(withDepth);
 
             return true;

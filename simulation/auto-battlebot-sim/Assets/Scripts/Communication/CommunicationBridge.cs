@@ -735,13 +735,11 @@ namespace AutoBattlebot.Communication
         private void HandleFrameRequested(bool withDepth)
         {
             // C++ is requesting depth on the next capture
+            Debug.Log($"[CommunicationBridge] HandleFrameRequested called: withDepth={withDepth}");
             if (withDepth)
             {
                 _depthRequestPending = true;
-                if (_verboseLogging)
-                {
-                    Debug.Log("[CommunicationBridge] Depth requested for next capture");
-                }
+                Debug.Log("[CommunicationBridge] Depth requested for next capture");
             }
         }
 
