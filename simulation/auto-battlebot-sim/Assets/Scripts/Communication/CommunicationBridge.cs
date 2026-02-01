@@ -523,12 +523,17 @@ namespace AutoBattlebot.Communication
                 TryFindDepthPass();
             }
 
-            // Consume pending depth request
-            _currentCaptureHasDepth = _captureDepth && _depthRequestPending && 
+            // Always capture depth if available and enabled
+            // Previously required a pending depth request, but this caused race conditions
+            // where the request arrived after frame capture started. Now we always capture
+            // depth when available, and C++ can ignore it if not needed.
+            _currentCaptureHasDepth = _captureDepth && 
                                        _depthCapturePass != null && _depthCapturePass.HasTexture;
-            if (_currentCaptureHasDepth)
+            
+            // Clear any pending request (no longer needed but kept for backward compatibility)
+            if (_depthRequestPending)
             {
-                _depthRequestPending = false;  // Consumed
+                _depthRequestPending = false;
             }
 
             // Store frame metadata
