@@ -489,7 +489,8 @@ namespace AutoBattlebot.Communication
             try
             {
                 // Check if data is available
-                if (_clientSocket.Available == 0)
+                int available = _clientSocket.Available;
+                if (available == 0)
                 {
                     // Return cached command if we have one
                     if (_hasNewCommand)
@@ -501,6 +502,9 @@ namespace AutoBattlebot.Communication
                     }
                     return false;
                 }
+                
+                // Log when we have data available (first time only to avoid spam)
+                Debug.Log($"[TcpBridge] TryReceiveCommand: {available} bytes available");
 
                 // Read available messages
                 while (_clientSocket.Available > 0)

@@ -340,9 +340,11 @@ namespace auto_battlebot
 
         // Read message type
         uint8_t msg_type;
+        std::cout << "Waiting for frame message..." << std::endl;
         while (read_exact(&msg_type, 1, static_cast<int>(timeout.count())))
         {
             auto type = static_cast<TcpMessageType>(msg_type);
+            std::cout << "Received message type: 0x" << std::hex << static_cast<int>(msg_type) << std::dec << std::endl;
 
             switch (type)
             {
@@ -483,6 +485,7 @@ namespace auto_battlebot
     {
         if (!connected_)
         {
+            std::cerr << "request_frame: not connected" << std::endl;
             return false;
         }
 
@@ -492,7 +495,9 @@ namespace auto_battlebot
         buffer[0] = static_cast<uint8_t>(TcpMessageType::RequestFrame);
         buffer[1] = with_depth ? 1 : 0;
 
-        return write_exact(buffer, sizeof(buffer));
+        bool result = write_exact(buffer, sizeof(buffer));
+        std::cout << "request_frame sent: " << (result ? "success" : "failed") << ", with_depth=" << with_depth << std::endl;
+        return result;
     }
 
     bool SimTcpClient::ping(int timeout_ms)
