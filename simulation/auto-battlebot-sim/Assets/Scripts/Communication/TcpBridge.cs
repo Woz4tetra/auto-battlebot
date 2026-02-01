@@ -719,8 +719,9 @@ namespace AutoBattlebot.Communication
                     Debug.Log("[TcpBridge] Client connected");
                     OnClientConnected?.Invoke();
 
-                    // Send cached intrinsics if we have them
-                    if (_cachedIntrinsics.IsValid())
+                    // Send cached intrinsics if we have them and haven't sent yet
+                    // (OnClientConnected handler may have already sent intrinsics)
+                    if (!_intrinsicsSent && _cachedIntrinsics.IsValid())
                     {
                         SendIntrinsics(_cachedIntrinsics);
                     }

@@ -296,21 +296,9 @@ namespace AutoBattlebot.Communication
 
             // ============================================
             // STEP 3: Process state machine
+            // Chain transitions within same frame for lower latency
             // ============================================
-            switch (_state)
-            {
-                case CaptureState.Idle:
-                    StartCapture();
-                    break;
-
-                case CaptureState.Capturing:
-                    CheckReadbacksComplete();
-                    break;
-
-                case CaptureState.ReadyToSend:
-                    SendFrameAndReset();
-                    break;
-            }
+            ProcessStateMachine();
         }
 
         private void PollCommands()
@@ -320,6 +308,43 @@ namespace AutoBattlebot.Communication
                 if (isNew && _verboseLogging)
                 {
                     Log($"Command: linear=({command.LinearX:F2}, {command.LinearY:F2}), angular={command.AngularZ:F2}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Process the capture state machine, chaining transitions within same frame.
+        /// </summary>
+        private void ProcessStateMachine()
+        {
+            // Allow multiple transitions per frame for lower latency
+            // e.g., Idle -> Capturing -> (next frame) -> ReadyToSend -> Idle
+            // or if readback is instant: Idle -> Capturing -> ReadyToSend -> Idle (same frame)
+            
+            int maxIterations = 3;  // Prevent infinite loops
+            for (int i = 0; i < maxIterations; i++)
+            {
+                var prevState = _state;
+                
+                switch (_state)
+                {
+                    case CaptureState.Idle:
+                        StartCapture();
+                        break;
+
+                    case CaptureState.Capturing:
+                        CheckReadbacksComplete();
+                        break;
+
+                    case CaptureState.ReadyToSend:
+                        SendFrameAndReset();
+                        break;
+                }
+
+                // Stop if state didn't change (waiting for something)
+                if (_state == prevState)
+                {
+                    break;
                 }
             }
         }
@@ -671,8 +696,8 @@ namespace AutoBattlebot.Communication
         {
             Debug.Log("[CommunicationBridge] C++ client connected");
 
-            // Reset all state
-            _startupFrameDelay = 3;
+            // Reset all state - no startup delay, start immediately
+            _startupFrameDelay = 0;
             _state = CaptureState.Idle;
             _depthRequestPending = false;
             _currentCaptureHasDepth = false;
