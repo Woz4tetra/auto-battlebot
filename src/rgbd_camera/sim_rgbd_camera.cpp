@@ -113,6 +113,7 @@ namespace auto_battlebot
         auto start_time = std::chrono::steady_clock::now();
         int timeout_ms = get_depth ? tcp_config_.read_timeout_ms * 3 : tcp_config_.read_timeout_ms;
         int frames_skipped = 0;
+        const int max_frames_to_skip = 10; // Don't skip forever
 
         std::optional<TcpFrameReadyWithDataMessage> frame;
 
@@ -129,16 +130,10 @@ namespace auto_battlebot
             }
 
             int remaining_ms = timeout_ms - static_cast<int>(elapsed);
-            if (!client.is_connected())
-            {
-                std::cerr << "TCP client isn't connected. Failed to get frame." << std::endl;
-                return false;
-            }
-
             frame = client.wait_for_frame_with_data(
                 std::chrono::milliseconds(remaining_ms));
 
-            if (!frame && remaining_ms <= 0)
+            if (!frame)
             {
                 std::cerr << "Failed to receive depth frame" << std::endl;
                 return false;
@@ -151,6 +146,11 @@ namespace auto_battlebot
                 if (frame->depth_data_size == 0)
                 {
                     frames_skipped++;
+                    if (frames_skipped >= max_frames_to_skip)
+                    {
+                        std::cerr << "Skipped too many frames waiting for depth frame" << std::endl;
+                        return false;
+                    }
                     // Acknowledge this frame and wait for next one
                     client.send_frame_processed(frame->frame_id);
                     continue;

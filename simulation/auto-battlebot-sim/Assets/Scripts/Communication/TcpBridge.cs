@@ -489,8 +489,7 @@ namespace AutoBattlebot.Communication
             try
             {
                 // Check if data is available
-                int available = _clientSocket.Available;
-                if (available == 0)
+                if (_clientSocket.Available == 0)
                 {
                     // Return cached command if we have one
                     if (_hasNewCommand)
@@ -502,7 +501,7 @@ namespace AutoBattlebot.Communication
                     }
                     return false;
                 }
-                
+
                 // Read available messages
                 while (_clientSocket.Available > 0)
                 {
@@ -720,9 +719,8 @@ namespace AutoBattlebot.Communication
                     Debug.Log("[TcpBridge] Client connected");
                     OnClientConnected?.Invoke();
 
-                    // Send cached intrinsics if we have them and haven't sent yet
-                    // (OnClientConnected handler may have already sent intrinsics)
-                    if (!_intrinsicsSent && _cachedIntrinsics.IsValid())
+                    // Send cached intrinsics if we have them
+                    if (_cachedIntrinsics.IsValid())
                     {
                         SendIntrinsics(_cachedIntrinsics);
                     }
@@ -757,12 +755,6 @@ namespace AutoBattlebot.Communication
                 }
 
                 var msgType = (TcpMessageType)_readBuffer[0];
-                
-                // Log received message types for debugging
-                if (msgType != TcpMessageType.FrameProcessed)  // Don't spam logs with common message
-                {
-                    Debug.Log($"[TcpBridge] Received message type: {msgType} (0x{(byte)msgType:X2})");
-                }
 
                 switch (msgType)
                 {
@@ -870,14 +862,11 @@ namespace AutoBattlebot.Communication
             int bytesRead = ReadFully(_readBuffer, 0, 1);
             if (bytesRead != 1)
             {
-                Debug.LogWarning("[TcpBridge] ReadFrameRequest failed to read with_depth byte");
                 return false;
             }
 
             bool withDepth = _readBuffer[0] != 0;
             _receiveCount++;
-            
-            Debug.Log($"[TcpBridge] Received RequestFrame: withDepth={withDepth}");
             OnFrameRequested?.Invoke(withDepth);
 
             return true;
