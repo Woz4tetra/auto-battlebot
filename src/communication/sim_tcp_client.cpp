@@ -42,17 +42,13 @@ namespace auto_battlebot
 
         if (connected_)
         {
-            logger_->warning("configure_while_connected",
-                             "Configuration changed while connected - will apply on next connect");
+            std::cerr << "Configuration changed while connected - will apply on next connect" << std::endl;
         }
 
         config_ = config;
         configured_ = true;
 
-        logger_->info("configured",
-                      {{"host", config_.host},
-                       {"port", config_.port},
-                       {"buffer_size", config_.socket_buffer_size}});
+        std::cout << "Socket configured. Host: " << config_.host << ". Port: " << config_.port << std::endl;
     }
 
     void SimTcpClient::configure_optimizations()
@@ -64,28 +60,27 @@ namespace auto_battlebot
         int buf_size = config_.socket_buffer_size;
         if (setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, &buf_size, sizeof(buf_size)) < 0)
         {
-            logger_->warning("so_rcvbuf_failed", {{"error", strerror(errno)}});
+            std::cerr << "Failed to configure socket: " << strerror(errno) << " (" << errno << ")" << std::endl;
         }
         if (setsockopt(socket_fd_, SOL_SOCKET, SO_SNDBUF, &buf_size, sizeof(buf_size)) < 0)
         {
-            logger_->warning("so_sndbuf_failed", {{"error", strerror(errno)}});
+            std::cerr << "Failed to configure socket: " << strerror(errno) << " (" << errno << ")" << std::endl;
         }
 
         // Disable Nagle's algorithm for low latency
         int flag = 1;
         if (setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) < 0)
         {
-            logger_->warning("tcp_nodelay_failed", {{"error", strerror(errno)}});
+            std::cerr << "Failed to configure socket: " << strerror(errno) << " (" << errno << ")" << std::endl;
         }
 
         // Disable delayed ACKs (Linux-specific)
         if (setsockopt(socket_fd_, IPPROTO_TCP, TCP_QUICKACK, &flag, sizeof(flag)) < 0)
         {
-            logger_->warning("tcp_quickack_failed", {{"error", strerror(errno)}});
+            std::cerr << "Failed to configure socket: " << strerror(errno) << " (" << errno << ")" << std::endl;
         }
 
-        logger_->info("optimizations_configured",
-                      {{"buffer_size", buf_size}});
+        std::cout << "Socket optimizations configured" << std::endl;
     }
 
     bool SimTcpClient::connect()
@@ -99,15 +94,14 @@ namespace auto_battlebot
 
         if (!configured_)
         {
-            logger_->warning("connect_without_configure",
-                             "Connecting with default configuration");
+            std::cout << "Connecting with default configuration" << std::endl;
         }
 
         // Create socket
         socket_fd_ = socket(AF_INET, SOCK_STREAM, 0);
         if (socket_fd_ < 0)
         {
-            logger_->error("socket_create_failed", {{"error", strerror(errno)}});
+            std::cerr << "Failed to create socket: " << strerror(errno) << " (" << errno << ")" << std::endl;
             return false;
         }
 
@@ -121,7 +115,7 @@ namespace auto_battlebot
 
         if (inet_pton(AF_INET, config_.host.c_str(), &server_addr.sin_addr) <= 0)
         {
-            logger_->error("invalid_address", {{"host", config_.host}});
+            std::cerr << "Invalid address: " << config_.host << std::endl;
             close(socket_fd_);
             socket_fd_ = -1;
             return false;
@@ -136,7 +130,7 @@ namespace auto_battlebot
 
         if (result < 0 && errno != EINPROGRESS)
         {
-            logger_->error("connect_failed", {{"error", strerror(errno)}, {"host", config_.host}, {"port", config_.port}});
+            std::cerr << "Failed to connect. Error: " << strerror(errno) << " (" << errno << ")" << ". Host: " << config_.host << ". Port: " << config_.port << std::endl;
             close(socket_fd_);
             socket_fd_ = -1;
             return false;
@@ -151,7 +145,7 @@ namespace auto_battlebot
 
         if (result <= 0)
         {
-            logger_->error("connect_timeout", {{"timeout_ms", config_.connect_timeout_ms}});
+            std::cerr << "Connection timeout: " << config_.connect_timeout_ms << " (ms)" << std::endl;
             close(socket_fd_);
             socket_fd_ = -1;
             return false;
@@ -162,7 +156,7 @@ namespace auto_battlebot
         socklen_t len = sizeof(error);
         if (getsockopt(socket_fd_, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error != 0)
         {
-            logger_->error("connect_error", {{"error", strerror(error)}});
+            std::cerr << "Connection error: " << strerror(errno) << " (" << errno << ")" << std::endl;
             close(socket_fd_);
             socket_fd_ = -1;
             return false;
@@ -177,7 +171,7 @@ namespace auto_battlebot
         // Wait for intrinsics message from Unity
         if (!set_socket_timeout(config_.connect_timeout_ms))
         {
-            logger_->warning("set_timeout_failed", "Failed to set socket timeout");
+            std::cerr << "Failed to set socket timeout" << std::endl;
         }
 
         // Read the intrinsics message that Unity sends on connection
@@ -186,34 +180,32 @@ namespace auto_battlebot
         {
             if (static_cast<TcpMessageType>(msg_type) == TcpMessageType::CameraIntrinsics)
             {
-                if (read_intrinsics_message())
+                if (!read_intrinsics_message())
                 {
-                    logger_->info("intrinsics_received",
-                                  {{"width", intrinsics_->width},
-                                   {"height", intrinsics_->height},
-                                   {"fx", intrinsics_->fx},
-                                   {"fy", intrinsics_->fy}});
-                }
-                else
-                {
-                    logger_->warning("intrinsics_read_failed", "Failed to read intrinsics message");
+                    std::cerr << "Failed to read intrinsics message" << std::endl;
                 }
             }
             else
             {
-                logger_->warning("unexpected_first_message", {{"type", static_cast<int>(msg_type)}});
+                std::cerr << "Unexpected first message: " << static_cast<int>(msg_type) << std::endl;
             }
         }
         else
         {
-            logger_->warning("no_intrinsics_received", "No intrinsics message received from server");
+            std::cerr << "No intrinsics message received from server" << std::endl;
         }
+
+        std::cout << "Socket connection complete" << std::endl;
 
         return true;
     }
 
     void SimTcpClient::disconnect()
     {
+        if (!is_connected())
+        {
+            return;
+        }
         std::lock_guard<std::mutex> lock(socket_mutex_);
 
         if (socket_fd_ >= 0)
@@ -223,12 +215,27 @@ namespace auto_battlebot
         }
 
         connected_ = false;
-        logger_->info("disconnected", "Disconnected from server");
+        std::cout << "Disconnected from server" << std::endl;
     }
 
     bool SimTcpClient::is_connected() const
     {
         return connected_;
+    }
+
+    void SimTcpClient::wait_for_connection()
+    {
+        disconnect();
+        while (!is_connected())
+        {
+            if (!connect())
+            {
+                std::cerr << "Failed to initialize client." << std::endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
+        }
+        std::cout << "Done waiting for connection" << std::endl;
     }
 
     bool SimTcpClient::try_reconnect()
@@ -238,7 +245,7 @@ namespace auto_battlebot
         if (config_.auto_reconnect)
         {
             reconnect_count_++;
-            logger_->info("attempting_reconnect", {{"attempt", static_cast<int>(reconnect_count_.load())}});
+            std::cout << "attempting_reconnect: " << static_cast<int>(reconnect_count_.load()) << std::endl;
             return connect();
         }
 
@@ -314,7 +321,7 @@ namespace auto_battlebot
             }
 
             default:
-                logger_->warning("unexpected_message_type", {{"type", static_cast<int>(msg_type)}});
+                std::cerr << "Unexpected message type: " << static_cast<int>(msg_type) << std::endl;
                 return std::nullopt;
             }
         }
@@ -393,7 +400,7 @@ namespace auto_battlebot
             }
 
             default:
-                logger_->warning("unexpected_message_type", {{"type", static_cast<int>(msg_type)}});
+                std::cerr << "Unexpected message type: " << static_cast<int>(msg_type) << std::endl;
                 return std::nullopt;
             }
         }
@@ -457,7 +464,7 @@ namespace auto_battlebot
             return true;
         }
 
-        logger_->warning("send_command_failed", {{"error", strerror(errno)}});
+        std::cerr << "Send command failed: " << strerror(errno) << " (" << errno << ")" << std::endl;
         return false;
     }
 
@@ -652,7 +659,7 @@ namespace auto_battlebot
         }
 
         default:
-            logger_->warning("unhandled_message_type", {{"type", static_cast<int>(msg_type)}});
+            std::cerr << "Unexpected message type: " << static_cast<int>(msg_type) << std::endl;
             return false;
         }
     }
@@ -733,7 +740,7 @@ namespace auto_battlebot
 
         if (!read_exact(header_buffer, sizeof(header_buffer), config_.read_timeout_ms))
         {
-            logger_->warning("frame_with_data_header_read_failed", "Failed to read frame header");
+            std::cerr << "Failed to read frame header" << std::endl;
             return std::nullopt;
         }
 
@@ -767,9 +774,7 @@ namespace auto_battlebot
         // Validate sizes
         if (frame.rgb_data_size < 0 || frame.depth_data_size < 0)
         {
-            logger_->warning("frame_with_data_invalid_sizes",
-                             {{"rgb_size", static_cast<int>(frame.rgb_data_size)},
-                              {"depth_size", static_cast<int>(frame.depth_data_size)}});
+            std::cerr << "Frame data has invalid sizes. RGB size: " << frame.rgb_data_size << ". Depth size: " << frame.depth_data_size << std::endl;
             return std::nullopt;
         }
 
@@ -779,8 +784,7 @@ namespace auto_battlebot
             frame.rgb_data.resize(frame.rgb_data_size);
             if (!read_exact(frame.rgb_data.data(), frame.rgb_data_size, config_.read_timeout_ms * 10))
             {
-                logger_->warning("frame_with_data_rgb_read_failed",
-                                 {{"expected_size", static_cast<int>(frame.rgb_data_size)}});
+                std::cerr << "Failed to read RGB size. RGB size: " << frame.rgb_data_size << std::endl;
                 return std::nullopt;
             }
         }
@@ -791,8 +795,7 @@ namespace auto_battlebot
             frame.depth_data.resize(frame.depth_data_size);
             if (!read_exact(frame.depth_data.data(), frame.depth_data_size, config_.read_timeout_ms * 10))
             {
-                logger_->warning("frame_with_data_depth_read_failed",
-                                 {{"expected_size", static_cast<int>(frame.depth_data_size)}});
+                std::cerr << "Failed to read RGB size. Depth size: " << frame.depth_data_size << std::endl;
                 return std::nullopt;
             }
         }

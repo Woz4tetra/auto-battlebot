@@ -14,6 +14,7 @@
 #include <chrono>
 #include <mutex>
 #include <atomic>
+#include <thread>
 
 #include "communication/tcp_message_types.hpp"
 #include "data_structures/velocity.hpp"
@@ -175,6 +176,11 @@ namespace auto_battlebot
          * @return true if intrinsics are available
          */
         bool has_intrinsics() const;
+
+        /**
+         * @brief Block until connected to the server
+         */
+        void wait_for_connection();
 
         // Statistics
         uint64_t get_frames_received() const { return frames_received_; }
