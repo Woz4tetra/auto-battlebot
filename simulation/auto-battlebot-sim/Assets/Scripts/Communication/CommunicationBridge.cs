@@ -78,39 +78,13 @@ namespace AutoBattlebot.Communication
         private ulong _frameId = 0;
         private LinearDepthCapturePass _depthCapturePass;
 
-        // ==============================================
-        // CAPTURE STATE MACHINE
-        // ==============================================
-        // Simple state machine for frame capture:
-        //   Idle -> Capturing -> ReadyToSend -> Idle
-        //
-        // Flow each frame (all in LateUpdate):
-        //   1. Poll for commands (depth requests)
-        //   2. If Idle: start new capture
-        //   3. If Capturing: check if readbacks complete
-        //   4. If ReadyToSend: send frame, go to Idle
-        // ==============================================
-
-        private enum CaptureState
-        {
-            Idle,           // Ready to start new capture
-            Capturing,      // Waiting for GPU readback(s)
-            ReadyToSend     // Readbacks done, ready to send
-        }
-
-        private CaptureState _state = CaptureState.Idle;
-        private bool _depthRequestPending = false;     // C++ wants depth on next capture
-        private bool _currentCaptureHasDepth = false;  // Current capture includes depth
-
-        // Current capture's readback requests (only one capture in flight at a time)
-        private AsyncGPUReadbackRequest? _rgbReadback;
-        private AsyncGPUReadbackRequest? _depthReadback;
-
-        // Buffers for frame data
+        // AsyncGPUReadback state
+        private Queue<AsyncGPUReadbackRequest> _pendingRgbReadbacks = new Queue<AsyncGPUReadbackRequest>();
+        private Queue<AsyncGPUReadbackRequest> _pendingDepthReadbacks = new Queue<AsyncGPUReadbackRequest>();
         private byte[] _rgbBuffer;
         private byte[] _depthBuffer;
-
-        // Current capture metadata
+        private bool _rgbReady = false;
+        private bool _depthReady = false;
         private ulong _pendingFrameId = 0;
         private double _pendingTimestamp = 0;
         private Matrix4x4 _pendingPose = Matrix4x4.identity;
@@ -119,8 +93,16 @@ namespace AutoBattlebot.Communication
         private int _framesSinceLastLog = 0;
         private float _lastStatsTime = 0;
 
+        // Error tracking (to avoid log spam)
+        private int _rgbReadbackErrorCount = 0;
+        private int _depthReadbackErrorCount = 0;
+
         // Startup delay to ensure camera has rendered
         private int _startupFrameDelay = 3;
+        private bool _readyToCapture = false;
+
+        // Depth request state (RGB streams continuously, depth only on request)
+        private bool _depthRequested = false;
 
         #endregion
 
@@ -253,24 +235,26 @@ namespace AutoBattlebot.Communication
             }
         }
 
-        /// <summary>
-        /// Main update loop - all frame processing happens here in sequence.
-        /// </summary>
-        private void LateUpdate()
+        private void Update()
         {
             if (!_isInitialized || _tcpBridge == null)
             {
                 return;
             }
 
-            // ============================================
-            // STEP 1: Poll for commands (depth requests)
-            // ============================================
-            PollCommands();
+            // Poll for commands
+            if (_tcpBridge.TryReceiveCommand(out var command, out bool isNew))
+            {
+                if (isNew && _verboseLogging)
+                {
+                    Log($"Command: linear=({command.LinearX:F2}, {command.LinearY:F2}), angular={command.AngularZ:F2}");
+                }
+            }
 
-            // ============================================
-            // STEP 2: Log stats periodically
-            // ============================================
+            // Process completed readbacks
+            ProcessPendingReadbacks();
+
+            // Log stats periodically
             if (_statsLogFrameInterval > 0)
             {
                 _framesSinceLastLog++;
@@ -280,77 +264,32 @@ namespace AutoBattlebot.Communication
                     _framesSinceLastLog = 0;
                 }
             }
+        }
 
-            // Need client connected to capture/send
-            if (!IsClientConnected)
+        private void LateUpdate()
+        {
+            if (!_isInitialized || !IsClientConnected)
             {
                 return;
             }
 
-            // Wait for startup frames to let connection stabilize
-            // PollCommands was already called above, so request_frame can be received
-            if (_startupFrameDelay > 0)
+            // Wait for startup frames to ensure camera has rendered
+            if (!_readyToCapture)
             {
-                _startupFrameDelay--;
-                if (_startupFrameDelay == 0)
+                if (_startupFrameDelay > 0)
                 {
-                    Debug.Log($"[CommunicationBridge] Startup delay complete, DepthPending={_depthRequestPending}");
+                    _startupFrameDelay--;
+                    return;
                 }
-                return;
+                _readyToCapture = true;
+                Log("Ready to capture frames");
             }
 
-            // ============================================
-            // STEP 3: Process state machine
-            // Chain transitions within same frame for lower latency
-            // ============================================
-            ProcessStateMachine();
-        }
-
-        private void PollCommands()
-        {
-            if (_tcpBridge.TryReceiveCommand(out var command, out bool isNew))
+            // RGB streams continuously, depth only when requested
+            // Only capture when no pending readbacks (one frame at a time)
+            if (_pendingRgbReadbacks.Count == 0 && !_rgbReady)
             {
-                if (isNew && _verboseLogging)
-                {
-                    Log($"Command: linear=({command.LinearX:F2}, {command.LinearY:F2}), angular={command.AngularZ:F2}");
-                }
-            }
-        }
-
-        /// <summary>
-        /// Process the capture state machine, chaining transitions within same frame.
-        /// </summary>
-        private void ProcessStateMachine()
-        {
-            // Allow multiple transitions per frame for lower latency
-            // e.g., Idle -> Capturing -> (next frame) -> ReadyToSend -> Idle
-            // or if readback is instant: Idle -> Capturing -> ReadyToSend -> Idle (same frame)
-            
-            int maxIterations = 3;  // Prevent infinite loops
-            for (int i = 0; i < maxIterations; i++)
-            {
-                var prevState = _state;
-                
-                switch (_state)
-                {
-                    case CaptureState.Idle:
-                        StartCapture();
-                        break;
-
-                    case CaptureState.Capturing:
-                        CheckReadbacksComplete();
-                        break;
-
-                    case CaptureState.ReadyToSend:
-                        SendFrameAndReset();
-                        break;
-                }
-
-                // Stop if state didn't change (waiting for something)
-                if (_state == prevState)
-                {
-                    break;
-                }
+                CaptureFrame();
             }
         }
 
@@ -364,8 +303,7 @@ namespace AutoBattlebot.Communication
         #region Public Methods
 
         /// <summary>
-        /// Manually trigger a frame capture (will be sent when readback completes).
-        /// Note: This is handled automatically by the state machine in LateUpdate.
+        /// Manually trigger a frame capture and send.
         /// </summary>
         public void CaptureAndSendFrame()
         {
@@ -374,11 +312,7 @@ namespace AutoBattlebot.Communication
                 return;
             }
 
-            // Force start a new capture if idle
-            if (_state == CaptureState.Idle)
-            {
-                StartCapture();
-            }
+            CaptureFrame();
         }
 
         /// <summary>
@@ -389,7 +323,7 @@ namespace AutoBattlebot.Communication
             if (_cameraSimulator != null && _cameraSimulator.Camera != null)
             {
                 // Get camera's world-to-local matrix (view matrix)
-                return _cameraSimulator.Camera.worldToCameraMatrix;
+                return _cameraSimulator.GetCameraPose();
             }
             return Matrix4x4.identity;
         }
@@ -496,158 +430,210 @@ namespace AutoBattlebot.Communication
             Log($"Allocated buffers: RGB={rgbSize / 1024}KB, Depth={(_captureDepth ? _depthBuffer.Length / 1024 : 0)}KB");
         }
 
-        // ============================================
-        // STATE MACHINE METHODS
-        // ============================================
-
-        /// <summary>
-        /// Start a new frame capture (RGB always, depth if requested).
-        /// Transitions: Idle -> Capturing
-        /// </summary>
-        private void StartCapture()
+        private void CaptureFrame()
         {
             if (_cameraSimulator == null || !_cameraSimulator.HasTexture)
             {
                 return;
             }
 
+            // Verify texture is valid
             var rgbTexture = _cameraSimulator.RgbTexture;
             if (rgbTexture == null || !rgbTexture.IsCreated())
             {
                 return;
             }
 
-            // Find depth pass on first capture if needed
-            if (_captureDepth && _depthCapturePass == null)
-            {
-                TryFindDepthPass();
-            }
-
-            // Consume pending depth request
-            _currentCaptureHasDepth = _captureDepth && _depthRequestPending && 
-                                       _depthCapturePass != null && _depthCapturePass.HasTexture;
-            if (_currentCaptureHasDepth)
-            {
-                _depthRequestPending = false;  // Consumed
-            }
-
-            // Store frame metadata
             _frameId++;
             _pendingFrameId = _frameId;
             _pendingTimestamp = Time.timeAsDouble;
             _pendingPose = GetCurrentPose();
 
-            // Log first capture
-            if (_pendingFrameId == 1)
+            // On first capture, try to find depth pass again if not found during init
+            // (SimulationCameraController may have created it in Start())
+            if (_frameId == 1)
             {
-                Debug.Log($"[CommunicationBridge] First capture: " +
-                    $"RGB={rgbTexture.width}x{rgbTexture.height} ({rgbTexture.graphicsFormat}), " +
-                    $"Depth={(_depthCapturePass != null ? "available" : "not available")}");
+                if (_captureDepth && _depthCapturePass == null)
+                {
+                    TryFindDepthPass();
+                }
+
+                Debug.Log($"[CommunicationBridge] First capture - RGB texture: " +
+                    $"{rgbTexture.width}x{rgbTexture.height}, " +
+                    $"Format={rgbTexture.format}, " +
+                    $"GraphicsFormat={rgbTexture.graphicsFormat}, " +
+                    $"IsCreated={rgbTexture.IsCreated()}, " +
+                    $"Depth={(_depthCapturePass != null ? "enabled" : "disabled")}");
             }
 
-            // Request RGB readback
-            _rgbReadback = AsyncGPUReadback.Request(rgbTexture);
+            // Request RGB readback - don't specify format, let Unity use native format
+            // This avoids format conversion errors in HDRP
+            var rgbRequest = AsyncGPUReadback.Request(rgbTexture);
+            _pendingRgbReadbacks.Enqueue(rgbRequest);
+            _rgbReady = false;
 
-            // Request depth readback if needed
-            if (_currentCaptureHasDepth)
+            // Request depth readback only if:
+            // 1. Depth capture is enabled in inspector (_captureDepth)
+            // 2. C++ requested depth for this frame (_depthRequested)
+            // 3. Depth pass is available and has a valid texture
+            if (_captureDepth && _depthRequested && _depthCapturePass != null && _depthCapturePass.HasTexture)
             {
                 var depthTexture = _depthCapturePass.DepthTexture;
-                _depthReadback = AsyncGPUReadback.Request(depthTexture);
-                
-                if (_verboseLogging)
+                if (depthTexture != null && depthTexture.IsCreated())
                 {
-                    Debug.Log($"[CommunicationBridge] Capturing frame {_pendingFrameId} with depth");
+                    // Log depth texture info on first depth capture
+                    if (_frameId <= 3)
+                    {
+                        Debug.Log($"[CommunicationBridge] Depth capture requested: " +
+                                  $"texture={depthTexture.width}x{depthTexture.height}, " +
+                                  $"format={depthTexture.graphicsFormat}, " +
+                                  $"isCreated={depthTexture.IsCreated()}, " +
+                                  $"nativePtr={depthTexture.GetNativeTexturePtr()}");
+                    }
+
+                    var depthRequest = AsyncGPUReadback.Request(depthTexture);
+                    _pendingDepthReadbacks.Enqueue(depthRequest);
+                    _depthReady = false;
+                }
+                else
+                {
+                    Debug.LogWarning($"[CommunicationBridge] Depth texture not ready: " +
+                                     $"texture={depthTexture}, isCreated={depthTexture?.IsCreated()}");
+                    _depthReady = true;
                 }
             }
             else
             {
-                _depthReadback = null;
+                _depthReady = true; // No depth to wait for
             }
-
-            _state = CaptureState.Capturing;
         }
 
-        /// <summary>
-        /// Check if all pending readbacks are complete.
-        /// Transitions: Capturing -> ReadyToSend (when done)
-        /// </summary>
-        private void CheckReadbacksComplete()
+        private void ProcessPendingReadbacks()
         {
-            // Check RGB readback
-            if (_rgbReadback.HasValue)
+            // Process RGB readbacks
+            while (_pendingRgbReadbacks.Count > 0)
             {
-                var request = _rgbReadback.Value;
-                
+                var request = _pendingRgbReadbacks.Peek();
+
                 if (request.hasError)
                 {
-                    Debug.LogError($"[CommunicationBridge] RGB readback error for frame {_pendingFrameId}");
-                    ResetToIdle();
-                    return;
+                    // Log more detailed error information
+                    if (_verboseLogging || _rgbReadbackErrorCount < 5)
+                    {
+                        Debug.LogError($"[CommunicationBridge] RGB readback error. " +
+                            $"Texture valid: {_cameraSimulator?.HasTexture}, " +
+                            $"Width: {request.width}, Height: {request.height}, " +
+                            $"LayerCount: {request.layerCount}");
+                    }
+                    _rgbReadbackErrorCount++;
+                    _pendingRgbReadbacks.Dequeue();
+                    continue;
                 }
 
                 if (!request.done)
                 {
-                    return;  // Still waiting
+                    break; // Still waiting
                 }
 
-                // Copy RGB data
+                // Reset error count on success
+                _rgbReadbackErrorCount = 0;
+
+                // Copy data to buffer - reallocate if size changed
                 var data = request.GetData<byte>();
-                if (_rgbBuffer == null || data.Length != _rgbBuffer.Length)
+                if (data.Length != _rgbBuffer.Length)
                 {
+                    if (_verboseLogging)
+                    {
+                        Debug.Log($"[CommunicationBridge] Reallocating RGB buffer: {_rgbBuffer.Length} -> {data.Length}");
+                    }
                     _rgbBuffer = new byte[data.Length];
                 }
                 data.CopyTo(_rgbBuffer);
-                _rgbReadback = null;  // Mark as processed
+
+                // Verify data was copied (check first few bytes aren't all zero)
+                if (_pendingFrameId <= 3 || _verboseLogging)
+                {
+                    int nonZeroCount = 0;
+                    for (int i = 0; i < Mathf.Min(100, _rgbBuffer.Length); i++)
+                    {
+                        if (_rgbBuffer[i] != 0) nonZeroCount++;
+                    }
+                    Debug.Log($"[CommunicationBridge] RGB readback complete: {data.Length} bytes, " +
+                        $"non-zero in first 100: {nonZeroCount}");
+                }
+
+                _rgbReady = true;
+                _pendingRgbReadbacks.Dequeue();
+                break; // Process one at a time
             }
 
-            // Check depth readback (if we're capturing depth)
-            if (_currentCaptureHasDepth && _depthReadback.HasValue)
+            // Process depth readbacks
+            while (_pendingDepthReadbacks.Count > 0)
             {
-                var request = _depthReadback.Value;
-                
+                var request = _pendingDepthReadbacks.Peek();
+
                 if (request.hasError)
                 {
-                    Debug.LogError($"[CommunicationBridge] Depth readback error for frame {_pendingFrameId}");
-                    _currentCaptureHasDepth = false;  // Send without depth
-                    _depthReadback = null;
-                }
-                else if (!request.done)
-                {
-                    return;  // Still waiting
-                }
-                else
-                {
-                    // Copy depth data
-                    var data = request.GetData<byte>();
-                    if (_depthBuffer == null || data.Length != _depthBuffer.Length)
+                    if (_verboseLogging || _depthReadbackErrorCount < 5)
                     {
-                        _depthBuffer = new byte[data.Length];
+                        Debug.LogError($"[CommunicationBridge] Depth readback error. " +
+                            $"Texture valid: {_depthCapturePass?.HasTexture}");
                     }
-                    data.CopyTo(_depthBuffer);
-                    _depthReadback = null;  // Mark as processed
+                    _depthReadbackErrorCount++;
+                    _pendingDepthReadbacks.Dequeue();
+                    _depthReady = true; // Skip depth for this frame
+                    continue;
                 }
+
+                if (!request.done)
+                {
+                    break; // Still waiting
+                }
+
+                // Reset error count on success
+                _depthReadbackErrorCount = 0;
+
+                // Copy data to buffer - reallocate if size changed
+                var data = request.GetData<byte>();
+                if (_depthBuffer == null || data.Length != _depthBuffer.Length)
+                {
+                    Debug.Log($"[CommunicationBridge] Reallocating depth buffer: {_depthBuffer?.Length ?? 0} -> {data.Length}");
+                    _depthBuffer = new byte[data.Length];
+                }
+                data.CopyTo(_depthBuffer);
+
+                // Debug: check depth buffer content (first few frames or verbose)
+                if (_pendingFrameId <= 5 || _verboseLogging)
+                {
+                    int nonZeroBytes = 0;
+                    float firstNonZeroValue = 0;
+                    for (int i = 0; i < Mathf.Min(400, _depthBuffer.Length); i += 4)
+                    {
+                        // Read as float (4 bytes)
+                        float val = System.BitConverter.ToSingle(_depthBuffer, i);
+                        if (val != 0)
+                        {
+                            nonZeroBytes++;
+                            if (firstNonZeroValue == 0) firstNonZeroValue = val;
+                        }
+                    }
+                    Debug.Log($"[CommunicationBridge] Depth readback: {data.Length} bytes, " +
+                              $"non-zero floats in first 100: {nonZeroBytes}, " +
+                              $"first non-zero value: {firstNonZeroValue:F3}m");
+                }
+
+                _depthReady = true;
+                _pendingDepthReadbacks.Dequeue();
+                break; // Process one at a time
             }
 
-            // Both readbacks complete
-            _state = CaptureState.ReadyToSend;
-        }
-
-        /// <summary>
-        /// Send the captured frame and reset state.
-        /// Transitions: ReadyToSend -> Idle
-        /// </summary>
-        private void SendFrameAndReset()
-        {
-            SendFrame();
-            ResetToIdle();
-        }
-
-        private void ResetToIdle()
-        {
-            _state = CaptureState.Idle;
-            _rgbReadback = null;
-            _depthReadback = null;
-            _currentCaptureHasDepth = false;
+            // Send frame when both RGB and depth are ready
+            if (_rgbReady && _depthReady && IsClientConnected)
+            {
+                SendFrame();
+                _rgbReady = false;
+                _depthReady = false;
+            }
         }
 
         private void SendFrame()
@@ -661,14 +647,27 @@ namespace AutoBattlebot.Communication
             int height = _intrinsicsProvider?.Height ?? 720;
 
             bool success;
-            bool sendDepth = _currentCaptureHasDepth && _depthBuffer != null && _depthBuffer.Length > 0;
 
-            // Log frame details
-            if (_pendingFrameId <= 3 || _verboseLogging)
+            // Include depth only if it was requested and we have the data
+            bool sendDepth = _captureDepth && _depthRequested && _depthBuffer != null && _depthBuffer.Length > 0;
+
+            // Reset depth request after this frame
+            if (_depthRequested)
             {
+                _depthRequested = false;
+            }
+
+            // Log frame data details on first frame and when verbose
+            if (_pendingFrameId == 1 || _verboseLogging)
+            {
+                int rgbNonZero = 0;
+                for (int i = 0; i < Mathf.Min(1000, _rgbBuffer.Length); i++)
+                {
+                    if (_rgbBuffer[i] != 0) rgbNonZero++;
+                }
                 Debug.Log($"[CommunicationBridge] SendFrame {_pendingFrameId}: " +
-                    $"RGB={_rgbBuffer?.Length ?? 0} bytes, " +
-                    $"Depth={(sendDepth ? _depthBuffer.Length.ToString() + " bytes" : "none")}, " +
+                    $"RGB={_rgbBuffer.Length} bytes (non-zero in first 1000: {rgbNonZero}), " +
+                    $"Depth={(sendDepth ? _depthBuffer.Length.ToString() : "none")}, " +
                     $"Dims={width}x{height}");
             }
 
@@ -695,45 +694,43 @@ namespace AutoBattlebot.Communication
             {
                 Debug.LogWarning($"[CommunicationBridge] Failed to send frame {_pendingFrameId}");
             }
+            else if (_verboseLogging)
+            {
+                Log($"Sent frame {_pendingFrameId} (depth={sendDepth})");
+            }
         }
 
         private void HandleClientConnected()
         {
-            Debug.Log("[CommunicationBridge] C++ client connected");
+            Log("C++ client connected");
 
-            // Send camera intrinsics FIRST before any other state changes
-            // This ensures C++ can process intrinsics and send request_frame
-            // before we start polling or sending frames
+            // Reset capture state - wait a few frames before starting capture
+            // This ensures the camera has rendered at least once
+            _startupFrameDelay = 3;
+            _readyToCapture = false;
+            _rgbReadbackErrorCount = 0;
+            _depthReadbackErrorCount = 0;
+            _depthRequested = false;
+
+            // Send camera intrinsics
             if (_intrinsicsProvider != null)
             {
                 _tcpBridge.SendIntrinsics(_intrinsicsProvider.Intrinsics);
             }
-
-            // Reset all state
-            // Add a longer startup delay to allow for full round-trip:
-            // Unity sends intrinsics -> C++ receives -> C++ sends request_frame -> Unity receives
-            // At 120 FPS, each frame is ~8ms. Network round-trip could be 10-50ms.
-            // Use 10 frames (~80ms) to be safe.
-            _startupFrameDelay = 10;
-            _state = CaptureState.Idle;
-            _depthRequestPending = false;
-            _currentCaptureHasDepth = false;
-            _rgbReadback = null;
-            _depthReadback = null;
 
             OnClientConnected?.Invoke();
         }
 
         private void HandleClientDisconnected()
         {
-            Debug.Log("[CommunicationBridge] C++ client disconnected");
+            Log("C++ client disconnected");
 
-            // Reset all state
-            _state = CaptureState.Idle;
-            _depthRequestPending = false;
-            _currentCaptureHasDepth = false;
-            _rgbReadback = null;
-            _depthReadback = null;
+            // Clear pending readbacks and requests
+            _pendingRgbReadbacks.Clear();
+            _pendingDepthReadbacks.Clear();
+            _rgbReady = false;
+            _depthReady = false;
+            _depthRequested = false;
 
             OnClientDisconnected?.Invoke();
         }
@@ -745,12 +742,14 @@ namespace AutoBattlebot.Communication
 
         private void HandleFrameRequested(bool withDepth)
         {
-            // C++ is requesting depth on the next capture
-            Debug.Log($"[CommunicationBridge] HandleFrameRequested called: withDepth={withDepth}");
+            // Only care about depth requests - RGB streams continuously
             if (withDepth)
             {
-                _depthRequestPending = true;
-                Debug.Log("[CommunicationBridge] Depth requested for next capture");
+                _depthRequested = true;
+                if (_verboseLogging)
+                {
+                    Log("Depth requested for next frame");
+                }
             }
         }
 
@@ -766,9 +765,9 @@ namespace AutoBattlebot.Communication
 
             Debug.Log($"[CommunicationBridge] Stats: {fps:F1} fps, " +
                       $"Frame={_frameId}, " +
-                      $"State={_state}, " +
                       $"Connected={IsClientConnected}, " +
-                      $"DepthPending={_depthRequestPending}\n" +
+                      $"Pending RGB={_pendingRgbReadbacks.Count}, " +
+                      $"Pending Depth={_pendingDepthReadbacks.Count}\n" +
                       _tcpBridge.GetPerformanceReport());
 
             _lastStatsTime = Time.time;
@@ -793,9 +792,7 @@ namespace AutoBattlebot.Communication
             Debug.Log($"[CommunicationBridge] Status:\n" +
                       $"  Initialized: {_isInitialized}\n" +
                       $"  Connected: {IsClientConnected}\n" +
-                      $"  State: {_state}\n" +
                       $"  Frame ID: {_frameId}\n" +
-                      $"  Depth Request Pending: {_depthRequestPending}\n" +
                       $"  Camera: {(_cameraSimulator != null ? "Found" : "Missing")}\n" +
                       $"  Depth Pass: {(_depthCapturePass != null ? "Found" : "Missing")}\n" +
                       $"  Intrinsics: {(_intrinsicsProvider != null ? "Found" : "Missing")}");

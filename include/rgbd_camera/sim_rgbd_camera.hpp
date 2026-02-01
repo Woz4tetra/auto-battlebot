@@ -53,6 +53,7 @@ namespace auto_battlebot
 
         // Get frame with image data from TCP
         bool get_frame_with_data(CameraData &data, bool get_depth);
+        bool request_frame(bool get_depth);
     };
 
 } // namespace auto_battlebot

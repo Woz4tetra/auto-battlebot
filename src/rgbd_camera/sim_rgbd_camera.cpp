@@ -32,23 +32,10 @@ namespace auto_battlebot
         auto &client = SimTcpClient::instance();
         client.configure(tcp_config_);
 
-        // Connect to Unity
-        if (!client.is_connected())
-        {
-            if (!client.connect())
-            {
-                diagnostics_logger_->error("initialized",
-                                           {{"host", tcp_config_.host},
-                                            {"port", tcp_config_.port},
-                                            {"success", false}});
-                return false;
-            }
-        }
+        if (!client.wait_for_connection())
+            return false;
 
-        diagnostics_logger_->info("initialized",
-                                  {{"tcp_host", tcp_config_.host},
-                                   {"tcp_port", tcp_config_.port},
-                                   {"success", true}});
+        std::cout << "Initialized client. Host: " << tcp_config_.host << ". Port: " << tcp_config_.port << std::endl;
 
         // Reset stats on re-initialization
         frames_received_ = 0;
@@ -59,24 +46,6 @@ namespace auto_battlebot
 
     bool SimRgbdCamera::get(CameraData &data, bool get_depth)
     {
-        auto &client = SimTcpClient::instance();
-
-        if (!client.is_connected())
-        {
-            std::cout << "TCP client isn't connected" << std::endl;
-            // Try to reconnect
-            if (tcp_config_.auto_reconnect)
-            {
-                if (!client.try_reconnect())
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                return false;
-            }
-        }
 
         // Populate camera info from intrinsics
         if (!populate_camera_info(data))
@@ -91,14 +60,13 @@ namespace auto_battlebot
         return success;
     }
 
-    bool SimRgbdCamera::get_frame_with_data(CameraData &data, bool get_depth)
+    bool SimRgbdCamera::request_frame(bool get_depth)
     {
-        auto &client = SimTcpClient::instance();
-
         // If depth is requested, send a frame request to Unity
         // This tells Unity to include depth data in the next frame
         if (get_depth)
         {
+            auto &client = SimTcpClient::instance();
             std::cout << "Requesting simulated frame with depth" << std::endl;
             if (!client.request_frame(true))
             {
@@ -106,37 +74,33 @@ namespace auto_battlebot
                 return false;
             }
         }
+        return true;
+    }
 
-        // Wait for frame with image data from Unity via TCP
-        // When depth is requested, we may need to skip RGB-only frames that were
-        // already in flight before our request was processed
-        auto start_time = std::chrono::steady_clock::now();
-        int timeout_ms = get_depth ? tcp_config_.read_timeout_ms * 3 : tcp_config_.read_timeout_ms;
+    bool SimRgbdCamera::get_frame_with_data(CameraData &data, bool get_depth)
+    {
+        auto &client = SimTcpClient::instance();
+        request_frame(get_depth);
+
         int frames_skipped = 0;
-        const int max_frames_to_skip = 10; // Don't skip forever
-
         std::optional<TcpFrameReadyWithDataMessage> frame;
 
         while (true)
         {
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                               std::chrono::steady_clock::now() - start_time)
-                               .count();
-
-            if (elapsed >= timeout_ms)
+            if (!client.is_connected())
             {
-                std::cerr << "Took too long waiting for depth frame" << std::endl;
-                return false;
+                std::cerr << "TCP client isn't connected." << std::endl;
+                if (!client.wait_for_connection())
+                    return false;
+                request_frame(get_depth);
             }
 
-            int remaining_ms = timeout_ms - static_cast<int>(elapsed);
-            frame = client.wait_for_frame_with_data(
-                std::chrono::milliseconds(remaining_ms));
+            frame = client.wait_for_frame_with_data(std::chrono::milliseconds(100));
 
             if (!frame)
             {
                 std::cerr << "Failed to receive depth frame" << std::endl;
-                return false;
+                continue;
             }
 
             // If we requested depth, wait until we get a frame with depth data
@@ -146,11 +110,6 @@ namespace auto_battlebot
                 if (frame->depth_data_size == 0)
                 {
                     frames_skipped++;
-                    if (frames_skipped >= max_frames_to_skip)
-                    {
-                        std::cerr << "Skipped too many frames waiting for depth frame" << std::endl;
-                        return false;
-                    }
                     // Acknowledge this frame and wait for next one
                     client.send_frame_processed(frame->frame_id);
                     continue;
@@ -200,8 +159,10 @@ namespace auto_battlebot
             cv::Mat depth_raw(frame->depth_height, frame->depth_width, CV_32FC1, frame->depth_data.data());
             cv::flip(depth_raw, depth_raw, 0); // Flip to match RGB
             data.depth.image = depth_raw.clone();
-            cv::imwrite("depth.jpg", depth_raw);
         }
+
+        data.camera_info.header.stamp = data.rgb.header.stamp;
+        data.camera_info.header.frame_id = data.rgb.header.frame_id;
 
         // Acknowledge frame processed
         client.send_frame_processed(frame->frame_id);
@@ -279,6 +240,10 @@ namespace auto_battlebot
             {
                 tf.tf(row, col) = frame.pose[row * 4 + col];
             }
+        }
+        if (tf.tf.isZero())
+        {
+            tf.tf = Eigen::Matrix4d::Identity();
         }
 
         data.tf_visodom_from_camera.transform = tf;
