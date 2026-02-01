@@ -111,6 +111,7 @@ namespace AutoBattlebot.SimulatedCamera
         private static readonly int _NoiseParamsId = Shader.PropertyToID("_NoiseParams");
         private static readonly int _TimeId = Shader.PropertyToID("_Time");
         private static readonly int _DebugModeId = Shader.PropertyToID("_DebugMode");
+        private static readonly int _DepthBufferSizeId = Shader.PropertyToID("_DepthBufferSize");
 
         // Profiling
         private Stopwatch _profilerStopwatch = new Stopwatch();
@@ -244,10 +245,23 @@ namespace AutoBattlebot.SimulatedCamera
             if (_executeCount == 0)
             {
                 var camera = ctx.hdCamera.camera;
+                int depthBufferWidth = ctx.hdCamera.actualWidth;
+                int depthBufferHeight = ctx.hdCamera.actualHeight;
+                
                 Debug.Log($"[LinearDepthCapturePass] Execute first frame: " +
                           $"output={_depthTexture.width}x{_depthTexture.height}, " +
+                          $"depthBuffer={depthBufferWidth}x{depthBufferHeight}, " +
                           $"useBlitShader={useBlitShader}, " +
                           $"nearClip={nearClip}, farClip={farClip}");
+                
+                // Warn if there's a resolution mismatch that was previously causing issues
+                if (depthBufferWidth != _depthTexture.width || depthBufferHeight != _depthTexture.height)
+                {
+                    Debug.LogWarning($"[LinearDepthCapturePass] Resolution mismatch detected! " +
+                                   $"Output: {_depthTexture.width}x{_depthTexture.height}, " +
+                                   $"DepthBuffer: {depthBufferWidth}x{depthBufferHeight}. " +
+                                   $"This is handled by the shader, but may indicate misconfiguration.");
+                }
             }
 
             if (useBlitShader)
@@ -269,17 +283,31 @@ namespace AutoBattlebot.SimulatedCamera
 
         private void ExecuteBlitShader(CustomPassContext ctx)
         {
+            // Get the actual depth buffer dimensions from HDRP
+            // This is critical - the depth buffer may have different dimensions than the output texture
+            // due to HDRP's internal rendering resolution, dynamic resolution, or render scale settings
+            int depthBufferWidth = ctx.hdCamera.actualWidth;
+            int depthBufferHeight = ctx.hdCamera.actualHeight;
+
             // Set material parameters
             _blitMaterial.SetVector(_DepthRangeId, new Vector4(nearClip, farClip, 0, 0));
             _blitMaterial.SetFloat(_InvalidDepthId, invalidDepthValue);
             _blitMaterial.SetFloat(_DebugModeId, debugMode);
+            
+            // Pass the actual depth buffer size to handle resolution mismatches
+            _blitMaterial.SetVector(_DepthBufferSizeId, new Vector4(
+                depthBufferWidth, 
+                depthBufferHeight, 
+                1.0f / depthBufferWidth, 
+                1.0f / depthBufferHeight));
 
             // Debug logging on first frame
             if (_executeCount == 0)
             {
                 Debug.Log($"[LinearDepthCapturePass] ExecuteBlitShader: debugMode={debugMode}, " +
                           $"depthRange=({nearClip}, {farClip}), " +
-                          $"renderTarget={_depthTexture.width}x{_depthTexture.height}");
+                          $"renderTarget={_depthTexture.width}x{_depthTexture.height}, " +
+                          $"depthBuffer={depthBufferWidth}x{depthBufferHeight}");
             }
 
             // Blit using HDRP's full-screen triangle
@@ -294,6 +322,11 @@ namespace AutoBattlebot.SimulatedCamera
             var camera = ctx.hdCamera.camera;
             Vector4 zBufferParams = CalculateZBufferParams(camera);
 
+            // Get the actual depth buffer dimensions from HDRP
+            // This is critical - the depth buffer may have different dimensions than the output texture
+            int depthBufferWidth = ctx.hdCamera.actualWidth;
+            int depthBufferHeight = ctx.hdCamera.actualHeight;
+
             // Select kernel based on noise setting
             int kernelToUse = (enableNoise && _kernelIdNoisy >= 0) ? _kernelIdNoisy : _kernelId;
 
@@ -306,6 +339,7 @@ namespace AutoBattlebot.SimulatedCamera
             ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _DepthRangeId, new Vector4(nearClip, farClip, 0, 0));
             ctx.cmd.SetComputeFloatParam(linearizeDepthShader, _InvalidDepthId, invalidDepthValue);
             ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _TextureSizeId, new Vector4(width, height, sliceIndex, 0));
+            ctx.cmd.SetComputeVectorParam(linearizeDepthShader, _DepthBufferSizeId, new Vector4(depthBufferWidth, depthBufferHeight, 0, 0));
 
             // Set noise parameters if using noisy kernel
             if (enableNoise && _kernelIdNoisy >= 0)

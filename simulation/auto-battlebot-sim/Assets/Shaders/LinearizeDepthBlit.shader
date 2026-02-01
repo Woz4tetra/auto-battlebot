@@ -26,6 +26,7 @@ Shader "AutoBattlebot/LinearizeDepthBlit"
     
     float4 _DepthRange;  // x = near, y = far
     float _InvalidDepth;
+    float4 _DepthBufferSize;  // x = width, y = height, z = 1/width, w = 1/height
     
     Varyings Vert(Attributes input)
     {
@@ -56,7 +57,9 @@ Shader "AutoBattlebot/LinearizeDepthBlit"
         
         // Sample depth using HDRP's proper depth access
         // Load depth from HDRP's depth buffer
-        float2 pixelCoord = uv * _ScreenSize.xy;
+        // Use _DepthBufferSize instead of _ScreenSize to handle resolution mismatches
+        // _DepthBufferSize is set from C# to the actual camera depth buffer dimensions
+        float2 pixelCoord = uv * _DepthBufferSize.xy;
         float rawDepth = LoadCameraDepth(pixelCoord);
         
         // Debug mode 3: Output raw depth value

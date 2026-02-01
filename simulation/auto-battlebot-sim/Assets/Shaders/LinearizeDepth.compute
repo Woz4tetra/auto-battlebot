@@ -33,8 +33,11 @@ float4 _DepthRange;
 // Value for invalid depth (sky, out of range)
 float _InvalidDepth;
 
-// Texture dimensions (x = width, y = height, z = slice index for array textures)
+// Output texture dimensions (x = width, y = height, z = slice index for array textures)
 float4 _TextureSize;
+
+// Depth buffer dimensions (x = width, y = height) - may differ from output due to HDRP settings
+float4 _DepthBufferSize;
 
 // Noise parameters (x = base noise, y = distance factor)
 float4 _NoiseParams;
@@ -112,16 +115,21 @@ float ProcessDepth(float rawDepth)
 [numthreads(8, 8, 1)]
 void LinearizeDepth(uint3 id : SV_DispatchThreadID)
 {
-    // Bounds check
+    // Bounds check against output texture size
     if (id.x >= (uint)_TextureSize.x || id.y >= (uint)_TextureSize.y)
     {
         return;
     }
 
+    // Convert output pixel to UV, then to depth buffer pixel
+    // This handles resolution mismatches between output and HDRP depth buffer
+    float2 uv = (float2(id.xy) + 0.5) / _TextureSize.xy;
+    uint2 depthCoord = uint2(uv * _DepthBufferSize.xy);
+    
     // Sample depth buffer from the specified slice (main camera view)
     // HDRP uses Texture2DArray, we sample with uint3(x, y, slice)
     uint sliceIndex = (uint)_TextureSize.z;
-    float rawDepth = _DepthInput[uint3(id.xy, sliceIndex)];
+    float rawDepth = _DepthInput[uint3(depthCoord, sliceIndex)];
 
     // Process and output
     _LinearDepthOutput[id.xy] = ProcessDepth(rawDepth);
@@ -134,15 +142,20 @@ void LinearizeDepth(uint3 id : SV_DispatchThreadID)
 [numthreads(8, 8, 1)]
 void LinearizeDepthNoisy(uint3 id : SV_DispatchThreadID)
 {
-    // Bounds check
+    // Bounds check against output texture size
     if (id.x >= (uint)_TextureSize.x || id.y >= (uint)_TextureSize.y)
     {
         return;
     }
 
+    // Convert output pixel to UV, then to depth buffer pixel
+    // This handles resolution mismatches between output and HDRP depth buffer
+    float2 uv = (float2(id.xy) + 0.5) / _TextureSize.xy;
+    uint2 depthCoord = uint2(uv * _DepthBufferSize.xy);
+    
     // Sample depth buffer
     uint sliceIndex = (uint)_TextureSize.z;
-    float rawDepth = _DepthInput[uint3(id.xy, sliceIndex)];
+    float rawDepth = _DepthInput[uint3(depthCoord, sliceIndex)];
 
     // Process depth
     float linearDepth = ProcessDepth(rawDepth);
