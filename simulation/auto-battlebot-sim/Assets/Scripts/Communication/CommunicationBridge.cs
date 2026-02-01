@@ -305,6 +305,12 @@ namespace AutoBattlebot.Communication
 
         private void PollCommands()
         {
+            // During startup delay, log if we're receiving any data
+            if (_startupFrameDelay > 0 && _tcpBridge.IsConnected)
+            {
+                Debug.Log($"[CommunicationBridge] PollCommands during startup delay, calling TryReceiveCommand");
+            }
+            
             if (_tcpBridge.TryReceiveCommand(out var command, out bool isNew))
             {
                 if (isNew && _verboseLogging)
