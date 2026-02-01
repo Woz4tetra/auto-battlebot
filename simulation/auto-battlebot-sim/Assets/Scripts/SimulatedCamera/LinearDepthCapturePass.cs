@@ -79,6 +79,10 @@ namespace AutoBattlebot.SimulatedCamera
         [Range(0f, 0.01f)]
         public float distanceNoiseFactor = 0.001f;
 
+        [Header("Camera Filtering")]
+        [Tooltip("Target camera for depth capture (required - only this camera's depth will be captured)")]
+        public Camera targetCamera;
+
         [Header("Debug Options")]
         [Tooltip("Enable CPU readback for debugging (slower)")]
         public bool enableCpuReadback = false;
@@ -220,6 +224,13 @@ namespace AutoBattlebot.SimulatedCamera
                 return;
             }
 
+            // CRITICAL: Only execute for the target camera
+            // This prevents capturing depth from the wrong camera (e.g., player camera)
+            if (targetCamera != null && ctx.hdCamera.camera != targetCamera)
+            {
+                return;
+            }
+
             if (useBlitShader && _blitMaterial == null)
             {
                 return;
@@ -249,6 +260,8 @@ namespace AutoBattlebot.SimulatedCamera
                 int depthBufferHeight = ctx.hdCamera.actualHeight;
                 
                 Debug.Log($"[LinearDepthCapturePass] Execute first frame: " +
+                          $"camera={camera.name}, " +
+                          $"targetCamera={(targetCamera != null ? targetCamera.name : "ANY")}, " +
                           $"output={_depthTexture.width}x{_depthTexture.height}, " +
                           $"depthBuffer={depthBufferWidth}x{depthBufferHeight}, " +
                           $"useBlitShader={useBlitShader}, " +

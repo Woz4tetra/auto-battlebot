@@ -295,6 +295,8 @@ namespace AutoBattlebot.SimulatedCamera
             float farClip = intrinsicsProvider?.FarClip ?? _cameraSimulator.Camera.farClipPlane;
 
             // Create and add the depth pass
+            // IMPORTANT: Set targetCamera to ensure depth is captured from the simulated camera,
+            // not any other camera in the scene (e.g., player camera)
             _depthPass = new LinearDepthCapturePass
             {
                 width = _cameraSimulator.Width,
@@ -309,11 +311,14 @@ namespace AutoBattlebot.SimulatedCamera
                 baseNoiseLevel = _baseNoiseLevel,
                 distanceNoiseFactor = _distanceNoiseFactor,
                 debugMode = _depthDebugMode,
+                targetCamera = _cameraSimulator.Camera,  // Only capture depth from this camera
                 targetColorBuffer = CustomPass.TargetBuffer.None,
                 targetDepthBuffer = CustomPass.TargetBuffer.None,
                 clearFlags = ClearFlag.None,
                 enabled = true
             };
+            
+            Debug.Log($"[SimulationCameraController] Depth pass configured for camera: {_cameraSimulator.Camera.name}");
 
             _customPassVolume.customPasses.Add(_depthPass);
 
