@@ -110,8 +110,6 @@ namespace auto_battlebot
                 if (frame->depth_data_size == 0)
                 {
                     frames_skipped++;
-                    // Acknowledge this frame and wait for next one
-                    client.send_frame_processed(frame->frame_id);
                     continue;
                 }
                 else

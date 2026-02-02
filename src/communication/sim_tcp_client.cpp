@@ -258,83 +258,6 @@ namespace auto_battlebot
         return false;
     }
 
-    std::optional<TcpFrameReadyMessage> SimTcpClient::wait_for_frame(std::chrono::milliseconds timeout)
-    {
-        if (!connected_)
-        {
-            return std::nullopt;
-        }
-
-        std::lock_guard<std::mutex> lock(socket_mutex_);
-
-        // Set timeout
-        if (!set_socket_timeout(static_cast<int>(timeout.count())))
-        {
-            return std::nullopt;
-        }
-
-        // Read message type
-        uint8_t msg_type;
-        while (read_exact(&msg_type, 1, static_cast<int>(timeout.count())))
-        {
-            auto type = static_cast<TcpMessageType>(msg_type);
-
-            switch (type)
-            {
-            case TcpMessageType::FrameReady:
-            case TcpMessageType::FrameReadyNoDepth:
-            {
-                auto frame = read_frame_ready_message();
-                if (frame)
-                {
-                    frames_received_++;
-                    return frame;
-                }
-                return std::nullopt;
-            }
-
-            case TcpMessageType::FrameReadyWithData:
-            case TcpMessageType::FrameReadyWithDataNoDepth:
-            {
-                // Fallback mode detected - read the message with data
-                // and convert to basic frame message (caller should use wait_for_frame_with_data)
-                fallback_mode_detected_ = true;
-                auto frame_with_data = read_frame_ready_with_data_message();
-                if (frame_with_data)
-                {
-                    frames_received_++;
-                    // Return just the frame metadata
-                    TcpFrameReadyMessage frame;
-                    frame.frame_id = frame_with_data->frame_id;
-                    frame.timestamp_ns = frame_with_data->timestamp_ns;
-                    frame.pose = frame_with_data->pose;
-                    return frame;
-                }
-                return std::nullopt;
-            }
-
-            case TcpMessageType::CameraIntrinsics:
-                // Intrinsics can be re-sent, handle it
-                read_intrinsics_message();
-                break;
-
-            case TcpMessageType::Ping:
-            {
-                // Respond with pong
-                uint8_t pong = static_cast<uint8_t>(TcpMessageType::Pong);
-                write_exact(&pong, 1);
-                break;
-            }
-
-            default:
-                std::cerr << "Unexpected message type: " << static_cast<int>(msg_type) << std::endl;
-                return std::nullopt;
-            }
-        }
-
-        return std::nullopt;
-    }
-
     std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::wait_for_frame_with_data(std::chrono::milliseconds timeout)
     {
         if (!connected_)
@@ -371,39 +294,9 @@ namespace auto_battlebot
                 return std::nullopt;
             }
 
-            case TcpMessageType::FrameReady:
-            case TcpMessageType::FrameReadyNoDepth:
-            {
-                // Non-fallback mode - convert to with-data format (no image data)
-                auto basic_frame = read_frame_ready_message();
-                if (basic_frame)
-                {
-                    frames_received_++;
-                    TcpFrameReadyWithDataMessage frame;
-                    frame.frame_id = basic_frame->frame_id;
-                    frame.timestamp_ns = basic_frame->timestamp_ns;
-                    frame.pose = basic_frame->pose;
-                    frame.rgb_width = 0;
-                    frame.rgb_height = 0;
-                    frame.depth_width = 0;
-                    frame.depth_height = 0;
-                    frame.rgb_data_size = 0;
-                    frame.depth_data_size = 0;
-                    return frame;
-                }
-                return std::nullopt;
-            }
-
             case TcpMessageType::CameraIntrinsics:
                 read_intrinsics_message();
                 break;
-
-            case TcpMessageType::Ping:
-            {
-                uint8_t pong = static_cast<uint8_t>(TcpMessageType::Pong);
-                write_exact(&pong, 1);
-                break;
-            }
 
             default:
                 std::cerr << "Unexpected message type: " << static_cast<int>(msg_type) << std::endl;
@@ -412,30 +305,6 @@ namespace auto_battlebot
         }
 
         return std::nullopt;
-    }
-
-    std::optional<TcpFrameReadyMessage> SimTcpClient::try_get_frame()
-    {
-        if (!connected_)
-        {
-            return std::nullopt;
-        }
-
-        std::lock_guard<std::mutex> lock(socket_mutex_);
-
-        // Check if data is available without blocking
-        struct pollfd pfd{};
-        pfd.fd = socket_fd_;
-        pfd.events = POLLIN;
-
-        int result = poll(&pfd, 1, 0);
-        if (result <= 0)
-        {
-            return std::nullopt;
-        }
-
-        // Data available, try to read
-        return wait_for_frame(std::chrono::milliseconds(10));
     }
 
     bool SimTcpClient::send_velocity_command(const VelocityCommand &command)
@@ -505,34 +374,6 @@ namespace auto_battlebot
         buffer[1] = with_depth ? 1 : 0;
 
         return write_exact(buffer, sizeof(buffer));
-    }
-
-    bool SimTcpClient::ping(int timeout_ms)
-    {
-        if (!connected_)
-        {
-            return false;
-        }
-
-        std::lock_guard<std::mutex> lock(socket_mutex_);
-
-        // Send ping
-        uint8_t ping_byte = static_cast<uint8_t>(TcpMessageType::Ping);
-        if (!write_exact(&ping_byte, 1))
-        {
-            return false;
-        }
-
-        // Wait for pong
-        set_socket_timeout(timeout_ms);
-
-        uint8_t response;
-        if (read_exact(&response, 1, timeout_ms))
-        {
-            return response == static_cast<uint8_t>(TcpMessageType::Pong);
-        }
-
-        return false;
     }
 
     std::optional<TcpCameraIntrinsics> SimTcpClient::get_intrinsics() const
@@ -657,12 +498,6 @@ namespace auto_battlebot
         {
         case TcpMessageType::CameraIntrinsics:
             return read_intrinsics_message();
-
-        case TcpMessageType::Ping:
-        {
-            uint8_t pong = static_cast<uint8_t>(TcpMessageType::Pong);
-            return write_exact(&pong, 1);
-        }
 
         default:
             std::cerr << "Unexpected message type: " << static_cast<int>(msg_type) << std::endl;

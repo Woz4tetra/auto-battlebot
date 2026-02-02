@@ -28,35 +28,23 @@ namespace auto_battlebot
      */
     enum class TcpMessageType : uint8_t
     {
-        /// Frame ready with pose data (Unity → C++)
-        FrameReady = 0x01,
-
         /// Velocity command (C++ → Unity)
-        VelocityCommand = 0x02,
+        VelocityCommand = 0x01,
 
         /// Camera intrinsics (Unity → C++)
-        CameraIntrinsics = 0x03,
+        CameraIntrinsics = 0x02,
 
         /// Frame processed acknowledgment (C++ → Unity)
-        FrameProcessed = 0x04,
-
-        /// Ping for connection check
-        Ping = 0x05,
-
-        /// Pong response to ping
-        Pong = 0x06,
-
-        /// Frame ready without depth (Unity → C++)
-        FrameReadyNoDepth = 0x07,
+        FrameProcessed = 0x03,
 
         /// Request frame from Unity (C++ → Unity)
-        RequestFrame = 0x08,
+        RequestFrame = 0x04,
 
         /// Frame ready with raw image data (Unity → C++, fallback mode)
-        FrameReadyWithData = 0x09,
+        FrameReadyWithData = 0x05,
 
         /// Frame ready with raw RGB data only, no depth (Unity → C++, fallback mode)
-        FrameReadyWithDataNoDepth = 0x0A,
+        FrameReadyWithDataNoDepth = 0x06,
 
         /// Shutdown notification
         Shutdown = 0xFF,
@@ -68,12 +56,9 @@ namespace auto_battlebot
     namespace TcpMessageSize
     {
         constexpr size_t TypeHeader = 1;
-        constexpr size_t FrameReady = TypeHeader + 8 + 8 + 128;           // 145 bytes
         constexpr size_t VelocityCommand = TypeHeader + 8 + 8 + 8 + 8;    // 33 bytes
         constexpr size_t CameraIntrinsics = TypeHeader + 4 + 4 + 32 + 40; // 81 bytes
         constexpr size_t FrameProcessed = TypeHeader + 8;                 // 9 bytes
-        constexpr size_t Ping = TypeHeader;                               // 1 byte
-        constexpr size_t Pong = TypeHeader;                               // 1 byte
         constexpr size_t RequestFrame = TypeHeader + 1;                   // 2 bytes
         constexpr size_t Shutdown = TypeHeader;                           // 1 byte
 

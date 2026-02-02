@@ -21,67 +21,42 @@ namespace AutoBattlebot.Communication
     public enum TcpMessageType : byte
     {
         /// <summary>
-        /// Frame ready with pose data (Unity → C++).
-        /// Payload: frame_id (8) + timestamp_ns (8) + pose (128) = 144 bytes
-        /// </summary>
-        FrameReady = 0x01,
-
-        /// <summary>
         /// Velocity command (C++ → Unity).
         /// Payload: command_id (8) + linear_x (8) + linear_y (8) + angular_z (8) = 32 bytes
         /// </summary>
-        VelocityCommand = 0x02,
+        VelocityCommand = 0x01,
 
         /// <summary>
         /// Camera intrinsics (Unity → C++).
         /// Payload: width (4) + height (4) + fx,fy,cx,cy (32) + distortion (40) = 80 bytes
         /// </summary>
-        CameraIntrinsics = 0x03,
+        CameraIntrinsics = 0x02,
 
         /// <summary>
         /// Frame processed acknowledgment (C++ → Unity).
         /// Payload: frame_id (8) = 8 bytes
         /// </summary>
-        FrameProcessed = 0x04,
-
-        /// <summary>
-        /// Ping for connection check.
-        /// Payload: none
-        /// </summary>
-        Ping = 0x05,
-
-        /// <summary>
-        /// Pong response to ping.
-        /// Payload: none
-        /// </summary>
-        Pong = 0x06,
-
-        /// <summary>
-        /// Frame ready without depth (Unity → C++).
-        /// Same payload as FrameReady.
-        /// </summary>
-        FrameReadyNoDepth = 0x07,
+        FrameProcessed = 0x03,
 
         /// <summary>
         /// Request frame from Unity (C++ → Unity).
         /// Payload: with_depth (1) = 1 byte
         /// </summary>
-        RequestFrame = 0x08,
+        RequestFrame = 0x04,
 
         /// <summary>
         /// Frame ready with raw image data (Unity → C++, fallback mode).
-        /// Used when CUDA interop is unavailable (e.g., Vulkan backend).
         /// Payload: frame_id (8) + timestamp_ns (8) + pose (128) + 
         ///          rgb_width (4) + rgb_height (4) + depth_width (4) + depth_height (4) +
         ///          rgb_size (4) + depth_size (4) + rgb_data (variable) + depth_data (variable)
         /// </summary>
-        FrameReadyWithData = 0x09,
+        FrameReadyWithData = 0x05,
 
         /// <summary>
         /// Frame ready with raw RGB data only, no depth (Unity → C++, fallback mode).
         /// Same as FrameReadyWithData but depth_size = 0 and no depth_data.
         /// </summary>
-        FrameReadyWithDataNoDepth = 0x0A,
+        FrameReadyWithDataNoDepth = 0x06,
 
         /// <summary>
         /// Shutdown notification.
@@ -96,12 +71,9 @@ namespace AutoBattlebot.Communication
     public static class TcpMessageSizes
     {
         public const int TypeHeader = 1;
-        public const int FrameReady = TypeHeader + 8 + 8 + 128;  // 145 bytes
         public const int VelocityCommand = TypeHeader + 8 + 8 + 8 + 8;  // 33 bytes
         public const int CameraIntrinsics = TypeHeader + 4 + 4 + 32 + 40;  // 81 bytes
         public const int FrameProcessed = TypeHeader + 8;  // 9 bytes
-        public const int Ping = TypeHeader;  // 1 byte
-        public const int Pong = TypeHeader;  // 1 byte
         public const int RequestFrame = TypeHeader + 1;  // 2 bytes
         public const int Shutdown = TypeHeader;  // 1 byte
 

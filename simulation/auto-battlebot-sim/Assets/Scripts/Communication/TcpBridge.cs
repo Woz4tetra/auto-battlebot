@@ -295,67 +295,6 @@ namespace AutoBattlebot.Communication
         }
 
         /// <summary>
-        /// Sends a frame-ready message with pose data.
-        /// </summary>
-        /// <param name="frameId">Current frame ID.</param>
-        /// <param name="timestampSeconds">Timestamp in seconds.</param>
-        /// <param name="pose">Camera pose matrix (4x4, row-major).</param>
-        /// <param name="hasDepth">Whether the frame includes depth data.</param>
-        /// <returns>True if sent successfully.</returns>
-        public bool SendFrameReady(ulong frameId, double timestampSeconds, Matrix4x4 pose, bool hasDepth = true)
-        {
-            if (!IsConnected)
-            {
-                return false;
-            }
-
-            _stopwatch.Restart();
-
-            try
-            {
-                lock (_writeLock)
-                {
-                    // Message type
-                    _writeBuffer[0] = hasDepth
-                        ? (byte)TcpMessageType.FrameReady
-                        : (byte)TcpMessageType.FrameReadyNoDepth;
-
-                    int offset = 1;
-
-                    // Frame ID (8 bytes)
-                    offset += WriteUInt64(_writeBuffer, offset, frameId);
-
-                    // Timestamp in nanoseconds (8 bytes)
-                    ulong timestampNs = (ulong)(timestampSeconds * 1_000_000_000);
-                    offset += WriteUInt64(_writeBuffer, offset, timestampNs);
-
-                    // Pose matrix (128 bytes = 16 doubles)
-                    for (int row = 0; row < 4; row++)
-                    {
-                        for (int col = 0; col < 4; col++)
-                        {
-                            offset += WriteDouble(_writeBuffer, offset, pose[row, col]);
-                        }
-                    }
-
-                    _stream.Write(_writeBuffer, 0, TcpMessageSizes.FrameReady);
-                }
-
-                _sendCount++;
-
-                _stopwatch.Stop();
-                _totalSendTimeUs += _stopwatch.ElapsedTicks * 1000000 / Stopwatch.Frequency;
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                HandleDisconnection(ex);
-                return false;
-            }
-        }
-
-        /// <summary>
         /// Sends a frame-ready message with raw image data (fallback mode).
         /// Used when CUDA interop is unavailable (e.g., Vulkan backend).
         /// </summary>
@@ -404,8 +343,8 @@ namespace AutoBattlebot.Communication
                     int totalSize = headerSize + rgbData.Length + (hasDepth ? depthData.Length : 0);
 
                     // Allocate buffer if needed (reuse if possible)
-                    byte[] buffer = totalSize <= _writeBuffer.Length 
-                        ? _writeBuffer 
+                    byte[] buffer = totalSize <= _writeBuffer.Length
+                        ? _writeBuffer
                         : new byte[totalSize];
 
                     // Message type
@@ -589,52 +528,6 @@ namespace AutoBattlebot.Communication
         }
 
         /// <summary>
-        /// Sends a ping and waits for pong response.
-        /// </summary>
-        /// <param name="timeoutMs">Timeout in milliseconds.</param>
-        /// <returns>True if pong was received.</returns>
-        public bool Ping(int timeoutMs = 100)
-        {
-            if (!IsConnected)
-            {
-                return false;
-            }
-
-            try
-            {
-                lock (_writeLock)
-                {
-                    _writeBuffer[0] = (byte)TcpMessageType.Ping;
-                    _stream.Write(_writeBuffer, 0, 1);
-                }
-
-                // Wait for pong
-                var sw = Stopwatch.StartNew();
-                while (sw.ElapsedMilliseconds < timeoutMs)
-                {
-                    if (_clientSocket.Available > 0)
-                    {
-                        lock (_readLock)
-                        {
-                            int bytesRead = _stream.Read(_readBuffer, 0, 1);
-                            if (bytesRead > 0 && _readBuffer[0] == (byte)TcpMessageType.Pong)
-                            {
-                                return true;
-                            }
-                        }
-                    }
-                    Thread.Sleep(1);
-                }
-
-                return false;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
         /// Attempts to reconnect after disconnection.
         /// </summary>
         /// <returns>True if reconnection infrastructure is ready.</returns>
@@ -766,19 +659,6 @@ namespace AutoBattlebot.Communication
 
                     case TcpMessageType.RequestFrame:
                         return ReadFrameRequest();
-
-                    case TcpMessageType.Ping:
-                        // Respond with pong
-                        lock (_writeLock)
-                        {
-                            _writeBuffer[0] = (byte)TcpMessageType.Pong;
-                            _stream.Write(_writeBuffer, 0, 1);
-                        }
-                        return true;
-
-                    case TcpMessageType.Pong:
-                        // Ignore pong (handled by Ping method)
-                        return true;
 
                     case TcpMessageType.Shutdown:
                         Debug.Log("[TcpBridge] Received shutdown signal");

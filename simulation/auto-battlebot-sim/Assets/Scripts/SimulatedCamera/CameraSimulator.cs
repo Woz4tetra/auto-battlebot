@@ -62,7 +62,13 @@ namespace AutoBattlebot.SimulatedCamera
         private RenderTexture _rgbTexture;
         private Texture2D _cpuTexture;
         private bool _isInitialized = false;
-        private Matrix4x4 tfWorldFromCamerastart;
+        private Matrix4x4 tfCamerastartFromWorld;
+        private static Matrix4x4 correctionMatrix = new Matrix4x4(
+            new Vector4(1, 0, 0, 0),
+            new Vector4(0, -1, 0, 0),
+            new Vector4(0, 0, 1, 0),
+            new Vector4(0, 0, 0, 1)
+        );
 
         // Profiling
         private Stopwatch _profilerStopwatch = new Stopwatch();
@@ -262,8 +268,8 @@ namespace AutoBattlebot.SimulatedCamera
                 return false;
             }
 
-            // Apply camera settings
             ApplyCameraSettings();
+            InitializeCameraPose();
 
             _isInitialized = true;
             Debug.Log($"[CameraSimulator] Initialized: {Width}x{Height}, " +
@@ -383,8 +389,9 @@ namespace AutoBattlebot.SimulatedCamera
 
         public Matrix4x4 GetCameraPose()
         {
-            Matrix4x4 tfWorldFromCamera = _camera.worldToCameraMatrix;
-            return tfWorldFromCamerastart.inverse * tfWorldFromCamera;
+            Matrix4x4 tfWorldFromCamera = Matrix4x4.TRS(_camera.transform.position, _camera.transform.rotation, Vector3.one);
+            Matrix4x4 tfCamerastartFromCamera = tfCamerastartFromWorld * tfWorldFromCamera;
+            return tfCamerastartFromCamera * correctionMatrix;
         }
 
         #endregion
@@ -589,7 +596,7 @@ namespace AutoBattlebot.SimulatedCamera
 
         private void InitializeCameraPose()
         {
-            tfWorldFromCamerastart = _camera.worldToCameraMatrix;
+            tfCamerastartFromWorld = Matrix4x4.TRS(_camera.transform.position, _camera.transform.rotation, Vector3.one);
         }
 
         #endregion

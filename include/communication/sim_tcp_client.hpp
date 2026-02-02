@@ -113,24 +113,11 @@ namespace auto_battlebot
         void configure_optimizations();
 
         /**
-         * @brief Wait for a frame-ready message from Unity
-         * @param timeout Timeout duration
-         * @return Frame message if received, nullopt on timeout or error
-         */
-        std::optional<TcpFrameReadyMessage> wait_for_frame(std::chrono::milliseconds timeout);
-
-        /**
          * @brief Wait for a frame-ready message with raw image data (fallback mode)
          * @param timeout Timeout duration
          * @return Frame message with data if received, nullopt on timeout or error
          */
         std::optional<TcpFrameReadyWithDataMessage> wait_for_frame_with_data(std::chrono::milliseconds timeout);
-
-        /**
-         * @brief Check if a frame-ready message is available (non-blocking)
-         * @return Frame message if available, nullopt otherwise
-         */
-        std::optional<TcpFrameReadyMessage> try_get_frame();
 
         /**
          * @brief Check if the server is sending frames with raw data (fallback mode)
