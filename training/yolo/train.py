@@ -18,6 +18,11 @@ def main() -> None:
             "epochs": 300,
             "imgsz": 1280,
         },
+        "yolo26x-pose": {
+            "batch": 64,
+            "epochs": 500,
+            "imgsz": 1280,
+        },
     }
 
     parser = argparse.ArgumentParser()
@@ -105,7 +110,7 @@ def main() -> None:
             data=dataset,
             name="auto_battlebots_keypoints",
             project="../projects",
-            device=0,
+            device=(0, 1, 2),
             cache="ram",
             **hyper_params,
             **settings,
