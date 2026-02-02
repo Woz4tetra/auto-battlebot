@@ -19,7 +19,7 @@ def main() -> None:
             "imgsz": 1280,
         },
         "yolo26x-pose": {
-            "batch": 64,
+            "batch": 16,
             "epochs": 500,
             "imgsz": 1280,
         },
