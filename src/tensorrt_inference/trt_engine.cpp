@@ -117,16 +117,6 @@ bool TrtEngine::load(const std::string& engine_path)
     if (!eng)
     {
         std::cerr << "TrtEngine: deserializeCudaEngine failed." << std::endl;
-        std::cerr << "  Engine files are tied to the TensorRT version and GPU they were built with."
-                  << std::endl;
-        std::cerr << "  Rebuild the engine on this machine (or on the target device, e.g. Jetson)"
-                  << std::endl;
-        std::cerr << "  using the conversion script:"
-                  << std::endl;
-        std::cerr << "    DeepLab: python training/deeplab/convert_to_tensorrt.py <checkpoint.pth> -o <path>.engine"
-                  << std::endl;
-        std::cerr << "    YOLO:    python training/yolo/convert_to_onnx.py <model.pt>  then  python training/yolo/convert_to_tensorrt.py <model.onnx> --from-onnx -o <path>.engine"
-                  << std::endl;
         delete rt;
         runtime_ = nullptr;
         engine_ = nullptr;

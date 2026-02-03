@@ -40,9 +40,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--imgsz",
-        default=1280,
+        default=640,
         type=int,
-        help="Image size for inference (default: 1280)",
+        help="Image size for inference (default: 640)",
     )
     parser.add_argument(
         "--device",

@@ -20,61 +20,61 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "models/yolo11x-pose_2024-10-26_x86_64.engine"
+model_path = "models/yolo26x-pose_synthetic_only_2026-02-02_x86_64.engine"
 debug_visualization = false
 threshold = 0.5
 
-[[keypoint_model.label_map]]
-label = "MR_STABS_MK1"
-keypoints = ["MR_STABS_MK1_FRONT", "MR_STABS_MK1_BACK"]
+# [[keypoint_model.label_map]]
+# label = "MR_STABS_MK1"
+# keypoints = ["MR_STABS_MK1_FRONT", "MR_STABS_MK1_BACK"]
 
 [[keypoint_model.label_map]]
 label = "MR_STABS_MK2"
 keypoints = ["MR_STABS_MK2_FRONT", "MR_STABS_MK2_BACK"]
 
-[[keypoint_model.label_map]]
-label = "MRS_BUFF_MK1"
-keypoints = ["MRS_BUFF_MK1_FRONT", "MRS_BUFF_MK1_BACK"]
+# [[keypoint_model.label_map]]
+# label = "MRS_BUFF_MK1"
+# keypoints = ["MRS_BUFF_MK1_FRONT", "MRS_BUFF_MK1_BACK"]
 
-[[keypoint_model.label_map]]
-label = "MRS_BUFF_MK2"
-keypoints = ["MRS_BUFF_MK2_FRONT", "MRS_BUFF_MK2_BACK"]
+# [[keypoint_model.label_map]]
+# label = "MRS_BUFF_MK2"
+# keypoints = ["MRS_BUFF_MK2_FRONT", "MRS_BUFF_MK2_BACK"]
 
-[[keypoint_model.label_map]]
-label = "HOUSE_BOT"
-keypoints = ["HOUSE_BOT_FRONT", "HOUSE_BOT_BACK"]
+# [[keypoint_model.label_map]]
+# label = "HOUSE_BOT"
+# keypoints = ["HOUSE_BOT_FRONT", "HOUSE_BOT_BACK"]
 
-[[keypoint_model.label_map]]
-label = "OPPONENT"
-keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
+# [[keypoint_model.label_map]]
+# label = "OPPONENT"
+# keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 
 [robot_filter]
 type = "RobotFrontBackKalmanFilter"
 
 front_keypoints = [
-    "MR_STABS_MK1_FRONT",
+    # "MR_STABS_MK1_FRONT",
     "MR_STABS_MK2_FRONT",
-    "MRS_BUFF_MK1_FRONT",
-    "MRS_BUFF_MK2_FRONT",
-    "HOUSE_BOT_FRONT",
-    "OPPONENT_FRONT",
+    # "MRS_BUFF_MK1_FRONT",
+    # "MRS_BUFF_MK2_FRONT",
+    # "HOUSE_BOT_FRONT",
+    # "OPPONENT_FRONT",
 ]
 back_keypoints = [
-    "MR_STABS_MK1_BACK",
+    # "MR_STABS_MK1_BACK",
     "MR_STABS_MK2_BACK",
-    "MRS_BUFF_MK1_BACK",
-    "MRS_BUFF_MK2_BACK",
-    "HOUSE_BOT_BACK",
-    "OPPONENT_BACK",
+    # "MRS_BUFF_MK1_BACK",
+    # "MRS_BUFF_MK2_BACK",
+    # "HOUSE_BOT_BACK",
+    # "OPPONENT_BACK",
 ]
 
 [robot_filter.label_mapping]
-"MR_STABS_MK1" = ["OUR_ROBOT_1"]
+# "MR_STABS_MK1" = ["OUR_ROBOT_1"]
 "MR_STABS_MK2" = ["OUR_ROBOT_1"]
-"MRS_BUFF_MK1" = ["OUR_ROBOT_2"]
-"MRS_BUFF_MK2" = ["OUR_ROBOT_2"]
-"HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
-"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2"]
+# "MRS_BUFF_MK1" = ["OUR_ROBOT_2"]
+# "MRS_BUFF_MK2" = ["OUR_ROBOT_2"]
+# "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
+# "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2"]
 
 [navigation]
 type = "NoopNavigation"
