@@ -52,7 +52,8 @@ label = "OPPONENT"
 keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 
 [robot_filter]
-type = "RobotFrontBackKalmanFilter"
+type = "RobotFrontBackSimpleFilter"
+default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
     "MR_STABS_MK1_FRONT",
@@ -72,12 +73,12 @@ back_keypoints = [
 ]
 
 [robot_filter.label_mapping]
-"MR_STABS_MK1" = ["OUR_ROBOT_1"]
-"MR_STABS_MK2" = ["OUR_ROBOT_1"]
-"MRS_BUFF_MK1" = ["OUR_ROBOT_2"]
-"MRS_BUFF_MK2" = ["OUR_ROBOT_2"]
-"HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
-"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2"]
+"MR_STABS_MK1" = "OUR_ROBOT_1"
+"MR_STABS_MK2" = "OUR_ROBOT_1"
+"MRS_BUFF_MK1" = "OUR_ROBOT_2"
+"MRS_BUFF_MK2" = "OUR_ROBOT_2"
+"HOUSE_BOT" = "NEUTRAL_ROBOT_1"
+"OPPONENT" = "THEIR_ROBOT_1"
 
 [navigation]
 type = "NoopNavigation"

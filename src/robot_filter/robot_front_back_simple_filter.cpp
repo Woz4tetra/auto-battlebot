@@ -1,11 +1,12 @@
-#include "robot_filter/robot_front_back_kalman_filter.hpp"
+#include "robot_filter/robot_front_back_simple_filter.hpp"
 
 namespace auto_battlebot
 {
-    RobotFrontBackKalmanFilter::RobotFrontBackKalmanFilter(RobotFrontBackKalmanFilterConfiguration &config)
-        : config_(config)
+    RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(RobotFrontBackSimpleFilterConfiguration &config)
+        : label_to_frame_id_(config.label_to_frame_id),
+          default_frame_id_(config.default_frame_id)
     {
-        diagnostics_logger_ = DiagnosticsLogger::get_logger("robot_front_back_kalman_filter");
+        diagnostics_logger_ = DiagnosticsLogger::get_logger("robot_front_back_simple_filter");
 
         FrontBackKeypointConverterConfig converter_config;
         converter_config.front_keypoints = config.front_keypoints;
@@ -13,7 +14,7 @@ namespace auto_battlebot
         keypoint_converter_ = std::make_unique<FrontBackKeypointConverter>(converter_config);
     }
 
-    bool RobotFrontBackKalmanFilter::initialize(const std::vector<RobotConfig> &robots)
+    bool RobotFrontBackSimpleFilter::initialize(const std::vector<RobotConfig> &robots)
     {
         robot_configs_.clear();
         for (const auto &robot : robots)
@@ -23,7 +24,7 @@ namespace auto_battlebot
         return true;
     }
 
-    RobotDescriptionsStamped RobotFrontBackKalmanFilter::update(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info, CommandFeedback command_feedback)
+    RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info, CommandFeedback command_feedback)
     {
         RobotDescriptionsStamped result;
         result.header.frame_id = FrameId::FIELD;
@@ -37,7 +38,7 @@ namespace auto_battlebot
         return result;
     }
 
-    std::vector<RobotDescription> RobotFrontBackKalmanFilter::convert_keypoints_to_measurements(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info)
+    std::vector<RobotDescription> RobotFrontBackSimpleFilter::convert_keypoints_to_measurements(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info)
     {
         Eigen::Matrix4d tf_fieldcenter_from_camera = field.tf_camera_from_fieldcenter.tf.inverse();
 
@@ -60,7 +61,7 @@ namespace auto_battlebot
 
             filter_measurements.push_back(
                 RobotDescription{
-                    FrameId::EMPTY,
+                    get_frame_id_from_label(label),
                     label,
                     matrix_to_pose(tf_field_from_robot.tf),
                     Size{length, length, 0.1},
@@ -69,9 +70,18 @@ namespace auto_battlebot
         return filter_measurements;
     }
 
-    std::vector<RobotDescription> RobotFrontBackKalmanFilter::update_filter(std::vector<RobotDescription> inputs, [[maybe_unused]] CommandFeedback command_feedback)
+    std::vector<RobotDescription> RobotFrontBackSimpleFilter::update_filter(std::vector<RobotDescription> inputs, [[maybe_unused]] CommandFeedback command_feedback)
     {
         return inputs;
+    }
+
+    FrameId RobotFrontBackSimpleFilter::get_frame_id_from_label(const Label label) const
+    {
+        if (label_to_frame_id_.count(label) == 0)
+        {
+            return default_frame_id_;
+        }
+        return label_to_frame_id_.at(label);
     }
 
 } // namespace auto_battlebot

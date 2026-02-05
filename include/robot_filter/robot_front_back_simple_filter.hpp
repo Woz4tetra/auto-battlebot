@@ -11,22 +11,24 @@
 
 namespace auto_battlebot
 {
-    class RobotFrontBackKalmanFilter : public RobotFilterInterface
+    class RobotFrontBackSimpleFilter : public RobotFilterInterface
     {
     public:
-        RobotFrontBackKalmanFilter(RobotFrontBackKalmanFilterConfiguration &config);
+        RobotFrontBackSimpleFilter(RobotFrontBackSimpleFilterConfiguration &config);
 
         bool initialize(const std::vector<RobotConfig> &robots) override;
         RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info, CommandFeedback command_feedback) override;
 
     private:
         std::unordered_map<Label, RobotConfig> robot_configs_;
-        RobotFrontBackKalmanFilterConfiguration config_;
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
         std::unique_ptr<FrontBackKeypointConverter> keypoint_converter_;
+        std::map<Label, FrameId> label_to_frame_id_;
+        FrameId default_frame_id_;
 
         std::vector<RobotDescription> convert_keypoints_to_measurements(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info);
         std::vector<RobotDescription> update_filter(std::vector<RobotDescription> inputs, CommandFeedback command_feedback);
+        FrameId get_frame_id_from_label(const Label label) const;
     };
 
 } // namespace auto_battlebot

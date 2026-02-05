@@ -26,26 +26,28 @@ namespace auto_battlebot
         )
     };
 
-    struct RobotFrontBackKalmanFilterConfiguration : public RobotFilterConfiguration
+    struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
     {
         std::vector<KeypointLabel> front_keypoints;
         std::vector<KeypointLabel> back_keypoints;
-        std::map<Label, std::vector<FrameId>> label_to_frame_ids;
+        std::map<Label, FrameId> label_to_frame_id;
+        FrameId default_frame_id;
 
-        RobotFrontBackKalmanFilterConfiguration()
+        RobotFrontBackSimpleFilterConfiguration()
         {
-            type = "RobotFrontBackKalmanFilter";
+            type = "RobotFrontBackSimpleFilter";
         }
 
         void parse_fields(ConfigParser &parser) override
         {
             front_keypoints = parse_keypoints(parser, "front_keypoints");
             back_keypoints = parse_keypoints(parser, "back_keypoints");
-            parse_label_to_frame_ids(parser, "label_mapping");
+            parse_label_to_frame_id(parser, "label_mapping");
+            PARSE_ENUM_REQUIRED(default_frame_id, FrameId);
             parser.validate_no_extra_fields();
         }
 
-        void parse_label_to_frame_ids(ConfigParser &parser, const std::string &field_name)
+        void parse_label_to_frame_id(ConfigParser &parser, const std::string &field_name)
         {
             const toml::table *table_ptr = parser.get_table(field_name);
             if (!table_ptr)
@@ -67,32 +69,19 @@ namespace auto_battlebot
                 }
                 Label label = label_opt.value();
 
-                // Parse the array of frame IDs
-                auto frame_id_array = value.as_array();
-                if (!frame_id_array)
+                auto *str_val = value.as_string();
+                if (!str_val)
                 {
-                    throw ConfigValidationError("Value for '" + label_str + "' must be an array");
+                    throw ConfigValidationError(
+                        "Expected string value for FrameId mapping for label: " + label_str);
                 }
-
-                std::vector<FrameId> frame_ids;
-                for (const auto &fr_toml : *frame_id_array)
+                std::string fr_str = std::string(*str_val);
+                auto frame_id_opt = magic_enum::enum_cast<FrameId>(fr_str);
+                if (!frame_id_opt.has_value())
                 {
-                    auto fr_str = fr_toml.template value<std::string>();
-                    if (fr_str)
-                    {
-                        auto fr_opt = magic_enum::enum_cast<FrameId>(*fr_str);
-                        if (fr_opt.has_value())
-                        {
-                            frame_ids.push_back(fr_opt.value());
-                        }
-                        else
-                        {
-                            throw ConfigValidationError("Invalid KeypointLabel: " + *fr_str);
-                        }
-                    }
+                    throw ConfigValidationError("Invalid FrameId: " + fr_str);
                 }
-
-                label_to_frame_ids[label] = frame_ids;
+                label_to_frame_id[label] = frame_id_opt.value();
             }
         }
 

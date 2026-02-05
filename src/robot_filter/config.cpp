@@ -1,6 +1,6 @@
 #include "robot_filter/config.hpp"
 #include "robot_filter/noop_robot_filter.hpp"
-#include "robot_filter/robot_front_back_kalman_filter.hpp"
+#include "robot_filter/robot_front_back_simple_filter.hpp"
 #include "config/config_parser.hpp"
 #include "config/config_cast.hpp"
 
@@ -8,7 +8,7 @@ namespace auto_battlebot
 {
     // Automatic registration of config types
     REGISTER_CONFIG(RobotFilterConfiguration, NoopRobotFilterConfiguration, "NoopRobotFilter")
-    REGISTER_CONFIG(RobotFilterConfiguration, RobotFrontBackKalmanFilterConfiguration, "RobotFrontBackKalmanFilter")
+    REGISTER_CONFIG(RobotFilterConfiguration, RobotFrontBackSimpleFilterConfiguration, "RobotFrontBackSimpleFilter")
 
     std::unique_ptr<RobotFilterConfiguration> parse_robot_filter_config(ConfigParser &parser)
     {
@@ -22,10 +22,10 @@ namespace auto_battlebot
         {
             return std::make_shared<NoopRobotFilter>();
         }
-        else if (config.type == "RobotFrontBackKalmanFilter")
+        else if (config.type == "RobotFrontBackSimpleFilter")
         {
-            return std::make_shared<RobotFrontBackKalmanFilter>(
-                config_cast<RobotFrontBackKalmanFilterConfiguration>(config));
+            return std::make_shared<RobotFrontBackSimpleFilter>(
+                config_cast<RobotFrontBackSimpleFilterConfiguration>(config));
         }
         throw std::invalid_argument("Failed to load RobotFilter of type " + config.type);
     }

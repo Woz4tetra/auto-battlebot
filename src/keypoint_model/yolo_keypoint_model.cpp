@@ -431,6 +431,7 @@ namespace auto_battlebot
             summary_data["total_detections"] = 0;
             summary_data["valid_detections"] = 0;
             summary_data["threshold"] = threshold_;
+            summary_data["iou_threshold"] = iou_threshold_;
             diagnostics_logger_->info(summary_data);
             return result;
         }
@@ -487,6 +488,7 @@ namespace auto_battlebot
         summary_data["total_detections"] = num_detections;
         summary_data["valid_detections"] = valid_detections;
         summary_data["threshold"] = threshold_;
+        summary_data["iou_threshold"] = iou_threshold_;
         diagnostics_logger_->info(summary_data);
 
         if (debug_visualization_)
