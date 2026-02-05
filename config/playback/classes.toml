@@ -21,9 +21,17 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "models/yolo26x-pose_synthetic_only_2026-02-02_x86_64.engine"
-label_indices = ["MR_STABS_MK2"]
-# model_path = "models/yolo11x-pose_2024-10-26_x86_64.engine"
+# model_path = "models/yolo26x-pose_synthetic_only_2026-02-02_x86_64.engine"
+# label_indices = ["MR_STABS_MK2"]
+model_path = "models/yolo11x-pose_2024-10-26_x86_64.engine"
+label_indices = [
+    "MR_STABS_MK1",
+    "MR_STABS_MK2",
+    "MRS_BUFF_MK1",
+    "MRS_BUFF_MK2",
+    "HOUSE_BOT",
+    "OPPONENT",
+]
 debug_visualization = false
 threshold = 0.5
 
@@ -73,12 +81,12 @@ back_keypoints = [
 ]
 
 [robot_filter.label_mapping]
-"MR_STABS_MK1" = "OUR_ROBOT_1"
-"MR_STABS_MK2" = "OUR_ROBOT_1"
-"MRS_BUFF_MK1" = "OUR_ROBOT_2"
-"MRS_BUFF_MK2" = "OUR_ROBOT_2"
-"HOUSE_BOT" = "NEUTRAL_ROBOT_1"
-"OPPONENT" = "THEIR_ROBOT_1"
+"MR_STABS_MK1" = ["OUR_ROBOT_1"]
+"MR_STABS_MK2" = ["OUR_ROBOT_1"]
+"MRS_BUFF_MK1" = ["OUR_ROBOT_2"]
+"MRS_BUFF_MK2" = ["OUR_ROBOT_2"]
+"HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
+"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
 [navigation]
 type = "NoopNavigation"

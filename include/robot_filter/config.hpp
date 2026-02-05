@@ -30,7 +30,7 @@ namespace auto_battlebot
     {
         std::vector<KeypointLabel> front_keypoints;
         std::vector<KeypointLabel> back_keypoints;
-        std::map<Label, FrameId> label_to_frame_id;
+        std::map<Label, std::vector<FrameId>> label_to_frame_ids;
         FrameId default_frame_id;
 
         RobotFrontBackSimpleFilterConfiguration()
@@ -69,19 +69,32 @@ namespace auto_battlebot
                 }
                 Label label = label_opt.value();
 
-                auto *str_val = value.as_string();
-                if (!str_val)
+                // Parse the array of frame IDs
+                auto frame_id_array = value.as_array();
+                if (!frame_id_array)
                 {
-                    throw ConfigValidationError(
-                        "Expected string value for FrameId mapping for label: " + label_str);
+                    throw ConfigValidationError("Value for '" + label_str + "' must be an array");
                 }
-                std::string fr_str = std::string(*str_val);
-                auto frame_id_opt = magic_enum::enum_cast<FrameId>(fr_str);
-                if (!frame_id_opt.has_value())
+
+                std::vector<FrameId> frame_ids;
+                for (const auto &fr_toml : *frame_id_array)
                 {
-                    throw ConfigValidationError("Invalid FrameId: " + fr_str);
+                    auto fr_str = fr_toml.template value<std::string>();
+                    if (fr_str)
+                    {
+                        auto fr_opt = magic_enum::enum_cast<FrameId>(*fr_str);
+                        if (fr_opt.has_value())
+                        {
+                            frame_ids.push_back(fr_opt.value());
+                        }
+                        else
+                        {
+                            throw ConfigValidationError("Invalid KeypointLabel: " + *fr_str);
+                        }
+                    }
                 }
-                label_to_frame_id[label] = frame_id_opt.value();
+
+                label_to_frame_ids[label] = frame_ids;
             }
         }
 

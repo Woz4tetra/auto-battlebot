@@ -14,6 +14,10 @@ namespace auto_battlebot
         KeypointLabel keypoint_label = KeypointLabel::EMPTY;
         double x = 0.0f;
         double y = 0.0f;
+        /** Detection confidence (e.g. from YOLO row[4]). Used to sort and keep top-N per label. */
+        double confidence = 1.0;
+        /** Index of the detection this keypoint belongs to (for grouping keypoints by instance). */
+        int detection_index = 0;
     };
 
     struct KeypointsStamped

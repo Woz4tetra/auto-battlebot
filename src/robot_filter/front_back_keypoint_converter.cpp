@@ -10,7 +10,7 @@ namespace auto_battlebot
         diagnostics_logger_ = DiagnosticsLogger::get_logger("front_back_keypoint_converter");
     }
 
-    std::map<Label, FrontBackAssignment> FrontBackKeypointConverter::convert(
+    std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>> FrontBackKeypointConverter::convert(
         const KeypointsStamped &keypoints,
         const FieldDescription &field,
         const CameraInfo &camera_info)
@@ -20,7 +20,11 @@ namespace auto_battlebot
         Eigen::Vector3d plane_normal = transform_to_plane_normal(field.tf_camera_from_fieldcenter);
         Eigen::Vector3d plane_center = Eigen::Vector3d(field_pos.x, field_pos.y, field_pos.z);
 
-        std::map<Label, FrontBackAssignment> front_back_mapping;
+        // Group keypoints by (label, detection_index), each group becomes one FrontBackAssignment with confidence
+        using GroupKey = std::pair<Label, int>;
+        std::map<GroupKey, FrontBackAssignment> group_assignments;
+        std::map<GroupKey, double> group_confidence;
+
         for (const Keypoint &keypoint : keypoints.keypoints)
         {
             Eigen::Vector3d projected_keypoint = project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info);
@@ -30,27 +34,38 @@ namespace auto_battlebot
                                      {"y", projected_keypoint[1]},
                                      {"z", projected_keypoint[2]}});
 
-            auto mapping_it = front_back_mapping.find(keypoint.label);
-            if (mapping_it == front_back_mapping.end())
-                front_back_mapping[keypoint.label] = FrontBackAssignment{};
+            GroupKey key(keypoint.label, keypoint.detection_index);
+            if (group_assignments.find(key) == group_assignments.end())
+                group_assignments[key] = FrontBackAssignment{};
+            if (group_confidence.find(key) == group_confidence.end())
+                group_confidence[key] = keypoint.confidence;
 
             auto front_assign_it = std::find(config_.front_keypoints.begin(), config_.front_keypoints.end(), keypoint.keypoint_label);
-            if (front_assign_it == config_.front_keypoints.end())
+            if (front_assign_it != config_.front_keypoints.end())
             {
-                front_back_mapping[keypoint.label].front = projected_keypoint;
+                group_assignments[key].front = projected_keypoint;
                 diagnostics_logger_->debug(keypoint_label_str, {{"type", "front"}});
                 continue;
             }
             auto back_assign_it = std::find(config_.back_keypoints.begin(), config_.back_keypoints.end(), keypoint.keypoint_label);
-            if (back_assign_it == config_.back_keypoints.end())
+            if (back_assign_it != config_.back_keypoints.end())
             {
-                front_back_mapping[keypoint.label].back = projected_keypoint;
+                group_assignments[key].back = projected_keypoint;
                 diagnostics_logger_->debug(keypoint_label_str, {{"type", "back"}});
                 continue;
             }
             std::cerr << "Failed to assign keypoint with label: " << std::string(magic_enum::enum_name(keypoint.keypoint_label)) << std::endl;
         }
-        return front_back_mapping;
+
+        // Build result: map Label -> vector of (assignment, confidence), only include groups with valid pose (front and back set)
+        std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>> result;
+        for (const auto &[group_key, assignment] : group_assignments)
+        {
+            const Label label = group_key.first;
+            double conf = group_confidence[group_key];
+            result[label].push_back({assignment, conf});
+        }
+        return result;
     }
 
     Eigen::Vector3d FrontBackKeypointConverter::project_keypoint_onto_plane(
@@ -139,8 +154,8 @@ namespace auto_battlebot
     {
         constexpr double EPSILON = 1e-6;
         Eigen::Vector3d origin_vec(1.0, 0.0, 0.0);
-        // Calculate the direction vector from back_point to front_point
-        Eigen::Vector3d offset_vector = back_point - front_point;
+        // Pose +X points toward front: direction from back to front
+        Eigen::Vector3d offset_vector = front_point - back_point;
         double magnitude = offset_vector.norm();
         if (magnitude <= EPSILON)
         {

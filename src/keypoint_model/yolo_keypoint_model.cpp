@@ -480,6 +480,8 @@ namespace auto_battlebot
                 keypoint = scale_keypoint(keypoint, original_image_size, input_image_size);
                 keypoint.keypoint_label = keypoint_labels[static_cast<size_t>(k)];
                 keypoint.label = object_label;
+                keypoint.confidence = static_cast<double>(confidence);
+                keypoint.detection_index = i;
                 result.keypoints.push_back(keypoint);
             }
         }
