@@ -136,37 +136,37 @@ namespace auto_battlebot
             robot_marker_publisher_->publish(markers);
         }
 
-        // if (tf_publisher_)
-        // {
-        //     // Publish transforms for each robot
-        //     tf2_msgs::TFMessage tf_msg;
-        //     for (const auto &robot : robots.descriptions)
-        //     {
-        //         TransformStamped robot_tf;
-        //         robot_tf.header = robots.header;
-        //         robot_tf.child_frame_id = static_cast<FrameId>(static_cast<int>(robot.label));
+        if (tf_publisher_)
+        {
+            // Publish transforms for each robot
+            tf2_msgs::TFMessage tf_msg;
+            for (const auto &robot : robots.descriptions)
+            {
+                TransformStamped robot_tf;
+                robot_tf.header = robots.header;
+                robot_tf.child_frame_id = static_cast<FrameId>(robot.frame_id);
 
-        //         // Convert pose to transform
-        //         Eigen::MatrixXd tf_matrix = Eigen::MatrixXd::Identity(4, 4);
-        //         tf_matrix(0, 3) = robot.pose.position.x;
-        //         tf_matrix(1, 3) = robot.pose.position.y;
-        //         tf_matrix(2, 3) = robot.pose.position.z;
+                // Convert pose to transform
+                Eigen::MatrixXd tf_matrix = Eigen::MatrixXd::Identity(4, 4);
+                tf_matrix(0, 3) = robot.pose.position.x;
+                tf_matrix(1, 3) = robot.pose.position.y;
+                tf_matrix(2, 3) = robot.pose.position.z;
 
-        //         // Convert quaternion to rotation matrix
-        //         Eigen::Quaterniond quat(robot.pose.rotation.w, robot.pose.rotation.x,
-        //                                 robot.pose.rotation.y, robot.pose.rotation.z);
-        //         tf_matrix.block<3, 3>(0, 0) = quat.toRotationMatrix();
+                // Convert quaternion to rotation matrix
+                Eigen::Quaterniond quat(robot.pose.rotation.w, robot.pose.rotation.x,
+                                        robot.pose.rotation.y, robot.pose.rotation.z);
+                tf_matrix.block<3, 3>(0, 0) = quat.toRotationMatrix();
 
-        //         robot_tf.transform.tf = tf_matrix;
+                robot_tf.transform.tf = tf_matrix;
 
-        //         tf_msg.transforms.push_back(ros_adapters::to_ros_transform_stamped(robot_tf));
-        //     }
+                tf_msg.transforms.push_back(ros_adapters::to_ros_transform_stamped(robot_tf));
+            }
 
-        //     if (!tf_msg.transforms.empty())
-        //     {
-        //         tf_publisher_->publish(tf_msg);
-        //     }
-        // }
+            if (!tf_msg.transforms.empty())
+            {
+                tf_publisher_->publish(tf_msg);
+            }
+        }
     }
 
 } // namespace auto_battlebot
