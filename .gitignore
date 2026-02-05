@@ -60,6 +60,7 @@ Thumbs.db
 # Specific directories
 /models
 /data
+/secrets
 
 # Archives
 *.zip
