@@ -110,17 +110,17 @@ def open_url(url: str, description: str) -> None:
 def validate_credentials_file(path: Path) -> tuple[bool, str]:
     """
     Validate that a credentials file is properly formatted.
-    
+
     Returns:
         Tuple of (is_valid, error_message)
     """
     if not path.exists():
         return False, "File does not exist"
-    
+
     try:
         with open(path) as f:
             data = json.load(f)
-        
+
         # Check for required fields in OAuth2 credentials
         if "installed" in data:
             installed = data["installed"]
@@ -130,10 +130,16 @@ def validate_credentials_file(path: Path) -> tuple[bool, str]:
                 return False, f"Missing required fields: {', '.join(missing)}"
             return True, ""
         elif "web" in data:
-            return False, "This appears to be a 'Web application' credential. Please create a 'Desktop application' credential instead."
+            return (
+                False,
+                "This appears to be a 'Web application' credential. Please create a 'Desktop application' credential instead.",
+            )
         else:
-            return False, "Invalid credentials format. Expected 'installed' (Desktop app) credentials."
-    
+            return (
+                False,
+                "Invalid credentials format. Expected 'installed' (Desktop app) credentials.",
+            )
+
     except json.JSONDecodeError as e:
         return False, f"Invalid JSON: {e}"
     except Exception as e:
@@ -143,10 +149,10 @@ def validate_credentials_file(path: Path) -> tuple[bool, str]:
 def wait_for_credentials_file(credentials_path: Path) -> bool:
     """
     Wait for the user to place the credentials file.
-    
+
     Args:
         credentials_path: Path where credentials should be placed
-    
+
     Returns:
         True if valid credentials were found, False otherwise
     """
@@ -154,10 +160,10 @@ def wait_for_credentials_file(credentials_path: Path) -> bool:
     print(f"  {credentials_path}")
     print("\nThe setup will automatically continue when you save the file.")
     print()
-    
+
     check_interval = 1.0
     last_status = ""
-    
+
     while True:
         if credentials_path.exists():
             is_valid, error = validate_credentials_file(credentials_path)
@@ -170,23 +176,23 @@ def wait_for_credentials_file(credentials_path: Path) -> bool:
                     print(f"\n{status}")
                     print("Please download the correct credentials file.")
                     last_status = status
-        
+
         # Show a simple progress indicator
         sys.stdout.write("\rWaiting...")
         sys.stdout.flush()
-        
+
         time.sleep(check_interval)
 
 
 def run_setup_wizard() -> bool:
     """
     Interactive setup wizard for Google Drive API credentials.
-    
+
     Returns:
         True if setup was successful, False otherwise
     """
     credentials_path = get_credentials_path()
-    
+
     # Check if already set up
     if credentials_path.exists():
         is_valid, error = validate_credentials_file(credentials_path)
@@ -196,9 +202,9 @@ def run_setup_wizard() -> bool:
             response = input("\nRe-run setup anyway? [y/N]: ").strip().lower()
             if response != "y":
                 return True
-    
+
     print_header("Google Drive API Setup Wizard")
-    
+
     print("This wizard will help you set up Google Drive API access.")
     print("You'll need a Google account to proceed.")
     print("\nThe setup involves 4 steps:")
@@ -206,11 +212,11 @@ def run_setup_wizard() -> bool:
     print("  2. Enable the Google Drive API")
     print("  3. Configure OAuth consent screen")
     print("  4. Create and download credentials")
-    
+
     wait_for_user("Press Enter to begin setup...")
-    
+
     total_steps = 4
-    
+
     # Step 1: Create Project
     print_step(1, total_steps, "Create a Google Cloud Project")
     print("If you already have a project you want to use, you can skip this step.")
@@ -219,20 +225,20 @@ def run_setup_wizard() -> bool:
     print("  - Enter a project name (e.g., 'auto-battlebot')")
     print("  - Click 'CREATE'")
     print("  - Wait for the project to be created")
-    
+
     open_url(NEW_PROJECT_URL, "Google Cloud - Create Project")
     wait_for_user("Press Enter when your project is ready...")
-    
+
     # Step 2: Enable Drive API
     print_step(2, total_steps, "Enable the Google Drive API")
     print("This allows your project to access Google Drive.")
     print("\nOn the API page:")
     print("  - Make sure your project is selected in the top dropdown")
     print("  - Click the 'ENABLE' button")
-    
+
     open_url(DRIVE_API_URL, "Google Drive API")
     wait_for_user("Press Enter when the API is enabled...")
-    
+
     # Step 3: Configure OAuth Consent
     print_step(3, total_steps, "Configure OAuth Consent Screen")
     print("This is required before creating credentials.")
@@ -246,10 +252,10 @@ def run_setup_wizard() -> bool:
     print("  4. Complete the wizard and return to the dashboard")
     print()
     print("  Note: You can skip optional fields and leave scopes empty.")
-    
+
     open_url(OAUTH_CONSENT_URL, "OAuth Consent Screen")
     wait_for_user("Press Enter when OAuth consent is configured...")
-    
+
     # Step 3b: Add Test Users (critical step)
     print_step(3, total_steps, "Add Test Users (IMPORTANT)")
     print("Since the app is unverified, you MUST add yourself as a test user.")
@@ -260,10 +266,10 @@ def run_setup_wizard() -> bool:
     print("  3. Click 'ADD USERS'")
     print("  4. Enter YOUR Google email address (the one you'll sign in with)")
     print("  5. Click 'SAVE'")
-    
+
     open_url(OAUTH_TEST_USERS_URL, "OAuth Test Users")
     wait_for_user("Press Enter when you've added yourself as a test user...")
-    
+
     # Step 4: Create Credentials
     print_step(4, total_steps, "Create OAuth Credentials")
     print("Now we'll create the credentials file.")
@@ -280,9 +286,9 @@ def run_setup_wizard() -> bool:
     print("")
     print("  TIP: You can also download later by clicking the download")
     print("       icon next to your credential in the list.")
-    
+
     open_url(CREDENTIALS_URL, "Google Cloud Credentials")
-    
+
     # Wait for the file
     if wait_for_credentials_file(credentials_path):
         print_header("Setup Complete!")
@@ -301,12 +307,12 @@ def run_setup_wizard() -> bool:
 def ensure_credentials() -> Path:
     """
     Ensure credentials exist, running setup wizard if needed.
-    
+
     Returns:
         Path to the credentials file
     """
     credentials_path = get_credentials_path()
-    
+
     if credentials_path.exists():
         is_valid, error = validate_credentials_file(credentials_path)
         if is_valid:
@@ -314,11 +320,11 @@ def ensure_credentials() -> Path:
         else:
             print(f"Error: Invalid credentials file: {error}")
             print()
-    
+
     print("Google Drive API credentials not found.")
     print()
     response = input("Would you like to run the setup wizard? [Y/n]: ").strip().lower()
-    
+
     if response in ("", "y", "yes"):
         if run_setup_wizard():
             return credentials_path
@@ -335,31 +341,31 @@ def ensure_credentials() -> Path:
 def handle_expired_credentials() -> bool:
     """
     Handle expired or revoked credentials with an interactive wizard.
-    
+
     Returns:
         True if user wants to re-authenticate, False to exit
     """
     token_path = get_token_path()
     credentials_path = get_credentials_path()
-    
+
     print_header("Credentials Expired or Revoked")
-    
+
     print("Your saved authentication token is no longer valid.")
     print("This can happen when:")
     print("  - The token has expired (usually after 7 days for unverified apps)")
     print("  - You revoked access in your Google account settings")
     print("  - The OAuth credentials were regenerated in Google Cloud Console")
     print()
-    
+
     print("Options:")
     print("  1. Re-authenticate (sign in again with Google)")
     print("  2. Create new OAuth credentials (if the old ones were deleted)")
     print("  3. Exit")
     print()
-    
+
     while True:
         choice = input("Choose an option [1/2/3]: ").strip()
-        
+
         if choice == "1":
             # Delete old token and re-authenticate
             if token_path.exists():
@@ -367,27 +373,27 @@ def handle_expired_credentials() -> bool:
                 print(f"\nDeleted old token: {token_path}")
             print("You'll be prompted to sign in again.\n")
             return True
-            
+
         elif choice == "2":
             # Guide through creating new credentials
             print("\nThis will guide you through creating new OAuth credentials.")
             print("Your old credentials.json will be replaced.\n")
-            
+
             if credentials_path.exists():
                 backup_path = credentials_path.with_suffix(".json.backup")
                 credentials_path.rename(backup_path)
                 print(f"Backed up old credentials to: {backup_path}")
-            
+
             if token_path.exists():
                 token_path.unlink()
                 print(f"Deleted old token: {token_path}")
-            
+
             # Run the setup wizard
             if run_setup_wizard():
                 return True
             else:
                 sys.exit(1)
-                
+
         elif choice == "3":
             print("\nExiting. Run the script again when ready.")
             sys.exit(0)
@@ -398,7 +404,7 @@ def handle_expired_credentials() -> bool:
 def handle_auth_error(error: Exception) -> None:
     """Handle authentication errors with helpful guidance."""
     error_str = str(error).lower()
-    
+
     if "access_denied" in error_str or "access blocked" in error_str:
         print("\n" + "=" * 60)
         print("  ERROR: Access Denied - Test User Not Added")
@@ -408,7 +414,9 @@ def handle_auth_error(error: Exception) -> None:
         print("Since the app is unverified, only test users can sign in.")
         print()
         print("To fix this:")
-        print("  1. Go to Google Cloud Console > APIs & Services > OAuth consent screen")
+        print(
+            "  1. Go to Google Cloud Console > APIs & Services > OAuth consent screen"
+        )
         print("  2. Click 'EDIT APP' or go to the 'Test users' section")
         print("  3. Click 'ADD USERS'")
         print("  4. Add your email address and save")
@@ -418,13 +426,13 @@ def handle_auth_error(error: Exception) -> None:
         print()
         open_url(OAUTH_TEST_USERS_URL, "OAuth Test Users")
         sys.exit(1)
-    
+
     elif "invalid_grant" in error_str or "token" in error_str:
         # Token expired or revoked - offer to re-authenticate
         if handle_expired_credentials():
             return  # Will retry authentication
         sys.exit(1)
-    
+
     else:
         # Unknown error
         print("\n" + "=" * 60)
@@ -450,10 +458,10 @@ def authenticate() -> Credentials:
     """
     token_path = get_token_path()
     max_retries = 2
-    
+
     for attempt in range(max_retries):
         creds = None
-        
+
         # Load existing token if available
         if token_path.exists():
             try:
@@ -483,7 +491,7 @@ def authenticate() -> Credentials:
                 flow = InstalledAppFlow.from_client_secrets_file(
                     str(credentials_file), SCOPES
                 )
-                
+
                 try:
                     creds = flow.run_local_server(port=0)
                 except Exception as e:
@@ -496,7 +504,7 @@ def authenticate() -> Credentials:
             print(f"Token saved to: {token_path}")
 
         return creds
-    
+
     print("Authentication failed after multiple attempts.")
     sys.exit(1)
 
@@ -633,7 +641,9 @@ def sync_models(
     if dry_run:
         print(f"Dry run complete. {len(files) - skipped} file(s) would be downloaded.")
     else:
-        print(f"Sync complete: {downloaded} downloaded, {skipped} skipped, {failed} failed")
+        print(
+            f"Sync complete: {downloaded} downloaded, {skipped} skipped, {failed} failed"
+        )
 
 
 def main() -> None:
