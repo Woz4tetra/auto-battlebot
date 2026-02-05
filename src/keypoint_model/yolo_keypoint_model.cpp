@@ -14,6 +14,7 @@ namespace auto_battlebot
           image_size_(config.image_size),
           debug_visualization_(config.debug_visualization),
           label_map_(config.label_map),
+          label_indices_(config.label_indices),
           initialized_(false)
     {
         diagnostics_logger_ = DiagnosticsLogger::get_logger("yolo_keypoint_model");
@@ -184,7 +185,8 @@ namespace auto_battlebot
         std::vector<int64_t> order(static_cast<size_t>(ndets));
         for (int64_t i = 0; i < ndets; i++)
             order[i] = i;
-        std::stable_sort(order.begin(), order.end(), [&scores](int64_t a, int64_t b) { return scores[a] > scores[b]; });
+        std::stable_sort(order.begin(), order.end(), [&scores](int64_t a, int64_t b)
+                         { return scores[a] > scores[b]; });
 
         std::vector<uint8_t> suppressed(static_cast<size_t>(ndets), 0);
 
@@ -236,7 +238,8 @@ namespace auto_battlebot
         }
     }
 
-    // prediction layout: [num_predictions, num_features] (row-major). YOLO raw output is [1, num_features, num_predictions], we interpret as num_predictions rows of num_features.
+    // prediction is [num_predictions, num_features] row-major (caller normalizes layout to match Python).
+    // Bbox format is (x1, y1, x2, y2) per row.
     std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(const float *prediction, int num_features,
                                                                      int num_predictions, int num_keypoints,
                                                                      float conf_thres, float iou_thres, int max_det)
@@ -247,35 +250,25 @@ namespace auto_battlebot
         if (num_classes <= 0 || num_predictions <= 0)
             return {};
 
-        std::vector<float> transposed(static_cast<size_t>(num_predictions) * num_features);
-        for (int p = 0; p < num_predictions; p++)
-        {
-            for (int f = 0; f < num_features; f++)
-            {
-                transposed[p * num_features + f] = prediction[f * num_predictions + p];
-            }
-        }
-
         std::vector<int> class_conf_mask(static_cast<size_t>(num_predictions));
         for (int p = 0; p < num_predictions; p++)
         {
-            float max_cls = transposed[p * num_features + 4];
+            float max_cls = prediction[p * num_features + 4];
             for (int c = 1; c < num_classes; c++)
             {
-                const float v = transposed[p * num_features + 4 + c];
+                const float v = prediction[p * num_features + 4 + c];
                 if (v > max_cls)
                     max_cls = v;
             }
             class_conf_mask[p] = (max_cls > conf_thres) ? 1 : 0;
         }
 
-        std::vector<float> boxes_xywh(static_cast<size_t>(num_predictions) * 4);
+        std::vector<float> boxes_xyxy(static_cast<size_t>(num_predictions) * 4);
         for (int p = 0; p < num_predictions; p++)
         {
             for (int j = 0; j < 4; j++)
-                boxes_xywh[p * 4 + j] = transposed[p * num_features + j];
+                boxes_xyxy[p * 4 + j] = prediction[p * num_features + j];
         }
-        xywh2xyxy(boxes_xywh.data(), num_predictions);
 
         std::vector<DetectionRow> out_rows;
         std::vector<float> det_boxes(static_cast<size_t>(num_predictions) * 4);
@@ -286,11 +279,11 @@ namespace auto_battlebot
         {
             if (!class_conf_mask[p])
                 continue;
-            float max_conf = transposed[p * num_features + 4];
+            float max_conf = prediction[p * num_features + 4];
             int best_cls = 0;
             for (int c = 1; c < num_classes; c++)
             {
-                const float v = transposed[p * num_features + 4 + c];
+                const float v = prediction[p * num_features + 4 + c];
                 if (v > max_conf)
                 {
                     max_conf = v;
@@ -301,19 +294,22 @@ namespace auto_battlebot
                 continue;
 
             for (int j = 0; j < 4; j++)
-                det_boxes[det_count * 4 + j] = boxes_xywh[p * 4 + j];
+                det_boxes[det_count * 4 + j] = boxes_xyxy[p * 4 + j];
             det_scores[det_count] = max_conf;
 
             DetectionRow row;
             row.reserve(static_cast<size_t>(6 + num_keypoint_values));
-            row.push_back(boxes_xywh[p * 4 + 0]);
-            row.push_back(boxes_xywh[p * 4 + 1]);
-            row.push_back(boxes_xywh[p * 4 + 2]);
-            row.push_back(boxes_xywh[p * 4 + 3]);
+            row.push_back(boxes_xyxy[p * 4 + 0]);
+            row.push_back(boxes_xyxy[p * 4 + 1]);
+            row.push_back(boxes_xyxy[p * 4 + 2]);
+            row.push_back(boxes_xyxy[p * 4 + 3]);
             row.push_back(max_conf);
             row.push_back(static_cast<float>(best_cls));
             for (int k = 0; k < num_keypoint_values; k++)
-                row.push_back(transposed[p * num_features + class_score_end + k]);
+            {
+                float val = prediction[p * num_features + class_score_end + k];
+                row.push_back(val);
+            }
             out_rows.push_back(std::move(row));
             det_count++;
         }
@@ -393,8 +389,29 @@ namespace auto_battlebot
             diagnostics_logger_->warning({}, "Invalid output dimensions");
             return result;
         }
-        const int num_features = static_cast<int>(out_shape[1]);
-        const int num_predictions = static_cast<int>(out_shape[2]);
+        const int dim1 = static_cast<int>(out_shape[1]);
+        const int dim2 = static_cast<int>(out_shape[2]);
+        int num_features;
+        int num_predictions;
+        std::vector<float> prediction_row_major;
+        const float *prediction_ptr;
+        if (dim1 > dim2)
+        {
+            num_predictions = dim1;
+            num_features = dim2;
+            prediction_ptr = output;
+        }
+        else
+        {
+            num_features = dim1;
+            num_predictions = dim2;
+            prediction_row_major.resize(static_cast<size_t>(num_predictions) * num_features);
+            for (int p = 0; p < num_predictions; p++)
+                for (int f = 0; f < num_features; f++)
+                    prediction_row_major[static_cast<size_t>(p) * num_features + f] =
+                        output[static_cast<size_t>(f) * num_predictions + p];
+            prediction_ptr = prediction_row_major.data();
+        }
 
         int num_keypoints = 0;
         if (!label_map_.label_to_keypoints.empty())
@@ -402,7 +419,7 @@ namespace auto_battlebot
             num_keypoints = static_cast<int>(label_map_.label_to_keypoints.front().second.size());
         }
 
-        std::vector<DetectionRow> keep = non_max_suppression(output, num_features, num_predictions, num_keypoints,
+        std::vector<DetectionRow> keep = non_max_suppression(prediction_ptr, num_features, num_predictions, num_keypoints,
                                                              threshold_, iou_threshold_, 300);
 
         const int num_detections = static_cast<int>(keep.size());
@@ -437,7 +454,7 @@ namespace auto_battlebot
                 diagnostics_logger_->warning({}, "Invalid class ID: " + std::to_string(class_id));
                 continue;
             }
-            const Label object_label = label_map_.get_label_at_index(class_id);
+            const Label object_label = label_indices_[class_id];
 
             DiagnosticsData diag_data;
             diag_data["confidence"] = confidence;
@@ -519,7 +536,7 @@ namespace auto_battlebot
                 const float y2 = row[3];
                 const float confidence = row[4];
                 const int class_id = static_cast<int>(row[5]);
-                const Label box_label = label_map_.get_label_at_index(class_id);
+                const Label box_label = label_indices_[class_id];
 
                 auto [b, g, r] = get_color_for_label(box_label).to_bgr_255();
                 const cv::Scalar color(b, g, r);

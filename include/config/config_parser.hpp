@@ -157,6 +157,65 @@ namespace auto_battlebot
         }
 
         /**
+         * Get a required array field as std::vector<T>.
+         * Each array element must be convertible to T (e.g. string, int64_t, double).
+         */
+        template <typename T>
+        std::vector<T> get_required_vector(const std::string &key)
+        {
+            mark_accessed(key);
+            const toml::array *arr = table_[key].as_array();
+            if (!arr)
+            {
+                throw ConfigValidationError(
+                    "Missing required field '" + key + "' in section [" + section_name_ +
+                    "] (expected array)");
+            }
+            std::vector<T> result;
+            result.reserve(arr->size());
+            for (size_t i = 0; i < arr->size(); ++i)
+            {
+                auto value = (*arr)[i].template value<T>();
+                if (!value)
+                {
+                    throw ConfigValidationError(
+                        "Invalid element type in field '" + key + "' at index " + std::to_string(i) +
+                        " in section [" + section_name_ + "]");
+                }
+                result.push_back(*value);
+            }
+            return result;
+        }
+
+        /**
+         * Get an optional array field as std::vector<T>, or default_value if missing/not array.
+         */
+        template <typename T>
+        std::vector<T> get_optional_vector(const std::string &key, std::vector<T> default_value = {})
+        {
+            mark_accessed(key);
+            const toml::array *arr = table_[key].as_array();
+            if (!arr)
+            {
+                return default_value;
+            }
+            std::vector<T> result;
+            result.reserve(arr->size());
+            for (size_t i = 0; i < arr->size(); ++i)
+            {
+                auto value = (*arr)[i].template value<T>();
+                if (!value)
+                {
+                    throw ConfigValidationError(
+                        "Invalid element type in field '" + key + "' at index " + std::to_string(i) +
+                        " in section [" + section_name_ + "]");
+                }
+                result.push_back(*value);
+            }
+            return result;
+        }
+
+        /**
          * Get a nested table (for nested configuration sections)
          */
         const toml::table *get_table(const std::string &key)

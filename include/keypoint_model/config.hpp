@@ -39,6 +39,7 @@ namespace auto_battlebot
         int image_size = 640;
         LabelToKeypointMapConfiguration label_map;
         bool debug_visualization = false;
+        std::vector<Label> label_indices;
 
         YoloKeypointModelConfiguration()
         {
@@ -54,6 +55,17 @@ namespace auto_battlebot
             image_size = parser.get_optional_int("image_size", image_size);
             label_map.parse(parser, "label_map");
             debug_visualization = parser.get_optional_bool("debug_visualization", debug_visualization);
+            std::vector<std::string> label_indices_str = parser.get_optional_vector<std::string>("label_indices");
+            for (std::string label_str : label_indices_str)
+            {
+                auto enum_val = magic_enum::enum_cast<Label>(label_str);
+                if (!enum_val.has_value())
+                {
+                    throw std::invalid_argument("Invalid value: '" + label_str + "' for field 'label_indices'");
+                }
+                label_indices.push_back(enum_val.value());
+            }
+
             parser.validate_no_extra_fields();
         }
     };

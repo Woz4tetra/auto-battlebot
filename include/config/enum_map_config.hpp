@@ -16,7 +16,7 @@ namespace auto_battlebot
      * [[section]]
      * label = "LABEL_NAME"
      * keypoints = ["KEYPOINT_LABEL_1", "KEYPOINT_LABEL_2"]
-     * 
+     *
      * Uses ordered storage to ensure indices match model class order
      */
     struct LabelToKeypointMapConfiguration
@@ -106,7 +106,7 @@ namespace auto_battlebot
             return empty;
         }
 
-        // Get label at a specific index (for model class id lookup)
+        // Get label at a specific index
         Label get_label_at_index(size_t index) const
         {
             if (index < label_to_keypoints.size())

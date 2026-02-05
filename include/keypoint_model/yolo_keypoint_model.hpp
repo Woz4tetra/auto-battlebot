@@ -42,6 +42,7 @@ namespace auto_battlebot
         int image_size_;
         bool debug_visualization_;
         LabelToKeypointMapConfiguration label_map_;
+        std::vector<Label> label_indices_;
 
         TrtEngine engine_;
         bool initialized_;

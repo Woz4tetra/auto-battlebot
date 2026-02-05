@@ -51,7 +51,7 @@ def build_engine_from_onnx(
 ) -> None:
     """Build a TensorRT engine from an ONNX file (fixed input shape)."""
     if logger is None:
-        logger = trt.Logger(trt.Logger.WARNING)
+        logger = trt.Logger(trt.Logger.INFO)
     builder = trt.Builder(logger)
     network = builder.create_network(
         1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
