@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <memory>
 #include "rgbd_camera/zed_rgbd_camera.hpp"
 #include "rgbd_camera/config.hpp"
 #include "data_structures.hpp"
@@ -11,34 +12,57 @@ namespace auto_battlebot
     protected:
         std::string svo_file_path;
 
+        // Shared camera opened once for the suite to avoid ZED SDK segfault when
+        // opening the same SVO twice in one process.
+        static std::unique_ptr<ZedRgbdCamera> shared_camera_;
+        static ZedRgbdCameraConfiguration shared_config_;
+
         void SetUp() override
         {
-            // Get the path to the test SVO file
             std::filesystem::path test_dir = std::filesystem::path(__FILE__).parent_path();
             svo_file_path = (test_dir / "test.svo2").string();
 
-            // Skip tests if SVO file doesn't exist
             if (!std::filesystem::exists(svo_file_path))
             {
                 GTEST_SKIP() << "Test SVO file not found at: " << svo_file_path;
             }
         }
+
+        static void SetUpTestSuite()
+        {
+            std::filesystem::path test_dir = std::filesystem::path(__FILE__).parent_path();
+            std::string path = (test_dir / "test.svo2").string();
+            if (!std::filesystem::exists(path))
+            {
+                shared_camera_.reset();
+                return;
+            }
+            shared_config_.svo_file_path = path;
+            shared_config_.camera_fps = 30;
+            shared_config_.camera_resolution = Resolution::RES_1280x720;
+            shared_config_.depth_mode = DepthMode::ZED_NEURAL;
+            shared_camera_ = std::make_unique<ZedRgbdCamera>(shared_config_);
+            if (!shared_camera_->initialize())
+            {
+                shared_camera_.reset();
+            }
+        }
+
+        static void TearDownTestSuite()
+        {
+            shared_camera_.reset();
+        }
     };
+
+    std::unique_ptr<ZedRgbdCamera> ZedRgbdCameraTest::shared_camera_;
+    ZedRgbdCameraConfiguration ZedRgbdCameraTest::shared_config_;
 
     TEST_F(ZedRgbdCameraTest, FullDataPipeline)
     {
-        // Test complete workflow: initialize -> get
-        ZedRgbdCameraConfiguration config;
-        config.svo_file_path = svo_file_path;
-        config.camera_fps = 30;
-        config.camera_resolution = Resolution::RES_1280x720;
-        config.depth_mode = DepthMode::ZED_NEURAL;
-
-        ZedRgbdCamera camera(config);
-        ASSERT_TRUE(camera.initialize());
+        ASSERT_NE(shared_camera_, nullptr) << "Shared ZED camera not available (SVO missing or init failed)";
 
         CameraData data;
-        ASSERT_TRUE(camera.get(data, true));
+        ASSERT_TRUE(shared_camera_->get(data, true));
 
         // Verify camera info
         EXPECT_GT(data.camera_info.width, 0);
@@ -68,23 +92,14 @@ namespace auto_battlebot
 
     TEST_F(ZedRgbdCameraTest, MultipleFrameProcessing)
     {
-        // Verify camera can process multiple consecutive frames and data remains consistent
-        ZedRgbdCameraConfiguration config;
-        config.svo_file_path = svo_file_path;
-        config.camera_fps = 30;
-        config.camera_resolution = Resolution::RES_1280x720;
-        config.depth_mode = DepthMode::ZED_NEURAL;
-
-        ZedRgbdCamera camera(config);
-        ASSERT_TRUE(camera.initialize());
+        ASSERT_NE(shared_camera_, nullptr) << "Shared ZED camera not available (SVO missing or init failed)";
 
         CameraData data1;
-        ASSERT_TRUE(camera.get(data1, true));
+        ASSERT_TRUE(shared_camera_->get(data1, true));
         double timestamp1 = data1.tf_visodom_from_camera.header.stamp;
 
-        // Get again
         CameraData data2;
-        ASSERT_TRUE(camera.get(data2, true));
+        ASSERT_TRUE(shared_camera_->get(data2, true));
         double timestamp2 = data2.tf_visodom_from_camera.header.stamp;
 
         // Camera info should remain constant
@@ -100,23 +115,13 @@ namespace auto_battlebot
 
     TEST_F(ZedRgbdCameraTest, DataIndependence)
     {
-        // Verify get() populates a copy, and multiple calls create independent data
-        ZedRgbdCameraConfiguration config;
-        config.svo_file_path = svo_file_path;
-        config.camera_fps = 30;
-        config.camera_resolution = Resolution::RES_1280x720;
-        config.depth_mode = DepthMode::ZED_NEURAL;
-
-        ZedRgbdCamera camera(config);
-        ASSERT_TRUE(camera.initialize());
+        ASSERT_NE(shared_camera_, nullptr) << "Shared ZED camera not available (SVO missing or init failed)";
 
         CameraData data_ref;
-        ASSERT_TRUE(camera.get(data_ref, true));
-        ASSERT_TRUE(camera.get(data_ref, true));
+        ASSERT_TRUE(shared_camera_->get(data_ref, true));
 
-        // Make another call to verify independence
         CameraData data_copy;
-        ASSERT_TRUE(camera.get(data_copy, true));
+        ASSERT_TRUE(shared_camera_->get(data_copy, true));
         data_copy.rgb.image = data_ref.rgb.image.clone();
         data_copy.depth.image = data_ref.depth.image.clone();
 
@@ -124,11 +129,8 @@ namespace auto_battlebot
         if (!data_copy.rgb.image.empty() && data_copy.rgb.image.isContinuous())
         {
             cv::Vec3b original_pixel = data_ref.rgb.image.at<cv::Vec3b>(0, 0);
-            // Modify the copy
             data_copy.rgb.image.at<cv::Vec3b>(0, 0) = cv::Vec3b(255, 255, 255);
-            // Original should be unchanged
             EXPECT_EQ(data_ref.rgb.image.at<cv::Vec3b>(0, 0), original_pixel);
-            // Copy should be modified
             EXPECT_EQ(data_copy.rgb.image.at<cv::Vec3b>(0, 0), cv::Vec3b(255, 255, 255));
         }
     }

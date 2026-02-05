@@ -51,6 +51,7 @@ keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 
 [robot_filter]
 type = "RobotFrontBackSimpleFilter"
+default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
     "MR_STABS_MK1_FRONT",
@@ -75,7 +76,7 @@ back_keypoints = [
 "MRS_BUFF_MK1" = ["OUR_ROBOT_2"]
 "MRS_BUFF_MK2" = ["OUR_ROBOT_2"]
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
-"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2"]
+"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
 [navigation]
 type = "NoopNavigation"

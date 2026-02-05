@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include "rgbd_camera/sim_rgbd_camera.hpp"
 #include "data_structures.hpp"
-#include "shared_memory/shared_memory_writer.hpp"
 
 namespace auto_battlebot
 {

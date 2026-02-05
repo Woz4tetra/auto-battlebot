@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 #include "transmitter/sim_transmitter.hpp"
-#include "shared_memory/shared_memory_reader.hpp"
-#include "shared_memory/simulation/simulation_velocity_command.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "../diagnostics_logger/test_diagnostics_logger.hpp"
 

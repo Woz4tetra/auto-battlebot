@@ -20,6 +20,7 @@ build_cpp_project() {
 
     echo "Creating build directory..."
     cd "${SCRIPT_DIR}/../"
+    local BUILD_DIR
     # Use different build directory when testing is enabled
     if [ "$BUILD_TESTING_FLAG" = "ON" ]; then
         BUILD_DIR="build-test"
