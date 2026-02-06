@@ -9,6 +9,13 @@
 
 namespace auto_battlebot
 {
+    struct Velocity2D
+    {
+        double vx = 0.0;    // m/s in field frame x
+        double vy = 0.0;    // m/s in field frame y
+        double omega = 0.0; // rad/s heading rate
+    };
+
     struct RobotDescription
     {
         FrameId frame_id = FrameId::EMPTY;
@@ -16,6 +23,7 @@ namespace auto_battlebot
         Pose pose;
         Size size;
         std::vector<Position> keypoints = std::vector<Position>();
+        Velocity2D velocity;
     };
 
     struct RobotDescriptionsStamped

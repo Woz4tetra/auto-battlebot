@@ -23,4 +23,11 @@ namespace auto_battlebot
         Rotation rotation;
     };
 
+    struct Pose2D
+    {
+        double x = 0.0;
+        double y = 0.0;
+        double yaw = 0.0;
+    };
+
 } // namespace auto_battlebot

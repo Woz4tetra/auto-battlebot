@@ -182,7 +182,7 @@ namespace auto_battlebot
             publisher_->publish_robots(robots);
         }
 
-        VelocityCommand command = navigation_->update(robots);
+        VelocityCommand command = navigation_->update(robots, field_description);
         transmitter_->send(command);
 
         return true;

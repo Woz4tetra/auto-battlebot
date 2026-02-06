@@ -189,4 +189,24 @@ namespace auto_battlebot
         return oss.str();
     }
 
+    Pose2D pose_to_pose2d(const Pose &pose)
+    {
+        double roll, pitch, yaw;
+        quaternion_to_euler(pose.rotation, roll, pitch, yaw);
+        return Pose2D{pose.position.x, pose.position.y, yaw};
+    }
+
+    Pose pose2d_to_pose(const Pose2D &pose2d)
+    {
+        Pose pose;
+        pose.position = Position{pose2d.x, pose2d.y, 0.0};
+        pose.rotation = euler_to_quaternion(0.0, 0.0, pose2d.yaw);
+        return pose;
+    }
+
+    Position pose2d_to_position(const Pose2D &pose2d)
+    {
+        return Position{pose2d.x, pose2d.y, 0.0};
+    }
+
 } // namespace auto_battlebot

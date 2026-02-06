@@ -14,6 +14,14 @@
 
 namespace auto_battlebot
 {
+    /** Per-robot state used to estimate velocity across frames. */
+    struct RobotVelocityState
+    {
+        double timestamp = 0.0;
+        Pose2D pose;
+        Velocity2D smoothed_velocity;
+    };
+
     class RobotFrontBackSimpleFilter : public RobotFilterInterface
     {
     public:
@@ -28,11 +36,22 @@ namespace auto_battlebot
         std::unique_ptr<FrontBackKeypointConverter> keypoint_converter_;
         std::map<Label, std::vector<FrameId>> label_to_frame_ids_;
         FrameId default_frame_id_;
+        /** Exponential moving average smoothing factor for opponent velocity estimation (0..1, higher = more responsive). */
+        double velocity_ema_alpha_;
         /** Last known position per FrameId for distance-based assignment when multiple of same label. */
         std::map<FrameId, Position> last_position_per_frame_id_;
+        /** Velocity estimation state per FrameId. */
+        std::map<FrameId, RobotVelocityState> velocity_state_per_frame_id_;
 
         std::vector<RobotDescription> convert_keypoints_to_measurements(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info);
         std::vector<RobotDescription> update_filter(std::vector<RobotDescription> inputs, CommandFeedback command_feedback);
+
+        /**
+         * Estimate velocity for each robot description.
+         * Our robots (present in command_feedback): use commanded velocity rotated to field frame.
+         * Opponent robots: differentiate position over time with EMA smoothing.
+         */
+        void estimate_velocities(std::vector<RobotDescription> &descriptions, double timestamp, const CommandFeedback &command_feedback);
 
         using MeasurementWithConfidence = std::pair<double, RobotDescription>;
         std::vector<MeasurementWithConfidence> build_valid_measurements(

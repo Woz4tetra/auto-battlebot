@@ -9,7 +9,7 @@ namespace auto_battlebot
     public:
         virtual ~NavigationInterface() = default;
         virtual bool initialize() = 0;
-        virtual VelocityCommand update(RobotDescriptionsStamped robots) = 0;
+        virtual VelocityCommand update(RobotDescriptionsStamped robots, FieldDescription field) = 0;
     };
 
 } // namespace auto_battlebot

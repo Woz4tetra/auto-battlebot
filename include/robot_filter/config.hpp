@@ -32,6 +32,7 @@ namespace auto_battlebot
         std::vector<KeypointLabel> back_keypoints;
         std::map<Label, std::vector<FrameId>> label_to_frame_ids;
         FrameId default_frame_id;
+        double velocity_ema_alpha = 0.5;
 
         RobotFrontBackSimpleFilterConfiguration()
         {
@@ -44,6 +45,7 @@ namespace auto_battlebot
             back_keypoints = parse_keypoints(parser, "back_keypoints");
             parse_label_to_frame_id(parser, "label_mapping");
             PARSE_ENUM_REQUIRED(default_frame_id, FrameId);
+            PARSE_FIELD_DOUBLE(velocity_ema_alpha)
             parser.validate_no_extra_fields();
         }
 

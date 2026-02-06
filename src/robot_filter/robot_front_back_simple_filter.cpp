@@ -1,5 +1,7 @@
 #include "robot_filter/robot_front_back_simple_filter.hpp"
+#include "data_structures/robot.hpp"
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 namespace
@@ -17,7 +19,8 @@ namespace auto_battlebot
 {
     RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(RobotFrontBackSimpleFilterConfiguration &config)
         : label_to_frame_ids_(config.label_to_frame_ids),
-          default_frame_id_(config.default_frame_id)
+          default_frame_id_(config.default_frame_id),
+          velocity_ema_alpha_(config.velocity_ema_alpha)
     {
         diagnostics_logger_ = DiagnosticsLogger::get_logger("robot_front_back_simple_filter");
 
@@ -30,6 +33,7 @@ namespace auto_battlebot
     bool RobotFrontBackSimpleFilter::initialize(const std::vector<RobotConfig> &robots)
     {
         robot_configs_.clear();
+        velocity_state_per_frame_id_.clear();
         for (const auto &robot : robots)
         {
             robot_configs_[robot.label] = robot;
@@ -47,6 +51,7 @@ namespace auto_battlebot
         diagnostics_logger_->debug({{"num_measurements", (int)filter_measurements.size()}});
 
         result.descriptions = update_filter(filter_measurements, command_feedback);
+        estimate_velocities(result.descriptions, result.header.stamp, command_feedback);
 
         return result;
     }
@@ -120,7 +125,9 @@ namespace auto_battlebot
                 label,
                 pose,
                 Size{length, length, 0.1},
-                {vector_to_position(front_keypoint_in_field), vector_to_position(back_keypoint_in_field)}};
+                {vector_to_position(front_keypoint_in_field), vector_to_position(back_keypoint_in_field)},
+                Velocity2D{}
+            };
             valid_measurements.push_back({confidence, std::move(desc)});
         }
         return valid_measurements;
@@ -214,6 +221,68 @@ namespace auto_battlebot
     std::vector<RobotDescription> RobotFrontBackSimpleFilter::update_filter(std::vector<RobotDescription> inputs, [[maybe_unused]] CommandFeedback command_feedback)
     {
         return inputs;
+    }
+
+    void RobotFrontBackSimpleFilter::estimate_velocities(
+        std::vector<RobotDescription> &descriptions,
+        double timestamp,
+        const CommandFeedback &command_feedback)
+    {
+        for (auto &desc : descriptions)
+        {
+            if (desc.frame_id == FrameId::EMPTY)
+                continue;
+
+            Pose2D current = pose_to_pose2d(desc.pose);
+
+            // Check if command feedback is available for this robot (i.e. it's "ours")
+            auto cmd_it = command_feedback.commands.find(desc.frame_id);
+            auto state_it = velocity_state_per_frame_id_.find(desc.frame_id);
+
+            if (cmd_it != command_feedback.commands.end())
+            {
+                // Our robot: use commanded velocity rotated from body frame to field frame.
+                // The command represents what we told the motors to do, which is a reliable
+                // velocity estimate that doesn't suffer from measurement noise.
+                const VelocityCommand &cmd = cmd_it->second;
+                double cos_yaw = std::cos(current.yaw);
+                double sin_yaw = std::sin(current.yaw);
+
+                desc.velocity.vx = cmd.linear_x * cos_yaw - cmd.linear_y * sin_yaw;
+                desc.velocity.vy = cmd.linear_x * sin_yaw + cmd.linear_y * cos_yaw;
+                desc.velocity.omega = cmd.angular_z;
+            }
+            else if (state_it != velocity_state_per_frame_id_.end())
+            {
+                // Opponent robot: differentiate position over time with EMA smoothing.
+                const RobotVelocityState &prev = state_it->second;
+                double dt = timestamp - prev.timestamp;
+
+                if (dt > 0.001 && dt < 1.0)
+                {
+                    double raw_vx = (current.x - prev.pose.x) / dt;
+                    double raw_vy = (current.y - prev.pose.y) / dt;
+                    // Wrap-safe yaw difference
+                    double delta_yaw = std::atan2(std::sin(current.yaw - prev.pose.yaw), std::cos(current.yaw - prev.pose.yaw));
+                    double raw_omega = delta_yaw / dt;
+
+                    double alpha = velocity_ema_alpha_;
+                    desc.velocity.vx = alpha * raw_vx + (1.0 - alpha) * prev.smoothed_velocity.vx;
+                    desc.velocity.vy = alpha * raw_vy + (1.0 - alpha) * prev.smoothed_velocity.vy;
+                    desc.velocity.omega = alpha * raw_omega + (1.0 - alpha) * prev.smoothed_velocity.omega;
+                }
+                else
+                {
+                    // dt too small or too large -- carry forward previous estimate
+                    desc.velocity = prev.smoothed_velocity;
+                }
+            }
+            // else: first observation for this FrameId, velocity stays at default (0, 0, 0)
+
+            // Store state for next frame
+            velocity_state_per_frame_id_[desc.frame_id] = {
+                timestamp, current, desc.velocity};
+        }
     }
 
     std::vector<FrameId> RobotFrontBackSimpleFilter::get_frame_ids_for_label(Label label) const

@@ -115,4 +115,25 @@ namespace auto_battlebot
      */
     Position vector_to_position(const Eigen::Vector3d &vector);
 
+    /**
+     * @brief Convert a 3D Pose (position + quaternion) to a 2D pose (x, y, yaw)
+     * @param pose 3D Pose
+     * @return Pose2D with x, y from position and yaw extracted from quaternion
+     */
+    Pose2D pose_to_pose2d(const Pose &pose);
+
+    /**
+     * @brief Convert a 2D pose to a 3D Pose (z=0, roll=0, pitch=0)
+     * @param pose2d 2D pose
+     * @return Pose with position (x, y, 0) and quaternion from (0, 0, yaw)
+     */
+    Pose pose2d_to_pose(const Pose2D &pose2d);
+
+    /**
+     * @brief Convert a 2D pose to a Position (z=0)
+     * @param pose2d 2D pose
+     * @return Position with x, y from pose2d and z=0
+     */
+    Position pose2d_to_position(const Pose2D &pose2d);
+
 } // namespace auto_battlebot
