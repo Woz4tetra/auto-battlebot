@@ -1,5 +1,6 @@
 import argparse
 import os
+from datetime import datetime
 
 from ultralytics import YOLO
 
@@ -58,6 +59,9 @@ def main() -> None:
     epochs = args.epochs
     checkpoint_path = args.checkpoint
 
+    # One timestamp per script run so all models in this session share the same date.
+    session_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
     hyper_params = dict(
         lr0=0.01,  # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
         lrf=0.01,  # (float) final learning rate (lr0 * lrf)
@@ -105,10 +109,11 @@ def main() -> None:
         # Load the model.
         model = YOLO(checkpoint_path if checkpoint_path else model_key)
 
-        # Training.
+        # Training in a new folder per session (date + time so same-day runs don't overwrite).
+        run_name = f"auto_battlebots_keypoints_{session_date}_{model_key}"
         model.train(
             data=dataset,
-            name="auto_battlebots_keypoints",
+            name=run_name,
             project="../projects",
             device=(0, 1, 2),
             cache="ram",
