@@ -76,7 +76,11 @@ def make_keypoint_annotation(
     if matched_keypoint_id is None or matched_class_id is None:
         return None  # skip unknown blobs
 
-    x_centroid, y_centroid = get_blob_centroid(blob)
+    centroid_result = get_blob_centroid(blob)
+    if centroid_result is None:
+        raise ValueError(f"Contour doesn't have a centroid: {blob}")
+
+    x_centroid, y_centroid = centroid_result
     return (
         matched_class_id,
         matched_keypoint_id,
@@ -200,6 +204,10 @@ def convert_render_pair_to_yolo(
             if not bbox_anno:
                 raise ValueError("Failed to find bounding box")
             class_id, x_center, y_center, box_w, box_h = bbox_anno
+            if class_id not in keypoint_annotations:
+                raise ValueError(
+                    f"Bounding box has no corresponding class ID ({class_id})"
+                )
             keypoint_label_annotations = keypoint_annotations[class_id]
 
             expected_keypoints_num = len(keypoint_colors_map[class_id])

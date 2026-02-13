@@ -16,13 +16,8 @@ class Blob:
 
 
 def get_blob_centroid(blob: Blob) -> tuple[float, float]:
-    contour_np = np.array(blob.contour, dtype=np.int32).reshape((-1, 1, 2))
-    M = cv2.moments(contour_np)
-    if M["m00"] == 0:
-        return None
-    x_centroid = M["m10"] / M["m00"]
-    y_centroid = M["m01"] / M["m00"]
-    return (x_centroid, y_centroid)
+    contour_np = np.array(blob.contour, dtype=np.int32)
+    return tuple(contour_np.mean(axis=0).tolist())
 
 
 def get_blob_bounding_rectangle(blob: Blob) -> tuple[float, float, float, float]:
@@ -134,7 +129,7 @@ if __name__ == "__main__":
         base_path: Path | None = args.base
         if base_path is not None and not base_path.exists():
             raise FileNotFoundError(f"{base_path} doesn't exist")
-        
+
         expected_color_str: str | None = args.color
         if expected_color_str is not None:
             expected_color = [int(ch) for ch in expected_color_str.split(",")]
