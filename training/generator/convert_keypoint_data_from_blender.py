@@ -1,5 +1,6 @@
 import math
 import argparse
+import traceback
 from pathlib import Path
 import tomllib
 from multiprocessing import Pool, cpu_count
@@ -228,9 +229,8 @@ def convert_render_pair_to_yolo(
             f.write("\n".join(yolo_lines) + "\n")
         print(f"Wrote {label_path}")
         return (True, mask_path, keypoints_path, None)
-    except Exception as exc:
-        lineno = exc.__traceback__.tb_lineno if exc.__traceback__ else "?"
-        error_msg = f"{type(exc).__name__}: {str(exc)} (line {lineno})"
+    except Exception:
+        error_msg = traceback.format_exc()
         return (False, mask_path, keypoints_path, error_msg)
 
 
@@ -304,7 +304,9 @@ def main() -> None:
         for mask_path, keypoints_path, error in failures:
             print(f"  - Mask: {mask_path}")
             print(f"    Keypoints: {keypoints_path}")
-            print(f"    Error: {error}. ")
+            print("    Traceback:")
+            for line in error.rstrip().split("\n"):
+                print(f"      {line}")
     else:
         print(f"✓ Successfully processed all {len(matched_images)} images!")
     print("Done!")
