@@ -196,13 +196,17 @@ def convert_render_pair_to_yolo(
         yolo_lines = []
         visibility = 2
         for bbox_anno in bounding_box_annotations:
+            if not bbox_anno:
+                raise ValueError("Failed to find bounding box")
             class_id, x_center, y_center, box_w, box_h = bbox_anno
             keypoint_label_annotations = keypoint_annotations[class_id]
-            
+
             expected_keypoints_num = len(keypoint_colors_map[class_id])
             keypoints_found_num = len(keypoint_label_annotations)
             if expected_keypoints_num != keypoints_found_num:
-                raise ValueError(f"Found {keypoints_found_num} instead of {expected_keypoints_num} keypoints for class ID {class_id}")
+                raise ValueError(
+                    f"Found {keypoints_found_num} instead of {expected_keypoints_num} keypoints for class ID {class_id}"
+                )
 
             yolo_base_annotation = (
                 f"{class_id} {x_center:.6f} {y_center:.6f} {box_w:.6f} {box_h:.6f}"
@@ -225,7 +229,8 @@ def convert_render_pair_to_yolo(
         print(f"Wrote {label_path}")
         return (True, mask_path, keypoints_path, None)
     except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {str(exc)}"
+        lineno = exc.__traceback__.tb_lineno if exc.__traceback__ else "?"
+        error_msg = f"{type(exc).__name__}: {str(exc)} (line {lineno})"
         return (False, mask_path, keypoints_path, error_msg)
 
 
@@ -299,7 +304,7 @@ def main() -> None:
         for mask_path, keypoints_path, error in failures:
             print(f"  - Mask: {mask_path}")
             print(f"    Keypoints: {keypoints_path}")
-            print(f"    Error: {error}")
+            print(f"    Error: {error}. ")
     else:
         print(f"✓ Successfully processed all {len(matched_images)} images!")
     print("Done!")
