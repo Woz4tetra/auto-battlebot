@@ -120,20 +120,20 @@ The Auto-Battlebot C++ application processes camera data from a Stereolabs ZED 2
 
 ### Non-Functional Requirements
 
-| ID      | Requirement                                                                       | Priority | Rationale                                                  |
-| ------- | --------------------------------------------------------------------------------- | -------- | ---------------------------------------------------------- |
-| NFR-001 | Unity project shall use Unity 6 LTS or later                                      | Must     | Long-term support and modern rendering                     |
+| ID      | Requirement                                                                                     | Priority | Rationale                                                   |
+| ------- | ----------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------- |
+| NFR-001 | Unity project shall use Unity 6 LTS or later                                                    | Must     | Long-term support and modern rendering                      |
 | NFR-002 | TCP image transfer shall use Linux socket optimizations for low-latency localhost communication | Must     | Match development environment; maximize throughput on Linux |
-| NFR-003 | System shall run on machines without dedicated GPU at reduced quality             | Should   | Enable CI/CD integration                                   |
-| NFR-004 | Memory usage shall not exceed 4GB for simulation                                  | Should   | Enable parallel test execution                             |
-| NFR-005 | Codebase shall follow Unity C# conventions and include XML documentation          | Must     | Maintainability                                            |
-| NFR-006 | Adding a new robot shall require <30 minutes of configuration                     | Should   | Extensibility                                              |
-| NFR-007 | System shall support headless operation                                           | Should   | CI/CD compatibility                                        |
-| NFR-008 | Scripts shall use explicit initialization order via Script Execution Order        | Must     | Avoid race conditions                                      |
-| NFR-009 | Python orchestration shall use existing project virtual environment               | Must     | Consistency with `training/` tooling                       |
-| NFR-010 | Data generation shall achieve >100 annotated frames per minute                    | Should   | Practical dataset sizes                                    |
-| NFR-011 | Annotation format shall be YOLO-compatible (txt) and COCO-compatible (JSON)       | Must     | Support common training frameworks                         |
-| NFR-012 | Python scripts shall be executable from command line with configurable parameters | Must     | Automation and scripting                                   |
+| NFR-003 | System shall run on machines without dedicated GPU at reduced quality                           | Should   | Enable CI/CD integration                                    |
+| NFR-004 | Memory usage shall not exceed 4GB for simulation                                                | Should   | Enable parallel test execution                              |
+| NFR-005 | Codebase shall follow Unity C# conventions and include XML documentation                        | Must     | Maintainability                                             |
+| NFR-006 | Adding a new robot shall require <30 minutes of configuration                                   | Should   | Extensibility                                               |
+| NFR-007 | System shall support headless operation                                                         | Should   | CI/CD compatibility                                         |
+| NFR-008 | Scripts shall use explicit initialization order via Script Execution Order                      | Must     | Avoid race conditions                                       |
+| NFR-009 | Python orchestration shall use existing project virtual environment                             | Must     | Consistency with `training/` tooling                        |
+| NFR-010 | Data generation shall achieve >100 annotated frames per minute                                  | Should   | Practical dataset sizes                                     |
+| NFR-011 | Annotation format shall be YOLO-compatible (txt) and COCO-compatible (JSON)                     | Must     | Support common training frameworks                          |
+| NFR-012 | Python scripts shall be executable from command line with configurable parameters               | Must     | Automation and scripting                                    |
 
 ---
 
@@ -173,6 +173,7 @@ The approach uses Unity's **AsyncGPUReadback** API to read rendered textures fro
 For same-machine communication, Unix domain sockets can be used instead of TCP to avoid TCP/IP stack overhead entirely. This provides slightly lower latency (~0.5ms improvement) at the cost of portability.
 
 A single **TCP socket** handles all data exchange including:
+
 - RGB and Depth image frames (via `FrameReadyWithData` message type)
 - Pose metadata (camera transform)
 - Velocity commands (linear_x, linear_y, angular_z)
@@ -180,11 +181,11 @@ A single **TCP socket** handles all data exchange including:
 
 **Performance Expectations:**
 
-| Resolution | RGBA Size | Transfer Time (optimized TCP) |
-|------------|-----------|------------------------------|
-| 720p (1280x720) | 3.7 MB | ~3-5 ms |
-| 1080p (1920x1080) | 8.3 MB | ~6-10 ms |
-| 480p (640x480) | 1.2 MB | ~1-2 ms |
+| Resolution        | RGBA Size | Transfer Time (optimized TCP) |
+| ----------------- | --------- | ----------------------------- |
+| 720p (1280x720)   | 3.7 MB    | ~3-5 ms                       |
+| 1080p (1920x1080) | 8.3 MB    | ~6-10 ms                      |
+| 480p (640x480)    | 1.2 MB    | ~1-2 ms                       |
 
 Note: AsyncGPUReadback adds ~1-2ms latency. Total frame latency is readback + transfer time.
 
@@ -352,7 +353,7 @@ digraph SystemDataFlow {
     depth_tex -> async_readback [label="readback\nrequest", style=bold, color=red];
     async_readback -> tcp_socket [label="raw bytes", style=bold];
     tcp_socket -> sim_camera [label="frame data +\npose + intrinsics", style=bold];
-    
+
     camera -> tcp_socket [label="pose"];
     sim_tx -> tcp_socket [label="velocity\ncommands"];
     tcp_socket -> motor [label="velocity"];
@@ -723,21 +724,21 @@ digraph DomainRandomization {
 
 ### Technical Risks
 
-| ID     | Risk                                                            | Probability | Impact | Mitigation Strategy                                                                |
-| ------ | --------------------------------------------------------------- | ----------- | ------ | ---------------------------------------------------------------------------------- |
-| TR-001 | TCP image transfer latency exceeds 10ms requirement             | Medium      | High   | Use Linux socket optimizations; benchmark early; consider Unix domain sockets      |
-| TR-002 | Unity physics does not accurately model robot dynamics          | Medium      | Medium | Tune physics parameters against real robot telemetry; accept approximation         |
-| TR-003 | Depth rendering does not match ZED sensor characteristics       | Medium      | Medium | Apply post-processing to simulate sensor noise and artifacts                       |
-| TR-004 | AsyncGPUReadback stalls rendering pipeline                      | Low         | Medium | Use double-buffering; profile readback timing; optimize texture formats            |
-| TR-005 | Unity rendering performance insufficient for real-time          | Low         | High   | Profile early; reduce quality settings; support headless mode                      |
-| TR-006 | Script initialization order causes race conditions              | Medium      | Medium | Use explicit Script Execution Order; document dependencies                         |
-| TR-007 | CAD mesh import issues (scale, orientation, format)             | High        | Low    | Standardize export pipeline; create validation tool                                |
-| TR-008 | Sim-to-real domain gap degrades model performance               | High        | High   | Extensive domain randomization; validate with real data holdout                    |
-| TR-009 | Annotation accuracy differs from manual labels                  | Medium      | High   | Validate against manually labeled subset; tune projection math                     |
-| TR-010 | Python-Unity TCP communication unreliable                       | Low         | Medium | Implement retry logic; use well-tested socket patterns                             |
-| TR-011 | Synthetic data generation too slow for practical dataset sizes  | Medium      | Medium | Profile and optimize; support parallel Unity instances                             |
-| TR-012 | Socket buffer size limits on default kernel configuration       | Medium      | Low    | Document kernel tuning requirements; provide setup scripts                         |
-| TR-013 | Image data corruption during TCP transfer                       | Low         | High   | Add checksums/validation; implement retry logic                                    |
+| ID     | Risk                                                           | Probability | Impact | Mitigation Strategy                                                           |
+| ------ | -------------------------------------------------------------- | ----------- | ------ | ----------------------------------------------------------------------------- |
+| TR-001 | TCP image transfer latency exceeds 10ms requirement            | Medium      | High   | Use Linux socket optimizations; benchmark early; consider Unix domain sockets |
+| TR-002 | Unity physics does not accurately model robot dynamics         | Medium      | Medium | Tune physics parameters against real robot telemetry; accept approximation    |
+| TR-003 | Depth rendering does not match ZED sensor characteristics      | Medium      | Medium | Apply post-processing to simulate sensor noise and artifacts                  |
+| TR-004 | AsyncGPUReadback stalls rendering pipeline                     | Low         | Medium | Use double-buffering; profile readback timing; optimize texture formats       |
+| TR-005 | Unity rendering performance insufficient for real-time         | Low         | High   | Profile early; reduce quality settings; support headless mode                 |
+| TR-006 | Script initialization order causes race conditions             | Medium      | Medium | Use explicit Script Execution Order; document dependencies                    |
+| TR-007 | CAD mesh import issues (scale, orientation, format)            | High        | Low    | Standardize export pipeline; create validation tool                           |
+| TR-008 | Sim-to-real domain gap degrades model performance              | High        | High   | Extensive domain randomization; validate with real data holdout               |
+| TR-009 | Annotation accuracy differs from manual labels                 | Medium      | High   | Validate against manually labeled subset; tune projection math                |
+| TR-010 | Python-Unity TCP communication unreliable                      | Low         | Medium | Implement retry logic; use well-tested socket patterns                        |
+| TR-011 | Synthetic data generation too slow for practical dataset sizes | Medium      | Medium | Profile and optimize; support parallel Unity instances                        |
+| TR-012 | Socket buffer size limits on default kernel configuration      | Medium      | Low    | Document kernel tuning requirements; provide setup scripts                    |
+| TR-013 | Image data corruption during TCP transfer                      | Low         | High   | Add checksums/validation; implement retry logic                               |
 
 ### Schedule Risks
 
@@ -915,14 +916,14 @@ void configure_socket_optimizations(int socket_fd) {
     // Large receive buffer (4MB)
     int buf_size = 4 * 1024 * 1024;
     setsockopt(socket_fd, SOL_SOCKET, SO_RCVBUF, &buf_size, sizeof(buf_size));
-    
+
     // Disable Nagle's algorithm
     int flag = 1;
     setsockopt(socket_fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-    
+
     // Disable delayed ACKs (Linux-specific)
     setsockopt(socket_fd, IPPROTO_TCP, TCP_QUICKACK, &flag, sizeof(flag));
-    
+
     // Optional: busy polling for lowest latency
     // Requires CAP_NET_ADMIN or kernel config
     int busy_poll_us = 50;  // 50 microseconds
@@ -993,7 +994,7 @@ public class TcpImageBridge : MonoBehaviour
     private RenderTexture depthTexture;
     private TcpBridge tcpBridge;
     private AsyncGPUReadbackManager readbackManager;
-    
+
     // Frame data buffers (double-buffered)
     private byte[] rgbData;
     private byte[] depthData;
@@ -1003,18 +1004,18 @@ public class TcpImageBridge : MonoBehaviour
     {
         rgbTexture = rgb;
         depthTexture = depth;
-        
+
         // Allocate buffers
         rgbData = new byte[rgb.width * rgb.height * 4];
         depthData = new byte[depth.width * depth.height * 4];
     }
-    
+
     public void SignalFrameReady(Matrix4x4 pose)
     {
         if (readbackPending) return;  // Skip if previous frame still processing
-        
+
         readbackPending = true;
-        
+
         // Request async readback of both textures
         AsyncGPUReadback.Request(rgbTexture, 0, request => {
             if (!request.hasError) {
@@ -1022,7 +1023,7 @@ public class TcpImageBridge : MonoBehaviour
                 CheckAndSendFrame(pose);
             }
         });
-        
+
         AsyncGPUReadback.Request(depthTexture, 0, request => {
             if (!request.hasError) {
                 NativeArray<byte>.Copy(request.GetData<byte>(), depthData);
@@ -1030,11 +1031,11 @@ public class TcpImageBridge : MonoBehaviour
             }
         });
     }
-    
+
     private void CheckAndSendFrame(Matrix4x4 pose)
     {
         // Send when both readbacks complete
-        tcpBridge.SendFrameWithData(pose, rgbData, depthData, 
+        tcpBridge.SendFrameWithData(pose, rgbData, depthData,
             rgbTexture.width, rgbTexture.height);
         readbackPending = false;
     }
@@ -1047,28 +1048,28 @@ public class TcpBridge
     private NetworkStream stream;
     private const int DEFAULT_PORT = 18707;
     private const int BUFFER_SIZE = 4 * 1024 * 1024;  // 4MB
-    
+
     public void Connect(string host = "127.0.0.1", int port = DEFAULT_PORT)
     {
         client = new TcpClient();
         client.Connect(host, port);
-        
+
         // Apply Linux optimizations
         client.NoDelay = true;
         client.SendBufferSize = BUFFER_SIZE;
         client.ReceiveBufferSize = BUFFER_SIZE;
-        
+
         stream = client.GetStream();
     }
-    
-    public void SendFrameWithData(Matrix4x4 pose, byte[] rgb, byte[] depth, 
+
+    public void SendFrameWithData(Matrix4x4 pose, byte[] rgb, byte[] depth,
         int width, int height)
     {
-        // Message: type(1) + frameId(8) + timestamp(8) + pose(128) + 
+        // Message: type(1) + frameId(8) + timestamp(8) + pose(128) +
         //          dimensions(16) + sizes(8) + rgb_data + depth_data
         // Send header + raw image bytes
     }
-    
+
     public VelocityCommand ReceiveCommand()
     {
         // Command message: type(1) + commandId(8) + linear_x,linear_y,angular_z(24)
@@ -1287,35 +1288,35 @@ public:
         static SimTcpClient instance;
         return instance;
     }
-    
+
     // Delete copy/move constructors for singleton
     SimTcpClient(const SimTcpClient&) = delete;
     SimTcpClient& operator=(const SimTcpClient&) = delete;
-    
+
     // Connection management
     bool connect(const std::string& host, int port);
     void disconnect();
     bool is_connected() const { return connected_; }
-    
+
     // Configure Linux socket optimizations
     void configure_optimizations();
-    
+
     // Receive camera intrinsics (called once on connect)
     std::optional<CameraIntrinsics> receive_intrinsics();
-    
+
     // Receive frame with image data (blocking with timeout)
     std::optional<FrameReadyWithDataMessage> wait_for_frame_with_data(
         std::chrono::milliseconds timeout);
-    
+
     // Send velocity command (thread-safe)
     bool send_velocity_command(const VelocityCommand& cmd);
-    
+
     // Get cached intrinsics
     const CameraIntrinsics& get_intrinsics() const { return intrinsics_; }
-    
+
 private:
     SimTcpClient() = default;  // Private constructor for singleton
-    
+
     int socket_fd_ = -1;
     std::string host_;
     int port_ = 18707;
@@ -1334,7 +1335,7 @@ public:
             throw std::runtime_error("Failed to connect to Unity simulation");
         }
         client.configure_optimizations();
-        
+
         // Receive and cache camera intrinsics
         auto intrinsics = client.receive_intrinsics();
         if (!intrinsics) {
@@ -1342,7 +1343,7 @@ public:
         }
         intrinsics_ = *intrinsics;
     }
-    
+
     CameraData get() override {
         auto& client = SimTcpClient::instance();
         auto frame_msg = client.wait_for_frame_with_data(
@@ -1352,27 +1353,27 @@ public:
         }
 
         CameraData data;
-        
+
         // Convert raw bytes to cv::Mat (RGBA -> BGR for OpenCV)
         cv::Mat rgba(frame_msg->rgb_height, frame_msg->rgb_width, CV_8UC4,
                      frame_msg->rgb_data.data());
         cv::cvtColor(rgba, data.rgb, cv::COLOR_RGBA2BGR);
-        
+
         // Depth is already float32
-        data.depth = cv::Mat(frame_msg->depth_height, frame_msg->depth_width, 
+        data.depth = cv::Mat(frame_msg->depth_height, frame_msg->depth_width,
                              CV_32F, frame_msg->depth_data.data()).clone();
-        
+
         data.pose = frame_msg->pose;
         data.header.timestamp = frame_msg->timestamp_ns;
         data.header.frame_id = frame_msg->frame_id;
 
         return data;
     }
-    
+
     bool should_close() override {
         return !SimTcpClient::instance().is_connected();
     }
-    
+
     const CameraIntrinsics& get_intrinsics() const {
         return intrinsics_;
     }
@@ -1391,16 +1392,16 @@ public:
         }
         initialized_ = true;
     }
-    
+
     void send(const VelocityCommand& cmd) override {
         SimTcpClient::instance().send_velocity_command(cmd);
     }
-    
+
     CommandFeedback update() override {
         // Simulation mode: no feedback from hardware
         return CommandFeedback{};
     }
-    
+
     bool did_init_button_press() override {
         // Always ready in simulation mode
         return initialized_;
@@ -1413,19 +1414,19 @@ private:
 // Linux socket optimization implementation
 void SimTcpClient::configure_optimizations() {
     if (socket_fd_ < 0) return;
-    
+
     // Large receive buffer (4MB) for image data
     int buf_size = 4 * 1024 * 1024;
     setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, &buf_size, sizeof(buf_size));
     setsockopt(socket_fd_, SOL_SOCKET, SO_SNDBUF, &buf_size, sizeof(buf_size));
-    
+
     // Disable Nagle's algorithm
     int flag = 1;
     setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-    
+
     // Disable delayed ACKs (Linux-specific)
     setsockopt(socket_fd_, IPPROTO_TCP, TCP_QUICKACK, &flag, sizeof(flag));
-    
+
     // Pre-allocate receive buffer
     recv_buffer_.resize(8 * 1024 * 1024);  // 8MB for headroom
 }
@@ -1487,7 +1488,7 @@ RenderTexture setup for AsyncGPUReadback:
 
 ---
 
-### SIM-007: Implement Depth Camera Capture in Unity
+### ✅️ SIM-007: Implement Depth Camera Capture in Unity
 
 **Sprint:** 2  
 **Estimate:** 5 points  
@@ -1533,7 +1534,7 @@ float LinearEyeDepth(float z) {
 
 ---
 
-### SIM-008: Implement Camera Pose Tracking
+### ✅️ SIM-008: Implement Camera Pose Tracking
 
 **Sprint:** 2  
 **Estimate:** 3 points  
@@ -1574,7 +1575,7 @@ T_ros = T_convert * T_unity * T_convert^-1
 
 ---
 
-### SIM-009: Create ZED 2i Camera Profile Configuration
+### ✅️ SIM-009: Create ZED 2i Camera Profile Configuration
 
 **Sprint:** 2  
 **Estimate:** 2 points  
@@ -1610,7 +1611,7 @@ Create a data-driven camera profile system that encapsulates ZED 2i specificatio
 
 ---
 
-### SIM-010: Integrate Camera System with TcpImageBridge
+### ✅️ SIM-010: Integrate Camera System with TcpImageBridge
 
 **Sprint:** 2  
 **Estimate:** 3 points  
@@ -2939,21 +2940,21 @@ Create comprehensive documentation for developers working with the simulation sy
 
 ## Appendix A: Technology Stack
 
-| Component              | Technology               | Version | Rationale                                                 |
-| ---------------------- | ------------------------ | ------- | --------------------------------------------------------- |
-| Game Engine            | Unity                    | 6 LTS   | Modern rendering, C# scripting, physics                   |
-| Render Pipeline        | HDRP, URP, or Built-in   | Latest  | Any render pipeline supported via AsyncGPUReadback        |
-| Image Transfer         | AsyncGPUReadback + TCP   | N/A     | GPU texture readback with optimized TCP transmission      |
-| Socket Optimization    | Linux kernel tuning      | N/A     | Large buffers, TCP_NODELAY, TCP_QUICKACK for low latency  |
-| IPC (All Data)         | TCP sockets              | N/A     | Images, pose, velocity commands, camera intrinsics        |
-| IPC (Data Gen)         | TCP sockets              | N/A     | Cross-process Python↔Unity communication                  |
-| Configuration          | TOML                     | 1.0     | Consistent with C++ application                           |
-| Testing                | Unity Test Framework     | Latest  | Native Unity integration                                  |
-| Python                 | Python                   | 3.10+   | Match existing training environment                       |
-| Data Gen Orchestration | Custom scripts           | N/A     | Flexible scenario generation                              |
-| Annotation Format      | YOLO + COCO              | N/A     | Industry standard training formats                        |
-| Image Processing       | OpenCV, Pillow           | Latest  | Image I/O and manipulation                                |
-| COCO Tools             | pycocotools              | Latest  | COCO format validation                                    |
+| Component              | Technology             | Version | Rationale                                                |
+| ---------------------- | ---------------------- | ------- | -------------------------------------------------------- |
+| Game Engine            | Unity                  | 6 LTS   | Modern rendering, C# scripting, physics                  |
+| Render Pipeline        | HDRP, URP, or Built-in | Latest  | Any render pipeline supported via AsyncGPUReadback       |
+| Image Transfer         | AsyncGPUReadback + TCP | N/A     | GPU texture readback with optimized TCP transmission     |
+| Socket Optimization    | Linux kernel tuning    | N/A     | Large buffers, TCP_NODELAY, TCP_QUICKACK for low latency |
+| IPC (All Data)         | TCP sockets            | N/A     | Images, pose, velocity commands, camera intrinsics       |
+| IPC (Data Gen)         | TCP sockets            | N/A     | Cross-process Python↔Unity communication                 |
+| Configuration          | TOML                   | 1.0     | Consistent with C++ application                          |
+| Testing                | Unity Test Framework   | Latest  | Native Unity integration                                 |
+| Python                 | Python                 | 3.10+   | Match existing training environment                      |
+| Data Gen Orchestration | Custom scripts         | N/A     | Flexible scenario generation                             |
+| Annotation Format      | YOLO + COCO            | N/A     | Industry standard training formats                       |
+| Image Processing       | OpenCV, Pillow         | Latest  | Image I/O and manipulation                               |
+| COCO Tools             | pycocotools            | Latest  | COCO format validation                                   |
 
 **Linux Socket Optimization Requirements:**
 
@@ -2988,28 +2989,28 @@ Create comprehensive documentation for developers working with the simulation sy
 
 ## Appendix C: Glossary
 
-| Term                  | Definition                                                                                  |
-| --------------------- | ------------------------------------------------------------------------------------------- |
-| NHRL                  | National Havoc Robot League - combat robot competition                                      |
-| ZED                   | Stereolabs depth camera product line                                                        |
-| Visual SLAM           | Simultaneous Localization and Mapping using camera images                                   |
-| IPC                   | Inter-Process Communication                                                                 |
-| HDRP                  | High Definition Render Pipeline (Unity)                                                     |
-| URP                   | Universal Render Pipeline (Unity) - lighter weight alternative to HDRP                      |
-| Archetype             | Template defining common robot configuration patterns                                       |
-| HIL                   | Hardware-in-the-Loop testing                                                                |
-| Domain Randomization  | Technique of varying simulation parameters to improve model generalization                  |
-| Sim-to-Real Gap       | Performance difference when applying simulation-trained models to real data                 |
-| YOLO                  | You Only Look Once - popular object detection architecture and label format                 |
-| COCO                  | Common Objects in Context - standard dataset format for object detection                    |
-| Ground Truth          | Correct annotations used for training/evaluation (vs. predictions)                          |
-| Instance Segmentation | Per-pixel labeling that distinguishes individual object instances                           |
-| Keypoint Detection    | Locating specific semantic points on objects (e.g., wheel centers)                          |
-| AsyncGPUReadback      | Unity API for asynchronous GPU-to-CPU texture reads without blocking render thread          |
-| TCP_NODELAY           | Socket option that disables Nagle's algorithm for immediate packet transmission             |
-| TCP_QUICKACK          | Linux socket option that disables delayed ACKs for lower latency                            |
-| SO_BUSY_POLL          | Linux socket option for busy polling to achieve sub-millisecond receive latency             |
-| Socket Buffer         | Kernel memory allocated for TCP send/receive operations (SO_SNDBUF/SO_RCVBUF)               |
+| Term                  | Definition                                                                         |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| NHRL                  | National Havoc Robot League - combat robot competition                             |
+| ZED                   | Stereolabs depth camera product line                                               |
+| Visual SLAM           | Simultaneous Localization and Mapping using camera images                          |
+| IPC                   | Inter-Process Communication                                                        |
+| HDRP                  | High Definition Render Pipeline (Unity)                                            |
+| URP                   | Universal Render Pipeline (Unity) - lighter weight alternative to HDRP             |
+| Archetype             | Template defining common robot configuration patterns                              |
+| HIL                   | Hardware-in-the-Loop testing                                                       |
+| Domain Randomization  | Technique of varying simulation parameters to improve model generalization         |
+| Sim-to-Real Gap       | Performance difference when applying simulation-trained models to real data        |
+| YOLO                  | You Only Look Once - popular object detection architecture and label format        |
+| COCO                  | Common Objects in Context - standard dataset format for object detection           |
+| Ground Truth          | Correct annotations used for training/evaluation (vs. predictions)                 |
+| Instance Segmentation | Per-pixel labeling that distinguishes individual object instances                  |
+| Keypoint Detection    | Locating specific semantic points on objects (e.g., wheel centers)                 |
+| AsyncGPUReadback      | Unity API for asynchronous GPU-to-CPU texture reads without blocking render thread |
+| TCP_NODELAY           | Socket option that disables Nagle's algorithm for immediate packet transmission    |
+| TCP_QUICKACK          | Linux socket option that disables delayed ACKs for lower latency                   |
+| SO_BUSY_POLL          | Linux socket option for busy polling to achieve sub-millisecond receive latency    |
+| Socket Buffer         | Kernel memory allocated for TCP send/receive operations (SO_SNDBUF/SO_RCVBUF)      |
 
 ## Appendix D: AI code generation rules
 
