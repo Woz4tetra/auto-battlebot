@@ -2,7 +2,7 @@
 name = "auto-battlebot"
 version = "0.1.0"
 description = "Auto Battlebot Project"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "ultralytics",
     "numpy>=2.0.0,<3.0.0",
