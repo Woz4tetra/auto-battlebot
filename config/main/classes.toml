@@ -7,7 +7,7 @@ camera_fps = 30
 
 [field_model]
 type = "DeepLabFieldModel"
-model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64.engine"
+model_path = "models/field_deeplabv3_r50_2024-09-05_aarch64.engine"
 
 [field_filter]
 type = "PointCloudFieldFilter"
@@ -82,7 +82,7 @@ type = "PlaybackTransmitter"
 init_delay_seconds = 0.2
 
 [publisher]
-type = "NoopPublisher"
+type = "RosPublisher"
 
 [runner]
 max_loop_rate = 300.0
