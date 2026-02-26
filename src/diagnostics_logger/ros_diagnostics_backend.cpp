@@ -23,7 +23,8 @@ namespace auto_battlebot
         {
             diagnostic_msgs::DiagnosticStatus status;
             status.level = snap.level;
-            status.name = snap.name;
+            status.name = snap.subsection.empty() ? snap.name : snap.subsection;
+            status.hardware_id = snap.name;
             status.message = snap.message;
             for (const auto &[key, value] : snap.values)
             {

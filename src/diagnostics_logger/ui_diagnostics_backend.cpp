@@ -17,7 +17,7 @@ namespace auto_battlebot
         std::map<std::string, std::string> merged;
         for (const auto &snap : snapshots)
         {
-            std::string prefix = snap.name.empty() ? "" : (snap.name + "/");
+            std::string prefix = snap.name.empty() ? "" : (snap.name + (snap.subsection.empty() ? "." : "." + snap.subsection + "."));
             for (const auto &[key, value] : snap.values)
             {
                 merged[prefix + key] = value;

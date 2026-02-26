@@ -20,7 +20,8 @@ namespace auto_battlebot
     /** ROS-free snapshot of one diagnostic status for backend consumption. */
     struct DiagnosticStatusSnapshot
     {
-        std::string name;
+        std::string name;       /** Logger / category name */
+        std::string subsection; /** Subsection within the logger (e.g. "tick", "camera.get") */
         int8_t level = DiagnosticLevel::OK;
         std::map<std::string, std::string> values;
         std::string message;
