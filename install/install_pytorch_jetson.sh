@@ -26,11 +26,11 @@ install_pytorch_jetson() {
     sudo apt-get -y update
     sudo apt-get install -y python3-pip libopenblas-dev
 
-    # 2. cusparselt for PyTorch 24.06+ (per NVIDIA doc)
+    # 2. cusparselt for PyTorch 24.06+ (per NVIDIA doc; run in /tmp so it creates dirs there)
     local CUSPARSELT_SH="/tmp/install_cusparselt.sh"
     wget -q -O "$CUSPARSELT_SH" "https://raw.githubusercontent.com/pytorch/pytorch/5c6af2b583709f6176898c017424dc9981023c28/.ci/docker/common/install_cusparselt.sh"
     export CUDA_VERSION=12.1
-    sudo bash "$CUSPARSELT_SH"
+    (cd /tmp && sudo bash install_cusparselt.sh)
 
     # 3. PyTorch wheel URL: set TORCH_INSTALL to override. Otherwise we try to derive from JetPack.
     #    Compatibility matrix: https://docs.nvidia.com/deeplearning/frameworks/install-pytorch-jetson-platform-release-notes/pytorch-jetson-rel.html
