@@ -82,6 +82,18 @@ install_python_environment() {
         $PYTHON_CMD -m venv "$VENV_DIR"
     fi
 
+    # On Jetson (Tegra): make system-installed TensorRT (apt) visible inside the venv
+    if [ -f /etc/nv_tegra_release ]; then
+        local SITE_PACKAGES="$VENV_DIR/lib/python$REQUIRED_MAJOR.$REQUIRED_MINOR/site-packages"
+        local SYS_PYTHON_PATH="/usr/lib/python$REQUIRED_MAJOR.$REQUIRED_MINOR/dist-packages"
+        if [ -d "$SYS_PYTHON_PATH" ]; then
+            echo "Jetson: adding system Python path for TensorRT to venv..."
+            echo "$SYS_PYTHON_PATH" > "$SITE_PACKAGES/jetson_system_packages.pth"
+        else
+            echo "Jetson: warning - $SYS_PYTHON_PATH not found; TensorRT may not be importable in venv."
+        fi
+    fi
+
     # Activate virtual environment
     echo "Activating virtual environment..."
     source "$VENV_DIR/bin/activate"
