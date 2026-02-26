@@ -57,6 +57,14 @@ FetchContent_Declare(
     UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
 )
 
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.90.1
+    GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+
 # Fetch googletest only if testing is enabled
 if(BUILD_TESTING)
     FetchContent_Declare(
@@ -70,14 +78,29 @@ if(BUILD_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum googletest)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum imgui googletest)
 else()
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum imgui)
 endif()
 
 # Find required packages
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Threads REQUIRED)
+find_package(OpenGL REQUIRED)
+# SDL2: try config first, then pkg-config
+find_package(SDL2 QUIET)
+if(NOT SDL2_FOUND)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+        set(SDL2_TARGET PkgConfig::SDL2)
+    else()
+        find_package(SDL2 REQUIRED)
+        set(SDL2_TARGET SDL2::SDL2)
+    endif()
+else()
+    set(SDL2_TARGET SDL2::SDL2)
+endif()
 find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common sample_consensus)
@@ -109,6 +132,7 @@ file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES
     "src/**/*.cpp"
 )
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*imgui_ui\\.cpp$")
 
 add_library(auto_battlebot_lib SHARED
     ${AUTO_BATTLEBOT_SOURCES}
@@ -145,7 +169,6 @@ set(COMMON_COMPILE_FLAGS
     -Wall
     -Wextra
     -Werror
-    -Wno-dev
     -O2
 )
 
@@ -181,15 +204,34 @@ if(BUILD_DEBUG)
     )
 endif()
 
+# ImGui library (core + SDL2 + OpenGL3 backends)
+add_library(imgui_ui_lib STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+)
+target_include_directories(imgui_ui_lib PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+target_link_libraries(imgui_ui_lib PUBLIC
+    ${SDL2_TARGET}
+    OpenGL::GL
+)
+
 # Create main executable
 add_executable(auto_battlebot
     src/main.cpp
+    src/ui/imgui_ui.cpp
 )
 
-# Link the executable to the shared library
 target_link_libraries(auto_battlebot
     auto_battlebot_lib
     CLI11::CLI11
+    imgui_ui_lib
 )
 
 # Compiler flags for executable
@@ -228,6 +270,11 @@ add_custom_command(TARGET auto_battlebot POST_BUILD
 install(TARGETS auto_battlebot auto_battlebot_lib
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
+)
+# Install config (used when running from system-wide install)
+install(DIRECTORY config/ DESTINATION share/auto_battlebot/config
+    USE_SOURCE_PERMISSIONS
+    FILES_MATCHING PATTERN "*.toml"
 )
 
 # Conditionally enable testing

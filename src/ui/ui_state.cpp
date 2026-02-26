@@ -67,4 +67,16 @@ namespace auto_battlebot
         std::lock_guard<std::mutex> lock(status_mutex_);
         out = keypoints_;
     }
+
+    void UIState::set_navigation_path(const std::optional<NavigationPathSegment> &path)
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        navigation_path_ = path;
+    }
+
+    void UIState::get_navigation_path(std::optional<NavigationPathSegment> &out) const
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        out = navigation_path_;
+    }
 } // namespace auto_battlebot

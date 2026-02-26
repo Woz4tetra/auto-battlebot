@@ -86,3 +86,4 @@ type = "RosPublisher"
 
 [runner]
 max_loop_rate = 300.0
+ui_enabled = true

@@ -149,6 +149,8 @@ namespace auto_battlebot
 
         if (ui_state_)
         {
+            if (ui_state_->quit_requested.load())
+                return false;
             if (ui_state_->reinit_requested.exchange(false))
                 reinit_pending_ = true;
             int req = ui_state_->opponent_count_requested.exchange(-1);
@@ -246,6 +248,7 @@ namespace auto_battlebot
             ui_state_->set_system_status(status);
             ui_state_->set_robots(robots);
             ui_state_->set_keypoints(keypoints);
+            ui_state_->set_navigation_path(navigation_->get_last_path());
             if (camera_data.rgb.image.data && !camera_data.rgb.image.empty())
             {
                 const cv::Mat &img = camera_data.rgb.image;

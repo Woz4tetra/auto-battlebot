@@ -1,5 +1,6 @@
 #include <CLI/CLI.hpp>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include <miniros/ros.h>
@@ -10,6 +11,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/ros_diagnostics_backend.hpp"
 #include "diagnostics_logger/ui_diagnostics_backend.hpp"
+#include "ui/imgui_ui.hpp"
 #include "ui/ui_state.hpp"
 
 int main(int argc, char **argv)
@@ -79,6 +81,20 @@ int main(int argc, char **argv)
         ui_state);
 
     runner.initialize();
-    return runner.run();
+
+    std::thread ui_thread;
+    if (class_config.runner.ui_enabled && ui_state)
+    {
+        ui_thread = std::thread(run_ui_thread, ui_state);
+    }
+
+    int result = runner.run();
+
+    if (ui_thread.joinable())
+    {
+        ui_thread.join();
+    }
+
+    return result;
 }
 

@@ -1,0 +1,18 @@
+[Unit]
+Description=Auto BattleBot autonomous robot control
+After=network.target
+
+[Service]
+Type=simple
+# Binary from 'make install' (default prefix /usr/local). Override with:
+#   systemctl edit auto_battlebot.service  and set ExecStart=
+# Uses same layout as scripts/build_and_install.sh (default prefix /usr/local)
+ExecStart=/usr/local/bin/auto_battlebot -c /usr/local/share/auto_battlebot/config/main
+WorkingDirectory=/tmp
+Restart=on-failure
+RestartSec=5
+# Run as your user if needed (disable for root):
+# User=youruser
+
+[Install]
+WantedBy=multi-user.target

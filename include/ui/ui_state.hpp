@@ -4,11 +4,13 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "data_structures/keypoint.hpp"
 #include "data_structures/robot.hpp"
+#include "navigation/navigation_interface.hpp"
 
 namespace auto_battlebot
 {
@@ -38,6 +40,8 @@ namespace auto_battlebot
         std::atomic<bool> reinit_requested{false};
         /** 1-3 for set count, -1 or 0 = no change */
         std::atomic<int> opponent_count_requested{-1};
+        /** Set by UI when window is closed; Runner should exit. */
+        std::atomic<bool> quit_requested{false};
 
         // --- Status from Runner (written by Runner, read by UI) ---
         void set_system_status(const SystemStatus &s);
@@ -59,6 +63,10 @@ namespace auto_battlebot
         void set_keypoints(const KeypointsStamped &keypoints);
         void get_keypoints(KeypointsStamped &out) const;
 
+        /** Last navigation path (field frame). UI may draw for debug. */
+        void set_navigation_path(const std::optional<NavigationPathSegment> &path);
+        void get_navigation_path(std::optional<NavigationPathSegment> &out) const;
+
     private:
         mutable std::mutex status_mutex_;
         SystemStatus system_status_;
@@ -69,6 +77,7 @@ namespace auto_battlebot
         std::vector<uint8_t> debug_image_data_;
         RobotDescriptionsStamped robots_;
         KeypointsStamped keypoints_;
+        std::optional<NavigationPathSegment> navigation_path_;
     };
 
 } // namespace auto_battlebot

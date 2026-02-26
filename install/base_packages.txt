@@ -1,6 +1,7 @@
 # Required packages for auto-battlebot
 # One package per line, lines starting with # are ignored
 
+libsdl2-dev
 python3-pip
 python3-venv
 python3-tk
