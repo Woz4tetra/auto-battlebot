@@ -30,7 +30,7 @@ install_pytorch_jetson() {
     local CUSPARSELT_SH="/tmp/install_cusparselt.sh"
     wget -q -O "$CUSPARSELT_SH" "https://raw.githubusercontent.com/pytorch/pytorch/5c6af2b583709f6176898c017424dc9981023c28/.ci/docker/common/install_cusparselt.sh"
     export CUDA_VERSION=12.1
-    bash "$CUSPARSELT_SH"
+    sudo bash "$CUSPARSELT_SH"
 
     # 3. PyTorch wheel URL: set TORCH_INSTALL to override. Otherwise we try to derive from JetPack.
     #    Compatibility matrix: https://docs.nvidia.com/deeplearning/frameworks/install-pytorch-jetson-platform-release-notes/pytorch-jetson-rel.html
