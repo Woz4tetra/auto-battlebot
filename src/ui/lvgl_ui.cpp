@@ -7,7 +7,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -326,9 +328,27 @@ namespace auto_battlebot
         std::vector<uint8_t> img_copy;
 
         bool running = true;
-        const int delay_ms = 16;
+        const int delay_ms = 5;
+        using Clock = std::chrono::steady_clock;
+        auto last_loop_end = Clock::now();
+        double prev_system_ms = 0, prev_diag_ms = 0, prev_debug_ms = 0;
+        uint64_t iter = 0;
         while (running)
         {
+            // #region agent log
+            auto loop_start = Clock::now();
+            double loop_duration_ms = (last_loop_end.time_since_epoch().count() != 0)
+                ? 1e-6 * std::chrono::duration_cast<std::chrono::nanoseconds>(loop_start - last_loop_end).count()
+                : 0;
+            if (loop_duration_ms > 100.0) {
+                std::ofstream f("/home/ben/auto-battlebot/.cursor/debug.log", std::ios::app);
+                if (f) {
+                    f << "{\"hypothesisId\":\"H1_loop\",\"message\":\"slow_loop\",\"data\":{\"loop_duration_ms\":" << loop_duration_ms
+                      << ",\"prev_system_ms\":" << prev_system_ms << ",\"prev_diag_ms\":" << prev_diag_ms << ",\"prev_debug_ms\":" << prev_debug_ms
+                      << ",\"iter\":" << iter << "},\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(loop_start.time_since_epoch()).count() << "}\n";
+                }
+            }
+            // #endregion
             if (ui_state->quit_requested.load())
                 break;
 
@@ -345,13 +365,30 @@ namespace auto_battlebot
             if (!running)
                 break;
 
+            // #region agent log
+            auto t0 = Clock::now();
+            // #endregion
             update_system_panel(system_cont, ui_state);
+            // #region agent log
+            auto t1 = Clock::now();
+            prev_system_ms = 1e-6 * std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+            // #endregion
             update_diagnostics_panel(diag_cont, ui_state);
+            // #region agent log
+            auto t2 = Clock::now();
+            prev_diag_ms = 1e-6 * std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
+            // #endregion
             update_debug_image_and_keypoints(debug_img, debug_keypoints_cont, keypoint_dots, ui_state, img_dsc, img_copy);
+            // #region agent log
+            auto t3 = Clock::now();
+            prev_debug_ms = 1e-6 * std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count();
+            // #endregion
 
             lv_tick_inc(delay_ms);
             lv_timer_handler();
             SDL_Delay(delay_ms);
+            last_loop_end = Clock::now();
+            iter++;
         }
 
         lv_sdl_quit();
