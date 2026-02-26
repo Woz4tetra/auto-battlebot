@@ -90,7 +90,15 @@ install_python_environment() {
             echo "Jetson: adding system Python path for TensorRT to venv..."
             echo "$SYS_PYTHON_PATH" > "$SITE_PACKAGES/jetson_system_packages.pth"
         else
-            echo "Jetson: warning - $SYS_PYTHON_PATH not found; TensorRT may not be importable in venv."
+            # System Python may be 3.10 while project uses 3.11; try 3.10 dist-packages
+            local SYS_PYTHON_PATH_310="/usr/lib/python3.10/dist-packages"
+            if [ -d "$SYS_PYTHON_PATH_310" ]; then
+                echo "Jetson: adding system Python 3.10 path (TensorRT) to venv..."
+                echo "  Note: TensorRT is built for Python 3.10; binary modules may not work in this 3.11 venv."
+                echo "$SYS_PYTHON_PATH_310" > "$SITE_PACKAGES/jetson_system_packages.pth"
+            else
+                echo "Jetson: warning - neither $SYS_PYTHON_PATH nor $SYS_PYTHON_PATH_310 found; TensorRT may not be importable in venv."
+            fi
         fi
     fi
 
