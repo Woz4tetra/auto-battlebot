@@ -49,5 +49,7 @@ namespace auto_battlebot
     };
 
     std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh, const PublisherConfiguration &config);
+    /** Create publisher without ROS (NoopPublisher only). Use when config.type is "NoopPublisher". */
+    std::shared_ptr<PublisherInterface> make_publisher_no_ros(const PublisherConfiguration &config);
     std::unique_ptr<PublisherConfiguration> parse_publisher_config(ConfigParser &parser);
 } // namespace auto_battlebot

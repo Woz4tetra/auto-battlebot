@@ -25,6 +25,7 @@ namespace auto_battlebot
         CommandFeedback update() override;
         void send(VelocityCommand command) override;
         bool did_init_button_press() override;
+        bool is_connected() const override;
 
     private:
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;

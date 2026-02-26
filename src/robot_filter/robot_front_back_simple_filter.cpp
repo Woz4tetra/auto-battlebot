@@ -1,5 +1,6 @@
 #include "robot_filter/robot_front_back_simple_filter.hpp"
 #include "data_structures/robot.hpp"
+#include "enums/frame_id.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -37,6 +38,24 @@ namespace auto_battlebot
         for (const auto &robot : robots)
         {
             robot_configs_[robot.label] = robot;
+        }
+        return true;
+    }
+
+    bool RobotFrontBackSimpleFilter::set_opponent_count(int count)
+    {
+        if (count < 1 || count > 3)
+        {
+            return false;
+        }
+        static const std::vector<FrameId> opponent_frame_ids = {
+            FrameId::THEIR_ROBOT_1,
+            FrameId::THEIR_ROBOT_2,
+            FrameId::THEIR_ROBOT_3};
+        label_to_frame_ids_[Label::OPPONENT].clear();
+        for (int i = 0; i < count; ++i)
+        {
+            label_to_frame_ids_[Label::OPPONENT].push_back(opponent_frame_ids[static_cast<size_t>(i)]);
         }
         return true;
     }

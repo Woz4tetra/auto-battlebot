@@ -23,6 +23,7 @@ namespace auto_battlebot
         bool initialize() override;
 
         VelocityCommand update(RobotDescriptionsStamped robots, FieldDescription field) override;
+        std::optional<NavigationPathSegment> get_last_path() const override;
 
     private:
         /**
@@ -74,6 +75,7 @@ namespace auto_battlebot
         double angle_threshold_;
         double lookahead_time_;
         double boundary_margin_;
+        mutable std::optional<NavigationPathSegment> last_path_;
     };
 
 } // namespace auto_battlebot

@@ -1,6 +1,19 @@
 #include "runner.hpp"
+#include "enums.hpp"
+#include <opencv2/core.hpp>
+
 namespace auto_battlebot
 {
+    static int count_opponents_in_config(const std::vector<RobotConfig> &configs)
+    {
+        int n = 0;
+        for (const auto &r : configs)
+        {
+            if (r.label == Label::OPPONENT)
+                n++;
+        }
+        return n > 0 ? n : 1;
+    }
 
     Runner::Runner(
         const RunnerConfiguration &runner_config,
@@ -12,21 +25,40 @@ namespace auto_battlebot
         std::shared_ptr<RobotFilterInterface> robot_filter,
         std::shared_ptr<NavigationInterface> navigation,
         std::shared_ptr<TransmitterInterface> transmitter,
-        std::shared_ptr<PublisherInterface> publisher) : runner_config_(runner_config),
-                                                         robot_configs_(robot_configs),
-                                                         camera_(camera),
-                                                         field_model_(field_model),
-                                                         field_filter_(field_filter),
-                                                         keypoint_model_(keypoint_model),
-                                                         robot_filter_(robot_filter),
-                                                         navigation_(navigation),
-                                                         transmitter_(transmitter),
-                                                         publisher_(publisher),
-                                                         initialized_(false),
-                                                         initial_field_description_(),
-                                                         start_time_(std::chrono::steady_clock::now())
+        std::shared_ptr<PublisherInterface> publisher,
+        std::shared_ptr<UIState> ui_state) : runner_config_(runner_config),
+                                             camera_(camera),
+                                             field_model_(field_model),
+                                             field_filter_(field_filter),
+                                             keypoint_model_(keypoint_model),
+                                             robot_filter_(robot_filter),
+                                             navigation_(navigation),
+                                             transmitter_(transmitter),
+                                             publisher_(publisher),
+                                             ui_state_(std::move(ui_state)),
+                                             initial_robot_configs_(robot_configs),
+                                             runtime_opponent_count_(count_opponents_in_config(robot_configs)),
+                                             reinit_pending_(false),
+                                             initialized_(false),
+                                             initial_field_description_(),
+                                             start_time_(std::chrono::steady_clock::now())
     {
         diagnostics_logger_ = DiagnosticsLogger::get_logger("runner");
+    }
+
+    std::vector<RobotConfig> Runner::build_effective_robot_configs() const
+    {
+        std::vector<RobotConfig> out;
+        for (const auto &r : initial_robot_configs_)
+        {
+            if (r.label != Label::OPPONENT)
+                out.push_back(r);
+        }
+        for (int i = 0; i < runtime_opponent_count_; ++i)
+        {
+            out.push_back(RobotConfig{Label::OPPONENT, Group::THEIRS});
+        }
+        return out;
     }
 
     void Runner::initialize()
@@ -73,7 +105,7 @@ namespace auto_battlebot
         }
         publisher_->publish_initial_field_description(*initial_field_description_);
 
-        robot_filter_->initialize(robot_configs_);
+        robot_filter_->initialize(build_effective_robot_configs());
         navigation_->initialize();
         initialized_ = true;
         std::cout << "Field initialized" << std::endl;
@@ -111,6 +143,23 @@ namespace auto_battlebot
             return false;
         }
 
+        double period_ms = elapsed_ms();
+        double loop_rate_hz = (period_ms > 0.0) ? (1000.0 / period_ms) : 0.0;
+        bool loop_met = (loop_rate_hz >= runner_config_.max_loop_rate * 0.99);
+
+        if (ui_state_)
+        {
+            if (ui_state_->reinit_requested.exchange(false))
+                reinit_pending_ = true;
+            int req = ui_state_->opponent_count_requested.exchange(-1);
+            if (req >= 1 && req <= 3)
+            {
+                runtime_opponent_count_ = req;
+                robot_filter_->set_opponent_count(runtime_opponent_count_);
+                reinit_pending_ = true;
+            }
+        }
+
         CommandFeedback command_feedback = transmitter_->update();
         bool did_request_initialization = transmitter_->did_init_button_press();
 
@@ -144,8 +193,9 @@ namespace auto_battlebot
             return true;
         }
 
-        if (did_request_initialization)
+        if (did_request_initialization || reinit_pending_)
         {
+            reinit_pending_ = false;
             initialize_field(camera_data);
         }
 
@@ -184,6 +234,25 @@ namespace auto_battlebot
 
         VelocityCommand command = navigation_->update(robots, field_description);
         transmitter_->send(command);
+
+        if (ui_state_)
+        {
+            SystemStatus status;
+            status.camera_ok = true;
+            status.transmitter_connected = transmitter_->is_connected();
+            status.loop_rate_hz = loop_rate_hz;
+            status.loop_met = loop_met;
+            status.initialized = initialized_;
+            ui_state_->set_system_status(status);
+            ui_state_->set_robots(robots);
+            ui_state_->set_keypoints(keypoints);
+            if (camera_data.rgb.image.data && !camera_data.rgb.image.empty())
+            {
+                const cv::Mat &img = camera_data.rgb.image;
+                std::vector<uint8_t> data(img.ptr<uint8_t>(), img.ptr<uint8_t>() + img.total() * img.elemSize());
+                ui_state_->set_debug_image(img.cols, img.rows, img.channels(), data);
+            }
+        }
 
         return true;
     }

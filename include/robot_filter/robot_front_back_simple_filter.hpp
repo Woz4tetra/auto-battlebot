@@ -29,6 +29,7 @@ namespace auto_battlebot
 
         bool initialize(const std::vector<RobotConfig> &robots) override;
         RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info, CommandFeedback command_feedback) override;
+        bool set_opponent_count(int count) override;
 
     private:
         std::unordered_map<Label, RobotConfig> robot_configs_;

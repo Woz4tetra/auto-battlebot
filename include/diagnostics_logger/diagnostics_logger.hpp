@@ -4,53 +4,41 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
-#include <miniros/publisher.h>
-#include <std_msgs/Header.hxx>
-#include <diagnostic_msgs/DiagnosticArray.hxx>
+#include <vector>
+#include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 
 namespace auto_battlebot
 {
     /**
-     * @brief A singleton class that manages diagnostics loggers and publishes their statuses.
+     * @brief A singleton class that manages diagnostics loggers and forwards to backends.
      *
      * Example usage:
-     *     // Initialize once at startup
-     *     DiagnosticsLogger::initialize("my_app", publisher);
+     *     // Initialize once at startup with one or more backends (e.g. UI, ROS)
+     *     DiagnosticsLogger::initialize({ ui_backend, ros_backend });
      *
      *     // Get a logger for a module
      *     auto logger = DiagnosticsLogger::get_logger("module_name");
      *     logger->info({}, "This is an info message");
      *     logger->debug({{"sensor_name", "sensor_value"}});
-     *     logger->error({{"error_code", 123}}, "Hardware has failed");
      *
      *     // Call periodically from a single place
      *     DiagnosticsLogger::publish();
      *
      * If a single logger sets multiple messages before being published, they are concatenated
-     * together in the final output:
-     *     logger->warning({}, "Low battery");
-     *     logger->error({}, "Sensor disconnected");
-     * Results in: "Low battery | Sensor disconnected"
+     * together in the final output.
      *
-     * Nested dictionaries and arrays are flattened with keys joined by slashes:
-     *     logger->error({{"motor", {{"temperatures", std::vector<int>{95, 94, 90}}, {"voltage", 12.5}}}});
-     * Results in Foxglove:
-     *     motor/temperature/0: 95
-     *     motor/temperature/1: 94
-     *     motor/temperature/2: 90
-     *     motor/voltage: 12.5
+     * Nested dictionaries and arrays are flattened with keys joined by slashes.
      */
     class DiagnosticsLogger
     {
     public:
         /**
-         * @brief Initialize the diagnostics logger system
+         * @brief Initialize the diagnostics logger system with backends
          *
-         * @param publisher ROS publisher for DiagnosticArray messages
+         * @param backends List of backends to receive diagnostic snapshots (e.g. UI, ROS)
          */
-        static void initialize(
-            std::shared_ptr<miniros::Publisher> publisher);
+        static void initialize(std::vector<std::shared_ptr<DiagnosticsBackend>> backends);
 
         /**
          * @brief Check if the diagnostics logger has been initialized
@@ -59,31 +47,24 @@ namespace auto_battlebot
 
         /**
          * @brief Get or create a logger for a specific module
-         *
-         * @param name Name of the module
-         * @return std::shared_ptr<DiagnosticsModuleLogger>
          */
         static std::shared_ptr<DiagnosticsModuleLogger> get_logger(const std::string &name);
 
         /**
          * @brief Remove a logger
-         *
-         * @param name Name of the module logger to remove
          */
         static void remove_logger(const std::string &name);
 
         /**
-         * @brief Publish all accumulated diagnostics and clear loggers
-         *
-         * This should be called periodically from a single place at the top level
-         * of the application.
+         * @brief Gather snapshots from all loggers, clear them, and pass to each backend
          */
         static void publish();
 
     protected:
         static std::map<std::string, std::shared_ptr<DiagnosticsModuleLogger>> loggers_;
-        static std::shared_ptr<miniros::Publisher> diagnostics_publisher_;
-        static bool test_mode_;  // When true, skip actual ROS publish
+        static std::vector<std::shared_ptr<DiagnosticsBackend>> backends_;
+        static bool initialized_;
+        static bool test_mode_;  // When true, skip calling backends (for unit tests)
     };
 
 } // namespace auto_battlebot

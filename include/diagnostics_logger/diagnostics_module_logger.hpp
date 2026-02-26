@@ -5,6 +5,7 @@
 #include <set>
 #include <algorithm>
 #include <diagnostic_msgs/DiagnosticStatus.hxx>
+#include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "diagnostics_logger/diagnostics_utils.hpp"
 
 namespace auto_battlebot
@@ -98,6 +99,11 @@ namespace auto_battlebot
          * @return std::vector<diagnostic_msgs::DiagnosticStatus>
          */
         std::vector<diagnostic_msgs::DiagnosticStatus> get_status() const;
+
+        /**
+         * @brief Get backend-agnostic snapshots (no ROS types)
+         */
+        std::vector<DiagnosticStatusSnapshot> get_snapshots() const;
 
     private:
         std::string logger_name_;

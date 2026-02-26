@@ -183,6 +183,33 @@ namespace auto_battlebot
         return diagnostics;
     }
 
+    std::vector<DiagnosticStatusSnapshot> DiagnosticsModuleLogger::get_snapshots() const
+    {
+        std::vector<DiagnosticStatusSnapshot> snapshots;
+        for (const auto &[subsection_name, data_map] : data_)
+        {
+            std::string combined_message;
+            auto messages_it = messages_.find(subsection_name);
+            if (messages_it != messages_.end())
+            {
+                const auto &subsection_messages = messages_it->second;
+                for (size_t i = 0; i < subsection_messages.size(); ++i)
+                {
+                    if (i > 0)
+                        combined_message += " | ";
+                    combined_message += subsection_messages[i];
+                }
+            }
+            DiagnosticStatusSnapshot snap;
+            snap.name = subsection_name.empty() ? logger_name_ : subsection_name;
+            snap.level = level_;
+            snap.values = flatten_diagnostics_data(data_map);
+            snap.message = combined_message;
+            snapshots.push_back(std::move(snap));
+        }
+        return snapshots;
+    }
+
     std::string DiagnosticsModuleLogger::get_name() const
     {
         return logger_name_;

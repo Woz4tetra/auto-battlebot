@@ -19,6 +19,7 @@
 #include "diagnostics_logger/function_timer.hpp"
 #include "runner_config.hpp"
 #include "data_structures/command_feedback.hpp"
+#include "ui/ui_state.hpp"
 
 namespace auto_battlebot
 {
@@ -35,7 +36,8 @@ namespace auto_battlebot
             std::shared_ptr<RobotFilterInterface> robot_filter,
             std::shared_ptr<NavigationInterface> navigation,
             std::shared_ptr<TransmitterInterface> transmitter,
-            std::shared_ptr<PublisherInterface> publisher);
+            std::shared_ptr<PublisherInterface> publisher,
+            std::shared_ptr<UIState> ui_state = nullptr);
 
         void initialize();
         void initialize_field(const CameraData &camera_data);
@@ -44,7 +46,6 @@ namespace auto_battlebot
 
     private:
         RunnerConfiguration runner_config_;
-        std::vector<RobotConfig> robot_configs_;
         std::shared_ptr<RgbdCameraInterface> camera_;
         std::shared_ptr<FieldModelInterface> field_model_;
         std::shared_ptr<FieldFilterInterface> field_filter_;
@@ -53,12 +54,18 @@ namespace auto_battlebot
         std::shared_ptr<NavigationInterface> navigation_;
         std::shared_ptr<TransmitterInterface> transmitter_;
         std::shared_ptr<PublisherInterface> publisher_;
+        std::shared_ptr<UIState> ui_state_;
+
+        std::vector<RobotConfig> initial_robot_configs_;
+        int runtime_opponent_count_;
+        bool reinit_pending_;
 
         bool initialized_;
         std::shared_ptr<FieldDescriptionWithInlierPoints> initial_field_description_;
         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
         std::chrono::steady_clock::time_point start_time_;
 
+        std::vector<RobotConfig> build_effective_robot_configs() const;
         double elapsed_ms();
     };
 } // namespace auto_battlebot

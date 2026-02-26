@@ -15,6 +15,7 @@ namespace auto_battlebot
         CommandFeedback update() override;
         void send(VelocityCommand command) override;
         bool did_init_button_press() override;
+        bool is_connected() const override { return true; }
 
     private:
         double init_delay_seconds_;

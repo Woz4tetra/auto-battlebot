@@ -31,20 +31,18 @@ namespace auto_battlebot
 
     VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, FieldDescription field)
     {
+        last_path_ = std::nullopt;
         // Find our robot
         auto our_robot_opt = find_our_robot(robots);
         if (!our_robot_opt.has_value())
         {
-            // No robot found - stop
             return VelocityCommand{0.0, 0.0, 0.0};
         }
         const auto &our_robot = our_robot_opt.value();
 
-        // Find target to pursue
         auto target_opt = find_target_robot(robots, our_robot);
         if (!target_opt.has_value())
         {
-            // No target found - stop
             return VelocityCommand{0.0, 0.0, 0.0};
         }
         const auto &target = target_opt.value();
@@ -53,8 +51,15 @@ namespace auto_battlebot
         Pose2D our_pose = pose_to_pose2d(our_robot.pose);
         Pose2D target_pose = predict_target_position(target);
 
+        last_path_ = NavigationPathSegment{our_pose.x, our_pose.y, target_pose.x, target_pose.y};
+
         // Compute and return pursuit command
         return compute_pursuit_command(our_pose, target_pose, field);
+    }
+
+    std::optional<NavigationPathSegment> PursuitNavigation::get_last_path() const
+    {
+        return last_path_;
     }
 
     std::optional<RobotDescription> PursuitNavigation::find_our_robot(

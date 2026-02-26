@@ -1,6 +1,7 @@
 #pragma once
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "diagnostics_logger/ros_diagnostics_backend.hpp"
 #include <diagnostic_msgs/DiagnosticArray.hxx>
 
 namespace auto_battlebot
@@ -63,7 +64,8 @@ namespace auto_battlebot
         static void reset()
         {
             loggers_.clear();
-            diagnostics_publisher_.reset();
+            backends_.clear();
+            initialized_ = false;
             test_mode_ = false;
         }
 

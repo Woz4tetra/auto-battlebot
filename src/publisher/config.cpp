@@ -11,6 +11,16 @@ namespace auto_battlebot
         return ConfigFactory<PublisherConfiguration>::instance().create_and_parse(parser);
     }
 
+    std::shared_ptr<PublisherInterface> make_publisher_no_ros(const PublisherConfiguration &config)
+    {
+        if (config.type != "NoopPublisher")
+        {
+            throw std::invalid_argument("make_publisher_no_ros only supports NoopPublisher, got " + config.type);
+        }
+        std::cout << "Selected NoopPublisher" << std::endl;
+        return std::make_shared<NoopPublisher>();
+    }
+
     std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh, const PublisherConfiguration &config)
     {
         std::cout << "Selected " + config.type + " for Publisher" << std::endl;

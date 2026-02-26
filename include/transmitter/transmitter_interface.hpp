@@ -13,6 +13,8 @@ namespace auto_battlebot
         virtual CommandFeedback update() = 0;
         virtual void send(VelocityCommand command) = 0;
         virtual bool did_init_button_press() = 0;
+        /** Whether the transmitter is connected (e.g. to hardware or simulation). */
+        virtual bool is_connected() const { return false; }
     };
 
 } // namespace auto_battlebot

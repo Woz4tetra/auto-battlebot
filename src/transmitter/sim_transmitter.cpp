@@ -79,4 +79,9 @@ bool SimTransmitter::did_init_button_press()
     return false;
 }
 
+bool SimTransmitter::is_connected() const
+{
+    return SimTcpClient::instance().is_connected();
+}
+
 } // namespace auto_battlebot

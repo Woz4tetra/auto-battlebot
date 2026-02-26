@@ -2,24 +2,24 @@
 
 namespace auto_battlebot
 {
-    // Static member definitions
     std::map<std::string, std::shared_ptr<DiagnosticsModuleLogger>> DiagnosticsLogger::loggers_;
-    std::shared_ptr<miniros::Publisher> DiagnosticsLogger::diagnostics_publisher_;
+    std::vector<std::shared_ptr<DiagnosticsBackend>> DiagnosticsLogger::backends_;
+    bool DiagnosticsLogger::initialized_ = false;
     bool DiagnosticsLogger::test_mode_ = false;
 
-    void DiagnosticsLogger::initialize(
-        std::shared_ptr<miniros::Publisher> publisher)
+    void DiagnosticsLogger::initialize(std::vector<std::shared_ptr<DiagnosticsBackend>> backends)
     {
-        if (diagnostics_publisher_ != nullptr)
+        if (initialized_)
         {
             throw std::runtime_error("DiagnosticsLogger already initialized");
         }
-        diagnostics_publisher_ = publisher;
+        backends_ = std::move(backends);
+        initialized_ = true;
     }
 
     bool DiagnosticsLogger::is_initialized()
     {
-        return diagnostics_publisher_ != nullptr;
+        return initialized_;
     }
 
     std::shared_ptr<DiagnosticsModuleLogger> DiagnosticsLogger::get_logger(const std::string &name)
@@ -29,7 +29,6 @@ namespace auto_battlebot
         {
             return it->second;
         }
-
         auto logger = std::make_shared<DiagnosticsModuleLogger>(name);
         loggers_[name] = logger;
         return logger;
@@ -47,45 +46,35 @@ namespace auto_battlebot
 
     void DiagnosticsLogger::publish()
     {
-        if (diagnostics_publisher_ == nullptr)
+        if (!initialized_)
         {
             throw std::runtime_error("DiagnosticsLogger not initialized");
         }
 
-        std::vector<diagnostic_msgs::DiagnosticStatus> statuses;
-
-        // Collect statuses from all loggers
+        std::vector<DiagnosticStatusSnapshot> all_snapshots;
         for (auto &[name, logger] : loggers_)
         {
             if (!logger->has_status())
             {
                 continue;
             }
-            std::vector<diagnostic_msgs::DiagnosticStatus> new_statuses = logger->get_status();
-            statuses.insert(statuses.begin(), new_statuses.begin(), new_statuses.end());
+            std::vector<DiagnosticStatusSnapshot> snapshots = logger->get_snapshots();
+            for (auto &s : snapshots)
+            {
+                all_snapshots.push_back(std::move(s));
+            }
             logger->clear();
         }
 
-        // Only publish if we have statuses
-        if (statuses.empty())
+        if (!all_snapshots.empty() && !test_mode_)
         {
-            return;
-        }
-
-        // Create DiagnosticArray message
-        diagnostic_msgs::DiagnosticArray diagnostics;
-
-        // Set header with current time
-        diagnostics.header.stamp = miniros::Time::now();
-        diagnostics.header.frame_id = "";
-
-        // Add all statuses
-        diagnostics.status = statuses;
-
-        // Publish (skip in test mode to avoid needing a real ROS publisher)
-        if (!test_mode_)
-        {
-            diagnostics_publisher_->publish(diagnostics);
+            for (const auto &backend : backends_)
+            {
+                if (backend)
+                {
+                    backend->receive(all_snapshots);
+                }
+            }
         }
     }
 

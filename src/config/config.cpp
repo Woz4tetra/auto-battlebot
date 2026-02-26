@@ -116,6 +116,7 @@ namespace auto_battlebot
             {
                 ConfigParser runner_parser(*runner_section, "runner");
                 config.runner.max_loop_rate = runner_parser.get_optional_double("max_loop_rate", 300.0);
+                config.runner.ui_enabled = runner_parser.get_optional_bool("ui_enabled", false);
                 runner_parser.validate_no_extra_fields();
                 parsed_sections.push_back("runner");
             }
