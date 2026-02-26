@@ -125,6 +125,12 @@ install_python_environment() {
     echo "Upgrading pip, setuptools, and wheel..."
     pip install --upgrade pip setuptools wheel
 
+    # On Jetson: install PyTorch wheel before pip install -e . so dependencies use it instead of pulling torch from PyPI
+    if [ -f /etc/nv_tegra_release ]; then
+        source "$SCRIPT_DIR/install_pytorch_jetson.sh"
+        ensure_jetson_torch_in_venv
+    fi
+
     # Check if pyproject.toml exists
     local PYPROJECT_FILE="$PROJECT_ROOT/pyproject.toml"
     if [ ! -f "$PYPROJECT_FILE" ]; then
