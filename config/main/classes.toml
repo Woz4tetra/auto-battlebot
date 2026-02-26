@@ -82,7 +82,7 @@ type = "PlaybackTransmitter"
 init_delay_seconds = 0.2
 
 [publisher]
-type = "RosPublisher"
+type = "NoopPublisher"
 
 [runner]
 max_loop_rate = 300.0
