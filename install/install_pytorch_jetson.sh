@@ -8,6 +8,19 @@
 
 set -e
 
+# Detect installed CUDA version (e.g. 12.6). Uses nvcc --version, else version.txt, else default.
+get_cuda_version() {
+    local ver
+    ver=$(nvcc --version 2>/dev/null | grep -oP 'release \K[0-9]+\.[0-9]+' | head -1)
+    if [ -z "$ver" ] && [ -f /usr/local/cuda/version.txt ]; then
+        ver=$(grep -oP 'CUDA Version \K[0-9]+\.[0-9]+' /usr/local/cuda/version.txt 2>/dev/null | head -1)
+    fi
+    if [ -z "$ver" ] && [ -d /usr/local/cuda ]; then
+        ver=$(ls -d /usr/local/cuda-[0-9]*.[0-9]* 2>/dev/null | sort -V | tail -1 | grep -oP 'cuda-\K[0-9]+\.[0-9]+')
+    fi
+    echo "${ver:-12.1}"
+}
+
 # Compute TORCH_INSTALL URL for current JetPack (no side effects). Sets TORCH_INSTALL if empty.
 get_jetson_torch_install_url() {
     if [ -n "${TORCH_INSTALL:-}" ]; then
@@ -74,8 +87,11 @@ install_pytorch_jetson() {
 
     # 2. cusparselt for PyTorch 24.06+ (per NVIDIA doc; run in /tmp so it creates dirs there)
     local CUSPARSELT_SH="/tmp/install_cusparselt.sh"
+    local CUDA_VER
+    CUDA_VER=$(get_cuda_version)
+    echo "Detected CUDA version: $CUDA_VER"
     wget -q -O "$CUSPARSELT_SH" "https://raw.githubusercontent.com/pytorch/pytorch/5c6af2b583709f6176898c017424dc9981023c28/.ci/docker/common/install_cusparselt.sh"
-    (cd /tmp && sudo CUDA_VERSION=12.1 bash install_cusparselt.sh)
+    (cd /tmp && sudo CUDA_VERSION="$CUDA_VER" bash install_cusparselt.sh)
 
     # 3. Use project venv (create if missing)
     if [ ! -d "$VENV_DIR" ]; then
@@ -99,14 +115,15 @@ install_pytorch_jetson() {
         echo "Jetson: adding CUDA library path to venv activate script..."
         cat >> "$ACTIVATE_SH" << 'JETSON_ACTIVATE_EOF'
 
-# Jetson: prepend CUDA/cuDNN paths so PyTorch in venv sees CUDA (same as host site-packages)
+# Jetson: prepend CUDA/cuDNN paths so PyTorch in venv sees CUDA (detect installed version)
 if [ -f /etc/nv_tegra_release ]; then
     _jetson_ld_path=""
-    for _p in /usr/local/cuda/lib64 /usr/lib/aarch64-linux-gnu /usr/lib/llvm-8/lib; do
+    _cuda_ver=$(nvcc --version 2>/dev/null | grep -oP "release \\K[0-9]+\\.[0-9]+" | head -1)
+    for _p in $( [ -n "$_cuda_ver" ] && echo "/usr/local/cuda-$_cuda_ver/lib64" ) /usr/local/cuda/lib64 /usr/lib/aarch64-linux-gnu /usr/lib/llvm-8/lib; do
         [ -d "$_p" ] && _jetson_ld_path="${_jetson_ld_path:+$_jetson_ld_path:}$_p"
     done
     [ -n "$_jetson_ld_path" ] && export LD_LIBRARY_PATH="${_jetson_ld_path}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-    unset _p _jetson_ld_path
+    unset _p _jetson_ld_path _cuda_ver
 fi
 JETSON_ACTIVATE_EOF
     fi
