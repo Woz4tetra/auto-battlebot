@@ -3,3 +3,7 @@
 # One package per line, lines starting with # are ignored
 
 libnvinfer-dev
+
+python3.11@ppa:deadsnakes/ppa
+python3.11-venv
+python3.11-dev
