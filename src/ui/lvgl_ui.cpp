@@ -350,13 +350,20 @@ namespace auto_battlebot
             if (ui_state->quit_requested.load())
                 break;
 
+            /* Only consume quit/close; push other events back so LVGL's SDL driver
+             * (run inside lv_timer_handler) can process touch/mouse/keyboard. */
             SDL_Event event;
-            while (SDL_PollEvent(&event))
+            if (SDL_PollEvent(&event))
             {
-                if (event.type == SDL_QUIT)
+                if (event.type == SDL_QUIT ||
+                    (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE))
+                {
                     running = false;
-                if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE)
-                    running = false;
+                }
+                else
+                {
+                    SDL_PushEvent(&event);
+                }
             }
 
             ui_state->quit_requested.store(!running);
