@@ -67,6 +67,10 @@ namespace auto_battlebot
         void set_navigation_path(const std::optional<NavigationPathSegment> &path);
         void get_navigation_path(std::optional<NavigationPathSegment> &out) const;
 
+        /** Window size for UI (from config [ui]; default 1280x800). Set before starting UI thread. */
+        void set_window_size(int width, int height);
+        void get_window_size(int &width, int &height) const;
+
     private:
         mutable std::mutex status_mutex_;
         SystemStatus system_status_;
@@ -78,6 +82,8 @@ namespace auto_battlebot
         RobotDescriptionsStamped robots_;
         KeypointsStamped keypoints_;
         std::optional<NavigationPathSegment> navigation_path_;
+        int window_width_ = 1280;
+        int window_height_ = 800;
     };
 
 } // namespace auto_battlebot

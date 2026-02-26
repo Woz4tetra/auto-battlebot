@@ -79,4 +79,18 @@ namespace auto_battlebot
         std::lock_guard<std::mutex> lock(status_mutex_);
         out = navigation_path_;
     }
+
+    void UIState::set_window_size(int width, int height)
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        window_width_ = width;
+        window_height_ = height;
+    }
+
+    void UIState::get_window_size(int &width, int &height) const
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        width = window_width_;
+        height = window_height_;
+    }
 } // namespace auto_battlebot

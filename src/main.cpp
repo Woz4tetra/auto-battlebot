@@ -11,7 +11,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/ros_diagnostics_backend.hpp"
 #include "diagnostics_logger/ui_diagnostics_backend.hpp"
-#include "ui/imgui_ui.hpp"
+#include "ui/ui_runner.hpp"
 #include "ui/ui_state.hpp"
 
 int main(int argc, char **argv)
@@ -85,6 +85,7 @@ int main(int argc, char **argv)
     std::thread ui_thread;
     if (class_config.runner.ui_enabled && ui_state)
     {
+        ui_state->set_window_size(class_config.ui.width, class_config.ui.height);
         ui_thread = std::thread(run_ui_thread, ui_state);
     }
 

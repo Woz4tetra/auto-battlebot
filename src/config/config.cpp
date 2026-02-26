@@ -121,6 +121,17 @@ namespace auto_battlebot
                 parsed_sections.push_back("runner");
             }
 
+            // Parse ui section (optional; window size for UI when ui_enabled)
+            auto ui_section = toml_data["ui"].as_table();
+            if (ui_section)
+            {
+                ConfigParser ui_parser(*ui_section, "ui");
+                config.ui.width = static_cast<int>(ui_parser.get_optional_int("width", 1280));
+                config.ui.height = static_cast<int>(ui_parser.get_optional_int("height", 800));
+                ui_parser.validate_no_extra_fields();
+                parsed_sections.push_back("ui");
+            }
+
             // Validate no extra sections using the list we built during parsing
             validate_no_extra_sections(toml_data, parsed_sections, path.stem());
         }

@@ -58,12 +58,18 @@ FetchContent_Declare(
 )
 
 FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG v1.90.1
+    lvgl
+    GIT_REPOSITORY https://github.com/lvgl/lvgl.git
+    GIT_TAG v9.3.0
     GIT_SHALLOW TRUE
     UPDATE_DISCONNECTED TRUE
 )
+
+# LVGL config path (must be set before MakeAvailable)
+set(LV_BUILD_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include/ui/lv_conf.h" CACHE PATH "")
+# Disable demos and examples to speed up build
+set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "")
+set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "")
 
 # Fetch googletest only if testing is enabled
 if(BUILD_TESTING)
@@ -78,15 +84,14 @@ if(BUILD_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum imgui googletest)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl googletest)
 else()
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum imgui)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl)
 endif()
 
 # Find required packages
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Threads REQUIRED)
-find_package(OpenGL REQUIRED)
 # SDL2: try config first, then pkg-config
 find_package(SDL2 QUIET)
 if(NOT SDL2_FOUND)
@@ -132,7 +137,7 @@ file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES
     "src/**/*.cpp"
 )
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
-list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*imgui_ui\\.cpp$")
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*lvgl_ui\\.cpp$")
 
 add_library(auto_battlebot_lib SHARED
     ${AUTO_BATTLEBOT_SOURCES}
@@ -204,34 +209,17 @@ if(BUILD_DEBUG)
     )
 endif()
 
-# ImGui library (core + SDL2 + OpenGL3 backends)
-add_library(imgui_ui_lib STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-)
-target_include_directories(imgui_ui_lib PUBLIC
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
-)
-target_link_libraries(imgui_ui_lib PUBLIC
-    ${SDL2_TARGET}
-    OpenGL::GL
-)
-
-# Create main executable
+# Create main executable (UI implemented with LVGL + SDL2)
 add_executable(auto_battlebot
     src/main.cpp
-    src/ui/imgui_ui.cpp
+    src/ui/lvgl_ui.cpp
 )
 
 target_link_libraries(auto_battlebot
     auto_battlebot_lib
     CLI11::CLI11
-    imgui_ui_lib
+    lvgl::lvgl
+    ${SDL2_TARGET}
 )
 
 # Compiler flags for executable

@@ -41,6 +41,7 @@ namespace auto_battlebot
         std::unique_ptr<TransmitterConfiguration> transmitter;
         std::unique_ptr<PublisherConfiguration> publisher;
         RunnerConfiguration runner;
+        UIConfiguration ui;
     };
 
     // Configuration loading functions
