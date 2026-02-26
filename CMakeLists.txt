@@ -255,8 +255,10 @@ add_custom_command(TARGET auto_battlebot POST_BUILD
 )
 
 # So the installed executable finds libauto_battlebot.so in PREFIX/lib when run from PREFIX/bin
-set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
+# $ORIGIN = directory of the executable; escape $ so CMake passes it to the linker
+set(CMAKE_INSTALL_RPATH "\$ORIGIN/../lib;\$ORIGIN/../lib64")
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
+set_target_properties(auto_battlebot PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib;\$ORIGIN/../lib64")
 
 # Install targets
 install(TARGETS auto_battlebot auto_battlebot_lib
