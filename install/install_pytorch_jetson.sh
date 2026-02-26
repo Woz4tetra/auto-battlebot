@@ -93,6 +93,24 @@ install_pytorch_jetson() {
         fi
     fi
 
+    # Ensure venv activate sets LD_LIBRARY_PATH for PyTorch CUDA (so torch.cuda.is_available() works)
+    local ACTIVATE_SH="$VENV_DIR/bin/activate"
+    if ! grep -q 'jetson.*LD_LIBRARY_PATH' "$ACTIVATE_SH" 2>/dev/null; then
+        echo "Jetson: adding CUDA library path to venv activate script..."
+        cat >> "$ACTIVATE_SH" << 'JETSON_ACTIVATE_EOF'
+
+# Jetson: prepend CUDA/cuDNN paths so PyTorch in venv sees CUDA (same as host site-packages)
+if [ -f /etc/nv_tegra_release ]; then
+    _jetson_ld_path=""
+    for _p in /usr/local/cuda/lib64 /usr/lib/aarch64-linux-gnu /usr/lib/llvm-8/lib; do
+        [ -d "$_p" ] && _jetson_ld_path="${_jetson_ld_path:+$_jetson_ld_path:}$_p"
+    done
+    [ -n "$_jetson_ld_path" ] && export LD_LIBRARY_PATH="${_jetson_ld_path}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    unset _p _jetson_ld_path
+fi
+JETSON_ACTIVATE_EOF
+    fi
+
     source "$VENV_DIR/bin/activate"
     pip install --upgrade pip
     ensure_jetson_torch_in_venv
