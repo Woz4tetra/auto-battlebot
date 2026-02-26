@@ -201,7 +201,7 @@ namespace auto_battlebot
                 }
             }
             DiagnosticStatusSnapshot snap;
-            snap.name = subsection_name.empty() ? logger_name_ : subsection_name;
+            snap.name = subsection_name.empty() ? logger_name_ : (logger_name_ + "/" + subsection_name);
             snap.level = level_;
             snap.values = flatten_diagnostics_data(data_map);
             snap.message = combined_message;
