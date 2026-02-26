@@ -15,28 +15,39 @@ uses TensorRT Builder + OnnxParser (no Ultralytics required).
 
 For C++ YoloKeypointModel compatibility, prefer building from ONNX (--from-onnx):
   python training/yolo/convert_to_onnx.py model.pt
-  python training/yolo/convert_to_tensorrt.py model.onnx --from-onnx -o models/model_x86_64.engine
+  python training/yolo/convert_to_tensorrt.py model.onnx --from-onnx -o models/model.engine
 Engines built from .pt via Ultralytics may use a different plan format and fail to load in the C++ runtime.
 
-Output filenames include a platform tag (e.g. _x86_64, _aarch64) so the wrong
-engine is not used by accident.
+Output filenames include a platform tag (e.g. _x86_64_sm89, _aarch64_sm72) that
+encodes both CPU architecture and GPU compute capability so incompatible engines
+are not loaded by accident.
 """
 
 import argparse
+import ctypes
 import platform
 from pathlib import Path
 
-try:
-    import tensorrt as trt
-except ImportError as e:
-    raise ImportError(
-        "TensorRT is not installed. Install it (e.g. pip install tensorrt, or use JetPack on Jetson)"
-    ) from e
+import tensorrt as trt
+import torch
+
+
+def _get_compute_capability() -> tuple[int, int]:
+    """Query GPU compute capability of device 0."""
+    if torch.cuda.is_available():
+        return torch.cuda.get_device_capability(0)
+    raise RuntimeError("CUDA not available — cannot determine GPU compute capability")
 
 
 def engine_path_with_platform_tag(path: Path) -> Path:
-    """Append platform tag to engine path stem so x86 vs Jetson engines are distinct."""
-    tag = platform.machine()
+    """Append platform + GPU compute capability tag so incompatible engines are distinct.
+
+    Produces filenames like ``model_x86_64_sm89.engine`` — the ``sm`` tag
+    prevents silently loading an engine built for a different GPU architecture.
+    """
+    arch = platform.machine()
+    major, minor = _get_compute_capability()
+    tag = f"{arch}_sm{major}{minor}"
     suffix = path.suffix if path.suffix else ".engine"
     return path.parent / f"{path.stem}_{tag}{suffix}"
 
@@ -94,7 +105,7 @@ def main() -> None:
         "-o",
         "--output",
         type=str,
-        help="Output path for TensorRT engine; platform tag (e.g. _x86_64) is appended to stem (default: same name with .engine)",
+        help="Output path for TensorRT engine; platform+GPU tag (e.g. _x86_64_sm89) is appended to stem (default: same name with .engine)",
     )
     parser.add_argument(
         "--imgsz",

@@ -14,6 +14,8 @@ namespace auto_battlebot
         {
             return;
         }
+        ui_state_->set_diagnostic_snapshots(snapshots);
+
         std::map<std::string, std::string> merged;
         for (const auto &snap : snapshots)
         {

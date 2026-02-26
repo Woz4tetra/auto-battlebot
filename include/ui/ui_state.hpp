@@ -10,6 +10,7 @@
 
 #include "data_structures/keypoint.hpp"
 #include "data_structures/robot.hpp"
+#include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "navigation/navigation_interface.hpp"
 
 namespace auto_battlebot
@@ -51,6 +52,10 @@ namespace auto_battlebot
         void set_diagnostics(const std::map<std::string, std::string> &kv);
         void get_diagnostics(std::map<std::string, std::string> &out) const;
 
+        /** Structured diagnostic snapshots (preserves section grouping for UI tables) */
+        void set_diagnostic_snapshots(const std::vector<DiagnosticStatusSnapshot> &snapshots);
+        void get_diagnostic_snapshots(std::vector<DiagnosticStatusSnapshot> &out) const;
+
         /** Debug image: raw RGB bytes, row-major. Runner sets; UI draws keypoints and displays. */
         void set_debug_image(int width, int height, int channels, const std::vector<uint8_t> &data);
         void get_debug_image(int &width, int &height, int &channels, std::vector<uint8_t> &data) const;
@@ -71,10 +76,14 @@ namespace auto_battlebot
         void set_window_size(int width, int height);
         void get_window_size(int &width, int &height) const;
 
+        void set_fullscreen(bool fullscreen);
+        bool get_fullscreen() const;
+
     private:
         mutable std::mutex status_mutex_;
         SystemStatus system_status_;
         std::map<std::string, std::string> diagnostics_;
+        std::vector<DiagnosticStatusSnapshot> diagnostic_snapshots_;
         int debug_image_width_ = 0;
         int debug_image_height_ = 0;
         int debug_image_channels_ = 0;
@@ -84,6 +93,7 @@ namespace auto_battlebot
         std::optional<NavigationPathSegment> navigation_path_;
         int window_width_ = 1280;
         int window_height_ = 800;
+        bool fullscreen_ = true;
     };
 
 } // namespace auto_battlebot

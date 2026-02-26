@@ -100,3 +100,9 @@ type = "RosPublisher"
 
 [runner]
 max_loop_rate = 300.0
+
+[ui]
+enable = true
+fullscreen = false
+width = 1280
+height = 800

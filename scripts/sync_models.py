@@ -6,18 +6,25 @@ Downloads model files from a private Google Drive folder to the local models dir
 Uses OAuth2 authentication - on first run, opens a browser for Google sign-in.
 
 Usage:
-    python scripts/sync_models.py
-    python scripts/sync_models.py --force      # Re-download all files
-    python scripts/sync_models.py --dry-run    # Show what would be downloaded
-    python scripts/sync_models.py --setup      # Run credentials setup wizard
+    python scripts/sync_models.py                        # Download all models
+    python scripts/sync_models.py --force                # Re-download all files
+    python scripts/sync_models.py --dry-run              # Show what would be downloaded
+    python scripts/sync_models.py --setup                # Run credentials setup wizard
+    python scripts/sync_models.py --headless             # Authenticate without a browser
+    python scripts/sync_models.py --export-token TOKEN   # Export token for another machine
+    python scripts/sync_models.py --import-token TOKEN   # Import token from another machine
 """
 
 import argparse
+import base64
 import json
+import os
+import shutil
 import sys
 import time
 import webbrowser
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -96,15 +103,29 @@ def wait_for_user(prompt: str = "Press Enter to continue...") -> None:
     input(f"\n{prompt}")
 
 
+def is_headless() -> bool:
+    """Detect if we're running on a headless machine (no display)."""
+    if sys.platform == "darwin":
+        return False
+    if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        return False
+    if shutil.which("xdg-open") is None and shutil.which("open") is None:
+        return True
+    return True
+
+
 def open_url(url: str, description: str) -> None:
-    """Open a URL in the default browser."""
+    """Open a URL in the default browser, or print it for headless machines."""
     print(f"\nOpening: {description}")
     print(f"URL: {url}")
-    try:
-        webbrowser.open(url)
-        print("(Browser window should open automatically)")
-    except Exception:
-        print("(Could not open browser automatically - please open the URL manually)")
+    if is_headless():
+        print("(No display detected - open this URL on a machine with a browser)")
+    else:
+        try:
+            webbrowser.open(url)
+            print("(Browser window should open automatically)")
+        except Exception:
+            print("(Could not open browser - please open the URL manually)")
 
 
 def validate_credentials_file(path: Path) -> tuple[bool, str]:
@@ -449,13 +470,118 @@ def handle_auth_error(error: Exception) -> None:
         sys.exit(1)
 
 
-def authenticate() -> Credentials:
+def authenticate_headless(credentials_file: Path) -> Credentials:
+    """
+    Authenticate on a headless machine by printing the auth URL
+    and having the user paste back the redirect URL from the browser.
+    """
+    flow = InstalledAppFlow.from_client_secrets_file(
+        str(credentials_file), SCOPES, redirect_uri="http://localhost:1"
+    )
+
+    auth_url, _ = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",
+    )
+
+    print_header("Headless Authentication")
+    print("Since this machine has no browser, you'll need to authenticate")
+    print("using a browser on another machine.\n")
+    print("1. Open this URL in a browser on ANY machine:")
+    print(f"\n   {auth_url}\n")
+    print("2. Sign in with your Google account and grant access.")
+    print("3. After authorizing, your browser will try to redirect to")
+    print("   http://localhost:1/... and show an error page.")
+    print("   THIS IS EXPECTED.")
+    print("4. Copy the FULL URL from your browser's address bar.")
+    print("   It will look like: http://localhost:1/?state=...&code=...&scope=...")
+    print()
+
+    while True:
+        redirect_response = input("Paste the full redirect URL here: ").strip()
+        if not redirect_response:
+            continue
+
+        try:
+            parsed = urlparse(redirect_response)
+            params = parse_qs(parsed.query)
+
+            if "code" not in params:
+                print("\nNo authorization code found in that URL.")
+                print("Make sure you copied the entire URL from the address bar.")
+                print("It should contain '?code=' in it.\n")
+                continue
+
+            flow.fetch_token(code=params["code"][0])
+            print("\nAuthentication successful!")
+            return flow.credentials
+
+        except Exception as e:
+            print(f"\nFailed to exchange code: {e}")
+            print("Please try again.\n")
+
+
+def export_token(output_path: str | None = None) -> None:
+    """Export the saved token as a portable base64 string or to a file."""
+    token_path = get_token_path()
+
+    if not token_path.exists():
+        print("No token found. Run the sync script first to authenticate.")
+        sys.exit(1)
+
+    token_data = token_path.read_text()
+
+    if output_path:
+        out = Path(output_path)
+        out.write_text(token_data)
+        print(f"Token exported to: {out}")
+        print(f"\nCopy this file to the remote machine, then run:")
+        print(f"  python scripts/sync_models.py --import-token {out.name}")
+    else:
+        encoded = base64.b64encode(token_data.encode()).decode()
+        print("Copy this token string and use it on the remote machine:\n")
+        print(encoded)
+        print(f"\nOn the remote machine, run:")
+        print(f"  python scripts/sync_models.py --import-token <paste_token_here>")
+
+
+def import_token(token_input: str) -> None:
+    """Import a token from a base64 string or a file path."""
+    token_path = get_token_path()
+
+    # Check if it's a file path
+    input_path = Path(token_input)
+    if input_path.exists():
+        token_data = input_path.read_text()
+    else:
+        # Try to decode as base64
+        try:
+            token_data = base64.b64decode(token_input).decode()
+        except Exception:
+            print(f"Error: '{token_input}' is not a valid file path or base64 token.")
+            sys.exit(1)
+
+    # Validate the token JSON
+    try:
+        json.loads(token_data)
+    except json.JSONDecodeError:
+        print("Error: Token data is not valid JSON.")
+        sys.exit(1)
+
+    token_path.write_text(token_data)
+    print(f"Token imported to: {token_path}")
+    print("\nYou can now run:")
+    print("  python scripts/sync_models.py")
+
+
+def authenticate(headless_mode: bool = False) -> Credentials:
     """
     Authenticate with Google Drive API using OAuth2.
 
-    On first run, opens a browser for user consent.
+    On first run, opens a browser (or uses headless flow) for user consent.
     Subsequent runs use the saved token.
     """
+    use_headless = headless_mode or is_headless()
     token_path = get_token_path()
     max_retries = 2
 
@@ -485,18 +611,25 @@ def authenticate() -> Credentials:
             else:
                 credentials_file = ensure_credentials()
 
-                print(f"Using credentials from: {credentials_file}")
-                print("Opening browser for Google sign-in...")
+                if use_headless:
+                    try:
+                        creds = authenticate_headless(credentials_file)
+                    except Exception as e:
+                        handle_auth_error(e)
+                        continue
+                else:
+                    print(f"Using credentials from: {credentials_file}")
+                    print("Opening browser for Google sign-in...")
 
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    str(credentials_file), SCOPES
-                )
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        str(credentials_file), SCOPES
+                    )
 
-                try:
-                    creds = flow.run_local_server(port=0)
-                except Exception as e:
-                    handle_auth_error(e)
-                    continue  # Retry if handler returns
+                    try:
+                        creds = flow.run_local_server(port=0)
+                    except Exception as e:
+                        handle_auth_error(e)
+                        continue  # Retry if handler returns
 
             # Save the token for future runs
             with open(token_path, "w") as token_file:
@@ -564,19 +697,13 @@ def format_size(size_bytes: int) -> str:
     return f"{size_bytes:.1f} TB"
 
 
-def sync_models(
+def sync_models_cmd(
     output_dir: Path,
     force: bool = False,
     dry_run: bool = False,
+    headless_mode: bool = False,
 ) -> None:
-    """
-    Sync models from Google Drive folder.
-
-    Args:
-        output_dir: Directory to download models to.
-        force: If True, re-download all files even if they exist.
-        dry_run: If True, only show what would be downloaded.
-    """
+    """Entry point for model syncing with headless support."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
     drive_folder_id = get_drive_folder_id()
@@ -589,11 +716,9 @@ def sync_models(
         print("[DRY RUN MODE]")
         print()
 
-    # Authenticate and build service
-    creds = authenticate()
+    creds = authenticate(headless_mode=headless_mode)
     service = build("drive", "v3", credentials=creds)
 
-    # List files in the folder
     print("Fetching file list...")
     files = list_files_in_folder(service, drive_folder_id)
 
@@ -613,7 +738,6 @@ def sync_models(
         mime_type = file_info.get("mimeType", "unknown")
         size = int(file_info.get("size", 0))
 
-        # Skip Google Docs native formats (they need export, not download)
         if mime_type.startswith("application/vnd.google-apps"):
             print(f"  Skipping non-file: {file_name}")
             skipped += 1
@@ -652,11 +776,20 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python scripts/sync_models.py              # Download all models
-    python scripts/sync_models.py --force      # Force re-download
-    python scripts/sync_models.py --dry-run    # Preview without downloading
-    python scripts/sync_models.py --setup      # Run credentials setup wizard
-    python scripts/sync_models.py -o ./custom  # Download to custom directory
+    python scripts/sync_models.py                        # Download all models
+    python scripts/sync_models.py --force                # Force re-download
+    python scripts/sync_models.py --dry-run              # Preview without downloading
+    python scripts/sync_models.py --setup                # Run credentials setup wizard
+    python scripts/sync_models.py --headless             # Auth without a browser
+    python scripts/sync_models.py -o ./custom            # Download to custom directory
+
+Remote / headless machine workflow:
+  Option A - Authenticate directly on the remote machine:
+    python scripts/sync_models.py --headless
+
+  Option B - Transfer a token from a machine with a browser:
+    [local]  python scripts/sync_models.py --export-token
+    [remote] python scripts/sync_models.py --import-token <token_string>
 """,
     )
     parser.add_argument(
@@ -681,7 +814,37 @@ Examples:
         action="store_true",
         help="Run the interactive setup wizard for Google Drive API credentials",
     )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Use headless authentication (no browser required on this machine)",
+    )
+    parser.add_argument(
+        "--export-token",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="FILE",
+        help="Export saved auth token (to stdout as base64, or to FILE if given)",
+    )
+    parser.add_argument(
+        "--import-token",
+        type=str,
+        default=None,
+        metavar="TOKEN_OR_FILE",
+        help="Import an auth token (base64 string or path to token file)",
+    )
     args = parser.parse_args()
+
+    # Handle token export
+    if args.export_token is not None:
+        export_token(args.export_token or None)
+        sys.exit(0)
+
+    # Handle token import
+    if args.import_token is not None:
+        import_token(args.import_token)
+        sys.exit(0)
 
     # Run setup wizard if requested
     if args.setup:
@@ -694,10 +857,11 @@ Examples:
     else:
         output_dir = get_models_dir()
 
-    sync_models(
+    sync_models_cmd(
         output_dir=output_dir,
         force=args.force,
         dry_run=args.dry_run,
+        headless_mode=args.headless,
     )
 
 

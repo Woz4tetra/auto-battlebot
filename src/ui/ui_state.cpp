@@ -26,6 +26,18 @@ namespace auto_battlebot
         out = diagnostics_;
     }
 
+    void UIState::set_diagnostic_snapshots(const std::vector<DiagnosticStatusSnapshot> &snapshots)
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        diagnostic_snapshots_ = snapshots;
+    }
+
+    void UIState::get_diagnostic_snapshots(std::vector<DiagnosticStatusSnapshot> &out) const
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        out = diagnostic_snapshots_;
+    }
+
     void UIState::set_debug_image(int width, int height, int channels, const std::vector<uint8_t> &data)
     {
         std::lock_guard<std::mutex> lock(status_mutex_);
@@ -85,6 +97,18 @@ namespace auto_battlebot
         std::lock_guard<std::mutex> lock(status_mutex_);
         window_width_ = width;
         window_height_ = height;
+    }
+
+    void UIState::set_fullscreen(bool fullscreen)
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        fullscreen_ = fullscreen;
+    }
+
+    bool UIState::get_fullscreen() const
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        return fullscreen_;
     }
 
     void UIState::get_window_size(int &width, int &height) const
