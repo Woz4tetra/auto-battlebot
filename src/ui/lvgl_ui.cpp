@@ -340,13 +340,11 @@ namespace auto_battlebot
             double loop_duration_ms = (last_loop_end.time_since_epoch().count() != 0)
                 ? 1e-6 * std::chrono::duration_cast<std::chrono::nanoseconds>(loop_start - last_loop_end).count()
                 : 0;
-            if (loop_duration_ms > 100.0) {
-                std::ofstream f("/home/ben/auto-battlebot/.cursor/debug.log", std::ios::app);
-                if (f) {
-                    f << "{\"hypothesisId\":\"H1_loop\",\"message\":\"slow_loop\",\"data\":{\"loop_duration_ms\":" << loop_duration_ms
-                      << ",\"prev_system_ms\":" << prev_system_ms << ",\"prev_diag_ms\":" << prev_diag_ms << ",\"prev_debug_ms\":" << prev_debug_ms
-                      << ",\"iter\":" << iter << "},\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(loop_start.time_since_epoch()).count() << "}\n";
-                }
+            std::ofstream f("/tmp/auto_battlebot_ui_debug.log", std::ios::app);
+            if (f) {
+                f << "{\"hypothesisId\":\"H1_loop\",\"message\":\"slow_loop\",\"data\":{\"loop_duration_ms\":" << loop_duration_ms
+                    << ",\"prev_system_ms\":" << prev_system_ms << ",\"prev_diag_ms\":" << prev_diag_ms << ",\"prev_debug_ms\":" << prev_debug_ms
+                    << ",\"iter\":" << iter << "},\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(loop_start.time_since_epoch()).count() << "}\n";
             }
             // #endregion
             if (ui_state->quit_requested.load())
