@@ -1,4 +1,6 @@
 #include <CLI/CLI.hpp>
+#include <atomic>
+#include <csignal>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -13,6 +15,18 @@
 #include "diagnostics_logger/ui_diagnostics_backend.hpp"
 #include "ui/ui_runner.hpp"
 #include "ui/ui_state.hpp"
+
+namespace
+{
+    std::atomic<auto_battlebot::UIState *> g_ui_state_for_signal{nullptr};
+
+    void signal_quit(int)
+    {
+        auto *s = g_ui_state_for_signal.load(std::memory_order_relaxed);
+        if (s)
+            s->quit_requested.store(true);
+    }
+} // namespace
 
 int main(int argc, char **argv)
 {
@@ -85,6 +99,9 @@ int main(int argc, char **argv)
     std::thread ui_thread;
     if (class_config.runner.ui_enabled && ui_state)
     {
+        g_ui_state_for_signal.store(ui_state.get(), std::memory_order_relaxed);
+        std::signal(SIGINT, signal_quit);
+        std::signal(SIGTERM, signal_quit);
         ui_state->set_window_size(class_config.ui.width, class_config.ui.height);
         ui_thread = std::thread(run_ui_thread, ui_state);
     }
@@ -96,6 +113,9 @@ int main(int argc, char **argv)
         ui_thread.join();
     }
 
+    g_ui_state_for_signal.store(nullptr, std::memory_order_relaxed);
+    std::signal(SIGINT, SIG_DFL);
+    std::signal(SIGTERM, SIG_DFL);
     return result;
 }
 

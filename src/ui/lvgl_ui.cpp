@@ -242,6 +242,7 @@ namespace auto_battlebot
                     img_dsc.data = img_copy.data();
                     lv_image_set_src(img_widget, &img_dsc);
                     lv_obj_set_size(img_widget, dw, dh);
+                    lv_obj_set_size(keypoints_cont, dw, dh);
                 }
             }
 
@@ -328,6 +329,9 @@ namespace auto_battlebot
         const int delay_ms = 16;
         while (running)
         {
+            if (ui_state->quit_requested.load())
+                break;
+
             SDL_Event event;
             while (SDL_PollEvent(&event))
             {
