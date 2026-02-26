@@ -91,7 +91,7 @@ install_pytorch_jetson() {
     CUDA_VER=$(get_cuda_version)
     echo "Detected CUDA version: $CUDA_VER"
     wget -q -O "$CUSPARSELT_SH" "https://raw.githubusercontent.com/pytorch/pytorch/5c6af2b583709f6176898c017424dc9981023c28/.ci/docker/common/install_cusparselt.sh"
-    (cd /tmp && sudo CUDA_VERSION="$CUDA_VER" bash install_cusparselt.sh)
+    (cd /tmp && sudo CUDA_VERSION=12.1 bash install_cusparselt.sh)
 
     # 3. Use project venv (create if missing)
     if [ ! -d "$VENV_DIR" ]; then
