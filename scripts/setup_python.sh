@@ -11,5 +11,5 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Source the install_python_environment function
 source "$PROJECT_ROOT/install/install_python_environment.sh"
 
-# Run the installation
-install_python_environment
+# Run the installation (pass through flags: --recreate / -y, --no-recreate / -n)
+install_python_environment "$@"

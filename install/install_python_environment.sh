@@ -31,6 +31,16 @@ check_python_version() {
 install_python_environment() {
     set -e  # Exit on error
 
+    # Parse flags: --recreate / -y = yes, --no-recreate / -n = no (skip prompt when venv exists)
+    local RECREATE_VENV=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --recreate|-y|--recreate=yes) RECREATE_VENV=yes; shift ;;
+            --no-recreate|-n|--recreate=no) RECREATE_VENV=no; shift ;;
+            *) shift ;;
+        esac
+    done
+
     # Get the project root directory (parent of install/ directory)
     local SCRIPT_DIR
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,13 +77,20 @@ install_python_environment() {
     # Create virtual environment if it doesn't exist
     if [ -d "$VENV_DIR" ]; then
         echo "Virtual environment already exists at $VENV_DIR"
-        read -p "Do you want to recreate it? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            echo "Removing existing virtual environment..."
+        if [ "$RECREATE_VENV" = "yes" ]; then
+            echo "Removing existing virtual environment (--recreate)."
             rm -rf "$VENV_DIR"
+        elif [ "$RECREATE_VENV" = "no" ]; then
+            echo "Using existing virtual environment (--no-recreate)."
         else
-            echo "Using existing virtual environment."
+            read -p "Do you want to recreate it? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                echo "Removing existing virtual environment..."
+                rm -rf "$VENV_DIR"
+            else
+                echo "Using existing virtual environment."
+            fi
         fi
     fi
 
