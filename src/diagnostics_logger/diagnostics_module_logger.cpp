@@ -185,29 +185,34 @@ namespace auto_battlebot
 
     std::vector<DiagnosticStatusSnapshot> DiagnosticsModuleLogger::get_snapshots() const
     {
-        std::vector<DiagnosticStatusSnapshot> snapshots;
+        if (data_.empty())
+        {
+            return {};
+        }
+        DiagnosticStatusSnapshot snap;
+        snap.name = logger_name_;
+        snap.level = level_;
+        std::string combined_message;
         for (const auto &[subsection_name, data_map] : data_)
         {
-            std::string combined_message;
+            std::string key_prefix = subsection_name.empty() ? "" : (subsection_name + "/");
+            for (const auto &[key, value] : flatten_diagnostics_data(data_map))
+            {
+                snap.values[key_prefix + key] = value;
+            }
             auto messages_it = messages_.find(subsection_name);
             if (messages_it != messages_.end())
             {
-                const auto &subsection_messages = messages_it->second;
-                for (size_t i = 0; i < subsection_messages.size(); ++i)
+                for (const auto &msg : messages_it->second)
                 {
-                    if (i > 0)
+                    if (!combined_message.empty())
                         combined_message += " | ";
-                    combined_message += subsection_messages[i];
+                    combined_message += msg;
                 }
             }
-            DiagnosticStatusSnapshot snap;
-            snap.name = subsection_name.empty() ? logger_name_ : (logger_name_ + "/" + subsection_name);
-            snap.level = level_;
-            snap.values = flatten_diagnostics_data(data_map);
-            snap.message = combined_message;
-            snapshots.push_back(std::move(snap));
         }
-        return snapshots;
+        snap.message = combined_message;
+        return {std::move(snap)};
     }
 
     std::string DiagnosticsModuleLogger::get_name() const
