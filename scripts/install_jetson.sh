@@ -10,6 +10,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_ROOT/install/check_jetson_orin_nano.sh"
 source "$PROJECT_ROOT/install/install_packages.sh"
 source "$PROJECT_ROOT/install/install_opencv_jetson.sh"
+source "$PROJECT_ROOT/install/install_pytorch_jetson.sh"
 source "$PROJECT_ROOT/install/install_ros_connector.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
 
@@ -19,5 +20,7 @@ check_jetson_orin_nano
 install_packages "$PROJECT_ROOT/install/jetson_packages.txt"
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
 install_opencv_jetson
+# PyTorch for Jetson (NVIDIA wheel into project venv)
+install_pytorch_jetson
 install_ros_connector
 build_cpp_project "$@"
