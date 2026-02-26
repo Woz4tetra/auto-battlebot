@@ -159,16 +159,22 @@ JETSON_ACTIVATE_EOF
     # Install project dependencies from pyproject.toml
     echo "Installing project dependencies from pyproject.toml..."
     if [ -f /etc/nv_tegra_release ]; then
-        # Pin torch to the Jetson wheel we just installed so pip won't replace it with PyPI (CPU) build
-        local TORCH_CONSTRAINT
-        TORCH_CONSTRAINT=$(mktemp)
-        pip freeze | grep -i '^torch==' > "$TORCH_CONSTRAINT" || true
-        if [ -s "$TORCH_CONSTRAINT" ]; then
-            pip install -e "$PROJECT_ROOT" -c "$TORCH_CONSTRAINT"
-        else
-            pip install -e "$PROJECT_ROOT"
+        # Pin torch to the Jetson wheel so pip won't replace it with PyPI (CPU) build.
+        # Use version from pip's metadata so the constraint matches exactly.
+        local TORCH_VER
+        TORCH_VER=$(pip show torch 2>/dev/null | sed -n 's/^Version: *//p')
+        if [ -n "$TORCH_VER" ]; then
+            local TORCH_CONSTRAINT
+            TORCH_CONSTRAINT=$(mktemp)
+            echo "torch==$TORCH_VER" > "$TORCH_CONSTRAINT"
+            export PIP_CONSTRAINT="$TORCH_CONSTRAINT"
+            echo "Pinning torch to $TORCH_VER for this install (Jetson wheel)."
         fi
-        rm -f "$TORCH_CONSTRAINT"
+        pip install -e "$PROJECT_ROOT"
+        if [ -n "${TORCH_CONSTRAINT:-}" ]; then
+            unset PIP_CONSTRAINT
+            rm -f "$TORCH_CONSTRAINT"
+        fi
     else
         pip install -e "$PROJECT_ROOT"
     fi
