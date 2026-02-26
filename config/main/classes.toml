@@ -3,7 +3,7 @@
 
 [rgbd_camera]
 type = "ZedRgbdCamera"
-camera_fps = 60
+camera_fps = 30
 
 [field_model]
 type = "DeepLabFieldModel"
