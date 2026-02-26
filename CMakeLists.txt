@@ -254,6 +254,10 @@ add_custom_command(TARGET auto_battlebot POST_BUILD
     COMMENT "Creating symlink to models directory"
 )
 
+# So the installed executable finds libauto_battlebot.so in PREFIX/lib when run from PREFIX/bin
+set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
+
 # Install targets
 install(TARGETS auto_battlebot auto_battlebot_lib
     RUNTIME DESTINATION bin
