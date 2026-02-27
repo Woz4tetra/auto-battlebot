@@ -268,6 +268,9 @@ void build_diagnostics(lv_obj_t *tab, UIWidgets &w) {
     lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(tab, 8, 0);
     lv_obj_set_style_pad_gap(tab, 8, 0);
+    /* Single scroll for the whole diagnostics page */
+    lv_obj_set_scrollbar_mode(tab, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_scroll_dir(tab, LV_DIR_VER);
 
     lv_obj_t *hdr = lv_label_create(tab);
     lv_label_set_text(hdr, "System Health");
@@ -296,11 +299,11 @@ void build_diagnostics(lv_obj_t *tab, UIWidgets &w) {
 
     w.sections_cont = lv_obj_create(tab);
     lv_obj_set_width(w.sections_cont, LV_PCT(100));
-    lv_obj_set_flex_grow(w.sections_cont, 1);
+    lv_obj_set_height(w.sections_cont, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(w.sections_cont, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(w.sections_cont, 4, 0);
     lv_obj_set_style_pad_gap(w.sections_cont, 4, 0);
-    lv_obj_set_scrollbar_mode(w.sections_cont, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_clear_flag(w.sections_cont, LV_OBJ_FLAG_SCROLLABLE);
 }
 
 /* ------------------------------------------------------------------ */
@@ -455,6 +458,10 @@ void update_health_rows(UIWidgets &w, std::shared_ptr<UIState> us) {
 void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
     if (!us || !w.sections_cont) return;
 
+    /* Preserve scroll position of the diagnostics tab when rebuilding content */
+    lv_obj_t *diag_tab = lv_obj_get_parent(w.sections_cont);
+    const int32_t scroll_y = (diag_tab != nullptr) ? lv_obj_get_scroll_top(diag_tab) : 0;
+
     std::vector<DiagnosticStatusSnapshot> snaps;
     us->get_diagnostic_snapshots(snaps);
 
@@ -501,6 +508,8 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
             row++;
         }
     }
+
+    if (diag_tab != nullptr) lv_obj_scroll_to_y(diag_tab, scroll_y, LV_ANIM_OFF);
 }
 
 void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img_dsc,
