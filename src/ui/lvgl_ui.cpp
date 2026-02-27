@@ -407,8 +407,9 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
                                     ok ? lv_color_hex(0x424242) : lv_color_hex(0xEEEEEE), 0);
         char buf[256];
         if (ok) {
-            snprintf(buf, sizeof(buf), "%.1f Hz  |  %d opponent%s seen", avg_hz, opp,
-                     opp != 1 ? "s" : "");
+            snprintf(buf, sizeof(buf), "%.1f Hz  |  %s  |  %d opponent%s seen", avg_hz,
+                     our_seen ? "our robot in view" : "our robot not seen",
+                     opp, opp != 1 ? "s" : "");
         } else {
             std::string reasons;
             if (!st.camera_ok) reasons += "Camera FAIL  ";
@@ -419,6 +420,7 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
                 snprintf(rate_buf, sizeof(rate_buf), "Loop slow (%.1f Hz)  ", avg_hz);
                 reasons += rate_buf;
             }
+            if (our_seen) reasons += "our robot in view  ";
             snprintf(buf, sizeof(buf), "%s", reasons.c_str());
         }
         lv_label_set_text(w.status_detail, buf);
