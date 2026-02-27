@@ -35,7 +35,6 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       ui_state_(std::move(ui_state)),
       initial_robot_configs_(robot_configs),
       runtime_opponent_count_(count_opponents_in_config(robot_configs)),
-      reinit_pending_(false),
       robot_filter_reinit_pending_(false),
       initialized_(false),
       initial_field_description_(),
@@ -140,9 +139,10 @@ bool Runner::tick() {
         return false;
     }
 
+    bool should_reinit_field = false;
     if (ui_state_) {
         if (ui_state_->quit_requested.load()) return false;
-        if (ui_state_->reinit_requested.exchange(false)) reinit_pending_ = true;
+        should_reinit_field = ui_state_->reinit_requested.exchange(false);
         int req = ui_state_->opponent_count_requested.exchange(-1);
         if (req >= 1 && req <= 3) {
             runtime_opponent_count_ = req;
@@ -152,13 +152,13 @@ bool Runner::tick() {
     }
 
     CommandFeedback command_feedback = transmitter_->update();
-    bool did_request_initialization = transmitter_->did_init_button_press();
+    should_reinit_field = should_reinit_field || transmitter_->did_init_button_press();
 
     CameraData camera_data;
     bool is_camera_ok;
     {
         FunctionTimer timer(diagnostics_logger_, "camera.get");
-        is_camera_ok = camera_->get(camera_data, did_request_initialization);
+        is_camera_ok = camera_->get(camera_data, should_reinit_field);
     }
 
     if (!is_camera_ok) {
@@ -166,7 +166,6 @@ bool Runner::tick() {
             std::cerr << "Camera signalled to close the application" << std::endl;
             return false;
         }
-        // Push error to diagnostics and log
         std::cerr << "Failed to get camera data. Reinitializing." << std::endl;
         do {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -180,8 +179,7 @@ bool Runner::tick() {
         return true;
     }
 
-    if (did_request_initialization || reinit_pending_) {
-        reinit_pending_ = false;
+    if (should_reinit_field) {
         robot_filter_reinit_pending_ = false;
         initialize_field(camera_data);
     } else if (robot_filter_reinit_pending_ && initialized_) {

@@ -55,7 +55,6 @@ class Runner {
 
     std::vector<RobotConfig> initial_robot_configs_;
     int runtime_opponent_count_;
-    bool reinit_pending_;
     bool robot_filter_reinit_pending_;
 
     bool initialized_;
