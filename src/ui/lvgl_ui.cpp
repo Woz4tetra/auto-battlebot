@@ -62,14 +62,12 @@ struct UIWidgets {
 
 /** Push current rate into rolling history (call once per frame). Window size
  * from UIState. */
-void update_rate_history(UIWidgets &w, std::shared_ptr<UIState> us,
-                         double current_hz) {
+void update_rate_history(UIWidgets &w, std::shared_ptr<UIState> us, double current_hz) {
     if (!us) return;
     int window = us->get_rate_avg_window();
     if (window <= 0) window = 1;
     w.rate_history.push_back(current_hz);
-    while (static_cast<int>(w.rate_history.size()) > window)
-        w.rate_history.pop_front();
+    while (static_cast<int>(w.rate_history.size()) > window) w.rate_history.pop_front();
 }
 
 /** Return rolling average Hz from current history (no push). */
@@ -82,8 +80,7 @@ double get_rate_avg(const UIWidgets &w, double fallback_hz) {
 
 /** Only false when rate has been below threshold for at least
  * rate_fail_duration_sec (prevents strobing). */
-bool compute_loop_met_sustained(UIWidgets &w, std::shared_ptr<UIState> us,
-                                double avg_hz) {
+bool compute_loop_met_sustained(UIWidgets &w, std::shared_ptr<UIState> us, double avg_hz) {
     if (!us) return true;
     double max_hz = us->get_max_loop_rate();
     double thresh = us->get_rate_fail_threshold();
@@ -96,22 +93,20 @@ bool compute_loop_met_sustained(UIWidgets &w, std::shared_ptr<UIState> us,
         return true;
     }
     if (!w.rate_below_since.has_value()) w.rate_below_since = now;
-    auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(
-                       now - *w.rate_below_since)
-                       .count();
+    auto elapsed =
+        std::chrono::duration_cast<std::chrono::duration<double>>(now - *w.rate_below_since)
+            .count();
     return elapsed < duration_sec;
 }
 
-void derive_robot_counts(const RobotDescriptionsStamped &robots, bool &our_seen,
-                         int &opp_count) {
+void derive_robot_counts(const RobotDescriptionsStamped &robots, bool &our_seen, int &opp_count) {
     our_seen = false;
     opp_count = 0;
     for (const auto &r : robots.descriptions) {
         if (r.label == Label::MR_STABS_MK1 || r.label == Label::MR_STABS_MK2 ||
             r.label == Label::MRS_BUFF_MK1 || r.label == Label::MRS_BUFF_MK2)
             our_seen = true;
-        if (r.label == Label::OPPONENT || r.label == Label::HOUSE_BOT)
-            opp_count++;
+        if (r.label == Label::OPPONENT || r.label == Label::HOUSE_BOT) opp_count++;
     }
 }
 
@@ -138,8 +133,7 @@ HealthRow make_health_row(lv_obj_t *parent, const char *text) {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(row, 4, 0);
     lv_obj_set_style_pad_gap(row, 12, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
@@ -159,9 +153,7 @@ HealthRow make_health_row(lv_obj_t *parent, const char *text) {
 }
 
 void set_health(HealthRow &hr, bool ok, const char *text) {
-    if (hr.led)
-        lv_led_set_color(hr.led,
-                         ok ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744));
+    if (hr.led) lv_led_set_color(hr.led, ok ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744));
     if (hr.label) lv_label_set_text(hr.label, text);
 }
 
@@ -169,8 +161,7 @@ void set_health(HealthRow &hr, bool ok, const char *text) {
 /*  Home tab                                                          */
 /* ------------------------------------------------------------------ */
 
-void build_home(lv_obj_t *tab, UIWidgets &w,
-                std::shared_ptr<UIState> ui_state) {
+void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) {
     lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(tab, 8, 0);
     lv_obj_set_style_pad_gap(tab, 8, 0);
@@ -194,11 +185,9 @@ void build_home(lv_obj_t *tab, UIWidgets &w,
     lv_obj_set_style_radius(st, TILE_RADIUS, 0);
     lv_obj_set_style_pad_all(st, TILE_PAD, 0);
     lv_obj_set_flex_flow(st, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(st, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(st, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(st, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(st, lv_color_hex(0x757575),
-                              0); /* default gray until status known */
+    lv_obj_set_style_bg_color(st, lv_color_hex(0x757575), 0); /* default gray until status known */
 
     w.status_label = lv_label_create(st);
     lv_label_set_text(w.status_label, "Waiting...");
@@ -216,8 +205,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w,
     lv_obj_set_style_radius(rt, TILE_RADIUS, 0);
     lv_obj_set_style_pad_all(rt, TILE_PAD, 0);
     lv_obj_set_flex_flow(rt, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(rt, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(rt, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(rt, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(rt, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_color(rt, lv_color_hex(0x1565C0), 0);
@@ -256,11 +244,9 @@ void build_home(lv_obj_t *tab, UIWidgets &w,
         lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(tile, opp_cb, LV_EVENT_CLICKED, &opp_tile_data[i]);
 
-        lv_obj_set_style_border_color(tile, lv_color_hex(0x2979FF),
-                                      LV_STATE_CHECKED);
+        lv_obj_set_style_border_color(tile, lv_color_hex(0x2979FF), LV_STATE_CHECKED);
         lv_obj_set_style_border_width(tile, 4, LV_STATE_CHECKED);
-        lv_obj_set_style_bg_color(tile, lv_color_hex(0x1A237E),
-                                  LV_STATE_CHECKED);
+        lv_obj_set_style_bg_color(tile, lv_color_hex(0x1A237E), LV_STATE_CHECKED);
 
         lv_obj_t *num = lv_label_create(tile);
         lv_label_set_text_fmt(num, "%d", i + 1);
@@ -367,8 +353,7 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
     update_rate_history(w, us, st.loop_rate_hz);
     double avg_hz = get_rate_avg(w, st.loop_rate_hz);
     bool loop_met = compute_loop_met_sustained(w, us, avg_hz);
-    bool ok =
-        st.camera_ok && st.transmitter_connected && st.initialized && loop_met;
+    bool ok = st.camera_ok && st.transmitter_connected && st.initialized && loop_met;
     bool tracking = our_seen && opp >= 1;
 
     /* Tile color: green = OK + our robot and ≥1 opponent tracked; yellow = OK
@@ -386,21 +371,18 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
     if (w.status_label) {
         lv_label_set_text(w.status_label, ok ? "System OK" : "System Error");
         /* Dark text on yellow/green for readability */
-        lv_obj_set_style_text_color(w.status_label,
-                                    (ok && tracking) || ok
-                                        ? lv_color_hex(0x212121)
-                                        : lv_color_hex(0xFFFFFF),
-                                    0);
+        lv_obj_set_style_text_color(
+            w.status_label,
+            (ok && tracking) || ok ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF), 0);
     }
 
     if (w.status_detail) {
-        lv_obj_set_style_text_color(
-            w.status_detail,
-            ok ? lv_color_hex(0x424242) : lv_color_hex(0xEEEEEE), 0);
+        lv_obj_set_style_text_color(w.status_detail,
+                                    ok ? lv_color_hex(0x424242) : lv_color_hex(0xEEEEEE), 0);
         char buf[256];
         if (ok) {
-            snprintf(buf, sizeof(buf), "%.1f Hz  |  %d opponent%s seen", avg_hz,
-                     opp, opp != 1 ? "s" : "");
+            snprintf(buf, sizeof(buf), "%.1f Hz  |  %d opponent%s seen", avg_hz, opp,
+                     opp != 1 ? "s" : "");
         } else {
             std::string reasons;
             if (!st.camera_ok) reasons += "Camera FAIL  ";
@@ -408,8 +390,7 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
             if (!st.initialized) reasons += "Not initialized  ";
             if (!loop_met) {
                 char rate_buf[64];
-                snprintf(rate_buf, sizeof(rate_buf), "Loop slow (%.1f Hz)  ",
-                         avg_hz);
+                snprintf(rate_buf, sizeof(rate_buf), "Loop slow (%.1f Hz)  ", avg_hz);
                 reasons += rate_buf;
             }
             snprintf(buf, sizeof(buf), "%s", reasons.c_str());
@@ -446,8 +427,7 @@ void update_health_rows(UIWidgets &w, std::shared_ptr<UIState> us) {
              st.transmitter_connected ? "Connected" : "Disconnected");
     set_health(w.health[1], st.transmitter_connected, buf);
 
-    snprintf(buf, sizeof(buf), "Field Initialized: %s",
-             st.initialized ? "Yes" : "No");
+    snprintf(buf, sizeof(buf), "Field Initialized: %s", st.initialized ? "Yes" : "No");
     set_health(w.health[2], st.initialized, buf);
 
     snprintf(buf, sizeof(buf), "Our Robot Seen: %s", our_seen ? "Yes" : "No");
@@ -458,19 +438,16 @@ void update_health_rows(UIWidgets &w, std::shared_ptr<UIState> us) {
 
     double avg_hz = get_rate_avg(w, st.loop_rate_hz);
     bool loop_met = compute_loop_met_sustained(w, us, avg_hz);
-    snprintf(buf, sizeof(buf), "Loop Rate: %.1f Hz %s", avg_hz,
-             loop_met ? "(met)" : "(NOT MET)");
+    snprintf(buf, sizeof(buf), "Loop Rate: %.1f Hz %s", avg_hz, loop_met ? "(met)" : "(NOT MET)");
     set_health(w.health[5], loop_met, buf);
 
     if (st.jetson_temperature_c > 0.0) {
-        snprintf(buf, sizeof(buf), "Jetson Temp: %.1f C",
-                 st.jetson_temperature_c);
+        snprintf(buf, sizeof(buf), "Jetson Temp: %.1f C", st.jetson_temperature_c);
         set_health(w.health[6], st.jetson_temperature_c < 80.0, buf);
     }
 
     if (!st.jetson_compute_mode.empty()) {
-        snprintf(buf, sizeof(buf), "Compute Mode: %s",
-                 st.jetson_compute_mode.c_str());
+        snprintf(buf, sizeof(buf), "Compute Mode: %s", st.jetson_compute_mode.c_str());
         set_health(w.health[7], true, buf);
     }
 }
@@ -526,8 +503,8 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
     }
 }
 
-void update_debug(UIWidgets &w, std::shared_ptr<UIState> us,
-                  lv_image_dsc_t &img_dsc, std::vector<uint8_t> &img_copy) {
+void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img_dsc,
+                  std::vector<uint8_t> &img_copy) {
     if (!w.debug_img || !us) return;
 
     int dw = 0, dh = 0, dc = 0;
@@ -541,8 +518,7 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us,
         if (data.size() >= expected) {
             img_copy = data;
             img_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-            img_dsc.header.cf =
-                (dc == 4) ? LV_COLOR_FORMAT_XRGB8888 : LV_COLOR_FORMAT_RGB888;
+            img_dsc.header.cf = (dc == 4) ? LV_COLOR_FORMAT_XRGB8888 : LV_COLOR_FORMAT_RGB888;
             img_dsc.header.flags = 0;
             img_dsc.header.w = static_cast<uint32_t>(dw);
             img_dsc.header.h = static_cast<uint32_t>(dh);
@@ -570,8 +546,7 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us,
         lv_obj_t *dot = w.kp_dots[i];
         if (i < kps.keypoints.size()) {
             const auto &kp = kps.keypoints[i];
-            lv_obj_set_pos(dot, static_cast<int32_t>(kp.x) - 6,
-                           static_cast<int32_t>(kp.y) - 6);
+            lv_obj_set_pos(dot, static_cast<int32_t>(kp.x) - 6, static_cast<int32_t>(kp.y) - 6);
             lv_obj_clear_flag(dot, LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
@@ -594,8 +569,7 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
     }
 
     lv_init();
-    lv_display_t *disp =
-        lv_sdl_window_create(static_cast<int32_t>(w), static_cast<int32_t>(h));
+    lv_display_t *disp = lv_sdl_window_create(static_cast<int32_t>(w), static_cast<int32_t>(h));
     if (!disp) {
         SDL_Quit();
         return;
@@ -607,8 +581,7 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
         void *driver_data = lv_display_get_driver_data(disp);
         if (driver_data) {
             SDL_Window *sdl_win = *static_cast<SDL_Window **>(driver_data);
-            if (sdl_win)
-                SDL_SetWindowFullscreen(sdl_win, SDL_WINDOW_FULLSCREEN_DESKTOP);
+            if (sdl_win) SDL_SetWindowFullscreen(sdl_win, SDL_WINDOW_FULLSCREEN_DESKTOP);
         }
     }
 
@@ -655,8 +628,7 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
         SDL_Event event;
         if (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT ||
-                (event.type == SDL_WINDOWEVENT &&
-                 event.window.event == SDL_WINDOWEVENT_CLOSE)) {
+                (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE)) {
                 running = false;
             } else {
                 SDL_PushEvent(&event);
