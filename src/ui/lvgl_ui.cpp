@@ -223,6 +223,18 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_clear_flag(rt, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(rt, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_color(rt, lv_color_hex(0xFF1744), 0); /* red until field found */
+    /* Pressed state: darken and shrink slightly */
+    lv_obj_set_style_bg_color(rt, lv_color_hex(0xB71C1C), LV_STATE_PRESSED);
+    lv_obj_set_style_transform_scale_x(rt, 950, LV_STATE_PRESSED); /* 95% */
+    lv_obj_set_style_transform_scale_y(rt, 950, LV_STATE_PRESSED);
+    /* Smooth transition back on release */
+    static const lv_style_prop_t reinit_trans_props[] = {
+        LV_STYLE_BG_COLOR, LV_STYLE_TRANSFORM_SCALE_X, LV_STYLE_TRANSFORM_SCALE_Y,
+        LV_STYLE_PROP_INV};
+    static lv_style_transition_dsc_t reinit_trans;
+    lv_style_transition_dsc_init(&reinit_trans, reinit_trans_props, lv_anim_path_ease_out, 150, 0,
+                                 nullptr);
+    lv_obj_set_style_transition(rt, &reinit_trans, 0);
     lv_obj_add_event_cb(rt, reinit_cb, LV_EVENT_CLICKED, ui_state.get());
 
     lv_obj_t *ri = lv_label_create(rt);
@@ -423,9 +435,7 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
 
     if (w.reinit_tile) {
         lv_obj_set_style_bg_color(
-            w.reinit_tile,
-            st.initialized ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744),
-            0);
+            w.reinit_tile, st.initialized ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744), 0);
     }
     if (w.reinit_status) {
         lv_label_set_text(w.reinit_status, st.initialized ? "field initialized" : "");
