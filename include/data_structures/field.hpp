@@ -1,50 +1,44 @@
 #pragma once
 
-#include <string>
 #include <opencv2/opencv.hpp>
-#include "header.hpp"
-#include "transform.hpp"
-#include "point_cloud.hpp"
+#include <string>
+
 #include "enums/label.hpp"
+#include "header.hpp"
+#include "point_cloud.hpp"
+#include "transform.hpp"
 
-namespace auto_battlebot
-{
-    struct Mask
-    {
-        Label label;
-        cv::Mat mask;
-    };
+namespace auto_battlebot {
+struct Mask {
+    Label label;
+    cv::Mat mask;
+};
 
-    struct FieldMaskStamped
-    {
-        Header header;
-        Mask mask;
-    };
+struct FieldMaskStamped {
+    Header header;
+    Mask mask;
+};
 
-    struct Size
-    {
-        double x = 0.0;
-        double y = 0.0;
-        double z = 0.0;
-    };
+struct Size {
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
 
-    struct SizeStamped
-    {
-        Header header;
-        Size size;
-    };
+struct SizeStamped {
+    Header header;
+    Size size;
+};
 
-    struct FieldDescription
-    {
-        Header header;
-        FrameId child_frame_id = FrameId::EMPTY;
-        Transform tf_camera_from_fieldcenter;
-        SizeStamped size;
-    };
+struct FieldDescription {
+    Header header;
+    FrameId child_frame_id = FrameId::EMPTY;
+    Transform tf_camera_from_fieldcenter;
+    SizeStamped size;
+};
 
-    struct FieldDescriptionWithInlierPoints : FieldDescription
-    {
-        PointCloud inlier_points;
-    };
+struct FieldDescriptionWithInlierPoints : FieldDescription {
+    PointCloud inlier_points;
+};
 
-} // namespace auto_battlebot
+}  // namespace auto_battlebot

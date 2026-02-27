@@ -6,14 +6,12 @@
 #include <string>
 #include <vector>
 
-namespace auto_battlebot
-{
+namespace auto_battlebot {
 // Shared TensorRT inference helper for loading a serialized .engine and running
 // inference. Supports exactly one input and one output tensor (float32).
 // Used by DeepLab and YOLO model implementations.
-class TrtEngine
-{
-public:
+class TrtEngine {
+   public:
     TrtEngine() = default;
     ~TrtEngine();
 
@@ -39,15 +37,19 @@ public:
     int64_t getOutputNumElements() const { return output_num_elements_; }
 
     // Size in bytes (input/output are float32).
-    size_t getInputSizeBytes() const { return static_cast<size_t>(input_num_elements_) * sizeof(float); }
-    size_t getOutputSizeBytes() const { return static_cast<size_t>(output_num_elements_) * sizeof(float); }
+    size_t getInputSizeBytes() const {
+        return static_cast<size_t>(input_num_elements_) * sizeof(float);
+    }
+    size_t getOutputSizeBytes() const {
+        return static_cast<size_t>(output_num_elements_) * sizeof(float);
+    }
 
     // Run inference: copy host_input to GPU, execute, copy output to host_output.
     // Both buffers must be at least getInputSizeBytes() / getOutputSizeBytes().
     // Returns true on success.
     bool execute(const float* host_input, float* host_output);
 
-private:
+   private:
     void* d_input_{nullptr};
     void* d_output_{nullptr};
     void* context_{nullptr};
@@ -61,4 +63,4 @@ private:
     std::vector<int64_t> output_shape_;
 };
 
-} // namespace auto_battlebot
+}  // namespace auto_battlebot

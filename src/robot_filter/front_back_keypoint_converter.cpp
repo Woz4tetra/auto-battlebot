@@ -1,182 +1,169 @@
 #include "robot_filter/front_back_keypoint_converter.hpp"
-#include "transform_utils.hpp"
+
 #include <magic_enum.hpp>
 
-namespace auto_battlebot
-{
-    FrontBackKeypointConverter::FrontBackKeypointConverter(const FrontBackKeypointConverterConfig &config)
-        : config_(config)
-    {
-        diagnostics_logger_ = DiagnosticsLogger::get_logger("front_back_keypoint_converter");
-    }
+#include "transform_utils.hpp"
 
-    std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>> FrontBackKeypointConverter::convert(
-        const KeypointsStamped &keypoints,
-        const FieldDescription &field,
-        const CameraInfo &camera_info)
-    {
-        Pose pose_camera_from_fieldcenter = matrix_to_pose(field.tf_camera_from_fieldcenter.tf);
-        Position field_pos = pose_camera_from_fieldcenter.position;
-        Eigen::Vector3d plane_normal = transform_to_plane_normal(field.tf_camera_from_fieldcenter);
-        Eigen::Vector3d plane_center = Eigen::Vector3d(field_pos.x, field_pos.y, field_pos.z);
+namespace auto_battlebot {
+FrontBackKeypointConverter::FrontBackKeypointConverter(
+    const FrontBackKeypointConverterConfig &config)
+    : config_(config) {
+    diagnostics_logger_ = DiagnosticsLogger::get_logger("front_back_keypoint_converter");
+}
 
-        // Group keypoints by (label, detection_index), each group becomes one FrontBackAssignment with confidence
-        using GroupKey = std::pair<Label, int>;
-        std::map<GroupKey, FrontBackAssignment> group_assignments;
-        std::map<GroupKey, double> group_confidence;
+std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>>
+FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
+                                    const FieldDescription &field, const CameraInfo &camera_info) {
+    Pose pose_camera_from_fieldcenter = matrix_to_pose(field.tf_camera_from_fieldcenter.tf);
+    Position field_pos = pose_camera_from_fieldcenter.position;
+    Eigen::Vector3d plane_normal = transform_to_plane_normal(field.tf_camera_from_fieldcenter);
+    Eigen::Vector3d plane_center = Eigen::Vector3d(field_pos.x, field_pos.y, field_pos.z);
 
-        for (const Keypoint &keypoint : keypoints.keypoints)
-        {
-            Eigen::Vector3d projected_keypoint = project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info);
-            std::string keypoint_label_str = std::string(magic_enum::enum_name(keypoint.keypoint_label));
-            diagnostics_logger_->debug(
-                keypoint_label_str, {{"x", projected_keypoint[0]},
-                                     {"y", projected_keypoint[1]},
-                                     {"z", projected_keypoint[2]}});
+    // Group keypoints by (label, detection_index), each group becomes one FrontBackAssignment with
+    // confidence
+    using GroupKey = std::pair<Label, int>;
+    std::map<GroupKey, FrontBackAssignment> group_assignments;
+    std::map<GroupKey, double> group_confidence;
 
-            GroupKey key(keypoint.label, keypoint.detection_index);
-            if (group_assignments.find(key) == group_assignments.end())
-                group_assignments[key] = FrontBackAssignment{};
-            if (group_confidence.find(key) == group_confidence.end())
-                group_confidence[key] = keypoint.confidence;
+    for (const Keypoint &keypoint : keypoints.keypoints) {
+        Eigen::Vector3d projected_keypoint =
+            project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info);
+        std::string keypoint_label_str =
+            std::string(magic_enum::enum_name(keypoint.keypoint_label));
+        diagnostics_logger_->debug(keypoint_label_str, {{"x", projected_keypoint[0]},
+                                                        {"y", projected_keypoint[1]},
+                                                        {"z", projected_keypoint[2]}});
 
-            auto front_assign_it = std::find(config_.front_keypoints.begin(), config_.front_keypoints.end(), keypoint.keypoint_label);
-            if (front_assign_it != config_.front_keypoints.end())
-            {
-                group_assignments[key].front = projected_keypoint;
-                diagnostics_logger_->debug(keypoint_label_str, {{"type", "front"}});
-                continue;
-            }
-            auto back_assign_it = std::find(config_.back_keypoints.begin(), config_.back_keypoints.end(), keypoint.keypoint_label);
-            if (back_assign_it != config_.back_keypoints.end())
-            {
-                group_assignments[key].back = projected_keypoint;
-                diagnostics_logger_->debug(keypoint_label_str, {{"type", "back"}});
-                continue;
-            }
-            std::cerr << "Failed to assign keypoint with label: " << std::string(magic_enum::enum_name(keypoint.keypoint_label)) << std::endl;
+        GroupKey key(keypoint.label, keypoint.detection_index);
+        if (group_assignments.find(key) == group_assignments.end())
+            group_assignments[key] = FrontBackAssignment{};
+        if (group_confidence.find(key) == group_confidence.end())
+            group_confidence[key] = keypoint.confidence;
+
+        auto front_assign_it = std::find(config_.front_keypoints.begin(),
+                                         config_.front_keypoints.end(), keypoint.keypoint_label);
+        if (front_assign_it != config_.front_keypoints.end()) {
+            group_assignments[key].front = projected_keypoint;
+            diagnostics_logger_->debug(keypoint_label_str, {{"type", "front"}});
+            continue;
         }
-
-        // Build result: map Label -> vector of (assignment, confidence), only include groups with valid pose (front and back set)
-        std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>> result;
-        for (const auto &[group_key, assignment] : group_assignments)
-        {
-            const Label label = group_key.first;
-            double conf = group_confidence[group_key];
-            result[label].push_back({assignment, conf});
+        auto back_assign_it = std::find(config_.back_keypoints.begin(),
+                                        config_.back_keypoints.end(), keypoint.keypoint_label);
+        if (back_assign_it != config_.back_keypoints.end()) {
+            group_assignments[key].back = projected_keypoint;
+            diagnostics_logger_->debug(keypoint_label_str, {{"type", "back"}});
+            continue;
         }
-        return result;
+        std::cerr << "Failed to assign keypoint with label: "
+                  << std::string(magic_enum::enum_name(keypoint.keypoint_label)) << std::endl;
     }
 
-    Eigen::Vector3d FrontBackKeypointConverter::project_keypoint_onto_plane(
-        const Keypoint &keypoint,
-        const Eigen::Vector3d &plane_center,
-        const Eigen::Vector3d &plane_normal,
-        const CameraInfo &camera_info)
-    {
-        // Extract camera intrinsics (assuming 3x3 matrix)
-        double fx = camera_info.intrinsics.at<double>(0, 0);
-        double fy = camera_info.intrinsics.at<double>(1, 1);
-        double cx = camera_info.intrinsics.at<double>(0, 2);
-        double cy = camera_info.intrinsics.at<double>(1, 2);
-
-        double ray_x = (keypoint.x - cx) / fx;
-        double ray_y = (keypoint.y - cy) / fy;
-        Eigen::Vector3d ray(ray_x, ray_y, 1.0);
-        Eigen::Vector3d point_on_plane = find_ray_plane_intersection(ray, plane_center, plane_normal);
-
-        return point_on_plane;
+    // Build result: map Label -> vector of (assignment, confidence), only include groups with valid
+    // pose (front and back set)
+    std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>> result;
+    for (const auto &[group_key, assignment] : group_assignments) {
+        const Label label = group_key.first;
+        double conf = group_confidence[group_key];
+        result[label].push_back({assignment, conf});
     }
+    return result;
+}
 
-    Eigen::Vector3d FrontBackKeypointConverter::plane_from_3_points(
-        const Eigen::Vector3d &point1,
-        const Eigen::Vector3d &point2,
-        const Eigen::Vector3d &point3)
-    {
-        // Calculate the normal vector of the plane defined by 3 points
-        Eigen::Vector3d v1 = point2 - point1;
-        Eigen::Vector3d v2 = point3 - point1;
-        Eigen::Vector3d normal = v1.cross(v2);
-        double magnitude = normal.norm();
-        if (magnitude < 1e-6)
-        {
-            // Degenerate case: return default normal
-            return Eigen::Vector3d(0.0, 0.0, 1.0);
-        }
-        return normal / magnitude;
+Eigen::Vector3d FrontBackKeypointConverter::project_keypoint_onto_plane(
+    const Keypoint &keypoint, const Eigen::Vector3d &plane_center,
+    const Eigen::Vector3d &plane_normal, const CameraInfo &camera_info) {
+    // Extract camera intrinsics (assuming 3x3 matrix)
+    double fx = camera_info.intrinsics.at<double>(0, 0);
+    double fy = camera_info.intrinsics.at<double>(1, 1);
+    double cx = camera_info.intrinsics.at<double>(0, 2);
+    double cy = camera_info.intrinsics.at<double>(1, 2);
+
+    double ray_x = (keypoint.x - cx) / fx;
+    double ray_y = (keypoint.y - cy) / fy;
+    Eigen::Vector3d ray(ray_x, ray_y, 1.0);
+    Eigen::Vector3d point_on_plane = find_ray_plane_intersection(ray, plane_center, plane_normal);
+
+    return point_on_plane;
+}
+
+Eigen::Vector3d FrontBackKeypointConverter::plane_from_3_points(const Eigen::Vector3d &point1,
+                                                                const Eigen::Vector3d &point2,
+                                                                const Eigen::Vector3d &point3) {
+    // Calculate the normal vector of the plane defined by 3 points
+    Eigen::Vector3d v1 = point2 - point1;
+    Eigen::Vector3d v2 = point3 - point1;
+    Eigen::Vector3d normal = v1.cross(v2);
+    double magnitude = normal.norm();
+    if (magnitude < 1e-6) {
+        // Degenerate case: return default normal
+        return Eigen::Vector3d(0.0, 0.0, 1.0);
     }
+    return normal / magnitude;
+}
 
-    Eigen::Vector3d FrontBackKeypointConverter::transform_to_plane_normal(const Transform &transform)
-    {
-        // Define three points in homogeneous coordinates
-        Eigen::Vector3d point1(0, 0, 0);
-        Eigen::Vector3d point2(1, 0, 0);
-        Eigen::Vector3d point3(0, 1, 0);
+Eigen::Vector3d FrontBackKeypointConverter::transform_to_plane_normal(const Transform &transform) {
+    // Define three points in homogeneous coordinates
+    Eigen::Vector3d point1(0, 0, 0);
+    Eigen::Vector3d point2(1, 0, 0);
+    Eigen::Vector3d point3(0, 1, 0);
 
-        // Compute the plane normal
-        Eigen::Vector3d plane_normal = plane_from_3_points(
-            transform_point(transform.tf, point1),
-            transform_point(transform.tf, point2),
-            transform_point(transform.tf, point3));
+    // Compute the plane normal
+    Eigen::Vector3d plane_normal = plane_from_3_points(transform_point(transform.tf, point1),
+                                                       transform_point(transform.tf, point2),
+                                                       transform_point(transform.tf, point3));
 
-        return plane_normal;
+    return plane_normal;
+}
+
+Eigen::Vector3d FrontBackKeypointConverter::transform_point(const Eigen::Matrix4d &tf,
+                                                            const Eigen::Vector3d &point) {
+    Eigen::Vector4d point_homogenous(point[0], point[1], point[2], 1);
+    Eigen::Vector3d transformed_point = (tf * point_homogenous).head<3>();
+    return transformed_point;
+}
+
+Eigen::Vector3d FrontBackKeypointConverter::find_ray_plane_intersection(
+    const Eigen::Vector3d &ray, const Eigen::Vector3d &plane_center,
+    const Eigen::Vector3d &plane_normal) {
+    // Find intersection of ray (from origin, direction 'ray') with plane
+    constexpr double EPSILON = 1e-6;
+    double dot_with_normal = ray.dot(plane_normal);
+    if (std::abs(dot_with_normal) < EPSILON) {
+        // Ray is parallel to the plane
+        return Eigen::Vector3d::Zero();
     }
+    // fac = -dot(plane_point, -plane_normal) / dot(ray, plane_normal)
+    double fac = -plane_center.dot(-plane_normal) / dot_with_normal;
+    return ray * fac;
+}
 
-    Eigen::Vector3d FrontBackKeypointConverter::transform_point(const Eigen::Matrix4d &tf, const Eigen::Vector3d &point)
-    {
-        Eigen::Vector4d point_homogenous(point[0], point[1], point[2], 1);
-        Eigen::Vector3d transformed_point = (tf * point_homogenous).head<3>();
-        return transformed_point;
+bool FrontBackKeypointConverter::get_pose_from_points(const Eigen::Vector3d &front_point,
+                                                      const Eigen::Vector3d &back_point,
+                                                      Transform &out_transform) {
+    constexpr double EPSILON = 1e-6;
+    Eigen::Vector3d origin_vec(1.0, 0.0, 0.0);
+    // Pose +X points toward front: direction from back to front
+    Eigen::Vector3d offset_vector = front_point - back_point;
+    double magnitude = offset_vector.norm();
+    if (magnitude <= EPSILON) {
+        return false;
     }
-
-    Eigen::Vector3d FrontBackKeypointConverter::find_ray_plane_intersection(
-        const Eigen::Vector3d &ray,
-        const Eigen::Vector3d &plane_center,
-        const Eigen::Vector3d &plane_normal)
-    {
-        // Find intersection of ray (from origin, direction 'ray') with plane
-        constexpr double EPSILON = 1e-6;
-        double dot_with_normal = ray.dot(plane_normal);
-        if (std::abs(dot_with_normal) < EPSILON)
-        {
-            // Ray is parallel to the plane
-            return Eigen::Vector3d::Zero();
-        }
-        // fac = -dot(plane_point, -plane_normal) / dot(ray, plane_normal)
-        double fac = -plane_center.dot(-plane_normal) / dot_with_normal;
-        return ray * fac;
-    }
-
-    bool FrontBackKeypointConverter::get_pose_from_points(
-        const Eigen::Vector3d &front_point,
-        const Eigen::Vector3d &back_point,
-        Transform &out_transform)
-    {
-        constexpr double EPSILON = 1e-6;
-        Eigen::Vector3d origin_vec(1.0, 0.0, 0.0);
-        // Pose +X points toward front: direction from back to front
-        Eigen::Vector3d offset_vector = front_point - back_point;
-        double magnitude = offset_vector.norm();
-        if (magnitude <= EPSILON)
-        {
-            return false;
-        }
-        Eigen::Vector3d direction = offset_vector / magnitude;
-        // Center point between front and back
-        Eigen::Vector3d center = 0.5 * (front_point + back_point);
-        // Compute rotation matrix that aligns origin_vec to direction
+    Eigen::Vector3d direction = offset_vector / magnitude;
+    // Center point between front and back
+    Eigen::Vector3d center = 0.5 * (front_point + back_point);
+    // Compute rotation matrix that aligns origin_vec to direction
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-        // Use Eigen's Quaternion for rotation between two vectors
-        Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(origin_vec, direction);
+    // Use Eigen's Quaternion for rotation between two vectors
+    Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(origin_vec, direction);
 #pragma GCC diagnostic pop
-        Eigen::Matrix3d rot = q.toRotationMatrix();
-        // Build 4x4 transform matrix
-        Eigen::Matrix4d tf = Eigen::Matrix4d::Identity();
-        tf.block<3, 3>(0, 0) = rot;
-        tf.block<3, 1>(0, 3) = center;
-        out_transform.tf = tf;
-        return true;
-    }
+    Eigen::Matrix3d rot = q.toRotationMatrix();
+    // Build 4x4 transform matrix
+    Eigen::Matrix4d tf = Eigen::Matrix4d::Identity();
+    tf.block<3, 3>(0, 0) = rot;
+    tf.block<3, 1>(0, 3) = center;
+    out_transform.tf = tf;
+    return true;
+}
 
-} // namespace auto_battlebot
+}  // namespace auto_battlebot

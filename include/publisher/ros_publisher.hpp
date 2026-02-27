@@ -1,45 +1,46 @@
 #pragma once
 
 #include <miniros/publisher.h>
-#include "publisher/publisher_interface.hpp"
-#include "ros/ros_message_adapters/ros_image.hpp"
-#include "ros/ros_message_adapters/ros_camera_info.hpp"
-#include "ros/ros_message_adapters/ros_marker.hpp"
-#include "ros/ros_message_adapters/ros_tf2.hpp"
-#include "transform_utils.hpp"
+
 #include "colorize_labels.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
+#include "publisher/publisher_interface.hpp"
+#include "ros/ros_message_adapters/ros_camera_info.hpp"
+#include "ros/ros_message_adapters/ros_image.hpp"
+#include "ros/ros_message_adapters/ros_marker.hpp"
+#include "ros/ros_message_adapters/ros_tf2.hpp"
+#include "transform_utils.hpp"
 
-namespace auto_battlebot
-{
-    class RosPublisher : public PublisherInterface
-    {
-    public:
-        RosPublisher(
-            std::shared_ptr<miniros::Publisher> rgb_image_publisher,    // sensor_msgs::CompressedImage
-            std::shared_ptr<miniros::Publisher> camera_info_publisher,  // sensor_msgs::CameraInfo
-            std::shared_ptr<miniros::Publisher> field_mask_publisher,   // sensor_msgs::CompressedImage
-            std::shared_ptr<miniros::Publisher> tf_publisher,           // tf2_msgs::TFMessage
-            std::shared_ptr<miniros::Publisher> static_tf_publisher,    // tf2_msgs::TFMessage
-            std::shared_ptr<miniros::Publisher> field_marker_publisher, // visualization_msgs::Marker
-            std::shared_ptr<miniros::Publisher> robot_marker_publisher  // visualization_msgs::Marker
-        );
-        void publish_camera_data(const CameraData &data) override;
-        void publish_field_mask(const FieldMaskStamped &field_mask, const RgbImage &image) override;
-        void publish_initial_field_description(const FieldDescriptionWithInlierPoints &field) override;
-        void publish_field_description(const FieldDescription &field_description, const FieldDescriptionWithInlierPoints &initial_field_description) override;
-        void publish_robots(const RobotDescriptionsStamped &robots) override;
+namespace auto_battlebot {
+class RosPublisher : public PublisherInterface {
+   public:
+    RosPublisher(
+        std::shared_ptr<miniros::Publisher> rgb_image_publisher,     // sensor_msgs::CompressedImage
+        std::shared_ptr<miniros::Publisher> camera_info_publisher,   // sensor_msgs::CameraInfo
+        std::shared_ptr<miniros::Publisher> field_mask_publisher,    // sensor_msgs::CompressedImage
+        std::shared_ptr<miniros::Publisher> tf_publisher,            // tf2_msgs::TFMessage
+        std::shared_ptr<miniros::Publisher> static_tf_publisher,     // tf2_msgs::TFMessage
+        std::shared_ptr<miniros::Publisher> field_marker_publisher,  // visualization_msgs::Marker
+        std::shared_ptr<miniros::Publisher> robot_marker_publisher   // visualization_msgs::Marker
+    );
+    void publish_camera_data(const CameraData &data) override;
+    void publish_field_mask(const FieldMaskStamped &field_mask, const RgbImage &image) override;
+    void publish_initial_field_description(const FieldDescriptionWithInlierPoints &field) override;
+    void publish_field_description(
+        const FieldDescription &field_description,
+        const FieldDescriptionWithInlierPoints &initial_field_description) override;
+    void publish_robots(const RobotDescriptionsStamped &robots) override;
 
-    private:
-        std::shared_ptr<miniros::Publisher> rgb_image_publisher_;
-        std::shared_ptr<miniros::Publisher> camera_info_publisher_;
-        std::shared_ptr<miniros::Publisher> field_mask_publisher_;
-        std::shared_ptr<miniros::Publisher> tf_publisher_;
-        std::shared_ptr<miniros::Publisher> static_tf_publisher_;
-        std::shared_ptr<miniros::Publisher> field_marker_publisher_;
-        std::shared_ptr<miniros::Publisher> robot_marker_publisher_;
+   private:
+    std::shared_ptr<miniros::Publisher> rgb_image_publisher_;
+    std::shared_ptr<miniros::Publisher> camera_info_publisher_;
+    std::shared_ptr<miniros::Publisher> field_mask_publisher_;
+    std::shared_ptr<miniros::Publisher> tf_publisher_;
+    std::shared_ptr<miniros::Publisher> static_tf_publisher_;
+    std::shared_ptr<miniros::Publisher> field_marker_publisher_;
+    std::shared_ptr<miniros::Publisher> robot_marker_publisher_;
 
-        std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
-    };
-} // namespace auto_battlebot
+    std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
+};
+}  // namespace auto_battlebot

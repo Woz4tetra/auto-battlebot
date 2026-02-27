@@ -1,35 +1,31 @@
+#include <miniros/ros.h>
+
 #include <CLI/CLI.hpp>
 #include <atomic>
 #include <csignal>
+#include <diagnostic_msgs/DiagnosticArray.hxx>
 #include <memory>
 #include <thread>
 #include <vector>
 
-#include <miniros/ros.h>
-#include <diagnostic_msgs/DiagnosticArray.hxx>
-
 #include "config/config.hpp"
-#include "runner.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/ros_diagnostics_backend.hpp"
 #include "diagnostics_logger/ui_diagnostics_backend.hpp"
+#include "runner.hpp"
 #include "ui/ui_runner.hpp"
 #include "ui/ui_state.hpp"
 
-namespace
-{
-    std::atomic<auto_battlebot::UIState *> g_ui_state_for_signal{nullptr};
+namespace {
+std::atomic<auto_battlebot::UIState *> g_ui_state_for_signal{nullptr};
 
-    void signal_quit(int)
-    {
-        auto *s = g_ui_state_for_signal.load(std::memory_order_relaxed);
-        if (s)
-            s->quit_requested.store(true);
-    }
-} // namespace
+void signal_quit(int) {
+    auto *s = g_ui_state_for_signal.load(std::memory_order_relaxed);
+    if (s) s->quit_requested.store(true);
+}
+}  // namespace
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     using namespace auto_battlebot;
 
     CLI::App app{"Auto BattleBot - Autonomous robot control system"};
@@ -37,12 +33,9 @@ int main(int argc, char **argv)
     app.add_option("-c,--config", config_path, "Path to configuration directory")
         ->check(CLI::ExistingDirectory);
 
-    try
-    {
+    try {
         app.parse(argc, argv);
-    }
-    catch (const CLI::ParseError &e)
-    {
+    } catch (const CLI::ParseError &e) {
         return app.exit(e);
     }
 
@@ -56,14 +49,12 @@ int main(int argc, char **argv)
     std::shared_ptr<UIState> ui_state;
     std::vector<std::shared_ptr<DiagnosticsBackend>> backends;
 
-    if (class_config.ui && class_config.ui->enable)
-    {
+    if (class_config.ui && class_config.ui->enable) {
         ui_state = std::make_shared<UIState>();
         backends.push_back(std::make_shared<UIDiagnosticsBackend>(ui_state));
     }
 
-    if (class_config.publisher->type == "RosPublisher")
-    {
+    if (class_config.publisher->type == "RosPublisher") {
         auto ros_diag_publisher = std::make_shared<miniros::Publisher>(
             nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 100));
         backends.push_back(std::make_shared<RosDiagnosticsBackend>(ros_diag_publisher));
@@ -81,24 +72,13 @@ int main(int argc, char **argv)
     auto navigation = make_navigation(*class_config.navigation);
     auto transmitter = make_transmitter(*class_config.transmitter);
 
-    Runner runner(
-        class_config.runner,
-        robot_configs,
-        camera,
-        field_model,
-        field_filter,
-        keypoint_model,
-        robot_filter,
-        navigation,
-        transmitter,
-        publisher,
-        ui_state);
+    Runner runner(class_config.runner, robot_configs, camera, field_model, field_filter,
+                  keypoint_model, robot_filter, navigation, transmitter, publisher, ui_state);
 
     runner.initialize();
 
     std::thread ui_thread;
-    if (class_config.ui && class_config.ui->enable && ui_state)
-    {
+    if (class_config.ui && class_config.ui->enable && ui_state) {
         g_ui_state_for_signal.store(ui_state.get(), std::memory_order_relaxed);
         std::signal(SIGINT, signal_quit);
         std::signal(SIGTERM, signal_quit);
@@ -113,8 +93,7 @@ int main(int argc, char **argv)
 
     int result = runner.run();
 
-    if (ui_thread.joinable())
-    {
+    if (ui_thread.joinable()) {
         ui_thread.join();
     }
 
@@ -123,4 +102,3 @@ int main(int argc, char **argv)
     std::signal(SIGTERM, SIG_DFL);
     return result;
 }
-

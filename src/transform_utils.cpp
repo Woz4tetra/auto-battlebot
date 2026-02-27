@@ -1,212 +1,184 @@
 #include "transform_utils.hpp"
-#include "enum_to_string_lower.hpp"
-#include <sstream>
+
 #include <iomanip>
+#include <sstream>
 
-namespace auto_battlebot
-{
-    void matrix_to_position_quaternion(
-        const Eigen::Matrix4d &transform,
-        Position &position,
-        Rotation &quaternion)
-    {
-        // Extract position
-        position.x = transform(0, 3);
-        position.y = transform(1, 3);
-        position.z = transform(2, 3);
+#include "enum_to_string_lower.hpp"
 
-        // Extract rotation matrix and convert to quaternion
-        Eigen::Matrix3d rotation_matrix = transform.block<3, 3>(0, 0);
-        Eigen::Quaterniond quat(rotation_matrix);
-        quat.normalize();
+namespace auto_battlebot {
+void matrix_to_position_quaternion(const Eigen::Matrix4d &transform, Position &position,
+                                   Rotation &quaternion) {
+    // Extract position
+    position.x = transform(0, 3);
+    position.y = transform(1, 3);
+    position.z = transform(2, 3);
 
-        quaternion.w = quat.w();
-        quaternion.x = quat.x();
-        quaternion.y = quat.y();
-        quaternion.z = quat.z();
-    }
+    // Extract rotation matrix and convert to quaternion
+    Eigen::Matrix3d rotation_matrix = transform.block<3, 3>(0, 0);
+    Eigen::Quaterniond quat(rotation_matrix);
+    quat.normalize();
 
-    void matrix_to_position_euler(
-        const Eigen::Matrix4d &transform,
-        Position &position,
-        double &roll,
-        double &pitch,
-        double &yaw)
-    {
-        // Extract position
-        position.x = transform(0, 3);
-        position.y = transform(1, 3);
-        position.z = transform(2, 3);
+    quaternion.w = quat.w();
+    quaternion.x = quat.x();
+    quaternion.y = quat.y();
+    quaternion.z = quat.z();
+}
 
-        // Extract rotation matrix and convert to Euler angles (ZYX convention)
-        Eigen::Matrix3d rotation_matrix = transform.block<3, 3>(0, 0);
-        Eigen::Vector3d euler_angles = rotation_matrix.eulerAngles(2, 1, 0); // ZYX order
+void matrix_to_position_euler(const Eigen::Matrix4d &transform, Position &position, double &roll,
+                              double &pitch, double &yaw) {
+    // Extract position
+    position.x = transform(0, 3);
+    position.y = transform(1, 3);
+    position.z = transform(2, 3);
 
-        yaw = euler_angles(0);
-        pitch = euler_angles(1);
-        roll = euler_angles(2);
-    }
+    // Extract rotation matrix and convert to Euler angles (ZYX convention)
+    Eigen::Matrix3d rotation_matrix = transform.block<3, 3>(0, 0);
+    Eigen::Vector3d euler_angles = rotation_matrix.eulerAngles(2, 1, 0);  // ZYX order
 
-    Eigen::Matrix4d position_quaternion_to_matrix(
-        const Position &position,
-        const Rotation &quaternion)
-    {
-        Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
+    yaw = euler_angles(0);
+    pitch = euler_angles(1);
+    roll = euler_angles(2);
+}
 
-        // Create quaternion and convert to rotation matrix
-        Eigen::Quaterniond quat(quaternion.w, quaternion.x, quaternion.y, quaternion.z);
-        quat.normalize();
-        transform.block<3, 3>(0, 0) = quat.toRotationMatrix();
+Eigen::Matrix4d position_quaternion_to_matrix(const Position &position,
+                                              const Rotation &quaternion) {
+    Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
 
-        // Set translation
-        transform(0, 3) = position.x;
-        transform(1, 3) = position.y;
-        transform(2, 3) = position.z;
+    // Create quaternion and convert to rotation matrix
+    Eigen::Quaterniond quat(quaternion.w, quaternion.x, quaternion.y, quaternion.z);
+    quat.normalize();
+    transform.block<3, 3>(0, 0) = quat.toRotationMatrix();
 
-        return transform;
-    }
+    // Set translation
+    transform(0, 3) = position.x;
+    transform(1, 3) = position.y;
+    transform(2, 3) = position.z;
 
-    Eigen::Matrix4d position_euler_to_matrix(
-        const Position &position,
-        double roll,
-        double pitch,
-        double yaw)
-    {
-        Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
+    return transform;
+}
 
-        // Create rotation matrix from Euler angles (ZYX convention: yaw-pitch-roll)
-        Eigen::AngleAxisd rollAngle(roll, Eigen::Vector3d::UnitX());
-        Eigen::AngleAxisd pitchAngle(pitch, Eigen::Vector3d::UnitY());
-        Eigen::AngleAxisd yawAngle(yaw, Eigen::Vector3d::UnitZ());
+Eigen::Matrix4d position_euler_to_matrix(const Position &position, double roll, double pitch,
+                                         double yaw) {
+    Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
 
-        // Combined rotation: R = Rz(yaw) * Ry(pitch) * Rx(roll)
-        Eigen::Matrix3d rotation = (yawAngle * pitchAngle * rollAngle).toRotationMatrix();
-        transform.block<3, 3>(0, 0) = rotation;
+    // Create rotation matrix from Euler angles (ZYX convention: yaw-pitch-roll)
+    Eigen::AngleAxisd rollAngle(roll, Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitchAngle(pitch, Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd yawAngle(yaw, Eigen::Vector3d::UnitZ());
 
-        // Set translation
-        transform(0, 3) = position.x;
-        transform(1, 3) = position.y;
-        transform(2, 3) = position.z;
+    // Combined rotation: R = Rz(yaw) * Ry(pitch) * Rx(roll)
+    Eigen::Matrix3d rotation = (yawAngle * pitchAngle * rollAngle).toRotationMatrix();
+    transform.block<3, 3>(0, 0) = rotation;
 
-        return transform;
-    }
+    // Set translation
+    transform(0, 3) = position.x;
+    transform(1, 3) = position.y;
+    transform(2, 3) = position.z;
 
-    Eigen::Matrix4d pose_to_matrix(const Pose &pose)
-    {
-        return position_quaternion_to_matrix(pose.position, pose.rotation);
-    }
+    return transform;
+}
 
-    Pose matrix_to_pose(const Eigen::Matrix4d &transform)
-    {
-        Pose pose;
-        matrix_to_position_quaternion(transform, pose.position, pose.rotation);
-        return pose;
-    }
+Eigen::Matrix4d pose_to_matrix(const Pose &pose) {
+    return position_quaternion_to_matrix(pose.position, pose.rotation);
+}
 
-    Position vector_to_position(const Eigen::Vector3d &vector)
-    {
-        return Position{vector[0], vector[1], vector[2]};
-    }
+Pose matrix_to_pose(const Eigen::Matrix4d &transform) {
+    Pose pose;
+    matrix_to_position_quaternion(transform, pose.position, pose.rotation);
+    return pose;
+}
 
-    void quaternion_to_euler(
-        const Rotation &quaternion,
-        double &roll,
-        double &pitch,
-        double &yaw)
-    {
-        // Convert quaternion to rotation matrix, then to Euler angles
-        Eigen::Quaterniond quat(quaternion.w, quaternion.x, quaternion.y, quaternion.z);
-        quat.normalize();
+Position vector_to_position(const Eigen::Vector3d &vector) {
+    return Position{vector[0], vector[1], vector[2]};
+}
 
-        Eigen::Matrix3d rotation_matrix = quat.toRotationMatrix();
-        Eigen::Vector3d euler_angles = rotation_matrix.eulerAngles(2, 1, 0); // ZYX order
+void quaternion_to_euler(const Rotation &quaternion, double &roll, double &pitch, double &yaw) {
+    // Convert quaternion to rotation matrix, then to Euler angles
+    Eigen::Quaterniond quat(quaternion.w, quaternion.x, quaternion.y, quaternion.z);
+    quat.normalize();
 
-        yaw = euler_angles(0);
-        pitch = euler_angles(1);
-        roll = euler_angles(2);
-    }
+    Eigen::Matrix3d rotation_matrix = quat.toRotationMatrix();
+    Eigen::Vector3d euler_angles = rotation_matrix.eulerAngles(2, 1, 0);  // ZYX order
 
-    Rotation euler_to_quaternion(double roll, double pitch, double yaw)
-    {
-        // Create rotation matrix from Euler angles (ZYX convention)
-        Eigen::AngleAxisd rollAngle(roll, Eigen::Vector3d::UnitX());
-        Eigen::AngleAxisd pitchAngle(pitch, Eigen::Vector3d::UnitY());
-        Eigen::AngleAxisd yawAngle(yaw, Eigen::Vector3d::UnitZ());
+    yaw = euler_angles(0);
+    pitch = euler_angles(1);
+    roll = euler_angles(2);
+}
 
-        // Combined rotation: R = Rz(yaw) * Ry(pitch) * Rx(roll)
-        Eigen::Quaterniond quat = yawAngle * pitchAngle * rollAngle;
-        quat.normalize();
+Rotation euler_to_quaternion(double roll, double pitch, double yaw) {
+    // Create rotation matrix from Euler angles (ZYX convention)
+    Eigen::AngleAxisd rollAngle(roll, Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitchAngle(pitch, Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd yawAngle(yaw, Eigen::Vector3d::UnitZ());
 
-        Rotation rotation;
-        rotation.w = quat.w();
-        rotation.x = quat.x();
-        rotation.y = quat.y();
-        rotation.z = quat.z();
+    // Combined rotation: R = Rz(yaw) * Ry(pitch) * Rx(roll)
+    Eigen::Quaterniond quat = yawAngle * pitchAngle * rollAngle;
+    quat.normalize();
 
-        return rotation;
-    }
+    Rotation rotation;
+    rotation.w = quat.w();
+    rotation.x = quat.x();
+    rotation.y = quat.y();
+    rotation.z = quat.z();
 
-    TransformStamped invert_transform(const TransformStamped &transform)
-    {
-        TransformStamped inverted;
+    return rotation;
+}
 
-        // Swap parent and child frames
-        inverted.header.frame_id = transform.child_frame_id;
-        inverted.child_frame_id = transform.header.frame_id;
+TransformStamped invert_transform(const TransformStamped &transform) {
+    TransformStamped inverted;
 
-        // Copy timestamp
-        inverted.header.stamp = transform.header.stamp;
+    // Swap parent and child frames
+    inverted.header.frame_id = transform.child_frame_id;
+    inverted.child_frame_id = transform.header.frame_id;
 
-        // Invert the transformation matrix
-        inverted.transform.tf = transform.transform.tf.inverse();
+    // Copy timestamp
+    inverted.header.stamp = transform.header.stamp;
 
-        return inverted;
-    }
+    // Invert the transformation matrix
+    inverted.transform.tf = transform.transform.tf.inverse();
 
-    std::string transform_to_string(const TransformStamped &transform)
-    {
-        std::ostringstream oss;
-        oss << std::fixed << std::setprecision(4);
+    return inverted;
+}
 
-        // Extract position and quaternion from the transform matrix
-        Position position;
-        Rotation quaternion;
-        matrix_to_position_quaternion(transform.transform.tf, position, quaternion);
+std::string transform_to_string(const TransformStamped &transform) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(4);
 
-        // Convert quaternion to Euler angles for readability
-        double roll, pitch, yaw;
-        quaternion_to_euler(quaternion, roll, pitch, yaw);
+    // Extract position and quaternion from the transform matrix
+    Position position;
+    Rotation quaternion;
+    matrix_to_position_quaternion(transform.transform.tf, position, quaternion);
 
-        oss << "TransformStamped(";
-        oss << "parent=" << enum_to_string_lower(transform.header.frame_id);
-        oss << ", child=" << enum_to_string_lower(transform.child_frame_id);
-        oss << ", time=" << transform.header.stamp;
-        oss << ", pos=[" << position.x << ", " << position.y << ", " << position.z << "]";
-        oss << ", quat=[" << quaternion.w << ", " << quaternion.x << ", " << quaternion.y << ", " << quaternion.z << "]";
-        oss << ", rpy=[" << roll << ", " << pitch << ", " << yaw << "]";
-        oss << ")";
+    // Convert quaternion to Euler angles for readability
+    double roll, pitch, yaw;
+    quaternion_to_euler(quaternion, roll, pitch, yaw);
 
-        return oss.str();
-    }
+    oss << "TransformStamped(";
+    oss << "parent=" << enum_to_string_lower(transform.header.frame_id);
+    oss << ", child=" << enum_to_string_lower(transform.child_frame_id);
+    oss << ", time=" << transform.header.stamp;
+    oss << ", pos=[" << position.x << ", " << position.y << ", " << position.z << "]";
+    oss << ", quat=[" << quaternion.w << ", " << quaternion.x << ", " << quaternion.y << ", "
+        << quaternion.z << "]";
+    oss << ", rpy=[" << roll << ", " << pitch << ", " << yaw << "]";
+    oss << ")";
 
-    Pose2D pose_to_pose2d(const Pose &pose)
-    {
-        double roll, pitch, yaw;
-        quaternion_to_euler(pose.rotation, roll, pitch, yaw);
-        return Pose2D{pose.position.x, pose.position.y, yaw};
-    }
+    return oss.str();
+}
 
-    Pose pose2d_to_pose(const Pose2D &pose2d)
-    {
-        Pose pose;
-        pose.position = Position{pose2d.x, pose2d.y, 0.0};
-        pose.rotation = euler_to_quaternion(0.0, 0.0, pose2d.yaw);
-        return pose;
-    }
+Pose2D pose_to_pose2d(const Pose &pose) {
+    double roll, pitch, yaw;
+    quaternion_to_euler(pose.rotation, roll, pitch, yaw);
+    return Pose2D{pose.position.x, pose.position.y, yaw};
+}
 
-    Position pose2d_to_position(const Pose2D &pose2d)
-    {
-        return Position{pose2d.x, pose2d.y, 0.0};
-    }
+Pose pose2d_to_pose(const Pose2D &pose2d) {
+    Pose pose;
+    pose.position = Position{pose2d.x, pose2d.y, 0.0};
+    pose.rotation = euler_to_quaternion(0.0, 0.0, pose2d.yaw);
+    return pose;
+}
 
-} // namespace auto_battlebot
+Position pose2d_to_position(const Pose2D &pose2d) { return Position{pose2d.x, pose2d.y, 0.0}; }
+
+}  // namespace auto_battlebot

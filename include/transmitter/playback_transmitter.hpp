@@ -1,28 +1,27 @@
 #pragma once
 
-#include "transmitter/transmitter_interface.hpp"
-#include "transmitter/config.hpp"
 #include <chrono>
 
-namespace auto_battlebot
-{
-    class PlaybackTransmitter : public TransmitterInterface
-    {
-    public:
-        PlaybackTransmitter(PlaybackTransmitterConfiguration &config);
+#include "transmitter/config.hpp"
+#include "transmitter/transmitter_interface.hpp"
 
-        bool initialize() override;
-        CommandFeedback update() override;
-        void send(VelocityCommand command) override;
-        bool did_init_button_press() override;
-        bool is_connected() const override { return true; }
+namespace auto_battlebot {
+class PlaybackTransmitter : public TransmitterInterface {
+   public:
+    PlaybackTransmitter(PlaybackTransmitterConfiguration &config);
 
-    private:
-        double init_delay_seconds_;
-        bool initialized_;
-        std::chrono::steady_clock::time_point start_time_;
-        bool init_button_pressed_;
-        bool init_button_done_pressing_;
-    };
+    bool initialize() override;
+    CommandFeedback update() override;
+    void send(VelocityCommand command) override;
+    bool did_init_button_press() override;
+    bool is_connected() const override { return true; }
 
-} // namespace auto_battlebot
+   private:
+    double init_delay_seconds_;
+    bool initialized_;
+    std::chrono::steady_clock::time_point start_time_;
+    bool init_button_pressed_;
+    bool init_button_done_pressing_;
+};
+
+}  // namespace auto_battlebot

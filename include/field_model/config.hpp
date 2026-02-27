@@ -1,57 +1,46 @@
 #pragma once
 
-#include "data_structures.hpp"
-#include "field_model/field_model_interface.hpp"
-#include "enums/deeplab_model_type.hpp"
-#include "config/config_factory.hpp"
 #include "config/config_cast.hpp"
+#include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
+#include "data_structures.hpp"
+#include "enums/deeplab_model_type.hpp"
+#include "field_model/field_model_interface.hpp"
 
-namespace auto_battlebot
-{
-    struct FieldModelConfiguration
-    {
-        std::string type;
-        virtual ~FieldModelConfiguration() = default;
-        virtual void parse_fields([[maybe_unused]] ConfigParser &parser) {}
-    };
+namespace auto_battlebot {
+struct FieldModelConfiguration {
+    std::string type;
+    virtual ~FieldModelConfiguration() = default;
+    virtual void parse_fields([[maybe_unused]] ConfigParser &parser) {}
+};
 
-    struct NoopFieldModelConfiguration : public FieldModelConfiguration
-    {
-        NoopFieldModelConfiguration()
-        {
-            type = "NoopFieldModel";
-        }
+struct NoopFieldModelConfiguration : public FieldModelConfiguration {
+    NoopFieldModelConfiguration() { type = "NoopFieldModel"; }
 
-        PARSE_CONFIG_FIELDS(
-            // No additional fields
-        )
-    };
+    PARSE_CONFIG_FIELDS(
+        // No additional fields
+    )
+};
 
-    struct DeepLabFieldModelConfiguration : public FieldModelConfiguration
-    {
-        std::string model_path;
-        DeepLabModelType model_type = DeepLabModelType::DeepLabV3;
-        int image_size = 344;
-        int border_padding = 20;
+struct DeepLabFieldModelConfiguration : public FieldModelConfiguration {
+    std::string model_path;
+    DeepLabModelType model_type = DeepLabModelType::DeepLabV3;
+    int image_size = 344;
+    int border_padding = 20;
 
-        DeepLabFieldModelConfiguration()
-        {
-            type = "DeepLabFieldModel";
-        }
+    DeepLabFieldModelConfiguration() { type = "DeepLabFieldModel"; }
 
-        // clang-format off
+    // clang-format off
         PARSE_CONFIG_FIELDS(
             PARSE_FIELD_STRING_REQUIRED(model_path)
             PARSE_ENUM(model_type, DeepLabModelType)
             PARSE_FIELD(image_size)
             PARSE_FIELD(border_padding))
-        // clang-format on
-    };
+    // clang-format on
+};
 
-    std::shared_ptr<FieldModelInterface> make_field_model(const FieldModelConfiguration &config);
-    std::unique_ptr<FieldModelConfiguration> parse_field_model_config(ConfigParser &parser);
-    std::unique_ptr<FieldModelConfiguration> load_field_model_from_toml(
-        toml::table const &toml_data,
-        std::vector<std::string> &parsed_sections);
-} // namespace auto_battlebot
+std::shared_ptr<FieldModelInterface> make_field_model(const FieldModelConfiguration &config);
+std::unique_ptr<FieldModelConfiguration> parse_field_model_config(ConfigParser &parser);
+std::unique_ptr<FieldModelConfiguration> load_field_model_from_toml(
+    toml::table const &toml_data, std::vector<std::string> &parsed_sections);
+}  // namespace auto_battlebot

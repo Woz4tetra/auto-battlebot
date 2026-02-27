@@ -1,27 +1,24 @@
 #pragma once
 
-#include <chrono>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
+#include <algorithm>
 #include <atomic>
-#include <future>
+#include <chrono>
+#include <condition_variable>
 #include <filesystem>
+#include <future>
+#include <limits>
+#include <mutex>
 #include <queue>
 #include <sl/Camera.hpp>
-#include <algorithm>
-#include <limits>
+#include <thread>
 
-#include "rgbd_camera/rgbd_camera_interface.hpp"
-#include "rgbd_camera/config.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "rgbd_camera/config.hpp"
+#include "rgbd_camera/rgbd_camera_interface.hpp"
 
-namespace auto_battlebot
-{
-    inline sl::RESOLUTION get_zed_resolution(Resolution resolution)
-    {
-        switch (resolution)
-        {
+namespace auto_battlebot {
+inline sl::RESOLUTION get_zed_resolution(Resolution resolution) {
+    switch (resolution) {
         case Resolution::RES_3856x2180:
             return sl::RESOLUTION::HD4K;
         case Resolution::RES_3800x1800:
@@ -40,14 +37,12 @@ namespace auto_battlebot
             return sl::RESOLUTION::SVGA;
         case Resolution::RES_672x376:
             return sl::RESOLUTION::VGA;
-        }
-        throw std::invalid_argument("Unknown Resolution value");
     }
+    throw std::invalid_argument("Unknown Resolution value");
+}
 
-    inline sl::DEPTH_MODE get_zed_depth_mode(DepthMode depth_mode)
-    {
-        switch (depth_mode)
-        {
+inline sl::DEPTH_MODE get_zed_depth_mode(DepthMode depth_mode) {
+    switch (depth_mode) {
         case DepthMode::ZED_NONE:
             return sl::DEPTH_MODE::NONE;
         case DepthMode::ZED_PERFORMANCE:
@@ -62,51 +57,50 @@ namespace auto_battlebot
             return sl::DEPTH_MODE::NEURAL;
         case DepthMode::ZED_NEURAL_PLUS:
             return sl::DEPTH_MODE::NEURAL_PLUS;
-        }
-        throw std::invalid_argument("Unknown DepthMode value");
     }
+    throw std::invalid_argument("Unknown DepthMode value");
+}
 
-    class ZedRgbdCamera : public RgbdCameraInterface
-    {
-    public:
-        ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
-        ~ZedRgbdCamera();
-        bool initialize() override;
-        bool get(CameraData &data, bool get_depth) override;
-        bool should_close() override;
+class ZedRgbdCamera : public RgbdCameraInterface {
+   public:
+    ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
+    ~ZedRgbdCamera();
+    bool initialize() override;
+    bool get(CameraData &data, bool get_depth) override;
+    bool should_close() override;
 
-    private:
-        void capture_thread_loop();
-        bool capture_frame();
-        void reset_capture_timing_stats() const;
+   private:
+    void capture_thread_loop();
+    bool capture_frame();
+    void reset_capture_timing_stats() const;
 
-        sl::Camera zed_;
-        sl::InitParameters params_;
-        sl::Mat zed_rgb_;
-        sl::Mat zed_depth_;
-        sl::Pose zed_pose_;
-        CameraData latest_data_;
-        mutable std::mutex data_mutex_;
-        mutable std::condition_variable data_cv_;
-        std::thread capture_thread_;
-        std::atomic<bool> is_initialized_;
-        std::atomic<bool> should_close_;
-        std::atomic<bool> stop_thread_;
-        std::atomic<bool> has_new_frame_;
-        std::atomic<uint64_t> frame_counter_;
-        uint64_t depth_frame_counter_;
-        mutable uint64_t last_returned_frame_counter_;
-        mutable std::queue<int> depth_request_queue_;
-        sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
-        bool position_tracking_enabled_;
+    sl::Camera zed_;
+    sl::InitParameters params_;
+    sl::Mat zed_rgb_;
+    sl::Mat zed_depth_;
+    sl::Pose zed_pose_;
+    CameraData latest_data_;
+    mutable std::mutex data_mutex_;
+    mutable std::condition_variable data_cv_;
+    std::thread capture_thread_;
+    std::atomic<bool> is_initialized_;
+    std::atomic<bool> should_close_;
+    std::atomic<bool> stop_thread_;
+    std::atomic<bool> has_new_frame_;
+    std::atomic<uint64_t> frame_counter_;
+    uint64_t depth_frame_counter_;
+    mutable uint64_t last_returned_frame_counter_;
+    mutable std::queue<int> depth_request_queue_;
+    sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
+    bool position_tracking_enabled_;
 
-        std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
+    std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
-        // Capture timing statistics (protected by data_mutex_)
-        mutable uint64_t captures_since_last_report_;
-        mutable double capture_time_sum_ms_;
-        mutable double capture_time_min_ms_;
-        mutable double capture_time_max_ms_;
-    };
+    // Capture timing statistics (protected by data_mutex_)
+    mutable uint64_t captures_since_last_report_;
+    mutable double capture_time_sum_ms_;
+    mutable double capture_time_min_ms_;
+    mutable double capture_time_max_ms_;
+};
 
-} // namespace auto_battlebot
+}  // namespace auto_battlebot

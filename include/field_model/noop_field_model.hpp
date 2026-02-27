@@ -2,17 +2,12 @@
 
 #include "field_model/field_model_interface.hpp"
 
-namespace auto_battlebot
-{
-    class NoopFieldModel : public FieldModelInterface
-    {
-    public:
-        bool initialize() override { return true; }
+namespace auto_battlebot {
+class NoopFieldModel : public FieldModelInterface {
+   public:
+    bool initialize() override { return true; }
 
-        FieldMaskStamped update([[maybe_unused]] RgbImage image) override
-        {
-            return FieldMaskStamped{};
-        }
-    };
+    FieldMaskStamped update([[maybe_unused]] RgbImage image) override { return FieldMaskStamped{}; }
+};
 
-} // namespace auto_battlebot
+}  // namespace auto_battlebot

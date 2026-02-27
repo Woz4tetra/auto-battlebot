@@ -20,3 +20,4 @@ libffi-dev
 valgrind
 clang-tidy
 clangd
+clang-format
