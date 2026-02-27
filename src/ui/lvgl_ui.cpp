@@ -408,8 +408,8 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
         char buf[256];
         if (ok) {
             snprintf(buf, sizeof(buf), "%.1f Hz  |  %s  |  %d opponent%s seen", avg_hz,
-                     our_seen ? "our robot in view" : "our robot not seen",
-                     opp, opp != 1 ? "s" : "");
+                     our_seen ? "our robot in view" : "our robot not seen", opp,
+                     opp != 1 ? "s" : "");
         } else {
             std::string reasons;
             if (!st.camera_ok) reasons += "Camera FAIL  ";
