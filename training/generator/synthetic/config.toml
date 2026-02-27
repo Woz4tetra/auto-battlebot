@@ -1,0 +1,116 @@
+[output]
+image_dir = "data/synthetic/images"
+label_dir = "data/synthetic/labels"
+num_images = 20000
+image_size = 640
+# Number of camera viewpoints to render per scene arrangement.
+# Higher values = faster generation but less object placement diversity.
+images_per_scene = 5
+
+[robot]
+model_path = "../../data/models/MR STABS MK2.gltf"
+class_id = 0
+# Scale factor applied to the imported model (1.0 = no scaling).
+# Adjust if the OnShape export units don't match Blender's meters.
+scale = 1.0
+
+# 3D keypoint positions in model-local space (meters).
+# Measure these from the CAD model origin in OnShape.
+[robot.keypoints]
+front = [0.1115, 0.0, -0.00313]
+back = [-0.0206, 0.0, -0.00394205]
+
+# Map OnShape part colors (RGB 0-255) to material types.
+# Run `blenderproc run prepare_robot_model.py config.toml --inspect`
+# to list all colors present in the GLTF for filling this out.
+[[robot.color_mapping]]
+color = [102, 102, 102]
+tolerance = 20
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [128, 128, 128]
+tolerance = 20
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [0, 0, 0]
+tolerance = 30
+material = "steel"
+
+[[robot.color_mapping]]
+color = [255, 32, 65]
+tolerance = 20
+material = "tpu"
+
+[[robot.color_mapping]]
+color = [165, 165, 165]
+tolerance = 20
+material = "foam"
+
+[[robot.color_mapping]]
+color = [232, 232, 232]
+tolerance = 20
+material = "paper"
+
+# PBR properties per material type.
+# cc_texture names refer to ambientCG / CC0 Textures asset IDs.
+[materials.aluminum]
+metallic = 1.0
+roughness = 0.3
+cc_texture = "Metal012"
+
+[materials.steel]
+metallic = 1.0
+roughness = 0.4
+cc_texture = "Metal030"
+
+[materials.tpu]
+metallic = 0.0
+roughness = 0.5
+cc_texture = "Plastic006"
+
+[materials.foam]
+metallic = 0.0
+roughness = 0.85
+cc_texture = "Rubber001"
+
+[materials.paper]
+metallic = 0.0
+roughness = 0.9
+cc_texture = "Paper001"
+
+[distractors]
+model_dirs = [
+    "data/distractor_models/objaverse",
+    "data/distractor_models/sam3d",
+]
+min_per_scene = 0
+max_per_scene = 5
+# Random scale range applied to distractor models
+scale_range = [0.5, 2.0]
+# Maximum number of distractor models to keep loaded in memory
+pool_size = 30
+
+[environment]
+hdri_dir = "data/hdris"
+cc_textures_dir = "data/cc_textures"
+
+[camera]
+min_distance = 0.3
+max_distance = 1.5
+height_range = [0.1, 0.8]
+# Gaussian noise added to the camera look-at target (meters)
+look_at_noise = 0.05
+
+[scene]
+ground_size = 3.0
+# Objects are placed within this radius from the origin
+arena_radius = 1.0
+
+[randomization]
+roughness_jitter = 0.1
+hue_jitter_degrees = 5
+light_count_range = [1, 3]
+light_intensity_range = [100, 500]
+light_color_temp_range = [3500, 6500]
