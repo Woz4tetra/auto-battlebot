@@ -29,4 +29,10 @@ run-clang-tidy -p "${BUILD_DIR}" "$@" "${SOURCE_FILTER}"
 EXIT_CODE=$?
 set -e
 
+if [ $EXIT_CODE -eq 0 ]; then
+    echo "Lint passed."
+else
+    echo "Lint failed."
+fi
+
 exit $EXIT_CODE
