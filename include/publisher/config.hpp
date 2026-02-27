@@ -52,4 +52,7 @@ namespace auto_battlebot
     /** Create publisher without ROS (NoopPublisher only). Use when config.type is "NoopPublisher". */
     std::shared_ptr<PublisherInterface> make_publisher_no_ros(const PublisherConfiguration &config);
     std::unique_ptr<PublisherConfiguration> parse_publisher_config(ConfigParser &parser);
+    std::unique_ptr<PublisherConfiguration> load_publisher_from_toml(
+        toml::table const &toml_data,
+        std::vector<std::string> &parsed_sections);
 } // namespace auto_battlebot

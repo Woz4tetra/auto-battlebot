@@ -18,3 +18,5 @@ wget
 libpcl-dev
 libffi-dev
 valgrind
+clang-tidy
+clangd

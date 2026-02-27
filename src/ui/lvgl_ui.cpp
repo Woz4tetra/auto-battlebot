@@ -4,9 +4,12 @@
 #include "enums/label.hpp"
 #include <SDL.h>
 #include <lvgl.h>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -39,7 +42,7 @@ namespace auto_battlebot
         {
             lv_obj_t *tabview = nullptr;
 
-            lv_obj_t *status_led = nullptr;
+            lv_obj_t *status_tile = nullptr;  /* whole tile colored by status */
             lv_obj_t *status_label = nullptr;
             lv_obj_t *status_detail = nullptr;
             lv_obj_t *opp_tiles[3] = {};
@@ -51,7 +54,58 @@ namespace auto_battlebot
             lv_obj_t *debug_img = nullptr;
             lv_obj_t *debug_kp_cont = nullptr;
             std::vector<lv_obj_t *> kp_dots;
+
+            /** Rolling buffer for loop_rate_hz; size capped by rate_avg_window from UIState. */
+            std::deque<double> rate_history;
+            /** When rate first went below threshold; empty when above. Used for sustained-fail (anti-strobe). */
+            std::optional<std::chrono::steady_clock::time_point> rate_below_since;
         };
+
+        /** Push current rate into rolling history (call once per frame). Window size from UIState. */
+        void update_rate_history(UIWidgets &w, std::shared_ptr<UIState> us, double current_hz)
+        {
+            if (!us)
+                return;
+            int window = us->get_rate_avg_window();
+            if (window <= 0)
+                window = 1;
+            w.rate_history.push_back(current_hz);
+            while (static_cast<int>(w.rate_history.size()) > window)
+                w.rate_history.pop_front();
+        }
+
+        /** Return rolling average Hz from current history (no push). */
+        double get_rate_avg(const UIWidgets &w, double fallback_hz)
+        {
+            if (w.rate_history.empty())
+                return fallback_hz;
+            double sum = 0.0;
+            for (double v : w.rate_history)
+                sum += v;
+            return sum / static_cast<double>(w.rate_history.size());
+        }
+
+        /** Only false when rate has been below threshold for at least rate_fail_duration_sec (prevents strobing). */
+        bool compute_loop_met_sustained(UIWidgets &w, std::shared_ptr<UIState> us, double avg_hz)
+        {
+            if (!us)
+                return true;
+            double max_hz = us->get_max_loop_rate();
+            double thresh = us->get_rate_fail_threshold();
+            double threshold_hz = max_hz * thresh;
+            double duration_sec = us->get_rate_fail_duration_sec();
+            auto now = std::chrono::steady_clock::now();
+
+            if (avg_hz >= threshold_hz)
+            {
+                w.rate_below_since.reset();
+                return true;
+            }
+            if (!w.rate_below_since.has_value())
+                w.rate_below_since = now;
+            auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(now - *w.rate_below_since).count();
+            return elapsed < duration_sec;
+        }
 
         void derive_robot_counts(const RobotDescriptionsStamped &robots, bool &our_seen, int &opp_count)
         {
@@ -143,8 +197,9 @@ namespace auto_battlebot
             lv_obj_set_style_pad_gap(top, 8, 0);
             style_transparent(top);
 
-            /* Status tile */
+            /* Status tile: whole tile changes color (yellow = system OK, green = OK + tracking) */
             lv_obj_t *st = lv_obj_create(top);
+            w.status_tile = st;
             lv_obj_set_flex_grow(st, 1);
             lv_obj_set_height(st, LV_PCT(100));
             lv_obj_set_style_radius(st, TILE_RADIUS, 0);
@@ -152,11 +207,7 @@ namespace auto_battlebot
             lv_obj_set_flex_flow(st, LV_FLEX_FLOW_COLUMN);
             lv_obj_set_flex_align(st, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
             lv_obj_clear_flag(st, LV_OBJ_FLAG_SCROLLABLE);
-
-            w.status_led = lv_led_create(st);
-            lv_obj_set_size(w.status_led, 80, 80);
-            lv_led_set_color(w.status_led, lv_color_hex(0x00C853));
-            lv_led_on(w.status_led);
+            lv_obj_set_style_bg_color(st, lv_color_hex(0x757575), 0); /* default gray until status known */
 
             w.status_label = lv_label_create(st);
             lv_label_set_text(w.status_label, "Waiting...");
@@ -323,23 +374,41 @@ namespace auto_battlebot
             int opp = 0;
             derive_robot_counts(robots, our_seen, opp);
 
-            bool ok = st.camera_ok && st.transmitter_connected && st.initialized && st.loop_met;
+            update_rate_history(w, us, st.loop_rate_hz);
+            double avg_hz = get_rate_avg(w, st.loop_rate_hz);
+            bool loop_met = compute_loop_met_sustained(w, us, avg_hz);
+            bool ok = st.camera_ok && st.transmitter_connected && st.initialized && loop_met;
+            bool tracking = our_seen && opp >= 1;
 
-            if (w.status_led)
+            /* Tile color: green = OK + our robot and ≥1 opponent tracked; yellow = OK only; red = error */
+            if (w.status_tile)
             {
-                lv_led_set_color(w.status_led, ok ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744));
-                lv_led_on(w.status_led);
+                lv_color_t tile_color;
+                if (ok && tracking)
+                    tile_color = lv_color_hex(0x00C853); /* green */
+                else if (ok)
+                    tile_color = lv_color_hex(0xFFC107); /* yellow */
+                else
+                    tile_color = lv_color_hex(0xFF1744); /* red */
+                lv_obj_set_style_bg_color(w.status_tile, tile_color, 0);
             }
             if (w.status_label)
+            {
                 lv_label_set_text(w.status_label, ok ? "System OK" : "System Error");
+                /* Dark text on yellow/green for readability */
+                lv_obj_set_style_text_color(w.status_label,
+                    (ok && tracking) || ok ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF), 0);
+            }
 
             if (w.status_detail)
             {
+                lv_obj_set_style_text_color(w.status_detail,
+                    ok ? lv_color_hex(0x424242) : lv_color_hex(0xEEEEEE), 0);
                 char buf[256];
                 if (ok)
                 {
                     snprintf(buf, sizeof(buf), "%.1f Hz  |  %d opponent%s seen",
-                             st.loop_rate_hz, opp, opp != 1 ? "s" : "");
+                             avg_hz, opp, opp != 1 ? "s" : "");
                 }
                 else
                 {
@@ -350,8 +419,12 @@ namespace auto_battlebot
                         reasons += "TX disconnected  ";
                     if (!st.initialized)
                         reasons += "Not initialized  ";
-                    if (!st.loop_met)
-                        reasons += "Loop slow  ";
+                    if (!loop_met)
+                    {
+                        char rate_buf[64];
+                        snprintf(rate_buf, sizeof(rate_buf), "Loop slow (%.1f Hz)  ", avg_hz);
+                        reasons += rate_buf;
+                    }
                     snprintf(buf, sizeof(buf), "%s", reasons.c_str());
                 }
                 lv_label_set_text(w.status_detail, buf);
@@ -398,8 +471,10 @@ namespace auto_battlebot
             snprintf(buf, sizeof(buf), "Opponents Seen: %d", opp);
             set_health(w.health[4], opp > 0, buf);
 
-            snprintf(buf, sizeof(buf), "Loop Rate: %.1f Hz %s", st.loop_rate_hz, st.loop_met ? "(met)" : "(NOT MET)");
-            set_health(w.health[5], st.loop_met, buf);
+            double avg_hz = get_rate_avg(w, st.loop_rate_hz);
+            bool loop_met = compute_loop_met_sustained(w, us, avg_hz);
+            snprintf(buf, sizeof(buf), "Loop Rate: %.1f Hz %s", avg_hz, loop_met ? "(met)" : "(NOT MET)");
+            set_health(w.health[5], loop_met, buf);
 
             if (st.jetson_temperature_c > 0.0)
             {
@@ -561,9 +636,13 @@ namespace auto_battlebot
 
         if (ui_state->get_fullscreen())
         {
-            SDL_Window *sdl_win = SDL_GetWindowFromID(1);
-            if (sdl_win)
-                SDL_SetWindowFullscreen(sdl_win, SDL_WINDOW_FULLSCREEN_DESKTOP);
+            SDL_Renderer *renderer = static_cast<SDL_Renderer *>(lv_sdl_window_get_renderer(disp));
+            if (renderer)
+            {
+                SDL_Window *sdl_win = SDL_RenderGetWindow(renderer);
+                if (sdl_win)
+                    SDL_SetWindowFullscreen(sdl_win, SDL_WINDOW_FULLSCREEN_DESKTOP);
+            }
         }
 
         lv_indev_t *mouse = lv_sdl_mouse_create();

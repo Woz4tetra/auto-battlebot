@@ -1,0 +1,27 @@
+#!/bin/bash
+# Run clang-tidy on the project using the compilation database from the build directory.
+# Requires: build/compile_commands.json (run cmake -B build first).
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BUILD_DIR="$PROJECT_ROOT/build"
+COMPILE_COMMANDS="$BUILD_DIR/compile_commands.json"
+
+if [[ ! -f "$COMPILE_COMMANDS" ]]; then
+    echo "Error: $COMPILE_COMMANDS not found. Run cmake -B build first." >&2
+    exit 1
+fi
+
+cd "$PROJECT_ROOT"
+
+# Source files that appear in compile_commands.json (so clang-tidy gets correct flags)
+FILES="$(jq -r '.[].file' "$COMPILE_COMMANDS" 2>/dev/null | sort -u)"
+if [[ -z "$FILES" ]]; then
+    echo "Error: No files in compile_commands.json or jq not installed." >&2
+    exit 1
+fi
+
+echo "Running clang-tidy ( -p $BUILD_DIR )..."
+clang-tidy -p "$BUILD_DIR" $FILES -- "$@"

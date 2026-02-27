@@ -117,4 +117,52 @@ namespace auto_battlebot
         width = window_width_;
         height = window_height_;
     }
+
+    void UIState::set_rate_avg_window(int window)
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        rate_avg_window_ = window <= 0 ? 1 : window;
+    }
+
+    int UIState::get_rate_avg_window() const
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        return rate_avg_window_;
+    }
+
+    void UIState::set_max_loop_rate(double hz)
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        max_loop_rate_hz_ = hz > 0.0 ? hz : 300.0;
+    }
+
+    double UIState::get_max_loop_rate() const
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        return max_loop_rate_hz_;
+    }
+
+    void UIState::set_rate_fail_threshold(double fraction)
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        rate_fail_threshold_ = (fraction > 0.0 && fraction <= 1.0) ? fraction : 0.99;
+    }
+
+    double UIState::get_rate_fail_threshold() const
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        return rate_fail_threshold_;
+    }
+
+    void UIState::set_rate_fail_duration_sec(double sec)
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        rate_fail_duration_sec_ = sec >= 0.0 ? sec : 2.0;
+    }
+
+    double UIState::get_rate_fail_duration_sec() const
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        return rate_fail_duration_sec_;
+    }
 } // namespace auto_battlebot

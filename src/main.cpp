@@ -56,7 +56,7 @@ int main(int argc, char **argv)
     std::shared_ptr<UIState> ui_state;
     std::vector<std::shared_ptr<DiagnosticsBackend>> backends;
 
-    if (class_config.ui.enable)
+    if (class_config.ui && class_config.ui->enable)
     {
         ui_state = std::make_shared<UIState>();
         backends.push_back(std::make_shared<UIDiagnosticsBackend>(ui_state));
@@ -97,13 +97,17 @@ int main(int argc, char **argv)
     runner.initialize();
 
     std::thread ui_thread;
-    if (class_config.ui.enable && ui_state)
+    if (class_config.ui && class_config.ui->enable && ui_state)
     {
         g_ui_state_for_signal.store(ui_state.get(), std::memory_order_relaxed);
         std::signal(SIGINT, signal_quit);
         std::signal(SIGTERM, signal_quit);
-        ui_state->set_window_size(class_config.ui.width, class_config.ui.height);
-        ui_state->set_fullscreen(class_config.ui.fullscreen);
+        ui_state->set_window_size(class_config.ui->width, class_config.ui->height);
+        ui_state->set_fullscreen(class_config.ui->fullscreen);
+        ui_state->set_rate_avg_window(class_config.ui->rate_avg_window);
+        ui_state->set_max_loop_rate(class_config.runner.max_loop_rate);
+        ui_state->set_rate_fail_threshold(class_config.ui->rate_fail_threshold);
+        ui_state->set_rate_fail_duration_sec(class_config.ui->rate_fail_duration_sec);
         ui_thread = std::thread(run_ui_thread, ui_state);
     }
 

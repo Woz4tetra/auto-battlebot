@@ -1,0 +1,9 @@
+#!/bin/bash
+# Apply clang-tidy -fix to all C/C++ sources under src/ and include/.
+# Fixes formatting (indentation, braces, spacing, etc.) in place.
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+"${SCRIPT_DIR}/lint" -- -fix

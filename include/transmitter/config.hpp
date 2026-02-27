@@ -55,4 +55,7 @@ namespace auto_battlebot
 
     std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config);
     std::unique_ptr<TransmitterConfiguration> parse_transmitter_config(ConfigParser &parser);
+    std::unique_ptr<TransmitterConfiguration> load_transmitter_from_toml(
+        toml::table const &toml_data,
+        std::vector<std::string> &parsed_sections);
 } // namespace auto_battlebot

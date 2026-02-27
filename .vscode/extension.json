@@ -1,0 +1,31 @@
+{
+    "recommendations": [
+        "editorconfig.editorconfig",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-vscode.cpptools",
+        "jtr.vscode-position",
+        "github.copilot",
+        "github.copilot-chat",
+        "bierner.folder-source-actions",
+        "mhutchie.git-graph",
+        "eamodio.gitlens",
+        "ms-iot.vscode-ros",
+        "visualstudioexptteam.vscodeintellicode",
+        "ms-vscode-remote.vscode-remote-extensionpack",
+        "ms-vsliveshare.vsliveshare",
+        "esbenp.prettier-vscode",
+        "styled-components.vscode-styled-components",
+        "redhat.vscode-yaml",
+        "ms-vscode-remote.remote-containers",
+        "timonwong.shellcheck",
+        "charliermarsh.ruff",
+        "ms-python.mypy-type-checker",
+        "twxs.cmake",
+        "ms-vscode.cpptools-extension-pack",
+        "redhat.vscode-xml",
+        "ms-vscode.cmake-tools",
+        "ms-vscode.cpptools",
+        "anysphere.cpptools"
+    ]
+}

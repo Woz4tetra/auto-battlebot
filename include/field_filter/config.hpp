@@ -47,4 +47,7 @@ namespace auto_battlebot
 
     std::shared_ptr<FieldFilterInterface> make_field_filter(const FieldFilterConfiguration &config);
     std::unique_ptr<FieldFilterConfiguration> parse_field_filter_config(ConfigParser &parser);
+    std::unique_ptr<FieldFilterConfiguration> load_field_filter_from_toml(
+        toml::table const &toml_data,
+        std::vector<std::string> &parsed_sections);
 } // namespace auto_battlebot

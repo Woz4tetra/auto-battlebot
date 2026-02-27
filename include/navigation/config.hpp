@@ -71,4 +71,7 @@ namespace auto_battlebot
 
     std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config);
     std::unique_ptr<NavigationConfiguration> parse_navigation_config(ConfigParser &parser);
+    std::unique_ptr<NavigationConfiguration> load_navigation_from_toml(
+        toml::table const &toml_data,
+        std::vector<std::string> &parsed_sections);
 } // namespace auto_battlebot

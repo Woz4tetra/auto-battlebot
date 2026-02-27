@@ -136,4 +136,7 @@ namespace auto_battlebot
 
     std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfiguration &config);
     std::unique_ptr<RobotFilterConfiguration> parse_robot_filter_config(ConfigParser &parser);
+    std::unique_ptr<RobotFilterConfiguration> load_robot_filter_from_toml(
+        toml::table const &toml_data,
+        std::vector<std::string> &parsed_sections);
 } // namespace auto_battlebot

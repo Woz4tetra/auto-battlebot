@@ -1,4 +1,6 @@
 #include "publisher/config.hpp"
+#include "config/config_parser.hpp"
+#include <toml++/toml.h>
 
 namespace auto_battlebot
 {
@@ -9,6 +11,21 @@ namespace auto_battlebot
     std::unique_ptr<PublisherConfiguration> parse_publisher_config(ConfigParser &parser)
     {
         return ConfigFactory<PublisherConfiguration>::instance().create_and_parse(parser);
+    }
+
+    std::unique_ptr<PublisherConfiguration> load_publisher_from_toml(
+        toml::table const &toml_data,
+        std::vector<std::string> &parsed_sections)
+    {
+        auto section = toml_data["publisher"].as_table();
+        if (!section)
+        {
+            throw ConfigValidationError("Missing required section [publisher]");
+        }
+        ConfigParser parser(*section, "publisher");
+        auto config = parse_publisher_config(parser);
+        parsed_sections.push_back("publisher");
+        return config;
     }
 
     std::shared_ptr<PublisherInterface> make_publisher_no_ros(const PublisherConfiguration &config)

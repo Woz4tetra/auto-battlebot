@@ -2,6 +2,8 @@
 #include "rgbd_camera/noop_rgbd_camera.hpp"
 #include "rgbd_camera/zed_rgbd_camera.hpp"
 #include "rgbd_camera/sim_rgbd_camera.hpp"
+#include "config/config_parser.hpp"
+#include <toml++/toml.h>
 
 namespace auto_battlebot
 {
@@ -13,6 +15,21 @@ namespace auto_battlebot
     std::unique_ptr<RgbdCameraConfiguration> parse_rgbd_camera_config(ConfigParser &parser)
     {
         return ConfigFactory<RgbdCameraConfiguration>::instance().create_and_parse(parser);
+    }
+
+    std::unique_ptr<RgbdCameraConfiguration> load_camera_from_toml(
+        toml::table const &toml_data,
+        std::vector<std::string> &parsed_sections)
+    {
+        auto section = toml_data["rgbd_camera"].as_table();
+        if (!section)
+        {
+            throw ConfigValidationError("Missing required section [rgbd_camera]");
+        }
+        ConfigParser parser(*section, "rgbd_camera");
+        auto config = parse_rgbd_camera_config(parser);
+        parsed_sections.push_back("rgbd_camera");
+        return config;
     }
 
     std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfiguration &config)

@@ -1,0 +1,47 @@
+#pragma once
+
+#include <stdexcept>
+#include <memory>
+
+#include "enums.hpp"
+#include "data_structures.hpp"
+#include "rgbd_camera/rgbd_camera_interface.hpp"
+#include "config/config_factory.hpp"
+#include "config/config_parser.hpp"
+#include "config/config_cast.hpp"
+
+namespace auto_battlebot
+{
+    struct UiConfiguration
+    {
+        ~UiConfiguration() = default;
+        UiConfiguration() = default;
+
+        bool enable = false;
+        bool fullscreen = true;
+        int width = 1280;
+        int height = 800;
+        /** Number of samples for rolling average of loop_rate_hz (1 = no averaging). */
+        int rate_avg_window = 10;
+        /** Fraction of max_loop_rate below which rate is considered "not met" (e.g. 0.99). */
+        double rate_fail_threshold = 0.5;
+        /** Seconds the rate must be below threshold before showing error (prevents strobing). */
+        double rate_fail_duration_sec = 2.0;
+
+        // clang-format off
+        PARSE_CONFIG_FIELDS(
+            PARSE_FIELD_BOOL(enable)
+            PARSE_FIELD_BOOL(fullscreen)
+            PARSE_FIELD(width)
+            PARSE_FIELD(height)
+            PARSE_FIELD(rate_avg_window)
+            PARSE_FIELD_DOUBLE(rate_fail_threshold)
+            PARSE_FIELD_DOUBLE(rate_fail_duration_sec)
+        )
+        // clang-format on
+    };
+    std::unique_ptr<UiConfiguration> parse_ui_config(ConfigParser &parser);
+    std::unique_ptr<UiConfiguration> load_ui_from_toml(
+        toml::table const &toml_data,
+        std::vector<std::string> &parsed_sections);
+} // namespace auto_battlebot

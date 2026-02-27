@@ -15,13 +15,12 @@
 
 namespace auto_battlebot
 {
-    /** System status written by Runner, read by UI. UI derives our_robot_seen/opponent_count_seen from robots. */
+    /** System status written by Runner, read by UI. UI derives our_robot_seen/opponent_count_seen from robots. loop_met is computed in UI from rolling average. */
     struct SystemStatus
     {
         bool camera_ok = false;
         bool transmitter_connected = false;
         double loop_rate_hz = 0.0;
-        bool loop_met = false;
         bool initialized = false;
         double jetson_temperature_c = 0.0;  // 0 = not available
         std::string jetson_compute_mode;
@@ -79,6 +78,21 @@ namespace auto_battlebot
         void set_fullscreen(bool fullscreen);
         bool get_fullscreen() const;
 
+        /** Rolling average window size for loop_rate_hz (number of samples). Set before starting UI thread. */
+        void set_rate_avg_window(int window);
+        int get_rate_avg_window() const;
+
+        /** Target loop rate (Hz); UI uses this to compute loop_met from averaged rate. Set before starting UI thread. */
+        void set_max_loop_rate(double hz);
+        double get_max_loop_rate() const;
+
+        /** Fraction of max_loop_rate below which rate is "not met". Set before starting UI thread. */
+        void set_rate_fail_threshold(double fraction);
+        double get_rate_fail_threshold() const;
+        /** Seconds rate must be below threshold before showing error (anti-strobe). Set before starting UI thread. */
+        void set_rate_fail_duration_sec(double sec);
+        double get_rate_fail_duration_sec() const;
+
     private:
         mutable std::mutex status_mutex_;
         SystemStatus system_status_;
@@ -94,6 +108,10 @@ namespace auto_battlebot
         int window_width_ = 1280;
         int window_height_ = 800;
         bool fullscreen_ = true;
+        int rate_avg_window_ = 10;
+        double max_loop_rate_hz_ = 300.0;
+        double rate_fail_threshold_ = 0.5;
+        double rate_fail_duration_sec_ = 2.0;
     };
 
 } // namespace auto_battlebot

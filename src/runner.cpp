@@ -114,22 +114,28 @@ namespace auto_battlebot
     int Runner::run()
     {
         auto loop_duration = std::chrono::microseconds(static_cast<int64_t>(1000000.0 / runner_config_.max_loop_rate));
-        auto next_tick_time = std::chrono::steady_clock::now();
+        auto prev_time = std::chrono::steady_clock::now();
 
         while (true)
         {
+            auto current_time = std::chrono::steady_clock::now();
+
+            // Sleep until next tick to maintain loop rate
+            auto remaining_time = loop_duration - (current_time - prev_time);
+            prev_time = current_time;
+            if (remaining_time.count() < 0)
+            {
+                double exceeded_time = -1 * std::chrono::duration_cast<std::chrono::microseconds>(remaining_time).count() / 1000.0;
+                diagnostics_logger_->debug("", {{"loop_duration_exceeded_ms", exceeded_time}});
+            }
+            std::this_thread::sleep_for(remaining_time);
+
             if (!tick())
             {
                 return 0;
             }
-            DiagnosticsData rate_data;
-            rate_data["rate"] = 1000.0 / elapsed_ms();
-            diagnostics_logger_->debug(rate_data);
-            DiagnosticsLogger::publish();
 
-            // Sleep until next tick to maintain loop rate
-            next_tick_time += loop_duration;
-            std::this_thread::sleep_until(next_tick_time);
+            DiagnosticsLogger::publish();
         }
     }
 
@@ -137,15 +143,19 @@ namespace auto_battlebot
     {
         FunctionTimer timer(diagnostics_logger_, "tick");
         diagnostics_logger_->debug({}, "Tick");
+
+        double period_ms = elapsed_ms();
+        double loop_rate_hz = (period_ms > 0.0) ? (1000.0 / period_ms) : 0.0;
+
+        DiagnosticsData rate_data;
+        rate_data["rate"] = loop_rate_hz;
+        diagnostics_logger_->debug(rate_data);
+
         if (!miniros::ok())
         {
             miniros::shutdown();
             return false;
         }
-
-        double period_ms = elapsed_ms();
-        double loop_rate_hz = (period_ms > 0.0) ? (1000.0 / period_ms) : 0.0;
-        bool loop_met = (loop_rate_hz >= runner_config_.max_loop_rate * 0.99);
 
         if (ui_state_)
         {
@@ -243,7 +253,6 @@ namespace auto_battlebot
             status.camera_ok = true;
             status.transmitter_connected = transmitter_->is_connected();
             status.loop_rate_hz = loop_rate_hz;
-            status.loop_met = loop_met;
             status.initialized = initialized_;
             ui_state_->set_system_status(status);
             ui_state_->set_robots(robots);

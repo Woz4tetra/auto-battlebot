@@ -72,4 +72,7 @@ namespace auto_battlebot
 
     std::shared_ptr<KeypointModelInterface> make_keypoint_model(const KeypointModelConfiguration &config);
     std::unique_ptr<KeypointModelConfiguration> parse_keypoint_model_config(ConfigParser &parser);
+    std::unique_ptr<KeypointModelConfiguration> load_keypoint_model_from_toml(
+        toml::table const &toml_data,
+        std::vector<std::string> &parsed_sections);
 } // namespace auto_battlebot
