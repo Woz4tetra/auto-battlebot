@@ -1,6 +1,5 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
-#include <SDL_render.h>
 #include <lvgl.h>
 
 #include <chrono>
@@ -604,14 +603,12 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
     lv_sdl_window_set_title(disp, "Auto BattleBot");
 
     if (ui_state->get_fullscreen()) {
-        SDL_Renderer *renderer =
-            static_cast<SDL_Renderer *>(lv_sdl_window_get_renderer(disp));
-        if (renderer) {
-#if SDL_VERSION_ATLEAST(2, 0, 22)
-            SDL_Window *sdl_win = SDL_RenderGetWindow(renderer);
+        /* LVGL SDL driver stores driver_data as lv_sdl_window_t with window as first member */
+        void *driver_data = lv_display_get_driver_data(disp);
+        if (driver_data) {
+            SDL_Window *sdl_win = *static_cast<SDL_Window **>(driver_data);
             if (sdl_win)
                 SDL_SetWindowFullscreen(sdl_win, SDL_WINDOW_FULLSCREEN_DESKTOP);
-#endif
         }
     }
 

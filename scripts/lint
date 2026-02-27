@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run clang-tidy on the project using the compilation database from the build directory.
+# Run clang-tidy on project source files using run-clang-tidy for parallel execution.
 # Requires: build/compile_commands.json (run cmake -B build first).
 
 set -e
@@ -8,11 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/build"
 COMPILE_COMMANDS="$BUILD_DIR/compile_commands.json"
-CLANG_TIDY_EXIT=0
 
-CLANG_TIDY=$(which clang-tidy 2>/dev/null || echo "")
-if [ -z "${CLANG_TIDY}" ]; then
-    echo "Warning: clang-tidy not found. Skipping lint."
+if [ -z "$(which run-clang-tidy 2>/dev/null)" ]; then
+    echo "Warning: run-clang-tidy not found. Skipping lint."
     exit 1
 fi
 
@@ -21,17 +19,14 @@ if [ ! -f "${COMPILE_COMMANDS}" ]; then
     exit 1
 fi
 
-# Source files from compile_commands.json, excluding build/ and build-test/
-CPP_FILES=$(jq -r '.[].file | select(test("/build/|/build-test/") | not)' "${COMPILE_COMMANDS}" 2>/dev/null | sort -u)
-if [ -z "${CPP_FILES}" ]; then
-    echo "Error: No files in compile_commands.json or jq not installed." >&2
-    exit 1
-fi
+# Only lint files under src/ — excludes build/, build-test/, and all fetched deps.
+# run-clang-tidy accepts a regex as positional file arguments to filter by path.
+SOURCE_FILTER="^${PROJECT_ROOT}/src/"
 
 echo "Running clang-tidy ( -p ${BUILD_DIR} )..."
 set +e
-echo "${CPP_FILES}" | xargs "${CLANG_TIDY}" -p "${BUILD_DIR}" 2>/dev/null
-CLANG_TIDY_EXIT=$?
+run-clang-tidy -p "${BUILD_DIR}" "$@" "${SOURCE_FILTER}"
+EXIT_CODE=$?
 set -e
 
-exit $CLANG_TIDY_EXIT
+exit $EXIT_CODE
