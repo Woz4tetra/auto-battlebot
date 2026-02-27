@@ -8,20 +8,30 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/build"
 COMPILE_COMMANDS="$BUILD_DIR/compile_commands.json"
+CLANG_TIDY_EXIT=0
 
-if [[ ! -f "$COMPILE_COMMANDS" ]]; then
-    echo "Error: $COMPILE_COMMANDS not found. Run cmake -B build first." >&2
+CLANG_TIDY=$(which clang-tidy 2>/dev/null || echo "")
+if [ -z "${CLANG_TIDY}" ]; then
+    echo "Warning: clang-tidy not found. Skipping lint."
     exit 1
 fi
 
-cd "$PROJECT_ROOT"
+if [ ! -f "${COMPILE_COMMANDS}" ]; then
+    echo "Error: ${COMPILE_COMMANDS} not found. Run cmake -B build first." >&2
+    exit 1
+fi
 
-# Source files that appear in compile_commands.json (so clang-tidy gets correct flags)
-FILES="$(jq -r '.[].file' "$COMPILE_COMMANDS" 2>/dev/null | sort -u)"
-if [[ -z "$FILES" ]]; then
+# Source files from compile_commands.json, excluding build/ and build-test/
+CPP_FILES=$(jq -r '.[].file | select(test("/build/|/build-test/") | not)' "${COMPILE_COMMANDS}" 2>/dev/null | sort -u)
+if [ -z "${CPP_FILES}" ]; then
     echo "Error: No files in compile_commands.json or jq not installed." >&2
     exit 1
 fi
 
-echo "Running clang-tidy ( -p $BUILD_DIR )..."
-clang-tidy -p "$BUILD_DIR" $FILES -- "$@"
+echo "Running clang-tidy ( -p ${BUILD_DIR} )..."
+set +e
+echo "${CPP_FILES}" | xargs "${CLANG_TIDY}" -p "${BUILD_DIR}" 2>/dev/null
+CLANG_TIDY_EXIT=$?
+set -e
+
+exit $CLANG_TIDY_EXIT
