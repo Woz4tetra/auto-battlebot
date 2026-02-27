@@ -574,8 +574,31 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
             img_dsc.data_size = static_cast<uint32_t>(img_copy.size());
             img_dsc.data = img_copy.data();
             lv_image_set_src(w.debug_img, &img_dsc);
-            lv_obj_set_size(w.debug_img, dw, dh);
-            lv_obj_set_size(w.debug_kp_cont, dw, dh);
+
+            /* Scale image to fit container without cropping; preserve aspect ratio (shrink only) */
+            lv_obj_t *cont = lv_obj_get_parent(w.debug_img);
+            const int32_t cont_w = cont ? lv_obj_get_content_width(cont) : dw;
+            const int32_t cont_h = cont ? lv_obj_get_content_height(cont) : dh;
+            const double scale = std::min(
+                1.0, std::min(static_cast<double>(cont_w) / dw, static_cast<double>(cont_h) / dh));
+            const int32_t sw = static_cast<int32_t>(std::round(dw * scale));
+            const int32_t sh = static_cast<int32_t>(std::round(dh * scale));
+            lv_obj_set_size(w.debug_img, sw, sh);
+            lv_obj_set_size(w.debug_kp_cont, sw, sh);
+            lv_obj_align(w.debug_img, LV_ALIGN_CENTER, 0, 0);
+            lv_obj_align(w.debug_kp_cont, LV_ALIGN_CENTER, 0, 0);
+        }
+    }
+
+    /* Scale for keypoints: same as image (fit container, aspect ratio) */
+    double kp_scale = 1.0;
+    if (dw > 0 && dh > 0) {
+        lv_obj_t *cont = lv_obj_get_parent(w.debug_img);
+        if (cont) {
+            const int32_t cw = lv_obj_get_content_width(cont);
+            const int32_t ch = lv_obj_get_content_height(cont);
+            kp_scale =
+                std::min(1.0, std::min(static_cast<double>(cw) / dw, static_cast<double>(ch) / dh));
         }
     }
 
@@ -594,7 +617,9 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
         lv_obj_t *dot = w.kp_dots[i];
         if (i < kps.keypoints.size()) {
             const auto &kp = kps.keypoints[i];
-            lv_obj_set_pos(dot, static_cast<int32_t>(kp.x) - 6, static_cast<int32_t>(kp.y) - 6);
+            const int32_t px = static_cast<int32_t>(std::round(kp.x * kp_scale)) - 6;
+            const int32_t py = static_cast<int32_t>(std::round(kp.y * kp_scale)) - 6;
+            lv_obj_set_pos(dot, px, py);
             lv_obj_clear_flag(dot, LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
