@@ -85,7 +85,7 @@ init_delay_seconds = 0.2
 type = "RosPublisher"
 
 [runner]
-max_loop_rate = 300.0
+max_loop_rate = 30.0
 
 [ui]
 enable = true
