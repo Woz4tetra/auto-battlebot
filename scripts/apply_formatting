@@ -1,9 +1,19 @@
 #!/bin/bash
-# Apply clang-tidy -fix to all C/C++ sources under src/ and include/.
-# Fixes formatting (indentation, braces, spacing, etc.) in place.
+# Apply clang-format to all C/C++ sources under src/ and include/.
+# Uses the same formatter Cursor invokes on save (clangd → clang-format, reads .clang-format).
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-"${SCRIPT_DIR}/lint" -- -fix
+if [ -z "$(which clang-format 2>/dev/null)" ]; then
+    echo "Error: clang-format not found." >&2
+    exit 1
+fi
+
+echo "Applying clang-format to C/C++ sources..."
+find "${PROJECT_ROOT}/src" "${PROJECT_ROOT}/include" \
+    \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" -o -name "*.c" \) \
+    -print0 | xargs -0 clang-format -i
+echo "Done."
