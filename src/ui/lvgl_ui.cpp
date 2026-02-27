@@ -54,6 +54,9 @@ struct UIWidgets {
     lv_obj_t *status_detail = nullptr;
     lv_obj_t *opp_tiles[3] = {};
 
+    lv_obj_t *reinit_tile = nullptr;
+    lv_obj_t *reinit_status = nullptr;
+
     HealthRow health[8];
     int health_count = 0;
     lv_obj_t *sections_cont = nullptr;
@@ -210,6 +213,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
 
     /* Reinit tile */
     lv_obj_t *rt = lv_obj_create(top);
+    w.reinit_tile = rt;
     lv_obj_set_flex_grow(rt, 1);
     lv_obj_set_height(rt, LV_PCT(100));
     lv_obj_set_style_radius(rt, TILE_RADIUS, 0);
@@ -218,7 +222,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_set_flex_align(rt, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(rt, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(rt, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_color(rt, lv_color_hex(0x1565C0), 0);
+    lv_obj_set_style_bg_color(rt, lv_color_hex(0xFF1744), 0); /* red until field found */
     lv_obj_add_event_cb(rt, reinit_cb, LV_EVENT_CLICKED, ui_state.get());
 
     lv_obj_t *ri = lv_label_create(rt);
@@ -229,6 +233,12 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_label_set_text(rl, "Reinitialize\nField");
     lv_obj_set_style_text_font(rl, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_align(rl, LV_TEXT_ALIGN_CENTER, 0);
+
+    w.reinit_status = lv_label_create(rt);
+    lv_label_set_text(w.reinit_status, "");
+    lv_obj_set_style_text_font(w.reinit_status, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_align(w.reinit_status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(w.reinit_status, lv_color_hex(0xFFFFFF), 0);
 
     /* --- Bottom row: opponent tiles --- */
     lv_obj_t *bot = lv_obj_create(tab);
@@ -409,6 +419,16 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
             snprintf(buf, sizeof(buf), "%s", reasons.c_str());
         }
         lv_label_set_text(w.status_detail, buf);
+    }
+
+    if (w.reinit_tile) {
+        lv_obj_set_style_bg_color(
+            w.reinit_tile,
+            st.initialized ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744),
+            0);
+    }
+    if (w.reinit_status) {
+        lv_label_set_text(w.reinit_status, st.initialized ? "field initialized" : "");
     }
 
     for (int i = 0; i < 3; i++) {
