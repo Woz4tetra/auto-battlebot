@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -22,8 +23,17 @@ constexpr int TAB_BAR_HEIGHT = 56;
 constexpr int TILE_RADIUS = 12;
 constexpr int TILE_PAD = 16;
 constexpr int DIAG_REBUILD_INTERVAL = 30;
+/** Sections not updated in this many seconds are shown gray (stale). */
+constexpr double DIAG_STALE_SEC = 2.0;
 
 static int selected_opponent_count = 0;
+
+/** Persistent cache: section key -> (snapshot, last update time). Never remove
+ * entries so scroll/layout stay stable when sections disappear. */
+static std::vector<std::string> diag_section_order;
+static std::map<std::string,
+                std::pair<DiagnosticStatusSnapshot, std::chrono::steady_clock::time_point>>
+    diag_section_cache;
 
 struct OpponentTileData {
     std::shared_ptr<UIState> ui_state;
@@ -455,28 +465,55 @@ void update_health_rows(UIWidgets &w, std::shared_ptr<UIState> us) {
     }
 }
 
+static std::string diag_section_key(const DiagnosticStatusSnapshot &snap) {
+    std::string key = snap.name;
+    if (!snap.subsection.empty()) key += "\x01" + snap.subsection;
+    return key;
+}
+
 void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
     if (!us || !w.sections_cont) return;
 
-    /* Preserve scroll position of the diagnostics tab when rebuilding content */
+    const auto now = std::chrono::steady_clock::now();
+
+    /* Merge new snapshots into cache; keep old entries, never remove */
+    std::vector<DiagnosticStatusSnapshot> snaps;
+    us->get_diagnostic_snapshots(snaps);
+    for (const auto &snap : snaps) {
+        std::string key = diag_section_key(snap);
+        auto it = diag_section_cache.find(key);
+        if (it == diag_section_cache.end()) {
+            diag_section_order.push_back(key);
+            diag_section_cache[key] = {snap, now};
+        } else {
+            it->second.first = snap;
+            it->second.second = now;
+        }
+    }
+
+    /* Preserve scroll position when rebuilding content */
     lv_obj_t *diag_tab = lv_obj_get_parent(w.sections_cont);
     const int32_t scroll_y = (diag_tab != nullptr) ? lv_obj_get_scroll_top(diag_tab) : 0;
 
-    std::vector<DiagnosticStatusSnapshot> snaps;
-    us->get_diagnostic_snapshots(snaps);
-
     lv_obj_clean(w.sections_cont);
 
-    for (const auto &snap : snaps) {
+    for (const std::string &key : diag_section_order) {
+        auto it = diag_section_cache.find(key);
+        if (it == diag_section_cache.end()) continue;
+        const DiagnosticStatusSnapshot &snap = it->second.first;
+        const std::chrono::steady_clock::time_point &updated = it->second.second;
+        const double age_sec = std::chrono::duration<double>(now - updated).count();
+        const bool stale = (age_sec > DIAG_STALE_SEC);
+
         std::string title = snap.name;
         if (!snap.subsection.empty()) title += ": " + snap.subsection;
 
-        /* Section header bar */
+        /* Section header bar: green when fresh, gray when stale */
         lv_obj_t *hdr = lv_obj_create(w.sections_cont);
         lv_obj_set_size(hdr, LV_PCT(100), LV_SIZE_CONTENT);
-        lv_obj_set_style_bg_color(hdr, lv_color_hex(0x4CAF50), 0);
+        lv_obj_set_style_bg_color(hdr, stale ? lv_color_hex(0x757575) : lv_color_hex(0x4CAF50), 0);
         lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
-        lv_obj_set_style_pad_all(hdr, 6, 0);
+        lv_obj_set_style_pad_all(hdr, 4, 0);
         lv_obj_set_style_radius(hdr, 4, 0);
         lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -485,16 +522,18 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
         lv_obj_set_style_text_font(hlbl, &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(hlbl, lv_color_hex(0xFFFFFF), 0);
 
-        /* Key-value table */
         size_t rows = snap.values.size() + (snap.message.empty() ? 0 : 1);
         if (rows == 0) continue;
 
         lv_obj_t *table = lv_table_create(w.sections_cont);
         lv_table_set_column_count(table, 2);
         lv_table_set_row_count(table, static_cast<uint32_t>(rows));
-        lv_table_set_column_width(table, 0, 400);
-        lv_table_set_column_width(table, 1, 600);
+        lv_table_set_column_width(table, 0, 320);
+        lv_table_set_column_width(table, 1, 480);
         lv_obj_set_width(table, LV_PCT(100));
+        lv_obj_set_style_text_font(table, &lv_font_montserrat_20, LV_PART_ITEMS);
+        lv_obj_set_style_pad_all(table, 2, LV_PART_ITEMS);
+        if (stale) lv_obj_set_style_text_color(table, lv_color_hex(0x9E9E9E), LV_PART_ITEMS);
 
         uint32_t row = 0;
         if (!snap.message.empty()) {
