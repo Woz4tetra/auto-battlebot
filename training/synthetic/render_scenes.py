@@ -519,29 +519,52 @@ def sample_camera_pose(
     max_dist: float,
     height_range: list[float],
     noise: float,
+    robot_center: list[float] | None = None,
+    max_retries: int = 100,
 ) -> np.ndarray:
-    """Sample a camera pose on a shell looking at a target point."""
+    """Sample a camera pose on a shell looking at a target point.
+
+    When *robot_center* is provided, the look-at noise is resampled (up to
+    *max_retries* times) until the robot center projects inside the camera
+    frame.
+    """
     distance = random.uniform(min_dist, max_dist)
     azimuth = random.uniform(0, 2 * math.pi)
     height = random.uniform(height_range[0], height_range[1])
 
-    cam_x = look_at[0] + distance * math.cos(azimuth)
-    cam_y = look_at[1] + distance * math.sin(azimuth)
-    cam_z = height
+    cam_pos = np.array([
+        look_at[0] + distance * math.cos(azimuth),
+        look_at[1] + distance * math.sin(azimuth),
+        height,
+    ])
 
-    target = [
-        look_at[0] + random.gauss(0, noise),
-        look_at[1] + random.gauss(0, noise),
-        look_at[2] + random.gauss(0, noise),
-    ]
+    cam2world = None
+    for _ in range(max_retries):
+        target = np.array([
+            look_at[0] + random.gauss(0, noise),
+            look_at[1] + random.gauss(0, noise),
+            look_at[2] + random.gauss(0, noise),
+        ])
 
-    forward = np.array(target) - np.array([cam_x, cam_y, cam_z])
-    forward = forward / np.linalg.norm(forward)
+        forward = target - cam_pos
+        forward = forward / np.linalg.norm(forward)
 
-    rotation = bproc.camera.rotation_from_forward_vec(forward)
-    cam2world = bproc.math.build_transformation_mat(
-        np.array([cam_x, cam_y, cam_z]), rotation
-    )
+        rotation = bproc.camera.rotation_from_forward_vec(forward)
+        cam2world = bproc.math.build_transformation_mat(cam_pos, rotation)
+
+        if robot_center is None:
+            return cam2world
+
+        camera = bpy.context.scene.camera
+        camera.matrix_world = mathutils.Matrix(cam2world.tolist())
+        bpy.context.view_layer.update()
+
+        co_2d = world_to_camera_view(
+            bpy.context.scene, camera, mathutils.Vector(robot_center)
+        )
+        if 0 <= co_2d.x <= 1 and 0 <= co_2d.y <= 1 and co_2d.z > 0:
+            return cam2world
+
     return cam2world
 
 
@@ -680,7 +703,7 @@ def main() -> None:
     num_images = args.num_images or config["output"]["num_images"]
     image_size = config["output"]["image_size"]
     images_per_scene = config["output"].get("images_per_scene", 5)
-    num_scenes = math.ceil(num_images / images_per_scene)
+    max_scenes = math.ceil(num_images / images_per_scene) * 3
 
     output_image_dir = resolve_path(Path(config["output"]["image_dir"]))
     output_label_dir = resolve_path(Path(config["output"]["label_dir"]))
@@ -797,12 +820,10 @@ def main() -> None:
     # ------- Render loop -------
 
     global_idx = args.start_index
-    print(f"\nRendering {num_images} images across {num_scenes} scenes...\n")
+    scene_idx = 0
+    print(f"\nRendering {num_images} images...\n")
 
-    for scene_idx in range(num_scenes):
-        if global_idx >= args.start_index + num_images:
-            break
-
+    while global_idx < args.start_index + num_images and scene_idx < max_scenes:
         bproc.utility.reset_keyframes()
 
         # -- Per-scene randomized dimensions --
@@ -908,6 +929,7 @@ def main() -> None:
                 max_dist=cam_cfg.get("max_distance", 1.5),
                 height_range=cam_cfg.get("height_range", [0.1, 0.8]),
                 noise=cam_cfg.get("look_at_noise", 0.05),
+                robot_center=robot_pos,
             )
             cam_poses.append(pose)
 
@@ -992,10 +1014,11 @@ def main() -> None:
             )
             global_idx += 1
 
-        if (scene_idx + 1) % 50 == 0 or scene_idx == num_scenes - 1:
+        scene_idx += 1
+        if scene_idx % 50 == 0:
             print(
-                f"  Scene {scene_idx + 1}/{num_scenes} — "
-                f"{global_idx - args.start_index} images generated"
+                f"  Scene {scene_idx} — "
+                f"{global_idx - args.start_index}/{num_images} images generated"
             )
 
     total = global_idx - args.start_index
