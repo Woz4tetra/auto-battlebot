@@ -14,6 +14,7 @@ import objaverse
 
 
 DEFAULT_TAGS = [
+    # plausible objects
     "robot",
     "mech",
     "mechanical",
@@ -23,7 +24,116 @@ DEFAULT_TAGS = [
     "tank",
     "machine",
     "automaton",
+    "debris",
+
+    # random
+    "rancho",
+    "gauntlet",
+    "rebozuelo",
+    "recylebin",
+    "vrdrawing",
+    "nusatenggara",
+    "sponge",
+    "seaofthievesmegalodon",
+    "lakalono",
+    "greencriminalff",
+    "ianes",
+    "rubypistol",
+    "ritualistic",
+    "avarisclari",
+    "book",
+    "flub",
+    "mtle-2100",
+    "drummer",
+    "samurai",
+    "hanamaru",
+    "trusses",
+    "slavakondrashevdaun",
+    "elodierakoto",
+    "kaijin",
+    "jorts",
+    "screwconveyor",
+    "thesis",
+    "tinyhome",
+    "stolln",
+    "dusky",
+    "borage",
+    "gmtk",
+    "shadman",
+    "urbanfurnture",
+    "croissant",
+    "choroon",
+    "fresques",
+    "flexible",
+    "lions-head",
+    "rock",
+    "house",
+    "vistoriabrasil",
+    "warblades",
+    "espada-del-rey-arruinado",
+    "buzzard",
+    "battleaxe",
+    "commissions",
+    "glockenturm",
+    "fotogrametria-modelo3d",
+    "canadianarmy",
+    "madden",
+    "hossein",
+    "display",
+    "endevour",
+    "kopf",
+    "penicillatus",
+    "stg45",
+    "witch",
+    "clancer",
+    "candyshop",
+    "agisoftphotoscan",
+    "wildhunt",
+    "medievalwheelbarrow",
+    "aurum",
+    "shoe",
+    "perusic",
+    "deck",
+    "supersabre",
+    "exotic",
+    "chocolate_bar",
+    "uchun",
+    "bibendum",
+    "poly",
+    "eggstorage",
+    "blade",
+    "goal",
+    "free",
+    "museum",
+    "building",
+    "place2",
+    "quema",
+    "sunstrider",
+    "pentagonal",
+    "cavebear",
+    "kitchener",
+    "casas-grandes",
+    "journeyman",
+    "wesselstoop",
+    "paleontolgy",
+    "kandrakar",
+    "whiteplotplant",
+    "waniery",
+    "trigonal_bipyramidal_intermediate",
+    "antonine",
+    "simbolo",
+    "crowd",
+    "helsingingolfklubi",
 ]
+
+def get_available_tags(annotations: dict) -> list[str]:
+    all_tags = set()
+    for uid, ann in annotations.items():
+        ann_tags = [t.get("name", "").lower() for t in ann.get("tags", [])]
+        for ann_tag in ann_tags:
+            all_tags.add(ann_tag.lower())
+    return list(all_tags)
+
 
 
 def search_by_tags(annotations: dict, tags: list[str], max_models: int) -> list[str]:
@@ -81,6 +191,7 @@ def main() -> None:
     print(f"Found {len(matched_uids)} matching models")
 
     if args.list_only:
+        print(f"Available tags {get_available_tags(annotations)} objects")
         for uid in matched_uids:
             ann = annotations[uid]
             name = ann.get("name", "unnamed")
