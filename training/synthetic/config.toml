@@ -1,6 +1,6 @@
 [output]
-image_dir = "data/synthetic/images"
-label_dir = "data/synthetic/labels"
+image_dir = "../data/synthetic/images"
+label_dir = "../data/synthetic/labels"
 num_images = 20000
 image_size = 640
 # Number of camera viewpoints to render per scene arrangement.
@@ -8,7 +8,7 @@ image_size = 640
 images_per_scene = 5
 
 [robot]
-model_path = "../../data/models/MR STABS MK2.gltf"
+model_path = "../data/models/MR STABS MK2.gltf"
 class_id = 0
 # Scale factor applied to the imported model (1.0 = no scaling).
 # Adjust if the OnShape export units don't match Blender's meters.
@@ -82,8 +82,8 @@ cc_texture = "Paper001"
 
 [distractors]
 model_dirs = [
-    "data/distractor_models/objaverse",
-    "data/distractor_models/sam3d",
+    "../data/distractor_models/objaverse",
+    "../data/distractor_models/sam3d",
 ]
 min_per_scene = 0
 max_per_scene = 5
@@ -93,8 +93,27 @@ scale_range = [0.5, 2.0]
 pool_size = 30
 
 [environment]
-hdri_dir = "data/hdris"
-cc_textures_dir = "data/cc_textures"
+hdri_dir = "../data/hdris"
+cc_textures_dir = "../data/cc_textures"
+# Extra ambientCG assets used for ground plane randomization.
+# `download_ambientcg.py --from-config` downloads these alongside the robot materials.
+ground_textures = [
+    "Concrete034",
+    "Concrete046",
+    "Concrete042A",
+    "Concrete031",
+    "Asphalt031",
+    "Ground037",
+    "Ground054",
+    "Ground068",
+    "Ground048",
+    "Tiles107",
+    "Tiles138",
+    "WoodFloor051",
+    "WoodFloor043",
+    "WoodFloor040",
+    "PavingStones138",
+]
 
 [camera]
 min_distance = 0.3

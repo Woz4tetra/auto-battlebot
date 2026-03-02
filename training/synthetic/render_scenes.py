@@ -264,8 +264,9 @@ def sample_camera_pose(
     forward = np.array(target) - np.array([cam_x, cam_y, cam_z])
     forward = forward / np.linalg.norm(forward)
 
-    cam2world = bproc.math.build_transformation_basis(
-        np.array([cam_x, cam_y, cam_z]), forward
+    rotation = bproc.camera.rotation_from_forward_vec(forward)
+    cam2world = bproc.math.build_transformation_mat(
+        np.array([cam_x, cam_y, cam_z]), rotation
     )
     return cam2world
 
@@ -417,7 +418,6 @@ def main() -> None:
     bproc.init()
     bproc.camera.set_resolution(image_size, image_size)
     bproc.renderer.set_max_amount_of_samples(args.render_samples)
-    bproc.renderer.enable_segmentation_output(map_by=["category_id"])
     bproc.renderer.enable_depth_output(activate_antialiasing=False)
 
     # ------- Load target robot -------
@@ -476,6 +476,10 @@ def main() -> None:
     )
     ground.set_cp("category_id", BACKGROUND_CATEGORY_ID)
 
+    # Enable segmentation AFTER all mesh objects are in the scene, because
+    # enable_segmentation_output assigns pass_index to every mesh at call time.
+    bproc.renderer.enable_segmentation_output(map_by=["category_id"])
+
     # ------- Create reusable lights -------
 
     rand_cfg = config.get("randomization", {})
@@ -490,6 +494,22 @@ def main() -> None:
 
     cam_cfg = config.get("camera", {})
     arena_radius = config.get("scene", {}).get("arena_radius", 1.0)
+
+    # ------- Verify category_ids -------
+
+    all_scene_meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+    id_counts: dict[int, int] = {}
+    for obj in all_scene_meshes:
+        cid = obj.get("category_id", -1)
+        id_counts[cid] = id_counts.get(cid, 0) + 1
+    print(f"\nCategory ID distribution across {len(all_scene_meshes)} mesh objects:")
+    for cid, count in sorted(id_counts.items()):
+        label = {
+            ROBOT_CATEGORY_ID: "robot",
+            DISTRACTOR_CATEGORY_ID: "distractor",
+            BACKGROUND_CATEGORY_ID: "background",
+        }.get(cid, "UNSET" if cid == -1 else "unknown")
+        print(f"  category_id={cid} ({label}): {count} objects")
 
     # ------- Render loop -------
 
@@ -576,16 +596,32 @@ def main() -> None:
         # -- Render --
         data = bproc.renderer.render()
 
+        if scene_idx == 0:
+            print(f"  Render data keys: {list(data.keys())}")
+            debug_img = data["colors"][0]
+            debug_path = str(output_image_dir / "_debug_frame0.jpg")
+            cv2.imwrite(debug_path, cv2.cvtColor(debug_img, cv2.COLOR_RGB2BGR))
+            print(f"  Saved debug image: {debug_path}")
+
         # -- Extract annotations and save --
         robot_world_mat = np.array(robot_parent.matrix_world)
         colors = data["colors"]
-        seg_maps = data["category_id_segmaps"]
+        seg_maps = data.get("category_id_segmaps", data.get("segmap"))
         depth_maps = data["depth"]
+
+        if seg_maps is None:
+            if scene_idx == 0:
+                print("  ERROR: No segmentation maps in render output!")
+            continue
 
         for local_idx in range(cam_count):
             color_img = colors[local_idx]
             seg_map = seg_maps[local_idx]
             depth_map = depth_maps[local_idx]
+
+            if scene_idx == 0 and local_idx == 0:
+                print(f"  Segmap shape={seg_map.shape}, dtype={seg_map.dtype}, "
+                      f"unique={np.unique(seg_map).tolist()}")
 
             bbox = bbox_from_category_segmap(seg_map, ROBOT_CATEGORY_ID, image_size)
             if bbox is None:

@@ -1,8 +1,8 @@
 """Download robot/mechanical 3D models from Objaverse for use as distractors.
 
 Usage:
-    python download_objaverse.py data/distractor_models/objaverse --max-models 100
-    python download_objaverse.py data/distractor_models/objaverse --tags robot vehicle drone
+    python download_objaverse.py ../data/distractor_models/objaverse --max-models 100
+    python download_objaverse.py ../data/distractor_models/objaverse --tags robot vehicle drone
 """
 
 import argparse
