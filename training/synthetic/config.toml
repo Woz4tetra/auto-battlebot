@@ -6,6 +6,9 @@ image_size = 640
 # Number of camera viewpoints to render per scene arrangement.
 # Higher values = faster generation but less object placement diversity.
 images_per_scene = 5
+# Minimum fraction of the robot's bounding box that must be filled with
+# robot pixels (vs occluded by distractors). Frames below this are discarded.
+min_robot_visibility = 0.10
 
 [robot]
 model_path = "../data/models/MR STABS MK2.gltf"
@@ -24,11 +27,6 @@ back = [-0.0206, 0.0, -0.00394205]
 # Run `blenderproc run prepare_robot_model.py config.toml --inspect`
 # to list all colors present in the GLTF for filling this out.
 [[robot.color_mapping]]
-color = [102, 102, 102]
-tolerance = 20
-material = "aluminum"
-
-[[robot.color_mapping]]
 color = [128, 128, 128]
 tolerance = 20
 material = "aluminum"
@@ -45,6 +43,11 @@ material = "tpu"
 
 [[robot.color_mapping]]
 color = [165, 165, 165]
+tolerance = 20
+material = "foam"
+
+[[robot.color_mapping]]
+color = [102, 102, 102]
 tolerance = 20
 material = "foam"
 
@@ -69,6 +72,8 @@ cc_texture = "Metal030"
 metallic = 0.0
 roughness = 0.5
 cc_texture = "Plastic006"
+# RGB 0-255 tint multiplied into the CC texture's albedo map.
+base_color = [255, 32, 65]
 
 [materials.foam]
 metallic = 0.0
@@ -85,10 +90,11 @@ model_dirs = [
     "../data/distractor_models/objaverse",
     "../data/distractor_models/sam3d",
 ]
-min_per_scene = 0
+min_per_scene = 1
 max_per_scene = 5
-# Random scale range applied to distractor models
-scale_range = [0.5, 2.0]
+# Scale range as multiples of the robot's largest dimension.
+# [0.5, 3.0] means distractors will be 0.5x to 3x the robot's size.
+scale_range = [0.5, 3.0]
 # Maximum number of distractor models to keep loaded in memory
 pool_size = 30
 
@@ -123,13 +129,30 @@ height_range = [0.1, 0.8]
 look_at_noise = 0.05
 
 [scene]
-ground_size = 3.0
-# Objects are placed within this radius from the origin
-arena_radius = 1.0
+# Randomized range for the ground plane half-extent (meters).
+ground_size_range = [0.5, 5.0]
+# Randomized range for the radius within which objects are placed (meters).
+arena_radius_range = [0.5, 1.5]
+# Fraction of scenes that include a visible ground plane (0.0–1.0).
+# The remainder show only the HDRI background behind the robot.
+ground_visibility = 0.8
 
 [randomization]
 roughness_jitter = 0.1
-hue_jitter_degrees = 5
+hue_jitter_degrees = 0
 light_count_range = [1, 3]
 light_intensity_range = [100, 500]
 light_color_temp_range = [3500, 6500]
+
+# Probability the robot is airborne with a fully random tumbling orientation.
+# The remainder of images place the robot on the ground in a ground_pitch pose.
+air_probability = 0.0
+# Height range (meters) above ground when airborne
+air_height_range = [0.02, 0.15]
+
+# Ground orientation: pitch (X-rotation) is fixed at +90° for right-side-up
+# and -90° for upside-down.  Roll (Y-rotation, degrees) is configurable per
+# orientation to compensate for the model not sitting perfectly flat after
+# the GLTF axis conversion.  Yaw (Z-rotation) is always fully random.
+ground_roll_upright = 9.587585
+ground_roll_inverted = 9.587585

@@ -69,10 +69,12 @@ def match_material_type(
 
 def import_gltf_as_robot(
     model_path: Path, scale: float = 1.0
-) -> tuple[list[bproc.types.MeshObject], bpy.types.Object]:
+) -> tuple[list[bproc.types.MeshObject], bpy.types.Object, list[mathutils.Vector]]:
     """Import GLTF and parent all parts under an empty for group transforms.
 
-    Returns (mesh_objects, parent_empty).
+    Returns (mesh_objects, parent_empty, bbox_corners) where bbox_corners are
+    the 8 corners of the robot's axis-aligned bounding box in parent-rest-pose
+    world space (used to compute ground clearance for arbitrary orientations).
     """
     model_path = resolve_path(model_path)
     if not model_path.exists():
@@ -84,14 +86,44 @@ def import_gltf_as_robot(
     if not bpy_meshes:
         raise RuntimeError(f"No meshes found in {model_path}")
 
+    # Capture world transforms before re-parenting (the GLTF hierarchy uses
+    # intermediate empties for positioning; re-parenting directly would lose them).
+    bpy.context.view_layer.update()
+    saved_world = {obj.name: obj.matrix_world.copy() for obj in bpy_meshes}
+
     parent = bpy.data.objects.new("robot_parent", None)
     bpy.context.scene.collection.objects.link(parent)
-    for obj in bpy_meshes:
-        obj.parent = parent
     if scale != 1.0:
         parent.scale = (scale, scale, scale)
+    bpy.context.view_layer.update()
+
+    for obj in bpy_meshes:
+        mat = saved_world[obj.name]
+        obj.parent = parent
+        obj.matrix_parent_inverse = mathutils.Matrix.Identity(4)
+        obj.matrix_world = mat
 
     bpy.context.view_layer.update()
+
+    all_pts = [
+        obj.matrix_world @ mathutils.Vector(c)
+        for obj in bpy_meshes
+        for c in obj.bound_box
+    ]
+    xs = [p.x for p in all_pts]
+    ys = [p.y for p in all_pts]
+    zs = [p.z for p in all_pts]
+    bbox_corners = [
+        mathutils.Vector((x, y, z))
+        for x in [min(xs), max(xs)]
+        for y in [min(ys), max(ys)]
+        for z in [min(zs), max(zs)]
+    ]
+    print(
+        f"  Robot AABB: x=[{min(xs):.4f},{max(xs):.4f}] "
+        f"y=[{min(ys):.4f},{max(ys):.4f}] "
+        f"z=[{min(zs):.4f},{max(zs):.4f}]"
+    )
 
     bproc_meshes = []
     for obj in bpy_meshes:
@@ -99,7 +131,99 @@ def import_gltf_as_robot(
         mesh.set_cp("category_id", ROBOT_CATEGORY_ID)
         bproc_meshes.append(mesh)
 
-    return bproc_meshes, parent
+    return bproc_meshes, parent, bbox_corners
+
+
+def compute_ground_z(
+    robot_meshes: list[bproc.types.MeshObject],
+    robot_parent: bpy.types.Object,
+    rotation_euler: tuple,
+) -> float:
+    """Place the robot at origin with the given rotation and return the z
+    offset that puts its lowest point exactly on the ground plane."""
+    robot_parent.location = mathutils.Vector((0, 0, 0))
+    robot_parent.rotation_euler = mathutils.Euler(rotation_euler)
+    bpy.context.view_layer.update()
+
+    min_z = float("inf")
+    for m in robot_meshes:
+        obj = m.blender_obj
+        for c in obj.bound_box:
+            z = (obj.matrix_world @ mathutils.Vector(c)).z
+            if z < min_z:
+                min_z = z
+    return -min_z
+
+
+def tint_material_albedo(bpy_mat: bpy.types.Material, color_rgb: list[int]) -> None:
+    """Tint a material's albedo by multiplying its Base Color texture with a color.
+
+    If no texture is connected, sets the Base Color directly.
+    """
+    if not bpy_mat.use_nodes:
+        return
+
+    tree = bpy_mat.node_tree
+    bsdf = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is None:
+        return
+
+    bc_input = bsdf.inputs["Base Color"]
+    tint = [c / 255.0 for c in color_rgb] + [1.0]
+
+    if not bc_input.links:
+        bc_input.default_value = tint
+        print(f"    Tinted {bpy_mat.name}: set flat color {color_rgb}")
+        return
+
+    from_socket = bc_input.links[0].from_socket
+    tree.links.remove(bc_input.links[0])
+
+    mix = tree.nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.blend_type = "MULTIPLY"
+    mix.inputs[0].default_value = 1.0
+
+    color_inputs = [s for s in mix.inputs if s.type == "RGBA"]
+    color_outputs = [s for s in mix.outputs if s.type == "RGBA"]
+
+    if len(color_inputs) >= 2 and len(color_outputs) >= 1:
+        tree.links.new(from_socket, color_inputs[0])
+        color_inputs[1].default_value = tint
+        tree.links.new(color_outputs[0], bc_input)
+        print(
+            f"    Tinted {bpy_mat.name}: MULTIPLY with {color_rgb} "
+            f"({len(color_inputs)} color inputs, {len(color_outputs)} color outputs)"
+        )
+    else:
+        tree.links.new(from_socket, bc_input)
+        print(
+            f"    WARNING: Mix node has {len(color_inputs)} RGBA inputs, "
+            f"{len(color_outputs)} RGBA outputs — tint skipped, reconnected original"
+        )
+
+
+def _find_cc_material(
+    name: str, cc_materials: dict[str, bproc.types.Material]
+) -> bproc.types.Material | None:
+    """Find a CC material by exact name, then by substring match."""
+    if name in cc_materials:
+        return cc_materials[name]
+    for key, mat in cc_materials.items():
+        if name.lower() in key.lower():
+            return mat
+    return None
+
+
+def _disconnect_base_color(bpy_mat: bpy.types.Material) -> None:
+    """Remove any node links feeding into the Principled BSDF Base Color input."""
+    if not bpy_mat.use_nodes:
+        return
+    for node in bpy_mat.node_tree.nodes:
+        if node.type == "BSDF_PRINCIPLED":
+            for link in list(node.inputs["Base Color"].links):
+                bpy_mat.node_tree.links.remove(link)
+            break
 
 
 def apply_pbr_materials(
@@ -121,9 +245,13 @@ def apply_pbr_materials(
                 str(cc_path), used_assets=list(needed)
             )
             cc_materials = {mat.get_name(): mat for mat in loaded}
+            print(f"  CC materials loaded: {sorted(cc_materials.keys())}")
+            print(f"  Requested: {sorted(needed)}")
 
+    applied: dict[str, int] = {}
     for mesh in meshes:
-        for bproc_mat in mesh.get_materials():
+        bpy_obj = mesh.blender_obj
+        for slot_idx, bproc_mat in enumerate(mesh.get_materials()):
             bpy_mat = bproc_mat.blender_obj
             color = get_material_base_color(bpy_mat)
             if color is None:
@@ -134,8 +262,15 @@ def apply_pbr_materials(
             mat_cfg = materials_config.get(mat_type, {})
 
             cc_name = mat_cfg.get("cc_texture")
-            if cc_name and cc_name in cc_materials:
-                mesh.replace_materials(cc_materials[cc_name])
+            base_color_rgb = mat_cfg.get("base_color")
+            cc_mat = _find_cc_material(cc_name, cc_materials) if cc_name else None
+
+            if cc_mat is not None:
+                cc_bpy_mat = cc_mat.blender_obj
+                if base_color_rgb:
+                    cc_bpy_mat = cc_bpy_mat.copy()
+                    tint_material_albedo(cc_bpy_mat, base_color_rgb)
+                bpy_obj.data.materials[slot_idx] = cc_bpy_mat
             else:
                 bproc_mat.set_principled_shader_value(
                     "Metallic", mat_cfg.get("metallic", 0.0)
@@ -143,6 +278,14 @@ def apply_pbr_materials(
                 bproc_mat.set_principled_shader_value(
                     "Roughness", mat_cfg.get("roughness", 0.5)
                 )
+                if base_color_rgb:
+                    _disconnect_base_color(bpy_mat)
+                    rgba = [c / 255.0 for c in base_color_rgb] + [1.0]
+                    bproc_mat.set_principled_shader_value("Base Color", rgba)
+
+            applied[mat_type] = applied.get(mat_type, 0) + 1
+
+    print(f"  Material applications: {applied}")
 
 
 # ---------------------------------------------------------------------------
@@ -162,8 +305,17 @@ def discover_model_files(model_dirs: list[str]) -> list[Path]:
     return files
 
 
-def load_distractor(file_path: Path) -> list[bproc.types.MeshObject] | None:
-    """Load a single distractor model. Returns meshes or None on failure."""
+DistractorGroup = tuple[bpy.types.Object, list[bproc.types.MeshObject], float]
+"""(parent_empty, meshes, native_max_dimension)"""
+
+
+def load_distractor(file_path: Path) -> DistractorGroup | None:
+    """Load a single distractor model under a parent empty.
+
+    Returns ``(parent, meshes, native_size)`` or *None* on failure.  The
+    parent empty controls transform for the whole group so sub-parts keep
+    their relative positions.
+    """
     try:
         suffix = file_path.suffix.lower()
         if suffix in (".glb", ".gltf"):
@@ -176,12 +328,43 @@ def load_distractor(file_path: Path) -> list[bproc.types.MeshObject] | None:
             return None
 
         imported = [o for o in bpy.context.selected_objects if o.type == "MESH"]
+        if not imported:
+            return None
+
+        bpy.context.view_layer.update()
+        saved_world = {obj.name: obj.matrix_world.copy() for obj in imported}
+
+        parent = bpy.data.objects.new(f"dist_{file_path.stem}", None)
+        bpy.context.scene.collection.objects.link(parent)
+        bpy.context.view_layer.update()
+
+        for obj in imported:
+            mat = saved_world[obj.name]
+            obj.parent = parent
+            obj.matrix_parent_inverse = mathutils.Matrix.Identity(4)
+            obj.matrix_world = mat
+
+        bpy.context.view_layer.update()
+
+        all_pts = [
+            obj.matrix_world @ mathutils.Vector(c)
+            for obj in imported
+            for c in obj.bound_box
+        ]
+        xs = [p.x for p in all_pts]
+        ys = [p.y for p in all_pts]
+        zs = [p.z for p in all_pts]
+        native_size = max(
+            max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6
+        )
+
         meshes = []
         for obj in imported:
             mesh = bproc.types.MeshObject(obj)
             mesh.set_cp("category_id", DISTRACTOR_CATEGORY_ID)
             meshes.append(mesh)
-        return meshes if meshes else None
+
+        return (parent, meshes, native_size)
     except Exception as e:
         print(f"  Warning: failed to load distractor {file_path.name}: {e}")
         return None
@@ -189,49 +372,140 @@ def load_distractor(file_path: Path) -> list[bproc.types.MeshObject] | None:
 
 def load_distractor_pool(
     model_dirs: list[str], pool_size: int
-) -> list[list[bproc.types.MeshObject]]:
-    """Load a pool of distractor models, returning a list of mesh groups."""
+) -> list[DistractorGroup]:
+    """Load a pool of distractor models, returning a list of groups."""
     files = discover_model_files(model_dirs)
     if not files:
         print("  No distractor models found.")
         return []
 
     random.shuffle(files)
-    pool: list[list[bproc.types.MeshObject]] = []
+    pool: list[DistractorGroup] = []
     for f in files:
         if len(pool) >= pool_size:
             break
-        meshes = load_distractor(f)
-        if meshes:
-            pool.append(meshes)
-            print(f"  Loaded distractor: {f.name} ({len(meshes)} meshes)")
+        group = load_distractor(f)
+        if group:
+            pool.append(group)
+            _parent, meshes, sz = group
+            print(
+                f"  Loaded distractor: {f.name} "
+                f"({len(meshes)} meshes, native {sz:.3f}m)"
+            )
 
     return pool
 
 
-def hide_distractor(meshes: list[bproc.types.MeshObject]) -> None:
-    """Move a distractor group far off-screen."""
-    for m in meshes:
-        m.set_location([1000, 1000, 1000])
+def hide_distractor(group: DistractorGroup) -> None:
+    """Move a distractor group far off-screen via its parent."""
+    parent = group[0]
+    parent.location = mathutils.Vector((1000, 1000, 1000))
 
 
 def place_distractor(
-    meshes: list[bproc.types.MeshObject],
+    group: DistractorGroup,
     arena_radius: float,
     scale_range: list[float],
+    robot_size: float,
 ) -> None:
-    """Place a distractor at a random position within the arena."""
-    pos = [
-        random.uniform(-arena_radius, arena_radius),
-        random.uniform(-arena_radius, arena_radius),
-        0,
-    ]
-    rot = [0, 0, random.uniform(0, 2 * math.pi)]
-    s = random.uniform(scale_range[0], scale_range[1])
+    """Place a distractor at a random position within the arena.
+
+    ``scale_range`` is interpreted as multiples of the robot's largest
+    dimension, so [0.5, 3.0] means the distractor will be between half
+    and three times the robot's size regardless of its native dimensions.
+    The parent empty is used for transform so sub-parts keep their
+    relative arrangement.
+    """
+    parent, meshes, native_size = group
+    desired_size = robot_size * random.uniform(scale_range[0], scale_range[1])
+    s = desired_size / native_size
+
+    parent.scale = (s, s, s)
+    parent.rotation_euler = mathutils.Euler(
+        (0, 0, random.uniform(0, 2 * math.pi))
+    )
+    bpy.context.view_layer.update()
+
+    all_pts = []
     for m in meshes:
-        m.set_location(pos)
-        m.set_rotation_euler(rot)
-        m.set_scale([s, s, s])
+        obj = m.blender_obj
+        all_pts.extend(obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box)
+    min_z = min(p.z for p in all_pts) - parent.location.z
+
+    parent.location = mathutils.Vector(
+        (
+            random.uniform(-arena_radius, arena_radius),
+            random.uniform(-arena_radius, arena_radius),
+            -min_z,
+        )
+    )
+
+
+def _ray_hits_distractor(
+    scene: bpy.types.Scene,
+    depsgraph: bpy.types.Depsgraph,
+    origin: mathutils.Vector,
+    target: mathutils.Vector,
+) -> bpy.types.Object | None:
+    """Cast a ray from *origin* toward *target*.
+
+    Returns the first distractor object hit between the two points, or
+    *None* if the path is clear (or hits a non-distractor).
+    """
+    direction = target - origin
+    dist = direction.length
+    direction.normalize()
+    hit, _loc, _norm, _idx, obj, _mat = scene.ray_cast(
+        depsgraph, origin, direction, distance=dist * 0.99
+    )
+    if hit and obj.get("category_id", -1) == DISTRACTOR_CATEGORY_ID:
+        return obj
+    return None
+
+
+def clear_blocking_distractors(
+    cam_poses: list[np.ndarray],
+    keypoints_world: list[mathutils.Vector],
+    active_distractors: list[DistractorGroup],
+) -> None:
+    """Hide distractors that block the camera's view of every robot keypoint.
+
+    For each camera pose, rays are cast toward each keypoint.  A distractor
+    is only hidden when it blocks *all* keypoints from a given camera — if at
+    least one keypoint is reachable the distractor is kept.  The process
+    repeats until every camera can see at least one keypoint.
+    """
+    bpy.context.view_layer.update()
+    scene = bpy.context.scene
+    hidden: set[int] = set()
+
+    for pose in cam_poses:
+        cam_origin = mathutils.Vector(pose[:3, 3].tolist())
+
+        for _attempt in range(5):
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+
+            blockers: dict[int, set[int]] = {}
+            any_kp_clear = False
+            for kp in keypoints_world:
+                obj = _ray_hits_distractor(scene, depsgraph, cam_origin, kp)
+                if obj is None:
+                    any_kp_clear = True
+                    break
+                for gi, group in enumerate(active_distractors):
+                    if gi in hidden:
+                        continue
+                    if any(m.blender_obj == obj for m in group[1]):
+                        blockers.setdefault(gi, set()).add(id(kp))
+                        break
+
+            if any_kp_clear:
+                break
+
+            worst_gi = max(blockers, key=lambda gi: len(blockers[gi]))
+            hide_distractor(active_distractors[worst_gi])
+            hidden.add(worst_gi)
+            bpy.context.view_layer.update()
 
 
 # ---------------------------------------------------------------------------
@@ -425,8 +699,16 @@ def main() -> None:
     model_path = Path(config["robot"]["model_path"])
     robot_scale = config["robot"].get("scale", 1.0)
     print(f"Loading robot model: {model_path}")
-    robot_meshes, robot_parent = import_gltf_as_robot(model_path, robot_scale)
+    robot_meshes, robot_parent, robot_bbox = import_gltf_as_robot(
+        model_path, robot_scale
+    )
     print(f"  {len(robot_meshes)} mesh parts loaded")
+    robot_size = max(
+        max(c.x for c in robot_bbox) - min(c.x for c in robot_bbox),
+        max(c.y for c in robot_bbox) - min(c.y for c in robot_bbox),
+        max(c.z for c in robot_bbox) - min(c.z for c in robot_bbox),
+    )
+    print(f"  Robot max dimension: {robot_size:.4f} m")
 
     print("Applying PBR materials to robot...")
     apply_pbr_materials(
@@ -470,9 +752,9 @@ def main() -> None:
 
     # ------- Create ground plane -------
 
-    ground_size = config.get("scene", {}).get("ground_size", 3.0)
+    scene_cfg = config.get("scene", {})
     ground = bproc.object.create_primitive(
-        "PLANE", scale=[ground_size, ground_size, 1], location=[0, 0, 0]
+        "PLANE", scale=[1, 1, 1], location=[0, 0, 0]
     )
     ground.set_cp("category_id", BACKGROUND_CATEGORY_ID)
 
@@ -493,7 +775,8 @@ def main() -> None:
     # ------- Camera config -------
 
     cam_cfg = config.get("camera", {})
-    arena_radius = config.get("scene", {}).get("arena_radius", 1.0)
+    ground_size_range = scene_cfg.get("ground_size_range", [2.0, 5.0])
+    arena_radius_range = scene_cfg.get("arena_radius_range", [0.5, 1.5])
 
     # ------- Verify category_ids -------
 
@@ -522,20 +805,53 @@ def main() -> None:
 
         bproc.utility.reset_keyframes()
 
+        # -- Per-scene randomized dimensions --
+        ground_size = random.uniform(*ground_size_range)
+        arena_radius = random.uniform(*arena_radius_range)
+        ground.blender_obj.scale = (ground_size, ground_size, 1)
+        bpy.context.view_layer.update()
+
         # -- Environment randomization --
         if hdri_paths:
             bproc.world.set_world_background_hdr_img(str(random.choice(hdri_paths)))
 
-        if cc_textures:
+        ground_prob = scene_cfg.get("ground_visibility", 0.8)
+        show_ground = random.random() < ground_prob
+        ground.blender_obj.hide_render = not show_ground
+        ground.blender_obj.hide_viewport = not show_ground
+
+        if show_ground and cc_textures:
             ground.replace_materials(random.choice(cc_textures))
 
         # -- Robot pose --
+        airborne = random.random() < rand_cfg.get("air_probability", 0.15)
+        if airborne:
+            robot_rot = (
+                random.uniform(0, 2 * math.pi),
+                random.uniform(0, 2 * math.pi),
+                random.uniform(0, 2 * math.pi),
+            )
+            ground_z = compute_ground_z(robot_meshes, robot_parent, robot_rot)
+            air_cfg = rand_cfg.get("air_height_range", [0.02, 0.15])
+            robot_z = ground_z + random.uniform(air_cfg[0], air_cfg[1])
+        else:
+            if random.random() < 0.5:
+                pitch_deg = 90.0
+                roll_deg = rand_cfg.get("ground_roll_upright", 0.0)
+            else:
+                pitch_deg = -90.0
+                roll_deg = rand_cfg.get("ground_roll_inverted", 0.0)
+            robot_rot = (
+                math.radians(pitch_deg),
+                math.radians(roll_deg),
+                random.uniform(0, 2 * math.pi),
+            )
+            robot_z = compute_ground_z(robot_meshes, robot_parent, robot_rot)
         robot_pos = [
             random.uniform(-arena_radius * 0.5, arena_radius * 0.5),
             random.uniform(-arena_radius * 0.5, arena_radius * 0.5),
-            0,
+            robot_z,
         ]
-        robot_rot = [0, 0, random.uniform(0, 2 * math.pi)]
         robot_parent.location = mathutils.Vector(robot_pos)
         robot_parent.rotation_euler = mathutils.Euler(robot_rot)
         bpy.context.view_layer.update()
@@ -554,7 +870,8 @@ def main() -> None:
             place_distractor(
                 group,
                 arena_radius,
-                dist_cfg.get("scale_range", [0.5, 2.0]),
+                dist_cfg.get("scale_range", [0.5, 3.0]),
+                robot_size,
             )
 
         # -- Light randomization --
@@ -583,6 +900,7 @@ def main() -> None:
         # -- Camera poses --
         look_at = [robot_pos[0], robot_pos[1], robot_pos[2]]
         cam_count = min(images_per_scene, args.start_index + num_images - global_idx)
+        cam_poses = []
         for _ in range(cam_count):
             pose = sample_camera_pose(
                 look_at=look_at,
@@ -591,6 +909,17 @@ def main() -> None:
                 height_range=cam_cfg.get("height_range", [0.1, 0.8]),
                 noise=cam_cfg.get("look_at_noise", 0.05),
             )
+            cam_poses.append(pose)
+
+        # -- Pre-render visibility check --
+        robot_world_mat = np.array(robot_parent.matrix_world)
+        keypoints_world = [
+            mathutils.Vector((robot_world_mat @ np.append(kp, 1.0))[:3])
+            for kp in [kp_front, kp_back]
+        ]
+        clear_blocking_distractors(cam_poses, keypoints_world, active_distractors)
+
+        for pose in cam_poses:
             bproc.camera.add_camera_pose(pose)
 
         # -- Render --
@@ -614,6 +943,8 @@ def main() -> None:
                 print("  ERROR: No segmentation maps in render output!")
             continue
 
+        min_vis = config["output"].get("min_robot_visibility", 0.10)
+
         for local_idx in range(cam_count):
             color_img = colors[local_idx]
             seg_map = seg_maps[local_idx]
@@ -625,6 +956,17 @@ def main() -> None:
 
             bbox = bbox_from_category_segmap(seg_map, ROBOT_CATEGORY_ID, image_size)
             if bbox is None:
+                continue
+
+            cx, cy, w, h = bbox
+            w_px = int(w * image_size)
+            h_px = int(h * image_size)
+            bbox_area_px = max(1, w_px * h_px)
+            robot_px = int(np.sum(seg_map.squeeze() == ROBOT_CATEGORY_ID))
+            min_bbox_dim = 32
+            if w_px < min_bbox_dim or h_px < min_bbox_dim:
+                continue
+            if robot_px < bbox_area_px * min_vis:
                 continue
 
             keypoints_2d: list[tuple[float, float, int]] = []
