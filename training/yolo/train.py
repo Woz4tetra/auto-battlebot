@@ -24,6 +24,11 @@ def main() -> None:
             "epochs": 500,
             "imgsz": 640,
         },
+        "yolo26n-pose": {
+            "batch": 64,
+            "epochs": 500,
+            "imgsz": 640,
+        },
     }
 
     parser = argparse.ArgumentParser()
@@ -81,14 +86,14 @@ def main() -> None:
         hsv_s=0.7,  # (float) image HSV-Saturation augmentation (fraction)
         hsv_v=0.4,  # (float) image HSV-Value augmentation (fraction)
         degrees=180.0,  # (float) image rotation (+/- deg)
-        translate=0.2,  # (float) image translation (+/- fraction)
-        scale=0.8,  # (float) image scale (+/- gain)
+        translate=0.5,  # (float) image translation (+/- fraction)
+        scale=0.5,  # (float) image scale (+/- gain)
         shear=10.0,  # (float) image shear (+/- deg)
         perspective=0.001,  # (float) image perspective (+/- fraction), range 0-0.001
         flipud=0.5,  # (float) image flip up-down (probability)
         fliplr=0.5,  # (float) image flip left-right (probability)
         bgr=0.0,  # (float) image channel BGR (probability)
-        mosaic=0.5,  # (float) image mosaic (probability)
+        mosaic=0.4,  # (float) image mosaic (probability)
         mixup=0.1,  # (float) image mixup (probability)
         copy_paste=0.2,  # (float) segment copy-paste (probability)
         copy_paste_mode="flip",  # (str) the method to do copy_paste augmentation (flip, mixup)
