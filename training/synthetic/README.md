@@ -69,12 +69,6 @@ dependencies and needs a GPU with at least 32 GB VRAM. Follow the
     rm -rf ~/sam3/sam-3d-objects/checkpoints/hf-download
     ```
 
-4. **Optional:** Install `rembg` for automatic background removal when generating masks from reference photos:
-    ```bash
-    pip install rembg
-    ```
-    Without `rembg`, the script uses a whole-image mask (treats every pixel as foreground).
-
 ## Quick Start
 
 ### 1. Export your robot from OnShape
