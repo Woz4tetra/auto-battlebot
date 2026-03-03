@@ -11,7 +11,7 @@ Set up the subproject virtual environment:
 ```bash
 cd training/synthetic
 ./setup.sh
-source .venv/bin/activate
+source venv/bin/activate
 ```
 
 This installs `blenderproc`, `objaverse`, `numpy`, and `opencv-python`.

@@ -1014,6 +1014,8 @@ def main() -> None:
         min_vis = config["output"].get("min_robot_visibility", 0.10)
 
         for local_idx in range(cam_count):
+            bpy.context.scene.frame_set(local_idx)
+
             color_img = colors[local_idx]
             seg_map = seg_maps[local_idx]
             depth_map = depth_maps[local_idx]
