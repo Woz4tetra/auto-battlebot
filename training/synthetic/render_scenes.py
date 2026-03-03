@@ -354,9 +354,7 @@ def load_distractor(file_path: Path) -> DistractorGroup | None:
         xs = [p.x for p in all_pts]
         ys = [p.y for p in all_pts]
         zs = [p.z for p in all_pts]
-        native_size = max(
-            max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6
-        )
+        native_size = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6)
 
         meshes = []
         for obj in imported:
@@ -421,9 +419,7 @@ def place_distractor(
     s = desired_size / native_size
 
     parent.scale = (s, s, s)
-    parent.rotation_euler = mathutils.Euler(
-        (0, 0, random.uniform(0, 2 * math.pi))
-    )
+    parent.rotation_euler = mathutils.Euler((0, 0, random.uniform(0, 2 * math.pi)))
     bpy.context.view_layer.update()
 
     all_pts = []
@@ -532,19 +528,23 @@ def sample_camera_pose(
     azimuth = random.uniform(0, 2 * math.pi)
     height = random.uniform(height_range[0], height_range[1])
 
-    cam_pos = np.array([
-        look_at[0] + distance * math.cos(azimuth),
-        look_at[1] + distance * math.sin(azimuth),
-        height,
-    ])
+    cam_pos = np.array(
+        [
+            look_at[0] + distance * math.cos(azimuth),
+            look_at[1] + distance * math.sin(azimuth),
+            height,
+        ]
+    )
 
     cam2world = None
     for _ in range(max_retries):
-        target = np.array([
-            look_at[0] + random.gauss(0, noise),
-            look_at[1] + random.gauss(0, noise),
-            look_at[2] + random.gauss(0, noise),
-        ])
+        target = np.array(
+            [
+                look_at[0] + random.gauss(0, noise),
+                look_at[1] + random.gauss(0, noise),
+                look_at[2] + random.gauss(0, noise),
+            ]
+        )
 
         forward = target - cam_pos
         forward = forward / np.linalg.norm(forward)
@@ -801,6 +801,17 @@ def main() -> None:
     )
     print(f"  {len(distractor_pool)} distractors in pool")
 
+    min_per_scene = dist_cfg.get("min_per_scene", 0)
+    if min_per_scene > len(distractor_pool):
+        model_dirs = dist_cfg.get("model_dirs", [])
+        raise RuntimeError(
+            f"distractors.min_per_scene is {min_per_scene} but only "
+            f"{len(distractor_pool)} distractor model(s) were found.\n"
+            f"  Searched directories: {model_dirs}\n"
+            f"  Either add distractor models to those directories, or set "
+            f"min_per_scene <= {len(distractor_pool)} in config.toml."
+        )
+
     for group in distractor_pool:
         hide_distractor(group)
 
@@ -822,9 +833,7 @@ def main() -> None:
     # ------- Create ground plane -------
 
     scene_cfg = config.get("scene", {})
-    ground = bproc.object.create_primitive(
-        "PLANE", scale=[1, 1, 1], location=[0, 0, 0]
-    )
+    ground = bproc.object.create_primitive("PLANE", scale=[1, 1, 1], location=[0, 0, 0])
     ground.set_cp("category_id", BACKGROUND_CATEGORY_ID)
 
     # Enable segmentation AFTER all mesh objects are in the scene, because
@@ -1021,8 +1030,10 @@ def main() -> None:
             depth_map = depth_maps[local_idx]
 
             if scene_idx == 0 and local_idx == 0:
-                print(f"  Segmap shape={seg_map.shape}, dtype={seg_map.dtype}, "
-                      f"unique={np.unique(seg_map).tolist()}")
+                print(
+                    f"  Segmap shape={seg_map.shape}, dtype={seg_map.dtype}, "
+                    f"unique={np.unique(seg_map).tolist()}"
+                )
 
             bbox = bbox_from_category_segmap(seg_map, ROBOT_CATEGORY_ID, img_w, img_h)
             if bbox is None:
