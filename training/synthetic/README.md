@@ -14,47 +14,50 @@ Install the project dependencies (from the repo root):
 
 This installs `blenderproc`, `objaverse`, and `pygltflib` (x86 only).
 
-**SAM 3D Body** (for distractor generation from reference photos) has heavier
-dependencies. Install into the same environment as auto-battlebot and follow the
-[official installation guide](https://github.com/facebookresearch/sam3d/blob/main/INSTALL.md). Summary:
+**SAM 3D Objects** (for distractor generation from reference photos) has heavier
+dependencies and needs a GPU with at least 32 GB VRAM. Follow the
+[official setup guide](https://github.com/facebookresearch/sam-3d-objects/blob/main/doc/setup.md). Summary:
 
-1. **Activate the project environment** (from the auto-battlebot repo root)
+1. **Clone the repo**
    ```bash
-   source ./scripts/activate_python.sh
+   git clone https://github.com/facebookresearch/sam-3d-objects.git ~/sam3/sam-3d-objects
    ```
 
-2. **Install PyTorch** (if not already present) from [pytorch.org](https://pytorch.org/get-started/locally/) for your platform.
-
-3. **Install Python dependencies** for SAM 3D Body
+2. **Create a virtual environment** (Python 3.11, CUDA 12.1 toolkit required on the host)
    ```bash
-   pip install pytorch-lightning pyrender opencv-python yacs scikit-image einops timm dill pandas rich hydra-core hydra-submitit-launcher hydra-colorlog pyrootutils webdataset chump networkx==3.2.1 roma joblib seaborn wandb appdirs appnope ffmpeg cython jsonlines pytest xtcocotools loguru optree fvcore black pycocotools tensorboard huggingface_hub
+   python3.11 -m venv ~/sam3/sam-3d-objects/.venv
+   source ~/sam3/sam-3d-objects/.venv/bin/activate
    ```
 
-4. **Install Detectron2**
+3. **Install PyTorch** (CUDA 12.1)
    ```bash
-   pip install 'git+https://github.com/facebookresearch/detectron2.git@a1ce2f9' --no-build-isolation --no-deps
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
    ```
 
-5. **Optional:** MoGe — `pip install git+https://github.com/microsoft/MoGe.git`
-
-6. **Optional:** SAM3 (minimal, for inference support)
+4. **Install sam-3d-objects and its dependencies**
    ```bash
-   mkdir -p ~/sam3
-   cd ~/sam3
-   git clone https://github.com/facebookresearch/sam3.git
-   cd sam3 && pip install -e . && pip install decord psutil
-   cd ..   # back to wherever you were
+   cd ~/sam3/sam-3d-objects
+   export PIP_EXTRA_INDEX_URL="https://pypi.ngc.nvidia.com https://download.pytorch.org/whl/cu121"
+   pip install -e '.[dev]'
+   pip install -e '.[p3d]' --no-build-isolation
+   export PIP_FIND_LINKS="https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.5.1_cu121.html"
+   pip install -e '.[inference]'
+   ./patching/hydra
    ```
 
-7. **Clone SAM 3D Body** (the repo is not a pip package — no `setup.py` or `pyproject.toml`)
+5. **Download checkpoints** from Hugging Face (requires [access approval](https://huggingface.co/facebook/sam-3d-objects))
    ```bash
-   mkdir -p ~/sam3
-   cd ~/sam3
-   git clone https://github.com/facebookresearch/sam3d.git
+   huggingface-cli download facebook/sam-3d-objects \
+       --local-dir ~/sam3/sam-3d-objects/checkpoints/hf-download
+   mv ~/sam3/sam-3d-objects/checkpoints/hf-download/checkpoints ~/sam3/sam-3d-objects/checkpoints/hf
+   rm -rf ~/sam3/sam-3d-objects/checkpoints/hf-download
    ```
-   Run the model's scripts from the `sam3d` directory, or add that directory to `PYTHONPATH` when using auto-battlebot's `generate_sam3d_models.py`.
 
-8. **Model checkpoints** are on Hugging Face: [sam-3d-body-dinov3](https://huggingface.co/facebook/sam-3d-body-dinov3), [sam-3d-body-vith](https://huggingface.co/facebook/sam-3d-body-vith). You must **request access** on those repos and be logged in (`huggingface-cli login`) to download. Not available in comprehensively sanctioned jurisdictions.
+6. **Optional:** Install `rembg` for automatic background removal when generating masks from reference photos:
+   ```bash
+   pip install rembg
+   ```
+   Without `rembg`, the script uses a whole-image mask (treats every pixel as foreground).
 
 ## Quick Start
 
@@ -130,10 +133,11 @@ Assets that already exist in the output directory are skipped, so it's safe to r
 python download_objaverse.py ../data/distractor_models/objaverse --max-models 100
 ```
 
-**From reference photos** (SAM 3D):
+**From reference photos** (SAM 3D Objects — requires setup above):
 
 ```bash
 python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d
+python generate_sam3d_models.py --sam3d-dir ~/sam3/sam-3d-objects ../data/reference_photos ../data/distractor_models/sam3d
 ```
 
 ### 6. Generate synthetic images
@@ -184,7 +188,7 @@ python train.py path/to/data.yaml yolo11n-pose
 | `prepare_robot_model.py`   | `blenderproc run` | Inspect GLTF colors, validate PBR mapping         |
 | `download_objaverse.py`    | `python`          | Download distractor models from Objaverse         |
 | `download_ambientcg.py`    | `python`          | Download PBR textures from ambientCG              |
-| `generate_sam3d_models.py` | `python`          | Generate distractor meshes from photos via SAM 3D |
+| `generate_sam3d_models.py` | `python`          | Generate distractor meshes from photos via SAM 3D Objects |
 | `render_scenes.py`         | `blenderproc run` | Main rendering pipeline                           |
 
 ## Directory Structure

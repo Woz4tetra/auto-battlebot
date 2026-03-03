@@ -654,6 +654,50 @@ def write_yolo_label(
         f.write(" ".join(parts) + "\n")
 
 
+def _directional_blur_kernel(kernel_size: int, angle: float) -> np.ndarray:
+    """Build a normalized 1-D directional blur kernel."""
+    ks = max(3, kernel_size) | 1
+    kernel = np.zeros((ks, ks), dtype=np.float32)
+    cx = ks // 2
+    dx, dy = math.cos(angle), math.sin(angle)
+    for i in range(ks):
+        t = i - cx
+        x = int(round(cx + t * dx))
+        y = int(round(cx + t * dy))
+        if 0 <= x < ks and 0 <= y < ks:
+            kernel[y, x] = 1.0
+    kernel /= max(kernel.sum(), 1.0)
+    return kernel
+
+
+def apply_object_motion_blur(
+    image: np.ndarray,
+    seg_map: np.ndarray,
+    category_id: int,
+    kernel_size: int,
+    angle: float,
+) -> np.ndarray:
+    """Apply directional motion blur to pixels of a single *category_id*.
+
+    A linear blur kernel of *kernel_size* pixels at *angle* radians is
+    applied to the full image.  The segmentation mask (dilated by the kernel
+    radius) selects which output pixels come from the blurred vs. original
+    image, so only that object's region shows the streak.
+    """
+    kernel = _directional_blur_kernel(kernel_size, angle)
+    ks = kernel.shape[0]
+
+    seg_2d = seg_map.squeeze()
+    mask = (seg_2d == category_id).astype(np.uint8) * 255
+
+    dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ks, ks))
+    mask = cv2.dilate(mask, dilate_k, iterations=1)
+    mask_f = mask[:, :, np.newaxis].astype(np.float32) / 255.0
+
+    blurred = cv2.filter2D(image, -1, kernel)
+    return (blurred * mask_f + image * (1.0 - mask_f)).astype(np.uint8)
+
+
 # ---------------------------------------------------------------------------
 # Material randomization
 # ---------------------------------------------------------------------------
@@ -1000,6 +1044,19 @@ def main() -> None:
                 x_n, y_n, depth = proj
                 vis = check_keypoint_visibility(x_n, y_n, depth, depth_map, image_size)
                 keypoints_2d.append((x_n, y_n, vis))
+
+            blur_prob = rand_cfg.get("motion_blur_probability", 0.0)
+            blur_range = rand_cfg.get("motion_blur_strength_range", [5, 25])
+            blur_lo, blur_hi = int(blur_range[0]), int(blur_range[1])
+            for blur_cid in [ROBOT_CATEGORY_ID, DISTRACTOR_CATEGORY_ID]:
+                if random.random() < blur_prob:
+                    color_img = apply_object_motion_blur(
+                        color_img,
+                        seg_map,
+                        blur_cid,
+                        random.randint(blur_lo, blur_hi),
+                        random.uniform(0, 2 * math.pi),
+                    )
 
             frame_name = f"{global_idx:06d}"
             write_yolo_label(

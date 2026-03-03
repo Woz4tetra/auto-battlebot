@@ -5,7 +5,7 @@ num_images = 20000
 image_size = 640
 # Number of camera viewpoints to render per scene arrangement.
 # Higher values = faster generation but less object placement diversity.
-images_per_scene = 5
+images_per_scene = 10
 # Minimum fraction of the robot's bounding box that must be filled with
 # robot pixels (vs occluded by distractors). Frames below this are discarded.
 min_robot_visibility = 0.10
@@ -154,3 +154,9 @@ air_height_range = [0.02, 0.4]
 # the GLTF axis conversion.  Yaw (Z-rotation) is always fully random.
 ground_roll_upright = 9.587585
 ground_roll_inverted = 9.587585
+
+# Directional motion blur applied to robot and distractor objects.
+# Probability that a frame receives motion blur (0.0–1.0).
+motion_blur_probability = 0.3
+# Blur kernel size range in pixels (randomly chosen per frame).
+motion_blur_strength_range = [5, 15]

@@ -1,20 +1,25 @@
-"""Generate 3D distractor models from reference photos using Meta SAM 3D.
+"""Generate 3D distractor models from reference photos using SAM 3D Objects.
 
-The SAM 3D repo is not pip-installable. Clone it and point this script at its
-parent directory so it can be imported:
+The SAM 3D Objects repo (https://github.com/facebookresearch/sam-3d-objects)
+produces Gaussian splats from single images.  This script runs inference on
+a directory of reference photos, converts the splats to triangle meshes
+(via convex hull of splat centers), and exports GLB files that BlenderProc
+can import as distractor objects.
 
-    git clone https://github.com/facebookresearch/sam3d.git
-    python generate_sam3d_models.py --sam3d-parent /path/to/parent data/reference_photos data/distractor_models/sam3d
+See README.md for full setup (clone, venv, install, checkpoints).
 
-Usage:
-    python generate_sam3d_models.py --sam3d-parent /home/me data/reference_photos data/distractor_models/sam3d
-    python generate_sam3d_models.py --sam3d-parent /home/me data/reference_photos data/distractor_models/sam3d --device cuda:0
+Usage (run from inside the sam-3d-objects venv):
+
+    python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d
+    python generate_sam3d_models.py --sam3d-dir ~/sam3/sam-3d-objects ../data/reference_photos ../data/distractor_models/sam3d
 """
 
 import argparse
 import json
 import sys
 from pathlib import Path
+
+import numpy as np
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
@@ -28,72 +33,169 @@ def find_images(photo_dir: Path) -> list[Path]:
     return sorted(set(images))
 
 
-def load_sam3d_model(device: str):
-    """Load the SAM 3D Objects model.
+def create_mask(image_path: Path) -> np.ndarray:
+    """Auto-generate a foreground mask for the image.
 
-    This function wraps the SAM 3D import so we fail fast with a clear message
-    if the package isn't installed.
+    Uses ``rembg`` for background removal when available, otherwise returns
+    a whole-image mask (every pixel is foreground).
     """
+    from PIL import Image
+
+    img = Image.open(image_path).convert("RGB")
+    w, h = img.size
+
     try:
-        from sam3d import SAM3DObjects
+        from rembg import remove
+
+        result = remove(img)
+        alpha = np.array(result.convert("RGBA"))[:, :, 3]
+        mask = alpha > 128
+        if mask.any():
+            pct = mask.sum() / mask.size * 100
+            print(f"    Auto-masked with rembg ({pct:.0f}% foreground)")
+            return mask
     except ImportError:
+        pass
+
+    print("    Using whole-image mask (install rembg for better results)")
+    return np.ones((h, w), dtype=bool)
+
+
+def load_inference(sam3d_dir: Path, checkpoint_tag: str = "hf"):
+    """Load the SAM 3D Objects inference pipeline.
+
+    Returns ``(inference_fn, load_image_fn)``.
+    """
+    notebook_dir = sam3d_dir / "notebook"
+    for p in [str(sam3d_dir), str(notebook_dir)]:
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
+    try:
+        from inference import Inference, load_image
+    except ImportError as exc:
         raise ImportError(
-            "SAM 3D could not be imported. Clone the repo and pass its parent directory:\n"
-            "  git clone https://github.com/facebookresearch/sam3d.git\n"
-            "  python generate_sam3d_models.py --sam3d-parent /path/to/parent ...\n"
-            "See https://github.com/facebookresearch/sam3d and INSTALL.md."
+            "Failed to import SAM 3D Objects inference module.\n"
+            "Make sure you have:\n"
+            "  1. Cloned the repo:\n"
+            "       git clone https://github.com/facebookresearch/sam-3d-objects.git\n"
+            "  2. Installed dependencies:\n"
+            "       cd sam-3d-objects && pip install -e '.[inference]'\n"
+            "  See https://github.com/facebookresearch/sam-3d-objects/blob/main/doc/setup.md"
+        ) from exc
+
+    config_path = sam3d_dir / "checkpoints" / checkpoint_tag / "pipeline.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"Pipeline config not found: {config_path}\n"
+            "Download checkpoints (requires Hugging Face access approval):\n"
+            f"  huggingface-cli download facebook/sam-3d-objects "
+            f"--local-dir {sam3d_dir / 'checkpoints' / (checkpoint_tag + '-download')}\n"
+            f"  mv {sam3d_dir / 'checkpoints' / (checkpoint_tag + '-download') / 'checkpoints'}"
+            f" {sam3d_dir / 'checkpoints' / checkpoint_tag}"
         )
 
-    print(f"Loading SAM 3D Objects model on {device}...")
-    model = SAM3DObjects.from_pretrained(device=device)
-    return model
+    print(f"Loading SAM 3D Objects model from {config_path}...")
+    inference = Inference(str(config_path), compile=False)
+    return inference, load_image
 
 
-def generate_mesh(model, image_path: Path, output_path: Path) -> bool:
-    """Run SAM 3D inference on a single image and save the mesh.
+def splat_ply_to_mesh(ply_path: Path, mesh_path: Path) -> bool:
+    """Convert a Gaussian splat PLY to a triangle mesh (GLB/OBJ).
 
-    Returns True on success, False on failure.
+    Extracts splat center positions and builds a convex hull, which is a
+    rough but serviceable approximation for distractor objects.
     """
     try:
-        result = model.predict(str(image_path))
-        mesh = result.mesh
+        import trimesh
 
-        if output_path.suffix == ".glb":
-            mesh.export(str(output_path), file_type="glb")
-        elif output_path.suffix == ".obj":
-            mesh.export(str(output_path), file_type="obj")
+        cloud = trimesh.load(str(ply_path), process=False)
+        if hasattr(cloud, "vertices") and len(cloud.vertices) >= 4:
+            points = np.array(cloud.vertices)
         else:
-            mesh.export(str(output_path))
+            from plyfile import PlyData
 
+            ply = PlyData.read(str(ply_path))
+            v = ply["vertex"]
+            points = np.column_stack([v["x"], v["y"], v["z"]])
+
+        if len(points) < 4:
+            print("    Too few points for mesh conversion")
+            return False
+
+        mesh = trimesh.convex_hull.convex_hull(points)
+        mesh.export(str(mesh_path))
         return True
-    except Exception as e:
-        print(f"  Failed on {image_path.name}: {e}")
+    except Exception as exc:
+        print(f"    Mesh conversion failed: {exc}")
         return False
 
 
+def generate_model(
+    inference,
+    load_image_fn,
+    image_path: Path,
+    output_dir: Path,
+    stem: str,
+    output_format: str,
+) -> str | None:
+    """Run SAM 3D Objects on a single image and save the result.
+
+    Returns the output filename on success, ``None`` on failure.
+    """
+    try:
+        image = load_image_fn(str(image_path))
+        mask = create_mask(image_path)
+
+        output = inference(image, mask, seed=42)
+
+        ply_path = output_dir / f"{stem}.ply"
+        output["gs"].save_ply(str(ply_path))
+
+        if output_format == "ply":
+            return ply_path.name
+
+        mesh_path = output_dir / f"{stem}.{output_format}"
+        if splat_ply_to_mesh(ply_path, mesh_path):
+            ply_path.unlink(missing_ok=True)
+            return mesh_path.name
+
+        print("    Keeping raw PLY (mesh conversion failed)")
+        return ply_path.name
+
+    except Exception as exc:
+        print(f"  Failed on {image_path.name}: {exc}")
+        return None
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--sam3d-parent",
-        type=Path,
-        default=None,
-        metavar="DIR",
-        help="Parent directory containing the cloned sam3d repo (e.g. if sam3d is at /home/me/sam3d, pass /home/me). Required unless sam3d is on PYTHONPATH.",
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("photo_dir", type=Path, help="Directory of reference photos")
     parser.add_argument("output_dir", type=Path, help="Directory to save 3D models")
     parser.add_argument(
-        "--device",
+        "--sam3d-dir",
+        type=Path,
+        default=Path("~/sam3/sam-3d-objects").expanduser(),
+        metavar="DIR",
+        help="Path to the cloned sam-3d-objects repo "
+        "(default: ~/sam3/sam-3d-objects)",
+    )
+    parser.add_argument(
+        "--checkpoint-tag",
         type=str,
-        default="cuda:0",
-        help="Torch device (default: cuda:0)",
+        default="hf",
+        help="Checkpoint subdirectory name (default: hf)",
     )
     parser.add_argument(
         "--format",
         type=str,
         default="glb",
-        choices=["glb", "obj"],
-        help="Output mesh format (default: glb)",
+        choices=["glb", "obj", "ply"],
+        help="Output format (default: glb). "
+        "glb/obj convert Gaussian splats to triangle meshes via convex hull; "
+        "ply keeps the raw Gaussian splat.",
     )
     parser.add_argument(
         "--max-images",
@@ -103,15 +205,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.sam3d_parent is not None:
-        parent = args.sam3d_parent.resolve()
-        if not parent.is_dir():
-            parser.error(f"--sam3d-parent is not a directory: {parent}")
-        sam3d_dir = parent / "sam3d"
-        if not sam3d_dir.is_dir():
-            parser.error(f"sam3d repo not found under {parent} (expected {sam3d_dir})")
-        sys.path.insert(0, str(parent))
-        print(f"Using SAM 3D from {sam3d_dir}")
+    sam3d_dir = args.sam3d_dir.resolve()
+    if not sam3d_dir.is_dir():
+        parser.error(
+            f"sam-3d-objects repo not found at {sam3d_dir}\n"
+            "Clone with:\n"
+            "  git clone https://github.com/facebookresearch/sam-3d-objects.git "
+            f"{sam3d_dir}"
+        )
 
     photo_dir: Path = args.photo_dir
     output_dir: Path = args.output_dir
@@ -127,19 +228,22 @@ def main() -> None:
 
     print(f"Found {len(images)} reference photos")
 
-    model = load_sam3d_model(args.device)
+    inference, load_image_fn = load_inference(sam3d_dir, args.checkpoint_tag)
 
-    manifest = {}
+    manifest: dict[str, dict] = {}
     success_count = 0
+
     for i, image_path in enumerate(images):
         stem = image_path.stem
-        output_path = output_dir / f"{stem}.{args.format}"
-
         print(f"  [{i + 1}/{len(images)}] Processing {image_path.name}...")
-        if generate_mesh(model, image_path, output_path):
+
+        filename = generate_model(
+            inference, load_image_fn, image_path, output_dir, stem, args.format
+        )
+        if filename is not None:
             manifest[stem] = {
                 "source_image": str(image_path),
-                "mesh_file": output_path.name,
+                "mesh_file": filename,
             }
             success_count += 1
 
@@ -147,7 +251,7 @@ def main() -> None:
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
 
-    print(f"\nGenerated {success_count}/{len(images)} meshes in {output_dir}")
+    print(f"\nGenerated {success_count}/{len(images)} models in {output_dir}")
     print(f"Manifest written to {manifest_path}")
 
 
