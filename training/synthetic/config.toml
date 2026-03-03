@@ -90,12 +90,13 @@ model_dirs = [
     "../data/distractor_models/sam3d",
 ]
 min_per_scene = 1
+# Also controls how many distractor models are loaded into memory at once.
 max_per_scene = 50
 # Scale range as multiples of the robot's largest dimension.
 # [0.5, 3.0] means distractors will be 0.5x to 3x the robot's size.
 scale_range = [0.5, 3.0]
-# Maximum number of distractor models to keep loaded in memory
-pool_size = 30
+# Re-roll the distractor pool every N images (0 to keep the same pool all run).
+shuffle_interval = 100
 
 [environment]
 hdri_dir = "../data/hdris"
@@ -122,7 +123,7 @@ ground_textures = [
 
 [camera]
 min_distance = 0.3
-max_distance = 3.0
+max_distance = 4.0
 height_range = [0.1, 2.0]
 # Gaussian noise added to the camera look-at target (meters)
 look_at_noise = 0.4

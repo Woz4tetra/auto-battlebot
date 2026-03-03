@@ -369,7 +369,7 @@ def load_distractor(file_path: Path) -> DistractorGroup | None:
 
 
 def load_distractor_pool(
-    model_dirs: list[str], pool_size: int
+    model_dirs: list[str], max_count: int
 ) -> list[DistractorGroup]:
     """Load a pool of distractor models, returning a list of groups."""
     files = discover_model_files(model_dirs)
@@ -380,7 +380,7 @@ def load_distractor_pool(
     random.shuffle(files)
     pool: list[DistractorGroup] = []
     for f in files:
-        if len(pool) >= pool_size:
+        if len(pool) >= max_count:
             break
         group = load_distractor(f)
         if group:
@@ -392,6 +392,19 @@ def load_distractor_pool(
             )
 
     return pool
+
+
+def unload_distractor_pool(pool: list[DistractorGroup]) -> None:
+    """Remove all distractor Blender objects and their mesh data."""
+    for parent, meshes, _ in pool:
+        for m in meshes:
+            obj = m.blender_obj
+            mesh_data = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if mesh_data and mesh_data.users == 0:
+                bpy.data.meshes.remove(mesh_data)
+        bpy.data.objects.remove(parent, do_unlink=True)
+    pool.clear()
 
 
 def hide_distractor(group: DistractorGroup) -> None:
@@ -794,26 +807,34 @@ def main() -> None:
     # ------- Load distractors -------
 
     dist_cfg = config.get("distractors", {})
-    print("Loading distractor models...")
-    distractor_pool = load_distractor_pool(
-        dist_cfg.get("model_dirs", []),
-        dist_cfg.get("pool_size", 30),
-    )
-    print(f"  {len(distractor_pool)} distractors in pool")
+    dist_model_dirs = dist_cfg.get("model_dirs", [])
+    dist_max_per_scene = dist_cfg.get("max_per_scene", 5)
+    dist_min_per_scene = dist_cfg.get("min_per_scene", 0)
+    dist_shuffle_interval = dist_cfg.get("shuffle_interval", 100)
 
-    min_per_scene = dist_cfg.get("min_per_scene", 0)
-    if min_per_scene > len(distractor_pool):
-        model_dirs = dist_cfg.get("model_dirs", [])
-        raise RuntimeError(
-            f"distractors.min_per_scene is {min_per_scene} but only "
-            f"{len(distractor_pool)} distractor model(s) were found.\n"
-            f"  Searched directories: {model_dirs}\n"
-            f"  Either add distractor models to those directories, or set "
-            f"min_per_scene <= {len(distractor_pool)} in config.toml."
-        )
+    def refresh_distractor_pool(
+        old_pool: list[DistractorGroup],
+    ) -> list[DistractorGroup]:
+        """Unload old distractors and load a fresh random pool."""
+        if old_pool:
+            unload_distractor_pool(old_pool)
+        print("Loading distractor models...")
+        pool = load_distractor_pool(dist_model_dirs, dist_max_per_scene)
+        print(f"  {len(pool)} distractors in pool")
+        if dist_min_per_scene > len(pool):
+            raise RuntimeError(
+                f"distractors.min_per_scene is {dist_min_per_scene} but only "
+                f"{len(pool)} distractor model(s) were found.\n"
+                f"  Searched directories: {dist_model_dirs}\n"
+                f"  Either add distractor models to those directories, or set "
+                f"min_per_scene <= {len(pool)} in config.toml."
+            )
+        for group in pool:
+            hide_distractor(group)
+        return pool
 
-    for group in distractor_pool:
-        hide_distractor(group)
+    distractor_pool = refresh_distractor_pool([])
+    images_since_shuffle = 0
 
     # ------- Load environment assets -------
 
@@ -932,11 +953,13 @@ def main() -> None:
         robot_parent.rotation_euler = mathutils.Euler(robot_rot)
         bpy.context.view_layer.update()
 
+        # -- Distractor pool refresh --
+        if dist_shuffle_interval and images_since_shuffle >= dist_shuffle_interval:
+            distractor_pool = refresh_distractor_pool(distractor_pool)
+            images_since_shuffle = 0
+
         # -- Distractor placement --
-        num_dist = random.randint(
-            dist_cfg.get("min_per_scene", 0),
-            min(dist_cfg.get("max_per_scene", 5), len(distractor_pool)),
-        )
+        num_dist = random.randint(dist_min_per_scene, len(distractor_pool))
         active_distractors = (
             random.sample(distractor_pool, num_dist) if num_dist > 0 else []
         )
@@ -1087,6 +1110,7 @@ def main() -> None:
                 cv2.cvtColor(color_img, cv2.COLOR_RGB2BGR),
             )
             global_idx += 1
+            images_since_shuffle += 1
 
         scene_idx += 1
         if scene_idx % 50 == 0:
