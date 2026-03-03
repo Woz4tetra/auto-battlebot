@@ -42,6 +42,7 @@ dependencies and needs a GPU with at least 32 GB VRAM. Follow the
    pip install -e '.[p3d]'
    export PIP_FIND_LINKS="https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.5.1_cu121.html"
    pip install -e '.[inference]'
+   pip install 'numpy>=1.26,<2'   # kaolin wheels are compiled against numpy 1.x
    ./patching/hydra
    ```
 
