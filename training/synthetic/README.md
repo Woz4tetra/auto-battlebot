@@ -6,13 +6,22 @@ YOLO-format labels compatible with the existing training pipeline.
 
 ## Prerequisites
 
-Install the project dependencies (from the repo root):
+Set up the subproject virtual environment:
 
 ```bash
-./scripts/setup_python.sh
+cd training/synthetic
+./setup.sh
+source .venv/bin/activate
 ```
 
-This installs `blenderproc`, `objaverse`, and `pygltflib` (x86 only).
+This installs `blenderproc`, `objaverse`, `numpy`, and `opencv-python`.
+
+To install optional dependencies for SAM 3D mesh conversion:
+
+```bash
+pip install -e '.[sam3d]'       # trimesh, plyfile, Pillow
+pip install -e '.[rembg]'      # background removal for SAM 3D
+```
 
 **SAM 3D Objects** (for distractor generation from reference photos) has heavier
 dependencies and needs a GPU with at least 32 GB VRAM. Follow the
