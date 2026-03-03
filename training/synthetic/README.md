@@ -18,34 +18,34 @@ This installs `blenderproc`, `objaverse`, and `pygltflib` (x86 only).
 dependencies and needs a GPU with at least 32 GB VRAM. Follow the
 [official setup guide](https://github.com/facebookresearch/sam-3d-objects/blob/main/doc/setup.md). Summary:
 
-1. **Clone the repo**
+1. **Install Mamba** (if not already installed). Mamba is a fast drop-in
+   replacement for conda. On Ubuntu:
+   ```bash
+   curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+   bash Miniforge3-$(uname)-$(uname -m).sh
+   ```
+   Follow the prompts, then restart your shell (or `source ~/.bashrc`).
+
+2. **Clone the repo**
    ```bash
    git clone https://github.com/facebookresearch/sam-3d-objects.git ~/sam3/sam-3d-objects
    ```
 
-2. **Create a virtual environment** (Python 3.11, CUDA 12.1 toolkit required on the host)
-   ```bash
-   python3.11 -m venv ~/sam3/sam-3d-objects/.venv
-   source ~/sam3/sam-3d-objects/.venv/bin/activate
-   ```
-
-3. **Install PyTorch** (CUDA 12.1)
-   ```bash
-   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-   ```
-
-4. **Install sam-3d-objects and its dependencies**
+3. **Create the environment and install**
    ```bash
    cd ~/sam3/sam-3d-objects
+   mamba env create -f environments/default.yml
+   mamba activate sam3d-objects
+
    export PIP_EXTRA_INDEX_URL="https://pypi.ngc.nvidia.com https://download.pytorch.org/whl/cu121"
    pip install -e '.[dev]'
-   pip install -e '.[p3d]' --no-build-isolation
+   pip install -e '.[p3d]'
    export PIP_FIND_LINKS="https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.5.1_cu121.html"
    pip install -e '.[inference]'
    ./patching/hydra
    ```
 
-5. **Download checkpoints** from Hugging Face (requires [access approval](https://huggingface.co/facebook/sam-3d-objects))
+4. **Download checkpoints** from Hugging Face (requires [access approval](https://huggingface.co/facebook/sam-3d-objects))
    ```bash
    huggingface-cli download facebook/sam-3d-objects \
        --local-dir ~/sam3/sam-3d-objects/checkpoints/hf-download
@@ -53,7 +53,7 @@ dependencies and needs a GPU with at least 32 GB VRAM. Follow the
    rm -rf ~/sam3/sam-3d-objects/checkpoints/hf-download
    ```
 
-6. **Optional:** Install `rembg` for automatic background removal when generating masks from reference photos:
+5. **Optional:** Install `rembg` for automatic background removal when generating masks from reference photos:
    ```bash
    pip install rembg
    ```

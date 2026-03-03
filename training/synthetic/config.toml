@@ -2,7 +2,8 @@
 image_dir = "../data/synthetic/images"
 label_dir = "../data/synthetic/labels"
 num_images = 20000
-image_size = 640
+image_width = 1280
+image_height = 720
 # Number of camera viewpoints to render per scene arrangement.
 # Higher values = faster generation but less object placement diversity.
 images_per_scene = 10

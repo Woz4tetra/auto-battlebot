@@ -574,7 +574,7 @@ def sample_camera_pose(
 
 
 def project_keypoint_to_2d(
-    kp_local: np.ndarray, robot_world_mat: np.ndarray, image_size: int
+    kp_local: np.ndarray, robot_world_mat: np.ndarray
 ) -> tuple[float, float, float] | None:
     """Project a 3D model-space keypoint to normalized 2D image coordinates.
 
@@ -601,15 +601,16 @@ def check_keypoint_visibility(
     y_norm: float,
     kp_depth: float,
     depth_map: np.ndarray,
-    image_size: int,
+    img_w: int,
+    img_h: int,
     tolerance: float = 0.05,
 ) -> int:
     """Determine keypoint visibility: 0=out-of-frame, 1=occluded, 2=visible."""
     if not (0 <= x_norm <= 1 and 0 <= y_norm <= 1):
         return 0
 
-    px = min(int(x_norm * image_size), image_size - 1)
-    py = min(int(y_norm * image_size), image_size - 1)
+    px = min(int(x_norm * img_w), img_w - 1)
+    py = min(int(y_norm * img_h), img_h - 1)
     rendered_depth = depth_map[py, px]
 
     if abs(rendered_depth - kp_depth) < tolerance:
@@ -618,7 +619,7 @@ def check_keypoint_visibility(
 
 
 def bbox_from_category_segmap(
-    seg_map: np.ndarray, category_id: int, image_size: int
+    seg_map: np.ndarray, category_id: int, img_w: int, img_h: int
 ) -> tuple[float, float, float, float] | None:
     """Compute a YOLO-format bounding box from the segmentation map.
 
@@ -632,10 +633,10 @@ def bbox_from_category_segmap(
     x_min, x_max = int(xs.min()), int(xs.max())
     y_min, y_max = int(ys.min()), int(ys.max())
 
-    cx = (x_min + x_max) / 2.0 / image_size
-    cy = (y_min + y_max) / 2.0 / image_size
-    w = (x_max - x_min) / image_size
-    h = (y_max - y_min) / image_size
+    cx = (x_min + x_max) / 2.0 / img_w
+    cy = (y_min + y_max) / 2.0 / img_h
+    w = (x_max - x_min) / img_w
+    h = (y_max - y_min) / img_h
     return (cx, cy, w, h)
 
 
@@ -745,7 +746,8 @@ def main() -> None:
 
     config = load_config(args.config)
     num_images = args.num_images or config["output"]["num_images"]
-    image_size = config["output"]["image_size"]
+    img_w = config["output"].get("image_width", 1280)
+    img_h = config["output"].get("image_height", 720)
     images_per_scene = config["output"].get("images_per_scene", 5)
     max_scenes = math.ceil(num_images / images_per_scene) * 3
 
@@ -757,7 +759,7 @@ def main() -> None:
     # ------- Initialize BlenderProc -------
 
     bproc.init()
-    bproc.camera.set_resolution(image_size, image_size)
+    bproc.camera.set_resolution(img_w, img_h)
     bproc.renderer.set_max_amount_of_samples(args.render_samples)
     bproc.renderer.enable_depth_output(activate_antialiasing=False)
 
@@ -1020,13 +1022,13 @@ def main() -> None:
                 print(f"  Segmap shape={seg_map.shape}, dtype={seg_map.dtype}, "
                       f"unique={np.unique(seg_map).tolist()}")
 
-            bbox = bbox_from_category_segmap(seg_map, ROBOT_CATEGORY_ID, image_size)
+            bbox = bbox_from_category_segmap(seg_map, ROBOT_CATEGORY_ID, img_w, img_h)
             if bbox is None:
                 continue
 
             cx, cy, w, h = bbox
-            w_px = int(w * image_size)
-            h_px = int(h * image_size)
+            w_px = int(w * img_w)
+            h_px = int(h * img_h)
             bbox_area_px = max(1, w_px * h_px)
             robot_px = int(np.sum(seg_map.squeeze() == ROBOT_CATEGORY_ID))
             min_bbox_dim = 32
@@ -1037,12 +1039,14 @@ def main() -> None:
 
             keypoints_2d: list[tuple[float, float, int]] = []
             for kp_local in [kp_front, kp_back]:
-                proj = project_keypoint_to_2d(kp_local, robot_world_mat, image_size)
+                proj = project_keypoint_to_2d(kp_local, robot_world_mat)
                 if proj is None:
                     keypoints_2d.append((0.0, 0.0, 0))
                     continue
                 x_n, y_n, depth = proj
-                vis = check_keypoint_visibility(x_n, y_n, depth, depth_map, image_size)
+                vis = check_keypoint_visibility(
+                    x_n, y_n, depth, depth_map, img_w, img_h
+                )
                 keypoints_2d.append((x_n, y_n, vis))
 
             blur_prob = rand_cfg.get("motion_blur_probability", 0.0)
