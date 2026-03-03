@@ -5,6 +5,7 @@ description = "Synthetic data generation pipeline for YOLO keypoint training"
 requires-python = ">=3.10"
 dependencies = [
     "blenderproc",
+    "numpy>=1.26,<2",
     "opencv-python>=4.5.0",
     "objaverse",
     "tomli; python_version < '3.11'",
