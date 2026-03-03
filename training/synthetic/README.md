@@ -40,34 +40,34 @@ dependencies and needs a GPU with at least 32 GB VRAM. Follow the
 
 1. **Clone the repo**
 
-    ```bash
-    git clone https://github.com/facebookresearch/sam-3d-objects.git ~/sam3/sam-3d-objects
-    ```
+   ```bash
+   git clone https://github.com/facebookresearch/sam-3d-objects.git ~/sam3/sam-3d-objects
+   ```
 
 2. **Create the environment and install**
 
-    ```bash
-    cd ~/sam3/sam-3d-objects
-    mamba env create -f environments/default.yml
-    mamba activate sam3d-objects
+   ```bash
+   cd ~/sam3/sam-3d-objects
+   mamba env create -f environments/default.yml
+   mamba activate sam3d-objects
 
-    export PIP_EXTRA_INDEX_URL="https://pypi.ngc.nvidia.com https://download.pytorch.org/whl/cu121"
-    pip install -e '.[dev]'
-    pip install -e '.[p3d]'
-    export PIP_FIND_LINKS="https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.5.1_cu121.html"
-    pip install -e '.[inference]'
-    pip install 'numpy>=1.26,<2'   # kaolin wheels are compiled against numpy 1.x
-    ./patching/hydra
-    ```
+   export PIP_EXTRA_INDEX_URL="https://pypi.ngc.nvidia.com https://download.pytorch.org/whl/cu121"
+   pip install -e '.[dev]'
+   pip install -e '.[p3d]'
+   export PIP_FIND_LINKS="https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.5.1_cu121.html"
+   pip install -e '.[inference]'
+   pip install 'numpy>=1.26,<2'   # kaolin wheels are compiled against numpy 1.x
+   ./patching/hydra
+   ```
 
 3. **Download checkpoints** from Hugging Face (requires [access approval](https://huggingface.co/facebook/sam-3d-objects))
 
-    ```bash
-    huggingface-cli download facebook/sam-3d-objects \
-        --local-dir ~/sam3/sam-3d-objects/checkpoints/hf-download
-    mv ~/sam3/sam-3d-objects/checkpoints/hf-download/checkpoints ~/sam3/sam-3d-objects/checkpoints/hf
-    rm -rf ~/sam3/sam-3d-objects/checkpoints/hf-download
-    ```
+   ```bash
+   hf download facebook/sam-3d-objects \
+       --local-dir ~/sam3/sam-3d-objects/checkpoints/hf-download
+   mv ~/sam3/sam-3d-objects/checkpoints/hf-download/checkpoints ~/sam3/sam-3d-objects/checkpoints/hf
+   rm -rf ~/sam3/sam-3d-objects/checkpoints/hf-download
+   ```
 
 ## Quick Start
 
@@ -104,11 +104,11 @@ front and back keypoints. Measure these in OnShape.
 
 **HDRIs (Poly Haven)**
 
--   **Where:** [Poly Haven HDRIs](https://polyhaven.com/hdris)
--   **Format:** `.hdr` or `.exr` only (the pipeline discovers files with these extensions).
--   **Resolution:** 2K or 4K is enough for 640x640 renders and keeps download size reasonable; 1K is usable if you want to minimize storage.
--   **How many:** **15-30** for good scene variety. More gives more diversity; fewer is fine for testing.
--   **Which ones:** Prefer **indoor or arena-like** environments (studios, halls, warehouses) so lighting matches typical competition settings. You can pick at random from those, or add a few outdoor/abstract ones for extra variation.
+- **Where:** [Poly Haven HDRIs](https://polyhaven.com/hdris)
+- **Format:** `.hdr` or `.exr` only (the pipeline discovers files with these extensions).
+- **Resolution:** 2K or 4K is enough for 640x640 renders and keeps download size reasonable; 1K is usable if you want to minimize storage.
+- **How many:** **15-30** for good scene variety. More gives more diversity; fewer is fine for testing.
+- **Which ones:** Prefer **indoor or arena-like** environments (studios, halls, warehouses) so lighting matches typical competition settings. You can pick at random from those, or add a few outdoor/abstract ones for extra variation.
 
 Place all files directly in `data/hdris/` (no subfolders required).
 
@@ -131,9 +131,9 @@ python download_ambientcg.py ../data/cc_textures "https://ambientcg.com/get?file
 
 Assets that already exist in the output directory are skipped, so it's safe to re-run.
 
--   **Required:** Download the assets referenced in your `config.toml` under `[materials.*]` -> `cc_texture` (e.g. `Metal012`, `Metal030`, `Plastic006`, `Rubber001`, `Paper001`). Without these, the robot falls back to flat PBR values (no texture).
--   **For ground variety:** Add **10-25** extra ambientCG materials (e.g. more metals, plastics, wood, concrete, tiles). The loader only uses assets whose folder name starts with one of its built-in keywords (e.g. `metal`, `plastic`, `wood`, `concrete`, `tiles`), so names like `Metal012` or `Wood037` work.
--   **Non-default resolution:** Pass `--resolution 4K-JPG` (or any other ambientCG variant) to override the default `2K-JPG`.
+- **Required:** Download the assets referenced in your `config.toml` under `[materials.*]` -> `cc_texture` (e.g. `Metal012`, `Metal030`, `Plastic006`, `Rubber001`, `Paper001`). Without these, the robot falls back to flat PBR values (no texture).
+- **For ground variety:** Add **10-25** extra ambientCG materials (e.g. more metals, plastics, wood, concrete, tiles). The loader only uses assets whose folder name starts with one of its built-in keywords (e.g. `metal`, `plastic`, `wood`, `concrete`, `tiles`), so names like `Metal012` or `Wood037` work.
+- **Non-default resolution:** Pass `--resolution 4K-JPG` (or any other ambientCG variant) to override the default `2K-JPG`.
 
 ### 5. Acquire distractor models
 
@@ -225,9 +225,9 @@ data/
 
 See `config.toml` for all options. Key sections:
 
--   `[robot]` -- model path, class ID, keypoint positions, color-to-material mapping
--   `[materials.*]` -- PBR properties and CC texture asset names per material type
--   `[distractors]` -- model directories, count range, scale range
--   `[environment]` -- paths to HDRIs and CC textures
--   `[camera]` -- distance, height, and noise parameters
--   `[randomization]` -- jitter ranges for materials and lighting
+- `[robot]` -- model path, class ID, keypoint positions, color-to-material mapping
+- `[materials.*]` -- PBR properties and CC texture asset names per material type
+- `[distractors]` -- model directories, count range, scale range
+- `[environment]` -- paths to HDRIs and CC textures
+- `[camera]` -- distance, height, and noise parameters
+- `[randomization]` -- jitter ranges for materials and lighting

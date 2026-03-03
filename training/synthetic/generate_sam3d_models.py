@@ -123,7 +123,7 @@ def splat_ply_to_mesh(ply_path: Path, mesh_path: Path) -> bool:
             print("    Too few points for mesh conversion")
             return False
 
-        mesh = trimesh.convex_hull.convex_hull(points)
+        mesh = trimesh.PointCloud(points).convex_hull
         mesh.export(str(mesh_path))
         return True
     except Exception as exc:
@@ -179,8 +179,7 @@ def main() -> None:
         type=Path,
         default=Path("~/sam3/sam-3d-objects").expanduser(),
         metavar="DIR",
-        help="Path to the cloned sam-3d-objects repo "
-        "(default: ~/sam3/sam-3d-objects)",
+        help="Path to the cloned sam-3d-objects repo (default: ~/sam3/sam-3d-objects)",
     )
     parser.add_argument(
         "--checkpoint-tag",
