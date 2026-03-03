@@ -25,7 +25,7 @@ mamba activate battlebot-synthetic
 pip install -e .
 ```
 
-This installs `blenderproc`, `objaverse`, `numpy`, and `opencv-python`.
+This installs `blenderproc`, `objaverse`, and `opencv-python`.
 
 To install optional dependencies for SAM 3D mesh conversion:
 

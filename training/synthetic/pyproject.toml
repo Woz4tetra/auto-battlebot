@@ -5,21 +5,14 @@ description = "Synthetic data generation pipeline for YOLO keypoint training"
 requires-python = ">=3.10"
 dependencies = [
     "blenderproc",
-    "numpy",
     "opencv-python>=4.5.0",
     "objaverse",
     "tomli; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
-sam3d = [
-    "Pillow",
-    "trimesh",
-    "plyfile",
-]
-rembg = [
-    "rembg",
-]
+sam3d = ["Pillow", "trimesh", "plyfile"]
+rembg = ["rembg"]
 
 [build-system]
 requires = ["setuptools>=45", "wheel"]
