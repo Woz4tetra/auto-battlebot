@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sam3d = ["Pillow", "trimesh", "plyfile"]
+sam3d = ["Pillow", "trimesh", "plyfile", "open3d"]
 rembg = ["rembg"]
 
 [build-system]

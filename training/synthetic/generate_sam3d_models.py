@@ -2,9 +2,9 @@
 
 The SAM 3D Objects repo (https://github.com/facebookresearch/sam-3d-objects)
 produces Gaussian splats from single images.  This script runs inference on
-a directory of reference photos, converts the splats to triangle meshes
-(via convex hull of splat centers), and exports GLB files that BlenderProc
-can import as distractor objects.
+a directory of reference photos, converts the splats to vertex-colored
+triangle meshes via Poisson surface reconstruction, and exports GLB files
+that BlenderProc can import as distractor objects.
 
 See README.md for full setup (clone, venv, install, checkpoints).
 
@@ -100,31 +100,90 @@ def load_inference(sam3d_dir: Path, checkpoint_tag: str = "hf"):
     return inference, load_image
 
 
-def splat_ply_to_mesh(ply_path: Path, mesh_path: Path) -> bool:
-    """Convert a Gaussian splat PLY to a triangle mesh (GLB/OBJ).
+_SH_C0 = 0.2820947917738781
 
-    Extracts splat center positions and builds a convex hull, which is a
-    rough but serviceable approximation for distractor objects.
+
+def splat_ply_to_mesh(
+    ply_path: Path,
+    mesh_path: Path,
+    *,
+    poisson_depth: int = 8,
+    opacity_threshold: float = 0.05,
+    density_quantile: float = 0.05,
+) -> bool:
+    """Convert a Gaussian splat PLY to a vertex-colored triangle mesh.
+
+    Reads splat positions, opacities, and zeroth-order spherical-harmonic
+    colour coefficients from the PLY, builds an Open3D point cloud, runs
+    Poisson surface reconstruction, trims low-density extrapolation
+    artefacts, and exports the result with vertex colours preserved.
     """
     try:
+        import open3d as o3d
         import trimesh
+        from plyfile import PlyData
 
-        cloud = trimesh.load(str(ply_path), process=False)
-        if hasattr(cloud, "vertices") and len(cloud.vertices) >= 4:
-            points = np.array(cloud.vertices)
+        ply = PlyData.read(str(ply_path))
+        v = ply["vertex"]
+        names = {p.name for p in v.properties}
+
+        positions = np.column_stack([v["x"], v["y"], v["z"]])
+
+        if "opacity" in names:
+            opacity = 1.0 / (1.0 + np.exp(-np.array(v["opacity"], dtype=np.float64)))
+            keep = opacity >= opacity_threshold
+            positions = positions[keep]
         else:
-            from plyfile import PlyData
+            keep = np.ones(len(positions), dtype=bool)
 
-            ply = PlyData.read(str(ply_path))
-            v = ply["vertex"]
-            points = np.column_stack([v["x"], v["y"], v["z"]])
-
-        if len(points) < 4:
-            print("    Too few points for mesh conversion")
+        if len(positions) < 64:
+            print(f"    Too few splats after filtering ({len(positions)})")
             return False
 
-        mesh = trimesh.PointCloud(points).convex_hull
-        mesh.export(str(mesh_path))
+        if {"f_dc_0", "f_dc_1", "f_dc_2"}.issubset(names):
+            sh = np.column_stack(
+                [
+                    np.array(v["f_dc_0"])[keep],
+                    np.array(v["f_dc_1"])[keep],
+                    np.array(v["f_dc_2"])[keep],
+                ]
+            )
+            colors = np.clip(0.5 + _SH_C0 * sh, 0.0, 1.0)
+        else:
+            colors = np.full((len(positions), 3), 0.5)
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(positions)
+        pcd.colors = o3d.utility.Vector3dVector(colors)
+        pcd.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.02, max_nn=30)
+        )
+        pcd.orient_normals_consistent_tangent_plane(k=15)
+
+        mesh_o3d, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+            pcd, depth=poisson_depth, linear_fit=True
+        )
+
+        densities = np.asarray(densities)
+        threshold = np.quantile(densities, density_quantile)
+        vertices_to_remove = densities < threshold
+        mesh_o3d.remove_vertices_by_mask(vertices_to_remove)
+
+        vertices = np.asarray(mesh_o3d.vertices)
+        faces = np.asarray(mesh_o3d.triangles)
+        vertex_colors = np.asarray(mesh_o3d.vertex_colors)
+
+        tm = trimesh.Trimesh(
+            vertices=vertices,
+            faces=faces,
+            vertex_colors=(vertex_colors * 255).astype(np.uint8),
+            process=False,
+        )
+        tm.export(str(mesh_path))
+        print(
+            f"    Mesh: {len(tm.vertices)} verts, {len(tm.faces)} faces "
+            f"(poisson depth={poisson_depth})"
+        )
         return True
     except Exception as exc:
         print(f"    Mesh conversion failed: {exc}")
@@ -138,6 +197,9 @@ def generate_model(
     output_dir: Path,
     stem: str,
     output_format: str,
+    *,
+    poisson_depth: int = 8,
+    opacity_threshold: float = 0.05,
 ) -> str | None:
     """Run SAM 3D Objects on a single image and save the result.
 
@@ -156,7 +218,12 @@ def generate_model(
             return ply_path.name
 
         mesh_path = output_dir / f"{stem}.{output_format}"
-        if splat_ply_to_mesh(ply_path, mesh_path):
+        if splat_ply_to_mesh(
+            ply_path,
+            mesh_path,
+            poisson_depth=poisson_depth,
+            opacity_threshold=opacity_threshold,
+        ):
             ply_path.unlink(missing_ok=True)
             return mesh_path.name
 
@@ -193,14 +260,28 @@ def main() -> None:
         default="glb",
         choices=["glb", "obj", "ply"],
         help="Output format (default: glb). "
-        "glb/obj convert Gaussian splats to triangle meshes via convex hull; "
-        "ply keeps the raw Gaussian splat.",
+        "glb/obj convert Gaussian splats to vertex-colored triangle meshes "
+        "via Poisson surface reconstruction; ply keeps the raw Gaussian splat.",
     )
     parser.add_argument(
         "--max-images",
         type=int,
         default=None,
         help="Maximum number of images to process",
+    )
+    parser.add_argument(
+        "--poisson-depth",
+        type=int,
+        default=8,
+        help="Octree depth for Poisson surface reconstruction (default: 8). "
+        "Higher values capture finer detail but are slower.",
+    )
+    parser.add_argument(
+        "--opacity-threshold",
+        type=float,
+        default=0.05,
+        help="Minimum splat opacity to include in reconstruction (default: 0.05). "
+        "Lower values keep more semi-transparent splats.",
     )
     args = parser.parse_args()
 
@@ -237,7 +318,14 @@ def main() -> None:
         print(f"  [{i + 1}/{len(images)}] Processing {image_path.name}...")
 
         filename = generate_model(
-            inference, load_image_fn, image_path, output_dir, stem, args.format
+            inference,
+            load_image_fn,
+            image_path,
+            output_dir,
+            stem,
+            args.format,
+            poisson_depth=args.poisson_depth,
+            opacity_threshold=args.opacity_threshold,
         )
         if filename is not None:
             manifest[stem] = {
