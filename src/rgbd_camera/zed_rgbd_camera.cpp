@@ -11,8 +11,7 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
       depth_frame_counter_(0),
       last_returned_frame_counter_(0),
       prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST),
-      position_tracking_enabled_(config.position_tracking),
-      low_res_depth_(config.low_res_depth_width, config.low_res_depth_height) {
+      position_tracking_enabled_(config.position_tracking) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("zed_rgbd_camera");
     reset_capture_timing_stats();
 
@@ -147,18 +146,17 @@ bool ZedRgbdCamera::capture_frame() {
 
     auto capture_start = std::chrono::steady_clock::now();
 
-    bool quality_depth = false;
+    bool need_depth = false;
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
-        quality_depth = !depth_request_queue_.empty();
-        if (quality_depth) {
+        need_depth = !depth_request_queue_.empty();
+        if (need_depth) {
             depth_request_queue_.pop();
         }
     }
 
-    sl::RuntimeParameters rt_params;
-    rt_params.enable_depth = true;
-    sl::ERROR_CODE grab_status = zed_.grab(rt_params);
+    // Grab new frame (without lock)
+    sl::ERROR_CODE grab_status = zed_.grab();
 
     if (grab_status != sl::ERROR_CODE::SUCCESS) {
         if (grab_status == sl::ERROR_CODE::END_OF_SVOFILE_REACHED) {
@@ -185,19 +183,15 @@ bool ZedRgbdCamera::capture_frame() {
         return false;
     }
 
-    if (quality_depth) {
+    // Retrieve depth map only if requested
+    if (need_depth) {
         retrieve_status = zed_.retrieveMeasure(zed_depth_, sl::MEASURE::DEPTH);
-    } else {
-        retrieve_status =
-            zed_.retrieveMeasure(zed_depth_, sl::MEASURE::DEPTH, sl::MEM::CPU, low_res_depth_);
-    }
-    if (retrieve_status != sl::ERROR_CODE::SUCCESS) {
-        std::cerr << "Failed to retrieve depth image: " << sl::toString(retrieve_status)
-                  << std::endl;
-        if (quality_depth) {
+        if (retrieve_status != sl::ERROR_CODE::SUCCESS) {
+            std::cerr << "Failed to retrieve depth image: " << sl::toString(retrieve_status)
+                      << std::endl;
             depth_request_queue_.push(1);
+            return false;
         }
-        return false;
     }
 
     // Get timestamp
@@ -234,12 +228,15 @@ bool ZedRgbdCamera::capture_frame() {
                         zed_rgb_.getPtr<sl::uchar1>());
     cv::cvtColor(zed_rgb_mat, latest_data_.rgb.image, cv::COLOR_BGRA2BGR);
 
-    cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1,
-                          zed_depth_.getPtr<sl::uchar1>());
-    zed_depth_mat.copyTo(latest_data_.depth.image);
-    if (quality_depth) {
+    // Convert ZED depth image to OpenCV Mat (float32) if requested
+    if (need_depth) {
+        cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1,
+                              zed_depth_.getPtr<sl::uchar1>());
+        zed_depth_mat.copyTo(latest_data_.depth.image);
         depth_frame_counter_ =
             frame_counter_ + 1;  // capture_thread_loop will increment after this function returns
+    } else {
+        latest_data_.depth.image.release();
     }
 
     Header header;
@@ -262,12 +259,12 @@ bool ZedRgbdCamera::capture_frame() {
     return true;
 }
 
-bool ZedRgbdCamera::get(CameraData &data, bool get_quality_depth) {
+bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
     if (!is_initialized_) return false;
     std::unique_lock<std::mutex> lock(data_mutex_);
 
-    if (get_quality_depth) {
-        // Request full-resolution depth and wait for a frame that has it
+    if (get_depth) {
+        // Request depth for the next frame and wait for a new frame with depth
         depth_request_queue_.push(1);
 
         uint64_t current_frame = frame_counter_;
@@ -278,7 +275,7 @@ bool ZedRgbdCamera::get(CameraData &data, bool get_quality_depth) {
             return (new_frame && depth_ready) || should_close_ || stop_thread_;
         });
     } else {
-        // Depth is always available (downsampled); just wait for a new frame
+        // If a prefetched frame is available, return immediately; otherwise, wait for one
         if (!(frame_counter_ > last_returned_frame_counter_)) {
             data_cv_.wait(lock, [this]() {
                 bool new_frame_available = frame_counter_ > last_returned_frame_counter_;

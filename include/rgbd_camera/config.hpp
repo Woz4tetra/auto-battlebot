@@ -28,9 +28,7 @@ struct NoopRgbdCameraConfiguration : public RgbdCameraConfiguration {
 struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
     int camera_fps = 30;
     Resolution camera_resolution = Resolution::RES_1280x720;
-    DepthMode depth_mode = DepthMode::ZED_NEURAL_PLUS;
-    int low_res_depth_width = 320;
-    int low_res_depth_height = 180;
+    DepthMode depth_mode = DepthMode::ZED_NEURAL;
     std::string svo_file_path = "";
     bool svo_real_time_mode = true;
     bool position_tracking = true;
@@ -42,8 +40,6 @@ struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
             PARSE_FIELD(camera_fps)
             PARSE_ENUM(camera_resolution, Resolution)
             PARSE_ENUM(depth_mode, DepthMode)
-            PARSE_FIELD(low_res_depth_width)
-            PARSE_FIELD(low_res_depth_height)
             PARSE_FIELD_STRING(svo_file_path)
             PARSE_FIELD_BOOL(svo_real_time_mode)
             PARSE_FIELD_BOOL(position_tracking)
@@ -58,8 +54,6 @@ struct SimRgbdCameraConfiguration : public RgbdCameraConfiguration {
     int tcp_connect_timeout_ms = 5000;
     int tcp_read_timeout_ms = 100;
     bool tcp_auto_reconnect = true;
-    int low_res_depth_width = 320;
-    int low_res_depth_height = 180;
 
     SimRgbdCameraConfiguration() { type = "SimRgbdCamera"; }
 
@@ -70,8 +64,6 @@ struct SimRgbdCameraConfiguration : public RgbdCameraConfiguration {
             PARSE_FIELD(tcp_connect_timeout_ms)
             PARSE_FIELD(tcp_read_timeout_ms)
             PARSE_FIELD_BOOL(tcp_auto_reconnect)
-            PARSE_FIELD(low_res_depth_width)
-            PARSE_FIELD(low_res_depth_height)
         )
     // clang-format on
 };

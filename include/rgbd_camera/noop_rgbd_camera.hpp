@@ -6,7 +6,7 @@ namespace auto_battlebot {
 class NoopRgbdCamera : public RgbdCameraInterface {
    public:
     bool initialize() override { return true; }
-    bool get(CameraData &data, [[maybe_unused]] bool get_quality_depth) override {
+    bool get(CameraData &data, [[maybe_unused]] bool get_depth) override {
         data = camera_data_;
         return true;
     }

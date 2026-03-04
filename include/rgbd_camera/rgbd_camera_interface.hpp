@@ -7,7 +7,7 @@ class RgbdCameraInterface {
    public:
     virtual ~RgbdCameraInterface() = default;
     virtual bool initialize() = 0;
-    virtual bool get(CameraData &data, bool get_quality_depth = false) = 0;
+    virtual bool get(CameraData &data, bool get_depth = false) = 0;
     virtual bool should_close() = 0;
 };
 
