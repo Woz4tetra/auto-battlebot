@@ -34,6 +34,7 @@ bool YoloKeypointModel::initialize() {
             return false;
         }
     }
+    std::cout << "YoloKeypointModel initialized!" << std::endl;
 
     initialized_ = true;
     diagnostics_logger_->info({}, "YoloKeypointModel initialized successfully");

@@ -28,7 +28,7 @@ struct NoopRgbdCameraConfiguration : public RgbdCameraConfiguration {
 struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
     int camera_fps = 30;
     Resolution camera_resolution = Resolution::RES_1280x720;
-    DepthMode depth_mode = DepthMode::ZED_NEURAL;
+    DepthMode depth_mode = DepthMode::ZED_PERFORMANCE;
     std::string svo_file_path = "";
     bool svo_real_time_mode = true;
     bool position_tracking = true;

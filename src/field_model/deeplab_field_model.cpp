@@ -25,6 +25,7 @@ bool DeepLabFieldModel::initialize() {
         std::cerr << "DeepLab warmup inference failed" << std::endl;
         return false;
     }
+    std::cout << "DeepLabFieldModel initialized!" << std::endl;
 
     initialized_ = true;
     diagnostics_logger_->info({}, "DeepLabFieldModel initialized successfully");

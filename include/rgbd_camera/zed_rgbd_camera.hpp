@@ -93,6 +93,7 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     mutable std::queue<int> depth_request_queue_;
     sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
     bool position_tracking_enabled_;
+    bool always_enable_depth_ = false;
 
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
