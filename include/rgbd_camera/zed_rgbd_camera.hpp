@@ -66,7 +66,7 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
     ~ZedRgbdCamera();
     bool initialize() override;
-    bool get(CameraData &data, bool get_depth) override;
+    bool get(CameraData &data, bool get_quality_depth) override;
     bool should_close() override;
 
    private:
@@ -93,6 +93,7 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     mutable std::queue<int> depth_request_queue_;
     sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
     bool position_tracking_enabled_;
+    sl::Resolution low_res_depth_;
 
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 

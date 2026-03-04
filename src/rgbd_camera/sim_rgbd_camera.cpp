@@ -8,10 +8,11 @@
 namespace auto_battlebot {
 
 SimRgbdCamera::SimRgbdCamera(SimRgbdCameraConfiguration &config)
-    : frames_received_(0), last_log_time_(std::chrono::steady_clock::now()) {
+    : low_res_depth_size_(config.low_res_depth_width, config.low_res_depth_height),
+      frames_received_(0),
+      last_log_time_(std::chrono::steady_clock::now()) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("sim_rgbd_camera");
 
-    // Configure TCP client
     tcp_config_.host = config.tcp_host;
     tcp_config_.port = config.tcp_port;
     tcp_config_.connect_timeout_ms = config.tcp_connect_timeout_ms;
@@ -40,36 +41,28 @@ bool SimRgbdCamera::initialize() {
     return true;
 }
 
-bool SimRgbdCamera::get(CameraData &data, bool get_depth) {
-    // Populate camera info from intrinsics
+bool SimRgbdCamera::get(CameraData &data, bool get_quality_depth) {
     if (!populate_camera_info(data)) return false;
 
-    // Get frame with image data from TCP
-    bool success = get_frame_with_data(data, get_depth);
+    bool success = get_frame_with_data(data, get_quality_depth);
 
-    // Log stats periodically
     log_stats();
 
     return success;
 }
 
-bool SimRgbdCamera::request_frame(bool get_depth) {
-    // If depth is requested, send a frame request to Unity
-    // This tells Unity to include depth data in the next frame
-    if (get_depth) {
-        auto &client = SimTcpClient::instance();
-        std::cout << "Requesting simulated frame with depth" << std::endl;
-        if (!client.request_frame(true)) {
-            std::cerr << "Depth request failed!" << std::endl;
-            return false;
-        }
+bool SimRgbdCamera::request_frame([[maybe_unused]] bool get_quality_depth) {
+    auto &client = SimTcpClient::instance();
+    if (!client.request_frame(true)) {
+        std::cerr << "Depth request failed!" << std::endl;
+        return false;
     }
     return true;
 }
 
-bool SimRgbdCamera::get_frame_with_data(CameraData &data, bool get_depth) {
+bool SimRgbdCamera::get_frame_with_data(CameraData &data, bool get_quality_depth) {
     auto &client = SimTcpClient::instance();
-    request_frame(get_depth);
+    request_frame(get_quality_depth);
 
     int frames_skipped = 0;
     std::optional<TcpFrameReadyWithDataMessage> frame;
@@ -78,28 +71,21 @@ bool SimRgbdCamera::get_frame_with_data(CameraData &data, bool get_depth) {
         if (!client.is_connected()) {
             std::cerr << "TCP client isn't connected." << std::endl;
             if (!client.wait_for_connection()) return false;
-            request_frame(get_depth);
+            request_frame(get_quality_depth);
         }
 
         frame = client.wait_for_frame_with_data(std::chrono::milliseconds(100));
 
         if (!frame) {
-            std::cerr << "Failed to receive depth frame" << std::endl;
+            std::cerr << "Failed to receive frame" << std::endl;
             continue;
         }
 
-        // If we requested depth, wait until we get a frame with depth data
-        // (skip RGB-only frames that were in flight before our request)
-        if (get_depth) {
-            if (frame->depth_data_size == 0) {
-                frames_skipped++;
-                continue;
-            } else {
-                std::cout << "Received depth frame" << std::endl;
-            }
+        if (frame->depth_data_size == 0) {
+            frames_skipped++;
+            continue;
         }
 
-        // Got a suitable frame
         break;
     }
 
@@ -125,16 +111,19 @@ bool SimRgbdCamera::get_frame_with_data(CameraData &data, bool get_depth) {
         return false;
     }
 
-    // Process depth image data if requested
-    if (get_depth) {
+    if (frame->depth_data_size > 0 && frame->depth_width > 0 && frame->depth_height > 0) {
         data.depth.header.stamp = frame->timestamp_seconds();
         data.depth.header.frame_id = FrameId::CAMERA;
 
-        // Depth is float32 raw bytes
         cv::Mat depth_raw(frame->depth_height, frame->depth_width, CV_32FC1,
                           frame->depth_data.data());
-        cv::flip(depth_raw, depth_raw, 0);  // Flip to match RGB
-        data.depth.image = depth_raw.clone();
+        cv::flip(depth_raw, depth_raw, 0);
+
+        if (get_quality_depth) {
+            data.depth.image = depth_raw.clone();
+        } else {
+            cv::resize(depth_raw, data.depth.image, low_res_depth_size_, 0, 0, cv::INTER_NEAREST);
+        }
     }
 
     data.camera_info.header.stamp = data.rgb.header.stamp;
@@ -146,7 +135,7 @@ bool SimRgbdCamera::get_frame_with_data(CameraData &data, bool get_depth) {
     diagnostics_logger_->debug("get_frame", {{"frame_id", static_cast<int>(last_frame_id_)},
                                              {"rgb_size", frame->rgb_data_size},
                                              {"depth_size", frame->depth_data_size},
-                                             {"get_depth", get_depth}});
+                                             {"get_quality_depth", get_quality_depth}});
     return true;
 }
 

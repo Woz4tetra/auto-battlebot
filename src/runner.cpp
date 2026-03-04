@@ -209,8 +209,7 @@ bool Runner::tick() {
     RobotDescriptionsStamped robots;
     {
         FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
-        robots = robot_filter_->update(keypoints, field_description, camera_data.camera_info,
-                                       command_feedback);
+        robots = robot_filter_->update(keypoints, field_description, camera_data, command_feedback);
     }
 
     {

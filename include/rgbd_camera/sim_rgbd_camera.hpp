@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <memory>
+#include <opencv2/core.hpp>
 #include <thread>
 
 #include "communication/sim_tcp_client.hpp"
@@ -29,13 +30,14 @@ class SimRgbdCamera : public RgbdCameraInterface {
     ~SimRgbdCamera();
 
     bool initialize() override;
-    bool get(CameraData &data, bool get_depth) override;
+    bool get(CameraData &data, bool get_quality_depth) override;
     bool should_close() override;
 
    private:
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
     SimTcpClientConfig tcp_config_;
+    cv::Size low_res_depth_size_;
 
     // Last received frame info
     uint64_t last_frame_id_ = 0;
@@ -50,8 +52,8 @@ class SimRgbdCamera : public RgbdCameraInterface {
     void populate_pose(CameraData &data, const TcpFrameReadyWithDataMessage &frame);
 
     // Get frame with image data from TCP
-    bool get_frame_with_data(CameraData &data, bool get_depth);
-    bool request_frame(bool get_depth);
+    bool get_frame_with_data(CameraData &data, bool get_quality_depth);
+    bool request_frame(bool get_quality_depth);
 };
 
 }  // namespace auto_battlebot

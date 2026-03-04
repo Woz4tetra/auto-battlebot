@@ -3,6 +3,7 @@
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
+#include "robot_filter/elevation_detector.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 
 namespace auto_battlebot {
@@ -26,6 +27,7 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
     std::map<Label, std::vector<FrameId>> label_to_frame_ids;
     FrameId default_frame_id;
     double velocity_ema_alpha = 0.5;
+    ElevationDetectorConfig elevation_config;
 
     RobotFrontBackSimpleFilterConfiguration() { type = "RobotFrontBackSimpleFilter"; }
 
@@ -35,7 +37,21 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
         parse_label_to_frame_id(parser, "label_mapping");
         PARSE_ENUM_REQUIRED(default_frame_id, FrameId);
         PARSE_FIELD_DOUBLE(velocity_ema_alpha)
+        parse_elevation_config(parser);
         parser.validate_no_extra_fields();
+    }
+
+    void parse_elevation_config(ConfigParser &parser) {
+        elevation_config.elevation_threshold_meters = parser.get_optional_double(
+            "elevation_threshold_meters", elevation_config.elevation_threshold_meters);
+        elevation_config.min_blob_area_pixels =
+            parser.get_optional_int("min_blob_area_pixels", elevation_config.min_blob_area_pixels);
+        elevation_config.persistence_frames_required = parser.get_optional_int(
+            "persistence_frames_required", elevation_config.persistence_frames_required);
+        elevation_config.blob_match_distance_meters = parser.get_optional_double(
+            "blob_match_distance_meters", elevation_config.blob_match_distance_meters);
+        elevation_config.tracked_blob_timeout_seconds = parser.get_optional_double(
+            "tracked_blob_timeout_seconds", elevation_config.tracked_blob_timeout_seconds);
     }
 
     void parse_label_to_frame_id(ConfigParser &parser, const std::string &field_name) {

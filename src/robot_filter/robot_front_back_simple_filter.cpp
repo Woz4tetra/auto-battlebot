@@ -21,18 +21,16 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
     RobotFrontBackSimpleFilterConfiguration &config)
     : label_to_frame_ids_(config.label_to_frame_ids),
       default_frame_id_(config.default_frame_id),
-      velocity_ema_alpha_(config.velocity_ema_alpha) {
+      velocity_ema_alpha_(config.velocity_ema_alpha),
+      elevation_detector_(config.elevation_config),
+      keypoint_converter_({config.front_keypoints, config.back_keypoints}) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("robot_front_back_simple_filter");
-
-    FrontBackKeypointConverterConfig converter_config;
-    converter_config.front_keypoints = config.front_keypoints;
-    converter_config.back_keypoints = config.back_keypoints;
-    keypoint_converter_ = std::make_unique<FrontBackKeypointConverter>(converter_config);
 }
 
 bool RobotFrontBackSimpleFilter::initialize(const std::vector<RobotConfig> &robots) {
     robot_configs_.clear();
     velocity_state_per_frame_id_.clear();
+    elevation_detector_.reset();
     for (const auto &robot : robots) {
         robot_configs_[robot.label] = robot;
     }
@@ -54,14 +52,39 @@ bool RobotFrontBackSimpleFilter::set_opponent_count(int count) {
 
 RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped keypoints,
                                                             FieldDescription field,
-                                                            CameraInfo camera_info,
+                                                            const CameraData &camera_data,
                                                             CommandFeedback command_feedback) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = keypoints.header.stamp;
 
     std::vector<RobotDescription> filter_measurements =
-        convert_keypoints_to_measurements(keypoints, field, camera_info);
+        convert_keypoints_to_measurements(keypoints, field, camera_data.camera_info);
+
+    if (!camera_data.depth.image.empty() && field.child_frame_id != FrameId::EMPTY) {
+        auto opponent_measurements =
+            elevation_detector_.detect(camera_data.depth, field, camera_data.camera_info,
+                                       filter_measurements, keypoints.header.stamp);
+
+        std::vector<FrameId> opponent_frame_ids = get_frame_ids_for_label(Label::OPPONENT);
+        const size_t N = std::min(opponent_measurements.size(), opponent_frame_ids.size());
+
+        if (N > 0) {
+            std::vector<MeasurementWithConfidence> opponent_mwc;
+            for (auto &desc : opponent_measurements) {
+                opponent_mwc.push_back({1.0, std::move(desc)});
+            }
+            auto assigned = assign_frame_ids_to_measurements(opponent_mwc, opponent_frame_ids);
+            for (auto &desc : assigned) {
+                filter_measurements.push_back(std::move(desc));
+            }
+        }
+
+        diagnostics_logger_->debug("elevation",
+                                   {{"opponents", static_cast<int>(opponent_measurements.size())},
+                                    {"tracked_blobs", elevation_detector_.tracked_blob_count()}});
+    }
+
     diagnostics_logger_->debug({{"num_measurements", (int)filter_measurements.size()}});
 
     result.descriptions = update_filter(filter_measurements, command_feedback);
@@ -71,10 +94,10 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
 }
 
 std::vector<RobotDescription> RobotFrontBackSimpleFilter::convert_keypoints_to_measurements(
-    KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info) {
+    KeypointsStamped keypoints, FieldDescription field, const CameraInfo &camera_info) {
     Eigen::Matrix4d tf_fieldcenter_from_camera = field.tf_camera_from_fieldcenter.tf.inverse();
     std::vector<RobotDescription> filter_measurements;
-    auto front_back_mapping = keypoint_converter_->convert(keypoints, field, camera_info);
+    auto front_back_mapping = keypoint_converter_.convert(keypoints, field, camera_info);
 
     // Clear stale last_position for single-FrameId labels that have no detections this frame,
     // so when they reappear we assign without bias from an old position.
@@ -123,7 +146,7 @@ RobotFrontBackSimpleFilter::build_valid_measurements(
         double length = (front_keypoint_in_field - back_keypoint_in_field).norm();
 
         Transform tf_field_from_robot;
-        bool pose_found = keypoint_converter_->get_pose_from_points(
+        bool pose_found = keypoint_converter_.get_pose_from_points(
             front_keypoint_in_field, back_keypoint_in_field, tf_field_from_robot);
         diagnostics_logger_->debug(label_str, {{"pose_found", pose_found ? "true" : "false"}});
 
@@ -225,14 +248,10 @@ void RobotFrontBackSimpleFilter::estimate_velocities(std::vector<RobotDescriptio
 
         Pose2D current = pose_to_pose2d(desc.pose);
 
-        // Check if command feedback is available for this robot (i.e. it's "ours")
         auto cmd_it = command_feedback.commands.find(desc.frame_id);
         auto state_it = velocity_state_per_frame_id_.find(desc.frame_id);
 
         if (cmd_it != command_feedback.commands.end()) {
-            // Our robot: use commanded velocity rotated from body frame to field frame.
-            // The command represents what we told the motors to do, which is a reliable
-            // velocity estimate that doesn't suffer from measurement noise.
             const VelocityCommand &cmd = cmd_it->second;
             double cos_yaw = std::cos(current.yaw);
             double sin_yaw = std::sin(current.yaw);
@@ -241,14 +260,12 @@ void RobotFrontBackSimpleFilter::estimate_velocities(std::vector<RobotDescriptio
             desc.velocity.vy = cmd.linear_x * sin_yaw + cmd.linear_y * cos_yaw;
             desc.velocity.omega = cmd.angular_z;
         } else if (state_it != velocity_state_per_frame_id_.end()) {
-            // Opponent robot: differentiate position over time with EMA smoothing.
             const RobotVelocityState &prev = state_it->second;
             double dt = timestamp - prev.timestamp;
 
             if (dt > 0.001 && dt < 1.0) {
                 double raw_vx = (current.x - prev.pose.x) / dt;
                 double raw_vy = (current.y - prev.pose.y) / dt;
-                // Wrap-safe yaw difference
                 double delta_yaw = std::atan2(std::sin(current.yaw - prev.pose.yaw),
                                               std::cos(current.yaw - prev.pose.yaw));
                 double raw_omega = delta_yaw / dt;
@@ -259,13 +276,10 @@ void RobotFrontBackSimpleFilter::estimate_velocities(std::vector<RobotDescriptio
                 desc.velocity.omega =
                     alpha * raw_omega + (1.0 - alpha) * prev.smoothed_velocity.omega;
             } else {
-                // dt too small or too large -- carry forward previous estimate
                 desc.velocity = prev.smoothed_velocity;
             }
         }
-        // else: first observation for this FrameId, velocity stays at default (0, 0, 0)
 
-        // Store state for next frame
         velocity_state_per_frame_id_[desc.frame_id] = {timestamp, current, desc.velocity};
     }
 }
