@@ -30,7 +30,6 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
 
         params_.input.setFromSVOFile(svo_file_abs_path.c_str());
         params_.svo_real_time_mode = config.svo_real_time_mode;
-        always_enable_depth_ = true;
     }
 }
 
@@ -158,7 +157,7 @@ bool ZedRgbdCamera::capture_frame() {
 
     // Grab new frame (without lock)
     sl::RuntimeParameters rt_params;
-    rt_params.enable_depth = need_depth || always_enable_depth_;
+    rt_params.enable_depth = true;
     sl::ERROR_CODE grab_status = zed_.grab(rt_params);
 
     if (grab_status != sl::ERROR_CODE::SUCCESS) {
