@@ -17,6 +17,8 @@ struct ElevationDetectorConfig {
     int persistence_frames_required = 3;
     double blob_match_distance_meters = 0.3;
     double tracked_blob_timeout_seconds = 0.5;
+    double field_inset_meters = 0.2;
+    bool debug = false;
 };
 
 struct ElevationCandidate {
@@ -95,6 +97,8 @@ class ElevationDetector {
 
     static std::vector<RobotDescription> candidates_to_measurements(
         const std::vector<ElevationCandidate> &candidates);
+
+    void visualize_debug_mosaic(const cv::Mat &elevation_mask, const cv::Mat &filtered_mask) const;
 };
 
 }  // namespace auto_battlebot

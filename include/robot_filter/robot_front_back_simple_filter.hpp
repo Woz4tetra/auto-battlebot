@@ -34,16 +34,16 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     bool set_opponent_count(int count) override;
 
    private:
-    std::unordered_map<Label, RobotConfig> robot_configs_;
-    std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
-    FrontBackKeypointConverter keypoint_converter_;
     std::map<Label, std::vector<FrameId>> label_to_frame_ids_;
     FrameId default_frame_id_;
     double velocity_ema_alpha_;
+    ElevationDetector elevation_detector_;
+    FrontBackKeypointConverter keypoint_converter_;
+
+    std::unordered_map<Label, RobotConfig> robot_configs_;
+    std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
     std::map<FrameId, Position> last_position_per_frame_id_;
     std::map<FrameId, RobotVelocityState> velocity_state_per_frame_id_;
-
-    ElevationDetector elevation_detector_;
 
     std::vector<RobotDescription> convert_keypoints_to_measurements(KeypointsStamped keypoints,
                                                                     FieldDescription field,

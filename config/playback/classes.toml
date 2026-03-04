@@ -4,10 +4,10 @@
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 60
-# svo_file_path = "data/svo/1729981242.4295187.svo2"
-# position_tracking = true
-svo_file_path = "data/svo/mini_bot_2024-10-26T13-29-41.svo2"
-position_tracking = false
+svo_file_path = "data/svo/1729981242.4295187.svo2"
+position_tracking = true
+# svo_file_path = "data/svo/mini_bot_2024-10-26T13-29-41.svo2"
+# position_tracking = false
 svo_real_time_mode = true
 
 [field_model]
@@ -62,6 +62,7 @@ keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 [robot_filter]
 type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
+elevation_debug = true
 
 front_keypoints = [
     "MR_STABS_MK1_FRONT",

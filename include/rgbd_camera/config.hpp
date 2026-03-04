@@ -28,7 +28,7 @@ struct NoopRgbdCameraConfiguration : public RgbdCameraConfiguration {
 struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
     int camera_fps = 30;
     Resolution camera_resolution = Resolution::RES_1280x720;
-    DepthMode depth_mode = DepthMode::ZED_PERFORMANCE;
+    DepthMode depth_mode = DepthMode::ZED_NEURAL_PLUS;
     int low_res_depth_width = 320;
     int low_res_depth_height = 180;
     std::string svo_file_path = "";

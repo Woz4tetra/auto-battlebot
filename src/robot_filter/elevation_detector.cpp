@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include "enums/frame_id.hpp"
@@ -26,8 +27,13 @@ std::vector<RobotDescription> ElevationDetector::detect(
     cv::Rect roi = compute_field_roi(field, intr);
     if (roi.width <= 0 || roi.height <= 0) return {};
 
-    cv::Mat mask = build_elevation_mask(depth_img, roi, intr, tf_cam_from_field);
+    cv::Mat elevation_mask = build_elevation_mask(depth_img, roi, intr, tf_cam_from_field);
+    cv::Mat mask = elevation_mask.clone();
     mask_own_robots(mask, own_robot_measurements, tf_cam_from_field, intr);
+
+    if (config_.debug) {
+        visualize_debug_mosaic(elevation_mask, mask);
+    }
 
     Eigen::Matrix4d tf_field_from_camera = tf_cam_from_field.inverse();
     auto candidates = extract_blob_candidates(mask, depth_img, intr, tf_field_from_camera);
@@ -58,8 +64,8 @@ ElevationDetector::DepthIntrinsics ElevationDetector::scale_intrinsics(
 cv::Rect ElevationDetector::compute_field_roi(const FieldDescription &field,
                                               const DepthIntrinsics &intr) const {
     Eigen::Matrix4d tf_cam_from_field = field.tf_camera_from_fieldcenter.tf;
-    double half_w = field.size.size.x / 2.0;
-    double half_h = field.size.size.y / 2.0;
+    double half_w = field.size.size.x / 2.0 - config_.field_inset_meters;
+    double half_h = field.size.size.y / 2.0 - config_.field_inset_meters;
 
     std::vector<Eigen::Vector4d> corners = {
         {-half_w, -half_h, 0.0, 1.0},
@@ -282,6 +288,28 @@ std::vector<RobotDescription> ElevationDetector::candidates_to_measurements(
         measurements.push_back(desc);
     }
     return measurements;
+}
+
+// ---------------------------------------------------------------------------
+// Debug visualization
+// ---------------------------------------------------------------------------
+
+void ElevationDetector::visualize_debug_mosaic(const cv::Mat &elevation_mask,
+                                               const cv::Mat &filtered_mask) const {
+    cv::Mat elevation_vis, filtered_vis;
+    cv::cvtColor(elevation_mask, elevation_vis, cv::COLOR_GRAY2BGR);
+    cv::cvtColor(filtered_mask, filtered_vis, cv::COLOR_GRAY2BGR);
+
+    cv::putText(elevation_vis, "Elevation Mask", cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
+                cv::Scalar(0, 255, 0), 2);
+    cv::putText(filtered_vis, "After Own Robot Mask", cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX,
+                0.7, cv::Scalar(0, 255, 0), 2);
+
+    cv::Mat mosaic;
+    cv::hconcat(std::vector<cv::Mat>{elevation_vis, filtered_vis}, mosaic);
+
+    cv::imshow("Elevation Detector Debug", mosaic);
+    cv::waitKey(1);
 }
 
 }  // namespace auto_battlebot

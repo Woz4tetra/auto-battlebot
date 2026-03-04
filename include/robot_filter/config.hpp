@@ -52,6 +52,10 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
             "blob_match_distance_meters", elevation_config.blob_match_distance_meters);
         elevation_config.tracked_blob_timeout_seconds = parser.get_optional_double(
             "tracked_blob_timeout_seconds", elevation_config.tracked_blob_timeout_seconds);
+        elevation_config.field_inset_meters =
+            parser.get_optional_double("field_inset_meters", elevation_config.field_inset_meters);
+        elevation_config.debug =
+            parser.get_optional_bool("elevation_debug", elevation_config.debug);
     }
 
     void parse_label_to_frame_id(ConfigParser &parser, const std::string &field_name) {
