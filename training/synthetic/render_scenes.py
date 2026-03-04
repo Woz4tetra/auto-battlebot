@@ -752,7 +752,10 @@ def main() -> None:
     parser.add_argument("--num-images", type=int, default=None)
     parser.add_argument("--render-samples", type=int, default=64)
     parser.add_argument(
-        "--start-index", type=int, default=0, help="Starting frame index (for resuming)"
+        "--start-index",
+        type=int,
+        default=None,
+        help="Starting frame index (for resuming). Defaults to auto-detecting the next index from existing output files.",
     )
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else sys.argv[1:]
     args = parser.parse_args(argv)
@@ -768,6 +771,16 @@ def main() -> None:
     output_label_dir = resolve_path(Path(config["output"]["label_dir"]))
     output_image_dir.mkdir(parents=True, exist_ok=True)
     output_label_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.start_index is None:
+        existing = [
+            int(p.stem) for p in output_image_dir.glob("*.jpg") if p.stem.isdigit()
+        ]
+        args.start_index = max(existing) + 1 if existing else 0
+        if existing:
+            print(
+                f"Auto-resuming from index {args.start_index} ({len(existing)} existing images found)"
+            )
 
     # ------- Initialize BlenderProc -------
 
