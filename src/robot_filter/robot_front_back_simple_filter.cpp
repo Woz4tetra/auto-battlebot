@@ -22,7 +22,7 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
     : label_to_frame_ids_(config.label_to_frame_ids),
       default_frame_id_(config.default_frame_id),
       velocity_ema_alpha_(config.velocity_ema_alpha),
-      floor_mask_detector_(config.floor_mask_detector_config) {
+      robot_mask_detector_(config.robot_mask_detector_config) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("robot_front_back_simple_filter");
 
     FrontBackKeypointConverterConfig converter_config;
@@ -34,7 +34,7 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
 bool RobotFrontBackSimpleFilter::initialize(const std::vector<RobotConfig> &robots) {
     robot_configs_.clear();
     velocity_state_per_frame_id_.clear();
-    floor_mask_detector_.reset();
+    robot_mask_detector_.reset();
     for (const auto &robot : robots) {
         robot_configs_[robot.label] = robot;
     }
@@ -57,7 +57,7 @@ bool RobotFrontBackSimpleFilter::set_opponent_count(int count) {
 RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped keypoints,
                                                             FieldDescription field,
                                                             CameraInfo camera_info,
-                                                            FieldMaskStamped floor_mask,
+                                                            MaskStamped robot_mask,
                                                             CommandFeedback command_feedback) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
@@ -67,12 +67,12 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
         convert_keypoints_to_measurements(keypoints, field, camera_info);
     diagnostics_logger_->debug({{"num_keypoint_measurements", (int)filter_measurements.size()}});
 
-    if (!floor_mask.mask.mask.empty() && field.child_frame_id != FrameId::EMPTY) {
-        auto opponent_measurements = floor_mask_detector_.detect(
-            floor_mask.mask.mask, field, camera_info, filter_measurements,
+    if (!robot_mask.mask.mask.empty() && field.child_frame_id != FrameId::EMPTY) {
+        auto opponent_measurements = robot_mask_detector_.detect(
+            robot_mask.mask.mask, field, camera_info, filter_measurements,
             keypoints.header.stamp);
         diagnostics_logger_->debug(
-            {{"num_floor_mask_opponents", (int)opponent_measurements.size()}});
+            {{"num_robot_mask_opponents", (int)opponent_measurements.size()}});
         for (auto &m : opponent_measurements) {
             filter_measurements.push_back(std::move(m));
         }

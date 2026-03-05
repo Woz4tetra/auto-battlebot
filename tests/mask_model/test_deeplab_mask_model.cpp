@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
-#include "field_model/deeplab_field_model.hpp"
+#include "mask_model/deeplab_mask_model.hpp"
 #include <opencv2/opencv.hpp>
 
 namespace auto_battlebot
 {
-    class DeepLabFieldModelTest : public ::testing::Test
+    class DeepLabMaskModelTest : public ::testing::Test
     {
     protected:
         void SetUp() override
@@ -19,34 +19,34 @@ namespace auto_battlebot
     };
 
     // Test constructor with default parameters
-    TEST_F(DeepLabFieldModelTest, ConstructorDefaults)
+    TEST_F(DeepLabMaskModelTest, ConstructorDefaults)
     {
-        DeepLabFieldModelConfiguration config;
+        DeepLabMaskModelConfiguration config;
         config.model_path = "/fake/path/model.pt";
         config.model_type = DeepLabModelType::DeepLabV3;
-        DeepLabFieldModel model(config);
+        DeepLabMaskModel model(config);
         // Should construct without throwing
         SUCCEED();
     }
 
     // Test constructor with custom parameters
-    TEST_F(DeepLabFieldModelTest, ConstructorCustomParams)
+    TEST_F(DeepLabMaskModelTest, ConstructorCustomParams)
     {
-        DeepLabFieldModelConfiguration config;
+        DeepLabMaskModelConfiguration config;
         config.model_path = "/fake/path/model.pt";
         config.model_type = DeepLabModelType::DeepLabV3Plus;
-        DeepLabFieldModel model(config);
+        DeepLabMaskModel model(config);
         // Should construct without throwing
         SUCCEED();
     }
 
     // Test update returns empty mask when not initialized
-    TEST_F(DeepLabFieldModelTest, UpdateWithoutInitialization)
+    TEST_F(DeepLabMaskModelTest, UpdateWithoutInitialization)
     {
-        DeepLabFieldModelConfiguration config;
+        DeepLabMaskModelConfiguration config;
         config.model_path = "/fake/path/model.pt";
         config.model_type = DeepLabModelType::DeepLabV3;
-        DeepLabFieldModel model(config);
+        DeepLabMaskModel model(config);
 
         auto result = model.update(test_image);
 

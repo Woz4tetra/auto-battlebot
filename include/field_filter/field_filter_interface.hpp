@@ -8,7 +8,7 @@ class FieldFilterInterface {
     virtual ~FieldFilterInterface() = default;
     virtual void reset(TransformStamped tf_visodom_from_camera) = 0;
     virtual std::shared_ptr<FieldDescriptionWithInlierPoints> compute_field(
-        const CameraData &camera_data, const FieldMaskStamped &field_mask) = 0;
+        const CameraData &camera_data, const MaskStamped &field_mask) = 0;
     virtual FieldDescription track_field(
         TransformStamped tf_visodom_from_camera,
         std::shared_ptr<FieldDescriptionWithInlierPoints> initial_description) = 0;

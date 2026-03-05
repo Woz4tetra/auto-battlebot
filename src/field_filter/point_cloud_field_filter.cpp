@@ -15,7 +15,7 @@ void PointCloudFieldFilter::reset(TransformStamped tf_visodom_from_camera) {
 }
 
 std::shared_ptr<FieldDescriptionWithInlierPoints> PointCloudFieldFilter::compute_field(
-    const CameraData &camera_data, const FieldMaskStamped &field_mask) {
+    const CameraData &camera_data, const MaskStamped &field_mask) {
     std::cout << "Running compute_field" << std::endl;
     FunctionTimer timer(diagnostics_logger_, "compute_field");
 

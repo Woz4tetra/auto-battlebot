@@ -11,11 +11,12 @@
 
 namespace auto_battlebot {
 
-struct FloorMaskDetectorConfig {
+struct RobotMaskDetectorConfig {
     int min_blob_area_pixels = 100;
     int persistence_frames_required = 3;
     double blob_match_distance_meters = 0.3;
     double tracked_blob_timeout_seconds = 0.5;
+    int morph_kernel_size = 5;
 };
 
 struct TrackedBlob {
@@ -24,13 +25,13 @@ struct TrackedBlob {
     double last_seen_timestamp = 0.0;
 };
 
-class FloorMaskDetector {
+class RobotMaskDetector {
    public:
-    explicit FloorMaskDetector(const FloorMaskDetectorConfig &config);
+    explicit RobotMaskDetector(const RobotMaskDetectorConfig &config);
 
     void reset();
 
-    std::vector<RobotDescription> detect(const cv::Mat &floor_mask,
+    std::vector<RobotDescription> detect(const cv::Mat &mask,
                                          const FieldDescription &field,
                                          const CameraInfo &camera_info,
                                          const std::vector<RobotDescription> &own_robot_measurements,
@@ -42,7 +43,7 @@ class FloorMaskDetector {
         int width, height;
     };
 
-    FloorMaskDetectorConfig config_;
+    RobotMaskDetectorConfig config_;
     std::vector<TrackedBlob> tracked_blobs_;
 
     static ScaledIntrinsics scale_intrinsics(const CameraInfo &camera_info, int mask_width,
@@ -51,7 +52,7 @@ class FloorMaskDetector {
     cv::Rect compute_field_roi(const FieldDescription &field,
                                const ScaledIntrinsics &intr) const;
 
-    cv::Mat build_not_floor_mask(const cv::Mat &floor_mask, const cv::Rect &field_roi) const;
+    cv::Mat build_detection_mask(const cv::Mat &mask, const cv::Rect &field_roi) const;
 
     void mask_own_robots(cv::Mat &mask, const std::vector<RobotDescription> &own_robots,
                          const Eigen::Matrix4d &tf_cam_from_field,

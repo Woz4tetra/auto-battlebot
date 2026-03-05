@@ -14,8 +14,8 @@
 #include "directories.hpp"
 #include "field_filter/config.hpp"
 #include "field_filter/field_filter_interface.hpp"
-#include "field_model/config.hpp"
-#include "field_model/field_model_interface.hpp"
+#include "mask_model/config.hpp"
+#include "mask_model/mask_model_interface.hpp"
 #include "keypoint_model/config.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
 #include "navigation/config.hpp"
@@ -34,8 +34,8 @@
 namespace auto_battlebot {
 struct ClassConfiguration {
     std::unique_ptr<RgbdCameraConfiguration> camera;
-    std::unique_ptr<FieldModelConfiguration> field_model;
-    std::unique_ptr<FieldModelConfiguration> floor_model;
+    std::unique_ptr<MaskModelConfiguration> field_model;
+    std::unique_ptr<MaskModelConfiguration> robot_mask_model;
     std::unique_ptr<FieldFilterConfiguration> field_filter;
     std::unique_ptr<KeypointModelConfiguration> keypoint_model;
     std::unique_ptr<RobotFilterConfiguration> robot_filter;

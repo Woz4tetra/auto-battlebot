@@ -5,13 +5,13 @@
 #include "data_structures/camera.hpp"
 #include "data_structures/field.hpp"
 #include "data_structures/robot.hpp"
-#include "robot_filter/floor_mask_detector.hpp"
+#include "robot_filter/robot_mask_detector.hpp"
 
 namespace auto_battlebot {
 
-class FloorMaskDetectorTest : public ::testing::Test {
+class RobotMaskDetectorTest : public ::testing::Test {
    protected:
-    FloorMaskDetectorConfig config_;
+    RobotMaskDetectorConfig config_;
     CameraInfo camera_info_;
     FieldDescription field_;
 
@@ -46,35 +46,35 @@ class FloorMaskDetectorTest : public ::testing::Test {
     }
 };
 
-TEST_F(FloorMaskDetectorTest, EmptyMaskReturnsNothing) {
-    FloorMaskDetector detector(config_);
+TEST_F(RobotMaskDetectorTest, EmptyMaskReturnsNothing) {
+    RobotMaskDetector detector(config_);
     cv::Mat empty_mask;
     auto results = detector.detect(empty_mask, field_, camera_info_, {}, 0.0);
     EXPECT_TRUE(results.empty());
 }
 
-TEST_F(FloorMaskDetectorTest, EmptyFieldReturnsNothing) {
-    FloorMaskDetector detector(config_);
+TEST_F(RobotMaskDetectorTest, EmptyFieldReturnsNothing) {
+    RobotMaskDetector detector(config_);
     cv::Mat mask = cv::Mat::ones(480, 640, CV_8UC1);
     FieldDescription empty_field;
     auto results = detector.detect(mask, empty_field, camera_info_, {}, 0.0);
     EXPECT_TRUE(results.empty());
 }
 
-TEST_F(FloorMaskDetectorTest, AllFloorReturnsNothing) {
-    FloorMaskDetector detector(config_);
-    // Mask: everything is floor (class 1)
-    cv::Mat mask = cv::Mat::ones(480, 640, CV_8UC1);
+TEST_F(RobotMaskDetectorTest, AllBackgroundReturnsNothing) {
+    RobotMaskDetector detector(config_);
+    // Mask: all background (class 0), no robots
+    cv::Mat mask = cv::Mat::zeros(480, 640, CV_8UC1);
     auto results = detector.detect(mask, field_, camera_info_, {}, 0.0);
     EXPECT_TRUE(results.empty());
 }
 
-TEST_F(FloorMaskDetectorTest, NotFloorBlobDetected) {
-    FloorMaskDetector detector(config_);
-    // Mask: everything is floor except a 30x30 block near center
-    cv::Mat mask = cv::Mat::ones(480, 640, CV_8UC1);
+TEST_F(RobotMaskDetectorTest, RobotBlobDetected) {
+    RobotMaskDetector detector(config_);
+    // Mask: all background except a 30x30 robot blob near center
+    cv::Mat mask = cv::Mat::zeros(480, 640, CV_8UC1);
     cv::Rect blob_rect(300, 220, 30, 30);
-    mask(blob_rect) = 0;
+    mask(blob_rect) = 1;
 
     auto results = detector.detect(mask, field_, camera_info_, {}, 0.0);
     EXPECT_GE(results.size(), 1u);
@@ -83,14 +83,14 @@ TEST_F(FloorMaskDetectorTest, NotFloorBlobDetected) {
     }
 }
 
-TEST_F(FloorMaskDetectorTest, PersistenceFilterRequiresMultipleFrames) {
-    FloorMaskDetectorConfig strict_config = config_;
+TEST_F(RobotMaskDetectorTest, PersistenceFilterRequiresMultipleFrames) {
+    RobotMaskDetectorConfig strict_config = config_;
     strict_config.persistence_frames_required = 3;
-    FloorMaskDetector detector(strict_config);
+    RobotMaskDetector detector(strict_config);
 
-    cv::Mat mask = cv::Mat::ones(480, 640, CV_8UC1);
+    cv::Mat mask = cv::Mat::zeros(480, 640, CV_8UC1);
     cv::Rect blob_rect(300, 220, 30, 30);
-    mask(blob_rect) = 0;
+    mask(blob_rect) = 1;
 
     // First two frames: not enough persistence
     auto r1 = detector.detect(mask, field_, camera_info_, {}, 0.0);
@@ -103,33 +103,33 @@ TEST_F(FloorMaskDetectorTest, PersistenceFilterRequiresMultipleFrames) {
     EXPECT_GE(r3.size(), 1u);
 }
 
-TEST_F(FloorMaskDetectorTest, ResetClearsState) {
-    FloorMaskDetector detector(config_);
+TEST_F(RobotMaskDetectorTest, ResetClearsState) {
+    RobotMaskDetector detector(config_);
 
-    cv::Mat mask = cv::Mat::ones(480, 640, CV_8UC1);
+    cv::Mat mask = cv::Mat::zeros(480, 640, CV_8UC1);
     cv::Rect blob_rect(300, 220, 30, 30);
-    mask(blob_rect) = 0;
+    mask(blob_rect) = 1;
 
     detector.detect(mask, field_, camera_info_, {}, 0.0);
     detector.reset();
 
-    FloorMaskDetectorConfig strict_config = config_;
+    RobotMaskDetectorConfig strict_config = config_;
     strict_config.persistence_frames_required = 2;
-    FloorMaskDetector detector2(strict_config);
+    RobotMaskDetector detector2(strict_config);
     auto r1 = detector2.detect(mask, field_, camera_info_, {}, 0.0);
     // First frame after reset with persistence=2 → empty
     EXPECT_TRUE(r1.empty());
 }
 
-TEST_F(FloorMaskDetectorTest, SmallBlobsFiltered) {
-    FloorMaskDetectorConfig strict_config = config_;
+TEST_F(RobotMaskDetectorTest, SmallBlobsFiltered) {
+    RobotMaskDetectorConfig strict_config = config_;
     strict_config.min_blob_area_pixels = 1000;
-    FloorMaskDetector detector(strict_config);
+    RobotMaskDetector detector(strict_config);
 
-    cv::Mat mask = cv::Mat::ones(480, 640, CV_8UC1);
+    cv::Mat mask = cv::Mat::zeros(480, 640, CV_8UC1);
     // A 5x5 blob (area=25) is below the 1000 pixel threshold
     cv::Rect blob_rect(300, 220, 5, 5);
-    mask(blob_rect) = 0;
+    mask(blob_rect) = 1;
 
     auto results = detector.detect(mask, field_, camera_info_, {}, 0.0);
     EXPECT_TRUE(results.empty());

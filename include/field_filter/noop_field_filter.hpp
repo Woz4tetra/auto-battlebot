@@ -9,7 +9,7 @@ class NoopFieldFilter : public FieldFilterInterface {
 
     std::shared_ptr<FieldDescriptionWithInlierPoints> compute_field(
         [[maybe_unused]] const CameraData &camera_data,
-        [[maybe_unused]] const FieldMaskStamped &field_mask) override {
+        [[maybe_unused]] const MaskStamped &field_mask) override {
         return std::make_shared<FieldDescriptionWithInlierPoints>(
             FieldDescriptionWithInlierPoints{});
     }

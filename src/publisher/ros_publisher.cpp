@@ -43,7 +43,7 @@ void RosPublisher::publish_camera_data(const CameraData &data) {
     }
 }
 
-void RosPublisher::publish_field_mask(const FieldMaskStamped &field_mask, const RgbImage &image) {
+void RosPublisher::publish_field_mask(const MaskStamped &field_mask, const RgbImage &image) {
     FunctionTimer timer(diagnostics_logger_, "publish_field_mask");
 
     if (!field_mask_publisher_) {

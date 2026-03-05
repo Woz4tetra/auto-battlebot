@@ -4,7 +4,7 @@
 #include "config/config.hpp"
 #include "config/config_parser.hpp"
 #include "rgbd_camera/config.hpp"
-#include "field_model/config.hpp"
+#include "mask_model/config.hpp"
 #include "field_filter/config.hpp"
 #include "keypoint_model/config.hpp"
 #include "robot_filter/config.hpp"
@@ -54,10 +54,10 @@ namespace auto_battlebot
 type = "NoopRgbdCamera"
 
 [field_model]
-type = "NoopFieldModel"
+type = "NoopMaskModel"
 
-[floor_model]
-type = "NoopFieldModel"
+[robot_mask_model]
+type = "NoopMaskModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -95,10 +95,10 @@ type = "NoopPublisher"
 type = "ZedRgbdCamera"
 
 [field_model]
-type = "NoopFieldModel"
+type = "NoopMaskModel"
 
-[floor_model]
-type = "NoopFieldModel"
+[robot_mask_model]
+type = "NoopMaskModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -143,10 +143,10 @@ camera_resolution = "RES_1920x1080"
 depth_mode = "ZED_ULTRA"
 
 [field_model]
-type = "NoopFieldModel"
+type = "NoopMaskModel"
 
-[floor_model]
-type = "NoopFieldModel"
+[robot_mask_model]
+type = "NoopMaskModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -188,10 +188,10 @@ type = "ZedRgbdCamera"
 camera_fps = 90
 
 [field_model]
-type = "NoopFieldModel"
+type = "NoopMaskModel"
 
-[floor_model]
-type = "NoopFieldModel"
+[robot_mask_model]
+type = "NoopMaskModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -230,10 +230,10 @@ type = "NoopPublisher"
 type = "UnknownCamera"
 
 [field_model]
-type = "NoopFieldModel"
+type = "NoopMaskModel"
 
-[floor_model]
-type = "NoopFieldModel"
+[robot_mask_model]
+type = "NoopMaskModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -279,10 +279,10 @@ camera_fps = 60
 unknown_field = "should cause error"
 
 [field_model]
-type = "NoopFieldModel"
+type = "NoopMaskModel"
 
-[floor_model]
-type = "NoopFieldModel"
+[robot_mask_model]
+type = "NoopMaskModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -328,7 +328,7 @@ type = "NoopPublisher"
 type = "NoopRgbdCamera"
 
 [field_model]
-type = "NoopFieldModel"
+type = "NoopMaskModel"
 )");
         // Missing other required sections
 
@@ -347,10 +347,10 @@ type = "NoopFieldModel"
 type = "NoopRgbdCamera"
 
 [field_model]
-type = "NoopFieldModel"
+type = "NoopMaskModel"
 
-[floor_model]
-type = "NoopFieldModel"
+[robot_mask_model]
+type = "NoopMaskModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -377,10 +377,10 @@ type = "NoopPublisher"
         EXPECT_EQ(config.camera->type, "NoopRgbdCamera");
 
         ASSERT_NE(config.field_model, nullptr);
-        EXPECT_EQ(config.field_model->type, "NoopFieldModel");
+        EXPECT_EQ(config.field_model->type, "NoopMaskModel");
 
-        ASSERT_NE(config.floor_model, nullptr);
-        EXPECT_EQ(config.floor_model->type, "NoopFieldModel");
+        ASSERT_NE(config.robot_mask_model, nullptr);
+        EXPECT_EQ(config.robot_mask_model->type, "NoopMaskModel");
 
         ASSERT_NE(config.field_filter, nullptr);
         EXPECT_EQ(config.field_filter->type, "NoopFieldFilter");
@@ -656,10 +656,10 @@ depth_mode = "ZED_ULTRA"
 type = "NoopRgbdCamera"
 
 [field_model]
-type = "NoopFieldModel"
+type = "NoopMaskModel"
 
-[floor_model]
-type = "NoopFieldModel"
+[robot_mask_model]
+type = "NoopMaskModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -697,10 +697,10 @@ type = "NoopPublisher"
 type = "NoopRgbdCamera"
 
 [field_model]
-type = "NoopFieldModel"
+type = "NoopMaskModel"
 
-[floor_model]
-type = "NoopFieldModel"
+[robot_mask_model]
+type = "NoopMaskModel"
 
 [field_filter]
 type = "NoopFieldFilter"

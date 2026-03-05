@@ -1,17 +1,18 @@
-#include "field_model/deeplab_field_model.hpp"
+#include "mask_model/deeplab_mask_model.hpp"
 
 #include <filesystem>
 #include <toml++/toml.h>
 
 namespace auto_battlebot {
-DeepLabFieldModel::DeepLabFieldModel(DeepLabFieldModelConfiguration &config)
+DeepLabMaskModel::DeepLabMaskModel(DeepLabMaskModelConfiguration &config)
     : model_path_(config.model_path),
       model_type_(config.model_type),
+      output_label_(config.output_label),
       initialized_(false) {
-    diagnostics_logger_ = DiagnosticsLogger::get_logger("deeplab_field_model");
+    diagnostics_logger_ = DiagnosticsLogger::get_logger("deeplab_mask_model");
 }
 
-bool DeepLabFieldModel::load_model_config() {
+bool DeepLabMaskModel::load_model_config() {
     std::filesystem::path engine_path(model_path_);
     std::filesystem::path toml_path = engine_path;
     toml_path.replace_extension(".toml");
@@ -41,7 +42,7 @@ bool DeepLabFieldModel::load_model_config() {
     return true;
 }
 
-bool DeepLabFieldModel::initialize() {
+bool DeepLabMaskModel::initialize() {
     if (!load_model_config()) {
         return false;
     }
@@ -60,19 +61,19 @@ bool DeepLabFieldModel::initialize() {
         std::cerr << "DeepLab warmup inference failed" << std::endl;
         return false;
     }
-    std::cout << "DeepLabFieldModel initialized!" << std::endl;
+    std::cout << "DeepLabMaskModel initialized!" << std::endl;
 
     initialized_ = true;
-    diagnostics_logger_->info({}, "DeepLabFieldModel initialized successfully");
+    diagnostics_logger_->info({}, "DeepLabMaskModel initialized successfully");
     return true;
 }
 
-FieldMaskStamped DeepLabFieldModel::update(RgbImage image) {
+MaskStamped DeepLabMaskModel::update(RgbImage image) {
     FunctionTimer timer(diagnostics_logger_, "update", 1000.0);  // Warn if > 1000ms
 
     if (!initialized_) {
         diagnostics_logger_->error({}, "Model not initialized");
-        return FieldMaskStamped{};
+        return MaskStamped{};
     }
 
     const int original_height = image.image.rows;
@@ -85,20 +86,20 @@ FieldMaskStamped DeepLabFieldModel::update(RgbImage image) {
 
     if (!engine_.execute(input_buffer.data(), output_buffer.data())) {
         diagnostics_logger_->error({}, "DeepLab inference failed");
-        return FieldMaskStamped{};
+        return MaskStamped{};
     }
 
     cv::Mat mask = postprocess_output(output_buffer.data(), original_height, original_width);
 
-    FieldMaskStamped result;
+    MaskStamped result;
     result.header = image.header;
-    result.mask.label = Label::FIELD;
+    result.mask.label = output_label_;
     result.mask.mask = mask;
 
     return result;
 }
 
-void DeepLabFieldModel::preprocess_image(const cv::Mat &image, std::vector<float> &buffer) {
+void DeepLabMaskModel::preprocess_image(const cv::Mat &image, std::vector<float> &buffer) {
     const std::vector<int64_t> in_shape = engine_.getInputShape();
     if (in_shape.size() < 4 || in_shape[0] != 1 || in_shape[1] != 3) {
         return;
@@ -153,7 +154,7 @@ void DeepLabFieldModel::preprocess_image(const cv::Mat &image, std::vector<float
     }
 }
 
-cv::Mat DeepLabFieldModel::postprocess_output(const float *output, int original_height,
+cv::Mat DeepLabMaskModel::postprocess_output(const float *output, int original_height,
                                               int original_width) {
     const std::vector<int64_t> out_shape = engine_.getOutputShape();
     if (out_shape.size() < 4) {

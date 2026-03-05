@@ -10,12 +10,13 @@ tcp_read_timeout_ms = 1000
 tcp_auto_reconnect = true
 
 [field_model]
-type = "DeepLabFieldModel"
+type = "DeepLabMaskModel"
 model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64.engine"
 
-[floor_model]
-type = "DeepLabFieldModel"
+[robot_mask_model]
+type = "DeepLabMaskModel"
 model_path = "models/floor_deeplabv3_mbv3_256x256_x86_64.engine"
+output_label = "OPPONENT"
 
 [field_filter]
 type = "PointCloudFieldFilter"

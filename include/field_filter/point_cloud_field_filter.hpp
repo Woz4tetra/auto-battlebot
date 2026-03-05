@@ -22,7 +22,7 @@ class PointCloudFieldFilter : public FieldFilterInterface {
 
     void reset(TransformStamped tf_visodom_from_camera) override;
     std::shared_ptr<FieldDescriptionWithInlierPoints> compute_field(
-        const CameraData &camera_data, const FieldMaskStamped &field_mask) override;
+        const CameraData &camera_data, const MaskStamped &field_mask) override;
     FieldDescription track_field(
         TransformStamped tf_visodom_from_camera,
         std::shared_ptr<FieldDescriptionWithInlierPoints> initial_description) override;

@@ -12,7 +12,7 @@ class NoopRobotFilter : public RobotFilterInterface {
     RobotDescriptionsStamped update([[maybe_unused]] KeypointsStamped keypoints,
                                     [[maybe_unused]] FieldDescription field,
                                     [[maybe_unused]] CameraInfo camera_info,
-                                    [[maybe_unused]] FieldMaskStamped floor_mask,
+                                    [[maybe_unused]] MaskStamped robot_mask,
                                     [[maybe_unused]] CommandFeedback command_feedback) override {
         return RobotDescriptionsStamped{};
     }

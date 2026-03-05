@@ -7,7 +7,7 @@ class PublisherInterface {
    public:
     virtual ~PublisherInterface() = default;
     virtual void publish_camera_data(const CameraData &data) = 0;
-    virtual void publish_field_mask(const FieldMaskStamped &field_mask, const RgbImage &image) = 0;
+    virtual void publish_field_mask(const MaskStamped &field_mask, const RgbImage &image) = 0;
     virtual void publish_initial_field_description(
         const FieldDescriptionWithInlierPoints &field) = 0;
     virtual void publish_field_description(

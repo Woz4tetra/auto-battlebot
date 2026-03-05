@@ -6,7 +6,7 @@ namespace auto_battlebot {
 class NoopPublisher : public PublisherInterface {
    public:
     void publish_camera_data([[maybe_unused]] const CameraData &data) override {}
-    void publish_field_mask([[maybe_unused]] const FieldMaskStamped &field_mask,
+    void publish_field_mask([[maybe_unused]] const MaskStamped &field_mask,
                             [[maybe_unused]] const RgbImage &image) override {}
     void publish_initial_field_description(
         [[maybe_unused]] const FieldDescriptionWithInlierPoints &field) override {}

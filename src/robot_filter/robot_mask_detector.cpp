@@ -1,4 +1,4 @@
-#include "robot_filter/floor_mask_detector.hpp"
+#include "robot_filter/robot_mask_detector.hpp"
 
 #include <algorithm>
 #include <array>
@@ -8,35 +8,35 @@
 
 namespace auto_battlebot {
 
-FloorMaskDetector::FloorMaskDetector(const FloorMaskDetectorConfig &config) : config_(config) {}
+RobotMaskDetector::RobotMaskDetector(const RobotMaskDetectorConfig &config) : config_(config) {}
 
-void FloorMaskDetector::reset() { tracked_blobs_.clear(); }
+void RobotMaskDetector::reset() { tracked_blobs_.clear(); }
 
-std::vector<RobotDescription> FloorMaskDetector::detect(
-    const cv::Mat &floor_mask, const FieldDescription &field, const CameraInfo &camera_info,
+std::vector<RobotDescription> RobotMaskDetector::detect(
+    const cv::Mat &mask, const FieldDescription &field, const CameraInfo &camera_info,
     const std::vector<RobotDescription> &own_robot_measurements, double timestamp) {
-    if (floor_mask.empty() || field.child_frame_id == FrameId::EMPTY) {
+    if (mask.empty() || field.child_frame_id == FrameId::EMPTY) {
         return {};
     }
 
-    auto intr = scale_intrinsics(camera_info, floor_mask.cols, floor_mask.rows);
+    auto intr = scale_intrinsics(camera_info, mask.cols, mask.rows);
     cv::Rect field_roi = compute_field_roi(field, intr);
     if (field_roi.area() == 0) {
         return {};
     }
 
-    cv::Mat not_floor = build_not_floor_mask(floor_mask, field_roi);
+    cv::Mat detection_mask = build_detection_mask(mask, field_roi);
 
     Eigen::Matrix4d tf_cam_from_field = field.tf_camera_from_fieldcenter.tf;
-    mask_own_robots(not_floor, own_robot_measurements, tf_cam_from_field, intr);
+    mask_own_robots(detection_mask, own_robot_measurements, tf_cam_from_field, intr);
 
     Eigen::Matrix4d tf_field_from_cam = tf_cam_from_field.inverse();
-    auto candidates = extract_blob_candidates(not_floor, intr, tf_field_from_cam, field);
+    auto candidates = extract_blob_candidates(detection_mask, intr, tf_field_from_cam, field);
     auto persistent = update_tracked_blobs(candidates, timestamp);
     return candidates_to_measurements(persistent);
 }
 
-FloorMaskDetector::ScaledIntrinsics FloorMaskDetector::scale_intrinsics(
+RobotMaskDetector::ScaledIntrinsics RobotMaskDetector::scale_intrinsics(
     const CameraInfo &camera_info, int mask_width, int mask_height) {
     double sx = static_cast<double>(mask_width) / camera_info.width;
     double sy = static_cast<double>(mask_height) / camera_info.height;
@@ -48,7 +48,7 @@ FloorMaskDetector::ScaledIntrinsics FloorMaskDetector::scale_intrinsics(
     return {fx * sx, fy * sy, cx * sx, cy * sy, mask_width, mask_height};
 }
 
-cv::Rect FloorMaskDetector::compute_field_roi(const FieldDescription &field,
+cv::Rect RobotMaskDetector::compute_field_roi(const FieldDescription &field,
                                               const ScaledIntrinsics &intr) const {
     Eigen::Matrix4d tf_cam_from_field = field.tf_camera_from_fieldcenter.tf;
 
@@ -84,30 +84,37 @@ cv::Rect FloorMaskDetector::compute_field_roi(const FieldDescription &field,
     return cv::Rect(min_u, min_v, max_u - min_u, max_v - min_v);
 }
 
-cv::Mat FloorMaskDetector::build_not_floor_mask(const cv::Mat &floor_mask,
+cv::Mat RobotMaskDetector::build_detection_mask(const cv::Mat &mask,
                                                 const cv::Rect &field_roi) const {
-    cv::Mat mask = cv::Mat::zeros(floor_mask.size(), CV_8UC1);
+    cv::Mat result = cv::Mat::zeros(mask.size(), CV_8UC1);
 
-    // Floor mask has class indices (0=background, 1=floor).
-    // Threshold so floor pixels = 255, background = 0.
-    cv::Mat floor_binary;
-    if (floor_mask.type() == CV_8UC1) {
-        cv::threshold(floor_mask, floor_binary, 0, 255, cv::THRESH_BINARY);
+    // Mask has class indices (0=background, 1=robot).
+    // Threshold so robot pixels = 255, background = 0.
+    cv::Mat binary;
+    if (mask.type() == CV_8UC1) {
+        cv::threshold(mask, binary, 0, 255, cv::THRESH_BINARY);
     } else {
         cv::Mat temp;
-        floor_mask.convertTo(temp, CV_8UC1);
-        cv::threshold(temp, floor_binary, 0, 255, cv::THRESH_BINARY);
+        mask.convertTo(temp, CV_8UC1);
+        cv::threshold(temp, binary, 0, 255, cv::THRESH_BINARY);
     }
 
-    // Within the field ROI, invert: not-floor = 255.
-    cv::Mat roi_region = mask(field_roi);
-    cv::Mat floor_roi = floor_binary(field_roi);
-    cv::bitwise_not(floor_roi, roi_region);
+    // Restrict to field ROI.
+    cv::Mat roi_region = result(field_roi);
+    cv::Mat mask_roi = binary(field_roi);
+    mask_roi.copyTo(roi_region);
+
+    if (config_.morph_kernel_size > 0) {
+        cv::Mat kernel = cv::getStructuringElement(
+            cv::MORPH_ELLIPSE,
+            cv::Size(config_.morph_kernel_size, config_.morph_kernel_size));
+        cv::morphologyEx(mask, mask, cv::MORPH_OPEN, kernel);
+    }
 
     return mask;
 }
 
-void FloorMaskDetector::mask_own_robots(cv::Mat &mask,
+void RobotMaskDetector::mask_own_robots(cv::Mat &mask,
                                         const std::vector<RobotDescription> &own_robots,
                                         const Eigen::Matrix4d &tf_cam_from_field,
                                         const ScaledIntrinsics &intr) const {
@@ -129,7 +136,7 @@ void FloorMaskDetector::mask_own_robots(cv::Mat &mask,
     }
 }
 
-std::vector<FloorMaskDetector::BlobCandidate> FloorMaskDetector::extract_blob_candidates(
+std::vector<RobotMaskDetector::BlobCandidate> RobotMaskDetector::extract_blob_candidates(
     const cv::Mat &mask, const ScaledIntrinsics &intr,
     const Eigen::Matrix4d &tf_field_from_cam, const FieldDescription &field) const {
     cv::Mat labels, stats, centroids;
@@ -170,7 +177,7 @@ std::vector<FloorMaskDetector::BlobCandidate> FloorMaskDetector::extract_blob_ca
     return candidates;
 }
 
-Eigen::Vector3d FloorMaskDetector::ray_plane_intersect(const Eigen::Vector3d &ray_origin,
+Eigen::Vector3d RobotMaskDetector::ray_plane_intersect(const Eigen::Vector3d &ray_origin,
                                                        const Eigen::Vector3d &ray_dir,
                                                        const Eigen::Vector3d &plane_point,
                                                        const Eigen::Vector3d &plane_normal) const {
@@ -182,7 +189,7 @@ Eigen::Vector3d FloorMaskDetector::ray_plane_intersect(const Eigen::Vector3d &ra
     return ray_origin + t * ray_dir;
 }
 
-std::vector<FloorMaskDetector::BlobCandidate> FloorMaskDetector::update_tracked_blobs(
+std::vector<RobotMaskDetector::BlobCandidate> RobotMaskDetector::update_tracked_blobs(
     const std::vector<BlobCandidate> &candidates, double timestamp) {
     std::vector<bool> matched(candidates.size(), false);
 
@@ -230,7 +237,7 @@ std::vector<FloorMaskDetector::BlobCandidate> FloorMaskDetector::update_tracked_
     return persistent;
 }
 
-std::vector<RobotDescription> FloorMaskDetector::candidates_to_measurements(
+std::vector<RobotDescription> RobotMaskDetector::candidates_to_measurements(
     const std::vector<BlobCandidate> &candidates) {
     std::vector<RobotDescription> measurements;
     measurements.reserve(candidates.size());

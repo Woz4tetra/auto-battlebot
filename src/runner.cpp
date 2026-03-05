@@ -16,8 +16,8 @@ static int count_opponents_in_config(const std::vector<RobotConfig> &configs) {
 Runner::Runner(const RunnerConfiguration &runner_config,
                const std::vector<RobotConfig> &robot_configs,
                std::shared_ptr<RgbdCameraInterface> camera,
-               std::shared_ptr<FieldModelInterface> field_model,
-               std::shared_ptr<FieldModelInterface> floor_model,
+               std::shared_ptr<MaskModelInterface> field_model,
+               std::shared_ptr<MaskModelInterface> robot_mask_model,
                std::shared_ptr<FieldFilterInterface> field_filter,
                std::shared_ptr<KeypointModelInterface> keypoint_model,
                std::shared_ptr<RobotFilterInterface> robot_filter,
@@ -27,7 +27,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
     : runner_config_(runner_config),
       camera_(camera),
       field_model_(field_model),
-      floor_model_(floor_model),
+      robot_mask_model_(robot_mask_model),
       field_filter_(field_filter),
       keypoint_model_(keypoint_model),
       robot_filter_(robot_filter),
@@ -63,8 +63,8 @@ void Runner::initialize() {
     if (!field_model_->initialize()) {
         std::cerr << "Failed to initialize field model" << std::endl;
     }
-    if (!floor_model_->initialize()) {
-        std::cerr << "Failed to initialize floor model" << std::endl;
+    if (!robot_mask_model_->initialize()) {
+        std::cerr << "Failed to initialize robot mask model" << std::endl;
     }
     if (!keypoint_model_->initialize()) {
         std::cerr << "Failed to initialize keypoint model." << std::endl;
@@ -79,7 +79,7 @@ void Runner::initialize() {
 void Runner::initialize_field(const CameraData &camera_data) {
     std::cout << "Initializing field" << std::endl;
     field_filter_->reset(camera_data.tf_visodom_from_camera);
-    FieldMaskStamped field_mask = field_model_->update(camera_data.rgb);
+    MaskStamped field_mask = field_model_->update(camera_data.rgb);
     publisher_->publish_field_mask(field_mask, camera_data.rgb);
 
     if (field_mask.mask.mask.empty()) {
@@ -211,17 +211,17 @@ bool Runner::tick() {
         keypoints = keypoint_model_->update(camera_data.rgb);
     }
 
-    FieldMaskStamped floor_mask;
+    MaskStamped robot_mask;
     {
-        FunctionTimer timer(diagnostics_logger_, "floor_model.update");
-        floor_mask = floor_model_->update(camera_data.rgb);
+        FunctionTimer timer(diagnostics_logger_, "robot_mask_model.update");
+        robot_mask = robot_mask_model_->update(camera_data.rgb);
     }
 
     RobotDescriptionsStamped robots;
     {
         FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
         robots = robot_filter_->update(keypoints, field_description, camera_data.camera_info,
-                                       floor_mask, command_feedback);
+                                       robot_mask, command_feedback);
     }
 
     {

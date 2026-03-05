@@ -14,7 +14,7 @@ struct Mask {
     cv::Mat mask;
 };
 
-struct FieldMaskStamped {
+struct MaskStamped {
     Header header;
     Mask mask;
 };
