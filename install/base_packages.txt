@@ -6,6 +6,7 @@ python3-pip
 python3-venv
 python3-tk
 python3-openssl
+python3-dev
 libwebsocketpp-dev
 libjsoncpp-dev
 libssl-dev
