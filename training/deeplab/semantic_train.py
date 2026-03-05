@@ -173,23 +173,23 @@ def intermediate_metric_calculation(
     smooth: float = 1e-6,
     dims: tuple[int, int] = (2, 3),
 ) -> torch.Tensor:
-    # dimscorresponding to image height and width: [B, C, H, W].
+    # dims corresponding to image height and width: [B, C, H, W].
 
     # Intersection: |G ∩ P|. Shape: (batch_size, num_classes)
-    intersection = (predictions * targets).sum(dim=dims) + smooth
+    intersection = (predictions * targets).sum(dim=dims)
 
     # Summation: |G| + |P|. Shape: (batch_size, num_classes).
-    summation = (predictions.sum(dim=dims) + targets.sum(dim=dims)) + smooth
+    summation = predictions.sum(dim=dims) + targets.sum(dim=dims)
 
     if use_dice:
         # Dice Shape: (batch_size, num_classes)
-        metric = (2.0 * intersection) / summation
+        metric = (2.0 * intersection + smooth) / (summation + smooth)
     else:
         # Union. Shape: (batch_size, num_classes)
         union = summation - intersection
 
         # IoU Shape: (batch_size, num_classes)
-        metric = intersection / union
+        metric = (intersection + smooth) / (union + smooth)
 
     # Compute the mean over the remaining axes (batch and classes).
     # Shape: Scalar
@@ -525,7 +525,11 @@ def main() -> None:
         liveloss.update(logs)
         liveloss.send()
 
-        if valid_metric >= best_metric:
+        if (
+            not torch.isinf(valid_metric)
+            and not torch.isnan(valid_metric)
+            and valid_metric >= best_metric
+        ):
             print(f"Saving model. {valid_metric:0.4f} >= {best_metric:0.4f}")
             torch.save(model.state_dict(), output_model)
             save_model_config(
