@@ -1,4 +1,5 @@
 import argparse
+import random as pyrandom
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from livelossplot.outputs.matplotlib_plot import MatplotlibPlot
 from constants import IMAGE_SIZE, PAD_SIZE, NUM_CLASSES
 from load_deeplabv3 import seed_everything, common_transforms
 from model_config import ModelConfig, load_model_config, save_model_config
+from PIL import Image
 from torch.nn import functional
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics import MeanMetric
@@ -24,6 +26,7 @@ from torchvision.models.segmentation import (
     deeplabv3_resnet50,
     deeplabv3_resnet101,
 )
+from torchvision.transforms import functional as TF
 from tqdm import tqdm
 
 matplotlib.use("agg")
@@ -60,21 +63,25 @@ class SegDataset(Dataset):
     def __len__(self) -> int:
         return len(self.img_paths)
 
-    def __getitem__(self, index: int) -> tuple[np.ndarray, torch.Tensor]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         image_path = self.img_paths[index]
         image = self.read_file(image_path)
-        image = self.transforms(image)
 
         mask_path = self.mask_paths[index]
-
         gt_mask = self.read_file(mask_path).astype(np.int32)
 
-        mask = np.zeros((*self.image_size, 2), dtype=np.float32)
+        image_pil = Image.fromarray(image)
+        mask_pil = Image.fromarray(gt_mask[:, :, 0].astype(np.uint8))
 
-        # BACKGROUND
-        mask[:, :, 0] = np.where(gt_mask[:, :, 0] == 0, 1.0, 0.0)
-        # FIELD
-        mask[:, :, 1] = np.where(gt_mask[:, :, 0] > 0, 1.0, 0.0)
+        if self.data_type == "train":
+            image_pil, mask_pil = self._augment(image_pil, mask_pil)
+
+        image_tensor = self.transforms(np.array(image_pil))
+
+        gt_arr = np.array(mask_pil)
+        mask = np.zeros((*self.image_size, 2), dtype=np.float32)
+        mask[:, :, 0] = np.where(gt_arr == 0, 1.0, 0.0)
+        mask[:, :, 1] = np.where(gt_arr > 0, 1.0, 0.0)
 
         mask = np.pad(
             mask,
@@ -85,7 +92,30 @@ class SegDataset(Dataset):
 
         reordered_mask = torch.from_numpy(mask).permute(2, 0, 1)
 
-        return image, reordered_mask
+        return image_tensor, reordered_mask
+
+    @staticmethod
+    def _augment(
+        image: Image.Image, mask: Image.Image
+    ) -> tuple[Image.Image, Image.Image]:
+        # Photometric (image only)
+        image = TF.adjust_brightness(image, pyrandom.uniform(0.7, 1.3))
+        image = TF.adjust_contrast(image, pyrandom.uniform(0.7, 1.3))
+        image = TF.adjust_saturation(image, pyrandom.uniform(0.7, 1.3))
+        image = TF.adjust_hue(image, pyrandom.uniform(-0.05, 0.05))
+        if pyrandom.random() < 0.3:
+            image = TF.gaussian_blur(image, kernel_size=5)
+
+        # Geometric (image + mask together)
+        if pyrandom.random() < 0.5:
+            image = TF.hflip(image)
+            mask = TF.hflip(mask)
+
+        if pyrandom.random() < 0.5:
+            image = TF.vflip(image)
+            mask = TF.vflip(mask)
+
+        return image, mask
 
 
 def get_training_set_paths(data_directory: Path) -> tuple[list[Path], list[Path]]:

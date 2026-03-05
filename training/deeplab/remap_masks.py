@@ -13,6 +13,10 @@ Example TOML config:
     # mapped to `default_label`.
     default_label = 0
 
+    # Delete image+mask pairs where ALL pixels map to a deleted label.
+    # Listed labels are removed before remapping.
+    delete_labels = [3, 4]
+
     [label_map]
     0 = 1    # background -> floor
     1 = 0    # robot -> background
@@ -31,18 +35,19 @@ from tqdm import tqdm
 import tomllib
 
 
-def load_config(config_path: Path) -> tuple[dict[int, int], int]:
+def load_config(config_path: Path) -> tuple[dict[int, int], int, set[int]]:
     with open(config_path, "rb") as f:
         config = tomllib.load(f)
 
     default_label = config.get("default_label", 0)
     raw_map = config.get("label_map", {})
+    delete_labels = set(int(v) for v in config.get("delete_labels", []))
 
     label_map: dict[int, int] = {}
     for src, dst in raw_map.items():
         label_map[int(src)] = int(dst)
 
-    return label_map, default_label
+    return label_map, default_label, delete_labels
 
 
 def remap_mask(
@@ -103,15 +108,20 @@ def main() -> None:
         print(f"Error: dataset directory not found: {dataset_dir}", file=sys.stderr)
         sys.exit(1)
 
-    label_map, default_label = load_config(config_path)
+    label_map, default_label, delete_labels = load_config(config_path)
     print(f"Label map: {label_map}")
     print(f"Default label (unmapped sources): {default_label}")
+    if delete_labels:
+        print(f"Delete labels: {sorted(delete_labels)}")
 
     mask_files = find_mask_files(dataset_dir)
     if not mask_files:
         print(f"No *_mask.png files found in {dataset_dir}", file=sys.stderr)
         sys.exit(1)
     print(f"Found {len(mask_files)} mask files")
+
+    deleted_count = 0
+    written_count = 0
 
     for mask_path in tqdm(mask_files, desc="Remapping masks", disable=args.dry_run):
         mask = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
@@ -121,8 +131,10 @@ def main() -> None:
 
         channel = mask[:, :, 0] if mask.ndim == 3 else mask
         unique_before = np.unique(channel)
-        remapped = remap_mask(channel, label_map, default_label)
-        unique_after = np.unique(remapped)
+
+        should_delete = delete_labels and set(unique_before.tolist()).issubset(
+            delete_labels
+        )
 
         if output_dir is not None:
             rel = mask_path.relative_to(dataset_dir)
@@ -131,11 +143,29 @@ def main() -> None:
             dest = mask_path
 
         if args.dry_run:
-            print(
-                f"  {mask_path.name}: {unique_before.tolist()} -> {unique_after.tolist()} => {dest}"
-            )
+            if should_delete:
+                action = "DELETE"
+            else:
+                remapped = remap_mask(channel, label_map, default_label)
+                unique_after = np.unique(remapped)
+                action = (
+                    f"{unique_before.tolist()} -> {unique_after.tolist()} => {dest}"
+                )
+            print(f"  {mask_path.name}: {action}")
             continue
 
+        if should_delete:
+            deleted_count += 1
+            if output_dir is None:
+                mask_path.unlink()
+                img_path = mask_path.parent / mask_path.name.replace(
+                    "_mask.png", ".jpg"
+                )
+                if img_path.exists():
+                    img_path.unlink()
+            continue
+
+        remapped = remap_mask(channel, label_map, default_label)
         dest.parent.mkdir(parents=True, exist_ok=True)
 
         if mask.ndim == 3:
@@ -147,6 +177,7 @@ def main() -> None:
             out = remapped
 
         cv2.imwrite(str(dest), out)
+        written_count += 1
 
         if args.copy_images and output_dir is not None:
             img_name = mask_path.name.replace("_mask.png", ".jpg")
@@ -157,7 +188,9 @@ def main() -> None:
 
     if not args.dry_run:
         target = output_dir if output_dir else dataset_dir
-        print(f"Done. Wrote {len(mask_files)} masks to {target}")
+        print(f"Done. Wrote {written_count} masks to {target}")
+        if deleted_count:
+            print(f"Deleted {deleted_count} image+mask pairs")
 
 
 if __name__ == "__main__":
