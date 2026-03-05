@@ -6,6 +6,7 @@ from typing import Any, Generator
 
 import cv2
 import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
@@ -529,6 +530,7 @@ def main() -> None:
 
         liveloss.update(logs)
         liveloss.send()
+        plt.close("all")
 
         if (
             not torch.isinf(valid_metric)
