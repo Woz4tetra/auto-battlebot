@@ -1,5 +1,6 @@
 import argparse
 import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Generator
 
@@ -431,7 +432,11 @@ def main() -> None:
     args = parser.parse_args()
     dataset_location = Path(args.dataset_location)
     checkpoint_path = Path(args.checkpoint) if args.checkpoint else None
-    output = Path(args.output) if args.output else dataset_location.parent / "output"
+    if args.output:
+        output = Path(args.output)
+    else:
+        date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        output = dataset_location.parent / f"output_{date_str}"
     batch_size = args.batch_size
     num_workers = args.num_workers
     num_epochs = args.num_epochs
