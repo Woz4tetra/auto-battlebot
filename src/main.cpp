@@ -66,14 +66,16 @@ int main(int argc, char **argv) {
 
     auto camera = make_rgbd_camera(*class_config.camera);
     auto field_model = make_field_model(*class_config.field_model);
+    auto floor_model = make_field_model(*class_config.floor_model);
     auto field_filter = make_field_filter(*class_config.field_filter);
     auto keypoint_model = make_keypoint_model(*class_config.keypoint_model);
     auto robot_filter = make_robot_filter(*class_config.robot_filter);
     auto navigation = make_navigation(*class_config.navigation);
     auto transmitter = make_transmitter(*class_config.transmitter);
 
-    Runner runner(class_config.runner, robot_configs, camera, field_model, field_filter,
-                  keypoint_model, robot_filter, navigation, transmitter, publisher, ui_state);
+    Runner runner(class_config.runner, robot_configs, camera, field_model, floor_model,
+                  field_filter, keypoint_model, robot_filter, navigation, transmitter, publisher,
+                  ui_state);
 
     runner.initialize();
 

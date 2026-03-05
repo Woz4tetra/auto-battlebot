@@ -3,6 +3,7 @@
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
+#include "robot_filter/floor_mask_detector.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 
 namespace auto_battlebot {
@@ -26,6 +27,7 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
     std::map<Label, std::vector<FrameId>> label_to_frame_ids;
     FrameId default_frame_id;
     double velocity_ema_alpha = 0.5;
+    FloorMaskDetectorConfig floor_mask_detector_config;
 
     RobotFrontBackSimpleFilterConfiguration() { type = "RobotFrontBackSimpleFilter"; }
 
@@ -35,7 +37,23 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
         parse_label_to_frame_id(parser, "label_mapping");
         PARSE_ENUM_REQUIRED(default_frame_id, FrameId);
         PARSE_FIELD_DOUBLE(velocity_ema_alpha)
+        parse_floor_mask_detector_config(parser);
         parser.validate_no_extra_fields();
+    }
+
+    void parse_floor_mask_detector_config(ConfigParser &parser) {
+        floor_mask_detector_config.min_blob_area_pixels = static_cast<int>(
+            parser.get_optional_int("floor_min_blob_area_pixels",
+                                    floor_mask_detector_config.min_blob_area_pixels));
+        floor_mask_detector_config.persistence_frames_required = static_cast<int>(
+            parser.get_optional_int("floor_persistence_frames_required",
+                                    floor_mask_detector_config.persistence_frames_required));
+        floor_mask_detector_config.blob_match_distance_meters =
+            parser.get_optional_double("floor_blob_match_distance_meters",
+                                       floor_mask_detector_config.blob_match_distance_meters);
+        floor_mask_detector_config.tracked_blob_timeout_seconds =
+            parser.get_optional_double("floor_tracked_blob_timeout_seconds",
+                                       floor_mask_detector_config.tracked_blob_timeout_seconds);
     }
 
     void parse_label_to_frame_id(ConfigParser &parser, const std::string &field_name) {

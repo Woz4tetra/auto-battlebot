@@ -56,6 +56,9 @@ type = "NoopRgbdCamera"
 [field_model]
 type = "NoopFieldModel"
 
+[floor_model]
+type = "NoopFieldModel"
+
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -92,6 +95,9 @@ type = "NoopPublisher"
 type = "ZedRgbdCamera"
 
 [field_model]
+type = "NoopFieldModel"
+
+[floor_model]
 type = "NoopFieldModel"
 
 [field_filter]
@@ -139,6 +145,9 @@ depth_mode = "ZED_ULTRA"
 [field_model]
 type = "NoopFieldModel"
 
+[floor_model]
+type = "NoopFieldModel"
+
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -181,6 +190,9 @@ camera_fps = 90
 [field_model]
 type = "NoopFieldModel"
 
+[floor_model]
+type = "NoopFieldModel"
+
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -218,6 +230,9 @@ type = "NoopPublisher"
 type = "UnknownCamera"
 
 [field_model]
+type = "NoopFieldModel"
+
+[floor_model]
 type = "NoopFieldModel"
 
 [field_filter]
@@ -264,6 +279,9 @@ camera_fps = 60
 unknown_field = "should cause error"
 
 [field_model]
+type = "NoopFieldModel"
+
+[floor_model]
 type = "NoopFieldModel"
 
 [field_filter]
@@ -331,6 +349,9 @@ type = "NoopRgbdCamera"
 [field_model]
 type = "NoopFieldModel"
 
+[floor_model]
+type = "NoopFieldModel"
+
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -357,6 +378,9 @@ type = "NoopPublisher"
 
         ASSERT_NE(config.field_model, nullptr);
         EXPECT_EQ(config.field_model->type, "NoopFieldModel");
+
+        ASSERT_NE(config.floor_model, nullptr);
+        EXPECT_EQ(config.floor_model->type, "NoopFieldModel");
 
         ASSERT_NE(config.field_filter, nullptr);
         EXPECT_EQ(config.field_filter->type, "NoopFieldFilter");
@@ -634,6 +658,9 @@ type = "NoopRgbdCamera"
 [field_model]
 type = "NoopFieldModel"
 
+[floor_model]
+type = "NoopFieldModel"
+
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -670,6 +697,9 @@ type = "NoopPublisher"
 type = "NoopRgbdCamera"
 
 [field_model]
+type = "NoopFieldModel"
+
+[floor_model]
 type = "NoopFieldModel"
 
 [field_filter]

@@ -9,6 +9,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "robot_filter/config.hpp"
+#include "robot_filter/floor_mask_detector.hpp"
 #include "robot_filter/front_back_keypoint_converter.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "transform_utils.hpp"
@@ -27,7 +28,7 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
 
     bool initialize(const std::vector<RobotConfig> &robots) override;
     RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
-                                    CameraInfo camera_info,
+                                    CameraInfo camera_info, FieldMaskStamped floor_mask,
                                     CommandFeedback command_feedback) override;
     bool set_opponent_count(int count) override;
 
@@ -40,6 +41,7 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     /** Exponential moving average smoothing factor for opponent velocity estimation (0..1, higher =
      * more responsive). */
     double velocity_ema_alpha_;
+    FloorMaskDetector floor_mask_detector_;
     /** Last known position per FrameId for distance-based assignment when multiple of same label.
      */
     std::map<FrameId, Position> last_position_per_frame_id_;

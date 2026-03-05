@@ -35,6 +35,7 @@ namespace auto_battlebot {
 struct ClassConfiguration {
     std::unique_ptr<RgbdCameraConfiguration> camera;
     std::unique_ptr<FieldModelConfiguration> field_model;
+    std::unique_ptr<FieldModelConfiguration> floor_model;
     std::unique_ptr<FieldFilterConfiguration> field_filter;
     std::unique_ptr<KeypointModelConfiguration> keypoint_model;
     std::unique_ptr<RobotFilterConfiguration> robot_filter;

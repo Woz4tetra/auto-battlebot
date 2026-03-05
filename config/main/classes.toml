@@ -9,6 +9,12 @@ camera_fps = 30
 type = "DeepLabFieldModel"
 model_path = "models/field_deeplabv3_r50_2024-09-05_aarch64.engine"
 
+[floor_model]
+type = "DeepLabFieldModel"
+model_path = "models/floor_deeplabv3_mbv3_256x256_aarch64_sm87.engine"
+image_size = 236
+border_padding = 10
+
 [field_filter]
 type = "PointCloudFieldFilter"
 local_visualize_debug = false

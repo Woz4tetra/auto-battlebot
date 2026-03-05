@@ -17,6 +17,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                const std::vector<RobotConfig> &robot_configs,
                std::shared_ptr<RgbdCameraInterface> camera,
                std::shared_ptr<FieldModelInterface> field_model,
+               std::shared_ptr<FieldModelInterface> floor_model,
                std::shared_ptr<FieldFilterInterface> field_filter,
                std::shared_ptr<KeypointModelInterface> keypoint_model,
                std::shared_ptr<RobotFilterInterface> robot_filter,
@@ -26,6 +27,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
     : runner_config_(runner_config),
       camera_(camera),
       field_model_(field_model),
+      floor_model_(floor_model),
       field_filter_(field_filter),
       keypoint_model_(keypoint_model),
       robot_filter_(robot_filter),
@@ -60,6 +62,9 @@ void Runner::initialize() {
     }
     if (!field_model_->initialize()) {
         std::cerr << "Failed to initialize field model" << std::endl;
+    }
+    if (!floor_model_->initialize()) {
+        std::cerr << "Failed to initialize floor model" << std::endl;
     }
     if (!keypoint_model_->initialize()) {
         std::cerr << "Failed to initialize keypoint model." << std::endl;
@@ -206,11 +211,17 @@ bool Runner::tick() {
         keypoints = keypoint_model_->update(camera_data.rgb);
     }
 
+    FieldMaskStamped floor_mask;
+    {
+        FunctionTimer timer(diagnostics_logger_, "floor_model.update");
+        floor_mask = floor_model_->update(camera_data.rgb);
+    }
+
     RobotDescriptionsStamped robots;
     {
         FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
         robots = robot_filter_->update(keypoints, field_description, camera_data.camera_info,
-                                       command_feedback);
+                                       floor_mask, command_feedback);
     }
 
     {

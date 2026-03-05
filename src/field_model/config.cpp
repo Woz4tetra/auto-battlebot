@@ -27,6 +27,18 @@ std::unique_ptr<FieldModelConfiguration> load_field_model_from_toml(
     return config;
 }
 
+std::unique_ptr<FieldModelConfiguration> load_floor_model_from_toml(
+    toml::table const &toml_data, std::vector<std::string> &parsed_sections) {
+    auto section = toml_data["floor_model"].as_table();
+    if (!section) {
+        throw ConfigValidationError("Missing required section [floor_model]");
+    }
+    ConfigParser parser(*section, "floor_model");
+    auto config = parse_field_model_config(parser);
+    parsed_sections.push_back("floor_model");
+    return config;
+}
+
 std::shared_ptr<FieldModelInterface> make_field_model(const FieldModelConfiguration &config) {
     std::cout << "Selected " + config.type + " for FieldModel" << std::endl;
     if (config.type == "NoopFieldModel") {

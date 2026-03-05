@@ -37,14 +37,16 @@ class SegDataset(Dataset):
         img_paths: list[Path],
         mask_paths: list[Path],
         image_size: tuple[int, int] = (IMAGE_SIZE, IMAGE_SIZE),
+        pad_size: int = PAD_SIZE,
         data_type: str = "train",
     ) -> None:
         self.data_type = data_type
         self.img_paths = img_paths
         self.mask_paths = mask_paths
         self.image_size = image_size
+        self.pad_size = pad_size
 
-        self.transforms = common_transforms()
+        self.transforms = common_transforms(pad_size=pad_size)
 
     def read_file(self, path: Path) -> np.ndarray:
         image = cv2.imread(str(path))
@@ -73,7 +75,7 @@ class SegDataset(Dataset):
 
         mask = np.pad(
             mask,
-            ((PAD_SIZE, PAD_SIZE), (PAD_SIZE, PAD_SIZE), (0, 0)),
+            ((self.pad_size, self.pad_size), (self.pad_size, self.pad_size), (0, 0)),
             mode="constant",
             constant_values=0,
         )
@@ -101,7 +103,11 @@ def get_training_set_paths(data_directory: Path) -> tuple[list[Path], list[Path]
 
 
 def get_dataset(
-    data_directory: Path, batch_size: int, num_workers: int
+    data_directory: Path,
+    batch_size: int,
+    num_workers: int,
+    image_size: int = IMAGE_SIZE,
+    pad_size: int = PAD_SIZE,
 ) -> tuple[DataLoader, DataLoader]:
     train_img_dir = data_directory / "train"
     valid_img_dir = data_directory / "val"
@@ -109,11 +115,20 @@ def get_dataset(
     train_img_paths, train_msk_paths = get_training_set_paths(train_img_dir)
     valid_img_paths, valid_msk_paths = get_training_set_paths(valid_img_dir)
 
+    size_tuple = (image_size, image_size)
     train_ds = SegDataset(
-        img_paths=train_img_paths, mask_paths=train_msk_paths, data_type="train"
+        img_paths=train_img_paths,
+        mask_paths=train_msk_paths,
+        image_size=size_tuple,
+        pad_size=pad_size,
+        data_type="train",
     )
     valid_ds = SegDataset(
-        img_paths=valid_img_paths, mask_paths=valid_msk_paths, data_type="valid"
+        img_paths=valid_img_paths,
+        mask_paths=valid_msk_paths,
+        image_size=size_tuple,
+        pad_size=pad_size,
+        data_type="valid",
     )
 
     train_loader = DataLoader(
@@ -392,6 +407,25 @@ def main() -> None:
         default="",
         help="Output directory for the model and logs",
     )
+    parser.add_argument(
+        "--backbone",
+        type=str,
+        default="r50",
+        choices=["mbv3", "r50", "r101"],
+        help="Backbone architecture (default: r50)",
+    )
+    parser.add_argument(
+        "--image-size",
+        type=int,
+        default=IMAGE_SIZE,
+        help=f"Training image size before padding (default: {IMAGE_SIZE})",
+    )
+    parser.add_argument(
+        "--pad-size",
+        type=int,
+        default=PAD_SIZE,
+        help=f"Border padding size (default: {PAD_SIZE})",
+    )
     assert torch.cuda.is_available(), "CUDA is not available"
     assert torch.cuda.device_count() > 0, "No CUDA devices available"
 
@@ -403,7 +437,9 @@ def main() -> None:
     num_workers = args.num_workers
     num_epochs = args.num_epochs
     num_classes = NUM_CLASSES
-    backbone_model_name = "r50"  # mbv3 | r50 | r101
+    backbone_model_name = args.backbone
+    image_size = args.image_size
+    pad_size = args.pad_size
 
     output.mkdir(parents=True, exist_ok=True)
 
@@ -423,15 +459,18 @@ def main() -> None:
         model.load_state_dict(checkpoints, strict=False)
         model.eval()
 
-    # Dummy pass through the model
     _ = model(
         torch.randn(
-            (2, 3, IMAGE_SIZE + 2 * PAD_SIZE, IMAGE_SIZE + 2 * PAD_SIZE), device=device
+            (2, 3, image_size + 2 * pad_size, image_size + 2 * pad_size), device=device
         )
     )
 
     train_loader, valid_loader = get_dataset(
-        data_directory=dataset_location, batch_size=batch_size, num_workers=num_workers
+        data_directory=dataset_location,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        image_size=image_size,
+        pad_size=pad_size,
     )
     for i, j in valid_loader:
         print(

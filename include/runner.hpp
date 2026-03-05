@@ -28,6 +28,7 @@ class Runner {
     Runner(const RunnerConfiguration &runner_config, const std::vector<RobotConfig> &robot_configs,
            std::shared_ptr<RgbdCameraInterface> camera,
            std::shared_ptr<FieldModelInterface> field_model,
+           std::shared_ptr<FieldModelInterface> floor_model,
            std::shared_ptr<FieldFilterInterface> field_filter,
            std::shared_ptr<KeypointModelInterface> keypoint_model,
            std::shared_ptr<RobotFilterInterface> robot_filter,
@@ -45,6 +46,7 @@ class Runner {
     RunnerConfiguration runner_config_;
     std::shared_ptr<RgbdCameraInterface> camera_;
     std::shared_ptr<FieldModelInterface> field_model_;
+    std::shared_ptr<FieldModelInterface> floor_model_;
     std::shared_ptr<FieldFilterInterface> field_filter_;
     std::shared_ptr<KeypointModelInterface> keypoint_model_;
     std::shared_ptr<RobotFilterInterface> robot_filter_;

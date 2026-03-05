@@ -94,6 +94,7 @@ void DeepLabFieldModel::preprocess_image(const cv::Mat &image, std::vector<float
     cv::Mat float_image;
     resized.convertTo(float_image, CV_32F, 1.0 / 255.0);
 
+    // ImageNet per-channel normalization — must match transforms.Normalize in training pipeline
     const std::vector<float> mean = {0.485f, 0.456f, 0.406f};
     const std::vector<float> std_dev = {0.229f, 0.224f, 0.225f};
 

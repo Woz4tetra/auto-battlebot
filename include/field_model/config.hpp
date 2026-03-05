@@ -43,4 +43,6 @@ std::shared_ptr<FieldModelInterface> make_field_model(const FieldModelConfigurat
 std::unique_ptr<FieldModelConfiguration> parse_field_model_config(ConfigParser &parser);
 std::unique_ptr<FieldModelConfiguration> load_field_model_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections);
+std::unique_ptr<FieldModelConfiguration> load_floor_model_from_toml(
+    toml::table const &toml_data, std::vector<std::string> &parsed_sections);
 }  // namespace auto_battlebot

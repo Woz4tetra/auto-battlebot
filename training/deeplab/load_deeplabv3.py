@@ -23,11 +23,12 @@ def seed_everything(seed_value: int) -> None:
 def common_transforms(
     mean: tuple[float, float, float] = (0.4611, 0.4359, 0.3905),
     std: tuple[float, float, float] = (0.2193, 0.2150, 0.2109),
+    pad_size: int = PAD_SIZE,
 ) -> transforms.Compose:
     return transforms.Compose(
         [
             transforms.ToPILImage(),
-            transforms.Pad(PAD_SIZE),
+            transforms.Pad(pad_size),
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
         ]
