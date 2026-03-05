@@ -85,10 +85,18 @@ roughness = 0.9
 cc_texture = "Paper001"
 
 [distractors]
-model_dirs = [
-    "../data/distractor_models/objaverse",
-    "../data/distractor_models/sam3d",
-]
+# Each source has a path and a weight controlling how often its models are
+# picked when filling the pool.  Weights are relative (they don't need to
+# sum to 1).  A source with weight 3.0 is three times as likely to
+# contribute a model as one with weight 1.0.
+[[distractors.sources]]
+path = "../data/distractor_models/objaverse"
+weight = 1.0
+
+[[distractors.sources]]
+path = "../data/distractor_models/sam3d"
+weight = 5.0
+
 min_per_scene = 1
 # Also controls how many distractor models are loaded into memory at once.
 max_per_scene = 50

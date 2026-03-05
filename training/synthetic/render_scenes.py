@@ -293,16 +293,26 @@ def apply_pbr_materials(
 # ---------------------------------------------------------------------------
 
 
-def discover_model_files(model_dirs: list[str]) -> list[Path]:
-    """Find all loadable 3D model files across the distractor directories."""
-    files: list[Path] = []
-    for dir_path in model_dirs:
-        d = resolve_path(Path(dir_path))
+def discover_model_files(
+    sources: list[dict],
+) -> list[tuple[list[Path], float]]:
+    """Find loadable 3D model files grouped by source directory.
+
+    *sources* is a list of dicts with ``"path"`` and ``"weight"`` keys.
+    Returns ``[(files, weight), ...]`` for each source that has files.
+    """
+    groups: list[tuple[list[Path], float]] = []
+    for src in sources:
+        d = resolve_path(Path(src["path"]))
+        weight = float(src.get("weight", 1.0))
         if not d.exists():
             continue
+        files: list[Path] = []
         for ext in MODEL_EXTENSIONS:
             files.extend(d.glob(f"*{ext}"))
-    return files
+        if files:
+            groups.append((files, weight))
+    return groups
 
 
 DistractorGroup = tuple[bpy.types.Object, list[bproc.types.MeshObject], float]
@@ -368,29 +378,46 @@ def load_distractor(file_path: Path) -> DistractorGroup | None:
         return None
 
 
-def load_distractor_pool(
-    model_dirs: list[str], max_count: int
-) -> list[DistractorGroup]:
-    """Load a pool of distractor models, returning a list of groups."""
-    files = discover_model_files(model_dirs)
-    if not files:
+def load_distractor_pool(sources: list[dict], max_count: int) -> list[DistractorGroup]:
+    """Load a weighted-random pool of distractor models.
+
+    *sources* is a list of ``{"path": ..., "weight": ...}`` dicts.
+    Models are drawn from each source directory with probability
+    proportional to its weight until *max_count* is reached.
+    """
+    groups = discover_model_files(sources)
+    if not groups:
         print("  No distractor models found.")
         return []
 
-    random.shuffle(files)
-    pool: list[DistractorGroup] = []
-    for f in files:
-        if len(pool) >= max_count:
-            break
-        group = load_distractor(f)
-        if group:
-            pool.append(group)
-            _parent, meshes, sz = group
-            print(
-                f"  Loaded distractor: {f.name} "
-                f"({len(meshes)} meshes, native {sz:.3f}m)"
-            )
+    for file_list, _ in groups:
+        random.shuffle(file_list)
 
+    total_weight = sum(w for _, w in groups)
+    budgets = [max(1, round(max_count * w / total_weight)) for _, w in groups]
+    remaining = max_count - sum(budgets)
+    if remaining > 0:
+        budgets[0] += remaining
+
+    pool: list[DistractorGroup] = []
+    for (file_list, weight), budget in zip(groups, budgets):
+        loaded = 0
+        for f in file_list:
+            if loaded >= budget:
+                break
+            group = load_distractor(f)
+            if group:
+                pool.append(group)
+                _parent, meshes, sz = group
+                print(
+                    f"  Loaded distractor: {f.name} "
+                    f"({len(meshes)} meshes, native {sz:.3f}m)"
+                )
+                loaded += 1
+        dir_name = Path(file_list[0]).parent.name if file_list else "?"
+        print(f"    {dir_name}: {loaded}/{budget} slots (weight {weight:.1f})")
+
+    random.shuffle(pool)
     return pool
 
 
@@ -820,7 +847,7 @@ def main() -> None:
     # ------- Load distractors -------
 
     dist_cfg = config.get("distractors", {})
-    dist_model_dirs = dist_cfg.get("model_dirs", [])
+    dist_sources = dist_cfg.get("sources", [])
     dist_max_per_scene = dist_cfg.get("max_per_scene", 5)
     dist_min_per_scene = dist_cfg.get("min_per_scene", 0)
     dist_shuffle_interval = dist_cfg.get("shuffle_interval", 100)
@@ -832,13 +859,14 @@ def main() -> None:
         if old_pool:
             unload_distractor_pool(old_pool)
         print("Loading distractor models...")
-        pool = load_distractor_pool(dist_model_dirs, dist_max_per_scene)
+        pool = load_distractor_pool(dist_sources, dist_max_per_scene)
         print(f"  {len(pool)} distractors in pool")
         if dist_min_per_scene > len(pool):
+            src_paths = [s["path"] for s in dist_sources]
             raise RuntimeError(
                 f"distractors.min_per_scene is {dist_min_per_scene} but only "
                 f"{len(pool)} distractor model(s) were found.\n"
-                f"  Searched directories: {dist_model_dirs}\n"
+                f"  Searched directories: {src_paths}\n"
                 f"  Either add distractor models to those directories, or set "
                 f"min_per_scene <= {len(pool)} in config.toml."
             )
