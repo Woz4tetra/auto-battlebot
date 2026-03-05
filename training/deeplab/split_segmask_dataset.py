@@ -1,7 +1,7 @@
 """Split a segmask dataset into train/val/test splits.
 
-Expects a flat directory of .jpg images with matching _mask.png files.
-Outputs the standard directory layout expected by semantic_train.py:
+Recursively searches for .jpg and .png images with matching _mask.png files.
+Outputs the standard flat directory layout expected by semantic_train.py:
 
     output/
         train/
@@ -36,7 +36,8 @@ def main() -> None:
         description="Split a segmask dataset into train/val/test splits"
     )
     parser.add_argument(
-        "input", help="Path to flat directory with .jpg and _mask.png files"
+        "input",
+        help="Path to directory (searched recursively) with images and _mask.png files",
     )
     parser.add_argument("output", help="Output path for split dataset")
     parser.add_argument(
@@ -69,7 +70,11 @@ def main() -> None:
     if args.seed is not None:
         random.seed(args.seed)
 
-    all_images = sorted(input_path.glob("*.jpg"))
+    all_images = sorted(
+        p
+        for p in input_path.rglob("*")
+        if p.suffix.lower() in (".jpg", ".png") and "_mask" not in p.stem
+    )
     paired = []
     for img_path in all_images:
         mask_path = img_path.with_name(img_path.stem + "_mask.png")
