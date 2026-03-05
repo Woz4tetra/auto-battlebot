@@ -8,6 +8,7 @@ Every trained model produces a sibling `<stem>.toml` file next to the `.pth`
     image_size  = 256
     pad_size    = 10
     num_classes = 2
+    decoder     = "v3"
 
 All scripts (training, export, inference) and the C++ runtime read this file
 so the values stay in sync.
@@ -32,6 +33,7 @@ class ModelConfig:
     image_size: int
     pad_size: int
     num_classes: int
+    decoder: str = "v3"
 
     @property
     def input_size(self) -> int:
@@ -60,6 +62,7 @@ def load_model_config(model_path: Path) -> ModelConfig:
         image_size=section["image_size"],
         pad_size=section["pad_size"],
         num_classes=section["num_classes"],
+        decoder=section.get("decoder", "v3"),
     )
 
 

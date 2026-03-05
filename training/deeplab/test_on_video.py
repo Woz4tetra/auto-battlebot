@@ -40,7 +40,7 @@ def predict_mask(
     input_tensor = transform(resized).unsqueeze(0).to(device)
 
     with torch.no_grad():
-        output = model(input_tensor)["out"]
+        output = model(input_tensor)
     pred = torch.argmax(output, dim=1).squeeze(0).cpu().numpy()
 
     if pad_size > 0:
@@ -132,8 +132,9 @@ def main() -> None:
     print(f"Loading model from {model_path} (device={device})...")
     model, model_cfg = load_model(model_path, device)
     print(
-        f"Model config: backbone={model_cfg.backbone}, image_size={model_cfg.image_size}, "
-        f"pad_size={model_cfg.pad_size}, num_classes={model_cfg.num_classes}"
+        f"Model config: backbone={model_cfg.backbone}, decoder={model_cfg.decoder}, "
+        f"image_size={model_cfg.image_size}, pad_size={model_cfg.pad_size}, "
+        f"num_classes={model_cfg.num_classes}"
     )
     transform = common_transforms(pad_size=model_cfg.pad_size)
 

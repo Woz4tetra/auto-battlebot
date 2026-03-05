@@ -16,6 +16,7 @@ dependencies = [
     "livelossplot",
     "ipython",
     "torchmetrics",
+    "segmentation-models-pytorch",
     "opencv-python>=4.5.0",
     "pyyaml>=6.0",
     "onnxscript",

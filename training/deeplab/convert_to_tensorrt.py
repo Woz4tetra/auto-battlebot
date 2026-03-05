@@ -1,4 +1,4 @@
-"""Convert a DeepLab v3 .pth checkpoint to TensorRT engine format.
+"""Convert a DeepLab .pth checkpoint to TensorRT engine format.
 
 Engines are GPU- and TensorRT-version specific: an engine built on x86 cannot
 run on Jetson (or vice versa). For Jetson deployment, copy the .pth checkpoint
@@ -19,9 +19,8 @@ import tempfile
 from pathlib import Path
 
 import torch
-from torchvision.models.segmentation import DeepLabV3
 
-from load_deeplabv3 import build_model
+from load_deeplabv3 import build_model, SegModelWrapper
 from model_config import load_model_config, config_path_for
 
 import tensorrt as trt
@@ -48,7 +47,7 @@ def engine_path_with_platform_tag(path: Path) -> Path:
 
 
 def export_onnx(
-    model: DeepLabV3,
+    wrapper: SegModelWrapper,
     output_path: Path,
     input_size: int,
     opset_version: int = 18,
@@ -58,15 +57,6 @@ def export_onnx(
     """Export model to ONNX (used as intermediate for TensorRT)."""
     dummy_input = torch.randn(1, 3, input_size, input_size, device=device)
 
-    class Wrapper(torch.nn.Module):
-        def __init__(self, inner: DeepLabV3) -> None:
-            super().__init__()
-            self.inner = inner
-
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
-            return self.inner(x)["out"]
-
-    wrapped = Wrapper(model)
     kwargs: dict = {
         "input_names": ["input"],
         "output_names": ["output"],
@@ -78,7 +68,7 @@ def export_onnx(
             "output": {0: "batch"},
         }
     torch.onnx.export(
-        wrapped,
+        wrapper,
         dummy_input,
         str(output_path),
         **kwargs,
@@ -128,12 +118,12 @@ def build_tensorrt_engine(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Convert DeepLab v3 .pth checkpoint to TensorRT engine"
+        description="Convert DeepLab .pth checkpoint to TensorRT engine"
     )
     parser.add_argument(
         "model",
         type=str,
-        help="Path to DeepLab v3 checkpoint (.pth file)",
+        help="Path to DeepLab checkpoint (.pth file)",
     )
     parser.add_argument(
         "-o",
@@ -187,12 +177,14 @@ def main() -> None:
     input_size = cfg.input_size
 
     print(f"Loading checkpoint from {model_path}...")
-    print(f"Backbone: {cfg.backbone}, num_classes: {cfg.num_classes}, "
-          f"input_size: {input_size}")
-    model = build_model(cfg.backbone, cfg.num_classes, device)
-    model.eval()
+    print(
+        f"Backbone: {cfg.backbone}, decoder: {cfg.decoder}, "
+        f"num_classes: {cfg.num_classes}, input_size: {input_size}"
+    )
+    wrapper = build_model(cfg.backbone, cfg.num_classes, device, decoder=cfg.decoder)
+    wrapper.eval()
     state = torch.load(model_path, map_location=device)
-    model.load_state_dict(state, strict=False)
+    wrapper.model.load_state_dict(state, strict=False)
 
     if args.keep_onnx:
         onnx_path = output_path.with_suffix(".onnx")
@@ -206,7 +198,7 @@ def main() -> None:
     try:
         print(f"Exporting to ONNX (input shape: [1, 3, {input_size}, {input_size}])...")
         export_onnx(
-            model,
+            wrapper,
             onnx_path,
             input_size,
             opset_version=args.opset,

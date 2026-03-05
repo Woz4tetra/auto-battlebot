@@ -1,11 +1,10 @@
-"""Convert a DeepLab v3 .pth checkpoint to ONNX format."""
+"""Convert a DeepLab .pth checkpoint to ONNX format."""
 
 import argparse
 import shutil
 from pathlib import Path
 
 import torch
-from torchvision.models.segmentation import DeepLabV3
 
 from load_deeplabv3 import build_model
 from model_config import load_model_config, config_path_for
@@ -13,12 +12,12 @@ from model_config import load_model_config, config_path_for
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Convert DeepLab v3 .pth checkpoint to ONNX format"
+        description="Convert DeepLab .pth checkpoint to ONNX format"
     )
     parser.add_argument(
         "model",
         type=str,
-        help="Path to DeepLab v3 checkpoint (.pth file)",
+        help="Path to DeepLab checkpoint (.pth file)",
     )
     parser.add_argument(
         "-o",
@@ -49,12 +48,14 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Loading checkpoint from {model_path}...")
-    print(f"Backbone: {cfg.backbone}, num_classes: {cfg.num_classes}, "
-          f"input_size: {cfg.input_size}")
-    model = build_model(cfg.backbone, cfg.num_classes, device)
+    print(
+        f"Backbone: {cfg.backbone}, decoder: {cfg.decoder}, "
+        f"num_classes: {cfg.num_classes}, input_size: {cfg.input_size}"
+    )
+    wrapper = build_model(cfg.backbone, cfg.num_classes, device, decoder=cfg.decoder)
     state = torch.load(model_path, map_location=device)
-    model.load_state_dict(state, strict=False)
-    model.eval()
+    wrapper.model.load_state_dict(state, strict=False)
+    wrapper.eval()
 
     if args.output:
         output_path = Path(args.output)
@@ -63,16 +64,6 @@ def main() -> None:
 
     input_size = cfg.input_size
     dummy_input = torch.randn(1, 3, input_size, input_size, device=device)
-
-    class Wrapper(torch.nn.Module):
-        def __init__(self, inner: DeepLabV3) -> None:
-            super().__init__()
-            self.inner = inner
-
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
-            return self.inner(x)["out"]
-
-    wrapped = Wrapper(model)
 
     export_kwargs: dict = {
         "input_names": ["input"],
@@ -84,9 +75,11 @@ def main() -> None:
             "input": {0: "batch"},
             "output": {0: "batch"},
         }
-    print(f"Exporting to ONNX (input shape: [1, 3, {input_size}, {input_size}], opset={args.opset})...")
+    print(
+        f"Exporting to ONNX (input shape: [1, 3, {input_size}, {input_size}], opset={args.opset})..."
+    )
     torch.onnx.export(
-        wrapped,
+        wrapper,
         dummy_input,
         str(output_path),
         **export_kwargs,

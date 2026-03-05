@@ -14,18 +14,17 @@ import torch.nn as nn
 from livelossplot import PlotLosses
 from livelossplot.outputs.matplotlib_plot import MatplotlibPlot
 from constants import IMAGE_SIZE, PAD_SIZE, NUM_CLASSES
-from load_deeplabv3 import seed_everything, common_transforms
+from load_deeplabv3 import (
+    seed_everything,
+    common_transforms,
+    build_model,
+    VALID_DECODERS,
+)
 from model_config import ModelConfig, load_model_config, save_model_config
 from PIL import Image
 from torch.nn import functional
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics import MeanMetric
-from torchvision.models.segmentation import (
-    DeepLabV3,
-    deeplabv3_mobilenet_v3_large,
-    deeplabv3_resnet50,
-    deeplabv3_resnet101,
-)
 from torchvision.transforms import functional as TF
 from tqdm import tqdm
 
@@ -182,22 +181,6 @@ def get_dataset(
     return train_loader, valid_loader
 
 
-def prepare_model(backbone_model: str, num_classes: int) -> DeepLabV3:
-    # Initialize model with pre-trained weights.
-    weights = "DEFAULT"
-    model: DeepLabV3 = {
-        "mbv3": deeplabv3_mobilenet_v3_large,
-        "r50": deeplabv3_resnet50,
-        "r101": deeplabv3_resnet101,
-    }[backbone_model](weights=weights)
-
-    # Update the number of output channels for the output layer.
-    # This will remove the pre-trained weights for the last layer.
-    model.classifier[4] = nn.LazyConv2d(num_classes, 1)
-    model.aux_classifier[4] = nn.LazyConv2d(num_classes, 1)
-    return model
-
-
 def intermediate_metric_calculation(
     predictions: torch.Tensor,
     targets: torch.Tensor,
@@ -334,10 +317,8 @@ class TrainStep(TrainingStepInterface):
         self.loss_fn = loss_fn
 
     def step(self, data: Any) -> tuple[torch.Tensor, torch.Tensor]:
-        preds = self.model(data[0])["out"]
-
+        preds = self.model(data[0])
         loss = self.loss_fn(preds, data[1])
-
         self.optimizer_fn.zero_grad()
         loss.backward()
         self.optimizer_fn.step()
@@ -351,10 +332,8 @@ class ValidationStep(TrainingStepInterface):
 
     def step(self, data: Any) -> tuple[torch.Tensor, torch.Tensor]:
         with torch.no_grad():
-            preds = self.model(data[0])["out"].detach()
-
+            preds = self.model(data[0]).detach()
         loss = self.loss_fn(preds, data[1])
-
         return preds, loss
 
 
@@ -457,6 +436,13 @@ def main() -> None:
         default=PAD_SIZE,
         help=f"Border padding size (default: {PAD_SIZE})",
     )
+    parser.add_argument(
+        "--decoder",
+        type=str,
+        default="v3",
+        choices=list(VALID_DECODERS),
+        help="Decoder architecture: v3 (torchvision) or v3plus (SMP) (default: v3)",
+    )
     assert torch.cuda.is_available(), "CUDA is not available"
     assert torch.cuda.device_count() > 0, "No CUDA devices available"
 
@@ -475,6 +461,7 @@ def main() -> None:
     backbone_model_name = args.backbone
     image_size = args.image_size
     pad_size = args.pad_size
+    decoder = args.decoder
 
     output.mkdir(parents=True, exist_ok=True)
 
@@ -483,15 +470,22 @@ def main() -> None:
 
     device = get_default_device()
 
-    model = prepare_model(backbone_model=backbone_model_name, num_classes=num_classes)
-    model.to(device)
+    model = build_model(
+        backbone=backbone_model_name,
+        num_classes=num_classes,
+        device=device,
+        decoder=decoder,
+    )
     if checkpoint_path is not None:
         checkpoint_cfg = load_model_config(checkpoint_path)
         assert checkpoint_cfg.backbone == backbone_model_name, (
             f"Model backbone mismatch. {checkpoint_cfg.backbone} != {backbone_model_name}"
         )
+        assert checkpoint_cfg.decoder == decoder, (
+            f"Model decoder mismatch. {checkpoint_cfg.decoder} != {decoder}"
+        )
         checkpoints = torch.load(checkpoint_path, map_location=device)
-        model.load_state_dict(checkpoints, strict=False)
+        model.model.load_state_dict(checkpoints, strict=False)
         model.eval()
 
     _ = model(
@@ -568,7 +562,7 @@ def main() -> None:
             and valid_metric >= best_metric
         ):
             print(f"Saving model. {valid_metric:0.4f} >= {best_metric:0.4f}")
-            torch.save(model.state_dict(), output_model)
+            torch.save(model.model.state_dict(), output_model)
             save_model_config(
                 output_model,
                 ModelConfig(
@@ -576,6 +570,7 @@ def main() -> None:
                     image_size=image_size,
                     pad_size=pad_size,
                     num_classes=num_classes,
+                    decoder=decoder,
                 ),
             )
             best_metric = valid_metric
