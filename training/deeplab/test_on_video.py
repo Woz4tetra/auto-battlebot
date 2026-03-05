@@ -97,6 +97,12 @@ def main() -> None:
         help="Device for inference (default: cuda if available, else cpu)",
     )
     parser.add_argument(
+        "--skip",
+        default=0,
+        type=int,
+        help="Process every Nth frame, skipping the rest (default: 0 = no skip)",
+    )
+    parser.add_argument(
         "--show",
         action="store_true",
         help="Display video while processing",
@@ -125,8 +131,10 @@ def main() -> None:
 
     print(f"Loading model from {model_path} (device={device})...")
     model, model_cfg = load_model(model_path, device)
-    print(f"Model config: backbone={model_cfg.backbone}, image_size={model_cfg.image_size}, "
-          f"pad_size={model_cfg.pad_size}, num_classes={model_cfg.num_classes}")
+    print(
+        f"Model config: backbone={model_cfg.backbone}, image_size={model_cfg.image_size}, "
+        f"pad_size={model_cfg.pad_size}, num_classes={model_cfg.num_classes}"
+    )
     transform = common_transforms(pad_size=model_cfg.pad_size)
 
     cap = cv2.VideoCapture(str(video_path))
@@ -152,6 +160,8 @@ def main() -> None:
         print(f"Saving output to {output_path}")
 
     frame_count = 0
+    frame_idx = 0
+    skip = args.skip
     start_time = time.time()
     try:
         with tqdm(total=total_frames, desc="Processing video", unit="frame") as pbar:
@@ -160,12 +170,22 @@ def main() -> None:
                 if not ret:
                     break
 
+                frame_idx += 1
+                pbar.update(1)
+
+                if skip > 0 and (frame_idx - 1) % (skip + 1) != 0:
+                    continue
+
                 frame_count += 1
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
                 mask = predict_mask(
-                    model, frame_rgb, transform, device,
-                    model_cfg.image_size, model_cfg.pad_size,
+                    model,
+                    frame_rgb,
+                    transform,
+                    device,
+                    model_cfg.image_size,
+                    model_cfg.pad_size,
                 )
                 annotated = overlay_mask(frame, mask, OVERLAY_COLOR, args.alpha)
 
@@ -181,7 +201,6 @@ def main() -> None:
                 elapsed = time.time() - start_time
                 current_fps = frame_count / elapsed if elapsed > 0 else 0
                 pbar.set_postfix({"FPS": f"{current_fps:.2f}"})
-                pbar.update(1)
 
     finally:
         cap.release()
