@@ -19,7 +19,6 @@ dependencies = [
     "opencv-python>=4.5.0",
     "pyyaml>=6.0",
     "onnxscript",
-    "pycuda",
     "natsort",
     "google-auth",
     "google-auth-oauthlib",
