@@ -1,16 +1,51 @@
 #include "field_model/deeplab_field_model.hpp"
 
+#include <filesystem>
+#include <toml++/toml.h>
+
 namespace auto_battlebot {
 DeepLabFieldModel::DeepLabFieldModel(DeepLabFieldModelConfiguration &config)
     : model_path_(config.model_path),
       model_type_(config.model_type),
-      image_size_(config.image_size),
-      border_padding_(config.border_padding),
       initialized_(false) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("deeplab_field_model");
 }
 
+bool DeepLabFieldModel::load_model_config() {
+    std::filesystem::path engine_path(model_path_);
+    std::filesystem::path toml_path = engine_path;
+    toml_path.replace_extension(".toml");
+
+    if (!std::filesystem::exists(toml_path)) {
+        std::cerr << "Model config not found: " << toml_path << std::endl;
+        return false;
+    }
+
+    try {
+        auto config = toml::parse_file(toml_path.string());
+        auto model_section = config["model"];
+        image_size_ = model_section["image_size"].value_or(0);
+        border_padding_ = model_section["pad_size"].value_or(0);
+
+        if (image_size_ <= 0) {
+            std::cerr << "Invalid image_size in " << toml_path << std::endl;
+            return false;
+        }
+
+        std::cout << "Model config: image_size=" << image_size_
+                  << ", border_padding=" << border_padding_ << std::endl;
+    } catch (const toml::parse_error &e) {
+        std::cerr << "Failed to parse model config " << toml_path << ": " << e.description() << std::endl;
+        return false;
+    }
+    return true;
+}
+
 bool DeepLabFieldModel::initialize() {
+    if (!load_model_config()) {
+        return false;
+    }
+
     std::cout << "Loading TensorRT engine from: " << model_path_ << std::endl;
     if (!engine_.load(model_path_)) {
         std::cerr << "Failed to load DeepLab TensorRT engine: " << model_path_ << std::endl;

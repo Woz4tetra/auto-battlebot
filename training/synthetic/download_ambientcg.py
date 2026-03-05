@@ -18,10 +18,7 @@ import zipfile
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib  # type: ignore[no-redef]
+import tomllib
 
 AMBIENTCG_URL_TEMPLATE = "https://ambientcg.com/get?file={asset}_2K-JPG.zip"
 

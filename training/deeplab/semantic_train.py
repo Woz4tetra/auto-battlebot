@@ -12,6 +12,7 @@ from livelossplot import PlotLosses
 from livelossplot.outputs.matplotlib_plot import MatplotlibPlot
 from constants import IMAGE_SIZE, PAD_SIZE, NUM_CLASSES
 from load_deeplabv3 import seed_everything, common_transforms
+from model_config import ModelConfig, load_model_config, save_model_config
 from torch.nn import functional
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics import MeanMetric
@@ -451,9 +452,9 @@ def main() -> None:
     model = prepare_model(backbone_model=backbone_model_name, num_classes=num_classes)
     model.to(device)
     if checkpoint_path is not None:
-        checkpoint_model_name = checkpoint_path.stem.split("_")[1]
-        assert checkpoint_model_name == backbone_model_name, (
-            f"Model backbone mismatch. {checkpoint_model_name} != {backbone_model_name}"
+        checkpoint_cfg = load_model_config(checkpoint_path)
+        assert checkpoint_cfg.backbone == backbone_model_name, (
+            f"Model backbone mismatch. {checkpoint_cfg.backbone} != {backbone_model_name}"
         )
         checkpoints = torch.load(checkpoint_path, map_location=device)
         model.load_state_dict(checkpoints, strict=False)
@@ -529,6 +530,15 @@ def main() -> None:
         if valid_metric >= best_metric:
             print(f"Saving model. {valid_metric:0.4f} >= {best_metric:0.4f}")
             torch.save(model.state_dict(), output_model)
+            save_model_config(
+                output_model,
+                ModelConfig(
+                    backbone=backbone_model_name,
+                    image_size=image_size,
+                    pad_size=pad_size,
+                    num_classes=num_classes,
+                ),
+            )
             best_metric = valid_metric
 
 

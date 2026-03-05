@@ -35,8 +35,6 @@ namespace auto_battlebot
         DeepLabFieldModelConfiguration config;
         config.model_path = "/fake/path/model.pt";
         config.model_type = DeepLabModelType::DeepLabV3Plus;
-        config.image_size = 256;
-        config.border_padding = 10;
         DeepLabFieldModel model(config);
         // Should construct without throwing
         SUCCEED();

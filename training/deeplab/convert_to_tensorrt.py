@@ -14,18 +14,15 @@ are not loaded by accident.
 import argparse
 import os
 import platform
+import shutil
 import tempfile
 from pathlib import Path
 
 import torch
-from torchvision.models.segmentation import (
-    DeepLabV3,
-    deeplabv3_mobilenet_v3_large,
-    deeplabv3_resnet50,
-    deeplabv3_resnet101,
-)
+from torchvision.models.segmentation import DeepLabV3
 
-from constants import IMAGE_SIZE, NUM_CLASSES, PAD_SIZE
+from load_deeplabv3 import build_model
+from model_config import load_model_config, config_path_for
 
 import tensorrt as trt
 
@@ -48,34 +45,6 @@ def engine_path_with_platform_tag(path: Path) -> Path:
     tag = f"{arch}_sm{major}{minor}"
     suffix = path.suffix if path.suffix else ".engine"
     return path.parent / f"{path.stem}_{tag}{suffix}"
-
-
-def get_backbone_from_stem(stem: str) -> str:
-    """Infer backbone name from checkpoint filename stem (e.g. model_r50 -> r50)."""
-    return stem.split("_")[1]
-
-
-def build_model(backbone: str, device: torch.device) -> DeepLabV3:
-    builders = {
-        "mbv3": deeplabv3_mobilenet_v3_large,
-        "r50": deeplabv3_resnet50,
-        "r101": deeplabv3_resnet101,
-    }
-    if backbone not in builders:
-        raise ValueError(
-            f"Unknown backbone '{backbone}'. Must be one of: {list(builders.keys())}"
-        )
-    model: DeepLabV3 = builders[backbone](num_classes=NUM_CLASSES, aux_loss=True)
-    model.to(device)
-    model.eval()
-    return model
-
-
-def load_checkpoint(
-    model: DeepLabV3, checkpoint_path: Path, device: torch.device
-) -> None:
-    state = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(state, strict=False)
 
 
 def export_onnx(
@@ -173,18 +142,6 @@ def main() -> None:
         help="Output path for TensorRT engine; platform+GPU tag (e.g. _x86_64_sm89) is appended to stem (default: same name with .engine)",
     )
     parser.add_argument(
-        "--backbone",
-        type=str,
-        choices=["mbv3", "r50", "r101"],
-        help="Backbone name (default: inferred from filename, e.g. model_r50.pth -> r50)",
-    )
-    parser.add_argument(
-        "--input-size",
-        type=int,
-        default=IMAGE_SIZE + 2 * PAD_SIZE,
-        help=f"Input spatial size H=W (default: IMAGE_SIZE + 2*PAD_SIZE = {IMAGE_SIZE + 2 * PAD_SIZE})",
-    )
-    parser.add_argument(
         "--opset",
         type=int,
         default=18,
@@ -218,7 +175,7 @@ def main() -> None:
     if model_path.suffix.lower() != ".pth":
         print(f"Warning: expected .pth file, got {model_path.suffix}")
 
-    backbone = args.backbone or get_backbone_from_stem(model_path.stem)
+    cfg = load_model_config(model_path)
     device = torch.device("cuda")
 
     if args.output:
@@ -227,12 +184,15 @@ def main() -> None:
         output_path = model_path.parent / f"{model_path.stem}.engine"
     output_path = engine_path_with_platform_tag(output_path)
 
-    input_size = args.input_size
+    input_size = cfg.input_size
 
     print(f"Loading checkpoint from {model_path}...")
-    print(f"Backbone: {backbone}, num_classes: {NUM_CLASSES}")
-    model = build_model(backbone, device)
-    load_checkpoint(model, model_path, device)
+    print(f"Backbone: {cfg.backbone}, num_classes: {cfg.num_classes}, "
+          f"input_size: {input_size}")
+    model = build_model(cfg.backbone, cfg.num_classes, device)
+    model.eval()
+    state = torch.load(model_path, map_location=device)
+    model.load_state_dict(state, strict=False)
 
     if args.keep_onnx:
         onnx_path = output_path.with_suffix(".onnx")
@@ -260,7 +220,9 @@ def main() -> None:
             fp16=not args.no_fp16,
             workspace_gib=args.workspace,
         )
+        shutil.copy2(config_path_for(model_path), config_path_for(output_path))
         print(f"Engine saved to: {output_path}")
+        print(f"Config copied to: {config_path_for(output_path)}")
         print(
             "For Jetson: run this script on the Jetson to build an engine that runs there."
         )

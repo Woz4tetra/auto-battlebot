@@ -26,11 +26,13 @@ class DeepLabFieldModel : public FieldModelInterface {
    protected:
     std::string model_path_;
     DeepLabModelType model_type_;
-    int image_size_;
-    int border_padding_;
+    int image_size_ = 0;
+    int border_padding_ = 0;
     TrtEngine engine_;
     bool initialized_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
+
+    bool load_model_config();
 
     // Helper methods: preprocess writes NCHW float into buffer; postprocess takes host float output
     // and dimensions.

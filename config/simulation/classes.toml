@@ -16,8 +16,6 @@ model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64.engine"
 [floor_model]
 type = "DeepLabFieldModel"
 model_path = "models/floor_deeplabv3_mbv3_256x256_x86_64.engine"
-image_size = 236
-border_padding = 10
 
 [field_filter]
 type = "PointCloudFieldFilter"

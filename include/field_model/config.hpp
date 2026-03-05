@@ -25,17 +25,13 @@ struct NoopFieldModelConfiguration : public FieldModelConfiguration {
 struct DeepLabFieldModelConfiguration : public FieldModelConfiguration {
     std::string model_path;
     DeepLabModelType model_type = DeepLabModelType::DeepLabV3;
-    int image_size = 344;
-    int border_padding = 20;
 
     DeepLabFieldModelConfiguration() { type = "DeepLabFieldModel"; }
 
     // clang-format off
         PARSE_CONFIG_FIELDS(
             PARSE_FIELD_STRING_REQUIRED(model_path)
-            PARSE_ENUM(model_type, DeepLabModelType)
-            PARSE_FIELD(image_size)
-            PARSE_FIELD(border_padding))
+            PARSE_ENUM(model_type, DeepLabModelType))
     // clang-format on
 };
 
