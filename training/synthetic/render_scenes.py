@@ -519,22 +519,33 @@ def _wire_vertex_colors(obj: bpy.types.Object) -> None:
     the vertex colors actually render.
     """
     mesh_data = obj.data
-    if not mesh_data.color_attributes:
+    attr_name = None
+    if mesh_data.color_attributes:
+        attr_name = mesh_data.color_attributes[0].name
+    elif mesh_data.vertex_colors:
+        attr_name = mesh_data.vertex_colors[0].name
+    if attr_name is None:
         return
-    color_attr = mesh_data.color_attributes[0]
+
+    if not obj.material_slots:
+        mat = bpy.data.materials.new(name=f"vcol_{obj.name}")
+        mat.use_nodes = True
+        obj.data.materials.append(mat)
 
     for slot in obj.material_slots:
         mat = slot.material
-        if not mat or not mat.use_nodes:
+        if not mat:
             continue
+        if not mat.use_nodes:
+            mat.use_nodes = True
         tree = mat.node_tree
         bsdf = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
         if bsdf is None:
             continue
-        if bsdf.inputs["Base Color"].links:
-            continue
+        for link in list(bsdf.inputs["Base Color"].links):
+            tree.links.remove(link)
         vcol = tree.nodes.new("ShaderNodeVertexColor")
-        vcol.layer_name = color_attr.name
+        vcol.layer_name = attr_name
         tree.links.new(vcol.outputs["Color"], bsdf.inputs["Base Color"])
 
 
