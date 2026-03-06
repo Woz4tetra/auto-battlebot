@@ -113,8 +113,8 @@ roughness = 0.4
 cc_texture = "Metal030"
 
 [materials.tpu]
-metallic = 0.0
-roughness = 0.5
+metallic = 0.1
+roughness = 0.1
 cc_texture = "Plastic007"
 
 [materials.foam]
