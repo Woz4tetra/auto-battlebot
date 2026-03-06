@@ -315,8 +315,14 @@ def _disconnect_base_color(bpy_mat: bpy.types.Material) -> None:
             break
 
 
-_PBR_SUFFIXES = ["Color", "Roughness", "Metalness", "NormalGL", "Normal",
-                 "Displacement"]
+_PBR_SUFFIXES = [
+    "Color",
+    "Roughness",
+    "Metalness",
+    "NormalGL",
+    "Normal",
+    "Displacement",
+]
 
 
 def _find_texture_file(texture_dir: Path, suffix: str) -> Path | None:
@@ -380,8 +386,9 @@ def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
         tex = _add_tex_node(tree, metal_file, non_color=True)
         tree.links.new(tex.outputs["Color"], bsdf.inputs["Metallic"])
 
-    normal_file = (_find_texture_file(texture_dir, "NormalGL")
-                   or _find_texture_file(texture_dir, "Normal"))
+    normal_file = _find_texture_file(texture_dir, "NormalGL") or _find_texture_file(
+        texture_dir, "Normal"
+    )
     if normal_file:
         _disconnect("Normal")
         tex = _add_tex_node(tree, normal_file, non_color=True)
@@ -398,8 +405,9 @@ def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
         if mat_output and "Displacement" in mat_output.inputs:
             for link in list(mat_output.inputs["Displacement"].links):
                 tree.links.remove(link)
-            tree.links.new(disp_node.outputs["Displacement"],
-                           mat_output.inputs["Displacement"])
+            tree.links.new(
+                disp_node.outputs["Displacement"], mat_output.inputs["Displacement"]
+            )
 
 
 def apply_pbr_materials(
@@ -502,6 +510,34 @@ DistractorGroup = tuple[bpy.types.Object, list[bproc.types.MeshObject], float]
 """(parent_empty, meshes, native_max_dimension)"""
 
 
+def _wire_vertex_colors(obj: bpy.types.Object) -> None:
+    """Connect vertex color attributes to Principled BSDF Base Color.
+
+    GLB models with vertex colors (e.g. from Poisson reconstruction) import
+    with the color data in a mesh attribute but the shader's Base Color
+    defaults to white.  This wires a Color Attribute node into the BSDF so
+    the vertex colors actually render.
+    """
+    mesh_data = obj.data
+    if not mesh_data.color_attributes:
+        return
+    color_attr = mesh_data.color_attributes[0]
+
+    for slot in obj.material_slots:
+        mat = slot.material
+        if not mat or not mat.use_nodes:
+            continue
+        tree = mat.node_tree
+        bsdf = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if bsdf is None:
+            continue
+        if bsdf.inputs["Base Color"].links:
+            continue
+        vcol = tree.nodes.new("ShaderNodeVertexColor")
+        vcol.layer_name = color_attr.name
+        tree.links.new(vcol.outputs["Color"], bsdf.inputs["Base Color"])
+
+
 def load_distractor(file_path: Path) -> DistractorGroup | None:
     """Load a single distractor model under a parent empty.
 
@@ -523,6 +559,9 @@ def load_distractor(file_path: Path) -> DistractorGroup | None:
         imported = [o for o in bpy.context.selected_objects if o.type == "MESH"]
         if not imported:
             return None
+
+        for obj in imported:
+            _wire_vertex_colors(obj)
 
         bpy.context.view_layer.update()
         saved_world = {obj.name: obj.matrix_world.copy() for obj in imported}
@@ -1201,9 +1240,7 @@ def main() -> None:
                     random.uniform(0, 2 * math.pi),
                     random.uniform(0, 2 * math.pi),
                 )
-                ground_z = compute_ground_z(
-                    robot.meshes, robot.parent, robot_rot
-                )
+                ground_z = compute_ground_z(robot.meshes, robot.parent, robot_rot)
                 air_cfg = rand_cfg.get("air_height_range", [0.02, 0.15])
                 robot_z = ground_z + random.uniform(air_cfg[0], air_cfg[1])
             else:
@@ -1224,9 +1261,7 @@ def main() -> None:
                     math.radians(roll_deg),
                     random.uniform(0, 2 * math.pi),
                 )
-                robot_z = compute_ground_z(
-                    robot.meshes, robot.parent, robot_rot
-                )
+                robot_z = compute_ground_z(robot.meshes, robot.parent, robot_rot)
             robot_pos = [
                 random.uniform(-arena_radius * 0.5, arena_radius * 0.5),
                 random.uniform(-arena_radius * 0.5, arena_radius * 0.5),
@@ -1285,8 +1320,7 @@ def main() -> None:
 
         # -- Camera poses (look at centroid of all placed robots) --
         centroid = [
-            sum(p[i] for p in robot_positions) / len(robot_positions)
-            for i in range(3)
+            sum(p[i] for p in robot_positions) / len(robot_positions) for i in range(3)
         ]
         cam_count = min(images_per_scene, args.start_index + num_images - global_idx)
         cam_poses = []
@@ -1309,9 +1343,7 @@ def main() -> None:
                 all_keypoints_world.append(
                     mathutils.Vector((wmat @ np.append(kp, 1.0))[:3])
                 )
-        clear_blocking_distractors(
-            cam_poses, all_keypoints_world, active_distractors
-        )
+        clear_blocking_distractors(cam_poses, all_keypoints_world, active_distractors)
 
         for pose in cam_poses:
             bproc.camera.add_camera_pose(pose)
@@ -1353,9 +1385,7 @@ def main() -> None:
                     f"unique={np.unique(cat_seg).tolist()}"
                 )
                 if inst_seg is not None:
-                    print(
-                        f"  Inst segmap unique={np.unique(inst_seg).tolist()}"
-                    )
+                    print(f"  Inst segmap unique={np.unique(inst_seg).tolist()}")
 
             # -- Per-robot annotation --
             annotations: list[YoloAnnotation] = []
@@ -1367,9 +1397,7 @@ def main() -> None:
                     seg_for_bbox = cat_seg
                     seg_id = ROBOT_CATEGORY_ID
 
-                bbox = bbox_from_category_segmap(
-                    seg_for_bbox, seg_id, img_w, img_h
-                )
+                bbox = bbox_from_category_segmap(seg_for_bbox, seg_id, img_w, img_h)
                 if bbox is None:
                     continue
 
@@ -1380,9 +1408,7 @@ def main() -> None:
                 if w_px < min_bbox_dim or h_px < min_bbox_dim:
                     continue
 
-                robot_px = int(
-                    np.sum(seg_for_bbox.squeeze() == seg_id)
-                )
+                robot_px = int(np.sum(seg_for_bbox.squeeze() == seg_id))
                 bbox_area_px = max(1, w_px * h_px)
                 if robot_px < bbox_area_px * min_vis:
                     continue
