@@ -167,11 +167,11 @@ def cleanup_meshes(meshes: list[bpy.types.Object]) -> None:
 def render_preview(
     meshes: list[bpy.types.Object],
     output_path: Path,
-    img_w: int = 640,
-    img_h: int = 480,
+    img_w: int = 480,
+    img_h: int = 360,
     render_samples: int = 64,
 ) -> None:
-    """Render 3 off-axis views of the robot and save a concatenated image."""
+    """Render 6 views (front/back/left/right/top/bottom) as a 3x2 grid."""
     bpy.context.view_layer.update()
     all_pts = [
         obj.matrix_world @ mathutils.Vector(c)
@@ -189,10 +189,14 @@ def render_preview(
     extent = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6)
     radius = extent * 2.0
 
+    # (azimuth_deg, elevation_deg, label) — 6 cardinal directions
     view_angles = [
-        (30, 25),
-        (150, 10),
-        (270, 40),
+        (0, 15, "Front"),
+        (180, 15, "Back"),
+        (90, 15, "Left"),
+        (270, 15, "Right"),
+        (0, 89, "Top"),
+        (0, -89, "Bottom"),
     ]
 
     bproc.camera.set_resolution(img_w, img_h)
@@ -209,7 +213,7 @@ def render_preview(
     fill.set_location([-radius * 1.5, radius * 1.5, radius * 1.0])
 
     bproc.utility.reset_keyframes()
-    for azimuth_deg, elevation_deg in view_angles:
+    for azimuth_deg, elevation_deg, _label in view_angles:
         az = math.radians(azimuth_deg)
         el = math.radians(elevation_deg)
         cam_pos = center + radius * np.array([
@@ -224,13 +228,28 @@ def render_preview(
         bproc.camera.add_camera_pose(cam2world)
 
     data = bproc.renderer.render()
-    frames = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in data["colors"]]
-    concat = np.concatenate(frames, axis=1)
+    frames = []
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    for img, (_az, _el, label) in zip(data["colors"], view_angles):
+        bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        cv2.putText(bgr, label, (10, 30), font, 0.8, (255, 255, 255), 2,
+                    cv2.LINE_AA)
+        cv2.putText(bgr, label, (10, 30), font, 0.8, (0, 0, 0), 1,
+                    cv2.LINE_AA)
+        frames.append(bgr)
+
+    cols = 3
+    rows = 2
+    grid_rows = []
+    for r in range(rows):
+        row_frames = frames[r * cols : r * cols + cols]
+        grid_rows.append(np.concatenate(row_frames, axis=1))
+    grid = np.concatenate(grid_rows, axis=0)
 
     out = resolve_path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out), concat)
-    print(f"\nPreview saved to {out}  ({img_w * len(frames)}x{img_h})")
+    cv2.imwrite(str(out), grid)
+    print(f"\nPreview saved to {out}  ({img_w * cols}x{img_h * rows})")
 
     for lgt in [light, fill]:
         bpy.data.objects.remove(lgt.blender_obj, do_unlink=True)
