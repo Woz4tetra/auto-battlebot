@@ -1,12 +1,15 @@
 import blenderproc as bproc  # isort: skip  # must be first import for blenderproc run
 
 import argparse
+import math
 import os
 import sys
 import tomllib
 from pathlib import Path
 
 import bpy
+import cv2
+import mathutils
 import numpy as np
 
 # BlenderProc changes CWD to a temp directory, so capture it now.
@@ -152,6 +155,76 @@ def apply_pbr_materials(
                 )
 
 
+def render_preview(
+    meshes: list[bpy.types.Object],
+    output_path: Path,
+    img_w: int = 640,
+    img_h: int = 480,
+    render_samples: int = 64,
+) -> None:
+    """Render 3 off-axis views of the robot and save a concatenated image."""
+    bpy.context.view_layer.update()
+    all_pts = [
+        obj.matrix_world @ mathutils.Vector(c)
+        for obj in meshes
+        for c in obj.bound_box
+    ]
+    xs = [p.x for p in all_pts]
+    ys = [p.y for p in all_pts]
+    zs = [p.z for p in all_pts]
+    center = np.array([
+        (min(xs) + max(xs)) / 2,
+        (min(ys) + max(ys)) / 2,
+        (min(zs) + max(zs)) / 2,
+    ])
+    extent = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6)
+    radius = extent * 2.0
+
+    # Three off-axis camera positions: azimuth/elevation pairs (degrees)
+    view_angles = [
+        (30, 25),   # front-left, slightly above
+        (150, 10),  # back-left, low angle
+        (270, 40),  # right side, elevated
+    ]
+
+    bproc.camera.set_resolution(img_w, img_h)
+    bproc.renderer.set_max_amount_of_samples(render_samples)
+
+    light = bproc.types.Light()
+    light.set_type("POINT")
+    light.set_energy(300)
+    light.set_location([radius * 1.5, -radius * 1.5, radius * 2.0])
+
+    fill = bproc.types.Light()
+    fill.set_type("POINT")
+    fill.set_energy(100)
+    fill.set_location([-radius * 1.5, radius * 1.5, radius * 1.0])
+
+    bproc.utility.reset_keyframes()
+    for azimuth_deg, elevation_deg in view_angles:
+        az = math.radians(azimuth_deg)
+        el = math.radians(elevation_deg)
+        cam_pos = center + radius * np.array([
+            math.cos(el) * math.cos(az),
+            math.cos(el) * math.sin(az),
+            math.sin(el),
+        ])
+        forward = center - cam_pos
+        forward = forward / np.linalg.norm(forward)
+        rotation = bproc.camera.rotation_from_forward_vec(forward)
+        cam2world = bproc.math.build_transformation_mat(cam_pos, rotation)
+        bproc.camera.add_camera_pose(cam2world)
+
+    data = bproc.renderer.render()
+    frames = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in data["colors"]]
+    concat = np.concatenate(frames, axis=1)
+
+    out = resolve_path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out), concat)
+    print(f"\nPreview saved to {out}  ({img_w * len(frames)}x{img_h})")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config", type=Path, help="Path to config.toml")
@@ -165,6 +238,12 @@ def main() -> None:
         type=Path,
         default=None,
         help="Save the textured model as a .blend file for inspection",
+    )
+    parser.add_argument(
+        "--preview",
+        type=Path,
+        default=None,
+        help="Render 3 off-axis views and save concatenated image to this path",
     )
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else sys.argv[1:]
     args = parser.parse_args(argv)
@@ -191,11 +270,15 @@ def main() -> None:
         config.get("environment", {}).get("cc_textures_dir"),
     )
 
+    if args.preview:
+        render_preview(meshes, args.preview)
+
     if args.save_blend:
         bpy.ops.wm.save_as_mainfile(filepath=str(resolve_path(args.save_blend)))
         print(f"\nSaved textured model to {args.save_blend}")
-    else:
-        print("\nDone. Use --save-blend to save the result.")
+
+    if not args.preview and not args.save_blend:
+        print("\nDone. Use --save-blend or --preview to output results.")
 
 
 if __name__ == "__main__":
