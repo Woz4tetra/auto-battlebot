@@ -1,7 +1,10 @@
-"""Convert a DeepLab .pth checkpoint to TensorRT engine format.
+"""Convert a DeepLab .pth checkpoint (or .onnx model) to TensorRT engine format.
+
+Accepts either a .pth checkpoint (which is first exported to ONNX internally)
+or a pre-exported .onnx model (which skips straight to the TensorRT build).
 
 Engines are GPU- and TensorRT-version specific: an engine built on x86 cannot
-run on Jetson (or vice versa). For Jetson deployment, copy the .pth checkpoint
+run on Jetson (or vice versa). For Jetson deployment, copy the .pth/.onnx model
 to the Jetson and run this script there to produce the .engine used by the C++
 app. Same TensorRT version (or VERSION_COMPATIBLE build) helps across patch
 versions on the same platform.
@@ -118,12 +121,12 @@ def build_tensorrt_engine(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Convert DeepLab .pth checkpoint to TensorRT engine"
+        description="Convert DeepLab .pth checkpoint or .onnx model to TensorRT engine"
     )
     parser.add_argument(
         "model",
         type=str,
-        help="Path to DeepLab checkpoint (.pth file)",
+        help="Path to DeepLab checkpoint (.pth) or pre-exported ONNX model (.onnx)",
     )
     parser.add_argument(
         "-o",
@@ -162,8 +165,10 @@ def main() -> None:
     model_path = Path(args.model)
     if not model_path.exists():
         raise FileNotFoundError(f"Model file not found: {model_path}")
-    if model_path.suffix.lower() != ".pth":
-        print(f"Warning: expected .pth file, got {model_path.suffix}")
+
+    is_onnx = model_path.suffix.lower() == ".onnx"
+    if not is_onnx and model_path.suffix.lower() != ".pth":
+        print(f"Warning: expected .pth or .onnx file, got {model_path.suffix}")
 
     cfg = load_model_config(model_path)
     device = torch.device("cuda")
@@ -175,27 +180,31 @@ def main() -> None:
     output_path = engine_path_with_platform_tag(output_path)
 
     input_size = cfg.input_size
-
-    print(f"Loading checkpoint from {model_path}...")
     print(
         f"Backbone: {cfg.backbone}, decoder: {cfg.decoder}, "
         f"num_classes: {cfg.num_classes}, input_size: {input_size}"
     )
-    wrapper = build_model(cfg.backbone, cfg.num_classes, device, decoder=cfg.decoder)
-    wrapper.eval()
-    state = torch.load(model_path, map_location=device)
-    wrapper.model.load_state_dict(state, strict=False)
 
-    if args.keep_onnx:
-        onnx_path = output_path.with_suffix(".onnx")
+    if is_onnx:
+        onnx_path = model_path
         use_temp = False
+        print(f"Using pre-exported ONNX model: {onnx_path}")
     else:
-        onnx_fd, onnx_path_str = tempfile.mkstemp(suffix=".onnx")
-        os.close(onnx_fd)
-        onnx_path = Path(onnx_path_str)
-        use_temp = True
+        print(f"Loading checkpoint from {model_path}...")
+        wrapper = build_model(cfg.backbone, cfg.num_classes, device, decoder=cfg.decoder)
+        wrapper.eval()
+        state = torch.load(model_path, map_location=device, weights_only=True)
+        wrapper.model.load_state_dict(state, strict=False)
 
-    try:
+        if args.keep_onnx:
+            onnx_path = output_path.with_suffix(".onnx")
+            use_temp = False
+        else:
+            onnx_fd, onnx_path_str = tempfile.mkstemp(suffix=".onnx")
+            os.close(onnx_fd)
+            onnx_path = Path(onnx_path_str)
+            use_temp = True
+
         print(f"Exporting to ONNX (input shape: [1, 3, {input_size}, {input_size}])...")
         export_onnx(
             wrapper,
@@ -205,6 +214,8 @@ def main() -> None:
             dynamic_batch=False,
             device=device,
         )
+
+    try:
         print("Building TensorRT engine...")
         build_tensorrt_engine(
             onnx_path,
