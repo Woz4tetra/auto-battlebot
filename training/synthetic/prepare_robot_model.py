@@ -47,19 +47,61 @@ def import_gltf(model_path: Path, scale: float = 1.0) -> list[bpy.types.Object]:
     return meshes
 
 
+def _color_from_node(node: bpy.types.ShaderNode) -> tuple[int, int, int] | None:
+    """Try to read a constant RGB value from a shader node."""
+    if node.type == "RGB":
+        c = node.outputs[0].default_value
+        return (int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
+    for out in node.outputs:
+        if out.type == "RGBA":
+            c = out.default_value
+            return (int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
+    return None
+
+
+def _color_from_material_name(name: str) -> tuple[int, int, int] | None:
+    """Parse RGB from material names like '0.501961_0.501961_0.501961_...'
+
+    Common in CAD-exported GLTFs where names are auto-generated from RGBA.
+    """
+    parts = name.split("_")
+    if len(parts) >= 3:
+        try:
+            r, g, b = float(parts[0]), float(parts[1]), float(parts[2])
+            if all(0.0 <= v <= 1.0 for v in (r, g, b)):
+                return (int(r * 255), int(g * 255), int(b * 255))
+        except ValueError:
+            pass
+    return None
+
+
 def get_material_base_color(mat: bpy.types.Material) -> tuple[int, int, int] | None:
-    """Extract the base color RGB (0-255) from a Blender material's Principled BSDF."""
+    """Extract the base color RGB (0-255) from a Blender material.
+
+    Tries, in order: the Principled BSDF default value (when no texture is
+    linked), the connected source node's color output, and finally the
+    material name (for CAD-exported GLTFs that encode color in the name).
+    """
     if not mat.use_nodes:
-        return None
+        return _color_from_material_name(mat.name)
+    bsdf = None
     for node in mat.node_tree.nodes:
         if node.type == "BSDF_PRINCIPLED":
-            color = node.inputs["Base Color"].default_value
-            return (
-                int(color[0] * 255),
-                int(color[1] * 255),
-                int(color[2] * 255),
-            )
-    return None
+            bsdf = node
+            break
+    if bsdf is None:
+        return _color_from_material_name(mat.name)
+
+    bc_input = bsdf.inputs["Base Color"]
+    if not bc_input.links:
+        c = bc_input.default_value
+        return (int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
+
+    source_color = _color_from_node(bc_input.links[0].from_node)
+    if source_color is not None:
+        return source_color
+
+    return _color_from_material_name(mat.name)
 
 
 def inspect_model(model_path: Path, scale: float = 1.0) -> None:
