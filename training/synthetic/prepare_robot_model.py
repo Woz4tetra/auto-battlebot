@@ -48,14 +48,10 @@ def import_gltf(model_path: Path, scale: float = 1.0) -> list[bpy.types.Object]:
 
 
 def _color_from_node(node: bpy.types.ShaderNode) -> tuple[int, int, int] | None:
-    """Try to read a constant RGB value from a shader node."""
+    """Read a constant RGB value from node types where default_value is reliable."""
     if node.type == "RGB":
         c = node.outputs[0].default_value
         return (int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
-    for out in node.outputs:
-        if out.type == "RGBA":
-            c = out.default_value
-            return (int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
     return None
 
 
