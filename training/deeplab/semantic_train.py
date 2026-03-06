@@ -82,12 +82,19 @@ class SegDataset(Dataset):
         mask[:, :, 0] = np.where(gt_arr == 0, 1.0, 0.0)
         mask[:, :, 1] = np.where(gt_arr > 0, 1.0, 0.0)
 
-        mask = np.pad(
-            mask,
+        mask_bg = np.pad(
+            mask[:, :, 0:1],
+            ((self.pad_size, self.pad_size), (self.pad_size, self.pad_size), (0, 0)),
+            mode="constant",
+            constant_values=1,
+        )
+        mask_fg = np.pad(
+            mask[:, :, 1:],
             ((self.pad_size, self.pad_size), (self.pad_size, self.pad_size), (0, 0)),
             mode="constant",
             constant_values=0,
         )
+        mask = np.concatenate([mask_bg, mask_fg], axis=2)
 
         reordered_mask = torch.from_numpy(mask).permute(2, 0, 1)
 
