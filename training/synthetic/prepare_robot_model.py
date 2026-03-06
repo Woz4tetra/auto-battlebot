@@ -77,7 +77,7 @@ def inspect_model(model_path: Path, scale: float = 1.0) -> None:
             color_str = f"[{color[0]}, {color[1]}, {color[2]}]" if color else "N/A"
             print(f"  Material: {mat.name:30s}  Color (RGB): {color_str}")
     print(f"\n{len(seen_materials)} unique materials found.")
-    print("Use these colors to fill in [[robot.color_mapping]] entries in config.toml.")
+    print("Use these colors to fill in [[robots.color_mapping]] entries in config.toml.")
 
 
 def color_distance(c1: tuple[int, int, int], c2: list[int]) -> float:
@@ -155,6 +155,15 @@ def apply_pbr_materials(
                 )
 
 
+def cleanup_meshes(meshes: list[bpy.types.Object]) -> None:
+    """Remove imported mesh objects and their data from the Blender scene."""
+    for obj in meshes:
+        mesh_data = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if mesh_data and mesh_data.users == 0:
+            bpy.data.meshes.remove(mesh_data)
+
+
 def render_preview(
     meshes: list[bpy.types.Object],
     output_path: Path,
@@ -180,11 +189,10 @@ def render_preview(
     extent = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6)
     radius = extent * 2.0
 
-    # Three off-axis camera positions: azimuth/elevation pairs (degrees)
     view_angles = [
-        (30, 25),   # front-left, slightly above
-        (150, 10),  # back-left, low angle
-        (270, 40),  # right side, elevated
+        (30, 25),
+        (150, 10),
+        (270, 40),
     ]
 
     bproc.camera.set_resolution(img_w, img_h)
@@ -223,6 +231,9 @@ def render_preview(
     out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out), concat)
     print(f"\nPreview saved to {out}  ({img_w * len(frames)}x{img_h})")
+
+    for lgt in [light, fill]:
+        bpy.data.objects.remove(lgt.blender_obj, do_unlink=True)
 
 
 def _slugify(name: str) -> str:
@@ -322,6 +333,8 @@ def main() -> None:
                 out = args.save_blend
             bpy.ops.wm.save_as_mainfile(filepath=str(resolve_path(out)))
             print(f"\nSaved textured model to {out}")
+
+        cleanup_meshes(meshes)
 
     if not args.inspect and not args.preview and not args.save_blend:
         print("\nDone. Use --save-blend or --preview to output results.")
