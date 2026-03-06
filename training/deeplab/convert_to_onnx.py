@@ -85,7 +85,10 @@ def main() -> None:
         **export_kwargs,
     )
 
-    shutil.copy2(config_path_for(model_path), config_path_for(output_path))
+    model_config_path = config_path_for(model_path)
+    output_config_path = config_path_for(output_path)
+    if model_config_path.resolve() != output_config_path.resolve():
+        shutil.copy2(model_config_path, output_config_path)
     print(f"Model exported to: {output_path}")
 
 

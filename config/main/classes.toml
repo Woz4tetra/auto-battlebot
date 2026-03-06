@@ -11,7 +11,7 @@ model_path = "models/field_deeplabv3_r50_2024-09-05_aarch64.engine"
 
 [robot_mask_model]
 type = "DeepLabMaskModel"
-model_path = "models/floor_deeplabv3_mbv3_256x256_aarch64_sm87.engine"
+model_path = "models/robot_deeplabv3_mbv3_2026-03-05_aarch64_sm87.engine"
 output_label = "OPPONENT"
 
 [field_filter]
