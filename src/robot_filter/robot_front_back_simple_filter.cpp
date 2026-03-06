@@ -73,8 +73,23 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
             keypoints.header.stamp);
         diagnostics_logger_->debug(
             {{"num_robot_mask_opponents", (int)opponent_measurements.size()}});
-        for (auto &m : opponent_measurements) {
-            filter_measurements.push_back(std::move(m));
+
+        std::vector<FrameId> all_opponent_fids = get_frame_ids_for_label(Label::OPPONENT);
+        std::vector<FrameId> available_fids;
+        for (const auto &fid : all_opponent_fids) {
+            bool already_used = std::any_of(
+                filter_measurements.begin(), filter_measurements.end(),
+                [fid](const RobotDescription &m) { return m.frame_id == fid; });
+            if (!already_used) available_fids.push_back(fid);
+        }
+
+        if (!available_fids.empty() && !opponent_measurements.empty()) {
+            std::vector<MeasurementWithConfidence> meas_with_conf;
+            for (auto &m : opponent_measurements) {
+                meas_with_conf.push_back({0.0, std::move(m)});
+            }
+            auto assigned = assign_frame_ids_to_measurements(meas_with_conf, available_fids);
+            for (auto &a : assigned) filter_measurements.push_back(std::move(a));
         }
     }
 
