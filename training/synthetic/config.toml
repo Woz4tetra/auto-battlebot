@@ -63,6 +63,13 @@ color = [232, 232, 232]
 tolerance = 20
 material = "paper"
 
+[[robots]]
+name = "HOUSE_BOT"
+model_path = "../data/models/HOUSE BOT.glb"
+class_id = 1
+scale = 1.0
+weight = 0.2
+
 # To add another robot, duplicate the block above:
 # [[robots]]
 # name = "OPPONENT BOT"
@@ -82,6 +89,8 @@ material = "paper"
 
 # PBR properties per material type (shared across all robots).
 # cc_texture names refer to ambientCG / CC0 Textures asset IDs.
+
+
 [materials.aluminum]
 metallic = 1.0
 roughness = 0.3
