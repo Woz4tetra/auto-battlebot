@@ -236,9 +236,30 @@ def render_preview(
         bpy.data.objects.remove(lgt.blender_obj, do_unlink=True)
 
 
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+
+
 def _slugify(name: str) -> str:
     """Turn a robot name into a filesystem-safe slug."""
     return name.lower().replace(" ", "_").replace("/", "_")
+
+
+def _resolve_output_path(
+    user_path: Path, robot_name: str, default_ext: str, multi: bool
+) -> Path:
+    """Turn a user-supplied path into a concrete file path.
+
+    If *user_path* looks like a directory (no image extension or ends with /),
+    the output file is placed inside it.  When *multi* is true, the robot name
+    is always embedded in the filename.
+    """
+    is_dir = not user_path.suffix or user_path.suffix.lower() not in _IMAGE_EXTENSIONS
+    slug = _slugify(robot_name)
+    if is_dir:
+        return user_path / f"{slug}{default_ext}"
+    if multi:
+        return user_path.parent / f"{user_path.stem}_{slug}{user_path.suffix}"
+    return user_path
 
 
 def main() -> None:
@@ -317,20 +338,12 @@ def main() -> None:
         )
 
         if args.preview:
-            if multi:
-                base = args.preview
-                out = base.parent / f"{base.stem}_{_slugify(rname)}{base.suffix}"
-            else:
-                out = args.preview
+            out = _resolve_output_path(args.preview, rname, ".jpg", multi)
             render_preview(meshes, out)
             bproc.utility.reset_keyframes()
 
         if args.save_blend:
-            if multi:
-                base = args.save_blend
-                out = base.parent / f"{base.stem}_{_slugify(rname)}{base.suffix}"
-            else:
-                out = args.save_blend
+            out = _resolve_output_path(args.save_blend, rname, ".blend", multi)
             bpy.ops.wm.save_as_mainfile(filepath=str(resolve_path(out)))
             print(f"\nSaved textured model to {out}")
 
