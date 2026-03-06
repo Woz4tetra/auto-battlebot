@@ -35,33 +35,38 @@ back = [-0.0206, 0.0, -0.00394205]
 # to list all colors present in the GLTF for filling this out.
 [[robots.color_mapping]]
 color = [128, 128, 128]
-tolerance = 20
+tolerance = 5
 material = "aluminum"
 
 [[robots.color_mapping]]
 color = [0, 0, 0]
-tolerance = 30
+tolerance = 5
 material = "steel"
 
 [[robots.color_mapping]]
 color = [255, 32, 65]
-tolerance = 20
+tolerance = 5
 material = "tpu"
 
 [[robots.color_mapping]]
 color = [165, 165, 165]
-tolerance = 20
+tolerance = 5
 material = "foam"
 
 [[robots.color_mapping]]
 color = [102, 102, 102]
-tolerance = 20
+tolerance = 5
 material = "foam"
 
 [[robots.color_mapping]]
 color = [232, 232, 232]
-tolerance = 20
+tolerance = 5
 material = "paper"
+
+[[robots.color_mapping]]
+color = [255, 255, 255]
+tolerance = 1
+material = "housebot"
 
 [[robots]]
 name = "HOUSE_BOT"
@@ -115,6 +120,11 @@ cc_texture = "Rubber001"
 metallic = 0.0
 roughness = 0.9
 cc_texture = "Paper001"
+
+[materials.housebot]
+metallic = 1.0
+roughness = 0.4
+cc_texture = "HouseBot"
 
 [distractors]
 # Each source has a path and a weight controlling how often its models are
