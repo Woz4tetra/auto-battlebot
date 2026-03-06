@@ -63,17 +63,21 @@ color = [232, 232, 232]
 tolerance = 5
 material = "paper"
 
-[[robots.color_mapping]]
-color = [255, 255, 255]
-tolerance = 1
-material = "housebot"
-
 [[robots]]
 name = "HOUSE_BOT"
 model_path = "../data/models/HOUSE BOT.glb"
 class_id = 1
 scale = 1.0
 weight = 0.2
+
+[robots.keypoints]
+front = [0.12700, 0.0, -0.10795]
+back = [-0.12700, 0.0, -0.10795]
+
+[[robots.color_mapping]]
+color = [255, 255, 255]
+tolerance = 5
+material = "housebot"
 
 # To add another robot, duplicate the block above:
 # [[robots]]
