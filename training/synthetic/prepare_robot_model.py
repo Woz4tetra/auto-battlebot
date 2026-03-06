@@ -93,11 +93,14 @@ def get_material_base_color(mat: bpy.types.Material) -> tuple[int, int, int] | N
         c = bc_input.default_value
         return (int(c[0] * 255), int(c[1] * 255), int(c[2] * 255))
 
-    source_color = _color_from_node(bc_input.links[0].from_node)
+    source_node = bc_input.links[0].from_node
+    source_color = _color_from_node(source_node)
     if source_color is not None:
         return source_color
 
-    return _color_from_material_name(mat.name)
+    # Non-constant source (image texture, procedural, etc.) — the material has
+    # intentional visual content that shouldn't be remapped.
+    return None
 
 
 def _describe_base_color_source(mat: bpy.types.Material) -> str:
