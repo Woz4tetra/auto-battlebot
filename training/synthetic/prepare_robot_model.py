@@ -100,8 +100,26 @@ def get_material_base_color(mat: bpy.types.Material) -> tuple[int, int, int] | N
     return _color_from_material_name(mat.name)
 
 
+def _describe_base_color_source(mat: bpy.types.Material) -> str:
+    """Return a short description of how the Base Color is wired."""
+    if not mat.use_nodes:
+        return "no nodes"
+    bsdf = None
+    for node in mat.node_tree.nodes:
+        if node.type == "BSDF_PRINCIPLED":
+            bsdf = node
+            break
+    if bsdf is None:
+        return "no Principled BSDF"
+    bc_input = bsdf.inputs["Base Color"]
+    if not bc_input.links:
+        return "direct value"
+    from_node = bc_input.links[0].from_node
+    return f"linked <- {from_node.type} ({from_node.name})"
+
+
 def inspect_model(model_path: Path, scale: float = 1.0) -> None:
-    """Print all material names and base colors found in the GLTF."""
+    """Print all material names, base colors, and node wiring found in the GLTF."""
     meshes = import_gltf(model_path, scale)
     print(f"\nFound {len(meshes)} mesh objects in {model_path.name}:\n")
     seen_materials: set[str] = set()
@@ -112,8 +130,9 @@ def inspect_model(model_path: Path, scale: float = 1.0) -> None:
                 continue
             seen_materials.add(mat.name)
             color = get_material_base_color(mat)
+            source = _describe_base_color_source(mat)
             color_str = f"[{color[0]}, {color[1]}, {color[2]}]" if color else "N/A"
-            print(f"  Material: {mat.name:30s}  Color (RGB): {color_str}")
+            print(f"  Material: {mat.name:30s}  Color: {color_str:20s}  ({source})")
     print(f"\n{len(seen_materials)} unique materials found.")
     print("Use these colors to fill in [[robots.color_mapping]] entries in config.toml.")
 
