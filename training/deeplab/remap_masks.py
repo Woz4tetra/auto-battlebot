@@ -13,8 +13,7 @@ Example TOML config:
     # mapped to `default_label`.
     default_label = 0
 
-    # Delete image+mask pairs where ALL pixels map to a deleted label.
-    # Listed labels are removed before remapping.
+    # Delete image+mask pairs that contain ANY of these labels.
     delete_labels = [3, 4]
 
     [label_map]
@@ -132,8 +131,8 @@ def main() -> None:
         channel = mask[:, :, 0] if mask.ndim == 3 else mask
         unique_before = np.unique(channel)
 
-        should_delete = delete_labels and set(unique_before.tolist()).issubset(
-            delete_labels
+        should_delete = delete_labels and bool(
+            set(unique_before.tolist()) & delete_labels
         )
 
         if output_dir is not None:

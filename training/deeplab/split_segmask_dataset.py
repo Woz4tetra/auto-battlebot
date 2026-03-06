@@ -102,9 +102,22 @@ def main() -> None:
     for name, items in splits.items():
         print(f"  {name}: {len(items)}")
         dest = output_path / name
+        seen: set[str] = set()
         for img_path, mask_path in items:
-            shutil.copy2(img_path, dest / img_path.name)
-            shutil.copy2(mask_path, dest / mask_path.name)
+            img_name = img_path.name
+            if img_name in seen:
+                counter = 1
+                while f"{img_path.stem}_{counter}{img_path.suffix}" in seen:
+                    counter += 1
+                img_name = f"{img_path.stem}_{counter}{img_path.suffix}"
+            seen.add(img_name)
+            mask_name = (
+                img_name.replace(img_path.suffix, "_mask.png")
+                if "_mask" not in img_name
+                else img_name
+            )
+            shutil.copy2(img_path, dest / img_name)
+            shutil.copy2(mask_path, dest / mask_name)
 
     print(f"Done. Output written to {output_path}")
 
