@@ -97,7 +97,9 @@ material = "housebot"
 # material = "aluminum"
 
 # PBR properties per material type (shared across all robots).
-# cc_texture names refer to ambientCG / CC0 Textures asset IDs.
+# cc_texture names refer to ambientCG / CC0 Textures asset IDs (tiling).
+# texture_dir points to a directory of PBR images (Color, Roughness, etc.)
+# that are applied using the model's UV mapping instead of tiling.
 
 
 [materials.aluminum]
@@ -126,9 +128,10 @@ roughness = 0.9
 cc_texture = "Paper001"
 
 [materials.housebot]
-metallic = 1.0
-roughness = 0.4
-cc_texture = "HouseBot"
+# UV-mapped PBR textures loaded from a directory (Color, Roughness, Metalness,
+# NormalGL, Displacement).  Unlike cc_texture, this preserves the model's UV
+# layout instead of tiling with generated coordinates.
+texture_dir = "../data/cc_textures/HouseBot"
 
 [distractors]
 # Each source has a path and a weight controlling how often its models are

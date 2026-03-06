@@ -157,6 +157,93 @@ def match_material_type(
     return best_match
 
 
+_PBR_SUFFIXES = ["Color", "Roughness", "Metalness", "NormalGL", "Normal",
+                 "Displacement"]
+
+
+def _find_texture_file(texture_dir: Path, suffix: str) -> Path | None:
+    """Find a texture file in *texture_dir* whose name contains *suffix*."""
+    for ext in (".jpg", ".jpeg", ".png", ".exr", ".tiff"):
+        for p in texture_dir.iterdir():
+            if p.suffix.lower() == ext and suffix.lower() in p.stem.lower():
+                return p
+    return None
+
+
+def _add_tex_node(
+    tree: bpy.types.NodeTree,
+    image_path: Path,
+    non_color: bool = False,
+) -> bpy.types.ShaderNodeTexImage:
+    """Create an Image Texture node loaded from *image_path*."""
+    img = bpy.data.images.load(str(image_path))
+    tex = tree.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    if non_color:
+        img.colorspace_settings.name = "Non-Color"
+    return tex
+
+
+def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
+    """Load PBR image textures from *texture_dir* and wire them into the material.
+
+    Scans for files containing standard PBR suffixes (Color, Roughness,
+    Metalness, NormalGL, Displacement) and connects them to the corresponding
+    Principled BSDF inputs.  Uses the model's existing UV mapping.
+    """
+    if not bpy_mat.use_nodes:
+        bpy_mat.use_nodes = True
+    tree = bpy_mat.node_tree
+    bsdf = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is None:
+        print(f"  Warning: No Principled BSDF in {bpy_mat.name}, skipping textures")
+        return
+
+    def _disconnect(input_name: str) -> None:
+        if input_name in bsdf.inputs:
+            for link in list(bsdf.inputs[input_name].links):
+                tree.links.remove(link)
+
+    color_file = _find_texture_file(texture_dir, "Color")
+    if color_file:
+        _disconnect("Base Color")
+        tex = _add_tex_node(tree, color_file)
+        tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+
+    rough_file = _find_texture_file(texture_dir, "Roughness")
+    if rough_file:
+        _disconnect("Roughness")
+        tex = _add_tex_node(tree, rough_file, non_color=True)
+        tree.links.new(tex.outputs["Color"], bsdf.inputs["Roughness"])
+
+    metal_file = _find_texture_file(texture_dir, "Metalness")
+    if metal_file:
+        _disconnect("Metallic")
+        tex = _add_tex_node(tree, metal_file, non_color=True)
+        tree.links.new(tex.outputs["Color"], bsdf.inputs["Metallic"])
+
+    normal_file = (_find_texture_file(texture_dir, "NormalGL")
+                   or _find_texture_file(texture_dir, "Normal"))
+    if normal_file:
+        _disconnect("Normal")
+        tex = _add_tex_node(tree, normal_file, non_color=True)
+        normal_map = tree.nodes.new("ShaderNodeNormalMap")
+        tree.links.new(tex.outputs["Color"], normal_map.inputs["Color"])
+        tree.links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+
+    disp_file = _find_texture_file(texture_dir, "Displacement")
+    if disp_file:
+        tex = _add_tex_node(tree, disp_file, non_color=True)
+        disp_node = tree.nodes.new("ShaderNodeDisplacement")
+        tree.links.new(tex.outputs["Color"], disp_node.inputs["Height"])
+        mat_output = next((n for n in tree.nodes if n.type == "OUTPUT_MATERIAL"), None)
+        if mat_output and "Displacement" in mat_output.inputs:
+            for link in list(mat_output.inputs["Displacement"].links):
+                tree.links.remove(link)
+            tree.links.new(disp_node.outputs["Displacement"],
+                           mat_output.inputs["Displacement"])
+
+
 def apply_pbr_materials(
     meshes: list[bpy.types.Object],
     color_mapping: list[dict],
@@ -194,8 +281,17 @@ def apply_pbr_materials(
                 print(f"  Warning: No material config for type '{mat_type}'")
                 continue
 
+            tex_dir = mat_cfg.get("texture_dir")
             cc_name = mat_cfg.get("cc_texture")
-            if cc_name and cc_name in cc_materials:
+
+            if tex_dir:
+                td = resolve_path(Path(tex_dir))
+                if td.is_dir():
+                    _apply_pbr_textures(bpy_mat, td)
+                    print(f"  {bpy_mat.name} -> PBR textures from '{td.name}/'")
+                else:
+                    print(f"  Warning: texture_dir not found: {td}")
+            elif cc_name and cc_name in cc_materials:
                 bproc_mesh.replace_materials(cc_materials[cc_name])
                 print(f"  {bpy_mat.name} -> CC texture '{cc_name}'")
             else:
