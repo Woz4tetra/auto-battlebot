@@ -68,7 +68,7 @@ name = "HOUSE_BOT"
 model_path = "../data/models/HOUSE BOT.glb"
 class_id = 1
 scale = 1.0
-weight = 0.2
+weight = 1.0
 
 [robots.keypoints]
 front = [0.12700, 0.0, -0.10795]
