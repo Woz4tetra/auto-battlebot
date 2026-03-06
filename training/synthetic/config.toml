@@ -35,32 +35,32 @@ back = [-0.0206, 0.0, -0.00394205]
 # to list all colors present in the GLTF for filling this out.
 [[robots.color_mapping]]
 color = [128, 128, 128]
-tolerance = 5
+tolerance = 20
 material = "aluminum"
 
 [[robots.color_mapping]]
 color = [0, 0, 0]
-tolerance = 5
+tolerance = 30
 material = "steel"
 
 [[robots.color_mapping]]
 color = [255, 32, 65]
-tolerance = 5
+tolerance = 20
 material = "tpu"
 
 [[robots.color_mapping]]
 color = [165, 165, 165]
-tolerance = 5
+tolerance = 20
 material = "foam"
 
 [[robots.color_mapping]]
 color = [102, 102, 102]
-tolerance = 5
+tolerance = 20
 material = "foam"
 
 [[robots.color_mapping]]
 color = [232, 232, 232]
-tolerance = 5
+tolerance = 20
 material = "paper"
 
 [[robots]]
