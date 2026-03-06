@@ -6,6 +6,7 @@ import os
 import random
 import sys
 import tomllib
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import bpy
@@ -21,6 +22,57 @@ DISTRACTOR_CATEGORY_ID = 2
 BACKGROUND_CATEGORY_ID = 0
 
 MODEL_EXTENSIONS = {".glb", ".gltf", ".obj", ".ply"}
+
+
+@dataclass
+class RobotInstance:
+    """All state for one loaded robot model."""
+
+    name: str
+    instance_id: int
+    meshes: list[bproc.types.MeshObject]
+    parent: bpy.types.Object
+    bbox: list[mathutils.Vector]
+    size: float
+    kp_front: np.ndarray
+    kp_back: np.ndarray
+    class_id: int
+    weight: float = 1.0
+    config: dict = field(default_factory=dict)
+
+
+def hide_robot(robot: RobotInstance) -> None:
+    """Hide a robot from rendering and viewport."""
+    for mesh in robot.meshes:
+        mesh.blender_obj.hide_render = True
+        mesh.blender_obj.hide_viewport = True
+
+
+def show_robot(robot: RobotInstance) -> None:
+    """Make a robot visible for rendering and viewport."""
+    for mesh in robot.meshes:
+        mesh.blender_obj.hide_render = False
+        mesh.blender_obj.hide_viewport = False
+
+
+def choose_scene_robots(
+    robots: list[RobotInstance], max_count: int
+) -> list[RobotInstance]:
+    """Weighted sampling without replacement to pick 1..max_count robots."""
+    max_count = min(max_count, len(robots))
+    num = random.randint(1, max_count)
+    if num >= len(robots):
+        return list(robots)
+    pool = list(robots)
+    weights = [r.weight for r in pool]
+    selected: list[RobotInstance] = []
+    for _ in range(num):
+        chosen = random.choices(pool, weights=weights, k=1)[0]
+        idx = pool.index(chosen)
+        selected.append(chosen)
+        pool.pop(idx)
+        weights.pop(idx)
+    return selected
 
 
 def resolve_path(path: Path) -> Path:
@@ -370,6 +422,7 @@ def load_distractor(file_path: Path) -> DistractorGroup | None:
         for obj in imported:
             mesh = bproc.types.MeshObject(obj)
             mesh.set_cp("category_id", DISTRACTOR_CATEGORY_ID)
+            mesh.set_cp("robot_instance_id", 0)
             meshes.append(mesh)
 
         return (parent, meshes, native_size)
@@ -680,19 +733,26 @@ def bbox_from_category_segmap(
     return (cx, cy, w, h)
 
 
-def write_yolo_label(
+YoloAnnotation = tuple[
+    int,
+    tuple[float, float, float, float],
+    list[tuple[float, float, int]],
+]
+"""(class_id, (cx, cy, w, h), [(kp_x, kp_y, vis), ...])"""
+
+
+def write_yolo_labels(
     filepath: Path,
-    class_id: int,
-    bbox: tuple[float, float, float, float],
-    keypoints: list[tuple[float, float, int]],
+    annotations: list[YoloAnnotation],
 ) -> None:
-    """Write a single YOLO keypoint annotation line."""
-    cx, cy, w, h = bbox
-    parts = [f"{class_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"]
-    for kp_x, kp_y, vis in keypoints:
-        parts.append(f"{kp_x:.6f} {kp_y:.6f} {vis}")
+    """Write one YOLO keypoint annotation line per detected object."""
     with open(filepath, "w") as f:
-        f.write(" ".join(parts) + "\n")
+        for class_id, bbox, keypoints in annotations:
+            cx, cy, w, h = bbox
+            parts = [f"{class_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"]
+            for kp_x, kp_y, vis in keypoints:
+                parts.append(f"{kp_x:.6f} {kp_y:.6f} {vis}")
+            f.write(" ".join(parts) + "\n")
 
 
 def _directional_blur_kernel(kernel_size: int, angle: float) -> np.ndarray:
@@ -816,33 +876,58 @@ def main() -> None:
     bproc.renderer.set_max_amount_of_samples(args.render_samples)
     bproc.renderer.enable_depth_output(activate_antialiasing=False)
 
-    # ------- Load target robot -------
+    # ------- Load target robots -------
 
-    model_path = Path(config["robot"]["model_path"])
-    robot_scale = config["robot"].get("scale", 1.0)
-    print(f"Loading robot model: {model_path}")
-    robot_meshes, robot_parent, robot_bbox = import_gltf_as_robot(
-        model_path, robot_scale
-    )
-    print(f"  {len(robot_meshes)} mesh parts loaded")
-    robot_size = max(
-        max(c.x for c in robot_bbox) - min(c.x for c in robot_bbox),
-        max(c.y for c in robot_bbox) - min(c.y for c in robot_bbox),
-        max(c.z for c in robot_bbox) - min(c.z for c in robot_bbox),
-    )
-    print(f"  Robot max dimension: {robot_size:.4f} m")
+    robot_configs = config["robots"]
+    cc_textures_dir = config.get("environment", {}).get("cc_textures_dir")
+    robots: list[RobotInstance] = []
 
-    print("Applying PBR materials to robot...")
-    apply_pbr_materials(
-        robot_meshes,
-        config["robot"]["color_mapping"],
-        config["materials"],
-        config.get("environment", {}).get("cc_textures_dir"),
-    )
+    for ri, rcfg in enumerate(robot_configs, start=1):
+        rname = rcfg.get("name", Path(rcfg["model_path"]).stem)
+        model_path = Path(rcfg["model_path"])
+        robot_scale = rcfg.get("scale", 1.0)
+        print(f"Loading robot model: {rname} ({model_path})")
+        meshes, parent, bbox = import_gltf_as_robot(model_path, robot_scale)
+        print(f"  {len(meshes)} mesh parts loaded, instance_id={ri}")
+        size = max(
+            max(c.x for c in bbox) - min(c.x for c in bbox),
+            max(c.y for c in bbox) - min(c.y for c in bbox),
+            max(c.z for c in bbox) - min(c.z for c in bbox),
+        )
+        print(f"  Robot max dimension: {size:.4f} m")
 
-    kp_front = np.array(config["robot"]["keypoints"]["front"])
-    kp_back = np.array(config["robot"]["keypoints"]["back"])
-    class_id = config["robot"]["class_id"]
+        for mesh in meshes:
+            mesh.set_cp("robot_instance_id", ri)
+
+        print(f"  Applying PBR materials to {rname}...")
+        apply_pbr_materials(
+            meshes,
+            rcfg["color_mapping"],
+            config["materials"],
+            cc_textures_dir,
+        )
+
+        robot = RobotInstance(
+            name=rname,
+            instance_id=ri,
+            meshes=meshes,
+            parent=parent,
+            bbox=bbox,
+            size=size,
+            kp_front=np.array(rcfg["keypoints"]["front"]),
+            kp_back=np.array(rcfg["keypoints"]["back"]),
+            class_id=rcfg["class_id"],
+            weight=rcfg.get("weight", 1.0),
+            config=rcfg,
+        )
+        robots.append(robot)
+
+    if not robots:
+        raise RuntimeError("No [[robots]] entries found in config.")
+    print(f"\n{len(robots)} robot model(s) loaded: {[r.name for r in robots]}")
+
+    for robot in robots:
+        hide_robot(robot)
 
     # ------- Load distractors -------
 
@@ -897,10 +982,13 @@ def main() -> None:
     scene_cfg = config.get("scene", {})
     ground = bproc.object.create_primitive("PLANE", scale=[1, 1, 1], location=[0, 0, 0])
     ground.set_cp("category_id", BACKGROUND_CATEGORY_ID)
+    ground.set_cp("robot_instance_id", 0)
 
     # Enable segmentation AFTER all mesh objects are in the scene, because
     # enable_segmentation_output assigns pass_index to every mesh at call time.
-    bproc.renderer.enable_segmentation_output(map_by=["category_id"])
+    bproc.renderer.enable_segmentation_output(
+        map_by=["category_id", "robot_instance_id"]
+    )
 
     # ------- Create reusable lights -------
 
@@ -917,6 +1005,7 @@ def main() -> None:
     cam_cfg = config.get("camera", {})
     ground_size_range = scene_cfg.get("ground_size_range", [2.0, 5.0])
     arena_radius_range = scene_cfg.get("arena_radius_range", [0.5, 1.5])
+    max_robots_per_scene = scene_cfg.get("max_robots_per_scene", 1)
 
     # ------- Verify category_ids -------
 
@@ -961,37 +1050,60 @@ def main() -> None:
         if show_ground and cc_textures:
             ground.replace_materials(random.choice(cc_textures))
 
-        # -- Robot pose --
-        airborne = random.random() < rand_cfg.get("air_probability", 0.15)
-        if airborne:
-            robot_rot = (
-                random.uniform(0, 2 * math.pi),
-                random.uniform(0, 2 * math.pi),
-                random.uniform(0, 2 * math.pi),
-            )
-            ground_z = compute_ground_z(robot_meshes, robot_parent, robot_rot)
-            air_cfg = rand_cfg.get("air_height_range", [0.02, 0.15])
-            robot_z = ground_z + random.uniform(air_cfg[0], air_cfg[1])
-        else:
-            if random.random() < 0.5:
-                pitch_deg = 90.0
-                roll_deg = rand_cfg.get("ground_roll_upright", 0.0)
+        # -- Select robots for this scene --
+        scene_robots = choose_scene_robots(robots, max_robots_per_scene)
+        for r in robots:
+            if r in scene_robots:
+                show_robot(r)
             else:
-                pitch_deg = -90.0
-                roll_deg = rand_cfg.get("ground_roll_inverted", 0.0)
-            robot_rot = (
-                math.radians(pitch_deg),
-                math.radians(roll_deg),
-                random.uniform(0, 2 * math.pi),
-            )
-            robot_z = compute_ground_z(robot_meshes, robot_parent, robot_rot)
-        robot_pos = [
-            random.uniform(-arena_radius * 0.5, arena_radius * 0.5),
-            random.uniform(-arena_radius * 0.5, arena_radius * 0.5),
-            robot_z,
-        ]
-        robot_parent.location = mathutils.Vector(robot_pos)
-        robot_parent.rotation_euler = mathutils.Euler(robot_rot)
+                hide_robot(r)
+
+        # -- Pose each robot independently --
+        robot_positions: list[list[float]] = []
+        for robot in scene_robots:
+            rcfg = robot.config
+            airborne = random.random() < rand_cfg.get("air_probability", 0.15)
+            if airborne:
+                robot_rot = (
+                    random.uniform(0, 2 * math.pi),
+                    random.uniform(0, 2 * math.pi),
+                    random.uniform(0, 2 * math.pi),
+                )
+                ground_z = compute_ground_z(
+                    robot.meshes, robot.parent, robot_rot
+                )
+                air_cfg = rand_cfg.get("air_height_range", [0.02, 0.15])
+                robot_z = ground_z + random.uniform(air_cfg[0], air_cfg[1])
+            else:
+                if random.random() < 0.5:
+                    pitch_deg = 90.0
+                    roll_deg = rcfg.get(
+                        "ground_roll_upright",
+                        rand_cfg.get("ground_roll_upright", 0.0),
+                    )
+                else:
+                    pitch_deg = -90.0
+                    roll_deg = rcfg.get(
+                        "ground_roll_inverted",
+                        rand_cfg.get("ground_roll_inverted", 0.0),
+                    )
+                robot_rot = (
+                    math.radians(pitch_deg),
+                    math.radians(roll_deg),
+                    random.uniform(0, 2 * math.pi),
+                )
+                robot_z = compute_ground_z(
+                    robot.meshes, robot.parent, robot_rot
+                )
+            robot_pos = [
+                random.uniform(-arena_radius * 0.5, arena_radius * 0.5),
+                random.uniform(-arena_radius * 0.5, arena_radius * 0.5),
+                robot_z,
+            ]
+            robot.parent.location = mathutils.Vector(robot_pos)
+            robot.parent.rotation_euler = mathutils.Euler(robot_rot)
+            robot_positions.append(robot_pos)
+
         bpy.context.view_layer.update()
 
         # -- Distractor pool refresh --
@@ -999,7 +1111,8 @@ def main() -> None:
             distractor_pool = refresh_distractor_pool(distractor_pool)
             images_since_shuffle = 0
 
-        # -- Distractor placement --
+        # -- Distractor placement (scale relative to largest robot in scene) --
+        max_robot_size = max(r.size for r in scene_robots)
         num_dist = random.randint(dist_min_per_scene, len(distractor_pool))
         active_distractors = (
             random.sample(distractor_pool, num_dist) if num_dist > 0 else []
@@ -1011,7 +1124,7 @@ def main() -> None:
                 group,
                 arena_radius,
                 dist_cfg.get("scale_range", [0.5, 3.0]),
-                robot_size,
+                max_robot_size,
             )
 
         # -- Light randomization --
@@ -1030,35 +1143,43 @@ def main() -> None:
             else:
                 light.set_energy(0)
 
-        # -- Material jitter on robot --
-        jitter_materials(
-            robot_meshes,
-            rand_cfg.get("roughness_jitter", 0.1),
-            rand_cfg.get("hue_jitter_degrees", 5),
-        )
+        # -- Material jitter on all scene robots --
+        for robot in scene_robots:
+            jitter_materials(
+                robot.meshes,
+                rand_cfg.get("roughness_jitter", 0.1),
+                rand_cfg.get("hue_jitter_degrees", 5),
+            )
 
-        # -- Camera poses --
-        look_at = [robot_pos[0], robot_pos[1], robot_pos[2]]
+        # -- Camera poses (look at centroid of all placed robots) --
+        centroid = [
+            sum(p[i] for p in robot_positions) / len(robot_positions)
+            for i in range(3)
+        ]
         cam_count = min(images_per_scene, args.start_index + num_images - global_idx)
         cam_poses = []
         for _ in range(cam_count):
             pose = sample_camera_pose(
-                look_at=look_at,
+                look_at=centroid,
                 min_dist=cam_cfg.get("min_distance", 0.3),
                 max_dist=cam_cfg.get("max_distance", 1.5),
                 height_range=cam_cfg.get("height_range", [0.1, 0.8]),
                 noise=cam_cfg.get("look_at_noise", 0.05),
-                robot_center=robot_pos,
+                robot_center=centroid,
             )
             cam_poses.append(pose)
 
-        # -- Pre-render visibility check --
-        robot_world_mat = np.array(robot_parent.matrix_world)
-        keypoints_world = [
-            mathutils.Vector((robot_world_mat @ np.append(kp, 1.0))[:3])
-            for kp in [kp_front, kp_back]
-        ]
-        clear_blocking_distractors(cam_poses, keypoints_world, active_distractors)
+        # -- Pre-render visibility check (all robots' keypoints) --
+        all_keypoints_world: list[mathutils.Vector] = []
+        for robot in scene_robots:
+            wmat = np.array(robot.parent.matrix_world)
+            for kp in [robot.kp_front, robot.kp_back]:
+                all_keypoints_world.append(
+                    mathutils.Vector((wmat @ np.append(kp, 1.0))[:3])
+                )
+        clear_blocking_distractors(
+            cam_poses, all_keypoints_world, active_distractors
+        )
 
         for pose in cam_poses:
             bproc.camera.add_camera_pose(pose)
@@ -1074,12 +1195,12 @@ def main() -> None:
             print(f"  Saved debug image: {debug_path}")
 
         # -- Extract annotations and save --
-        robot_world_mat = np.array(robot_parent.matrix_world)
         colors = data["colors"]
-        seg_maps = data.get("category_id_segmaps", data.get("segmap"))
+        cat_seg_maps = data.get("category_id_segmaps", data.get("segmap"))
+        inst_seg_maps = data.get("robot_instance_id_segmaps")
         depth_maps = data["depth"]
 
-        if seg_maps is None:
+        if cat_seg_maps is None:
             if scene_idx == 0:
                 print("  ERROR: No segmentation maps in render output!")
             continue
@@ -1090,42 +1211,69 @@ def main() -> None:
             bpy.context.scene.frame_set(local_idx)
 
             color_img = colors[local_idx]
-            seg_map = seg_maps[local_idx]
+            cat_seg = cat_seg_maps[local_idx]
+            inst_seg = inst_seg_maps[local_idx] if inst_seg_maps else None
             depth_map = depth_maps[local_idx]
 
             if scene_idx == 0 and local_idx == 0:
                 print(
-                    f"  Segmap shape={seg_map.shape}, dtype={seg_map.dtype}, "
-                    f"unique={np.unique(seg_map).tolist()}"
+                    f"  Cat segmap shape={cat_seg.shape}, "
+                    f"unique={np.unique(cat_seg).tolist()}"
                 )
+                if inst_seg is not None:
+                    print(
+                        f"  Inst segmap unique={np.unique(inst_seg).tolist()}"
+                    )
 
-            bbox = bbox_from_category_segmap(seg_map, ROBOT_CATEGORY_ID, img_w, img_h)
-            if bbox is None:
-                continue
+            # -- Per-robot annotation --
+            annotations: list[YoloAnnotation] = []
+            for robot in scene_robots:
+                if inst_seg is not None:
+                    seg_for_bbox = inst_seg
+                    seg_id = robot.instance_id
+                else:
+                    seg_for_bbox = cat_seg
+                    seg_id = ROBOT_CATEGORY_ID
 
-            cx, cy, w, h = bbox
-            w_px = int(w * img_w)
-            h_px = int(h * img_h)
-            bbox_area_px = max(1, w_px * h_px)
-            robot_px = int(np.sum(seg_map.squeeze() == ROBOT_CATEGORY_ID))
-            min_bbox_dim = 32
-            if w_px < min_bbox_dim or h_px < min_bbox_dim:
-                continue
-            if robot_px < bbox_area_px * min_vis:
-                continue
-
-            keypoints_2d: list[tuple[float, float, int]] = []
-            for kp_local in [kp_front, kp_back]:
-                proj = project_keypoint_to_2d(kp_local, robot_world_mat)
-                if proj is None:
-                    keypoints_2d.append((0.0, 0.0, 0))
+                bbox = bbox_from_category_segmap(
+                    seg_for_bbox, seg_id, img_w, img_h
+                )
+                if bbox is None:
                     continue
-                x_n, y_n, depth = proj
-                vis = check_keypoint_visibility(
-                    x_n, y_n, depth, depth_map, img_w, img_h
-                )
-                keypoints_2d.append((x_n, y_n, vis))
 
+                cx, cy, bw, bh = bbox
+                w_px = int(bw * img_w)
+                h_px = int(bh * img_h)
+                min_bbox_dim = 32
+                if w_px < min_bbox_dim or h_px < min_bbox_dim:
+                    continue
+
+                robot_px = int(
+                    np.sum(seg_for_bbox.squeeze() == seg_id)
+                )
+                bbox_area_px = max(1, w_px * h_px)
+                if robot_px < bbox_area_px * min_vis:
+                    continue
+
+                robot_world_mat = np.array(robot.parent.matrix_world)
+                keypoints_2d: list[tuple[float, float, int]] = []
+                for kp_local in [robot.kp_front, robot.kp_back]:
+                    proj = project_keypoint_to_2d(kp_local, robot_world_mat)
+                    if proj is None:
+                        keypoints_2d.append((0.0, 0.0, 0))
+                        continue
+                    x_n, y_n, depth = proj
+                    vis = check_keypoint_visibility(
+                        x_n, y_n, depth, depth_map, img_w, img_h
+                    )
+                    keypoints_2d.append((x_n, y_n, vis))
+
+                annotations.append((robot.class_id, bbox, keypoints_2d))
+
+            if not annotations:
+                continue
+
+            # -- Motion blur (applied to all robot pixels jointly) --
             blur_prob = rand_cfg.get("motion_blur_probability", 0.0)
             blur_range = rand_cfg.get("motion_blur_strength_range", [5, 25])
             blur_lo, blur_hi = int(blur_range[0]), int(blur_range[1])
@@ -1133,18 +1281,16 @@ def main() -> None:
                 if random.random() < blur_prob:
                     color_img = apply_object_motion_blur(
                         color_img,
-                        seg_map,
+                        cat_seg,
                         blur_cid,
                         random.randint(blur_lo, blur_hi),
                         random.uniform(0, 2 * math.pi),
                     )
 
             frame_name = f"{global_idx:06d}"
-            write_yolo_label(
+            write_yolo_labels(
                 output_label_dir / f"{frame_name}.txt",
-                class_id,
-                bbox,
-                keypoints_2d,
+                annotations,
             )
             cv2.imwrite(
                 str(output_image_dir / f"{frame_name}.jpg"),
@@ -1155,8 +1301,9 @@ def main() -> None:
 
         scene_idx += 1
         if scene_idx % 50 == 0:
+            names = [r.name for r in scene_robots]
             print(
-                f"  Scene {scene_idx} — "
+                f"  Scene {scene_idx} ({names}) — "
                 f"{global_idx - args.start_index}/{num_images} images generated"
             )
 

@@ -225,6 +225,11 @@ def render_preview(
     print(f"\nPreview saved to {out}  ({img_w * len(frames)}x{img_h})")
 
 
+def _slugify(name: str) -> str:
+    """Turn a robot name into a filesystem-safe slug."""
+    return name.lower().replace(" ", "_").replace("/", "_")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config", type=Path, help="Path to config.toml")
@@ -237,47 +242,88 @@ def main() -> None:
         "--save-blend",
         type=Path,
         default=None,
-        help="Save the textured model as a .blend file for inspection",
+        help="Save the textured model as a .blend file for inspection "
+        "(with multiple robots, the robot name is appended)",
     )
     parser.add_argument(
         "--preview",
         type=Path,
         default=None,
-        help="Render 3 off-axis views and save concatenated image to this path",
+        help="Render 3 off-axis views and save concatenated image "
+        "(with multiple robots, the robot name is appended)",
+    )
+    parser.add_argument(
+        "--robot",
+        type=str,
+        default=None,
+        help="Process only the robot with this name (default: all)",
     )
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else sys.argv[1:]
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
-    model_path = Path(config["robot"]["model_path"])
-    scale = config["robot"].get("scale", 1.0)
+    robot_configs = config["robots"]
+    cc_textures_dir = config.get("environment", {}).get("cc_textures_dir")
+
+    if args.robot:
+        robot_configs = [
+            r for r in robot_configs
+            if r.get("name", Path(r["model_path"]).stem) == args.robot
+        ]
+        if not robot_configs:
+            available = [
+                r.get("name", Path(r["model_path"]).stem) for r in config["robots"]
+            ]
+            parser.error(f"Robot '{args.robot}' not found. Available: {available}")
+
+    multi = len(robot_configs) > 1
 
     bproc.init()
 
-    if args.inspect:
-        inspect_model(model_path, scale)
-        return
+    for rcfg in robot_configs:
+        rname = rcfg.get("name", Path(rcfg["model_path"]).stem)
+        model_path = Path(rcfg["model_path"])
+        scale = rcfg.get("scale", 1.0)
 
-    print(f"Loading robot model from {model_path}")
-    meshes = import_gltf(model_path, scale)
-    print(f"Loaded {len(meshes)} mesh parts")
+        print(f"\n{'='*60}")
+        print(f"Robot: {rname}")
+        print(f"{'='*60}")
 
-    print("\nApplying PBR materials:")
-    apply_pbr_materials(
-        meshes,
-        config["robot"]["color_mapping"],
-        config["materials"],
-        config.get("environment", {}).get("cc_textures_dir"),
-    )
+        if args.inspect:
+            inspect_model(model_path, scale)
+            continue
 
-    if args.preview:
-        render_preview(meshes, args.preview)
+        print(f"Loading robot model from {model_path}")
+        meshes = import_gltf(model_path, scale)
+        print(f"Loaded {len(meshes)} mesh parts")
 
-    if args.save_blend:
-        bpy.ops.wm.save_as_mainfile(filepath=str(resolve_path(args.save_blend)))
-        print(f"\nSaved textured model to {args.save_blend}")
+        print("\nApplying PBR materials:")
+        apply_pbr_materials(
+            meshes,
+            rcfg["color_mapping"],
+            config["materials"],
+            cc_textures_dir,
+        )
 
-    if not args.preview and not args.save_blend:
+        if args.preview:
+            if multi:
+                base = args.preview
+                out = base.parent / f"{base.stem}_{_slugify(rname)}{base.suffix}"
+            else:
+                out = args.preview
+            render_preview(meshes, out)
+            bproc.utility.reset_keyframes()
+
+        if args.save_blend:
+            if multi:
+                base = args.save_blend
+                out = base.parent / f"{base.stem}_{_slugify(rname)}{base.suffix}"
+            else:
+                out = args.save_blend
+            bpy.ops.wm.save_as_mainfile(filepath=str(resolve_path(out)))
+            print(f"\nSaved textured model to {out}")
+
+    if not args.inspect and not args.preview and not args.save_blend:
         print("\nDone. Use --save-blend or --preview to output results.")
 
 

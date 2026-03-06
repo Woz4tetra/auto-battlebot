@@ -11,53 +11,76 @@ images_per_scene = 10
 # robot pixels (vs occluded by distractors). Frames below this are discarded.
 min_robot_visibility = 0.10
 
-[robot]
+# Each [[robots]] entry defines a robot model that can appear in scenes.
+# Per scene, 1..max_robots_per_scene robots are selected using weighted
+# sampling without replacement.  See [scene].max_robots_per_scene.
+[[robots]]
+name = "MR STABS MK2"
 model_path = "../data/models/MR STABS MK2.gltf"
 class_id = 0
 # Scale factor applied to the imported model (1.0 = no scaling).
 # Adjust if the OnShape export units don't match Blender's meters.
 scale = 1.0
+# Relative probability of this robot being chosen for a scene.
+weight = 1.0
 
 # 3D keypoint positions in model-local space (meters).
 # Measure these from the CAD model origin in OnShape.
-[robot.keypoints]
+[robots.keypoints]
 front = [0.1115, 0.0, -0.00313]
 back = [-0.0206, 0.0, -0.00394205]
 
 # Map OnShape part colors (RGB 0-255) to material types.
 # Run `blenderproc run prepare_robot_model.py config.toml --inspect`
 # to list all colors present in the GLTF for filling this out.
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [128, 128, 128]
 tolerance = 20
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [0, 0, 0]
 tolerance = 30
 material = "steel"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [255, 32, 65]
 tolerance = 20
 material = "tpu"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [165, 165, 165]
 tolerance = 20
 material = "foam"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [102, 102, 102]
 tolerance = 20
 material = "foam"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [232, 232, 232]
 tolerance = 20
 material = "paper"
 
-# PBR properties per material type.
+# To add another robot, duplicate the block above:
+# [[robots]]
+# name = "OPPONENT BOT"
+# model_path = "../data/models/opponent.gltf"
+# class_id = 0
+# scale = 1.0
+# weight = 1.0
+#
+# [robots.keypoints]
+# front = [0.08, 0.0, 0.0]
+# back = [-0.05, 0.0, 0.0]
+#
+# [[robots.color_mapping]]
+# color = [200, 200, 200]
+# tolerance = 25
+# material = "aluminum"
+
+# PBR properties per material type (shared across all robots).
 # cc_texture names refer to ambientCG / CC0 Textures asset IDs.
 [materials.aluminum]
 metallic = 1.0
@@ -144,6 +167,10 @@ arena_radius_range = [0.5, 1.5]
 # Fraction of scenes that include a visible ground plane (0.0–1.0).
 # The remainder show only the HDRI background behind the robot.
 ground_visibility = 0.8
+# Maximum number of robots rendered simultaneously per scene (1 = always one).
+# Each scene randomly picks between 1 and this value, weighted by each robot's
+# `weight` field.  Clamped to the number of [[robots]] entries.
+max_robots_per_scene = 10
 
 [randomization]
 roughness_jitter = 0.1

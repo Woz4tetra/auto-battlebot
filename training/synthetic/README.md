@@ -225,7 +225,7 @@ data/
 
 See `config.toml` for all options. Key sections:
 
-- `[robot]` -- model path, class ID, keypoint positions, color-to-material mapping
+- `[[robots]]` -- one or more robot models, each with model path, class ID, keypoint positions, color-to-material mapping, and selection weight
 - `[materials.*]` -- PBR properties and CC texture asset names per material type
 - `[distractors]` -- model directories, count range, scale range
 - `[environment]` -- paths to HDRIs and CC textures
