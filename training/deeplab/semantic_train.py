@@ -371,6 +371,47 @@ def step(
     return current_loss, current_metric
 
 
+def save_augmentation_samples(
+    dataset: SegDataset,
+    output_dir: Path,
+    num_samples: int = 20,
+) -> None:
+    samples_dir = output_dir / "augmentation_samples"
+    samples_dir.mkdir(parents=True, exist_ok=True)
+
+    indices = pyrandom.sample(range(len(dataset)), min(num_samples, len(dataset)))
+
+    for i, idx in enumerate(indices):
+        image = dataset.read_file(dataset.img_paths[idx])
+        gt_mask = dataset.read_file(dataset.mask_paths[idx]).astype(np.int32)
+
+        image_pil = Image.fromarray(image)
+        mask_pil = Image.fromarray(gt_mask[:, :, 0].astype(np.uint8))
+        image_aug, mask_aug = SegDataset._augment(image_pil, mask_pil)
+
+        mask_arr = np.array(mask_aug)
+        mask_display = np.zeros((*mask_arr.shape, 3), dtype=np.uint8)
+        mask_display[mask_arr > 0] = [255, 0, 0]
+
+        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+        axes[0].imshow(image_pil)
+        axes[0].set_title("Original")
+        axes[0].axis("off")
+        axes[1].imshow(image_aug)
+        axes[1].set_title("Augmented")
+        axes[1].axis("off")
+        axes[2].imshow(image_aug)
+        axes[2].imshow(mask_display, alpha=0.45)
+        axes[2].set_title("Mask Overlay")
+        axes[2].axis("off")
+        fig.suptitle(dataset.img_paths[idx].name, fontsize=8)
+        fig.tight_layout()
+        fig.savefig(samples_dir / f"sample_{i:02d}.png", dpi=100)
+        plt.close(fig)
+
+    print(f"Saved {len(indices)} augmentation samples to {samples_dir}")
+
+
 def main() -> None:
     # For reproducibility
     seed = 4176
@@ -506,6 +547,9 @@ def main() -> None:
             f"Image shape: {i.shape}, Image type: {i.dtype}, Mask shape: {j.shape}, Mask type: {j.dtype}"
         )
         break
+
+    save_augmentation_samples(train_loader.dataset, output)
+
     train_device_loader = DeviceDataLoader(train_loader, device)
     valid_device_loader = DeviceDataLoader(valid_loader, device)
 
