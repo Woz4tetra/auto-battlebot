@@ -1118,7 +1118,8 @@ def main() -> None:
     # Enable segmentation AFTER all mesh objects are in the scene, because
     # enable_segmentation_output assigns pass_index to every mesh at call time.
     bproc.renderer.enable_segmentation_output(
-        map_by=["category_id", "robot_instance_id"]
+        map_by=["category_id", "robot_instance_id"],
+        default_values={"robot_instance_id": 0},
     )
 
     # ------- Create reusable lights -------
