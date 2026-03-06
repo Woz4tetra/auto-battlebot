@@ -270,7 +270,7 @@ def apply_pbr_materials(
 
     for mesh_obj in meshes:
         bproc_mesh = bproc.types.MeshObject(mesh_obj)
-        for bproc_mat in bproc_mesh.get_materials():
+        for slot_idx, bproc_mat in enumerate(bproc_mesh.get_materials()):
             bpy_mat = bproc_mat.blender_obj
             color = get_material_base_color(bpy_mat)
             if color is None:
@@ -295,7 +295,7 @@ def apply_pbr_materials(
                 else:
                     print(f"  Warning: texture_dir not found: {td}")
             elif cc_name and cc_name in cc_materials:
-                bproc_mesh.replace_materials(cc_materials[cc_name])
+                mesh_obj.data.materials[slot_idx] = cc_materials[cc_name].blender_obj
                 print(f"  {bpy_mat.name} -> CC texture '{cc_name}'")
             else:
                 bproc_mat.set_principled_shader_value(
