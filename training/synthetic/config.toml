@@ -75,8 +75,8 @@ front = [0.12700, 0.0, -0.10795]
 back = [-0.12700, 0.0, -0.10795]
 
 [[robots.color_mapping]]
-color = [128, 128, 128]
-tolerance = 128
+color = [255, 255, 255]
+tolerance = 25
 material = "housebot"
 
 # To add another robot, duplicate the block above:
