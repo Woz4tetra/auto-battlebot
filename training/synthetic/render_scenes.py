@@ -679,6 +679,8 @@ def place_distractor(
     arena_radius: float,
     scale_range: list[float],
     robot_size: float,
+    air_probability: float = 0.15,
+    air_height_range: list[float] | None = None,
 ) -> None:
     """Place a distractor at a random position within the arena.
 
@@ -687,26 +689,43 @@ def place_distractor(
     and three times the robot's size regardless of its native dimensions.
     The parent empty is used for transform so sub-parts keep their
     relative arrangement.
+
+    Rotation is fully randomised on all three axes.  With probability
+    ``air_probability`` the object floats above the ground; otherwise it
+    sits on the ground plane.
     """
     parent, meshes, native_size = group
     desired_size = robot_size * random.uniform(scale_range[0], scale_range[1])
     s = desired_size / native_size
 
     parent.scale = (s, s, s)
-    parent.rotation_euler = mathutils.Euler((0, 0, random.uniform(0, 2 * math.pi)))
+    rot = (
+        random.uniform(0, 2 * math.pi),
+        random.uniform(0, 2 * math.pi),
+        random.uniform(0, 2 * math.pi),
+    )
+    parent.rotation_euler = mathutils.Euler(rot)
+    parent.location = mathutils.Vector((0, 0, 0))
     bpy.context.view_layer.update()
 
     all_pts = []
     for m in meshes:
         obj = m.blender_obj
         all_pts.extend(obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box)
-    min_z = min(p.z for p in all_pts) - parent.location.z
+    ground_z = -min(p.z for p in all_pts)
+
+    airborne = random.random() < air_probability
+    if airborne:
+        hr = air_height_range or [0.02, 0.15]
+        z = ground_z + random.uniform(hr[0], hr[1])
+    else:
+        z = ground_z
 
     parent.location = mathutils.Vector(
         (
             random.uniform(-arena_radius, arena_radius),
             random.uniform(-arena_radius, arena_radius),
-            -min_z,
+            z,
         )
     )
 
@@ -1303,6 +1322,8 @@ def main() -> None:
                 arena_radius,
                 dist_cfg.get("scale_range", [0.5, 3.0]),
                 max_robot_size,
+                air_probability=rand_cfg.get("air_probability", 0.15),
+                air_height_range=rand_cfg.get("air_height_range", [0.02, 0.15]),
             )
 
         # -- Light randomization --
