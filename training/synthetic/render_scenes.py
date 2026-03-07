@@ -951,7 +951,10 @@ def write_yolo_labels(
             cx, cy, w, h = bbox
             parts = [f"{class_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"]
             for kp_x, kp_y, vis in keypoints:
-                parts.append(f"{kp_x:.6f} {kp_y:.6f} {vis}")
+                if vis == 0:
+                    parts.append("0.000000 0.000000 0")
+                else:
+                    parts.append(f"{kp_x:.6f} {kp_y:.6f} {vis}")
             f.write(" ".join(parts) + "\n")
 
 
