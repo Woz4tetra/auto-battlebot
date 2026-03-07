@@ -121,7 +121,6 @@ def main() -> None:
             name=run_name,
             project="../projects",
             device=(0, 1, 2),
-            cache="ram",
             **hyper_params,
             **settings,
         )
