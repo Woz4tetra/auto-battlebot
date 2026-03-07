@@ -482,21 +482,32 @@ class YOLODatasetValidator:
         return f"#{color_rgb[0]:02x}{color_rgb[1]:02x}{color_rgb[2]:02x}"
 
     def parse_yolo_annotation(self, label_path: Path) -> List[Dict]:
-        """Parse YOLO format annotation file."""
+        """Parse YOLO format annotation file, including optional keypoints."""
         annotations = []
         with open(label_path, "r") as f:
             for line in f:
                 parts = line.strip().split()
-                if len(parts) >= 5:
-                    annotations.append(
+                if len(parts) < 5:
+                    continue
+                ann = {
+                    "class_id": int(parts[0]),
+                    "center_x": float(parts[1]),
+                    "center_y": float(parts[2]),
+                    "width": float(parts[3]),
+                    "height": float(parts[4]),
+                    "keypoints": [],
+                }
+                # Keypoints follow bbox: groups of (x, y, visibility)
+                kp_values = parts[5:]
+                for i in range(0, len(kp_values) - 2, 3):
+                    ann["keypoints"].append(
                         {
-                            "class_id": int(parts[0]),
-                            "center_x": float(parts[1]),
-                            "center_y": float(parts[2]),
-                            "width": float(parts[3]),
-                            "height": float(parts[4]),
+                            "x": float(kp_values[i]),
+                            "y": float(kp_values[i + 1]),
+                            "v": int(float(kp_values[i + 2])),
                         }
                     )
+                annotations.append(ann)
         return annotations
 
     def draw_image_with_annotations(
@@ -548,6 +559,38 @@ class YOLODatasetValidator:
                 bbox = draw.textbbox((x1, y1 - 25), label_text, font=font)
                 draw.rectangle(bbox, fill=color)
                 draw.text((x1, y1 - 25), label_text, fill="white", font=font)
+
+            # Draw keypoints
+            kp_colors = [
+                "#FF4444",
+                "#44FF44",
+                "#4444FF",
+                "#FFFF44",
+                "#FF44FF",
+                "#44FFFF",
+                "#FF8800",
+                "#8844FF",
+            ]
+            r = max(4, int(min(img_width, img_height) * 0.008))
+            for kp_idx, kp in enumerate(ann.get("keypoints", [])):
+                if kp["v"] == 0:
+                    continue
+                kx = kp["x"] * img_width
+                ky = kp["y"] * img_height
+                kp_color = kp_colors[kp_idx % len(kp_colors)]
+                # Filled circle with dark outline
+                draw.ellipse(
+                    [kx - r - 1, ky - r - 1, kx + r + 1, ky + r + 1], fill="#000000"
+                )
+                draw.ellipse([kx - r, ky - r, kx + r, ky + r], fill=kp_color)
+                if self.show_labels:
+                    kp_label = str(kp_idx)
+                    kp_bbox = draw.textbbox((kx + r + 2, ky - r), kp_label, font=font)
+                    draw.rectangle(
+                        kp_bbox,
+                        fill="#000000AA" if hasattr(draw, "alpha") else "#000000",
+                    )
+                    draw.text((kx + r + 2, ky - r), kp_label, fill=kp_color, font=font)
 
         return image
 
