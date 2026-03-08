@@ -121,6 +121,7 @@ def main() -> None:
             name=run_name,
             project="../projects",
             device=(0, 1, 2),
+            workers=24,
             **hyper_params,
             **settings,
         )
