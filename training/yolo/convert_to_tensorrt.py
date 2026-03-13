@@ -32,6 +32,15 @@ import tensorrt as trt
 import torch
 
 
+def _has_lean_runtime() -> bool:
+    """Check if the TensorRT lean runtime is available (needed for VERSION_COMPATIBLE)."""
+    try:
+        ctypes.CDLL("libnvinfer_lean.so.10")
+        return True
+    except OSError:
+        return False
+
+
 def _get_compute_capability() -> tuple[int, int]:
     """Query GPU compute capability of device 0."""
     if torch.cuda.is_available():
@@ -79,8 +88,7 @@ def build_engine_from_onnx(
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_gib << 30)
     if fp16 and builder.platform_has_fast_fp16:
         config.set_flag(trt.BuilderFlag.FP16)
-    # Build version-compatible engine so it can load on runtimes with a different TensorRT patch version.
-    if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE"):
+    if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE") and _has_lean_runtime():
         config.set_flag(trt.BuilderFlag.VERSION_COMPATIBLE)
 
     serialized = builder.build_serialized_network(network, config)
@@ -139,6 +147,7 @@ def main() -> None:
 
     if model_path.suffix.lower() != ".onnx":
         raise ValueError("This script requires an .onnx file path")
+    print(f"TensorRT version: {trt.__version__}")
     print(f"Building TensorRT engine from ONNX: {model_path}")
     print(f"Input size: [1, 3, {args.imgsz}, {args.imgsz}]")
     build_engine_from_onnx(

@@ -15,6 +15,7 @@ are not loaded by accident.
 """
 
 import argparse
+import ctypes
 import os
 import platform
 import shutil
@@ -27,6 +28,15 @@ from load_deeplabv3 import build_model, SegModelWrapper
 from model_config import load_model_config, config_path_for
 
 import tensorrt as trt
+
+
+def _has_lean_runtime() -> bool:
+    """Check if the TensorRT lean runtime is available (needed for VERSION_COMPATIBLE)."""
+    try:
+        ctypes.CDLL("libnvinfer_lean.so.10")
+        return True
+    except OSError:
+        return False
 
 
 def _get_compute_capability() -> tuple[int, int]:
@@ -106,8 +116,7 @@ def build_tensorrt_engine(
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_gib << 30)
     if fp16 and builder.platform_has_fast_fp16:
         config.set_flag(trt.BuilderFlag.FP16)
-    # Build version-compatible engine so it can load on runtimes with a different TensorRT patch version.
-    if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE"):
+    if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE") and _has_lean_runtime():
         config.set_flag(trt.BuilderFlag.VERSION_COMPATIBLE)
 
     serialized = builder.build_serialized_network(network, config)
@@ -180,6 +189,7 @@ def main() -> None:
     output_path = engine_path_with_platform_tag(output_path)
 
     input_size = cfg.input_size
+    print(f"TensorRT version: {trt.__version__}")
     print(
         f"Backbone: {cfg.backbone}, decoder: {cfg.decoder}, "
         f"num_classes: {cfg.num_classes}, input_size: {input_size}"
@@ -191,7 +201,9 @@ def main() -> None:
         print(f"Using pre-exported ONNX model: {onnx_path}")
     else:
         print(f"Loading checkpoint from {model_path}...")
-        wrapper = build_model(cfg.backbone, cfg.num_classes, device, decoder=cfg.decoder)
+        wrapper = build_model(
+            cfg.backbone, cfg.num_classes, device, decoder=cfg.decoder
+        )
         wrapper.eval()
         state = torch.load(model_path, map_location=device, weights_only=True)
         wrapper.model.load_state_dict(state, strict=False)
