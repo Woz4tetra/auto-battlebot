@@ -7,11 +7,13 @@ camera_fps = 30
 
 [field_model]
 type = "DeepLabMaskModel"
-model_path = "models/field_deeplabv3_r50_2024-09-05_aarch64.engine"
+# model_path = "models/field_deeplabv3_r50_2024-09-05_aarch64.engine"
+model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64_sm89.engine"
 
 [robot_mask_model]
 type = "DeepLabMaskModel"
-model_path = "models/robot_deeplabv3_mbv3_2026-03-05_aarch64_sm87.engine"
+# model_path = "models/robot_deeplabv3_mbv3_2026-03-05_aarch64_sm87.engine"
+model_path = "models/robot_deeplabv3_mbv3_2026-03-05_x86_64_sm89.engine"
 output_label = "OPPONENT"
 
 [field_filter]
@@ -21,7 +23,8 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "models/yolo26n-pose_mr_stabs_mk2_2026-03-07_aarch64_sm87.engine"
+# model_path = "models/yolo26n-pose_mr_stabs_mk2_2026-03-07_aarch64_sm87.engine"
+model_path = "models/yolo26n-pose_mr_stabs_mk2_2026-03-07_x86_64_sm89.engine"
 label_indices = ["MR_STABS_MK2"]
 debug_visualization = false
 threshold = 0.5
