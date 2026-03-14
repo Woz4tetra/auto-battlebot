@@ -38,6 +38,15 @@ struct SimTransmitterConfiguration : public TransmitterConfiguration {
     // clang-format on
 };
 
+struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
+    int init_button_channel = 4;    // RC channel index used as the init button
+    int init_button_threshold = 500; // channel value above which = button pressed
+
+    OpenTxTransmitterConfiguration() { type = "OpenTxTransmitter"; }
+
+    PARSE_CONFIG_FIELDS(PARSE_FIELD(init_button_channel) PARSE_FIELD(init_button_threshold))
+};
+
 std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config);
 std::unique_ptr<TransmitterConfiguration> parse_transmitter_config(ConfigParser &parser);
 std::unique_ptr<TransmitterConfiguration> load_transmitter_from_toml(

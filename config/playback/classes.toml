@@ -1,6 +1,3 @@
-# Example class configuration for auto_battlebot
-# Specify which implementations to use for each interface
-
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 60

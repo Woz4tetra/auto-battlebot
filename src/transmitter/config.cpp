@@ -4,6 +4,7 @@
 
 #include "config/config_parser.hpp"
 #include "transmitter/noop_transmitter.hpp"
+#include "transmitter/opentx_transmitter.hpp"
 #include "transmitter/playback_transmitter.hpp"
 #include "transmitter/sim_transmitter.hpp"
 
@@ -12,6 +13,7 @@ namespace auto_battlebot {
 REGISTER_CONFIG(TransmitterConfiguration, NoopTransmitterConfiguration, "NoopTransmitter")
 REGISTER_CONFIG(TransmitterConfiguration, PlaybackTransmitterConfiguration, "PlaybackTransmitter")
 REGISTER_CONFIG(TransmitterConfiguration, SimTransmitterConfiguration, "SimTransmitter")
+REGISTER_CONFIG(TransmitterConfiguration, OpenTxTransmitterConfiguration, "OpenTxTransmitter")
 
 std::unique_ptr<TransmitterConfiguration> parse_transmitter_config(ConfigParser &parser) {
     return ConfigFactory<TransmitterConfiguration>::instance().create_and_parse(parser);
@@ -38,6 +40,9 @@ std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfigur
             config_cast<PlaybackTransmitterConfiguration>(config));
     } else if (config.type == "SimTransmitter") {
         return std::make_shared<SimTransmitter>(config_cast<SimTransmitterConfiguration>(config));
+    } else if (config.type == "OpenTxTransmitter") {
+        return std::make_shared<OpenTxTransmitter>(
+            config_cast<OpenTxTransmitterConfiguration>(config));
     }
     throw std::invalid_argument("Failed to load Transmitter of type " + config.type);
 }
