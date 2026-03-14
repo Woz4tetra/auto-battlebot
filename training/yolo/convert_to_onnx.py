@@ -4,6 +4,18 @@ from pathlib import Path
 from ultralytics import YOLO
 
 
+def disable_end2end(model: YOLO) -> None:
+    """Disable end2end post-processing in the detection head.
+
+    End2end bakes NMS/score-processing into the ONNX graph, which can break
+    multi-class outputs in TensorRT. The C++ pipeline does its own NMS, so
+    the raw [1, num_features, num_predictions] output is what we need.
+    """
+    for m in model.model.modules():
+        if hasattr(m, "end2end"):
+            m.end2end = False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Convert YOLO model to ONNX format")
     parser.add_argument("model", type=str, help="Path to YOLO model (.pt file)")
@@ -21,13 +33,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Load YOLO model
     model_path = Path(args.model)
     if not model_path.exists():
         raise FileNotFoundError(f"Model file not found: {model_path}")
 
     print(f"Loading YOLO model from {model_path}...")
     model = YOLO(str(model_path))
+
+    disable_end2end(model)
 
     # Move model to CPU to avoid device mismatch issues during export
     print("Moving model to GPU...")
@@ -42,13 +55,10 @@ def main() -> None:
     print("Converting to ONNX format...")
     print(f"Image size: {args.imgsz}")
 
-    # Export to ONNX
-    # The export method returns the path to the exported model
-    exported_path = model.export(format="onnx", imgsz=args.imgsz, device="cuda")
+    exported_path = model.export(format="onnx", imgsz=args.imgsz, device="cpu")
 
     print(f"Model successfully exported to: {exported_path}")
 
-    # If user specified a different output path, rename the file
     if args.output and exported_path != str(output_path):
         Path(exported_path).rename(output_path)
         print(f"Model moved to: {output_path}")

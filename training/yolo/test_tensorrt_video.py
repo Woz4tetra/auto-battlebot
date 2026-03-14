@@ -3,6 +3,11 @@
 Matches the C++ YoloKeypointModel pipeline: same preprocessing (letterbox, BGR->RGB,
 normalize), same output layout [1, num_features, num_predictions], and same NMS/postprocess.
 
+Expects engines built from ONNX models exported with end2end disabled (the default
+in convert_to_onnx.py). The model output has sigmoid already applied to class scores
+and keypoint visibility, and bboxes are in xyxy format. If raw logits are detected
+(values outside [0,1]), sigmoid is applied as a fallback.
+
 Usage:
   python training/yolo/test_tensorrt_video.py path/to/video.mp4 path/to/model.engine -o out.mp4
   python training/yolo/test_tensorrt_video.py video.mp4 model.engine --show --conf 0.5
@@ -77,7 +82,7 @@ def preprocess_frame(
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
-    """Numerically stable sigmoid. YOLO outputs logits; apply for class/keypoint conf."""
+    """Numerically stable sigmoid. Fallback for models that output raw logits."""
     return np.where(x >= 0, 1.0 / (1.0 + np.exp(-x)), np.exp(x) / (1.0 + np.exp(x)))
 
 
@@ -135,7 +140,7 @@ def non_max_suppression(
     swap_wh: bool = False,
     bbox_xyxy: bool = False,
 ) -> list[tuple[np.ndarray, float, int, np.ndarray]]:
-    """prediction: (num_features, num_predictions) or (num_predictions, num_features). Returns list of (xyxy, conf, class_id, keypoints (N,3)). Per-class NMS. Applies sigmoid to class and keypoint visibility."""
+    """prediction: (num_features, num_predictions) or (num_predictions, num_features). Returns list of (xyxy, conf, class_id, keypoints (N,3)). Per-class NMS. Class scores and keypoint visibility are expected to be sigmoid-activated (values in [0,1]); sigmoid is applied as fallback if raw logits are detected."""
     num_keypoint_vals = num_keypoints * 3
     num_classes = num_features - 4 - num_keypoint_vals
     if num_classes <= 0 or num_predictions <= 0:
