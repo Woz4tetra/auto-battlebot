@@ -47,13 +47,18 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
 
     PursuitNavigationConfiguration() { type = "PursuitNavigation"; }
 
-    PARSE_CONFIG_FIELDS(PARSE_FIELD_DOUBLE(max_linear_velocity)
-                            PARSE_FIELD_DOUBLE(max_angular_velocity)
-                                PARSE_FIELD_DOUBLE(slowdown_distance)
-                                    PARSE_FIELD_DOUBLE(stop_distance) PARSE_FIELD_DOUBLE(angular_kp)
-                                        PARSE_FIELD_DOUBLE(angle_threshold)
-                                            PARSE_FIELD_DOUBLE(lookahead_time)
-                                                PARSE_FIELD_DOUBLE(boundary_margin))
+    // clang-format off
+    PARSE_CONFIG_FIELDS(
+        PARSE_FIELD_DOUBLE(max_linear_velocity)
+        PARSE_FIELD_DOUBLE(max_angular_velocity)
+        PARSE_FIELD_DOUBLE(slowdown_distance)
+        PARSE_FIELD_DOUBLE(stop_distance)
+        PARSE_FIELD_DOUBLE(angular_kp)
+        PARSE_FIELD_DOUBLE(angle_threshold)
+        PARSE_FIELD_DOUBLE(lookahead_time)
+        PARSE_FIELD_DOUBLE(boundary_margin)
+    )
+    // clang-format on
 };
 
 std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config);

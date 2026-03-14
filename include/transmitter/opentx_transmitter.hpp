@@ -46,6 +46,12 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     /** Scale and clamp a normalized [-1, 1] value to the trainer range [-1000, 1000]. */
     static int to_trainer_value(double normalized);
+
+    /**
+     * Return the latest value for an RC channel, clamped to the trainer range [-1000, 1000].
+     * Returns 0 if no channel data has been received yet or the index is out of range.
+     */
+    int get_channel_value(int channel_idx) const;
 };
 
 }  // namespace auto_battlebot

@@ -77,7 +77,7 @@ back_keypoints = [
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
 [navigation]
-type = "NoopNavigation"
+type = "PursuitNavigation"
 
 [transmitter]
 type = "OpenTxTransmitter"

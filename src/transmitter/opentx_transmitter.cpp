@@ -82,8 +82,17 @@ void OpenTxTransmitter::send(VelocityCommand command) {
     int linear_val = to_trainer_value(command.linear_x);
     int angular_val = to_trainer_value(command.angular_z);
 
-    serial_.write("trainer 3 " + std::to_string(linear_val) + "\r\n");
-    serial_.write("trainer 0 " + std::to_string(angular_val) + "\r\n");
+    logger_->debug("send", {{"linear", linear_val}, {"angular", angular_val}});
+
+    serial_.write("trainer " + std::to_string(config_.linear_channel) + " " +
+                  std::to_string(linear_val) + "\r\n");
+    serial_.write("trainer " + std::to_string(config_.angular_channel) + " " +
+                  std::to_string(angular_val) + "\r\n");
+}
+
+int OpenTxTransmitter::get_channel_value(int channel_idx) const {
+    if (!latest_channels_ || channel_idx < 0 || channel_idx >= kMaxChannels) return 0;
+    return std::clamp(static_cast<int>((*latest_channels_)[channel_idx]), -1000, 1000);
 }
 
 bool OpenTxTransmitter::did_init_button_press() {
