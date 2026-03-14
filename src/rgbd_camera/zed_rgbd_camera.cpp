@@ -1,6 +1,19 @@
 #include "rgbd_camera/zed_rgbd_camera.hpp"
 
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+
+#include "directories.hpp"
+
 namespace auto_battlebot {
+
+namespace {
+constexpr uint64_t kBytesPerGb = 1024ULL * 1024ULL * 1024ULL;
+constexpr uint64_t kSizeCheckIntervalFrames = 100;
+}  // namespace
+
 ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
     : zed_(sl::Camera()),
       is_initialized_(false),
@@ -11,7 +24,12 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
       depth_frame_counter_(0),
       last_returned_frame_counter_(0),
       prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST),
-      position_tracking_enabled_(config.position_tracking) {
+      position_tracking_enabled_(config.position_tracking),
+      svo_recording_enabled_(config.svo_recording && config.svo_file_path.empty()),
+      svo_holding_dir_(get_project_path("data/temp_svo")),
+      svo_max_size_bytes_(config.svo_max_size_gb * kBytesPerGb),
+      svo_holding_dir_max_size_bytes_(config.svo_holding_dir_max_size_gb * kBytesPerGb),
+      frames_since_size_check_(0) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("zed_rgbd_camera");
     reset_capture_timing_stats();
 
@@ -39,6 +57,7 @@ ZedRgbdCamera::~ZedRgbdCamera() {
         if (capture_thread_.joinable()) {
             capture_thread_.join();
         }
+        stop_svo_recording();
         zed_.close();
     }
 }
@@ -114,6 +133,12 @@ bool ZedRgbdCamera::initialize() {
 
     is_initialized_ = true;
 
+    if (svo_recording_enabled_) {
+        std::filesystem::create_directories(svo_holding_dir_);
+        enforce_holding_dir_size();
+        start_svo_recording();
+    }
+
     // Start capture thread
     capture_thread_ = std::thread(&ZedRgbdCamera::capture_thread_loop, this);
 
@@ -172,6 +197,21 @@ bool ZedRgbdCamera::capture_frame() {
             std::cerr << "Failed to grab frame: " << sl::toString(grab_status) << std::endl;
         }
         return false;
+    }
+
+    // Periodically check SVO file size and roll over if needed
+    if (svo_recording_enabled_ && !current_svo_path_.empty()) {
+        frames_since_size_check_++;
+        if (frames_since_size_check_ >= kSizeCheckIntervalFrames) {
+            frames_since_size_check_ = 0;
+            std::error_code ec;
+            auto file_size = std::filesystem::file_size(current_svo_path_, ec);
+            if (!ec && file_size >= svo_max_size_bytes_) {
+                stop_svo_recording();
+                enforce_holding_dir_size();
+                start_svo_recording();
+            }
+        }
     }
 
     // Lock mutex to modify data
@@ -307,4 +347,79 @@ bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
 }
 
 bool ZedRgbdCamera::should_close() { return should_close_; }
+
+std::string ZedRgbdCamera::get_current_svo_path() const {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    return current_svo_path_.string();
+}
+
+std::string ZedRgbdCamera::generate_svo_filename() const {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm{};
+    localtime_r(&t, &tm);
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H-%M-%S") << ".svo2";
+    return (svo_holding_dir_ / oss.str()).string();
+}
+
+bool ZedRgbdCamera::start_svo_recording() {
+    std::string path = generate_svo_filename();
+    sl::RecordingParameters rec_params;
+    rec_params.video_filename = sl::String(path.c_str());
+    rec_params.compression_mode = sl::SVO_COMPRESSION_MODE::H264;
+    sl::ERROR_CODE err = zed_.enableRecording(rec_params);
+    if (err != sl::ERROR_CODE::SUCCESS) {
+        std::cerr << "Failed to start SVO recording: " << sl::toString(err) << std::endl;
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        current_svo_path_ = path;
+    }
+    frames_since_size_check_ = 0;
+    std::cout << "SVO recording started: " << path << std::endl;
+    return true;
+}
+
+void ZedRgbdCamera::stop_svo_recording() {
+    if (current_svo_path_.empty()) return;
+    zed_.disableRecording();
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    std::cout << "SVO recording stopped: " << current_svo_path_ << std::endl;
+    current_svo_path_.clear();
+}
+
+void ZedRgbdCamera::enforce_holding_dir_size() {
+    std::error_code ec;
+    if (!std::filesystem::exists(svo_holding_dir_, ec)) return;
+
+    std::vector<std::filesystem::path> svo_files;
+    for (const auto &entry : std::filesystem::directory_iterator(svo_holding_dir_, ec)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".svo2") {
+            svo_files.push_back(entry.path());
+        }
+    }
+
+    std::sort(svo_files.begin(), svo_files.end(), [](const auto &a, const auto &b) {
+        return std::filesystem::last_write_time(a) < std::filesystem::last_write_time(b);
+    });
+
+    uintmax_t total_size = 0;
+    for (const auto &f : svo_files) {
+        total_size += std::filesystem::file_size(f, ec);
+    }
+
+    for (const auto &f : svo_files) {
+        if (total_size <= svo_holding_dir_max_size_bytes_) break;
+        uintmax_t file_size = std::filesystem::file_size(f, ec);
+        if (std::filesystem::remove(f, ec)) {
+            std::cout << "Deleted oldest SVO to free space: " << f << std::endl;
+            total_size -= file_size;
+        } else {
+            std::cerr << "Failed to delete SVO: " << f << std::endl;
+        }
+    }
+}
+
 }  // namespace auto_battlebot

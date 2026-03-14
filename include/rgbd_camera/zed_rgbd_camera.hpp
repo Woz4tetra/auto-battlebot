@@ -68,11 +68,16 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     bool initialize() override;
     bool get(CameraData &data, bool get_depth) override;
     bool should_close() override;
+    std::string get_current_svo_path() const;
 
    private:
     void capture_thread_loop();
     bool capture_frame();
     void reset_capture_timing_stats() const;
+    bool start_svo_recording();
+    void stop_svo_recording();
+    void enforce_holding_dir_size();
+    std::string generate_svo_filename() const;
 
     sl::Camera zed_;
     sl::InitParameters params_;
@@ -93,6 +98,12 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     mutable std::queue<int> depth_request_queue_;
     sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
     bool position_tracking_enabled_;
+    bool svo_recording_enabled_;
+    std::filesystem::path svo_holding_dir_;
+    std::filesystem::path current_svo_path_;
+    uint64_t svo_max_size_bytes_;
+    uint64_t svo_holding_dir_max_size_bytes_;
+    uint64_t frames_since_size_check_;
 
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 

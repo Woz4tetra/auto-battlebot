@@ -32,6 +32,9 @@ struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
     std::string svo_file_path = "";
     bool svo_real_time_mode = true;
     bool position_tracking = true;
+    bool svo_recording = true;
+    uint64_t svo_max_size_gb = 10;
+    uint64_t svo_holding_dir_max_size_gb = 50;
 
     ZedRgbdCameraConfiguration() { type = "ZedRgbdCamera"; }
 
@@ -43,6 +46,9 @@ struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
             PARSE_FIELD_STRING(svo_file_path)
             PARSE_FIELD_BOOL(svo_real_time_mode)
             PARSE_FIELD_BOOL(position_tracking)
+            PARSE_FIELD_BOOL(svo_recording)
+            PARSE_FIELD(svo_max_size_gb)
+            PARSE_FIELD(svo_holding_dir_max_size_gb)
         )
     // clang-format on
 };
