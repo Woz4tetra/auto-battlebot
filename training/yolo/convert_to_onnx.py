@@ -46,6 +46,20 @@ def main() -> None:
     print("Moving model to GPU...")
     model.to("cuda")
 
+    # Disable the built-in end-to-end NMS head before exporting.
+    #
+    # YOLO26 (and YOLO10+) models use a Detect/Pose head with end2end=True,
+    # which bakes top-k NMS into the graph and changes the output to
+    # [1, max_det, features] (e.g. [1, 300, 12]) instead of the raw pre-NMS
+    # anchor grid [1, features, num_anchors] (e.g. [1, 12, 8400]).
+    #
+    # The C++ YoloKeypointModel and test_tensorrt_video.py both expect the raw
+    # pre-NMS format, so we must disable end2end before export.
+    head = model.model.model[-1]
+    if hasattr(head, "end2end") and head.end2end:
+        head.end2end = False
+        print(f"  Disabled end2end NMS on {type(head).__name__} for raw ONNX output.")
+
     # Determine output path
     if args.output:
         output_path = Path(args.output)

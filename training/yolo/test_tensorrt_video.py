@@ -88,7 +88,7 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
 
 def xywh2xyxy(boxes: np.ndarray, half_wh: bool = False) -> None:
     """In-place: (cx, cy, w, h) -> (x1, y1, x2, y2). If half_wh, 3rd/4th are half-width/half-height (no /2)."""
-    cx, cy = boxes[:, 0], boxes[:, 1]
+    cx, cy = boxes[:, 0].copy(), boxes[:, 1].copy()
     w, h = boxes[:, 2].copy(), boxes[:, 3].copy()
     if half_wh:
         boxes[:, 0] = cx - w
@@ -204,6 +204,42 @@ def non_max_suppression(
     return out
 
 
+def parse_end2end_detections(
+    prediction: np.ndarray,
+    num_predictions: int,
+    num_features: int,
+    conf_thres: float,
+) -> list[tuple[np.ndarray, float, int, np.ndarray]]:
+    """Parse post-NMS end-to-end output from YOLO26 Pose26 / v10Detect heads.
+
+    Per-row layout: [x1, y1, x2, y2, conf, class_id, kp0_x, kp0_y, kp0_vis, ...]
+    Box coords and keypoint xy are in letterbox input pixel space (not normalised).
+    conf is the winner-class probability; class_id is the integer class index stored
+    as a float.  Rows beyond the actual detection count are zero-padded.
+    """
+    if prediction.shape == (num_features, num_predictions):
+        rows = prediction.T
+    else:
+        rows = prediction  # already (num_predictions, num_features)
+
+    num_kpt_vals = max(0, num_features - 6)  # 4 bbox + 1 conf + 1 class_id
+    num_keypoints = num_kpt_vals // 3
+
+    out: list[tuple[np.ndarray, float, int, np.ndarray]] = []
+    for i in range(num_predictions):
+        conf = float(rows[i, 4])
+        if conf < conf_thres:
+            continue
+        xyxy = rows[i, :4].copy()
+        cls_id = int(round(float(rows[i, 5])))
+        if num_keypoints > 0:
+            kps = rows[i, 6 : 6 + num_kpt_vals].reshape(num_keypoints, 3).copy()
+        else:
+            kps = np.empty((0, 3), dtype=np.float32)
+        out.append((xyxy, conf, cls_id, kps))
+    return out
+
+
 def scale_detections_to_frame(
     detections: list[tuple[np.ndarray, float, int, np.ndarray]],
     orig_h: int,
@@ -301,8 +337,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run YOLO pose inference on video using a TensorRT engine"
     )
-    parser.add_argument("video", type=str, help="Path to input video")
     parser.add_argument("engine", type=str, help="Path to TensorRT engine file")
+    parser.add_argument("video", type=str, help="Path to input video")
     parser.add_argument(
         "-o",
         "--output",
@@ -352,9 +388,14 @@ def main() -> None:
         help="Swap bbox 3rd/4th (use as height, width instead of width, height)",
     )
     parser.add_argument(
-        "--bbox-xywh",
+        "--bbox-xyxy",
         action="store_true",
-        help="Use xywh bbox format (cx, cy, w, h) instead of default xyxy (x1, y1, x2, y2)",
+        help=(
+            "Treat raw bbox output as already-decoded xyxy (x1, y1, x2, y2) and skip "
+            "conversion.  By default the script converts from Ultralytics-standard "
+            "cx, cy, w, h (center format) to xyxy.  Only pass this flag if your model "
+            "bakes the decoding step into its output."
+        ),
     )
     parser.add_argument(
         "--show",
@@ -402,13 +443,22 @@ def main() -> None:
         )
 
     dim1, dim2 = int(output_shape[1]), int(output_shape[2])
-    if dim1 > dim2:
+    # End-to-end (post-NMS) models output [1, max_det, features] where max_det > features
+    # but max_det is small (e.g. 300).  Raw pre-NMS models output [1, features, anchors]
+    # where anchors >> features (e.g. 8400 vs 12).  The reliable distinguisher is that
+    # the larger dimension for pre-NMS is in the thousands, while for post-NMS it is not.
+    is_end2end = dim1 > dim2
+    if is_end2end:
         num_predictions, num_features = dim1, dim2
     else:
         num_features, num_predictions = dim1, dim2
     num_classes = args.num_classes
     num_keypoints = args.num_keypoints
-    if num_classes <= 0 or num_keypoints <= 0:
+    if is_end2end:
+        # Post-NMS layout: [x1,y1,x2,y2, conf, class_id, kp0_x, kp0_y, kp0_vis, ...]
+        num_keypoints = max(0, (num_features - 6)) // 3
+        num_classes = -1  # not used for end2end path
+    elif num_classes <= 0 or num_keypoints <= 0:
         num_classes = 1 if args.num_classes <= 0 else args.num_classes
         remainder = num_features - 4 - num_classes
         if remainder > 0 and remainder % 3 == 0:
@@ -419,8 +469,11 @@ def main() -> None:
             num_keypoints = args.num_keypoints
         if args.num_classes > 0:
             num_classes = args.num_classes
+    fmt = "end2end post-NMS" if is_end2end else "raw pre-NMS"
     print(
-        f"Input shape: [1, 3, {input_h}, {input_w}], output: [1, {num_features}, {num_predictions}], num_classes={num_classes}, num_keypoints={num_keypoints}"
+        f"Input shape: [1, 3, {input_h}, {input_w}], output: [1, {dim1}, {dim2}] ({fmt}), "
+        f"num_keypoints={num_keypoints}"
+        + (f", num_classes={num_classes}" if not is_end2end else "")
     )
 
     input_nbytes = 1 * 3 * input_h * input_w * 4
@@ -473,17 +526,25 @@ def main() -> None:
             cuda.memcpy_dtoh_async(out_host, d_output, stream)
             stream.synchronize()
             prediction = out_host[0]
-            detections = non_max_suppression(
-                prediction,
-                num_features,
-                num_predictions,
-                num_keypoints,
-                args.conf,
-                args.iou,
-                bbox_half_wh=args.bbox_half_wh,
-                swap_wh=args.swap_wh,
-                bbox_xyxy=not args.bbox_xywh,
-            )
+            if is_end2end:
+                detections = parse_end2end_detections(
+                    prediction,
+                    num_predictions,
+                    num_features,
+                    args.conf,
+                )
+            else:
+                detections = non_max_suppression(
+                    prediction,
+                    num_features,
+                    num_predictions,
+                    num_keypoints,
+                    args.conf,
+                    args.iou,
+                    bbox_half_wh=args.bbox_half_wh,
+                    swap_wh=args.swap_wh,
+                    bbox_xyxy=args.bbox_xyxy,
+                )
             detections = scale_detections_to_frame(
                 detections,
                 orig_h,

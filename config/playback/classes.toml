@@ -4,10 +4,10 @@
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 60
-svo_file_path = "data/svo/1729981242.4295187.svo2"
-position_tracking = true
-# svo_file_path = "data/svo/mini_bot_2024-10-26T13-29-41.svo2"
-# position_tracking = false
+# svo_file_path = "data/svo/1729981242.4295187.svo2"
+# position_tracking = true
+svo_file_path = "data/svo/mini_bot_2024-10-26T13-29-41.svo2"
+position_tracking = false
 svo_real_time_mode = true
 
 [field_model]
@@ -27,7 +27,7 @@ distance_threshold = 0.1
 [keypoint_model]
 type = "YoloKeypointModel"
 model_path = "models/yolo26n-pose_mr_stabs_mk2_2026-03-08_x86_64_sm89.engine"
-label_indices = ["MR_STABS_MK2"]
+label_indices = ["MR_STABS_MK2", "HOUSE_BOT"]
 # model_path = "models/yolo11x-pose_2024-10-26_x86_64.engine"
 # label_indices = [
 #     "MR_STABS_MK1",

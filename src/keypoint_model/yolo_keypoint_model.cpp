@@ -232,6 +232,7 @@ std::vector<DetectionRow> YoloKeypointModel::non_max_suppression(
     for (int p = 0; p < num_predictions; p++) {
         for (int j = 0; j < 4; j++) boxes_xyxy[p * 4 + j] = prediction[p * num_features + j];
     }
+    xywh2xyxy(boxes_xyxy.data(), num_predictions);
 
     std::vector<DetectionRow> out_rows;
     std::vector<float> det_boxes(static_cast<size_t>(num_predictions) * 4);
