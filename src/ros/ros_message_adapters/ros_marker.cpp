@@ -208,7 +208,7 @@ std::vector<visualization_msgs::Marker> to_ros_robot_markers(
         text_marker.pose.orientation.z = 0.0;
 
         text_marker.scale.z = 0.1;  // Text height
-        text_marker.text = enum_to_string_lower(robot.label);
+        text_marker.text = enum_to_string_lower(robot.frame_id);
         text_marker.color = solid_color;
         text_marker.frame_locked = false;
 
