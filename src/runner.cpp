@@ -173,12 +173,22 @@ bool Runner::tick() {
             return false;
         }
         spdlog::error("Failed to get camera data. Reinitializing.");
-        do {
+        auto is_running = [this]() {
+            if (!miniros::ok()) return false;
+            if (ui_state_ && ui_state_->quit_requested.load()) return false;
+            return true;
+        };
+        while (is_running()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        } while (!camera_->initialize() && miniros::ok());
+            if (!is_running()) {
+                camera_->cancel_initialize();
+                break;
+            }
+            if (camera_->initialize()) break;
+        }
 
-        if (!miniros::ok()) {
-            miniros::shutdown();
+        if (!is_running()) {
+            if (!miniros::ok()) miniros::shutdown();
             return false;
         }
 

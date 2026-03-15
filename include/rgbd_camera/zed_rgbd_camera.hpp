@@ -66,6 +66,7 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
     ~ZedRgbdCamera();
     bool initialize() override;
+    void cancel_initialize() override;
     bool get(CameraData &data, bool get_depth) override;
     bool should_close() override;
     std::string get_current_svo_path() const;
@@ -78,6 +79,9 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     void stop_svo_recording();
     void enforce_holding_dir_size();
     std::string generate_svo_filename() const;
+
+    std::atomic<bool> cancel_open_{false};
+    std::future<sl::ERROR_CODE> pending_open_;
 
     sl::Camera zed_;
     sl::InitParameters params_;

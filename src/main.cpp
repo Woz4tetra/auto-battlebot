@@ -43,9 +43,7 @@ int main(int argc, char **argv) {
     }
 
     std::string config_name =
-        config_path.empty()
-            ? "main"
-            : std::filesystem::path(config_path).lexically_normal().filename().string();
+        config_path.empty() ? "main" : std::filesystem::canonical(config_path).filename().string();
     auto mcap_recorder = std::make_shared<McapRecorder>(config_name);
     setup_logging(mcap_recorder);
 
@@ -56,6 +54,7 @@ int main(int argc, char **argv) {
     std::map<std::string, std::string> remappings;
     miniros::init(remappings, "auto_battlebot");
     miniros::NodeHandle nh;
+    setup_rosout_publisher(nh);
 
     std::shared_ptr<UIState> ui_state;
     std::vector<std::shared_ptr<DiagnosticsBackend>> backends;

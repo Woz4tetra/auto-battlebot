@@ -54,15 +54,23 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
 }
 
 ZedRgbdCamera::~ZedRgbdCamera() {
+    // Cancel any in-progress initialize() before doing anything else.
+    cancel_open_ = true;
+    if (pending_open_.valid()) {
+        pending_open_.wait();
+    }
     if (is_initialized_) {
         stop_thread_ = true;
         if (capture_thread_.joinable()) {
+            data_cv_.notify_all();
             capture_thread_.join();
         }
         stop_svo_recording();
         zed_.close();
     }
 }
+
+void ZedRgbdCamera::cancel_initialize() { cancel_open_ = true; }
 
 bool ZedRgbdCamera::initialize() {
     // Clean up previous thread if it exists (support re-initialization)
@@ -88,7 +96,21 @@ bool ZedRgbdCamera::initialize() {
         }
     }
 
-    sl::ERROR_CODE returned_state = zed_.open(params_);
+    // Run zed_.open() on a background thread so we can check cancel_open_ while it blocks.
+    cancel_open_ = false;
+    pending_open_ =
+        std::async(std::launch::async, [this]() -> sl::ERROR_CODE { return zed_.open(params_); });
+
+    while (pending_open_.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
+        if (cancel_open_) {
+            // We can't interrupt zed_.open() itself; wait for it to return before we leave so
+            // the ZED object is never used concurrently or destroyed mid-open.
+            pending_open_.wait();
+            return false;
+        }
+    }
+
+    sl::ERROR_CODE returned_state = pending_open_.get();
     if (returned_state != sl::ERROR_CODE::SUCCESS) {
         spdlog::error("Failed to open ZED camera: {}", sl::toString(returned_state).c_str());
         return false;
