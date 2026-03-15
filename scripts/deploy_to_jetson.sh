@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy git-tracked source files and the models/ directory to a Jetson over a local network.
+# Deploy source files (respecting .gitignore) and the models/ directory to a Jetson over a local network.
 # Only changed files are transferred; files absent on the host are deleted on the remote.
 #
 # Usage:
@@ -32,15 +32,16 @@ RSYNC_OPTS=(
     --human-readable
     --progress
     --delete
-    --ignore-missing-args
 )
 
 # ── Code sync ────────────────────────────────────────────────────────────────
-# Transfer exactly the files tracked by git. --delete removes remote files in
-# visited directories that are no longer tracked.
-echo "Syncing git-tracked files to ${REMOTE_DEST}..."
+# --filter reads each .gitignore encountered during traversal, excluding all
+# gitignored paths. /models is excluded by the root .gitignore, so --delete
+# will not touch it on the remote. .git/ is excluded explicitly.
+echo "Syncing code to ${REMOTE_DEST}..."
 rsync "${RSYNC_OPTS[@]}" \
-    --files-from=<(git -C "$PROJECT_ROOT" ls-files) \
+    --filter=':- .gitignore' \
+    --exclude='.git/' \
     "$PROJECT_ROOT/" \
     "$REMOTE_DEST/"
 

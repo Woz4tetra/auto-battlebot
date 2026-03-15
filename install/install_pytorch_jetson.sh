@@ -78,6 +78,19 @@ install_pytorch_jetson() {
     local PROJECT_ROOT
     PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
     local VENV_DIR="$PROJECT_ROOT/venv"
+
+    # Check whether PyTorch is already importable in the project venv (or system python).
+    local _python="${VENV_DIR}/bin/python"
+    if [ ! -x "$_python" ]; then
+        _python="python3"
+    fi
+    if "$_python" -c "import torch" 2>/dev/null; then
+        local _torch_ver
+        _torch_ver=$("$_python" -c "import torch; print(torch.__version__)")
+        echo "PyTorch already installed ($_torch_ver). Skipping."
+        return 0
+    fi
+
     local PY_VER="3.10"
 
     # 1. System packages required by PyTorch (per NVIDIA doc)
