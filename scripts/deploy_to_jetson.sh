@@ -50,6 +50,7 @@ rsync "${RSYNC_OPTS[@]}" \
 if [ -d "$PROJECT_ROOT/models" ]; then
     echo "Syncing models/ to ${REMOTE_DEST}/models/..."
     rsync "${RSYNC_OPTS[@]}" \
+        --no-delete \
         "$PROJECT_ROOT/models/" \
         "${JETSON_USER}@${JETSON_HOST}:${JETSON_PATH}/models/"
 else
