@@ -12,8 +12,9 @@ source "$PROJECT_ROOT/install/install_packages.sh"
 source "$PROJECT_ROOT/install/install_opencv_jetson.sh"
 source "$PROJECT_ROOT/install/install_pytorch_jetson.sh"
 source "$PROJECT_ROOT/install/install_ros_connector.sh"
-source "$PROJECT_ROOT/install/install_mcap_cli.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
+source "$PROJECT_ROOT/install/install_mcap_cli.sh"
+source "$PROJECT_ROOT/install/install_udev_rules.sh"
 
 # Run checks and installation
 check_jetson_orin_nano
@@ -26,3 +27,4 @@ install_pytorch_jetson
 install_ros_connector
 install_mcap_cli
 build_cpp_project "$@"
+install_udev_rules

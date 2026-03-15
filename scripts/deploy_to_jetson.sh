@@ -1,0 +1,58 @@
+#!/bin/bash
+# Deploy git-tracked source files and the models/ directory to a Jetson over a local network.
+# Only changed files are transferred; files absent on the host are deleted on the remote.
+#
+# Usage:
+#   scripts/deploy_to_jetson.sh [HOST]
+#
+# Configuration (env vars, all optional):
+#   JETSON_HOST  - hostname or IP of the Jetson (default: ubuntu)
+#   JETSON_USER  - SSH username             (default: ben)
+#   JETSON_PATH  - destination path on the Jetson (default: ~/auto-battlebot)
+#
+# Examples:
+#   scripts/deploy_to_jetson.sh
+#   scripts/deploy_to_jetson.sh 192.168.1.50
+#   JETSON_HOST=ubuntu JETSON_USER=ubuntu scripts/deploy_to_jetson.sh
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+JETSON_HOST="${1:-${JETSON_HOST:-jetson}}"
+JETSON_USER="${JETSON_USER:-ben}"
+JETSON_PATH="${JETSON_PATH:-~/auto-battlebot}"
+
+REMOTE_DEST="${JETSON_USER}@${JETSON_HOST}:${JETSON_PATH}"
+
+RSYNC_OPTS=(
+    --archive
+    --verbose
+    --human-readable
+    --progress
+    --delete
+    --ignore-missing-args
+)
+
+# ── Code sync ────────────────────────────────────────────────────────────────
+# Transfer exactly the files tracked by git. --delete removes remote files in
+# visited directories that are no longer tracked.
+echo "Syncing git-tracked files to ${REMOTE_DEST}..."
+rsync "${RSYNC_OPTS[@]}" \
+    --files-from=<(git -C "$PROJECT_ROOT" ls-files) \
+    "$PROJECT_ROOT/" \
+    "$REMOTE_DEST/"
+
+# ── Models sync ──────────────────────────────────────────────────────────────
+# models/ is gitignored and not included in the code pass above.
+if [ -d "$PROJECT_ROOT/models" ]; then
+    echo "Syncing models/ to ${REMOTE_DEST}/models/..."
+    rsync "${RSYNC_OPTS[@]}" \
+        "$PROJECT_ROOT/models/" \
+        "${JETSON_USER}@${JETSON_HOST}:${JETSON_PATH}/models/"
+else
+    echo "No local models/ directory found, skipping models sync."
+fi
+
+echo "Deploy complete."
