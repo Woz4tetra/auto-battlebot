@@ -49,8 +49,7 @@ rsync "${RSYNC_OPTS[@]}" \
 # models/ is gitignored and not included in the code pass above.
 if [ -d "$PROJECT_ROOT/models" ]; then
     echo "Syncing models/ to ${REMOTE_DEST}/models/..."
-    rsync "${RSYNC_OPTS[@]}" \
-        --no-delete \
+    rsync --archive --verbose --human-readable --progress \
         "$PROJECT_ROOT/models/" \
         "${JETSON_USER}@${JETSON_HOST}:${JETSON_PATH}/models/"
 else

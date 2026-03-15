@@ -4,15 +4,18 @@ After=network.target
 
 [Service]
 Type=simple
-# Binary from 'make install' (default prefix /usr/local). Override with:
+# Binary from 'make install' (default prefix ~/.local). Override with:
 #   systemctl edit auto_battlebot.service  and set ExecStart=
-# Uses same layout as scripts/build_and_install.sh (default prefix /usr/local)
-ExecStart=/usr/local/bin/auto_battlebot -c /usr/local/share/auto_battlebot/config/main
-WorkingDirectory=/tmp
+# Uses same layout as scripts/build_and_install.sh (default prefix ~/.local)
+ExecStartPre=/home/__USER__/auto-battlebot/scripts/run_ros_connector.sh
+ExecStart=/home/__USER__/.local/bin/auto_battlebot -c /home/__USER__/.local/share/auto_battlebot/config/main
+WorkingDirectory=/home/__USER__/auto-battlebot
 Restart=on-failure
 RestartSec=5
-# Run as your user if needed (disable for root):
-# User=youruser
+User=__USER__
+SupplementaryGroups=dialout
+Environment="XDG_RUNTIME_DIR=/run/user/%U"
+Environment="DISPLAY=:0"
 
 [Install]
 WantedBy=multi-user.target
