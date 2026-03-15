@@ -3,20 +3,20 @@
 #include <NvInferRuntime.h>
 #include <NvInferRuntimeBase.h>
 #include <cuda_runtime.h>
+#include <spdlog/spdlog.h>
 
 #include <cstring>
 #include <fstream>
-#include <iostream>
 #include <stdexcept>
 
 namespace auto_battlebot {
 namespace {
-// Minimal TensorRT logger (only log errors/warnings to stderr).
+// Minimal TensorRT logger (only log errors/warnings via spdlog).
 class TrtLogger : public nvinfer1::ILogger {
    public:
     void log(Severity severity, nvinfer1::AsciiChar const* msg) noexcept override {
         if (severity <= Severity::kWARNING) {
-            std::cerr << "[TensorRT] " << msg << std::endl;
+            spdlog::error("[TensorRT] {}", msg);
         }
     }
 };
@@ -71,21 +71,21 @@ TrtEngine::~TrtEngine() {
 bool TrtEngine::load(const std::string& engine_path) {
     std::ifstream f(engine_path, std::ios::binary | std::ios::ate);
     if (!f) {
-        std::cerr << "TrtEngine: cannot open file: " << engine_path << std::endl;
+        spdlog::error("TrtEngine: cannot open file: {}", engine_path);
         return false;
     }
     const size_t size = static_cast<size_t>(f.tellg());
     f.seekg(0, std::ios::beg);
     std::vector<char> blob(size);
     if (!f.read(blob.data(), static_cast<std::streamsize>(size))) {
-        std::cerr << "TrtEngine: failed to read engine file" << std::endl;
+        spdlog::error("TrtEngine: failed to read engine file");
         return false;
     }
     f.close();
 
     nvinfer1::IRuntime* rt = nvinfer1::createInferRuntime(g_trt_logger);
     if (!rt) {
-        std::cerr << "TrtEngine: createInferRuntime failed" << std::endl;
+        spdlog::error("TrtEngine: createInferRuntime failed");
         return false;
     }
     runtime_ = rt;
@@ -95,7 +95,7 @@ bool TrtEngine::load(const std::string& engine_path) {
 
     nvinfer1::ICudaEngine* eng = rt->deserializeCudaEngine(blob.data(), size);
     if (!eng) {
-        std::cerr << "TrtEngine: deserializeCudaEngine failed." << std::endl;
+        spdlog::error("TrtEngine: deserializeCudaEngine failed.");
         delete rt;
         runtime_ = nullptr;
         engine_ = nullptr;
@@ -105,7 +105,7 @@ bool TrtEngine::load(const std::string& engine_path) {
 
     nvinfer1::IExecutionContext* ctx = eng->createExecutionContext();
     if (!ctx) {
-        std::cerr << "TrtEngine: createExecutionContext failed" << std::endl;
+        spdlog::error("TrtEngine: createExecutionContext failed");
         delete eng;
         delete rt;
         engine_ = nullptr;
@@ -116,7 +116,7 @@ bool TrtEngine::load(const std::string& engine_path) {
 
     const int32_t nb_io = eng->getNbIOTensors();
     if (nb_io != 2) {
-        std::cerr << "TrtEngine: expected 2 IO tensors, got " << nb_io << std::endl;
+        spdlog::error("TrtEngine: expected 2 IO tensors, got {}", nb_io);
         delete ctx;
         delete eng;
         delete rt;
@@ -140,7 +140,7 @@ bool TrtEngine::load(const std::string& engine_path) {
         }
     }
     if (!input_name || !output_name) {
-        std::cerr << "TrtEngine: could not identify input and output tensors by mode" << std::endl;
+        spdlog::error("TrtEngine: could not identify input and output tensors by mode");
         delete ctx;
         delete eng;
         delete rt;
@@ -155,7 +155,7 @@ bool TrtEngine::load(const std::string& engine_path) {
     const int64_t input_vol = volume(input_dims);
     const int64_t output_vol = volume(output_dims);
     if (input_vol <= 0 || output_vol <= 0) {
-        std::cerr << "TrtEngine: invalid input or output shape" << std::endl;
+        spdlog::error("TrtEngine: invalid input or output shape");
         delete ctx;
         delete eng;
         delete rt;
@@ -167,7 +167,7 @@ bool TrtEngine::load(const std::string& engine_path) {
 
     cudaError_t err = cudaMalloc(&d_input_, static_cast<size_t>(input_vol) * sizeof(float));
     if (err != cudaSuccess) {
-        std::cerr << "TrtEngine: cudaMalloc input failed: " << cudaGetErrorString(err) << std::endl;
+        spdlog::error("TrtEngine: cudaMalloc input failed: {}", cudaGetErrorString(err));
         delete ctx;
         delete eng;
         delete rt;
@@ -178,8 +178,7 @@ bool TrtEngine::load(const std::string& engine_path) {
     }
     err = cudaMalloc(&d_output_, static_cast<size_t>(output_vol) * sizeof(float));
     if (err != cudaSuccess) {
-        std::cerr << "TrtEngine: cudaMalloc output failed: " << cudaGetErrorString(err)
-                  << std::endl;
+        spdlog::error("TrtEngine: cudaMalloc output failed: {}", cudaGetErrorString(err));
         cudaFree(d_input_);
         d_input_ = nullptr;
         delete ctx;
@@ -193,7 +192,7 @@ bool TrtEngine::load(const std::string& engine_path) {
 
     if (!ctx->setTensorAddress(input_name, d_input_) ||
         !ctx->setTensorAddress(output_name, d_output_)) {
-        std::cerr << "TrtEngine: setTensorAddress failed" << std::endl;
+        spdlog::error("TrtEngine: setTensorAddress failed");
         cudaFree(d_input_);
         cudaFree(d_output_);
         d_input_ = nullptr;
@@ -212,13 +211,15 @@ bool TrtEngine::load(const std::string& engine_path) {
     input_num_elements_ = input_vol;
     output_num_elements_ = output_vol;
 
-    std::cout << "TrtEngine: input \"" << input_name << "\" shape [";
-    for (size_t i = 0; i < input_shape_.size(); ++i)
-        std::cout << (i ? ", " : "") << input_shape_[i];
-    std::cout << "], output \"" << output_name << "\" shape [";
-    for (size_t i = 0; i < output_shape_.size(); ++i)
-        std::cout << (i ? ", " : "") << output_shape_[i];
-    std::cout << "]" << std::endl;
+    {
+        std::string in_shape_str, out_shape_str;
+        for (size_t i = 0; i < input_shape_.size(); ++i)
+            in_shape_str += (i ? ", " : "") + std::to_string(input_shape_[i]);
+        for (size_t i = 0; i < output_shape_.size(); ++i)
+            out_shape_str += (i ? ", " : "") + std::to_string(output_shape_[i]);
+        spdlog::info("TrtEngine: input \"{}\" shape [{}], output \"{}\" shape [{}]", input_name,
+                     in_shape_str, output_name, out_shape_str);
+    }
 
     return true;
 }
@@ -232,7 +233,7 @@ bool TrtEngine::execute(const float* host_input, float* host_output) {
 
     cudaError_t err = cudaMemcpy(d_input_, host_input, getInputSizeBytes(), cudaMemcpyHostToDevice);
     if (err != cudaSuccess) {
-        std::cerr << "TrtEngine: cudaMemcpy H2D failed: " << cudaGetErrorString(err) << std::endl;
+        spdlog::error("TrtEngine: cudaMemcpy H2D failed: {}", cudaGetErrorString(err));
         return false;
     }
 
@@ -243,13 +244,13 @@ bool TrtEngine::execute(const float* host_input, float* host_output) {
 
     auto* ctx = static_cast<nvinfer1::IExecutionContext*>(context_);
     if (!ctx->executeV2(bindings)) {
-        std::cerr << "TrtEngine: executeV2 failed" << std::endl;
+        spdlog::error("TrtEngine: executeV2 failed");
         return false;
     }
 
     err = cudaMemcpy(host_output, d_output_, getOutputSizeBytes(), cudaMemcpyDeviceToHost);
     if (err != cudaSuccess) {
-        std::cerr << "TrtEngine: cudaMemcpy D2H failed: " << cudaGetErrorString(err) << std::endl;
+        spdlog::error("TrtEngine: cudaMemcpy D2H failed: {}", cudaGetErrorString(err));
         return false;
     }
 

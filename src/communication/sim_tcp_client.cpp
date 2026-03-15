@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <spdlog/spdlog.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -35,15 +36,13 @@ void SimTcpClient::configure(const SimTcpClientConfig &config) {
     std::lock_guard<std::mutex> lock(socket_mutex_);
 
     if (connected_) {
-        std::cerr << "Configuration changed while connected - will apply on next connect"
-                  << std::endl;
+        spdlog::warn("Configuration changed while connected - will apply on next connect");
     }
 
     config_ = config;
     configured_ = true;
 
-    std::cout << "Socket configured. Host: " << config_.host << ". Port: " << config_.port
-              << std::endl;
+    spdlog::info("Socket configured. Host: {}. Port: {}", config_.host, config_.port);
 }
 
 void SimTcpClient::configure_optimizations() {
@@ -52,28 +51,24 @@ void SimTcpClient::configure_optimizations() {
     // Large socket buffers for image data (4MB default)
     int buf_size = config_.socket_buffer_size;
     if (setsockopt(socket_fd_, SOL_SOCKET, SO_RCVBUF, &buf_size, sizeof(buf_size)) < 0) {
-        std::cerr << "Failed to configure socket: " << strerror(errno) << " (" << errno << ")"
-                  << std::endl;
+        spdlog::error("Failed to configure socket: {} ({})", strerror(errno), errno);
     }
     if (setsockopt(socket_fd_, SOL_SOCKET, SO_SNDBUF, &buf_size, sizeof(buf_size)) < 0) {
-        std::cerr << "Failed to configure socket: " << strerror(errno) << " (" << errno << ")"
-                  << std::endl;
+        spdlog::error("Failed to configure socket: {} ({})", strerror(errno), errno);
     }
 
     // Disable Nagle's algorithm for low latency
     int flag = 1;
     if (setsockopt(socket_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) < 0) {
-        std::cerr << "Failed to configure socket: " << strerror(errno) << " (" << errno << ")"
-                  << std::endl;
+        spdlog::error("Failed to configure socket: {} ({})", strerror(errno), errno);
     }
 
     // Disable delayed ACKs (Linux-specific)
     if (setsockopt(socket_fd_, IPPROTO_TCP, TCP_QUICKACK, &flag, sizeof(flag)) < 0) {
-        std::cerr << "Failed to configure socket: " << strerror(errno) << " (" << errno << ")"
-                  << std::endl;
+        spdlog::error("Failed to configure socket: {} ({})", strerror(errno), errno);
     }
 
-    std::cout << "Socket optimizations configured" << std::endl;
+    spdlog::info("Socket optimizations configured");
 }
 
 bool SimTcpClient::connect() {
@@ -84,14 +79,13 @@ bool SimTcpClient::connect() {
     }
 
     if (!configured_) {
-        std::cout << "Connecting with default configuration" << std::endl;
+        spdlog::info("Connecting with default configuration");
     }
 
     // Create socket
     socket_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd_ < 0) {
-        std::cerr << "Failed to create socket: " << strerror(errno) << " (" << errno << ")"
-                  << std::endl;
+        spdlog::error("Failed to create socket: {} ({})", strerror(errno), errno);
         return false;
     }
 
@@ -104,7 +98,7 @@ bool SimTcpClient::connect() {
     server_addr.sin_port = htons(config_.port);
 
     if (inet_pton(AF_INET, config_.host.c_str(), &server_addr.sin_addr) <= 0) {
-        std::cerr << "Invalid address: " << config_.host << std::endl;
+        spdlog::error("Invalid address: {}", config_.host);
         close(socket_fd_);
         socket_fd_ = -1;
         return false;
@@ -118,8 +112,8 @@ bool SimTcpClient::connect() {
     int result = ::connect(socket_fd_, (struct sockaddr *)&server_addr, sizeof(server_addr));
 
     if (result < 0 && errno != EINPROGRESS) {
-        std::cerr << "Failed to connect. Error: " << strerror(errno) << " (" << errno << ")"
-                  << ". Host: " << config_.host << ". Port: " << config_.port << std::endl;
+        spdlog::error("Failed to connect. Error: {} ({}). Host: {}. Port: {}", strerror(errno),
+                      errno, config_.host, config_.port);
         close(socket_fd_);
         socket_fd_ = -1;
         return false;
@@ -133,7 +127,7 @@ bool SimTcpClient::connect() {
     result = poll(&pfd, 1, config_.connect_timeout_ms);
 
     if (result <= 0) {
-        std::cerr << "Connection timeout: " << config_.connect_timeout_ms << " (ms)" << std::endl;
+        spdlog::error("Connection timeout: {} (ms)", config_.connect_timeout_ms);
         close(socket_fd_);
         socket_fd_ = -1;
         return false;
@@ -143,7 +137,7 @@ bool SimTcpClient::connect() {
     int error = 0;
     socklen_t len = sizeof(error);
     if (getsockopt(socket_fd_, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error != 0) {
-        std::cerr << "Connection error: " << strerror(errno) << " (" << errno << ")" << std::endl;
+        spdlog::error("Connection error: {} ({})", strerror(errno), errno);
         close(socket_fd_);
         socket_fd_ = -1;
         return false;
@@ -157,7 +151,7 @@ bool SimTcpClient::connect() {
 
     // Wait for intrinsics message from Unity
     if (!set_socket_timeout(config_.connect_timeout_ms)) {
-        std::cerr << "Failed to set socket timeout" << std::endl;
+        spdlog::error("Failed to set socket timeout");
     }
 
     // Read the intrinsics message that Unity sends on connection
@@ -165,16 +159,16 @@ bool SimTcpClient::connect() {
     if (read_exact(&msg_type, 1, config_.connect_timeout_ms)) {
         if (static_cast<TcpMessageType>(msg_type) == TcpMessageType::CameraIntrinsics) {
             if (!read_intrinsics_message()) {
-                std::cerr << "Failed to read intrinsics message" << std::endl;
+                spdlog::error("Failed to read intrinsics message");
             }
         } else {
-            std::cerr << "Unexpected first message: " << static_cast<int>(msg_type) << std::endl;
+            spdlog::error("Unexpected first message: {}", static_cast<int>(msg_type));
         }
     } else {
-        std::cerr << "No intrinsics message received from server" << std::endl;
+        spdlog::error("No intrinsics message received from server");
     }
 
-    std::cout << "Socket connection complete" << std::endl;
+    spdlog::info("Socket connection complete");
 
     return true;
 }
@@ -191,7 +185,7 @@ void SimTcpClient::disconnect() {
     }
 
     connected_ = false;
-    std::cout << "Disconnected from server" << std::endl;
+    spdlog::info("Disconnected from server");
 }
 
 bool SimTcpClient::is_connected() const { return connected_; }
@@ -204,13 +198,13 @@ bool SimTcpClient::wait_for_connection() {
             return false;
         }
         if (!connect()) {
-            std::cerr << "Failed to initialize client." << std::endl;
+            spdlog::error("Failed to initialize client.");
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
             continue;
         }
     }
+    spdlog::info("Done waiting for connection");
     return true;
-    std::cout << "Done waiting for connection" << std::endl;
 }
 
 bool SimTcpClient::try_reconnect() {
@@ -218,8 +212,7 @@ bool SimTcpClient::try_reconnect() {
 
     if (config_.auto_reconnect) {
         reconnect_count_++;
-        std::cout << "attempting_reconnect: " << static_cast<int>(reconnect_count_.load())
-                  << std::endl;
+        spdlog::info("attempting_reconnect: {}", static_cast<int>(reconnect_count_.load()));
         return connect();
     }
 
@@ -261,7 +254,7 @@ std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::wait_for_frame_with_da
                 break;
 
             default:
-                std::cerr << "Unexpected message type: " << static_cast<int>(msg_type) << std::endl;
+                spdlog::error("Unexpected message type: {}", static_cast<int>(msg_type));
                 return std::nullopt;
         }
     }
@@ -298,7 +291,7 @@ bool SimTcpClient::send_velocity_command(const VelocityCommand &command) {
         return true;
     }
 
-    std::cerr << "Send command failed: " << strerror(errno) << " (" << errno << ")" << std::endl;
+    spdlog::error("Send command failed: {} ({})", strerror(errno), errno);
     return false;
 }
 
@@ -432,7 +425,7 @@ bool SimTcpClient::handle_incoming_message() {
             return read_intrinsics_message();
 
         default:
-            std::cerr << "Unexpected message type: " << static_cast<int>(msg_type) << std::endl;
+            spdlog::error("Unexpected message type: {}", static_cast<int>(msg_type));
             return false;
     }
 }
@@ -505,7 +498,7 @@ std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::read_frame_ready_with_
     uint8_t header_buffer[TcpFrameReadyWithDataMessage::header_payload_size];
 
     if (!read_exact(header_buffer, sizeof(header_buffer), config_.read_timeout_ms)) {
-        std::cerr << "Failed to read frame header" << std::endl;
+        spdlog::error("Failed to read frame header");
         return std::nullopt;
     }
 
@@ -537,8 +530,8 @@ std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::read_frame_ready_with_
 
     // Validate sizes
     if (frame.rgb_data_size < 0 || frame.depth_data_size < 0) {
-        std::cerr << "Frame data has invalid sizes. RGB size: " << frame.rgb_data_size
-                  << ". Depth size: " << frame.depth_data_size << std::endl;
+        spdlog::error("Frame data has invalid sizes. RGB size: {}. Depth size: {}",
+                      frame.rgb_data_size, frame.depth_data_size);
         return std::nullopt;
     }
 
@@ -546,7 +539,7 @@ std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::read_frame_ready_with_
     if (frame.rgb_data_size > 0) {
         frame.rgb_data.resize(frame.rgb_data_size);
         if (!read_exact(frame.rgb_data.data(), frame.rgb_data_size, config_.read_timeout_ms * 10)) {
-            std::cerr << "Failed to read RGB size. RGB size: " << frame.rgb_data_size << std::endl;
+            spdlog::error("Failed to read RGB data. RGB size: {}", frame.rgb_data_size);
             return std::nullopt;
         }
     }
@@ -556,8 +549,7 @@ std::optional<TcpFrameReadyWithDataMessage> SimTcpClient::read_frame_ready_with_
         frame.depth_data.resize(frame.depth_data_size);
         if (!read_exact(frame.depth_data.data(), frame.depth_data_size,
                         config_.read_timeout_ms * 10)) {
-            std::cerr << "Failed to read RGB size. Depth size: " << frame.depth_data_size
-                      << std::endl;
+            spdlog::error("Failed to read depth data. Depth size: {}", frame.depth_data_size);
             return std::nullopt;
         }
     }

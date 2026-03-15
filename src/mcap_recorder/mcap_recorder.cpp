@@ -1,0 +1,51 @@
+#define MCAP_IMPLEMENTATION
+#include "mcap_recorder/mcap_recorder.hpp"
+
+#include <spdlog/spdlog.h>
+
+#include <ctime>
+#include <filesystem>
+#include <iomanip>
+#include <sstream>
+
+namespace auto_battlebot {
+
+McapRecorder::McapRecorder(const std::string& config_name) {
+    file_path_ = make_file_path(config_name);
+
+    std::filesystem::create_directories(file_path_.parent_path());
+
+    mcap::McapWriterOptions opts("ros1");
+    opts.compression = mcap::Compression::None;
+    auto status = writer_.open(file_path_.string(), opts);
+    if (!status.ok()) {
+        spdlog::error("[McapRecorder] Failed to open {}: {}", file_path_.string(), status.message);
+        return;
+    }
+
+    writer_open_ = true;
+    spdlog::info("[McapRecorder] Recording to {}", file_path_.string());
+}
+
+McapRecorder::~McapRecorder() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (writer_open_) {
+        writer_.close();
+        writer_open_ = false;
+    }
+}
+
+std::filesystem::path McapRecorder::make_file_path(const std::string& config_name) {
+    std::time_t now = std::time(nullptr);
+    std::tm tm_buf{};
+    localtime_r(&now, &tm_buf);
+
+    std::ostringstream oss;
+    oss << "auto_battlebot_" << config_name << "_";
+    oss << std::put_time(&tm_buf, "%Y-%m-%d_%H-%M-%S");
+    oss << ".mcap";
+
+    return std::filesystem::current_path() / "recordings" / oss.str();
+}
+
+}  // namespace auto_battlebot

@@ -1,5 +1,7 @@
 #include "field_filter/point_cloud_field_filter.hpp"
 
+#include <spdlog/spdlog.h>
+
 namespace auto_battlebot {
 PointCloudFieldFilter::PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config)
     : distance_threshold_(config.distance_threshold),
@@ -10,13 +12,13 @@ PointCloudFieldFilter::PointCloudFieldFilter(PointCloudFieldFilterConfiguration 
 
 void PointCloudFieldFilter::reset(TransformStamped tf_visodom_from_camera) {
     tf_visodom_from_cameraworld_ = tf_visodom_from_camera;
-    std::cout << "PointCloudFieldFilter reset with transform: "
-              << transform_to_string(tf_visodom_from_camera) << std::endl;
+    spdlog::info("PointCloudFieldFilter reset with transform: {}",
+                 transform_to_string(tf_visodom_from_camera));
 }
 
 std::shared_ptr<FieldDescriptionWithInlierPoints> PointCloudFieldFilter::compute_field(
     const CameraData &camera_data, const MaskStamped &field_mask) {
-    std::cout << "Running compute_field" << std::endl;
+    spdlog::info("Running compute_field");
     FunctionTimer timer(diagnostics_logger_, "compute_field");
 
     cv::Mat largest_contour_mask = find_largest_contour_mask(field_mask.mask.mask);
@@ -107,7 +109,7 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> PointCloudFieldFilter::compute
         visualize_debug_mosaic(field_mask.mask.mask, largest_contour_mask, masked_depth_image);
     }
 
-    std::cout << "compute_field complete" << std::endl;
+    spdlog::info("compute_field complete");
     return std::make_shared<FieldDescriptionWithInlierPoints>(field_description);
 }
 

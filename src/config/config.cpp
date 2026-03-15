@@ -1,5 +1,7 @@
 #include "config/config.hpp"
 
+#include <spdlog/spdlog.h>
+
 namespace auto_battlebot {
 template <typename ConfigType>
 ConfigType parse_config_section(const toml::table &toml_data, const std::string &section_name,
@@ -43,19 +45,19 @@ ClassConfiguration load_classes_from_config(const std::string &config_path) {
         config.publisher = load_publisher_from_toml(toml_data, parsed_sections);
         config.ui = load_ui_from_toml(toml_data, parsed_sections);
         load_runner_from_toml(toml_data, parsed_sections, config.runner);
+        config.mcap_recorder = load_mcap_config_from_toml(toml_data, parsed_sections);
 
         validate_no_extra_sections(toml_data, parsed_sections, path.stem());
         validate_no_extra_sections(toml_data, parsed_sections, path.stem());
     } catch (const toml::parse_error &e) {
-        std::cerr << "Error parsing classes config file: " << path.string() << std::endl;
-        std::cerr << e.description() << std::endl;
+        spdlog::error("Error parsing classes config file: {}", path.string());
+        spdlog::error("{}", e.description());
         throw;
     } catch (const ConfigValidationError &e) {
-        std::cerr << "Configuration validation error in " << path.string() << ":" << std::endl;
-        std::cerr << e.what() << std::endl;
+        spdlog::error("Configuration validation error in {}: {}", path.string(), e.what());
         throw;
     } catch (const std::exception &e) {
-        std::cerr << "Error reading classes config file: " << e.what() << std::endl;
+        spdlog::error("Error reading classes config file: {}", e.what());
         throw;
     }
 
@@ -94,11 +96,11 @@ std::vector<RobotConfig> load_robots_from_config(const std::string &config_path)
             }
         }
     } catch (const toml::parse_error &e) {
-        std::cerr << "Error parsing robot config file: " << path.string() << std::endl;
-        std::cerr << e.description() << std::endl;
+        spdlog::error("Error parsing robot config file: {}", path.string());
+        spdlog::error("{}", e.description());
         return robots;
     } catch (const std::exception &e) {
-        std::cerr << "Error reading robot config file: " << e.what() << std::endl;
+        spdlog::error("Error reading robot config file: {}", e.what());
         return robots;
     }
 

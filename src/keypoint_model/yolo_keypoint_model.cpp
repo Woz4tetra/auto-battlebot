@@ -1,5 +1,7 @@
 #include "keypoint_model/yolo_keypoint_model.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -19,22 +21,22 @@ YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config)
 }
 
 bool YoloKeypointModel::initialize() {
-    std::cout << "Loading TensorRT engine from: " << model_path_ << std::endl;
+    spdlog::info("Loading TensorRT engine from: {}", model_path_);
     if (!engine_.load(model_path_)) {
-        std::cerr << "Failed to load YOLO TensorRT engine: " << model_path_ << std::endl;
+        spdlog::error("Failed to load YOLO TensorRT engine: {}", model_path_);
         return false;
     }
 
-    std::cout << "Warming up model with dummy input..." << std::endl;
+    spdlog::info("Warming up model with dummy input...");
     std::vector<float> warmup_input(static_cast<size_t>(engine_.getInputNumElements()), 0.0f);
     std::vector<float> warmup_output(static_cast<size_t>(engine_.getOutputNumElements()), 0.0f);
     for (int i = 0; i < 3; i++) {
         if (!engine_.execute(warmup_input.data(), warmup_output.data())) {
-            std::cerr << "YOLO warmup inference failed" << std::endl;
+            spdlog::error("YOLO warmup inference failed");
             return false;
         }
     }
-    std::cout << "YoloKeypointModel initialized!" << std::endl;
+    spdlog::info("YoloKeypointModel initialized!");
 
     initialized_ = true;
     diagnostics_logger_->info({}, "YoloKeypointModel initialized successfully");

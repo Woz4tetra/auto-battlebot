@@ -1,5 +1,6 @@
 #include "navigation/config.hpp"
 
+#include <spdlog/spdlog.h>
 #include <toml++/toml.h>
 
 #include "config/config_parser.hpp"
@@ -28,7 +29,7 @@ std::unique_ptr<NavigationConfiguration> load_navigation_from_toml(
 }
 
 std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config) {
-    std::cout << "Selected " + config.type + " for Navigation" << std::endl;
+    spdlog::info("Selected {} for Navigation", config.type);
     if (config.type == "NoopNavigation") {
         return std::make_shared<NoopNavigation>();
     }

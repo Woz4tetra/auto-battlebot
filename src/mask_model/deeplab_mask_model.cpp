@@ -1,7 +1,9 @@
 #include "mask_model/deeplab_mask_model.hpp"
 
-#include <filesystem>
+#include <spdlog/spdlog.h>
 #include <toml++/toml.h>
+
+#include <filesystem>
 
 namespace auto_battlebot {
 DeepLabMaskModel::DeepLabMaskModel(DeepLabMaskModelConfiguration &config)
@@ -18,7 +20,7 @@ bool DeepLabMaskModel::load_model_config() {
     toml_path.replace_extension(".toml");
 
     if (!std::filesystem::exists(toml_path)) {
-        std::cerr << "Model config not found: " << toml_path << std::endl;
+        spdlog::error("Model config not found: {}", toml_path.string());
         return false;
     }
 
@@ -29,14 +31,14 @@ bool DeepLabMaskModel::load_model_config() {
         border_padding_ = model_section["pad_size"].value_or(0);
 
         if (image_size_ <= 0) {
-            std::cerr << "Invalid image_size in " << toml_path << std::endl;
+            spdlog::error("Invalid image_size in {}", toml_path.string());
             return false;
         }
 
-        std::cout << "Model config: image_size=" << image_size_
-                  << ", border_padding=" << border_padding_ << std::endl;
+        spdlog::info("Model config: image_size={}, border_padding={}", image_size_,
+                     border_padding_);
     } catch (const toml::parse_error &e) {
-        std::cerr << "Failed to parse model config " << toml_path << ": " << e.description() << std::endl;
+        spdlog::error("Failed to parse model config {}: {}", toml_path.string(), e.description());
         return false;
     }
     return true;
@@ -47,21 +49,20 @@ bool DeepLabMaskModel::initialize() {
         return false;
     }
 
-    std::cout << "Loading TensorRT engine from: " << model_path_ << std::endl;
+    spdlog::info("Loading TensorRT engine from: {}", model_path_);
     if (!engine_.load(model_path_)) {
-        std::cerr << "Failed to load DeepLab TensorRT engine: " << model_path_ << std::endl;
+        spdlog::error("Failed to load DeepLab TensorRT engine: {}", model_path_);
         return false;
     }
 
-    // Warmup inference
-    std::cout << "Warming up model with dummy input..." << std::endl;
+    spdlog::info("Warming up model with dummy input...");
     std::vector<float> warmup_input(static_cast<size_t>(engine_.getInputNumElements()), 0.0f);
     std::vector<float> warmup_output(static_cast<size_t>(engine_.getOutputNumElements()), 0.0f);
     if (!engine_.execute(warmup_input.data(), warmup_output.data())) {
-        std::cerr << "DeepLab warmup inference failed" << std::endl;
+        spdlog::error("DeepLab warmup inference failed");
         return false;
     }
-    std::cout << "DeepLabMaskModel initialized!" << std::endl;
+    spdlog::info("DeepLabMaskModel initialized!");
 
     initialized_ = true;
     diagnostics_logger_->info({}, "DeepLabMaskModel initialized successfully");
@@ -155,7 +156,7 @@ void DeepLabMaskModel::preprocess_image(const cv::Mat &image, std::vector<float>
 }
 
 cv::Mat DeepLabMaskModel::postprocess_output(const float *output, int original_height,
-                                              int original_width) {
+                                             int original_width) {
     const std::vector<int64_t> out_shape = engine_.getOutputShape();
     if (out_shape.size() < 4) {
         return cv::Mat();

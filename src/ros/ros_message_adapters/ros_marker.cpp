@@ -1,6 +1,7 @@
 #include "ros/ros_message_adapters/ros_marker.hpp"
 
 #include <cmath>
+#include <magic_enum.hpp>
 
 #include "enum_to_string_lower.hpp"
 #include "label_utils.hpp"
@@ -27,41 +28,51 @@ std::vector<visualization_msgs::Marker> to_ros_field_marker(
     const FieldDescriptionWithInlierPoints &field) {
     std::vector<visualization_msgs::Marker> markers;
 
-    // Create field cuboid marker
+    // Create field border line strip marker
     visualization_msgs::Marker field_marker;
     field_marker.header = to_ros_header(field.header);
     field_marker.ns = "field";
     field_marker.id = 0;
-    field_marker.type = visualization_msgs::Marker::CUBE;
+    field_marker.type = visualization_msgs::Marker::LINE_STRIP;
     field_marker.action = visualization_msgs::Marker::ADD;
 
-    // Set pose from transform
+    // Identity pose - corners are expressed in the field center frame via the transform
+    field_marker.pose.orientation.w = 1.0;
+
+    // Build the four corners of the rectangle in field-center-local coordinates,
+    // then transform them into the camera frame using tf_camera_from_fieldcenter.
     const auto &tf = field.tf_camera_from_fieldcenter.tf;
     if (tf.rows() >= 3 && tf.cols() >= 4) {
-        Position position;
-        Rotation quaternion;
-        matrix_to_position_quaternion(tf, position, quaternion);
+        const float hx = field.size.size.x / 2.0f;
+        const float hy = field.size.size.y / 2.0f;
 
-        field_marker.pose.position.x = position.x;
-        field_marker.pose.position.y = position.y;
-        field_marker.pose.position.z = position.z;
+        // Corners in field-center frame (z = 0)
+        const std::array<Eigen::Vector4d, 4> local_corners = {{
+            {-hx, -hy, 0.0, 1.0},
+            {hx, -hy, 0.0, 1.0},
+            {hx, hy, 0.0, 1.0},
+            {-hx, hy, 0.0, 1.0},
+        }};
 
-        field_marker.pose.orientation.w = quaternion.w;
-        field_marker.pose.orientation.x = quaternion.x;
-        field_marker.pose.orientation.y = quaternion.y;
-        field_marker.pose.orientation.z = quaternion.z;
+        for (const auto &c : local_corners) {
+            Eigen::Vector3d world = tf.block<3, 4>(0, 0) * c;
+            geometry_msgs::Point p;
+            p.x = world.x();
+            p.y = world.y();
+            p.z = world.z();
+            field_marker.points.push_back(p);
+        }
+        // Close the loop
+        field_marker.points.push_back(field_marker.points.front());
     }
 
-    // Set scale from size
-    field_marker.scale.x = field.size.size.x;
-    field_marker.scale.y = field.size.size.y;
-    field_marker.scale.z = 0.01;  // Thin rectangle for field
+    field_marker.scale.x = 0.05;  // Line width
 
-    // Set color (green field)
+    // Set color (green border)
     field_marker.color.r = 0.0f;
     field_marker.color.g = 1.0f;
     field_marker.color.b = 0.0f;
-    field_marker.color.a = 0.5f;  // Semi-transparent
+    field_marker.color.a = 1.0f;
 
     field_marker.frame_locked = false;
 
@@ -124,10 +135,11 @@ std::vector<visualization_msgs::Marker> to_ros_field_marker(
 std::vector<visualization_msgs::Marker> to_ros_robot_markers(
     const RobotDescriptionsStamped &robots) {
     std::vector<visualization_msgs::Marker> markers;
-    int marker_id = 0;
 
+    int keypoint_counter = 0;
     for (size_t i = 0; i < robots.descriptions.size(); ++i) {
         const auto &robot = robots.descriptions[i];
+        const auto robot_frame_id_index = magic_enum::enum_index(robot.frame_id);
 
         // Get color based on robot label for consistency
         std_msgs::ColorRGBA robot_color = to_ros_color(robot.label, 0.7f);
@@ -137,7 +149,7 @@ std::vector<visualization_msgs::Marker> to_ros_robot_markers(
         visualization_msgs::Marker cube_marker;
         cube_marker.header = to_ros_header(robots.header);
         cube_marker.ns = "robot_bounds";
-        cube_marker.id = marker_id++;
+        cube_marker.id = robot_frame_id_index.value_or(i);
         cube_marker.type = visualization_msgs::Marker::CUBE;
         cube_marker.action = visualization_msgs::Marker::ADD;
 
@@ -165,7 +177,7 @@ std::vector<visualization_msgs::Marker> to_ros_robot_markers(
         visualization_msgs::Marker arrow_marker;
         arrow_marker.header = to_ros_header(robots.header);
         arrow_marker.ns = "robot_poses";
-        arrow_marker.id = marker_id++;
+        arrow_marker.id = robot_frame_id_index.value_or(i);
         arrow_marker.type = visualization_msgs::Marker::ARROW;
         arrow_marker.action = visualization_msgs::Marker::ADD;
 
@@ -193,7 +205,7 @@ std::vector<visualization_msgs::Marker> to_ros_robot_markers(
         visualization_msgs::Marker text_marker;
         text_marker.header = to_ros_header(robots.header);
         text_marker.ns = "robot_labels";
-        text_marker.id = marker_id++;
+        text_marker.id = robot_frame_id_index.value_or(i);
         text_marker.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
         text_marker.action = visualization_msgs::Marker::ADD;
 
@@ -222,7 +234,7 @@ std::vector<visualization_msgs::Marker> to_ros_robot_markers(
             visualization_msgs::Marker keypoint_marker;
             keypoint_marker.header = to_ros_header(robots.header);
             keypoint_marker.ns = "robot_keypoints";
-            keypoint_marker.id = marker_id++;
+            keypoint_marker.id = keypoint_counter++;
             keypoint_marker.type = visualization_msgs::Marker::SPHERE;
             keypoint_marker.action = visualization_msgs::Marker::ADD;
 
@@ -251,7 +263,7 @@ std::vector<visualization_msgs::Marker> to_ros_robot_markers(
             visualization_msgs::Marker line_marker;
             line_marker.header = to_ros_header(robots.header);
             line_marker.ns = "robot_keypoint_lines";
-            line_marker.id = marker_id++;
+            line_marker.id = robot_frame_id_index.value_or(i);
             line_marker.type = visualization_msgs::Marker::LINE_STRIP;
             line_marker.action = visualization_msgs::Marker::ADD;
 

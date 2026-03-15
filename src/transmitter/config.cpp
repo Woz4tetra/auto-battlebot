@@ -1,5 +1,6 @@
 #include "transmitter/config.hpp"
 
+#include <spdlog/spdlog.h>
 #include <toml++/toml.h>
 
 #include "config/config_parser.hpp"
@@ -32,7 +33,7 @@ std::unique_ptr<TransmitterConfiguration> load_transmitter_from_toml(
 }
 
 std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config) {
-    std::cout << "Selected " + config.type + " for Transmitter" << std::endl;
+    spdlog::info("Selected {} for Transmitter", config.type);
     if (config.type == "NoopTransmitter") {
         return std::make_shared<NoopTransmitter>();
     } else if (config.type == "PlaybackTransmitter") {

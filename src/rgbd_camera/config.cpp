@@ -1,5 +1,6 @@
 #include "rgbd_camera/config.hpp"
 
+#include <spdlog/spdlog.h>
 #include <toml++/toml.h>
 
 #include "config/config_parser.hpp"
@@ -30,7 +31,7 @@ std::unique_ptr<RgbdCameraConfiguration> load_camera_from_toml(
 }
 
 std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfiguration &config) {
-    std::cout << "Selected " + config.type + " for RgbdCamera" << std::endl;
+    spdlog::info("Selected {} for RgbdCamera", config.type);
     if (config.type == "NoopRgbdCamera") {
         return std::make_shared<NoopRgbdCamera>();
     } else if (config.type == "ZedRgbdCamera") {

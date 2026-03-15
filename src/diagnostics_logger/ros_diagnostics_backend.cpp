@@ -6,8 +6,9 @@
 #include <diagnostic_msgs/KeyValue.hxx>
 
 namespace auto_battlebot {
-RosDiagnosticsBackend::RosDiagnosticsBackend(std::shared_ptr<miniros::Publisher> publisher)
-    : publisher_(std::move(publisher)) {}
+RosDiagnosticsBackend::RosDiagnosticsBackend(std::shared_ptr<miniros::Publisher> publisher,
+                                             std::shared_ptr<McapRecorder> mcap_recorder)
+    : publisher_(std::move(publisher)), mcap_recorder_(std::move(mcap_recorder)) {}
 
 void RosDiagnosticsBackend::receive(const std::vector<DiagnosticStatusSnapshot> &snapshots) {
     if (!publisher_ || snapshots.empty()) {
@@ -31,5 +32,6 @@ void RosDiagnosticsBackend::receive(const std::vector<DiagnosticStatusSnapshot> 
         msg.status.push_back(status);
     }
     publisher_->publish(msg);
+    if (mcap_recorder_) mcap_recorder_->write("/diagnostics", msg);
 }
 }  // namespace auto_battlebot

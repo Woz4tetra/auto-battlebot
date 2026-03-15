@@ -65,6 +65,23 @@ FetchContent_Declare(
     UPDATE_DISCONNECTED TRUE
 )
 
+FetchContent_Declare(
+    mcap
+    GIT_REPOSITORY https://github.com/foxglove/mcap.git
+    GIT_TAG releases/cpp/v1.4.0
+    GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG v1.14.1
+    GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+set(SPDLOG_BUILD_PIC ON CACHE BOOL "" FORCE)
+
 # LVGL config path (must be set before MakeAvailable)
 set(LV_BUILD_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include/ui/lv_conf.h" CACHE PATH "")
 # Disable demos and examples to speed up build
@@ -84,10 +101,14 @@ if(BUILD_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl googletest)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl spdlog mcap googletest)
 else()
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl spdlog mcap)
 endif()
+
+# mcap is header-only; expose its cpp/ include directory
+FetchContent_GetProperties(mcap SOURCE_DIR mcap_SOURCE_DIR)
+set(MCAP_INCLUDE_DIR "${mcap_SOURCE_DIR}/cpp/mcap/include")
 
 # Find required packages
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -154,6 +175,9 @@ set_target_properties(auto_battlebot_lib PROPERTIES
 target_include_directories(auto_battlebot_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+target_include_directories(auto_battlebot_lib SYSTEM PUBLIC
+    ${MCAP_INCLUDE_DIR}
+)
 
 # Link libraries to shared library
 target_link_libraries(auto_battlebot_lib PUBLIC
@@ -167,6 +191,7 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     ${CUDA_LIBRARIES}
     ${TensorRT_LIBRARIES}
     ${PCL_LIBRARIES}
+    spdlog::spdlog
 )
 
 # Common compiler flags

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <csignal>
 #include <diagnostic_msgs/DiagnosticArray.hxx>
+#include <filesystem>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -12,6 +13,8 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/ros_diagnostics_backend.hpp"
 #include "diagnostics_logger/ui_diagnostics_backend.hpp"
+#include "logging/logging.hpp"
+#include "mcap_recorder/mcap_recorder.hpp"
 #include "runner.hpp"
 #include "ui/ui_runner.hpp"
 #include "ui/ui_state.hpp"
@@ -39,7 +42,15 @@ int main(int argc, char **argv) {
         return app.exit(e);
     }
 
+    std::string config_name =
+        config_path.empty()
+            ? "main"
+            : std::filesystem::path(config_path).lexically_normal().filename().string();
+    auto mcap_recorder = std::make_shared<McapRecorder>(config_name);
+    setup_logging(mcap_recorder);
+
     ClassConfiguration class_config = load_classes_from_config(config_path);
+    mcap_recorder->set_ignored_topics(class_config.mcap_recorder.ignored_topics);
     std::vector<RobotConfig> robot_configs = load_robots_from_config(config_path);
 
     std::map<std::string, std::string> remappings;
@@ -57,12 +68,14 @@ int main(int argc, char **argv) {
     if (class_config.publisher->type == "RosPublisher") {
         auto ros_diag_publisher = std::make_shared<miniros::Publisher>(
             nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 100));
-        backends.push_back(std::make_shared<RosDiagnosticsBackend>(ros_diag_publisher));
+        backends.push_back(
+            std::make_shared<RosDiagnosticsBackend>(ros_diag_publisher, mcap_recorder));
     }
 
     DiagnosticsLogger::initialize(backends);
 
-    std::shared_ptr<PublisherInterface> publisher = make_publisher(nh, *class_config.publisher);
+    std::shared_ptr<PublisherInterface> publisher =
+        make_publisher(nh, *class_config.publisher, mcap_recorder);
 
     auto camera = make_rgbd_camera(*class_config.camera);
     auto field_model = make_mask_model(*class_config.field_model);

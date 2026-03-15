@@ -1,5 +1,6 @@
 #include "field_filter/config.hpp"
 
+#include <spdlog/spdlog.h>
 #include <toml++/toml.h>
 
 #include "config/config_cast.hpp"
@@ -30,7 +31,7 @@ std::unique_ptr<FieldFilterConfiguration> load_field_filter_from_toml(
 }
 
 std::shared_ptr<FieldFilterInterface> make_field_filter(const FieldFilterConfiguration &config) {
-    std::cout << "Selected " + config.type + " for FieldFilter" << std::endl;
+    spdlog::info("Selected {} for FieldFilter", config.type);
     if (config.type == "NoopFieldFilter") {
         return std::make_shared<NoopFieldFilter>();
     } else if (config.type == "PointCloudFieldFilter") {

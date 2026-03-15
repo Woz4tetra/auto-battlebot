@@ -8,8 +8,8 @@ RosPublisher::RosPublisher(
     std::shared_ptr<miniros::Publisher> tf_publisher,            // tf2_msgs::TFMessage
     std::shared_ptr<miniros::Publisher> static_tf_publisher,     // tf2_msgs::TFMessage
     std::shared_ptr<miniros::Publisher> field_marker_publisher,  // visualization_msgs::MarkerArray
-    std::shared_ptr<miniros::Publisher> robot_marker_publisher   // visualization_msgs::MarkerArray
-) {
+    std::shared_ptr<miniros::Publisher> robot_marker_publisher,  // visualization_msgs::MarkerArray
+    std::shared_ptr<McapRecorder> mcap_recorder) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("ros_publisher");
     rgb_image_publisher_ = rgb_image_publisher;
     camera_info_publisher_ = camera_info_publisher;
@@ -18,6 +18,7 @@ RosPublisher::RosPublisher(
     static_tf_publisher_ = static_tf_publisher;
     field_marker_publisher_ = field_marker_publisher;
     robot_marker_publisher_ = robot_marker_publisher;
+    mcap_recorder_ = std::move(mcap_recorder);
 }
 
 void RosPublisher::publish_camera_data(const CameraData &data) {
@@ -27,12 +28,14 @@ void RosPublisher::publish_camera_data(const CameraData &data) {
     if (rgb_image_publisher_) {
         auto rgb_msg = ros_adapters::to_ros_image_compressed(data.rgb);
         rgb_image_publisher_->publish(rgb_msg);
+        if (mcap_recorder_) mcap_recorder_->write("/camera/image", rgb_msg);
     }
 
     // Publish camera info
     if (camera_info_publisher_) {
         auto camera_info_msg = ros_adapters::to_ros_camera_info(data.camera_info);
         camera_info_publisher_->publish(camera_info_msg);
+        if (mcap_recorder_) mcap_recorder_->write("/camera/camera_info", camera_info_msg);
     }
 
     // Publish transform
@@ -40,6 +43,7 @@ void RosPublisher::publish_camera_data(const CameraData &data) {
         auto tf_msg =
             ros_adapters::to_ros_tf_message(invert_transform(data.tf_visodom_from_camera));
         tf_publisher_->publish(tf_msg);
+        if (mcap_recorder_) mcap_recorder_->write("/tf", tf_msg);
     }
 }
 
@@ -68,6 +72,7 @@ void RosPublisher::publish_field_mask(const MaskStamped &field_mask, const RgbIm
 
     auto mask_msg = ros_adapters::to_ros_image_compressed(mask_as_image);
     field_mask_publisher_->publish(mask_msg);
+    if (mcap_recorder_) mcap_recorder_->write("/field_mask", mask_msg);
 }
 
 void RosPublisher::publish_initial_field_description(
@@ -78,6 +83,7 @@ void RosPublisher::publish_initial_field_description(
         visualization_msgs::MarkerArray markers;
         markers.markers = ros_adapters::to_ros_field_marker(field_description);
         field_marker_publisher_->publish(markers);
+        if (mcap_recorder_) mcap_recorder_->write("/field_markers", markers);
     }
 
     if (static_tf_publisher_) {
@@ -89,6 +95,7 @@ void RosPublisher::publish_initial_field_description(
 
         auto tf_msg = ros_adapters::to_ros_tf_message(invert_transform(field_tf));
         static_tf_publisher_->publish(tf_msg);
+        if (mcap_recorder_) mcap_recorder_->write("/tf_static", tf_msg);
     }
 }
 
@@ -111,6 +118,7 @@ void RosPublisher::publish_field_description(
     if (tf_publisher_) {
         auto tf_msg = ros_adapters::to_ros_tf_message(tfstamped_cameraworld_from_camera);
         tf_publisher_->publish(tf_msg);
+        if (mcap_recorder_) mcap_recorder_->write("/tf", tf_msg);
     }
 }
 
@@ -121,6 +129,7 @@ void RosPublisher::publish_robots(const RobotDescriptionsStamped &robots) {
         visualization_msgs::MarkerArray markers;
         markers.markers = ros_adapters::to_ros_robot_markers(robots);
         robot_marker_publisher_->publish(markers);
+        if (mcap_recorder_) mcap_recorder_->write("/robot_markers", markers);
     }
 }
 

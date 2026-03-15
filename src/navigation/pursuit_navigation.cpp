@@ -1,8 +1,9 @@
 #include "navigation/pursuit_navigation.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <limits>
 
 #include "transform_utils.hpp"
@@ -20,10 +21,10 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       boundary_margin_(config.boundary_margin) {}
 
 bool PursuitNavigation::initialize() {
-    std::cout << "PursuitNavigation initialized with:" << std::endl;
-    std::cout << "  max_linear_velocity: " << max_linear_velocity_ << " m/s" << std::endl;
-    std::cout << "  max_angular_velocity: " << max_angular_velocity_ << " rad/s" << std::endl;
-    std::cout << "  lookahead_time: " << lookahead_time_ << " s" << std::endl;
+    spdlog::info(
+        "PursuitNavigation initialized with: max_linear_velocity={} m/s, "
+        "max_angular_velocity={} rad/s, lookahead_time={} s",
+        max_linear_velocity_, max_angular_velocity_, lookahead_time_);
     return true;
 }
 

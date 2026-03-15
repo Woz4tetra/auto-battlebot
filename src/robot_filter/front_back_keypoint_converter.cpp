@@ -1,5 +1,7 @@
 #include "robot_filter/front_back_keypoint_converter.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <magic_enum.hpp>
 
 #include "transform_utils.hpp"
@@ -54,8 +56,8 @@ FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
             diagnostics_logger_->debug(keypoint_label_str, {{"type", "back"}});
             continue;
         }
-        std::cerr << "Failed to assign keypoint with label: "
-                  << std::string(magic_enum::enum_name(keypoint.keypoint_label)) << std::endl;
+        spdlog::error("Failed to assign keypoint with label: {}",
+                      std::string(magic_enum::enum_name(keypoint.keypoint_label)));
     }
 
     // Build result: map Label -> vector of (assignment, confidence), only include groups with valid

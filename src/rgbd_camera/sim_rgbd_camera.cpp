@@ -1,5 +1,7 @@
 #include "rgbd_camera/sim_rgbd_camera.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <opencv2/opencv.hpp>
 
 #include "enums/frame_id.hpp"
@@ -30,8 +32,7 @@ bool SimRgbdCamera::initialize() {
 
     if (!client.wait_for_connection()) return false;
 
-    std::cout << "Initialized client. Host: " << tcp_config_.host << ". Port: " << tcp_config_.port
-              << std::endl;
+    spdlog::info("Initialized client. Host: {}. Port: {}", tcp_config_.host, tcp_config_.port);
 
     // Reset stats on re-initialization
     frames_received_ = 0;
@@ -58,9 +59,9 @@ bool SimRgbdCamera::request_frame(bool get_depth) {
     // This tells Unity to include depth data in the next frame
     if (get_depth) {
         auto &client = SimTcpClient::instance();
-        std::cout << "Requesting simulated frame with depth" << std::endl;
+        spdlog::info("Requesting simulated frame with depth");
         if (!client.request_frame(true)) {
-            std::cerr << "Depth request failed!" << std::endl;
+            spdlog::error("Depth request failed!");
             return false;
         }
     }
@@ -76,7 +77,7 @@ bool SimRgbdCamera::get_frame_with_data(CameraData &data, bool get_depth) {
 
     while (true) {
         if (!client.is_connected()) {
-            std::cerr << "TCP client isn't connected." << std::endl;
+            spdlog::error("TCP client isn't connected.");
             if (!client.wait_for_connection()) return false;
             request_frame(get_depth);
         }
@@ -84,7 +85,7 @@ bool SimRgbdCamera::get_frame_with_data(CameraData &data, bool get_depth) {
         frame = client.wait_for_frame_with_data(std::chrono::milliseconds(100));
 
         if (!frame) {
-            std::cerr << "Failed to receive depth frame" << std::endl;
+            spdlog::error("Failed to receive depth frame");
             continue;
         }
 
@@ -95,7 +96,7 @@ bool SimRgbdCamera::get_frame_with_data(CameraData &data, bool get_depth) {
                 frames_skipped++;
                 continue;
             } else {
-                std::cout << "Received depth frame" << std::endl;
+                spdlog::debug("Received depth frame");
             }
         }
 
@@ -171,7 +172,7 @@ bool SimRgbdCamera::populate_camera_info(CameraData &data) {
     auto intrinsics = SimTcpClient::instance().get_intrinsics();
 
     if (!intrinsics) {
-        std::cerr << "No intrinsics found." << std::endl;
+        spdlog::error("No intrinsics found.");
         return false;
     }
     data.camera_info.width = intrinsics->width;

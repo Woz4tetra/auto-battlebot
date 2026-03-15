@@ -5,6 +5,7 @@
 #include "colorize_labels.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
+#include "mcap_recorder/mcap_recorder.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "ros/ros_message_adapters/ros_camera_info.hpp"
 #include "ros/ros_message_adapters/ros_image.hpp"
@@ -22,7 +23,8 @@ class RosPublisher : public PublisherInterface {
         std::shared_ptr<miniros::Publisher> tf_publisher,            // tf2_msgs::TFMessage
         std::shared_ptr<miniros::Publisher> static_tf_publisher,     // tf2_msgs::TFMessage
         std::shared_ptr<miniros::Publisher> field_marker_publisher,  // visualization_msgs::Marker
-        std::shared_ptr<miniros::Publisher> robot_marker_publisher   // visualization_msgs::Marker
+        std::shared_ptr<miniros::Publisher> robot_marker_publisher,  // visualization_msgs::Marker
+        std::shared_ptr<McapRecorder> mcap_recorder                  // optional, may be null
     );
     void publish_camera_data(const CameraData &data) override;
     void publish_field_mask(const MaskStamped &field_mask, const RgbImage &image) override;
@@ -41,6 +43,7 @@ class RosPublisher : public PublisherInterface {
     std::shared_ptr<miniros::Publisher> field_marker_publisher_;
     std::shared_ptr<miniros::Publisher> robot_marker_publisher_;
 
+    std::shared_ptr<McapRecorder> mcap_recorder_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 };
 }  // namespace auto_battlebot

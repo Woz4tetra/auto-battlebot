@@ -12,6 +12,7 @@
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
+#include "mcap_recorder/mcap_recorder.hpp"
 #include "publisher/noop_publisher.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "publisher/ros_publisher.hpp"
@@ -39,8 +40,9 @@ struct RosPublisherConfiguration : public PublisherConfiguration {
     )
 };
 
-std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh,
-                                                   const PublisherConfiguration &config);
+std::shared_ptr<PublisherInterface> make_publisher(
+    miniros::NodeHandle &nh, const PublisherConfiguration &config,
+    std::shared_ptr<McapRecorder> mcap_recorder = nullptr);
 /** Create publisher without ROS (NoopPublisher only). Use when config.type is "NoopPublisher". */
 std::shared_ptr<PublisherInterface> make_publisher_no_ros(const PublisherConfiguration &config);
 std::unique_ptr<PublisherConfiguration> parse_publisher_config(ConfigParser &parser);

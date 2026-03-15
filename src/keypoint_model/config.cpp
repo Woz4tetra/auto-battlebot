@@ -1,5 +1,6 @@
 #include "keypoint_model/config.hpp"
 
+#include <spdlog/spdlog.h>
 #include <toml++/toml.h>
 
 #include "config/config_cast.hpp"
@@ -30,7 +31,7 @@ std::unique_ptr<KeypointModelConfiguration> load_keypoint_model_from_toml(
 
 std::shared_ptr<KeypointModelInterface> make_keypoint_model(
     const KeypointModelConfiguration &config) {
-    std::cout << "Selected " + config.type + " for KeypointModel" << std::endl;
+    spdlog::info("Selected {} for KeypointModel", config.type);
     if (config.type == "NoopKeypointModel") {
         return std::make_shared<NoopKeypointModel>();
     } else if (config.type == "YoloKeypointModel") {

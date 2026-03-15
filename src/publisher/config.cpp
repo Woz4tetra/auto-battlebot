@@ -1,5 +1,6 @@
 #include "publisher/config.hpp"
 
+#include <spdlog/spdlog.h>
 #include <toml++/toml.h>
 
 #include "config/config_parser.hpp"
@@ -30,13 +31,14 @@ std::shared_ptr<PublisherInterface> make_publisher_no_ros(const PublisherConfigu
         throw std::invalid_argument("make_publisher_no_ros only supports NoopPublisher, got " +
                                     config.type);
     }
-    std::cout << "Selected NoopPublisher" << std::endl;
+    spdlog::info("Selected NoopPublisher");
     return std::make_shared<NoopPublisher>();
 }
 
 std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh,
-                                                   const PublisherConfiguration &config) {
-    std::cout << "Selected " + config.type + " for Publisher" << std::endl;
+                                                   const PublisherConfiguration &config,
+                                                   std::shared_ptr<McapRecorder> mcap_recorder) {
+    spdlog::info("Selected {} for Publisher", config.type);
     if (config.type == "NoopPublisher") {
         return std::make_shared<NoopPublisher>();
     } else if (config.type == "RosPublisher") {
@@ -55,9 +57,10 @@ std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh,
         auto robot_marker_publisher = std::make_shared<miniros::Publisher>(
             nh.advertise<visualization_msgs::MarkerArray>("/robot_markers", 10, true));
 
-        return std::make_shared<RosPublisher>(
-            rgb_image_publisher, camera_info_publisher, field_mask_publisher, tf_publisher,
-            static_tf_publisher, field_marker_publisher, robot_marker_publisher);
+        return std::make_shared<RosPublisher>(rgb_image_publisher, camera_info_publisher,
+                                              field_mask_publisher, tf_publisher,
+                                              static_tf_publisher, field_marker_publisher,
+                                              robot_marker_publisher, std::move(mcap_recorder));
     }
     throw std::invalid_argument("Failed to load Publisher of type " + config.type);
 }

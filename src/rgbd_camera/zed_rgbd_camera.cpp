@@ -1,5 +1,7 @@
 #include "rgbd_camera/zed_rgbd_camera.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -44,7 +46,7 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
     if (!config.svo_file_path.empty()) {
         std::filesystem::path svo_file_path = config.svo_file_path.c_str();
         std::filesystem::path svo_file_abs_path = std::filesystem::absolute(svo_file_path);
-        std::cout << "Resolved SVO path: " << svo_file_abs_path << std::endl;
+        spdlog::info("Resolved SVO path: {}", svo_file_abs_path.string());
 
         params_.input.setFromSVOFile(svo_file_abs_path.c_str());
         params_.svo_real_time_mode = config.svo_real_time_mode;
@@ -88,7 +90,7 @@ bool ZedRgbdCamera::initialize() {
 
     sl::ERROR_CODE returned_state = zed_.open(params_);
     if (returned_state != sl::ERROR_CODE::SUCCESS) {
-        std::cerr << "Failed to open ZED camera: " << sl::toString(returned_state) << std::endl;
+        spdlog::error("Failed to open ZED camera: {}", sl::toString(returned_state).c_str());
         return false;
     }
 
@@ -98,13 +100,13 @@ bool ZedRgbdCamera::initialize() {
         tracking_params.enable_imu_fusion = true;
         returned_state = zed_.enablePositionalTracking(tracking_params);
         if (returned_state != sl::ERROR_CODE::SUCCESS) {
-            std::cerr << "Failed to enable positional tracking: " << sl::toString(returned_state)
-                      << std::endl;
+            spdlog::error("Failed to enable positional tracking: {}",
+                          sl::toString(returned_state).c_str());
             zed_.close();
             return false;
         }
     } else {
-        std::cout << "Position tracking is disabled" << std::endl;
+        spdlog::info("Position tracking is disabled");
     }
 
     // Get camera information for intrinsics
@@ -192,9 +194,9 @@ bool ZedRgbdCamera::capture_frame() {
                 should_close_ = true;
             }
             data_cv_.notify_all();
-            std::cout << "End of SVO file reached." << std::endl;
+            spdlog::info("End of SVO file reached.");
         } else {
-            std::cerr << "Failed to grab frame: " << sl::toString(grab_status) << std::endl;
+            spdlog::error("Failed to grab frame: {}", sl::toString(grab_status).c_str());
         }
         return false;
     }
@@ -221,7 +223,7 @@ bool ZedRgbdCamera::capture_frame() {
     sl::ERROR_CODE retrieve_status = zed_.retrieveImage(zed_rgb_, sl::VIEW::LEFT);
 
     if (retrieve_status != sl::ERROR_CODE::SUCCESS) {
-        std::cerr << "Failed to retrieve RGB image: " << sl::toString(retrieve_status) << std::endl;
+        spdlog::error("Failed to retrieve RGB image: {}", sl::toString(retrieve_status).c_str());
         return false;
     }
 
@@ -229,8 +231,8 @@ bool ZedRgbdCamera::capture_frame() {
     if (need_depth) {
         retrieve_status = zed_.retrieveMeasure(zed_depth_, sl::MEASURE::DEPTH);
         if (retrieve_status != sl::ERROR_CODE::SUCCESS) {
-            std::cerr << "Failed to retrieve depth image: " << sl::toString(retrieve_status)
-                      << std::endl;
+            spdlog::error("Failed to retrieve depth image: {}",
+                          sl::toString(retrieve_status).c_str());
             depth_request_queue_.push(1);
             return false;
         }
@@ -249,7 +251,7 @@ bool ZedRgbdCamera::capture_frame() {
         sl::POSITIONAL_TRACKING_STATE tracking_state =
             zed_.getPosition(zed_pose_, sl::REFERENCE_FRAME::WORLD);
         if (tracking_state != prev_tracking_state_) {
-            std::cout << "Tracking state: " << tracking_state << std::endl;
+            spdlog::info("Tracking state: {}", sl::toString(tracking_state).c_str());
             prev_tracking_state_ = tracking_state;
         }
 
@@ -370,7 +372,7 @@ bool ZedRgbdCamera::start_svo_recording() {
     rec_params.compression_mode = sl::SVO_COMPRESSION_MODE::H264;
     sl::ERROR_CODE err = zed_.enableRecording(rec_params);
     if (err != sl::ERROR_CODE::SUCCESS) {
-        std::cerr << "Failed to start SVO recording: " << sl::toString(err) << std::endl;
+        spdlog::error("Failed to start SVO recording: {}", sl::toString(err).c_str());
         return false;
     }
     {
@@ -378,7 +380,7 @@ bool ZedRgbdCamera::start_svo_recording() {
         current_svo_path_ = path;
     }
     frames_since_size_check_ = 0;
-    std::cout << "SVO recording started: " << path << std::endl;
+    spdlog::info("SVO recording started: {}", path);
     return true;
 }
 
@@ -386,7 +388,7 @@ void ZedRgbdCamera::stop_svo_recording() {
     if (current_svo_path_.empty()) return;
     zed_.disableRecording();
     std::lock_guard<std::mutex> lock(data_mutex_);
-    std::cout << "SVO recording stopped: " << current_svo_path_ << std::endl;
+    spdlog::info("SVO recording stopped: {}", current_svo_path_.string());
     current_svo_path_.clear();
 }
 
@@ -414,10 +416,10 @@ void ZedRgbdCamera::enforce_holding_dir_size() {
         if (total_size <= svo_holding_dir_max_size_bytes_) break;
         uintmax_t file_size = std::filesystem::file_size(f, ec);
         if (std::filesystem::remove(f, ec)) {
-            std::cout << "Deleted oldest SVO to free space: " << f << std::endl;
+            spdlog::info("Deleted oldest SVO to free space: {}", f.string());
             total_size -= file_size;
         } else {
-            std::cerr << "Failed to delete SVO: " << f << std::endl;
+            spdlog::error("Failed to delete SVO: {}", f.string());
         }
     }
 }

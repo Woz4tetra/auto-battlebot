@@ -1,5 +1,6 @@
 #include "mask_model/config.hpp"
 
+#include <spdlog/spdlog.h>
 #include <toml++/toml.h>
 
 #include "config/config_parser.hpp"
@@ -40,7 +41,7 @@ std::unique_ptr<MaskModelConfiguration> load_robot_mask_model_from_toml(
 }
 
 std::shared_ptr<MaskModelInterface> make_mask_model(const MaskModelConfiguration &config) {
-    std::cout << "Selected " + config.type + " for MaskModel" << std::endl;
+    spdlog::info("Selected {} for MaskModel", config.type);
     if (config.type == "NoopMaskModel") {
         return std::make_shared<NoopMaskModel>();
     } else if (config.type == "DeepLabMaskModel") {

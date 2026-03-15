@@ -51,6 +51,7 @@ lib/
 # ROS and Bag files
 *.bag
 *.bag.active
+*.mcap
 log/
 
 # OS specific

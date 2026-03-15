@@ -93,3 +93,6 @@ enable = true
 fullscreen = true
 width = 1280
 height = 800
+
+[mcap]
+ignored_topics = ["/camera/image"]

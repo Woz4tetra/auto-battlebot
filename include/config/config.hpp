@@ -13,6 +13,7 @@
 #include "data_structures.hpp"
 #include "directories.hpp"
 #include "field_filter/config.hpp"
+#include "mcap_recorder/config.hpp"
 #include "field_filter/field_filter_interface.hpp"
 #include "mask_model/config.hpp"
 #include "mask_model/mask_model_interface.hpp"
@@ -44,6 +45,7 @@ struct ClassConfiguration {
     std::unique_ptr<PublisherConfiguration> publisher;
     RunnerConfiguration runner;
     std::unique_ptr<UiConfiguration> ui;
+    McapRecorderConfig mcap_recorder;
 };
 
 // Configuration loading functions

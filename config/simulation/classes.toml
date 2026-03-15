@@ -91,3 +91,6 @@ type = "RosPublisher"
 
 [runner]
 max_loop_rate = 300.0
+
+[mcap]
+ignored_topics = ["/camera/image"]

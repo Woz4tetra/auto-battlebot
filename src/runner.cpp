@@ -1,5 +1,7 @@
 #include "runner.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <opencv2/core.hpp>
 
 #include "enums.hpp"
@@ -58,39 +60,38 @@ std::vector<RobotConfig> Runner::build_effective_robot_configs() const {
 void Runner::initialize() {
     // Initialize all interfaces
     if (!camera_->initialize()) {
-        std::cerr << "Failed to initialize camera" << std::endl;
+        spdlog::error("Failed to initialize camera");
     }
     if (!field_model_->initialize()) {
-        std::cerr << "Failed to initialize field model" << std::endl;
+        spdlog::error("Failed to initialize field model");
     }
     if (!robot_mask_model_->initialize()) {
-        std::cerr << "Failed to initialize robot mask model" << std::endl;
+        spdlog::error("Failed to initialize robot mask model");
     }
     if (!keypoint_model_->initialize()) {
-        std::cerr << "Failed to initialize keypoint model." << std::endl;
+        spdlog::error("Failed to initialize keypoint model.");
     }
     if (!transmitter_->initialize()) {
-        std::cerr << "Failed to initialize transmitter" << std::endl;
+        spdlog::error("Failed to initialize transmitter");
     }
     diagnostics_logger_->debug({}, "Initialization complete");
     DiagnosticsLogger::publish();
 }
 
 void Runner::initialize_field(const CameraData &camera_data) {
-    std::cout << "Initializing field" << std::endl;
+    spdlog::info("Initializing field");
     field_filter_->reset(camera_data.tf_visodom_from_camera);
     MaskStamped field_mask = field_model_->update(camera_data.rgb);
     publisher_->publish_field_mask(field_mask, camera_data.rgb);
 
     if (field_mask.mask.mask.empty()) {
-        std::cerr << "Field model returned an empty mask; skipping field initialization."
-                  << std::endl;
+        spdlog::error("Field model returned an empty mask; skipping field initialization.");
         return;
     }
 
     initial_field_description_ = field_filter_->compute_field(camera_data, field_mask);
     if (initial_field_description_->header.frame_id == FrameId::EMPTY) {
-        std::cerr << "Failed to find a plane." << std::endl;
+        spdlog::error("Failed to find a plane.");
         return;
     }
     publisher_->publish_initial_field_description(*initial_field_description_);
@@ -98,7 +99,7 @@ void Runner::initialize_field(const CameraData &camera_data) {
     robot_filter_->initialize(build_effective_robot_configs());
     navigation_->initialize();
     initialized_ = true;
-    std::cout << "Field initialized" << std::endl;
+    spdlog::info("Field initialized");
 }
 
 int Runner::run() {
@@ -168,10 +169,10 @@ bool Runner::tick() {
 
     if (!is_camera_ok) {
         if (camera_->should_close()) {
-            std::cerr << "Camera signalled to close the application" << std::endl;
+            spdlog::error("Camera signalled to close the application");
             return false;
         }
-        std::cerr << "Failed to get camera data. Reinitializing." << std::endl;
+        spdlog::error("Failed to get camera data. Reinitializing.");
         do {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         } while (!camera_->initialize() && miniros::ok());
