@@ -14,6 +14,15 @@ REQUEST_SIZE: int = struct.calcsize(REQUEST_FMT)
 RESPONSE_HEADER_FMT: str = "<II16d4d"  # width, height, tf_matrix[16], fx/fy/cx/cy
 RESPONSE_HEADER_SIZE: int = struct.calcsize(RESPONSE_HEADER_FMT)
 
+_SOCK_BUF_SIZE: int = 4 * 1024 * 1024  # 4 MiB
+
+
+def configure_socket(sock: socket.socket) -> None:
+    """Apply low-latency socket options (TCP_NODELAY, large buffers)."""
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, _SOCK_BUF_SIZE)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, _SOCK_BUF_SIZE)
+
 
 def recv_all(sock: socket.socket, n: int) -> bytes:
     buf = bytearray()
@@ -25,5 +34,5 @@ def recv_all(sock: socket.socket, n: int) -> bytes:
     return bytes(buf)
 
 
-def send_all(sock: socket.socket, data: bytes) -> None:
+def send_all(sock: socket.socket, data: bytes | bytearray | memoryview) -> None:
     sock.sendall(data)

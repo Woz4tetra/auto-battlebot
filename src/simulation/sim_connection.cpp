@@ -1,6 +1,7 @@
 #include "simulation/sim_connection.hpp"
 
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -85,6 +86,11 @@ bool SimConnection::connect() {
         }
 
         if (::connect(sock_fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0) {
+            int flag = 1;
+            setsockopt(sock_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+            constexpr int buf_size = 4 * 1024 * 1024;
+            setsockopt(sock_fd_, SOL_SOCKET, SO_SNDBUF, &buf_size, sizeof(buf_size));
+            setsockopt(sock_fd_, SOL_SOCKET, SO_RCVBUF, &buf_size, sizeof(buf_size));
             spdlog::info("SimConnection: connected to {}:{}", host_, port_);
             connected = true;
             break;
