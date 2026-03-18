@@ -29,15 +29,6 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
     PARSE_CONFIG_FIELDS(PARSE_FIELD_DOUBLE(init_delay_seconds))
 };
 
-struct SimTransmitterConfiguration : public TransmitterConfiguration {
-    SimTransmitterConfiguration() { type = "SimTransmitter"; }
-
-    // clang-format off
-        // PARSE_CONFIG_FIELDS(
-        // )
-    // clang-format on
-};
-
 struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     int init_button_channel = 5;      // RC channel index used as the init button
     int init_button_threshold = 500;  // channel value above which = button pressed
@@ -54,6 +45,14 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
         PARSE_FIELD(angular_channel)
     )
     // clang-format on
+};
+
+struct SimTransmitterConfiguration : public TransmitterConfiguration {
+    double init_delay_seconds = 0.5;
+
+    SimTransmitterConfiguration() { type = "SimTransmitter"; }
+
+    PARSE_CONFIG_FIELDS(PARSE_FIELD_DOUBLE(init_delay_seconds))
 };
 
 std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config);

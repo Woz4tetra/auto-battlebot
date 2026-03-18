@@ -54,24 +54,15 @@ struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
 };
 
 struct SimRgbdCameraConfiguration : public RgbdCameraConfiguration {
-    // TCP settings
-    std::string tcp_host = "127.0.0.1";
-    int tcp_port = 18707;
-    int tcp_connect_timeout_ms = 5000;
-    int tcp_read_timeout_ms = 100;
-    bool tcp_auto_reconnect = true;
+    std::string sim_host = "127.0.0.1";
+    int sim_port = 14882;
 
     SimRgbdCameraConfiguration() { type = "SimRgbdCamera"; }
 
-    // clang-format off
-        PARSE_CONFIG_FIELDS(
-            PARSE_FIELD_STRING(tcp_host)
-            PARSE_FIELD(tcp_port)
-            PARSE_FIELD(tcp_connect_timeout_ms)
-            PARSE_FIELD(tcp_read_timeout_ms)
-            PARSE_FIELD_BOOL(tcp_auto_reconnect)
-        )
-    // clang-format on
+    PARSE_CONFIG_FIELDS(
+        PARSE_FIELD_STRING(sim_host)
+        PARSE_FIELD(sim_port)
+    )
 };
 
 std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfiguration &config);

@@ -13,8 +13,8 @@ namespace auto_battlebot {
 // Automatic registration of config types
 REGISTER_CONFIG(TransmitterConfiguration, NoopTransmitterConfiguration, "NoopTransmitter")
 REGISTER_CONFIG(TransmitterConfiguration, PlaybackTransmitterConfiguration, "PlaybackTransmitter")
-REGISTER_CONFIG(TransmitterConfiguration, SimTransmitterConfiguration, "SimTransmitter")
 REGISTER_CONFIG(TransmitterConfiguration, OpenTxTransmitterConfiguration, "OpenTxTransmitter")
+REGISTER_CONFIG(TransmitterConfiguration, SimTransmitterConfiguration, "SimTransmitter")
 
 std::unique_ptr<TransmitterConfiguration> parse_transmitter_config(ConfigParser &parser) {
     return ConfigFactory<TransmitterConfiguration>::instance().create_and_parse(parser);
@@ -39,11 +39,11 @@ std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfigur
     } else if (config.type == "PlaybackTransmitter") {
         return std::make_shared<PlaybackTransmitter>(
             config_cast<PlaybackTransmitterConfiguration>(config));
-    } else if (config.type == "SimTransmitter") {
-        return std::make_shared<SimTransmitter>(config_cast<SimTransmitterConfiguration>(config));
     } else if (config.type == "OpenTxTransmitter") {
         return std::make_shared<OpenTxTransmitter>(
             config_cast<OpenTxTransmitterConfiguration>(config));
+    } else if (config.type == "SimTransmitter") {
+        return std::make_shared<SimTransmitter>(config_cast<SimTransmitterConfiguration>(config));
     }
     throw std::invalid_argument("Failed to load Transmitter of type " + config.type);
 }

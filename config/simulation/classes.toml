@@ -1,18 +1,17 @@
 [rgbd_camera]
 type = "SimRgbdCamera"
-tcp_host = "127.0.0.1"
-tcp_port = 18707
-tcp_connect_timeout_ms = 5000
-tcp_read_timeout_ms = 1000
-tcp_auto_reconnect = true
+sim_host = "127.0.0.1"
+sim_port = 14882
 
 [field_model]
 type = "DeepLabMaskModel"
-model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64.engine"
+# model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64_sm89.engine"
+model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64_sm75.engine"
 
 [robot_mask_model]
 type = "DeepLabMaskModel"
-model_path = "models/floor_deeplabv3_mbv3_256x256_x86_64.engine"
+# model_path = "models/robot_deeplabv3_mbv3_2026-03-07_x86_64_sm89.engine"
+model_path = "models/robot_deeplabv3_mbv3_2026-03-07_x86_64_sm75.engine"
 output_label = "OPPONENT"
 
 [field_filter]
@@ -22,8 +21,9 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "models/yolo26x-pose_synthetic_only_2026-02-02_x86_64.engine"
-label_indices = ["MR_STABS_MK2"]
+# model_path = "models/yolo26n-pose_mr_stabs_mk2_2026-03-08_x86_64_sm89.engine"
+model_path = "models/yolo26n-pose_mr_stabs_mk2_2026-03-08_x86_64_sm75.engine"
+label_indices = ["MR_STABS_MK2", "HOUSE_BOT"]
 debug_visualization = false
 threshold = 0.5
 
@@ -85,12 +85,19 @@ type = "PursuitNavigation"
 
 [transmitter]
 type = "SimTransmitter"
+init_delay_seconds = 0.5
 
 [publisher]
 type = "RosPublisher"
 
 [runner]
-max_loop_rate = 300.0
+max_loop_rate = 30.0
+
+[ui]
+enable = false
+fullscreen = false
+width = 1280
+height = 800
 
 [mcap]
-ignored_topics = ["/camera/image"]
+ignored_topics = []

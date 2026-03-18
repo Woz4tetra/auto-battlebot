@@ -66,7 +66,7 @@ std::vector<visualization_msgs::Marker> to_ros_field_marker(
         field_marker.points.push_back(field_marker.points.front());
     }
 
-    field_marker.scale.x = 0.05;  // Line width
+    field_marker.scale.x = 0.01;  // Line width
 
     // Set color (green border)
     field_marker.color.r = 0.0f;
