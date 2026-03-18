@@ -569,7 +569,6 @@ def main() -> None:
                 export_materials="EXPORT",
                 export_texcoords=True,
                 export_normals=True,
-                export_colors=True,
             )
             print(f"\nExported textured GLTF to {out}")
 
