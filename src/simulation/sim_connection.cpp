@@ -5,9 +5,17 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstring>
 #include <thread>
+
+namespace {
+std::atomic<bool> g_interrupted{false};
+
+void interrupt_handler(int) { g_interrupted.store(true, std::memory_order_relaxed); }
+}  // namespace
 
 namespace auto_battlebot {
 
@@ -57,17 +65,29 @@ bool SimConnection::connect() {
 
     constexpr int MAX_RETRIES = 60;
     constexpr int RETRY_INTERVAL_MS = 1000;
+    constexpr int POLL_MS = 100;
 
+    g_interrupted.store(false, std::memory_order_relaxed);
+    auto prev_sigint = std::signal(SIGINT, interrupt_handler);
+    auto prev_sigterm = std::signal(SIGTERM, interrupt_handler);
+
+    bool connected = false;
     for (int attempt = 1; attempt <= MAX_RETRIES; ++attempt) {
+        if (g_interrupted.load(std::memory_order_relaxed)) {
+            spdlog::info("SimConnection: interrupted by signal");
+            break;
+        }
+
         sock_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
         if (sock_fd_ < 0) {
             spdlog::error("SimConnection: socket() failed: {}", strerror(errno));
-            return false;
+            break;
         }
 
         if (::connect(sock_fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0) {
             spdlog::info("SimConnection: connected to {}:{}", host_, port_);
-            return true;
+            connected = true;
+            break;
         }
 
         ::close(sock_fd_);
@@ -75,12 +95,24 @@ bool SimConnection::connect() {
 
         spdlog::info("SimConnection: waiting for server at {}:{} (attempt {}/{})",
                       host_, port_, attempt, MAX_RETRIES);
-        std::this_thread::sleep_for(std::chrono::milliseconds(RETRY_INTERVAL_MS));
+
+        for (int waited = 0; waited < RETRY_INTERVAL_MS; waited += POLL_MS) {
+            if (g_interrupted.load(std::memory_order_relaxed)) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(POLL_MS));
+        }
     }
 
-    spdlog::error("SimConnection: server at {}:{} not reachable after {} seconds",
-                   host_, port_, MAX_RETRIES);
-    return false;
+    std::signal(SIGINT, prev_sigint);
+    std::signal(SIGTERM, prev_sigterm);
+
+    if (!connected) {
+        if (!g_interrupted.load(std::memory_order_relaxed)) {
+            spdlog::error("SimConnection: server at {}:{} not reachable after {} seconds",
+                           host_, port_, MAX_RETRIES);
+        }
+        return false;
+    }
+    return true;
 }
 
 void SimConnection::disconnect() {
