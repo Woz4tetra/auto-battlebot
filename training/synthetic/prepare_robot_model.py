@@ -137,7 +137,9 @@ def inspect_model(model_path: Path, scale: float = 1.0) -> None:
             color_str = f"[{color[0]}, {color[1]}, {color[2]}]" if color else "N/A"
             print(f"  Material: {mat.name:30s}  Color: {color_str:20s}  ({source})")
     print(f"\n{len(seen_materials)} unique materials found.")
-    print("Use these colors to fill in [[robots.color_mapping]] entries in config.toml.")
+    print(
+        "Use these colors to fill in [[robots.color_mapping]] entries in config.toml."
+    )
 
 
 def color_distance(c1: tuple[int, int, int], c2: list[int]) -> float:
@@ -160,8 +162,14 @@ def match_material_type(
     return best_match
 
 
-_PBR_SUFFIXES = ["Color", "Roughness", "Metalness", "NormalGL", "Normal",
-                 "Displacement"]
+_PBR_SUFFIXES = [
+    "Color",
+    "Roughness",
+    "Metalness",
+    "NormalGL",
+    "Normal",
+    "Displacement",
+]
 
 
 def _find_texture_file(texture_dir: Path, suffix: str) -> Path | None:
@@ -225,8 +233,9 @@ def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
         tex = _add_tex_node(tree, metal_file, non_color=True)
         tree.links.new(tex.outputs["Color"], bsdf.inputs["Metallic"])
 
-    normal_file = (_find_texture_file(texture_dir, "NormalGL")
-                   or _find_texture_file(texture_dir, "Normal"))
+    normal_file = _find_texture_file(texture_dir, "NormalGL") or _find_texture_file(
+        texture_dir, "Normal"
+    )
     if normal_file:
         _disconnect("Normal")
         tex = _add_tex_node(tree, normal_file, non_color=True)
@@ -243,8 +252,9 @@ def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
         if mat_output and "Displacement" in mat_output.inputs:
             for link in list(mat_output.inputs["Displacement"].links):
                 tree.links.remove(link)
-            tree.links.new(disp_node.outputs["Displacement"],
-                           mat_output.inputs["Displacement"])
+            tree.links.new(
+                disp_node.outputs["Displacement"], mat_output.inputs["Displacement"]
+            )
 
 
 def apply_pbr_materials(
@@ -330,18 +340,18 @@ def render_preview(
     """Render 6 views (front/back/left/right/top/bottom) as a 3x2 grid."""
     bpy.context.view_layer.update()
     all_pts = [
-        obj.matrix_world @ mathutils.Vector(c)
-        for obj in meshes
-        for c in obj.bound_box
+        obj.matrix_world @ mathutils.Vector(c) for obj in meshes for c in obj.bound_box
     ]
     xs = [p.x for p in all_pts]
     ys = [p.y for p in all_pts]
     zs = [p.z for p in all_pts]
-    center = np.array([
-        (min(xs) + max(xs)) / 2,
-        (min(ys) + max(ys)) / 2,
-        (min(zs) + max(zs)) / 2,
-    ])
+    center = np.array(
+        [
+            (min(xs) + max(xs)) / 2,
+            (min(ys) + max(ys)) / 2,
+            (min(zs) + max(zs)) / 2,
+        ]
+    )
     extent = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6)
     radius = extent * 2.0
 
@@ -372,11 +382,13 @@ def render_preview(
     for azimuth_deg, elevation_deg, _label in view_angles:
         az = math.radians(azimuth_deg)
         el = math.radians(elevation_deg)
-        cam_pos = center + radius * np.array([
-            math.cos(el) * math.cos(az),
-            math.cos(el) * math.sin(az),
-            math.sin(el),
-        ])
+        cam_pos = center + radius * np.array(
+            [
+                math.cos(el) * math.cos(az),
+                math.cos(el) * math.sin(az),
+                math.sin(el),
+            ]
+        )
         forward = center - cam_pos
         forward = forward / np.linalg.norm(forward)
         rotation = bproc.camera.rotation_from_forward_vec(forward)
@@ -388,10 +400,8 @@ def render_preview(
     font = cv2.FONT_HERSHEY_SIMPLEX
     for img, (_az, _el, label) in zip(data["colors"], view_angles):
         bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        cv2.putText(bgr, label, (10, 30), font, 0.8, (255, 255, 255), 2,
-                    cv2.LINE_AA)
-        cv2.putText(bgr, label, (10, 30), font, 0.8, (0, 0, 0), 1,
-                    cv2.LINE_AA)
+        cv2.putText(bgr, label, (10, 30), font, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(bgr, label, (10, 30), font, 0.8, (0, 0, 0), 1, cv2.LINE_AA)
         frames.append(bgr)
 
     cols = 3
@@ -411,7 +421,18 @@ def render_preview(
         bpy.data.objects.remove(lgt.blender_obj, do_unlink=True)
 
 
-_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+_KNOWN_OUTPUT_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".tiff",
+    ".tif",
+    ".webp",
+    ".blend",
+    ".glb",
+    ".gltf",
+}
 
 
 def _slugify(name: str) -> str:
@@ -428,7 +449,9 @@ def _resolve_output_path(
     the output file is placed inside it.  When *multi* is true, the robot name
     is always embedded in the filename.
     """
-    is_dir = not user_path.suffix or user_path.suffix.lower() not in _IMAGE_EXTENSIONS
+    is_dir = (
+        not user_path.suffix or user_path.suffix.lower() not in _KNOWN_OUTPUT_EXTENSIONS
+    )
     slug = _slugify(robot_name)
     if is_dir:
         return user_path / f"{slug}{default_ext}"
@@ -465,6 +488,13 @@ def main() -> None:
         default=None,
         help="Process only the robot with this name (default: all)",
     )
+    parser.add_argument(
+        "--export-gltf",
+        type=Path,
+        default=None,
+        help="Export the textured model as a .glb file "
+        "(directory or file path; robot name appended when processing multiple)",
+    )
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else sys.argv[1:]
     args = parser.parse_args(argv)
 
@@ -474,7 +504,8 @@ def main() -> None:
 
     if args.robot:
         robot_configs = [
-            r for r in robot_configs
+            r
+            for r in robot_configs
             if r.get("name", Path(r["model_path"]).stem) == args.robot
         ]
         if not robot_configs:
@@ -492,9 +523,9 @@ def main() -> None:
         model_path = Path(rcfg["model_path"])
         scale = rcfg.get("scale", 1.0)
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Robot: {rname}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         if args.inspect:
             inspect_model(model_path, scale)
@@ -522,10 +553,37 @@ def main() -> None:
             bpy.ops.wm.save_as_mainfile(filepath=str(resolve_path(out)))
             print(f"\nSaved textured model to {out}")
 
+        if args.export_gltf:
+            out = _resolve_output_path(args.export_gltf, rname, ".glb", multi)
+            out = resolve_path(out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            # Select only this robot's meshes for export
+            bpy.ops.object.select_all(action="DESELECT")
+            for obj in meshes:
+                obj.select_set(True)
+            bpy.ops.export_scene.gltf(
+                filepath=str(out),
+                use_selection=True,
+                export_format="GLB",
+                export_image_format="AUTO",
+                export_materials="EXPORT",
+                export_texcoords=True,
+                export_normals=True,
+                export_colors=True,
+            )
+            print(f"\nExported textured GLTF to {out}")
+
         cleanup_meshes(meshes)
 
-    if not args.inspect and not args.preview and not args.save_blend:
-        print("\nDone. Use --save-blend or --preview to output results.")
+    if (
+        not args.inspect
+        and not args.preview
+        and not args.save_blend
+        and not args.export_gltf
+    ):
+        print(
+            "\nDone. Use --save-blend, --preview, or --export-gltf to output results."
+        )
 
 
 if __name__ == "__main__":
