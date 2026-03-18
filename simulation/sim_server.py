@@ -17,15 +17,11 @@ import struct
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib  # type: ignore[no-redef]
+from scipy.spatial.transform import Rotation as R
 
 import genesis as gs
 
@@ -35,6 +31,8 @@ if TYPE_CHECKING:
 
 from behaviors import OpponentBehavior, make_opponent_behavior
 from camera_utils import camera_view_matrix, fov_to_intrinsics, project_panorama
+from config import SimConfig, load_sim_config
+from config.robot import RobotConfig
 from protocol import REQUEST_FMT, REQUEST_SIZE, RESPONSE_HEADER_FMT, recv_all, send_all
 
 
@@ -45,23 +43,8 @@ class SceneHandles:
     scene: gs.Scene
     camera: Camera
     our_robot: RigidEntity
-    opponent: RigidEntity
-    our_cfg: dict[str, Any]
-    opp_cfg: dict[str, Any]
-    arena_w: float
-    arena_h: float
-    cam_pos: list[float]
-    cam_lookat: list[float]
-    fov: float
-    cam_far: float
-    res_w: int
-    res_h: int
+    opponents: list[RigidEntity]
     panorama_bg: npt.NDArray[np.uint8] | None
-
-
-def load_config(path: str) -> dict[str, Any]:
-    with open(path, "rb") as f:
-        return tomllib.load(f)
 
 
 def resolve_path(base_dir: Path, p: str) -> str:
@@ -71,85 +54,82 @@ def resolve_path(base_dir: Path, p: str) -> str:
     return str((base_dir / pp).resolve())
 
 
-def build_scene(cfg: dict[str, Any], config_dir: Path) -> SceneHandles:
+def _pad_pos_3d(pos: list[float]) -> tuple[float, float, float]:
+    if len(pos) == 2:
+        return (pos[0], pos[1], 0.0)
+    return (pos[0], pos[1], pos[2])
+
+
+def _robot_quat(model_euler_deg: list[float], yaw_rad: float) -> list[float]:
+    """Compose a robot's model correction with a world-space yaw into one quaternion.
+
+    The model_euler fixes the mesh orientation (e.g. upright correction).
+    The yaw is applied on top in world space (rotation around Z).
+    Returns (w, x, y, z) for Genesis's set_quat().
+    """
+    base = R.from_euler("XYZ", model_euler_deg, degrees=True)
+    yaw = R.from_euler("Z", yaw_rad)
+    combined = yaw * base
+    x, y, z, w = combined.as_quat()  # scipy returns (x, y, z, w)
+    return [w, x, y, z]  # Genesis expects (w, x, y, z)
+
+
+def _add_robot(
+    scene: gs.Scene, robot_cfg: RobotConfig, config_dir: Path
+) -> RigidEntity:
+    model_path = resolve_path(config_dir, robot_cfg.model_path)
+    return scene.add_entity(
+        gs.morphs.Mesh(
+            file=model_path,
+            scale=robot_cfg.scale,
+            pos=_pad_pos_3d(robot_cfg.start_pos),
+            euler=tuple(robot_cfg.model_euler),
+            fixed=False,
+        ),
+    )
+
+
+def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
     """Initialise Genesis and build the scene from config."""
-    arena_cfg: dict[str, Any] = cfg.get("arena", {})
-    arena_w: float = arena_cfg.get("width", 2.4)
-    arena_h: float = arena_cfg.get("height", 2.4)
-
-    cam_cfg: dict[str, Any] = cfg.get("camera", {})
-    res_w: int = cam_cfg.get("res_width", 1280)
-    res_h: int = cam_cfg.get("res_height", 720)
-    fov: float = cam_cfg.get("fov", 70.0)
-    cam_pos: list[float] = cam_cfg.get("pos", [0.0, -1.5, 1.8])
-    cam_lookat: list[float] = cam_cfg.get("lookat", [0.0, 0.0, 0.0])
-
-    our_cfg: dict[str, Any] = cfg.get("our_robot", {})
-    opp_cfg: dict[str, Any] = cfg.get("opponent", {})
+    arena = cfg.arena
+    cam = cfg.camera
 
     gs.init(backend=gs.gpu)
     scene = gs.Scene(
-        show_viewer=True,
+        show_viewer=cfg.server.show_viewer,
+        sim_options=gs.options.SimOptions(dt=cfg.server.physics_dt),
         viewer_options=gs.options.ViewerOptions(
             res=(1280, 960),
-            camera_pos=tuple(cam_pos),
-            camera_lookat=tuple(cam_lookat),
-            camera_fov=fov,
+            camera_pos=tuple(cam.pos),
+            camera_lookat=tuple(cam.lookat),
+            camera_fov=cam.fov,
             max_FPS=60,
         ),
     )
 
     scene.add_entity(gs.morphs.Plane(visualization=False))
 
-    floor_mesh: str = str(
-        (Path(__file__).resolve().parent / "assets" / "cage" / "floor.obj")
-    )
+    floor_mesh = str(Path(__file__).resolve().parent / "assets" / "cage" / "floor.obj")
     scene.add_entity(
         gs.morphs.Mesh(
             file=floor_mesh,
             pos=(0, 0, 0),
-            scale=(arena_w, arena_h, 1.0),
+            scale=(arena.width, arena.height, 1.0),
             fixed=True,
         )
     )
 
-    our_model: str = resolve_path(config_dir, our_cfg.get("model_path", "robot.gltf"))
-    our_euler: list[float] = our_cfg.get("model_euler", [0.0, 0.0, 0.0])
-    our_start: list[float] = our_cfg.get("start_pos", [-0.5, 0.0, 0.0])
-    our_scale: float = our_cfg.get("scale", 1.0)
-    our_robot: RigidEntity = scene.add_entity(
-        gs.morphs.Mesh(
-            file=our_model,
-            scale=our_scale,
-            pos=tuple(our_start) + (0.0,) if len(our_start) == 2 else tuple(our_start),
-            euler=tuple(our_euler),
-            fixed=False,
-        )
-    )
+    our_robot: RigidEntity = _add_robot(scene, cfg.our_robot, config_dir)
+    opponents: list[RigidEntity] = [
+        _add_robot(scene, opp_cfg, config_dir) for opp_cfg in cfg.opponents
+    ]
 
-    opp_model: str = resolve_path(
-        config_dir, opp_cfg.get("model_path", "opponent.gltf")
-    )
-    opp_euler: list[float] = opp_cfg.get("model_euler", [0.0, 0.0, 0.0])
-    opp_start: list[float] = opp_cfg.get("start_pos", [0.5, 0.0, 0.0])
-    opp_scale: float = opp_cfg.get("scale", 1.0)
-    opponent: RigidEntity = scene.add_entity(
-        gs.morphs.Mesh(
-            file=opp_model,
-            scale=opp_scale,
-            pos=tuple(opp_start) + (0.0,) if len(opp_start) == 2 else tuple(opp_start),
-            euler=tuple(opp_euler),
-            fixed=False,
-        )
-    )
-
-    cam_far: float = cam_cfg.get("far", 10.0)
     camera: Camera = scene.add_camera(
-        res=(res_w, res_h),
-        pos=tuple(cam_pos),
-        lookat=tuple(cam_lookat),
-        fov=fov,
-        far=cam_far,
+        res=(cam.res_width, cam.res_height),
+        pos=tuple(cam.pos),
+        lookat=tuple(cam.lookat),
+        fov=cam.fov,
+        far=cam.far,
         GUI=False,
     )
 
@@ -157,88 +137,79 @@ def build_scene(cfg: dict[str, Any], config_dir: Path) -> SceneHandles:
     scene.step()
 
     panorama_bg: npt.NDArray[np.uint8] | None = None
-    panorama_name: str | None = arena_cfg.get("panorama", None)
-    if panorama_name is not None:
+    if arena.panorama is not None:
         import cv2
 
-        pano_path: str = str(
-            Path(__file__).resolve().parent / "assets" / "panoramas" / panorama_name
+        pano_path = str(
+            Path(__file__).resolve().parent / "assets" / "panoramas" / arena.panorama
         )
         pano_img: npt.NDArray[np.uint8] = cv2.imread(pano_path)
         if pano_img is None:
             print(f"Warning: could not load panorama '{pano_path}', skipping")
         else:
             panorama_bg = project_panorama(
-                pano_img, cam_pos, cam_lookat, fov, res_w, res_h
+                pano_img, cam.pos, cam.lookat, cam.fov, cam.res_width, cam.res_height
             )
 
     return SceneHandles(
         scene=scene,
         camera=camera,
         our_robot=our_robot,
-        opponent=opponent,
-        our_cfg=our_cfg,
-        opp_cfg=opp_cfg,
-        arena_w=arena_w,
-        arena_h=arena_h,
-        cam_pos=cam_pos,
-        cam_lookat=cam_lookat,
-        fov=fov,
-        cam_far=cam_far,
-        res_w=res_w,
-        res_h=res_h,
+        opponents=opponents,
         panorama_bg=panorama_bg,
     )
 
 
-def serve(cfg: dict[str, Any], handles: SceneHandles) -> None:
+def serve(cfg: SimConfig, handles: SceneHandles) -> None:
     """Run the TCP accept-loop, stepping the sim for each client request."""
-    server_cfg: dict[str, Any] = cfg.get("server", {})
-    host: str = server_cfg.get("host", "127.0.0.1")
-    port: int = server_cfg.get("port", 14882)
+    srv_cfg = cfg.server
+    cam = cfg.camera
+    arena = cfg.arena
+    our = cfg.our_robot
 
     scene: gs.Scene = handles.scene
     camera: Camera = handles.camera
-    our_robot: RigidEntity = handles.our_robot
-    opponent: RigidEntity = handles.opponent
-    our_cfg: dict[str, Any] = handles.our_cfg
-    opp_cfg: dict[str, Any] = handles.opp_cfg
-    arena_w: float = handles.arena_w
-    arena_h: float = handles.arena_h
 
-    our_start: list[float] = our_cfg.get("start_pos", [-0.5, 0.0, 0.0])
-    opp_start: list[float] = opp_cfg.get("start_pos", [0.5, 0.0, 0.0])
-    our_max_linear: float = our_cfg.get("max_linear_speed", 2.0)
-    our_max_angular: float = our_cfg.get("max_angular_speed", 6.0)
+    fx, fy, cx, cy = fov_to_intrinsics(cam.fov, cam.res_width, cam.res_height)
+    tf_matrix: npt.NDArray[np.float64] = camera_view_matrix(cam.pos, cam.lookat)
 
-    fx, fy, cx, cy = fov_to_intrinsics(handles.fov, handles.res_w, handles.res_h)
-    tf_matrix: npt.NDArray[np.float64] = camera_view_matrix(
-        handles.cam_pos, handles.cam_lookat
-    )
+    half_w, half_h = arena.width / 2, arena.height / 2
+    opp_behaviors: list[OpponentBehavior] = [
+        make_opponent_behavior(opp_cfg, half_w, half_h) for opp_cfg in cfg.opponents
+    ]
 
-    opp_behavior: OpponentBehavior = make_opponent_behavior(
-        opp_cfg, arena_w / 2, arena_h / 2
-    )
-
-    print(f"Genesis sim ready. Listening on {host}:{port}")
+    print(f"Genesis sim ready. Listening on {srv_cfg.host}:{srv_cfg.port}")
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind((host, port))
+    srv.bind((srv_cfg.host, srv_cfg.port))
     srv.listen(1)
+
+    # Free-body DOF indices: [vx, vy, vz, wx, wy, wz]
+    DOF_VX, DOF_VY = 0, 1
+    DOF_WZ = 5
 
     while True:
         print("Waiting for C++ client...")
         conn, addr = srv.accept()
         print(f"Client connected from {addr}")
 
-        our_start_3: list[float] = list(our_start) + [0.0] * (3 - len(our_start))
-        opp_start_3: list[float] = list(opp_start) + [0.0] * (3 - len(opp_start))
-        our_robot.set_pos(our_start_3)
-        opponent.set_pos(opp_start_3)
-        our_yaw: float = 0.0
+        handles.our_robot.set_pos(list(_pad_pos_3d(our.start_pos)))
+        our_yaw: float = math.radians(our.start_rotation)
+        handles.our_robot.set_quat(_robot_quat(our.model_euler, our_yaw))
+        n_dofs: int = handles.our_robot.n_dofs
+        handles.our_robot.set_dofs_velocity(np.zeros(n_dofs))
+
+        for opp_cfg, opp_entity in zip(cfg.opponents, handles.opponents):
+            opp_entity.set_pos(list(_pad_pos_3d(opp_cfg.start_pos)))
+            opp_entity.set_quat(
+                _robot_quat(opp_cfg.model_euler, math.radians(opp_cfg.start_rotation))
+            )
+            opp_entity.set_dofs_velocity(np.zeros(opp_entity.n_dofs))
 
         prev_time: float = time.monotonic()
+        sim_debt: float = 0.0
+        phys_dt: float = srv_cfg.physics_dt
 
         try:
             while True:
@@ -246,25 +217,26 @@ def serve(cfg: dict[str, Any], handles: SceneHandles) -> None:
                 linear_x, linear_y, angular_z = struct.unpack(REQUEST_FMT, data)
 
                 now: float = time.monotonic()
-                dt: float = min(now - prev_time, 0.1)
+                wall_dt: float = min(now - prev_time, 0.1)
                 prev_time = now
 
-                our_yaw += angular_z * our_max_angular * dt
-                vx: float = linear_x * our_max_linear
-                dx: float = vx * math.cos(our_yaw) * dt
-                dy: float = vx * math.sin(our_yaw) * dt
-                pos: npt.NDArray[np.floating[Any]] = (
-                    our_robot.get_pos().cpu().numpy().squeeze()
+                our_yaw += angular_z * our.max_angular_speed * wall_dt
+                speed: float = linear_x * our.max_linear_speed
+                vel_x: float = speed * math.cos(our_yaw)
+                vel_y: float = speed * math.sin(our_yaw)
+
+                handles.our_robot.set_dofs_velocity(
+                    np.array([vel_x, vel_y, angular_z * our.max_angular_speed]),
+                    [DOF_VX, DOF_VY, DOF_WZ],
                 )
-                pos[0] += dx
-                pos[1] += dy
-                pos[0] = max(-arena_w / 2, min(arena_w / 2, pos[0]))
-                pos[1] = max(-arena_h / 2, min(arena_h / 2, pos[1]))
-                our_robot.set_pos(pos)
 
-                opp_behavior.step(opponent, dt)
+                for behavior, opp_entity in zip(opp_behaviors, handles.opponents):
+                    behavior.step(opp_entity, wall_dt)
 
-                scene.step()
+                sim_debt += wall_dt
+                while sim_debt >= phys_dt:
+                    scene.step()
+                    sim_debt -= phys_dt
                 rgb_raw, depth_raw, _, _ = camera.render(depth=True)
 
                 rgb: npt.NDArray[np.uint8] = np.ascontiguousarray(
@@ -273,7 +245,7 @@ def serve(cfg: dict[str, Any], handles: SceneHandles) -> None:
                 depth: npt.NDArray[np.float32] = np.ascontiguousarray(
                     np.squeeze(depth_raw).astype(np.float32)
                 )
-                bg_mask = ~np.isfinite(depth) | (depth >= handles.cam_far - 0.1)
+                bg_mask = ~np.isfinite(depth) | (depth >= cam.far - 0.1)
                 depth[bg_mask] = np.nan
 
                 if handles.panorama_bg is not None:
@@ -300,8 +272,8 @@ def main() -> None:
     parser.add_argument("config", help="Path to sim_config.toml")
     args: argparse.Namespace = parser.parse_args()
 
-    cfg: dict[str, Any] = load_config(args.config)
     config_dir: Path = Path(args.config).resolve().parent
+    cfg: SimConfig = load_sim_config(args.config)
 
     handles: SceneHandles = build_scene(cfg, config_dir)
     serve(cfg, handles)

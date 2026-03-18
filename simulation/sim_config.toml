@@ -1,11 +1,11 @@
 [server]
 host = "127.0.0.1"
 port = 14882
+show_viewer = true
 
 [arena]
 width = 2.4    # meters (NHRL cage)
 height = 2.4
-floor_texture = "concrete"
 # Panoramic background image from simulation/assets/panoramas/.
 # Composited behind the rendered scene. Comment out for plain background.
 panorama = "greenhouse.jpg"
@@ -20,18 +20,29 @@ lookat = [0.0, 0.0, 0.0]
 [our_robot]
 model_path = "./assets/robots/mr_stabs_mk2.glb"
 scale = 1.0
-start_pos = [-0.5, 0.0, 0.0]
+start_pos = [-0.5, 0.0, 0.1]
+start_rotation = 45.0               # yaw in degrees at spawn
 max_linear_speed = 2.0     # m/s at command=1.0
 max_angular_speed = 6.0    # rad/s at command=1.0
 # OnShape GLTF models point downward and are rotated 90 degrees.
 # Apply this Euler correction (degrees) at load time to stand upright.
 # Values match training/synthetic/render_scenes.py (pitch=90, roll=9.59).
-model_euler = [90.0, 9.59, 0.0]
+model_euler = [-90.0, 9.59, 0.0]
 
-[opponent]
+[[opponents]]
 model_path = "./assets/robots/house_bot.glb"
 scale = 1.0
-start_pos = [0.5, 0.0, 0.0]
-behavior = "static"   # "static", "random_walk", "circular"
-speed = 0.3                # m/s for moving behaviors
+start_pos = [0.75, 0.75, 0.1]
+start_rotation = 225.0              # yaw in degrees at spawn
+behavior = "static"                 # "static", "random_walk", "circular"
+speed = 0.3                         # m/s for moving behaviors
+model_euler = [-90.0, 0.0, 0.0]
+
+[[opponents]]
+model_path = "./assets/robots/mrs_buff_mk2.glb"
+scale = 1.0
+start_pos = [0.5, 0.0, 0.1]
+start_rotation = 180.0              # yaw in degrees at spawn
+behavior = "static"                 # "static", "random_walk", "circular"
+speed = 0.3                         # m/s for moving behaviors
 model_euler = [-90.0, 0.0, 0.0]

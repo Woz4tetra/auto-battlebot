@@ -2,3 +2,5 @@ genesis-world
 tomli
 torch
 opencv-python
+dacite
+scipy

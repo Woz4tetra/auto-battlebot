@@ -10,8 +10,12 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpy.typing as npt
 
+from config.robot import RobotConfig
+
 if TYPE_CHECKING:
     from genesis.engine.entities.rigid_entity import RigidEntity
+
+DOF_VX, DOF_VY = 0, 1
 
 
 class OpponentBehavior(abc.ABC):
@@ -23,7 +27,7 @@ class OpponentBehavior(abc.ABC):
 
 class StaticBehavior(OpponentBehavior):
     def step(self, entity: RigidEntity, dt: float) -> None:
-        pass
+        entity.set_dofs_velocity(np.array([0.0, 0.0]), [DOF_VX, DOF_VY])
 
 
 class RandomWalkBehavior(OpponentBehavior):
@@ -45,13 +49,11 @@ class RandomWalkBehavior(OpponentBehavior):
         dist: float = float(np.linalg.norm(diff))
         if dist < 0.05:
             self.target = self._random_target()
+            entity.set_dofs_velocity(np.array([0.0, 0.0]), [DOF_VX, DOF_VY])
             return
         direction = diff / dist
-        step = direction * min(self.speed * dt, dist)
-        new_pos = pos.copy()
-        new_pos[0] += step[0]
-        new_pos[1] += step[1]
-        entity.set_pos(new_pos)
+        vel = direction * self.speed
+        entity.set_dofs_velocity(np.array([vel[0], vel[1]]), [DOF_VX, DOF_VY])
 
 
 class CircularBehavior(OpponentBehavior):
@@ -68,22 +70,17 @@ class CircularBehavior(OpponentBehavior):
 
     def step(self, entity: RigidEntity, dt: float) -> None:
         self.angle += (self.speed / max(self.radius, 0.01)) * dt
-        x = self.center[0] + self.radius * math.cos(self.angle)
-        y = self.center[1] + self.radius * math.sin(self.angle)
-        pos: npt.NDArray[np.floating[Any]] = entity.get_pos().cpu().numpy().squeeze()
-        pos[0] = x
-        pos[1] = y
-        entity.set_pos(pos)
+        vel_x = -self.speed * math.sin(self.angle)
+        vel_y = self.speed * math.cos(self.angle)
+        entity.set_dofs_velocity(np.array([vel_x, vel_y]), [DOF_VX, DOF_VY])
 
 
 def make_opponent_behavior(
-    cfg: dict[str, Any], arena_half_w: float, arena_half_h: float
+    cfg: RobotConfig, arena_half_w: float, arena_half_h: float
 ) -> OpponentBehavior:
-    behavior: str = cfg.get("behavior", "static")
-    speed: float = cfg.get("speed", 0.3)
-    if behavior == "random_walk":
-        return RandomWalkBehavior(speed, arena_half_w, arena_half_h)
-    elif behavior == "circular":
-        return CircularBehavior(speed)
+    if cfg.behavior == "random_walk":
+        return RandomWalkBehavior(cfg.speed, arena_half_w, arena_half_h)
+    elif cfg.behavior == "circular":
+        return CircularBehavior(cfg.speed)
     else:
         return StaticBehavior()
