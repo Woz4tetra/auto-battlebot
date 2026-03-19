@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from config.arena import ArenaConfig
 from config.camera import CameraConfig
+from config.light import LightConfig
 from config.robot import RobotConfig
 from config.server import ServerConfig
 
@@ -15,3 +16,4 @@ class SimConfig:
     camera: CameraConfig = field(default_factory=CameraConfig)
     our_robot: RobotConfig = field(default_factory=RobotConfig)
     opponents: list[RobotConfig] = field(default_factory=list)
+    lights: list[LightConfig] = field(default_factory=list)

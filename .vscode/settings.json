@@ -11,4 +11,5 @@
         "**/*.egg-info": true,
         "**/venv": true,
     },
+    "python-envs.pythonProjects": [],
 }

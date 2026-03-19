@@ -43,6 +43,10 @@ from protocol import (
     send_all,
 )
 
+DOF_VX: int = 0
+DOF_VY: int = 1
+DOF_WZ: int = 5
+
 
 @dataclass
 class SceneHandles:
@@ -53,6 +57,50 @@ class SceneHandles:
     our_robot: RigidEntity
     opponents: list[RigidEntity]
     panorama_bg: npt.NDArray[np.uint8] | None
+
+
+@dataclass
+class FrameTimings:
+    """Cumulative timings for profiling the serve loop."""
+
+    recv: float = 0.0
+    physics: float = 0.0
+    render: float = 0.0
+    process: float = 0.0
+    send: float = 0.0
+    count: int = 0
+
+    def record(
+        self,
+        t_recv: float,
+        t_physics: float,
+        t_render: float,
+        t_process: float,
+        t_send: float,
+    ) -> None:
+        self.recv += t_recv
+        self.physics += t_physics
+        self.render += t_render
+        self.process += t_process
+        self.send += t_send
+        self.count += 1
+
+    def report(self, physics_steps: int, frame_total: float) -> str:
+        n = self.count
+        return (
+            f"[frame {n}] avg ms/frame: "
+            f"recv={1000 * self.recv / n:.1f}  "
+            f"physics={1000 * self.physics / n:.1f} ({physics_steps} steps)  "
+            f"render={1000 * self.render / n:.1f}  "
+            f"process={1000 * self.process / n:.1f}  "
+            f"send={1000 * self.send / n:.1f}  "
+            f"total={1000 * frame_total:.1f}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Scene construction
+# ---------------------------------------------------------------------------
 
 
 def resolve_path(base_dir: Path, p: str) -> str:
@@ -69,17 +117,15 @@ def _pad_pos_3d(pos: list[float]) -> tuple[float, float, float]:
 
 
 def _robot_quat(model_euler_deg: list[float], yaw_rad: float) -> list[float]:
-    """Compose a robot's model correction with a world-space yaw into one quaternion.
+    """Compose a robot's model correction with a world-space yaw.
 
-    The model_euler fixes the mesh orientation (e.g. upright correction).
-    The yaw is applied on top in world space (rotation around Z).
     Returns (w, x, y, z) for Genesis's set_quat().
     """
     base = R.from_euler("XYZ", model_euler_deg, degrees=True)
     yaw = R.from_euler("Z", yaw_rad)
     combined = yaw * base
-    x, y, z, w = combined.as_quat()  # scipy returns (x, y, z, w)
-    return [w, x, y, z]  # Genesis expects (w, x, y, z)
+    x, y, z, w = combined.as_quat()
+    return [w, x, y, z]
 
 
 def _add_robot(
@@ -102,10 +148,41 @@ def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
     arena = cfg.arena
     cam = cfg.camera
 
+    from genesis.options.vis import DirectionalLight, PointLight, AmbientLight
+
+    vis_lights: list = []
+    for lc in cfg.lights:
+        if lc.type == "directional":
+            vis_lights.append(
+                DirectionalLight(
+                    dir=tuple(lc.dir),
+                    color=tuple(lc.color),
+                    intensity=lc.intensity,
+                )
+            )
+        elif lc.type == "point":
+            vis_lights.append(
+                PointLight(
+                    pos=tuple(lc.pos),
+                    color=tuple(lc.color),
+                    intensity=lc.intensity,
+                )
+            )
+        elif lc.type == "ambient":
+            vis_lights.append(
+                AmbientLight(
+                    color=tuple(lc.color),
+                    intensity=lc.intensity,
+                )
+            )
+
     gs.init(backend=gs.gpu)
     scene = gs.Scene(
         show_viewer=cfg.server.show_viewer,
         sim_options=gs.options.SimOptions(dt=cfg.server.physics_dt),
+        vis_options=gs.options.VisOptions(
+            lights=vis_lights if vis_lights else None,
+        ),
         viewer_options=gs.options.ViewerOptions(
             res=(1280, 960),
             camera_pos=tuple(cam.pos),
@@ -117,7 +194,7 @@ def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
 
     scene.add_entity(gs.morphs.Plane(visualization=False))
 
-    floor_mesh = str(Path(__file__).resolve().parent / "assets" / "cage" / "floor.obj")
+    floor_mesh = resolve_path(config_dir, arena.floor_mesh)
     scene.add_entity(
         gs.morphs.Mesh(
             file=floor_mesh,
@@ -149,7 +226,7 @@ def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
         pano_path = str(
             Path(__file__).resolve().parent / "assets" / "panoramas" / arena.panorama
         )
-        pano_img: npt.NDArray[np.uint8] = cv2.imread(pano_path)
+        pano_img: npt.NDArray[np.uint8] | None = cv2.imread(pano_path)
         if pano_img is None:
             print(f"Warning: could not load panorama '{pano_path}', skipping")
         else:
@@ -166,167 +243,217 @@ def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
     )
 
 
-def serve(cfg: SimConfig, handles: SceneHandles) -> None:
-    """Run the TCP accept-loop, stepping the sim for each client request."""
-    srv_cfg = cfg.server
-    cam = cfg.camera
-    arena = cfg.arena
-    our = cfg.our_robot
+# ---------------------------------------------------------------------------
+# SimRunner
+# ---------------------------------------------------------------------------
 
-    scene: gs.Scene = handles.scene
-    camera: Camera = handles.camera
 
-    fx, fy, cx, cy = fov_to_intrinsics(cam.fov, cam.res_width, cam.res_height)
-    tf_matrix: npt.NDArray[np.float64] = camera_view_matrix(cam.pos, cam.lookat)
+class SimRunner:
+    """Drives the simulation loop: physics, rendering, and client I/O."""
 
-    half_w, half_h = arena.width / 2, arena.height / 2
-    opp_behaviors: list[OpponentBehavior] = [
-        make_opponent_behavior(opp_cfg, half_w, half_h) for opp_cfg in cfg.opponents
-    ]
+    def __init__(self, cfg: SimConfig, handles: SceneHandles) -> None:
+        self._cfg = cfg
+        self._handles = handles
 
-    print(f"Genesis sim ready. Listening on {srv_cfg.host}:{srv_cfg.port}")
+        cam = cfg.camera
+        self._scene: gs.Scene = handles.scene
+        self._camera: Camera = handles.camera
 
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind((srv_cfg.host, srv_cfg.port))
-    srv.listen(1)
+        self._our_cfg = cfg.our_robot
+        self._phys_dt: float = cfg.server.physics_dt
+        self._max_steps: int = cfg.server.max_physics_steps_per_frame
 
-    # Free-body DOF indices: [vx, vy, vz, wx, wy, wz]
-    DOF_VX, DOF_VY = 0, 1
-    DOF_WZ = 5
+        fx, fy, cx, cy = fov_to_intrinsics(cam.fov, cam.res_width, cam.res_height)
+        tf_matrix = camera_view_matrix(cam.pos, cam.lookat)
 
-    while True:
-        print("Waiting for C++ client...")
-        conn, addr = srv.accept()
-        configure_socket(conn)
-        print(f"Client connected from {addr}")
+        self._header_bytes: bytes = struct.pack(
+            RESPONSE_HEADER_FMT,
+            cam.res_width,
+            cam.res_height,
+            *tf_matrix.flatten().tolist(),
+            fx,
+            fy,
+            cx,
+            cy,
+        )
+
+        self._rgb_buf: npt.NDArray[np.uint8] = np.empty(
+            (cam.res_height, cam.res_width, 3),
+            dtype=np.uint8,
+        )
+        self._depth_buf: npt.NDArray[np.float32] = np.empty(
+            (cam.res_height, cam.res_width),
+            dtype=np.float32,
+        )
+        self._bg_mask: npt.NDArray[np.bool_] = np.empty(
+            (cam.res_height, cam.res_width),
+            dtype=np.bool_,
+        )
+        self._far_thresh: float = cam.far - 0.1
+        self._panorama_bg: npt.NDArray[np.uint8] | None = handles.panorama_bg
+
+        half_w, half_h = cfg.arena.width / 2, cfg.arena.height / 2
+        self._opp_behaviors: list[OpponentBehavior] = [
+            make_opponent_behavior(opp_cfg, half_w, half_h) for opp_cfg in cfg.opponents
+        ]
+
+        self._our_yaw: float = 0.0
+        self._sim_debt: float = 0.0
+        self._prev_time: float = 0.0
+        self._timings = FrameTimings()
+
+    # -- lifecycle ----------------------------------------------------------
+
+    def reset_robots(self) -> None:
+        """Move all robots to their configured start positions."""
+        our = self._our_cfg
+        handles = self._handles
 
         handles.our_robot.set_pos(list(_pad_pos_3d(our.start_pos)))
-        our_yaw: float = math.radians(our.start_rotation)
-        handles.our_robot.set_quat(_robot_quat(our.model_euler, our_yaw))
-        n_dofs: int = handles.our_robot.n_dofs
-        handles.our_robot.set_dofs_velocity(np.zeros(n_dofs))
+        self._our_yaw = math.radians(our.start_rotation)
+        handles.our_robot.set_quat(_robot_quat(our.model_euler, self._our_yaw))
+        handles.our_robot.set_dofs_velocity(np.zeros(handles.our_robot.n_dofs))
 
-        for opp_cfg, opp_entity in zip(cfg.opponents, handles.opponents):
+        for opp_cfg, opp_entity in zip(self._cfg.opponents, handles.opponents):
             opp_entity.set_pos(list(_pad_pos_3d(opp_cfg.start_pos)))
             opp_entity.set_quat(
                 _robot_quat(opp_cfg.model_euler, math.radians(opp_cfg.start_rotation))
             )
             opp_entity.set_dofs_velocity(np.zeros(opp_entity.n_dofs))
 
-        rgb_buf: npt.NDArray[np.uint8] = np.empty(
-            (cam.res_height, cam.res_width, 3), dtype=np.uint8
-        )
-        depth_buf: npt.NDArray[np.float32] = np.empty(
-            (cam.res_height, cam.res_width), dtype=np.float32
-        )
-        tf_flat: list[float] = tf_matrix.flatten().tolist()
-        header_bytes: bytes = struct.pack(
-            RESPONSE_HEADER_FMT,
-            cam.res_width,
-            cam.res_height,
-            *tf_flat,
-            fx,
-            fy,
-            cx,
-            cy,
-        )
-        far_thresh: float = cam.far - 0.1
-        bg_mask: npt.NDArray[np.bool_] = np.empty(
-            (cam.res_height, cam.res_width), dtype=np.bool_
-        )
-        panorama_bg: npt.NDArray[np.uint8] | None = handles.panorama_bg
+        self._sim_debt = 0.0
+        self._prev_time = time.monotonic()
+        self._timings = FrameTimings()
 
-        prev_time: float = time.monotonic()
-        sim_debt: float = 0.0
-        phys_dt: float = srv_cfg.physics_dt
+    # -- per-frame helpers --------------------------------------------------
 
-        frame_count: int = 0
-        t_recv_total = 0.0
-        t_physics_total = 0.0
-        t_render_total = 0.0
-        t_process_total = 0.0
-        t_send_total = 0.0
+    def _apply_command(
+        self,
+        linear_x: float,
+        linear_y: float,
+        angular_z: float,
+        dt: float,
+    ) -> None:
+        our = self._our_cfg
+        self._our_yaw += angular_z * our.max_angular_speed * dt
+        speed = linear_x * our.max_linear_speed
+        vel_x = speed * math.cos(self._our_yaw)
+        vel_y = speed * math.sin(self._our_yaw)
+
+        self._handles.our_robot.set_dofs_velocity(
+            np.array([vel_x, vel_y, angular_z * our.max_angular_speed]),
+            [DOF_VX, DOF_VY, DOF_WZ],
+        )
+
+    def _step_opponents(self, dt: float) -> None:
+        for behavior, opp_entity in zip(
+            self._opp_behaviors,
+            self._handles.opponents,
+        ):
+            behavior.step(opp_entity, dt)
+
+    def _step_physics(self, wall_dt: float) -> int:
+        self._sim_debt += wall_dt
+        steps = 0
+        while self._sim_debt >= self._phys_dt and steps < self._max_steps:
+            self._scene.step()
+            self._sim_debt -= self._phys_dt
+            steps += 1
+        if self._sim_debt > self._phys_dt:
+            self._sim_debt = self._phys_dt
+        return steps
+
+    def _render_and_process(self) -> None:
+        rgb_raw, depth_raw, _, _ = self._camera.render(depth=True)
+
+        cv2.cvtColor(np.squeeze(rgb_raw), cv2.COLOR_RGB2BGR, dst=self._rgb_buf)
+
+        np.copyto(self._depth_buf, np.squeeze(depth_raw), casting="unsafe")
+        np.greater_equal(self._depth_buf, self._far_thresh, out=self._bg_mask)
+        np.logical_or(
+            self._bg_mask,
+            ~np.isfinite(self._depth_buf),
+            out=self._bg_mask,
+        )
+        self._depth_buf[self._bg_mask] = np.nan
+
+        if self._panorama_bg is not None:
+            np.copyto(
+                self._rgb_buf,
+                self._panorama_bg,
+                where=self._bg_mask[:, :, np.newaxis],
+            )
+
+    def _send_frame(self, conn: socket.socket) -> None:
+        send_all(conn, self._header_bytes)
+        send_all(conn, self._rgb_buf.data)
+        send_all(conn, self._depth_buf.data)
+
+    # -- main loop ----------------------------------------------------------
+
+    def handle_client(self, conn: socket.socket) -> None:
+        """Service one client connection until it disconnects."""
+        self.reset_robots()
 
         try:
             while True:
                 t0 = time.monotonic()
-                data: bytes = recv_all(conn, REQUEST_SIZE)
+                data = recv_all(conn, REQUEST_SIZE)
                 linear_x, linear_y, angular_z = struct.unpack(REQUEST_FMT, data)
                 t1 = time.monotonic()
 
-                now: float = t1
-                wall_dt: float = min(now - prev_time, 0.1)
-                prev_time = now
+                wall_dt = min(t1 - self._prev_time, 0.1)
+                self._prev_time = t1
 
-                our_yaw += angular_z * our.max_angular_speed * wall_dt
-                speed: float = linear_x * our.max_linear_speed
-                vel_x: float = speed * math.cos(our_yaw)
-                vel_y: float = speed * math.sin(our_yaw)
-
-                handles.our_robot.set_dofs_velocity(
-                    np.array([vel_x, vel_y, angular_z * our.max_angular_speed]),
-                    [DOF_VX, DOF_VY, DOF_WZ],
-                )
-
-                for behavior, opp_entity in zip(opp_behaviors, handles.opponents):
-                    behavior.step(opp_entity, wall_dt)
-
-                sim_debt += wall_dt
-                steps = 0
-                max_steps: int = srv_cfg.max_physics_steps_per_frame
-                while sim_debt >= phys_dt and steps < max_steps:
-                    scene.step()
-                    sim_debt -= phys_dt
-                    steps += 1
-                if sim_debt > phys_dt:
-                    sim_debt = phys_dt
+                self._apply_command(linear_x, linear_y, angular_z, wall_dt)
+                self._step_opponents(wall_dt)
                 t2 = time.monotonic()
 
-                rgb_raw, depth_raw, _, _ = camera.render(depth=True)
+                steps = self._step_physics(wall_dt)
                 t3 = time.monotonic()
 
-                rgb_sq = np.squeeze(rgb_raw)
-                cv2.cvtColor(rgb_sq, cv2.COLOR_RGB2BGR, dst=rgb_buf)
-
-                depth_sq = np.squeeze(depth_raw)
-                np.copyto(depth_buf, depth_sq, casting="unsafe")
-                np.greater_equal(depth_buf, far_thresh, out=bg_mask)
-                np.logical_or(bg_mask, ~np.isfinite(depth_buf), out=bg_mask)
-                depth_buf[bg_mask] = np.nan
-
-                if panorama_bg is not None:
-                    np.copyto(rgb_buf, panorama_bg, where=bg_mask[:, :, np.newaxis])
-
+                self._render_and_process()
                 t4 = time.monotonic()
 
-                send_all(conn, header_bytes)
-                send_all(conn, rgb_buf.data)
-                send_all(conn, depth_buf.data)
+                self._send_frame(conn)
                 t5 = time.monotonic()
 
-                t_recv_total += t1 - t0
-                t_physics_total += t2 - t1
-                t_render_total += t3 - t2
-                t_process_total += t4 - t3
-                t_send_total += t5 - t4
-                frame_count += 1
+                self._timings.record(
+                    t_recv=t1 - t0,
+                    t_physics=t3 - t2,
+                    t_render=t4 - t3,
+                    t_process=0.0,
+                    t_send=t5 - t4,
+                )
 
-                if frame_count % 100 == 0:
-                    print(
-                        f"[frame {frame_count}] avg ms/frame: "
-                        f"recv={1000 * t_recv_total / frame_count:.1f}  "
-                        f"physics={1000 * t_physics_total / frame_count:.1f} ({steps} steps)  "
-                        f"render={1000 * t_render_total / frame_count:.1f}  "
-                        f"process={1000 * t_process_total / frame_count:.1f}  "
-                        f"send={1000 * t_send_total / frame_count:.1f}  "
-                        f"total={1000 * (t5 - t0):.1f}"
-                    )
+                if self._timings.count % 100 == 0:
+                    print(self._timings.report(steps, t5 - t0))
 
         except (ConnectionError, BrokenPipeError, OSError) as e:
             print(f"Client disconnected: {e}")
+
+    def serve_forever(self) -> None:
+        """Accept clients in a loop, handling one at a time."""
+        srv_cfg = self._cfg.server
+        print(f"Genesis sim ready. Listening on {srv_cfg.host}:{srv_cfg.port}")
+
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind((srv_cfg.host, srv_cfg.port))
+        srv.listen(1)
+
+        while True:
+            print("Waiting for C++ client...")
+            conn, addr = srv.accept()
+            configure_socket(conn)
+            print(f"Client connected from {addr}")
+            self.handle_client(conn)
             conn.close()
-            continue
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
@@ -338,7 +465,8 @@ def main() -> None:
     cfg: SimConfig = load_sim_config(args.config)
 
     handles: SceneHandles = build_scene(cfg, config_dir)
-    serve(cfg, handles)
+    runner = SimRunner(cfg, handles)
+    runner.serve_forever()
 
 
 if __name__ == "__main__":

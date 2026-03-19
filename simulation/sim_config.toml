@@ -6,6 +6,7 @@ show_viewer = true
 [arena]
 width = 2.4    # meters (NHRL cage)
 height = 2.4
+floor_mesh = "./assets/cage/floor.obj"
 # Panoramic background image from simulation/assets/panoramas/.
 # Composited behind the rendered scene. Comment out for plain background.
 panorama = "greenhouse.jpg"
@@ -16,6 +17,18 @@ res_height = 720
 fov = 70.0           # ZED 2i approximate HFOV
 pos = [0.0, -1.7, 1.5]  # x, y, z in meters
 lookat = [0.0, 0.0, 0.0]
+
+[[lights]]
+type = "point"
+pos = [0.0, 0.0, 3.5]
+color = [1.0, 1.0, 1.0]
+intensity = 150.0
+
+[[lights]]
+type = "directional"
+dir = [-1.0, -1.0, -1.0]
+color = [1.0, 1.0, 1.0]
+intensity = 3.0
 
 [our_robot]
 model_path = "./assets/robots/mr_stabs_mk2.glb"
