@@ -51,6 +51,9 @@ keypoints = ["HOUSE_BOT_FRONT", "HOUSE_BOT_BACK"]
 label = "OPPONENT"
 keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 
+# [robot_filter]
+# type = "GroundTruthRobotFilter"
+
 [robot_filter]
 type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
@@ -93,6 +96,7 @@ angular_kd = 0.2
 [transmitter]
 type = "SimTransmitter"
 init_delay_seconds = 0.5
+command_delay_ms = 0.0
 
 [publisher]
 type = "RosPublisher"
