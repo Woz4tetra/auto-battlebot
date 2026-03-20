@@ -64,7 +64,7 @@ bool SimConnection::connect() {
         return false;
     }
 
-    constexpr int MAX_RETRIES = 60;
+    constexpr int MAX_RETRIES = 300;
     constexpr int RETRY_INTERVAL_MS = 1000;
     constexpr int POLL_MS = 100;
 
@@ -99,8 +99,8 @@ bool SimConnection::connect() {
         ::close(sock_fd_);
         sock_fd_ = -1;
 
-        spdlog::info("SimConnection: waiting for server at {}:{} (attempt {}/{})",
-                      host_, port_, attempt, MAX_RETRIES);
+        spdlog::info("SimConnection: waiting for server at {}:{} (attempt {}/{})", host_, port_,
+                     attempt, MAX_RETRIES);
 
         for (int waited = 0; waited < RETRY_INTERVAL_MS; waited += POLL_MS) {
             if (g_interrupted.load(std::memory_order_relaxed)) break;
@@ -113,8 +113,8 @@ bool SimConnection::connect() {
 
     if (!connected) {
         if (!g_interrupted.load(std::memory_order_relaxed)) {
-            spdlog::error("SimConnection: server at {}:{} not reachable after {} seconds",
-                           host_, port_, MAX_RETRIES);
+            spdlog::error("SimConnection: server at {}:{} not reachable after {} seconds", host_,
+                          port_, MAX_RETRIES);
         }
         return false;
     }
@@ -169,8 +169,8 @@ bool SimConnection::step_and_receive(CameraData &data) {
         return false;
     }
 
-    double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
-                     .count();
+    double now =
+        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
     Header stamp{now, FrameId::CAMERA};
 
     data.rgb.header = stamp;

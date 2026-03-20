@@ -9,7 +9,8 @@ Usage:
 """
 
 from __future__ import annotations
-
+import sys
+import signal
 import argparse
 import math
 import socket
@@ -465,7 +466,16 @@ def main() -> None:
     cfg: SimConfig = load_sim_config(args.config)
 
     handles: SceneHandles = build_scene(cfg, config_dir)
-    runner = SimRunner(cfg, handles)
+
+    def _shutdown_on_sigterm(_signum: int, _frame: object | None) -> None:
+        print("Caught shutdown signal")
+        # SIGTERM does not run atexit on Linux; Genesis caches kernels in gs.destroy().
+        gs.destroy()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _shutdown_on_sigterm)
+
+    runner = SimRunner(cfg, handles, config_dir)
     runner.serve_forever()
 
 
