@@ -59,6 +59,7 @@ def _add_robot(
             pos=pad_pos_3d(robot_cfg.start_pos),
             euler=tuple(robot_cfg.model_euler),
             fixed=False,
+            decimate_aggressiveness=0,
         )
     else:
         morph = gs.morphs.Mesh(
@@ -72,7 +73,7 @@ def _add_robot(
     material = gs.materials.Rigid(
         friction=robot_cfg.wheel_friction if robot_cfg.has_wheels else None,
     )
-    return scene.add_entity(morph, material)
+    return scene.add_entity(morph, material, visualize_contact=True)
 
 
 def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
@@ -111,9 +112,16 @@ def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
     gs.init(backend=gs.gpu)
     scene = gs.Scene(
         show_viewer=cfg.server.show_viewer,
-        sim_options=gs.options.SimOptions(dt=cfg.server.physics_dt),
+        sim_options=gs.options.SimOptions(
+            dt=cfg.server.physics_dt,
+            substeps=cfg.server.substeps,
+        ),
+        rigid_options=gs.options.RigidOptions(
+            enable_self_collision=False,
+        ),
         vis_options=gs.options.VisOptions(
             lights=vis_lights if vis_lights else None,
+            contact_force_scale=0.02,
         ),
         viewer_options=gs.options.ViewerOptions(
             res=(1280, 960),
@@ -124,7 +132,8 @@ def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
         ),
     )
 
-    scene.add_entity(gs.morphs.Plane(visualization=False))
+    floor_material = gs.materials.Rigid(friction=arena.floor_friction)
+    scene.add_entity(gs.morphs.Plane(visualization=False), floor_material)
 
     floor_mesh = resolve_path(config_dir, arena.floor_mesh)
     scene.add_entity(
@@ -133,7 +142,8 @@ def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
             pos=(0, 0, 0),
             scale=(arena.width, arena.height, 1.0),
             fixed=True,
-        )
+        ),
+        floor_material,
     )
 
     our_robot: RigidEntity = _add_robot(scene, cfg.our_robot, config_dir)

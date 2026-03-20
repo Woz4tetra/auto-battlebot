@@ -21,6 +21,9 @@ class RobotConfig:
     wheel_friction: float = 0.7
     left_wheel_joints: list[str] = field(default_factory=list)
     right_wheel_joints: list[str] = field(default_factory=list)
+    wheel_kp: float = 0.0
+    wheel_kv: float = 50.0
+    wheel_force_limit: float = 200.0
 
     @property
     def has_wheels(self) -> bool:

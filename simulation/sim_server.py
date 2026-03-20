@@ -33,14 +33,16 @@ def main() -> None:
 
     handles: SceneHandles = build_scene(cfg, config_dir)
 
+    runner = SimRunner(cfg, handles)
+
     def _shutdown_on_sigterm(_signum: int, _frame: object | None) -> None:
         print("Caught shutdown signal")
+        runner.close_diagnostics()
         gs.destroy()
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, _shutdown_on_sigterm)
 
-    runner = SimRunner(cfg, handles)
     runner.serve_forever()
 
 

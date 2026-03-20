@@ -238,7 +238,54 @@ def _add_wheel_joint(
     SubElement(joint, "child", link=child_link)
     SubElement(joint, "origin", xyz=_xyz(origin_xyz), rpy="0 0 0")
     SubElement(joint, "axis", xyz="0 1 0")
-    SubElement(joint, "dynamics", damping="0.01", friction="0.0")
+    SubElement(joint, "dynamics", damping="0.1", friction="0.0")
+
+
+def _add_pitch_stabilizers(
+    robot: Element,
+    parent_link: str,
+    chassis_vertices: np.ndarray,
+    wheel_radius: float,
+    caster_radius: float = 0.005,
+) -> None:
+    """Add front/rear pitch stabilizer casters.
+
+    With COM centered over the wheel axis these bear ~zero normal force at
+    equilibrium, so friction drag is negligible.  They only engage during
+    pitch transients.
+    """
+    x_min = float(chassis_vertices[:, 0].min())
+    x_max = float(chassis_vertices[:, 0].max())
+
+    caster_z = -(wheel_radius - caster_radius)
+
+    positions = [
+        ("caster_front", (x_max * 0.7, 0.0, caster_z)),
+        ("caster_rear", (x_min * 0.7, 0.0, caster_z)),
+    ]
+
+    for name, (cx, cy, cz) in positions:
+        link = SubElement(robot, "link", name=name)
+        inertial = SubElement(link, "inertial")
+        SubElement(inertial, "mass", value="0.001")
+        SubElement(
+            inertial,
+            "inertia",
+            ixx="1e-8",
+            ixy="0",
+            ixz="0",
+            iyy="1e-8",
+            iyz="0",
+            izz="1e-8",
+        )
+        collision = SubElement(link, "collision")
+        geom = SubElement(collision, "geometry")
+        SubElement(geom, "sphere", radius=_fmt(caster_radius))
+
+        joint = SubElement(robot, "joint", name=f"{name}_joint", type="fixed")
+        SubElement(joint, "parent", link=parent_link)
+        SubElement(joint, "child", link=name)
+        SubElement(joint, "origin", xyz=f"{cx:.6f} {cy:.6f} {cz:.6f}", rpy="0 0 0")
 
 
 def _pretty_xml(root: Element) -> str:
@@ -365,14 +412,26 @@ def main() -> None:
     print(f"\nChassis inertia (kg m^2):\n{chassis_I}")
     print(f"Wheel inertia (kg m^2):\n{wheel_I}")
 
+    # For differential drive, center COM over wheel axis so the robot
+    # balances on its wheels without needing caster supports (which create
+    # unacceptable sliding friction drag in Genesis).
+    if layout == "differential":
+        if chassis_com[0] != 0.0:
+            print(
+                f"  Centering COM over wheel axis: ({chassis_com[0]:.4f}, 0, 0) -> (0, 0, 0)"
+            )
+            chassis_com = [0.0, chassis_com[1], chassis_com[2]]
+
     # -- build URDF ----------------------------------------------------------
     robot = Element("robot", name=robot_name)
 
-    # Base link
+    # Base link (no collision mesh — stabilizer casters + wheels only)
     base = SubElement(robot, "link", name="base_link")
     _add_inertial(base, chassis_mass, chassis_com, chassis_I)
     _add_visual(base, "meshes/chassis.obj")
-    _add_collision_mesh(base, "meshes/chassis_collision.obj")
+
+    if layout == "differential":
+        _add_pitch_stabilizers(robot, "base_link", all_verts, wheel_radius)
 
     # Wheel definitions
     if layout == "differential":
@@ -430,7 +489,7 @@ def main() -> None:
     print(f"\nURDF package: {output_dir}/")
     print("  robot.urdf")
     print("  meshes/chassis.obj (visual)")
-    print("  meshes/chassis_collision.obj (collision, convex hull)")
+    print("  meshes/chassis_collision.obj (reference only, not in URDF)")
     if wheel_visual_path:
         print("  meshes/wheel.obj")
     print(f"\nLayout: {layout}, wheels: {len(wheel_defs)}")

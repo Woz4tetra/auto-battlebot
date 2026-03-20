@@ -11,11 +11,6 @@
         <mesh filename="meshes/chassis.obj"/>
       </geometry>
     </visual>
-    <collision>
-      <geometry>
-        <mesh filename="meshes/chassis_collision.obj"/>
-      </geometry>
-    </collision>
   </link>
   <link name="front_left_wheel">
     <inertial>
@@ -35,7 +30,7 @@
     <child link="front_left_wheel"/>
     <origin xyz="1.0000000000e-01 1.0000000000e-01 0.0000000000e+00" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <dynamics damping="0.01" friction="0.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
   <link name="front_right_wheel">
     <inertial>
@@ -55,7 +50,7 @@
     <child link="front_right_wheel"/>
     <origin xyz="1.0000000000e-01 -1.0000000000e-01 0.0000000000e+00" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <dynamics damping="0.01" friction="0.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
   <link name="rear_left_wheel">
     <inertial>
@@ -75,7 +70,7 @@
     <child link="rear_left_wheel"/>
     <origin xyz="-1.0000000000e-01 1.0000000000e-01 0.0000000000e+00" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <dynamics damping="0.01" friction="0.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
   <link name="rear_right_wheel">
     <inertial>
@@ -95,6 +90,6 @@
     <child link="rear_right_wheel"/>
     <origin xyz="-1.0000000000e-01 -1.0000000000e-01 0.0000000000e+00" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
-    <dynamics damping="0.01" friction="0.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
 </robot>
