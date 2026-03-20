@@ -22,8 +22,9 @@ class RosPublisher : public PublisherInterface {
         std::shared_ptr<miniros::Publisher> field_mask_publisher,    // sensor_msgs::CompressedImage
         std::shared_ptr<miniros::Publisher> tf_publisher,            // tf2_msgs::TFMessage
         std::shared_ptr<miniros::Publisher> static_tf_publisher,     // tf2_msgs::TFMessage
-        std::shared_ptr<miniros::Publisher> field_marker_publisher,  // visualization_msgs::Marker
-        std::shared_ptr<miniros::Publisher> robot_marker_publisher,  // visualization_msgs::Marker
+        std::shared_ptr<miniros::Publisher> field_marker_publisher,  // visualization_msgs::MarkerArray
+        std::shared_ptr<miniros::Publisher> robot_marker_publisher,  // visualization_msgs::MarkerArray
+        std::shared_ptr<miniros::Publisher> nav_marker_publisher,    // visualization_msgs::MarkerArray
         std::shared_ptr<McapRecorder> mcap_recorder                  // optional, may be null
     );
     void publish_camera_data(const CameraData &data) override;
@@ -33,6 +34,7 @@ class RosPublisher : public PublisherInterface {
         const FieldDescription &field_description,
         const FieldDescriptionWithInlierPoints &initial_field_description) override;
     void publish_robots(const RobotDescriptionsStamped &robots) override;
+    void publish_navigation(const NavigationVisualization &nav) override;
 
    private:
     std::shared_ptr<miniros::Publisher> rgb_image_publisher_;
@@ -42,6 +44,7 @@ class RosPublisher : public PublisherInterface {
     std::shared_ptr<miniros::Publisher> static_tf_publisher_;
     std::shared_ptr<miniros::Publisher> field_marker_publisher_;
     std::shared_ptr<miniros::Publisher> robot_marker_publisher_;
+    std::shared_ptr<miniros::Publisher> nav_marker_publisher_;
 
     std::shared_ptr<McapRecorder> mcap_recorder_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;

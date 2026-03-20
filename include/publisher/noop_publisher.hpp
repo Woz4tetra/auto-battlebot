@@ -14,6 +14,7 @@ class NoopPublisher : public PublisherInterface {
                                    [[maybe_unused]] const FieldDescriptionWithInlierPoints
                                        &initial_field_description) override {};
     void publish_robots([[maybe_unused]] const RobotDescriptionsStamped &robots) override {}
+    void publish_navigation([[maybe_unused]] const NavigationVisualization &nav) override {}
 };
 
 }  // namespace auto_battlebot

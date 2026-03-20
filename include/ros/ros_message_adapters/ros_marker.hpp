@@ -9,6 +9,7 @@
 #include "data_structures/field.hpp"
 #include "data_structures/keypoint.hpp"
 #include "data_structures/robot.hpp"
+#include "navigation/navigation_interface.hpp"
 #include "ros/ros_message_adapters/ros_image.hpp"
 
 namespace auto_battlebot {
@@ -24,6 +25,14 @@ std::vector<visualization_msgs::Marker> to_ros_field_marker(
  */
 std::vector<visualization_msgs::Marker> to_ros_robot_markers(
     const RobotDescriptionsStamped &robots);
+
+/**
+ * @brief Convert navigation state to ROS Marker messages for visualization
+ *
+ * Produces: pursuit line to target, target crosshair, velocity arrow, angular velocity arc.
+ */
+std::vector<visualization_msgs::Marker> to_ros_navigation_markers(
+    const NavigationVisualization &nav);
 
 }  // namespace ros_adapters
 }  // namespace auto_battlebot

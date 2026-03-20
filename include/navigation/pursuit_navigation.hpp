@@ -1,8 +1,10 @@
 #pragma once
 
 #include <limits>
+#include <memory>
 #include <optional>
 
+#include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "navigation/config.hpp"
 
 namespace auto_battlebot {
@@ -45,7 +47,7 @@ class PursuitNavigation : public NavigationInterface {
      * @brief Compute velocity command to pursue the target
      */
     VelocityCommand compute_pursuit_command(const Pose2D &our_pose, const Pose2D &target_pose,
-                                            const FieldDescription &field) const;
+                                            const FieldDescription &field);
 
     /**
      * @brief Clamp position to stay within field boundaries
@@ -72,6 +74,10 @@ class PursuitNavigation : public NavigationInterface {
     double lookahead_time_;
     double boundary_margin_;
     mutable std::optional<NavigationPathSegment> last_path_;
+    std::shared_ptr<DiagnosticsModuleLogger> logger_;
+
+    /** Latched turn direction (+1 or -1) to avoid dithering when target is behind us. 0 = uncommitted. */
+    int committed_turn_sign_ = 0;
 };
 
 }  // namespace auto_battlebot

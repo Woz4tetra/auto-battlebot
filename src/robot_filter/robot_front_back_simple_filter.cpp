@@ -22,6 +22,8 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
     : label_to_frame_ids_(config.label_to_frame_ids),
       default_frame_id_(config.default_frame_id),
       velocity_ema_alpha_(config.velocity_ema_alpha),
+      max_jump_distance_(config.max_jump_distance),
+      max_consecutive_jump_rejects_(config.max_consecutive_jump_rejects),
       robot_mask_detector_(config.robot_mask_detector_config) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("robot_front_back_simple_filter");
 
@@ -34,6 +36,7 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
 bool RobotFrontBackSimpleFilter::initialize(const std::vector<RobotConfig> &robots) {
     robot_configs_.clear();
     velocity_state_per_frame_id_.clear();
+    jump_reject_count_per_frame_id_.clear();
     robot_mask_detector_.reset();
     for (const auto &robot : robots) {
         robot_configs_[robot.label] = robot;
@@ -233,6 +236,31 @@ std::vector<RobotDescription> RobotFrontBackSimpleFilter::assign_frame_ids_to_me
         meas_assigned[best_meas] = true;
         frame_id_assigned[best_fid] = true;
         FrameId assigned_fid = frame_ids[best_fid];
+
+        if (best_has_previous && best_dist > max_jump_distance_) {
+            int &reject_count = jump_reject_count_per_frame_id_[assigned_fid];
+            reject_count++;
+
+            if (reject_count <= max_consecutive_jump_rejects_) {
+                diagnostics_logger_->debug(
+                    "jump_reject",
+                    {{"frame_id", std::string(magic_enum::enum_name(assigned_fid))},
+                     {"distance", best_dist},
+                     {"threshold", max_jump_distance_},
+                     {"consecutive", reject_count}},
+                    "Measurement rejected: jump too large");
+                continue;
+            }
+
+            diagnostics_logger_->debug(
+                "jump_reject",
+                {{"frame_id", std::string(magic_enum::enum_name(assigned_fid))},
+                 {"distance", best_dist},
+                 {"consecutive", reject_count}},
+                "Accepting after max consecutive rejects");
+        }
+
+        jump_reject_count_per_frame_id_[assigned_fid] = 0;
         valid_measurements[best_meas].second.frame_id = assigned_fid;
         last_position_per_frame_id_[assigned_fid] =
             valid_measurements[best_meas].second.pose.position;

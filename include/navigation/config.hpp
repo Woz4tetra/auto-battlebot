@@ -25,7 +25,7 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     double max_linear_velocity = 1.0;
 
     /** Maximum angular velocity in rad/s */
-    double max_angular_velocity = 3.0;
+    double max_angular_velocity = 6.0;
 
     /** Distance at which to start slowing down in meters */
     double slowdown_distance = 0.5;
@@ -34,10 +34,10 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     double stop_distance = 0.1;
 
     /** Proportional gain for angular control */
-    double angular_kp = 2.0;
+    double angular_kp = 3.0;
 
     /** Angle threshold below which robot drives forward (rad) */
-    double angle_threshold = 0.3;
+    double angle_threshold = 1.0;
 
     /** Lookahead time for target position prediction in seconds */
     double lookahead_time = 0.1;

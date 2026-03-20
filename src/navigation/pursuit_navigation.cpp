@@ -6,6 +6,7 @@
 #include <cmath>
 #include <limits>
 
+#include "diagnostics_logger/diagnostics_logger.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
@@ -18,7 +19,8 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       angular_kp_(config.angular_kp),
       angle_threshold_(config.angle_threshold),
       lookahead_time_(config.lookahead_time),
-      boundary_margin_(config.boundary_margin) {}
+      boundary_margin_(config.boundary_margin),
+      logger_(DiagnosticsLogger::get_logger("pursuit_nav")) {}
 
 bool PursuitNavigation::initialize() {
     spdlog::info(
@@ -30,27 +32,42 @@ bool PursuitNavigation::initialize() {
 
 VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, FieldDescription field) {
     last_path_ = std::nullopt;
-    // Find our robot
+
     auto our_robot_opt = find_our_robot(robots);
     if (!our_robot_opt.has_value()) {
+        logger_->debug("no_robot", "Our robot not found");
         return VelocityCommand{0.0, 0.0, 0.0};
     }
     const auto &our_robot = our_robot_opt.value();
 
     auto target_opt = find_target_robot(robots, our_robot);
     if (!target_opt.has_value()) {
+        logger_->debug("no_target", "No target found");
         return VelocityCommand{0.0, 0.0, 0.0};
     }
     const auto &target = target_opt.value();
 
-    // Convert poses to 2D
     Pose2D our_pose = pose_to_pose2d(our_robot.pose);
     Pose2D target_pose = predict_target_position(target);
 
     last_path_ = NavigationPathSegment{our_pose.x, our_pose.y, target_pose.x, target_pose.y};
 
-    // Compute and return pursuit command
-    return compute_pursuit_command(our_pose, target_pose, field);
+    logger_->debug("poses", {
+        {"our_x", our_pose.x},
+        {"our_y", our_pose.y},
+        {"our_yaw_deg", our_pose.yaw * 180.0 / M_PI},
+        {"target_x", target_pose.x},
+        {"target_y", target_pose.y},
+    });
+
+    auto cmd = compute_pursuit_command(our_pose, target_pose, field);
+
+    logger_->debug("command", {
+        {"linear_x", cmd.linear_x},
+        {"angular_z", cmd.angular_z},
+    });
+
+    return cmd;
 }
 
 std::optional<NavigationPathSegment> PursuitNavigation::get_last_path() const { return last_path_; }
@@ -115,44 +132,71 @@ Pose2D PursuitNavigation::predict_target_position(const RobotDescription &target
 
 VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pose,
                                                            const Pose2D &target_pose,
-                                                           const FieldDescription &field) const {
-    // Clamp target to field boundaries
+                                                           const FieldDescription &field) {
     Pose2D clamped_target = clamp_to_field(target_pose, field);
 
-    // Compute vector to target
     double dx = clamped_target.x - our_pose.x;
     double dy = clamped_target.y - our_pose.y;
     double distance = std::sqrt(dx * dx + dy * dy);
 
-    // Compute angle to target
     double angle_to_target = std::atan2(dy, dx);
     double angle_error = normalize_angle(angle_to_target - our_pose.yaw);
 
+    // Hysteresis to prevent dithering when target is behind us (angle_error near ±π).
+    // Once committed to a turn direction, hold it until the error drops below the
+    // release threshold (~90°), well away from the ±π ambiguity zone.
+    constexpr double commit_threshold = M_PI * 0.75;   // 135° — commit to a direction
+    constexpr double release_threshold = M_PI * 0.5;   // 90°  — safe to release
+
+    if (std::abs(angle_error) > commit_threshold) {
+        int sign = (angle_error > 0) ? 1 : -1;
+        if (committed_turn_sign_ == 0 || committed_turn_sign_ != sign) {
+            committed_turn_sign_ = sign;
+        }
+    } else if (std::abs(angle_error) < release_threshold) {
+        committed_turn_sign_ = 0;
+    }
+
+    if (committed_turn_sign_ != 0 && std::abs(angle_error) > release_threshold) {
+        angle_error = std::abs(angle_error) * committed_turn_sign_;
+    }
+
     VelocityCommand cmd{0.0, 0.0, 0.0};
 
-    // If we're at the target, stop
+    logger_->debug("pursuit", {
+        {"distance", distance},
+        {"angle_to_target_deg", angle_to_target * 180.0 / M_PI},
+        {"angle_error_deg", angle_error * 180.0 / M_PI},
+        {"threshold_deg", angle_threshold_ * 180.0 / M_PI},
+        {"facing_target", std::abs(angle_error) < angle_threshold_ ? 1 : 0},
+        {"turn_commit", committed_turn_sign_},
+    });
+
     if (distance < stop_distance_) {
+        committed_turn_sign_ = 0;
+        logger_->debug("pursuit", "Stopped: at target");
         return cmd;
     }
 
-    // Angular velocity - always try to face the target
-    cmd.angular_z = angular_kp_ * angle_error;
-    cmd.angular_z = std::clamp(cmd.angular_z, -max_angular_velocity_, max_angular_velocity_);
+    // Angular velocity (normalized to [-1, 1])
+    cmd.angular_z = angular_kp_ * angle_error / max_angular_velocity_;
+    cmd.angular_z = std::clamp(cmd.angular_z, -1.0, 1.0);
 
-    // Linear velocity - only drive forward if roughly facing target
+    // Linear velocity (normalized to [0, 1]) - only drive forward if roughly facing target
     if (std::abs(angle_error) < angle_threshold_) {
-        // Scale velocity based on distance (slow down near target)
         double speed_scale = 1.0;
         if (distance < slowdown_distance_) {
-            speed_scale = distance / slowdown_distance_;
+            double t = distance / slowdown_distance_;
+            speed_scale = t * t;
         }
 
-        // Also reduce speed when turning sharply
         double turn_scale = 1.0 - (std::abs(angle_error) / angle_threshold_) * 0.5;
 
-        cmd.linear_x = max_linear_velocity_ * speed_scale * turn_scale;
+        // Reduce speed proportionally to how hard we're turning
+        double steer_brake = 1.0 - 0.5 * std::abs(cmd.angular_z);
+
+        cmd.linear_x = speed_scale * turn_scale * steer_brake;
     } else {
-        // Turn in place if not facing target
         cmd.linear_x = 0.0;
     }
 

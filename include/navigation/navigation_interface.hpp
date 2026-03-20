@@ -11,6 +11,14 @@ struct NavigationPathSegment {
     double target_x = 0.0, target_y = 0.0;
 };
 
+/** Bundled navigation state for visualization. */
+struct NavigationVisualization {
+    Header header;
+    std::optional<NavigationPathSegment> path;
+    VelocityCommand command{0.0, 0.0, 0.0};
+    RobotDescriptionsStamped robots;
+};
+
 class NavigationInterface {
    public:
     virtual ~NavigationInterface() = default;

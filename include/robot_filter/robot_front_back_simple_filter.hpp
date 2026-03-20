@@ -41,12 +41,18 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     /** Exponential moving average smoothing factor for opponent velocity estimation (0..1, higher =
      * more responsive). */
     double velocity_ema_alpha_;
+    /** Reject measurements that jump further than this (meters) from last known position. */
+    double max_jump_distance_;
+    /** After this many consecutive rejected frames, accept the measurement (tracking reset). */
+    int max_consecutive_jump_rejects_;
     RobotMaskDetector robot_mask_detector_;
     /** Last known position per FrameId for distance-based assignment when multiple of same label.
      */
     std::map<FrameId, Position> last_position_per_frame_id_;
     /** Velocity estimation state per FrameId. */
     std::map<FrameId, RobotVelocityState> velocity_state_per_frame_id_;
+    /** Consecutive jump-rejection count per FrameId. */
+    std::map<FrameId, int> jump_reject_count_per_frame_id_;
 
     std::vector<RobotDescription> convert_keypoints_to_measurements(KeypointsStamped keypoints,
                                                                     FieldDescription field,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "data_structures.hpp"
+#include "navigation/navigation_interface.hpp"
 
 namespace auto_battlebot {
 class PublisherInterface {
@@ -14,6 +15,7 @@ class PublisherInterface {
         const FieldDescription &field_description,
         const FieldDescriptionWithInlierPoints &initial_field_description) = 0;
     virtual void publish_robots(const RobotDescriptionsStamped &robots) = 0;
+    virtual void publish_navigation(const NavigationVisualization &nav) = 0;
 };
 
 }  // namespace auto_battlebot

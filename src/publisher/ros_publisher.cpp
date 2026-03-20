@@ -9,6 +9,7 @@ RosPublisher::RosPublisher(
     std::shared_ptr<miniros::Publisher> static_tf_publisher,     // tf2_msgs::TFMessage
     std::shared_ptr<miniros::Publisher> field_marker_publisher,  // visualization_msgs::MarkerArray
     std::shared_ptr<miniros::Publisher> robot_marker_publisher,  // visualization_msgs::MarkerArray
+    std::shared_ptr<miniros::Publisher> nav_marker_publisher,    // visualization_msgs::MarkerArray
     std::shared_ptr<McapRecorder> mcap_recorder) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("ros_publisher");
     rgb_image_publisher_ = rgb_image_publisher;
@@ -18,6 +19,7 @@ RosPublisher::RosPublisher(
     static_tf_publisher_ = static_tf_publisher;
     field_marker_publisher_ = field_marker_publisher;
     robot_marker_publisher_ = robot_marker_publisher;
+    nav_marker_publisher_ = nav_marker_publisher;
     mcap_recorder_ = std::move(mcap_recorder);
 }
 
@@ -130,6 +132,17 @@ void RosPublisher::publish_robots(const RobotDescriptionsStamped &robots) {
         markers.markers = ros_adapters::to_ros_robot_markers(robots);
         robot_marker_publisher_->publish(markers);
         if (mcap_recorder_) mcap_recorder_->write("/robot_markers", markers);
+    }
+}
+
+void RosPublisher::publish_navigation(const NavigationVisualization &nav) {
+    FunctionTimer timer(diagnostics_logger_, "publish_navigation");
+
+    if (nav_marker_publisher_) {
+        visualization_msgs::MarkerArray markers;
+        markers.markers = ros_adapters::to_ros_navigation_markers(nav);
+        nav_marker_publisher_->publish(markers);
+        if (mcap_recorder_) mcap_recorder_->write("/nav_markers", markers);
     }
 }
 

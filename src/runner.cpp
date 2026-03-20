@@ -245,6 +245,15 @@ bool Runner::tick() {
     VelocityCommand command = navigation_->update(robots, field_description);
     transmitter_->send(command);
 
+    {
+        NavigationVisualization nav_viz;
+        nav_viz.header = robots.header;
+        nav_viz.path = navigation_->get_last_path();
+        nav_viz.command = command;
+        nav_viz.robots = robots;
+        publisher_->publish_navigation(nav_viz);
+    }
+
     if (ui_state_) {
         SystemStatus status;
         status.camera_ok = true;

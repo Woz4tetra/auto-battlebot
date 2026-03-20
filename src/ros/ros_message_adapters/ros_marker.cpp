@@ -288,5 +288,229 @@ std::vector<visualization_msgs::Marker> to_ros_robot_markers(
     return markers;
 }
 
+std::vector<visualization_msgs::Marker> to_ros_navigation_markers(
+    const NavigationVisualization &nav) {
+    std::vector<visualization_msgs::Marker> markers;
+    auto ros_header = to_ros_header(nav.header);
+    int id = 0;
+
+    // Find our robot in the descriptions for position/heading
+    const RobotDescription *our_robot = nullptr;
+    for (const auto &r : nav.robots.descriptions) {
+        switch (r.label) {
+            case Label::MR_STABS_MK1:
+            case Label::MR_STABS_MK2:
+            case Label::MRS_BUFF_MK1:
+            case Label::MRS_BUFF_MK2:
+                if (!our_robot) our_robot = &r;
+                break;
+            default:
+                break;
+        }
+    }
+
+    // --- Pursuit line: our robot → target ---
+    if (nav.path.has_value()) {
+        const auto &path = nav.path.value();
+
+        visualization_msgs::Marker line;
+        line.header = ros_header;
+        line.ns = "nav_pursuit_line";
+        line.id = id++;
+        line.type = visualization_msgs::Marker::LINE_STRIP;
+        line.action = visualization_msgs::Marker::ADD;
+        line.pose.orientation.w = 1.0;
+        line.scale.x = 0.005;
+
+        line.color.r = 1.0f;
+        line.color.g = 0.6f;
+        line.color.b = 0.0f;
+        line.color.a = 0.8f;
+
+        geometry_msgs::Point p_our, p_target;
+        p_our.x = path.our_x;
+        p_our.y = path.our_y;
+        p_our.z = 0.01;
+        p_target.x = path.target_x;
+        p_target.y = path.target_y;
+        p_target.z = 0.01;
+        line.points.push_back(p_our);
+        line.points.push_back(p_target);
+
+        markers.push_back(line);
+
+        // --- Target crosshair (two short perpendicular lines) ---
+        constexpr double cross_size = 0.04;
+        visualization_msgs::Marker crosshair;
+        crosshair.header = ros_header;
+        crosshair.ns = "nav_target";
+        crosshair.id = id++;
+        crosshair.type = visualization_msgs::Marker::LINE_LIST;
+        crosshair.action = visualization_msgs::Marker::ADD;
+        crosshair.pose.orientation.w = 1.0;
+        crosshair.scale.x = 0.006;
+
+        crosshair.color.r = 1.0f;
+        crosshair.color.g = 0.2f;
+        crosshair.color.b = 0.2f;
+        crosshair.color.a = 1.0f;
+
+        auto make_pt = [](double x, double y, double z) {
+            geometry_msgs::Point p;
+            p.x = x;
+            p.y = y;
+            p.z = z;
+            return p;
+        };
+
+        double tx = path.target_x, ty = path.target_y, tz = 0.01;
+        crosshair.points.push_back(make_pt(tx - cross_size, ty, tz));
+        crosshair.points.push_back(make_pt(tx + cross_size, ty, tz));
+        crosshair.points.push_back(make_pt(tx, ty - cross_size, tz));
+        crosshair.points.push_back(make_pt(tx, ty + cross_size, tz));
+
+        markers.push_back(crosshair);
+    }
+
+    if (our_robot) {
+        Pose2D pose = pose_to_pose2d(our_robot->pose);
+        double cos_yaw = std::cos(pose.yaw);
+        double sin_yaw = std::sin(pose.yaw);
+
+        // --- Velocity arrow: shows commanded linear velocity direction & magnitude ---
+        {
+            double vx_field = nav.command.linear_x * cos_yaw - nav.command.linear_y * sin_yaw;
+            double vy_field = nav.command.linear_x * sin_yaw + nav.command.linear_y * cos_yaw;
+            double v_mag = std::sqrt(vx_field * vx_field + vy_field * vy_field);
+            constexpr double arrow_scale = 0.15;
+
+            if (v_mag > 0.01) {
+                visualization_msgs::Marker vel_arrow;
+                vel_arrow.header = ros_header;
+                vel_arrow.ns = "nav_velocity";
+                vel_arrow.id = id++;
+                vel_arrow.type = visualization_msgs::Marker::ARROW;
+                vel_arrow.action = visualization_msgs::Marker::ADD;
+                vel_arrow.pose.orientation.w = 1.0;
+
+                vel_arrow.scale.x = 0.008;  // shaft diameter
+                vel_arrow.scale.y = 0.014;  // head diameter
+                vel_arrow.scale.z = 0.012;  // head length
+
+                vel_arrow.color.r = 0.2f;
+                vel_arrow.color.g = 1.0f;
+                vel_arrow.color.b = 0.2f;
+                vel_arrow.color.a = 0.9f;
+
+                geometry_msgs::Point start, end;
+                start.x = pose.x;
+                start.y = pose.y;
+                start.z = 0.02;
+                end.x = pose.x + vx_field * arrow_scale;
+                end.y = pose.y + vy_field * arrow_scale;
+                end.z = 0.02;
+                vel_arrow.points.push_back(start);
+                vel_arrow.points.push_back(end);
+
+                markers.push_back(vel_arrow);
+            }
+        }
+
+        // --- Angular velocity arc: shows commanded turning direction ---
+        {
+            double omega = nav.command.angular_z;
+            if (std::abs(omega) > 0.05) {
+                visualization_msgs::Marker arc;
+                arc.header = ros_header;
+                arc.ns = "nav_angular";
+                arc.id = id++;
+                arc.type = visualization_msgs::Marker::LINE_STRIP;
+                arc.action = visualization_msgs::Marker::ADD;
+                arc.pose.orientation.w = 1.0;
+                arc.scale.x = 0.004;
+
+                arc.color.r = 0.4f;
+                arc.color.g = 0.6f;
+                arc.color.b = 1.0f;
+                arc.color.a = 0.9f;
+
+                constexpr double arc_radius = 0.06;
+                double sweep = omega * M_PI * 0.5;
+                sweep = std::clamp(sweep, -M_PI, M_PI);
+                constexpr int segments = 16;
+
+                for (int s = 0; s <= segments; ++s) {
+                    double frac = static_cast<double>(s) / segments;
+                    double a = pose.yaw + M_PI_2 + frac * sweep;
+                    geometry_msgs::Point p;
+                    p.x = pose.x + arc_radius * std::cos(a);
+                    p.y = pose.y + arc_radius * std::sin(a);
+                    p.z = 0.02;
+                    arc.points.push_back(p);
+                }
+
+                // Arrowhead: small triangle at the arc tip
+                double tip_angle = pose.yaw + M_PI_2 + sweep;
+                double tangent = tip_angle + (omega > 0 ? M_PI_2 : -M_PI_2);
+                constexpr double head_len = 0.012;
+
+                visualization_msgs::Marker arc_head;
+                arc_head.header = ros_header;
+                arc_head.ns = "nav_angular_head";
+                arc_head.id = id++;
+                arc_head.type = visualization_msgs::Marker::LINE_LIST;
+                arc_head.action = visualization_msgs::Marker::ADD;
+                arc_head.pose.orientation.w = 1.0;
+                arc_head.scale.x = 0.004;
+                arc_head.color = arc.color;
+
+                geometry_msgs::Point tip;
+                tip.x = pose.x + arc_radius * std::cos(tip_angle);
+                tip.y = pose.y + arc_radius * std::sin(tip_angle);
+                tip.z = 0.02;
+
+                geometry_msgs::Point h1, h2;
+                h1.x = tip.x + head_len * std::cos(tangent + 2.5);
+                h1.y = tip.y + head_len * std::sin(tangent + 2.5);
+                h1.z = 0.02;
+                h2.x = tip.x + head_len * std::cos(tangent - 2.5);
+                h2.y = tip.y + head_len * std::sin(tangent - 2.5);
+                h2.z = 0.02;
+
+                arc_head.points.push_back(tip);
+                arc_head.points.push_back(h1);
+                arc_head.points.push_back(tip);
+                arc_head.points.push_back(h2);
+
+                markers.push_back(arc);
+                markers.push_back(arc_head);
+            }
+        }
+    }
+
+    // --- DELETE markers for unused IDs to clean up stale visuals ---
+    const std::vector<std::string> all_ns = {"nav_pursuit_line", "nav_target", "nav_velocity",
+                                             "nav_angular", "nav_angular_head"};
+    for (const auto &ns : all_ns) {
+        bool already_present = false;
+        for (const auto &m : markers) {
+            if (m.ns == ns) {
+                already_present = true;
+                break;
+            }
+        }
+        if (!already_present) {
+            visualization_msgs::Marker del;
+            del.header = ros_header;
+            del.ns = ns;
+            del.id = 0;
+            del.action = visualization_msgs::Marker::DELETE;
+            markers.push_back(del);
+        }
+    }
+
+    return markers;
+}
+
 }  // namespace ros_adapters
 }  // namespace auto_battlebot
