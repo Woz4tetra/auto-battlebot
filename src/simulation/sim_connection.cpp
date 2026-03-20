@@ -169,6 +169,27 @@ bool SimConnection::step_and_receive(CameraData &data) {
         return false;
     }
 
+    uint32_t gt_count = 0;
+    if (!recv_all(&gt_count, sizeof(gt_count))) {
+        spdlog::error("SimConnection: failed to receive ground truth count");
+        disconnect();
+        return false;
+    }
+
+    data.ground_truth_poses.resize(gt_count);
+    for (uint32_t i = 0; i < gt_count; ++i) {
+        struct {
+            double x, y, yaw;
+        } gt{};
+        if (!recv_all(&gt, sizeof(gt))) {
+            spdlog::error("SimConnection: failed to receive ground truth pose {}", i);
+            disconnect();
+            return false;
+        }
+        data.ground_truth_poses[i] = Pose2D{gt.x, gt.y, gt.yaw};
+    }
+    last_gt_poses_ = data.ground_truth_poses;
+
     double now =
         std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
     Header stamp{now, FrameId::CAMERA};

@@ -5,12 +5,15 @@
 
 #include "config/config_cast.hpp"
 #include "config/config_parser.hpp"
+#include "robot_filter/ground_truth_robot_filter.hpp"
 #include "robot_filter/noop_robot_filter.hpp"
 #include "robot_filter/robot_front_back_simple_filter.hpp"
 
 namespace auto_battlebot {
 // Automatic registration of config types
 REGISTER_CONFIG(RobotFilterConfiguration, NoopRobotFilterConfiguration, "NoopRobotFilter")
+REGISTER_CONFIG(RobotFilterConfiguration, GroundTruthRobotFilterConfiguration,
+                "GroundTruthRobotFilter")
 REGISTER_CONFIG(RobotFilterConfiguration, RobotFrontBackSimpleFilterConfiguration,
                 "RobotFrontBackSimpleFilter")
 
@@ -34,6 +37,8 @@ std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfigu
     spdlog::info("Selected {} for RobotFilter", config.type);
     if (config.type == "NoopRobotFilter") {
         return std::make_shared<NoopRobotFilter>();
+    } else if (config.type == "GroundTruthRobotFilter") {
+        return std::make_shared<GroundTruthRobotFilter>();
     } else if (config.type == "RobotFrontBackSimpleFilter") {
         return std::make_shared<RobotFrontBackSimpleFilter>(
             config_cast<RobotFrontBackSimpleFilterConfiguration>(config));

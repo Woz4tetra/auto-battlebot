@@ -93,16 +93,29 @@ Position vector_to_position(const Eigen::Vector3d &vector) {
 }
 
 void quaternion_to_euler(const Rotation &quaternion, double &roll, double &pitch, double &yaw) {
-    // Convert quaternion to rotation matrix, then to Euler angles
-    Eigen::Quaterniond quat(quaternion.w, quaternion.x, quaternion.y, quaternion.z);
-    quat.normalize();
+    double w = quaternion.w, x = quaternion.x, y = quaternion.y, z = quaternion.z;
+    double norm = std::sqrt(w * w + x * x + y * y + z * z);
+    if (norm > 0.0) {
+        w /= norm;
+        x /= norm;
+        y /= norm;
+        z /= norm;
+    }
 
-    Eigen::Matrix3d rotation_matrix = quat.toRotationMatrix();
-    Eigen::Vector3d euler_angles = rotation_matrix.eulerAngles(2, 1, 0);  // ZYX order
+    // Roll (X)
+    double sinr_cosp = 2.0 * (w * x + y * z);
+    double cosr_cosp = 1.0 - 2.0 * (x * x + y * y);
+    roll = std::atan2(sinr_cosp, cosr_cosp);
 
-    yaw = euler_angles(0);
-    pitch = euler_angles(1);
-    roll = euler_angles(2);
+    // Pitch (Y) -- clamp to avoid NaN at poles
+    double sinp = 2.0 * (w * y - z * x);
+    sinp = std::clamp(sinp, -1.0, 1.0);
+    pitch = std::asin(sinp);
+
+    // Yaw (Z)
+    double siny_cosp = 2.0 * (w * z + x * y);
+    double cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
+    yaw = std::atan2(siny_cosp, cosy_cosp);
 }
 
 Rotation euler_to_quaternion(double roll, double pitch, double yaw) {

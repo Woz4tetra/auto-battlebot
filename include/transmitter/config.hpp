@@ -49,10 +49,17 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
 
 struct SimTransmitterConfiguration : public TransmitterConfiguration {
     double init_delay_seconds = 0.5;
+    /** Artificial command delay in milliseconds (0 = no delay). Used for lag experiments. */
+    double command_delay_ms = 0.0;
 
     SimTransmitterConfiguration() { type = "SimTransmitter"; }
 
-    PARSE_CONFIG_FIELDS(PARSE_FIELD_DOUBLE(init_delay_seconds))
+    // clang-format off
+    PARSE_CONFIG_FIELDS(
+        PARSE_FIELD_DOUBLE(init_delay_seconds)
+        PARSE_FIELD_DOUBLE(command_delay_ms)
+    )
+    // clang-format on
 };
 
 std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config);

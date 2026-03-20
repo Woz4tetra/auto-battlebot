@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 
@@ -18,9 +19,11 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       slowdown_distance_(config.slowdown_distance),
       stop_distance_(config.stop_distance),
       angular_kp_(config.angular_kp),
+      angular_kd_(config.angular_kd),
       angle_threshold_(config.angle_threshold),
       lookahead_time_(config.lookahead_time),
       boundary_margin_(config.boundary_margin),
+      enable_hysteresis_(config.enable_hysteresis),
       logger_(DiagnosticsLogger::get_logger("pursuit_nav")) {}
 
 bool PursuitNavigation::initialize() {
@@ -145,23 +148,24 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     double angle_to_target = std::atan2(dy, dx);
     double angle_error = normalize_angle(angle_to_target - our_pose.yaw);
 
-    // Hysteresis to prevent dithering when target is behind us (angle_error near ±π).
-    // Once committed to a turn direction, hold it until the error drops below the
-    // release threshold (~90°), well away from the ±π ambiguity zone.
-    constexpr double commit_threshold = M_PI * 0.75;   // 135° — commit to a direction
-    constexpr double release_threshold = M_PI * 0.5;   // 90°  — safe to release
+    if (enable_hysteresis_) {
+        constexpr double commit_threshold = M_PI * 0.75;   // 135 deg
+        constexpr double release_threshold = M_PI * 0.5;   // 90 deg
 
-    if (std::abs(angle_error) > commit_threshold) {
-        int sign = (angle_error > 0) ? 1 : -1;
-        if (committed_turn_sign_ == 0 || committed_turn_sign_ != sign) {
-            committed_turn_sign_ = sign;
+        if (std::abs(angle_error) > commit_threshold) {
+            int sign = (angle_error > 0) ? 1 : -1;
+            if (committed_turn_sign_ == 0 || committed_turn_sign_ != sign) {
+                committed_turn_sign_ = sign;
+            }
+        } else if (std::abs(angle_error) < release_threshold) {
+            committed_turn_sign_ = 0;
         }
-    } else if (std::abs(angle_error) < release_threshold) {
-        committed_turn_sign_ = 0;
-    }
 
-    if (committed_turn_sign_ != 0 && std::abs(angle_error) > release_threshold) {
-        angle_error = std::abs(angle_error) * committed_turn_sign_;
+        if (committed_turn_sign_ != 0 && std::abs(angle_error) > release_threshold) {
+            angle_error = std::abs(angle_error) * committed_turn_sign_;
+        }
+    } else {
+        committed_turn_sign_ = 0;
     }
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
@@ -177,12 +181,25 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
 
     if (distance < stop_distance_) {
         committed_turn_sign_ = 0;
+        prev_angle_error_ = 0.0;
         logger_->debug("pursuit", "Stopped: at target");
         return cmd;
     }
 
-    // Angular velocity (normalized to [-1, 1])
-    cmd.angular_z = angular_kp_ * angle_error / max_angular_velocity_;
+    // PD angular control (normalized to [-1, 1])
+    double now_s =
+        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    double d_term = 0.0;
+    if (angular_kd_ != 0.0 && prev_timestamp_ > 0.0) {
+        double dt = now_s - prev_timestamp_;
+        if (dt > 0.0 && dt < 0.5) {
+            d_term = angular_kd_ * normalize_angle(angle_error - prev_angle_error_) / dt;
+        }
+    }
+    prev_angle_error_ = angle_error;
+    prev_timestamp_ = now_s;
+
+    cmd.angular_z = (angular_kp_ * angle_error + d_term) / max_angular_velocity_;
     cmd.angular_z = std::clamp(cmd.angular_z, -1.0, 1.0);
 
     // Linear velocity (normalized to [0, 1]) - only drive forward if roughly facing target

@@ -1,0 +1,7 @@
+[[robots]]
+label = "MR_STABS_MK2"
+group = "OURS"
+
+[[robots]]
+label = "OPPONENT"
+group = "THEIRS"

@@ -14,6 +14,14 @@ REQUEST_SIZE: int = struct.calcsize(REQUEST_FMT)
 RESPONSE_HEADER_FMT: str = "<II16d4d"  # width, height, tf_matrix[16], fx/fy/cx/cy
 RESPONSE_HEADER_SIZE: int = struct.calcsize(RESPONSE_HEADER_FMT)
 
+# Ground truth poses appended after depth buffer:
+#   uint32 num_robots, then num_robots * (x, y, yaw) as float64.
+#   First entry = our robot, rest = opponents in config order.
+GT_POSE_FMT: str = "<ddd"  # x, y, yaw per robot (3 x float64 = 24 bytes)
+GT_POSE_SIZE: int = struct.calcsize(GT_POSE_FMT)
+GT_COUNT_FMT: str = "<I"  # uint32 num_robots
+GT_COUNT_SIZE: int = struct.calcsize(GT_COUNT_FMT)
+
 _SOCK_BUF_SIZE: int = 4 * 1024 * 1024  # 4 MiB
 
 

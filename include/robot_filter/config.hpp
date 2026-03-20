@@ -21,6 +21,14 @@ struct NoopRobotFilterConfiguration : public RobotFilterConfiguration {
     )
 };
 
+struct GroundTruthRobotFilterConfiguration : public RobotFilterConfiguration {
+    GroundTruthRobotFilterConfiguration() { type = "GroundTruthRobotFilter"; }
+
+    PARSE_CONFIG_FIELDS(
+        // No additional fields -- reads GT poses from SimConnection
+    )
+};
+
 struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration {
     std::vector<KeypointLabel> front_keypoints;
     std::vector<KeypointLabel> back_keypoints;

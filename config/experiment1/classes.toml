@@ -1,3 +1,14 @@
+# Experiment 1: Isolate lag (H1)
+# Identical to simulation config except for command_delay_ms in [transmitter].
+# Change command_delay_ms to sweep: 0, 50, 100, 200 ms.
+#
+# Run with:
+#   ./scripts/run_simulation.sh simulation/sim_config_experiment1.toml
+# (this script auto-launches the C++ binary with -c ./config/experiment1/)
+# Or run sim + binary separately:
+#   python simulation/sim_server.py simulation/sim_config_experiment1.toml
+#   ./build/auto_battlebot -c ./config/experiment1/
+
 [rgbd_camera]
 type = "SimRgbdCamera"
 sim_host = "127.0.0.1"
@@ -5,12 +16,10 @@ sim_port = 14882
 
 [field_model]
 type = "DeepLabMaskModel"
-# model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64_sm89.engine"
 model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64_sm75.engine"
 
 [robot_mask_model]
 type = "DeepLabMaskModel"
-# model_path = "models/robot_deeplabv3_mbv3_2026-03-07_x86_64_sm89.engine"
 model_path = "models/robot_deeplabv3_mbv3_2026-03-07_x86_64_sm75.engine"
 output_label = "OPPONENT"
 
@@ -21,7 +30,6 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-# model_path = "models/yolo26n-pose_mr_stabs_mk2_2026-03-08_x86_64_sm89.engine"
 model_path = "models/yolo26n-pose_mr_stabs_mk2_2026-03-08_x86_64_sm75.engine"
 label_indices = ["MR_STABS_MK2", "HOUSE_BOT"]
 debug_visualization = false
@@ -80,19 +88,15 @@ back_keypoints = [
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
-# [navigation]
-# type = "FixedVelocityNavigation"
-# linear_x = 1.0
-# angular_z = 1.0
-
 [navigation]
 type = "PursuitNavigation"
-angular_kp = 6.0
-angular_kd = 0.2
 
 [transmitter]
 type = "SimTransmitter"
 init_delay_seconds = 0.5
+# ---- EXPERIMENT VARIABLE ----
+# Artificial command delay in ms. Sweep: 0, 50, 100, 200
+command_delay_ms = 200.0
 
 [publisher]
 type = "RosPublisher"

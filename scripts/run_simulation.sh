@@ -5,8 +5,9 @@
 # Ctrl-C kills both processes.
 #
 # Usage:
-#   ./scripts/run_simulation.sh                        # default sim config
-#   ./scripts/run_simulation.sh path/to/config.toml    # custom sim config
+#   ./scripts/run_simulation.sh                                          # defaults
+#   ./scripts/run_simulation.sh path/to/sim_config.toml                  # custom sim config
+#   ./scripts/run_simulation.sh path/to/sim_config.toml config/myexp/    # custom sim + C++ config
 
 set -e
 
@@ -22,6 +23,7 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 SIM_CONFIG="${1:-$SIM_DIR/sim_config.toml}"
+CPP_CONFIG="${2:-./config/simulation/}"
 
 # --- Build C++ (while the sim server starts up in parallel) -------------------
 
@@ -47,4 +49,4 @@ wait "$BUILD_PID" || { echo "Build failed"; exit 1; }
 
 # --- Run C++ application -----------------------------------------------------
 
-"$SCRIPT_DIR/run.sh" -c ./config/simulation/
+"$SCRIPT_DIR/run.sh" -c "$CPP_CONFIG"

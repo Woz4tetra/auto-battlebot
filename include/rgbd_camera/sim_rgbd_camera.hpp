@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "rgbd_camera/config.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "simulation/sim_connection.hpp"
@@ -18,6 +19,7 @@ class SimRgbdCamera : public RgbdCameraInterface {
 
    private:
     std::shared_ptr<SimConnection> connection_;
+    std::shared_ptr<DiagnosticsModuleLogger> logger_;
 };
 
 }  // namespace auto_battlebot

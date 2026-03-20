@@ -64,20 +64,23 @@ class PursuitNavigation : public NavigationInterface {
      */
     static double distance_2d(const Pose2D &a, const Pose2D &b);
 
-    // Configuration parameters
     double max_linear_velocity_;
     double max_angular_velocity_;
     double slowdown_distance_;
     double stop_distance_;
     double angular_kp_;
+    double angular_kd_;
     double angle_threshold_;
     double lookahead_time_;
     double boundary_margin_;
+    bool enable_hysteresis_;
     mutable std::optional<NavigationPathSegment> last_path_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
 
     /** Latched turn direction (+1 or -1) to avoid dithering when target is behind us. 0 = uncommitted. */
     int committed_turn_sign_ = 0;
+    double prev_angle_error_ = 0.0;
+    double prev_timestamp_ = 0.0;
 };
 
 }  // namespace auto_battlebot

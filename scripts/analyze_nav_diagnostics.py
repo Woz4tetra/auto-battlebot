@@ -2,12 +2,13 @@
 """Parse pursuit_nav diagnostics from an MCAP recording and produce
 time-series plots + summary statistics for navigation failure diagnosis.
 
-Dependencies: mcap, mcap-ros1-support, matplotlib, pandas, numpy
+Dependencies: mcap, matplotlib, pandas, numpy
 """
 
 from __future__ import annotations
 
 import argparse
+import struct
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -15,13 +16,81 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from mcap_ros1.decoder import DecoderFactory
 from mcap.reader import make_reader
 
 
 PURSUIT_NAV_HW_ID = "pursuit_nav"
 RUNNER_HW_ID = "runner"
+SIM_CAMERA_HW_ID = "sim_camera"
 DIAGNOSTICS_TOPIC = "/diagnostics"
+
+
+# ---------------------------------------------------------------------------
+# ROS1 binary deserialization for diagnostic_msgs/DiagnosticArray
+# ---------------------------------------------------------------------------
+# Wire format (all little-endian):
+#   Header:  uint32 seq, uint32 stamp_secs, uint32 stamp_nsecs, string frame_id
+#   status:  uint32 count, then each DiagnosticStatus:
+#     int8 level, string name, string message, string hardware_id,
+#     values: uint32 count, then each KeyValue: string key, string value
+#   string = uint32 length + raw bytes (no null terminator)
+# ---------------------------------------------------------------------------
+
+
+def _read_string(data: bytes, offset: int) -> tuple[str, int]:
+    (length,) = struct.unpack_from("<I", data, offset)
+    offset += 4
+    s = data[offset : offset + length].decode("utf-8", errors="replace")
+    return s, offset + length
+
+
+def _read_uint32(data: bytes, offset: int) -> tuple[int, int]:
+    (v,) = struct.unpack_from("<I", data, offset)
+    return v, offset + 4
+
+
+def _read_int8(data: bytes, offset: int) -> tuple[int, int]:
+    (v,) = struct.unpack_from("<b", data, offset)
+    return v, offset + 1
+
+
+def _decode_diagnostic_array(data: bytes) -> list[dict]:
+    """Decode a diagnostic_msgs/DiagnosticArray from raw ROS1 bytes.
+    Returns a list of dicts, one per DiagnosticStatus."""
+    off = 0
+
+    # Header: seq, stamp.secs, stamp.nsecs, frame_id
+    _seq, off = _read_uint32(data, off)
+    _secs, off = _read_uint32(data, off)
+    _nsecs, off = _read_uint32(data, off)
+    _frame_id, off = _read_string(data, off)
+
+    # status array
+    status_count, off = _read_uint32(data, off)
+    statuses = []
+    for _ in range(status_count):
+        level, off = _read_int8(data, off)
+        name, off = _read_string(data, off)
+        message, off = _read_string(data, off)
+        hardware_id, off = _read_string(data, off)
+
+        values_count, off = _read_uint32(data, off)
+        values: dict[str, str] = {}
+        for _ in range(values_count):
+            key, off = _read_string(data, off)
+            value, off = _read_string(data, off)
+            values[key] = value
+
+        statuses.append(
+            {
+                "level": level,
+                "name": name,
+                "message": message,
+                "hardware_id": hardware_id,
+                "values": values,
+            }
+        )
+    return statuses
 
 
 # ---------------------------------------------------------------------------
@@ -29,35 +98,34 @@ DIAGNOSTICS_TOPIC = "/diagnostics"
 # ---------------------------------------------------------------------------
 
 
-def _kv_to_dict(values) -> dict[str, str]:
-    """Convert a list of diagnostic_msgs/KeyValue to a plain dict."""
-    return {kv.key: kv.value for kv in values}
-
-
 def extract_diagnostics(path: Path) -> pd.DataFrame:
     """Read an MCAP file and return a DataFrame of pursuit_nav + runner/pipeline
     diagnostics, one row per tick (keyed on message timestamp)."""
 
-    # Subsection name -> list of {timestamp_ns, key: value, ...}
     rows_by_ts: dict[int, dict[str, str]] = defaultdict(dict)
 
     with open(path, "rb") as f:
-        reader = make_reader(f, decoder_factories=[DecoderFactory()])
-        for schema, channel, message, decoded in reader.iter_decoded_messages(
-            topics=[DIAGNOSTICS_TOPIC]
-        ):
+        reader = make_reader(f)
+        for schema, channel, message in reader.iter_messages():
+            if channel.topic != DIAGNOSTICS_TOPIC:
+                continue
+
             ts_ns = message.log_time
-            for status in decoded.status:
-                hw_id = status.hardware_id
-                name = status.name  # subsection
+            statuses = _decode_diagnostic_array(message.data)
+
+            for status in statuses:
+                hw_id = status["hardware_id"]
+                name = status["name"]
+                kv = status["values"]
 
                 if hw_id == PURSUIT_NAV_HW_ID:
-                    kv = _kv_to_dict(status.values)
                     rows_by_ts[ts_ns].update(kv)
                 elif hw_id == RUNNER_HW_ID and name == "pipeline":
-                    kv = _kv_to_dict(status.values)
                     for k, v in kv.items():
                         rows_by_ts[ts_ns][f"pipeline/{k}"] = v
+                elif hw_id == SIM_CAMERA_HW_ID and name == "ground_truth":
+                    for k, v in kv.items():
+                        rows_by_ts[ts_ns][f"gt/{k}"] = v
 
     if not rows_by_ts:
         print("No pursuit_nav diagnostics found in the recording.", file=sys.stderr)
@@ -72,7 +140,6 @@ def extract_diagnostics(path: Path) -> pd.DataFrame:
 
     df = pd.DataFrame(records)
 
-    # Convert numeric columns (all values come as strings from DiagnosticStatus)
     numeric_cols = [
         "our_x",
         "our_y",
@@ -88,15 +155,123 @@ def extract_diagnostics(path: Path) -> pd.DataFrame:
         "linear_x",
         "angular_z",
         "pipeline/latency_ms",
+        "gt/our_x",
+        "gt/our_y",
+        "gt/our_yaw_deg",
+        "gt/opp1_x",
+        "gt/opp1_y",
+        "gt/opp1_yaw_deg",
     ]
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
     t0 = df["timestamp_ns"].iloc[0]
-    df["t"] = (df["timestamp_ns"] - t0) / 1e9  # seconds from start
+    df["t"] = (df["timestamp_ns"] - t0) / 1e9
 
     return df
+
+
+# ---------------------------------------------------------------------------
+# Ground truth comparison
+# ---------------------------------------------------------------------------
+
+
+def has_ground_truth(df: pd.DataFrame) -> bool:
+    return "gt/our_x" in df.columns and "gt/our_yaw_deg" in df.columns
+
+
+def _wrap_deg(d: pd.Series) -> pd.Series:
+    """Wrap angle difference to [-180, 180]."""
+    return (d + 180) % 360 - 180
+
+
+def classify_yaw_jumps(
+    df: pd.DataFrame, jump_threshold_deg: float = 90.0
+) -> pd.DataFrame:
+    """For each detected yaw jump, classify as identity swap (H2) or front/back flip (H4).
+
+    Compares detected our_pose to ground truth poses of our robot and all opponents.
+    - If detected yaw is close to an opponent's GT yaw: identity swap (H2).
+    - If detected yaw differs from our GT yaw by ~180 deg: front/back flip (H4).
+    - Otherwise: unknown.
+
+    Returns a DataFrame with columns: t, detected_yaw, gt_our_yaw, classification.
+    """
+    if not has_ground_truth(df):
+        return pd.DataFrame()
+
+    jumps = detect_yaw_jumps(df, jump_threshold_deg)
+    if not jumps.any():
+        return pd.DataFrame()
+
+    opp_yaw_cols = [
+        c for c in df.columns if c.startswith("gt/opp") and c.endswith("_yaw_deg")
+    ]
+    opp_pos_cols_x = [
+        c for c in df.columns if c.startswith("gt/opp") and c.endswith("_x")
+    ]
+    opp_pos_cols_y = [
+        c for c in df.columns if c.startswith("gt/opp") and c.endswith("_y")
+    ]
+
+    records = []
+    for idx in df.index[jumps]:
+        row = df.loc[idx]
+        det_yaw = row.get("our_yaw_deg", np.nan)
+        det_x = row.get("our_x", np.nan)
+        det_y = row.get("our_y", np.nan)
+        gt_yaw = row.get("gt/our_yaw_deg", np.nan)
+        gt_x = row.get("gt/our_x", np.nan)
+        gt_y = row.get("gt/our_y", np.nan)
+
+        if np.isnan(det_yaw) or np.isnan(gt_yaw):
+            records.append({"t": row["t"], "classification": "no_data"})
+            continue
+
+        yaw_diff_from_gt = abs(((det_yaw - gt_yaw) + 180) % 360 - 180)
+
+        # Check if detected pose is closer to an opponent's GT position
+        best_opp_dist = float("inf")
+        best_opp_yaw_diff = float("inf")
+        for cx, cy, cyaw in zip(opp_pos_cols_x, opp_pos_cols_y, opp_yaw_cols):
+            ox, oy, oyaw = (
+                row.get(cx, np.nan),
+                row.get(cy, np.nan),
+                row.get(cyaw, np.nan),
+            )
+            if np.isnan(ox):
+                continue
+            d = np.sqrt((det_x - ox) ** 2 + (det_y - oy) ** 2)
+            ydiff = abs(((det_yaw - oyaw) + 180) % 360 - 180)
+            if d < best_opp_dist:
+                best_opp_dist = d
+                best_opp_yaw_diff = ydiff
+
+        dist_to_gt_our = np.sqrt((det_x - gt_x) ** 2 + (det_y - gt_y) ** 2)
+
+        if best_opp_dist < dist_to_gt_our and best_opp_yaw_diff < 45:
+            classification = "identity_swap_H2"
+        elif yaw_diff_from_gt > 120:
+            classification = "front_back_flip_H4"
+        elif yaw_diff_from_gt < 45:
+            classification = "correct_detection"
+        else:
+            classification = "ambiguous"
+
+        records.append(
+            {
+                "t": row["t"],
+                "detected_yaw": det_yaw,
+                "gt_our_yaw": gt_yaw,
+                "yaw_diff_from_gt": yaw_diff_from_gt,
+                "dist_to_gt_our": dist_to_gt_our,
+                "dist_to_nearest_opp": best_opp_dist,
+                "classification": classification,
+            }
+        )
+
+    return pd.DataFrame(records)
 
 
 # ---------------------------------------------------------------------------
@@ -135,10 +310,12 @@ def count_full_spins(df: pd.DataFrame) -> float:
     if "angular_z" not in df.columns or "t" not in df.columns:
         return 0.0
     dt = df["t"].diff().fillna(0)
-    cumulative_rad = (df["angular_z"] * dt).cumsum()
-    # angular_z is normalized [-1,1]; actual rad/s depends on max_angular_velocity
-    # but for counting sign-changes and relative magnitude this suffices
-    return float(cumulative_rad.abs().iloc[-1] / (2 * np.pi))
+    product = df["angular_z"].fillna(0) * dt
+    cumulative = product.cumsum()
+    last = cumulative.iloc[-1]
+    if np.isnan(last):
+        return 0.0
+    return float(abs(last) / (2 * np.pi))
 
 
 def detect_spin_events(
@@ -163,13 +340,48 @@ def detect_spin_events(
     return events
 
 
+def compute_settling_time(
+    df: pd.DataFrame, threshold_deg: float = 10.0, hold_s: float = 1.0
+) -> float | None:
+    """Time at which |angle_error| first stays below threshold for hold_s seconds.
+
+    Returns seconds from recording start, or None if never settles.
+    """
+    if "angle_error_deg" not in df.columns:
+        return None
+    settled_start: float | None = None
+    for _, row in df.iterrows():
+        if abs(row["angle_error_deg"]) < threshold_deg:
+            if settled_start is None:
+                settled_start = row["t"]
+            elif row["t"] - settled_start >= hold_s:
+                return settled_start
+        else:
+            settled_start = None
+    return None
+
+
+def compute_time_to_target(df: pd.DataFrame, threshold_m: float = 0.15) -> float | None:
+    """Time at which distance to target first drops below threshold. None if never reached."""
+    if "distance" not in df.columns:
+        return None
+    close = df[df["distance"] < threshold_m]
+    if close.empty:
+        return None
+    return float(close["t"].iloc[0])
+
+
 # ---------------------------------------------------------------------------
 # Plotting
 # ---------------------------------------------------------------------------
 
 
 def plot_diagnostics(df: pd.DataFrame, save_path: str | None, no_show: bool) -> None:
-    fig, axes = plt.subplots(5, 1, figsize=(14, 18), constrained_layout=True)
+    gt = has_ground_truth(df)
+    n_panels = 6 if gt else 5
+    fig, axes = plt.subplots(
+        n_panels, 1, figsize=(14, 3.6 * n_panels), constrained_layout=True
+    )
     fig.suptitle("Pursuit Navigation Diagnostics", fontsize=14)
 
     t = df["t"]
@@ -258,7 +470,16 @@ def plot_diagnostics(df: pd.DataFrame, save_path: str | None, no_show: bool) -> 
     # -- 5. Yaw over time with jump markers ------------------------------
     ax = axes[4]
     if "our_yaw_deg" in df.columns:
-        ax.plot(t, df["our_yaw_deg"], linewidth=0.6)
+        ax.plot(t, df["our_yaw_deg"], linewidth=0.6, label="detected yaw")
+        if gt and "gt/our_yaw_deg" in df.columns:
+            ax.plot(
+                t,
+                df["gt/our_yaw_deg"],
+                linewidth=0.6,
+                alpha=0.7,
+                color="green",
+                label="GT our yaw",
+            )
         jumps = detect_yaw_jumps(df)
         if jumps.any():
             ax.scatter(
@@ -269,11 +490,50 @@ def plot_diagnostics(df: pd.DataFrame, save_path: str | None, no_show: bool) -> 
                 zorder=5,
                 label=f"yaw jumps ({jumps.sum()})",
             )
-            ax.legend()
+        ax.legend(loc="upper right", fontsize=8)
     ax.set_ylabel("our_yaw (deg)")
-    ax.set_xlabel("time (s)")
-    ax.set_title("Our Yaw (jump markers = suspected front/back flip)")
+    ax.set_title("Detected Yaw vs Ground Truth")
     ax.grid(True, alpha=0.3)
+
+    # -- 6. Ground truth classification (only if GT available) -----------
+    if gt:
+        ax = axes[5]
+        jump_df = classify_yaw_jumps(df)
+        if not jump_df.empty:
+            colors = {
+                "identity_swap_H2": "tab:orange",
+                "front_back_flip_H4": "tab:purple",
+                "correct_detection": "tab:green",
+                "ambiguous": "tab:gray",
+                "no_data": "tab:gray",
+            }
+            for cls, color in colors.items():
+                subset = jump_df[jump_df["classification"] == cls]
+                if subset.empty:
+                    continue
+                ax.scatter(
+                    subset["t"],
+                    subset.get("yaw_diff_from_gt", pd.Series(dtype=float)),
+                    color=color,
+                    s=25,
+                    label=f"{cls} ({len(subset)})",
+                    zorder=5,
+                )
+            ax.axhline(
+                y=120, color="tab:purple", linestyle="--", alpha=0.4, linewidth=0.8
+            )
+            ax.axhline(
+                y=45, color="tab:green", linestyle="--", alpha=0.4, linewidth=0.8
+            )
+            ax.legend(loc="upper right", fontsize=8)
+        ax.set_ylabel("|detected - GT our| yaw (deg)")
+        ax.set_xlabel("time (s)")
+        ax.set_title(
+            "Yaw Jump Classification: Identity Swap (H2) vs Front/Back Flip (H4)"
+        )
+        ax.grid(True, alpha=0.3)
+    else:
+        axes[-1].set_xlabel("time (s)")
 
     if save_path:
         fig.savefig(save_path, dpi=150)
@@ -300,8 +560,31 @@ def print_summary(df: pd.DataFrame) -> None:
         print(f"  |angle_error| mean:  {ae.mean():.1f} deg")
         print(f"  |angle_error| max:   {ae.max():.1f} deg")
 
+    settling = compute_settling_time(df)
+    if settling is not None:
+        print(f"  Settling time (<10 deg for 1s): {settling:.1f} s")
+    else:
+        print(f"  Settling time (<10 deg for 1s): NEVER")
+
+    ttt = compute_time_to_target(df)
+    if ttt is not None:
+        print(f"  Time to target (<0.15m):  {ttt:.1f} s")
+    else:
+        print(f"  Time to target (<0.15m):  NEVER")
+
     yaw_jumps = detect_yaw_jumps(df)
     print(f"  Yaw jumps (>90 deg): {yaw_jumps.sum()}")
+
+    if has_ground_truth(df):
+        jump_df = classify_yaw_jumps(df)
+        if not jump_df.empty:
+            counts = jump_df["classification"].value_counts()
+            print(f"    -> identity swaps (H2):   {counts.get('identity_swap_H2', 0)}")
+            print(
+                f"    -> front/back flips (H4): {counts.get('front_back_flip_H4', 0)}"
+            )
+            print(f"    -> correct detections:    {counts.get('correct_detection', 0)}")
+            print(f"    -> ambiguous:             {counts.get('ambiguous', 0)}")
 
     pos_jumps = detect_pos_jumps(df)
     print(f"  Position jumps (>0.2m): {pos_jumps.sum()}")

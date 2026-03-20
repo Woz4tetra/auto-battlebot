@@ -21,6 +21,8 @@ from behaviors import OpponentBehavior, make_opponent_behavior
 from camera_utils import camera_view_matrix, fov_to_intrinsics
 from config import SimConfig
 from protocol import (
+    GT_COUNT_FMT,
+    GT_POSE_FMT,
     REQUEST_FMT,
     REQUEST_SIZE,
     RESPONSE_HEADER_FMT,
@@ -202,10 +204,29 @@ class SimRunner:
                 where=self._bg_mask[:, :, np.newaxis],
             )
 
+    def _get_entity_yaw(self, entity) -> float:
+        """Extract yaw (Z-axis rotation) from a Genesis entity's quaternion."""
+        quat = entity.get_quat().cpu().numpy().squeeze()  # (w, x, y, z)
+        w, x, y, z = float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])
+        siny_cosp = 2.0 * (w * z + x * y)
+        cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+        return math.atan2(siny_cosp, cosy_cosp)
+
+    def _build_ground_truth_bytes(self) -> bytes:
+        """Pack ground truth (x, y, yaw) for our robot + all opponents."""
+        entities = [self._handles.our_robot] + list(self._handles.opponents)
+        buf = struct.pack(GT_COUNT_FMT, len(entities))
+        for entity in entities:
+            pos = entity.get_pos().cpu().numpy().squeeze()
+            yaw = self._get_entity_yaw(entity)
+            buf += struct.pack(GT_POSE_FMT, float(pos[0]), float(pos[1]), yaw)
+        return buf
+
     def _send_frame(self, conn: socket.socket) -> None:
         send_all(conn, self._header_bytes)
         send_all(conn, self._rgb_buf.data)
         send_all(conn, self._depth_buf.data)
+        send_all(conn, self._build_ground_truth_bytes())
 
     # -- main loop ----------------------------------------------------------
 

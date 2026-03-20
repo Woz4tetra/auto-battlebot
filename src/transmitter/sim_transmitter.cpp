@@ -1,10 +1,17 @@
 #include "transmitter/sim_transmitter.hpp"
 
+#include <spdlog/spdlog.h>
+
 namespace auto_battlebot {
 
 SimTransmitter::SimTransmitter(const SimTransmitterConfiguration &config)
     : init_delay_seconds_(config.init_delay_seconds),
-      connection_(SimConnection::instance()) {}
+      command_delay_ms_(config.command_delay_ms),
+      connection_(SimConnection::instance()) {
+    if (command_delay_ms_ > 0.0) {
+        spdlog::info("SimTransmitter: artificial command delay = {} ms", command_delay_ms_);
+    }
+}
 
 bool SimTransmitter::initialize() {
     start_time_ = std::chrono::steady_clock::now();
@@ -24,7 +31,27 @@ CommandFeedback SimTransmitter::update() {
 }
 
 void SimTransmitter::send(VelocityCommand command) {
-    if (connection_) connection_->set_command(command);
+    if (!connection_) return;
+
+    if (command_delay_ms_ <= 0.0) {
+        connection_->set_command(command);
+        return;
+    }
+
+    auto now = std::chrono::steady_clock::now();
+    command_queue_.push_back({now, command});
+
+    while (!command_queue_.empty()) {
+        double age_ms = std::chrono::duration<double, std::milli>(
+                            now - command_queue_.front().first)
+                            .count();
+        if (age_ms >= command_delay_ms_) {
+            connection_->set_command(command_queue_.front().second);
+            command_queue_.pop_front();
+        } else {
+            break;
+        }
+    }
 }
 
 bool SimTransmitter::did_init_button_press() {

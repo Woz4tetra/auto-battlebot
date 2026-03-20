@@ -36,14 +36,20 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     /** Proportional gain for angular control */
     double angular_kp = 3.0;
 
+    /** Derivative gain for angular control (0 = P-only) */
+    double angular_kd = 0.0;
+
     /** Angle threshold below which robot drives forward (rad) */
-    double angle_threshold = 1.0;
+    double angle_threshold = 0.3;
 
     /** Lookahead time for target position prediction in seconds */
     double lookahead_time = 0.1;
 
     /** Minimum distance to maintain from field boundaries in meters */
     double boundary_margin = 0.1;
+
+    /** Enable hysteresis to prevent dithering when target is behind */
+    bool enable_hysteresis = true;
 
     PursuitNavigationConfiguration() { type = "PursuitNavigation"; }
 
@@ -54,9 +60,11 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(slowdown_distance)
         PARSE_FIELD_DOUBLE(stop_distance)
         PARSE_FIELD_DOUBLE(angular_kp)
+        PARSE_FIELD_DOUBLE(angular_kd)
         PARSE_FIELD_DOUBLE(angle_threshold)
         PARSE_FIELD_DOUBLE(lookahead_time)
         PARSE_FIELD_DOUBLE(boundary_margin)
+        PARSE_FIELD_BOOL(enable_hysteresis)
     )
     // clang-format on
 };

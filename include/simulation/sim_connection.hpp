@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "data_structures.hpp"
 
@@ -25,6 +26,8 @@ class SimConnection {
     void set_command(VelocityCommand cmd);
     bool step_and_receive(CameraData &data);
 
+    const std::vector<Pose2D> &last_ground_truth_poses() const { return last_gt_poses_; }
+
    private:
     SimConnection(const std::string &host, int port);
 
@@ -35,6 +38,7 @@ class SimConnection {
     int port_;
     int sock_fd_ = -1;
     VelocityCommand pending_command_{0.0, 0.0, 0.0};
+    std::vector<Pose2D> last_gt_poses_;
 
     static std::shared_ptr<SimConnection> instance_;
 };
