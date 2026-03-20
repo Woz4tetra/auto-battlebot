@@ -1,0 +1,39 @@
+[robot]
+name = "house_bot"
+source = "../../assets/robots/house_bot.glb"
+output_dir = "../../assets/robots/house_bot"
+
+[mesh]
+delete_patterns = []
+
+[chassis]
+# Total robot ~50 kg, minus 4 wheels at 0.5 kg each = 48 kg chassis
+mass = 48.0
+com = [0.0, 0.0, 0.0]
+# Estimated box inertia for 48 kg, ~0.25 x 0.33 x 0.23 m (already in URDF frame)
+# Ixx = (1/12)*m*(ly^2+lz^2), Iyy = (1/12)*m*(lx^2+lz^2), Izz = (1/12)*m*(lx^2+ly^2)
+inertia = [
+    649000000.0, 0.0, 0.0,
+    0.0, 472000000.0, 0.0,
+    0.0, 0.0, 694000000.0,
+]
+inertia_rotation_deg = 0.0
+
+[wheels]
+layout = "skid_steer"
+mass = 0.5
+diameter = 0.08
+track_width = 0.20
+wheelbase = 0.20
+friction = 0.7
+cylinder_width = 0.025
+com_offset = [0.0, 0.0, 0.0]
+# Estimated cylinder inertia for 0.5 kg, r=0.04, h=0.025 (Z = spin axis)
+# Ixx = Iyy = (1/12)*m*(3r^2+h^2) ≈ 217000, Izz = 0.5*m*r^2 = 400000
+inertia = [
+    217000.0, 0.0, 0.0,
+    0.0, 217000.0, 0.0,
+    0.0, 0.0, 400000.0,
+]
+extract_patterns = []
+add_cylinder = true

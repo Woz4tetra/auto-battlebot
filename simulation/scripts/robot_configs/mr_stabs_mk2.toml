@@ -1,0 +1,39 @@
+[robot]
+name = "mr_stabs_mk2"
+source = "../../assets/robots/mr_stabs_mk2.glb"
+output_dir = "../../assets/robots/mr_stabs_mk2"
+
+[mesh]
+delete_patterns = []
+
+[chassis]
+mass = 0.4228
+# CoM in URDF frame (x-forward, z-up), meters from model origin
+com = [0.034, 0.0, 0.0]
+# Inertia in g*mm^2, original model frame (y-backward per OnShape)
+inertia = [
+    507649.62881, -55.79139, -6.40563,
+    -55.79139, 750280.48089, 1834.64555,
+    -6.40563, 1834.64555, 1186609.73667,
+]
+# Rotate -90 deg around Z so OnShape y-backward becomes URDF x-forward
+inertia_rotation_deg = -90.0
+
+[wheels]
+layout = "differential"
+mass = 0.015
+diameter = 0.05
+track_width = 0.128
+friction = 0.7
+com_offset = [0.0, 0.0, 0.0000058]
+# Inertia in g*mm^2, Z = spin axis
+inertia = [
+    1820.96892, -9.36131, -3.70015,
+    -9.36131, 1820.97986, 3.70236,
+    -3.70015, 3.70236, 3324.66391,
+]
+# Extract wheel meshes from GLB by name substring match
+extract_patterns = [
+    "Gum Rubber Wheel Hub",
+    "Gum Rubber Wheel Tread",
+]

@@ -1,0 +1,70 @@
+<?xml version="1.0" ?>
+<robot name="mr_stabs_mk2">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="3.4000000000e-02 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0"/>
+      <mass value="4.2280000000e-01"/>
+      <inertia ixx="7.5028048089e-04" ixy="5.5791390000e-08" ixz="1.8346455500e-06" iyy="5.0764962881e-04" iyz="6.4056300000e-09" izz="1.1866097367e-03"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="meshes/chassis.obj"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="meshes/chassis_collision.obj"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_wheel">
+    <inertial>
+      <origin xyz="0.0000000000e+00 0.0000000000e+00 5.8000000000e-06" rpy="0 0 0"/>
+      <mass value="1.5000000000e-02"/>
+      <inertia ixx="1.8209689200e-06" ixy="3.7001500000e-09" ixz="-9.3613100000e-09" iyy="3.3246639100e-06" iyz="-3.7023600000e-09" izz="1.8209798600e-06"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="meshes/wheel.obj"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.5707963267948966 0 0"/>
+      <geometry>
+        <cylinder radius="2.5000000000e-02" length="1.2000000104e-02"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="left_wheel"/>
+    <origin xyz="0.0000000000e+00 6.4000000000e-02 0.0000000000e+00" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.01" friction="0.0"/>
+  </joint>
+  <link name="right_wheel">
+    <inertial>
+      <origin xyz="0.0000000000e+00 0.0000000000e+00 5.8000000000e-06" rpy="0 0 0"/>
+      <mass value="1.5000000000e-02"/>
+      <inertia ixx="1.8209689200e-06" ixy="3.7001500000e-09" ixz="-9.3613100000e-09" iyy="3.3246639100e-06" iyz="-3.7023600000e-09" izz="1.8209798600e-06"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="meshes/wheel.obj"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.5707963267948966 0 0"/>
+      <geometry>
+        <cylinder radius="2.5000000000e-02" length="1.2000000104e-02"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="right_wheel"/>
+    <origin xyz="0.0000000000e+00 -6.4000000000e-02 0.0000000000e+00" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.01" friction="0.0"/>
+  </joint>
+</robot>

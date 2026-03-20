@@ -14,3 +14,14 @@ class RobotConfig:
     max_angular_speed: float = 6.0
     behavior: str = "static"
     speed: float = 0.3
+
+    # Wheel-based control (active when wheel_radius > 0)
+    wheel_radius: float = 0.0
+    track_width: float = 0.0
+    wheel_friction: float = 0.7
+    left_wheel_joints: list[str] = field(default_factory=list)
+    right_wheel_joints: list[str] = field(default_factory=list)
+
+    @property
+    def has_wheels(self) -> bool:
+        return self.wheel_radius > 0.0

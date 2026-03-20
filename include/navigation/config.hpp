@@ -61,6 +61,27 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     // clang-format on
 };
 
+struct FixedVelocityNavigationConfiguration : public NavigationConfiguration {
+    /** Fixed normalized linear X command (-1..+1) */
+    double linear_x = 0.0;
+
+    /** Fixed normalized linear Y command (-1..+1) */
+    double linear_y = 0.0;
+
+    /** Fixed normalized angular Z command (-1..+1) */
+    double angular_z = 0.0;
+
+    FixedVelocityNavigationConfiguration() { type = "FixedVelocityNavigation"; }
+
+    // clang-format off
+    PARSE_CONFIG_FIELDS(
+        PARSE_FIELD_DOUBLE(linear_x)
+        PARSE_FIELD_DOUBLE(linear_y)
+        PARSE_FIELD_DOUBLE(angular_z)
+    )
+    // clang-format on
+};
+
 std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config);
 std::unique_ptr<NavigationConfiguration> parse_navigation_config(ConfigParser &parser);
 std::unique_ptr<NavigationConfiguration> load_navigation_from_toml(

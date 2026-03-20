@@ -14,12 +14,44 @@ from config.robot import RobotConfig
 
 if TYPE_CHECKING:
     from genesis.engine.entities.rigid_entity import RigidEntity
+    from sim_types import WheelDriveInfo
 
 DOF_VX, DOF_VY = 0, 1
 
 
+def _apply_velocity(
+    entity: RigidEntity,
+    vx: float,
+    vy: float,
+    wheels: WheelDriveInfo | None,
+) -> None:
+    """Set entity velocity, using wheels when available, else base DOFs."""
+    if wheels is not None:
+        speed = math.hypot(vx, vy)
+        heading = math.atan2(vy, vx)
+        entity_pos = entity.get_pos().cpu().numpy().squeeze()
+        v_left = speed / wheels.wheel_radius
+        v_right = speed / wheels.wheel_radius
+        velocities = [v_left] * wheels.n_left + [v_right] * wheels.n_right
+        entity.control_dofs_velocity(velocities, dofs_idx_local=wheels.all_dofs)
+    else:
+        entity.set_dofs_velocity(np.array([vx, vy]), [DOF_VX, DOF_VY])
+
+
+def _stop(entity: RigidEntity, wheels: WheelDriveInfo | None) -> None:
+    """Stop the entity."""
+    if wheels is not None:
+        velocities = [0.0] * (wheels.n_left + wheels.n_right)
+        entity.control_dofs_velocity(velocities, dofs_idx_local=wheels.all_dofs)
+    else:
+        entity.set_dofs_velocity(np.array([0.0, 0.0]), [DOF_VX, DOF_VY])
+
+
 class OpponentBehavior(abc.ABC):
     """Base class for all opponent behaviour strategies."""
+
+    def __init__(self, wheels: WheelDriveInfo | None = None) -> None:
+        self._wheels = wheels
 
     @abc.abstractmethod
     def step(self, entity: RigidEntity, dt: float) -> None: ...
@@ -27,11 +59,18 @@ class OpponentBehavior(abc.ABC):
 
 class StaticBehavior(OpponentBehavior):
     def step(self, entity: RigidEntity, dt: float) -> None:
-        entity.set_dofs_velocity(np.array([0.0, 0.0]), [DOF_VX, DOF_VY])
+        _stop(entity, self._wheels)
 
 
 class RandomWalkBehavior(OpponentBehavior):
-    def __init__(self, speed: float, arena_half_w: float, arena_half_h: float) -> None:
+    def __init__(
+        self,
+        speed: float,
+        arena_half_w: float,
+        arena_half_h: float,
+        wheels: WheelDriveInfo | None = None,
+    ) -> None:
+        super().__init__(wheels)
         self.speed: float = speed
         self.arena_half_w: float = arena_half_w
         self.arena_half_h: float = arena_half_h
@@ -49,11 +88,11 @@ class RandomWalkBehavior(OpponentBehavior):
         dist: float = float(np.linalg.norm(diff))
         if dist < 0.05:
             self.target = self._random_target()
-            entity.set_dofs_velocity(np.array([0.0, 0.0]), [DOF_VX, DOF_VY])
+            _stop(entity, self._wheels)
             return
         direction = diff / dist
         vel = direction * self.speed
-        entity.set_dofs_velocity(np.array([vel[0], vel[1]]), [DOF_VX, DOF_VY])
+        _apply_velocity(entity, float(vel[0]), float(vel[1]), self._wheels)
 
 
 class CircularBehavior(OpponentBehavior):
@@ -62,7 +101,9 @@ class CircularBehavior(OpponentBehavior):
         speed: float,
         radius: float = 0.5,
         center: tuple[float, float] = (0.0, 0.0),
+        wheels: WheelDriveInfo | None = None,
     ) -> None:
+        super().__init__(wheels)
         self.speed: float = speed
         self.radius: float = radius
         self.center: npt.NDArray[np.floating[Any]] = np.array(center)
@@ -72,15 +113,18 @@ class CircularBehavior(OpponentBehavior):
         self.angle += (self.speed / max(self.radius, 0.01)) * dt
         vel_x = -self.speed * math.sin(self.angle)
         vel_y = self.speed * math.cos(self.angle)
-        entity.set_dofs_velocity(np.array([vel_x, vel_y]), [DOF_VX, DOF_VY])
+        _apply_velocity(entity, vel_x, vel_y, self._wheels)
 
 
 def make_opponent_behavior(
-    cfg: RobotConfig, arena_half_w: float, arena_half_h: float
+    cfg: RobotConfig,
+    arena_half_w: float,
+    arena_half_h: float,
+    wheels: WheelDriveInfo | None = None,
 ) -> OpponentBehavior:
     if cfg.behavior == "random_walk":
-        return RandomWalkBehavior(cfg.speed, arena_half_w, arena_half_h)
+        return RandomWalkBehavior(cfg.speed, arena_half_w, arena_half_h, wheels)
     elif cfg.behavior == "circular":
-        return CircularBehavior(cfg.speed)
+        return CircularBehavior(cfg.speed, wheels=wheels)
     else:
-        return StaticBehavior()
+        return StaticBehavior(wheels)
