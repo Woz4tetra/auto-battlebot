@@ -124,11 +124,12 @@ After completing Experiment 1, the recommended order is driven by what the data 
 
 1. ~~**Experiment 0** -- instrument once, collect data for all hypotheses.~~ Done.
 2. ~~**Experiment 1** -- lag injection. Quantify headroom.~~ Done. Lag is a secondary contributor; baseline already broken.
-3. **Experiment 2** -- perception is the top priority. 46 yaw jumps at 0 ms lag prove front/back flips (H4) are the dominant failure mode.
-4. **Experiment 5** -- target switching. 111 switches with one physical opponent reveals phantom detections.
-5. **Experiment 4** -- hysteresis A/B test. Data shows hysteresis locks in wrong direction after yaw flips.
-6. **Experiment 3** -- gain sweep + D term. Only meaningful once perception is stabilized.
-7. **Experiment 6** -- angle threshold. Fine-tuning after other fixes.
+3. ~~**Experiment 1-GT** -- ground truth perception baseline.~~ Done. Proved controller is broken independently of perception.
+4. ~~**Experiment 4 / 4b** -- controller investigation (hysteresis, PD, gain sweep).~~ Done. Identified `quaternion_to_euler` bug as root cause. See [Controller Investigation Results](controller_investigation_results.md).
+5. **Re-run experiments with fixed `quaternion_to_euler`** -- validate that the P-only controller now converges.
+6. **Re-run with NN perception** -- measure actual impact of H2/H4/H7 now that the yaw bug is fixed.
+7. **Experiment 3** -- gain sweep + D term. Only meaningful now that the sensor is correct.
+8. **Experiment 6** -- angle threshold. Fine-tuning after other fixes.
 
 ## Tooling
 
