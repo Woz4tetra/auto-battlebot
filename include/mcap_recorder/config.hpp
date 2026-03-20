@@ -8,6 +8,7 @@
 namespace auto_battlebot {
 
 struct McapRecorderConfig {
+    bool enable = false;
     std::vector<std::string> ignored_topics;
 };
 

@@ -110,4 +110,5 @@ width = 1280
 height = 800
 
 [mcap]
+enable = false
 ignored_topics = []

@@ -16,8 +16,8 @@ floor_mesh = "./assets/cage/floor.obj"
 panorama = "greenhouse.jpg"
 
 [camera]
-res_width = 960
-res_height = 540
+res_width = 1920
+res_height = 1080
 fov = 70.0           # ZED 2i approximate HFOV
 pos = [0.0, -1.5, 1.0]  # x, y, z in meters
 lookat = [0.0, 0.0, 0.0]

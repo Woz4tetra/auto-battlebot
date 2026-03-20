@@ -7,6 +7,7 @@
 #include <limits>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "enum_to_string_lower.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
@@ -53,9 +54,11 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
     last_path_ = NavigationPathSegment{our_pose.x, our_pose.y, target_pose.x, target_pose.y};
 
     logger_->debug("poses", {
+        {"our_frame_id", enum_to_string_lower(our_robot.frame_id)},
         {"our_x", our_pose.x},
         {"our_y", our_pose.y},
         {"our_yaw_deg", our_pose.yaw * 180.0 / M_PI},
+        {"target_frame_id", enum_to_string_lower(target.frame_id)},
         {"target_x", target_pose.x},
         {"target_y", target_pose.y},
     });

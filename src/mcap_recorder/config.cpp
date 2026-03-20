@@ -13,6 +13,7 @@ McapRecorderConfig load_mcap_config_from_toml(const toml::table& toml_data,
     }
 
     ConfigParser parser(*section, "mcap");
+    config.enable = parser.get_optional_bool("enable", config.enable);
     config.ignored_topics = parser.get_optional_vector<std::string>("ignored_topics");
     parser.validate_no_extra_fields();
 

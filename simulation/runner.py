@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import math
 import socket
 import struct
@@ -109,7 +108,6 @@ class SimRunner:
         self._prev_time: float = 0.0
         self._timings = FrameTimings()
         self._last_cmd_vel: list[float] = []
-        self._diag_file: io.TextIOWrapper | None = None
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -204,56 +202,6 @@ class SimRunner:
                 where=self._bg_mask[:, :, np.newaxis],
             )
 
-    def _log_diagnostics(self) -> None:
-        if self._diag_file is None:
-            return
-        try:
-            robot = self._handles.our_robot
-            w = self._our_wheels
-
-            pos = robot.get_pos().cpu().numpy().squeeze()
-            quat = robot.get_quat().cpu().numpy().squeeze()
-            all_vel = robot.get_dofs_velocity().cpu().numpy().squeeze()
-
-            lines = [f"[frame {self._timings.count} {time.time()}]"]
-            lines.append(f"  pos={pos[0]:.3f},{pos[1]:.3f},{pos[2]:.4f}  quat={quat}")
-
-            if w is not None:
-                actual = [float(all_vel[i]) for i in w.all_dofs]
-                cmd = self._last_cmd_vel
-                lines.append(
-                    f"  wheel cmd={[f'{v:.1f}' for v in cmd]}  "
-                    f"actual={[f'{v:.1f}' for v in actual]}"
-                )
-
-                try:
-                    force = robot.get_dofs_force().cpu().numpy().squeeze()
-                    wheel_forces = [float(force[i]) for i in w.all_dofs]
-                    lines.append(f"  wheel torque={[f'{v:.4f}' for v in wheel_forces]}")
-                except Exception as e:
-                    lines.append(f"  wheel torque=<error: {e}>")
-
-            body_lin = np.linalg.norm(all_vel[:3])
-            body_wz = float(all_vel[5]) if len(all_vel) > 5 else 0.0
-            lines.append(
-                f"  body speed={body_lin:.3f} m/s  yaw_rate={body_wz:.2f} rad/s"
-            )
-            n_dofs = robot.n_dofs
-            lines.append(
-                f"  n_dofs={n_dofs}  all_vel={np.array2string(all_vel, precision=2)}"
-            )
-
-            self._diag_file.write("\n".join(lines) + "\n")
-            self._diag_file.flush()
-        except Exception as e:
-            self._diag_file.write(f"DIAG ERROR: {e}\n")
-            self._diag_file.flush()
-
-    def close_diagnostics(self) -> None:
-        if self._diag_file is not None:
-            self._diag_file.close()
-            self._diag_file = None
-
     def _send_frame(self, conn: socket.socket) -> None:
         send_all(conn, self._header_bytes)
         send_all(conn, self._rgb_buf.data)
@@ -267,11 +215,6 @@ class SimRunner:
 
         for _ in range(self._cfg.server.settle_steps):
             self._scene.step()
-
-        self._diag_file = open("sim_diagnostics.log", "w")
-        self._diag_file.write("=== sim diagnostics started ===\n")
-        self._diag_file.flush()
-        print("Writing diagnostics to sim_diagnostics.log")
 
         try:
             while True:
@@ -306,12 +249,9 @@ class SimRunner:
 
                 if self._timings.count % 10 == 0:
                     print(self._timings.report(steps, t5 - t0))
-                self._log_diagnostics()
 
         except (ConnectionError, BrokenPipeError, OSError) as e:
             print(f"Client disconnected: {e}")
-        finally:
-            self.close_diagnostics()
 
     def serve_forever(self) -> None:
         """Accept clients in a loop, handling one at a time."""

@@ -37,7 +37,6 @@ def main() -> None:
 
     def _shutdown_on_sigterm(_signum: int, _frame: object | None) -> None:
         print("Caught shutdown signal")
-        runner.close_diagnostics()
         gs.destroy()
         sys.exit(0)
 

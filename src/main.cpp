@@ -42,13 +42,18 @@ int main(int argc, char **argv) {
         return app.exit(e);
     }
 
-    std::string config_name =
-        config_path.empty() ? "main" : std::filesystem::canonical(config_path).filename().string();
-    auto mcap_recorder = std::make_shared<McapRecorder>(config_name);
-    setup_logging(mcap_recorder);
-
     ClassConfiguration class_config = load_classes_from_config(config_path);
-    mcap_recorder->set_ignored_topics(class_config.mcap_recorder.ignored_topics);
+
+    std::shared_ptr<McapRecorder> mcap_recorder;
+    if (class_config.mcap_recorder.enable) {
+        std::string config_name =
+            config_path.empty()
+                ? "main"
+                : std::filesystem::canonical(config_path).filename().string();
+        mcap_recorder = std::make_shared<McapRecorder>(config_name);
+        mcap_recorder->set_ignored_topics(class_config.mcap_recorder.ignored_topics);
+    }
+    setup_logging(mcap_recorder);
     std::vector<RobotConfig> robot_configs = load_robots_from_config(config_path);
 
     std::map<std::string, std::string> remappings;
