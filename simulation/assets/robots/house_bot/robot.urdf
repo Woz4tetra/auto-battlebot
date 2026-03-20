@@ -1,95 +1,104 @@
-<?xml version="1.0" ?>
+<?xml version="1.0"?>
 <robot name="house_bot">
   <link name="base_link">
     <inertial>
-      <origin xyz="0.0000000000e+00 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0"/>
-      <mass value="4.8000000000e+01"/>
-      <inertia ixx="6.4900000000e-01" ixy="0.0000000000e+00" ixz="0.0000000000e+00" iyy="4.7200000000e-01" iyz="0.0000000000e+00" izz="6.9400000000e-01"/>
+      <origin xyz="0.0000000000e+00 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0" />
+      <mass value="4.8000000000e+01" />
+      <inertia ixx="6.4900000000e-01" ixy="0.0000000000e+00" ixz="0.0000000000e+00"
+        iyy="4.7200000000e-01" iyz="0.0000000000e+00" izz="6.9400000000e-01" />
     </inertial>
     <visual>
       <geometry>
-        <mesh filename="meshes/chassis.obj"/>
+        <mesh filename="meshes/chassis.obj" />
       </geometry>
     </visual>
   </link>
+
   <link name="front_left_wheel">
     <inertial>
-      <origin xyz="0.0000000000e+00 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0"/>
-      <mass value="5.0000000000e-01"/>
-      <inertia ixx="2.1700000000e-04" ixy="0.0000000000e+00" ixz="0.0000000000e+00" iyy="4.0000000000e-04" iyz="-1.1205518212e-20" izz="2.1700000000e-04"/>
+      <origin xyz="0.0000000000e+00 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0" />
+      <mass value="5.0000000000e-01" />
+      <inertia ixx="2.1700000000e-04" ixy="0.0000000000e+00" ixz="0.0000000000e+00"
+        iyy="4.0000000000e-04" iyz="-1.1205518212e-20" izz="2.1700000000e-04" />
     </inertial>
     <collision>
-      <origin xyz="0 0 0" rpy="1.5707963267948966 0 0"/>
+      <origin xyz="0 0 0" rpy="1.5707963267948966 0 0" />
       <geometry>
-        <cylinder radius="4.0000000000e-02" length="2.5000000000e-02"/>
+        <cylinder radius="4.0000000000e-02" length="2.5000000000e-02" />
       </geometry>
     </collision>
   </link>
   <joint name="front_left_wheel_joint" type="continuous">
-    <parent link="base_link"/>
-    <child link="front_left_wheel"/>
-    <origin xyz="1.0000000000e-01 1.0000000000e-01 0.0000000000e+00" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <dynamics damping="0.1" friction="0.0"/>
+    <parent link="base_link" />
+    <child link="front_left_wheel" />
+    <origin xyz="1.0000000000e-01 1.0000000000e-01 -8.3000000000e-02" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <dynamics damping="0.1" friction="0.0" />
   </joint>
+
   <link name="front_right_wheel">
     <inertial>
-      <origin xyz="0.0000000000e+00 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0"/>
-      <mass value="5.0000000000e-01"/>
-      <inertia ixx="2.1700000000e-04" ixy="0.0000000000e+00" ixz="0.0000000000e+00" iyy="4.0000000000e-04" iyz="-1.1205518212e-20" izz="2.1700000000e-04"/>
+      <origin xyz="0.0000000000e+00 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0" />
+      <mass value="5.0000000000e-01" />
+      <inertia ixx="2.1700000000e-04" ixy="0.0000000000e+00" ixz="0.0000000000e+00"
+        iyy="4.0000000000e-04" iyz="-1.1205518212e-20" izz="2.1700000000e-04" />
     </inertial>
     <collision>
-      <origin xyz="0 0 0" rpy="1.5707963267948966 0 0"/>
+      <origin xyz="0 0 0" rpy="1.5707963267948966 0 0" />
       <geometry>
-        <cylinder radius="4.0000000000e-02" length="2.5000000000e-02"/>
+        <cylinder radius="4.0000000000e-02" length="2.5000000000e-02" />
       </geometry>
     </collision>
   </link>
   <joint name="front_right_wheel_joint" type="continuous">
-    <parent link="base_link"/>
-    <child link="front_right_wheel"/>
-    <origin xyz="1.0000000000e-01 -1.0000000000e-01 0.0000000000e+00" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <dynamics damping="0.1" friction="0.0"/>
+    <parent link="base_link" />
+    <child link="front_right_wheel" />
+    <origin xyz="1.0000000000e-01 -1.0000000000e-01 -8.3000000000e-02" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <dynamics damping="0.1" friction="0.0" />
   </joint>
+
   <link name="rear_left_wheel">
     <inertial>
-      <origin xyz="0.0000000000e+00 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0"/>
-      <mass value="5.0000000000e-01"/>
-      <inertia ixx="2.1700000000e-04" ixy="0.0000000000e+00" ixz="0.0000000000e+00" iyy="4.0000000000e-04" iyz="-1.1205518212e-20" izz="2.1700000000e-04"/>
+      <origin xyz="0.0000000000e+00 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0" />
+      <mass value="5.0000000000e-01" />
+      <inertia ixx="2.1700000000e-04" ixy="0.0000000000e+00" ixz="0.0000000000e+00"
+        iyy="4.0000000000e-04" iyz="-1.1205518212e-20" izz="2.1700000000e-04" />
     </inertial>
     <collision>
-      <origin xyz="0 0 0" rpy="1.5707963267948966 0 0"/>
+      <origin xyz="0 0 0" rpy="1.5707963267948966 0 0" />
       <geometry>
-        <cylinder radius="4.0000000000e-02" length="2.5000000000e-02"/>
+        <cylinder radius="4.0000000000e-02" length="2.5000000000e-02" />
       </geometry>
     </collision>
   </link>
   <joint name="rear_left_wheel_joint" type="continuous">
-    <parent link="base_link"/>
-    <child link="rear_left_wheel"/>
-    <origin xyz="-1.0000000000e-01 1.0000000000e-01 0.0000000000e+00" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <dynamics damping="0.1" friction="0.0"/>
+    <parent link="base_link" />
+    <child link="rear_left_wheel" />
+    <origin xyz="-1.0000000000e-01 1.0000000000e-01 -8.3000000000e-02" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <dynamics damping="0.1" friction="0.0" />
   </joint>
+
   <link name="rear_right_wheel">
     <inertial>
-      <origin xyz="0.0000000000e+00 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0"/>
-      <mass value="5.0000000000e-01"/>
-      <inertia ixx="2.1700000000e-04" ixy="0.0000000000e+00" ixz="0.0000000000e+00" iyy="4.0000000000e-04" iyz="-1.1205518212e-20" izz="2.1700000000e-04"/>
+      <origin xyz="0.0000000000e+00 0.0000000000e+00 0.0000000000e+00" rpy="0 0 0" />
+      <mass value="5.0000000000e-01" />
+      <inertia ixx="2.1700000000e-04" ixy="0.0000000000e+00" ixz="0.0000000000e+00"
+        iyy="4.0000000000e-04" iyz="-1.1205518212e-20" izz="2.1700000000e-04" />
     </inertial>
     <collision>
-      <origin xyz="0 0 0" rpy="1.5707963267948966 0 0"/>
+      <origin xyz="0 0 0" rpy="1.5707963267948966 0 0" />
       <geometry>
-        <cylinder radius="4.0000000000e-02" length="2.5000000000e-02"/>
+        <cylinder radius="4.0000000000e-02" length="2.5000000000e-02" />
       </geometry>
     </collision>
   </link>
   <joint name="rear_right_wheel_joint" type="continuous">
-    <parent link="base_link"/>
-    <child link="rear_right_wheel"/>
-    <origin xyz="-1.0000000000e-01 -1.0000000000e-01 0.0000000000e+00" rpy="0 0 0"/>
-    <axis xyz="0 1 0"/>
-    <dynamics damping="0.1" friction="0.0"/>
+    <parent link="base_link" />
+    <child link="rear_right_wheel" />
+    <origin xyz="-1.0000000000e-01 -1.0000000000e-01 -8.3000000000e-02" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <dynamics damping="0.1" friction="0.0" />
   </joint>
 </robot>

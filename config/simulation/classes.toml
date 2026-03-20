@@ -80,10 +80,13 @@ back_keypoints = [
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
+# [navigation]
+# type = "FixedVelocityNavigation"
+# linear_x = 1.0
+# angular_z = 1.0
+
 [navigation]
-type = "FixedVelocityNavigation"
-linear_x = 0.1
-angular_z = 1.0
+type = "PursuitNavigation"
 
 [transmitter]
 type = "SimTransmitter"

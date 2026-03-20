@@ -48,7 +48,11 @@ def robot_quat(model_euler_deg: list[float], yaw_rad: float) -> list[float]:
 
 
 def _add_robot(
-    scene: gs.Scene, robot_cfg: RobotConfig, config_dir: Path
+    scene: gs.Scene,
+    robot_cfg: RobotConfig,
+    config_dir: Path,
+    *,
+    visualize_contact: bool = False,
 ) -> RigidEntity:
     model_path = resolve_path(config_dir, robot_cfg.model_path)
     is_urdf = model_path.lower().endswith(".urdf")
@@ -73,7 +77,7 @@ def _add_robot(
     material = gs.materials.Rigid(
         friction=robot_cfg.wheel_friction if robot_cfg.has_wheels else None,
     )
-    return scene.add_entity(morph, material, visualize_contact=True)
+    return scene.add_entity(morph, material, visualize_contact=visualize_contact)
 
 
 def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
@@ -146,9 +150,13 @@ def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
         floor_material,
     )
 
-    our_robot: RigidEntity = _add_robot(scene, cfg.our_robot, config_dir)
+    show_contacts = cfg.server.show_contact_forces
+    our_robot: RigidEntity = _add_robot(
+        scene, cfg.our_robot, config_dir, visualize_contact=show_contacts
+    )
     opponents: list[RigidEntity] = [
-        _add_robot(scene, opp_cfg, config_dir) for opp_cfg in cfg.opponents
+        _add_robot(scene, opp_cfg, config_dir, visualize_contact=show_contacts)
+        for opp_cfg in cfg.opponents
     ]
 
     camera: Camera = scene.add_camera(

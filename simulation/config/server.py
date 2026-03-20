@@ -12,3 +12,4 @@ class ServerConfig:
     substeps: int = 10
     settle_steps: int = 100
     max_physics_steps_per_frame: int = 10
+    show_contact_forces: bool = False

@@ -1,8 +1,9 @@
 [server]
 host = "127.0.0.1"
 port = 14882
-show_viewer = true
-physics_dt = 0.01
+show_viewer = false
+show_contact_forces = false
+physics_dt = 0.04
 substeps = 3
 settle_steps = 100
 
@@ -15,8 +16,8 @@ floor_mesh = "./assets/cage/floor.obj"
 panorama = "greenhouse.jpg"
 
 [camera]
-res_width = 1280
-res_height = 720
+res_width = 640
+res_height = 360
 fov = 70.0           # ZED 2i approximate HFOV
 pos = [0.0, -1.7, 1.5]  # x, y, z in meters
 lookat = [0.0, 0.0, 0.0]
@@ -53,7 +54,7 @@ right_wheel_joints = ["right_wheel_joint"]
 [[opponents]]
 model_path = "./assets/robots/house_bot/robot.urdf"
 scale = 1.0
-start_pos = [0.75, 0.75, 0.15]
+start_pos = [0.75, 0.75, 0.123]
 start_rotation = 225.0              # yaw in degrees at spawn
 behavior = "static"                 # "static", "random_walk", "circular"
 speed = 0.3                         # m/s for moving behaviors
