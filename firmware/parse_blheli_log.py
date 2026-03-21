@@ -71,17 +71,21 @@ KV_LABELS = {
 
 
 def group_entries(entries: list[dict]) -> list[dict]:
-    """Coalesce adjacent label+value entries into structured records."""
+    """Coalesce adjacent label+value entries into structured records.
+
+    Tracks cumulative time from 'Time elapsed (ms)' entries to stamp each record.
+    """
     output = []
     i = 0
     n = len(entries)
+    cumulative_ms = 0
 
     while i < n:
         text = entries[i]["text"]
         offset = entries[i]["offset"]
 
         if text.startswith("24 4D") or text.startswith("2F ") or text.startswith("2E "):
-            output.append({"type": "frame", "hex": text, "offset": offset})
+            output.append({"type": "frame", "hex": text, "offset": offset, "time_ms": cumulative_ms})
             i += 1
             continue
 
@@ -98,11 +102,27 @@ def group_entries(entries: list[dict]) -> list[dict]:
                         "label": text.rstrip(": "),
                         "value": entries[i + 1]["text"],
                         "offset": offset,
+                        "time_ms": cumulative_ms,
                     })
                     i += 2
                     matched_kv = True
                 break
         if matched_kv:
+            continue
+
+        if text == "Time elapsed (ms):" and i + 1 < n:
+            try:
+                elapsed = int(entries[i + 1]["text"])
+                cumulative_ms += elapsed
+            except ValueError:
+                pass
+            output.append({
+                "type": "timing",
+                "elapsed_ms": entries[i + 1]["text"] if i + 1 < n else "?",
+                "cumulative_ms": cumulative_ms,
+                "offset": offset,
+            })
+            i += 2
             continue
 
         if text.endswith(":") and i + 1 < n:
@@ -113,11 +133,12 @@ def group_entries(entries: list[dict]) -> list[dict]:
                     "label": text.rstrip(":").strip(),
                     "value": nxt,
                     "offset": offset,
+                    "time_ms": cumulative_ms,
                 })
                 i += 2
                 continue
 
-        output.append({"type": "text", "text": text, "offset": offset})
+        output.append({"type": "text", "text": text, "offset": offset, "time_ms": cumulative_ms})
         i += 1
 
     return output

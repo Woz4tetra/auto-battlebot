@@ -34,6 +34,7 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 </head>
 <body>
 <h1>MR STABS Diagnostics</h1>
+<div style="margin-bottom:12px"><a href="/debug" style="color:#f80">Debug Log</a></div>
 <div id="conn" class="status disconnected">Connecting...</div>
 <table>
 <tr><td>timestamp_ms</td><td id="v_ts">-</td></tr>
@@ -130,13 +131,13 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <script>
 let auto_poll=true,timer=null;
 function poll(){
- fetch('/debug/log').then(r=>r.text()).then(t=>{
+ fetch('/debuglog').then(r=>r.text()).then(t=>{
   const el=document.getElementById('log');el.textContent=t||'(empty)';
   el.scrollTop=el.scrollHeight;
   document.getElementById('status').textContent='Updated '+new Date().toLocaleTimeString();
  }).catch(()=>{document.getElementById('status').textContent='fetch error';});
 }
-function clearLog(){fetch('/debug/clear').then(()=>poll());}
+function clearLog(){fetch('/debugclear').then(()=>poll());}
 function toggleAuto(){
  auto_poll=!auto_poll;
  const b=document.getElementById('autoBtn');
@@ -164,10 +165,10 @@ void DiagnosticsServer::begin()
     server.on("/debug", HTTP_GET, [](AsyncWebServerRequest *request)
               { request->send(200, "text/html", DEBUG_HTML); });
 
-    server.on("/debug/log", HTTP_GET, [](AsyncWebServerRequest *request)
+    server.on("/debuglog", HTTP_GET, [](AsyncWebServerRequest *request)
               { request->send(200, "text/plain", debug_log_get_all()); });
 
-    server.on("/debug/clear", HTTP_GET, [](AsyncWebServerRequest *request)
+    server.on("/debugclear", HTTP_GET, [](AsyncWebServerRequest *request)
               { debug_log_clear(); request->send(200, "text/plain", "ok"); });
 
     events.onConnect([](AsyncEventSourceClient *client)
