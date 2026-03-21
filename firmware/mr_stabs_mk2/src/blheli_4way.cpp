@@ -71,29 +71,40 @@ uint16_t Check_4Way(uint8_t buf[])
             SendESC(BootInit, Init_Size, false);
             delay(80);
             RX_Size = GetESC(RX_Buf, 300);
-            debug_log("  GetESC %u bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+            debug_log("  attempt 1: %u bytes [%02X %02X %02X %02X %02X %02X]",
                       RX_Size,
                       RX_Size > 0 ? RX_Buf[0] : 0, RX_Size > 1 ? RX_Buf[1] : 0,
                       RX_Size > 2 ? RX_Buf[2] : 0, RX_Size > 3 ? RX_Buf[3] : 0,
-                      RX_Size > 4 ? RX_Buf[4] : 0, RX_Size > 5 ? RX_Buf[5] : 0,
-                      RX_Size > 6 ? RX_Buf[6] : 0, RX_Size > 7 ? RX_Buf[7] : 0,
-                      RX_Size > 8 ? RX_Buf[8] : 0);
-            if (RX_Size > 0 && RX_Buf[RX_Size - 1] == brSUCCESS)
+                      RX_Size > 4 ? RX_Buf[4] : 0, RX_Size > 5 ? RX_Buf[5] : 0);
+            if (RX_Size > 0 && RX_Size < 8)
             {
-                if (RX_Size >= 6)
-                {
-                    buf[5] = RX_Buf[RX_Size - 4];
-                    buf[6] = RX_Buf[RX_Size - 5];
-                }
-                else
-                {
-                    buf[5] = RX_Buf[0];
-                    buf[6] = (RX_Size > 1) ? RX_Buf[1] : 0;
-                }
+                debug_log("  short response, re-sending BootInit");
+                SendESC(BootInit, Init_Size, false);
+                delay(80);
+                RX_Size = GetESC(RX_Buf, 300);
+                debug_log("  attempt 2: %u bytes [%02X %02X %02X %02X %02X %02X]",
+                          RX_Size,
+                          RX_Size > 0 ? RX_Buf[0] : 0, RX_Size > 1 ? RX_Buf[1] : 0,
+                          RX_Size > 2 ? RX_Buf[2] : 0, RX_Size > 3 ? RX_Buf[3] : 0,
+                          RX_Size > 4 ? RX_Buf[4] : 0, RX_Size > 5 ? RX_Buf[5] : 0);
+            }
+            if (RX_Size >= 6 && RX_Buf[RX_Size - 1] == brSUCCESS)
+            {
+                buf[5] = RX_Buf[RX_Size - 4];
+                buf[6] = RX_Buf[RX_Size - 5];
                 buf[7] = 0;
                 buf[8] = imARM_BLB;
                 buf[9] = ACK_OK;
                 debug_log("  InitFlash OK sig=%02X%02X mode=%u (n=%u)", buf[6], buf[5], buf[8], RX_Size);
+            }
+            else if (RX_Size > 0 && RX_Buf[RX_Size - 1] == brSUCCESS)
+            {
+                buf[5] = RX_Buf[0];
+                buf[6] = (RX_Size > 1) ? RX_Buf[1] : 0;
+                buf[7] = 0;
+                buf[8] = imARM_BLB;
+                buf[9] = ACK_OK;
+                debug_log("  InitFlash OK (short) sig=%02X%02X (n=%u)", buf[6], buf[5], RX_Size);
             }
             else
             {
