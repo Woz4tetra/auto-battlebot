@@ -6,10 +6,23 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
 {
     uint8_t MSP_OSize = 0;
     uint8_t MSP_type = MSP_buf[4];
-    uint8_t MSP_crc = MSP_buf[buf_size - 1];
+    uint8_t data_len = MSP_buf[3];
+
+    uint8_t check_crc = MSP_buf[3];
+    for (uint8_t i = 4; i < 5 + data_len; i++)
+        check_crc ^= MSP_buf[i];
+    if (check_crc != MSP_buf[5 + data_len])
+    {
+        MSP_buf[2] = 0x21;
+        MSP_buf[3] = 0x00;
+        MSP_buf[4] = MSP_type;
+        MSP_buf[5] = MSP_type;
+        return 6;
+    }
+
     uint8_t crc;
 
-    if (MSP_type == MSP_API_VERSION && MSP_crc == 0x01)
+    if (MSP_type == MSP_API_VERSION)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x03;
@@ -19,7 +32,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         MSP_buf[7] = API_VERSION_MINOR;
         MSP_OSize = 8;
     }
-    else if (MSP_type == MSP_FC_VARIANT && MSP_crc == 0x02)
+    else if (MSP_type == MSP_FC_VARIANT)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x04;
@@ -30,7 +43,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         MSP_buf[8] = 0x4C;
         MSP_OSize = 9;
     }
-    else if (MSP_type == MSP_FC_VERSION && MSP_crc == 0x03)
+    else if (MSP_type == MSP_FC_VERSION)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x03;
@@ -40,7 +53,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         MSP_buf[7] = FC_VERSION_PATCH_LEVEL;
         MSP_OSize = 8;
     }
-    else if (MSP_type == MSP_BOARD_INFO && MSP_crc == 0x04)
+    else if (MSP_type == MSP_BOARD_INFO)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x4F;
@@ -53,7 +66,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         MSP_buf[10] = 0x00;
         MSP_buf[11] = 0x00;
         MSP_buf[12] = 0x00;
-        MSP_buf[13] = 0x08; // name length
+        MSP_buf[13] = 0x08;
         MSP_buf[14] = 'M';
         MSP_buf[15] = 'R';
         MSP_buf[16] = '-';
@@ -64,10 +77,10 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         MSP_buf[21] = 'S';
         for (uint8_t i = 22; i < 83; i++)
             MSP_buf[i] = 0x00;
-        MSP_buf[83] = 0x00; // I2C
+        MSP_buf[83] = 0x00;
         MSP_OSize = 84;
     }
-    else if (MSP_type == MSP_BUILD_INFO && MSP_crc == 0x05)
+    else if (MSP_type == MSP_BUILD_INFO)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x1A;
@@ -76,7 +89,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
             MSP_buf[i] = 0x00;
         MSP_OSize = 31;
     }
-    else if (MSP_type == MSP_STATUS && MSP_crc == 0x65)
+    else if (MSP_type == MSP_STATUS)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x16;
@@ -85,7 +98,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
             MSP_buf[i] = 0x00;
         MSP_OSize = 27;
     }
-    else if (MSP_type == MSP_MOTOR_3D_CONFIG && MSP_crc == 0x7C)
+    else if (MSP_type == MSP_MOTOR_3D_CONFIG)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x06;
@@ -94,7 +107,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
             MSP_buf[i] = 0x00;
         MSP_OSize = 11;
     }
-    else if (MSP_type == MSP_MOTOR_CONFIG && MSP_crc == 0x83)
+    else if (MSP_type == MSP_MOTOR_CONFIG)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x0A;
@@ -105,18 +118,17 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         MSP_buf[8] = 0x07;
         MSP_buf[9] = 0xE8; // mincommand 1000
         MSP_buf[10] = 0x03;
-        MSP_buf[11] = blheli_esc_count; // motor count
+        MSP_buf[11] = blheli_esc_count;
         MSP_buf[12] = 0x00;
         MSP_buf[13] = 0x00;
         MSP_buf[14] = 0x00;
         MSP_OSize = 15;
     }
-    else if (MSP_type == MSP_MOTOR && MSP_crc == 0x68)
+    else if (MSP_type == MSP_MOTOR)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x10;
         MSP_buf[4] = MSP_MOTOR;
-        // Report idle (1000) for each motor, zero for unused slots
         for (uint8_t i = 5; i < 21; i++)
             MSP_buf[i] = 0x00;
         for (uint8_t m = 0; m < blheli_esc_count && m < 8; m++)
@@ -126,7 +138,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         }
         MSP_OSize = 21;
     }
-    else if (MSP_type == MSP_FEATURE_CONFIG && MSP_crc == 0x24)
+    else if (MSP_type == MSP_FEATURE_CONFIG)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x04;
@@ -135,7 +147,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
             MSP_buf[i] = 0x00;
         MSP_OSize = 9;
     }
-    else if (MSP_type == MSP_BOXIDS && MSP_crc == 0x77)
+    else if (MSP_type == MSP_BOXIDS)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x18;
@@ -144,7 +156,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
             MSP_buf[i] = 0x00;
         MSP_OSize = 29;
     }
-    else if (MSP_type == MSP_SET_4WAY_IF && MSP_crc == 0xF5)
+    else if (MSP_type == MSP_SET_4WAY_IF)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x01;
@@ -153,7 +165,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         blheli_esc_serial_begin();
         MSP_OSize = 6;
     }
-    else if (MSP_type == MSP_ADVANCED_CONFIG && MSP_crc == 0x5A)
+    else if (MSP_type == MSP_ADVANCED_CONFIG)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x14;
@@ -165,7 +177,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         MSP_buf[10] = 0x01;
         MSP_OSize = 25;
     }
-    else if (MSP_type == MSP_UID && MSP_crc == 0xA0)
+    else if (MSP_type == MSP_UID)
     {
         MSP_buf[2] = 0x3E;
         MSP_buf[3] = 0x0C;
@@ -173,6 +185,15 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         for (uint8_t i = 5; i < 17; i++)
             MSP_buf[i] = 0x00;
         MSP_OSize = 17;
+    }
+
+    if (MSP_OSize == 0)
+    {
+        MSP_buf[2] = 0x21;
+        MSP_buf[3] = 0x00;
+        MSP_buf[4] = MSP_type;
+        MSP_buf[5] = MSP_type;
+        return 6;
     }
 
     crc = MSP_buf[3] ^ MSP_buf[4];

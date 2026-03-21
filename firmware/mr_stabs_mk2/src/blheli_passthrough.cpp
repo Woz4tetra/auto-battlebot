@@ -54,7 +54,10 @@ void passthrough_process()
             rx_counter = 0;
             uint16_t tx_len = Check_4Way(rx_buf);
             if (tx_len > 0)
+            {
                 Serial.write(rx_buf, tx_len);
+                Serial.flush();
+            }
         }
     }
     else if (rx_counter >= 6 && rx_buf[0] == 0x24 && rx_buf[1] == 0x4D && rx_buf[2] == 0x3C)
@@ -65,7 +68,10 @@ void passthrough_process()
         {
             uint8_t tx_len = MSP_Check(rx_buf, rx_counter);
             if (tx_len > 0)
+            {
                 Serial.write(rx_buf, tx_len);
+                Serial.flush();
+            }
             rx_counter = 0;
         }
     }
