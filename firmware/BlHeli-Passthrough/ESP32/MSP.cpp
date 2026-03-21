@@ -329,7 +329,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size){
      MSP_buf[2]= 0x3E;
      MSP_buf[3]= 0x01;
      MSP_buf[4]= MSP_SET_4WAY_IF;
-     MSP_buf[5]= 0x01;//0x04;    // get channel number, switch all motor lines HI, reply with the count of ESC found
+     MSP_buf[5]= esc_pin_count;    // report available ESC channels to configurator
      InitSerialOutput();
      MSP_OSize = 6;
   }
