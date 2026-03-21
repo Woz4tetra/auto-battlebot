@@ -92,6 +92,8 @@ back_keypoints = [
 type = "PursuitNavigation"
 angular_kp = 6.0
 angular_kd = 0.2
+max_angular_velocity = 15.625
+max_linear_velocity = 2.0
 
 [transmitter]
 type = "SimTransmitter"

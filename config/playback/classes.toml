@@ -92,6 +92,10 @@ back_keypoints = [
 
 [navigation]
 type = "PursuitNavigation"
+angular_kp = 0.1
+angular_kd = 0.1
+max_angular_velocity = 15.625
+max_linear_velocity = 2.0
 
 [transmitter]
 type = "PlaybackTransmitter"
