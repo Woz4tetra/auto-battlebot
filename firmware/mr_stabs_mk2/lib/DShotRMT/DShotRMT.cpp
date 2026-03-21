@@ -12,7 +12,7 @@ DShotRMT::DShotRMT(gpio_num_t gpio, rmt_channel_t rmtChannel)
     dshot_config.gpio_num = gpio;
     dshot_config.pin_num = static_cast<uint8_t>(gpio);
     dshot_config.rmt_channel = rmtChannel;
-    dshot_config.mem_block_num = static_cast<uint8_t>(RMT_CHANNEL_MAX - static_cast<uint8_t>(rmtChannel));
+    dshot_config.mem_block_num = 1;
 
     buildTxRmtItem(DSHOT_NULL_PACKET);
 }
@@ -22,7 +22,7 @@ DShotRMT::DShotRMT(uint8_t pin, uint8_t channel)
     dshot_config.gpio_num = static_cast<gpio_num_t>(pin);
     dshot_config.pin_num = pin;
     dshot_config.rmt_channel = static_cast<rmt_channel_t>(channel);
-    dshot_config.mem_block_num = RMT_CHANNEL_MAX - channel;
+    dshot_config.mem_block_num = 1;
 
     buildTxRmtItem(DSHOT_NULL_PACKET);
 }
@@ -31,8 +31,8 @@ DShotRMT::DShotRMT(uint8_t pin)
 {
     dshot_config.gpio_num = static_cast<gpio_num_t>(pin);
     dshot_config.pin_num = pin;
-    dshot_config.rmt_channel = static_cast<rmt_channel_t>(RMT_CHANNEL_MAX -1);
-    dshot_config.mem_block_num = RMT_CHANNEL_MAX - 1;
+    dshot_config.rmt_channel = static_cast<rmt_channel_t>(RMT_CHANNEL_MAX - 1);
+    dshot_config.mem_block_num = 1;
 
     buildTxRmtItem(DSHOT_NULL_PACKET);
 }

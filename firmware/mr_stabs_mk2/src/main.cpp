@@ -108,8 +108,9 @@ void setup()
     digitalWrite(NEOPIXEL_POWER, HIGH);
 #endif
 
-    left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_0);
-    right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_1);
+    // Channels 0-1 are grabbed by NeoPixel; use 2-3 for DShot
+    left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_2);
+    right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_3);
     left_esc->begin();
     right_esc->begin();
 
