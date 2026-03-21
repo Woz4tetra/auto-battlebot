@@ -69,18 +69,25 @@ uint16_t Check_4Way(uint8_t buf[])
             uint16_t RX_Size = 0;
             debug_log("  sending BootInit %u bytes", Init_Size);
             SendESC(BootInit, Init_Size, false);
-            delay(50);
-            RX_Size = GetESC(RX_Buf, 200);
-            debug_log("  GetESC %u bytes: %02X %02X %02X %02X %02X %02X %02X",
+            delay(80);
+            RX_Size = GetESC(RX_Buf, 300);
+            if (RX_Size > 0 && RX_Size < 7)
+            {
+                debug_log("  partial %u bytes, reading more", RX_Size);
+                delay(50);
+                RX_Size += GetESC(RX_Buf + RX_Size, 200);
+            }
+            debug_log("  GetESC %u bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
                       RX_Size,
                       RX_Size > 0 ? RX_Buf[0] : 0, RX_Size > 1 ? RX_Buf[1] : 0,
                       RX_Size > 2 ? RX_Buf[2] : 0, RX_Size > 3 ? RX_Buf[3] : 0,
                       RX_Size > 4 ? RX_Buf[4] : 0, RX_Size > 5 ? RX_Buf[5] : 0,
-                      RX_Size > 6 ? RX_Buf[6] : 0);
-            if (RX_Size > 0 && RX_Buf[RX_Size - 1] == brSUCCESS)
+                      RX_Size > 6 ? RX_Buf[6] : 0, RX_Size > 7 ? RX_Buf[7] : 0,
+                      RX_Size > 8 ? RX_Buf[8] : 0);
+            if (RX_Size >= 7 && RX_Buf[RX_Size - 1] == brSUCCESS)
             {
-                buf[5] = RX_Buf[0];
-                buf[6] = RX_Buf[1];
+                buf[5] = RX_Buf[RX_Size - 4];
+                buf[6] = RX_Buf[RX_Size - 5];
                 buf[7] = 0;
                 buf[8] = imARM_BLB;
                 buf[9] = ACK_OK;
