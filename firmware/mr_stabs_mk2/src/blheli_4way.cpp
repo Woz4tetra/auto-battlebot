@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "blheli_4way.h"
 #include "blheli_esc_serial.h"
+#include "debug_log.h"
 
 uint16_t Check_4Way(uint8_t buf[])
 {
@@ -31,6 +32,7 @@ uint16_t Check_4Way(uint8_t buf[])
 
     if (crc_in != crc)
     {
+        debug_log("4WAY CRC FAIL cmd=0x%02X exp=0x%04X got=0x%04X", cmd, crc, crc_in);
         buf[0] = cmd_Remote_Escape;
         buf[1] = cmd;
         buf[2] = addr_high;
@@ -56,41 +58,23 @@ uint16_t Check_4Way(uint8_t buf[])
 
     if (cmd == cmd_DeviceInitFlash)
     {
+        debug_log("DeviceInitFlash ESC#%u", param);
         O_Param_Len = 0x04;
         if (param < blheli_esc_count)
         {
-            if (Enable4Way)
-                blheli_esc_serial_end();
-
-            uint8_t esc_pin = blheli_esc_pins[param];
-
-            // Force ESC into bootloader: hold signal LOW to trigger MCU reset
-            pinMode(esc_pin, OUTPUT);
-            digitalWrite(esc_pin, LOW);
-            delay(300);
-            digitalWrite(esc_pin, HIGH);
-            delay(10);
-
             blheli_esc_serial_switch_pin(param);
-            delay(100);
-
             uint8_t BootInit[] = {0, 0, 0, 0, 0, 0, 0, 0, 0x0D, 'B', 'L', 'H', 'e', 'l', 'i', 0xF4, 0x7D};
             uint8_t Init_Size = 17;
             uint8_t RX_Buf[250] = {0};
             uint16_t RX_Size = 0;
-
-            for (uint8_t attempt = 0; attempt < 3; attempt++)
-            {
-                SendESC(BootInit, Init_Size, false);
-                delay(80);
-                RX_Size = GetESC(RX_Buf, 300);
-                if (RX_Size > 0 && RX_Buf[RX_Size - 1] == brSUCCESS)
-                    break;
-                delay(200);
-            }
-
+            debug_log("  sending BootInit %u bytes", Init_Size);
+            SendESC(BootInit, Init_Size, false);
+            delay(50);
+            RX_Size = GetESC(RX_Buf, 200);
+            debug_log("  GetESC returned %u bytes last=0x%02X", RX_Size, RX_Size > 0 ? RX_Buf[RX_Size - 1] : 0);
             if (RX_Size > 0 && RX_Buf[RX_Size - 1] == brSUCCESS)
             {
+                debug_log("  InitFlash OK dev=%02X%02X%02X", RX_Buf[5], RX_Buf[4], RX_Buf[3]);
                 buf[5] = RX_Buf[5];
                 buf[6] = RX_Buf[4];
                 buf[7] = RX_Buf[3];
@@ -99,6 +83,7 @@ uint16_t Check_4Way(uint8_t buf[])
             }
             else
             {
+                debug_log("  InitFlash FAIL");
                 buf[5] = 0x06;
                 buf[6] = 0x33;
                 buf[7] = 0x67;
@@ -109,6 +94,7 @@ uint16_t Check_4Way(uint8_t buf[])
         }
         else
         {
+            debug_log("  invalid channel %u (count=%u)", param, blheli_esc_count);
             ack_out = ACK_I_INVALID_CHANNEL;
             buf[9] = ACK_I_INVALID_CHANNEL;
         }
@@ -116,30 +102,33 @@ uint16_t Check_4Way(uint8_t buf[])
 
     else if (cmd == cmd_DeviceReset)
     {
+        debug_log("DeviceReset ESC#%u", param);
         O_Param_Len = 0x01;
         if (param < blheli_esc_count)
         {
-            blheli_esc_serial_switch_pin(param);
+            buf[6] = ACK_OK;
             if (Enable4Way)
             {
-                buf[6] = ACK_OK;
+                debug_log("  sending RestartBootloader");
                 uint8_t ESC_data[2] = {RestartBootloader, 0};
                 SendESC(ESC_data, 2);
-                uint8_t pin = blheli_esc_pins[param];
-                digitalWrite(pin, LOW);
-                delay(300);
-                digitalWrite(pin, HIGH);
-                uint8_t RX_Buf[5] = {0};
-                GetESC(RX_Buf, 50);
             }
-            else
-            {
-                ack_out = ACK_D_GENERAL_ERROR;
-                buf[6] = ACK_D_GENERAL_ERROR;
-            }
+            debug_log("  end serial, pulse pin %u LOW 300ms", blheli_esc_pins[param]);
+            blheli_esc_serial_end();
+            uint8_t pin = blheli_esc_pins[param];
+            pinMode(pin, OUTPUT);
+            digitalWrite(pin, LOW);
+            delay(300);
+            digitalWrite(pin, HIGH);
+            delay(10);
+            debug_log("  reopen serial on ESC#%u", param);
+            blheli_esc_serial_switch_pin(param);
+            delay(100);
+            debug_log("  DeviceReset done");
         }
         else
         {
+            debug_log("  invalid channel %u", param);
             buf[5] = 0x00;
             ack_out = ACK_I_INVALID_CHANNEL;
             buf[6] = ACK_I_INVALID_CHANNEL;
@@ -148,6 +137,7 @@ uint16_t Check_4Way(uint8_t buf[])
 
     else if (cmd == cmd_InterfaceTestAlive)
     {
+        debug_log("InterfaceTestAlive");
         O_Param_Len = 0x01;
         uint8_t ESC_data[2] = {CMD_KEEP_ALIVE, 0};
         uint8_t RX_Buf[250] = {0};
@@ -158,6 +148,7 @@ uint16_t Check_4Way(uint8_t buf[])
 
     else if (cmd == cmd_DeviceRead)
     {
+        debug_log("DeviceRead addr=0x%02X%02X len=%u", addr_high, addr_low, param);
         uint8_t ESC_data[4] = {CMD_SET_ADDRESS, 0x00, addr_high, addr_low};
         uint16_t RX_Size = 0;
         uint8_t RX_Buf[300] = {0};
@@ -216,6 +207,7 @@ uint16_t Check_4Way(uint8_t buf[])
 
     else if (cmd == cmd_InterfaceExit)
     {
+        debug_log("InterfaceExit");
         blheli_esc_serial_end();
         O_Param_Len = 0x01;
     }
@@ -249,6 +241,7 @@ uint16_t Check_4Way(uint8_t buf[])
 
     else if (cmd == cmd_InterfaceSetMode)
     {
+        debug_log("InterfaceSetMode param=0x%02X", param);
         O_Param_Len = 0x01;
         if (param != imARM_BLB)
         {
@@ -264,6 +257,7 @@ uint16_t Check_4Way(uint8_t buf[])
 
     else if (cmd == cmd_DevicePageErase)
     {
+        debug_log("DevicePageErase page=%u", param);
         O_Param_Len = 0x01;
         addr_high = (param << 2);
         addr_low = 0;
@@ -292,6 +286,7 @@ uint16_t Check_4Way(uint8_t buf[])
 
     else if (cmd == cmd_DeviceWrite)
     {
+        debug_log("DeviceWrite addr=0x%02X%02X len=%u", addr_high, addr_low, I_Param_Len);
         O_Param_Len = 0x01;
         uint8_t ESC_data[4] = {CMD_SET_ADDRESS, 0, addr_high, addr_low};
         uint8_t RX_Buf[250] = {0};
@@ -328,9 +323,11 @@ uint16_t Check_4Way(uint8_t buf[])
 
     else
     {
+        debug_log("4WAY unknown cmd 0x%02X", cmd);
         buf_size = 0;
     }
 
+    debug_log("4WAY reply cmd=0x%02X ack=0x%02X oLen=%u", cmd, ack_out, O_Param_Len);
     crc = 0;
     buf[0] = cmd_Remote_Escape;
     buf[1] = cmd;

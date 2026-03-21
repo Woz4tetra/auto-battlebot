@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SoftwareSerial.h>
 #include "blheli_esc_serial.h"
+#include "debug_log.h"
 
 bool Enable4Way = false;
 uint8_t blheli_esc_pins[8] = {255, 255, 255, 255, 255, 255, 255, 255};
@@ -33,6 +34,7 @@ void blheli_esc_serial_switch_pin(uint8_t index)
         return;
     if (index == current_pin_index && Enable4Way)
         return;
+    debug_log("esc_serial switch to pin[%u]=%u", index, blheli_esc_pins[index]);
     if (Enable4Way)
         blheli_esc_serial_end();
     current_pin_index = index;
@@ -91,6 +93,10 @@ uint16_t SendESC(uint8_t tx_buf[], uint16_t buf_size, bool CRC)
         buf_size = buf_size + 2;
     }
     swSer->enableTx(false);
+    debug_log("SendESC %u bytes [%02X %02X %02X..]", buf_size,
+              buf_size > 0 ? tx_buf[0] : 0,
+              buf_size > 1 ? tx_buf[1] : 0,
+              buf_size > 2 ? tx_buf[2] : 0);
     return 0;
 }
 
@@ -120,6 +126,10 @@ uint16_t GetESC(uint8_t rx_buf[], uint16_t wait_ms)
         }
         delayMicroseconds(200);
     }
+    debug_log("GetESC %u bytes wait=%u [%02X %02X %02X..]", i, wait_ms,
+              i > 0 ? rx_buf[0] : 0,
+              i > 1 ? rx_buf[1] : 0,
+              i > 2 ? rx_buf[2] : 0);
     return i;
 }
 

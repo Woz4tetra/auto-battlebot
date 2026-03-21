@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "blheli_msp.h"
 #include "blheli_esc_serial.h"
+#include "debug_log.h"
 
 uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
 {
@@ -13,6 +14,7 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
         check_crc ^= MSP_buf[i];
     if (check_crc != MSP_buf[5 + data_len])
     {
+        debug_log("MSP CRC FAIL type=0x%02X exp=0x%02X got=0x%02X", MSP_type, check_crc, MSP_buf[5 + data_len]);
         MSP_buf[2] = 0x21;
         MSP_buf[3] = 0x00;
         MSP_buf[4] = MSP_type;
@@ -189,12 +191,15 @@ uint8_t MSP_Check(uint8_t MSP_buf[], uint8_t buf_size)
 
     if (MSP_OSize == 0)
     {
+        debug_log("MSP unknown cmd 0x%02X -> error frame", MSP_type);
         MSP_buf[2] = 0x21;
         MSP_buf[3] = 0x00;
         MSP_buf[4] = MSP_type;
         MSP_buf[5] = MSP_type;
         return 6;
     }
+
+    debug_log("MSP cmd 0x%02X -> %u bytes", MSP_type, MSP_OSize + 1);
 
     crc = MSP_buf[3] ^ MSP_buf[4];
     for (uint8_t i = 5; i < MSP_OSize; i++)

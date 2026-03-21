@@ -2,6 +2,7 @@
 #include "blheli_esc_serial.h"
 #include "blheli_msp.h"
 #include "blheli_4way.h"
+#include "debug_log.h"
 
 static bool active = false;
 static uint16_t rx_counter = 0;
@@ -51,8 +52,10 @@ void passthrough_process()
 
         if (rx_counter >= buffer_len)
         {
+            debug_log("4WAY RX %u bytes cmd=0x%02X", buffer_len, rx_buf[1]);
             rx_counter = 0;
             uint16_t tx_len = Check_4Way(rx_buf);
+            debug_log("4WAY TX %u bytes", tx_len);
             if (tx_len > 0)
             {
                 Serial.write(rx_buf, tx_len);
@@ -66,7 +69,9 @@ void passthrough_process()
         uint16_t frame_len = data_len + 6;
         if (rx_counter >= frame_len)
         {
+            debug_log("MSP RX %u bytes type=0x%02X", frame_len, rx_buf[4]);
             uint8_t tx_len = MSP_Check(rx_buf, rx_counter);
+            debug_log("MSP TX %u bytes", tx_len);
             if (tx_len > 0)
             {
                 Serial.write(rx_buf, tx_len);
@@ -77,6 +82,7 @@ void passthrough_process()
     }
     else if (rx_buf[0] != 0x24 && rx_buf[0] != 0x2F)
     {
+        debug_log("PT discard byte 0x%02X", rx_buf[0]);
         rx_counter = 0;
     }
 }
