@@ -2,36 +2,60 @@
 
 using namespace esc;
 
-Esc::Esc(int pin, int pwm_channel) : pin(pin), pwm_channel(pwm_channel)
+Esc::Esc(gpio_num_t pin, rmt_channel_t rmt_channel)
+    : pin(pin), rmt_channel(rmt_channel), motor(nullptr), initialized(false)
 {
-    servo = new Servo();
 }
 
 void Esc::begin()
 {
-    servo->attach(pin, pwm_channel);
+    if (initialized)
+        return;
+    motor = new DShotRMT(pin, rmt_channel);
+    motor->begin(DSHOT300);
+    initialized = true;
     stop();
+}
+
+void Esc::deinit()
+{
+    if (!initialized)
+        return;
+    stop();
+    delete motor;
+    motor = nullptr;
+    gpio_reset_pin(pin);
+    initialized = false;
 }
 
 void Esc::write(float signed_percent)
 {
-    write_angle(scale_percent_to_pulse(signed_percent));
-}
-
-int Esc::scale_percent_to_pulse(float signed_percent)
-{
-    if (abs(signed_percent) < DEADZONE_PERCENT)
-        return NEUTRAL_ANGLE;
-    float angle = (MAX_PULSE - MIN_PULSE) / 200.0 * (signed_percent + 100.0) + MIN_PULSE;
-    return (int)min((float)MAX_ANGLE, max((float)MIN_ANGLE, angle));
+    if (!initialized)
+        return;
+    motor->sendThrottleValue(percent_to_dshot_3d(signed_percent));
 }
 
 void Esc::stop()
 {
-    write_angle(NEUTRAL_ANGLE);
+    if (!initialized)
+        return;
+    motor->sendThrottleValue(DSHOT_STOP);
 }
 
-void Esc::write_angle(int angle)
+uint16_t Esc::percent_to_dshot_3d(float signed_percent)
 {
-    servo->write(angle);
+    signed_percent = constrain(signed_percent, -100.0f, 100.0f);
+    if (signed_percent == 0.0f)
+        return DSHOT_STOP;
+
+    if (signed_percent > 0.0f)
+    {
+        return DSHOT_3D_FWD_SLOW +
+               (uint16_t)(signed_percent / 100.0f * (DSHOT_3D_FWD_FULL - DSHOT_3D_FWD_SLOW));
+    }
+    else
+    {
+        return DSHOT_3D_REV_SLOW +
+               (uint16_t)(signed_percent / 100.0f * (DSHOT_3D_REV_SLOW - DSHOT_3D_REV_FULL));
+    }
 }

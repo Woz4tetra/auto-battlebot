@@ -1,30 +1,29 @@
 #pragma once
-#include <s3servo.h>
 #include <Arduino.h>
+#include <DShotRMT.h>
+
 namespace esc
 {
-#define Servo s3servo
-
-    const int MIN_ANGLE = 0;
-    const int MAX_ANGLE = 180;
-    const int NEUTRAL_ANGLE = 90;
-    const int SPREAD_PULSE = 90;
-    const int MAX_PULSE = NEUTRAL_ANGLE + SPREAD_PULSE;
-    const int MIN_PULSE = NEUTRAL_ANGLE - SPREAD_PULSE;
-    const float DEADZONE_PERCENT = 1.0;
+    // DShot 3D mode throttle ranges
+    const uint16_t DSHOT_STOP = 0;
+    const uint16_t DSHOT_3D_REV_FULL = 48;
+    const uint16_t DSHOT_3D_REV_SLOW = 1047;
+    const uint16_t DSHOT_3D_FWD_SLOW = 1048;
+    const uint16_t DSHOT_3D_FWD_FULL = 2047;
 
     class Esc
     {
     private:
-        Servo *servo;
-        const int pin;
-        const int pwm_channel;
-        int scale_percent_to_pulse(float signed_percent);
-        void write_angle(int angle);
+        gpio_num_t pin;
+        rmt_channel_t rmt_channel;
+        DShotRMT *motor;
+        bool initialized;
+        uint16_t percent_to_dshot_3d(float signed_percent);
 
     public:
-        Esc(int pin, int pwm_channel);
+        Esc(gpio_num_t pin, rmt_channel_t rmt_channel);
         void begin();
+        void deinit();
         void stop();
         void write(float signed_percent);
     };
