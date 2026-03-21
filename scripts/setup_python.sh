@@ -8,8 +8,10 @@ set -e  # Exit on error
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Source the install_python_environment function
+# Source helper functions
 source "$PROJECT_ROOT/install/install_python_environment.sh"
+source "$PROJECT_ROOT/install/install_platformio.sh"
 
 # Run the installation (pass through flags: --recreate / -y, --no-recreate / -n)
 install_python_environment "$@"
+install_platformio
