@@ -1,5 +1,4 @@
 #include "diagnostics_server.h"
-#include "debug_log.h"
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 
@@ -34,7 +33,6 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 </head>
 <body>
 <h1>MR STABS Diagnostics</h1>
-<div style="margin-bottom:12px"><a href="/debug" style="color:#f80">Debug Log</a></div>
 <div id="conn" class="status disconnected">Connecting...</div>
 <table>
 <tr><td>timestamp_ms</td><td id="v_ts">-</td></tr>
@@ -96,75 +94,6 @@ connect();
 </html>
 )rawhtml";
 
-static const char DEBUG_HTML[] PROGMEM = R"rawhtml(
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MR STABS Debug Log</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:monospace;background:#1a1a2e;color:#e0e0e0;padding:16px}
-h1{color:#f80;margin-bottom:12px;font-size:1.4em}
-pre{background:#111;color:#0f0;padding:12px;border-radius:4px;overflow-x:auto;
-max-height:80vh;overflow-y:auto;font-size:0.85em;white-space:pre-wrap;word-break:break-all}
-.bar{margin-bottom:12px}
-.btn{display:inline-block;padding:8px 16px;margin:4px;border:none;border-radius:4px;
-font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
-.refresh{background:#06c}
-.clear{background:#c00}
-.auto{background:#080}
-.auto.off{background:#555}
-#status{color:#888;margin-left:12px;font-size:0.9em}
-</style>
-</head>
-<body>
-<h1>MR STABS Debug Log</h1>
-<div class="bar">
-<button class="btn refresh" onclick="poll()">Refresh</button>
-<button class="btn clear" onclick="clearLog()">Clear</button>
-<button class="btn auto" id="autoBtn" onclick="toggleAuto()">Auto: ON</button>
-<span id="status"></span>
-</div>
-<pre id="log"></pre>
-<script>
-let auto_poll=true,timer=null,seen=new Set();
-function poll(){
- fetch('/debuglog').then(r=>r.text()).then(t=>{
-  if(!t){return;}
-  const el=document.getElementById('log');
-  const lines=t.split('\n');
-  let added=false;
-  for(const ln of lines){
-   if(!ln||seen.has(ln))continue;
-   seen.add(ln);
-   el.textContent+=ln+'\n';
-   added=true;
-  }
-  if(added)el.scrollTop=el.scrollHeight;
-  document.getElementById('status').textContent='Updated '+new Date().toLocaleTimeString();
- }).catch(()=>{document.getElementById('status').textContent='fetch error';});
-}
-function clearLog(){
- fetch('/debugclear').then(()=>{
-  seen.clear();
-  document.getElementById('log').textContent='';
- });
-}
-function toggleAuto(){
- auto_poll=!auto_poll;
- const b=document.getElementById('autoBtn');
- if(auto_poll){b.textContent='Auto: ON';b.classList.remove('off');startTimer();}
- else{b.textContent='Auto: OFF';b.classList.add('off');if(timer)clearInterval(timer);}
-}
-function startTimer(){if(timer)clearInterval(timer);timer=setInterval(poll,500);}
-poll();startTimer();
-</script>
-</body>
-</html>
-)rawhtml";
-
 void DiagnosticsServer::begin()
 {
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
@@ -175,15 +104,6 @@ void DiagnosticsServer::begin()
 
     server.on("/record/stop", HTTP_GET, [this](AsyncWebServerRequest *request)
               { _recording = false; request->send(200, "text/plain", "ok"); });
-
-    server.on("/debug", HTTP_GET, [](AsyncWebServerRequest *request)
-              { request->send(200, "text/html", DEBUG_HTML); });
-
-    server.on("/debuglog", HTTP_GET, [](AsyncWebServerRequest *request)
-              { request->send(200, "text/plain", debug_log_get_all()); });
-
-    server.on("/debugclear", HTTP_GET, [](AsyncWebServerRequest *request)
-              { debug_log_clear(); request->send(200, "text/plain", "ok"); });
 
     events.onConnect([](AsyncEventSourceClient *client)
                      { client->send("connected", NULL, millis(), 1000); });

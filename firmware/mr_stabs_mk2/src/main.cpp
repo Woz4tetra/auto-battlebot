@@ -5,7 +5,6 @@
 #include <crsf_bridge.h>
 #include <esc.h>
 #include <updown_sensor.h>
-#include <blheli_passthrough.h>
 #include <diagnostics_server.h>
 
 const char *WIFI_SSID = "MR-STABS";
@@ -25,10 +24,9 @@ DiagnosticsServer diag_server;
 
 const int NUM_PIXELS = 1;
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
-int rainbow_tick = 0, led_intensity = 20, tuning_led_tick = 0;
+int rainbow_tick = 0, led_intensity = 20;
 
 bool is_loading_firmware = false;
-bool tuning_active = false;
 bool prev_button_state = false;
 uint32_t prev_loop_us = 0;
 
@@ -87,23 +85,6 @@ void setup_ota()
         .onError([](ota_error_t error) {});
 
     ArduinoOTA.begin();
-}
-
-void enter_tuning_mode()
-{
-    left_esc->deinit();
-    right_esc->deinit();
-    uint8_t pins[] = {(uint8_t)LEFT_ESC_PIN, (uint8_t)RIGHT_ESC_PIN};
-    passthrough_begin(pins, 2);
-    tuning_active = true;
-}
-
-void exit_tuning_mode()
-{
-    passthrough_end();
-    left_esc->begin();
-    right_esc->begin();
-    tuning_active = false;
 }
 
 void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float &left_command, float &right_command)
@@ -170,38 +151,7 @@ void loop()
         return;
     }
 
-    if (tuning_active)
-    {
-        passthrough_process();
-
-        static uint32_t last_aux = 0;
-        uint32_t now = millis();
-        if (now - last_aux > 500)
-        {
-            last_aux = now;
-            bool radio_ok = crsf->update(radio_data);
-            if (radio_ok)
-            {
-                bool button_now = radio_data->button_state;
-                if (button_now && !prev_button_state)
-                    exit_tuning_mode();
-                prev_button_state = button_now;
-            }
-        }
-        return;
-    }
-
     bool radio_ok = crsf->update(radio_data);
-
-    if (radio_ok)
-    {
-        bool button_now = radio_data->button_state;
-        if (button_now && !prev_button_state)
-        {
-            enter_tuning_mode();
-        }
-        prev_button_state = button_now;
-    }
 
     // Combat mode
     cycle_rainbow_led(rainbow_tick, led_intensity);
