@@ -36,7 +36,6 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <div id="conn" class="status disconnected">Connecting...</div>
 <table>
 <tr><td>timestamp_ms</td><td id="v_ts">-</td></tr>
-<tr><td>mode</td><td id="v_mode">-</td></tr>
 <tr><td>radio_connected</td><td id="v_radio">-</td></tr>
 <tr><td>armed</td><td id="v_armed">-</td></tr>
 <tr><td>a_percent</td><td id="v_a">-</td></tr>
@@ -56,8 +55,8 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <button class="btn dl" onclick="downloadCSV()">Download CSV</button>
 <span id="count"></span>
 <script>
-const hdr='timestamp_ms,mode,radio_connected,armed,a_percent,b_percent,button_state,flip_switch,left_cmd,right_cmd,accel_x,accel_y,accel_z,is_upside_down,loop_us,wifi_clients';
-const ids=['v_ts','v_mode','v_radio','v_armed','v_a','v_b','v_btn','v_flip','v_left','v_right','v_ax','v_ay','v_az','v_usd','v_loop','v_wifi'];
+const hdr='timestamp_ms,radio_connected,armed,a_percent,b_percent,button_state,flip_switch,left_cmd,right_cmd,accel_x,accel_y,accel_z,is_upside_down,loop_us,wifi_clients';
+const ids=['v_ts','v_radio','v_armed','v_a','v_b','v_btn','v_flip','v_left','v_right','v_ax','v_ay','v_az','v_usd','v_loop','v_wifi'];
 let rows=[];
 let recording=false;
 let es;
@@ -125,9 +124,8 @@ void DiagnosticsServer::update(const diag_data_t *data)
 
     char buf[256];
     snprintf(buf, sizeof(buf),
-             "%lu,%s,%d,%d,%.1f,%.1f,%d,%u,%.1f,%.1f,%.1f,%.1f,%.1f,%d,%lu,%u",
+             "%lu,%d,%d,%.1f,%.1f,%d,%u,%.1f,%.1f,%.1f,%.1f,%.1f,%d,%lu,%u",
              (unsigned long)data->timestamp_ms,
-             data->mode,
              data->radio_connected,
              data->armed,
              data->a_percent,

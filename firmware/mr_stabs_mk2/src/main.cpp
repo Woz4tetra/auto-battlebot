@@ -164,7 +164,6 @@ void loop()
         updown_sensor::vector3_t *av = accel->get();
         diag_data_t diag = {
             .timestamp_ms = millis(),
-            .mode = "combat",
             .radio_connected = false,
             .armed = false,
             .a_percent = 0,
@@ -193,7 +192,6 @@ void loop()
         updown_sensor::vector3_t *av = accel->get();
         diag_data_t diag = {
             .timestamp_ms = millis(),
-            .mode = "combat",
             .radio_connected = true,
             .armed = false,
             .a_percent = radio_data->a_percent,
@@ -244,7 +242,6 @@ void loop()
     updown_sensor::vector3_t *av = accel->get();
     diag_data_t diag = {
         .timestamp_ms = millis(),
-        .mode = "combat",
         .radio_connected = true,
         .armed = true,
         .a_percent = radio_data->a_percent,

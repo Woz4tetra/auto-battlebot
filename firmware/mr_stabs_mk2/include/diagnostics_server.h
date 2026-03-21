@@ -4,7 +4,6 @@
 typedef struct
 {
     uint32_t timestamp_ms;
-    const char *mode;
     bool radio_connected;
     bool armed;
     float a_percent;
