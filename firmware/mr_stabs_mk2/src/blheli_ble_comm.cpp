@@ -24,7 +24,7 @@ class PassthroughServerCallbacks : public NimBLEServerCallbacks
     void onConnect(NimBLEServer *pServer, ble_gap_conn_desc *desc)
     {
         Serial.println("BLHeli: BLE connected");
-        pServer->updateConnParams(desc->conn_handle, 6, 12, 0, 60);
+        pServer->updateConnParams(desc->conn_handle, 6, 24, 0, 400);
         ble_rx_counter = 0;
         ble_tx_counter = 0;
         ble_connected = true;
@@ -54,8 +54,7 @@ class PassthroughWriteCallback : public NimBLECharacteristicCallbacks
             else
                 ble_rx_counter++;
         }
-        if (pCharacteristic->getUUID().toString() == "0x1001")
-            ble_command = true;
+        ble_command = true;
     }
 };
 
