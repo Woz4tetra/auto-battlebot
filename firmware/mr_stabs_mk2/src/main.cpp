@@ -170,6 +170,27 @@ void loop()
         return;
     }
 
+    if (tuning_active)
+    {
+        passthrough_process();
+
+        static uint32_t last_aux = 0;
+        uint32_t now = millis();
+        if (now - last_aux > 500)
+        {
+            last_aux = now;
+            bool radio_ok = crsf->update(radio_data);
+            if (radio_ok)
+            {
+                bool button_now = radio_data->button_state;
+                if (button_now && !prev_button_state)
+                    exit_tuning_mode();
+                prev_button_state = button_now;
+            }
+        }
+        return;
+    }
+
     bool radio_ok = crsf->update(radio_data);
 
     if (radio_ok)
@@ -177,45 +198,9 @@ void loop()
         bool button_now = radio_data->button_state;
         if (button_now && !prev_button_state)
         {
-            if (tuning_active)
-                exit_tuning_mode();
-            else
-                enter_tuning_mode();
+            enter_tuning_mode();
         }
         prev_button_state = button_now;
-    }
-
-    if (tuning_active)
-    {
-        tuning_led_tick = (tuning_led_tick + 3) % 512;
-        int breath = tuning_led_tick < 256 ? tuning_led_tick : 511 - tuning_led_tick;
-        pixels.setPixelColor(0, pixels.Color(0, 0, breath));
-        pixels.setBrightness(255);
-        pixels.show();
-        passthrough_process();
-        ArduinoOTA.handle();
-
-        updown_sensor::vector3_t *av = accel->get();
-        diag_data_t diag = {
-            .timestamp_ms = millis(),
-            .mode = "tuning",
-            .radio_connected = radio_ok,
-            .armed = false,
-            .a_percent = radio_ok ? radio_data->a_percent : 0,
-            .b_percent = radio_ok ? radio_data->b_percent : 0,
-            .button_state = radio_ok ? radio_data->button_state : false,
-            .flip_switch = 0,
-            .left_cmd = 0,
-            .right_cmd = 0,
-            .accel_x = av ? av->x : 0,
-            .accel_y = av ? av->y : 0,
-            .accel_z = av ? av->z : 0,
-            .is_upside_down = false,
-            .loop_us = loop_us,
-            .wifi_clients = WiFi.softAPgetStationNum(),
-        };
-        diag_server.update(&diag);
-        return;
     }
 
     // Combat mode

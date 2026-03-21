@@ -66,6 +66,30 @@ void blheli_esc_serial_end()
     Enable4Way = false;
 }
 
+void blheli_esc_serial_reset_pulse(uint8_t index)
+{
+    if (index >= blheli_esc_count)
+        return;
+    uint8_t pin = blheli_esc_pins[index];
+    if (swSer)
+    {
+        swSer->end();
+        delete swSer;
+        swSer = nullptr;
+    }
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, LOW);
+    delay(300);
+    digitalWrite(pin, HIGH);
+    current_pin_index = index;
+    swSer = new SoftwareSerial();
+    swSer->begin(19200, SWSERIAL_8N1, pin, pin, false, 512);
+    swSer->enableIntTx(false);
+    Enable4Way = true;
+    uint8_t drain[8] = {0};
+    GetESC(drain, 50);
+}
+
 uint16_t SendESC(uint8_t tx_buf[], uint16_t buf_size)
 {
     return SendESC(tx_buf, buf_size, true);
@@ -115,16 +139,15 @@ uint16_t GetESC(uint8_t rx_buf[], uint16_t wait_ms)
         delayMicroseconds(500);
     }
 
-    // 10ms inter-byte timeout (>>520us per byte at 19200 baud)
-    unsigned long last_byte = millis();
-    while (millis() - last_byte < 10)
+    unsigned long last_byte_us = micros();
+    while (micros() - last_byte_us < 2000)
     {
         if (swSer->available())
         {
             rx_buf[i++] = swSer->read();
-            last_byte = millis();
+            last_byte_us = micros();
         }
-        delayMicroseconds(200);
+        delayMicroseconds(50);
     }
     debug_log("GetESC %u bytes wait=%u [%02X %02X %02X..]", i, wait_ms,
               i > 0 ? rx_buf[0] : 0,

@@ -120,8 +120,8 @@ uint16_t Check_4Way(uint8_t buf[])
                 debug_log("  sending RestartBootloader");
                 uint8_t ESC_data[2] = {RestartBootloader, 0};
                 SendESC(ESC_data, 2);
+                blheli_esc_serial_reset_pulse(param);
             }
-            delay(350);
             debug_log("  DeviceReset done");
         }
         else
