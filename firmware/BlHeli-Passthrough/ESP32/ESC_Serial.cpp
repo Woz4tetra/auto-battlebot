@@ -125,30 +125,34 @@ uint16_t SendESC(uint8_t tx_buf[], uint16_t buf_size, bool CRC) {
 uint16_t GetESC(uint8_t rx_buf[], uint16_t wait_ms ) {
   uint16_t i = 0;
   esc_crc = 0;
-  bool timeout = false;
 #ifdef _DEBUG_
   Serial.print("ESC Read: ");
 #endif
-  while ((!swSer1.available()) && (!timeout) ) {
-    delay(1);
-    i++;
-    if (i >= wait_ms) {
-      timeout = true;
+  unsigned long start = millis();
+  while (!swSer1.available()) {
+    if (millis() - start >= wait_ms) {
 #ifdef _DEBUG_
       Serial.println("Timeout");
 #endif
       return 0;
     }
+    delayMicroseconds(500);
   }
+
   i = 0;
-  while (swSer1.available()) {
-    rx_buf[i] = swSer1.read();
+  // Read until 10ms inter-byte timeout to avoid truncating slow bursts.
+  unsigned long last_byte = millis();
+  while (millis() - last_byte < 10) {
+    if (swSer1.available()) {
+      rx_buf[i] = swSer1.read();
 #ifdef _DEBUG_
-    Serial.print(rx_buf[i], HEX);
-    Serial.print(" ");
+      Serial.print(rx_buf[i], HEX);
+      Serial.print(" ");
 #endif
-    i++;
-    delayMicroseconds(100);
+      i++;
+      last_byte = millis();
+    }
+    delayMicroseconds(200);
   }
 #ifdef _DEBUG_
   Serial.println("done");

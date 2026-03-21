@@ -439,27 +439,35 @@ uint16_t Check_4Way(uint8_t buf[]) {
 #ifdef _DEBUG_
     Serial.print("DeviceWrite ");
 #endif
+    const uint8_t MAX_RETRIES = 3;
     O_Param_Len = 0x01;
     // Send CMD Adress
     uint8_t ESC_data[4] = {CMD_SET_ADDRESS, 0, addr_high, addr_low};
     uint16_t Data_Size = 4;
     uint16_t RX_Size = 0;
     uint8_t RX_Buf[250] = {0};
-    RX_Size = SendESC(ESC_data, Data_Size);
-    delay(50);
-    RX_Size = GetESC(RX_Buf, 100);
+    uint8_t attempt = 0;
+    bool cmd_ok = false;
+    for (attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      SendESC(ESC_data, Data_Size);
+      delay(30);
+      RX_Size = GetESC(RX_Buf, 200);
+      if ((RX_Size > 0) && (RX_Buf[0] == brSUCCESS)) {
+        cmd_ok = true;
+        break;
+      }
+      delay(20);
+    }
 #ifdef _DEBUG_
     Serial.print("ESC Received: ");
     Serial.print(RX_Size);
     Serial.print(" Bytes: ");
     Serial.print(RX_Buf[0], HEX);
 #endif
-    if (RX_Buf[0] == brSUCCESS) {
-
-    }
-    else {
+    if (!cmd_ok) {
       ack_out = ACK_D_GENERAL_ERROR;
     }
+
     // sende Buffer init
     ESC_data[0] = CMD_SET_BUFFER;
     ESC_data[1] = 0x00;
@@ -470,24 +478,29 @@ uint16_t Check_4Way(uint8_t buf[]) {
     if (I_Param_Len == 0) {
       ESC_data[2] = 0x01;
     }
-    RX_Size = SendESC(ESC_data, Data_Size);
-    delay(5);
-    // Keine Anwort vom ESC
+    SendESC(ESC_data, Data_Size);
+    delay(10);
+    // Often no response for CMD_SET_BUFFER, keep going.
 
     // sende Buffer data
-    RX_Size = SendESC(ParamBuf, I_Param_Len);
-    delay(5);
-    RX_Size = GetESC(RX_Buf, 200);
+    cmd_ok = false;
+    for (attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      SendESC(ParamBuf, I_Param_Len);
+      delay(20);
+      RX_Size = GetESC(RX_Buf, 300);
+      if ((RX_Size > 0) && (RX_Buf[0] == brSUCCESS)) {
+        cmd_ok = true;
+        break;
+      }
+      delay(20);
+    }
 #ifdef _DEBUG_
     Serial.print("ESC Received: ");
     Serial.print(RX_Size);
     Serial.print(" Bytes: ");
     Serial.print(RX_Buf[0], HEX);
 #endif
-    if (RX_Buf[0] == brSUCCESS) {
-      
-    }
-    else {
+    if (!cmd_ok) {
       ack_out = ACK_D_GENERAL_ERROR;
     }
 
@@ -495,23 +508,26 @@ uint16_t Check_4Way(uint8_t buf[]) {
     ESC_data[0] = CMD_PROG_FLASH;
     ESC_data[1] = 0x01;
     Data_Size = 2;
-    RX_Size = 0;
-    RX_Size = SendESC(ESC_data, Data_Size);
-    delay(30);
-    // brSUCCESS wird nicht sofort gesendet
-    RX_Size = GetESC(RX_Buf, 100);
+    cmd_ok = false;
+    for (attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      SendESC(ESC_data, Data_Size);
+      delay(60);
+      // brSUCCESS may be delayed by flash commit
+      RX_Size = GetESC(RX_Buf, 300);
+      if ((RX_Size > 0) && (RX_Buf[0] == brSUCCESS)) {
+        cmd_ok = true;
+        break;
+      }
+      delay(30);
+    }
 #ifdef _DEBUG_
     Serial.print("ESC Received: ");
     Serial.print(RX_Size);
     Serial.print(" Bytes: ");
     Serial.print(RX_Buf[0], HEX);
 #endif
-    if (RX_Buf[0] == brSUCCESS) {
-      //buf[6] = ACK_OK;    // ACK
-    }
-    else {
+    if (!cmd_ok) {
       ack_out = ACK_D_GENERAL_ERROR;
-      //buf[6] = ACK_D_GENERAL_ERROR;    // ACK
     }
   }
 
