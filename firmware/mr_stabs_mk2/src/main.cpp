@@ -112,7 +112,14 @@ void setup()
     right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_1);
     left_esc->begin();
     right_esc->begin();
-    delay(500);
+
+    // ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds)
+    for (int i = 0; i < 400; i++)
+    {
+        left_esc->stop();
+        right_esc->stop();
+        delay(5);
+    }
 
     pixels.begin();
     pixels.setBrightness(20);
