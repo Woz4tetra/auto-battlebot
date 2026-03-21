@@ -115,9 +115,9 @@ uint16_t GetESC(uint8_t rx_buf[], uint16_t wait_ms)
         delayMicroseconds(500);
     }
 
-    // 25ms inter-byte timeout to handle bootloader processing gaps
+    // 10ms inter-byte timeout (>>520us per byte at 19200 baud)
     unsigned long last_byte = millis();
-    while (millis() - last_byte < 25)
+    while (millis() - last_byte < 10)
     {
         if (swSer->available())
         {

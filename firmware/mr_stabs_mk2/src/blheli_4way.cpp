@@ -69,42 +69,24 @@ uint16_t Check_4Way(uint8_t buf[])
             uint16_t RX_Size = 0;
             debug_log("  sending BootInit %u bytes", Init_Size);
             SendESC(BootInit, Init_Size, false);
-            delay(80);
-            RX_Size = GetESC(RX_Buf, 300);
-            debug_log("  attempt 1: %u bytes [%02X %02X %02X %02X %02X %02X]",
+            delay(50);
+            RX_Size = GetESC(RX_Buf, 200);
+            debug_log("  GetESC %u bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
                       RX_Size,
                       RX_Size > 0 ? RX_Buf[0] : 0, RX_Size > 1 ? RX_Buf[1] : 0,
                       RX_Size > 2 ? RX_Buf[2] : 0, RX_Size > 3 ? RX_Buf[3] : 0,
-                      RX_Size > 4 ? RX_Buf[4] : 0, RX_Size > 5 ? RX_Buf[5] : 0);
-            if (RX_Size > 0 && RX_Size < 8)
+                      RX_Size > 4 ? RX_Buf[4] : 0, RX_Size > 5 ? RX_Buf[5] : 0,
+                      RX_Size > 6 ? RX_Buf[6] : 0, RX_Size > 7 ? RX_Buf[7] : 0,
+                      RX_Size > 8 ? RX_Buf[8] : 0);
+            if (RX_Size > 0 && RX_Buf[RX_Size - 1] == brSUCCESS)
             {
-                debug_log("  short response, re-sending BootInit");
-                SendESC(BootInit, Init_Size, false);
-                delay(80);
-                RX_Size = GetESC(RX_Buf, 300);
-                debug_log("  attempt 2: %u bytes [%02X %02X %02X %02X %02X %02X]",
-                          RX_Size,
-                          RX_Size > 0 ? RX_Buf[0] : 0, RX_Size > 1 ? RX_Buf[1] : 0,
-                          RX_Size > 2 ? RX_Buf[2] : 0, RX_Size > 3 ? RX_Buf[3] : 0,
-                          RX_Size > 4 ? RX_Buf[4] : 0, RX_Size > 5 ? RX_Buf[5] : 0);
-            }
-            if (RX_Size >= 6 && RX_Buf[RX_Size - 1] == brSUCCESS)
-            {
-                buf[5] = RX_Buf[RX_Size - 4];
-                buf[6] = RX_Buf[RX_Size - 5];
-                buf[7] = 0;
+                buf[5] = RX_Buf[5];
+                buf[6] = RX_Buf[4];
+                buf[7] = RX_Buf[3];
                 buf[8] = imARM_BLB;
                 buf[9] = ACK_OK;
-                debug_log("  InitFlash OK sig=%02X%02X mode=%u (n=%u)", buf[6], buf[5], buf[8], RX_Size);
-            }
-            else if (RX_Size > 0 && RX_Buf[RX_Size - 1] == brSUCCESS)
-            {
-                buf[5] = RX_Buf[0];
-                buf[6] = (RX_Size > 1) ? RX_Buf[1] : 0;
-                buf[7] = 0;
-                buf[8] = imARM_BLB;
-                buf[9] = ACK_OK;
-                debug_log("  InitFlash OK (short) sig=%02X%02X (n=%u)", buf[6], buf[5], RX_Size);
+                debug_log("  InitFlash OK sig=%02X%02X ver=%02X mode=%u (n=%u)",
+                          buf[6], buf[5], buf[7], buf[8], RX_Size);
             }
             else
             {
@@ -131,6 +113,7 @@ uint16_t Check_4Way(uint8_t buf[])
         O_Param_Len = 0x01;
         if (param < blheli_esc_count)
         {
+            blheli_esc_serial_switch_pin(param);
             buf[6] = ACK_OK;
             if (Enable4Way)
             {
@@ -138,17 +121,7 @@ uint16_t Check_4Way(uint8_t buf[])
                 uint8_t ESC_data[2] = {RestartBootloader, 0};
                 SendESC(ESC_data, 2);
             }
-            debug_log("  end serial, pulse pin %u LOW 300ms", blheli_esc_pins[param]);
-            blheli_esc_serial_end();
-            uint8_t pin = blheli_esc_pins[param];
-            pinMode(pin, OUTPUT);
-            digitalWrite(pin, LOW);
-            delay(300);
-            digitalWrite(pin, HIGH);
-            delay(10);
-            debug_log("  reopen serial on ESC#%u", param);
-            blheli_esc_serial_switch_pin(param);
-            delay(100);
+            delay(350);
             debug_log("  DeviceReset done");
         }
         else
