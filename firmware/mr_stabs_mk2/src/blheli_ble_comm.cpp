@@ -17,22 +17,24 @@ static volatile uint16_t ble_rx_counter = 0;
 static volatile uint16_t true_ble_rx_counter = 0;
 static uint16_t ble_tx_counter = 0;
 static uint8_t tx_counter = 0;
+static uint16_t ble_conn_handle = 0;
 static uint8_t ble_rx[5001];
 
 class PassthroughServerCallbacks : public NimBLEServerCallbacks
 {
-    void onConnect(NimBLEServer *pServer, ble_gap_conn_desc *desc)
+    void onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo) override
     {
         Serial.println("BLHeli: BLE connected");
-        pServer->updateConnParams(desc->conn_handle, 6, 24, 0, 400);
+        ble_conn_handle = connInfo.getConnHandle();
+        pServer->updateConnParams(ble_conn_handle, 6, 24, 0, 400);
         ble_rx_counter = 0;
         ble_tx_counter = 0;
         ble_connected = true;
     }
 
-    void onDisconnect(NimBLEServer *pServer)
+    void onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason) override
     {
-        Serial.println("BLHeli: BLE disconnected");
+        Serial.printf("BLHeli: BLE disconnected (reason=%d)\n", reason);
         ble_rx_counter = 0;
         ble_tx_counter = 0;
         ble_disconnected = true;
@@ -42,7 +44,7 @@ class PassthroughServerCallbacks : public NimBLEServerCallbacks
 
 class PassthroughWriteCallback : public NimBLECharacteristicCallbacks
 {
-    void onWrite(NimBLECharacteristic *pCharacteristic)
+    void onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo) override
     {
         std::string data = pCharacteristic->getValue();
         true_ble_rx_counter = data.length();
@@ -117,7 +119,7 @@ void blheli_ble_process()
     {
         ble_command = false;
         delay(5);
-        uint16_t peer_mtu = pServer ? (pServer->getPeerMTU(0)) - 3 : 20;
+        uint16_t peer_mtu = pServer ? (pServer->getPeerMTU(ble_conn_handle)) - 3 : 20;
         if (peer_mtu < 20 || peer_mtu > 517)
             peer_mtu = 20;
 
