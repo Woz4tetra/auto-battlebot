@@ -100,24 +100,25 @@ uint16_t GetESC(uint8_t rx_buf[], uint16_t wait_ms)
         return 0;
     uint16_t i = 0;
     esc_crc = 0;
-    bool timeout = false;
 
-    while ((!swSer->available()) && (!timeout))
+    unsigned long start = millis();
+    while (!swSer->available())
     {
-        delay(1);
-        i++;
-        if (i >= wait_ms)
-        {
-            timeout = true;
+        if (millis() - start >= wait_ms)
             return 0;
-        }
+        delayMicroseconds(500);
     }
-    i = 0;
-    while (swSer->available())
+
+    // 10ms inter-byte timeout (>>520us per byte at 19200 baud)
+    unsigned long last_byte = millis();
+    while (millis() - last_byte < 10)
     {
-        rx_buf[i] = swSer->read();
-        i++;
-        delayMicroseconds(100);
+        if (swSer->available())
+        {
+            rx_buf[i++] = swSer->read();
+            last_byte = millis();
+        }
+        delayMicroseconds(200);
     }
     return i;
 }

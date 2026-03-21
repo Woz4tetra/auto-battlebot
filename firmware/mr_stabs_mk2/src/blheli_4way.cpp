@@ -59,14 +59,36 @@ uint16_t Check_4Way(uint8_t buf[])
         O_Param_Len = 0x04;
         if (param < blheli_esc_count)
         {
+            if (Enable4Way)
+                blheli_esc_serial_end();
+
+            uint8_t esc_pin = blheli_esc_pins[param];
+
+            // Force ESC into bootloader: hold signal LOW to trigger MCU reset
+            pinMode(esc_pin, OUTPUT);
+            digitalWrite(esc_pin, LOW);
+            delay(300);
+            digitalWrite(esc_pin, HIGH);
+            delay(10);
+
             blheli_esc_serial_switch_pin(param);
+            delay(100);
+
             uint8_t BootInit[] = {0, 0, 0, 0, 0, 0, 0, 0, 0x0D, 'B', 'L', 'H', 'e', 'l', 'i', 0xF4, 0x7D};
             uint8_t Init_Size = 17;
             uint8_t RX_Buf[250] = {0};
             uint16_t RX_Size = 0;
-            SendESC(BootInit, Init_Size, false);
-            delay(50);
-            RX_Size = GetESC(RX_Buf, 200);
+
+            for (uint8_t attempt = 0; attempt < 3; attempt++)
+            {
+                SendESC(BootInit, Init_Size, false);
+                delay(80);
+                RX_Size = GetESC(RX_Buf, 300);
+                if (RX_Size > 0 && RX_Buf[RX_Size - 1] == brSUCCESS)
+                    break;
+                delay(200);
+            }
+
             if (RX_Size > 0 && RX_Buf[RX_Size - 1] == brSUCCESS)
             {
                 buf[5] = RX_Buf[5];
