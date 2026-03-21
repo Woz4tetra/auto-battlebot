@@ -127,17 +127,31 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <button class="btn auto" id="autoBtn" onclick="toggleAuto()">Auto: ON</button>
 <span id="status"></span>
 </div>
-<pre id="log">Loading...</pre>
+<pre id="log"></pre>
 <script>
-let auto_poll=true,timer=null;
+let auto_poll=true,timer=null,seen=new Set();
 function poll(){
  fetch('/debuglog').then(r=>r.text()).then(t=>{
-  const el=document.getElementById('log');el.textContent=t||'(empty)';
-  el.scrollTop=el.scrollHeight;
+  if(!t){return;}
+  const el=document.getElementById('log');
+  const lines=t.split('\n');
+  let added=false;
+  for(const ln of lines){
+   if(!ln||seen.has(ln))continue;
+   seen.add(ln);
+   el.textContent+=ln+'\n';
+   added=true;
+  }
+  if(added)el.scrollTop=el.scrollHeight;
   document.getElementById('status').textContent='Updated '+new Date().toLocaleTimeString();
  }).catch(()=>{document.getElementById('status').textContent='fetch error';});
 }
-function clearLog(){fetch('/debugclear').then(()=>poll());}
+function clearLog(){
+ fetch('/debugclear').then(()=>{
+  seen.clear();
+  document.getElementById('log').textContent='';
+ });
+}
 function toggleAuto(){
  auto_poll=!auto_poll;
  const b=document.getElementById('autoBtn');
