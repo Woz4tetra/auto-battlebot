@@ -6,9 +6,9 @@ ESP32-S3 firmware for the MR STABS battlebot. Runs on an Adafruit QT Py ESP32-S3
 
 The firmware has two modes, toggled by the `button_state` switch on the transmitter (rising edge toggles between them):
 
-**Combat mode** (default) -- DShot300 motor control via the CRSF radio link. Differential drive mixing, accelerometer-based flip detection, upside-down compensation.
+**Combat mode** (default) -- DShot300 motor control via the CRSF radio link. Differential drive mixing, accelerometer-based flip detection, upside-down compensation. LED shows a rainbow cycle.
 
-**Tuning mode** -- Motors stop. BLE passthrough activates so the BLHeli_32 Android app can configure both ESCs wirelessly. OTA firmware updates also available in this mode.
+**Tuning mode** -- Motors stop. USB serial passthrough activates so BLHeliSuite32 can configure both ESCs. LED shows a blue breathing pulse. OTA firmware updates also available in this mode.
 
 ## Hardware
 
@@ -45,71 +45,75 @@ The ESP32 creates a WiFi access point on boot:
 - **SSID:** `MR-STABS`
 - **Password:** `havocbots`
 
-Connect your computer to this network, then run `./scripts/ota`. The OTA endpoint is at `192.168.4.1`. OTA is handled in both combat mode and tuning mode.
+Connect your computer to this network, then run `./scripts/ota`. The OTA endpoint is at `192.168.4.1`. OTA is handled in both combat and tuning modes.
 
-## Configuring ESCs via BLHeli Passthrough
+## Configuring ESCs via USB Passthrough
 
-The firmware includes an integrated BLHeli passthrough that lets you read and write ESC parameters from your phone over Bluetooth -- no USB cable or reflashing required.
+The firmware includes a BLHeli serial passthrough that lets BLHeliSuite32 read and write ESC parameters over USB.
 
 ### Prerequisites
 
-- Install the **BLHeli_32** app (by Steffen Skaug) on your Android phone. The app was removed from Google Play but the APK is still available on [Aptoide](https://blheli-32.en.aptoide.com/app). See [Installing the APK](#installing-the-apk) below.
-- Power on the robot and ensure the transmitter is connected.
-
-### Installing the APK
-
-The BLHeli_32 app must be sideloaded since it is no longer on Google Play. No root required.
-
-1. On your phone, go to **Settings > Apps > Special app access > Install unknown apps** (path varies by manufacturer and Android version).
-2. Enable the permission for your browser (e.g. Chrome).
-3. Open the [Aptoide download page](https://blheli-32.en.aptoide.com/app) in your browser and download the APK.
-4. Tap the downloaded `.apk` file from your notification bar or Downloads folder.
-5. Tap **Install** when prompted.
-
-On some phones the permission prompt appears automatically the first time you open an APK, so step 1 may not be needed.
+- Install [BLHeliSuite32](https://github.com/bitdump/BLHeli) on your Linux PC (available as `blhelisuite32-bin` on the AUR, or run via WINE).
+- A USB cable connected to the ESP32-S3.
+- ESCs powered (battery connected).
 
 ### Connecting
 
-1. Toggle the `button_state` switch on the transmitter. The serial console prints `Entering tuning mode` and motors stop.
-2. Open the BLHeli_32 app on your phone.
-3. Tap the Bluetooth icon and scan for devices. Select **MR-STABS-ESC**.
-4. Once connected, tap **Read Setup**. The app reads parameters from both ESCs (they appear as ESC 1 and ESC 2 in the interface).
+1. Toggle the `button_state` switch on the transmitter. The LED changes to a blue breathing pulse and motors stop.
+2. Open BLHeliSuite32 on your PC.
+3. Select interface: **BLHeli32 Bootloader (Betaflight/Cleanflight)**.
+4. Select port: the ESP32's serial port (typically `/dev/ttyACM0`).
+5. Leave baud rate at **115200**.
+6. Click **Connect**, then **Read Setup**.
 
-### Recommended First-Time Settings
-
-Since the firmware uses DShot in 3D (bidirectional) mode, verify these settings on both ESCs:
-
-- **Motor Direction:** Bidirectional / 3D
-- **Low RPM Power Protect:** Off (or low, to avoid stalling at low speeds)
-- **Startup Power:** Adjust to the minimum that reliably starts your motors
-- **Motor Timing:** Medium (15-22.5 degrees) is a safe default
-- **Min/Max Throttle:** Leave at defaults for DShot (the protocol handles calibration digitally)
+Both ESCs appear as ESC 1 and ESC 2 in the interface.
 
 ### Saving Settings
 
-After changing parameters in the app:
-
-1. Tap **Write Setup** to send the new configuration to both ESCs. The app writes to each ESC in sequence.
-2. The ESCs store settings in their own non-volatile memory. The settings persist across power cycles -- you only need to do this once.
+1. Adjust parameters as needed (motor direction, startup power, timing, etc.).
+2. Click **Write Setup** to send the configuration to both ESCs.
+3. Settings persist in the ESC's non-volatile memory across power cycles.
 
 ### Saving an INI Backup
 
-The BLHeli_32 app can export your ESC configuration to a file so you can restore it later or copy it to replacement ESCs:
-
-1. After reading the ESC setup, tap the **menu** (three dots) or **save** icon.
-2. Select **Save Setup File** (or **Save ini**).
-3. Choose a location on your phone to save the `.ini` file. Name it something descriptive like `mr_stabs_left_right.ini`.
-4. To restore from a backup, use **Load Setup File** then **Write Setup**.
+1. After reading the ESC setup, use **File > Save Setup** to export a `.ini` file.
+2. To restore, use **File > Load Setup** then **Write Setup**.
 
 ### Exiting Tuning Mode
 
-Toggle the `button_state` switch again. The serial console prints `Exiting tuning mode`, BLE shuts down, DShot reinitializes, and the robot returns to combat mode.
+Toggle the `button_state` switch again. DShot reinitializes, the LED returns to rainbow, and the robot returns to combat mode.
 
 ## ESC Pin Mapping
 
-The passthrough reports 2 ESCs to the BLHeli_32 app:
-
-| App Label | Physical ESC | GPIO Pin |
+| BLHeliSuite32 Label | Physical ESC | GPIO Pin |
 |---|---|---|
 | ESC 1 | Left motor | A2 |
 | ESC 2 | Right motor | A3 |
+
+## Diagnostics Dashboard
+
+A live diagnostics web page is available over the WiFi access point. No extra software needed -- just a browser.
+
+1. Connect your computer to the **MR-STABS** WiFi network.
+2. Open `http://192.168.4.1` in a browser.
+
+The dashboard streams all diagnostic data at 10 Hz:
+
+- Radio state (connected, armed, stick percentages, switches)
+- Motor commands (left, right)
+- Accelerometer (x, y, z)
+- Orientation (upside down detection)
+- Loop timing and WiFi client count
+- Current mode (combat / tuning)
+
+### Recording Data
+
+1. Click **Record** on the dashboard. The stream switches to full loop rate and the browser accumulates every data point.
+2. Click **Stop** when done.
+3. Click **Download CSV** to save the recorded data as a timestamped CSV file.
+
+Recording happens entirely in the browser -- the ESP32 does not store data, so there is no RAM limit on recording duration (limited only by browser memory).
+
+### Zero Overhead
+
+The diagnostics server does no work when no browser is connected. There is no impact on combat mode performance when the dashboard is not open.

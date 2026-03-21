@@ -6,8 +6,7 @@
 #include <esc.h>
 #include <updown_sensor.h>
 #include <blheli_passthrough.h>
-
-#define MAIN_SERIAL Serial
+#include <diagnostics_server.h>
 
 const char *WIFI_SSID = "MR-STABS";
 const char *WIFI_PASSWORD = "havocbots";
@@ -22,6 +21,7 @@ esc::Esc *left_esc;
 esc::Esc *right_esc;
 
 updown_sensor::UpdownSensor *accel;
+DiagnosticsServer diag_server;
 
 const int NUM_PIXELS = 1;
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -30,6 +30,7 @@ int rainbow_tick = 0, led_intensity = 20, tuning_led_tick = 0;
 bool is_loading_firmware = false;
 bool tuning_active = false;
 bool prev_button_state = false;
+uint32_t prev_loop_us = 0;
 
 void set_builtin_led(int value)
 {
@@ -80,33 +81,16 @@ void setup_ota()
         .onStart([]()
                  {
     is_loading_firmware = true;
-    stop_escs();
-    String type;
-    if (ArduinoOTA.getCommand() == U_FLASH) {
-      type = "sketch";
-    } else {
-      type = "filesystem";
-    }
-    MAIN_SERIAL.println("Start updating " + type); })
-        .onEnd([]()
-               { MAIN_SERIAL.println("\nEnd"); })
-        .onProgress([](unsigned int progress, unsigned int total)
-                    { MAIN_SERIAL.printf("Progress: %u%%\r", (progress / (total / 100))); })
-        .onError([](ota_error_t error)
-                 {
-    MAIN_SERIAL.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) MAIN_SERIAL.println("Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) MAIN_SERIAL.println("Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) MAIN_SERIAL.println("Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) MAIN_SERIAL.println("Receive Failed");
-    else if (error == OTA_END_ERROR) MAIN_SERIAL.println("End Failed"); });
+    stop_escs(); })
+        .onEnd([]() {})
+        .onProgress([](unsigned int progress, unsigned int total) {})
+        .onError([](ota_error_t error) {});
 
     ArduinoOTA.begin();
 }
 
 void enter_tuning_mode()
 {
-    MAIN_SERIAL.println("Entering tuning mode");
     left_esc->deinit();
     right_esc->deinit();
     uint8_t pins[] = {(uint8_t)LEFT_ESC_PIN, (uint8_t)RIGHT_ESC_PIN};
@@ -116,7 +100,6 @@ void enter_tuning_mode()
 
 void exit_tuning_mode()
 {
-    MAIN_SERIAL.println("Exiting tuning mode");
     passthrough_end();
     left_esc->begin();
     right_esc->begin();
@@ -137,13 +120,11 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float &left_comman
 
 void setup()
 {
-    MAIN_SERIAL.begin(115200);
-    MAIN_SERIAL.println("Starting setup");
+    Serial.begin(115200);
 
 #if defined(NEOPIXEL_POWER)
     pinMode(NEOPIXEL_POWER, OUTPUT);
     digitalWrite(NEOPIXEL_POWER, HIGH);
-    MAIN_SERIAL.println("Set neopixel power");
 #endif
 
     left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_0);
@@ -172,15 +153,16 @@ void setup()
 
     WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
     setup_ota();
+    diag_server.begin();
 
-    MAIN_SERIAL.println("Setup complete");
+    prev_loop_us = micros();
 }
 
 void loop()
 {
-    delay(10);
-    cycle_rainbow_led(rainbow_tick, led_intensity);
-    rainbow_tick = (rainbow_tick + 5) % 255;
+    uint32_t now_us = micros();
+    uint32_t loop_us = now_us - prev_loop_us;
+    prev_loop_us = now_us;
 
     if (is_loading_firmware)
     {
@@ -188,24 +170,20 @@ void loop()
         return;
     }
 
-    if (!crsf->update(radio_data))
-    {
-        MAIN_SERIAL.println("Disconnected from radio");
-        if (!tuning_active)
-            stop_escs();
-        return;
-    }
+    bool radio_ok = crsf->update(radio_data);
 
-    // Rising-edge detection on button_state for toggle
-    bool button_now = radio_data->button_state;
-    if (button_now && !prev_button_state)
+    if (radio_ok)
     {
-        if (tuning_active)
-            exit_tuning_mode();
-        else
-            enter_tuning_mode();
+        bool button_now = radio_data->button_state;
+        if (button_now && !prev_button_state)
+        {
+            if (tuning_active)
+                exit_tuning_mode();
+            else
+                enter_tuning_mode();
+        }
+        prev_button_state = button_now;
     }
-    prev_button_state = button_now;
 
     if (tuning_active)
     {
@@ -216,16 +194,87 @@ void loop()
         pixels.show();
         passthrough_process();
         ArduinoOTA.handle();
+
+        updown_sensor::vector3_t *av = accel->get();
+        diag_data_t diag = {
+            .timestamp_ms = millis(),
+            .mode = "tuning",
+            .radio_connected = radio_ok,
+            .armed = false,
+            .a_percent = radio_ok ? radio_data->a_percent : 0,
+            .b_percent = radio_ok ? radio_data->b_percent : 0,
+            .button_state = radio_ok ? radio_data->button_state : false,
+            .flip_switch = 0,
+            .left_cmd = 0,
+            .right_cmd = 0,
+            .accel_x = av ? av->x : 0,
+            .accel_y = av ? av->y : 0,
+            .accel_z = av ? av->z : 0,
+            .is_upside_down = false,
+            .loop_us = loop_us,
+            .wifi_clients = WiFi.softAPgetStationNum(),
+        };
+        diag_server.update(&diag);
         return;
     }
 
     // Combat mode
+    cycle_rainbow_led(rainbow_tick, led_intensity);
+    rainbow_tick = (rainbow_tick + 5) % 255;
+
+    if (!radio_ok)
+    {
+        stop_escs();
+
+        updown_sensor::vector3_t *av = accel->get();
+        diag_data_t diag = {
+            .timestamp_ms = millis(),
+            .mode = "combat",
+            .radio_connected = false,
+            .armed = false,
+            .a_percent = 0,
+            .b_percent = 0,
+            .button_state = false,
+            .flip_switch = 0,
+            .left_cmd = 0,
+            .right_cmd = 0,
+            .accel_x = av ? av->x : 0,
+            .accel_y = av ? av->y : 0,
+            .accel_z = av ? av->z : 0,
+            .is_upside_down = false,
+            .loop_us = loop_us,
+            .wifi_clients = WiFi.softAPgetStationNum(),
+        };
+        diag_server.update(&diag);
+        return;
+    }
+
     ArduinoOTA.handle();
 
     if (!radio_data->armed)
     {
-        MAIN_SERIAL.println("Disarmed.");
         stop_escs();
+
+        updown_sensor::vector3_t *av = accel->get();
+        diag_data_t diag = {
+            .timestamp_ms = millis(),
+            .mode = "combat",
+            .radio_connected = true,
+            .armed = false,
+            .a_percent = radio_data->a_percent,
+            .b_percent = radio_data->b_percent,
+            .button_state = radio_data->button_state,
+            .flip_switch = (uint8_t)radio_data->flip_switch_state,
+            .left_cmd = 0,
+            .right_cmd = 0,
+            .accel_x = av ? av->x : 0,
+            .accel_y = av ? av->y : 0,
+            .accel_z = av ? av->z : 0,
+            .is_upside_down = false,
+            .loop_us = loop_us,
+            .wifi_clients = WiFi.softAPgetStationNum(),
+        };
+        diag_server.update(&diag);
         return;
     }
 
@@ -256,4 +305,25 @@ void loop()
 
     left_esc->write(left_command);
     right_esc->write(right_command);
+
+    updown_sensor::vector3_t *av = accel->get();
+    diag_data_t diag = {
+        .timestamp_ms = millis(),
+        .mode = "combat",
+        .radio_connected = true,
+        .armed = true,
+        .a_percent = radio_data->a_percent,
+        .b_percent = radio_data->b_percent,
+        .button_state = radio_data->button_state,
+        .flip_switch = (uint8_t)radio_data->flip_switch_state,
+        .left_cmd = left_command,
+        .right_cmd = right_command,
+        .accel_x = av ? av->x : 0,
+        .accel_y = av ? av->y : 0,
+        .accel_z = av ? av->z : 0,
+        .is_upside_down = is_upside_down,
+        .loop_us = loop_us,
+        .wifi_clients = WiFi.softAPgetStationNum(),
+    };
+    diag_server.update(&diag);
 }
