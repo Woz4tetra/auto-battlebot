@@ -14,6 +14,7 @@ source "$PROJECT_ROOT/install/install_docker_ubuntu.sh"
 source "$PROJECT_ROOT/install/install_ros_connector.sh"
 source "$PROJECT_ROOT/install/install_mcap_cli.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
+source "$PROJECT_ROOT/install/install_platformio.sh"
 
 # Run checks and installation
 check_os_ubuntu_24
@@ -25,3 +26,4 @@ install_docker_ubuntu
 install_ros_connector
 install_mcap_cli
 build_cpp_project "$@"
+install_platformio
