@@ -71,12 +71,6 @@ uint16_t Check_4Way(uint8_t buf[])
             SendESC(BootInit, Init_Size, false);
             delay(80);
             RX_Size = GetESC(RX_Buf, 300);
-            if (RX_Size > 0 && RX_Size < 7)
-            {
-                debug_log("  partial %u bytes, reading more", RX_Size);
-                delay(50);
-                RX_Size += GetESC(RX_Buf + RX_Size, 200);
-            }
             debug_log("  GetESC %u bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X",
                       RX_Size,
                       RX_Size > 0 ? RX_Buf[0] : 0, RX_Size > 1 ? RX_Buf[1] : 0,
@@ -84,18 +78,26 @@ uint16_t Check_4Way(uint8_t buf[])
                       RX_Size > 4 ? RX_Buf[4] : 0, RX_Size > 5 ? RX_Buf[5] : 0,
                       RX_Size > 6 ? RX_Buf[6] : 0, RX_Size > 7 ? RX_Buf[7] : 0,
                       RX_Size > 8 ? RX_Buf[8] : 0);
-            if (RX_Size >= 7 && RX_Buf[RX_Size - 1] == brSUCCESS)
+            if (RX_Size > 0 && RX_Buf[RX_Size - 1] == brSUCCESS)
             {
-                buf[5] = RX_Buf[RX_Size - 4];
-                buf[6] = RX_Buf[RX_Size - 5];
+                if (RX_Size >= 6)
+                {
+                    buf[5] = RX_Buf[RX_Size - 4];
+                    buf[6] = RX_Buf[RX_Size - 5];
+                }
+                else
+                {
+                    buf[5] = RX_Buf[0];
+                    buf[6] = (RX_Size > 1) ? RX_Buf[1] : 0;
+                }
                 buf[7] = 0;
                 buf[8] = imARM_BLB;
                 buf[9] = ACK_OK;
-                debug_log("  InitFlash OK sig=%02X%02X mode=%u", buf[6], buf[5], buf[8]);
+                debug_log("  InitFlash OK sig=%02X%02X mode=%u (n=%u)", buf[6], buf[5], buf[8], RX_Size);
             }
             else
             {
-                debug_log("  InitFlash FAIL");
+                debug_log("  InitFlash FAIL (n=%u last=0x%02X)", RX_Size, RX_Size > 0 ? RX_Buf[RX_Size - 1] : 0);
                 buf[5] = 0x06;
                 buf[6] = 0x33;
                 buf[7] = 0x67;
