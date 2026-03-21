@@ -75,6 +75,7 @@ void blheli_ble_init()
     pServer->start();
 
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
+    pAdvertising->setName("MR-STABS-ESC");
     pAdvertising->addServiceUUID(pService->getUUID());
     pAdvertising->start();
 
