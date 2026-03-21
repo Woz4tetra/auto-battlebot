@@ -25,7 +25,7 @@ updown_sensor::UpdownSensor *accel;
 
 const int NUM_PIXELS = 1;
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
-int rainbow_tick = 0, led_intensity = 20;
+int rainbow_tick = 0, led_intensity = 20, tuning_led_tick = 0;
 
 bool is_loading_firmware = false;
 bool tuning_active = false;
@@ -209,6 +209,11 @@ void loop()
 
     if (tuning_active)
     {
+        tuning_led_tick = (tuning_led_tick + 3) % 512;
+        int breath = tuning_led_tick < 256 ? tuning_led_tick : 511 - tuning_led_tick;
+        pixels.setPixelColor(0, pixels.Color(0, 0, breath));
+        pixels.setBrightness(255);
+        pixels.show();
         passthrough_process();
         ArduinoOTA.handle();
         return;
