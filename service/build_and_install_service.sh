@@ -7,6 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SERVICE_NAME="auto_battlebot"
 
+if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    echo "Stopping $SERVICE_NAME (was running)..."
+    sudo systemctl stop "$SERVICE_NAME"
+fi
+
 "$PROJECT_ROOT/scripts/build_and_install.sh" "$@"
 
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"

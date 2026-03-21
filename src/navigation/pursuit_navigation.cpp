@@ -57,21 +57,21 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
     last_path_ = NavigationPathSegment{our_pose.x, our_pose.y, target_pose.x, target_pose.y};
 
     logger_->debug("poses", {
-        {"our_frame_id", enum_to_string_lower(our_robot.frame_id)},
-        {"our_x", our_pose.x},
-        {"our_y", our_pose.y},
-        {"our_yaw_deg", our_pose.yaw * 180.0 / M_PI},
-        {"target_frame_id", enum_to_string_lower(target.frame_id)},
-        {"target_x", target_pose.x},
-        {"target_y", target_pose.y},
-    });
+                                {"our_frame_id", enum_to_string_lower(our_robot.frame_id)},
+                                {"our_x", our_pose.x},
+                                {"our_y", our_pose.y},
+                                {"our_yaw_deg", our_pose.yaw * 180.0 / M_PI},
+                                {"target_frame_id", enum_to_string_lower(target.frame_id)},
+                                {"target_x", target_pose.x},
+                                {"target_y", target_pose.y},
+                            });
 
     auto cmd = compute_pursuit_command(our_pose, target_pose, field);
 
     logger_->debug("command", {
-        {"linear_x", cmd.linear_x},
-        {"angular_z", cmd.angular_z},
-    });
+                                  {"linear_x", cmd.linear_x},
+                                  {"angular_z", cmd.angular_z},
+                              });
 
     return cmd;
 }
@@ -149,8 +149,8 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     double angle_error = normalize_angle(angle_to_target - our_pose.yaw);
 
     if (enable_hysteresis_) {
-        constexpr double commit_threshold = M_PI * 0.75;   // 135 deg
-        constexpr double release_threshold = M_PI * 0.5;   // 90 deg
+        constexpr double commit_threshold = M_PI * 0.75;  // 135 deg
+        constexpr double release_threshold = M_PI * 0.5;  // 90 deg
 
         if (std::abs(angle_error) > commit_threshold) {
             int sign = (angle_error > 0) ? 1 : -1;
@@ -170,14 +170,15 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
 
-    logger_->debug("pursuit", {
-        {"distance", distance},
-        {"angle_to_target_deg", angle_to_target * 180.0 / M_PI},
-        {"angle_error_deg", angle_error * 180.0 / M_PI},
-        {"threshold_deg", angle_threshold_ * 180.0 / M_PI},
-        {"facing_target", std::abs(angle_error) < angle_threshold_ ? 1 : 0},
-        {"turn_commit", committed_turn_sign_},
-    });
+    logger_->debug("pursuit",
+                   {
+                       {"distance", distance},
+                       {"angle_to_target_deg", angle_to_target * 180.0 / M_PI},
+                       {"angle_error_deg", angle_error * 180.0 / M_PI},
+                       {"threshold_deg", angle_threshold_ * 180.0 / M_PI},
+                       {"facing_target", std::abs(angle_error) < angle_threshold_ ? 1 : 0},
+                       {"turn_commit", committed_turn_sign_},
+                   });
 
     if (distance < stop_distance_) {
         committed_turn_sign_ = 0;

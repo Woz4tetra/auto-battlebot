@@ -80,7 +80,7 @@ void OpenTxTransmitter::send(VelocityCommand command) {
     if (!serial_.is_open()) return;
 
     int linear_val = to_trainer_value(command.linear_x);
-    int angular_val = to_trainer_value(command.angular_z);
+    int angular_val = -1 * to_trainer_value(command.angular_z);
 
     logger_->debug("send", {{"linear", linear_val}, {"angular", angular_val}});
 

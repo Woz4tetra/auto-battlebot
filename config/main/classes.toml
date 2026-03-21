@@ -78,6 +78,8 @@ back_keypoints = [
 
 [navigation]
 type = "PursuitNavigation"
+angular_kp = 0.1
+angular_kd = 0.1
 
 [transmitter]
 type = "OpenTxTransmitter"

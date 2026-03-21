@@ -5,10 +5,10 @@ show_viewer = false
 show_contact_forces = false
 physics_dt = 0.04
 substeps = 3
-settle_steps = 100
+settle_steps = 50
 
 [arena]
-width = 2.4    # meters (NHRL cage)
+width = 2.4                            # meters (NHRL cage)
 height = 2.4
 floor_mesh = "./assets/cage/floor.obj"
 # Panoramic background image from simulation/assets/panoramas/.
@@ -18,8 +18,8 @@ panorama = "greenhouse.jpg"
 [camera]
 res_width = 1280
 res_height = 720
-fov = 70.0           # ZED 2i approximate HFOV
-pos = [0.0, -1.5, 1.0]  # x, y, z in meters
+fov = 70.0               # ZED 2i approximate HFOV
+pos = [0.0, -1.5, 1.0]   # x, y, z in meters
 lookat = [0.0, 0.0, 0.0]
 
 [[lights]]
@@ -38,10 +38,10 @@ intensity = 3.0
 model_path = "./assets/robots/mr_stabs_mk2/robot.urdf"
 scale = 1.0
 start_pos = [-0.5, 0.0, 0.025]
-start_rotation = 45.0               # yaw in degrees at spawn
-max_linear_speed = 2.0              # m/s at command=1.0
-max_angular_speed = 6.0             # rad/s at command=1.0
-model_euler = [0.0, 0.0, 0.0]      # URDF meshes already x-forward
+start_rotation = 45.0                                  # yaw in degrees at spawn
+max_linear_speed = 2.0                                 # m/s at command=1.0
+max_angular_speed = 6.0                                # rad/s at command=1.0
+model_euler = [0.0, 0.0, 0.0]                          # URDF meshes already x-forward
 wheel_radius = 0.025
 track_width = 0.128
 wheel_friction = 0.8
@@ -55,9 +55,9 @@ right_wheel_joints = ["right_wheel_joint"]
 model_path = "./assets/robots/house_bot/robot.urdf"
 scale = 1.0
 start_pos = [0.75, 0.75, 0.123]
-start_rotation = 225.0              # yaw in degrees at spawn
-behavior = "static"                 # "static", "random_walk", "circular"
-speed = 0.3                         # m/s for moving behaviors
+start_rotation = 225.0                                                     # yaw in degrees at spawn
+behavior = "static"                                                        # "static", "random_walk", "circular"
+speed = 0.3                                                                # m/s for moving behaviors
 model_euler = [0.0, 0.0, 0.0]
 wheel_radius = 0.04
 track_width = 0.2
@@ -72,7 +72,7 @@ right_wheel_joints = ["front_right_wheel_joint", "rear_right_wheel_joint"]
 model_path = "./assets/robots/mrs_buff_mk2.glb"
 scale = 1.0
 start_pos = [0.5, 0.0, 0.1]
-start_rotation = 180.0              # yaw in degrees at spawn
-behavior = "random_walk"                 # "static", "random_walk", "circular"
-speed = 0.3                         # m/s for moving behaviors
+start_rotation = 180.0                          # yaw in degrees at spawn
+behavior = "random_walk"                        # "static", "random_walk", "circular"
+speed = 2.0                                     # m/s for moving behaviors
 model_euler = [-90.0, 0.0, 0.0]
