@@ -7,14 +7,15 @@ Esc::Esc(gpio_num_t pin, rmt_channel_t rmt_channel)
 {
 }
 
-void Esc::begin()
+bool Esc::begin()
 {
     if (initialized)
-        return;
+        return true;
     motor = new DShotRMT(pin, rmt_channel);
-    motor->begin(DSHOT300);
+    bool ok = motor->begin(DSHOT300);
     initialized = true;
     stop();
+    return ok;
 }
 
 void Esc::deinit()

@@ -2,15 +2,10 @@
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoOTA.h>
 #include <WiFi.h>
-#include <driver/rmt.h>
 #include <crsf_bridge.h>
 #include <esc.h>
 #include <updown_sensor.h>
 #include <diagnostics_server.h>
-
-// NeoPixel's espShow() dynamically grabs RMT channels from this array.
-// Reserve DShot channels so NeoPixel doesn't reconfigure/uninstall them.
-extern bool rmt_reserved_channels[RMT_CHANNEL_MAX];
 
 const char *WIFI_SSID = "MR-STABS";
 const char *WIFI_PASSWORD = "havocbots";
@@ -115,10 +110,14 @@ void setup()
 
     left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_0);
     right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_1);
-    left_esc->begin();
-    right_esc->begin();
-    rmt_reserved_channels[RMT_CHANNEL_0] = true;
-    rmt_reserved_channels[RMT_CHANNEL_1] = true;
+
+    Serial.printf("Left ESC: pin=%d ch=%d\n", LEFT_ESC_PIN, RMT_CHANNEL_0);
+    bool left_ok = left_esc->begin();
+    Serial.printf("Left ESC init: %s\n", left_ok ? "OK" : "FAIL");
+
+    Serial.printf("Right ESC: pin=%d ch=%d\n", RIGHT_ESC_PIN, RMT_CHANNEL_1);
+    bool right_ok = right_esc->begin();
+    Serial.printf("Right ESC init: %s\n", right_ok ? "OK" : "FAIL");
 
     // ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds)
     for (int i = 0; i < 400; i++)

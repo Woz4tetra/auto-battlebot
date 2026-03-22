@@ -22,7 +22,7 @@ namespace esc
 
     public:
         Esc(gpio_num_t pin, rmt_channel_t rmt_channel);
-        void begin();
+        bool begin();
         void deinit();
         void stop();
         void write(float signed_percent);
