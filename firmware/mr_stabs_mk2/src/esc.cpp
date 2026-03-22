@@ -50,12 +50,13 @@ uint16_t Esc::percent_to_dshot_3d(float signed_percent)
 
     if (signed_percent > 0.0f)
     {
-        return DSHOT_3D_FWD_SLOW +
-               (uint16_t)(signed_percent / 100.0f * (DSHOT_3D_FWD_FULL - DSHOT_3D_FWD_SLOW));
+        return DSHOT_3D_FWD_MIN +
+               (uint16_t)(signed_percent / 100.0f * (DSHOT_3D_FWD_MAX - DSHOT_3D_FWD_MIN));
     }
     else
     {
-        return DSHOT_3D_REV_SLOW +
-               (uint16_t)(signed_percent / 100.0f * (DSHOT_3D_REV_SLOW - DSHOT_3D_REV_FULL));
+        float magnitude = -signed_percent / 100.0f;
+        return DSHOT_3D_REV_MIN +
+               (uint16_t)(magnitude * (DSHOT_3D_REV_MAX - DSHOT_3D_REV_MIN));
     }
 }

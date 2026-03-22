@@ -4,12 +4,12 @@
 
 namespace esc
 {
-    // DShot 3D mode throttle ranges
+    // DShot 3D mode: higher value = faster in both directions
     const uint16_t DSHOT_STOP = 0;
-    const uint16_t DSHOT_3D_REV_FULL = 48;
-    const uint16_t DSHOT_3D_REV_SLOW = 1047;
-    const uint16_t DSHOT_3D_FWD_SLOW = 1048;
-    const uint16_t DSHOT_3D_FWD_FULL = 2047;
+    const uint16_t DSHOT_3D_REV_MIN = 48;
+    const uint16_t DSHOT_3D_REV_MAX = 1047;
+    const uint16_t DSHOT_3D_FWD_MIN = 1048;
+    const uint16_t DSHOT_3D_FWD_MAX = 2047;
 
     class Esc
     {
