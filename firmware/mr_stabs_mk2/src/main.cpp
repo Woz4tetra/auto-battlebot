@@ -112,16 +112,15 @@ void setup()
     digitalWrite(NEOPIXEL_POWER, HIGH);
 #endif
 
-    left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_0);
-    right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_1);
+    // Swap channel assignments to test: is the right ESC issue pin or channel?
+    left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_1);
+    right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_0);
 
-    Serial.printf("Left ESC: pin=%d ch=%d\n", LEFT_ESC_PIN, RMT_CHANNEL_0);
-    bool left_ok = left_esc->begin();
-    Serial.printf("Left ESC init: %s\n", left_ok ? "OK" : "FAIL");
+    Serial.printf("Left ESC: pin=%d ch=%d (swapped)\n", LEFT_ESC_PIN, RMT_CHANNEL_1);
+    left_esc->begin();
 
-    Serial.printf("Right ESC: pin=%d ch=%d\n", RIGHT_ESC_PIN, RMT_CHANNEL_1);
-    bool right_ok = right_esc->begin();
-    Serial.printf("Right ESC init: %s\n", right_ok ? "OK" : "FAIL");
+    Serial.printf("Right ESC: pin=%d ch=%d (swapped)\n", RIGHT_ESC_PIN, RMT_CHANNEL_0);
+    right_esc->begin();
 
     // ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds)
     for (int i = 0; i < 400; i++)
@@ -131,8 +130,7 @@ void setup()
         delay(5);
     }
 
-    Serial.printf("=== ESC INIT RESULTS: left=%s right=%s ===\n",
-                  left_ok ? "OK" : "FAIL", right_ok ? "OK" : "FAIL");
+    Serial.println("=== CHANNEL SWAP TEST: left=pin9/ch1, right=pin8/ch0 ===");
 
     pixels.begin();
     pixels.setBrightness(20);
