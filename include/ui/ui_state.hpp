@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "data_structures/camera.hpp"
+#include "data_structures/field.hpp"
 #include "data_structures/keypoint.hpp"
 #include "data_structures/robot.hpp"
 #include "diagnostics_logger/diagnostics_backend_interface.hpp"
@@ -70,6 +72,12 @@ class UIState {
     /** Last navigation path (field frame). UI may draw for debug. */
     void set_navigation_path(const std::optional<NavigationPathSegment> &path);
     void get_navigation_path(std::optional<NavigationPathSegment> &out) const;
+    /** Field description used to project field-frame overlays into camera image. */
+    void set_field_description(const std::optional<FieldDescription> &field);
+    void get_field_description(std::optional<FieldDescription> &out) const;
+    /** Camera intrinsics/distortion used for projection into image pixels. */
+    void set_camera_info(const CameraInfo &camera_info);
+    void get_camera_info(CameraInfo &out) const;
 
     /** Window size for UI (from config [ui]; default 1280x800). Set before starting UI thread. */
     void set_window_size(int width, int height);
@@ -108,6 +116,8 @@ class UIState {
     RobotDescriptionsStamped robots_;
     KeypointsStamped keypoints_;
     std::optional<NavigationPathSegment> navigation_path_;
+    std::optional<FieldDescription> field_description_;
+    CameraInfo camera_info_;
     int window_width_ = 1280;
     int window_height_ = 800;
     bool fullscreen_ = true;

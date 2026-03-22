@@ -79,6 +79,26 @@ void UIState::get_navigation_path(std::optional<NavigationPathSegment> &out) con
     out = navigation_path_;
 }
 
+void UIState::set_field_description(const std::optional<FieldDescription> &field) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    field_description_ = field;
+}
+
+void UIState::get_field_description(std::optional<FieldDescription> &out) const {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    out = field_description_;
+}
+
+void UIState::set_camera_info(const CameraInfo &camera_info) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    camera_info_ = camera_info;
+}
+
+void UIState::get_camera_info(CameraInfo &out) const {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    out = camera_info_;
+}
+
 void UIState::set_window_size(int width, int height) {
     std::lock_guard<std::mutex> lock(status_mutex_);
     window_width_ = width;

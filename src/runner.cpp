@@ -172,6 +172,9 @@ bool Runner::tick() {
 
     if (!is_camera_ok) {
         publish_system_status(false);
+        if (ui_state_) {
+            ui_state_->set_field_description(std::nullopt);
+        }
         if (camera_->should_close()) {
             spdlog::error("Camera signalled to close the application");
             return false;
@@ -210,6 +213,10 @@ bool Runner::tick() {
 
     if (!initialized_) {
         publisher_->publish_camera_data(camera_data);
+        if (ui_state_) {
+            ui_state_->set_camera_info(camera_data.camera_info);
+            ui_state_->set_field_description(std::nullopt);
+        }
         publish_system_status(true);
         return true;
     }
@@ -269,6 +276,8 @@ bool Runner::tick() {
 
     publish_system_status(true);
     if (ui_state_) {
+        ui_state_->set_camera_info(camera_data.camera_info);
+        ui_state_->set_field_description(field_description);
         ui_state_->set_robots(robots);
         ui_state_->set_keypoints(keypoints);
         ui_state_->set_navigation_path(navigation_->get_last_path());
