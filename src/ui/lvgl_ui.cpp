@@ -231,11 +231,6 @@ bool project_field_point_to_pixel(const FieldDescription &field, const CameraInf
     const double u = fx * (cx / cz) + px0;
     const double v = fy * (cy / cz) + py0;
     if (!std::isfinite(u) || !std::isfinite(v)) return false;
-    if (u < 0.0 || u >= static_cast<double>(camera_info.width) || v < 0.0 ||
-        v >= static_cast<double>(camera_info.height)) {
-        return false;
-    }
-
     out = cv::Point(static_cast<int>(std::lround(u)), static_cast<int>(std::lround(v)));
     return true;
 }
