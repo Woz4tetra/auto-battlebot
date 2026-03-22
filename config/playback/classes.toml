@@ -106,6 +106,7 @@ type = "RosPublisher"
 
 [runner]
 max_loop_rate = 30.0
+default_opponent_count = 1
 
 [ui]
 enable = false

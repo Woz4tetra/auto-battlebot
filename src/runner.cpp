@@ -7,14 +7,6 @@
 #include "enums.hpp"
 
 namespace auto_battlebot {
-static int count_opponents_in_config(const std::vector<RobotConfig> &configs) {
-    int n = 0;
-    for (const auto &r : configs) {
-        if (r.label == Label::OPPONENT) n++;
-    }
-    return n > 0 ? n : 1;
-}
-
 Runner::Runner(const RunnerConfiguration &runner_config,
                const std::vector<RobotConfig> &robot_configs,
                std::shared_ptr<RgbdCameraInterface> camera,
@@ -38,7 +30,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       publisher_(publisher),
       ui_state_(std::move(ui_state)),
       initial_robot_configs_(robot_configs),
-      runtime_opponent_count_(count_opponents_in_config(robot_configs)),
+      runtime_opponent_count_(runner_config_.default_opponent_count),
       robot_filter_reinit_pending_(false),
       initialized_(false),
       initial_field_description_(),
@@ -140,6 +132,17 @@ bool Runner::tick() {
     rate_data["rate"] = loop_rate_hz;
     diagnostics_logger_->debug(rate_data);
 
+    auto publish_system_status = [this, loop_rate_hz](bool camera_ok) {
+        if (!ui_state_) return;
+        SystemStatus status;
+        status.camera_ok = camera_ok;
+        status.transmitter_connected = transmitter_->is_connected();
+        status.loop_rate_hz = loop_rate_hz;
+        status.initialized = initialized_;
+        status.selected_opponent_count = runtime_opponent_count_;
+        ui_state_->set_system_status(status);
+    };
+
     if (!miniros::ok()) {
         miniros::shutdown();
         return false;
@@ -168,6 +171,7 @@ bool Runner::tick() {
     }
 
     if (!is_camera_ok) {
+        publish_system_status(false);
         if (camera_->should_close()) {
             spdlog::error("Camera signalled to close the application");
             return false;
@@ -206,6 +210,7 @@ bool Runner::tick() {
 
     if (!initialized_) {
         publisher_->publish_camera_data(camera_data);
+        publish_system_status(true);
         return true;
     }
 
@@ -262,13 +267,8 @@ bool Runner::tick() {
         publisher_->publish_navigation(nav_viz);
     }
 
+    publish_system_status(true);
     if (ui_state_) {
-        SystemStatus status;
-        status.camera_ok = true;
-        status.transmitter_connected = transmitter_->is_connected();
-        status.loop_rate_hz = loop_rate_hz;
-        status.initialized = initialized_;
-        ui_state_->set_system_status(status);
         ui_state_->set_robots(robots);
         ui_state_->set_keypoints(keypoints);
         ui_state_->set_navigation_path(navigation_->get_last_path());

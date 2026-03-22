@@ -57,6 +57,7 @@ keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 [robot_filter]
 type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
+default_opponent_count = 1
 
 front_keypoints = [
     "MR_STABS_MK1_FRONT",
@@ -105,6 +106,7 @@ type = "RosPublisher"
 
 [runner]
 max_loop_rate = 30.0
+default_opponent_count = 3
 
 [ui]
 enable = false

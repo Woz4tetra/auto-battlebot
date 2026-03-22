@@ -71,6 +71,7 @@ struct UIWidgets {
     /** When rate first went below threshold; empty when above. Used for
      * sustained-fail (anti-strobe). */
     std::optional<std::chrono::steady_clock::time_point> rate_below_since;
+    bool reinit_pulsing = false;
 };
 
 /** Push current rate into rolling history (call once per frame). Window size
@@ -168,6 +169,32 @@ HealthRow make_health_row(lv_obj_t *parent, const char *text) {
 void set_health(HealthRow &hr, bool ok, const char *text) {
     if (hr.led) lv_led_set_color(hr.led, ok ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744));
     if (hr.label) lv_label_set_text(hr.label, text);
+}
+
+void pulse_bg_opa_cb(void *var, int32_t v) {
+    lv_obj_set_style_bg_opa(static_cast<lv_obj_t *>(var), static_cast<lv_opa_t>(v), 0);
+}
+
+void start_reinit_pulse(UIWidgets &w) {
+    if (!w.reinit_tile || w.reinit_pulsing) return;
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, w.reinit_tile);
+    lv_anim_set_values(&anim, static_cast<int32_t>(LV_OPA_60), static_cast<int32_t>(LV_OPA_COVER));
+    lv_anim_set_duration(&anim, 650);
+    lv_anim_set_reverse_duration(&anim, 650);
+    lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
+    lv_anim_set_exec_cb(&anim, pulse_bg_opa_cb);
+    lv_anim_start(&anim);
+    w.reinit_pulsing = true;
+}
+
+void stop_reinit_pulse(UIWidgets &w) {
+    if (!w.reinit_tile || !w.reinit_pulsing) return;
+    lv_anim_delete(w.reinit_tile, pulse_bg_opa_cb);
+    lv_obj_set_style_bg_opa(w.reinit_tile, LV_OPA_COVER, 0);
+    w.reinit_pulsing = false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -308,7 +335,7 @@ void build_diagnostics(lv_obj_t *tab, UIWidgets &w) {
 
     w.health[0] = make_health_row(hc, "Camera: --");
     w.health[1] = make_health_row(hc, "Transmitter: --");
-    w.health[2] = make_health_row(hc, "Field Initialized: --");
+    w.health[2] = make_health_row(hc, "Field: --");
     w.health[3] = make_health_row(hc, "Our Robot Seen: --");
     w.health[4] = make_health_row(hc, "Opponents Seen: --");
     w.health[5] = make_health_row(hc, "Loop Rate: --");
@@ -375,63 +402,92 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
     bool our_seen = false;
     int opp = 0;
     derive_robot_counts(robots, our_seen, opp);
+    if (st.selected_opponent_count >= 1 && st.selected_opponent_count <= 3) {
+        selected_opponent_count = st.selected_opponent_count;
+    }
 
     update_rate_history(w, us, st.loop_rate_hz);
     double avg_hz = get_rate_avg(w, st.loop_rate_hz);
     bool loop_met = compute_loop_met_sustained(w, us, avg_hz);
-    bool ok = st.camera_ok && st.transmitter_connected && st.initialized && loop_met;
+    bool hardware_ok = st.camera_ok && st.transmitter_connected;
+    bool needs_reinit = !st.initialized;
+    bool has_fault = !hardware_ok || !loop_met;
     bool tracking = our_seen && opp >= 1;
 
-    /* Tile color: green = OK + our robot and ≥1 opponent tracked; yellow = OK
-     * only; red = error */
+    /* Green = fully ready + tracking; yellow = action/info; red = hardware or
+     * runtime fault */
     if (w.status_tile) {
         lv_color_t tile_color;
-        if (ok && tracking)
-            tile_color = lv_color_hex(0x00C853); /* green */
-        else if (ok)
-            tile_color = lv_color_hex(0xFFC107); /* yellow */
-        else
+        if (has_fault)
             tile_color = lv_color_hex(0xFF1744); /* red */
+        else if (!needs_reinit && tracking)
+            tile_color = lv_color_hex(0x00C853); /* green */
+        else
+            tile_color = lv_color_hex(0xFFC107); /* yellow */
         lv_obj_set_style_bg_color(w.status_tile, tile_color, 0);
     }
     if (w.status_label) {
-        lv_label_set_text(w.status_label, ok ? "System OK" : "System Error");
+        if (!hardware_ok) {
+            lv_label_set_text(w.status_label, "Hardware Disconnected");
+        } else if (!loop_met) {
+            lv_label_set_text(w.status_label, "Loop Rate Low");
+        } else if (needs_reinit) {
+            lv_label_set_text(w.status_label, "Press Reinitialize");
+        } else {
+            lv_label_set_text(w.status_label, "System Ready");
+        }
         /* Dark text on yellow/green for readability */
-        lv_obj_set_style_text_color(
-            w.status_label,
-            (ok && tracking) || ok ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF), 0);
+        lv_obj_set_style_text_color(w.status_label,
+                                    has_fault ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x212121), 0);
     }
 
     if (w.status_detail) {
-        lv_obj_set_style_text_color(w.status_detail,
-                                    ok ? lv_color_hex(0x424242) : lv_color_hex(0xEEEEEE), 0);
+        lv_obj_set_style_text_color(w.status_detail, has_fault ? lv_color_hex(0xEEEEEE)
+                                                                : lv_color_hex(0x424242),
+                                    0);
         char buf[256];
-        if (ok) {
-            snprintf(buf, sizeof(buf), "%.1f Hz  |  %s  |  %d opponent%s seen", avg_hz,
-                     our_seen ? "our robot in view" : "our robot not seen", opp,
-                     opp != 1 ? "s" : "");
-        } else {
-            std::string reasons;
-            if (!st.camera_ok) reasons += "Camera FAIL  ";
-            if (!st.transmitter_connected) reasons += "TX disconnected  ";
-            if (!st.initialized) reasons += "Not initialized  ";
+        if (!hardware_ok || !loop_met) {
+            std::string details;
+            if (!st.camera_ok) details += "Camera disconnected  ";
+            if (!st.transmitter_connected) details += "Transmitter disconnected  ";
             if (!loop_met) {
                 char rate_buf[64];
                 snprintf(rate_buf, sizeof(rate_buf), "Loop slow (%.1f Hz)  ", avg_hz);
-                reasons += rate_buf;
+                details += rate_buf;
             }
-            if (our_seen) reasons += "our robot in view  ";
-            snprintf(buf, sizeof(buf), "%s", reasons.c_str());
+            if (needs_reinit && hardware_ok) details += "Press Reinitialize Field  ";
+            snprintf(buf, sizeof(buf), "%s", details.c_str());
+        } else if (needs_reinit) {
+            snprintf(buf, sizeof(buf), "Press Reinitialize Field to start");
+        } else {
+            snprintf(buf, sizeof(buf), "%.1f Hz  |  %s  |  %d opponent%s seen", avg_hz,
+                     our_seen ? "our robot in view" : "our robot not seen", opp,
+                     opp != 1 ? "s" : "");
         }
         lv_label_set_text(w.status_detail, buf);
     }
 
     if (w.reinit_tile) {
-        lv_obj_set_style_bg_color(
-            w.reinit_tile, st.initialized ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744), 0);
+        lv_color_t reinit_color = lv_color_hex(0x00C853);
+        if (!st.initialized) {
+            reinit_color = hardware_ok ? lv_color_hex(0xFFC107) : lv_color_hex(0xFF1744);
+        }
+        lv_obj_set_style_bg_color(w.reinit_tile, reinit_color, 0);
     }
     if (w.reinit_status) {
-        lv_label_set_text(w.reinit_status, st.initialized ? "field initialized" : "");
+        if (st.initialized) {
+            lv_label_set_text(w.reinit_status, "field initialized");
+        } else if (hardware_ok) {
+            lv_label_set_text(w.reinit_status, "press to initialize field");
+        } else {
+            lv_label_set_text(w.reinit_status, "reconnect camera/transmitter");
+        }
+    }
+
+    if (hardware_ok && !st.initialized) {
+        start_reinit_pulse(w);
+    } else {
+        stop_reinit_pulse(w);
     }
 
     for (int i = 0; i < 3; i++) {
@@ -456,15 +512,21 @@ void update_health_rows(UIWidgets &w, std::shared_ptr<UIState> us) {
 
     char buf[128];
 
-    snprintf(buf, sizeof(buf), "Camera: %s", st.camera_ok ? "OK" : "FAIL");
+    snprintf(buf, sizeof(buf), "Camera: %s", st.camera_ok ? "Connected" : "Disconnected");
     set_health(w.health[0], st.camera_ok, buf);
 
     snprintf(buf, sizeof(buf), "Transmitter: %s",
              st.transmitter_connected ? "Connected" : "Disconnected");
     set_health(w.health[1], st.transmitter_connected, buf);
 
-    snprintf(buf, sizeof(buf), "Field Initialized: %s", st.initialized ? "Yes" : "No");
-    set_health(w.health[2], st.initialized, buf);
+    if (st.initialized) {
+        snprintf(buf, sizeof(buf), "Field: Initialized");
+    } else if (st.camera_ok && st.transmitter_connected) {
+        snprintf(buf, sizeof(buf), "Field: Press Reinitialize");
+    } else {
+        snprintf(buf, sizeof(buf), "Field: Waiting for camera/transmitter");
+    }
+    set_health(w.health[2], st.initialized || (st.camera_ok && st.transmitter_connected), buf);
 
     snprintf(buf, sizeof(buf), "Our Robot Seen: %s", our_seen ? "Yes" : "No");
     set_health(w.health[3], our_seen, buf);

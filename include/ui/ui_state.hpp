@@ -21,6 +21,7 @@ struct SystemStatus {
     bool transmitter_connected = false;
     double loop_rate_hz = 0.0;
     bool initialized = false;
+    int selected_opponent_count = 1;
     double jetson_temperature_c = 0.0;  // 0 = not available
     std::string jetson_compute_mode;
 };

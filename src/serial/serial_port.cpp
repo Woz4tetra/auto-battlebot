@@ -72,6 +72,9 @@ bool SerialPort::write(const std::string& data) {
 bool SerialPort::write(const uint8_t* data, size_t length) {
     if (fd_ < 0 || length == 0) return false;
     ssize_t written = ::write(fd_, data, length);
+    if (written < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        close();
+    }
     return written == static_cast<ssize_t>(length);
 }
 
@@ -83,6 +86,10 @@ std::vector<uint8_t> SerialPort::read_available() {
     ssize_t n;
     while ((n = ::read(fd_, buf, sizeof(buf))) > 0) {
         result.insert(result.end(), buf, buf + n);
+    }
+    if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        close();
+        return {};
     }
     return result;
 }
