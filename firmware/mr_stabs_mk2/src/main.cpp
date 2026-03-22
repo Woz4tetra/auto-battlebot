@@ -25,6 +25,7 @@ DiagnosticsServer diag_server;
 const int NUM_PIXELS = 1;
 Adafruit_NeoPixel pixels(NUM_PIXELS, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 int rainbow_tick = 0, led_intensity = 20;
+uint32_t last_led_ms = 0;
 
 bool is_loading_firmware = false;
 bool prev_button_state = false;
@@ -161,8 +162,13 @@ void loop()
     bool radio_ok = crsf->update(radio_data);
 
     // Combat mode
-    cycle_rainbow_led(rainbow_tick, led_intensity);
-    rainbow_tick = (rainbow_tick + 5) % 255;
+    uint32_t now_ms = millis();
+    if (now_ms - last_led_ms >= 20)
+    {
+        last_led_ms = now_ms;
+        cycle_rainbow_led(rainbow_tick, led_intensity);
+        rainbow_tick = (rainbow_tick + 1) % 255;
+    }
 
     if (!radio_ok)
     {
