@@ -142,7 +142,10 @@ void setup()
 
     WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
     setup_ota();
-    diag_server.begin(&crsf->channel_deadzone);
+    tunable_ptrs_t tunables;
+    tunables.left_esc_deadzone = &left_esc->stop_threshold;
+    tunables.right_esc_deadzone = &right_esc->stop_threshold;
+    diag_server.begin(tunables);
 
     prev_loop_us = micros();
 }

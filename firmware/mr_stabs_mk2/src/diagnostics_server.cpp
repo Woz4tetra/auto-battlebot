@@ -52,11 +52,20 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <tr><td>wifi_clients</td><td id="v_wifi">-</td></tr>
 </table>
 <div style="margin-bottom:16px;padding:10px;border:1px solid #444;border-radius:4px;max-width:600px">
-<label style="color:#ff0">Channel Deadzone:</label>
-<input type="number" id="dzVal" value="0" min="0" max="200" step="1"
+<div style="margin-bottom:8px">
+<label style="color:#ff0">Left ESC Deadzone (%):</label>
+<input type="number" id="dzL" value="1" min="0" max="50" step="0.5"
  style="width:80px;background:#222;color:#0f0;border:1px solid #555;padding:4px;font-family:monospace">
-<button class="btn" style="background:#555" onclick="setDZ()">Apply</button>
-<span id="dzStatus" style="margin-left:8px;color:#888"></span>
+<button class="btn" style="background:#555;padding:4px 12px" onclick="setTune('left_esc_dz','dzL','dzLS')">Apply</button>
+<span id="dzLS" style="margin-left:8px;color:#888"></span>
+</div>
+<div>
+<label style="color:#ff0">Right ESC Deadzone (%):</label>
+<input type="number" id="dzR" value="1" min="0" max="50" step="0.5"
+ style="width:80px;background:#222;color:#0f0;border:1px solid #555;padding:4px;font-family:monospace">
+<button class="btn" style="background:#555;padding:4px 12px" onclick="setTune('right_esc_dz','dzR','dzRS')">Apply</button>
+<span id="dzRS" style="margin-left:8px;color:#888"></span>
+</div>
 </div>
 <button class="btn rec" id="recBtn" onclick="toggleRec()">Record</button>
 <button class="btn dl" onclick="downloadCSV()">Download CSV</button>
@@ -94,23 +103,37 @@ function downloadCSV(){
  a.download='mr_stabs_'+new Date().toISOString().slice(0,19).replace(/[:-]/g,'')+'.csv';
  a.click();URL.revokeObjectURL(a.href);
 }
-function setDZ(){
- const v=document.getElementById('dzVal').value;
- fetch('/deadzone?value='+v).then(r=>r.text()).then(t=>{
-  document.getElementById('dzStatus').textContent='Set to '+t;
-  setTimeout(()=>document.getElementById('dzStatus').textContent='',3000);
+function setTune(ep,inputId,statusId){
+ const v=document.getElementById(inputId).value;
+ fetch('/tune/'+ep+'?value='+v).then(r=>r.text()).then(t=>{
+  document.getElementById(statusId).textContent='Set to '+t;
+  setTimeout(()=>document.getElementById(statusId).textContent='',3000);
  });
 }
-fetch('/deadzone').then(r=>r.text()).then(v=>{document.getElementById('dzVal').value=v;});
+function loadTune(ep,inputId){fetch('/tune/'+ep).then(r=>r.text()).then(v=>{document.getElementById(inputId).value=v;});}
+loadTune('left_esc_dz','dzL');
+loadTune('right_esc_dz','dzR');
 connect();
 </script>
 </body>
 </html>
 )rawhtml";
 
-void DiagnosticsServer::begin(float *channel_deadzone_ptr)
+static void handle_tunable(AsyncWebServerRequest *request, float *ptr)
 {
-    _channel_deadzone = channel_deadzone_ptr;
+    if (!ptr)
+    {
+        request->send(500, "text/plain", "n/a");
+        return;
+    }
+    if (request->hasParam("value"))
+        *ptr = request->getParam("value")->value().toFloat();
+    request->send(200, "text/plain", String(*ptr, 1));
+}
+
+void DiagnosticsServer::begin(tunable_ptrs_t tunables)
+{
+    _tunables = tunables;
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
               { request->send(200, "text/html", INDEX_HTML); });
@@ -121,13 +144,11 @@ void DiagnosticsServer::begin(float *channel_deadzone_ptr)
     server.on("/record/stop", HTTP_GET, [this](AsyncWebServerRequest *request)
               { _recording = false; request->send(200, "text/plain", "ok"); });
 
-    server.on("/deadzone", HTTP_GET, [this](AsyncWebServerRequest *request)
-              {
-        if (!_channel_deadzone) { request->send(500, "text/plain", "n/a"); return; }
-        if (request->hasParam("value")) {
-            *_channel_deadzone = request->getParam("value")->value().toFloat();
-        }
-        request->send(200, "text/plain", String(*_channel_deadzone, 1)); });
+    server.on("/tune/left_esc_dz", HTTP_GET, [this](AsyncWebServerRequest *request)
+              { handle_tunable(request, _tunables.left_esc_deadzone); });
+
+    server.on("/tune/right_esc_dz", HTTP_GET, [this](AsyncWebServerRequest *request)
+              { handle_tunable(request, _tunables.right_esc_deadzone); });
 
     events.onConnect([](AsyncEventSourceClient *client)
                      { client->send("connected", NULL, millis(), 1000); });

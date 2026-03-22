@@ -20,14 +20,20 @@ typedef struct
     uint8_t wifi_clients;
 } diag_data_t;
 
+struct tunable_ptrs_t
+{
+    float *left_esc_deadzone = nullptr;
+    float *right_esc_deadzone = nullptr;
+};
+
 class DiagnosticsServer
 {
 public:
-    void begin(float *channel_deadzone_ptr = nullptr);
+    void begin(tunable_ptrs_t tunables = {});
     void update(const diag_data_t *data);
 
 private:
     bool _recording = false;
     uint32_t _last_send_ms = 0;
-    float *_channel_deadzone = nullptr;
+    tunable_ptrs_t _tunables;
 };
