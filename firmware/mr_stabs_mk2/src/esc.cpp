@@ -2,8 +2,8 @@
 
 using namespace esc;
 
-Esc::Esc(gpio_num_t pin, rmt_channel_t rmt_channel)
-    : pin(pin), rmt_channel(rmt_channel), motor(nullptr), initialized(false)
+Esc::Esc(gpio_num_t pin, rmt_channel_t channel)
+    : pin(pin), channel(channel), motor(nullptr), initialized(false)
 {
 }
 
@@ -11,11 +11,15 @@ bool Esc::begin()
 {
     if (initialized)
         return true;
-    motor = new DShotRMT(pin, rmt_channel);
-    bool ok = motor->begin(DSHOT300);
+    motor = new DShot(pin, channel, DSHOT300);
+    if (!motor->begin())
+    {
+        delete motor;
+        motor = nullptr;
+        return false;
+    }
     initialized = true;
-    stop();
-    return ok;
+    return true;
 }
 
 void Esc::deinit()
@@ -25,7 +29,6 @@ void Esc::deinit()
     stop();
     delete motor;
     motor = nullptr;
-    gpio_reset_pin(pin);
     initialized = false;
 }
 
@@ -33,14 +36,14 @@ void Esc::write(float signed_percent)
 {
     if (!initialized)
         return;
-    motor->sendThrottleValue(percent_to_dshot_3d(signed_percent));
+    motor->send(percent_to_dshot_3d(signed_percent));
 }
 
 void Esc::stop()
 {
     if (!initialized)
         return;
-    motor->sendThrottleValue(DSHOT_STOP);
+    motor->send(DSHOT_STOP);
 }
 
 uint16_t Esc::percent_to_dshot_3d(float signed_percent)
