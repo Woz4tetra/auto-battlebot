@@ -5,6 +5,7 @@
 namespace esc
 {
     const uint16_t DSHOT_STOP = 0;
+    const float STOP_THRESHOLD_PERCENT = 1.0f;
     // DShot 3D mode: higher value = faster in both directions
     const uint16_t DSHOT_3D_REV_MIN = 48;
     const uint16_t DSHOT_3D_REV_MAX = 1047;

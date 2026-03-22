@@ -49,7 +49,7 @@ void Esc::stop()
 uint16_t Esc::percent_to_dshot_3d(float signed_percent)
 {
     signed_percent = constrain(signed_percent, -100.0f, 100.0f);
-    if (signed_percent == 0.0f)
+    if (fabsf(signed_percent) < STOP_THRESHOLD_PERCENT)
         return DSHOT_STOP;
 
     if (signed_percent > 0.0f)
