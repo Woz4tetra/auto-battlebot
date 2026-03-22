@@ -1,9 +1,13 @@
 #include "transmitter/opentx_transmitter.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <string>
 
 namespace auto_battlebot {
+namespace {
+constexpr auto kReconnectInterval = std::chrono::seconds(1);
+}
 
 OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& config)
     : config_(config) {
@@ -16,11 +20,13 @@ bool OpenTxTransmitter::initialize() {
         logger_->warning(
             "device_not_found",
             {{"message", "No OpenTX USB serial device found (VID=0x0483, PID=0x5740)"}});
+        next_reconnect_attempt_ = std::chrono::steady_clock::now() + kReconnectInterval;
         return false;
     }
 
     if (!serial_.open(*device)) {
         logger_->warning("open_failed", {{"path", *device}});
+        next_reconnect_attempt_ = std::chrono::steady_clock::now() + kReconnectInterval;
         return false;
     }
 
@@ -29,10 +35,12 @@ bool OpenTxTransmitter::initialize() {
     serial_.write("channels on\r\n");
 
     logger_->info("initialized", {{"device", *device}});
+    next_reconnect_attempt_ = std::chrono::steady_clock::now() + kReconnectInterval;
     return true;
 }
 
 CommandFeedback OpenTxTransmitter::update() {
+    reconnect_if_needed();
     if (!serial_.is_open()) return {};
 
     auto bytes = serial_.read_available();
@@ -77,6 +85,7 @@ CommandFeedback OpenTxTransmitter::update() {
 }
 
 void OpenTxTransmitter::send(VelocityCommand command) {
+    reconnect_if_needed();
     if (!serial_.is_open()) return;
 
     int linear_val = to_trainer_value(command.linear_x);
@@ -84,10 +93,18 @@ void OpenTxTransmitter::send(VelocityCommand command) {
 
     logger_->debug("send", {{"linear", linear_val}, {"angular", angular_val}});
 
-    serial_.write("trainer " + std::to_string(config_.linear_channel) + " " +
-                  std::to_string(linear_val) + "\r\n");
-    serial_.write("trainer " + std::to_string(config_.angular_channel) + " " +
-                  std::to_string(angular_val) + "\r\n");
+    bool linear_write_ok = serial_.write("trainer " + std::to_string(config_.linear_channel) + " " +
+                                         std::to_string(linear_val) + "\r\n");
+    bool angular_write_ok = serial_.write("trainer " + std::to_string(config_.angular_channel) + " " +
+                                          std::to_string(angular_val) + "\r\n");
+
+    if (!linear_write_ok || !angular_write_ok) {
+        logger_->warning("write_failed_reconnecting",
+                         {{"linear_write_ok", linear_write_ok},
+                          {"angular_write_ok", angular_write_ok}});
+        serial_.close();
+        next_reconnect_attempt_ = std::chrono::steady_clock::now();
+    }
 }
 
 int OpenTxTransmitter::get_channel_value(int channel_idx) const {
@@ -118,6 +135,16 @@ int OpenTxTransmitter::to_trainer_value(double normalized) {
     constexpr int kMin = -1000;
     int value = static_cast<int>(normalized * kMax);
     return std::clamp(value, kMin, kMax);
+}
+
+bool OpenTxTransmitter::reconnect_if_needed() {
+    if (serial_.is_open()) return true;
+
+    auto now = std::chrono::steady_clock::now();
+    if (now < next_reconnect_attempt_) return false;
+
+    next_reconnect_attempt_ = now + kReconnectInterval;
+    return initialize();
 }
 
 }  // namespace auto_battlebot
