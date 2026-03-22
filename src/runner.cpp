@@ -216,6 +216,12 @@ bool Runner::tick() {
         if (ui_state_) {
             ui_state_->set_camera_info(camera_data.camera_info);
             ui_state_->set_field_description(std::nullopt);
+            if (camera_data.rgb.image.data && !camera_data.rgb.image.empty()) {
+                const cv::Mat &img = camera_data.rgb.image;
+                std::vector<uint8_t> data(img.ptr<uint8_t>(),
+                                          img.ptr<uint8_t>() + img.total() * img.elemSize());
+                ui_state_->set_debug_image(img.cols, img.rows, img.channels(), data);
+            }
         }
         publish_system_status(true);
         return true;

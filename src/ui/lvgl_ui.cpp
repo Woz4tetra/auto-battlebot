@@ -752,8 +752,6 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
     int dw = 0, dh = 0, dc = 0;
     std::vector<uint8_t> data;
     us->get_debug_image(dw, dh, dc, data);
-    KeypointsStamped kps;
-    us->get_keypoints(kps);
     RobotDescriptionsStamped robots;
     us->get_robots(robots);
     std::optional<NavigationPathSegment> navigation_path;
@@ -802,40 +800,8 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
         }
     }
 
-    /* Scale for keypoints: same as image (fit container, aspect ratio) */
-    double kp_scale = 1.0;
-    if (dw > 0 && dh > 0) {
-        lv_obj_t *cont = lv_obj_get_parent(w.debug_img);
-        if (cont) {
-            const int32_t cw = lv_obj_get_content_width(cont);
-            const int32_t ch = lv_obj_get_content_height(cont);
-            kp_scale =
-                std::min(1.0, std::min(static_cast<double>(cw) / dw, static_cast<double>(ch) / dh));
-        }
-    }
-
-    uint32_t need = static_cast<uint32_t>(kps.keypoints.size());
-    while (w.kp_dots.size() < need) {
-        lv_obj_t *dot = lv_obj_create(w.debug_kp_cont);
-        lv_obj_set_size(dot, 12, 12);
-        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_color(dot, lv_color_hex(0x00FF00), 0);
-        lv_obj_set_style_border_width(dot, 0, 0);
-        lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-        w.kp_dots.push_back(dot);
-    }
-
-    for (size_t i = 0; i < w.kp_dots.size(); i++) {
-        lv_obj_t *dot = w.kp_dots[i];
-        if (i < kps.keypoints.size()) {
-            const auto &kp = kps.keypoints[i];
-            const int32_t px = static_cast<int32_t>(std::round(kp.x * kp_scale)) - 6;
-            const int32_t py = static_cast<int32_t>(std::round(kp.y * kp_scale)) - 6;
-            lv_obj_set_pos(dot, px, py);
-            lv_obj_clear_flag(dot, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
-        }
+    for (lv_obj_t *dot : w.kp_dots) {
+        if (dot) lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
