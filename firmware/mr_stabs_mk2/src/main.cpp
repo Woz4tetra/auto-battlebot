@@ -13,8 +13,8 @@ const char *WIFI_PASSWORD = "havocbots";
 crsf_bridge::CrsfBridge *crsf;
 crsf_bridge::radio_data_t *radio_data;
 
-#define LEFT_ESC_PIN ((gpio_num_t)A2)
-#define RIGHT_ESC_PIN ((gpio_num_t)A3)
+#define LEFT_ESC_PIN ((gpio_num_t)A3)
+#define RIGHT_ESC_PIN ((gpio_num_t)A2)
 
 esc::Esc *left_esc;
 esc::Esc *right_esc;
@@ -90,8 +90,8 @@ void setup_ota()
 
 void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float &left_command, float &right_command)
 {
-    left_command = radio_data->a_percent + radio_data->b_percent;
-    right_command = radio_data->a_percent - radio_data->b_percent;
+    left_command = -1 * radio_data->a_percent + radio_data->b_percent;
+    right_command = -1 * radio_data->a_percent - radio_data->b_percent;
     float max_command = max(abs(left_command), abs(right_command));
     if (max_command > 100.0)
     {
@@ -109,8 +109,10 @@ void setup()
     digitalWrite(NEOPIXEL_POWER, HIGH);
 #endif
 
-    left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_2);
-    right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_3);
+    left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_3);
+    right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_2);
+    left_esc->stop_threshold = 1.0f;
+    right_esc->stop_threshold = 1.0f;
     left_esc->begin();
     right_esc->begin();
 
