@@ -102,24 +102,15 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float &left_comman
 void setup()
 {
     Serial.begin(115200);
-    // Wait up to 3s for USB CDC serial monitor to connect
-    unsigned long serial_start = millis();
-    while (!Serial && millis() - serial_start < 3000)
-        delay(10);
 
 #if defined(NEOPIXEL_POWER)
     pinMode(NEOPIXEL_POWER, OUTPUT);
     digitalWrite(NEOPIXEL_POWER, HIGH);
 #endif
 
-    // Swap channel assignments to test: is the right ESC issue pin or channel?
-    left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_1);
-    right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_0);
-
-    Serial.printf("Left ESC: pin=%d ch=%d (swapped)\n", LEFT_ESC_PIN, RMT_CHANNEL_1);
+    left_esc = new esc::Esc(LEFT_ESC_PIN, RMT_CHANNEL_0);
+    right_esc = new esc::Esc(RIGHT_ESC_PIN, RMT_CHANNEL_1);
     left_esc->begin();
-
-    Serial.printf("Right ESC: pin=%d ch=%d (swapped)\n", RIGHT_ESC_PIN, RMT_CHANNEL_0);
     right_esc->begin();
 
     // ESCs need continuous DShot zero-throttle frames to initialize (~2 seconds)
@@ -129,8 +120,6 @@ void setup()
         right_esc->stop();
         delay(5);
     }
-
-    Serial.println("=== CHANNEL SWAP TEST: left=pin9/ch1, right=pin8/ch0 ===");
 
     pixels.begin();
     pixels.setBrightness(20);
