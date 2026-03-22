@@ -102,6 +102,10 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float &left_comman
 void setup()
 {
     Serial.begin(115200);
+    // Wait up to 3s for USB CDC serial monitor to connect
+    unsigned long serial_start = millis();
+    while (!Serial && millis() - serial_start < 3000)
+        delay(10);
 
 #if defined(NEOPIXEL_POWER)
     pinMode(NEOPIXEL_POWER, OUTPUT);
@@ -126,6 +130,9 @@ void setup()
         right_esc->stop();
         delay(5);
     }
+
+    Serial.printf("=== ESC INIT RESULTS: left=%s right=%s ===\n",
+                  left_ok ? "OK" : "FAIL", right_ok ? "OK" : "FAIL");
 
     pixels.begin();
     pixels.setBrightness(20);
