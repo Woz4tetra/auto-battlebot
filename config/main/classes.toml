@@ -78,8 +78,8 @@ back_keypoints = [
 
 [navigation]
 type = "PursuitNavigation"
-angular_kp = 0.1
-angular_kd = 0.1
+angular_kp = 0.5
+angular_kd = 0.02
 max_angular_velocity = 15.625
 max_linear_velocity = 2.0
 
