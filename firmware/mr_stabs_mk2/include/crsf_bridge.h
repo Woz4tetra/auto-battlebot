@@ -40,6 +40,7 @@ namespace crsf_bridge
         float scale_channel_to_percent(float channel_value);
 
     public:
+        float channel_deadzone = 0.0f;
         CrsfBridge();
         void begin();
         bool update(radio_data_t *radio_data);

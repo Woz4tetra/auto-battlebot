@@ -23,10 +23,11 @@ typedef struct
 class DiagnosticsServer
 {
 public:
-    void begin();
+    void begin(float *channel_deadzone_ptr = nullptr);
     void update(const diag_data_t *data);
 
 private:
     bool _recording = false;
     uint32_t _last_send_ms = 0;
+    float *_channel_deadzone = nullptr;
 };

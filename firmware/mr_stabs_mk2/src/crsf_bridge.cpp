@@ -44,6 +44,9 @@ bool CrsfBridge::update(radio_data_t *radio_data)
 
 float CrsfBridge::scale_channel_to_percent(float channel_value)
 {
+    if (channel_deadzone > 0.0f && fabsf(channel_value - MID_CYCLE) < channel_deadzone)
+        channel_value = MID_CYCLE;
+
     float percent;
     if (channel_value < MID_CYCLE)
         percent = -100.0 / (MID_CYCLE - MIN_CYCLE) * (MID_CYCLE - channel_value);

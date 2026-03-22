@@ -142,7 +142,7 @@ void setup()
 
     WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
     setup_ota();
-    diag_server.begin();
+    diag_server.begin(&crsf->channel_deadzone);
 
     prev_loop_us = micros();
 }

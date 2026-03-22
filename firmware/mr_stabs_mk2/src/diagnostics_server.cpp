@@ -51,6 +51,13 @@ font-family:monospace;font-size:1em;cursor:pointer;color:#fff}
 <tr><td>loop_us</td><td id="v_loop">-</td></tr>
 <tr><td>wifi_clients</td><td id="v_wifi">-</td></tr>
 </table>
+<div style="margin-bottom:16px;padding:10px;border:1px solid #444;border-radius:4px;max-width:600px">
+<label style="color:#ff0">Channel Deadzone:</label>
+<input type="number" id="dzVal" value="0" min="0" max="200" step="1"
+ style="width:80px;background:#222;color:#0f0;border:1px solid #555;padding:4px;font-family:monospace">
+<button class="btn" style="background:#555" onclick="setDZ()">Apply</button>
+<span id="dzStatus" style="margin-left:8px;color:#888"></span>
+</div>
 <button class="btn rec" id="recBtn" onclick="toggleRec()">Record</button>
 <button class="btn dl" onclick="downloadCSV()">Download CSV</button>
 <span id="count"></span>
@@ -87,14 +94,24 @@ function downloadCSV(){
  a.download='mr_stabs_'+new Date().toISOString().slice(0,19).replace(/[:-]/g,'')+'.csv';
  a.click();URL.revokeObjectURL(a.href);
 }
+function setDZ(){
+ const v=document.getElementById('dzVal').value;
+ fetch('/deadzone?value='+v).then(r=>r.text()).then(t=>{
+  document.getElementById('dzStatus').textContent='Set to '+t;
+  setTimeout(()=>document.getElementById('dzStatus').textContent='',3000);
+ });
+}
+fetch('/deadzone').then(r=>r.text()).then(v=>{document.getElementById('dzVal').value=v;});
 connect();
 </script>
 </body>
 </html>
 )rawhtml";
 
-void DiagnosticsServer::begin()
+void DiagnosticsServer::begin(float *channel_deadzone_ptr)
 {
+    _channel_deadzone = channel_deadzone_ptr;
+
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
               { request->send(200, "text/html", INDEX_HTML); });
 
@@ -103,6 +120,14 @@ void DiagnosticsServer::begin()
 
     server.on("/record/stop", HTTP_GET, [this](AsyncWebServerRequest *request)
               { _recording = false; request->send(200, "text/plain", "ok"); });
+
+    server.on("/deadzone", HTTP_GET, [this](AsyncWebServerRequest *request)
+              {
+        if (!_channel_deadzone) { request->send(500, "text/plain", "n/a"); return; }
+        if (request->hasParam("value")) {
+            *_channel_deadzone = request->getParam("value")->value().toFloat();
+        }
+        request->send(200, "text/plain", String(*_channel_deadzone, 1)); });
 
     events.onConnect([](AsyncEventSourceClient *client)
                      { client->send("connected", NULL, millis(), 1000); });
