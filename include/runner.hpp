@@ -60,6 +60,7 @@ class Runner {
     bool robot_filter_reinit_pending_;
 
     bool initialized_;
+    bool autonomy_enabled_;
     std::shared_ptr<FieldDescriptionWithInlierPoints> initial_field_description_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
     std::chrono::steady_clock::time_point start_time_;

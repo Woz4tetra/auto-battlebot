@@ -30,10 +30,6 @@ bool OpenTxTransmitter::initialize() {
         return false;
     }
 
-    // Enable CRSF telemetry and OpenTX channel streaming
-    serial_.write("telemetry on\r\n");
-    serial_.write("channels on\r\n");
-
     logger_->info("initialized", {{"device", *device}});
     next_reconnect_attempt_ = std::chrono::steady_clock::now() + kReconnectInterval;
     return true;
@@ -84,9 +80,26 @@ CommandFeedback OpenTxTransmitter::update() {
     return {};
 }
 
+void OpenTxTransmitter::enable() {
+    enabled_ = true;
+    if (serial_.is_open()) {
+        serial_.write("telemetry on\r\n");
+        serial_.write("channels on\r\n");
+    }
+}
+
+void OpenTxTransmitter::disable() {
+    enabled_ = false;
+    if (serial_.is_open()) {
+        serial_.write("telemetry off\r\n");
+        serial_.write("channels off\r\n");
+    }
+}
+
 void OpenTxTransmitter::send(VelocityCommand command) {
     reconnect_if_needed();
     if (!serial_.is_open()) return;
+    if (!enabled_) return;
 
     int linear_val = to_trainer_value(command.linear_x);
     int angular_val = -1 * to_trainer_value(command.angular_z);

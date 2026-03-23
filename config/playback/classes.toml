@@ -107,12 +107,10 @@ type = "RosPublisher"
 [runner]
 max_loop_rate = 30.0
 default_opponent_count = 1
+autonomy_enabled_by_default = true
 
 [ui]
 enable = false
-fullscreen = false
-width = 1280
-height = 800
 
 [mcap]
 enable = false

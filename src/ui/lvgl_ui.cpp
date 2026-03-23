@@ -59,6 +59,9 @@ struct UIWidgets {
     lv_obj_t *status_detail = nullptr;
     lv_obj_t *opp_tiles[3] = {};
 
+    lv_obj_t *autonomy_tile = nullptr;
+    lv_obj_t *autonomy_label = nullptr;
+
     lv_obj_t *reinit_tile = nullptr;
     lv_obj_t *reinit_status = nullptr;
 
@@ -140,6 +143,14 @@ void opp_cb(lv_event_t *e) {
         d->ui_state->opponent_count_requested.store(d->count);
         selected_opponent_count = d->count;
     }
+}
+
+void autonomy_cb(lv_event_t *e) {
+    auto *us = static_cast<UIState *>(lv_event_get_user_data(e));
+    if (!us) return;
+    SystemStatus st;
+    us->get_system_status(st);
+    us->autonomy_toggle_requested.store(st.autonomy_enabled ? -1 : 1);
 }
 
 void style_transparent(lv_obj_t *obj) {
@@ -341,6 +352,27 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_label_set_text(w.status_detail, "");
     lv_obj_set_style_text_font(w.status_detail, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(w.status_detail, lv_color_hex(0xAAAAAA), 0);
+
+    /* Autonomy toggle tile */
+    lv_obj_t *at = lv_obj_create(top);
+    w.autonomy_tile = at;
+    lv_obj_set_flex_grow(at, 1);
+    lv_obj_set_height(at, LV_PCT(100));
+    lv_obj_set_style_radius(at, TILE_RADIUS, 0);
+    lv_obj_set_style_pad_all(at, TILE_PAD, 0);
+    lv_obj_set_flex_flow(at, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(at, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(at, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(at, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(at, lv_color_hex(0x757575), 0);
+    lv_obj_set_style_bg_color(at, lv_color_hex(0xBDBDBD), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(at, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_add_event_cb(at, autonomy_cb, LV_EVENT_CLICKED, ui_state.get());
+
+    w.autonomy_label = lv_label_create(at);
+    lv_label_set_text(w.autonomy_label, "Autonomy\n--");
+    lv_obj_set_style_text_font(w.autonomy_label, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_align(w.autonomy_label, LV_TEXT_ALIGN_CENTER, 0);
 
     /* Reinit tile */
     lv_obj_t *rt = lv_obj_create(top);
@@ -592,6 +624,18 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
         start_reinit_pulse(w);
     } else {
         stop_reinit_pulse(w);
+    }
+
+    if (w.autonomy_tile) {
+        lv_obj_set_style_bg_color(
+            w.autonomy_tile,
+            st.autonomy_enabled ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744), 0);
+    }
+    if (w.autonomy_label) {
+        lv_label_set_text(w.autonomy_label, st.autonomy_enabled ? "Autonomy\nON" : "Autonomy\nOFF");
+        lv_obj_set_style_text_color(
+            w.autonomy_label,
+            st.autonomy_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF), 0);
     }
 
     for (int i = 0; i < 3; i++) {

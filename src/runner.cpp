@@ -33,6 +33,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       runtime_opponent_count_(runner_config_.default_opponent_count),
       robot_filter_reinit_pending_(false),
       initialized_(false),
+      autonomy_enabled_(runner_config_.autonomy_enabled_by_default),
       initial_field_description_(),
       start_time_(std::chrono::steady_clock::now()) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("runner");
@@ -65,6 +66,12 @@ void Runner::initialize() {
     }
     if (!transmitter_->initialize()) {
         spdlog::error("Failed to initialize transmitter");
+    }
+    if (autonomy_enabled_) {
+        transmitter_->enable();
+    }
+    else {
+        transmitter_->disable();
     }
     diagnostics_logger_->debug({}, "Initialization complete");
     DiagnosticsLogger::publish();
@@ -140,6 +147,7 @@ bool Runner::tick() {
         status.loop_rate_hz = loop_rate_hz;
         status.initialized = initialized_;
         status.selected_opponent_count = runtime_opponent_count_;
+        status.autonomy_enabled = autonomy_enabled_;
         ui_state_->set_system_status(status);
     };
 
@@ -157,6 +165,14 @@ bool Runner::tick() {
             runtime_opponent_count_ = req;
             robot_filter_->set_opponent_count(runtime_opponent_count_);
             robot_filter_reinit_pending_ = true;
+        }
+        int autonomy_req = ui_state_->autonomy_toggle_requested.exchange(0);
+        if (autonomy_req == 1 && !autonomy_enabled_) {
+            transmitter_->enable();
+            autonomy_enabled_ = true;
+        } else if (autonomy_req == -1 && autonomy_enabled_) {
+            transmitter_->disable();
+            autonomy_enabled_ = false;
         }
     }
 

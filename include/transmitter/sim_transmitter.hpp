@@ -21,6 +21,8 @@ class SimTransmitter : public TransmitterInterface {
     void send(VelocityCommand command) override;
     bool did_init_button_press() override;
     bool is_connected() const override;
+    void enable() override;
+    void disable() override;
 
    private:
     using TimePoint = std::chrono::steady_clock::time_point;
@@ -31,6 +33,7 @@ class SimTransmitter : public TransmitterInterface {
     bool init_button_pressed_ = false;
     bool init_button_done_ = false;
     bool initialized_ = false;
+    bool enabled_ = false;
     std::shared_ptr<SimConnection> connection_;
     std::deque<std::pair<TimePoint, VelocityCommand>> command_queue_;
 };

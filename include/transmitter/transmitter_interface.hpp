@@ -13,6 +13,10 @@ class TransmitterInterface {
     virtual bool did_init_button_press() = 0;
     /** Whether the transmitter is connected (e.g. to hardware or simulation). */
     virtual bool is_connected() const { return false; }
+    /** Enable autonomy: start sending commands to hardware/sim. */
+    virtual void enable() {}
+    /** Disable autonomy: stop sending commands to hardware/sim. */
+    virtual void disable() {}
 };
 
 }  // namespace auto_battlebot

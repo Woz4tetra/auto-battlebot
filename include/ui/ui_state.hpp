@@ -24,6 +24,7 @@ struct SystemStatus {
     double loop_rate_hz = 0.0;
     bool initialized = false;
     int selected_opponent_count = 1;
+    bool autonomy_enabled = true;
     double jetson_temperature_c = 0.0;  // 0 = not available
     std::string jetson_compute_mode;
 };
@@ -43,6 +44,8 @@ class UIState {
     std::atomic<int> opponent_count_requested{-1};
     /** Set by UI when window is closed; Runner should exit. */
     std::atomic<bool> quit_requested{false};
+    /** 1 = enable, -1 = disable, 0 = no change */
+    std::atomic<int> autonomy_toggle_requested{0};
 
     // --- Status from Runner (written by Runner, read by UI) ---
     void set_system_status(const SystemStatus &s);

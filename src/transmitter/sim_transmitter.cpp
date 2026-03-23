@@ -30,8 +30,12 @@ CommandFeedback SimTransmitter::update() {
     return CommandFeedback{};
 }
 
+void SimTransmitter::enable() { enabled_ = true; }
+
+void SimTransmitter::disable() { enabled_ = false; }
+
 void SimTransmitter::send(VelocityCommand command) {
-    if (!connection_) return;
+    if (!connection_ || !enabled_) return;
 
     if (command_delay_ms_ <= 0.0) {
         connection_->set_command(command);
