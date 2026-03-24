@@ -103,6 +103,64 @@ def get_material_base_color(mat: bpy.types.Material) -> tuple[int, int, int] | N
     return None
 
 
+def _xterm256_index_to_rgb(i: int) -> tuple[int, int, int]:
+    """RGB for xterm 256-color index 0..255."""
+    if i < 16:
+        ansi = [
+            (0, 0, 0),
+            (205, 0, 0),
+            (0, 205, 0),
+            (205, 205, 0),
+            (0, 0, 238),
+            (205, 0, 205),
+            (0, 205, 205),
+            (229, 229, 229),
+            (127, 127, 127),
+            (255, 0, 0),
+            (0, 255, 0),
+            (255, 255, 0),
+            (92, 92, 255),
+            (255, 0, 255),
+            (0, 255, 255),
+            (255, 255, 255),
+        ]
+        return ansi[i]
+    if i >= 232:
+        g = 8 + (i - 232) * 10
+        return (g, g, g)
+    i -= 16
+    r = i // 36
+    i %= 36
+    g = i // 6
+    b = i % 6
+    levels = [0, 95, 135, 175, 215, 255]
+    return (levels[r], levels[g], levels[b])
+
+
+def _nearest_xterm256(r: int, g: int, b: int) -> int:
+    """Pick the closest xterm 256-color index to RGB (0-255 per channel)."""
+    best_i = 0
+    best_d = float("inf")
+    for i in range(256):
+        cr, cg, cb = _xterm256_index_to_rgb(i)
+        d = (cr - r) ** 2 + (cg - g) ** 2 + (cb - b) ** 2
+        if d < best_d:
+            best_d = d
+            best_i = i
+    return best_i
+
+
+def _ansi_fg_xterm256(idx: int) -> str:
+    return f"\033[38;5;{idx}m"
+
+
+_ANSI_RESET = "\033[0m"
+
+
+def _terminal_color_enabled() -> bool:
+    return sys.stdout.isatty() and not os.environ.get("NO_COLOR", "")
+
+
 def _describe_base_color_source(mat: bpy.types.Material) -> str:
     """Return a short description of how the Base Color is wired."""
     if not mat.use_nodes:
@@ -122,10 +180,11 @@ def _describe_base_color_source(mat: bpy.types.Material) -> str:
 
 
 def inspect_model(model_path: Path, scale: float = 1.0) -> None:
-    """Print all material names, base colors, and node wiring found in the GLTF."""
+    """Print material names, base colors (with nearest xterm-256 highlight), and wiring."""
     meshes = import_gltf(model_path, scale)
     print(f"\nFound {len(meshes)} mesh objects in {model_path.name}:\n")
     seen_materials: set[str] = set()
+    use_color = _terminal_color_enabled()
     for mesh_obj in meshes:
         for slot in mesh_obj.material_slots:
             mat = slot.material
@@ -134,8 +193,20 @@ def inspect_model(model_path: Path, scale: float = 1.0) -> None:
             seen_materials.add(mat.name)
             color = get_material_base_color(mat)
             source = _describe_base_color_source(mat)
-            color_str = f"[{color[0]}, {color[1]}, {color[2]}]" if color else "N/A"
-            print(f"  Material: {mat.name:30s}  Color: {color_str:20s}  ({source})")
+            if color:
+                r, g, b = color
+                idx = _nearest_xterm256(r, g, b)
+                color_str = f"[{r}, {g}, {b}]"
+                if use_color:
+                    swatch = (
+                        f"{_ansi_fg_xterm256(idx)}██{_ANSI_RESET} "
+                        f"{color_str} (term 256 ≈ {idx})"
+                    )
+                else:
+                    swatch = f"{color_str} (term 256 ≈ {idx})"
+            else:
+                swatch = "N/A"
+            print(f"  Material: {mat.name:30s}  Color: {swatch}  ({source})")
     print(f"\n{len(seen_materials)} unique materials found.")
     print(
         "Use these colors to fill in [[robots.color_mapping]] entries in config.toml."
