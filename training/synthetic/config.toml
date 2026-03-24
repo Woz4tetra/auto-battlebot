@@ -22,7 +22,7 @@ class_id = 0
 # Adjust if the OnShape export units don't match Blender's meters.
 scale = 1.0
 # Relative probability of this robot being chosen for a scene.
-weight = 1.0
+weight = 0.5
 
 # 3D keypoint positions in model-local space (meters).
 # Measure these from the CAD model origin in OnShape.
@@ -68,7 +68,7 @@ name = "HOUSE_BOT"
 model_path = "../data/models/HOUSE BOT.glb"
 class_id = 1
 scale = 1.0
-weight = 1.0
+weight = 0.5
 
 [robots.keypoints]
 front = [0.12700, 0.0, -0.10795]
@@ -78,6 +78,48 @@ back = [-0.12700, 0.0, -0.10795]
 color = [255, 255, 255]
 tolerance = 25
 material = "housebot"
+
+[[robots]]
+name = "MRS_BUFF_MK3"
+model_path = "../data/models/MRS BUFF MK3.glb"
+class_id = 2
+scale = 1.0
+weight = 1.0
+
+[robots.keypoints]
+front = [0.0, 0.0, -0.05014]
+back = [-0.1528, 0.0, -0.05014]
+
+[[robots.color_mapping]]
+color = [128, 128, 128]
+tolerance = 20
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [0, 0, 0]
+tolerance = 30
+material = "steel"
+
+[[robots.color_mapping]]
+color = [255, 32, 65]
+tolerance = 20
+material = "tpu"
+
+[[robots.color_mapping]]
+color = [165, 165, 165]
+tolerance = 20
+material = "foam"
+
+[[robots.color_mapping]]
+color = [102, 102, 102]
+tolerance = 20
+material = "foam"
+
+[[robots.color_mapping]]
+color = [232, 232, 232]
+tolerance = 20
+material = "paper"
+
 
 # To add another robot, duplicate the block above:
 # [[robots]]

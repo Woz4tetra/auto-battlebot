@@ -11,6 +11,9 @@ Rules:
 
 Usage:
     python simplify_gltf.py INPUT OUTPUT [--max-faces N]
+
+OUTPUT is the desired filename only: the file is always written next to INPUT
+as a single GLB (embedded buffers), not a .gltf + sidecar .bin files.
 """
 
 from __future__ import annotations
@@ -36,8 +39,12 @@ DELETE_PARTS: list[str] = [
     "24MM_SCREW_5",
     "Battery",
     "Flycolor",
-    "5VDC BEC",
     "RadioMaster R84",
+    "ESP32",
+    "BNO055",
+    "Crossfire",
+    "BEC",
+    "DYS D3530",
 ]
 
 CYLINDER_COLOR = (40, 40, 40, 255)
@@ -89,7 +96,11 @@ def _apply_pbr(mesh: trimesh.Trimesh, rgba: tuple[int, int, int, int]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Input GLTF/GLB")
-    parser.add_argument("output", type=Path, help="Output GLB")
+    parser.add_argument(
+        "output",
+        type=Path,
+        help="Output base name (saved under the same directory as INPUT; always GLB)",
+    )
     parser.add_argument(
         "--max-faces",
         type=int,
@@ -212,7 +223,7 @@ def main() -> None:
         print(f"After decimation: {total_faces:,} faces")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    output_scene.export(str(args.output))
+    output_scene.export(str(args.output), file_type="glb")
     print(f"Saved to {args.output}")
 
 

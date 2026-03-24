@@ -9,6 +9,7 @@ enum class Label {
     MRS_BUFF_MK1,
     MRS_BUFF_MK2,
     HOUSE_BOT,
-    OPPONENT
+    OPPONENT,
+    MRS_BUFF_MK3
 };
 }  // namespace auto_battlebot
