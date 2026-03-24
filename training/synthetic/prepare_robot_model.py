@@ -198,12 +198,9 @@ def inspect_model(model_path: Path, scale: float = 1.0) -> None:
                 idx = _nearest_xterm256(r, g, b)
                 color_str = f"[{r}, {g}, {b}]"
                 if use_color:
-                    swatch = (
-                        f"{_ansi_fg_xterm256(idx)}██{_ANSI_RESET} "
-                        f"{color_str} (term 256 ≈ {idx})"
-                    )
+                    swatch = f"{_ansi_fg_xterm256(idx)}██{_ANSI_RESET} {color_str}"
                 else:
-                    swatch = f"{color_str} (term 256 ≈ {idx})"
+                    swatch = f"{color_str}"
             else:
                 swatch = "N/A"
             print(f"  Material: {mat.name:30s}  Color: {swatch}  ({source})")
