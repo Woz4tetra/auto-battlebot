@@ -128,6 +128,36 @@ install_sam3_from_git() {
     fi
 }
 
+ensure_sam3_import_deps() {
+    # Some SAM3 forks miss dependency metadata. Try importing and auto-install
+    # missing top-level modules until import succeeds or attempts are exhausted.
+    local max_attempts=8
+    local attempt=1
+    while [ "$attempt" -le "$max_attempts" ]; do
+        local missing_mod
+        missing_mod=$("$VENV_DIR/bin/python" - <<'PY'
+import importlib
+import traceback
+try:
+    importlib.import_module("sam3")
+    print("OK")
+except ModuleNotFoundError as e:
+    print(e.name or "UNKNOWN")
+except Exception:
+    # sam3 may fail for runtime reasons unrelated to missing packages.
+    print("OK")
+PY
+)
+        if [ "$missing_mod" = "OK" ]; then
+            return 0
+        fi
+        echo "SAM3 import missing dependency: $missing_mod"
+        pip install "$missing_mod"
+        attempt=$((attempt + 1))
+    done
+    echo "Warning: SAM3 import still has unresolved dependencies after $max_attempts attempts."
+}
+
 if [ -n "$SAM3_PATH" ]; then
     install_sam3_from_path "$SAM3_PATH"
 elif [ -n "$SAM3_GIT_URL" ]; then
@@ -137,6 +167,8 @@ else
     echo "Provide either --sam3-path or --sam3-git-url."
     exit 1
 fi
+
+ensure_sam3_import_deps
 
 echo ""
 echo "=========================================="
