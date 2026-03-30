@@ -89,7 +89,7 @@ Downloaded media is written to:
 
 Notes:
 
-- Requires `yt-dlp` (included in `training/floor/pyproject.toml`)
+- Uses direct BrettZone page parsing and HTTP downloads (no `yt-dlp` extractor required)
 - If BrettZone page layout changes, scraper still attempts regex fallback extraction of `fightReviewSync.php` links
 
 ## Run

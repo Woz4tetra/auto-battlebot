@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import re
 from dataclasses import asdict
@@ -36,10 +37,19 @@ FIGHT_RE = re.compile(
 )
 
 
-def fetch_html(url: str, timeout: int) -> str:
-    response = requests.get(url, timeout=timeout)
-    response.raise_for_status()
-    return response.text
+def fetch_html(url: str, timeout: int, retries: int = 1) -> str:
+    last_exc: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+            return response.text
+        except requests.RequestException as exc:
+            last_exc = exc
+            LOGGER.warning("Request attempt %d/%d failed for %s: %s", attempt, retries, url, exc)
+    if last_exc is None:
+        raise RuntimeError(f"Failed to fetch {url}")
+    raise last_exc
 
 
 def discover_fight_links(base_url: str, html: str) -> list[str]:
@@ -65,56 +75,93 @@ def parse_fight_identifiers(url: str) -> dict[str, str]:
     }
 
 
-def list_downloadables(fight_url: str) -> list[dict]:
-    try:
-        from yt_dlp import YoutubeDL
-    except ModuleNotFoundError as exc:  # pragma: no cover
-        raise RuntimeError(
-            "yt-dlp is required for scraping/downloading BrettZone videos. "
-            "Install with: pip install -e '.[floor]'"
-        ) from exc
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        "extract_flat": False,
-    }
-    with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(fight_url, download=False)
-    if info is None:
+def _extract_recordings_from_html(html: str) -> list[dict]:
+    """Extract recording objects from window.MATCH_DATA in fight pages."""
+    match = re.search(r"recordings\s*:\s*(\[.*?\])\s*,\s*gameID\s*:", html, re.S)
+    if not match:
         return []
-
-    entries = info.get("entries")
-    if isinstance(entries, list):
-        return [e for e in entries if isinstance(e, dict)]
-    return [info]
-
-
-def download_entry(entry: dict, out_dir: Path) -> Path | None:
     try:
-        from yt_dlp import YoutubeDL
-    except ModuleNotFoundError as exc:  # pragma: no cover
-        raise RuntimeError(
-            "yt-dlp is required for scraping/downloading BrettZone videos. "
-            "Install with: pip install -e '.[floor]'"
-        ) from exc
-    title = entry.get("title") or entry.get("id") or "fight"
-    safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", title).strip("_")
-    output_tpl = str(out_dir / f"{safe_title}.%(ext)s")
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "format": "bv*[height<=720]+ba/b[height<=720]/best",
-        "merge_output_format": "mp4",
-        "outtmpl": output_tpl,
-    }
-    with YoutubeDL(ydl_opts) as ydl:
-        ydl.download([entry["webpage_url"] if "webpage_url" in entry else entry["url"]])
+        recordings = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return []
+    return [r for r in recordings if isinstance(r, dict)]
 
-    matches = sorted(out_dir.glob(f"{safe_title}.*"))
-    if not matches:
+
+def _recording_to_entry(recording: dict, game_id: str, tournament_id: str) -> dict | None:
+    # Prefer manageable resolutions first, then native source.
+    url = recording.get("proxy720") or recording.get("proxy360") or recording.get("s3path")
+    if not isinstance(url, str) or not url:
         return None
-    return matches[-1]
+    camera = recording.get("camera") or "unknown_camera"
+    category = recording.get("category") or "unknown_category"
+    title = f"{tournament_id}_{game_id}_{camera}"
+    return {
+        "url": url,
+        "title": title,
+        "camera": camera,
+        "category": category,
+    }
+
+
+def list_downloadables(
+    fight_url: str,
+    timeout: int,
+    retries: int,
+    allow_all_camera_angles: bool,
+) -> list[dict]:
+    html = fetch_html(fight_url, timeout=timeout, retries=retries)
+    ids = parse_fight_identifiers(fight_url)
+    recordings = _extract_recordings_from_html(html)
+    entries: list[dict] = []
+    for rec in recordings:
+        entry = _recording_to_entry(
+            recording=rec,
+            game_id=ids["game_id"],
+            tournament_id=ids["tournament_id"],
+        )
+        if entry is None:
+            continue
+        if not allow_all_camera_angles:
+            category = str(entry.get("category", "")).lower()
+            camera = str(entry.get("camera", "")).lower()
+            if category not in {"overhead", "program"} and "overhead" not in camera:
+                continue
+        entries.append(entry)
+    return entries
+
+
+def download_entry(entry: dict, out_dir: Path, timeout: int, retries: int) -> Path | None:
+    url = entry["url"]
+    title = entry.get("title") or "fight"
+    safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", title).strip("_")
+    output_path = out_dir / f"{safe_title}.mp4"
+    temp_path = out_dir / f"{safe_title}.part"
+
+    last_exc: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            with requests.get(url, timeout=timeout, stream=True) as response:
+                response.raise_for_status()
+                with temp_path.open("wb") as f:
+                    for chunk in response.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+            temp_path.replace(output_path)
+            return output_path
+        except requests.RequestException as exc:
+            last_exc = exc
+            LOGGER.warning(
+                "Download attempt %d/%d failed for %s: %s",
+                attempt,
+                retries,
+                url,
+                exc,
+            )
+    if temp_path.exists():
+        temp_path.unlink(missing_ok=True)
+    if last_exc is None:
+        return None
+    raise last_exc
 
 
 def main() -> None:
@@ -150,7 +197,7 @@ def main() -> None:
     all_fights: set[str] = set()
     for page in pages:
         try:
-            html = fetch_html(page, scrape_cfg.timeout_seconds)
+            html = fetch_html(page, scrape_cfg.timeout_seconds, retries=scrape_cfg.retries)
             all_fights.update(discover_fight_links(scrape_cfg.base_url, html))
         except requests.RequestException as exc:
             LOGGER.warning("Failed to fetch %s: %s", page, exc)
@@ -168,7 +215,12 @@ def main() -> None:
         fight_ids = parse_fight_identifiers(fight_url)
         LOGGER.info("[%d/%d] Processing %s", idx, len(selected_fights), fight_url)
         try:
-            entries = list_downloadables(fight_url)
+            entries = list_downloadables(
+                fight_url=fight_url,
+                timeout=scrape_cfg.timeout_seconds,
+                retries=scrape_cfg.retries,
+                allow_all_camera_angles=scrape_cfg.allow_all_camera_angles,
+            )
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Failed to extract media for %s: %s", fight_url, exc)
             continue
@@ -179,7 +231,12 @@ def main() -> None:
 
         entry = rng.choice(entries)
         try:
-            video_path = download_entry(entry, cfg.paths.raw_videos)
+            video_path = download_entry(
+                entry,
+                cfg.paths.raw_videos,
+                timeout=scrape_cfg.timeout_seconds,
+                retries=scrape_cfg.retries,
+            )
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Download failed for %s: %s", fight_url, exc)
             continue
@@ -200,7 +257,9 @@ def main() -> None:
             "sha256": digest,
             "title": entry.get("title"),
             "duration": entry.get("duration"),
-            "camera": entry.get("format_note") or entry.get("channel"),
+            "camera": entry.get("camera"),
+            "category": entry.get("category"),
+            "media_url": entry.get("url"),
             **fight_ids,
         }
         downloaded_rows.append(row)
