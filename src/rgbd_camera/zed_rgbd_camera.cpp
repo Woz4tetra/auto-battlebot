@@ -31,7 +31,8 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
       svo_holding_dir_(get_project_path("data/temp_svo")),
       svo_max_size_bytes_(config.svo_max_size_gb * kBytesPerGb),
       svo_holding_dir_max_size_bytes_(config.svo_holding_dir_max_size_gb * kBytesPerGb),
-      frames_since_size_check_(0) {
+      frames_since_size_check_(0),
+      svo_start_frame_(config.svo_start_frame) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("zed_rgbd_camera");
     reset_capture_timing_stats();
 
@@ -114,6 +115,20 @@ bool ZedRgbdCamera::initialize() {
     if (returned_state != sl::ERROR_CODE::SUCCESS) {
         spdlog::error("Failed to open ZED camera: {}", sl::toString(returned_state).c_str());
         return false;
+    }
+
+    if (svo_start_frame_ > 0 &&
+        zed_.getCameraInformation().input_type == sl::INPUT_TYPE::SVO) {
+        const int n_frames = zed_.getSVONumberOfFrames();
+        if (n_frames > 0) {
+            const int frame = std::clamp(svo_start_frame_, 0, n_frames - 1);
+            if (frame != svo_start_frame_) {
+                spdlog::warn("svo_start_frame {} out of range for this SVO ({} frames), using {}",
+                             svo_start_frame_, n_frames, frame);
+            }
+            spdlog::info("SVO starting at frame {} of {}", frame, n_frames);
+            zed_.setSVOPosition(frame);
+        }
     }
 
     if (position_tracking_enabled_) {

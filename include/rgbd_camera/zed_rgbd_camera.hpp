@@ -108,6 +108,7 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     uint64_t svo_max_size_bytes_;
     uint64_t svo_holding_dir_max_size_bytes_;
     uint64_t frames_since_size_check_;
+    int svo_start_frame_;
 
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 

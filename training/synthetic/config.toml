@@ -46,7 +46,7 @@ material = "steel"
 [[robots.color_mapping]]
 color = [255, 32, 65]
 tolerance = 20
-material = "tpu"
+material = "red_tpu"
 
 [[robots.color_mapping]]
 color = [165, 165, 165]
@@ -90,35 +90,121 @@ weight = 1.0
 front = [0.0, 0.0, -0.05014]
 back = [-0.1528, 0.0, -0.05014]
 
-[[robots.color_mapping]]
-color = [128, 128, 128]
-tolerance = 20
-material = "aluminum"
 
-[[robots.color_mapping]]
-color = [0, 0, 0]
-tolerance = 30
+[[robot.color_mapping]]
+color = [40, 40, 40]
+tolerance = 5
 material = "steel"
 
-[[robots.color_mapping]]
-color = [255, 32, 65]
-tolerance = 20
-material = "tpu"
-
-[[robots.color_mapping]]
+[[robot.color_mapping]]
 color = [165, 165, 165]
-tolerance = 20
-material = "foam"
+tolerance = 5
+material = "aluminum"
 
-[[robots.color_mapping]]
-color = [102, 102, 102]
-tolerance = 20
-material = "foam"
+[[robot.color_mapping]]
+color = [230, 230, 230]
+tolerance = 5
+material = "aluminum"
 
-[[robots.color_mapping]]
+[[robot.color_mapping]]
 color = [232, 232, 232]
-tolerance = 20
-material = "paper"
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [179, 174, 159]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [59, 97, 180]
+tolerance = 5
+material = "blue_tpu"
+
+[[robot.color_mapping]]
+color = [250, 182, 1]
+tolerance = 5
+material = "yellow_plastic"
+
+[[robot.color_mapping]]
+color = [179, 179, 179]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [128, 128, 128]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [157, 207, 237]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [230, 224, 207]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [255, 193, 14]
+tolerance = 5
+material = "yellow_plastic"
+
+[[robot.color_mapping]]
+color = [102, 102, 102]
+tolerance = 5
+material = "steel"
+
+[[robot.color_mapping]]
+color = [240, 223, 173]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [253, 62, 4]
+tolerance = 5
+material = "red_tpu"
+
+[[robot.color_mapping]]
+color = [255, 0, 0]
+tolerance = 5
+material = "red_tpu"
+
+[[robot.color_mapping]]
+color = [244, 229, 167]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [251, 212, 169]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [178, 178, 178]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [247, 224, 153]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [191, 191, 191]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [211, 212, 213]
+tolerance = 5
+material = "aluminum"
+
+[[robot.color_mapping]]
+color = [77, 77, 77]
+tolerance = 5
+material = "steel"
 
 
 # To add another robot, duplicate the block above:
@@ -154,7 +240,7 @@ metallic = 1.0
 roughness = 0.4
 cc_texture = "Metal030"
 
-[materials.tpu]
+[materials.red_tpu]
 metallic = 0.1
 roughness = 0.1
 cc_texture = "Plastic007"

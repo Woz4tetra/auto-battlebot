@@ -30,6 +30,7 @@ struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
     Resolution camera_resolution = Resolution::RES_1280x720;
     DepthMode depth_mode = DepthMode::ZED_NEURAL_LIGHT;
     std::string svo_file_path = "";
+    int svo_start_frame = 0;
     bool svo_real_time_mode = true;
     bool position_tracking = true;
     bool svo_recording = true;
@@ -44,6 +45,7 @@ struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
             PARSE_ENUM(camera_resolution, Resolution)
             PARSE_ENUM(depth_mode, DepthMode)
             PARSE_FIELD_STRING(svo_file_path)
+            PARSE_FIELD(svo_start_frame)
             PARSE_FIELD_BOOL(svo_real_time_mode)
             PARSE_FIELD_BOOL(position_tracking)
             PARSE_FIELD_BOOL(svo_recording)

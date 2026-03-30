@@ -69,8 +69,7 @@ void Runner::initialize() {
     }
     if (autonomy_enabled_) {
         transmitter_->enable();
-    }
-    else {
+    } else {
         transmitter_->disable();
     }
     diagnostics_logger_->debug({}, "Initialization complete");
@@ -95,6 +94,7 @@ void Runner::initialize_field(const CameraData &camera_data) {
     }
     publisher_->publish_initial_field_description(*initial_field_description_);
 
+    robot_filter_->set_opponent_count(runtime_opponent_count_);
     robot_filter_->initialize(build_effective_robot_configs());
     navigation_->initialize();
     initialized_ = true;
@@ -281,8 +281,7 @@ bool Runner::tick() {
 
     {
         auto now = std::chrono::steady_clock::now();
-        double now_s =
-            std::chrono::duration<double>(now.time_since_epoch()).count();
+        double now_s = std::chrono::duration<double>(now.time_since_epoch()).count();
         double pipeline_latency_ms = (now_s - robots.header.stamp) * 1000.0;
         diagnostics_logger_->debug("pipeline", {{"latency_ms", pipeline_latency_ms}});
     }
