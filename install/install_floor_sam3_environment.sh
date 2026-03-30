@@ -4,11 +4,25 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-VENV_DIR="$PROJECT_ROOT/venv"
+FLOOR_ROOT="$PROJECT_ROOT/training/floor"
+VENV_DIR="$FLOOR_ROOT/.venv"
+PYPROJECT_FILE="$FLOOR_ROOT/pyproject.toml"
 
 SAM3_PATH=""
 SAM3_GIT_URL=""
-SKIP_BASE_SETUP=0
+RECREATE_VENV=0
+
+find_python() {
+    if command -v python3.11 >/dev/null 2>&1; then
+        echo "python3.11"
+        return 0
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        echo "python3"
+        return 0
+    fi
+    return 1
+}
 
 usage() {
     cat <<'EOF'
@@ -18,12 +32,13 @@ Usage:
 Options:
   --sam3-path <path>      Local SAM3 repository path to install with pip -e
   --sam3-git-url <url>    Git URL for SAM3 repository (cloned to training/floor/third_party/sam3)
-  --skip-base-setup       Skip base venv setup script (assumes venv already exists)
+  --recreate              Recreate training/floor/.venv before install
   -h, --help              Show help
 
 Notes:
-  1) Installs floor pipeline dependencies from pyproject extra: .[floor]
-  2) Installs SAM3 separately from local path or git URL
+  1) Uses isolated venv at training/floor/.venv
+  2) Installs dependencies from training/floor/pyproject.toml
+  3) Installs SAM3 separately from local path or git URL
 EOF
 }
 
@@ -37,8 +52,8 @@ while [ $# -gt 0 ]; do
             SAM3_GIT_URL="${2:-}"
             shift 2
             ;;
-        --skip-base-setup)
-            SKIP_BASE_SETUP=1
+        --recreate)
+            RECREATE_VENV=1
             shift
             ;;
         -h|--help)
@@ -53,25 +68,32 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-if [ "$SKIP_BASE_SETUP" -eq 0 ]; then
-    # Reuse existing project bootstrap so base dependencies stay consistent.
-    # shellcheck source=/dev/null
-    source "$SCRIPT_DIR/install_python_environment.sh"
-    install_python_environment --no-recreate
+if [ ! -f "$PYPROJECT_FILE" ]; then
+    echo "Error: floor pyproject not found at $PYPROJECT_FILE"
+    exit 1
 fi
 
-if [ ! -f "$VENV_DIR/bin/activate" ]; then
-    echo "Error: virtual environment not found at $VENV_DIR"
-    echo "Run install/install_python_environment.sh first, or omit --skip-base-setup."
-    exit 1
+if [ "$RECREATE_VENV" -eq 1 ] && [ -d "$VENV_DIR" ]; then
+    echo "Removing existing floor virtual environment at $VENV_DIR"
+    rm -rf "$VENV_DIR"
+fi
+
+if [ ! -d "$VENV_DIR" ]; then
+    PYTHON_CMD="$(find_python || true)"
+    if [ -z "${PYTHON_CMD:-}" ]; then
+        echo "Error: Could not find python3/python3.11"
+        exit 1
+    fi
+    echo "Creating isolated floor environment with $PYTHON_CMD at $VENV_DIR"
+    "$PYTHON_CMD" -m venv "$VENV_DIR"
 fi
 
 # shellcheck source=/dev/null
 source "$VENV_DIR/bin/activate"
 
-echo "Installing floor pipeline extras from pyproject..."
+echo "Installing floor pipeline dependencies from $PYPROJECT_FILE"
 pip install --upgrade pip setuptools wheel
-pip install -e "${PROJECT_ROOT}[floor]"
+pip install -e "$FLOOR_ROOT"
 
 install_sam3_from_path() {
     local repo_path="$1"

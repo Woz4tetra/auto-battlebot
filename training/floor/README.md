@@ -13,19 +13,17 @@ This project builds a floor-segmentation dataset for YOLO-Seg from BrettZone fig
 
 ## Install
 
-Base environment:
-
-```bash
-./install/install_python_environment.sh
-```
-
-Floor + SAM3 environment:
+Floor + SAM3 environment (isolated from top-level project):
 
 ```bash
 ./install/install_floor_sam3_environment.sh --sam3-path /path/to/sam3
 # or
-./install/install_floor_sam3_environment.sh --sam3-git-url https://github.com/<org>/<sam3-repo>.git
+./install/install_floor_sam3_environment.sh --sam3-git-url https://github.com/facebookresearch/sam3.git
 ```
+
+This installer creates a dedicated virtual environment at `training/floor/.venv`
+and installs dependencies from `training/floor/pyproject.toml`. It does not
+modify the root project `venv` dependency tree.
 
 ## SAM3 Adapter Contract
 
@@ -91,7 +89,7 @@ Downloaded media is written to:
 
 Notes:
 
-- Requires `yt-dlp` (included via `pip install -e ".[floor]"` or `install_floor_sam3_environment.sh`)
+- Requires `yt-dlp` (included in `training/floor/pyproject.toml`)
 - If BrettZone page layout changes, scraper still attempts regex fallback extraction of `fightReviewSync.php` links
 
 ## Run
