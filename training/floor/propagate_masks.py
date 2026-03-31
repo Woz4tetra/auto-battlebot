@@ -13,7 +13,6 @@ import numpy as np
 
 from common import (
     LOGGER,
-    append_jsonl,
     configure_logging,
     json_dump,
     json_load,
@@ -21,6 +20,26 @@ from common import (
     mkdir,
 )
 from sam3_adapter import build_adapter
+
+
+def load_jsonl(path: Path) -> list[dict]:
+    rows: list[dict] = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, sort_keys=False) + "\n")
 
 
 def parse_fps(fps_text: str | float | int) -> float:
@@ -54,6 +73,11 @@ def main() -> None:
     )
     parser.add_argument("--overlap-frames", type=int, default=12)
     parser.add_argument("--disable-cache", action="store_true")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse existing propagation manifest and skip already-complete chunks",
+    )
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -85,50 +109,132 @@ def main() -> None:
         model_cfg=cfg.sam3.model_cfg,
     )
 
-    propagation_rows: list[dict] = []
+    manifest_path = cfg.paths.metadata_dir / "propagation_manifest.jsonl"
+    failures_path = cfg.paths.metadata_dir / "propagation_failures.jsonl"
+    existing_rows = load_jsonl(manifest_path) if args.resume else []
+    seen_keys = {
+        (str(r.get("video_path", "")), int(r.get("frame_idx", -1)))
+        for r in existing_rows
+        if "video_path" in r and "frame_idx" in r
+    }
+    propagation_by_key: dict[tuple[str, int], dict] = {
+        (str(r["video_path"]), int(r["frame_idx"])): r
+        for r in existing_rows
+        if "video_path" in r and "frame_idx" in r
+    }
+    failure_rows: list[dict] = []
+
     for video_path_str, chunk_rows in by_video_chunks.items():
         video_path = Path(video_path_str)
         video_meta = transcode_map.get(video_path_str)
         if video_meta is None:
             LOGGER.warning("Skipping unknown video from seed manifest: %s", video_path_str)
             continue
+        chunk_map = {int(c["chunk_index"]): c for c in video_meta.get("chunks", [])}
         stream_info = video_meta.get("stream_info", {})
         fps = parse_fps(stream_info.get("avg_frame_rate", "30/1"))
 
         mask_out_dir = mkdir(cfg.paths.masks_dir / video_path.stem / "propagated")
         LOGGER.info("Propagating masks for %s", video_path.name)
         for row in sorted(chunk_rows, key=lambda x: x["chunk_index"]):
-            chunk_meta = video_meta["chunks"][row["chunk_index"]]
+            chunk_idx = int(row["chunk_index"])
+            chunk_meta = chunk_map.get(chunk_idx)
+            if chunk_meta is None:
+                LOGGER.warning(
+                    "Skipping missing chunk index %d for video %s",
+                    chunk_idx,
+                    video_path.name,
+                )
+                failure_rows.append(
+                    {
+                        "video_path": str(video_path),
+                        "chunk_index": chunk_idx,
+                        "error": "missing_chunk_metadata",
+                    }
+                )
+                continue
+
             start_idx, end_idx = frame_range_from_chunk(chunk_meta, fps, args.overlap_frames)
-            seed_mask = read_seed_mask(Path(row["seed_mask_path"]))
-            outputs = adapter.propagate_video(
-                video_path=video_path,
-                initial_mask=seed_mask,
-                start_frame_idx=start_idx,
-                end_frame_idx=end_idx,
-                async_prefetch=cfg.cluster.async_prefetch,
-                disable_cache=args.disable_cache,
-            )
-            for frame_idx, mask in outputs.items():
+            if args.resume and all((str(video_path), fidx) in seen_keys for fidx in range(start_idx, end_idx + 1)):
+                LOGGER.info(
+                    "Skipping already-complete chunk %d (%d-%d) for %s",
+                    chunk_idx,
+                    start_idx,
+                    end_idx,
+                    video_path.name,
+                )
+                continue
+
+            try:
+                seed_mask = read_seed_mask(Path(row["seed_mask_path"]))
+                outputs = adapter.propagate_video(
+                    video_path=video_path,
+                    initial_mask=seed_mask,
+                    start_frame_idx=start_idx,
+                    end_frame_idx=end_idx,
+                    async_prefetch=cfg.cluster.async_prefetch,
+                    disable_cache=args.disable_cache,
+                )
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.exception(
+                    "Chunk propagation failed for %s chunk %d: %s",
+                    video_path.name,
+                    chunk_idx,
+                    exc,
+                )
+                failure_rows.append(
+                    {
+                        "video_path": str(video_path),
+                        "chunk_index": chunk_idx,
+                        "start_frame_idx": start_idx,
+                        "end_frame_idx": end_idx,
+                        "error": str(exc),
+                    }
+                )
+                continue
+
+            for frame_idx in sorted(outputs.keys()):
+                key = (str(video_path), int(frame_idx))
+                if args.resume and key in seen_keys:
+                    continue
+                mask = outputs[frame_idx]
                 mask_u8 = (mask > 0).astype(np.uint8) * 255
                 mask_path = mask_out_dir / f"frame_{frame_idx:08d}_mask.png"
                 cv2.imwrite(str(mask_path), mask_u8)
-                propagation_rows.append(
-                    {
-                        "video_path": str(video_path),
-                        "chunk_index": row["chunk_index"],
-                        "frame_idx": frame_idx,
-                        "mask_path": str(mask_path),
-                    }
-                )
+                row_out = {
+                    "video_path": str(video_path),
+                    "chunk_index": chunk_idx,
+                    "frame_idx": int(frame_idx),
+                    "mask_path": str(mask_path),
+                }
+                propagation_by_key[key] = row_out
+                seen_keys.add(key)
 
-    manifest_path = cfg.paths.metadata_dir / "propagation_manifest.jsonl"
-    append_jsonl(manifest_path, propagation_rows)
+    final_rows = sorted(
+        propagation_by_key.values(),
+        key=lambda r: (str(r["video_path"]), int(r["frame_idx"])),
+    )
+    write_jsonl(manifest_path, final_rows)
+    if failure_rows:
+        write_jsonl(failures_path, failure_rows)
+    elif failures_path.exists():
+        failures_path.unlink(missing_ok=True)
+
     json_dump(
         cfg.paths.metadata_dir / "propagation_summary.json",
-        {"num_frames": len(propagation_rows), "manifest": str(manifest_path)},
+        {
+            "num_frames": len(final_rows),
+            "manifest": str(manifest_path),
+            "failed_chunks": len(failure_rows),
+            "failures_manifest": str(failures_path) if failure_rows else "",
+            "resume_mode": bool(args.resume),
+        },
     )
-    LOGGER.info("Done. Propagated %d frame masks.", len(propagation_rows))
+    LOGGER.info(
+        "Done. Propagated %d total frame masks (%d failed chunks).",
+        len(final_rows),
+        len(failure_rows),
+    )
 
 
 if __name__ == "__main__":
