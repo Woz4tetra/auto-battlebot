@@ -8,6 +8,7 @@ import json
 import random
 import re
 from dataclasses import asdict
+from enum import Enum
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -35,6 +36,33 @@ except ModuleNotFoundError:  # pragma: no cover
 FIGHT_RE = re.compile(
     r"(fightReviewSync\.php\?gameID=[^&]+&tournamentID=[^\"'<> ]+)", re.IGNORECASE
 )
+
+
+class FightStatus(str, Enum):
+    DONE = "done"
+    DUPLICATE_HASH = "duplicate_hash"
+    ALREADY_SEEN = "already_seen"
+    DOWNLOAD_NONE = "download_none"
+    EXTRACT_FAILED = "extract_failed"
+    NO_ENTRIES = "no_entries"
+    DOWNLOAD_FAILED = "download_failed"
+
+
+SKIP_STATUSES: set[FightStatus] = {
+    FightStatus.DONE,
+    FightStatus.DUPLICATE_HASH,
+    FightStatus.ALREADY_SEEN,
+    FightStatus.DOWNLOAD_NONE,
+}
+
+
+def parse_fight_status(value: str | None) -> FightStatus | None:
+    if value is None:
+        return None
+    try:
+        return FightStatus(value)
+    except ValueError:
+        return None
 
 
 def fetch_html(url: str, timeout: int, retries: int = 1) -> str:
@@ -103,6 +131,12 @@ def _recording_to_entry(recording: dict, game_id: str, tournament_id: str) -> di
     }
 
 
+def _extract_mp4_urls(html: str) -> list[str]:
+    urls = re.findall(r"https:\\/\\/[^\"'\\s>]+\\.mp4", html)
+    normalized = [u.replace("\\/", "/") for u in urls]
+    return sorted(set(normalized))
+
+
 def list_downloadables(
     fight_url: str,
     timeout: int,
@@ -127,6 +161,20 @@ def list_downloadables(
             if category not in {"overhead", "program"} and "overhead" not in camera:
                 continue
         entries.append(entry)
+
+    if not entries:
+        # Older/variant fight pages may not expose MATCH_DATA recordings.
+        # Fallback to direct MP4 URL extraction.
+        fallback_urls = _extract_mp4_urls(html)
+        for idx, media_url in enumerate(fallback_urls):
+            entries.append(
+                {
+                    "url": media_url,
+                    "title": f"{ids['tournament_id']}_{ids['game_id']}_fallback_{idx:02d}",
+                    "camera": "fallback",
+                    "category": "fallback",
+                }
+            )
     return entries
 
 
@@ -188,6 +236,8 @@ def main() -> None:
     index_file = cfg.paths.metadata_dir / "videos_index.jsonl"
     prior_state = json_load(state_file, default={"downloaded_sha256": {}, "fight_urls": []})
     downloaded_sha = prior_state.get("downloaded_sha256", {})
+    downloaded_media_urls = set(prior_state.get("downloaded_media_urls", []))
+    processed_fights: dict[str, str] = dict(prior_state.get("processed_fights", {}))
 
     LOGGER.info("Fetching BrettZone pages for fight discovery")
     pages = [
@@ -214,6 +264,16 @@ def main() -> None:
     for idx, fight_url in enumerate(selected_fights, start=1):
         fight_ids = parse_fight_identifiers(fight_url)
         LOGGER.info("[%d/%d] Processing %s", idx, len(selected_fights), fight_url)
+
+        prior_status = parse_fight_status(processed_fights.get(fight_url))
+        if prior_status in SKIP_STATUSES:
+            LOGGER.info(
+                "Fight already processed in prior run (%s), skipping: %s",
+                prior_status.value if prior_status else "unknown",
+                fight_url,
+            )
+            continue
+
         try:
             entries = list_downloadables(
                 fight_url=fight_url,
@@ -223,13 +283,21 @@ def main() -> None:
             )
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Failed to extract media for %s: %s", fight_url, exc)
+            processed_fights[fight_url] = FightStatus.EXTRACT_FAILED.value
             continue
 
         if not entries:
             LOGGER.warning("No downloadable entries for %s", fight_url)
+            processed_fights[fight_url] = FightStatus.NO_ENTRIES.value
             continue
 
-        entry = rng.choice(entries)
+        unseen_entries = [e for e in entries if e.get("url") not in downloaded_media_urls]
+        if not unseen_entries:
+            LOGGER.info("All media URLs already seen for %s, skipping download", fight_url)
+            processed_fights[fight_url] = FightStatus.ALREADY_SEEN.value
+            continue
+
+        entry = rng.choice(unseen_entries)
         try:
             video_path = download_entry(
                 entry,
@@ -239,17 +307,26 @@ def main() -> None:
             )
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Download failed for %s: %s", fight_url, exc)
+            processed_fights[fight_url] = FightStatus.DOWNLOAD_FAILED.value
             continue
         if video_path is None:
+            processed_fights[fight_url] = FightStatus.DOWNLOAD_NONE.value
             continue
 
         digest = sha256_file(video_path)
+        media_url = str(entry.get("url", ""))
         if digest in downloaded_sha:
             LOGGER.info("Duplicate content hash, removing %s", video_path.name)
             video_path.unlink(missing_ok=True)
+            if media_url:
+                downloaded_media_urls.add(media_url)
+            processed_fights[fight_url] = FightStatus.DUPLICATE_HASH.value
             continue
 
         downloaded_sha[digest] = str(video_path)
+        if media_url:
+            downloaded_media_urls.add(media_url)
+        processed_fights[fight_url] = FightStatus.DONE.value
         row = {
             "timestamp": now_ts(),
             "fight_url": fight_url,
@@ -269,6 +346,8 @@ def main() -> None:
         "config": asdict(scrape_cfg),
         "fight_urls": selected_fights,
         "downloaded_sha256": downloaded_sha,
+        "downloaded_media_urls": sorted(downloaded_media_urls),
+        "processed_fights": processed_fights,
         "downloaded_count": len(downloaded_rows),
         "updated_at": now_ts(),
     }

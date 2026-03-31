@@ -138,6 +138,7 @@ class Sam3Config:
     amp: bool
     text_threshold: float
     box_threshold: float
+    model_cfg: str = ""
     prompt_tags: list[str] = field(default_factory=list)
     negative_tags: list[str] = field(default_factory=list)
     fallback_positive_samples: int = 12

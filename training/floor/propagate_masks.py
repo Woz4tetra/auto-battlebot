@@ -82,6 +82,7 @@ def main() -> None:
         checkpoint=cfg.sam3.checkpoint,
         device=cfg.sam3.device,
         amp=cfg.sam3.amp,
+        model_cfg=cfg.sam3.model_cfg,
     )
 
     propagation_rows: list[dict] = []

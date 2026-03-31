@@ -32,6 +32,7 @@ keep_audio = false
 [sam3]
 adapter_module = "training.floor.sam3_adapter"
 checkpoint = ""
+model_cfg = ""
 device = "cuda"
 amp = true
 text_threshold = 0.18
