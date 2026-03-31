@@ -184,6 +184,18 @@ class NativeSam3Adapter:
         return np.asarray(x)
 
     def _extract_mask_from_item(self, item) -> np.ndarray | None:
+        if isinstance(item, dict):
+            for key in ("mask", "masks", "mask_logits", "logits", "pred_mask"):
+                if key in item:
+                    logits = item[key]
+                    if isinstance(logits, (list, tuple)) and len(logits) > 0:
+                        logits = logits[0]
+                    arr = self._to_numpy(logits)
+                    if arr.ndim == 3:
+                        arr = arr[0]
+                    return (arr > 0).astype(np.uint8)
+            return None
+
         if isinstance(item, tuple):
             if len(item) >= 3:
                 logits = item[2]
@@ -201,6 +213,47 @@ class NativeSam3Adapter:
             arr = arr[0]
         return (arr > 0).astype(np.uint8)
 
+    def _call_with_signature_mapping(self, fn, value_by_name: dict[str, object]):
+        """Call a function with best-effort positional/keyword mapping.
+
+        Handles positional-only parameters (common in wrapped/C++ APIs).
+        """
+        sig = inspect.signature(fn)
+        args: list[object] = []
+        kwargs: dict[str, object] = {}
+        missing_required: list[str] = []
+
+        for name, param in sig.parameters.items():
+            if name == "self":
+                continue
+            value = value_by_name.get(name, None)
+            has_value = value is not None
+            required = param.default is inspect._empty
+
+            if param.kind is inspect.Parameter.POSITIONAL_ONLY:
+                if has_value:
+                    args.append(value)
+                elif required:
+                    missing_required.append(name)
+                continue
+
+            if param.kind is inspect.Parameter.VAR_POSITIONAL:
+                continue
+            if param.kind is inspect.Parameter.VAR_KEYWORD:
+                continue
+
+            if has_value:
+                kwargs[name] = value
+            elif required:
+                missing_required.append(name)
+
+        if missing_required:
+            raise RuntimeError(
+                f"Missing required parameters for {fn.__qualname__}: {missing_required}. "
+                f"Signature={sig}"
+            )
+        return fn(*args, **kwargs)
+
     def _start_session(
         self,
         predictor,
@@ -211,18 +264,29 @@ class NativeSam3Adapter:
         if not hasattr(predictor, "start_session"):
             raise RuntimeError("Predictor has no start_session")
         start_sig = inspect.signature(predictor.start_session)
-        kwargs = {}
+        value_by_name: dict[str, object] = {}
         for name in start_sig.parameters:
             lname = name.lower()
-            if lname in {"video_path", "path", "source", "source_path", "video"}:
-                kwargs[name] = str(video_path)
+            if lname in {
+                "video_path",
+                "path",
+                "source",
+                "source_path",
+                "video",
+                "resource_path",
+                "input_path",
+            }:
+                value_by_name[name] = str(video_path)
             elif lname in {"async_loading_frames", "async_load", "async_mode"}:
-                kwargs[name] = async_prefetch > 0
+                value_by_name[name] = async_prefetch > 0
             elif lname in {"offload_video_to_cpu", "disable_cache", "offload"}:
-                kwargs[name] = bool(disable_cache)
-        if kwargs:
-            return predictor.start_session(**kwargs)
-        return predictor.start_session()
+                value_by_name[name] = bool(disable_cache)
+
+        # First try robust mapped call; fallback to common positional form.
+        try:
+            return self._call_with_signature_mapping(predictor.start_session, value_by_name)
+        except Exception:  # noqa: BLE001
+            return predictor.start_session(str(video_path))
 
     def _reset_session(self, predictor, session) -> None:
         if hasattr(predictor, "reset_session"):
@@ -242,22 +306,30 @@ class NativeSam3Adapter:
         box_xyxy: np.ndarray | None = None,
     ):
         add_sig = inspect.signature(predictor.add_prompt)
-        kwargs = {}
+        value_by_name: dict[str, object] = {}
         for name in add_sig.parameters:
             lname = name.lower()
             if lname in {"session", "session_id", "state", "inference_state"}:
-                kwargs[name] = session
+                value_by_name[name] = session
             elif lname in {"frame_idx", "frame", "index"}:
-                kwargs[name] = int(frame_idx)
+                value_by_name[name] = int(frame_idx)
             elif lname in {"points", "point_coords", "coords"}:
-                kwargs[name] = points
+                value_by_name[name] = points
             elif lname in {"labels", "point_labels"}:
-                kwargs[name] = labels
+                value_by_name[name] = labels
             elif lname in {"obj_id", "object_id"}:
-                kwargs[name] = 1
+                value_by_name[name] = 1
             elif lname in {"box", "bbox", "xyxy"} and box_xyxy is not None:
-                kwargs[name] = box_xyxy
-        return predictor.add_prompt(**kwargs)
+                value_by_name[name] = box_xyxy
+            elif lname in {"prompt", "payload", "request"}:
+                value_by_name[name] = {
+                    "frame_idx": int(frame_idx),
+                    "points": points,
+                    "labels": labels,
+                    "obj_id": 1,
+                    "box": box_xyxy,
+                }
+        return self._call_with_signature_mapping(predictor.add_prompt, value_by_name)
 
     def _seed_via_video_api(self, seed: SegmentationSeed) -> np.ndarray:
         """Fallback seed generation using video predictor APIs on a 1-frame temp video."""
@@ -402,14 +474,18 @@ class NativeSam3Adapter:
                 return prompt_mask
 
             prop_sig = inspect.signature(predictor.propagate_in_video)
-            prop_kwargs = {}
+            prop_map = {}
             if "session" in prop_sig.parameters:
-                prop_kwargs["session"] = session
-            elif "session_id" in prop_sig.parameters:
-                prop_kwargs["session_id"] = session
-            elif "state" in prop_sig.parameters:
-                prop_kwargs["state"] = session
-            for item in predictor.propagate_in_video(**prop_kwargs):
+                prop_map["session"] = session
+            if "session_id" in prop_sig.parameters:
+                prop_map["session_id"] = session
+            if "state" in prop_sig.parameters:
+                prop_map["state"] = session
+            try:
+                iterator = self._call_with_signature_mapping(predictor.propagate_in_video, prop_map)
+            except Exception:  # noqa: BLE001
+                iterator = predictor.propagate_in_video(session)
+            for item in iterator:
                 mask = self._extract_mask_from_item(item)
                 if mask is not None:
                     return mask
@@ -589,15 +665,19 @@ class NativeSam3Adapter:
 
             outputs: dict[int, np.ndarray] = {}
             prop_sig = inspect.signature(predictor.propagate_in_video)
-            prop_kwargs = {}
+            prop_map = {}
             if "session" in prop_sig.parameters:
-                prop_kwargs["session"] = session
-            elif "session_id" in prop_sig.parameters:
-                prop_kwargs["session_id"] = session
-            elif "state" in prop_sig.parameters:
-                prop_kwargs["state"] = session
+                prop_map["session"] = session
+            if "session_id" in prop_sig.parameters:
+                prop_map["session_id"] = session
+            if "state" in prop_sig.parameters:
+                prop_map["state"] = session
+            try:
+                iterator = self._call_with_signature_mapping(predictor.propagate_in_video, prop_map)
+            except Exception:  # noqa: BLE001
+                iterator = predictor.propagate_in_video(session)
 
-            for item in predictor.propagate_in_video(**prop_kwargs):
+            for item in iterator:
                 if isinstance(item, tuple) and len(item) > 0:
                     frame_idx = int(item[0])
                 else:
