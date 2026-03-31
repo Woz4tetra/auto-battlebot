@@ -175,6 +175,90 @@ class NativeSam3Adapter:
         labels = np.ones((pts.shape[0],), dtype=np.int32)
         return pts, labels
 
+    @staticmethod
+    def _to_numpy(x) -> np.ndarray:
+        if isinstance(x, np.ndarray):
+            return x
+        if hasattr(x, "detach") and hasattr(x, "cpu") and hasattr(x, "numpy"):
+            return x.detach().cpu().numpy()
+        return np.asarray(x)
+
+    def _extract_mask_from_item(self, item) -> np.ndarray | None:
+        if isinstance(item, tuple):
+            if len(item) >= 3:
+                logits = item[2]
+            elif len(item) >= 1:
+                logits = item[-1]
+            else:
+                return None
+        else:
+            logits = item
+
+        if isinstance(logits, (list, tuple)) and len(logits) > 0:
+            logits = logits[0]
+        arr = self._to_numpy(logits)
+        if arr.ndim == 3:
+            arr = arr[0]
+        return (arr > 0).astype(np.uint8)
+
+    def _start_session(
+        self,
+        predictor,
+        video_path: Path,
+        async_prefetch: int,
+        disable_cache: bool,
+    ):
+        if not hasattr(predictor, "start_session"):
+            raise RuntimeError("Predictor has no start_session")
+        start_sig = inspect.signature(predictor.start_session)
+        kwargs = {}
+        for name in start_sig.parameters:
+            lname = name.lower()
+            if lname in {"video_path", "path", "source", "source_path", "video"}:
+                kwargs[name] = str(video_path)
+            elif lname in {"async_loading_frames", "async_load", "async_mode"}:
+                kwargs[name] = async_prefetch > 0
+            elif lname in {"offload_video_to_cpu", "disable_cache", "offload"}:
+                kwargs[name] = bool(disable_cache)
+        if kwargs:
+            return predictor.start_session(**kwargs)
+        return predictor.start_session()
+
+    def _reset_session(self, predictor, session) -> None:
+        if hasattr(predictor, "reset_session"):
+            sig = inspect.signature(predictor.reset_session)
+            if len(sig.parameters) == 0:
+                predictor.reset_session()
+            else:
+                predictor.reset_session(session)
+
+    def _add_prompt_session_api(
+        self,
+        predictor,
+        session,
+        frame_idx: int,
+        points: np.ndarray,
+        labels: np.ndarray,
+        box_xyxy: np.ndarray | None = None,
+    ):
+        add_sig = inspect.signature(predictor.add_prompt)
+        kwargs = {}
+        for name in add_sig.parameters:
+            lname = name.lower()
+            if lname in {"session", "session_id", "state", "inference_state"}:
+                kwargs[name] = session
+            elif lname in {"frame_idx", "frame", "index"}:
+                kwargs[name] = int(frame_idx)
+            elif lname in {"points", "point_coords", "coords"}:
+                kwargs[name] = points
+            elif lname in {"labels", "point_labels"}:
+                kwargs[name] = labels
+            elif lname in {"obj_id", "object_id"}:
+                kwargs[name] = 1
+            elif lname in {"box", "bbox", "xyxy"} and box_xyxy is not None:
+                kwargs[name] = box_xyxy
+        return predictor.add_prompt(**kwargs)
+
     def _seed_via_video_api(self, seed: SegmentationSeed) -> np.ndarray:
         """Fallback seed generation using video predictor APIs on a 1-frame temp video."""
         predictor = self._predictor
@@ -258,6 +342,80 @@ class NativeSam3Adapter:
 
         raise RuntimeError("Video-API seed fallback produced no mask.")
 
+    def _seed_via_session_api(self, seed: SegmentationSeed) -> np.ndarray:
+        predictor = self._predictor
+        if predictor is None:
+            raise RuntimeError("SAM3 predictor not initialized.")
+        if not (
+            hasattr(predictor, "start_session")
+            and hasattr(predictor, "add_prompt")
+            and hasattr(predictor, "propagate_in_video")
+        ):
+            raise RuntimeError("Predictor does not provide session APIs for seed fallback.")
+
+        frame = seed.frame_bgr
+        h, w = frame.shape[:2]
+        with tempfile.TemporaryDirectory(prefix="sam3_seed_") as td:
+            temp_video = Path(td) / "seed.mp4"
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(str(temp_video), fourcc, 1.0, (w, h))
+            writer.write(frame)
+            writer.release()
+
+            session = self._start_session(
+                predictor=predictor,
+                video_path=temp_video,
+                async_prefetch=0,
+                disable_cache=True,
+            )
+            self._reset_session(predictor, session)
+
+            points = np.array(seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32)
+            labels = np.array(
+                [1] * len(seed.positive_points_xy) + [0] * len(seed.negative_points_xy),
+                dtype=np.int32,
+            )
+            if len(points) == 0:
+                if seed.arena_box_xyxy is not None:
+                    x1, y1, x2, y2 = seed.arena_box_xyxy
+                    cx, cy = int((x1 + x2) * 0.5), int((y1 + y2) * 0.5)
+                else:
+                    cx, cy = w // 2, h // 2
+                points = np.array([[cx, cy]], dtype=np.float32)
+                labels = np.array([1], dtype=np.int32)
+            box_np = (
+                np.array(seed.arena_box_xyxy, dtype=np.float32)
+                if seed.arena_box_xyxy is not None
+                else None
+            )
+
+            prompt_result = self._add_prompt_session_api(
+                predictor=predictor,
+                session=session,
+                frame_idx=0,
+                points=points,
+                labels=labels,
+                box_xyxy=box_np,
+            )
+            prompt_mask = self._extract_mask_from_item(prompt_result)
+            if prompt_mask is not None:
+                return prompt_mask
+
+            prop_sig = inspect.signature(predictor.propagate_in_video)
+            prop_kwargs = {}
+            if "session" in prop_sig.parameters:
+                prop_kwargs["session"] = session
+            elif "session_id" in prop_sig.parameters:
+                prop_kwargs["session_id"] = session
+            elif "state" in prop_sig.parameters:
+                prop_kwargs["state"] = session
+            for item in predictor.propagate_in_video(**prop_kwargs):
+                mask = self._extract_mask_from_item(item)
+                if mask is not None:
+                    return mask
+
+        raise RuntimeError("Session-API seed fallback produced no mask.")
+
     def segment_seed(self, seed: SegmentationSeed) -> np.ndarray:
         if self._impl is not None:
             mask = self._impl.segment_seed(seed)
@@ -300,6 +458,13 @@ class NativeSam3Adapter:
 
         if hasattr(predictor, "init_state") and hasattr(predictor, "propagate_in_video"):
             return self._seed_via_video_api(seed)
+
+        if (
+            hasattr(predictor, "start_session")
+            and hasattr(predictor, "add_prompt")
+            and hasattr(predictor, "propagate_in_video")
+        ):
+            return self._seed_via_session_api(seed)
 
         available = [name for name in dir(predictor) if not name.startswith("_")]
         raise RuntimeError(
@@ -391,6 +556,59 @@ class NativeSam3Adapter:
                 else:
                     mask_arr = np.asarray(mask_logits)
                 outputs[frame_idx] = (mask_arr > 0).astype(np.uint8)
+            return outputs
+
+        if (
+            hasattr(predictor, "start_session")
+            and hasattr(predictor, "add_prompt")
+            and hasattr(predictor, "propagate_in_video")
+        ):
+            session = self._start_session(
+                predictor=predictor,
+                video_path=video_path,
+                async_prefetch=async_prefetch,
+                disable_cache=disable_cache,
+            )
+            self._reset_session(predictor, session)
+
+            points, labels = self._sample_points_from_mask(initial_mask, max_points=32)
+            if len(points) == 0:
+                # ensure one positive point if mask is empty
+                h, w = initial_mask.shape[:2]
+                points = np.array([[w // 2, h // 2]], dtype=np.float32)
+                labels = np.array([1], dtype=np.int32)
+
+            self._add_prompt_session_api(
+                predictor=predictor,
+                session=session,
+                frame_idx=start_frame_idx,
+                points=points,
+                labels=labels,
+                box_xyxy=None,
+            )
+
+            outputs: dict[int, np.ndarray] = {}
+            prop_sig = inspect.signature(predictor.propagate_in_video)
+            prop_kwargs = {}
+            if "session" in prop_sig.parameters:
+                prop_kwargs["session"] = session
+            elif "session_id" in prop_sig.parameters:
+                prop_kwargs["session_id"] = session
+            elif "state" in prop_sig.parameters:
+                prop_kwargs["state"] = session
+
+            for item in predictor.propagate_in_video(**prop_kwargs):
+                if isinstance(item, tuple) and len(item) > 0:
+                    frame_idx = int(item[0])
+                else:
+                    # If API variant doesn't return frame index tuple, skip.
+                    continue
+                if frame_idx < start_frame_idx or frame_idx > end_frame_idx:
+                    continue
+                mask = self._extract_mask_from_item(item)
+                if mask is None:
+                    continue
+                outputs[frame_idx] = mask
             return outputs
 
         raise RuntimeError("SAM3 predictor does not expose a supported video propagation API.")
