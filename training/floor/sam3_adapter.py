@@ -254,6 +254,26 @@ class NativeSam3Adapter:
             )
         return fn(*args, **kwargs)
 
+    @staticmethod
+    def _extract_session_id(session):
+        """Return hashable session id when session object is dict-like."""
+        if isinstance(session, dict):
+            for key in ("session_id", "id", "session", "uuid"):
+                value = session.get(key)
+                if value is not None and not isinstance(value, dict):
+                    return value
+        return session
+
+    def _build_session_value_map(self, session) -> dict[str, object]:
+        session_id = self._extract_session_id(session)
+        value_map: dict[str, object] = {}
+        # APIs usually use `session`/`state` for object and `session_id` for hashable id.
+        value_map["session"] = session
+        value_map["state"] = session
+        value_map["inference_state"] = session
+        value_map["session_id"] = session_id
+        return value_map
+
     def _start_session(
         self,
         predictor,
@@ -294,7 +314,11 @@ class NativeSam3Adapter:
             if len(sig.parameters) == 0:
                 predictor.reset_session()
             else:
-                predictor.reset_session(session)
+                value_by_name = self._build_session_value_map(session)
+                try:
+                    self._call_with_signature_mapping(predictor.reset_session, value_by_name)
+                except Exception:  # noqa: BLE001
+                    predictor.reset_session(self._extract_session_id(session))
 
     def _add_prompt_session_api(
         self,
@@ -306,11 +330,13 @@ class NativeSam3Adapter:
         box_xyxy: np.ndarray | None = None,
     ):
         add_sig = inspect.signature(predictor.add_prompt)
-        value_by_name: dict[str, object] = {}
+        value_by_name: dict[str, object] = self._build_session_value_map(session)
         for name in add_sig.parameters:
             lname = name.lower()
-            if lname in {"session", "session_id", "state", "inference_state"}:
+            if lname in {"session", "state", "inference_state"}:
                 value_by_name[name] = session
+            elif lname in {"session_id"}:
+                value_by_name[name] = self._extract_session_id(session)
             elif lname in {"frame_idx", "frame", "index"}:
                 value_by_name[name] = int(frame_idx)
             elif lname in {"points", "point_coords", "coords"}:
@@ -473,18 +499,11 @@ class NativeSam3Adapter:
             if prompt_mask is not None:
                 return prompt_mask
 
-            prop_sig = inspect.signature(predictor.propagate_in_video)
-            prop_map = {}
-            if "session" in prop_sig.parameters:
-                prop_map["session"] = session
-            if "session_id" in prop_sig.parameters:
-                prop_map["session_id"] = session
-            if "state" in prop_sig.parameters:
-                prop_map["state"] = session
+            prop_map = self._build_session_value_map(session)
             try:
                 iterator = self._call_with_signature_mapping(predictor.propagate_in_video, prop_map)
             except Exception:  # noqa: BLE001
-                iterator = predictor.propagate_in_video(session)
+                iterator = predictor.propagate_in_video(self._extract_session_id(session))
             for item in iterator:
                 mask = self._extract_mask_from_item(item)
                 if mask is not None:
@@ -664,18 +683,11 @@ class NativeSam3Adapter:
             )
 
             outputs: dict[int, np.ndarray] = {}
-            prop_sig = inspect.signature(predictor.propagate_in_video)
-            prop_map = {}
-            if "session" in prop_sig.parameters:
-                prop_map["session"] = session
-            if "session_id" in prop_sig.parameters:
-                prop_map["session_id"] = session
-            if "state" in prop_sig.parameters:
-                prop_map["state"] = session
+            prop_map = self._build_session_value_map(session)
             try:
                 iterator = self._call_with_signature_mapping(predictor.propagate_in_video, prop_map)
             except Exception:  # noqa: BLE001
-                iterator = predictor.propagate_in_video(session)
+                iterator = predictor.propagate_in_video(self._extract_session_id(session))
 
             for item in iterator:
                 if isinstance(item, tuple) and len(item) > 0:
