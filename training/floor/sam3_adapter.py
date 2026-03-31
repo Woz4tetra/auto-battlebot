@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+import cv2
 import numpy as np
 
 
@@ -173,6 +175,89 @@ class NativeSam3Adapter:
         labels = np.ones((pts.shape[0],), dtype=np.int32)
         return pts, labels
 
+    def _seed_via_video_api(self, seed: SegmentationSeed) -> np.ndarray:
+        """Fallback seed generation using video predictor APIs on a 1-frame temp video."""
+        predictor = self._predictor
+        if predictor is None:
+            raise RuntimeError("SAM3 predictor not initialized.")
+        if not (hasattr(predictor, "init_state") and hasattr(predictor, "propagate_in_video")):
+            raise RuntimeError("Predictor does not provide video APIs for seed fallback.")
+
+        frame = seed.frame_bgr
+        h, w = frame.shape[:2]
+        with tempfile.TemporaryDirectory(prefix="sam3_seed_") as td:
+            temp_video = Path(td) / "seed.mp4"
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(str(temp_video), fourcc, 1.0, (w, h))
+            writer.write(frame)
+            writer.release()
+
+            init_state_sig = inspect.signature(predictor.init_state)
+            init_kwargs = {}
+            if "video_path" in init_state_sig.parameters:
+                init_kwargs["video_path"] = str(temp_video)
+            if "async_loading_frames" in init_state_sig.parameters:
+                init_kwargs["async_loading_frames"] = False
+            if "offload_video_to_cpu" in init_state_sig.parameters:
+                init_kwargs["offload_video_to_cpu"] = True
+            inference_state = predictor.init_state(**init_kwargs)
+            if hasattr(predictor, "reset_state"):
+                predictor.reset_state(inference_state)
+
+            points = np.array(seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32)
+            labels = np.array(
+                [1] * len(seed.positive_points_xy) + [0] * len(seed.negative_points_xy),
+                dtype=np.int32,
+            )
+            if len(points) == 0:
+                # Ensure at least one positive point near arena center.
+                if seed.arena_box_xyxy is not None:
+                    x1, y1, x2, y2 = seed.arena_box_xyxy
+                    cx, cy = int((x1 + x2) * 0.5), int((y1 + y2) * 0.5)
+                else:
+                    cx, cy = w // 2, h // 2
+                points = np.array([[cx, cy]], dtype=np.float32)
+                labels = np.array([1], dtype=np.int32)
+
+            if hasattr(predictor, "add_new_points_or_box"):
+                add_sig = inspect.signature(predictor.add_new_points_or_box)
+                add_kwargs = {}
+                if "inference_state" in add_sig.parameters:
+                    add_kwargs["inference_state"] = inference_state
+                elif "state" in add_sig.parameters:
+                    add_kwargs["state"] = inference_state
+                if "frame_idx" in add_sig.parameters:
+                    add_kwargs["frame_idx"] = 0
+                if "obj_id" in add_sig.parameters:
+                    add_kwargs["obj_id"] = 1
+                if "points" in add_sig.parameters:
+                    add_kwargs["points"] = points
+                if "point_coords" in add_sig.parameters:
+                    add_kwargs["point_coords"] = points
+                if "labels" in add_sig.parameters:
+                    add_kwargs["labels"] = labels
+                if "point_labels" in add_sig.parameters:
+                    add_kwargs["point_labels"] = labels
+                if seed.arena_box_xyxy is not None:
+                    box_np = np.array(seed.arena_box_xyxy, dtype=np.float32)
+                    if "box" in add_sig.parameters:
+                        add_kwargs["box"] = box_np
+                    if "bbox" in add_sig.parameters:
+                        add_kwargs["bbox"] = box_np
+                predictor.add_new_points_or_box(**add_kwargs)
+
+            for item in predictor.propagate_in_video(inference_state):
+                if not isinstance(item, tuple) or len(item) < 3:
+                    continue
+                mask_logits = item[2]
+                if isinstance(mask_logits, (list, tuple)) and len(mask_logits) > 0:
+                    mask_arr = np.asarray(mask_logits[0])
+                else:
+                    mask_arr = np.asarray(mask_logits)
+                return (mask_arr > 0).astype(np.uint8)
+
+        raise RuntimeError("Video-API seed fallback produced no mask.")
+
     def segment_seed(self, seed: SegmentationSeed) -> np.ndarray:
         if self._impl is not None:
             mask = self._impl.segment_seed(seed)
@@ -186,31 +271,40 @@ class NativeSam3Adapter:
             return np.asarray(predictor.segment_seed(seed), dtype=np.uint8)
 
         if hasattr(predictor, "set_image") and hasattr(predictor, "predict"):
-            frame_rgb = seed.frame_bgr[:, :, ::-1]
-            predictor.set_image(frame_rgb)
-            points = np.array(seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32)
-            labels = np.array(
-                [1] * len(seed.positive_points_xy) + [0] * len(seed.negative_points_xy),
-                dtype=np.int32,
-            )
-            kwargs = {"multimask_output": False}
-            sig = inspect.signature(predictor.predict)
-            if "point_coords" in sig.parameters:
-                kwargs["point_coords"] = points if len(points) else None
-            if "point_labels" in sig.parameters:
-                kwargs["point_labels"] = labels if len(labels) else None
-            if seed.arena_box_xyxy is not None and "box" in sig.parameters:
-                kwargs["box"] = np.array(seed.arena_box_xyxy, dtype=np.float32)
-            outputs = predictor.predict(**kwargs)
-            if isinstance(outputs, tuple) and len(outputs) >= 1:
-                masks = outputs[0]
-            else:
-                masks = outputs
-            mask = np.asarray(masks[0] if np.ndim(masks) == 3 else masks, dtype=np.uint8)
-            return (mask > 0).astype(np.uint8)
+            try:
+                frame_rgb = seed.frame_bgr[:, :, ::-1]
+                predictor.set_image(frame_rgb)
+                points = np.array(seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32)
+                labels = np.array(
+                    [1] * len(seed.positive_points_xy) + [0] * len(seed.negative_points_xy),
+                    dtype=np.int32,
+                )
+                kwargs = {"multimask_output": False}
+                sig = inspect.signature(predictor.predict)
+                if "point_coords" in sig.parameters:
+                    kwargs["point_coords"] = points if len(points) else None
+                if "point_labels" in sig.parameters:
+                    kwargs["point_labels"] = labels if len(labels) else None
+                if seed.arena_box_xyxy is not None and "box" in sig.parameters:
+                    kwargs["box"] = np.array(seed.arena_box_xyxy, dtype=np.float32)
+                outputs = predictor.predict(**kwargs)
+                if isinstance(outputs, tuple) and len(outputs) >= 1:
+                    masks = outputs[0]
+                else:
+                    masks = outputs
+                mask = np.asarray(masks[0] if np.ndim(masks) == 3 else masks, dtype=np.uint8)
+                return (mask > 0).astype(np.uint8)
+            except Exception:  # noqa: BLE001
+                # Fall through to video-API fallback.
+                pass
 
+        if hasattr(predictor, "init_state") and hasattr(predictor, "propagate_in_video"):
+            return self._seed_via_video_api(seed)
+
+        available = [name for name in dir(predictor) if not name.startswith("_")]
         raise RuntimeError(
-            "SAM3 predictor does not expose a supported seed segmentation interface."
+            "SAM3 predictor does not expose a supported seed segmentation interface. "
+            f"Available predictor methods: {available[:80]}"
         )
 
     def propagate_video(
