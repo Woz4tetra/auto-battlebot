@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib
 import inspect
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -109,6 +110,22 @@ class NativeSam3Adapter:
             "(`build_floor_segmenter` or `build_sam3_predictor`). "
             "Provide a custom adapter module with build_adapter(checkpoint, device, amp)."
         )
+
+    @staticmethod
+    @contextmanager
+    def _torch_inference_ctx():
+        """Wrap SAM3 calls in torch.inference_mode() to allow inplace tensor ops."""
+        try:
+            import torch  # pylint: disable=import-outside-toplevel
+
+            ctx = torch.inference_mode()
+        except Exception:  # noqa: BLE001
+            ctx = None
+        if ctx is not None:
+            with ctx:
+                yield
+        else:
+            yield
 
     def _discover_model_config(self, sam3_module: object) -> str | None:
         if self._model_cfg:
@@ -309,16 +326,22 @@ class NativeSam3Adapter:
             return predictor.start_session(str(video_path))
 
     def _reset_session(self, predictor, session) -> None:
-        if hasattr(predictor, "reset_session"):
+        if not hasattr(predictor, "reset_session"):
+            return
+
+        with self._torch_inference_ctx():
             sig = inspect.signature(predictor.reset_session)
             if len(sig.parameters) == 0:
                 predictor.reset_session()
-            else:
-                value_by_name = self._build_session_value_map(session)
+                return
+            value_by_name = self._build_session_value_map(session)
+            try:
+                self._call_with_signature_mapping(predictor.reset_session, value_by_name)
+            except Exception:  # noqa: BLE001
                 try:
-                    self._call_with_signature_mapping(predictor.reset_session, value_by_name)
-                except Exception:  # noqa: BLE001
                     predictor.reset_session(self._extract_session_id(session))
+                except Exception:  # noqa: BLE001
+                    pass
 
     def _add_prompt_session_api(
         self,
@@ -367,7 +390,7 @@ class NativeSam3Adapter:
 
         frame = seed.frame_bgr
         h, w = frame.shape[:2]
-        with tempfile.TemporaryDirectory(prefix="sam3_seed_") as td:
+        with self._torch_inference_ctx(), tempfile.TemporaryDirectory(prefix="sam3_seed_") as td:
             temp_video = Path(td) / "seed.mp4"
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             writer = cv2.VideoWriter(str(temp_video), fourcc, 1.0, (w, h))
@@ -392,7 +415,6 @@ class NativeSam3Adapter:
                 dtype=np.int32,
             )
             if len(points) == 0:
-                # Ensure at least one positive point near arena center.
                 if seed.arena_box_xyxy is not None:
                     x1, y1, x2, y2 = seed.arena_box_xyxy
                     cx, cy = int((x1 + x2) * 0.5), int((y1 + y2) * 0.5)
@@ -453,7 +475,7 @@ class NativeSam3Adapter:
 
         frame = seed.frame_bgr
         h, w = frame.shape[:2]
-        with tempfile.TemporaryDirectory(prefix="sam3_seed_") as td:
+        with self._torch_inference_ctx(), tempfile.TemporaryDirectory(prefix="sam3_seed_") as td:
             temp_video = Path(td) / "seed.mp4"
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             writer = cv2.VideoWriter(str(temp_video), fourcc, 1.0, (w, h))
@@ -466,7 +488,6 @@ class NativeSam3Adapter:
                 async_prefetch=0,
                 disable_cache=True,
             )
-            self._reset_session(predictor, session)
 
             points = np.array(seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32)
             labels = np.array(
@@ -602,106 +623,105 @@ class NativeSam3Adapter:
             )
             return {int(k): np.asarray(v, dtype=np.uint8) for k, v in outputs.items()}
 
-        if hasattr(predictor, "init_state") and hasattr(predictor, "propagate_in_video"):
-            init_state_sig = inspect.signature(predictor.init_state)
-            init_kwargs = {}
-            if "video_path" in init_state_sig.parameters:
-                init_kwargs["video_path"] = str(video_path)
-            if "async_loading_frames" in init_state_sig.parameters:
-                init_kwargs["async_loading_frames"] = async_prefetch > 0
-            if "offload_video_to_cpu" in init_state_sig.parameters:
-                init_kwargs["offload_video_to_cpu"] = disable_cache
-            inference_state = predictor.init_state(**init_kwargs)
-            if hasattr(predictor, "reset_state"):
-                predictor.reset_state(inference_state)
+        with self._torch_inference_ctx():
+            if hasattr(predictor, "init_state") and hasattr(predictor, "propagate_in_video"):
+                init_state_sig = inspect.signature(predictor.init_state)
+                init_kwargs = {}
+                if "video_path" in init_state_sig.parameters:
+                    init_kwargs["video_path"] = str(video_path)
+                if "async_loading_frames" in init_state_sig.parameters:
+                    init_kwargs["async_loading_frames"] = async_prefetch > 0
+                if "offload_video_to_cpu" in init_state_sig.parameters:
+                    init_kwargs["offload_video_to_cpu"] = disable_cache
+                inference_state = predictor.init_state(**init_kwargs)
+                if hasattr(predictor, "reset_state"):
+                    predictor.reset_state(inference_state)
 
-            points, labels = self._sample_points_from_mask(initial_mask, max_points=32)
-            if hasattr(predictor, "add_new_points_or_box"):
-                add_sig = inspect.signature(predictor.add_new_points_or_box)
-                add_kwargs = {}
-                if "inference_state" in add_sig.parameters:
-                    add_kwargs["inference_state"] = inference_state
-                elif "state" in add_sig.parameters:
-                    add_kwargs["state"] = inference_state
-                if "frame_idx" in add_sig.parameters:
-                    add_kwargs["frame_idx"] = start_frame_idx
-                if "obj_id" in add_sig.parameters:
-                    add_kwargs["obj_id"] = 1
-                if "points" in add_sig.parameters:
-                    add_kwargs["points"] = points
-                if "point_coords" in add_sig.parameters:
-                    add_kwargs["point_coords"] = points
-                if "labels" in add_sig.parameters:
-                    add_kwargs["labels"] = labels
-                if "point_labels" in add_sig.parameters:
-                    add_kwargs["point_labels"] = labels
-                predictor.add_new_points_or_box(**add_kwargs)
+                points, labels = self._sample_points_from_mask(initial_mask, max_points=32)
+                if hasattr(predictor, "add_new_points_or_box"):
+                    add_sig = inspect.signature(predictor.add_new_points_or_box)
+                    add_kwargs = {}
+                    if "inference_state" in add_sig.parameters:
+                        add_kwargs["inference_state"] = inference_state
+                    elif "state" in add_sig.parameters:
+                        add_kwargs["state"] = inference_state
+                    if "frame_idx" in add_sig.parameters:
+                        add_kwargs["frame_idx"] = start_frame_idx
+                    if "obj_id" in add_sig.parameters:
+                        add_kwargs["obj_id"] = 1
+                    if "points" in add_sig.parameters:
+                        add_kwargs["points"] = points
+                    if "point_coords" in add_sig.parameters:
+                        add_kwargs["point_coords"] = points
+                    if "labels" in add_sig.parameters:
+                        add_kwargs["labels"] = labels
+                    if "point_labels" in add_sig.parameters:
+                        add_kwargs["point_labels"] = labels
+                    predictor.add_new_points_or_box(**add_kwargs)
 
-            outputs: dict[int, np.ndarray] = {}
-            for item in predictor.propagate_in_video(inference_state):
-                if not isinstance(item, tuple) or len(item) < 3:
-                    continue
-                frame_idx = int(item[0])
-                if frame_idx < start_frame_idx or frame_idx > end_frame_idx:
-                    continue
-                mask_logits = item[2]
-                # mask_logits may be tensor-like list/array per object.
-                if isinstance(mask_logits, (list, tuple)) and len(mask_logits) > 0:
-                    mask_arr = np.asarray(mask_logits[0])
-                else:
-                    mask_arr = np.asarray(mask_logits)
-                outputs[frame_idx] = (mask_arr > 0).astype(np.uint8)
-            return outputs
-
-        if (
-            hasattr(predictor, "start_session")
-            and hasattr(predictor, "add_prompt")
-            and hasattr(predictor, "propagate_in_video")
-        ):
-            session = self._start_session(
-                predictor=predictor,
-                video_path=video_path,
-                async_prefetch=async_prefetch,
-                disable_cache=disable_cache,
-            )
-            self._reset_session(predictor, session)
-
-            points, labels = self._sample_points_from_mask(initial_mask, max_points=32)
-            if len(points) == 0:
-                # ensure one positive point if mask is empty
-                h, w = initial_mask.shape[:2]
-                points = np.array([[w // 2, h // 2]], dtype=np.float32)
-                labels = np.array([1], dtype=np.int32)
-
-            self._add_prompt_session_api(
-                predictor=predictor,
-                session=session,
-                frame_idx=start_frame_idx,
-                points=points,
-                labels=labels,
-                box_xyxy=None,
-            )
-
-            outputs: dict[int, np.ndarray] = {}
-            prop_map = self._build_session_value_map(session)
-            try:
-                iterator = self._call_with_signature_mapping(predictor.propagate_in_video, prop_map)
-            except Exception:  # noqa: BLE001
-                iterator = predictor.propagate_in_video(self._extract_session_id(session))
-
-            for item in iterator:
-                if isinstance(item, tuple) and len(item) > 0:
+                outputs: dict[int, np.ndarray] = {}
+                for item in predictor.propagate_in_video(inference_state):
+                    if not isinstance(item, tuple) or len(item) < 3:
+                        continue
                     frame_idx = int(item[0])
-                else:
-                    # If API variant doesn't return frame index tuple, skip.
-                    continue
-                if frame_idx < start_frame_idx or frame_idx > end_frame_idx:
-                    continue
-                mask = self._extract_mask_from_item(item)
-                if mask is None:
-                    continue
-                outputs[frame_idx] = mask
-            return outputs
+                    if frame_idx < start_frame_idx or frame_idx > end_frame_idx:
+                        continue
+                    mask_logits = item[2]
+                    if isinstance(mask_logits, (list, tuple)) and len(mask_logits) > 0:
+                        mask_arr = np.asarray(mask_logits[0])
+                    else:
+                        mask_arr = np.asarray(mask_logits)
+                    outputs[frame_idx] = (mask_arr > 0).astype(np.uint8)
+                return outputs
+
+            if (
+                hasattr(predictor, "start_session")
+                and hasattr(predictor, "add_prompt")
+                and hasattr(predictor, "propagate_in_video")
+            ):
+                session = self._start_session(
+                    predictor=predictor,
+                    video_path=video_path,
+                    async_prefetch=async_prefetch,
+                    disable_cache=disable_cache,
+                )
+
+                points, labels = self._sample_points_from_mask(initial_mask, max_points=32)
+                if len(points) == 0:
+                    h, w = initial_mask.shape[:2]
+                    points = np.array([[w // 2, h // 2]], dtype=np.float32)
+                    labels = np.array([1], dtype=np.int32)
+
+                self._add_prompt_session_api(
+                    predictor=predictor,
+                    session=session,
+                    frame_idx=start_frame_idx,
+                    points=points,
+                    labels=labels,
+                    box_xyxy=None,
+                )
+
+                outputs: dict[int, np.ndarray] = {}
+                prop_map = self._build_session_value_map(session)
+                try:
+                    iterator = self._call_with_signature_mapping(
+                        predictor.propagate_in_video, prop_map
+                    )
+                except Exception:  # noqa: BLE001
+                    iterator = predictor.propagate_in_video(self._extract_session_id(session))
+
+                for item in iterator:
+                    if isinstance(item, tuple) and len(item) > 0:
+                        frame_idx = int(item[0])
+                    else:
+                        continue
+                    if frame_idx < start_frame_idx or frame_idx > end_frame_idx:
+                        continue
+                    mask = self._extract_mask_from_item(item)
+                    if mask is None:
+                        continue
+                    outputs[frame_idx] = mask
+                return outputs
 
         raise RuntimeError("SAM3 predictor does not expose a supported video propagation API.")
 
