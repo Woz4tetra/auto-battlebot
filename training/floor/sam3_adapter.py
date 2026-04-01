@@ -144,7 +144,6 @@ class NativeSam3Adapter:
         prompt_frame_idx: int,
         points: np.ndarray,
         point_labels: np.ndarray,
-        start_frame_idx: int | None = None,
         max_frames: int | None = None,
         obj_id: int = 1,
     ) -> dict[int, np.ndarray]:
@@ -165,7 +164,7 @@ class NativeSam3Adapter:
             with _inference_ctx():
                 for item in self._predictor.propagate_in_video(
                     session_id=sid,
-                    start_frame_idx=start_frame_idx,
+                    start_frame_idx=prompt_frame_idx,
                     max_frame_num_to_track=max_frames,
                 ):
                     fidx = item.get("frame_index")
