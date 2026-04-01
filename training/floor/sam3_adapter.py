@@ -159,8 +159,20 @@ class NativeSam3Adapter:
         }
         return fn(**filtered)
 
+    def _gpu_supports_fa3(self) -> bool:
+        try:
+            import torch  # pylint: disable=import-outside-toplevel
+
+            if torch.cuda.is_available():
+                cap = torch.cuda.get_device_capability(0)
+                return cap[0] >= 9  # Hopper (sm_90) or newer
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
     def _build_predictor(self, predictor_builder, sam3_module: object):
         cfg = self._discover_model_config(sam3_module)
+        fa3_ok = self._gpu_supports_fa3()
         sig = inspect.signature(predictor_builder)
         kwargs = {}
         for name in sig.parameters:
@@ -173,6 +185,8 @@ class NativeSam3Adapter:
                 kwargs[name] = self._amp
             elif "config" in lname or lname in {"cfg", "model_cfg"}:
                 kwargs[name] = cfg
+            elif lname == "use_fa3":
+                kwargs[name] = fa3_ok
         try:
             return self._call_with_supported_kwargs(predictor_builder, kwargs)
         except TypeError:
@@ -202,6 +216,18 @@ class NativeSam3Adapter:
         return pts, labels
 
     @staticmethod
+    def _extract_frame_idx(item) -> int | None:
+        """Extract frame index from various yield formats."""
+        if isinstance(item, dict):
+            for key in ("frame_index", "frame_idx", "frame"):
+                if key in item:
+                    return int(item[key])
+            return None
+        if isinstance(item, tuple) and len(item) > 0:
+            return int(item[0])
+        return None
+
+    @staticmethod
     def _to_numpy(x) -> np.ndarray:
         if isinstance(x, np.ndarray):
             return x
@@ -211,7 +237,17 @@ class NativeSam3Adapter:
 
     def _extract_mask_from_item(self, item) -> np.ndarray | None:
         if isinstance(item, dict):
-            for key in ("mask", "masks", "mask_logits", "logits", "pred_mask"):
+            # SAM3 base predictor wraps outputs as {"frame_index": int, "outputs": {...}}
+            if "outputs" in item and isinstance(item["outputs"], dict):
+                return self._extract_mask_from_item(item["outputs"])
+            for key in (
+                "out_binary_masks",
+                "mask",
+                "masks",
+                "mask_logits",
+                "logits",
+                "pred_mask",
+            ):
                 if key in item:
                     logits = item[key]
                     if isinstance(logits, (list, tuple)) and len(logits) > 0:
@@ -706,17 +742,15 @@ class NativeSam3Adapter:
 
                 outputs: dict[int, np.ndarray] = {}
                 for item in predictor.propagate_in_video(inference_state):
-                    if not isinstance(item, tuple) or len(item) < 3:
+                    frame_idx = self._extract_frame_idx(item)
+                    if frame_idx is None:
                         continue
-                    frame_idx = int(item[0])
                     if frame_idx < start_frame_idx or frame_idx > end_frame_idx:
                         continue
-                    mask_logits = item[2]
-                    if isinstance(mask_logits, (list, tuple)) and len(mask_logits) > 0:
-                        mask_arr = np.asarray(mask_logits[0])
-                    else:
-                        mask_arr = np.asarray(mask_logits)
-                    outputs[frame_idx] = (mask_arr > 0).astype(np.uint8)
+                    mask = self._extract_mask_from_item(item)
+                    if mask is None:
+                        continue
+                    outputs[frame_idx] = mask
                 return outputs
 
             if (
@@ -760,9 +794,8 @@ class NativeSam3Adapter:
                     )
 
                 for item in iterator:
-                    if isinstance(item, tuple) and len(item) > 0:
-                        frame_idx = int(item[0])
-                    else:
+                    frame_idx = self._extract_frame_idx(item)
+                    if frame_idx is None:
                         continue
                     if frame_idx < start_frame_idx or frame_idx > end_frame_idx:
                         continue
