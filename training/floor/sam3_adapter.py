@@ -253,6 +253,8 @@ class NativeSam3Adapter:
                     if isinstance(logits, (list, tuple)) and len(logits) > 0:
                         logits = logits[0]
                     arr = self._to_numpy(logits)
+                    if arr.size == 0:
+                        return None
                     if arr.ndim == 3:
                         arr = arr[0]
                     return (arr > 0).astype(np.uint8)
@@ -271,6 +273,8 @@ class NativeSam3Adapter:
         if isinstance(logits, (list, tuple)) and len(logits) > 0:
             logits = logits[0]
         arr = self._to_numpy(logits)
+        if arr.size == 0:
+            return None
         if arr.ndim == 3:
             arr = arr[0]
         return (arr > 0).astype(np.uint8)
