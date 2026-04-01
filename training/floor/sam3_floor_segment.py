@@ -112,7 +112,8 @@ def main() -> None:
     )
 
     seed_rows: list[dict] = []
-    for video_meta in transcode_index:
+    skipped = 0
+    for i, video_meta in enumerate(transcode_index, 1):
         video_path = Path(video_meta["output_video"])
         stream_info = video_meta.get("stream_info", {})
         fps = parse_fps(
@@ -128,16 +129,23 @@ def main() -> None:
             n_neg=cfg.sam3.fallback_negative_samples,
         )
 
-        LOGGER.info("Generating seed mask for %s (frame %d)", video_path.name, seed_idx)
-        mask = adapter.segment_frame(
-            video_path=video_path,
-            frame_idx=seed_idx,
-            points=points,
-            point_labels=labels,
-        )
+        LOGGER.info("[%d/%d] Generating seed mask for %s (frame %d)",
+                     i, len(transcode_index), video_path.name, seed_idx)
+        try:
+            mask = adapter.segment_frame(
+                video_path=video_path,
+                frame_idx=seed_idx,
+                points=points,
+                point_labels=labels,
+            )
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.error("Failed on %s: %s — skipping", video_path.name, exc)
+            skipped += 1
+            continue
 
         if mask is None:
             LOGGER.warning("No mask produced for %s — skipping", video_path.name)
+            skipped += 1
             continue
 
         mask_dir = mkdir(cfg.paths.masks_dir / video_path.stem / "seeds")
@@ -160,7 +168,7 @@ def main() -> None:
         cfg.paths.metadata_dir / "sam3_seed_summary.json",
         {"num_seeds": len(seed_rows), "manifest": str(seed_manifest)},
     )
-    LOGGER.info("Done. Wrote %d seed masks.", len(seed_rows))
+    LOGGER.info("Done. Wrote %d seed masks (%d skipped).", len(seed_rows), skipped)
 
 
 if __name__ == "__main__":

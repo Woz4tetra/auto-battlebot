@@ -107,7 +107,9 @@ class NativeSam3Adapter:
         obj_id: int = 1,
     ) -> np.ndarray | None:
         """Get a mask for a single frame via add_prompt (+ 1-frame propagate fallback)."""
-        sid = self._predictor.start_session(str(video_path))["session_id"]
+        sid = self._predictor.start_session(
+            str(video_path), offload_video_to_cpu=True
+        )["session_id"]
         try:
             with _inference_ctx():
                 result = self._predictor.add_prompt(
@@ -133,6 +135,7 @@ class NativeSam3Adapter:
                         return mask
         finally:
             self._predictor.close_session(sid)
+            _free_gpu_cache()
         return None
 
     def propagate_video(
@@ -146,7 +149,9 @@ class NativeSam3Adapter:
         obj_id: int = 1,
     ) -> dict[int, np.ndarray]:
         """Add prompt on one frame, propagate to all frames, return {frame_idx: mask}."""
-        sid = self._predictor.start_session(str(video_path))["session_id"]
+        sid = self._predictor.start_session(
+            str(video_path), offload_video_to_cpu=True
+        )["session_id"]
         try:
             with _inference_ctx():
                 self._predictor.add_prompt(
@@ -172,6 +177,17 @@ class NativeSam3Adapter:
             return outputs
         finally:
             self._predictor.close_session(sid)
+            _free_gpu_cache()
+
+
+def _free_gpu_cache() -> None:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def build_adapter(
