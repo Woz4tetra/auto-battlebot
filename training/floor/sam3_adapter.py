@@ -1,858 +1,194 @@
 #!/usr/bin/env python3
-"""SAM3 adapter abstraction.
+"""SAM3 adapter — thin wrapper around the known SAM3 base-predictor API.
 
-This file defines the adapter contract used by the floor pipeline. It is designed
-to keep the project strict-SAM3 while allowing you to swap in the exact SAM3
-implementation/API available in your environment.
+Targets the concrete API exposed by the installed SAM3 fork at
+training/floor/third_party/sam3 (Sam3BasePredictor):
+
+    build_sam3_predictor(version, use_fa3, ...)
+    predictor.start_session(resource_path, ...)  -> {"session_id": str}
+    predictor.add_prompt(session_id, frame_idx, points, point_labels, ...)
+    predictor.propagate_in_video(session_id, ...)  -> yields dicts
+    predictor.close_session(session_id)
 """
 
 from __future__ import annotations
 
 import importlib
-import inspect
-import tempfile
-from contextlib import contextmanager
-from dataclasses import dataclass
+import logging
 from pathlib import Path
-from typing import Protocol
 
-import cv2
 import numpy as np
 
-
-@dataclass
-class SegmentationSeed:
-    """Seed inputs for floor segmentation."""
-
-    frame_bgr: np.ndarray
-    prompt_tags: list[str]
-    negative_tags: list[str]
-    text_threshold: float
-    box_threshold: float
-    positive_points_xy: list[tuple[int, int]]
-    negative_points_xy: list[tuple[int, int]]
-    arena_box_xyxy: tuple[int, int, int, int] | None
+LOGGER = logging.getLogger("floor_pipeline")
 
 
-class Sam3AdapterProtocol(Protocol):
-    """Required adapter API for this pipeline."""
+def _gpu_supports_fa3() -> bool:
+    """Flash Attention 3 requires Hopper (sm_90+). A6000 is Ampere (sm_86)."""
+    try:
+        import torch
 
-    def segment_seed(self, seed: SegmentationSeed) -> np.ndarray:
-        """Return initial floor mask (uint8, 0/1) for the seed frame."""
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_capability(0)[0] >= 9
+    except Exception:  # noqa: BLE001
+        pass
+    return False
 
-    def propagate_video(
-        self,
-        video_path: Path,
-        initial_mask: np.ndarray,
-        start_frame_idx: int,
-        end_frame_idx: int,
-        async_prefetch: int,
-        disable_cache: bool,
-    ) -> dict[int, np.ndarray]:
-        """Return frame_idx -> mask (uint8, 0/1) within inclusive frame range."""
+
+def _inference_ctx():
+    """Return a torch.inference_mode() context (or nullcontext if unavailable)."""
+    try:
+        import torch
+
+        return torch.inference_mode()
+    except Exception:  # noqa: BLE001
+        from contextlib import nullcontext
+
+        return nullcontext()
+
+
+def _to_numpy(x) -> np.ndarray:
+    if isinstance(x, np.ndarray):
+        return x
+    if hasattr(x, "detach"):
+        return x.detach().cpu().numpy()
+    return np.asarray(x)
+
+
+def _extract_mask(item: dict | None) -> np.ndarray | None:
+    """Pull a binary uint8 mask from a SAM3 response dict.
+
+    SAM3 returns: {"frame_index": int, "outputs": {"out_binary_masks": tensor}}
+    """
+    if item is None:
+        return None
+    outputs = item.get("outputs", item) if isinstance(item, dict) else None
+    if outputs is None:
+        return None
+    masks = outputs.get("out_binary_masks")
+    if masks is None:
+        return None
+    arr = _to_numpy(masks)
+    if arr.size == 0:
+        return None
+    if arr.ndim == 3:
+        arr = arr[0]
+    return (arr > 0).astype(np.uint8)
 
 
 class NativeSam3Adapter:
-    """Adapter for a user-installed SAM3 package.
-
-    The exact SAM3 API differs between distributions. This adapter supports:
-      1) A project-specific `build_floor_segmenter(...)` API (preferred), or
-      2) Official-style predictor APIs exposed via `build_sam3_predictor(...)`.
-    """
+    """Concrete adapter for the installed SAM3 fork."""
 
     def __init__(
         self,
-        checkpoint: str,
-        device: str,
-        amp: bool,
-        model_cfg: str | None = None,
+        checkpoint: str = "",
+        device: str = "cuda",
+        amp: bool = True,
+        model_cfg: str = "",
     ) -> None:
-        try:
-            sam3 = importlib.import_module("sam3")
-        except ModuleNotFoundError as exc:  # pragma: no cover
+        sam3 = importlib.import_module("sam3")
+        builder = getattr(sam3, "build_sam3_predictor", None)
+        if not callable(builder):
             raise RuntimeError(
-                "SAM3 package not found. Install SAM3 with "
-                "`install/install_floor_sam3_environment.sh --sam3-path ...` "
-                "or provide a custom adapter module in pipeline.toml."
-            ) from exc
-
-        self._device = device
-        self._amp = amp
-        self._checkpoint = checkpoint
-        self._model_cfg = model_cfg or ""
-        self._impl = None
-        self._predictor = None
-
-        try:
-            import torch
-
-            if self._device.startswith("cuda") and not torch.cuda.is_available():
-                # Fallback instead of failing hard when local driver/runtime is too old.
-                self._device = "cpu"
-        except Exception:  # noqa: BLE001
-            pass
-
-        builder = getattr(sam3, "build_floor_segmenter", None)
-        if callable(builder):
-            self._impl = builder(checkpoint=checkpoint, device=self._device, amp=amp)
-            for required in ("segment_seed", "propagate_video"):
-                if not hasattr(self._impl, required):
-                    raise RuntimeError(
-                        f"SAM3 segmenter missing required method: {required}"
-                    )
-            return
-
-        predictor_builder = getattr(sam3, "build_sam3_predictor", None)
-        if callable(predictor_builder):
-            self._predictor = self._build_predictor(predictor_builder, sam3)
-            return
-
-        raise RuntimeError(
-            "Installed `sam3` module does not expose supported builders "
-            "(`build_floor_segmenter` or `build_sam3_predictor`). "
-            "Provide a custom adapter module with build_adapter(checkpoint, device, amp)."
+                "sam3 module does not expose build_sam3_predictor. "
+                "Check your SAM3 installation."
+            )
+        self._predictor = builder(
+            checkpoint_path=checkpoint or None,
+            version="sam3.1",
+            use_fa3=_gpu_supports_fa3(),
         )
 
-    @staticmethod
-    @contextmanager
-    def _torch_inference_ctx():
-        """Wrap SAM3 calls in torch.inference_mode() to allow inplace tensor ops."""
-        try:
-            import torch  # pylint: disable=import-outside-toplevel
-
-            ctx = torch.inference_mode()
-        except Exception:  # noqa: BLE001
-            ctx = None
-        if ctx is not None:
-            with ctx:
-                yield
-        else:
-            yield
-
-    def _discover_model_config(self, sam3_module: object) -> str | None:
-        if self._model_cfg:
-            cfg_path = Path(self._model_cfg)
-            if cfg_path.exists():
-                return str(cfg_path)
-        candidates = []
-        module_path = getattr(sam3_module, "__file__", None)
-        if module_path:
-            root = Path(module_path).resolve().parent
-            candidates.extend(root.rglob("*.yaml"))
-            candidates.extend(root.rglob("*.yml"))
-        preferred = [
-            p
-            for p in candidates
-            if "sam3" in p.name.lower()
-            and ("hiera" in p.name.lower() or "tiny" in p.name.lower())
-        ]
-        if preferred:
-            return str(sorted(preferred)[0])
-        if candidates:
-            return str(sorted(candidates)[0])
-        return None
-
-    def _call_with_supported_kwargs(self, fn, kwargs: dict):
-        sig = inspect.signature(fn)
-        filtered = {
-            k: v for k, v in kwargs.items() if k in sig.parameters and v is not None
-        }
-        return fn(**filtered)
-
-    def _gpu_supports_fa3(self) -> bool:
-        try:
-            import torch  # pylint: disable=import-outside-toplevel
-
-            if torch.cuda.is_available():
-                cap = torch.cuda.get_device_capability(0)
-                return cap[0] >= 9  # Hopper (sm_90) or newer
-        except Exception:  # noqa: BLE001
-            pass
-        return False
-
-    def _build_predictor(self, predictor_builder, sam3_module: object):
-        cfg = self._discover_model_config(sam3_module)
-        fa3_ok = self._gpu_supports_fa3()
-        sig = inspect.signature(predictor_builder)
-        kwargs = {}
-        for name in sig.parameters:
-            lname = name.lower()
-            if "checkpoint" in lname or "ckpt" in lname:
-                kwargs[name] = self._checkpoint or None
-            elif lname in {"device", "device_type"}:
-                kwargs[name] = self._device
-            elif lname in {"amp", "use_amp", "mixed_precision"}:
-                kwargs[name] = self._amp
-            elif "config" in lname or lname in {"cfg", "model_cfg"}:
-                kwargs[name] = cfg
-            elif lname == "use_fa3":
-                kwargs[name] = fa3_ok
-        try:
-            return self._call_with_supported_kwargs(predictor_builder, kwargs)
-        except TypeError:
-            # Minimal fallback for implementations with required positional args.
-            if self._checkpoint:
-                try:
-                    return predictor_builder(self._checkpoint)
-                except Exception as exc:  # noqa: BLE001
-                    raise RuntimeError(
-                        f"Unable to construct SAM3 predictor: {exc}"
-                    ) from exc
-            raise RuntimeError(
-                "Unable to construct SAM3 predictor. "
-                "Set `sam3.checkpoint` in config or provide custom adapter."
-            )
-
-    @staticmethod
-    def _sample_points_from_mask(
-        mask: np.ndarray, max_points: int
-    ) -> tuple[np.ndarray, np.ndarray]:
-        ys, xs = np.where(mask > 0)
-        if len(xs) == 0:
-            return np.zeros((0, 2), dtype=np.float32), np.zeros((0,), dtype=np.int32)
-        idx = np.linspace(0, len(xs) - 1, num=min(max_points, len(xs)), dtype=int)
-        pts = np.stack([xs[idx], ys[idx]], axis=1).astype(np.float32)
-        labels = np.ones((pts.shape[0],), dtype=np.int32)
-        return pts, labels
-
-    @staticmethod
-    def _extract_frame_idx(item) -> int | None:
-        """Extract frame index from various yield formats."""
-        if isinstance(item, dict):
-            for key in ("frame_index", "frame_idx", "frame"):
-                if key in item:
-                    return int(item[key])
-            return None
-        if isinstance(item, tuple) and len(item) > 0:
-            return int(item[0])
-        return None
-
-    @staticmethod
-    def _to_numpy(x) -> np.ndarray:
-        if isinstance(x, np.ndarray):
-            return x
-        if hasattr(x, "detach") and hasattr(x, "cpu") and hasattr(x, "numpy"):
-            return x.detach().cpu().numpy()
-        return np.asarray(x)
-
-    def _extract_mask_from_item(self, item) -> np.ndarray | None:
-        if isinstance(item, dict):
-            # SAM3 base predictor wraps outputs as {"frame_index": int, "outputs": {...}}
-            if "outputs" in item and isinstance(item["outputs"], dict):
-                return self._extract_mask_from_item(item["outputs"])
-            for key in (
-                "out_binary_masks",
-                "mask",
-                "masks",
-                "mask_logits",
-                "logits",
-                "pred_mask",
-            ):
-                if key in item:
-                    logits = item[key]
-                    if isinstance(logits, (list, tuple)) and len(logits) > 0:
-                        logits = logits[0]
-                    arr = self._to_numpy(logits)
-                    if arr.size == 0:
-                        return None
-                    if arr.ndim == 3:
-                        arr = arr[0]
-                    return (arr > 0).astype(np.uint8)
-            return None
-
-        if isinstance(item, tuple):
-            if len(item) >= 3:
-                logits = item[2]
-            elif len(item) >= 1:
-                logits = item[-1]
-            else:
-                return None
-        else:
-            logits = item
-
-        if isinstance(logits, (list, tuple)) and len(logits) > 0:
-            logits = logits[0]
-        arr = self._to_numpy(logits)
-        if arr.size == 0:
-            return None
-        if arr.ndim == 3:
-            arr = arr[0]
-        return (arr > 0).astype(np.uint8)
-
-    def _call_with_signature_mapping(self, fn, value_by_name: dict[str, object]):
-        """Call a function with best-effort positional/keyword mapping.
-
-        Handles positional-only parameters (common in wrapped/C++ APIs).
-        """
-        sig = inspect.signature(fn)
-        args: list[object] = []
-        kwargs: dict[str, object] = {}
-        missing_required: list[str] = []
-
-        for name, param in sig.parameters.items():
-            if name == "self":
-                continue
-            value = value_by_name.get(name, None)
-            has_value = value is not None
-            required = param.default is inspect._empty
-
-            if param.kind is inspect.Parameter.POSITIONAL_ONLY:
-                if has_value:
-                    args.append(value)
-                elif required:
-                    missing_required.append(name)
-                continue
-
-            if param.kind is inspect.Parameter.VAR_POSITIONAL:
-                continue
-            if param.kind is inspect.Parameter.VAR_KEYWORD:
-                continue
-
-            if has_value:
-                kwargs[name] = value
-            elif required:
-                missing_required.append(name)
-
-        if missing_required:
-            raise RuntimeError(
-                f"Missing required parameters for {fn.__qualname__}: {missing_required}. "
-                f"Signature={sig}"
-            )
-        return fn(*args, **kwargs)
-
-    @staticmethod
-    def _extract_session_id(session):
-        """Return hashable session id when session object is dict-like."""
-        if isinstance(session, dict):
-            for key in ("session_id", "id", "session", "uuid"):
-                value = session.get(key)
-                if value is not None and not isinstance(value, dict):
-                    return value
-        return session
-
-    def _build_session_value_map(self, session) -> dict[str, object]:
-        session_id = self._extract_session_id(session)
-        value_map: dict[str, object] = {}
-        # APIs usually use `session`/`state` for object and `session_id` for hashable id.
-        value_map["session"] = session
-        value_map["state"] = session
-        value_map["inference_state"] = session
-        value_map["session_id"] = session_id
-        return value_map
-
-    def _start_session(
+    def segment_frame(
         self,
-        predictor,
-        video_path: Path,
-        async_prefetch: int,
-        disable_cache: bool,
-    ):
-        if not hasattr(predictor, "start_session"):
-            raise RuntimeError("Predictor has no start_session")
-        start_sig = inspect.signature(predictor.start_session)
-        value_by_name: dict[str, object] = {}
-        for name in start_sig.parameters:
-            lname = name.lower()
-            if lname in {
-                "video_path",
-                "path",
-                "source",
-                "source_path",
-                "video",
-                "resource_path",
-                "input_path",
-            }:
-                value_by_name[name] = str(video_path)
-            elif lname in {"async_loading_frames", "async_load", "async_mode"}:
-                value_by_name[name] = async_prefetch > 0
-            elif lname in {"offload_video_to_cpu", "disable_cache", "offload"}:
-                value_by_name[name] = bool(disable_cache)
-
-        # First try robust mapped call; fallback to common positional form.
-        try:
-            return self._call_with_signature_mapping(
-                predictor.start_session, value_by_name
-            )
-        except Exception:  # noqa: BLE001
-            return predictor.start_session(str(video_path))
-
-    def _reset_session(self, predictor, session) -> None:
-        if not hasattr(predictor, "reset_session"):
-            return
-
-        with self._torch_inference_ctx():
-            sig = inspect.signature(predictor.reset_session)
-            if len(sig.parameters) == 0:
-                predictor.reset_session()
-                return
-            value_by_name = self._build_session_value_map(session)
-            try:
-                self._call_with_signature_mapping(
-                    predictor.reset_session, value_by_name
-                )
-            except Exception:  # noqa: BLE001
-                try:
-                    predictor.reset_session(self._extract_session_id(session))
-                except Exception:  # noqa: BLE001
-                    pass
-
-    def _add_prompt_session_api(
-        self,
-        predictor,
-        session,
+        video_path: str | Path,
         frame_idx: int,
         points: np.ndarray,
-        labels: np.ndarray,
-        box_xyxy: np.ndarray | None = None,
-    ):
-        add_sig = inspect.signature(predictor.add_prompt)
-        value_by_name: dict[str, object] = self._build_session_value_map(session)
-        for name in add_sig.parameters:
-            lname = name.lower()
-            if lname in {"session", "state", "inference_state"}:
-                value_by_name[name] = session
-            elif lname in {"session_id"}:
-                value_by_name[name] = self._extract_session_id(session)
-            elif lname in {"frame_idx", "frame", "index"}:
-                value_by_name[name] = int(frame_idx)
-            elif lname in {"points", "point_coords", "coords"}:
-                value_by_name[name] = points
-            elif lname in {"labels", "point_labels"}:
-                value_by_name[name] = labels
-            elif lname in {"obj_id", "object_id"}:
-                value_by_name[name] = 1
-            elif lname in {"box", "bbox", "xyxy"} and box_xyxy is not None:
-                value_by_name[name] = box_xyxy
-            elif lname in {"prompt", "payload", "request"}:
-                value_by_name[name] = {
-                    "frame_idx": int(frame_idx),
-                    "points": points,
-                    "labels": labels,
-                    "obj_id": 1,
-                    "box": box_xyxy,
-                }
-        return self._call_with_signature_mapping(predictor.add_prompt, value_by_name)
-
-    def _seed_via_video_api(self, seed: SegmentationSeed) -> np.ndarray:
-        """Fallback seed generation using video predictor APIs on a 1-frame temp video."""
-        predictor = self._predictor
-        if predictor is None:
-            raise RuntimeError("SAM3 predictor not initialized.")
-        if not (
-            hasattr(predictor, "init_state")
-            and hasattr(predictor, "propagate_in_video")
-        ):
-            raise RuntimeError(
-                "Predictor does not provide video APIs for seed fallback."
-            )
-
-        frame = seed.frame_bgr
-        h, w = frame.shape[:2]
-        with (
-            self._torch_inference_ctx(),
-            tempfile.TemporaryDirectory(prefix="sam3_seed_") as td,
-        ):
-            temp_video = Path(td) / "seed.mp4"
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            writer = cv2.VideoWriter(str(temp_video), fourcc, 1.0, (w, h))
-            writer.write(frame)
-            writer.release()
-
-            init_state_sig = inspect.signature(predictor.init_state)
-            init_kwargs = {}
-            if "video_path" in init_state_sig.parameters:
-                init_kwargs["video_path"] = str(temp_video)
-            if "async_loading_frames" in init_state_sig.parameters:
-                init_kwargs["async_loading_frames"] = False
-            if "offload_video_to_cpu" in init_state_sig.parameters:
-                init_kwargs["offload_video_to_cpu"] = True
-            inference_state = predictor.init_state(**init_kwargs)
-            if hasattr(predictor, "reset_state"):
-                predictor.reset_state(inference_state)
-
-            points = np.array(
-                seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32
-            )
-            labels = np.array(
-                [1] * len(seed.positive_points_xy) + [0] * len(seed.negative_points_xy),
-                dtype=np.int32,
-            )
-            if len(points) == 0:
-                if seed.arena_box_xyxy is not None:
-                    x1, y1, x2, y2 = seed.arena_box_xyxy
-                    cx, cy = int((x1 + x2) * 0.5), int((y1 + y2) * 0.5)
-                else:
-                    cx, cy = w // 2, h // 2
-                points = np.array([[cx, cy]], dtype=np.float32)
-                labels = np.array([1], dtype=np.int32)
-
-            if hasattr(predictor, "add_new_points_or_box"):
-                add_sig = inspect.signature(predictor.add_new_points_or_box)
-                add_kwargs = {}
-                if "inference_state" in add_sig.parameters:
-                    add_kwargs["inference_state"] = inference_state
-                elif "state" in add_sig.parameters:
-                    add_kwargs["state"] = inference_state
-                if "frame_idx" in add_sig.parameters:
-                    add_kwargs["frame_idx"] = 0
-                if "obj_id" in add_sig.parameters:
-                    add_kwargs["obj_id"] = 1
-                if "points" in add_sig.parameters:
-                    add_kwargs["points"] = points
-                if "point_coords" in add_sig.parameters:
-                    add_kwargs["point_coords"] = points
-                if "labels" in add_sig.parameters:
-                    add_kwargs["labels"] = labels
-                if "point_labels" in add_sig.parameters:
-                    add_kwargs["point_labels"] = labels
-                if seed.arena_box_xyxy is not None:
-                    box_np = np.array(seed.arena_box_xyxy, dtype=np.float32)
-                    if "box" in add_sig.parameters:
-                        add_kwargs["box"] = box_np
-                    if "bbox" in add_sig.parameters:
-                        add_kwargs["bbox"] = box_np
-                predictor.add_new_points_or_box(**add_kwargs)
-
-            for item in predictor.propagate_in_video(inference_state):
-                if not isinstance(item, tuple) or len(item) < 3:
-                    continue
-                mask_logits = item[2]
-                if isinstance(mask_logits, (list, tuple)) and len(mask_logits) > 0:
-                    mask_arr = np.asarray(mask_logits[0])
-                else:
-                    mask_arr = np.asarray(mask_logits)
-                return (mask_arr > 0).astype(np.uint8)
-
-        raise RuntimeError("Video-API seed fallback produced no mask.")
-
-    def _seed_via_session_api(self, seed: SegmentationSeed) -> np.ndarray:
-        predictor = self._predictor
-        if predictor is None:
-            raise RuntimeError("SAM3 predictor not initialized.")
-        if not (
-            hasattr(predictor, "start_session")
-            and hasattr(predictor, "add_prompt")
-            and hasattr(predictor, "propagate_in_video")
-        ):
-            raise RuntimeError(
-                "Predictor does not provide session APIs for seed fallback."
-            )
-
-        frame = seed.frame_bgr
-        h, w = frame.shape[:2]
-        with (
-            self._torch_inference_ctx(),
-            tempfile.TemporaryDirectory(prefix="sam3_seed_") as td,
-        ):
-            temp_video = Path(td) / "seed.mp4"
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            writer = cv2.VideoWriter(str(temp_video), fourcc, 1.0, (w, h))
-            writer.write(frame)
-            writer.release()
-
-            session = self._start_session(
-                predictor=predictor,
-                video_path=temp_video,
-                async_prefetch=0,
-                disable_cache=True,
-            )
-
-            points = np.array(
-                seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32
-            )
-            labels = np.array(
-                [1] * len(seed.positive_points_xy) + [0] * len(seed.negative_points_xy),
-                dtype=np.int32,
-            )
-            if len(points) == 0:
-                if seed.arena_box_xyxy is not None:
-                    x1, y1, x2, y2 = seed.arena_box_xyxy
-                    cx, cy = int((x1 + x2) * 0.5), int((y1 + y2) * 0.5)
-                else:
-                    cx, cy = w // 2, h // 2
-                points = np.array([[cx, cy]], dtype=np.float32)
-                labels = np.array([1], dtype=np.int32)
-            box_np = (
-                np.array(seed.arena_box_xyxy, dtype=np.float32)
-                if seed.arena_box_xyxy is not None
-                else None
-            )
-
-            prompt_result = self._add_prompt_session_api(
-                predictor=predictor,
-                session=session,
-                frame_idx=0,
-                points=points,
-                labels=labels,
-                box_xyxy=box_np,
-            )
-            prompt_mask = self._extract_mask_from_item(prompt_result)
-            if prompt_mask is not None:
-                return prompt_mask
-
-            prop_map = self._build_session_value_map(session)
-            try:
-                iterator = self._call_with_signature_mapping(
-                    predictor.propagate_in_video, prop_map
+        point_labels: np.ndarray,
+        obj_id: int = 1,
+    ) -> np.ndarray | None:
+        """Get a mask for a single frame via add_prompt (+ 1-frame propagate fallback)."""
+        sid = self._predictor.start_session(str(video_path))["session_id"]
+        try:
+            with _inference_ctx():
+                result = self._predictor.add_prompt(
+                    session_id=sid,
+                    frame_idx=frame_idx,
+                    points=points.tolist(),
+                    point_labels=point_labels.tolist(),
+                    obj_id=obj_id,
                 )
-            except Exception:  # noqa: BLE001
-                iterator = predictor.propagate_in_video(
-                    self._extract_session_id(session)
-                )
-            for item in iterator:
-                mask = self._extract_mask_from_item(item)
-                if mask is not None:
-                    return mask
+            mask = _extract_mask(result)
+            if mask is not None:
+                return mask
 
-        raise RuntimeError("Session-API seed fallback produced no mask.")
-
-    def segment_seed(self, seed: SegmentationSeed) -> np.ndarray:
-        if self._impl is not None:
-            mask = self._impl.segment_seed(seed)
-            return np.asarray(mask, dtype=np.uint8)
-
-        predictor = self._predictor
-        if predictor is None:
-            raise RuntimeError("SAM3 predictor not initialized.")
-
-        if hasattr(predictor, "segment_seed"):
-            return np.asarray(predictor.segment_seed(seed), dtype=np.uint8)
-
-        if hasattr(predictor, "set_image") and hasattr(predictor, "predict"):
-            try:
-                frame_rgb = seed.frame_bgr[:, :, ::-1]
-                predictor.set_image(frame_rgb)
-                points = np.array(
-                    seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32
-                )
-                labels = np.array(
-                    [1] * len(seed.positive_points_xy)
-                    + [0] * len(seed.negative_points_xy),
-                    dtype=np.int32,
-                )
-                kwargs = {"multimask_output": False}
-                sig = inspect.signature(predictor.predict)
-                if "point_coords" in sig.parameters:
-                    kwargs["point_coords"] = points if len(points) else None
-                if "point_labels" in sig.parameters:
-                    kwargs["point_labels"] = labels if len(labels) else None
-                if seed.arena_box_xyxy is not None and "box" in sig.parameters:
-                    kwargs["box"] = np.array(seed.arena_box_xyxy, dtype=np.float32)
-                outputs = predictor.predict(**kwargs)
-                if isinstance(outputs, tuple) and len(outputs) >= 1:
-                    masks = outputs[0]
-                else:
-                    masks = outputs
-                mask = np.asarray(
-                    masks[0] if np.ndim(masks) == 3 else masks, dtype=np.uint8
-                )
-                return (mask > 0).astype(np.uint8)
-            except Exception:  # noqa: BLE001
-                # Fall through to video-API fallback.
-                pass
-
-        if hasattr(predictor, "init_state") and hasattr(
-            predictor, "propagate_in_video"
-        ):
-            return self._seed_via_video_api(seed)
-
-        if (
-            hasattr(predictor, "start_session")
-            and hasattr(predictor, "add_prompt")
-            and hasattr(predictor, "propagate_in_video")
-        ):
-            return self._seed_via_session_api(seed)
-
-        available = [name for name in dir(predictor) if not name.startswith("_")]
-        raise RuntimeError(
-            "SAM3 predictor does not expose a supported seed segmentation interface. "
-            f"Available predictor methods: {available[:80]}"
-        )
+            LOGGER.debug("add_prompt returned empty mask; falling back to propagate")
+            with _inference_ctx():
+                for item in self._predictor.propagate_in_video(
+                    session_id=sid,
+                    start_frame_idx=frame_idx,
+                    max_frame_num_to_track=1,
+                ):
+                    mask = _extract_mask(item)
+                    if mask is not None:
+                        return mask
+        finally:
+            self._predictor.close_session(sid)
+        return None
 
     def propagate_video(
         self,
-        video_path: Path,
-        initial_mask: np.ndarray,
-        start_frame_idx: int,
-        end_frame_idx: int,
-        async_prefetch: int,
-        disable_cache: bool,
+        video_path: str | Path,
+        prompt_frame_idx: int,
+        points: np.ndarray,
+        point_labels: np.ndarray,
+        start_frame_idx: int | None = None,
+        max_frames: int | None = None,
+        obj_id: int = 1,
     ) -> dict[int, np.ndarray]:
-        if self._impl is not None:
-            outputs = self._impl.propagate_video(
-                video_path=video_path,
-                initial_mask=initial_mask,
-                start_frame_idx=start_frame_idx,
-                end_frame_idx=end_frame_idx,
-                async_prefetch=async_prefetch,
-                disable_cache=disable_cache,
-            )
-            return {int(k): np.asarray(v, dtype=np.uint8) for k, v in outputs.items()}
-
-        predictor = self._predictor
-        if predictor is None:
-            raise RuntimeError("SAM3 predictor not initialized.")
-
-        if hasattr(predictor, "propagate_video"):
-            outputs = predictor.propagate_video(
-                video_path=video_path,
-                initial_mask=initial_mask,
-                start_frame_idx=start_frame_idx,
-                end_frame_idx=end_frame_idx,
-                async_prefetch=async_prefetch,
-                disable_cache=disable_cache,
-            )
-            return {int(k): np.asarray(v, dtype=np.uint8) for k, v in outputs.items()}
-
-        with self._torch_inference_ctx():
-            if hasattr(predictor, "init_state") and hasattr(
-                predictor, "propagate_in_video"
-            ):
-                init_state_sig = inspect.signature(predictor.init_state)
-                init_kwargs = {}
-                if "video_path" in init_state_sig.parameters:
-                    init_kwargs["video_path"] = str(video_path)
-                if "async_loading_frames" in init_state_sig.parameters:
-                    init_kwargs["async_loading_frames"] = async_prefetch > 0
-                if "offload_video_to_cpu" in init_state_sig.parameters:
-                    init_kwargs["offload_video_to_cpu"] = disable_cache
-                inference_state = predictor.init_state(**init_kwargs)
-                if hasattr(predictor, "reset_state"):
-                    predictor.reset_state(inference_state)
-
-                points, labels = self._sample_points_from_mask(
-                    initial_mask, max_points=32
+        """Add prompt on one frame, propagate to all frames, return {frame_idx: mask}."""
+        sid = self._predictor.start_session(str(video_path))["session_id"]
+        try:
+            with _inference_ctx():
+                self._predictor.add_prompt(
+                    session_id=sid,
+                    frame_idx=prompt_frame_idx,
+                    points=points.tolist(),
+                    point_labels=point_labels.tolist(),
+                    obj_id=obj_id,
                 )
-                if hasattr(predictor, "add_new_points_or_box"):
-                    add_sig = inspect.signature(predictor.add_new_points_or_box)
-                    add_kwargs = {}
-                    if "inference_state" in add_sig.parameters:
-                        add_kwargs["inference_state"] = inference_state
-                    elif "state" in add_sig.parameters:
-                        add_kwargs["state"] = inference_state
-                    if "frame_idx" in add_sig.parameters:
-                        add_kwargs["frame_idx"] = start_frame_idx
-                    if "obj_id" in add_sig.parameters:
-                        add_kwargs["obj_id"] = 1
-                    if "points" in add_sig.parameters:
-                        add_kwargs["points"] = points
-                    if "point_coords" in add_sig.parameters:
-                        add_kwargs["point_coords"] = points
-                    if "labels" in add_sig.parameters:
-                        add_kwargs["labels"] = labels
-                    if "point_labels" in add_sig.parameters:
-                        add_kwargs["point_labels"] = labels
-                    predictor.add_new_points_or_box(**add_kwargs)
-
-                outputs: dict[int, np.ndarray] = {}
-                for item in predictor.propagate_in_video(inference_state):
-                    frame_idx = self._extract_frame_idx(item)
-                    if frame_idx is None:
+            outputs: dict[int, np.ndarray] = {}
+            with _inference_ctx():
+                for item in self._predictor.propagate_in_video(
+                    session_id=sid,
+                    start_frame_idx=start_frame_idx,
+                    max_frame_num_to_track=max_frames,
+                ):
+                    fidx = item.get("frame_index")
+                    if fidx is None:
                         continue
-                    if frame_idx < start_frame_idx or frame_idx > end_frame_idx:
-                        continue
-                    mask = self._extract_mask_from_item(item)
-                    if mask is None:
-                        continue
-                    outputs[frame_idx] = mask
-                return outputs
-
-            if (
-                hasattr(predictor, "start_session")
-                and hasattr(predictor, "add_prompt")
-                and hasattr(predictor, "propagate_in_video")
-            ):
-                session = self._start_session(
-                    predictor=predictor,
-                    video_path=video_path,
-                    async_prefetch=async_prefetch,
-                    disable_cache=disable_cache,
-                )
-
-                points, labels = self._sample_points_from_mask(
-                    initial_mask, max_points=32
-                )
-                if len(points) == 0:
-                    h, w = initial_mask.shape[:2]
-                    points = np.array([[w // 2, h // 2]], dtype=np.float32)
-                    labels = np.array([1], dtype=np.int32)
-
-                self._add_prompt_session_api(
-                    predictor=predictor,
-                    session=session,
-                    frame_idx=start_frame_idx,
-                    points=points,
-                    labels=labels,
-                    box_xyxy=None,
-                )
-
-                outputs: dict[int, np.ndarray] = {}
-                prop_map = self._build_session_value_map(session)
-                try:
-                    iterator = self._call_with_signature_mapping(
-                        predictor.propagate_in_video, prop_map
-                    )
-                except Exception:  # noqa: BLE001
-                    iterator = predictor.propagate_in_video(
-                        self._extract_session_id(session)
-                    )
-
-                for item in iterator:
-                    frame_idx = self._extract_frame_idx(item)
-                    if frame_idx is None:
-                        continue
-                    if frame_idx < start_frame_idx or frame_idx > end_frame_idx:
-                        continue
-                    mask = self._extract_mask_from_item(item)
-                    if mask is None:
-                        continue
-                    outputs[frame_idx] = mask
-                return outputs
-
-        raise RuntimeError(
-            "SAM3 predictor does not expose a supported video propagation API."
-        )
+                    mask = _extract_mask(item)
+                    if mask is not None:
+                        outputs[int(fidx)] = mask
+            return outputs
+        finally:
+            self._predictor.close_session(sid)
 
 
 def build_adapter(
-    adapter_module: str,
-    checkpoint: str,
-    device: str,
-    amp: bool,
-    model_cfg: str | None = None,
-) -> Sam3AdapterProtocol:
-    """Build adapter from module path.
-
-    If adapter_module is this file, it uses `NativeSam3Adapter`.
-    Otherwise it imports adapter_module and calls:
-      build_adapter(checkpoint: str, device: str, amp: bool) -> Sam3AdapterProtocol
-    """
+    adapter_module: str = "sam3_adapter",
+    checkpoint: str = "",
+    device: str = "cuda",
+    amp: bool = True,
+    model_cfg: str = "",
+) -> NativeSam3Adapter:
     if adapter_module in {"training.floor.sam3_adapter", "sam3_adapter"}:
         return NativeSam3Adapter(
-            checkpoint=checkpoint,
-            device=device,
-            amp=amp,
-            model_cfg=model_cfg,
+            checkpoint=checkpoint, device=device, amp=amp, model_cfg=model_cfg
         )
-
     mod = importlib.import_module(adapter_module)
     builder = getattr(mod, "build_adapter", None)
     if builder is None:
         raise RuntimeError(
-            f"Custom adapter module `{adapter_module}` is missing `build_adapter`."
+            f"Custom adapter module `{adapter_module}` missing `build_adapter`."
         )
-    try:
-        adapter = builder(
-            checkpoint=checkpoint,
-            device=device,
-            amp=amp,
-            model_cfg=model_cfg,
-        )
-    except TypeError:
-        adapter = builder(checkpoint=checkpoint, device=device, amp=amp)
-    for required in ("segment_seed", "propagate_video"):
-        if not hasattr(adapter, required):
-            raise RuntimeError(
-                f"Custom adapter `{adapter_module}` missing required method `{required}`"
-            )
-    return adapter
+    return builder(checkpoint=checkpoint, device=device, amp=amp, model_cfg=model_cfg)
