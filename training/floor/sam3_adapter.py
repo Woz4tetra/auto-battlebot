@@ -94,6 +94,32 @@ def _extract_mask(item: dict | None) -> np.ndarray | None:
     return (arr > 0).astype(np.uint8)
 
 
+def _start_session(predictor, video_path: str) -> str:
+    """Open a SAM3 session with both video and state offloaded to CPU.
+
+    ``offload_video_to_cpu``  keeps decoded frames on CPU (saves ~1-2 GB).
+    ``offload_state_to_cpu``  keeps the per-frame tracking memory bank on CPU
+    and only moves the active frame's state to GPU.  Without this the memory
+    bank grows ~8-9 MB per frame and overflows the A6000's 48 GB around
+    frame 5000.
+    """
+    try:
+        return predictor.start_session(
+            video_path,
+            offload_video_to_cpu=True,
+            offload_state_to_cpu=True,
+        )["session_id"]
+    except TypeError:
+        LOGGER.warning(
+            "start_session does not accept offload_state_to_cpu; "
+            "falling back to video-only offload (OOM risk on long videos)"
+        )
+        return predictor.start_session(
+            video_path,
+            offload_video_to_cpu=True,
+        )["session_id"]
+
+
 class NativeSam3Adapter:
     """Concrete adapter for the installed SAM3 fork."""
 
@@ -128,9 +154,7 @@ class NativeSam3Adapter:
         """Get a mask for a single frame via add_prompt (+ 1-frame propagate fallback)."""
         LOGGER.info("segment_frame: opening session for %s", Path(video_path).name)
         t0 = time.monotonic()
-        sid = self._predictor.start_session(
-            str(video_path), offload_video_to_cpu=True
-        )["session_id"]
+        sid = _start_session(self._predictor, str(video_path))
         LOGGER.info("segment_frame: session started (%.1fs)", time.monotonic() - t0)
         try:
             LOGGER.info(
@@ -194,10 +218,8 @@ class NativeSam3Adapter:
         vname = Path(video_path).name
         LOGGER.info("propagate_video: opening session for %s", vname)
         t0 = time.monotonic()
-        sid = self._predictor.start_session(
-            str(video_path), offload_video_to_cpu=True
-        )["session_id"]
-        LOGGER.info("propagate_video: session started (%.1fs)", t0 := time.monotonic() - t0)
+        sid = _start_session(self._predictor, str(video_path))
+        LOGGER.info("propagate_video: session started (%.1fs)", time.monotonic() - t0)
 
         try:
             LOGGER.info(
@@ -224,18 +246,32 @@ class NativeSam3Adapter:
             )
             t2 = time.monotonic()
             outputs: dict[int, np.ndarray] = {}
-            with _inference_ctx():
-                for item in self._predictor.propagate_in_video(
-                    session_id=sid,
-                    start_frame_idx=prompt_frame_idx,
-                    max_frame_num_to_track=max_frames,
-                ):
-                    fidx = item.get("frame_index")
-                    if fidx is None:
-                        continue
-                    mask = _extract_mask(item)
-                    if mask is not None:
-                        outputs[int(fidx)] = mask
+            try:
+                with _inference_ctx():
+                    for item in self._predictor.propagate_in_video(
+                        session_id=sid,
+                        start_frame_idx=prompt_frame_idx,
+                        max_frame_num_to_track=max_frames,
+                    ):
+                        fidx = item.get("frame_index")
+                        if fidx is None:
+                            continue
+                        mask = _extract_mask(item)
+                        if mask is not None:
+                            outputs[int(fidx)] = mask
+            except RuntimeError as exc:
+                if "out of memory" in str(exc).lower():
+                    LOGGER.warning(
+                        "propagate_video: OOM after %d masks (%.1fs) — "
+                        "returning partial results for %s",
+                        len(outputs),
+                        time.monotonic() - t2,
+                        vname,
+                    )
+                    _free_gpu_cache()
+                    return outputs
+                raise
+
             elapsed = time.monotonic() - t2
             LOGGER.info(
                 "propagate_video: propagation complete — %d masks in %.1fs (%.1f fps)",
