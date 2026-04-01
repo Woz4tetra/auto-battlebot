@@ -9,17 +9,36 @@ training/floor/third_party/sam3 (Sam3BasePredictor):
     predictor.add_prompt(session_id, frame_idx, points, point_labels, ...)
     predictor.propagate_in_video(session_id, ...)  -> yields dicts
     predictor.close_session(session_id)
+
+Set TORCHDYNAMO_DISABLE=1 to skip torch.compile (avoids multi-minute warm-up).
 """
 
 from __future__ import annotations
 
 import importlib
 import logging
+import os
+import time
 from pathlib import Path
 
 import numpy as np
 
 LOGGER = logging.getLogger("floor_pipeline")
+
+
+def _disable_torch_compile_if_requested() -> None:
+    """Honour TORCHDYNAMO_DISABLE=1 to bypass torch.compile warm-up."""
+    if os.environ.get("TORCHDYNAMO_DISABLE", "") == "1":
+        try:
+            import torch._dynamo  # noqa: F401
+
+            torch._dynamo.config.disable = True
+            LOGGER.info("torch.compile disabled via TORCHDYNAMO_DISABLE=1")
+        except Exception:  # noqa: BLE001
+            pass
+
+
+_disable_torch_compile_if_requested()
 
 
 def _gpu_supports_fa3() -> bool:
@@ -107,10 +126,22 @@ class NativeSam3Adapter:
         obj_id: int = 1,
     ) -> np.ndarray | None:
         """Get a mask for a single frame via add_prompt (+ 1-frame propagate fallback)."""
+        LOGGER.info("segment_frame: opening session for %s", Path(video_path).name)
+        t0 = time.monotonic()
         sid = self._predictor.start_session(
             str(video_path), offload_video_to_cpu=True
         )["session_id"]
+        LOGGER.info("segment_frame: session started (%.1fs)", time.monotonic() - t0)
         try:
+            LOGGER.info(
+                "segment_frame: calling add_prompt on frame %d "
+                "(%d pos, %d neg points) — internal mini-propagation will show a "
+                "small progress bar (e.g. 0/2), this is normal",
+                frame_idx,
+                int((point_labels == 1).sum()),
+                int((point_labels == 0).sum()),
+            )
+            t1 = time.monotonic()
             with _inference_ctx():
                 result = self._predictor.add_prompt(
                     session_id=sid,
@@ -119,11 +150,18 @@ class NativeSam3Adapter:
                     point_labels=point_labels.tolist(),
                     obj_id=obj_id,
                 )
+            LOGGER.info("segment_frame: add_prompt returned (%.1fs)", time.monotonic() - t1)
             mask = _extract_mask(result)
             if mask is not None:
+                pct = 100.0 * mask.sum() / max(mask.size, 1)
+                LOGGER.info("segment_frame: got mask from add_prompt (%.1f%% coverage)", pct)
                 return mask
 
-            LOGGER.debug("add_prompt returned empty mask; falling back to propagate")
+            LOGGER.info(
+                "segment_frame: add_prompt returned empty mask; "
+                "falling back to 1-frame propagate"
+            )
+            t2 = time.monotonic()
             with _inference_ctx():
                 for item in self._predictor.propagate_in_video(
                     session_id=sid,
@@ -132,7 +170,12 @@ class NativeSam3Adapter:
                 ):
                     mask = _extract_mask(item)
                     if mask is not None:
+                        LOGGER.info(
+                            "segment_frame: fallback propagate produced mask (%.1fs)",
+                            time.monotonic() - t2,
+                        )
                         return mask
+            LOGGER.warning("segment_frame: fallback propagate also produced no mask")
         finally:
             self._predictor.close_session(sid)
             _free_gpu_cache()
@@ -148,10 +191,21 @@ class NativeSam3Adapter:
         obj_id: int = 1,
     ) -> dict[int, np.ndarray]:
         """Add prompt on one frame, propagate to all frames, return {frame_idx: mask}."""
+        vname = Path(video_path).name
+        LOGGER.info("propagate_video: opening session for %s", vname)
+        t0 = time.monotonic()
         sid = self._predictor.start_session(
             str(video_path), offload_video_to_cpu=True
         )["session_id"]
+        LOGGER.info("propagate_video: session started (%.1fs)", t0 := time.monotonic() - t0)
+
         try:
+            LOGGER.info(
+                "propagate_video: add_prompt on frame %d — internal mini-propagation "
+                "progress bar (e.g. 0/2) is expected and brief",
+                prompt_frame_idx,
+            )
+            t1 = time.monotonic()
             with _inference_ctx():
                 self._predictor.add_prompt(
                     session_id=sid,
@@ -160,6 +214,15 @@ class NativeSam3Adapter:
                     point_labels=point_labels.tolist(),
                     obj_id=obj_id,
                 )
+            LOGGER.info("propagate_video: add_prompt done (%.1fs)", time.monotonic() - t1)
+
+            LOGGER.info(
+                "propagate_video: starting full propagation from frame %d "
+                "(max_frames=%s) — this is the real progress bar",
+                prompt_frame_idx,
+                max_frames,
+            )
+            t2 = time.monotonic()
             outputs: dict[int, np.ndarray] = {}
             with _inference_ctx():
                 for item in self._predictor.propagate_in_video(
@@ -173,6 +236,13 @@ class NativeSam3Adapter:
                     mask = _extract_mask(item)
                     if mask is not None:
                         outputs[int(fidx)] = mask
+            elapsed = time.monotonic() - t2
+            LOGGER.info(
+                "propagate_video: propagation complete — %d masks in %.1fs (%.1f fps)",
+                len(outputs),
+                elapsed,
+                len(outputs) / max(elapsed, 0.001),
+            )
             return outputs
         finally:
             self._predictor.close_session(sid)
