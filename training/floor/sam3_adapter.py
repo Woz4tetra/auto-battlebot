@@ -97,7 +97,9 @@ class NativeSam3Adapter:
             self._impl = builder(checkpoint=checkpoint, device=self._device, amp=amp)
             for required in ("segment_seed", "propagate_video"):
                 if not hasattr(self._impl, required):
-                    raise RuntimeError(f"SAM3 segmenter missing required method: {required}")
+                    raise RuntimeError(
+                        f"SAM3 segmenter missing required method: {required}"
+                    )
             return
 
         predictor_builder = getattr(sam3, "build_sam3_predictor", None)
@@ -141,7 +143,8 @@ class NativeSam3Adapter:
         preferred = [
             p
             for p in candidates
-            if "sam3" in p.name.lower() and ("hiera" in p.name.lower() or "tiny" in p.name.lower())
+            if "sam3" in p.name.lower()
+            and ("hiera" in p.name.lower() or "tiny" in p.name.lower())
         ]
         if preferred:
             return str(sorted(preferred)[0])
@@ -151,7 +154,9 @@ class NativeSam3Adapter:
 
     def _call_with_supported_kwargs(self, fn, kwargs: dict):
         sig = inspect.signature(fn)
-        filtered = {k: v for k, v in kwargs.items() if k in sig.parameters and v is not None}
+        filtered = {
+            k: v for k, v in kwargs.items() if k in sig.parameters and v is not None
+        }
         return fn(**filtered)
 
     def _build_predictor(self, predictor_builder, sam3_module: object):
@@ -176,14 +181,18 @@ class NativeSam3Adapter:
                 try:
                     return predictor_builder(self._checkpoint)
                 except Exception as exc:  # noqa: BLE001
-                    raise RuntimeError(f"Unable to construct SAM3 predictor: {exc}") from exc
+                    raise RuntimeError(
+                        f"Unable to construct SAM3 predictor: {exc}"
+                    ) from exc
             raise RuntimeError(
                 "Unable to construct SAM3 predictor. "
                 "Set `sam3.checkpoint` in config or provide custom adapter."
             )
 
     @staticmethod
-    def _sample_points_from_mask(mask: np.ndarray, max_points: int) -> tuple[np.ndarray, np.ndarray]:
+    def _sample_points_from_mask(
+        mask: np.ndarray, max_points: int
+    ) -> tuple[np.ndarray, np.ndarray]:
         ys, xs = np.where(mask > 0)
         if len(xs) == 0:
             return np.zeros((0, 2), dtype=np.float32), np.zeros((0,), dtype=np.int32)
@@ -321,7 +330,9 @@ class NativeSam3Adapter:
 
         # First try robust mapped call; fallback to common positional form.
         try:
-            return self._call_with_signature_mapping(predictor.start_session, value_by_name)
+            return self._call_with_signature_mapping(
+                predictor.start_session, value_by_name
+            )
         except Exception:  # noqa: BLE001
             return predictor.start_session(str(video_path))
 
@@ -336,7 +347,9 @@ class NativeSam3Adapter:
                 return
             value_by_name = self._build_session_value_map(session)
             try:
-                self._call_with_signature_mapping(predictor.reset_session, value_by_name)
+                self._call_with_signature_mapping(
+                    predictor.reset_session, value_by_name
+                )
             except Exception:  # noqa: BLE001
                 try:
                     predictor.reset_session(self._extract_session_id(session))
@@ -385,12 +398,20 @@ class NativeSam3Adapter:
         predictor = self._predictor
         if predictor is None:
             raise RuntimeError("SAM3 predictor not initialized.")
-        if not (hasattr(predictor, "init_state") and hasattr(predictor, "propagate_in_video")):
-            raise RuntimeError("Predictor does not provide video APIs for seed fallback.")
+        if not (
+            hasattr(predictor, "init_state")
+            and hasattr(predictor, "propagate_in_video")
+        ):
+            raise RuntimeError(
+                "Predictor does not provide video APIs for seed fallback."
+            )
 
         frame = seed.frame_bgr
         h, w = frame.shape[:2]
-        with self._torch_inference_ctx(), tempfile.TemporaryDirectory(prefix="sam3_seed_") as td:
+        with (
+            self._torch_inference_ctx(),
+            tempfile.TemporaryDirectory(prefix="sam3_seed_") as td,
+        ):
             temp_video = Path(td) / "seed.mp4"
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             writer = cv2.VideoWriter(str(temp_video), fourcc, 1.0, (w, h))
@@ -409,7 +430,9 @@ class NativeSam3Adapter:
             if hasattr(predictor, "reset_state"):
                 predictor.reset_state(inference_state)
 
-            points = np.array(seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32)
+            points = np.array(
+                seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32
+            )
             labels = np.array(
                 [1] * len(seed.positive_points_xy) + [0] * len(seed.negative_points_xy),
                 dtype=np.int32,
@@ -471,11 +494,16 @@ class NativeSam3Adapter:
             and hasattr(predictor, "add_prompt")
             and hasattr(predictor, "propagate_in_video")
         ):
-            raise RuntimeError("Predictor does not provide session APIs for seed fallback.")
+            raise RuntimeError(
+                "Predictor does not provide session APIs for seed fallback."
+            )
 
         frame = seed.frame_bgr
         h, w = frame.shape[:2]
-        with self._torch_inference_ctx(), tempfile.TemporaryDirectory(prefix="sam3_seed_") as td:
+        with (
+            self._torch_inference_ctx(),
+            tempfile.TemporaryDirectory(prefix="sam3_seed_") as td,
+        ):
             temp_video = Path(td) / "seed.mp4"
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             writer = cv2.VideoWriter(str(temp_video), fourcc, 1.0, (w, h))
@@ -489,7 +517,9 @@ class NativeSam3Adapter:
                 disable_cache=True,
             )
 
-            points = np.array(seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32)
+            points = np.array(
+                seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32
+            )
             labels = np.array(
                 [1] * len(seed.positive_points_xy) + [0] * len(seed.negative_points_xy),
                 dtype=np.int32,
@@ -522,9 +552,13 @@ class NativeSam3Adapter:
 
             prop_map = self._build_session_value_map(session)
             try:
-                iterator = self._call_with_signature_mapping(predictor.propagate_in_video, prop_map)
+                iterator = self._call_with_signature_mapping(
+                    predictor.propagate_in_video, prop_map
+                )
             except Exception:  # noqa: BLE001
-                iterator = predictor.propagate_in_video(self._extract_session_id(session))
+                iterator = predictor.propagate_in_video(
+                    self._extract_session_id(session)
+                )
             for item in iterator:
                 mask = self._extract_mask_from_item(item)
                 if mask is not None:
@@ -548,9 +582,12 @@ class NativeSam3Adapter:
             try:
                 frame_rgb = seed.frame_bgr[:, :, ::-1]
                 predictor.set_image(frame_rgb)
-                points = np.array(seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32)
+                points = np.array(
+                    seed.positive_points_xy + seed.negative_points_xy, dtype=np.float32
+                )
                 labels = np.array(
-                    [1] * len(seed.positive_points_xy) + [0] * len(seed.negative_points_xy),
+                    [1] * len(seed.positive_points_xy)
+                    + [0] * len(seed.negative_points_xy),
                     dtype=np.int32,
                 )
                 kwargs = {"multimask_output": False}
@@ -566,13 +603,17 @@ class NativeSam3Adapter:
                     masks = outputs[0]
                 else:
                     masks = outputs
-                mask = np.asarray(masks[0] if np.ndim(masks) == 3 else masks, dtype=np.uint8)
+                mask = np.asarray(
+                    masks[0] if np.ndim(masks) == 3 else masks, dtype=np.uint8
+                )
                 return (mask > 0).astype(np.uint8)
             except Exception:  # noqa: BLE001
                 # Fall through to video-API fallback.
                 pass
 
-        if hasattr(predictor, "init_state") and hasattr(predictor, "propagate_in_video"):
+        if hasattr(predictor, "init_state") and hasattr(
+            predictor, "propagate_in_video"
+        ):
             return self._seed_via_video_api(seed)
 
         if (
@@ -624,7 +665,9 @@ class NativeSam3Adapter:
             return {int(k): np.asarray(v, dtype=np.uint8) for k, v in outputs.items()}
 
         with self._torch_inference_ctx():
-            if hasattr(predictor, "init_state") and hasattr(predictor, "propagate_in_video"):
+            if hasattr(predictor, "init_state") and hasattr(
+                predictor, "propagate_in_video"
+            ):
                 init_state_sig = inspect.signature(predictor.init_state)
                 init_kwargs = {}
                 if "video_path" in init_state_sig.parameters:
@@ -637,7 +680,9 @@ class NativeSam3Adapter:
                 if hasattr(predictor, "reset_state"):
                     predictor.reset_state(inference_state)
 
-                points, labels = self._sample_points_from_mask(initial_mask, max_points=32)
+                points, labels = self._sample_points_from_mask(
+                    initial_mask, max_points=32
+                )
                 if hasattr(predictor, "add_new_points_or_box"):
                     add_sig = inspect.signature(predictor.add_new_points_or_box)
                     add_kwargs = {}
@@ -686,7 +731,9 @@ class NativeSam3Adapter:
                     disable_cache=disable_cache,
                 )
 
-                points, labels = self._sample_points_from_mask(initial_mask, max_points=32)
+                points, labels = self._sample_points_from_mask(
+                    initial_mask, max_points=32
+                )
                 if len(points) == 0:
                     h, w = initial_mask.shape[:2]
                     points = np.array([[w // 2, h // 2]], dtype=np.float32)
@@ -708,7 +755,9 @@ class NativeSam3Adapter:
                         predictor.propagate_in_video, prop_map
                     )
                 except Exception:  # noqa: BLE001
-                    iterator = predictor.propagate_in_video(self._extract_session_id(session))
+                    iterator = predictor.propagate_in_video(
+                        self._extract_session_id(session)
+                    )
 
                 for item in iterator:
                     if isinstance(item, tuple) and len(item) > 0:
@@ -723,7 +772,9 @@ class NativeSam3Adapter:
                     outputs[frame_idx] = mask
                 return outputs
 
-        raise RuntimeError("SAM3 predictor does not expose a supported video propagation API.")
+        raise RuntimeError(
+            "SAM3 predictor does not expose a supported video propagation API."
+        )
 
 
 def build_adapter(
