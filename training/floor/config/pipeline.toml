@@ -24,8 +24,8 @@ allow_all_camera_angles = true
 target_width = 960
 target_height = 540
 target_fps = 30
-crf = 24
-preset = "medium"
+crf = 18
+preset = "fast"
 chunk_seconds = 90
 keep_audio = false
 

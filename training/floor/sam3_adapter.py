@@ -102,22 +102,65 @@ def _start_session(predictor, video_path: str) -> str:
     and only moves the active frame's state to GPU.  Without this the memory
     bank grows ~8-9 MB per frame and overflows the A6000's 48 GB around
     frame 5000.
+
+    The flag is attempted as a kwarg first; if the SAM3 fork's start_session
+    doesn't expose it we patch the inference_state dict directly (SAM2/SAM3
+    stores it there and checks it during propagation).
     """
-    try:
-        return predictor.start_session(
+    import inspect
+
+    sig = inspect.signature(predictor.start_session)
+    accepts_offload = "offload_state_to_cpu" in sig.parameters
+
+    if accepts_offload:
+        result = predictor.start_session(
             video_path,
             offload_video_to_cpu=True,
             offload_state_to_cpu=True,
-        )["session_id"]
-    except TypeError:
-        LOGGER.warning(
-            "start_session does not accept offload_state_to_cpu; "
-            "falling back to video-only offload (OOM risk on long videos)"
         )
-        return predictor.start_session(
+    else:
+        result = predictor.start_session(
             video_path,
             offload_video_to_cpu=True,
-        )["session_id"]
+        )
+
+    sid = result["session_id"]
+
+    if not accepts_offload:
+        _patch_offload_state(predictor, sid)
+
+    return sid
+
+
+def _patch_offload_state(predictor, session_id: str) -> None:
+    """Inject offload_state_to_cpu=True into an existing inference state.
+
+    SAM2/SAM3's propagation loop checks ``inference_state["offload_state_to_cpu"]``
+    to decide whether to shuttle tracking tensors to CPU between frames.
+    If start_session doesn't accept the kwarg, we set it post-hoc.
+    """
+    states = getattr(predictor, "_all_inference_states", None)
+    if states is None:
+        LOGGER.warning("Cannot locate _all_inference_states; state offload unavailable")
+        return
+
+    inf_state = states.get(session_id)
+    if inf_state is None:
+        LOGGER.warning("Session %s not in _all_inference_states; state offload unavailable", session_id)
+        return
+
+    if isinstance(inf_state, dict):
+        inf_state["offload_state_to_cpu"] = True
+        LOGGER.info("Patched inference state with offload_state_to_cpu=True")
+    else:
+        if hasattr(inf_state, "offload_state_to_cpu"):
+            inf_state.offload_state_to_cpu = True
+            LOGGER.info("Patched inference state with offload_state_to_cpu=True")
+        else:
+            LOGGER.warning(
+                "Inference state has no offload_state_to_cpu attribute; "
+                "long videos may OOM"
+            )
 
 
 class NativeSam3Adapter:
