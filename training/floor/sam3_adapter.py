@@ -146,7 +146,10 @@ def _patch_offload_state(predictor, session_id: str) -> None:
 
     inf_state = states.get(session_id)
     if inf_state is None:
-        LOGGER.warning("Session %s not in _all_inference_states; state offload unavailable", session_id)
+        LOGGER.warning(
+            "Session %s not in _all_inference_states; state offload unavailable",
+            session_id,
+        )
         return
 
     if isinstance(inf_state, dict):
@@ -217,11 +220,15 @@ class NativeSam3Adapter:
                     point_labels=point_labels.tolist(),
                     obj_id=obj_id,
                 )
-            LOGGER.info("segment_frame: add_prompt returned (%.1fs)", time.monotonic() - t1)
+            LOGGER.info(
+                "segment_frame: add_prompt returned (%.1fs)", time.monotonic() - t1
+            )
             mask = _extract_mask(result)
             if mask is not None:
                 pct = 100.0 * mask.sum() / max(mask.size, 1)
-                LOGGER.info("segment_frame: got mask from add_prompt (%.1f%% coverage)", pct)
+                LOGGER.info(
+                    "segment_frame: got mask from add_prompt (%.1f%% coverage)", pct
+                )
                 return mask
 
             LOGGER.info(
@@ -279,7 +286,9 @@ class NativeSam3Adapter:
                     point_labels=point_labels.tolist(),
                     obj_id=obj_id,
                 )
-            LOGGER.info("propagate_video: add_prompt done (%.1fs)", time.monotonic() - t1)
+            LOGGER.info(
+                "propagate_video: add_prompt done (%.1fs)", time.monotonic() - t1
+            )
 
             LOGGER.info(
                 "propagate_video: starting full propagation from frame %d "
