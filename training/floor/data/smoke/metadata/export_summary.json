@@ -1,6 +1,0 @@
-{
-  "stride": 10,
-  "exported_frames": 6,
-  "manifest": "/home/ben/auto-battlebot/training/floor/data/smoke/metadata/export_manifest.jsonl",
-  "dataset_root": "/home/ben/auto-battlebot/training/floor/data/smoke/exports/yolo_seg"
-}

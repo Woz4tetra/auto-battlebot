@@ -1,9 +1,0 @@
-path: /home/ben/auto-battlebot/training/floor/data/smoke/exports/yolo_seg
-train: images
-val: images
-test: images
-names:
-- floor
-colors:
-- gray
-nc: 1

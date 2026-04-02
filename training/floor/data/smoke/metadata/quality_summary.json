@@ -1,7 +1,0 @@
-{
-  "total_frames": 60,
-  "passed_frames": 60,
-  "pass_ratio": 1.0,
-  "pass_manifest": "/home/ben/auto-battlebot/training/floor/data/smoke/metadata/quality_pass_manifest.jsonl",
-  "eval_manifest": "/home/ben/auto-battlebot/training/floor/data/smoke/metadata/quality_eval_manifest.jsonl"
-}

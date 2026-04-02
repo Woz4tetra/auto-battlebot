@@ -1,6 +1,0 @@
-*.jpg
-*.txt
-*.png
-.venv/
-data/
-third_party/
