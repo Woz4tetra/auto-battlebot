@@ -88,25 +88,31 @@ def _to_numpy(x) -> np.ndarray:
 # Mask extraction — handles multiple SAM3 output formats
 # ---------------------------------------------------------------------------
 
-_OUTPUT_LOGGED = False
-
 
 def _extract_mask(item: dict | None, obj_id: int = 1) -> np.ndarray | None:
     """Pull a binary uint8 mask from a SAM3 response dict."""
-    global _OUTPUT_LOGGED  # noqa: PLW0603
     if item is None:
+        LOGGER.warning("_extract_mask: input is None")
         return None
 
     outputs = item.get("outputs", item) if isinstance(item, dict) else item
     if outputs is None:
+        LOGGER.warning(
+            "_extract_mask: outputs is None (item keys: %s)",
+            list(item.keys()) if isinstance(item, dict) else type(item).__name__,
+        )
         return None
 
-    if not _OUTPUT_LOGGED:
-        _log_output_structure(outputs)
-        _OUTPUT_LOGGED = True
+    _log_output_structure(outputs)
 
     tensor = _find_mask_tensor(outputs, obj_id)
     if tensor is None:
+        LOGGER.warning(
+            "_extract_mask: _find_mask_tensor returned None for outputs with keys: %s",
+            list(outputs.keys())
+            if isinstance(outputs, dict)
+            else type(outputs).__name__,
+        )
         return None
 
     arr = _to_numpy(tensor)
@@ -155,6 +161,7 @@ def _log_output_structure(outputs) -> None:
 # Session helpers
 # ---------------------------------------------------------------------------
 
+
 def _start_session(predictor, video_path: str) -> str:
     import inspect
 
@@ -185,7 +192,8 @@ def _patch_offload_state(predictor, session_id: str) -> None:
 
 
 def _clamp_points(
-    points: np.ndarray, labels: np.ndarray,
+    points: np.ndarray,
+    labels: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Ensure total points ≤ MAX_POINTS.  Keep balanced pos/neg."""
     if len(points) <= MAX_POINTS:
@@ -199,13 +207,16 @@ def _clamp_points(
     n_neg = min(len(neg_pts), MAX_POINTS - n_pos)
     pts = np.concatenate([pos_pts[:n_pos], neg_pts[:n_neg]], axis=0)
     lbl = np.concatenate([pos_lbl[:n_pos], neg_lbl[:n_neg]], axis=0)
-    LOGGER.debug("Clamped %d points to %d (%d pos, %d neg)", len(points), len(pts), n_pos, n_neg)
+    LOGGER.debug(
+        "Clamped %d points to %d (%d pos, %d neg)", len(points), len(pts), n_pos, n_neg
+    )
     return pts, lbl
 
 
 # ---------------------------------------------------------------------------
 # Single-frame extraction for seed generation
 # ---------------------------------------------------------------------------
+
 
 def _extract_frame_to_jpeg_dir(video_path: str | Path, frame_idx: int) -> str:
     """Extract one frame from a video into a temp JPEG folder.
@@ -230,6 +241,7 @@ def _extract_frame_to_jpeg_dir(video_path: str | Path, frame_idx: int) -> str:
 # Adapter
 # ---------------------------------------------------------------------------
 
+
 class NativeSam3Adapter:
     def __init__(
         self,
@@ -241,9 +253,7 @@ class NativeSam3Adapter:
         sam3 = importlib.import_module("sam3")
         builder = getattr(sam3, "build_sam3_predictor", None)
         if not callable(builder):
-            raise RuntimeError(
-                "sam3 module does not expose build_sam3_predictor."
-            )
+            raise RuntimeError("sam3 module does not expose build_sam3_predictor.")
         self._predictor = builder(
             checkpoint_path=checkpoint or None,
             version="sam3.1",
@@ -271,7 +281,9 @@ class NativeSam3Adapter:
         try:
             t0 = time.monotonic()
             sid = _start_session(self._predictor, tmpdir)
-            LOGGER.info("segment_frame: session started (%.1fs, 1 frame)", time.monotonic() - t0)
+            LOGGER.info(
+                "segment_frame: session started (%.1fs, 1 frame)", time.monotonic() - t0
+            )
 
             try:
                 t1 = time.monotonic()
@@ -288,7 +300,9 @@ class NativeSam3Adapter:
                 mask = _extract_mask(result, obj_id)
                 if mask is not None:
                     pct = 100.0 * mask.sum() / max(mask.size, 1)
-                    LOGGER.info("segment_frame: mask from add_prompt (%.1f%% coverage)", pct)
+                    LOGGER.info(
+                        "segment_frame: mask from add_prompt (%.1f%% coverage)", pct
+                    )
                     return mask
 
                 LOGGER.info("segment_frame: no mask from add_prompt, trying propagate")
@@ -303,7 +317,9 @@ class NativeSam3Adapter:
                             LOGGER.info("segment_frame: mask from propagate fallback")
                             return mask
 
-                LOGGER.warning("segment_frame: no mask produced for %s frame %d", vname, frame_idx)
+                LOGGER.warning(
+                    "segment_frame: no mask produced for %s frame %d", vname, frame_idx
+                )
             finally:
                 self._predictor.close_session(sid)
                 _free_gpu_cache()
@@ -338,19 +354,29 @@ class NativeSam3Adapter:
 
             LOGGER.info(
                 "propagate_video [%s]: %s from frame %d, up to %d frames",
-                direction, vname, prompt_frame_idx, track_limit,
+                direction,
+                vname,
+                prompt_frame_idx,
+                track_limit,
             )
             partial = self._propagate_direction(
-                video_path, prompt_frame_idx, points, point_labels,
-                obj_id, track_limit, direction,
+                video_path,
+                prompt_frame_idx,
+                points,
+                point_labels,
+                obj_id,
+                track_limit,
+                direction,
             )
             outputs.update(partial)
 
         elapsed = time.monotonic() - t_total
         LOGGER.info(
             "propagate_video: %d masks in %.1fs (%.1f fps) for %s",
-            len(outputs), elapsed,
-            len(outputs) / max(elapsed, 0.001), vname,
+            len(outputs),
+            elapsed,
+            len(outputs) / max(elapsed, 0.001),
+            vname,
         )
         return outputs
 
@@ -383,6 +409,7 @@ class NativeSam3Adapter:
                     "max_frame_num_to_track": max_track,
                 }
                 import inspect
+
                 sig = inspect.signature(self._predictor.propagate_in_video)
                 if "propagation_direction" in sig.parameters:
                     prop_kwargs["propagation_direction"] = direction
@@ -395,11 +422,14 @@ class NativeSam3Adapter:
                         mask = _extract_mask(item, obj_id)
                         if mask is not None:
                             outputs[int(fidx)] = mask
+                        else:
+                            LOGGER.warning(f"No masks returned for {video_path}")
             except RuntimeError as exc:
                 if "out of memory" in str(exc).lower():
                     LOGGER.warning(
                         "propagate_%s: OOM after %d masks — keeping partial",
-                        direction, len(outputs),
+                        direction,
+                        len(outputs),
                     )
                 else:
                     raise
@@ -420,7 +450,10 @@ def build_adapter(
 ) -> NativeSam3Adapter:
     if adapter_module in {"training.floor.sam3_adapter", "sam3_adapter"}:
         return NativeSam3Adapter(
-            checkpoint=checkpoint, device=device, amp=amp, model_cfg=model_cfg,
+            checkpoint=checkpoint,
+            device=device,
+            amp=amp,
+            model_cfg=model_cfg,
         )
     mod = importlib.import_module(adapter_module)
     builder = getattr(mod, "build_adapter", None)
