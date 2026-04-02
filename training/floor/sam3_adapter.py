@@ -117,6 +117,7 @@ def _extract_mask(item: dict | None, obj_id: int = 1) -> np.ndarray | None:
 
     arr = _to_numpy(tensor)
     if arr.size == 0:
+        LOGGER.warning(f"_extract_mask: mask size is 0: {tensor}")
         return None
     while arr.ndim > 2:
         arr = arr[0]
@@ -189,6 +190,44 @@ def _patch_offload_state(predictor, session_id: str) -> None:
     if isinstance(inf_state, dict) and "offload_state_to_cpu" in inf_state:
         inf_state["offload_state_to_cpu"] = True
         LOGGER.debug("Patched offload_state_to_cpu=True")
+
+
+def _invoke_add_prompt_text(
+    predictor,
+    session_id: str,
+    frame_inner_idx: int,
+    text: str,
+    obj_id: int,
+):
+    """Call predictor with a text-only prompt (add_prompt or handle_request)."""
+    import inspect
+
+    sig = inspect.signature(predictor.add_prompt)
+    if "text" in sig.parameters:
+        kwargs: dict = {"session_id": session_id, "obj_id": obj_id, "text": text}
+        if "frame_idx" in sig.parameters:
+            kwargs["frame_idx"] = frame_inner_idx
+        elif "frame_index" in sig.parameters:
+            kwargs["frame_index"] = frame_inner_idx
+        else:
+            kwargs["frame_idx"] = frame_inner_idx
+        return predictor.add_prompt(**kwargs)
+
+    handle_request = getattr(predictor, "handle_request", None)
+    if callable(handle_request):
+        req = {
+            "type": "add_prompt",
+            "session_id": session_id,
+            "frame_index": frame_inner_idx,
+            "text": text,
+            "obj_id": obj_id,
+        }
+        return handle_request(req)
+
+    raise RuntimeError(
+        "SAM3 predictor has no `text` parameter on add_prompt and no handle_request; "
+        "text prompts are not supported."
+    )
 
 
 def _clamp_points(
@@ -319,6 +358,81 @@ class NativeSam3Adapter:
 
                 LOGGER.warning(
                     "segment_frame: no mask produced for %s frame %d", vname, frame_idx
+                )
+            finally:
+                self._predictor.close_session(sid)
+                _free_gpu_cache()
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        return None
+
+    def segment_frame_text(
+        self,
+        video_path: str | Path,
+        frame_idx: int,
+        text: str,
+        obj_id: int = 1,
+    ) -> np.ndarray | None:
+        """Get a mask for a single frame using a SAM3 text prompt only."""
+        vname = Path(video_path).name
+        prompt = (text or "").strip()
+        if not prompt:
+            raise ValueError("text prompt must be non-empty")
+
+        LOGGER.info(
+            "segment_frame_text: extracting frame %d from %s (prompt=%r)",
+            frame_idx,
+            vname,
+            prompt,
+        )
+        tmpdir = _extract_frame_to_jpeg_dir(video_path, frame_idx)
+        try:
+            t0 = time.monotonic()
+            sid = _start_session(self._predictor, tmpdir)
+            LOGGER.info(
+                "segment_frame_text: session started (%.1fs, 1 frame)",
+                time.monotonic() - t0,
+            )
+
+            try:
+                t1 = time.monotonic()
+                with _inference_ctx():
+                    result = _invoke_add_prompt_text(
+                        self._predictor, sid, 0, prompt, obj_id
+                    )
+                LOGGER.info(
+                    "segment_frame_text: add_prompt (%.1fs)", time.monotonic() - t1
+                )
+
+                mask = _extract_mask(result, obj_id)
+                if mask is not None:
+                    pct = 100.0 * mask.sum() / max(mask.size, 1)
+                    LOGGER.info(
+                        "segment_frame_text: mask from add_prompt (%.1f%% coverage)",
+                        pct,
+                    )
+                    return mask
+
+                LOGGER.info(
+                    "segment_frame_text: no mask from add_prompt, trying propagate"
+                )
+                with _inference_ctx():
+                    for item in self._predictor.propagate_in_video(
+                        session_id=sid,
+                        start_frame_idx=0,
+                        max_frame_num_to_track=1,
+                    ):
+                        mask = _extract_mask(item, obj_id)
+                        if mask is not None:
+                            LOGGER.info(
+                                "segment_frame_text: mask from propagate fallback"
+                            )
+                            return mask
+
+                LOGGER.warning(
+                    "segment_frame_text: no mask produced for %s frame %d",
+                    vname,
+                    frame_idx,
                 )
             finally:
                 self._predictor.close_session(sid)
