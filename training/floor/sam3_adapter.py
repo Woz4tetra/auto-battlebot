@@ -73,25 +73,78 @@ def _to_numpy(x) -> np.ndarray:
     return np.asarray(x)
 
 
-def _extract_mask(item: dict | None) -> np.ndarray | None:
+_PROPAGATE_OUTPUT_LOGGED = False
+
+
+def _extract_mask(item: dict | None, obj_id: int = 1) -> np.ndarray | None:
     """Pull a binary uint8 mask from a SAM3 response dict.
 
-    SAM3 returns: {"frame_index": int, "outputs": {"out_binary_masks": tensor}}
+    Handles multiple output formats:
+      - add_prompt style:  {"outputs": {"out_binary_masks": tensor}}
+      - propagate style 1: {"outputs": {obj_id: tensor}}   (per-object masks)
+      - propagate style 2: {"outputs": tensor}              (single-object)
+      - propagate style 3: {"outputs": {"pred_masks": tensor}}
     """
+    global _PROPAGATE_OUTPUT_LOGGED  # noqa: PLW0603
     if item is None:
         return None
-    outputs = item.get("outputs", item) if isinstance(item, dict) else None
+
+    outputs = item.get("outputs", item) if isinstance(item, dict) else item
     if outputs is None:
         return None
-    masks = outputs.get("out_binary_masks")
-    if masks is None:
+
+    if not _PROPAGATE_OUTPUT_LOGGED:
+        _log_output_structure(outputs)
+        _PROPAGATE_OUTPUT_LOGGED = True
+
+    tensor = _find_mask_tensor(outputs, obj_id)
+    if tensor is None:
         return None
-    arr = _to_numpy(masks)
+
+    arr = _to_numpy(tensor)
     if arr.size == 0:
         return None
-    if arr.ndim == 3:
+    while arr.ndim > 2:
         arr = arr[0]
     return (arr > 0).astype(np.uint8)
+
+
+def _find_mask_tensor(outputs, obj_id: int = 1):
+    """Search for a mask tensor in the outputs, trying multiple formats."""
+    if not isinstance(outputs, dict):
+        if hasattr(outputs, "shape"):
+            return outputs
+        return None
+
+    for key in ("out_binary_masks", "pred_masks", "masks", "video_res_masks"):
+        val = outputs.get(key)
+        if val is not None and hasattr(val, "shape"):
+            return val
+
+    if obj_id in outputs:
+        val = outputs[obj_id]
+        if hasattr(val, "shape"):
+            return val
+
+    for val in outputs.values():
+        if hasattr(val, "shape"):
+            return val
+
+    return None
+
+
+def _log_output_structure(outputs) -> None:
+    """Log the structure of the first propagation output for debugging."""
+    if isinstance(outputs, dict):
+        summary = {
+            k: (f"tensor{tuple(v.shape)}" if hasattr(v, "shape") else type(v).__name__)
+            for k, v in outputs.items()
+        }
+        LOGGER.info("propagation output keys: %s", summary)
+    elif hasattr(outputs, "shape"):
+        LOGGER.info("propagation output: tensor%s", tuple(outputs.shape))
+    else:
+        LOGGER.info("propagation output type: %s", type(outputs).__name__)
 
 
 def _start_session(predictor, video_path: str) -> str:
@@ -223,7 +276,7 @@ class NativeSam3Adapter:
             LOGGER.info(
                 "segment_frame: add_prompt returned (%.1fs)", time.monotonic() - t1
             )
-            mask = _extract_mask(result)
+            mask = _extract_mask(result, obj_id)
             if mask is not None:
                 pct = 100.0 * mask.sum() / max(mask.size, 1)
                 LOGGER.info(
@@ -242,7 +295,7 @@ class NativeSam3Adapter:
                     start_frame_idx=frame_idx,
                     max_frame_num_to_track=1,
                 ):
-                    mask = _extract_mask(item)
+                    mask = _extract_mask(item, obj_id)
                     if mask is not None:
                         LOGGER.info(
                             "segment_frame: fallback propagate produced mask (%.1fs)",
@@ -255,6 +308,10 @@ class NativeSam3Adapter:
             _free_gpu_cache()
         return None
 
+    # OOM consistently around frame ~5000 on A6000 (48 GB).  Cap each
+    # direction's propagation to stay safely under that limit.
+    MAX_PROPAGATION_FRAMES = 4000
+
     def propagate_video(
         self,
         video_path: str | Path,
@@ -264,20 +321,63 @@ class NativeSam3Adapter:
         max_frames: int | None = None,
         obj_id: int = 1,
     ) -> dict[int, np.ndarray]:
-        """Add prompt on one frame, propagate to all frames, return {frame_idx: mask}."""
-        vname = Path(video_path).name
-        LOGGER.info("propagate_video: opening session for %s", vname)
-        t0 = time.monotonic()
-        sid = _start_session(self._predictor, str(video_path))
-        LOGGER.info("propagate_video: session started (%.1fs)", time.monotonic() - t0)
+        """Add prompt on one frame, propagate forward & backward, return {frame_idx: mask}.
 
-        try:
+        Each direction (forward / backward) runs in its own session, capped
+        at MAX_PROPAGATION_FRAMES to avoid GPU OOM.  The tracker is stateful
+        so we cannot skip frames; we simply stop when the cap is reached.
+        """
+        vname = Path(video_path).name
+        cap_frames = max_frames if max_frames is not None else self.MAX_PROPAGATION_FRAMES
+        cap_frames = min(cap_frames, self.MAX_PROPAGATION_FRAMES)
+        outputs: dict[int, np.ndarray] = {}
+        t_total = time.monotonic()
+
+        # --- forward pass: prompt_frame → prompt_frame + cap_frames -----------
+        LOGGER.info(
+            "propagate_video [forward]: %s from frame %d, up to %d frames",
+            vname, prompt_frame_idx, cap_frames,
+        )
+        fwd = self._propagate_one_direction(
+            video_path, prompt_frame_idx, points, point_labels,
+            obj_id, max_track=cap_frames, direction="forward",
+        )
+        outputs.update(fwd)
+
+        # --- backward pass: prompt_frame → prompt_frame - cap_frames ----------
+        bwd_limit = min(cap_frames, prompt_frame_idx)
+        if bwd_limit > 0:
             LOGGER.info(
-                "propagate_video: add_prompt on frame %d — internal mini-propagation "
-                "progress bar (e.g. 0/2) is expected and brief",
-                prompt_frame_idx,
+                "propagate_video [backward]: %s from frame %d, up to %d frames",
+                vname, prompt_frame_idx, bwd_limit,
             )
-            t1 = time.monotonic()
+            bwd = self._propagate_one_direction(
+                video_path, prompt_frame_idx, points, point_labels,
+                obj_id, max_track=bwd_limit, direction="backward",
+            )
+            outputs.update(bwd)
+
+        elapsed = time.monotonic() - t_total
+        LOGGER.info(
+            "propagate_video: complete — %d masks in %.1fs (%.1f fps) for %s",
+            len(outputs), elapsed,
+            len(outputs) / max(elapsed, 0.001), vname,
+        )
+        return outputs
+
+    def _propagate_one_direction(
+        self,
+        video_path: str | Path,
+        prompt_frame_idx: int,
+        points: np.ndarray,
+        point_labels: np.ndarray,
+        obj_id: int,
+        max_track: int,
+        direction: str = "forward",
+    ) -> dict[int, np.ndarray]:
+        """Run propagation in a single direction in its own session."""
+        sid = _start_session(self._predictor, str(video_path))
+        try:
             with _inference_ctx():
                 self._predictor.add_prompt(
                     session_id=sid,
@@ -286,50 +386,33 @@ class NativeSam3Adapter:
                     point_labels=point_labels.tolist(),
                     obj_id=obj_id,
                 )
-            LOGGER.info(
-                "propagate_video: add_prompt done (%.1fs)", time.monotonic() - t1
-            )
 
-            LOGGER.info(
-                "propagate_video: starting full propagation from frame %d "
-                "(max_frames=%s) — this is the real progress bar",
-                prompt_frame_idx,
-                max_frames,
-            )
-            t2 = time.monotonic()
             outputs: dict[int, np.ndarray] = {}
             try:
                 with _inference_ctx():
                     for item in self._predictor.propagate_in_video(
                         session_id=sid,
                         start_frame_idx=prompt_frame_idx,
-                        max_frame_num_to_track=max_frames,
+                        max_frame_num_to_track=max_track,
+                        propagation_direction=direction,
                     ):
                         fidx = item.get("frame_index")
                         if fidx is None:
                             continue
-                        mask = _extract_mask(item)
+                        mask = _extract_mask(item, obj_id)
                         if mask is not None:
                             outputs[int(fidx)] = mask
             except RuntimeError as exc:
                 if "out of memory" in str(exc).lower():
                     LOGGER.warning(
-                        "propagate_video: OOM after %d masks (%.1fs) — "
-                        "returning partial results for %s",
-                        len(outputs),
-                        time.monotonic() - t2,
-                        vname,
+                        "propagate_%s: OOM after %d masks — keeping partial",
+                        direction, len(outputs),
                     )
-                    _free_gpu_cache()
-                    return outputs
-                raise
+                else:
+                    raise
 
-            elapsed = time.monotonic() - t2
             LOGGER.info(
-                "propagate_video: propagation complete — %d masks in %.1fs (%.1f fps)",
-                len(outputs),
-                elapsed,
-                len(outputs) / max(elapsed, 0.001),
+                "propagate_%s: collected %d masks", direction, len(outputs),
             )
             return outputs
         finally:
