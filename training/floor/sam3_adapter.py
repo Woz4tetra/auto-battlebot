@@ -89,35 +89,29 @@ def _to_numpy(x) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
+_EXTRACT_LOG_N = 0
+
+
 def _extract_mask(item: dict | None, obj_id: int = 1) -> np.ndarray | None:
     """Pull a binary uint8 mask from a SAM3 response dict."""
+    global _EXTRACT_LOG_N  # noqa: PLW0603
     if item is None:
-        LOGGER.warning("_extract_mask: input is None")
         return None
 
     outputs = item.get("outputs", item) if isinstance(item, dict) else item
     if outputs is None:
-        LOGGER.warning(
-            "_extract_mask: outputs is None (item keys: %s)",
-            list(item.keys()) if isinstance(item, dict) else type(item).__name__,
-        )
         return None
 
-    _log_output_structure(outputs)
+    if _EXTRACT_LOG_N < 3:
+        _log_output_structure(outputs)
+        _EXTRACT_LOG_N += 1
 
     tensor = _find_mask_tensor(outputs, obj_id)
     if tensor is None:
-        LOGGER.warning(
-            "_extract_mask: _find_mask_tensor returned None for outputs with keys: %s",
-            list(outputs.keys())
-            if isinstance(outputs, dict)
-            else type(outputs).__name__,
-        )
         return None
 
     arr = _to_numpy(tensor)
     if arr.size == 0:
-        LOGGER.warning(f"_extract_mask: mask size is 0: {tensor}")
         return None
     while arr.ndim > 2:
         arr = arr[0]
@@ -536,8 +530,6 @@ class NativeSam3Adapter:
                         mask = _extract_mask(item, obj_id)
                         if mask is not None:
                             outputs[int(fidx)] = mask
-                        else:
-                            LOGGER.warning(f"No masks returned for {video_path}")
             except RuntimeError as exc:
                 if "out of memory" in str(exc).lower():
                     LOGGER.warning(
