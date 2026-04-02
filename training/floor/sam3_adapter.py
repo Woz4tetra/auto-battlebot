@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""SAM3 adapter — uses the official handle_request / handle_stream_request API.
+"""SAM3 adapter for floor segmentation pipeline.
 
-Reference: https://github.com/facebookresearch/sam3
-See examples/sam3_video_predictor_example.ipynb for the canonical usage pattern.
+Uses build_sam3_predictor + the Sam3BasePredictor direct API for point-prompt
+segmentation and mask propagation.  For single-frame seeding, the target frame
+is extracted to a temp directory so we don't load thousands of frames into VRAM.
+
+The handle_request / handle_stream_request high-level API is designed around
+text prompts; point-prompt workflows are better served by the base predictor.
 
 Set TORCHDYNAMO_DISABLE=1 to skip torch.compile (avoids multi-minute warm-up).
 """
@@ -12,16 +16,18 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import shutil
+import tempfile
 import time
 from pathlib import Path
 
+import cv2
 import numpy as np
-import torch
 
 LOGGER = logging.getLogger("floor_pipeline")
 
-# OOM consistently around frame ~5000 on a single A6000 (48 GB).
 MAX_PROPAGATION_FRAMES = 4000
+MAX_POINTS = 16
 
 
 def _disable_torch_compile_if_requested() -> None:
@@ -38,6 +44,38 @@ def _disable_torch_compile_if_requested() -> None:
 _disable_torch_compile_if_requested()
 
 
+def _gpu_supports_fa3() -> bool:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_capability(0)[0] >= 9
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def _inference_ctx():
+    try:
+        import torch
+
+        return torch.inference_mode()
+    except Exception:  # noqa: BLE001
+        from contextlib import nullcontext
+
+        return nullcontext()
+
+
+def _free_gpu_cache() -> None:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _to_numpy(x) -> np.ndarray:
     if isinstance(x, np.ndarray):
         return x
@@ -46,17 +84,20 @@ def _to_numpy(x) -> np.ndarray:
     return np.asarray(x)
 
 
+# ---------------------------------------------------------------------------
+# Mask extraction — handles multiple SAM3 output formats
+# ---------------------------------------------------------------------------
+
 _OUTPUT_LOGGED = False
 
 
-def _extract_mask(outputs, obj_id: int = 1) -> np.ndarray | None:
-    """Extract a binary uint8 mask from a SAM3 outputs dict.
-
-    The official API returns outputs that go through prepare_masks_for_visualization.
-    Depending on the code path, masks may appear under various keys or as
-    per-object-id tensors.
-    """
+def _extract_mask(item: dict | None, obj_id: int = 1) -> np.ndarray | None:
+    """Pull a binary uint8 mask from a SAM3 response dict."""
     global _OUTPUT_LOGGED  # noqa: PLW0603
+    if item is None:
+        return None
+
+    outputs = item.get("outputs", item) if isinstance(item, dict) else item
     if outputs is None:
         return None
 
@@ -77,11 +118,8 @@ def _extract_mask(outputs, obj_id: int = 1) -> np.ndarray | None:
 
 
 def _find_mask_tensor(outputs, obj_id: int = 1):
-    """Search for a mask tensor in the outputs, trying multiple formats."""
     if not isinstance(outputs, dict):
-        if hasattr(outputs, "shape"):
-            return outputs
-        return None
+        return outputs if hasattr(outputs, "shape") else None
 
     for key in ("out_binary_masks", "pred_masks", "masks", "video_res_masks"):
         val = outputs.get(key)
@@ -113,25 +151,86 @@ def _log_output_structure(outputs) -> None:
         LOGGER.info("SAM3 output type: %s", type(outputs).__name__)
 
 
-def _free_gpu_cache() -> None:
-    try:
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    except Exception:  # noqa: BLE001
-        pass
+# ---------------------------------------------------------------------------
+# Session helpers
+# ---------------------------------------------------------------------------
+
+def _start_session(predictor, video_path: str) -> str:
+    import inspect
+
+    sig = inspect.signature(predictor.start_session)
+    kwargs: dict = {"offload_video_to_cpu": True}
+    if "offload_state_to_cpu" in sig.parameters:
+        kwargs["offload_state_to_cpu"] = True
+
+    result = predictor.start_session(video_path, **kwargs)
+    sid = result["session_id"]
+
+    if "offload_state_to_cpu" not in kwargs:
+        _patch_offload_state(predictor, sid)
+
+    return sid
 
 
-def _abs_to_rel(points: np.ndarray, w: int, h: int) -> torch.Tensor:
-    """Convert absolute pixel coordinates to relative (0-1) as the official API requires."""
-    rel = points.copy().astype(np.float32)
-    rel[:, 0] /= w
-    rel[:, 1] /= h
-    return torch.tensor(rel, dtype=torch.float32)
+def _patch_offload_state(predictor, session_id: str) -> None:
+    states = getattr(predictor, "_all_inference_states", None)
+    if states is None:
+        return
+    inf_state = states.get(session_id)
+    if inf_state is None:
+        return
+    if isinstance(inf_state, dict) and "offload_state_to_cpu" in inf_state:
+        inf_state["offload_state_to_cpu"] = True
+        LOGGER.debug("Patched offload_state_to_cpu=True")
 
+
+def _clamp_points(
+    points: np.ndarray, labels: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Ensure total points ≤ MAX_POINTS.  Keep balanced pos/neg."""
+    if len(points) <= MAX_POINTS:
+        return points, labels
+    pos_mask = labels == 1
+    neg_mask = labels == 0
+    pos_pts, neg_pts = points[pos_mask], points[neg_mask]
+    pos_lbl, neg_lbl = labels[pos_mask], labels[neg_mask]
+    half = MAX_POINTS // 2
+    n_pos = min(len(pos_pts), half)
+    n_neg = min(len(neg_pts), MAX_POINTS - n_pos)
+    pts = np.concatenate([pos_pts[:n_pos], neg_pts[:n_neg]], axis=0)
+    lbl = np.concatenate([pos_lbl[:n_pos], neg_lbl[:n_neg]], axis=0)
+    LOGGER.debug("Clamped %d points to %d (%d pos, %d neg)", len(points), len(pts), n_pos, n_neg)
+    return pts, lbl
+
+
+# ---------------------------------------------------------------------------
+# Single-frame extraction for seed generation
+# ---------------------------------------------------------------------------
+
+def _extract_frame_to_jpeg_dir(video_path: str | Path, frame_idx: int) -> str:
+    """Extract one frame from a video into a temp JPEG folder.
+
+    Returns the temp directory path.  Caller must clean it up.
+    SAM3 start_session accepts a JPEG folder as a "video".
+    """
+    tmpdir = tempfile.mkdtemp(prefix="sam3_frame_")
+    cap = cv2.VideoCapture(str(video_path))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise RuntimeError(f"Could not read frame {frame_idx} from {video_path}")
+    out_path = os.path.join(tmpdir, "00000.jpg")
+    cv2.imwrite(out_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 98])
+    return tmpdir
+
+
+# ---------------------------------------------------------------------------
+# Adapter
+# ---------------------------------------------------------------------------
 
 class NativeSam3Adapter:
-    """Adapter using the official SAM3 handle_request / handle_stream_request API."""
-
     def __init__(
         self,
         checkpoint: str = "",
@@ -139,72 +238,17 @@ class NativeSam3Adapter:
         amp: bool = True,
         model_cfg: str = "",
     ) -> None:
-        model_builder = importlib.import_module("sam3.model_builder")
-        builder = getattr(model_builder, "build_sam3_video_predictor", None)
+        sam3 = importlib.import_module("sam3")
+        builder = getattr(sam3, "build_sam3_predictor", None)
         if not callable(builder):
             raise RuntimeError(
-                "sam3.model_builder does not expose build_sam3_video_predictor."
+                "sam3 module does not expose build_sam3_predictor."
             )
-
-        gpu_id = 0
-        if device.startswith("cuda:"):
-            try:
-                gpu_id = int(device.split(":")[1])
-            except (IndexError, ValueError):
-                pass
-
-        LOGGER.info("Building SAM3 video predictor on GPU %d", gpu_id)
-        self._predictor = builder(gpus_to_use=[gpu_id])
-        self._frame_hw: tuple[int, int] | None = None
-
-    def shutdown(self) -> None:
-        if hasattr(self._predictor, "shutdown"):
-            self._predictor.shutdown()
-
-    def _start_session(self, video_path: str) -> str:
-        response = self._predictor.handle_request(
-            request=dict(type="start_session", resource_path=video_path)
+        self._predictor = builder(
+            checkpoint_path=checkpoint or None,
+            version="sam3.1",
+            use_fa3=_gpu_supports_fa3(),
         )
-        return response["session_id"]
-
-    def _close_session(self, session_id: str) -> None:
-        self._predictor.handle_request(
-            request=dict(type="close_session", session_id=session_id)
-        )
-
-    def _add_prompt(
-        self,
-        session_id: str,
-        frame_idx: int,
-        points: np.ndarray,
-        point_labels: np.ndarray,
-        w: int,
-        h: int,
-        obj_id: int = 1,
-    ) -> dict:
-        points_rel = _abs_to_rel(points, w, h)
-        labels_tensor = torch.tensor(point_labels, dtype=torch.int32)
-        response = self._predictor.handle_request(
-            request=dict(
-                type="add_prompt",
-                session_id=session_id,
-                frame_index=frame_idx,
-                points=points_rel,
-                point_labels=labels_tensor,
-                obj_id=obj_id,
-            )
-        )
-        return response
-
-    def _get_video_dims(self, video_path: str | Path) -> tuple[int, int]:
-        """Return (width, height) of the video."""
-        import cv2
-
-        cap = cv2.VideoCapture(str(video_path))
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        cap.release()
-        return w, h
 
     def segment_frame(
         self,
@@ -214,53 +258,57 @@ class NativeSam3Adapter:
         point_labels: np.ndarray,
         obj_id: int = 1,
     ) -> np.ndarray | None:
-        """Get a mask for a single frame."""
+        """Get a mask for a single frame.
+
+        Extracts just the target frame to a temp JPEG folder so we don't
+        load the entire video into VRAM.
+        """
         vname = Path(video_path).name
-        w, h = self._get_video_dims(video_path)
+        points, point_labels = _clamp_points(points, point_labels)
 
-        LOGGER.info("segment_frame: opening session for %s", vname)
-        t0 = time.monotonic()
-        sid = self._start_session(str(video_path))
-        LOGGER.info("segment_frame: session started (%.1fs)", time.monotonic() - t0)
-
+        LOGGER.info("segment_frame: extracting frame %d from %s", frame_idx, vname)
+        tmpdir = _extract_frame_to_jpeg_dir(video_path, frame_idx)
         try:
-            LOGGER.info(
-                "segment_frame: add_prompt on frame %d (%d pos, %d neg points)",
-                frame_idx,
-                int((point_labels == 1).sum()),
-                int((point_labels == 0).sum()),
-            )
-            t1 = time.monotonic()
-            response = self._add_prompt(sid, frame_idx, points, point_labels, w, h, obj_id)
-            LOGGER.info("segment_frame: add_prompt returned (%.1fs)", time.monotonic() - t1)
+            t0 = time.monotonic()
+            sid = _start_session(self._predictor, tmpdir)
+            LOGGER.info("segment_frame: session started (%.1fs, 1 frame)", time.monotonic() - t0)
 
-            mask = _extract_mask(response.get("outputs"), obj_id)
-            if mask is not None:
-                pct = 100.0 * mask.sum() / max(mask.size, 1)
-                LOGGER.info("segment_frame: got mask (%.1f%% coverage)", pct)
-                return mask
+            try:
+                t1 = time.monotonic()
+                with _inference_ctx():
+                    result = self._predictor.add_prompt(
+                        session_id=sid,
+                        frame_idx=0,
+                        points=points.tolist(),
+                        point_labels=point_labels.tolist(),
+                        obj_id=obj_id,
+                    )
+                LOGGER.info("segment_frame: add_prompt (%.1fs)", time.monotonic() - t1)
 
-            LOGGER.info("segment_frame: add_prompt returned no mask; trying propagation")
-            t2 = time.monotonic()
-            for resp in self._predictor.handle_stream_request(
-                request=dict(
-                    type="propagate_in_video",
-                    session_id=sid,
-                )
-            ):
-                fidx = resp.get("frame_index")
-                if fidx is not None and fidx == frame_idx:
-                    mask = _extract_mask(resp.get("outputs"), obj_id)
-                    if mask is not None:
-                        LOGGER.info(
-                            "segment_frame: propagation produced mask (%.1fs)",
-                            time.monotonic() - t2,
-                        )
-                        return mask
-            LOGGER.warning("segment_frame: no mask produced for frame %d", frame_idx)
+                mask = _extract_mask(result, obj_id)
+                if mask is not None:
+                    pct = 100.0 * mask.sum() / max(mask.size, 1)
+                    LOGGER.info("segment_frame: mask from add_prompt (%.1f%% coverage)", pct)
+                    return mask
+
+                LOGGER.info("segment_frame: no mask from add_prompt, trying propagate")
+                with _inference_ctx():
+                    for item in self._predictor.propagate_in_video(
+                        session_id=sid,
+                        start_frame_idx=0,
+                        max_frame_num_to_track=1,
+                    ):
+                        mask = _extract_mask(item, obj_id)
+                        if mask is not None:
+                            LOGGER.info("segment_frame: mask from propagate fallback")
+                            return mask
+
+                LOGGER.warning("segment_frame: no mask produced for %s frame %d", vname, frame_idx)
+            finally:
+                self._predictor.close_session(sid)
+                _free_gpu_cache()
         finally:
-            self._close_session(sid)
-            _free_gpu_cache()
+            shutil.rmtree(tmpdir, ignore_errors=True)
         return None
 
     def propagate_video(
@@ -272,73 +320,95 @@ class NativeSam3Adapter:
         max_frames: int | None = None,
         obj_id: int = 1,
     ) -> dict[int, np.ndarray]:
-        """Add prompt on one frame, propagate to all frames, return {frame_idx: mask}."""
+        """Propagate a point prompt across the video.
+
+        Forward and backward are run in separate sessions to limit memory.
+        Each direction is capped at MAX_PROPAGATION_FRAMES.
+        """
         vname = Path(video_path).name
-        w, h = self._get_video_dims(video_path)
+        points, point_labels = _clamp_points(points, point_labels)
+        cap = min(max_frames or MAX_PROPAGATION_FRAMES, MAX_PROPAGATION_FRAMES)
         outputs: dict[int, np.ndarray] = {}
         t_total = time.monotonic()
 
-        LOGGER.info("propagate_video: opening session for %s", vname)
-        t0 = time.monotonic()
-        sid = self._start_session(str(video_path))
-        LOGGER.info("propagate_video: session started (%.1fs)", time.monotonic() - t0)
-
-        try:
-            LOGGER.info("propagate_video: add_prompt on frame %d", prompt_frame_idx)
-            t1 = time.monotonic()
-            self._add_prompt(sid, prompt_frame_idx, points, point_labels, w, h, obj_id)
-            LOGGER.info("propagate_video: add_prompt done (%.1fs)", time.monotonic() - t1)
-
-            cap = max_frames if max_frames is not None else MAX_PROPAGATION_FRAMES
-            cap = min(cap, MAX_PROPAGATION_FRAMES)
+        for direction in ("forward", "backward"):
+            if direction == "backward" and prompt_frame_idx == 0:
+                continue
+            track_limit = cap if direction == "forward" else min(cap, prompt_frame_idx)
 
             LOGGER.info(
-                "propagate_video: propagating from frame %d (cap %d frames)",
-                prompt_frame_idx, cap,
+                "propagate_video [%s]: %s from frame %d, up to %d frames",
+                direction, vname, prompt_frame_idx, track_limit,
             )
-            t2 = time.monotonic()
-            n_yielded = 0
+            partial = self._propagate_direction(
+                video_path, prompt_frame_idx, points, point_labels,
+                obj_id, track_limit, direction,
+            )
+            outputs.update(partial)
+
+        elapsed = time.monotonic() - t_total
+        LOGGER.info(
+            "propagate_video: %d masks in %.1fs (%.1f fps) for %s",
+            len(outputs), elapsed,
+            len(outputs) / max(elapsed, 0.001), vname,
+        )
+        return outputs
+
+    def _propagate_direction(
+        self,
+        video_path: str | Path,
+        prompt_frame_idx: int,
+        points: np.ndarray,
+        point_labels: np.ndarray,
+        obj_id: int,
+        max_track: int,
+        direction: str,
+    ) -> dict[int, np.ndarray]:
+        sid = _start_session(self._predictor, str(video_path))
+        try:
+            with _inference_ctx():
+                self._predictor.add_prompt(
+                    session_id=sid,
+                    frame_idx=prompt_frame_idx,
+                    points=points.tolist(),
+                    point_labels=point_labels.tolist(),
+                    obj_id=obj_id,
+                )
+
+            outputs: dict[int, np.ndarray] = {}
             try:
-                for resp in self._predictor.handle_stream_request(
-                    request=dict(
-                        type="propagate_in_video",
-                        session_id=sid,
-                    )
-                ):
-                    fidx = resp.get("frame_index")
-                    if fidx is None:
-                        continue
-                    mask = _extract_mask(resp.get("outputs"), obj_id)
-                    if mask is not None:
-                        outputs[int(fidx)] = mask
-                    n_yielded += 1
-                    if n_yielded >= cap:
-                        LOGGER.info(
-                            "propagate_video: reached frame cap (%d), stopping", cap,
-                        )
-                        break
+                prop_kwargs: dict = {
+                    "session_id": sid,
+                    "start_frame_idx": prompt_frame_idx,
+                    "max_frame_num_to_track": max_track,
+                }
+                import inspect
+                sig = inspect.signature(self._predictor.propagate_in_video)
+                if "propagation_direction" in sig.parameters:
+                    prop_kwargs["propagation_direction"] = direction
+
+                with _inference_ctx():
+                    for item in self._predictor.propagate_in_video(**prop_kwargs):
+                        fidx = item.get("frame_index")
+                        if fidx is None:
+                            continue
+                        mask = _extract_mask(item, obj_id)
+                        if mask is not None:
+                            outputs[int(fidx)] = mask
             except RuntimeError as exc:
                 if "out of memory" in str(exc).lower():
                     LOGGER.warning(
-                        "propagate_video: OOM after %d masks — keeping partial for %s",
-                        len(outputs), vname,
+                        "propagate_%s: OOM after %d masks — keeping partial",
+                        direction, len(outputs),
                     )
                 else:
                     raise
 
-            elapsed = time.monotonic() - t2
-            LOGGER.info(
-                "propagate_video: %d masks in %.1fs (%.1f fps) for %s",
-                len(outputs), elapsed,
-                len(outputs) / max(elapsed, 0.001), vname,
-            )
+            LOGGER.info("propagate_%s: collected %d masks", direction, len(outputs))
+            return outputs
         finally:
-            self._close_session(sid)
+            self._predictor.close_session(sid)
             _free_gpu_cache()
-
-        total_elapsed = time.monotonic() - t_total
-        LOGGER.info("propagate_video: total %.1fs for %s", total_elapsed, vname)
-        return outputs
 
 
 def build_adapter(

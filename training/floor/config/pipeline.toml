@@ -48,8 +48,8 @@ prompt_tags = [
     "blue corner",
 ]
 negative_tags = ["robot", "wall", "plexiglass", "outside arena", "person"]
-fallback_positive_samples = 18
-fallback_negative_samples = 14
+fallback_positive_samples = 8
+fallback_negative_samples = 6
 
 [quality]
 min_floor_fraction = 0.20
