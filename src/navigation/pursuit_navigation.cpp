@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <limits>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "enum_to_string_lower.hpp"
@@ -34,7 +33,8 @@ bool PursuitNavigation::initialize() {
     return true;
 }
 
-VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, FieldDescription field) {
+VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, FieldDescription field,
+                                          const TargetSelection &target) {
     last_path_ = std::nullopt;
 
     auto our_robot_opt = find_our_robot(robots);
@@ -44,29 +44,20 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
     }
     const auto &our_robot = our_robot_opt.value();
 
-    auto target_opt = find_target_robot(robots, our_robot);
-    if (!target_opt.has_value()) {
-        logger_->debug("no_target", "No target found");
-        return VelocityCommand{0.0, 0.0, 0.0};
-    }
-    const auto &target = target_opt.value();
-
     Pose2D our_pose = pose_to_pose2d(our_robot.pose);
-    Pose2D target_pose = predict_target_position(target);
 
-    last_path_ = NavigationPathSegment{our_pose.x, our_pose.y, target_pose.x, target_pose.y};
+    last_path_ = NavigationPathSegment{our_pose.x, our_pose.y, target.pose.x, target.pose.y};
 
     logger_->debug("poses", {
                                 {"our_frame_id", enum_to_string_lower(our_robot.frame_id)},
                                 {"our_x", our_pose.x},
                                 {"our_y", our_pose.y},
                                 {"our_yaw_deg", our_pose.yaw * 180.0 / M_PI},
-                                {"target_frame_id", enum_to_string_lower(target.frame_id)},
-                                {"target_x", target_pose.x},
-                                {"target_y", target_pose.y},
+                                {"target_x", target.pose.x},
+                                {"target_y", target.pose.y},
                             });
 
-    auto cmd = compute_pursuit_command(our_pose, target_pose, field);
+    auto cmd = compute_pursuit_command(our_pose, target.pose, field);
 
     logger_->debug("command", {
                                   {"linear_x", cmd.linear_x},
@@ -94,46 +85,6 @@ std::optional<RobotDescription> PursuitNavigation::find_our_robot(
         }
     }
     return std::nullopt;
-}
-
-std::optional<RobotDescription> PursuitNavigation::find_target_robot(
-    const RobotDescriptionsStamped &robots, const RobotDescription &our_robot) const {
-    std::optional<RobotDescription> closest_target;
-    double min_distance = std::numeric_limits<double>::max();
-
-    Pose2D our_pose = pose_to_pose2d(our_robot.pose);
-
-    for (const auto &robot : robots.descriptions) {
-        // Skip our own robots
-        if (robot.label == our_robot.label) {
-            continue;
-        }
-
-        // Target opponents and house bots
-        if (robot.label == Label::OPPONENT || robot.label == Label::HOUSE_BOT) {
-            Pose2D robot_pose = pose_to_pose2d(robot.pose);
-            double dist = distance_2d(our_pose, robot_pose);
-
-            if (dist < min_distance) {
-                min_distance = dist;
-                closest_target = robot;
-            }
-        }
-    }
-
-    return closest_target;
-}
-
-Pose2D PursuitNavigation::predict_target_position(const RobotDescription &target) const {
-    Pose2D current_pose = pose_to_pose2d(target.pose);
-
-    // Predict future position based on velocity
-    current_pose.x += target.velocity.vx * lookahead_time_;
-    current_pose.y += target.velocity.vy * lookahead_time_;
-    current_pose.yaw += target.velocity.omega * lookahead_time_;
-    current_pose.yaw = normalize_angle(current_pose.yaw);
-
-    return current_pose;
 }
 
 VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pose,

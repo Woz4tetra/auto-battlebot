@@ -92,6 +92,9 @@ back_keypoints = [
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
+[target_selector]
+type = "NearestTarget"
+
 [navigation]
 type = "PursuitNavigation"
 angular_kp = 0.1

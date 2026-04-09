@@ -8,7 +8,8 @@ class NoopNavigation : public NavigationInterface {
     bool initialize() override { return true; }
 
     VelocityCommand update([[maybe_unused]] RobotDescriptionsStamped robots,
-                           [[maybe_unused]] FieldDescription field) override {
+                           [[maybe_unused]] FieldDescription field,
+                           [[maybe_unused]] const TargetSelection &target) override {
         return VelocityCommand{};
     }
 };

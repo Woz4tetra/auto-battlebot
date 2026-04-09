@@ -12,13 +12,14 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
 #include "field_filter/field_filter_interface.hpp"
-#include "mask_model/mask_model_interface.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
+#include "mask_model/mask_model_interface.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
+#include "target_selector/target_selector_interface.hpp"
 #include "transmitter/transmitter_interface.hpp"
 #include "ui/ui_state.hpp"
 
@@ -32,6 +33,7 @@ class Runner {
            std::shared_ptr<FieldFilterInterface> field_filter,
            std::shared_ptr<KeypointModelInterface> keypoint_model,
            std::shared_ptr<RobotFilterInterface> robot_filter,
+           std::shared_ptr<TargetSelectorInterface> target_selector,
            std::shared_ptr<NavigationInterface> navigation,
            std::shared_ptr<TransmitterInterface> transmitter,
            std::shared_ptr<PublisherInterface> publisher,
@@ -50,6 +52,7 @@ class Runner {
     std::shared_ptr<FieldFilterInterface> field_filter_;
     std::shared_ptr<KeypointModelInterface> keypoint_model_;
     std::shared_ptr<RobotFilterInterface> robot_filter_;
+    std::shared_ptr<TargetSelectorInterface> target_selector_;
     std::shared_ptr<NavigationInterface> navigation_;
     std::shared_ptr<TransmitterInterface> transmitter_;
     std::shared_ptr<PublisherInterface> publisher_;
@@ -58,6 +61,7 @@ class Runner {
     std::vector<RobotConfig> initial_robot_configs_;
     int runtime_opponent_count_;
     bool robot_filter_reinit_pending_;
+    TargetSelection previous_selected_target_;
 
     bool initialized_;
     bool autonomy_enabled_;

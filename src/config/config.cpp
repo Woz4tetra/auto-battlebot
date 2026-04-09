@@ -40,6 +40,7 @@ ClassConfiguration load_classes_from_config(const std::string &config_path) {
         config.field_filter = load_field_filter_from_toml(toml_data, parsed_sections);
         config.keypoint_model = load_keypoint_model_from_toml(toml_data, parsed_sections);
         config.robot_filter = load_robot_filter_from_toml(toml_data, parsed_sections);
+        config.target_selector = load_target_selector_from_toml(toml_data, parsed_sections);
         config.navigation = load_navigation_from_toml(toml_data, parsed_sections);
         config.transmitter = load_transmitter_from_toml(toml_data, parsed_sections);
         config.publisher = load_publisher_from_toml(toml_data, parsed_sections);

@@ -28,6 +28,7 @@
 #include "robot_filter/config.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
+#include "target_selector/config.hpp"
 #include "transmitter/config.hpp"
 #include "transmitter/transmitter_interface.hpp"
 #include "ui/config.hpp"
@@ -40,6 +41,7 @@ struct ClassConfiguration {
     std::unique_ptr<FieldFilterConfiguration> field_filter;
     std::unique_ptr<KeypointModelConfiguration> keypoint_model;
     std::unique_ptr<RobotFilterConfiguration> robot_filter;
+    std::unique_ptr<TargetSelectorConfiguration> target_selector;
     std::unique_ptr<NavigationConfiguration> navigation;
     std::unique_ptr<TransmitterConfiguration> transmitter;
     std::unique_ptr<PublisherConfiguration> publisher;

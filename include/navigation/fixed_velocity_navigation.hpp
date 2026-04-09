@@ -19,18 +19,17 @@ class FixedVelocityNavigation : public NavigationInterface {
         spdlog::info(
             "FixedVelocityNavigation initialized with: linear_x={}, linear_y={}, angular_z={}",
             linear_x_, linear_y_, angular_z_);
-        logger_->info({{"linear_x", linear_x_},
-                       {"linear_y", linear_y_},
-                       {"angular_z", angular_z_}});
+        logger_->info(
+            {{"linear_x", linear_x_}, {"linear_y", linear_y_}, {"angular_z", angular_z_}});
         return true;
     }
 
     VelocityCommand update([[maybe_unused]] RobotDescriptionsStamped robots,
-                           [[maybe_unused]] FieldDescription field) override {
-        logger_->debug("command",
-                       {{"linear_x", linear_x_},
-                        {"linear_y", linear_y_},
-                        {"angular_z", angular_z_}});
+                           [[maybe_unused]] FieldDescription field,
+                           [[maybe_unused]] const TargetSelection &target) override {
+        logger_->debug(
+            "command",
+            {{"linear_x", linear_x_}, {"linear_y", linear_y_}, {"angular_z", angular_z_}});
         return VelocityCommand{linear_x_, linear_y_, angular_z_};
     }
 

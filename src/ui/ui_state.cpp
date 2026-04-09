@@ -1,5 +1,7 @@
 #include "ui/ui_state.hpp"
 
+#include "target_selector/target_selector_interface.hpp"
+
 namespace auto_battlebot {
 void UIState::set_system_status(const SystemStatus &s) {
     std::lock_guard<std::mutex> lock(status_mutex_);
@@ -77,6 +79,16 @@ void UIState::set_navigation_path(const std::optional<NavigationPathSegment> &pa
 void UIState::get_navigation_path(std::optional<NavigationPathSegment> &out) const {
     std::lock_guard<std::mutex> lock(status_mutex_);
     out = navigation_path_;
+}
+
+void UIState::set_manual_target(const std::optional<TargetSelection> &target) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    manual_target_ = target;
+}
+
+std::optional<TargetSelection> UIState::get_manual_target() const {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    return manual_target_;
 }
 
 void UIState::set_field_description(const std::optional<FieldDescription> &field) {

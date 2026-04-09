@@ -4,7 +4,7 @@
 
 #include <opencv2/core.hpp>
 
-#include "enums.hpp"
+#include "target_selector/target_selector_interface.hpp"
 
 namespace auto_battlebot {
 Runner::Runner(const RunnerConfiguration &runner_config,
@@ -15,6 +15,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<FieldFilterInterface> field_filter,
                std::shared_ptr<KeypointModelInterface> keypoint_model,
                std::shared_ptr<RobotFilterInterface> robot_filter,
+               std::shared_ptr<TargetSelectorInterface> target_selector,
                std::shared_ptr<NavigationInterface> navigation,
                std::shared_ptr<TransmitterInterface> transmitter,
                std::shared_ptr<PublisherInterface> publisher, std::shared_ptr<UIState> ui_state)
@@ -25,6 +26,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       field_filter_(field_filter),
       keypoint_model_(keypoint_model),
       robot_filter_(robot_filter),
+      target_selector_(target_selector),
       navigation_(navigation),
       transmitter_(transmitter),
       publisher_(publisher),
@@ -32,6 +34,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       initial_robot_configs_(robot_configs),
       runtime_opponent_count_(runner_config_.default_opponent_count),
       robot_filter_reinit_pending_(false),
+      previous_selected_target_(TargetSelection{}),
       initialized_(false),
       autonomy_enabled_(runner_config_.autonomy_enabled_by_default),
       initial_field_description_(),
@@ -97,6 +100,7 @@ void Runner::initialize_field(const CameraData &camera_data) {
     robot_filter_->set_opponent_count(runtime_opponent_count_);
     robot_filter_->initialize(build_effective_robot_configs());
     navigation_->initialize();
+    previous_selected_target_ = TargetSelection{};
     initialized_ = true;
     spdlog::info("Field initialized");
 }
@@ -276,7 +280,23 @@ bool Runner::tick() {
         publisher_->publish_robots(robots);
     }
 
-    VelocityCommand command = navigation_->update(robots, field_description);
+    TargetSelection resolved_target;
+    std::optional<TargetSelection> manual_target;
+    if (ui_state_) manual_target = ui_state_->get_manual_target();
+    if (manual_target.has_value()) {
+        resolved_target = *manual_target;
+    } else if (target_selector_) {
+        std::optional<TargetSelection> selected =
+            target_selector_->get_target(robots, field_description);
+        if (selected.has_value()) {
+            resolved_target = *selected;
+            previous_selected_target_ = resolved_target;
+        }
+    } else {
+        resolved_target = previous_selected_target_;
+    }
+
+    VelocityCommand command = navigation_->update(robots, field_description, resolved_target);
     transmitter_->send(command);
 
     {

@@ -2,19 +2,18 @@
 #include <SDL.h>
 #include <lvgl.h>
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <deque>
 #include <map>
-#include <algorithm>
-#include <array>
 #include <memory>
+#include <opencv2/imgproc.hpp>
 #include <optional>
 #include <string>
-#include <thread>
 #include <vector>
-#include <opencv2/imgproc.hpp>
 
 #include "enums/label.hpp"
 #include "label_utils.hpp"
@@ -30,6 +29,7 @@ constexpr int TILE_PAD = 16;
 constexpr int DIAG_REBUILD_INTERVAL = 30;
 /** Sections not updated in this many seconds are shown gray (stale). */
 constexpr double DIAG_STALE_SEC = 2.0;
+constexpr int CAMERA_PANEL_WIDTH_PCT = 66;
 
 static int selected_opponent_count = 0;
 
@@ -46,6 +46,12 @@ struct OpponentTileData {
 };
 static OpponentTileData opp_tile_data[3];
 
+struct CameraTouchData {
+    std::shared_ptr<UIState> ui_state;
+    struct UIWidgets *widgets = nullptr;
+};
+static CameraTouchData camera_touch_data;
+
 struct HealthRow {
     lv_obj_t *led = nullptr;
     lv_obj_t *label = nullptr;
@@ -58,6 +64,13 @@ struct UIWidgets {
     lv_obj_t *status_label = nullptr;
     lv_obj_t *status_detail = nullptr;
     lv_obj_t *opp_tiles[3] = {};
+    lv_obj_t *opp_label = nullptr;
+    lv_obj_t *manual_target_label = nullptr;
+    lv_obj_t *camera_frame = nullptr;
+    lv_obj_t *camera_touch = nullptr;
+    bool manual_target_active = false;
+    int camera_src_width = 0;
+    int camera_src_height = 0;
 
     lv_obj_t *autonomy_tile = nullptr;
     lv_obj_t *autonomy_label = nullptr;
@@ -220,7 +233,8 @@ cv::Scalar to_cv_bgr(Label label) {
 
 bool project_field_point_to_pixel(const FieldDescription &field, const CameraInfo &camera_info,
                                   double x, double y, double z, cv::Point &out) {
-    if (field.tf_camera_from_fieldcenter.tf.rows() < 3 || field.tf_camera_from_fieldcenter.tf.cols() < 4) {
+    if (field.tf_camera_from_fieldcenter.tf.rows() < 3 ||
+        field.tf_camera_from_fieldcenter.tf.cols() < 4) {
         return false;
     }
     if (camera_info.intrinsics.rows != 3 || camera_info.intrinsics.cols != 3) {
@@ -255,16 +269,19 @@ void draw_robot_pose_arrows(cv::Mat &image, const RobotDescriptionsStamped &robo
 
         cv::Point start_px;
         cv::Point end_px;
-        if (!project_field_point_to_pixel(field, camera_info, pose2d.x, pose2d.y, z, start_px)) continue;
-        if (!project_field_point_to_pixel(field, camera_info, pose2d.x + arrow_len_m * std::cos(pose2d.yaw),
-                                          pose2d.y + arrow_len_m * std::sin(pose2d.yaw), z, end_px)) {
+        if (!project_field_point_to_pixel(field, camera_info, pose2d.x, pose2d.y, z, start_px))
+            continue;
+        if (!project_field_point_to_pixel(
+                field, camera_info, pose2d.x + arrow_len_m * std::cos(pose2d.yaw),
+                pose2d.y + arrow_len_m * std::sin(pose2d.yaw), z, end_px)) {
             continue;
         }
         cv::arrowedLine(image, start_px, end_px, to_cv_bgr(robot.label), 2, cv::LINE_AA, 0, 0.25);
     }
 }
 
-void draw_field_border(cv::Mat &image, const FieldDescription &field, const CameraInfo &camera_info) {
+void draw_field_border(cv::Mat &image, const FieldDescription &field,
+                       const CameraInfo &camera_info) {
     const double hx = field.size.size.x / 2.0;
     const double hy = field.size.size.y / 2.0;
     const std::array<cv::Point3d, 4> corners = {{
@@ -276,8 +293,8 @@ void draw_field_border(cv::Mat &image, const FieldDescription &field, const Came
 
     std::array<cv::Point, 4> projected;
     for (size_t i = 0; i < corners.size(); ++i) {
-        if (!project_field_point_to_pixel(field, camera_info, corners[i].x, corners[i].y, corners[i].z,
-                                          projected[i])) {
+        if (!project_field_point_to_pixel(field, camera_info, corners[i].x, corners[i].y,
+                                          corners[i].z, projected[i])) {
             return;
         }
     }
@@ -301,7 +318,8 @@ void draw_target_path_overlay(cv::Mat &image, const std::optional<NavigationPath
         cv::line(image, our_px, target_px, cv::Scalar(0, 153, 255), 2, cv::LINE_AA);
     }
 
-    if (project_field_point_to_pixel(field, camera_info, path->target_x, path->target_y, 0.01, target_px)) {
+    if (project_field_point_to_pixel(field, camera_info, path->target_x, path->target_y, 0.01,
+                                     target_px)) {
         constexpr int cross_half = 9;
         cv::line(image, cv::Point(target_px.x - cross_half, target_px.y - cross_half),
                  cv::Point(target_px.x + cross_half, target_px.y + cross_half),
@@ -312,20 +330,170 @@ void draw_target_path_overlay(cv::Mat &image, const std::optional<NavigationPath
     }
 }
 
+void set_manual_target_ui_state(UIWidgets &w, bool active) {
+    w.manual_target_active = active;
+    if (w.camera_frame) {
+        lv_obj_set_style_border_width(w.camera_frame, active ? 4 : 2, 0);
+        lv_obj_set_style_border_color(w.camera_frame,
+                                      active ? lv_color_hex(0xFFC107) : lv_color_hex(0x424242), 0);
+    }
+    if (w.manual_target_label) {
+        if (active)
+            lv_obj_clear_flag(w.manual_target_label, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(w.manual_target_label, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (w.opp_label) {
+        lv_obj_set_style_text_color(w.opp_label,
+                                    active ? lv_color_hex(0x9E9E9E) : lv_color_hex(0xFFFFFF), 0);
+    }
+    for (int i = 0; i < 3; i++) {
+        if (!w.opp_tiles[i]) continue;
+        if (active) {
+            lv_obj_add_state(w.opp_tiles[i], LV_STATE_DISABLED);
+            lv_obj_clear_flag(w.opp_tiles[i], LV_OBJ_FLAG_CLICKABLE);
+        } else {
+            lv_obj_remove_state(w.opp_tiles[i], LV_STATE_DISABLED);
+            lv_obj_add_flag(w.opp_tiles[i], LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
+}
+
+bool event_to_image_pixel(const UIWidgets &w, lv_event_t *e, int &img_x, int &img_y) {
+    if (!w.debug_img || w.camera_src_width <= 0 || w.camera_src_height <= 0) return false;
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if (!indev) return false;
+    lv_point_t p{};
+    lv_indev_get_point(indev, &p);
+
+    lv_area_t img_area{};
+    lv_obj_get_coords(w.debug_img, &img_area);
+    if (p.x < img_area.x1 || p.x > img_area.x2 || p.y < img_area.y1 || p.y > img_area.y2) {
+        return false;
+    }
+
+    const int32_t draw_w = lv_obj_get_width(w.debug_img);
+    const int32_t draw_h = lv_obj_get_height(w.debug_img);
+    if (draw_w <= 1 || draw_h <= 1) return false;
+
+    const int32_t rel_x = p.x - img_area.x1;
+    const int32_t rel_y = p.y - img_area.y1;
+
+    img_x =
+        static_cast<int>(std::lround((static_cast<double>(rel_x) * w.camera_src_width) / draw_w));
+    img_y =
+        static_cast<int>(std::lround((static_cast<double>(rel_y) * w.camera_src_height) / draw_h));
+    img_x = std::clamp(img_x, 0, w.camera_src_width - 1);
+    img_y = std::clamp(img_y, 0, w.camera_src_height - 1);
+    return true;
+}
+
+bool project_image_pixel_to_field(const FieldDescription &field, const CameraInfo &camera_info,
+                                  int img_x, int img_y, Pose2D &out) {
+    if (field.tf_camera_from_fieldcenter.tf.rows() < 4 ||
+        field.tf_camera_from_fieldcenter.tf.cols() < 4) {
+        return false;
+    }
+    if (camera_info.intrinsics.rows != 3 || camera_info.intrinsics.cols != 3) return false;
+
+    const double fx = camera_info.intrinsics.at<double>(0, 0);
+    const double fy = camera_info.intrinsics.at<double>(1, 1);
+    const double cx = camera_info.intrinsics.at<double>(0, 2);
+    const double cy = camera_info.intrinsics.at<double>(1, 2);
+    if (std::abs(fx) < 1e-6 || std::abs(fy) < 1e-6) return false;
+
+    const Eigen::Vector3d ray((static_cast<double>(img_x) - cx) / fx,
+                              (static_cast<double>(img_y) - cy) / fy, 1.0);
+
+    const auto &tf_any = field.tf_camera_from_fieldcenter.tf;
+    Eigen::Matrix4d tf = tf_any.block<4, 4>(0, 0);
+    const Eigen::Vector4d origin_field(0.0, 0.0, 0.0, 1.0);
+    const Eigen::Vector4d x_axis_field(1.0, 0.0, 0.0, 1.0);
+    const Eigen::Vector4d y_axis_field(0.0, 1.0, 0.0, 1.0);
+
+    const Eigen::Vector3d p0 = (tf * origin_field).head<3>();
+    const Eigen::Vector3d px = (tf * x_axis_field).head<3>();
+    const Eigen::Vector3d py = (tf * y_axis_field).head<3>();
+
+    Eigen::Vector3d normal = (px - p0).cross(py - p0);
+    const double normal_norm = normal.norm();
+    if (normal_norm < 1e-6) return false;
+    normal /= normal_norm;
+
+    const double den = ray.dot(normal);
+    if (std::abs(den) < 1e-6) return false;
+    const double t = p0.dot(normal) / den;
+    if (t <= 0.0) return false;
+
+    const Eigen::Vector3d camera_pt = ray * t;
+    const Eigen::Vector4d camera_h(camera_pt.x(), camera_pt.y(), camera_pt.z(), 1.0);
+    const Eigen::Vector4d field_h = tf.inverse() * camera_h;
+    if (!std::isfinite(field_h.x()) || !std::isfinite(field_h.y())) return false;
+
+    out.x = field_h.x();
+    out.y = field_h.y();
+    out.yaw = 0.0;
+    return true;
+}
+
+void camera_touch_cb(lv_event_t *e) {
+    auto *d = static_cast<CameraTouchData *>(lv_event_get_user_data(e));
+    if (!d || !d->ui_state || !d->widgets) return;
+
+    const lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        d->ui_state->set_manual_target(std::nullopt);
+        set_manual_target_ui_state(*d->widgets, false);
+        return;
+    }
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_PRESSING) return;
+
+    int img_x = 0, img_y = 0;
+    if (!event_to_image_pixel(*d->widgets, e, img_x, img_y)) return;
+
+    std::optional<FieldDescription> field;
+    d->ui_state->get_field_description(field);
+    CameraInfo camera_info;
+    d->ui_state->get_camera_info(camera_info);
+    if (!field.has_value()) return;
+
+    Pose2D target_pose_field;
+    if (!project_image_pixel_to_field(*field, camera_info, img_x, img_y, target_pose_field)) return;
+    TargetSelection target{target_pose_field, Label::EMPTY};
+    d->ui_state->set_manual_target(target);
+    set_manual_target_ui_state(*d->widgets, true);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Home tab                                                          */
 /* ------------------------------------------------------------------ */
 
 void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) {
-    lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_all(tab, 8, 0);
     lv_obj_set_style_pad_gap(tab, 8, 0);
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* --- Top row: status + reinit --- */
-    lv_obj_t *top = lv_obj_create(tab);
+    lv_obj_t *controls = lv_obj_create(tab);
+    lv_obj_set_width(controls, LV_PCT(100 - CAMERA_PANEL_WIDTH_PCT));
+    lv_obj_set_height(controls, LV_PCT(100));
+    lv_obj_set_flex_flow(controls, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(controls, 0, 0);
+    lv_obj_set_style_pad_gap(controls, 8, 0);
+    style_transparent(controls);
+
+    lv_obj_t *camera_col = lv_obj_create(tab);
+    lv_obj_set_width(camera_col, LV_PCT(CAMERA_PANEL_WIDTH_PCT));
+    lv_obj_set_height(camera_col, LV_PCT(100));
+    lv_obj_set_flex_flow(camera_col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(camera_col, 0, 0);
+    lv_obj_clear_flag(camera_col, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(camera_col, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(camera_col, 0, 0);
+
+    lv_obj_t *top = lv_obj_create(controls);
     lv_obj_set_width(top, LV_PCT(100));
-    lv_obj_set_flex_grow(top, 1);
+    lv_obj_set_flex_grow(top, 2);
     lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_all(top, 0, 0);
     lv_obj_set_style_pad_gap(top, 8, 0);
@@ -406,8 +574,25 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_set_style_text_align(w.reinit_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(w.reinit_status, lv_color_hex(0xFFFFFF), 0);
 
-    /* --- Bottom row: opponent tiles --- */
-    lv_obj_t *bot = lv_obj_create(tab);
+    lv_obj_t *opp_section = lv_obj_create(controls);
+    lv_obj_set_width(opp_section, LV_PCT(100));
+    lv_obj_set_flex_grow(opp_section, 1);
+    lv_obj_set_flex_flow(opp_section, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(opp_section, 0, 0);
+    lv_obj_set_style_pad_gap(opp_section, 6, 0);
+    style_transparent(opp_section);
+
+    w.opp_label = lv_label_create(opp_section);
+    lv_label_set_text(w.opp_label, "Target Opponents");
+    lv_obj_set_style_text_font(w.opp_label, &lv_font_montserrat_20, 0);
+
+    w.manual_target_label = lv_label_create(opp_section);
+    lv_label_set_text(w.manual_target_label, "manual targeting");
+    lv_obj_set_style_text_font(w.manual_target_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(w.manual_target_label, lv_color_hex(0xFFC107), 0);
+    lv_obj_add_flag(w.manual_target_label, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *bot = lv_obj_create(opp_section);
     lv_obj_set_width(bot, LV_PCT(100));
     lv_obj_set_flex_grow(bot, 1);
     lv_obj_set_flex_flow(bot, LV_FLEX_FLOW_ROW);
@@ -433,6 +618,9 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
         lv_obj_set_style_border_color(tile, lv_color_hex(0x2979FF), LV_STATE_CHECKED);
         lv_obj_set_style_border_width(tile, 4, LV_STATE_CHECKED);
         lv_obj_set_style_bg_color(tile, lv_color_hex(0x1A237E), LV_STATE_CHECKED);
+        lv_obj_set_style_bg_color(tile, lv_color_hex(0x424242), LV_STATE_DISABLED);
+        lv_obj_set_style_border_color(tile, lv_color_hex(0x616161), LV_STATE_DISABLED);
+        lv_obj_set_style_opa(tile, LV_OPA_50, LV_STATE_DISABLED);
 
         lv_obj_t *num = lv_label_create(tile);
         lv_label_set_text_fmt(num, "%d", i + 1);
@@ -444,6 +632,44 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
 
         w.opp_tiles[i] = tile;
     }
+    w.camera_frame = lv_obj_create(camera_col);
+    lv_obj_set_size(w.camera_frame, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_pad_all(w.camera_frame, 4, 0);
+    lv_obj_set_style_radius(w.camera_frame, TILE_RADIUS, 0);
+    lv_obj_set_style_border_width(w.camera_frame, 2, 0);
+    lv_obj_set_style_border_color(w.camera_frame, lv_color_hex(0x424242), 0);
+    lv_obj_clear_flag(w.camera_frame, LV_OBJ_FLAG_SCROLLABLE);
+
+    w.camera_touch = lv_obj_create(w.camera_frame);
+    lv_obj_set_size(w.camera_touch, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_pad_all(w.camera_touch, 0, 0);
+    lv_obj_set_style_radius(w.camera_touch, 0, 0);
+    lv_obj_set_style_bg_opa(w.camera_touch, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(w.camera_touch, 0, 0);
+    lv_obj_clear_flag(w.camera_touch, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(w.camera_touch, LV_OBJ_FLAG_CLICKABLE);
+
+    camera_touch_data.ui_state = ui_state;
+    camera_touch_data.widgets = &w;
+    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSED, &camera_touch_data);
+    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSING, &camera_touch_data);
+    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_RELEASED, &camera_touch_data);
+    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESS_LOST, &camera_touch_data);
+
+    w.debug_img = lv_image_create(w.camera_touch);
+    lv_obj_align(w.debug_img, LV_ALIGN_CENTER, 0, 0);
+
+    w.debug_kp_cont = lv_obj_create(w.camera_touch);
+    lv_obj_set_size(w.debug_kp_cont, LV_PCT(100), LV_PCT(100));
+    lv_obj_align(w.debug_kp_cont, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_clear_flag(w.debug_kp_cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(w.debug_kp_cont, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(w.debug_kp_cont, 0, 0);
+    lv_obj_set_style_pad_all(w.debug_kp_cont, 0, 0);
+    lv_obj_set_style_radius(w.debug_kp_cont, 0, 0);
+
+    w.kp_dots.clear();
+    set_manual_target_ui_state(w, false);
 }
 
 /* ------------------------------------------------------------------ */
@@ -490,38 +716,6 @@ void build_diagnostics(lv_obj_t *tab, UIWidgets &w) {
     lv_obj_set_style_pad_all(w.sections_cont, 4, 0);
     lv_obj_set_style_pad_gap(w.sections_cont, 4, 0);
     lv_obj_clear_flag(w.sections_cont, LV_OBJ_FLAG_SCROLLABLE);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Debug tab                                                         */
-/* ------------------------------------------------------------------ */
-
-void build_debug(lv_obj_t *tab, UIWidgets &w) {
-    lv_obj_t *dc = lv_obj_create(tab);
-    lv_obj_set_size(dc, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_flex_flow(dc, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(dc, 4, 0);
-    lv_obj_clear_flag(dc, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *ic = lv_obj_create(dc);
-    lv_obj_set_size(ic, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_flex_grow(ic, 1);
-    lv_obj_clear_flag(ic, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_pad_all(ic, 0, 0);
-
-    w.debug_img = lv_image_create(ic);
-    lv_obj_align(w.debug_img, LV_ALIGN_TOP_LEFT, 0, 0);
-
-    w.debug_kp_cont = lv_obj_create(ic);
-    lv_obj_set_size(w.debug_kp_cont, LV_PCT(100), LV_PCT(100));
-    lv_obj_align(w.debug_kp_cont, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_clear_flag(w.debug_kp_cont, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_opa(w.debug_kp_cont, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(w.debug_kp_cont, 0, 0);
-    lv_obj_set_style_pad_all(w.debug_kp_cont, 0, 0);
-    lv_obj_set_style_radius(w.debug_kp_cont, 0, 0);
-
-    w.kp_dots.clear();
 }
 
 /* ------------------------------------------------------------------ */
@@ -578,9 +772,8 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
     }
 
     if (w.status_detail) {
-        lv_obj_set_style_text_color(w.status_detail, has_fault ? lv_color_hex(0xEEEEEE)
-                                                                : lv_color_hex(0x424242),
-                                    0);
+        lv_obj_set_style_text_color(w.status_detail,
+                                    has_fault ? lv_color_hex(0xEEEEEE) : lv_color_hex(0x424242), 0);
         char buf[256];
         if (!hardware_ok || !loop_met) {
             std::string details;
@@ -628,14 +821,14 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
 
     if (w.autonomy_tile) {
         lv_obj_set_style_bg_color(
-            w.autonomy_tile,
-            st.autonomy_enabled ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744), 0);
+            w.autonomy_tile, st.autonomy_enabled ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744),
+            0);
     }
     if (w.autonomy_label) {
         lv_label_set_text(w.autonomy_label, st.autonomy_enabled ? "Autonomy\nON" : "Autonomy\nOFF");
         lv_obj_set_style_text_color(
-            w.autonomy_label,
-            st.autonomy_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF), 0);
+            w.autonomy_label, st.autonomy_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF),
+            0);
     }
 
     for (int i = 0; i < 3; i++) {
@@ -822,6 +1015,8 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
             img_dsc.header.stride = dw * (dc == 4 ? 4 : 3);
             img_dsc.data_size = static_cast<uint32_t>(img_copy.size());
             img_dsc.data = img_copy.data();
+            w.camera_src_width = dw;
+            w.camera_src_height = dh;
             lv_image_set_src(w.debug_img, &img_dsc);
 
             /* Scale image to fit container without cropping; preserve aspect ratio (shrink only) */
@@ -898,13 +1093,11 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
 
     lv_obj_t *tab_home = lv_tabview_add_tab(tabview, "Home");
     lv_obj_t *tab_diag = lv_tabview_add_tab(tabview, "Diagnostics");
-    lv_obj_t *tab_debug = lv_tabview_add_tab(tabview, "Debug");
 
     UIWidgets widgets = {};
     widgets.tabview = tabview;
     build_home(tab_home, widgets, ui_state);
     build_diagnostics(tab_diag, widgets);
-    build_debug(tab_debug, widgets);
 
     lv_image_dsc_t img_dsc = {};
     std::vector<uint8_t> img_copy;
@@ -942,7 +1135,7 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
             diag_frame = DIAG_REBUILD_INTERVAL;
         }
 
-        if (active_tab == 2) update_debug(widgets, ui_state, img_dsc, img_copy);
+        update_debug(widgets, ui_state, img_dsc, img_copy);
 
         lv_tick_inc(delay_ms);
         lv_timer_handler();

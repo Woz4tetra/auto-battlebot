@@ -94,6 +94,10 @@ RobotConfig
 	Label label
 	Group group
 
+TargetSelection
+    Pose2D target_pose
+    Label label
+
 VelocityCommand
 	double linear_x
 double linear_y
@@ -153,9 +157,12 @@ RobotFilterInterface
 	bool initialize(RobotConfig[] robots)
 	RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field)
 
+TargetSelectorInterface
+    bool get_target(TargetSelection& target)
+
 NavigationInterface
 	bool initialize()
-	VelocityCommand update(RobotDescriptionsStamped robots)
+	VelocityCommand update(RobotDescriptionsStamped robots, TargetSelection target)
 
 TransmitterInterface
 	bool initialize()
@@ -183,11 +190,13 @@ class Runner
 		KeypointModelInterface keypoint_model,
 		RobotFilterInterface robot_filter,
 		NavigationInterface navigation,
+        TargetSelector target_selector,
 		TransmitterInterface transmitter,
 	)
 		// assign properties
         initialized = false
         initial_field_description = FieldDescription()
+        target = TargetSelection()
 
     void initialize()
         // initialize all interfaces
@@ -222,7 +231,12 @@ class Runner
         field_description = field_filter.track_field(camera_data.tf_visodom_from_camera, initial_field_description)
         keypoints = keypoint_model.update(camera_data.rgb)
         robots = robot_filter.update(keypoints, field_description)
-        command = navigation.update(robots)
+        TargetSelection next_target
+        has_target = target_selector.get_target(next_target)
+        if has_target:
+            target = next_target
+        // Add target overrides here
+        command = navigation.update(robots, target)
         transmitter.send(command)
 
 int main()
@@ -233,6 +247,7 @@ int main()
 	FieldFilterInterface field_filter = make_field_filter(class_config.field_filter)
 	KeypointModelInterface keypoint_model = make_keypoint_model(class_config.keypoint_model)
 	RobotFilterInterface robot_filter = make_robot_filter(class_config.robot_filter)
+    TargetSelector target_selector = make_target_selector(class_config.target_selector)
 	NavigationInterface navigation = make_navigation(class_config.navigation)
 	TransmitterInterface transmitter = make_transmitter(class_config.transmitter)
     runner = Runner(
@@ -243,6 +258,7 @@ int main()
 		keypoint_model,
 		robot_filter,
 		navigation,
+        target_selector,
 		transmitter,
 	)
     runner.initialize()

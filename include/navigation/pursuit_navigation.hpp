@@ -1,11 +1,11 @@
 #pragma once
 
-#include <limits>
 #include <memory>
 #include <optional>
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "navigation/config.hpp"
+#include "target_selector/target_selector_interface.hpp"
 
 namespace auto_battlebot {
 /**
@@ -23,7 +23,8 @@ class PursuitNavigation : public NavigationInterface {
 
     bool initialize() override;
 
-    VelocityCommand update(RobotDescriptionsStamped robots, FieldDescription field) override;
+    VelocityCommand update(RobotDescriptionsStamped robots, FieldDescription field,
+                           const TargetSelection &target) override;
     std::optional<NavigationPathSegment> get_last_path() const override;
 
    private:
@@ -31,17 +32,6 @@ class PursuitNavigation : public NavigationInterface {
      * @brief Find our robot from the robot descriptions
      */
     std::optional<RobotDescription> find_our_robot(const RobotDescriptionsStamped &robots) const;
-
-    /**
-     * @brief Find the closest opponent robot to pursue
-     */
-    std::optional<RobotDescription> find_target_robot(const RobotDescriptionsStamped &robots,
-                                                      const RobotDescription &our_robot) const;
-
-    /**
-     * @brief Predict where the target will be after lookahead_time
-     */
-    Pose2D predict_target_position(const RobotDescription &target) const;
 
     /**
      * @brief Compute velocity command to pursue the target
@@ -77,7 +67,8 @@ class PursuitNavigation : public NavigationInterface {
     mutable std::optional<NavigationPathSegment> last_path_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
 
-    /** Latched turn direction (+1 or -1) to avoid dithering when target is behind us. 0 = uncommitted. */
+    /** Latched turn direction (+1 or -1) to avoid dithering when target is behind us. 0 =
+     * uncommitted. */
     int committed_turn_sign_ = 0;
     double prev_angle_error_ = 0.0;
     double prev_timestamp_ = 0.0;

@@ -87,12 +87,13 @@ int main(int argc, char **argv) {
     auto field_filter = make_field_filter(*class_config.field_filter);
     auto keypoint_model = make_keypoint_model(*class_config.keypoint_model);
     auto robot_filter = make_robot_filter(*class_config.robot_filter);
+    auto target_selector = make_target_selector(*class_config.target_selector);
     auto navigation = make_navigation(*class_config.navigation);
     auto transmitter = make_transmitter(*class_config.transmitter);
 
     Runner runner(class_config.runner, robot_configs, camera, field_model, robot_mask_model,
-                  field_filter, keypoint_model, robot_filter, navigation, transmitter, publisher,
-                  ui_state);
+                  field_filter, keypoint_model, robot_filter, target_selector, navigation,
+                  transmitter, publisher, ui_state);
 
     runner.initialize();
 

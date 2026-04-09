@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <map>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -75,6 +74,9 @@ class UIState {
     /** Last navigation path (field frame). UI may draw for debug. */
     void set_navigation_path(const std::optional<NavigationPathSegment> &path);
     void get_navigation_path(std::optional<NavigationPathSegment> &out) const;
+    /** Manual target override in field frame while user is press-holding camera feed. */
+    void set_manual_target(const std::optional<TargetSelection> &target);
+    std::optional<TargetSelection> get_manual_target() const;
     /** Field description used to project field-frame overlays into camera image. */
     void set_field_description(const std::optional<FieldDescription> &field);
     void get_field_description(std::optional<FieldDescription> &out) const;
@@ -119,6 +121,7 @@ class UIState {
     RobotDescriptionsStamped robots_;
     KeypointsStamped keypoints_;
     std::optional<NavigationPathSegment> navigation_path_;
+    std::optional<TargetSelection> manual_target_;
     std::optional<FieldDescription> field_description_;
     CameraInfo camera_info_;
     int window_width_ = 1280;
