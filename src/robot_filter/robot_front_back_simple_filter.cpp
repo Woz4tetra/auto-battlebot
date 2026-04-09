@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
 
 #include "data_structures/robot.hpp"
 #include "enums/frame_id.hpp"
@@ -37,6 +38,8 @@ bool RobotFrontBackSimpleFilter::initialize(const std::vector<RobotConfig> &robo
     robot_configs_.clear();
     velocity_state_per_frame_id_.clear();
     jump_reject_count_per_frame_id_.clear();
+    last_description_per_frame_id_.clear();
+    last_position_per_frame_id_.clear();
     robot_mask_detector_.reset();
     for (const auto &robot : robots) {
         robot_configs_[robot.label] = robot;
@@ -96,7 +99,7 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
         }
     }
 
-    result.descriptions = update_filter(filter_measurements, command_feedback);
+    result.descriptions = update_filter(filter_measurements, command_feedback, result.header.stamp);
     estimate_velocities(result.descriptions, result.header.stamp, command_feedback);
 
     return result;
@@ -270,8 +273,51 @@ std::vector<RobotDescription> RobotFrontBackSimpleFilter::assign_frame_ids_to_me
 }
 
 std::vector<RobotDescription> RobotFrontBackSimpleFilter::update_filter(
-    std::vector<RobotDescription> inputs, [[maybe_unused]] CommandFeedback command_feedback) {
-    return inputs;
+    std::vector<RobotDescription> inputs, CommandFeedback command_feedback, double timestamp) {
+    std::set<FrameId> measured_frame_ids;
+
+    for (const auto &input : inputs) {
+        if (input.frame_id == FrameId::EMPTY) continue;
+        measured_frame_ids.insert(input.frame_id);
+        last_description_per_frame_id_[input.frame_id] = input;
+    }
+
+    for (auto &[frame_id, desc] : last_description_per_frame_id_) {
+        if (measured_frame_ids.count(frame_id) != 0) continue;
+
+        auto cmd_it = command_feedback.commands.find(frame_id);
+        if (cmd_it == command_feedback.commands.end()) {
+            // Opponents (or ours without feedback): hold last known pose.
+            continue;
+        }
+
+        auto vel_state_it = velocity_state_per_frame_id_.find(frame_id);
+        if (vel_state_it == velocity_state_per_frame_id_.end()) continue;
+
+        double dt = timestamp - vel_state_it->second.timestamp;
+        if (dt <= 0.0 || dt > 1.0) continue;
+
+        const VelocityCommand &cmd = cmd_it->second;
+        Pose2D predicted_pose = pose_to_pose2d(desc.pose);
+        double cos_yaw = std::cos(predicted_pose.yaw);
+        double sin_yaw = std::sin(predicted_pose.yaw);
+        double vx_field = cmd.linear_x * cos_yaw - cmd.linear_y * sin_yaw;
+        double vy_field = cmd.linear_x * sin_yaw + cmd.linear_y * cos_yaw;
+
+        predicted_pose.x += vx_field * dt;
+        predicted_pose.y += vy_field * dt;
+        predicted_pose.yaw = std::atan2(std::sin(predicted_pose.yaw + cmd.angular_z * dt),
+                                        std::cos(predicted_pose.yaw + cmd.angular_z * dt));
+        desc.pose = pose2d_to_pose(predicted_pose);
+        last_position_per_frame_id_[frame_id] = desc.pose.position;
+    }
+
+    std::vector<RobotDescription> outputs;
+    outputs.reserve(last_description_per_frame_id_.size());
+    for (const auto &[_, desc] : last_description_per_frame_id_) {
+        outputs.push_back(desc);
+    }
+    return outputs;
 }
 
 void RobotFrontBackSimpleFilter::estimate_velocities(std::vector<RobotDescription> &descriptions,

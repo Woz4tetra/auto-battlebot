@@ -53,12 +53,14 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     std::map<FrameId, RobotVelocityState> velocity_state_per_frame_id_;
     /** Consecutive jump-rejection count per FrameId. */
     std::map<FrameId, int> jump_reject_count_per_frame_id_;
+    /** Last emitted description per FrameId to persist estimates across dropped detections. */
+    std::map<FrameId, RobotDescription> last_description_per_frame_id_;
 
     std::vector<RobotDescription> convert_keypoints_to_measurements(KeypointsStamped keypoints,
                                                                     FieldDescription field,
                                                                     CameraInfo camera_info);
     std::vector<RobotDescription> update_filter(std::vector<RobotDescription> inputs,
-                                                CommandFeedback command_feedback);
+                                                CommandFeedback command_feedback, double timestamp);
 
     /**
      * Estimate velocity for each robot description.

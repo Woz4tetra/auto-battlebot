@@ -1,6 +1,6 @@
 #include "ui/ui_state.hpp"
 
-#include "target_selector/target_selector_interface.hpp"
+#include "data_structures/target_selection.hpp"
 
 namespace auto_battlebot {
 void UIState::set_system_status(const SystemStatus &s) {

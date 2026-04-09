@@ -4,8 +4,6 @@
 
 #include <opencv2/core.hpp>
 
-#include "target_selector/target_selector_interface.hpp"
-
 namespace auto_battlebot {
 Runner::Runner(const RunnerConfiguration &runner_config,
                const std::vector<RobotConfig> &robot_configs,

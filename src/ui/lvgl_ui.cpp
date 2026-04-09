@@ -16,6 +16,8 @@
 #include <string>
 #include <vector>
 
+#include "data_structures/pose.hpp"
+#include "data_structures/target_selection.hpp"
 #include "enums/label.hpp"
 #include "label_utils.hpp"
 #include "transform_utils.hpp"
@@ -334,7 +336,8 @@ void draw_target_path_overlay(cv::Mat &image, const std::optional<NavigationPath
 void set_manual_target_ui_state(UIWidgets &w, bool active) {
     w.manual_target_active = active;
     if (w.camera_frame) {
-        lv_obj_set_style_border_width(w.camera_frame, active ? 4 : 2, 0);
+        // Keep border width constant so image geometry does not shift while pressing.
+        lv_obj_set_style_border_width(w.camera_frame, 2, 0);
         lv_obj_set_style_border_color(w.camera_frame,
                                       active ? lv_color_hex(0xFFC107) : lv_color_hex(0x424242), 0);
     }
@@ -460,12 +463,20 @@ void camera_touch_cb(lv_event_t *e) {
 /* ------------------------------------------------------------------ */
 
 void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) {
-    lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(tab, 8, 0);
     lv_obj_set_style_pad_gap(tab, 8, 0);
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *controls = lv_obj_create(tab);
+    lv_obj_t *top_row = lv_obj_create(tab);
+    lv_obj_set_width(top_row, LV_PCT(100));
+    lv_obj_set_flex_grow(top_row, 3);
+    lv_obj_set_flex_flow(top_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_all(top_row, 0, 0);
+    lv_obj_set_style_pad_gap(top_row, 8, 0);
+    style_transparent(top_row);
+
+    lv_obj_t *controls = lv_obj_create(top_row);
     lv_obj_set_width(controls, LV_PCT(100 - CAMERA_PANEL_WIDTH_PCT));
     lv_obj_set_height(controls, LV_PCT(100));
     lv_obj_set_flex_flow(controls, LV_FLEX_FLOW_COLUMN);
@@ -473,7 +484,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_set_style_pad_gap(controls, 8, 0);
     style_transparent(controls);
 
-    lv_obj_t *camera_col = lv_obj_create(tab);
+    lv_obj_t *camera_col = lv_obj_create(top_row);
     lv_obj_set_width(camera_col, LV_PCT(CAMERA_PANEL_WIDTH_PCT));
     lv_obj_set_height(camera_col, LV_PCT(100));
     lv_obj_set_flex_flow(camera_col, LV_FLEX_FLOW_COLUMN);
@@ -484,7 +495,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
 
     lv_obj_t *top = lv_obj_create(controls);
     lv_obj_set_width(top, LV_PCT(100));
-    lv_obj_set_flex_grow(top, 2);
+    lv_obj_set_height(top, LV_PCT(100));
     lv_obj_set_flex_flow(top, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(top, 0, 0);
     lv_obj_set_style_pad_gap(top, 8, 0);
@@ -565,7 +576,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_set_style_text_align(w.reinit_status, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(w.reinit_status, lv_color_hex(0xFFFFFF), 0);
 
-    lv_obj_t *opp_section = lv_obj_create(controls);
+    lv_obj_t *opp_section = lv_obj_create(tab);
     lv_obj_set_width(opp_section, LV_PCT(100));
     lv_obj_set_flex_grow(opp_section, 1);
     lv_obj_set_flex_flow(opp_section, LV_FLEX_FLOW_COLUMN);
@@ -645,10 +656,6 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
 
     camera_touch_data.ui_state = ui_state;
     camera_touch_data.widgets = &w;
-    lv_obj_add_event_cb(w.camera_frame, camera_touch_cb, LV_EVENT_PRESSED, &camera_touch_data);
-    lv_obj_add_event_cb(w.camera_frame, camera_touch_cb, LV_EVENT_PRESSING, &camera_touch_data);
-    lv_obj_add_event_cb(w.camera_frame, camera_touch_cb, LV_EVENT_RELEASED, &camera_touch_data);
-    lv_obj_add_event_cb(w.camera_frame, camera_touch_cb, LV_EVENT_PRESS_LOST, &camera_touch_data);
     lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSED, &camera_touch_data);
     lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSING, &camera_touch_data);
     lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_RELEASED, &camera_touch_data);
@@ -658,10 +665,6 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_align(w.debug_img, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(w.debug_img, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(w.debug_img, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_add_event_cb(w.debug_img, camera_touch_cb, LV_EVENT_PRESSED, &camera_touch_data);
-    lv_obj_add_event_cb(w.debug_img, camera_touch_cb, LV_EVENT_PRESSING, &camera_touch_data);
-    lv_obj_add_event_cb(w.debug_img, camera_touch_cb, LV_EVENT_RELEASED, &camera_touch_data);
-    lv_obj_add_event_cb(w.debug_img, camera_touch_cb, LV_EVENT_PRESS_LOST, &camera_touch_data);
 
     w.debug_kp_cont = lv_obj_create(w.camera_touch);
     lv_obj_set_size(w.debug_kp_cont, LV_PCT(100), LV_PCT(100));
@@ -673,10 +676,6 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_set_style_radius(w.debug_kp_cont, 0, 0);
     lv_obj_add_flag(w.debug_kp_cont, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(w.debug_kp_cont, LV_OBJ_FLAG_EVENT_BUBBLE);
-    lv_obj_add_event_cb(w.debug_kp_cont, camera_touch_cb, LV_EVENT_PRESSED, &camera_touch_data);
-    lv_obj_add_event_cb(w.debug_kp_cont, camera_touch_cb, LV_EVENT_PRESSING, &camera_touch_data);
-    lv_obj_add_event_cb(w.debug_kp_cont, camera_touch_cb, LV_EVENT_RELEASED, &camera_touch_data);
-    lv_obj_add_event_cb(w.debug_kp_cont, camera_touch_cb, LV_EVENT_PRESS_LOST, &camera_touch_data);
 
     w.kp_dots.clear();
     set_manual_target_ui_state(w, false);
@@ -987,7 +986,7 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
     if (diag_tab != nullptr) lv_obj_scroll_to_y(diag_tab, scroll_y, LV_ANIM_OFF);
 }
 
-void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img_dsc,
+void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img_copy_dsc,
                   std::vector<uint8_t> &img_copy) {
     if (!w.debug_img || !us) return;
 
@@ -1006,37 +1005,49 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
     if (dw > 0 && dh > 0 && !data.empty()) {
         size_t expected = static_cast<size_t>(dw) * dh * (dc == 4 ? 4 : 3);
         if (data.size() >= expected) {
-            img_copy = data;
+            std::vector<uint8_t> src_copy = data;
             if (field_description.has_value()) {
                 if (camera_info.width <= 0 || camera_info.height <= 0) {
                     camera_info.width = dw;
                     camera_info.height = dh;
                 }
-                cv::Mat image(dh, dw, dc == 4 ? CV_8UC4 : CV_8UC3, img_copy.data());
+                cv::Mat image(dh, dw, dc == 4 ? CV_8UC4 : CV_8UC3, src_copy.data());
                 draw_field_border(image, *field_description, camera_info);
                 draw_robot_pose_arrows(image, robots, *field_description, camera_info);
                 draw_target_path_overlay(image, navigation_path, *field_description, camera_info);
             }
-            img_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-            img_dsc.header.cf = (dc == 4) ? LV_COLOR_FORMAT_XRGB8888 : LV_COLOR_FORMAT_RGB888;
-            img_dsc.header.flags = 0;
-            img_dsc.header.w = static_cast<uint32_t>(dw);
-            img_dsc.header.h = static_cast<uint32_t>(dh);
-            img_dsc.header.stride = dw * (dc == 4 ? 4 : 3);
-            img_dsc.data_size = static_cast<uint32_t>(img_copy.size());
-            img_dsc.data = img_copy.data();
             w.camera_src_width = dw;
             w.camera_src_height = dh;
-            lv_image_set_src(w.debug_img, &img_dsc);
 
-            /* Scale image to fit container without cropping; preserve aspect ratio (shrink only) */
+            /* Resize image buffer to fit container while preserving full frame. */
             lv_obj_t *cont = lv_obj_get_parent(w.debug_img);
             const int32_t cont_w = cont ? lv_obj_get_content_width(cont) : dw;
             const int32_t cont_h = cont ? lv_obj_get_content_height(cont) : dh;
             const double scale = std::min(
                 1.0, std::min(static_cast<double>(cont_w) / dw, static_cast<double>(cont_h) / dh));
-            const int32_t sw = static_cast<int32_t>(std::round(dw * scale));
-            const int32_t sh = static_cast<int32_t>(std::round(dh * scale));
+            const int32_t sw = std::max(1, static_cast<int32_t>(std::round(dw * scale)));
+            const int32_t sh = std::max(1, static_cast<int32_t>(std::round(dh * scale)));
+
+            const int channels = (dc == 4) ? 4 : 3;
+            if (sw == dw && sh == dh) {
+                img_copy = std::move(src_copy);
+            } else {
+                img_copy.resize(static_cast<size_t>(sw) * sh * channels);
+                cv::Mat src_image(dh, dw, channels == 4 ? CV_8UC4 : CV_8UC3, src_copy.data());
+                cv::Mat dst_image(sh, sw, channels == 4 ? CV_8UC4 : CV_8UC3, img_copy.data());
+                cv::resize(src_image, dst_image, dst_image.size(), 0.0, 0.0, cv::INTER_LINEAR);
+            }
+
+            img_copy_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+            img_copy_dsc.header.cf = (dc == 4) ? LV_COLOR_FORMAT_XRGB8888 : LV_COLOR_FORMAT_RGB888;
+            img_copy_dsc.header.flags = 0;
+            img_copy_dsc.header.w = static_cast<uint32_t>(sw);
+            img_copy_dsc.header.h = static_cast<uint32_t>(sh);
+            img_copy_dsc.header.stride = sw * channels;
+            img_copy_dsc.data_size = static_cast<uint32_t>(img_copy.size());
+            img_copy_dsc.data = img_copy.data();
+            lv_image_set_src(w.debug_img, &img_copy_dsc);
+
             lv_obj_set_size(w.debug_img, sw, sh);
             lv_obj_set_size(w.debug_kp_cont, sw, sh);
             lv_obj_align(w.debug_img, LV_ALIGN_CENTER, 0, 0);

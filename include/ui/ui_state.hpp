@@ -11,6 +11,7 @@
 #include "data_structures/field.hpp"
 #include "data_structures/keypoint.hpp"
 #include "data_structures/robot.hpp"
+#include "data_structures/target_selection.hpp"
 #include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "navigation/navigation_interface.hpp"
 

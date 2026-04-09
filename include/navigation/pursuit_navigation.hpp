@@ -5,7 +5,6 @@
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "navigation/config.hpp"
-#include "target_selector/target_selector_interface.hpp"
 
 namespace auto_battlebot {
 /**

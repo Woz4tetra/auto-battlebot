@@ -10,5 +10,6 @@
 #include "data_structures/point_cloud.hpp"
 #include "data_structures/pose.hpp"
 #include "data_structures/robot.hpp"
+#include "data_structures/target_selection.hpp"
 #include "data_structures/transform.hpp"
 #include "data_structures/velocity.hpp"

@@ -5,8 +5,8 @@
 #include "data_structures/field.hpp"
 #include "data_structures/header.hpp"
 #include "data_structures/robot.hpp"
+#include "data_structures/target_selection.hpp"
 #include "data_structures/velocity.hpp"
-#include "target_selector/target_selector_interface.hpp"
 
 namespace auto_battlebot {
 /** 2D path segment for debug visualization (field frame). */

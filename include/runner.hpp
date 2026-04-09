@@ -9,6 +9,7 @@
 
 #include "data_structures.hpp"
 #include "data_structures/command_feedback.hpp"
+#include "data_structures/target_selection.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
 #include "field_filter/field_filter_interface.hpp"
