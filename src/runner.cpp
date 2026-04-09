@@ -280,7 +280,7 @@ bool Runner::tick() {
         publisher_->publish_robots(robots);
     }
 
-    TargetSelection resolved_target;
+    TargetSelection resolved_target = previous_selected_target_;
     std::optional<TargetSelection> manual_target;
     if (ui_state_) manual_target = ui_state_->get_manual_target();
     if (manual_target.has_value()) {
@@ -292,8 +292,6 @@ bool Runner::tick() {
             resolved_target = *selected;
             previous_selected_target_ = resolved_target;
         }
-    } else {
-        resolved_target = previous_selected_target_;
     }
 
     VelocityCommand command = navigation_->update(robots, field_description, resolved_target);

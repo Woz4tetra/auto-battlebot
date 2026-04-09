@@ -494,7 +494,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_t *top = lv_obj_create(controls);
     lv_obj_set_width(top, LV_PCT(100));
     lv_obj_set_flex_grow(top, 2);
-    lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_flow(top, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(top, 0, 0);
     lv_obj_set_style_pad_gap(top, 8, 0);
     style_transparent(top);
@@ -503,8 +503,8 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
      * tracking) */
     lv_obj_t *st = lv_obj_create(top);
     w.status_tile = st;
+    lv_obj_set_width(st, LV_PCT(100));
     lv_obj_set_flex_grow(st, 1);
-    lv_obj_set_height(st, LV_PCT(100));
     lv_obj_set_style_radius(st, TILE_RADIUS, 0);
     lv_obj_set_style_pad_all(st, TILE_PAD, 0);
     lv_obj_set_flex_flow(st, LV_FLEX_FLOW_COLUMN);
@@ -524,8 +524,8 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     /* Autonomy toggle tile */
     lv_obj_t *at = lv_obj_create(top);
     w.autonomy_tile = at;
+    lv_obj_set_width(at, LV_PCT(100));
     lv_obj_set_flex_grow(at, 1);
-    lv_obj_set_height(at, LV_PCT(100));
     lv_obj_set_style_radius(at, TILE_RADIUS, 0);
     lv_obj_set_style_pad_all(at, TILE_PAD, 0);
     lv_obj_set_flex_flow(at, LV_FLEX_FLOW_COLUMN);
@@ -545,8 +545,8 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     /* Reinit tile */
     lv_obj_t *rt = lv_obj_create(top);
     w.reinit_tile = rt;
+    lv_obj_set_width(rt, LV_PCT(100));
     lv_obj_set_flex_grow(rt, 1);
-    lv_obj_set_height(rt, LV_PCT(100));
     lv_obj_set_style_radius(rt, TILE_RADIUS, 0);
     lv_obj_set_style_pad_all(rt, TILE_PAD, 0);
     lv_obj_set_flex_flow(rt, LV_FLEX_FLOW_COLUMN);
@@ -639,6 +639,8 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_set_style_border_width(w.camera_frame, 2, 0);
     lv_obj_set_style_border_color(w.camera_frame, lv_color_hex(0x424242), 0);
     lv_obj_clear_flag(w.camera_frame, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(w.camera_frame, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(w.camera_frame, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     w.camera_touch = lv_obj_create(w.camera_frame);
     lv_obj_set_size(w.camera_touch, LV_PCT(100), LV_PCT(100));
@@ -648,9 +650,14 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_set_style_border_width(w.camera_touch, 0, 0);
     lv_obj_clear_flag(w.camera_touch, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(w.camera_touch, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(w.camera_touch, LV_OBJ_FLAG_EVENT_BUBBLE);
 
     camera_touch_data.ui_state = ui_state;
     camera_touch_data.widgets = &w;
+    lv_obj_add_event_cb(w.camera_frame, camera_touch_cb, LV_EVENT_PRESSED, &camera_touch_data);
+    lv_obj_add_event_cb(w.camera_frame, camera_touch_cb, LV_EVENT_PRESSING, &camera_touch_data);
+    lv_obj_add_event_cb(w.camera_frame, camera_touch_cb, LV_EVENT_RELEASED, &camera_touch_data);
+    lv_obj_add_event_cb(w.camera_frame, camera_touch_cb, LV_EVENT_PRESS_LOST, &camera_touch_data);
     lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSED, &camera_touch_data);
     lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSING, &camera_touch_data);
     lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_RELEASED, &camera_touch_data);
@@ -658,6 +665,12 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
 
     w.debug_img = lv_image_create(w.camera_touch);
     lv_obj_align(w.debug_img, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(w.debug_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(w.debug_img, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_event_cb(w.debug_img, camera_touch_cb, LV_EVENT_PRESSED, &camera_touch_data);
+    lv_obj_add_event_cb(w.debug_img, camera_touch_cb, LV_EVENT_PRESSING, &camera_touch_data);
+    lv_obj_add_event_cb(w.debug_img, camera_touch_cb, LV_EVENT_RELEASED, &camera_touch_data);
+    lv_obj_add_event_cb(w.debug_img, camera_touch_cb, LV_EVENT_PRESS_LOST, &camera_touch_data);
 
     w.debug_kp_cont = lv_obj_create(w.camera_touch);
     lv_obj_set_size(w.debug_kp_cont, LV_PCT(100), LV_PCT(100));
@@ -667,6 +680,12 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_set_style_border_width(w.debug_kp_cont, 0, 0);
     lv_obj_set_style_pad_all(w.debug_kp_cont, 0, 0);
     lv_obj_set_style_radius(w.debug_kp_cont, 0, 0);
+    lv_obj_add_flag(w.debug_kp_cont, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(w.debug_kp_cont, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_event_cb(w.debug_kp_cont, camera_touch_cb, LV_EVENT_PRESSED, &camera_touch_data);
+    lv_obj_add_event_cb(w.debug_kp_cont, camera_touch_cb, LV_EVENT_PRESSING, &camera_touch_data);
+    lv_obj_add_event_cb(w.debug_kp_cont, camera_touch_cb, LV_EVENT_RELEASED, &camera_touch_data);
+    lv_obj_add_event_cb(w.debug_kp_cont, camera_touch_cb, LV_EVENT_PRESS_LOST, &camera_touch_data);
 
     w.kp_dots.clear();
     set_manual_target_ui_state(w, false);
@@ -1087,6 +1106,12 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
     lv_obj_set_size(tabview, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_pad_all(tabview, 0, 0);
     lv_tabview_set_tab_bar_size(tabview, TAB_BAR_HEIGHT);
+    lv_obj_clear_flag(tabview, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *tab_content = lv_tabview_get_content(tabview);
+    if (tab_content) {
+        lv_obj_clear_flag(tab_content, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scroll_dir(tab_content, LV_DIR_NONE);
+    }
 
     lv_obj_t *tab_bar = lv_tabview_get_tab_bar(tabview);
     if (tab_bar) lv_obj_set_style_text_font(tab_bar, &lv_font_montserrat_24, 0);
