@@ -5,6 +5,7 @@
 #include <string>
 
 #include "data_structures/pose.hpp"
+#include "data_structures/camera.hpp"
 #include "data_structures/transform.hpp"
 
 namespace auto_battlebot {
@@ -120,5 +121,38 @@ Pose pose2d_to_pose(const Pose2D &pose2d);
  * @return Position with x, y from pose2d and z=0
  */
 Position pose2d_to_position(const Pose2D &pose2d);
+
+/**
+ * @brief Build a normalized camera-frame ray from a pixel and camera intrinsics.
+ * @param camera_info Camera intrinsics
+ * @param pixel_x Pixel x coordinate in image space
+ * @param pixel_y Pixel y coordinate in image space
+ * @param out_ray Output ray direction in camera frame
+ * @return True when intrinsics are valid and ray is finite
+ */
+bool pixel_to_camera_ray(const CameraInfo &camera_info, double pixel_x, double pixel_y,
+                         Eigen::Vector3d &out_ray);
+
+/**
+ * @brief Intersect a camera-frame ray (origin at camera) with a plane in camera frame.
+ * @param ray Camera-frame ray direction
+ * @param plane_center Any point on the plane in camera frame
+ * @param plane_normal Plane normal in camera frame
+ * @param out_point Intersection point in camera frame
+ * @return True if intersection exists in front of camera
+ */
+bool intersect_camera_ray_with_plane(const Eigen::Vector3d &ray, const Eigen::Vector3d &plane_center,
+                                     const Eigen::Vector3d &plane_normal, Eigen::Vector3d &out_point);
+
+/**
+ * @brief Build a plane (center + normal) from a field-to-camera transform.
+ * The plane corresponds to the transformed field z=0 plane expressed in camera frame.
+ * @param transform Transform containing camera_from_field matrix
+ * @param out_center A point on the plane in camera frame
+ * @param out_normal Unit normal in camera frame
+ * @return True when transform is valid and plane can be constructed
+ */
+bool transform_to_plane_center_normal(const Transform &transform, Eigen::Vector3d &out_center,
+                                      Eigen::Vector3d &out_normal);
 
 }  // namespace auto_battlebot

@@ -194,4 +194,52 @@ Pose pose2d_to_pose(const Pose2D &pose2d) {
 
 Position pose2d_to_position(const Pose2D &pose2d) { return Position{pose2d.x, pose2d.y, 0.0}; }
 
+bool pixel_to_camera_ray(const CameraInfo &camera_info, double pixel_x, double pixel_y,
+                         Eigen::Vector3d &out_ray) {
+    if (camera_info.intrinsics.rows != 3 || camera_info.intrinsics.cols != 3) return false;
+    const double fx = camera_info.intrinsics.at<double>(0, 0);
+    const double fy = camera_info.intrinsics.at<double>(1, 1);
+    const double cx = camera_info.intrinsics.at<double>(0, 2);
+    const double cy = camera_info.intrinsics.at<double>(1, 2);
+    if (std::abs(fx) < 1e-6 || std::abs(fy) < 1e-6) return false;
+
+    out_ray = Eigen::Vector3d((pixel_x - cx) / fx, (pixel_y - cy) / fy, 1.0);
+    return std::isfinite(out_ray.x()) && std::isfinite(out_ray.y()) && std::isfinite(out_ray.z());
+}
+
+bool intersect_camera_ray_with_plane(const Eigen::Vector3d &ray, const Eigen::Vector3d &plane_center,
+                                     const Eigen::Vector3d &plane_normal, Eigen::Vector3d &out_point) {
+    constexpr double EPSILON = 1e-6;
+    const double dot_with_normal = ray.dot(plane_normal);
+    if (std::abs(dot_with_normal) < EPSILON) return false;
+
+    const double fac = -plane_center.dot(-plane_normal) / dot_with_normal;
+    if (!std::isfinite(fac) || fac <= 0.0) return false;
+    out_point = ray * fac;
+    return std::isfinite(out_point.x()) && std::isfinite(out_point.y()) &&
+           std::isfinite(out_point.z());
+}
+
+bool transform_to_plane_center_normal(const Transform &transform, Eigen::Vector3d &out_center,
+                                      Eigen::Vector3d &out_normal) {
+    if (transform.tf.rows() < 4 || transform.tf.cols() < 4) return false;
+    const Eigen::Matrix4d tf = transform.tf.block<4, 4>(0, 0);
+
+    const Eigen::Vector4d origin_field(0.0, 0.0, 0.0, 1.0);
+    const Eigen::Vector4d x_axis_field(1.0, 0.0, 0.0, 1.0);
+    const Eigen::Vector4d y_axis_field(0.0, 1.0, 0.0, 1.0);
+
+    out_center = (tf * origin_field).head<3>();
+    const Eigen::Vector3d px = (tf * x_axis_field).head<3>();
+    const Eigen::Vector3d py = (tf * y_axis_field).head<3>();
+
+    out_normal = (px - out_center).cross(py - out_center);
+    const double mag = out_normal.norm();
+    if (mag < 1e-6) return false;
+    out_normal /= mag;
+    return std::isfinite(out_center.x()) && std::isfinite(out_center.y()) &&
+           std::isfinite(out_center.z()) && std::isfinite(out_normal.x()) &&
+           std::isfinite(out_normal.y()) && std::isfinite(out_normal.z());
+}
+
 }  // namespace auto_battlebot

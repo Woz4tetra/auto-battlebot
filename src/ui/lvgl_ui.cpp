@@ -1,6 +1,7 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <lvgl.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <array>
@@ -389,45 +390,32 @@ bool event_to_image_pixel(const UIWidgets &w, lv_event_t *e, int &img_x, int &im
 }
 
 bool project_image_pixel_to_field(const FieldDescription &field, const CameraInfo &camera_info,
-                                  int img_x, int img_y, Pose2D &out) {
-    if (field.tf_camera_from_fieldcenter.tf.rows() < 4 ||
-        field.tf_camera_from_fieldcenter.tf.cols() < 4) {
-        return false;
-    }
+                                  int source_img_w, int source_img_h, int img_x, int img_y,
+                                  Pose2D &out) {
     if (camera_info.intrinsics.rows != 3 || camera_info.intrinsics.cols != 3) return false;
 
-    const double fx = camera_info.intrinsics.at<double>(0, 0);
-    const double fy = camera_info.intrinsics.at<double>(1, 1);
-    const double cx = camera_info.intrinsics.at<double>(0, 2);
-    const double cy = camera_info.intrinsics.at<double>(1, 2);
-    if (std::abs(fx) < 1e-6 || std::abs(fy) < 1e-6) return false;
+    double pixel_x = static_cast<double>(img_x);
+    double pixel_y = static_cast<double>(img_y);
+    if (source_img_w > 0 && source_img_h > 0 && camera_info.width > 0 && camera_info.height > 0 &&
+        (source_img_w != camera_info.width || source_img_h != camera_info.height)) {
+        const double sx = static_cast<double>(camera_info.width) / source_img_w;
+        const double sy = static_cast<double>(camera_info.height) / source_img_h;
+        pixel_x *= sx;
+        pixel_y *= sy;
+    }
+    Eigen::Vector3d ray;
+    if (!pixel_to_camera_ray(camera_info, pixel_x, pixel_y, ray)) return false;
 
-    const Eigen::Vector3d ray((static_cast<double>(img_x) - cx) / fx,
-                              (static_cast<double>(img_y) - cy) / fy, 1.0);
+    Eigen::Vector3d plane_center = Eigen::Vector3d::Zero();
+    Eigen::Vector3d plane_normal = Eigen::Vector3d::UnitZ();
+    if (!transform_to_plane_center_normal(field.tf_camera_from_fieldcenter, plane_center,
+                                          plane_normal))
+        return false;
 
-    const auto &tf_any = field.tf_camera_from_fieldcenter.tf;
-    Eigen::Matrix4d tf = tf_any.block<4, 4>(0, 0);
-    const Eigen::Vector4d origin_field(0.0, 0.0, 0.0, 1.0);
-    const Eigen::Vector4d x_axis_field(1.0, 0.0, 0.0, 1.0);
-    const Eigen::Vector4d y_axis_field(0.0, 1.0, 0.0, 1.0);
-
-    const Eigen::Vector3d p0 = (tf * origin_field).head<3>();
-    const Eigen::Vector3d px = (tf * x_axis_field).head<3>();
-    const Eigen::Vector3d py = (tf * y_axis_field).head<3>();
-
-    Eigen::Vector3d normal = (px - p0).cross(py - p0);
-    const double normal_norm = normal.norm();
-    if (normal_norm < 1e-6) return false;
-    normal /= normal_norm;
-
-    const double den = ray.dot(normal);
-    if (std::abs(den) < 1e-6) return false;
-    const double t = p0.dot(normal) / den;
-    if (t <= 0.0) return false;
-
-    const Eigen::Vector3d camera_pt = ray * t;
+    Eigen::Vector3d camera_pt;
+    if (!intersect_camera_ray_with_plane(ray, plane_center, plane_normal, camera_pt)) return false;
     const Eigen::Vector4d camera_h(camera_pt.x(), camera_pt.y(), camera_pt.z(), 1.0);
-    const Eigen::Vector4d field_h = tf.inverse() * camera_h;
+    const Eigen::Vector4d field_h = field.tf_camera_from_fieldcenter.tf.inverse() * camera_h;
     if (!std::isfinite(field_h.x()) || !std::isfinite(field_h.y())) return false;
 
     out.x = field_h.x();
@@ -458,7 +446,10 @@ void camera_touch_cb(lv_event_t *e) {
     if (!field.has_value()) return;
 
     Pose2D target_pose_field;
-    if (!project_image_pixel_to_field(*field, camera_info, img_x, img_y, target_pose_field)) return;
+    if (!project_image_pixel_to_field(*field, camera_info, d->widgets->camera_src_width,
+                                      d->widgets->camera_src_height, img_x, img_y,
+                                      target_pose_field))
+        return;
     TargetSelection target{target_pose_field, Label::EMPTY};
     d->ui_state->set_manual_target(target);
     set_manual_target_ui_state(*d->widgets, true);

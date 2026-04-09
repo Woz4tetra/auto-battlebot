@@ -2,12 +2,14 @@
 
 #include <Eigen/Dense>
 #include <map>
+#include <memory>
 #include <vector>
 
-#include "data_structures.hpp"
-#include "diagnostics_logger/diagnostics_logger.hpp"
+#include "data_structures/camera.hpp"
+#include "data_structures/field.hpp"
+#include "data_structures/keypoint.hpp"
+#include "data_structures/transform.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
-#include "enums.hpp"
 
 namespace auto_battlebot {
 struct FrontBackAssignment {
@@ -56,16 +58,6 @@ class FrontBackKeypointConverter {
    private:
     FrontBackKeypointConverterConfig config_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
-
-    Eigen::Vector3d plane_from_3_points(const Eigen::Vector3d &point1,
-                                        const Eigen::Vector3d &point2,
-                                        const Eigen::Vector3d &point3);
-
-    Eigen::Vector3d transform_to_plane_normal(const Transform &transform);
-
-    Eigen::Vector3d find_ray_plane_intersection(const Eigen::Vector3d &ray,
-                                                const Eigen::Vector3d &plane_center,
-                                                const Eigen::Vector3d &plane_normal);
 
     Eigen::Vector3d project_keypoint_onto_plane(const Keypoint &keypoint,
                                                 const Eigen::Vector3d &plane_center,
