@@ -75,17 +75,16 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
 
     if (!robot_mask.mask.mask.empty() && field.child_frame_id != FrameId::EMPTY) {
         auto opponent_measurements = robot_mask_detector_.detect(
-            robot_mask.mask.mask, field, camera_info, filter_measurements,
-            keypoints.header.stamp);
+            robot_mask.mask.mask, field, camera_info, filter_measurements, keypoints.header.stamp);
         diagnostics_logger_->debug(
             {{"num_robot_mask_opponents", (int)opponent_measurements.size()}});
 
         std::vector<FrameId> all_opponent_fids = get_frame_ids_for_label(Label::OPPONENT);
         std::vector<FrameId> available_fids;
         for (const auto &fid : all_opponent_fids) {
-            bool already_used = std::any_of(
-                filter_measurements.begin(), filter_measurements.end(),
-                [fid](const RobotDescription &m) { return m.frame_id == fid; });
+            bool already_used =
+                std::any_of(filter_measurements.begin(), filter_measurements.end(),
+                            [fid](const RobotDescription &m) { return m.frame_id == fid; });
             if (!already_used) available_fids.push_back(fid);
         }
 
