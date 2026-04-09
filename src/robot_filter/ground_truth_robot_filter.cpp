@@ -48,8 +48,10 @@ RobotDescriptionsStamped GroundTruthRobotFilter::update([[maybe_unused]] Keypoin
         RobotDescription desc;
         desc.frame_id = our_frame_ids_[i];
         desc.label = robot_configs_[i].label;
+        desc.group = Group::OURS;
         desc.pose = pose2d_to_pose(gt[gt_idx]);
         desc.size = Size{0.15, 0.15, 0.1};
+        desc.is_stale = false;
         result.descriptions.push_back(desc);
     }
 
@@ -57,8 +59,10 @@ RobotDescriptionsStamped GroundTruthRobotFilter::update([[maybe_unused]] Keypoin
         RobotDescription desc;
         desc.frame_id = opponent_frame_ids_[i];
         desc.label = Label::OPPONENT;
+        desc.group = Group::THEIRS;
         desc.pose = pose2d_to_pose(gt[gt_idx]);
         desc.size = Size{0.15, 0.15, 0.1};
+        desc.is_stale = false;
         result.descriptions.push_back(desc);
     }
 

@@ -18,10 +18,12 @@ struct Velocity2D {
 struct RobotDescription {
     FrameId frame_id = FrameId::EMPTY;
     Label label = Label::EMPTY;
+    Group group = Group::OURS;
     Pose pose;
     Size size;
     std::vector<Position> keypoints = std::vector<Position>();
     Velocity2D velocity;
+    bool is_stale = false;
 };
 
 struct RobotDescriptionsStamped {

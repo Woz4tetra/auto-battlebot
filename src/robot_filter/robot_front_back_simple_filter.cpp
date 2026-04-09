@@ -148,6 +148,15 @@ RobotFrontBackSimpleFilter::build_valid_measurements(
     const std::vector<std::pair<FrontBackAssignment, double>> &assignments_with_conf) {
     std::vector<MeasurementWithConfidence> valid_measurements;
     std::string label_str = std::string(magic_enum::enum_name(label));
+    Group group = Group::OURS;
+    auto robot_config_it = robot_configs_.find(label);
+    if (robot_config_it != robot_configs_.end()) {
+        group = robot_config_it->second.group;
+    } else if (label == Label::HOUSE_BOT) {
+        group = Group::NEUTRAL;
+    } else if (label == Label::OPPONENT) {
+        group = Group::THEIRS;
+    }
 
     for (const auto &[assignment, confidence] : assignments_with_conf) {
         Eigen::Vector3d front_keypoint_in_field = FrontBackKeypointConverter::transform_point(
@@ -166,11 +175,13 @@ RobotFrontBackSimpleFilter::build_valid_measurements(
         Pose pose = matrix_to_pose(tf_field_from_robot.tf);
         RobotDescription desc{FrameId::EMPTY,
                               label,
+                              group,
                               pose,
                               Size{length, length, 0.1},
                               {vector_to_position(front_keypoint_in_field),
                                vector_to_position(back_keypoint_in_field)},
-                              Velocity2D{}};
+                              Velocity2D{},
+                              false};
         valid_measurements.push_back({confidence, std::move(desc)});
     }
     return valid_measurements;
@@ -313,8 +324,10 @@ std::vector<RobotDescription> RobotFrontBackSimpleFilter::update_filter(
 
     std::vector<RobotDescription> outputs;
     outputs.reserve(last_description_per_frame_id_.size());
-    for (const auto &[_, desc] : last_description_per_frame_id_) {
-        outputs.push_back(desc);
+    for (const auto &[frame_id, desc] : last_description_per_frame_id_) {
+        RobotDescription output = desc;
+        output.is_stale = measured_frame_ids.count(frame_id) == 0;
+        outputs.push_back(std::move(output));
     }
     return outputs;
 }

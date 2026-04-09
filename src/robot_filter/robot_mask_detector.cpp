@@ -246,7 +246,8 @@ std::vector<RobotDescription> RobotMaskDetector::candidates_to_measurements(
                      c.position_in_field.z()};
         Pose pose{pos, Rotation{1, 0, 0, 0}};
         measurements.push_back(
-            {FrameId::EMPTY, Label::OPPONENT, pose, Size{0.15, 0.15, 0.1}, {}, Velocity2D{}});
+            {FrameId::EMPTY, Label::OPPONENT, Group::THEIRS, pose, Size{0.15, 0.15, 0.1}, {},
+             Velocity2D{}, false});
     }
     return measurements;
 }

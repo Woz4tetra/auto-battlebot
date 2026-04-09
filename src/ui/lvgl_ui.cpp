@@ -141,10 +141,9 @@ void derive_robot_counts(const RobotDescriptionsStamped &robots, bool &our_seen,
     our_seen = false;
     opp_count = 0;
     for (const auto &r : robots.descriptions) {
-        if (r.label == Label::MR_STABS_MK1 || r.label == Label::MR_STABS_MK2 ||
-            r.label == Label::MRS_BUFF_MK1 || r.label == Label::MRS_BUFF_MK2)
-            our_seen = true;
-        if (r.label == Label::OPPONENT || r.label == Label::HOUSE_BOT) opp_count++;
+        if (r.is_stale) continue;
+        if (r.group == Group::OURS) our_seen = true;
+        if (r.group == Group::THEIRS) opp_count++;
     }
 }
 
