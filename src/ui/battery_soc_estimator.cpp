@@ -16,24 +16,18 @@ constexpr int kStateVersion = 1;
 
 std::vector<OcvTablePoint> make_default_discharge_table() {
     return {
-        {.voltage_v = 9.0, .soc_percent = 0.0},
-        {.voltage_v = 10.2, .soc_percent = 15.0},
-        {.voltage_v = 10.8, .soc_percent = 35.0},
-        {.voltage_v = 11.3, .soc_percent = 55.0},
-        {.voltage_v = 11.8, .soc_percent = 75.0},
-        {.voltage_v = 12.2, .soc_percent = 90.0},
+        {.voltage_v = 9.0, .soc_percent = 0.0},    {.voltage_v = 10.2, .soc_percent = 15.0},
+        {.voltage_v = 10.8, .soc_percent = 35.0},  {.voltage_v = 11.3, .soc_percent = 55.0},
+        {.voltage_v = 11.8, .soc_percent = 75.0},  {.voltage_v = 12.2, .soc_percent = 90.0},
         {.voltage_v = 12.6, .soc_percent = 100.0},
     };
 }
 
 std::vector<OcvTablePoint> make_default_charge_table() {
     return {
-        {.voltage_v = 9.2, .soc_percent = 0.0},
-        {.voltage_v = 10.35, .soc_percent = 15.0},
-        {.voltage_v = 10.95, .soc_percent = 35.0},
-        {.voltage_v = 11.45, .soc_percent = 55.0},
-        {.voltage_v = 11.95, .soc_percent = 75.0},
-        {.voltage_v = 12.35, .soc_percent = 90.0},
+        {.voltage_v = 9.2, .soc_percent = 0.0},     {.voltage_v = 10.35, .soc_percent = 15.0},
+        {.voltage_v = 10.95, .soc_percent = 35.0},  {.voltage_v = 11.45, .soc_percent = 55.0},
+        {.voltage_v = 11.95, .soc_percent = 75.0},  {.voltage_v = 12.35, .soc_percent = 90.0},
         {.voltage_v = 12.75, .soc_percent = 100.0},
     };
 }
@@ -46,8 +40,8 @@ std::string trim_copy(const std::string &in) {
     return in.substr(start, end - start);
 }
 
-double parse_double_or(const std::unordered_map<std::string, std::string> &kv, const std::string &key,
-                       double fallback) {
+double parse_double_or(const std::unordered_map<std::string, std::string> &kv,
+                       const std::string &key, double fallback) {
     auto it = kv.find(key);
     if (it == kv.end()) return fallback;
     try {
@@ -109,11 +103,10 @@ void BatterySocEstimator::maybe_self_tune(double voltage_v, BatteryFlowDirection
         (direction == BatteryFlowDirection::Charge) ? ocv_charge_ : ocv_discharge_;
     if (table.empty()) return;
 
-    auto nearest = std::min_element(table.begin(), table.end(),
-                                    [voltage_v](const OcvTablePoint &a, const OcvTablePoint &b) {
-                                        return std::abs(a.voltage_v - voltage_v) <
-                                               std::abs(b.voltage_v - voltage_v);
-                                    });
+    auto nearest = std::min_element(
+        table.begin(), table.end(), [voltage_v](const OcvTablePoint &a, const OcvTablePoint &b) {
+            return std::abs(a.voltage_v - voltage_v) < std::abs(b.voltage_v - voltage_v);
+        });
     if (nearest == table.end()) return;
 
     const double error = soc_percent_ - nearest->soc_percent;
@@ -131,7 +124,8 @@ BatteryReading BatterySocEstimator::update(const BatterySample &sample) {
     if (!sample.valid) {
         invalid_streak_++;
         const bool valid = invalid_streak_ <= std::max(0, options_.invalid_read_grace);
-        return {.percent = std::clamp(display_percent_, 0.0, 100.0), .valid = valid && has_estimate_};
+        return {.percent = std::clamp(display_percent_, 0.0, 100.0),
+                .valid = valid && has_estimate_};
     }
 
     invalid_streak_ = 0;
@@ -139,16 +133,18 @@ BatteryReading BatterySocEstimator::update(const BatterySample &sample) {
     double dt_sec = 0.0;
     const bool had_previous_sample = has_last_sample_;
     if (had_previous_sample) {
-        dt_sec = std::chrono::duration_cast<std::chrono::duration<double>>(now - last_timestamp_).count();
+        dt_sec = std::chrono::duration_cast<std::chrono::duration<double>>(now - last_timestamp_)
+                     .count();
         dt_sec = std::clamp(dt_sec, 0.0, 10.0);
     }
     last_timestamp_ = now;
     has_last_sample_ = true;
 
     const bool discharge_positive = options_.discharge_current_positive;
-    const double signed_discharge_current_a = discharge_positive ? sample.current_a : -sample.current_a;
+    const double signed_discharge_current_a =
+        discharge_positive ? sample.current_a : -sample.current_a;
     last_direction_ = signed_discharge_current_a >= 0.0 ? BatteryFlowDirection::Discharge
-                                                         : BatteryFlowDirection::Charge;
+                                                        : BatteryFlowDirection::Charge;
 
     if (!has_estimate_) {
         soc_percent_ = lookup_ocv_soc(sample.bus_voltage_v, last_direction_);
@@ -165,7 +161,8 @@ BatteryReading BatterySocEstimator::update(const BatterySample &sample) {
 
     const double rest_current_threshold = std::max(0.0, options_.rest_current_threshold_a);
     const double rest_stability_threshold = std::max(0.0, options_.rest_stability_delta_v);
-    const bool current_is_rest_like = std::abs(signed_discharge_current_a) <= rest_current_threshold;
+    const bool current_is_rest_like =
+        std::abs(signed_discharge_current_a) <= rest_current_threshold;
     const bool voltage_is_stable =
         !had_previous_sample ||
         std::abs(sample.bus_voltage_v - last_voltage_v_) <= rest_stability_threshold;
@@ -232,16 +229,15 @@ bool BatterySocEstimator::load_state() {
 
     for (size_t i = 0; i < ocv_discharge_.size(); ++i) {
         const std::string idx = std::to_string(i);
-        ocv_discharge_[i].soc_percent =
-            std::clamp(parse_double_or(kv, "discharge_soc_" + idx, ocv_discharge_[i].soc_percent), 0.0,
-                       100.0);
+        ocv_discharge_[i].soc_percent = std::clamp(
+            parse_double_or(kv, "discharge_soc_" + idx, ocv_discharge_[i].soc_percent), 0.0, 100.0);
         ocv_discharge_[i].learned_samples =
             std::max(0.0, parse_double_or(kv, "discharge_samples_" + idx, 0.0));
     }
     for (size_t i = 0; i < ocv_charge_.size(); ++i) {
         const std::string idx = std::to_string(i);
-        ocv_charge_[i].soc_percent =
-            std::clamp(parse_double_or(kv, "charge_soc_" + idx, ocv_charge_[i].soc_percent), 0.0, 100.0);
+        ocv_charge_[i].soc_percent = std::clamp(
+            parse_double_or(kv, "charge_soc_" + idx, ocv_charge_[i].soc_percent), 0.0, 100.0);
         ocv_charge_[i].learned_samples =
             std::max(0.0, parse_double_or(kv, "charge_samples_" + idx, 0.0));
     }

@@ -50,7 +50,8 @@ class BatterySocEstimator {
     double last_voltage_v_ = 0.0;
     BatteryFlowDirection last_direction_ = BatteryFlowDirection::Discharge;
     std::chrono::steady_clock::time_point last_timestamp_ = std::chrono::steady_clock::now();
-    std::chrono::steady_clock::time_point last_persist_ = std::chrono::steady_clock::time_point::min();
+    std::chrono::steady_clock::time_point last_persist_ =
+        std::chrono::steady_clock::time_point::min();
 };
 
 }  // namespace auto_battlebot::ui_internal

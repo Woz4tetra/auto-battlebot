@@ -27,7 +27,8 @@ constexpr uint8_t INA219_REG_CALIBRATION = 0x05;
 // Calibration register value for the selected profile (16V bus range, up to ~5A expected current).
 // Derived with Cal = trunc(0.04096 / (Current_LSB * Rshunt)).
 constexpr uint16_t INA219_CALIBRATION_16V_5A = 26868;
-// Config register bits matching the Waveshare reference setup (16V range, gain/ADC, continuous mode).
+// Config register bits matching the Waveshare reference setup (16V range, gain/ADC, continuous
+// mode).
 constexpr uint16_t INA219_CONFIG_16V_5A_CONTINUOUS = 0x0EEF;
 // Datasheet constant used in the INA219 calibration equation.
 constexpr double INA219_CALIBRATION_NUMERATOR = 0.04096;
@@ -38,8 +39,7 @@ constexpr double INA219_CURRENT_LSB_A =
     INA219_CALIBRATION_NUMERATOR / (INA219_CALIBRATION_16V_5A * INA219_SHUNT_RESISTANCE_OHM);
 // INA219 power register uses Power_LSB = 20 * Current_LSB.
 constexpr double INA219_POWER_CURRENT_LSB_MULTIPLIER = 20.0;
-constexpr double INA219_POWER_LSB_W =
-    INA219_POWER_CURRENT_LSB_MULTIPLIER * INA219_CURRENT_LSB_A;
+constexpr double INA219_POWER_LSB_W = INA219_POWER_CURRENT_LSB_MULTIPLIER * INA219_CURRENT_LSB_A;
 // Default Linux I2C controller and INA219 device address for Jetson + Waveshare UPS.
 constexpr int BATTERY_I2C_BUS_DEFAULT = 7;
 constexpr int BATTERY_I2C_ADDRESS_DEFAULT = 0x41;
@@ -82,37 +82,41 @@ double read_env_double(const char *name, double default_value) {
 }
 
 BatteryOptions apply_env_overrides(BatteryOptions options) {
-    options.battery_capacity_ah = read_env_double("AUTO_BATTLEBOT_BATTERY_CAPACITY_AH", options.battery_capacity_ah);
+    options.battery_capacity_ah =
+        read_env_double("AUTO_BATTLEBOT_BATTERY_CAPACITY_AH", options.battery_capacity_ah);
     options.rest_current_threshold_a =
         read_env_double("AUTO_BATTLEBOT_BATTERY_REST_CURRENT_A", options.rest_current_threshold_a);
-    options.rest_stability_delta_v = read_env_double("AUTO_BATTLEBOT_BATTERY_REST_STABILITY_V",
-                                                     options.rest_stability_delta_v);
-    options.rest_window_sec = read_env_double("AUTO_BATTLEBOT_BATTERY_REST_WINDOW_SEC", options.rest_window_sec);
+    options.rest_stability_delta_v =
+        read_env_double("AUTO_BATTLEBOT_BATTERY_REST_STABILITY_V", options.rest_stability_delta_v);
+    options.rest_window_sec =
+        read_env_double("AUTO_BATTLEBOT_BATTERY_REST_WINDOW_SEC", options.rest_window_sec);
     options.ocv_correction_gain =
         read_env_double("AUTO_BATTLEBOT_BATTERY_OCV_CORRECTION_GAIN", options.ocv_correction_gain);
-    options.display_slew_pct_per_sec =
-        read_env_double("AUTO_BATTLEBOT_BATTERY_DISPLAY_SLEW_PCT_PER_SEC", options.display_slew_pct_per_sec);
-    options.self_tune_learning_rate = read_env_double("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_LR",
-                                                      options.self_tune_learning_rate);
+    options.display_slew_pct_per_sec = read_env_double(
+        "AUTO_BATTLEBOT_BATTERY_DISPLAY_SLEW_PCT_PER_SEC", options.display_slew_pct_per_sec);
+    options.self_tune_learning_rate =
+        read_env_double("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_LR", options.self_tune_learning_rate);
     options.self_tune_max_delta_pct = read_env_double("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_MAX_DELTA",
                                                       options.self_tune_max_delta_pct);
-    options.persist_interval_sec =
-        read_env_double("AUTO_BATTLEBOT_BATTERY_PERSIST_INTERVAL_SEC", options.persist_interval_sec);
+    options.persist_interval_sec = read_env_double("AUTO_BATTLEBOT_BATTERY_PERSIST_INTERVAL_SEC",
+                                                   options.persist_interval_sec);
     options.invalid_read_grace =
         read_env_int("AUTO_BATTLEBOT_BATTERY_INVALID_READ_GRACE", options.invalid_read_grace);
     options.self_tune_min_samples =
         read_env_int("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_MIN_SAMPLES", options.self_tune_min_samples);
-    options.self_tune_enabled =
-        read_env_int("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_ENABLE", options.self_tune_enabled ? 1 : 0) != 0;
-    options.discharge_current_positive = read_env_int("AUTO_BATTLEBOT_BATTERY_DISCHARGE_POSITIVE",
-                                                      options.discharge_current_positive ? 1 : 0) != 0;
+    options.self_tune_enabled = read_env_int("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_ENABLE",
+                                             options.self_tune_enabled ? 1 : 0) != 0;
+    options.discharge_current_positive =
+        read_env_int("AUTO_BATTLEBOT_BATTERY_DISCHARGE_POSITIVE",
+                     options.discharge_current_positive ? 1 : 0) != 0;
     const char *state_path = std::getenv("AUTO_BATTLEBOT_BATTERY_SOC_STATE_PATH");
     if (state_path && state_path[0] != '\0') options.state_file_path = state_path;
     return options;
 }
 
 bool read_waveshare_ups_sample(BatterySample &sample_out) {
-    const int battery_i2c_bus = read_env_int("AUTO_BATTLEBOT_BATTERY_I2C_BUS", BATTERY_I2C_BUS_DEFAULT);
+    const int battery_i2c_bus =
+        read_env_int("AUTO_BATTLEBOT_BATTERY_I2C_BUS", BATTERY_I2C_BUS_DEFAULT);
     const int battery_i2c_address =
         read_env_int("AUTO_BATTLEBOT_BATTERY_I2C_ADDRESS", BATTERY_I2C_ADDRESS_DEFAULT);
     const std::string dev_path = "/dev/i2c-" + std::to_string(battery_i2c_bus);
