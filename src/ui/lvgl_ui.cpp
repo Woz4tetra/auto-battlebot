@@ -1,157 +1,36 @@
-#define SDL_MAIN_HANDLED
-#include <SDL.h>
-#include <fcntl.h>
-#include <linux/i2c-dev.h>
 #include <lvgl.h>
 #include <spdlog/spdlog.h>
-#include <sys/ioctl.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <ctime>
-#include <deque>
-#include <map>
 #include <memory>
 #include <opencv2/imgproc.hpp>
 #include <optional>
 #include <string>
 #include <vector>
 
-#include "data_structures/pose.hpp"
 #include "data_structures/target_selection.hpp"
-#include "enums/label.hpp"
-#include "label_utils.hpp"
+#include "lvgl_ui_battery.hpp"
+#include "lvgl_ui_composition.hpp"
+#include "lvgl_ui_widgets.hpp"
 #include "transform_utils.hpp"
 #include "ui/ui_runner.hpp"
 #include "ui/ui_state.hpp"
 
 namespace auto_battlebot {
 namespace {
-constexpr int TOP_BAR_HEIGHT = 40;
-constexpr int TAB_BAR_HEIGHT = 56;
-constexpr int TILE_RADIUS = 12;
-constexpr int TILE_PAD = 16;
-constexpr int DIAG_REBUILD_INTERVAL = 30;
-/** Sections not updated in this many seconds are shown gray (stale). */
-constexpr double DIAG_STALE_SEC = 2.0;
-constexpr int CAMERA_PANEL_WIDTH_PCT = 66;
-constexpr uint8_t INA219_REG_BUSVOLTAGE = 0x02;
-constexpr uint8_t INA219_REG_CALIBRATION = 0x05;
-constexpr uint16_t INA219_CALIBRATION_16V_5A = 26868;
-constexpr int BATTERY_I2C_BUS = 1;
-constexpr int BATTERY_I2C_ADDRESS = 0x41;
-constexpr int BATTERY_ICON_CANVAS_WIDTH = 60;
-constexpr int BATTERY_ICON_CANVAS_HEIGHT = 24;
-constexpr int BATTERY_ICON_SHELL_X = 3;
-constexpr int BATTERY_ICON_SHELL_Y = 2;
-constexpr int BATTERY_ICON_SHELL_WIDTH = 44;
-constexpr int BATTERY_ICON_SHELL_HEIGHT = 20;
-constexpr int BATTERY_ICON_FILL_MAX_WIDTH = 34;
-constexpr int BATTERY_ICON_FILL_HEIGHT = 12;
-constexpr int BATTERY_ICON_CAP_WIDTH = 6;
-constexpr int BATTERY_ICON_CAP_HEIGHT = 10;
-
-static int selected_opponent_count = 0;
-
-/** Persistent cache: section key -> (snapshot, last update time). Never remove
- * entries so scroll/layout stay stable when sections disappear. */
-static std::vector<std::string> diag_section_order;
-static std::map<std::string,
-                std::pair<DiagnosticStatusSnapshot, std::chrono::steady_clock::time_point>>
-    diag_section_cache;
-
-struct OpponentTileData {
-    std::shared_ptr<UIState> ui_state;
-    int count;
-};
-static OpponentTileData opp_tile_data[3];
-
-struct SystemActionTileData {
-    std::shared_ptr<UIState> ui_state;
-    struct UIWidgets *widgets = nullptr;
-    UISystemAction action = UISystemAction::NONE;
-};
-static SystemActionTileData system_action_tile_data[3];
-
-struct CameraTouchData {
-    std::shared_ptr<UIState> ui_state;
-    struct UIWidgets *widgets = nullptr;
-};
-static CameraTouchData camera_touch_data;
-
-struct HealthRow {
-    lv_obj_t *led = nullptr;
-    lv_obj_t *label = nullptr;
-};
-
-struct UIWidgets {
-    lv_obj_t *tabview = nullptr;
-    std::shared_ptr<UIState> ui_state;
-    lv_obj_t *top_bar = nullptr;
-    lv_obj_t *clock_label = nullptr;
-    lv_obj_t *battery_percent_label = nullptr;
-    lv_obj_t *battery_icon_canvas = nullptr;
-    std::array<uint8_t, LV_CANVAS_BUF_SIZE(BATTERY_ICON_CANVAS_WIDTH, BATTERY_ICON_CANVAS_HEIGHT,
-                                           LV_COLOR_FORMAT_GET_BPP(LV_COLOR_FORMAT_RGB565),
-                                           LV_DRAW_BUF_STRIDE_ALIGN)>
-        battery_icon_canvas_buf = {};
-    std::time_t last_clock_second = -1;
-    std::chrono::steady_clock::time_point last_battery_update =
-        std::chrono::steady_clock::time_point::min();
-    double dummy_battery_percent = 75.0;
-    bool dummy_battery_descending = false;
-    std::string battery_source = "waveshare ups";
-
-    lv_obj_t *status_tile = nullptr; /* whole tile colored by status */
-    lv_obj_t *status_label = nullptr;
-    lv_obj_t *status_detail = nullptr;
-    lv_obj_t *opp_tiles[3] = {};
-    lv_obj_t *opp_label = nullptr;
-    lv_obj_t *manual_target_label = nullptr;
-    lv_obj_t *camera_frame = nullptr;
-    lv_obj_t *camera_touch = nullptr;
-    bool manual_target_active = false;
-    int camera_src_width = 0;
-    int camera_src_height = 0;
-
-    lv_obj_t *autonomy_tile = nullptr;
-    lv_obj_t *autonomy_label = nullptr;
-
-    lv_obj_t *reinit_tile = nullptr;
-    lv_obj_t *reinit_status = nullptr;
-
-    lv_obj_t *recording_tile = nullptr;
-    lv_obj_t *recording_label = nullptr;
-    lv_obj_t *recording_detail = nullptr;
-
-    lv_obj_t *quit_tile = nullptr;
-    lv_obj_t *reboot_tile = nullptr;
-    lv_obj_t *poweroff_tile = nullptr;
-    lv_obj_t *confirm_overlay = nullptr;
-    lv_obj_t *confirm_message = nullptr;
-    UISystemAction pending_confirm_action = UISystemAction::NONE;
-
-    HealthRow health[8];
-    int health_count = 0;
-    lv_obj_t *sections_cont = nullptr;
-
-    lv_obj_t *debug_img = nullptr;
-    lv_obj_t *debug_kp_cont = nullptr;
-    std::vector<lv_obj_t *> kp_dots;
-
-    /** Rolling buffer for loop_rate_hz; size capped by rate_avg_window from
-     * UIState. */
-    std::deque<double> rate_history;
-    /** When rate first went below threshold; empty when above. Used for
-     * sustained-fail (anti-strobe). */
-    std::optional<std::chrono::steady_clock::time_point> rate_below_since;
-    bool reinit_pulsing = false;
-};
+using ui_internal::CAMERA_PANEL_WIDTH_PCT;
+using ui_internal::CameraTouchData;
+using ui_internal::DIAG_STALE_SEC;
+using ui_internal::HealthRow;
+using ui_internal::OpponentTileData;
+using ui_internal::SystemActionTileData;
+using ui_internal::TILE_PAD;
+using ui_internal::TILE_RADIUS;
+using ui_internal::UIWidgets;
 
 /** Push current rate into rolling history (call once per frame). Window size
  * from UIState. */
@@ -211,7 +90,7 @@ void opp_cb(lv_event_t *e) {
     auto *d = static_cast<OpponentTileData *>(lv_event_get_user_data(e));
     if (d && d->ui_state) {
         d->ui_state->opponent_count_requested.store(d->count);
-        selected_opponent_count = d->count;
+        if (d->widgets) d->widgets->selected_opponent_count = d->count;
     }
 }
 
@@ -280,229 +159,6 @@ void style_transparent(lv_obj_t *obj) {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 }
 
-std::string normalize_battery_source(std::string source) {
-    std::transform(source.begin(), source.end(), source.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return source;
-}
-
-bool write_i2c_register_u16(int fd, uint8_t reg, uint16_t value) {
-    uint8_t payload[3] = {reg, static_cast<uint8_t>((value >> 8) & 0xFF),
-                          static_cast<uint8_t>(value & 0xFF)};
-    return write(fd, payload, sizeof(payload)) == static_cast<ssize_t>(sizeof(payload));
-}
-
-bool read_i2c_register_u16(int fd, uint8_t reg, uint16_t &value) {
-    uint8_t reg_addr = reg;
-    if (write(fd, &reg_addr, sizeof(reg_addr)) != static_cast<ssize_t>(sizeof(reg_addr))) {
-        return false;
-    }
-    uint8_t data[2] = {0, 0};
-    if (read(fd, data, sizeof(data)) != static_cast<ssize_t>(sizeof(data))) {
-        return false;
-    }
-    value = static_cast<uint16_t>((static_cast<uint16_t>(data[0]) << 8) | data[1]);
-    return true;
-}
-
-bool read_waveshare_ups_percent(double &percent_out) {
-    const std::string dev_path = "/dev/i2c-" + std::to_string(BATTERY_I2C_BUS);
-    int fd = open(dev_path.c_str(), O_RDWR);
-    if (fd < 0) return false;
-    if (ioctl(fd, I2C_SLAVE, BATTERY_I2C_ADDRESS) < 0) {
-        close(fd);
-        return false;
-    }
-
-    bool ok = write_i2c_register_u16(fd, INA219_REG_CALIBRATION, INA219_CALIBRATION_16V_5A);
-    uint16_t raw_bus_voltage = 0;
-    if (ok) ok = read_i2c_register_u16(fd, INA219_REG_BUSVOLTAGE, raw_bus_voltage);
-    close(fd);
-    if (!ok) return false;
-
-    const double bus_voltage_v = static_cast<double>(raw_bus_voltage >> 3U) * 0.004;
-    percent_out = std::clamp(((bus_voltage_v - 9.0) / 3.6) * 100.0, 0.0, 100.0);
-    return true;
-}
-
-double next_dummy_battery_percent(UIWidgets &w) {
-    (void)w;
-    return 75.0;
-}
-
-void render_battery_canvas(UIWidgets &w, double percent, bool valid) {
-    if (!w.battery_icon_canvas) return;
-    lv_canvas_fill_bg(w.battery_icon_canvas, lv_color_hex(0x111111), LV_OPA_COVER);
-
-    lv_layer_t layer;
-    lv_canvas_init_layer(w.battery_icon_canvas, &layer);
-
-    lv_draw_rect_dsc_t shell_dsc;
-    lv_draw_rect_dsc_init(&shell_dsc);
-    shell_dsc.radius = 4;
-    shell_dsc.bg_color = lv_color_hex(0x1E1E1E);
-    shell_dsc.bg_opa = LV_OPA_COVER;
-    shell_dsc.border_width = 2;
-    shell_dsc.border_color = lv_color_hex(0xE0E0E0);
-    shell_dsc.border_opa = LV_OPA_COVER;
-    const lv_area_t shell_area = {.x1 = BATTERY_ICON_SHELL_X,
-                                  .y1 = BATTERY_ICON_SHELL_Y,
-                                  .x2 = BATTERY_ICON_SHELL_X + BATTERY_ICON_SHELL_WIDTH - 1,
-                                  .y2 = BATTERY_ICON_SHELL_Y + BATTERY_ICON_SHELL_HEIGHT - 1};
-    lv_draw_rect(&layer, &shell_dsc, &shell_area);
-
-    lv_color_t fill_color = lv_color_hex(0x00C853);
-    if (!valid) {
-        fill_color = lv_color_hex(0x616161);
-    } else if (percent < 20.0) {
-        fill_color = lv_color_hex(0xFF1744);
-    } else if (percent < 50.0) {
-        fill_color = lv_color_hex(0xFFC107);
-    }
-    const int fill_w =
-        valid ? std::clamp(
-                    static_cast<int>(std::lround((percent / 100.0) * BATTERY_ICON_FILL_MAX_WIDTH)),
-                    0, BATTERY_ICON_FILL_MAX_WIDTH)
-              : 0;
-    if (fill_w > 0) {
-        lv_draw_rect_dsc_t fill_dsc;
-        lv_draw_rect_dsc_init(&fill_dsc);
-        fill_dsc.radius = 2;
-        fill_dsc.bg_color = fill_color;
-        fill_dsc.bg_opa = LV_OPA_COVER;
-        fill_dsc.border_width = 0;
-        const lv_area_t fill_area = {
-            .x1 = BATTERY_ICON_SHELL_X + 4,
-            .y1 = BATTERY_ICON_SHELL_Y + (BATTERY_ICON_SHELL_HEIGHT - BATTERY_ICON_FILL_HEIGHT) / 2,
-            .x2 = BATTERY_ICON_SHELL_X + 6 + fill_w - 1,
-            .y2 = BATTERY_ICON_SHELL_Y +
-                  (BATTERY_ICON_SHELL_HEIGHT - BATTERY_ICON_FILL_HEIGHT) / 2 +
-                  BATTERY_ICON_FILL_HEIGHT - 1};
-        lv_draw_rect(&layer, &fill_dsc, &fill_area);
-    }
-
-    lv_draw_rect_dsc_t cap_dsc;
-    lv_draw_rect_dsc_init(&cap_dsc);
-    cap_dsc.radius = 1;
-    cap_dsc.bg_color = lv_color_hex(0xE0E0E0);
-    cap_dsc.bg_opa = LV_OPA_COVER;
-    cap_dsc.border_width = 0;
-    const int cap_x = BATTERY_ICON_SHELL_X + BATTERY_ICON_SHELL_WIDTH + 2;
-    const int cap_y = (BATTERY_ICON_CANVAS_HEIGHT - BATTERY_ICON_CAP_HEIGHT) / 2;
-    const lv_area_t cap_area = {.x1 = cap_x,
-                                .y1 = cap_y,
-                                .x2 = cap_x + BATTERY_ICON_CAP_WIDTH - 1,
-                                .y2 = cap_y + BATTERY_ICON_CAP_HEIGHT - 1};
-    lv_draw_rect(&layer, &cap_dsc, &cap_area);
-    lv_canvas_finish_layer(w.battery_icon_canvas, &layer);
-}
-
-void update_battery_widgets(UIWidgets &w, double percent, bool valid) {
-    if (!w.battery_percent_label || !w.battery_icon_canvas) return;
-    render_battery_canvas(w, percent, valid);
-
-    lv_color_t color = lv_color_hex(0x00C853);
-    if (!valid) {
-        color = lv_color_hex(0x616161);
-    } else if (percent < 20.0) {
-        color = lv_color_hex(0xFF1744);
-    } else if (percent < 50.0) {
-        color = lv_color_hex(0xFFC107);
-    }
-
-    if (!valid) {
-        lv_label_set_text(w.battery_percent_label, "--%");
-        lv_obj_set_style_text_color(w.battery_percent_label, color, 0);
-        return;
-    }
-
-    char percent_buf[8];
-    snprintf(percent_buf, sizeof(percent_buf), "%d%%", static_cast<int>(std::lround(percent)));
-    lv_label_set_text(w.battery_percent_label, percent_buf);
-    lv_obj_set_style_text_color(w.battery_percent_label, lv_color_hex(0xE0E0E0), 0);
-}
-
-void build_top_bar(lv_obj_t *parent, UIWidgets &w) {
-    lv_obj_t *bar = lv_obj_create(parent);
-    w.top_bar = bar;
-    lv_obj_set_width(bar, LV_PCT(100));
-    lv_obj_set_height(bar, TOP_BAR_HEIGHT);
-    lv_obj_set_style_pad_hor(bar, 12, 0);
-    lv_obj_set_style_pad_ver(bar, 4, 0);
-    lv_obj_set_style_pad_gap(bar, 8, 0);
-    lv_obj_set_style_radius(bar, 0, 0);
-    lv_obj_set_style_border_width(bar, 0, 0);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(0x111111), 0);
-    lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
-
-    w.clock_label = lv_label_create(bar);
-    lv_label_set_text(w.clock_label, "--:--:--");
-    lv_obj_set_style_text_font(w.clock_label, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(w.clock_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_center(w.clock_label);
-
-    lv_obj_t *battery_wrap = lv_obj_create(bar);
-    lv_obj_set_height(battery_wrap, LV_SIZE_CONTENT);
-    lv_obj_set_width(battery_wrap, LV_PCT(100));
-    lv_obj_set_style_pad_all(battery_wrap, 0, 0);
-    lv_obj_set_style_pad_gap(battery_wrap, 4, 0);
-    lv_obj_set_style_radius(battery_wrap, 0, 0);
-    lv_obj_set_style_border_width(battery_wrap, 0, 0);
-    lv_obj_set_style_bg_opa(battery_wrap, LV_OPA_TRANSP, 0);
-    lv_obj_set_flex_flow(battery_wrap, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(battery_wrap, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(battery_wrap, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(battery_wrap, LV_ALIGN_RIGHT_MID, -8, 0);
-
-    w.battery_icon_canvas = lv_canvas_create(battery_wrap);
-    lv_obj_set_size(w.battery_icon_canvas, BATTERY_ICON_CANVAS_WIDTH, BATTERY_ICON_CANVAS_HEIGHT);
-    lv_obj_set_style_pad_all(w.battery_icon_canvas, 0, 0);
-    lv_obj_set_style_bg_opa(w.battery_icon_canvas, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(w.battery_icon_canvas, 0, 0);
-    lv_obj_clear_flag(w.battery_icon_canvas, LV_OBJ_FLAG_SCROLLABLE);
-    lv_canvas_set_buffer(w.battery_icon_canvas, w.battery_icon_canvas_buf.data(),
-                         BATTERY_ICON_CANVAS_WIDTH, BATTERY_ICON_CANVAS_HEIGHT,
-                         LV_COLOR_FORMAT_RGB565);
-    render_battery_canvas(w, w.dummy_battery_percent, true);
-
-    w.battery_percent_label = lv_label_create(battery_wrap);
-    lv_label_set_text(w.battery_percent_label, "--%");
-    lv_obj_set_style_text_font(w.battery_percent_label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(w.battery_percent_label, lv_color_hex(0xE0E0E0), 0);
-}
-
-void update_top_bar(UIWidgets &w) {
-    const std::time_t now_secs = std::time(nullptr);
-    if (w.clock_label && now_secs != w.last_clock_second) {
-        std::tm local_tm{};
-        localtime_r(&now_secs, &local_tm);
-        char time_buf[16];
-        if (std::strftime(time_buf, sizeof(time_buf), "%H:%M:%S", &local_tm) > 0) {
-            lv_label_set_text(w.clock_label, time_buf);
-        }
-        w.last_clock_second = now_secs;
-    }
-
-    const auto now_steady = std::chrono::steady_clock::now();
-    if (w.last_battery_update != std::chrono::steady_clock::time_point::min() &&
-        std::chrono::duration_cast<std::chrono::milliseconds>(now_steady - w.last_battery_update)
-                .count() < 1000) {
-        return;
-    }
-    w.last_battery_update = now_steady;
-
-    const bool waveshare =
-        (w.battery_source == "waveshare ups" || w.battery_source == "waveshareups");
-    if (waveshare) {
-        double percent = 0.0;
-        const bool valid = read_waveshare_ups_percent(percent);
-        update_battery_widgets(w, percent, valid);
-    } else {
-        update_battery_widgets(w, next_dummy_battery_percent(w), true);
-    }
-}
-
 HealthRow make_health_row(lv_obj_t *parent, const char *text) {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
@@ -555,110 +211,6 @@ void stop_reinit_pulse(UIWidgets &w) {
     lv_anim_delete(w.reinit_tile, pulse_bg_opa_cb);
     lv_obj_set_style_bg_opa(w.reinit_tile, LV_OPA_COVER, 0);
     w.reinit_pulsing = false;
-}
-
-cv::Scalar to_cv_bgr(Label label) {
-    ColorRGBf color = get_color_for_label(label);
-    return cv::Scalar(color.b * 255.0f, color.g * 255.0f, color.r * 255.0f);
-}
-
-bool project_field_point_to_pixel(const FieldDescription &field, const CameraInfo &camera_info,
-                                  double x, double y, double z, cv::Point &out) {
-    if (field.tf_camera_from_fieldcenter.tf.rows() < 3 ||
-        field.tf_camera_from_fieldcenter.tf.cols() < 4) {
-        return false;
-    }
-    if (camera_info.intrinsics.rows != 3 || camera_info.intrinsics.cols != 3) {
-        return false;
-    }
-    if (camera_info.width <= 0 || camera_info.height <= 0) return false;
-
-    const auto &tf = field.tf_camera_from_fieldcenter.tf;
-    const double cx = tf(0, 0) * x + tf(0, 1) * y + tf(0, 2) * z + tf(0, 3);
-    const double cy = tf(1, 0) * x + tf(1, 1) * y + tf(1, 2) * z + tf(1, 3);
-    const double cz = tf(2, 0) * x + tf(2, 1) * y + tf(2, 2) * z + tf(2, 3);
-    if (cz <= 1e-6) return false;
-
-    const double fx = camera_info.intrinsics.at<double>(0, 0);
-    const double fy = camera_info.intrinsics.at<double>(1, 1);
-    const double px0 = camera_info.intrinsics.at<double>(0, 2);
-    const double py0 = camera_info.intrinsics.at<double>(1, 2);
-
-    const double u = fx * (cx / cz) + px0;
-    const double v = fy * (cy / cz) + py0;
-    if (!std::isfinite(u) || !std::isfinite(v)) return false;
-    out = cv::Point(static_cast<int>(std::lround(u)), static_cast<int>(std::lround(v)));
-    return true;
-}
-
-void draw_robot_pose_arrows(cv::Mat &image, const RobotDescriptionsStamped &robots,
-                            const FieldDescription &field, const CameraInfo &camera_info) {
-    for (const auto &robot : robots.descriptions) {
-        Pose2D pose2d = pose_to_pose2d(robot.pose);
-        const double arrow_len_m = std::max(robot.size.x * 1.5, 0.1);
-        const double z = robot.pose.position.z + 0.01;
-
-        cv::Point start_px;
-        cv::Point end_px;
-        if (!project_field_point_to_pixel(field, camera_info, pose2d.x, pose2d.y, z, start_px))
-            continue;
-        if (!project_field_point_to_pixel(
-                field, camera_info, pose2d.x + arrow_len_m * std::cos(pose2d.yaw),
-                pose2d.y + arrow_len_m * std::sin(pose2d.yaw), z, end_px)) {
-            continue;
-        }
-        cv::arrowedLine(image, start_px, end_px, to_cv_bgr(robot.label), 2, cv::LINE_AA, 0, 0.25);
-    }
-}
-
-void draw_field_border(cv::Mat &image, const FieldDescription &field,
-                       const CameraInfo &camera_info) {
-    const double hx = field.size.size.x / 2.0;
-    const double hy = field.size.size.y / 2.0;
-    const std::array<cv::Point3d, 4> corners = {{
-        {-hx, -hy, 0.0},
-        {hx, -hy, 0.0},
-        {hx, hy, 0.0},
-        {-hx, hy, 0.0},
-    }};
-
-    std::array<cv::Point, 4> projected;
-    for (size_t i = 0; i < corners.size(); ++i) {
-        if (!project_field_point_to_pixel(field, camera_info, corners[i].x, corners[i].y,
-                                          corners[i].z, projected[i])) {
-            return;
-        }
-    }
-
-    for (size_t i = 0; i < projected.size(); ++i) {
-        const cv::Point &a = projected[i];
-        const cv::Point &b = projected[(i + 1) % projected.size()];
-        cv::line(image, a, b, cv::Scalar(0, 255, 0), 2, cv::LINE_AA);
-    }
-}
-
-void draw_target_path_overlay(cv::Mat &image, const std::optional<NavigationPathSegment> &path,
-                              const FieldDescription &field, const CameraInfo &camera_info) {
-    if (!path.has_value()) return;
-
-    cv::Point our_px;
-    cv::Point target_px;
-    if (project_field_point_to_pixel(field, camera_info, path->our_x, path->our_y, 0.01, our_px) &&
-        project_field_point_to_pixel(field, camera_info, path->target_x, path->target_y, 0.01,
-                                     target_px)) {
-        cv::line(image, our_px, target_px, cv::Scalar(0, 153, 255), 2, cv::LINE_AA);
-    }
-
-    if (project_field_point_to_pixel(field, camera_info, path->target_x, path->target_y, 0.01,
-                                     target_px)) {
-        constexpr int cross_half = 9;
-        cv::line(image, cv::Point(target_px.x - cross_half, target_px.y - cross_half),
-                 cv::Point(target_px.x + cross_half, target_px.y + cross_half),
-                 cv::Scalar(51, 51, 255), 2, cv::LINE_AA);
-        cv::line(image, cv::Point(target_px.x - cross_half, target_px.y + cross_half),
-                 cv::Point(target_px.x + cross_half, target_px.y - cross_half),
-                 cv::Scalar(51, 51, 255), 2, cv::LINE_AA);
-    }
 }
 
 void set_manual_target_ui_state(UIWidgets &w, bool active) {
@@ -931,7 +483,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     style_transparent(bot);
 
     for (int i = 0; i < 3; i++) {
-        opp_tile_data[i] = {ui_state, i + 1};
+        w.opp_tile_data[i] = {ui_state, &w, i + 1};
 
         lv_obj_t *tile = lv_obj_create(bot);
         lv_obj_set_flex_grow(tile, 1);
@@ -943,7 +495,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
                               LV_FLEX_ALIGN_CENTER);
         lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(tile, opp_cb, LV_EVENT_CLICKED, &opp_tile_data[i]);
+        lv_obj_add_event_cb(tile, opp_cb, LV_EVENT_CLICKED, &w.opp_tile_data[i]);
 
         lv_obj_set_style_border_color(tile, lv_color_hex(0x2979FF), LV_STATE_CHECKED);
         lv_obj_set_style_border_width(tile, 4, LV_STATE_CHECKED);
@@ -982,12 +534,12 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_add_flag(w.camera_touch, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(w.camera_touch, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    camera_touch_data.ui_state = ui_state;
-    camera_touch_data.widgets = &w;
-    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSED, &camera_touch_data);
-    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSING, &camera_touch_data);
-    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_RELEASED, &camera_touch_data);
-    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESS_LOST, &camera_touch_data);
+    w.camera_touch_data.ui_state = ui_state;
+    w.camera_touch_data.widgets = &w;
+    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSED, &w.camera_touch_data);
+    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSING, &w.camera_touch_data);
+    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_RELEASED, &w.camera_touch_data);
+    lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESS_LOST, &w.camera_touch_data);
 
     w.debug_img = lv_image_create(w.camera_touch);
     lv_obj_align(w.debug_img, LV_ALIGN_CENTER, 0, 0);
@@ -1118,7 +670,7 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
 
     for (size_t i = 0; i < specs.size(); ++i) {
         const auto &spec = specs[i];
-        system_action_tile_data[i] = {ui_state, &w, spec.action};
+        w.system_action_tile_data[i] = {ui_state, &w, spec.action};
 
         lv_obj_t *tile = lv_obj_create(actions_row);
         *spec.widget_slot = tile;
@@ -1134,7 +686,8 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
         lv_obj_set_style_bg_color(tile, spec.color, 0);
         lv_obj_set_style_bg_color(tile, lv_color_hex(0xBDBDBD), LV_STATE_PRESSED);
         lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, LV_STATE_PRESSED);
-        lv_obj_add_event_cb(tile, system_action_cb, LV_EVENT_CLICKED, &system_action_tile_data[i]);
+        lv_obj_add_event_cb(tile, system_action_cb, LV_EVENT_CLICKED,
+                            &w.system_action_tile_data[i]);
 
         lv_obj_t *title = lv_label_create(tile);
         lv_label_set_text(title, spec.title);
@@ -1213,7 +766,7 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
     int opp = 0;
     derive_robot_counts(robots, our_seen, opp);
     if (st.selected_opponent_count >= 1 && st.selected_opponent_count <= 3) {
-        selected_opponent_count = st.selected_opponent_count;
+        w.selected_opponent_count = st.selected_opponent_count;
     }
 
     update_rate_history(w, us, st.loop_rate_hz);
@@ -1313,7 +866,7 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
 
     for (int i = 0; i < 3; i++) {
         if (!w.opp_tiles[i]) continue;
-        if (selected_opponent_count == i + 1)
+        if (w.selected_opponent_count == i + 1)
             lv_obj_add_state(w.opp_tiles[i], LV_STATE_CHECKED);
         else
             lv_obj_remove_state(w.opp_tiles[i], LV_STATE_CHECKED);
@@ -1415,10 +968,10 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
     us->get_diagnostic_snapshots(snaps);
     for (const auto &snap : snaps) {
         std::string key = diag_section_key(snap);
-        auto it = diag_section_cache.find(key);
-        if (it == diag_section_cache.end()) {
-            diag_section_order.push_back(key);
-            diag_section_cache[key] = {snap, now};
+        auto it = w.diag_section_cache.find(key);
+        if (it == w.diag_section_cache.end()) {
+            w.diag_section_order.push_back(key);
+            w.diag_section_cache[key] = {snap, now};
         } else {
             it->second.first = snap;
             it->second.second = now;
@@ -1431,9 +984,9 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
 
     lv_obj_clean(w.sections_cont);
 
-    for (const std::string &key : diag_section_order) {
-        auto it = diag_section_cache.find(key);
-        if (it == diag_section_cache.end()) continue;
+    for (const std::string &key : w.diag_section_order) {
+        auto it = w.diag_section_cache.find(key);
+        if (it == w.diag_section_cache.end()) continue;
         const DiagnosticStatusSnapshot &snap = it->second.first;
         const std::chrono::steady_clock::time_point &updated = it->second.second;
         const double age_sec = std::chrono::duration<double>(now - updated).count();
@@ -1486,7 +1039,8 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
 }
 
 void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img_copy_dsc,
-                  std::vector<uint8_t> &img_copy) {
+                  std::vector<uint8_t> &img_copy,
+                  ui_internal::IDebugOverlayRenderer *overlay_renderer) {
     if (!w.debug_img || !us) return;
 
     int dw = 0, dh = 0, dc = 0;
@@ -1511,9 +1065,10 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
                     camera_info.height = dh;
                 }
                 cv::Mat image(dh, dw, dc == 4 ? CV_8UC4 : CV_8UC3, src_copy.data());
-                draw_field_border(image, *field_description, camera_info);
-                draw_robot_pose_arrows(image, robots, *field_description, camera_info);
-                draw_target_path_overlay(image, navigation_path, *field_description, camera_info);
+                if (overlay_renderer) {
+                    overlay_renderer->render(image, robots, navigation_path, *field_description,
+                                             camera_info);
+                }
             }
             w.camera_src_width = dw;
             w.camera_src_height = dh;
@@ -1561,62 +1116,9 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
 
 }  // namespace
 
-void run_ui_thread(std::shared_ptr<UIState> ui_state) {
-    if (!ui_state) return;
-
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        spdlog::error("UI thread failed to initialize SDL.");
-        return;
-    }
-
-    int w = 1280, h = 800;
-    ui_state->get_window_size(w, h);
-    if (w <= 0 || h <= 0) {
-        w = 1280;
-        h = 800;
-    }
-
-    lv_init();
-    lv_display_t *disp = lv_sdl_window_create(static_cast<int32_t>(w), static_cast<int32_t>(h));
-    if (!disp) {
-        SDL_Quit();
-        return;
-    }
-    lv_sdl_window_set_title(disp, "Auto BattleBot");
-
-    if (ui_state->get_fullscreen()) {
-        /* LVGL SDL driver stores driver_data as lv_sdl_window_t with window as first member */
-        void *driver_data = lv_display_get_driver_data(disp);
-        if (driver_data) {
-            SDL_Window *sdl_win = *static_cast<SDL_Window **>(driver_data);
-            if (sdl_win) SDL_SetWindowFullscreen(sdl_win, SDL_WINDOW_FULLSCREEN_DESKTOP);
-        }
-    }
-
-    lv_indev_t *mouse = lv_sdl_mouse_create();
-    lv_indev_t *mousewheel = lv_sdl_mousewheel_create();
-    lv_indev_t *keyboard = lv_sdl_keyboard_create();
-    (void)mouse;
-    (void)mousewheel;
-    (void)keyboard;
-
-    lv_obj_t *screen = lv_screen_active();
-    if (!screen) {
-        SDL_Quit();
-        return;
-    }
-
-    lv_obj_t *root = lv_obj_create(screen);
-    lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_set_style_pad_gap(root, 0, 0);
-    lv_obj_set_style_radius(root, 0, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    UIWidgets widgets = {};
-    widgets.battery_source = normalize_battery_source(ui_state->get_battery_source());
+namespace ui_internal {
+void build_ui_content(lv_obj_t *root, UIWidgets &widgets, std::shared_ptr<UIState> ui_state,
+                      UiFrameState &frame_state) {
     build_top_bar(root, widgets);
 
     lv_obj_t *tabview = lv_tabview_create(root);
@@ -1639,59 +1141,32 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
     lv_obj_t *tab_system = lv_tabview_add_tab(tabview, "System");
 
     widgets.tabview = tabview;
+    frame_state.tabview = tabview;
     build_home(tab_home, widgets, ui_state);
     build_diagnostics(tab_diag, widgets);
     build_system(tab_system, widgets, ui_state);
+}
 
-    lv_image_dsc_t img_dsc = {};
-    std::vector<uint8_t> img_copy;
-    int diag_frame = 0;
+void update_ui_content(UIWidgets &widgets, std::shared_ptr<UIState> ui_state,
+                       UiFrameState &frame_state, UiServices &services) {
+    uint32_t active_tab = lv_tabview_get_tab_active(frame_state.tabview);
+    if (services.battery_source) update_top_bar(widgets, *services.battery_source);
 
-    bool running = true;
-    const int delay_ms = 5;
-    while (running) {
-        if (ui_state->quit_requested.load()) {
-            spdlog::warn("UI thread observed quit_requested=true, exiting UI loop.");
-            break;
+    update_home(widgets, ui_state);
+    update_system(widgets, ui_state);
+
+    if (active_tab == 1) {
+        update_health_rows(widgets, ui_state);
+        if (++frame_state.diag_frame >= DIAG_REBUILD_INTERVAL) {
+            frame_state.diag_frame = 0;
+            rebuild_diag_sections(widgets, ui_state);
         }
-
-        SDL_Event event;
-        if (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT ||
-                (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE)) {
-                running = false;
-            } else {
-                SDL_PushEvent(&event);
-            }
-        }
-
-        ui_state->quit_requested.store(!running);
-        if (!running) break;
-
-        uint32_t active_tab = lv_tabview_get_tab_active(tabview);
-        update_top_bar(widgets);
-
-        update_home(widgets, ui_state);
-        update_system(widgets, ui_state);
-
-        if (active_tab == 1) {
-            update_health_rows(widgets, ui_state);
-            if (++diag_frame >= DIAG_REBUILD_INTERVAL) {
-                diag_frame = 0;
-                rebuild_diag_sections(widgets, ui_state);
-            }
-        } else {
-            diag_frame = DIAG_REBUILD_INTERVAL;
-        }
-
-        update_debug(widgets, ui_state, img_dsc, img_copy);
-
-        lv_tick_inc(delay_ms);
-        lv_timer_handler();
-        SDL_Delay(delay_ms);
+    } else {
+        frame_state.diag_frame = DIAG_REBUILD_INTERVAL;
     }
 
-    lv_sdl_quit();
-    SDL_Quit();
+    update_debug(widgets, ui_state, frame_state.image_dsc, frame_state.image_copy,
+                 services.debug_overlay_renderer.get());
 }
+}  // namespace ui_internal
 }  // namespace auto_battlebot
