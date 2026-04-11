@@ -12,10 +12,10 @@
 #include <vector>
 
 #include "data_structures/target_selection.hpp"
-#include "lvgl_ui_battery.hpp"
-#include "lvgl_ui_composition.hpp"
-#include "lvgl_ui_presenter.hpp"
-#include "lvgl_ui_widgets.hpp"
+#include "lvgl_platform_bound/lvgl_ui_battery.hpp"
+#include "lvgl_platform_bound/lvgl_ui_composition.hpp"
+#include "lvgl_platform_bound/lvgl_ui_presenter.hpp"
+#include "lvgl_platform_bound/lvgl_ui_widgets.hpp"
 #include "transform_utils.hpp"
 #include "ui/ui_runner.hpp"
 #include "ui/ui_state.hpp"
@@ -33,34 +33,32 @@ using ui_internal::TILE_RADIUS;
 using ui_internal::UIWidgets;
 
 void reinit_cb(lv_event_t *e) {
-    auto *us = static_cast<UIState *>(lv_event_get_user_data(e));
-    if (us) us->reinit_requested.store(true);
+    auto *w = static_cast<UIWidgets *>(lv_event_get_user_data(e));
+    if (w && w->controller) w->controller->request_reinitialize();
 }
 
 void opp_cb(lv_event_t *e) {
     auto *d = static_cast<OpponentTileData *>(lv_event_get_user_data(e));
-    if (d && d->ui_state) {
-        d->ui_state->opponent_count_requested.store(d->count);
+    if (d && d->widgets && d->widgets->controller) {
+        d->widgets->controller->set_opponent_count(d->count);
         if (d->widgets) d->widgets->selected_opponent_count = d->count;
     }
 }
 
 void autonomy_cb(lv_event_t *e) {
-    auto *us = static_cast<UIState *>(lv_event_get_user_data(e));
-    if (!us) return;
-    SystemStatus st;
-    us->get_system_status(st);
-    us->autonomy_toggle_requested.store(st.autonomy_enabled ? -1 : 1);
+    auto *w = static_cast<UIWidgets *>(lv_event_get_user_data(e));
+    if (!w || !w->controller) return;
+    w->controller->toggle_autonomy();
 }
 
 void recording_toggle_cb(lv_event_t *e) {
-    auto *us = static_cast<UIState *>(lv_event_get_user_data(e));
-    if (us) us->recording_toggle_requested.store(true);
+    auto *w = static_cast<UIWidgets *>(lv_event_get_user_data(e));
+    if (w && w->controller) w->controller->toggle_recording();
 }
 
 void system_action_cb(lv_event_t *e) {
     auto *d = static_cast<SystemActionTileData *>(lv_event_get_user_data(e));
-    if (!d || !d->ui_state || !d->widgets) return;
+    if (!d || !d->widgets) return;
     d->widgets->pending_confirm_action = d->action;
     if (d->widgets->confirm_message) {
         const char *msg = "Confirm action?";
@@ -88,9 +86,7 @@ void system_confirm_yes_cb(lv_event_t *e) {
         case UISystemAction::QUIT_APP:
         case UISystemAction::REBOOT_HOST:
         case UISystemAction::POWEROFF_HOST:
-            if (w->ui_state) {
-                w->ui_state->system_action_requested.store(static_cast<int>(action));
-            }
+            if (w->controller) w->controller->request_system_action(action);
             break;
         default:
             break;
@@ -260,11 +256,11 @@ bool project_image_pixel_to_field(const FieldDescription &field, const CameraInf
 
 void camera_touch_cb(lv_event_t *e) {
     auto *d = static_cast<CameraTouchData *>(lv_event_get_user_data(e));
-    if (!d || !d->ui_state || !d->widgets) return;
+    if (!d || !d->widgets || !d->widgets->ui_state) return;
 
     const lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        d->ui_state->set_manual_target(std::nullopt);
+        if (d->widgets->controller) d->widgets->controller->set_manual_target(std::nullopt);
         set_manual_target_ui_state(*d->widgets, false);
         return;
     }
@@ -274,9 +270,9 @@ void camera_touch_cb(lv_event_t *e) {
     if (!event_to_image_pixel(*d->widgets, e, img_x, img_y)) return;
 
     std::optional<FieldDescription> field;
-    d->ui_state->get_field_description(field);
+    d->widgets->ui_state->get_field_description(field);
     CameraInfo camera_info;
-    d->ui_state->get_camera_info(camera_info);
+    d->widgets->ui_state->get_camera_info(camera_info);
     if (!field.has_value()) return;
 
     Pose2D target_pose_field;
@@ -285,7 +281,7 @@ void camera_touch_cb(lv_event_t *e) {
                                       target_pose_field))
         return;
     TargetSelection target{target_pose_field, Label::EMPTY};
-    d->ui_state->set_manual_target(target);
+    if (d->widgets->controller) d->widgets->controller->set_manual_target(target);
     set_manual_target_ui_state(*d->widgets, true);
 }
 
@@ -293,7 +289,7 @@ void camera_touch_cb(lv_event_t *e) {
 /*  Home tab                                                          */
 /* ------------------------------------------------------------------ */
 
-void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) {
+void build_home(lv_obj_t *tab, UIWidgets &w) {
     lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(tab, 8, 0);
     lv_obj_set_style_pad_gap(tab, 8, 0);
@@ -368,7 +364,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_set_style_bg_color(at, lv_color_hex(0x757575), 0);
     lv_obj_set_style_bg_color(at, lv_color_hex(0xBDBDBD), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(at, LV_OPA_COVER, LV_STATE_PRESSED);
-    lv_obj_add_event_cb(at, autonomy_cb, LV_EVENT_CLICKED, ui_state.get());
+    lv_obj_add_event_cb(at, autonomy_cb, LV_EVENT_CLICKED, &w);
 
     w.autonomy_label = lv_label_create(at);
     lv_label_set_text(w.autonomy_label, "Autonomy\n--");
@@ -390,7 +386,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_set_style_bg_color(rt, lv_color_hex(0xBDBDBD),
                               LV_STATE_PRESSED); /* gray flash on press */
     lv_obj_set_style_bg_opa(rt, LV_OPA_COVER, LV_STATE_PRESSED);
-    lv_obj_add_event_cb(rt, reinit_cb, LV_EVENT_CLICKED, ui_state.get());
+    lv_obj_add_event_cb(rt, reinit_cb, LV_EVENT_CLICKED, &w);
 
     lv_obj_t *ri = lv_label_create(rt);
     lv_label_set_text(ri, LV_SYMBOL_REFRESH);
@@ -434,7 +430,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     style_transparent(bot);
 
     for (int i = 0; i < 3; i++) {
-        w.opp_tile_data[i] = {ui_state, &w, i + 1};
+        w.opp_tile_data[i] = {&w, i + 1};
 
         lv_obj_t *tile = lv_obj_create(bot);
         lv_obj_set_flex_grow(tile, 1);
@@ -485,7 +481,6 @@ void build_home(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) 
     lv_obj_add_flag(w.camera_touch, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(w.camera_touch, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    w.camera_touch_data.ui_state = ui_state;
     w.camera_touch_data.widgets = &w;
     lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSED, &w.camera_touch_data);
     lv_obj_add_event_cb(w.camera_touch, camera_touch_cb, LV_EVENT_PRESSING, &w.camera_touch_data);
@@ -583,7 +578,7 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
     lv_obj_set_style_bg_color(recording_tile, lv_color_hex(0x757575), 0);
     lv_obj_set_style_bg_color(recording_tile, lv_color_hex(0xBDBDBD), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(recording_tile, LV_OPA_COVER, LV_STATE_PRESSED);
-    lv_obj_add_event_cb(recording_tile, recording_toggle_cb, LV_EVENT_CLICKED, ui_state.get());
+    lv_obj_add_event_cb(recording_tile, recording_toggle_cb, LV_EVENT_CLICKED, &w);
 
     w.recording_label = lv_label_create(recording_tile);
     lv_label_set_text(w.recording_label, "Recording\n--");
@@ -621,7 +616,7 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
 
     for (size_t i = 0; i < specs.size(); ++i) {
         const auto &spec = specs[i];
-        w.system_action_tile_data[i] = {ui_state, &w, spec.action};
+        w.system_action_tile_data[i] = {&w, spec.action};
 
         lv_obj_t *tile = lv_obj_create(actions_row);
         *spec.widget_slot = tile;
@@ -955,6 +950,8 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
 namespace ui_internal {
 void build_ui_content(lv_obj_t *root, UIWidgets &widgets, std::shared_ptr<UIState> ui_state,
                       UiFrameState &frame_state) {
+    widgets.ui_state = ui_state;
+    widgets.controller = std::make_shared<UiController>(ui_state);
     build_top_bar(root, widgets);
 
     lv_obj_t *tabview = lv_tabview_create(root);
@@ -978,7 +975,7 @@ void build_ui_content(lv_obj_t *root, UIWidgets &widgets, std::shared_ptr<UIStat
 
     widgets.tabview = tabview;
     frame_state.tabview = tabview;
-    build_home(tab_home, widgets, ui_state);
+    build_home(tab_home, widgets);
     build_diagnostics(tab_diag, widgets);
     build_system(tab_system, widgets, ui_state);
 }

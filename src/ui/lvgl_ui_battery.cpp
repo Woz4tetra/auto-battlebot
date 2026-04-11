@@ -1,4 +1,4 @@
-#include "lvgl_ui_battery.hpp"
+#include "lvgl_platform_bound/lvgl_ui_battery.hpp"
 
 #include <fcntl.h>
 #include <linux/i2c-dev.h>

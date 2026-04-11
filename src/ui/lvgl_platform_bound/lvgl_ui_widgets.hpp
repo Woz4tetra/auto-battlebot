@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "lvgl_ui_controller.hpp"
 #include "ui/ui_state.hpp"
 
 namespace auto_battlebot::ui_internal {
@@ -37,19 +38,16 @@ constexpr int BATTERY_ICON_CAP_HEIGHT = 10;
 struct UIWidgets;
 
 struct OpponentTileData {
-    std::shared_ptr<UIState> ui_state;
     UIWidgets *widgets = nullptr;
     int count = 0;
 };
 
 struct SystemActionTileData {
-    std::shared_ptr<UIState> ui_state;
     UIWidgets *widgets = nullptr;
     UISystemAction action = UISystemAction::NONE;
 };
 
 struct CameraTouchData {
-    std::shared_ptr<UIState> ui_state;
     UIWidgets *widgets = nullptr;
 };
 
@@ -61,6 +59,7 @@ struct HealthRow {
 struct UIWidgets {
     lv_obj_t *tabview = nullptr;
     std::shared_ptr<UIState> ui_state;
+    std::shared_ptr<UiController> controller;
     lv_obj_t *top_bar = nullptr;
     lv_obj_t *clock_label = nullptr;
     lv_obj_t *battery_percent_label = nullptr;

@@ -1,4 +1,4 @@
-#include "lvgl_ui_overlay.hpp"
+#include "lvgl_platform_bound/lvgl_ui_overlay.hpp"
 
 #include <algorithm>
 #include <array>
@@ -8,7 +8,7 @@
 #include "data_structures/pose.hpp"
 #include "enums/label.hpp"
 #include "label_utils.hpp"
-#include "lvgl_ui_services.hpp"
+#include "lvgl_platform_bound/lvgl_ui_services.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot::ui_internal {

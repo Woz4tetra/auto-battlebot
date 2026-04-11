@@ -152,18 +152,39 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 link_directories(${ZED_LIBRARY_DIR})
 link_directories(${CUDA_LIBRARY_DIRS})
 
-# Create shared library with all auto_battlebot functionality
+# Create shared library with core auto_battlebot functionality
 file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES
     "src/*.cpp"
     "src/**/*.cpp"
 )
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
-# Keep LVGL/SDL UI units out of the shared library; they are linked directly
-# into the auto_battlebot executable to avoid shared-lib link issues.
+# Keep LVGL/SDL UI units out of the shared library.
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*lvgl_ui.*\\.cpp$")
 
 add_library(auto_battlebot_lib SHARED
     ${AUTO_BATTLEBOT_SOURCES}
+)
+
+# UI sources are built as a dedicated static library.
+# These sources are isolated under lvgl_platform_bound because they are tightly
+# coupled to LVGL/SDL runtime and desktop/UI-thread behavior.
+file(GLOB AUTO_BATTLEBOT_UI_SOURCES CONFIGURE_DEPENDS
+    "src/ui/lvgl_platform_bound/*.cpp"
+)
+
+add_library(auto_battlebot_ui STATIC
+    ${AUTO_BATTLEBOT_UI_SOURCES}
+)
+
+target_include_directories(auto_battlebot_ui PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(auto_battlebot_ui PUBLIC
+    lvgl::lvgl
+    ${SDL2_TARGET}
+    spdlog::spdlog
+    magic_enum::magic_enum
 )
 
 # Set library properties
@@ -236,18 +257,14 @@ if(BUILD_DEBUG)
     )
 endif()
 
-# Create main executable (UI implemented with LVGL + SDL2)
+# Create main executable
 add_executable(auto_battlebot
     src/main.cpp
-    src/ui/lvgl_ui.cpp
-    src/ui/lvgl_ui_battery.cpp
-    src/ui/lvgl_ui_overlay.cpp
-    src/ui/lvgl_ui_platform.cpp
-    src/ui/lvgl_ui_presenter.cpp
 )
 
 target_link_libraries(auto_battlebot
     auto_battlebot_lib
+    auto_battlebot_ui
     CLI11::CLI11
     lvgl::lvgl
     ${SDL2_TARGET}
@@ -255,11 +272,19 @@ target_link_libraries(auto_battlebot
 
 # Compiler flags for executable
 if(BUILD_DEBUG)
+    target_compile_options(auto_battlebot_ui PRIVATE
+        ${COMMON_COMPILE_FLAGS}
+        ${DEBUG_COMPILE_FLAGS}
+    )
     target_compile_options(auto_battlebot PRIVATE
         ${COMMON_COMPILE_FLAGS}
         ${DEBUG_COMPILE_FLAGS}
     )
 else()
+    target_compile_options(auto_battlebot_ui PRIVATE
+        ${COMMON_COMPILE_FLAGS}
+        ${RELEASE_COMPILE_FLAGS}
+    )
     target_compile_options(auto_battlebot PRIVATE
         ${COMMON_COMPILE_FLAGS}
         ${RELEASE_COMPILE_FLAGS}

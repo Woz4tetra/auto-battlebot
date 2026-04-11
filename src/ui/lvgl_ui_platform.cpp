@@ -6,8 +6,8 @@
 #include <memory>
 #include <string>
 
-#include "lvgl_ui_battery.hpp"
-#include "lvgl_ui_composition.hpp"
+#include "lvgl_platform_bound/lvgl_ui_battery.hpp"
+#include "lvgl_platform_bound/lvgl_ui_composition.hpp"
 #include "ui/ui_runner.hpp"
 #include "ui/ui_state.hpp"
 
@@ -96,7 +96,13 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
             }
         }
 
-        ui_state->quit_requested.store(!running);
+        if (!running) {
+            if (widgets.controller) {
+                widgets.controller->request_quit();
+            } else {
+                ui_state->quit_requested.store(true);
+            }
+        }
         if (!running) break;
 
         ui_internal::update_ui_content(widgets, ui_state, frame_state, services);
