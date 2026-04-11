@@ -100,8 +100,8 @@ autonomy_enabled_by_default = true
 [ui]
 enable = true
 fullscreen = true
-width = 1280
-height = 800
+width = 1024
+height = 600
 battery_source = "None"
 
 [mcap]
