@@ -3,11 +3,18 @@
 #include <lvgl.h>
 #include <spdlog/spdlog.h>
 
+#include <fcntl.h>
+#include <linux/i2c-dev.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <ctime>
 #include <deque>
 #include <map>
 #include <memory>
@@ -26,6 +33,7 @@
 
 namespace auto_battlebot {
 namespace {
+constexpr int TOP_BAR_HEIGHT = 40;
 constexpr int TAB_BAR_HEIGHT = 56;
 constexpr int TILE_RADIUS = 12;
 constexpr int TILE_PAD = 16;
@@ -33,6 +41,12 @@ constexpr int DIAG_REBUILD_INTERVAL = 30;
 /** Sections not updated in this many seconds are shown gray (stale). */
 constexpr double DIAG_STALE_SEC = 2.0;
 constexpr int CAMERA_PANEL_WIDTH_PCT = 66;
+constexpr uint8_t INA219_REG_BUSVOLTAGE = 0x02;
+constexpr uint8_t INA219_REG_CALIBRATION = 0x05;
+constexpr uint16_t INA219_CALIBRATION_16V_5A = 26868;
+constexpr int BATTERY_I2C_BUS = 1;
+constexpr int BATTERY_I2C_ADDRESS = 0x41;
+constexpr int BATTERY_ICON_FILL_MAX_WIDTH = 20;
 
 static int selected_opponent_count = 0;
 
@@ -70,6 +84,16 @@ struct HealthRow {
 struct UIWidgets {
     lv_obj_t *tabview = nullptr;
     std::shared_ptr<UIState> ui_state;
+    lv_obj_t *top_bar = nullptr;
+    lv_obj_t *clock_label = nullptr;
+    lv_obj_t *battery_percent_label = nullptr;
+    lv_obj_t *battery_icon_fill = nullptr;
+    std::time_t last_clock_second = -1;
+    std::chrono::steady_clock::time_point last_battery_update =
+        std::chrono::steady_clock::time_point::min();
+    double dummy_battery_percent = 75.0;
+    bool dummy_battery_descending = false;
+    std::string battery_source = "waveshare ups";
 
     lv_obj_t *status_tile = nullptr; /* whole tile colored by status */
     lv_obj_t *status_label = nullptr;
@@ -241,6 +265,176 @@ void style_transparent(lv_obj_t *obj) {
     lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(obj, 0, 0);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+std::string normalize_battery_source(std::string source) {
+    std::transform(source.begin(), source.end(), source.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return source;
+}
+
+bool write_i2c_register_u16(int fd, uint8_t reg, uint16_t value) {
+    uint8_t payload[3] = {reg, static_cast<uint8_t>((value >> 8) & 0xFF),
+                          static_cast<uint8_t>(value & 0xFF)};
+    return write(fd, payload, sizeof(payload)) == static_cast<ssize_t>(sizeof(payload));
+}
+
+bool read_i2c_register_u16(int fd, uint8_t reg, uint16_t &value) {
+    uint8_t reg_addr = reg;
+    if (write(fd, &reg_addr, sizeof(reg_addr)) != static_cast<ssize_t>(sizeof(reg_addr))) {
+        return false;
+    }
+    uint8_t data[2] = {0, 0};
+    if (read(fd, data, sizeof(data)) != static_cast<ssize_t>(sizeof(data))) {
+        return false;
+    }
+    value = static_cast<uint16_t>((static_cast<uint16_t>(data[0]) << 8) | data[1]);
+    return true;
+}
+
+bool read_waveshare_ups_percent(double &percent_out) {
+    const std::string dev_path = "/dev/i2c-" + std::to_string(BATTERY_I2C_BUS);
+    int fd = open(dev_path.c_str(), O_RDWR);
+    if (fd < 0) return false;
+    if (ioctl(fd, I2C_SLAVE, BATTERY_I2C_ADDRESS) < 0) {
+        close(fd);
+        return false;
+    }
+
+    bool ok = write_i2c_register_u16(fd, INA219_REG_CALIBRATION, INA219_CALIBRATION_16V_5A);
+    uint16_t raw_bus_voltage = 0;
+    if (ok) ok = read_i2c_register_u16(fd, INA219_REG_BUSVOLTAGE, raw_bus_voltage);
+    close(fd);
+    if (!ok) return false;
+
+    const double bus_voltage_v = static_cast<double>(raw_bus_voltage >> 3U) * 0.004;
+    percent_out = std::clamp(((bus_voltage_v - 9.0) / 3.6) * 100.0, 0.0, 100.0);
+    return true;
+}
+
+double next_dummy_battery_percent(UIWidgets &w) {
+    (void)w;
+    return 100.0;
+}
+
+void update_battery_widgets(UIWidgets &w, double percent, bool valid) {
+    if (!w.battery_percent_label || !w.battery_icon_fill) return;
+
+    if (!valid) {
+        lv_label_set_text(w.battery_percent_label, "--%");
+        lv_obj_set_width(w.battery_icon_fill, 0);
+        lv_obj_set_style_bg_color(w.battery_icon_fill, lv_color_hex(0x616161), 0);
+        return;
+    }
+
+    char percent_buf[8];
+    snprintf(percent_buf, sizeof(percent_buf), "%d%%", static_cast<int>(std::lround(percent)));
+    lv_label_set_text(w.battery_percent_label, percent_buf);
+
+    const int fill_w = static_cast<int>(std::lround((percent / 100.0) * BATTERY_ICON_FILL_MAX_WIDTH));
+    lv_obj_set_width(w.battery_icon_fill, std::clamp(fill_w, 0, BATTERY_ICON_FILL_MAX_WIDTH));
+
+    lv_color_t color = lv_color_hex(0x00C853);
+    if (percent < 20.0) {
+        color = lv_color_hex(0xFF1744);
+    } else if (percent < 50.0) {
+        color = lv_color_hex(0xFFC107);
+    }
+    lv_obj_set_style_bg_color(w.battery_icon_fill, color, 0);
+}
+
+void build_top_bar(lv_obj_t *parent, UIWidgets &w) {
+    lv_obj_t *bar = lv_obj_create(parent);
+    w.top_bar = bar;
+    lv_obj_set_width(bar, LV_PCT(100));
+    lv_obj_set_height(bar, TOP_BAR_HEIGHT);
+    lv_obj_set_style_pad_hor(bar, 12, 0);
+    lv_obj_set_style_pad_ver(bar, 4, 0);
+    lv_obj_set_style_pad_gap(bar, 8, 0);
+    lv_obj_set_style_radius(bar, 0, 0);
+    lv_obj_set_style_border_width(bar, 0, 0);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0x111111), 0);
+    lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+
+    w.clock_label = lv_label_create(bar);
+    lv_label_set_text(w.clock_label, "--:--:--");
+    lv_obj_set_style_text_font(w.clock_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(w.clock_label, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_center(w.clock_label);
+
+    lv_obj_t *battery_wrap = lv_obj_create(bar);
+    lv_obj_set_height(battery_wrap, LV_SIZE_CONTENT);
+    lv_obj_set_width(battery_wrap, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_all(battery_wrap, 0, 0);
+    lv_obj_set_style_pad_gap(battery_wrap, 8, 0);
+    lv_obj_set_style_radius(battery_wrap, 0, 0);
+    lv_obj_set_style_border_width(battery_wrap, 0, 0);
+    lv_obj_set_style_bg_opa(battery_wrap, LV_OPA_TRANSP, 0);
+    lv_obj_set_flex_flow(battery_wrap, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(battery_wrap, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(battery_wrap, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(battery_wrap, LV_ALIGN_RIGHT_MID, -8, 0);
+
+    lv_obj_t *battery_shell = lv_obj_create(battery_wrap);
+    lv_obj_set_size(battery_shell, 26, 14);
+    lv_obj_set_style_pad_all(battery_shell, 1, 0);
+    lv_obj_set_style_radius(battery_shell, 2, 0);
+    lv_obj_set_style_bg_opa(battery_shell, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(battery_shell, 2, 0);
+    lv_obj_set_style_border_color(battery_shell, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_clear_flag(battery_shell, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *battery_fill = lv_obj_create(battery_shell);
+    w.battery_icon_fill = battery_fill;
+    lv_obj_set_size(battery_fill, BATTERY_ICON_FILL_MAX_WIDTH, 8);
+    lv_obj_set_style_radius(battery_fill, 1, 0);
+    lv_obj_set_style_border_width(battery_fill, 0, 0);
+    lv_obj_set_style_bg_color(battery_fill, lv_color_hex(0x00C853), 0);
+    lv_obj_align(battery_fill, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_clear_flag(battery_fill, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *battery_cap = lv_obj_create(battery_wrap);
+    lv_obj_set_size(battery_cap, 3, 8);
+    lv_obj_set_style_radius(battery_cap, 1, 0);
+    lv_obj_set_style_border_width(battery_cap, 0, 0);
+    lv_obj_set_style_bg_color(battery_cap, lv_color_hex(0xE0E0E0), 0);
+    lv_obj_clear_flag(battery_cap, LV_OBJ_FLAG_SCROLLABLE);
+
+    w.battery_percent_label = lv_label_create(battery_wrap);
+    lv_label_set_text(w.battery_percent_label, "--%");
+    lv_obj_set_style_text_font(w.battery_percent_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(w.battery_percent_label, lv_color_hex(0xE0E0E0), 0);
+}
+
+void update_top_bar(UIWidgets &w) {
+    const std::time_t now_secs = std::time(nullptr);
+    if (w.clock_label && now_secs != w.last_clock_second) {
+        std::tm local_tm{};
+        localtime_r(&now_secs, &local_tm);
+        char time_buf[16];
+        if (std::strftime(time_buf, sizeof(time_buf), "%H:%M:%S", &local_tm) > 0) {
+            lv_label_set_text(w.clock_label, time_buf);
+        }
+        w.last_clock_second = now_secs;
+    }
+
+    const auto now_steady = std::chrono::steady_clock::now();
+    if (w.last_battery_update != std::chrono::steady_clock::time_point::min() &&
+        std::chrono::duration_cast<std::chrono::milliseconds>(now_steady - w.last_battery_update)
+                .count() < 1000) {
+        return;
+    }
+    w.last_battery_update = now_steady;
+
+    const bool waveshare =
+        (w.battery_source == "waveshare ups" || w.battery_source == "waveshareups");
+    if (waveshare) {
+        double percent = 0.0;
+        const bool valid = read_waveshare_ups_percent(percent);
+        update_battery_widgets(w, percent, valid);
+    } else {
+        update_battery_widgets(w, next_dummy_battery_percent(w), true);
+    }
 }
 
 HealthRow make_health_row(lv_obj_t *parent, const char *text) {
@@ -1344,8 +1538,22 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
         return;
     }
 
-    lv_obj_t *tabview = lv_tabview_create(screen);
-    lv_obj_set_size(tabview, LV_PCT(100), LV_PCT(100));
+    lv_obj_t *root = lv_obj_create(screen);
+    lv_obj_set_size(root, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_pad_all(root, 0, 0);
+    lv_obj_set_style_pad_gap(root, 0, 0);
+    lv_obj_set_style_radius(root, 0, 0);
+    lv_obj_set_style_border_width(root, 0, 0);
+    lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+
+    UIWidgets widgets = {};
+    widgets.battery_source = normalize_battery_source(ui_state->get_battery_source());
+    build_top_bar(root, widgets);
+
+    lv_obj_t *tabview = lv_tabview_create(root);
+    lv_obj_set_width(tabview, LV_PCT(100));
+    lv_obj_set_flex_grow(tabview, 1);
     lv_obj_set_style_pad_all(tabview, 0, 0);
     lv_tabview_set_tab_bar_size(tabview, TAB_BAR_HEIGHT);
     lv_obj_clear_flag(tabview, LV_OBJ_FLAG_SCROLLABLE);
@@ -1362,7 +1570,6 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
     lv_obj_t *tab_diag = lv_tabview_add_tab(tabview, "Diagnostics");
     lv_obj_t *tab_system = lv_tabview_add_tab(tabview, "System");
 
-    UIWidgets widgets = {};
     widgets.tabview = tabview;
     build_home(tab_home, widgets, ui_state);
     build_diagnostics(tab_diag, widgets);
@@ -1394,6 +1601,7 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
         if (!running) break;
 
         uint32_t active_tab = lv_tabview_get_tab_active(tabview);
+        update_top_bar(widgets);
 
         update_home(widgets, ui_state);
         update_system(widgets, ui_state);

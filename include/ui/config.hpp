@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <stdexcept>
+#include <string>
 
 #include "config/config_cast.hpp"
 #include "config/config_factory.hpp"
@@ -25,6 +26,8 @@ struct UiConfiguration {
     double rate_fail_threshold = 0.5;
     /** Seconds the rate must be below threshold before showing error (prevents strobing). */
     double rate_fail_duration_sec = 2.0;
+    /** Battery source for top bar status ("Waveshare UPS" or "None"). */
+    std::string battery_source = "Waveshare UPS";
 
     // clang-format off
         PARSE_CONFIG_FIELDS(
@@ -35,6 +38,7 @@ struct UiConfiguration {
             PARSE_FIELD(rate_avg_window)
             PARSE_FIELD_DOUBLE(rate_fail_threshold)
             PARSE_FIELD_DOUBLE(rate_fail_duration_sec)
+            PARSE_FIELD_STRING(battery_source)
         )
     // clang-format on
 };

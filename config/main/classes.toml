@@ -102,6 +102,7 @@ enable = true
 fullscreen = true
 width = 1280
 height = 800
+battery_source = "Waveshare UPS"
 
 [mcap]
 enable = true

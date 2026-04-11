@@ -114,6 +114,7 @@ autonomy_enabled_by_default = true
 [ui]
 enable = true
 fullscreen = false
+battery_source = "None"
 
 [mcap]
 enable = true

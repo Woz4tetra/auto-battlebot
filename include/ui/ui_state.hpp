@@ -105,6 +105,8 @@ class UIState {
 
     void set_fullscreen(bool fullscreen);
     bool get_fullscreen() const;
+    void set_battery_source(const std::string &battery_source);
+    std::string get_battery_source() const;
 
     /** Rolling average window size for loop_rate_hz (number of samples). Set before starting UI
      * thread. */
@@ -142,6 +144,7 @@ class UIState {
     int window_width_ = 1280;
     int window_height_ = 800;
     bool fullscreen_ = true;
+    std::string battery_source_ = "Waveshare UPS";
     int rate_avg_window_ = 10;
     double max_loop_rate_hz_ = 300.0;
     double rate_fail_threshold_ = 0.5;
