@@ -1,7 +1,7 @@
 #pragma once
 
 #include <chrono>
-#include <string>
+#include <cstdint>
 #include <vector>
 
 #include "lvgl_platform_bound/lvgl_ui_services.hpp"
@@ -12,6 +12,9 @@ enum class BatteryFlowDirection { Discharge, Charge };
 
 struct BatterySample {
     std::chrono::steady_clock::time_point timestamp = std::chrono::steady_clock::now();
+    uint16_t raw_bus_voltage = 0;
+    int16_t raw_current = 0;
+    int16_t raw_power = 0;
     double bus_voltage_v = 0.0;
     double current_a = 0.0;
     double power_w = 0.0;
@@ -29,6 +32,8 @@ class BatterySocEstimator {
     explicit BatterySocEstimator(const BatteryOptions &options = {});
 
     BatteryReading update(const BatterySample &sample);
+    void log_diagnostics(const BatterySample &sample, const BatteryReading &reading,
+                         const BatteryOptions &source_options, bool read_ok) const;
     double debug_soc_percent() const;
     double debug_table_soc(size_t idx, BatteryFlowDirection direction) const;
 

@@ -8,6 +8,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "diagnostics_logger/diagnostics_backend_interface.hpp"
+#include "diagnostics_logger/diagnostics_logger.hpp"
 #include "directories.hpp"
 
 namespace auto_battlebot::ui_internal {
@@ -195,6 +197,74 @@ BatteryReading BatterySocEstimator::update(const BatterySample &sample) {
     }
 
     return {.percent = std::clamp(display_percent_, 0.0, 100.0), .valid = true};
+}
+
+void BatterySocEstimator::log_diagnostics(const BatterySample &sample,
+                                          const BatteryReading &reading,
+                                          const BatteryOptions &source_options,
+                                          bool read_ok) const {
+    if (!auto_battlebot::DiagnosticsLogger::is_initialized()) return;
+    static std::shared_ptr<auto_battlebot::DiagnosticsModuleLogger> logger =
+        auto_battlebot::DiagnosticsLogger::get_logger("battery_ina219");
+    if (!logger) return;
+
+    DiagnosticsData measurement_data;
+    measurement_data["read_ok"] = read_ok ? 1 : 0;
+    measurement_data["sample_valid"] = sample.valid ? 1 : 0;
+    measurement_data["i2c_bus"] = source_options.i2c_bus;
+    measurement_data["i2c_address"] = source_options.i2c_address;
+    measurement_data["raw_bus_voltage"] = static_cast<int>(sample.raw_bus_voltage);
+    measurement_data["raw_current"] = static_cast<int>(sample.raw_current);
+    measurement_data["raw_power"] = static_cast<int>(sample.raw_power);
+    measurement_data["bus_voltage_v"] = sample.bus_voltage_v;
+    measurement_data["current_a"] = sample.current_a;
+    measurement_data["power_w"] = sample.power_w;
+
+    DiagnosticsData derived_data;
+    derived_data["ui_percent"] = reading.percent;
+    derived_data["ui_valid"] = reading.valid ? 1 : 0;
+    derived_data["soc_percent"] = soc_percent_;
+    derived_data["display_percent"] = display_percent_;
+    derived_data["has_estimate"] = has_estimate_ ? 1 : 0;
+    derived_data["has_last_sample"] = has_last_sample_ ? 1 : 0;
+    derived_data["invalid_streak"] = invalid_streak_;
+    derived_data["near_rest_sec"] = near_rest_sec_;
+    derived_data["last_voltage_v"] = last_voltage_v_;
+    derived_data["last_direction_discharge"] =
+        (last_direction_ == BatteryFlowDirection::Discharge) ? 1 : 0;
+
+    std::vector<double> discharge_voltage;
+    std::vector<double> discharge_soc;
+    std::vector<double> discharge_samples;
+    for (const auto &point : ocv_discharge_) {
+        discharge_voltage.push_back(point.voltage_v);
+        discharge_soc.push_back(point.soc_percent);
+        discharge_samples.push_back(point.learned_samples);
+    }
+    derived_data["ocv_discharge_voltage_v"] = discharge_voltage;
+    derived_data["ocv_discharge_soc_percent"] = discharge_soc;
+    derived_data["ocv_discharge_learned_samples"] = discharge_samples;
+
+    std::vector<double> charge_voltage;
+    std::vector<double> charge_soc;
+    std::vector<double> charge_samples;
+    for (const auto &point : ocv_charge_) {
+        charge_voltage.push_back(point.voltage_v);
+        charge_soc.push_back(point.soc_percent);
+        charge_samples.push_back(point.learned_samples);
+    }
+    derived_data["ocv_charge_voltage_v"] = charge_voltage;
+    derived_data["ocv_charge_soc_percent"] = charge_soc;
+    derived_data["ocv_charge_learned_samples"] = charge_samples;
+
+    if (read_ok && reading.valid) {
+        logger->debug("measurement", measurement_data);
+        logger->debug("derived", derived_data);
+    } else {
+        logger->warning("measurement", measurement_data, "INA219 read failed");
+        logger->warning("derived", derived_data,
+                        "Battery estimate degraded due to sensor read failure");
+    }
 }
 
 double BatterySocEstimator::debug_soc_percent() const { return soc_percent_; }
