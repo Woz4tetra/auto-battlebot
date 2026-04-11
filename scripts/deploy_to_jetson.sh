@@ -56,4 +56,9 @@ else
     echo "No local models/ directory found, skipping models sync."
 fi
 
-echo "Deploy complete."
+# ── Remote build/install ──────────────────────────────────────────────────────
+# Run the Jetson-side build/install script only after sync steps complete.
+echo "Running remote build/install on ${JETSON_HOST}..."
+ssh "${JETSON_USER}@${JETSON_HOST}" "bash -lc 'cd ${JETSON_PATH} && scripts/build_and_install.sh'"
+
+echo "Deploy and remote build complete."

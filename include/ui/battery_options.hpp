@@ -8,7 +8,7 @@ struct BatteryOptions {
     int i2c_bus = 7;
     int i2c_address = 0x41;
     double battery_capacity_ah = 5.0;
-    double rest_current_threshold_a = 0.12;
+    double rest_current_threshold_a = 2.0;
     double rest_stability_delta_v = 0.01;
     double rest_window_sec = 20.0;
     double ocv_correction_gain = 0.08;
