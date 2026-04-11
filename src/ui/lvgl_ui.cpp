@@ -1,17 +1,16 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
-#include <lvgl.h>
-#include <spdlog/spdlog.h>
-
 #include <fcntl.h>
 #include <linux/i2c-dev.h>
+#include <lvgl.h>
+#include <spdlog/spdlog.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <ctime>
@@ -46,10 +45,10 @@ constexpr uint8_t INA219_REG_CALIBRATION = 0x05;
 constexpr uint16_t INA219_CALIBRATION_16V_5A = 26868;
 constexpr int BATTERY_I2C_BUS = 1;
 constexpr int BATTERY_I2C_ADDRESS = 0x41;
-constexpr int BATTERY_ICON_CANVAS_WIDTH = 56;
-constexpr int BATTERY_ICON_CANVAS_HEIGHT = 22;
-constexpr int BATTERY_ICON_SHELL_X = 1;
-constexpr int BATTERY_ICON_SHELL_Y = 1;
+constexpr int BATTERY_ICON_CANVAS_WIDTH = 60;
+constexpr int BATTERY_ICON_CANVAS_HEIGHT = 24;
+constexpr int BATTERY_ICON_SHELL_X = 3;
+constexpr int BATTERY_ICON_SHELL_Y = 2;
 constexpr int BATTERY_ICON_SHELL_WIDTH = 44;
 constexpr int BATTERY_ICON_SHELL_HEIGHT = 20;
 constexpr int BATTERY_ICON_FILL_MAX_WIDTH = 34;
@@ -244,7 +243,8 @@ void system_action_cb(lv_event_t *e) {
         }
         lv_label_set_text(d->widgets->confirm_message, msg);
     }
-    if (d->widgets->confirm_overlay) lv_obj_clear_flag(d->widgets->confirm_overlay, LV_OBJ_FLAG_HIDDEN);
+    if (d->widgets->confirm_overlay)
+        lv_obj_clear_flag(d->widgets->confirm_overlay, LV_OBJ_FLAG_HIDDEN);
 }
 
 void system_confirm_yes_cb(lv_event_t *e) {
@@ -327,7 +327,7 @@ bool read_waveshare_ups_percent(double &percent_out) {
 
 double next_dummy_battery_percent(UIWidgets &w) {
     (void)w;
-    return 100.0;
+    return 75.0;
 }
 
 void render_battery_canvas(UIWidgets &w, double percent, bool valid) {
@@ -346,9 +346,9 @@ void render_battery_canvas(UIWidgets &w, double percent, bool valid) {
     shell_dsc.border_color = lv_color_hex(0xE0E0E0);
     shell_dsc.border_opa = LV_OPA_COVER;
     const lv_area_t shell_area = {.x1 = BATTERY_ICON_SHELL_X,
-                                   .y1 = BATTERY_ICON_SHELL_Y,
-                                   .x2 = BATTERY_ICON_SHELL_X + BATTERY_ICON_SHELL_WIDTH - 1,
-                                   .y2 = BATTERY_ICON_SHELL_Y + BATTERY_ICON_SHELL_HEIGHT - 1};
+                                  .y1 = BATTERY_ICON_SHELL_Y,
+                                  .x2 = BATTERY_ICON_SHELL_X + BATTERY_ICON_SHELL_WIDTH - 1,
+                                  .y2 = BATTERY_ICON_SHELL_Y + BATTERY_ICON_SHELL_HEIGHT - 1};
     lv_draw_rect(&layer, &shell_dsc, &shell_area);
 
     lv_color_t fill_color = lv_color_hex(0x00C853);
@@ -359,11 +359,11 @@ void render_battery_canvas(UIWidgets &w, double percent, bool valid) {
     } else if (percent < 50.0) {
         fill_color = lv_color_hex(0xFFC107);
     }
-    const int fill_w = valid
-                           ? std::clamp(static_cast<int>(std::lround((percent / 100.0) *
-                                                                     BATTERY_ICON_FILL_MAX_WIDTH)),
-                                        0, BATTERY_ICON_FILL_MAX_WIDTH)
-                           : 0;
+    const int fill_w =
+        valid ? std::clamp(
+                    static_cast<int>(std::lround((percent / 100.0) * BATTERY_ICON_FILL_MAX_WIDTH)),
+                    0, BATTERY_ICON_FILL_MAX_WIDTH)
+              : 0;
     if (fill_w > 0) {
         lv_draw_rect_dsc_t fill_dsc;
         lv_draw_rect_dsc_init(&fill_dsc);
@@ -372,10 +372,11 @@ void render_battery_canvas(UIWidgets &w, double percent, bool valid) {
         fill_dsc.bg_opa = LV_OPA_COVER;
         fill_dsc.border_width = 0;
         const lv_area_t fill_area = {
-            .x1 = BATTERY_ICON_SHELL_X + 2,
+            .x1 = BATTERY_ICON_SHELL_X + 4,
             .y1 = BATTERY_ICON_SHELL_Y + (BATTERY_ICON_SHELL_HEIGHT - BATTERY_ICON_FILL_HEIGHT) / 2,
-            .x2 = BATTERY_ICON_SHELL_X + 2 + fill_w - 1,
-            .y2 = BATTERY_ICON_SHELL_Y + (BATTERY_ICON_SHELL_HEIGHT - BATTERY_ICON_FILL_HEIGHT) / 2 +
+            .x2 = BATTERY_ICON_SHELL_X + 6 + fill_w - 1,
+            .y2 = BATTERY_ICON_SHELL_Y +
+                  (BATTERY_ICON_SHELL_HEIGHT - BATTERY_ICON_FILL_HEIGHT) / 2 +
                   BATTERY_ICON_FILL_HEIGHT - 1};
         lv_draw_rect(&layer, &fill_dsc, &fill_area);
     }
@@ -442,19 +443,21 @@ void build_top_bar(lv_obj_t *parent, UIWidgets &w) {
 
     lv_obj_t *battery_wrap = lv_obj_create(bar);
     lv_obj_set_height(battery_wrap, LV_SIZE_CONTENT);
-    lv_obj_set_width(battery_wrap, LV_SIZE_CONTENT);
+    lv_obj_set_width(battery_wrap, LV_PCT(100));
     lv_obj_set_style_pad_all(battery_wrap, 0, 0);
     lv_obj_set_style_pad_gap(battery_wrap, 4, 0);
     lv_obj_set_style_radius(battery_wrap, 0, 0);
     lv_obj_set_style_border_width(battery_wrap, 0, 0);
     lv_obj_set_style_bg_opa(battery_wrap, LV_OPA_TRANSP, 0);
     lv_obj_set_flex_flow(battery_wrap, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(battery_wrap, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(battery_wrap, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(battery_wrap, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(battery_wrap, LV_ALIGN_RIGHT_MID, -8, 0);
 
     w.battery_icon_canvas = lv_canvas_create(battery_wrap);
     lv_obj_set_size(w.battery_icon_canvas, BATTERY_ICON_CANVAS_WIDTH, BATTERY_ICON_CANVAS_HEIGHT);
+    lv_obj_set_style_pad_all(w.battery_icon_canvas, 0, 0);
     lv_obj_set_style_bg_opa(w.battery_icon_canvas, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(w.battery_icon_canvas, 0, 0);
     lv_obj_clear_flag(w.battery_icon_canvas, LV_OBJ_FLAG_SCROLLABLE);
@@ -1124,7 +1127,8 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
         lv_obj_set_style_radius(tile, TILE_RADIUS, 0);
         lv_obj_set_style_pad_all(tile, TILE_PAD, 0);
         lv_obj_set_flex_flow(tile, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(tile, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_flex_align(tile, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                              LV_FLEX_ALIGN_CENTER);
         lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_bg_color(tile, spec.color, 0);
@@ -1323,14 +1327,15 @@ void update_system(UIWidgets &w, std::shared_ptr<UIState> us) {
 
     if (w.recording_tile) {
         lv_obj_set_style_bg_color(
-            w.recording_tile, st.recording_enabled ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744),
-            0);
+            w.recording_tile,
+            st.recording_enabled ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744), 0);
     }
     if (w.recording_label) {
-        lv_label_set_text(w.recording_label, st.recording_enabled ? "Recording\nON" : "Recording\nOFF");
+        lv_label_set_text(w.recording_label,
+                          st.recording_enabled ? "Recording\nON" : "Recording\nOFF");
         lv_obj_set_style_text_color(
-            w.recording_label, st.recording_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF),
-            0);
+            w.recording_label,
+            st.recording_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF), 0);
     }
     if (w.recording_detail) {
         char buf[96];
@@ -1338,8 +1343,8 @@ void update_system(UIWidgets &w, std::shared_ptr<UIState> us) {
                  st.mcap_recording_enabled ? "ON" : "OFF");
         lv_label_set_text(w.recording_detail, buf);
         lv_obj_set_style_text_color(
-            w.recording_detail, st.recording_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFAFAFA),
-            0);
+            w.recording_detail,
+            st.recording_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFAFAFA), 0);
     }
 }
 
