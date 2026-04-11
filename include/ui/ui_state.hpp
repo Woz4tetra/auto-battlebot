@@ -99,7 +99,7 @@ class UIState {
     void set_camera_info(const CameraInfo &camera_info);
     void get_camera_info(CameraInfo &out) const;
 
-    /** Window size for UI (from config [ui]; default 1280x800). Set before starting UI thread. */
+    /** Window size for UI (from config [ui]; default 1024x600). Set before starting UI thread. */
     void set_window_size(int width, int height);
     void get_window_size(int &width, int &height) const;
 
@@ -141,8 +141,8 @@ class UIState {
     std::optional<TargetSelection> manual_target_;
     std::optional<FieldDescription> field_description_;
     CameraInfo camera_info_;
-    int window_width_ = 1280;
-    int window_height_ = 800;
+    int window_width_ = 1024;
+    int window_height_ = 600;
     bool fullscreen_ = true;
     std::string battery_source_ = "Waveshare UPS";
     int rate_avg_window_ = 10;

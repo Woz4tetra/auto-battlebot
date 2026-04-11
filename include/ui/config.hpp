@@ -18,8 +18,8 @@ struct UiConfiguration {
 
     bool enable = false;
     bool fullscreen = true;
-    int width = 1280;
-    int height = 800;
+    int width = 1024;
+    int height = 600;
     /** Number of samples for rolling average of loop_rate_hz (1 = no averaging). */
     int rate_avg_window = 10;
     /** Fraction of max_loop_rate below which rate is considered "not met" (e.g. 0.99). */

@@ -393,7 +393,7 @@ void build_home(lv_obj_t *tab, UIWidgets &w) {
     lv_obj_set_style_text_font(ri, &lv_font_montserrat_32, 0);
 
     lv_obj_t *rl = lv_label_create(rt);
-    lv_label_set_text(rl, "Reinitialize\nField");
+    lv_label_set_text(rl, "Reinitialize Field");
     lv_obj_set_style_text_font(rl, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_align(rl, LV_TEXT_ALIGN_CENTER, 0);
 

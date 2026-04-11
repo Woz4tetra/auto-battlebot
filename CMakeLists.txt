@@ -178,6 +178,7 @@ add_library(auto_battlebot_ui STATIC
 
 target_include_directories(auto_battlebot_ui PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
 )
 
 target_link_libraries(auto_battlebot_ui PUBLIC
@@ -344,6 +345,7 @@ if(BUILD_TESTING)
     target_link_libraries(auto_battlebot_test
         GTest::gtest_main
         auto_battlebot_lib
+        auto_battlebot_ui
     )
 
     include(GoogleTest)

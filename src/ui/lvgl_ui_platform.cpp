@@ -21,13 +21,13 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
         return;
     }
 
-    int window_w = 1280;
-    int window_h = 800;
+    int window_w = 1024;
+    int window_h = 600;
     ui_state->get_window_size(window_w, window_h);
     if (window_w <= 0 || window_h <= 0) {
         spdlog::error("Configured window size is invalid. Using default size.");
-        window_w = 1280;
-        window_h = 800;
+        window_w = 1024;
+        window_h = 600;
     }
 
     lv_init();
@@ -100,7 +100,7 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
             if (widgets.controller) {
                 widgets.controller->request_quit();
             } else {
-                ui_state->quit_requested.store(true);
+                spdlog::warn("UI controller unavailable while handling window close.");
             }
         }
         if (!running) break;
