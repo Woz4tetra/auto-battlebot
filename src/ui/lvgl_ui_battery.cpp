@@ -9,17 +9,29 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <ctime>
 #include <string>
 
 namespace auto_battlebot::ui_internal {
 namespace {
 
+constexpr uint8_t INA219_REG_CONFIG = 0x00;
 constexpr uint8_t INA219_REG_BUSVOLTAGE = 0x02;
 constexpr uint8_t INA219_REG_CALIBRATION = 0x05;
 constexpr uint16_t INA219_CALIBRATION_16V_5A = 26868;
-constexpr int BATTERY_I2C_BUS = 1;
-constexpr int BATTERY_I2C_ADDRESS = 0x41;
+constexpr uint16_t INA219_CONFIG_16V_5A_CONTINUOUS = 0x0EEF;
+constexpr int BATTERY_I2C_BUS_DEFAULT = 7;
+constexpr int BATTERY_I2C_ADDRESS_DEFAULT = 0x41;
+
+int read_env_int(const char *name, int default_value) {
+    const char *raw = std::getenv(name);
+    if (!raw || raw[0] == '\0') return default_value;
+    char *end = nullptr;
+    const long parsed = std::strtol(raw, &end, 0);
+    if (end == raw || *end != '\0') return default_value;
+    return static_cast<int>(parsed);
+}
 
 bool write_i2c_register_u16(int fd, uint8_t reg, uint16_t value) {
     uint8_t payload[3] = {reg, static_cast<uint8_t>((value >> 8) & 0xFF),
@@ -41,15 +53,21 @@ bool read_i2c_register_u16(int fd, uint8_t reg, uint16_t &value) {
 }
 
 bool read_waveshare_ups_percent(double &percent_out) {
-    const std::string dev_path = "/dev/i2c-" + std::to_string(BATTERY_I2C_BUS);
+    const int battery_i2c_bus = read_env_int("AUTO_BATTLEBOT_BATTERY_I2C_BUS", BATTERY_I2C_BUS_DEFAULT);
+    const int battery_i2c_address =
+        read_env_int("AUTO_BATTLEBOT_BATTERY_I2C_ADDRESS", BATTERY_I2C_ADDRESS_DEFAULT);
+    const std::string dev_path = "/dev/i2c-" + std::to_string(battery_i2c_bus);
     int fd = open(dev_path.c_str(), O_RDWR);
     if (fd < 0) return false;
-    if (ioctl(fd, I2C_SLAVE, BATTERY_I2C_ADDRESS) < 0) {
+    if (ioctl(fd, I2C_SLAVE, battery_i2c_address) < 0) {
         close(fd);
         return false;
     }
 
     bool ok = write_i2c_register_u16(fd, INA219_REG_CALIBRATION, INA219_CALIBRATION_16V_5A);
+    if (ok) {
+        ok = write_i2c_register_u16(fd, INA219_REG_CONFIG, INA219_CONFIG_16V_5A_CONTINUOUS);
+    }
     uint16_t raw_bus_voltage = 0;
     if (ok) ok = read_i2c_register_u16(fd, INA219_REG_BUSVOLTAGE, raw_bus_voltage);
     close(fd);
