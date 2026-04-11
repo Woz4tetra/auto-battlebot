@@ -207,8 +207,10 @@ bool pixel_to_camera_ray(const CameraInfo &camera_info, double pixel_x, double p
     return std::isfinite(out_ray.x()) && std::isfinite(out_ray.y()) && std::isfinite(out_ray.z());
 }
 
-bool intersect_camera_ray_with_plane(const Eigen::Vector3d &ray, const Eigen::Vector3d &plane_center,
-                                     const Eigen::Vector3d &plane_normal, Eigen::Vector3d &out_point) {
+bool intersect_camera_ray_with_plane(const Eigen::Vector3d &ray,
+                                     const Eigen::Vector3d &plane_center,
+                                     const Eigen::Vector3d &plane_normal,
+                                     Eigen::Vector3d &out_point) {
     constexpr double EPSILON = 1e-6;
     const double dot_with_normal = ray.dot(plane_normal);
     if (std::abs(dot_with_normal) < EPSILON) return false;

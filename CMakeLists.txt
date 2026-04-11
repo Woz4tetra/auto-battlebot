@@ -158,7 +158,9 @@ file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES
     "src/**/*.cpp"
 )
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
-list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*lvgl_ui\\.cpp$")
+# Keep LVGL/SDL UI units out of the shared library; they are linked directly
+# into the auto_battlebot executable to avoid shared-lib link issues.
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*lvgl_ui.*\\.cpp$")
 
 add_library(auto_battlebot_lib SHARED
     ${AUTO_BATTLEBOT_SOURCES}
@@ -238,6 +240,9 @@ endif()
 add_executable(auto_battlebot
     src/main.cpp
     src/ui/lvgl_ui.cpp
+    src/ui/lvgl_ui_battery.cpp
+    src/ui/lvgl_ui_overlay.cpp
+    src/ui/lvgl_ui_platform.cpp
 )
 
 target_link_libraries(auto_battlebot

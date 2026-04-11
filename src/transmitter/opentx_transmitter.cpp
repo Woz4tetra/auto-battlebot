@@ -108,13 +108,12 @@ void OpenTxTransmitter::send(VelocityCommand command) {
 
     bool linear_write_ok = serial_.write("trainer " + std::to_string(config_.linear_channel) + " " +
                                          std::to_string(linear_val) + "\r\n");
-    bool angular_write_ok = serial_.write("trainer " + std::to_string(config_.angular_channel) + " " +
-                                          std::to_string(angular_val) + "\r\n");
+    bool angular_write_ok = serial_.write("trainer " + std::to_string(config_.angular_channel) +
+                                          " " + std::to_string(angular_val) + "\r\n");
 
     if (!linear_write_ok || !angular_write_ok) {
-        logger_->warning("write_failed_reconnecting",
-                         {{"linear_write_ok", linear_write_ok},
-                          {"angular_write_ok", angular_write_ok}});
+        logger_->warning("write_failed_reconnecting", {{"linear_write_ok", linear_write_ok},
+                                                       {"angular_write_ok", angular_write_ok}});
         serial_.close();
         next_reconnect_attempt_ = std::chrono::steady_clock::now();
     }

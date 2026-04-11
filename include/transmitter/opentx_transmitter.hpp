@@ -47,7 +47,8 @@ class OpenTxTransmitter : public TransmitterInterface {
     std::optional<std::array<int16_t, kMaxChannels>> latest_channels_;
     bool init_button_was_pressed_ = false;
     bool enabled_ = false;
-    std::chrono::steady_clock::time_point next_reconnect_attempt_ = std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point next_reconnect_attempt_ =
+        std::chrono::steady_clock::now();
 
     bool reconnect_if_needed();
 

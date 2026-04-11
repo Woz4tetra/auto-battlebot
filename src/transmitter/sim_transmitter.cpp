@@ -46,9 +46,8 @@ void SimTransmitter::send(VelocityCommand command) {
     command_queue_.push_back({now, command});
 
     while (!command_queue_.empty()) {
-        double age_ms = std::chrono::duration<double, std::milli>(
-                            now - command_queue_.front().first)
-                            .count();
+        double age_ms =
+            std::chrono::duration<double, std::milli>(now - command_queue_.front().first).count();
         if (age_ms >= command_delay_ms_) {
             connection_->set_command(command_queue_.front().second);
             command_queue_.pop_front();
@@ -66,8 +65,6 @@ bool SimTransmitter::did_init_button_press() {
     return false;
 }
 
-bool SimTransmitter::is_connected() const {
-    return connection_ && connection_->is_connected();
-}
+bool SimTransmitter::is_connected() const { return connection_ && connection_->is_connected(); }
 
 }  // namespace auto_battlebot

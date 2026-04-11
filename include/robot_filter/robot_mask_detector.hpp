@@ -1,9 +1,8 @@
 #pragma once
 
-#include <vector>
-
 #include <Eigen/Dense>
 #include <opencv2/core.hpp>
+#include <vector>
 
 #include "data_structures/camera.hpp"
 #include "data_structures/field.hpp"
@@ -31,11 +30,9 @@ class RobotMaskDetector {
 
     void reset();
 
-    std::vector<RobotDescription> detect(const cv::Mat &mask,
-                                         const FieldDescription &field,
-                                         const CameraInfo &camera_info,
-                                         const std::vector<RobotDescription> &own_robot_measurements,
-                                         double timestamp);
+    std::vector<RobotDescription> detect(
+        const cv::Mat &mask, const FieldDescription &field, const CameraInfo &camera_info,
+        const std::vector<RobotDescription> &own_robot_measurements, double timestamp);
 
    private:
     struct ScaledIntrinsics {
@@ -49,8 +46,7 @@ class RobotMaskDetector {
     static ScaledIntrinsics scale_intrinsics(const CameraInfo &camera_info, int mask_width,
                                              int mask_height);
 
-    cv::Rect compute_field_roi(const FieldDescription &field,
-                               const ScaledIntrinsics &intr) const;
+    cv::Rect compute_field_roi(const FieldDescription &field, const ScaledIntrinsics &intr) const;
 
     cv::Mat build_detection_mask(const cv::Mat &mask, const cv::Rect &field_roi) const;
 
@@ -73,8 +69,8 @@ class RobotMaskDetector {
                                         const Eigen::Vector3d &plane_point,
                                         const Eigen::Vector3d &plane_normal) const;
 
-    std::vector<BlobCandidate> update_tracked_blobs(
-        const std::vector<BlobCandidate> &candidates, double timestamp);
+    std::vector<BlobCandidate> update_tracked_blobs(const std::vector<BlobCandidate> &candidates,
+                                                    double timestamp);
 
     static std::vector<RobotDescription> candidates_to_measurements(
         const std::vector<BlobCandidate> &candidates);

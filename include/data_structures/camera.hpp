@@ -22,7 +22,8 @@ struct CameraData {
     CameraInfo camera_info;
     RgbImage rgb;
     DepthImage depth;
-    /** Ground truth poses from simulation (index 0 = our robot, rest = opponents). Empty outside sim. */
+    /** Ground truth poses from simulation (index 0 = our robot, rest = opponents). Empty outside
+     * sim. */
     std::vector<Pose2D> ground_truth_poses;
 };
 

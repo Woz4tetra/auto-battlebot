@@ -17,15 +17,18 @@ namespace auto_battlebot {
 class RosPublisher : public PublisherInterface {
    public:
     RosPublisher(
-        std::shared_ptr<miniros::Publisher> rgb_image_publisher,     // sensor_msgs::CompressedImage
-        std::shared_ptr<miniros::Publisher> camera_info_publisher,   // sensor_msgs::CameraInfo
-        std::shared_ptr<miniros::Publisher> field_mask_publisher,    // sensor_msgs::CompressedImage
-        std::shared_ptr<miniros::Publisher> tf_publisher,            // tf2_msgs::TFMessage
-        std::shared_ptr<miniros::Publisher> static_tf_publisher,     // tf2_msgs::TFMessage
-        std::shared_ptr<miniros::Publisher> field_marker_publisher,  // visualization_msgs::MarkerArray
-        std::shared_ptr<miniros::Publisher> robot_marker_publisher,  // visualization_msgs::MarkerArray
-        std::shared_ptr<miniros::Publisher> nav_marker_publisher,    // visualization_msgs::MarkerArray
-        std::shared_ptr<McapRecorder> mcap_recorder                  // optional, may be null
+        std::shared_ptr<miniros::Publisher> rgb_image_publisher,    // sensor_msgs::CompressedImage
+        std::shared_ptr<miniros::Publisher> camera_info_publisher,  // sensor_msgs::CameraInfo
+        std::shared_ptr<miniros::Publisher> field_mask_publisher,   // sensor_msgs::CompressedImage
+        std::shared_ptr<miniros::Publisher> tf_publisher,           // tf2_msgs::TFMessage
+        std::shared_ptr<miniros::Publisher> static_tf_publisher,    // tf2_msgs::TFMessage
+        std::shared_ptr<miniros::Publisher>
+            field_marker_publisher,  // visualization_msgs::MarkerArray
+        std::shared_ptr<miniros::Publisher>
+            robot_marker_publisher,  // visualization_msgs::MarkerArray
+        std::shared_ptr<miniros::Publisher>
+            nav_marker_publisher,                    // visualization_msgs::MarkerArray
+        std::shared_ptr<McapRecorder> mcap_recorder  // optional, may be null
     );
     void publish_camera_data(const CameraData &data) override;
     void publish_field_mask(const MaskStamped &field_mask, const RgbImage &image) override;

@@ -59,11 +59,10 @@ std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh,
         auto nav_marker_publisher = std::make_shared<miniros::Publisher>(
             nh.advertise<visualization_msgs::MarkerArray>("/nav_markers", 10, true));
 
-        return std::make_shared<RosPublisher>(rgb_image_publisher, camera_info_publisher,
-                                              field_mask_publisher, tf_publisher,
-                                              static_tf_publisher, field_marker_publisher,
-                                              robot_marker_publisher, nav_marker_publisher,
-                                              std::move(mcap_recorder));
+        return std::make_shared<RosPublisher>(
+            rgb_image_publisher, camera_info_publisher, field_mask_publisher, tf_publisher,
+            static_tf_publisher, field_marker_publisher, robot_marker_publisher,
+            nav_marker_publisher, std::move(mcap_recorder));
     }
     throw std::invalid_argument("Failed to load Publisher of type " + config.type);
 }

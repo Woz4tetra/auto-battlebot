@@ -15,23 +15,23 @@ enum class CrsfFrameType : uint8_t {
 
 struct CrsfBattery {
     static constexpr CrsfFrameType frame_type = CrsfFrameType::BATTERY;
-    float voltage = 0.0f;    // volts
-    float current = 0.0f;    // amps
+    float voltage = 0.0f;      // volts
+    float current = 0.0f;      // amps
     float consumption = 0.0f;  // mAh
 };
 
 struct CrsfLinkStatistics {
     static constexpr CrsfFrameType frame_type = CrsfFrameType::LINK_STATISTICS;
-    uint8_t up_rssi_ant1 = 0;      // dBm * -1
-    uint8_t up_rssi_ant2 = 0;      // dBm * -1
-    uint8_t up_link_quality = 0;   // %
-    int8_t up_snr = 0;             // dB
-    uint8_t active_antenna = 0;    // 0 or 1
-    uint8_t rf_profile = 0;        // 0=4fps, 1=50fps, 2=150fps
-    uint8_t up_rf_power = 0;       // 0=0mW, 1=10mW, 2=25mW, ...
-    uint8_t down_rssi = 0;         // dBm * -1
-    uint8_t down_link_quality = 0; // %
-    int8_t down_snr = 0;           // dB
+    uint8_t up_rssi_ant1 = 0;       // dBm * -1
+    uint8_t up_rssi_ant2 = 0;       // dBm * -1
+    uint8_t up_link_quality = 0;    // %
+    int8_t up_snr = 0;              // dB
+    uint8_t active_antenna = 0;     // 0 or 1
+    uint8_t rf_profile = 0;         // 0=4fps, 1=50fps, 2=150fps
+    uint8_t up_rf_power = 0;        // 0=0mW, 1=10mW, 2=25mW, ...
+    uint8_t down_rssi = 0;          // dBm * -1
+    uint8_t down_link_quality = 0;  // %
+    int8_t down_snr = 0;            // dB
 };
 
 struct CrsfAttitude {
@@ -46,7 +46,6 @@ struct CrsfFlightMode {
     std::string flight_mode;
 };
 
-using CrsfPacket =
-    std::variant<CrsfBattery, CrsfLinkStatistics, CrsfAttitude, CrsfFlightMode>;
+using CrsfPacket = std::variant<CrsfBattery, CrsfLinkStatistics, CrsfAttitude, CrsfFlightMode>;
 
 }  // namespace auto_battlebot

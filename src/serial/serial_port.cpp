@@ -30,12 +30,24 @@ bool SerialPort::open(const std::string& path, int baud_rate) {
 
     speed_t speed;
     switch (baud_rate) {
-        case 9600:   speed = B9600;   break;
-        case 19200:  speed = B19200;  break;
-        case 38400:  speed = B38400;  break;
-        case 57600:  speed = B57600;  break;
-        case 115200: speed = B115200; break;
-        default:     speed = B115200; break;
+        case 9600:
+            speed = B9600;
+            break;
+        case 19200:
+            speed = B19200;
+            break;
+        case 38400:
+            speed = B38400;
+            break;
+        case 57600:
+            speed = B57600;
+            break;
+        case 115200:
+            speed = B115200;
+            break;
+        default:
+            speed = B115200;
+            break;
     }
     cfsetispeed(&tty, speed);
     cfsetospeed(&tty, speed);

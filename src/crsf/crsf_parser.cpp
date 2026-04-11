@@ -67,9 +67,8 @@ CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t fra
     // CRC covers [type][payload] = frame[2 .. frame_len-2]
     uint8_t calc_crc = crsf_crc8(frame + 2, frame_len - 3);
     if (received_crc != calc_crc) {
-        return {std::nullopt,
-                CrsfParseError{"CRC mismatch: expected " + std::to_string(calc_crc) +
-                               " got " + std::to_string(received_crc)}};
+        return {std::nullopt, CrsfParseError{"CRC mismatch: expected " + std::to_string(calc_crc) +
+                                             " got " + std::to_string(received_crc)}};
     }
 
     uint8_t frame_type = frame[2];
@@ -84,8 +83,8 @@ CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t fra
             CrsfBattery pkt;
             pkt.voltage = static_cast<float>((uint16_t(payload[0]) << 8) | payload[1]) / 10.0f;
             pkt.current = static_cast<float>((uint16_t(payload[2]) << 8) | payload[3]) / 10.0f;
-            pkt.consumption = static_cast<float>(
-                (uint32_t(payload[4]) << 16) | (uint32_t(payload[5]) << 8) | payload[6]);
+            pkt.consumption = static_cast<float>((uint32_t(payload[4]) << 16) |
+                                                 (uint32_t(payload[5]) << 8) | payload[6]);
             return {pkt, std::nullopt};
         }
         case CrsfFrameType::LINK_STATISTICS: {

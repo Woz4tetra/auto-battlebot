@@ -79,7 +79,8 @@ Eigen::Vector3d FrontBackKeypointConverter::project_keypoint_onto_plane(
     const Keypoint &keypoint, const Eigen::Vector3d &plane_center,
     const Eigen::Vector3d &plane_normal, const CameraInfo &camera_info) {
     Eigen::Vector3d ray;
-    if (!pixel_to_camera_ray(camera_info, keypoint.x, keypoint.y, ray)) return Eigen::Vector3d::Zero();
+    if (!pixel_to_camera_ray(camera_info, keypoint.x, keypoint.y, ray))
+        return Eigen::Vector3d::Zero();
     Eigen::Vector3d point_on_plane;
     if (!intersect_camera_ray_with_plane(ray, plane_center, plane_normal, point_on_plane)) {
         return Eigen::Vector3d::Zero();

@@ -9,9 +9,9 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "robot_filter/config.hpp"
-#include "robot_filter/robot_mask_detector.hpp"
 #include "robot_filter/front_back_keypoint_converter.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
+#include "robot_filter/robot_mask_detector.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {

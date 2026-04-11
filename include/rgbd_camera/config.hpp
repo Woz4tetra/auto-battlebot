@@ -61,10 +61,7 @@ struct SimRgbdCameraConfiguration : public RgbdCameraConfiguration {
 
     SimRgbdCameraConfiguration() { type = "SimRgbdCamera"; }
 
-    PARSE_CONFIG_FIELDS(
-        PARSE_FIELD_STRING(sim_host)
-        PARSE_FIELD(sim_port)
-    )
+    PARSE_CONFIG_FIELDS(PARSE_FIELD_STRING(sim_host) PARSE_FIELD(sim_port))
 };
 
 std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfiguration &config);

@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-
 #include <opencv2/imgproc.hpp>
 
 namespace auto_battlebot {
@@ -106,8 +105,7 @@ cv::Mat RobotMaskDetector::build_detection_mask(const cv::Mat &mask,
 
     if (config_.morph_kernel_size > 0) {
         cv::Mat kernel = cv::getStructuringElement(
-            cv::MORPH_ELLIPSE,
-            cv::Size(config_.morph_kernel_size, config_.morph_kernel_size));
+            cv::MORPH_ELLIPSE, cv::Size(config_.morph_kernel_size, config_.morph_kernel_size));
         cv::morphologyEx(mask, mask, cv::MORPH_OPEN, kernel);
     }
 
@@ -137,8 +135,8 @@ void RobotMaskDetector::mask_own_robots(cv::Mat &mask,
 }
 
 std::vector<RobotMaskDetector::BlobCandidate> RobotMaskDetector::extract_blob_candidates(
-    const cv::Mat &mask, const ScaledIntrinsics &intr,
-    const Eigen::Matrix4d &tf_field_from_cam, const FieldDescription &field) const {
+    const cv::Mat &mask, const ScaledIntrinsics &intr, const Eigen::Matrix4d &tf_field_from_cam,
+    const FieldDescription &field) const {
     cv::Mat labels, stats, centroids;
     int n_labels = cv::connectedComponentsWithStats(mask, labels, stats, centroids);
 
@@ -151,19 +149,18 @@ std::vector<RobotMaskDetector::BlobCandidate> RobotMaskDetector::extract_blob_ca
         double cx_blob = centroids.at<double>(i, 0);
         double cy_blob = centroids.at<double>(i, 1);
 
-        Eigen::Vector3d ray_dir_cam(
-            (cx_blob - intr.cx) / intr.fx, (cy_blob - intr.cy) / intr.fy, 1.0);
+        Eigen::Vector3d ray_dir_cam((cx_blob - intr.cx) / intr.fx, (cy_blob - intr.cy) / intr.fy,
+                                    1.0);
         ray_dir_cam.normalize();
 
-        Eigen::Vector3d ray_dir_field =
-            tf_field_from_cam.block<3, 3>(0, 0) * ray_dir_cam;
+        Eigen::Vector3d ray_dir_field = tf_field_from_cam.block<3, 3>(0, 0) * ray_dir_cam;
         Eigen::Vector3d ray_origin_field = tf_field_from_cam.block<3, 1>(0, 3);
 
         Eigen::Vector3d field_plane_normal(0, 0, 1);
         Eigen::Vector3d field_plane_point(0, 0, 0);
 
-        Eigen::Vector3d hit =
-            ray_plane_intersect(ray_origin_field, ray_dir_field, field_plane_point, field_plane_normal);
+        Eigen::Vector3d hit = ray_plane_intersect(ray_origin_field, ray_dir_field,
+                                                  field_plane_point, field_plane_normal);
 
         double half_x = field.size.size.x / 2.0;
         double half_y = field.size.size.y / 2.0;
@@ -220,13 +217,12 @@ std::vector<RobotMaskDetector::BlobCandidate> RobotMaskDetector::update_tracked_
         }
     }
 
-    tracked_blobs_.erase(
-        std::remove_if(tracked_blobs_.begin(), tracked_blobs_.end(),
-                       [timestamp, this](const TrackedBlob &b) {
-                           return (timestamp - b.last_seen_timestamp) >
-                                  config_.tracked_blob_timeout_seconds;
-                       }),
-        tracked_blobs_.end());
+    tracked_blobs_.erase(std::remove_if(tracked_blobs_.begin(), tracked_blobs_.end(),
+                                        [timestamp, this](const TrackedBlob &b) {
+                                            return (timestamp - b.last_seen_timestamp) >
+                                                   config_.tracked_blob_timeout_seconds;
+                                        }),
+                         tracked_blobs_.end());
 
     std::vector<BlobCandidate> persistent;
     for (const auto &blob : tracked_blobs_) {
@@ -242,12 +238,16 @@ std::vector<RobotDescription> RobotMaskDetector::candidates_to_measurements(
     std::vector<RobotDescription> measurements;
     measurements.reserve(candidates.size());
     for (const auto &c : candidates) {
-        Position pos{c.position_in_field.x(), c.position_in_field.y(),
-                     c.position_in_field.z()};
+        Position pos{c.position_in_field.x(), c.position_in_field.y(), c.position_in_field.z()};
         Pose pose{pos, Rotation{1, 0, 0, 0}};
-        measurements.push_back(
-            {FrameId::EMPTY, Label::OPPONENT, Group::THEIRS, pose, Size{0.15, 0.15, 0.1}, {},
-             Velocity2D{}, false});
+        measurements.push_back({FrameId::EMPTY,
+                                Label::OPPONENT,
+                                Group::THEIRS,
+                                pose,
+                                Size{0.15, 0.15, 0.1},
+                                {},
+                                Velocity2D{},
+                                false});
     }
     return measurements;
 }

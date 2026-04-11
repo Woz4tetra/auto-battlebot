@@ -118,7 +118,8 @@ void Runner::handle_recording_toggle_request() const {
 }
 
 bool Runner::handle_system_action_request() {
-    int raw_action = ui_state_->system_action_requested.exchange(static_cast<int>(UISystemAction::NONE));
+    int raw_action =
+        ui_state_->system_action_requested.exchange(static_cast<int>(UISystemAction::NONE));
     auto requested_action = static_cast<UISystemAction>(raw_action);
     if (requested_action == UISystemAction::NONE) return true;
 

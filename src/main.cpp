@@ -1,4 +1,5 @@
 #include <miniros/ros.h>
+#include <spdlog/spdlog.h>
 
 #include <CLI/CLI.hpp>
 #include <atomic>
@@ -7,7 +8,6 @@
 #include <diagnostic_msgs/DiagnosticArray.hxx>
 #include <filesystem>
 #include <memory>
-#include <spdlog/spdlog.h>
 #include <thread>
 #include <vector>
 
@@ -68,10 +68,9 @@ int main(int argc, char **argv) {
 
     std::shared_ptr<McapRecorder> mcap_recorder;
     if (class_config.mcap_recorder.enable) {
-        std::string config_name =
-            config_path.empty()
-                ? "main"
-                : std::filesystem::canonical(config_path).filename().string();
+        std::string config_name = config_path.empty()
+                                      ? "main"
+                                      : std::filesystem::canonical(config_path).filename().string();
         mcap_recorder = std::make_shared<McapRecorder>(config_name);
         mcap_recorder->set_ignored_topics(class_config.mcap_recorder.ignored_topics);
     }

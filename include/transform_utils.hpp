@@ -4,8 +4,8 @@
 #include <Eigen/Geometry>
 #include <string>
 
-#include "data_structures/pose.hpp"
 #include "data_structures/camera.hpp"
+#include "data_structures/pose.hpp"
 #include "data_structures/transform.hpp"
 
 namespace auto_battlebot {
@@ -141,8 +141,10 @@ bool pixel_to_camera_ray(const CameraInfo &camera_info, double pixel_x, double p
  * @param out_point Intersection point in camera frame
  * @return True if intersection exists in front of camera
  */
-bool intersect_camera_ray_with_plane(const Eigen::Vector3d &ray, const Eigen::Vector3d &plane_center,
-                                     const Eigen::Vector3d &plane_normal, Eigen::Vector3d &out_point);
+bool intersect_camera_ray_with_plane(const Eigen::Vector3d &ray,
+                                     const Eigen::Vector3d &plane_center,
+                                     const Eigen::Vector3d &plane_normal,
+                                     Eigen::Vector3d &out_point);
 
 /**
  * @brief Build a plane (center + normal) from a field-to-camera transform.

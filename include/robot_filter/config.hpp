@@ -3,8 +3,8 @@
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
-#include "robot_filter/robot_mask_detector.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
+#include "robot_filter/robot_mask_detector.hpp"
 
 namespace auto_battlebot {
 struct RobotFilterConfiguration {
@@ -55,9 +55,8 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
     }
 
     void parse_robot_mask_detector_config(ConfigParser &parser) {
-        robot_mask_detector_config.min_blob_area_pixels = static_cast<int>(
-            parser.get_optional_int("robot_mask_min_blob_area_pixels",
-                                    robot_mask_detector_config.min_blob_area_pixels));
+        robot_mask_detector_config.min_blob_area_pixels = static_cast<int>(parser.get_optional_int(
+            "robot_mask_min_blob_area_pixels", robot_mask_detector_config.min_blob_area_pixels));
         robot_mask_detector_config.persistence_frames_required = static_cast<int>(
             parser.get_optional_int("robot_mask_persistence_frames_required",
                                     robot_mask_detector_config.persistence_frames_required));
@@ -67,9 +66,8 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
         robot_mask_detector_config.tracked_blob_timeout_seconds =
             parser.get_optional_double("robot_mask_tracked_blob_timeout_seconds",
                                        robot_mask_detector_config.tracked_blob_timeout_seconds);
-        robot_mask_detector_config.morph_kernel_size = static_cast<int>(
-            parser.get_optional_int("robot_mask_morph_kernel_size",
-                                    robot_mask_detector_config.morph_kernel_size));
+        robot_mask_detector_config.morph_kernel_size = static_cast<int>(parser.get_optional_int(
+            "robot_mask_morph_kernel_size", robot_mask_detector_config.morph_kernel_size));
     }
 
     void parse_label_to_frame_id(ConfigParser &parser, const std::string &field_name) {

@@ -28,9 +28,7 @@ McapRecorder::McapRecorder(const std::string& config_name) {
     spdlog::info("[McapRecorder] Recording to {}", file_path_.string());
 }
 
-McapRecorder::~McapRecorder() {
-    close();
-}
+McapRecorder::~McapRecorder() { close(); }
 
 void McapRecorder::close() {
     std::lock_guard<std::mutex> lock(mutex_);
