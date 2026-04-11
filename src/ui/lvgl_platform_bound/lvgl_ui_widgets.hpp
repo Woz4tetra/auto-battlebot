@@ -20,7 +20,7 @@ constexpr int TOP_BAR_HEIGHT = 40;
 constexpr int TAB_BAR_HEIGHT = 56;
 constexpr int TILE_RADIUS = 12;
 constexpr int TILE_PAD = 16;
-constexpr int DIAG_REBUILD_INTERVAL = 120;
+constexpr int DIAG_REBUILD_INTERVAL = 30;
 constexpr double DIAG_STALE_SEC = 2.0;
 constexpr int CAMERA_PANEL_WIDTH_PCT = 66;
 
@@ -119,7 +119,6 @@ struct UIWidgets {
     int selected_opponent_count = 0;
     bool diag_user_scrolling = false;
     bool diag_rebuild_pending = false;
-    std::string diag_sections_signature;
     std::vector<std::string> diag_section_order;
     std::map<std::string,
              std::pair<DiagnosticStatusSnapshot, std::chrono::steady_clock::time_point>>

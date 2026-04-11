@@ -118,33 +118,6 @@ void diagnostics_scroll_end_cb(lv_event_t *e) {
     w->diag_user_scrolling = false;
 }
 
-void hash_append_u8(uint64_t &hash, uint8_t value) {
-    hash ^= value;
-    hash *= 1099511628211ULL;
-}
-
-void hash_append_str(uint64_t &hash, const std::string &value) {
-    for (const char ch : value) {
-        hash_append_u8(hash, static_cast<uint8_t>(ch));
-    }
-    /* Delimiter avoids accidental collisions from concatenation boundaries. */
-    hash_append_u8(hash, 0xFF);
-}
-
-std::string diagnostics_sections_signature(
-    const std::vector<ui_internal::DiagnosticsSectionViewModel> &sections) {
-    uint64_t hash = 1469598103934665603ULL;
-    for (const auto &section : sections) {
-        hash_append_u8(hash, section.stale ? 1 : 0);
-        hash_append_str(hash, section.title);
-        for (const auto &[key, value] : section.rows) {
-            hash_append_str(hash, key);
-            hash_append_str(hash, value);
-        }
-    }
-    return std::to_string(hash);
-}
-
 HealthRow make_health_row(lv_obj_t *parent, const char *text) {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
@@ -860,16 +833,6 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
     us->get_diagnostic_snapshots(snaps);
     ui_internal::merge_diag_snapshots(w.diag_section_order, w.diag_section_cache, snaps, now);
 
-    const std::vector<ui_internal::DiagnosticsSectionViewModel> sections =
-        ui_internal::present_diagnostics_sections(w.diag_section_order, w.diag_section_cache, now,
-                                                  DIAG_STALE_SEC);
-    const std::string next_signature = diagnostics_sections_signature(sections);
-    const bool changed = (next_signature != w.diag_sections_signature);
-    if (!changed) {
-        w.diag_rebuild_pending = false;
-        return;
-    }
-
     if (w.diag_user_scrolling) {
         w.diag_rebuild_pending = true;
         return;
@@ -880,6 +843,9 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
     const int32_t scroll_y = (diag_tab != nullptr) ? lv_obj_get_scroll_top(diag_tab) : 0;
 
     lv_obj_clean(w.sections_cont);
+    const std::vector<ui_internal::DiagnosticsSectionViewModel> sections =
+        ui_internal::present_diagnostics_sections(w.diag_section_order, w.diag_section_cache, now,
+                                                  DIAG_STALE_SEC);
     for (const auto &section : sections) {
         /* Section header bar: green when fresh, gray when stale */
         lv_obj_t *hdr = lv_obj_create(w.sections_cont);
@@ -918,7 +884,6 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
         }
     }
 
-    w.diag_sections_signature = next_signature;
     w.diag_rebuild_pending = false;
     if (diag_tab != nullptr) lv_obj_scroll_to_y(diag_tab, scroll_y, LV_ANIM_OFF);
 }
