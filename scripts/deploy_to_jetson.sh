@@ -59,6 +59,6 @@ fi
 # ── Remote build/install ──────────────────────────────────────────────────────
 # Run the Jetson-side build/install script only after sync steps complete.
 echo "Running remote build/install on ${JETSON_HOST}..."
-ssh "${JETSON_USER}@${JETSON_HOST}" "bash -lc 'cd ${JETSON_PATH} && scripts/build_and_install.sh'"
+ssh "${JETSON_USER}@${JETSON_HOST}" "bash -lc 'cd ${JETSON_PATH} && service/build_and_install_service.sh'"
 
 echo "Deploy and remote build complete."
