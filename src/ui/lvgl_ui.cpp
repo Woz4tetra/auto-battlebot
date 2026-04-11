@@ -46,7 +46,16 @@ constexpr uint8_t INA219_REG_CALIBRATION = 0x05;
 constexpr uint16_t INA219_CALIBRATION_16V_5A = 26868;
 constexpr int BATTERY_I2C_BUS = 1;
 constexpr int BATTERY_I2C_ADDRESS = 0x41;
-constexpr int BATTERY_ICON_FILL_MAX_WIDTH = 20;
+constexpr int BATTERY_ICON_CANVAS_WIDTH = 56;
+constexpr int BATTERY_ICON_CANVAS_HEIGHT = 22;
+constexpr int BATTERY_ICON_SHELL_X = 1;
+constexpr int BATTERY_ICON_SHELL_Y = 1;
+constexpr int BATTERY_ICON_SHELL_WIDTH = 44;
+constexpr int BATTERY_ICON_SHELL_HEIGHT = 20;
+constexpr int BATTERY_ICON_FILL_MAX_WIDTH = 34;
+constexpr int BATTERY_ICON_FILL_HEIGHT = 12;
+constexpr int BATTERY_ICON_CAP_WIDTH = 6;
+constexpr int BATTERY_ICON_CAP_HEIGHT = 10;
 
 static int selected_opponent_count = 0;
 
@@ -87,7 +96,11 @@ struct UIWidgets {
     lv_obj_t *top_bar = nullptr;
     lv_obj_t *clock_label = nullptr;
     lv_obj_t *battery_percent_label = nullptr;
-    lv_obj_t *battery_icon_fill = nullptr;
+    lv_obj_t *battery_icon_canvas = nullptr;
+    std::array<uint8_t, LV_CANVAS_BUF_SIZE(BATTERY_ICON_CANVAS_WIDTH, BATTERY_ICON_CANVAS_HEIGHT,
+                                           LV_COLOR_FORMAT_GET_BPP(LV_COLOR_FORMAT_RGB565),
+                                           LV_DRAW_BUF_STRIDE_ALIGN)>
+        battery_icon_canvas_buf = {};
     std::time_t last_clock_second = -1;
     std::chrono::steady_clock::time_point last_battery_update =
         std::chrono::steady_clock::time_point::min();
@@ -317,30 +330,95 @@ double next_dummy_battery_percent(UIWidgets &w) {
     return 100.0;
 }
 
+void render_battery_canvas(UIWidgets &w, double percent, bool valid) {
+    if (!w.battery_icon_canvas) return;
+    lv_canvas_fill_bg(w.battery_icon_canvas, lv_color_hex(0x111111), LV_OPA_COVER);
+
+    lv_layer_t layer;
+    lv_canvas_init_layer(w.battery_icon_canvas, &layer);
+
+    lv_draw_rect_dsc_t shell_dsc;
+    lv_draw_rect_dsc_init(&shell_dsc);
+    shell_dsc.radius = 4;
+    shell_dsc.bg_color = lv_color_hex(0x1E1E1E);
+    shell_dsc.bg_opa = LV_OPA_COVER;
+    shell_dsc.border_width = 2;
+    shell_dsc.border_color = lv_color_hex(0xE0E0E0);
+    shell_dsc.border_opa = LV_OPA_COVER;
+    const lv_area_t shell_area = {.x1 = BATTERY_ICON_SHELL_X,
+                                   .y1 = BATTERY_ICON_SHELL_Y,
+                                   .x2 = BATTERY_ICON_SHELL_X + BATTERY_ICON_SHELL_WIDTH - 1,
+                                   .y2 = BATTERY_ICON_SHELL_Y + BATTERY_ICON_SHELL_HEIGHT - 1};
+    lv_draw_rect(&layer, &shell_dsc, &shell_area);
+
+    lv_color_t fill_color = lv_color_hex(0x00C853);
+    if (!valid) {
+        fill_color = lv_color_hex(0x616161);
+    } else if (percent < 20.0) {
+        fill_color = lv_color_hex(0xFF1744);
+    } else if (percent < 50.0) {
+        fill_color = lv_color_hex(0xFFC107);
+    }
+    const int fill_w = valid
+                           ? std::clamp(static_cast<int>(std::lround((percent / 100.0) *
+                                                                     BATTERY_ICON_FILL_MAX_WIDTH)),
+                                        0, BATTERY_ICON_FILL_MAX_WIDTH)
+                           : 0;
+    if (fill_w > 0) {
+        lv_draw_rect_dsc_t fill_dsc;
+        lv_draw_rect_dsc_init(&fill_dsc);
+        fill_dsc.radius = 2;
+        fill_dsc.bg_color = fill_color;
+        fill_dsc.bg_opa = LV_OPA_COVER;
+        fill_dsc.border_width = 0;
+        const lv_area_t fill_area = {
+            .x1 = BATTERY_ICON_SHELL_X + 2,
+            .y1 = BATTERY_ICON_SHELL_Y + (BATTERY_ICON_SHELL_HEIGHT - BATTERY_ICON_FILL_HEIGHT) / 2,
+            .x2 = BATTERY_ICON_SHELL_X + 2 + fill_w - 1,
+            .y2 = BATTERY_ICON_SHELL_Y + (BATTERY_ICON_SHELL_HEIGHT - BATTERY_ICON_FILL_HEIGHT) / 2 +
+                  BATTERY_ICON_FILL_HEIGHT - 1};
+        lv_draw_rect(&layer, &fill_dsc, &fill_area);
+    }
+
+    lv_draw_rect_dsc_t cap_dsc;
+    lv_draw_rect_dsc_init(&cap_dsc);
+    cap_dsc.radius = 1;
+    cap_dsc.bg_color = lv_color_hex(0xE0E0E0);
+    cap_dsc.bg_opa = LV_OPA_COVER;
+    cap_dsc.border_width = 0;
+    const int cap_x = BATTERY_ICON_SHELL_X + BATTERY_ICON_SHELL_WIDTH + 2;
+    const int cap_y = (BATTERY_ICON_CANVAS_HEIGHT - BATTERY_ICON_CAP_HEIGHT) / 2;
+    const lv_area_t cap_area = {.x1 = cap_x,
+                                .y1 = cap_y,
+                                .x2 = cap_x + BATTERY_ICON_CAP_WIDTH - 1,
+                                .y2 = cap_y + BATTERY_ICON_CAP_HEIGHT - 1};
+    lv_draw_rect(&layer, &cap_dsc, &cap_area);
+    lv_canvas_finish_layer(w.battery_icon_canvas, &layer);
+}
+
 void update_battery_widgets(UIWidgets &w, double percent, bool valid) {
-    if (!w.battery_percent_label || !w.battery_icon_fill) return;
+    if (!w.battery_percent_label || !w.battery_icon_canvas) return;
+    render_battery_canvas(w, percent, valid);
+
+    lv_color_t color = lv_color_hex(0x00C853);
+    if (!valid) {
+        color = lv_color_hex(0x616161);
+    } else if (percent < 20.0) {
+        color = lv_color_hex(0xFF1744);
+    } else if (percent < 50.0) {
+        color = lv_color_hex(0xFFC107);
+    }
 
     if (!valid) {
         lv_label_set_text(w.battery_percent_label, "--%");
-        lv_obj_set_width(w.battery_icon_fill, 0);
-        lv_obj_set_style_bg_color(w.battery_icon_fill, lv_color_hex(0x616161), 0);
+        lv_obj_set_style_text_color(w.battery_percent_label, color, 0);
         return;
     }
 
     char percent_buf[8];
     snprintf(percent_buf, sizeof(percent_buf), "%d%%", static_cast<int>(std::lround(percent)));
     lv_label_set_text(w.battery_percent_label, percent_buf);
-
-    const int fill_w = static_cast<int>(std::lround((percent / 100.0) * BATTERY_ICON_FILL_MAX_WIDTH));
-    lv_obj_set_width(w.battery_icon_fill, std::clamp(fill_w, 0, BATTERY_ICON_FILL_MAX_WIDTH));
-
-    lv_color_t color = lv_color_hex(0x00C853);
-    if (percent < 20.0) {
-        color = lv_color_hex(0xFF1744);
-    } else if (percent < 50.0) {
-        color = lv_color_hex(0xFFC107);
-    }
-    lv_obj_set_style_bg_color(w.battery_icon_fill, color, 0);
+    lv_obj_set_style_text_color(w.battery_percent_label, lv_color_hex(0xE0E0E0), 0);
 }
 
 void build_top_bar(lv_obj_t *parent, UIWidgets &w) {
@@ -366,7 +444,7 @@ void build_top_bar(lv_obj_t *parent, UIWidgets &w) {
     lv_obj_set_height(battery_wrap, LV_SIZE_CONTENT);
     lv_obj_set_width(battery_wrap, LV_SIZE_CONTENT);
     lv_obj_set_style_pad_all(battery_wrap, 0, 0);
-    lv_obj_set_style_pad_gap(battery_wrap, 8, 0);
+    lv_obj_set_style_pad_gap(battery_wrap, 4, 0);
     lv_obj_set_style_radius(battery_wrap, 0, 0);
     lv_obj_set_style_border_width(battery_wrap, 0, 0);
     lv_obj_set_style_bg_opa(battery_wrap, LV_OPA_TRANSP, 0);
@@ -375,30 +453,15 @@ void build_top_bar(lv_obj_t *parent, UIWidgets &w) {
     lv_obj_clear_flag(battery_wrap, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(battery_wrap, LV_ALIGN_RIGHT_MID, -8, 0);
 
-    lv_obj_t *battery_shell = lv_obj_create(battery_wrap);
-    lv_obj_set_size(battery_shell, 26, 14);
-    lv_obj_set_style_pad_all(battery_shell, 1, 0);
-    lv_obj_set_style_radius(battery_shell, 2, 0);
-    lv_obj_set_style_bg_opa(battery_shell, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(battery_shell, 2, 0);
-    lv_obj_set_style_border_color(battery_shell, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_clear_flag(battery_shell, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *battery_fill = lv_obj_create(battery_shell);
-    w.battery_icon_fill = battery_fill;
-    lv_obj_set_size(battery_fill, BATTERY_ICON_FILL_MAX_WIDTH, 8);
-    lv_obj_set_style_radius(battery_fill, 1, 0);
-    lv_obj_set_style_border_width(battery_fill, 0, 0);
-    lv_obj_set_style_bg_color(battery_fill, lv_color_hex(0x00C853), 0);
-    lv_obj_align(battery_fill, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_clear_flag(battery_fill, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *battery_cap = lv_obj_create(battery_wrap);
-    lv_obj_set_size(battery_cap, 3, 8);
-    lv_obj_set_style_radius(battery_cap, 1, 0);
-    lv_obj_set_style_border_width(battery_cap, 0, 0);
-    lv_obj_set_style_bg_color(battery_cap, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_clear_flag(battery_cap, LV_OBJ_FLAG_SCROLLABLE);
+    w.battery_icon_canvas = lv_canvas_create(battery_wrap);
+    lv_obj_set_size(w.battery_icon_canvas, BATTERY_ICON_CANVAS_WIDTH, BATTERY_ICON_CANVAS_HEIGHT);
+    lv_obj_set_style_bg_opa(w.battery_icon_canvas, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(w.battery_icon_canvas, 0, 0);
+    lv_obj_clear_flag(w.battery_icon_canvas, LV_OBJ_FLAG_SCROLLABLE);
+    lv_canvas_set_buffer(w.battery_icon_canvas, w.battery_icon_canvas_buf.data(),
+                         BATTERY_ICON_CANVAS_WIDTH, BATTERY_ICON_CANVAS_HEIGHT,
+                         LV_COLOR_FORMAT_RGB565);
+    render_battery_canvas(w, w.dummy_battery_percent, true);
 
     w.battery_percent_label = lv_label_create(battery_wrap);
     lv_label_set_text(w.battery_percent_label, "--%");
