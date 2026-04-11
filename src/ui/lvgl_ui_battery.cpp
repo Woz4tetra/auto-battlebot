@@ -13,14 +13,34 @@
 #include <ctime>
 #include <string>
 
+#include "battery_soc_estimator.hpp"
+
 namespace auto_battlebot::ui_internal {
 namespace {
 
+// INA219 register addresses from datasheet.
 constexpr uint8_t INA219_REG_CONFIG = 0x00;
 constexpr uint8_t INA219_REG_BUSVOLTAGE = 0x02;
+constexpr uint8_t INA219_REG_POWER = 0x03;
+constexpr uint8_t INA219_REG_CURRENT = 0x04;
 constexpr uint8_t INA219_REG_CALIBRATION = 0x05;
+// Calibration register value for the selected profile (16V bus range, up to ~5A expected current).
+// Derived with Cal = trunc(0.04096 / (Current_LSB * Rshunt)).
 constexpr uint16_t INA219_CALIBRATION_16V_5A = 26868;
+// Config register bits matching the Waveshare reference setup (16V range, gain/ADC, continuous mode).
 constexpr uint16_t INA219_CONFIG_16V_5A_CONTINUOUS = 0x0EEF;
+// Datasheet constant used in the INA219 calibration equation.
+constexpr double INA219_CALIBRATION_NUMERATOR = 0.04096;
+// Shunt resistor value on the UPS board; used with calibration to convert raw current counts.
+constexpr double INA219_SHUNT_RESISTANCE_OHM = 0.01;
+// Current LSB derived from calibration: Current_LSB = 0.04096 / (Cal * Rshunt).
+constexpr double INA219_CURRENT_LSB_A =
+    INA219_CALIBRATION_NUMERATOR / (INA219_CALIBRATION_16V_5A * INA219_SHUNT_RESISTANCE_OHM);
+// INA219 power register uses Power_LSB = 20 * Current_LSB.
+constexpr double INA219_POWER_CURRENT_LSB_MULTIPLIER = 20.0;
+constexpr double INA219_POWER_LSB_W =
+    INA219_POWER_CURRENT_LSB_MULTIPLIER * INA219_CURRENT_LSB_A;
+// Default Linux I2C controller and INA219 device address for Jetson + Waveshare UPS.
 constexpr int BATTERY_I2C_BUS_DEFAULT = 7;
 constexpr int BATTERY_I2C_ADDRESS_DEFAULT = 0x41;
 
@@ -52,7 +72,46 @@ bool read_i2c_register_u16(int fd, uint8_t reg, uint16_t &value) {
     return true;
 }
 
-bool read_waveshare_ups_percent(double &percent_out) {
+double read_env_double(const char *name, double default_value) {
+    const char *raw = std::getenv(name);
+    if (!raw || raw[0] == '\0') return default_value;
+    char *end = nullptr;
+    const double parsed = std::strtod(raw, &end);
+    if (end == raw || *end != '\0') return default_value;
+    return parsed;
+}
+
+BatteryOptions apply_env_overrides(BatteryOptions options) {
+    options.battery_capacity_ah = read_env_double("AUTO_BATTLEBOT_BATTERY_CAPACITY_AH", options.battery_capacity_ah);
+    options.rest_current_threshold_a =
+        read_env_double("AUTO_BATTLEBOT_BATTERY_REST_CURRENT_A", options.rest_current_threshold_a);
+    options.rest_stability_delta_v = read_env_double("AUTO_BATTLEBOT_BATTERY_REST_STABILITY_V",
+                                                     options.rest_stability_delta_v);
+    options.rest_window_sec = read_env_double("AUTO_BATTLEBOT_BATTERY_REST_WINDOW_SEC", options.rest_window_sec);
+    options.ocv_correction_gain =
+        read_env_double("AUTO_BATTLEBOT_BATTERY_OCV_CORRECTION_GAIN", options.ocv_correction_gain);
+    options.display_slew_pct_per_sec =
+        read_env_double("AUTO_BATTLEBOT_BATTERY_DISPLAY_SLEW_PCT_PER_SEC", options.display_slew_pct_per_sec);
+    options.self_tune_learning_rate = read_env_double("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_LR",
+                                                      options.self_tune_learning_rate);
+    options.self_tune_max_delta_pct = read_env_double("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_MAX_DELTA",
+                                                      options.self_tune_max_delta_pct);
+    options.persist_interval_sec =
+        read_env_double("AUTO_BATTLEBOT_BATTERY_PERSIST_INTERVAL_SEC", options.persist_interval_sec);
+    options.invalid_read_grace =
+        read_env_int("AUTO_BATTLEBOT_BATTERY_INVALID_READ_GRACE", options.invalid_read_grace);
+    options.self_tune_min_samples =
+        read_env_int("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_MIN_SAMPLES", options.self_tune_min_samples);
+    options.self_tune_enabled =
+        read_env_int("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_ENABLE", options.self_tune_enabled ? 1 : 0) != 0;
+    options.discharge_current_positive = read_env_int("AUTO_BATTLEBOT_BATTERY_DISCHARGE_POSITIVE",
+                                                      options.discharge_current_positive ? 1 : 0) != 0;
+    const char *state_path = std::getenv("AUTO_BATTLEBOT_BATTERY_SOC_STATE_PATH");
+    if (state_path && state_path[0] != '\0') options.state_file_path = state_path;
+    return options;
+}
+
+bool read_waveshare_ups_sample(BatterySample &sample_out) {
     const int battery_i2c_bus = read_env_int("AUTO_BATTLEBOT_BATTERY_I2C_BUS", BATTERY_I2C_BUS_DEFAULT);
     const int battery_i2c_address =
         read_env_int("AUTO_BATTLEBOT_BATTERY_I2C_ADDRESS", BATTERY_I2C_ADDRESS_DEFAULT);
@@ -69,22 +128,41 @@ bool read_waveshare_ups_percent(double &percent_out) {
         ok = write_i2c_register_u16(fd, INA219_REG_CONFIG, INA219_CONFIG_16V_5A_CONTINUOUS);
     }
     uint16_t raw_bus_voltage = 0;
+    uint16_t raw_current = 0;
+    uint16_t raw_power = 0;
     if (ok) ok = read_i2c_register_u16(fd, INA219_REG_BUSVOLTAGE, raw_bus_voltage);
+    if (ok) ok = read_i2c_register_u16(fd, INA219_REG_CURRENT, raw_current);
+    if (ok) ok = read_i2c_register_u16(fd, INA219_REG_POWER, raw_power);
     close(fd);
     if (!ok) return false;
 
-    const double bus_voltage_v = static_cast<double>(raw_bus_voltage >> 3U) * 0.004;
-    percent_out = std::clamp(((bus_voltage_v - 9.0) / 3.6) * 100.0, 0.0, 100.0);
+    const int16_t current_signed = static_cast<int16_t>(raw_current);
+    const int16_t power_signed = static_cast<int16_t>(raw_power);
+    sample_out.timestamp = std::chrono::steady_clock::now();
+    sample_out.bus_voltage_v = static_cast<double>(raw_bus_voltage >> 3U) * 0.004;
+    sample_out.current_a = static_cast<double>(current_signed) * INA219_CURRENT_LSB_A;
+    sample_out.power_w = static_cast<double>(power_signed) * INA219_POWER_LSB_W;
+    sample_out.valid = true;
     return true;
 }
 
 class WaveshareUpsBatterySource : public IBatterySource {
    public:
+    explicit WaveshareUpsBatterySource(const BatteryOptions &options)
+        : estimator_(apply_env_overrides(options)) {}
+
     BatteryReading read() override {
-        double percent = 0.0;
-        const bool valid = read_waveshare_ups_percent(percent);
-        return {.percent = percent, .valid = valid};
+        BatterySample sample;
+        const bool ok = read_waveshare_ups_sample(sample);
+        if (!ok) {
+            sample.timestamp = std::chrono::steady_clock::now();
+            sample.valid = false;
+        }
+        return estimator_.update(sample);
     }
+
+   private:
+    BatterySocEstimator estimator_;
 };
 
 class DummyBatterySource : public IBatterySource {
@@ -271,11 +349,16 @@ void update_top_bar(UIWidgets &w, IBatterySource &battery_source) {
     update_battery_widgets(w, reading.percent, reading.valid);
 }
 
-std::unique_ptr<IBatterySource> make_battery_source(const std::string &normalized_source_name) {
+std::unique_ptr<IBatterySource> make_battery_source(const std::string &normalized_source_name,
+                                                    const BatteryOptions &options) {
     if (normalized_source_name == "waveshare ups" || normalized_source_name == "waveshareups") {
-        return std::make_unique<WaveshareUpsBatterySource>();
+        return std::make_unique<WaveshareUpsBatterySource>(options);
     }
     return std::make_unique<DummyBatterySource>(75.0);
+}
+
+std::unique_ptr<IBatterySource> make_battery_source(const std::string &normalized_source_name) {
+    return make_battery_source(normalized_source_name, BatteryOptions{});
 }
 
 }  // namespace auto_battlebot::ui_internal

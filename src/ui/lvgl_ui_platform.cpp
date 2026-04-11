@@ -74,7 +74,8 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
     ui_internal::UiServices services = {};
     const std::string battery_source =
         ui_internal::normalize_battery_source(ui_state->get_battery_source());
-    services.battery_source = ui_internal::make_battery_source(battery_source);
+    services.battery_source =
+        ui_internal::make_battery_source(battery_source, ui_state->get_battery_options());
     services.debug_overlay_renderer = ui_internal::make_debug_overlay_renderer();
     ui_internal::build_ui_content(root, widgets, ui_state, frame_state);
 

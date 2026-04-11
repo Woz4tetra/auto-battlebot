@@ -134,6 +134,7 @@ int main(int argc, char **argv) {
         ui_state->set_window_size(class_config.ui->width, class_config.ui->height);
         ui_state->set_fullscreen(class_config.ui->fullscreen);
         ui_state->set_battery_source(class_config.ui->battery_source);
+        ui_state->set_battery_options(class_config.ui->battery);
         ui_state->set_rate_avg_window(class_config.ui->rate_avg_window);
         ui_state->set_max_loop_rate(class_config.runner.max_loop_rate);
         ui_state->set_rate_fail_threshold(class_config.ui->rate_fail_threshold);

@@ -10,6 +10,7 @@
 #include "data_structures.hpp"
 #include "enums.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
+#include "ui/battery_options.hpp"
 
 namespace auto_battlebot {
 struct UiConfiguration {
@@ -28,19 +29,10 @@ struct UiConfiguration {
     double rate_fail_duration_sec = 2.0;
     /** Battery source for top bar status ("Waveshare UPS" or "None"). */
     std::string battery_source = "Waveshare UPS";
+    /** Battery estimator settings under [ui.battery]. */
+    BatteryOptions battery;
 
-    // clang-format off
-        PARSE_CONFIG_FIELDS(
-            PARSE_FIELD_BOOL(enable)
-            PARSE_FIELD_BOOL(fullscreen)
-            PARSE_FIELD(width)
-            PARSE_FIELD(height)
-            PARSE_FIELD(rate_avg_window)
-            PARSE_FIELD_DOUBLE(rate_fail_threshold)
-            PARSE_FIELD_DOUBLE(rate_fail_duration_sec)
-            PARSE_FIELD_STRING(battery_source)
-        )
-    // clang-format on
+    void parse_fields(ConfigParser &parser);
 };
 std::unique_ptr<UiConfiguration> parse_ui_config(ConfigParser &parser);
 std::unique_ptr<UiConfiguration> load_ui_from_toml(toml::table const &toml_data,

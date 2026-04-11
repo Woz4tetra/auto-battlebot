@@ -14,6 +14,7 @@
 #include "data_structures/target_selection.hpp"
 #include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "navigation/navigation_interface.hpp"
+#include "ui/battery_options.hpp"
 
 namespace auto_battlebot {
 enum class UISystemAction : int {
@@ -107,6 +108,8 @@ class UIState {
     bool get_fullscreen() const;
     void set_battery_source(const std::string &battery_source);
     std::string get_battery_source() const;
+    void set_battery_options(const BatteryOptions &options);
+    BatteryOptions get_battery_options() const;
 
     /** Rolling average window size for loop_rate_hz (number of samples). Set before starting UI
      * thread. */
@@ -145,6 +148,7 @@ class UIState {
     int window_height_ = 600;
     bool fullscreen_ = true;
     std::string battery_source_ = "Waveshare UPS";
+    BatteryOptions battery_options_;
     int rate_avg_window_ = 10;
     double max_loop_rate_hz_ = 300.0;
     double rate_fail_threshold_ = 0.5;
