@@ -16,6 +16,13 @@
 #include "navigation/navigation_interface.hpp"
 
 namespace auto_battlebot {
+enum class UISystemAction : int {
+    NONE = 0,
+    QUIT_APP = 1,
+    REBOOT_HOST = 2,
+    POWEROFF_HOST = 3,
+};
+
 /** System status written by Runner, read by UI. UI derives our_robot_seen/opponent_count_seen from
  * robots. loop_met is computed in UI from rolling average. */
 struct SystemStatus {
@@ -25,6 +32,9 @@ struct SystemStatus {
     bool initialized = false;
     int selected_opponent_count = 1;
     bool autonomy_enabled = true;
+    bool svo_recording_enabled = false;
+    bool mcap_recording_enabled = false;
+    bool recording_enabled = false;
     double jetson_temperature_c = 0.0;  // 0 = not available
     std::string jetson_compute_mode;
 };
@@ -46,6 +56,10 @@ class UIState {
     std::atomic<bool> quit_requested{false};
     /** 1 = enable, -1 = disable, 0 = no change */
     std::atomic<int> autonomy_toggle_requested{0};
+    /** True = toggle both SVO and MCAP recording. */
+    std::atomic<bool> recording_toggle_requested{false};
+    /** static_cast<int>(UISystemAction) values; consumed by Runner. */
+    std::atomic<int> system_action_requested{static_cast<int>(UISystemAction::NONE)};
 
     // --- Status from Runner (written by Runner, read by UI) ---
     void set_system_status(const SystemStatus &s);

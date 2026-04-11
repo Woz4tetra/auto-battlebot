@@ -24,15 +24,36 @@ McapRecorder::McapRecorder(const std::string& config_name) {
     }
 
     writer_open_ = true;
+    enabled_ = true;
     spdlog::info("[McapRecorder] Recording to {}", file_path_.string());
 }
 
 McapRecorder::~McapRecorder() {
+    close();
+}
+
+void McapRecorder::close() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (writer_open_) {
         writer_.close();
         writer_open_ = false;
+        enabled_ = false;
     }
+}
+
+bool McapRecorder::set_enabled(bool enabled) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (enabled && !writer_open_) {
+        enabled_ = false;
+        return false;
+    }
+    enabled_ = enabled;
+    return true;
+}
+
+bool McapRecorder::is_enabled() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return writer_open_ && enabled_;
 }
 
 std::filesystem::path McapRecorder::make_file_path(const std::string& config_name) {

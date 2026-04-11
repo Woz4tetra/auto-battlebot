@@ -2,6 +2,7 @@
 
 #include <miniros/ros.h>
 
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -15,6 +16,7 @@
 #include "field_filter/field_filter_interface.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
 #include "mask_model/mask_model_interface.hpp"
+#include "mcap_recorder/mcap_recorder.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
@@ -27,6 +29,8 @@
 namespace auto_battlebot {
 class Runner {
    public:
+    using SystemActionCallback = std::function<void(UISystemAction)>;
+
     Runner(const RunnerConfiguration &runner_config, const std::vector<RobotConfig> &robot_configs,
            std::shared_ptr<RgbdCameraInterface> camera,
            std::shared_ptr<MaskModelInterface> field_model,
@@ -38,7 +42,9 @@ class Runner {
            std::shared_ptr<NavigationInterface> navigation,
            std::shared_ptr<TransmitterInterface> transmitter,
            std::shared_ptr<PublisherInterface> publisher,
-           std::shared_ptr<UIState> ui_state = nullptr);
+           std::shared_ptr<UIState> ui_state = nullptr,
+           std::shared_ptr<McapRecorder> mcap_recorder = nullptr,
+           SystemActionCallback system_action_callback = nullptr);
 
     void initialize();
     void initialize_field(const CameraData &camera_data);
@@ -58,6 +64,8 @@ class Runner {
     std::shared_ptr<TransmitterInterface> transmitter_;
     std::shared_ptr<PublisherInterface> publisher_;
     std::shared_ptr<UIState> ui_state_;
+    std::shared_ptr<McapRecorder> mcap_recorder_;
+    SystemActionCallback system_action_callback_;
 
     std::vector<RobotConfig> initial_robot_configs_;
     int runtime_opponent_count_;

@@ -27,6 +27,9 @@ class McapRecorder {
         std::lock_guard<std::mutex> lock(mutex_);
         ignored_topics_ = std::unordered_set<std::string>(topics.begin(), topics.end());
     }
+    bool set_enabled(bool enabled);
+    bool is_enabled() const;
+    void close();
 
     // Write a ROS message to the MCAP file using current time
     template <typename T>
@@ -39,7 +42,7 @@ class McapRecorder {
     template <typename T>
     void write(const std::string& topic, const T& msg, uint64_t time_ns) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!writer_open_) return;
+        if (!writer_open_ || !enabled_) return;
         if (ignored_topics_.count(topic)) return;
 
         mcap::ChannelId channel_id = get_or_create_channel<T>(topic);
@@ -106,7 +109,8 @@ class McapRecorder {
     mcap::McapWriter writer_;
     std::filesystem::path file_path_;
     bool writer_open_{false};
-    std::mutex mutex_;
+    bool enabled_{false};
+    mutable std::mutex mutex_;
     std::unordered_map<std::string, mcap::ChannelId> channel_ids_;
     std::unordered_set<std::string> ignored_topics_;
     uint32_t sequence_{0};

@@ -3,9 +3,11 @@
 #include <CLI/CLI.hpp>
 #include <atomic>
 #include <csignal>
+#include <cstdlib>
 #include <diagnostic_msgs/DiagnosticArray.hxx>
 #include <filesystem>
 #include <memory>
+#include <spdlog/spdlog.h>
 #include <thread>
 #include <vector>
 
@@ -25,6 +27,26 @@ std::atomic<auto_battlebot::UIState *> g_ui_state_for_signal{nullptr};
 void signal_quit(int) {
     auto *s = g_ui_state_for_signal.load(std::memory_order_relaxed);
     if (s) s->quit_requested.store(true);
+}
+
+void handle_system_action(auto_battlebot::UISystemAction action) {
+    int rc = 0;
+    switch (action) {
+        case auto_battlebot::UISystemAction::REBOOT_HOST:
+            rc = std::system("systemctl reboot");
+            if (rc != 0) {
+                spdlog::error("Failed to execute reboot command, rc={}", rc);
+            }
+            break;
+        case auto_battlebot::UISystemAction::POWEROFF_HOST:
+            rc = std::system("systemctl poweroff");
+            if (rc != 0) {
+                spdlog::error("Failed to execute poweroff command, rc={}", rc);
+            }
+            break;
+        default:
+            break;
+    }
 }
 }  // namespace
 
@@ -93,7 +115,7 @@ int main(int argc, char **argv) {
 
     Runner runner(class_config.runner, robot_configs, camera, field_model, robot_mask_model,
                   field_filter, keypoint_model, robot_filter, target_selector, navigation,
-                  transmitter, publisher, ui_state);
+                  transmitter, publisher, ui_state, mcap_recorder, handle_system_action);
 
     runner.initialize();
 
@@ -112,6 +134,11 @@ int main(int argc, char **argv) {
     }
 
     int result = runner.run();
+    spdlog::warn("runner.run() returned with code {}", result);
+
+    if (ui_state) {
+        ui_state->quit_requested.store(true);
+    }
 
     if (ui_thread.joinable()) {
         ui_thread.join();

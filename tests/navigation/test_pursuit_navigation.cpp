@@ -27,6 +27,16 @@ namespace auto_battlebot
         return field;
     }
 
+    TargetSelection make_target(double x, double y, Label label = Label::OPPONENT)
+    {
+        TargetSelection target;
+        target.pose.x = x;
+        target.pose.y = y;
+        target.pose.yaw = 0.0;
+        target.label = label;
+        return target;
+    }
+
     // Helper to create default config
     PursuitNavigationConfiguration make_default_config()
     {
@@ -96,7 +106,7 @@ namespace auto_battlebot
         RobotDescriptionsStamped robots;
         FieldDescription field = make_field(2.0, 2.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(0.0, 0.0, Label::EMPTY));
 
         EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
         EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
@@ -110,7 +120,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 1.0, 0.0, 0.0));
         FieldDescription field = make_field(2.0, 2.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
 
         EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
         EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
@@ -124,7 +134,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::MR_STABS_MK1, 0.0, 0.0, 0.0));
         FieldDescription field = make_field(2.0, 2.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(0.0, 0.0, Label::EMPTY));
 
         EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
         EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
@@ -140,7 +150,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 1.0, 0.0, 0.0));
         FieldDescription field = make_field(2.0, 2.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
 
         // Should produce non-zero command since target exists
         EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
@@ -153,7 +163,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 1.0, 0.0, 0.0));
         FieldDescription field = make_field(2.0, 2.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
         EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
     }
 
@@ -164,7 +174,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 1.0, 0.0, 0.0));
         FieldDescription field = make_field(2.0, 2.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
         EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
     }
 
@@ -175,7 +185,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 1.0, 0.0, 0.0));
         FieldDescription field = make_field(2.0, 2.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
         EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
     }
 
@@ -186,7 +196,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 1.0, 0.0, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
         EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
     }
 
@@ -197,7 +207,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::HOUSE_BOT, 1.0, 0.0, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0, Label::HOUSE_BOT));
         EXPECT_TRUE(cmd.linear_x != 0.0 || cmd.angular_z != 0.0);
     }
 
@@ -212,7 +222,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.5, 0.0, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(0.5, 0.0));
 
         // Should be moving forward toward the closer target
         EXPECT_GT(cmd.linear_x, 0.0);
@@ -229,7 +239,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 1.0, 0.0, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
 
         EXPECT_GT(cmd.linear_x, 0.0);
         EXPECT_NEAR(cmd.angular_z, 0.0, 0.1); // Should be nearly zero rotation
@@ -244,7 +254,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.0, 1.0, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(0.0, 1.0));
 
         // Should turn left (positive angular velocity in standard convention)
         EXPECT_GT(cmd.angular_z, 0.0);
@@ -259,7 +269,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.0, -1.0, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(0.0, -1.0));
 
         // Should turn right (negative angular velocity)
         EXPECT_LT(cmd.angular_z, 0.0);
@@ -274,7 +284,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, -1.0, 0.0, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(-1.0, 0.0));
 
         // Should turn (large angle error means turn in place)
         EXPECT_NEAR(cmd.linear_x, 0.0, 0.01);
@@ -289,7 +299,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.05, 0.0, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(0.05, 0.0));
 
         EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
         EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
@@ -312,7 +322,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.5, 0.0, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav.update(robots, field);
+        VelocityCommand cmd = nav.update(robots, field, make_target(0.5, 0.0));
 
         // Should be slower than max velocity
         EXPECT_GT(cmd.linear_x, 0.0);
@@ -334,7 +344,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 10.0, 0.0, 0.0));
         FieldDescription field = make_field(30.0, 30.0);
 
-        VelocityCommand cmd = nav.update(robots, field);
+        VelocityCommand cmd = nav.update(robots, field, make_target(10.0, 0.0));
 
         EXPECT_LE(cmd.linear_x, config.max_linear_velocity);
     }
@@ -353,7 +363,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, -1.0, 0.1, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav.update(robots, field);
+        VelocityCommand cmd = nav.update(robots, field, make_target(-1.0, 0.1));
 
         EXPECT_LE(std::abs(cmd.angular_z), config.max_angular_velocity);
     }
@@ -378,7 +388,7 @@ namespace auto_battlebot
 
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav.update(robots, field);
+        VelocityCommand cmd = nav.update(robots, field, make_target(1.0, 0.0));
 
         // Should turn toward predicted position (1, 1), which is to the left
         EXPECT_GT(cmd.angular_z, 0.0);
@@ -401,7 +411,7 @@ namespace auto_battlebot
         // Small field
         FieldDescription field = make_field(2.0, 2.0);
 
-        VelocityCommand cmd = nav.update(robots, field);
+        VelocityCommand cmd = nav.update(robots, field, make_target(10.0, 0.0));
 
         // Should still produce valid command (toward clamped position)
         EXPECT_TRUE(cmd.linear_x >= 0.0 || cmd.angular_z != 0.0);
@@ -416,7 +426,7 @@ namespace auto_battlebot
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 1.0, 1.0, 0.0));
         FieldDescription field = make_field(4.0, 4.0);
 
-        VelocityCommand cmd = nav_->update(robots, field);
+        VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 1.0));
 
         // This is a differential drive robot - no lateral movement
         EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);

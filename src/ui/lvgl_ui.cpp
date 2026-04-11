@@ -49,6 +49,13 @@ struct OpponentTileData {
 };
 static OpponentTileData opp_tile_data[3];
 
+struct SystemActionTileData {
+    std::shared_ptr<UIState> ui_state;
+    struct UIWidgets *widgets = nullptr;
+    UISystemAction action = UISystemAction::NONE;
+};
+static SystemActionTileData system_action_tile_data[3];
+
 struct CameraTouchData {
     std::shared_ptr<UIState> ui_state;
     struct UIWidgets *widgets = nullptr;
@@ -62,6 +69,7 @@ struct HealthRow {
 
 struct UIWidgets {
     lv_obj_t *tabview = nullptr;
+    std::shared_ptr<UIState> ui_state;
 
     lv_obj_t *status_tile = nullptr; /* whole tile colored by status */
     lv_obj_t *status_label = nullptr;
@@ -80,6 +88,17 @@ struct UIWidgets {
 
     lv_obj_t *reinit_tile = nullptr;
     lv_obj_t *reinit_status = nullptr;
+
+    lv_obj_t *recording_tile = nullptr;
+    lv_obj_t *recording_label = nullptr;
+    lv_obj_t *recording_detail = nullptr;
+
+    lv_obj_t *quit_tile = nullptr;
+    lv_obj_t *reboot_tile = nullptr;
+    lv_obj_t *poweroff_tile = nullptr;
+    lv_obj_t *confirm_overlay = nullptr;
+    lv_obj_t *confirm_message = nullptr;
+    UISystemAction pending_confirm_action = UISystemAction::NONE;
 
     HealthRow health[8];
     int health_count = 0;
@@ -166,6 +185,56 @@ void autonomy_cb(lv_event_t *e) {
     SystemStatus st;
     us->get_system_status(st);
     us->autonomy_toggle_requested.store(st.autonomy_enabled ? -1 : 1);
+}
+
+void recording_toggle_cb(lv_event_t *e) {
+    auto *us = static_cast<UIState *>(lv_event_get_user_data(e));
+    if (us) us->recording_toggle_requested.store(true);
+}
+
+void system_action_cb(lv_event_t *e) {
+    auto *d = static_cast<SystemActionTileData *>(lv_event_get_user_data(e));
+    if (!d || !d->ui_state || !d->widgets) return;
+    d->widgets->pending_confirm_action = d->action;
+    if (d->widgets->confirm_message) {
+        const char *msg = "Confirm action?";
+        if (d->action == UISystemAction::QUIT_APP) {
+            msg = "Quit app now?\n(service will restart)";
+        } else if (d->action == UISystemAction::REBOOT_HOST) {
+            msg = "Reboot host now?";
+        } else if (d->action == UISystemAction::POWEROFF_HOST) {
+            msg = "Power off host now?";
+        }
+        lv_label_set_text(d->widgets->confirm_message, msg);
+    }
+    if (d->widgets->confirm_overlay) lv_obj_clear_flag(d->widgets->confirm_overlay, LV_OBJ_FLAG_HIDDEN);
+}
+
+void system_confirm_yes_cb(lv_event_t *e) {
+    auto *w = static_cast<UIWidgets *>(lv_event_get_user_data(e));
+    if (!w || !w->confirm_overlay) return;
+    UISystemAction action = w->pending_confirm_action;
+    w->pending_confirm_action = UISystemAction::NONE;
+    lv_obj_add_flag(w->confirm_overlay, LV_OBJ_FLAG_HIDDEN);
+    if (action == UISystemAction::NONE) return;
+    switch (action) {
+        case UISystemAction::QUIT_APP:
+        case UISystemAction::REBOOT_HOST:
+        case UISystemAction::POWEROFF_HOST:
+            if (w->ui_state) {
+                w->ui_state->system_action_requested.store(static_cast<int>(action));
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+void system_confirm_no_cb(lv_event_t *e) {
+    auto *w = static_cast<UIWidgets *>(lv_event_get_user_data(e));
+    if (!w || !w->confirm_overlay) return;
+    w->pending_confirm_action = UISystemAction::NONE;
+    lv_obj_add_flag(w->confirm_overlay, LV_OBJ_FLAG_HIDDEN);
 }
 
 void style_transparent(lv_obj_t *obj) {
@@ -727,6 +796,148 @@ void build_diagnostics(lv_obj_t *tab, UIWidgets &w) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  System tab                                                        */
+/* ------------------------------------------------------------------ */
+
+void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state) {
+    w.ui_state = ui_state;
+    lv_obj_set_flex_flow(tab, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(tab, 8, 0);
+    lv_obj_set_style_pad_gap(tab, 8, 0);
+    lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *recording_tile = lv_obj_create(tab);
+    w.recording_tile = recording_tile;
+    lv_obj_set_width(recording_tile, LV_PCT(100));
+    lv_obj_set_flex_grow(recording_tile, 1);
+    lv_obj_set_style_radius(recording_tile, TILE_RADIUS, 0);
+    lv_obj_set_style_pad_all(recording_tile, TILE_PAD, 0);
+    lv_obj_set_flex_flow(recording_tile, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(recording_tile, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(recording_tile, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(recording_tile, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(recording_tile, lv_color_hex(0x757575), 0);
+    lv_obj_set_style_bg_color(recording_tile, lv_color_hex(0xBDBDBD), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(recording_tile, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_add_event_cb(recording_tile, recording_toggle_cb, LV_EVENT_CLICKED, ui_state.get());
+
+    w.recording_label = lv_label_create(recording_tile);
+    lv_label_set_text(w.recording_label, "Recording\n--");
+    lv_obj_set_style_text_font(w.recording_label, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_align(w.recording_label, LV_TEXT_ALIGN_CENTER, 0);
+
+    w.recording_detail = lv_label_create(recording_tile);
+    lv_label_set_text(w.recording_detail, "SVO -- | MCAP --");
+    lv_obj_set_style_text_font(w.recording_detail, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_align(w.recording_detail, LV_TEXT_ALIGN_CENTER, 0);
+
+    lv_obj_t *actions_row = lv_obj_create(tab);
+    lv_obj_set_width(actions_row, LV_PCT(100));
+    lv_obj_set_flex_grow(actions_row, 1);
+    lv_obj_set_style_pad_all(actions_row, 0, 0);
+    lv_obj_set_style_pad_gap(actions_row, 8, 0);
+    lv_obj_set_flex_flow(actions_row, LV_FLEX_FLOW_ROW);
+    style_transparent(actions_row);
+
+    struct ActionSpec {
+        const char *title;
+        const char *subtitle;
+        lv_color_t color;
+        UISystemAction action;
+        lv_obj_t **widget_slot;
+    };
+    std::array<ActionSpec, 3> specs{{
+        {"Quit App", "service restarts", lv_color_hex(0xFB8C00), UISystemAction::QUIT_APP,
+         &w.quit_tile},
+        {"Reboot Host", "full system reboot", lv_color_hex(0x1E88E5), UISystemAction::REBOOT_HOST,
+         &w.reboot_tile},
+        {"Power Off", "safe shutdown", lv_color_hex(0xE53935), UISystemAction::POWEROFF_HOST,
+         &w.poweroff_tile},
+    }};
+
+    for (size_t i = 0; i < specs.size(); ++i) {
+        const auto &spec = specs[i];
+        system_action_tile_data[i] = {ui_state, &w, spec.action};
+
+        lv_obj_t *tile = lv_obj_create(actions_row);
+        *spec.widget_slot = tile;
+        lv_obj_set_flex_grow(tile, 1);
+        lv_obj_set_height(tile, LV_PCT(100));
+        lv_obj_set_style_radius(tile, TILE_RADIUS, 0);
+        lv_obj_set_style_pad_all(tile, TILE_PAD, 0);
+        lv_obj_set_flex_flow(tile, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(tile, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_clear_flag(tile, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_bg_color(tile, spec.color, 0);
+        lv_obj_set_style_bg_color(tile, lv_color_hex(0xBDBDBD), LV_STATE_PRESSED);
+        lv_obj_set_style_bg_opa(tile, LV_OPA_COVER, LV_STATE_PRESSED);
+        lv_obj_add_event_cb(tile, system_action_cb, LV_EVENT_CLICKED, &system_action_tile_data[i]);
+
+        lv_obj_t *title = lv_label_create(tile);
+        lv_label_set_text(title, spec.title);
+        lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+
+        lv_obj_t *subtitle = lv_label_create(tile);
+        lv_label_set_text(subtitle, spec.subtitle);
+        lv_obj_set_style_text_font(subtitle, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_align(subtitle, LV_TEXT_ALIGN_CENTER, 0);
+    }
+
+    lv_obj_t *overlay = lv_obj_create(lv_layer_top());
+    w.confirm_overlay = overlay;
+    lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(overlay, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_50, 0);
+    lv_obj_set_style_border_width(overlay, 0, 0);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *panel = lv_obj_create(overlay);
+    lv_obj_set_size(panel, 360, 180);
+    lv_obj_center(panel);
+    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(panel, TILE_RADIUS, 0);
+    lv_obj_set_style_pad_all(panel, TILE_PAD, 0);
+    lv_obj_set_style_pad_gap(panel, 12, 0);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(panel, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    w.confirm_message = lv_label_create(panel);
+    lv_label_set_text(w.confirm_message, "Confirm action?");
+    lv_obj_set_style_text_font(w.confirm_message, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_align(w.confirm_message, LV_TEXT_ALIGN_CENTER, 0);
+
+    lv_obj_t *btn_row = lv_obj_create(panel);
+    lv_obj_set_width(btn_row, LV_PCT(100));
+    lv_obj_set_height(btn_row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_all(btn_row, 0, 0);
+    lv_obj_set_style_pad_gap(btn_row, 10, 0);
+    style_transparent(btn_row);
+
+    lv_obj_t *cancel_btn = lv_btn_create(btn_row);
+    lv_obj_set_flex_grow(cancel_btn, 1);
+    lv_obj_set_height(cancel_btn, 48);
+    lv_obj_set_style_bg_color(cancel_btn, lv_color_hex(0x616161), 0);
+    lv_obj_add_event_cb(cancel_btn, system_confirm_no_cb, LV_EVENT_CLICKED, &w);
+    lv_obj_t *cancel_lbl = lv_label_create(cancel_btn);
+    lv_label_set_text(cancel_lbl, "Cancel");
+    lv_obj_center(cancel_lbl);
+
+    lv_obj_t *confirm_btn = lv_btn_create(btn_row);
+    lv_obj_set_flex_grow(confirm_btn, 1);
+    lv_obj_set_height(confirm_btn, 48);
+    lv_obj_set_style_bg_color(confirm_btn, lv_color_hex(0xE53935), 0);
+    lv_obj_add_event_cb(confirm_btn, system_confirm_yes_cb, LV_EVENT_CLICKED, &w);
+    lv_obj_t *confirm_lbl = lv_label_create(confirm_btn);
+    lv_label_set_text(confirm_lbl, "Confirm");
+    lv_obj_center(confirm_lbl);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Update functions                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -845,6 +1056,33 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
             lv_obj_add_state(w.opp_tiles[i], LV_STATE_CHECKED);
         else
             lv_obj_remove_state(w.opp_tiles[i], LV_STATE_CHECKED);
+    }
+}
+
+void update_system(UIWidgets &w, std::shared_ptr<UIState> us) {
+    if (!us) return;
+    SystemStatus st;
+    us->get_system_status(st);
+
+    if (w.recording_tile) {
+        lv_obj_set_style_bg_color(
+            w.recording_tile, st.recording_enabled ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744),
+            0);
+    }
+    if (w.recording_label) {
+        lv_label_set_text(w.recording_label, st.recording_enabled ? "Recording\nON" : "Recording\nOFF");
+        lv_obj_set_style_text_color(
+            w.recording_label, st.recording_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF),
+            0);
+    }
+    if (w.recording_detail) {
+        char buf[96];
+        snprintf(buf, sizeof(buf), "SVO %s | MCAP %s", st.svo_recording_enabled ? "ON" : "OFF",
+                 st.mcap_recording_enabled ? "ON" : "OFF");
+        lv_label_set_text(w.recording_detail, buf);
+        lv_obj_set_style_text_color(
+            w.recording_detail, st.recording_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFAFAFA),
+            0);
     }
 }
 
@@ -1064,7 +1302,10 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
 void run_ui_thread(std::shared_ptr<UIState> ui_state) {
     if (!ui_state) return;
 
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) return;
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        spdlog::error("UI thread failed to initialize SDL.");
+        return;
+    }
 
     int w = 1280, h = 800;
     ui_state->get_window_size(w, h);
@@ -1119,11 +1360,13 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
 
     lv_obj_t *tab_home = lv_tabview_add_tab(tabview, "Home");
     lv_obj_t *tab_diag = lv_tabview_add_tab(tabview, "Diagnostics");
+    lv_obj_t *tab_system = lv_tabview_add_tab(tabview, "System");
 
     UIWidgets widgets = {};
     widgets.tabview = tabview;
     build_home(tab_home, widgets, ui_state);
     build_diagnostics(tab_diag, widgets);
+    build_system(tab_system, widgets, ui_state);
 
     lv_image_dsc_t img_dsc = {};
     std::vector<uint8_t> img_copy;
@@ -1132,7 +1375,10 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
     bool running = true;
     const int delay_ms = 5;
     while (running) {
-        if (ui_state->quit_requested.load()) break;
+        if (ui_state->quit_requested.load()) {
+            spdlog::warn("UI thread observed quit_requested=true, exiting UI loop.");
+            break;
+        }
 
         SDL_Event event;
         if (SDL_PollEvent(&event)) {
@@ -1150,6 +1396,7 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
         uint32_t active_tab = lv_tabview_get_tab_active(tabview);
 
         update_home(widgets, ui_state);
+        update_system(widgets, ui_state);
 
         if (active_tab == 1) {
             update_health_rows(widgets, ui_state);

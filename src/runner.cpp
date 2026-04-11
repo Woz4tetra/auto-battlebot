@@ -16,7 +16,9 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<TargetSelectorInterface> target_selector,
                std::shared_ptr<NavigationInterface> navigation,
                std::shared_ptr<TransmitterInterface> transmitter,
-               std::shared_ptr<PublisherInterface> publisher, std::shared_ptr<UIState> ui_state)
+               std::shared_ptr<PublisherInterface> publisher, std::shared_ptr<UIState> ui_state,
+               std::shared_ptr<McapRecorder> mcap_recorder,
+               SystemActionCallback system_action_callback)
     : runner_config_(runner_config),
       camera_(camera),
       field_model_(field_model),
@@ -29,6 +31,8 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       transmitter_(transmitter),
       publisher_(publisher),
       ui_state_(std::move(ui_state)),
+      mcap_recorder_(std::move(mcap_recorder)),
+      system_action_callback_(std::move(system_action_callback)),
       initial_robot_configs_(robot_configs),
       runtime_opponent_count_(runner_config_.default_opponent_count),
       robot_filter_reinit_pending_(false),
@@ -123,6 +127,7 @@ int Runner::run() {
         std::this_thread::sleep_for(remaining_time);
 
         if (!tick()) {
+            spdlog::warn("Runner::tick requested shutdown; runner loop exiting.");
             return 0;
         }
 
@@ -143,6 +148,8 @@ bool Runner::tick() {
 
     auto publish_system_status = [this, loop_rate_hz](bool camera_ok) {
         if (!ui_state_) return;
+        const bool svo_recording_enabled = camera_->is_svo_recording_enabled();
+        const bool mcap_recording_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
         SystemStatus status;
         status.camera_ok = camera_ok;
         status.transmitter_connected = transmitter_->is_connected();
@@ -150,17 +157,34 @@ bool Runner::tick() {
         status.initialized = initialized_;
         status.selected_opponent_count = runtime_opponent_count_;
         status.autonomy_enabled = autonomy_enabled_;
+        status.svo_recording_enabled = svo_recording_enabled;
+        status.mcap_recording_enabled = mcap_recording_enabled;
+        status.recording_enabled = svo_recording_enabled && mcap_recording_enabled;
         ui_state_->set_system_status(status);
+    };
+    auto stop_recordings_for_shutdown = [this]() {
+        if (!camera_->set_svo_recording_enabled(false)) {
+            spdlog::warn("Failed to disable SVO recording during shutdown.");
+        }
+        if (mcap_recorder_) {
+            mcap_recorder_->set_enabled(false);
+            mcap_recorder_->close();
+        }
     };
 
     if (!miniros::ok()) {
+        spdlog::warn("miniros reported not ok; shutting down runner.");
         miniros::shutdown();
         return false;
     }
 
     bool should_reinit_field = false;
     if (ui_state_) {
-        if (ui_state_->quit_requested.load()) return false;
+        if (ui_state_->quit_requested.load()) {
+            spdlog::warn("UI requested quit via UIState::quit_requested.");
+            stop_recordings_for_shutdown();
+            return false;
+        }
         should_reinit_field = ui_state_->reinit_requested.exchange(false);
         int req = ui_state_->opponent_count_requested.exchange(-1);
         if (req >= 1 && req <= 3) {
@@ -175,6 +199,37 @@ bool Runner::tick() {
         } else if (autonomy_req == -1 && autonomy_enabled_) {
             transmitter_->disable();
             autonomy_enabled_ = false;
+        }
+
+        if (ui_state_->recording_toggle_requested.exchange(false)) {
+            const bool svo_enabled = camera_->is_svo_recording_enabled();
+            const bool mcap_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
+            const bool target_enabled = !(svo_enabled && mcap_enabled);
+
+            if (!camera_->set_svo_recording_enabled(target_enabled)) {
+                spdlog::warn("Failed to set SVO recording to {}",
+                             target_enabled ? "enabled" : "disabled");
+            }
+            if (mcap_recorder_ && !mcap_recorder_->set_enabled(target_enabled)) {
+                spdlog::warn("Failed to set MCAP recording to {}",
+                             target_enabled ? "enabled" : "disabled");
+            }
+        }
+
+        int raw_action =
+            ui_state_->system_action_requested.exchange(static_cast<int>(UISystemAction::NONE));
+        auto requested_action = static_cast<UISystemAction>(raw_action);
+        if (requested_action != UISystemAction::NONE) {
+            spdlog::warn("Runner received system action request: {}", raw_action);
+            if (system_action_callback_) {
+                system_action_callback_(requested_action);
+            }
+            if (requested_action == UISystemAction::QUIT_APP) {
+                spdlog::warn("Quit app action received; requesting runner shutdown.");
+                stop_recordings_for_shutdown();
+                ui_state_->quit_requested.store(true);
+                return false;
+            }
         }
     }
 
