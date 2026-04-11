@@ -14,9 +14,16 @@ type = "DeepLabMaskModel"
 model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64_sm89.engine"
 
 [robot_mask_model]
-type = "DeepLabMaskModel"
-model_path = "models/robot_deeplabv3_mbv3_2026-03-07_x86_64_sm89.engine"
-output_label = "OPPONENT"
+type = "YoloSegRobotBlobModel"
+model_path = "models/yolo_seg_opponents_2026-04-11_x86_64_sm89.engine"
+label_indices = ["OPPONENT", "HOUSE_BOT", "FIELD"]
+their_robot_labels = ["OPPONENT"]
+neutral_robot_labels = ["HOUSE_BOT"]
+field_labels = ["FIELD"]
+confidence_threshold = 0.5
+iou_threshold = 0.45
+mask_threshold = 0.5
+max_detections = 16
 
 [field_filter]
 type = "PointCloudFieldFilter"
@@ -74,6 +81,8 @@ front_keypoints = [
     "MRS_BUFF_MK2_FRONT",
     "HOUSE_BOT_FRONT",
     "OPPONENT_FRONT",
+    "OPPONENT_BLOB_A",
+    "HOUSE_BOT_BLOB_A",
 ]
 back_keypoints = [
     "MR_STABS_MK1_BACK",
@@ -82,7 +91,17 @@ back_keypoints = [
     "MRS_BUFF_MK2_BACK",
     "HOUSE_BOT_BACK",
     "OPPONENT_BACK",
+    "OPPONENT_BLOB_B",
+    "HOUSE_BOT_BLOB_B",
 ]
+
+robot_blob_min_length_meters = 0.08
+robot_blob_max_length_meters = 0.7
+robot_blob_min_confidence = 0.4
+robot_blob_persistence_frames_required = 2
+robot_blob_match_distance_meters = 0.35
+robot_blob_tracked_timeout_seconds = 0.6
+robot_blob_max_candidates = 8
 
 [robot_filter.label_mapping]
 "MR_STABS_MK1" = ["OUR_ROBOT_1"]

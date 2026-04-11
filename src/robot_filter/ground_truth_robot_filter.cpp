@@ -32,7 +32,7 @@ bool GroundTruthRobotFilter::initialize(const std::vector<RobotConfig> &robots) 
 RobotDescriptionsStamped GroundTruthRobotFilter::update([[maybe_unused]] KeypointsStamped keypoints,
                                                         [[maybe_unused]] FieldDescription field,
                                                         [[maybe_unused]] CameraInfo camera_info,
-                                                        [[maybe_unused]] MaskStamped robot_mask,
+                                                        [[maybe_unused]] KeypointsStamped robot_blob_keypoints,
                                                         [[maybe_unused]] CommandFeedback cf) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;

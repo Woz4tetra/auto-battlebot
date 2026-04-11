@@ -9,7 +9,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                const std::vector<RobotConfig> &robot_configs,
                std::shared_ptr<RgbdCameraInterface> camera,
                std::shared_ptr<MaskModelInterface> field_model,
-               std::shared_ptr<MaskModelInterface> robot_mask_model,
+               std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
                std::shared_ptr<FieldFilterInterface> field_filter,
                std::shared_ptr<KeypointModelInterface> keypoint_model,
                std::shared_ptr<RobotFilterInterface> robot_filter,
@@ -209,7 +209,7 @@ void Runner::initialize() {
         spdlog::error("Failed to initialize field model");
     }
     if (!robot_mask_model_->initialize()) {
-        spdlog::error("Failed to initialize robot mask model");
+        spdlog::error("Failed to initialize robot blob model");
     }
     if (!keypoint_model_->initialize()) {
         spdlog::error("Failed to initialize keypoint model.");
@@ -344,17 +344,17 @@ bool Runner::tick() {
         keypoints = keypoint_model_->update(camera_data.rgb);
     }
 
-    MaskStamped robot_mask;
+    KeypointsStamped robot_blob_keypoints;
     {
         FunctionTimer timer(diagnostics_logger_, "robot_mask_model.update");
-        robot_mask = robot_mask_model_->update(camera_data.rgb);
+        robot_blob_keypoints = robot_mask_model_->update(camera_data.rgb);
     }
 
     RobotDescriptionsStamped robots;
     {
         FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
         robots = robot_filter_->update(keypoints, field_description, camera_data.camera_info,
-                                       robot_mask, command_feedback);
+                                       robot_blob_keypoints, command_feedback);
     }
 
     {

@@ -25,6 +25,8 @@
 #include "publisher/publisher_interface.hpp"
 #include "rgbd_camera/config.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
+#include "robot_blob_model/config.hpp"
+#include "robot_blob_model/robot_blob_model_interface.hpp"
 #include "robot_filter/config.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
@@ -37,7 +39,7 @@ namespace auto_battlebot {
 struct ClassConfiguration {
     std::unique_ptr<RgbdCameraConfiguration> camera;
     std::unique_ptr<MaskModelConfiguration> field_model;
-    std::unique_ptr<MaskModelConfiguration> robot_mask_model;
+    std::unique_ptr<RobotBlobModelConfiguration> robot_mask_model;
     std::unique_ptr<FieldFilterConfiguration> field_filter;
     std::unique_ptr<KeypointModelConfiguration> keypoint_model;
     std::unique_ptr<RobotFilterConfiguration> robot_filter;

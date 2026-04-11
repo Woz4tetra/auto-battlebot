@@ -20,6 +20,7 @@
 #include "navigation/navigation_interface.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
+#include "robot_blob_model/robot_blob_model_interface.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
 #include "target_selector/target_selector_interface.hpp"
@@ -34,7 +35,7 @@ class Runner {
     Runner(const RunnerConfiguration &runner_config, const std::vector<RobotConfig> &robot_configs,
            std::shared_ptr<RgbdCameraInterface> camera,
            std::shared_ptr<MaskModelInterface> field_model,
-           std::shared_ptr<MaskModelInterface> robot_mask_model,
+           std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
            std::shared_ptr<FieldFilterInterface> field_filter,
            std::shared_ptr<KeypointModelInterface> keypoint_model,
            std::shared_ptr<RobotFilterInterface> robot_filter,
@@ -55,7 +56,7 @@ class Runner {
     RunnerConfiguration runner_config_;
     std::shared_ptr<RgbdCameraInterface> camera_;
     std::shared_ptr<MaskModelInterface> field_model_;
-    std::shared_ptr<MaskModelInterface> robot_mask_model_;
+    std::shared_ptr<RobotBlobModelInterface> robot_mask_model_;
     std::shared_ptr<FieldFilterInterface> field_filter_;
     std::shared_ptr<KeypointModelInterface> keypoint_model_;
     std::shared_ptr<RobotFilterInterface> robot_filter_;

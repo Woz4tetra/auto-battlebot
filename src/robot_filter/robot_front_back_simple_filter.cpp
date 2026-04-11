@@ -25,7 +25,7 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
       velocity_ema_alpha_(config.velocity_ema_alpha),
       max_jump_distance_(config.max_jump_distance),
       max_consecutive_jump_rejects_(config.max_consecutive_jump_rejects),
-      robot_mask_detector_(config.robot_mask_detector_config) {
+      robot_keypoint_tracker_(config.robot_keypoint_tracker_config) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("robot_front_back_simple_filter");
 
     FrontBackKeypointConverterConfig converter_config;
@@ -40,7 +40,7 @@ bool RobotFrontBackSimpleFilter::initialize(const std::vector<RobotConfig> &robo
     jump_reject_count_per_frame_id_.clear();
     last_description_per_frame_id_.clear();
     last_position_per_frame_id_.clear();
-    robot_mask_detector_.reset();
+    robot_keypoint_tracker_.reset();
     for (const auto &robot : robots) {
         robot_configs_[robot.label] = robot;
     }
@@ -63,7 +63,7 @@ bool RobotFrontBackSimpleFilter::set_opponent_count(int count) {
 RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped keypoints,
                                                             FieldDescription field,
                                                             CameraInfo camera_info,
-                                                            MaskStamped robot_mask,
+                                                            KeypointsStamped robot_blob_keypoints,
                                                             CommandFeedback command_feedback) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
@@ -73,28 +73,32 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
         convert_keypoints_to_measurements(keypoints, field, camera_info);
     diagnostics_logger_->debug({{"num_keypoint_measurements", (int)filter_measurements.size()}});
 
-    if (!robot_mask.mask.mask.empty() && field.child_frame_id != FrameId::EMPTY) {
-        auto opponent_measurements = robot_mask_detector_.detect(
-            robot_mask.mask.mask, field, camera_info, filter_measurements, keypoints.header.stamp);
-        diagnostics_logger_->debug(
-            {{"num_robot_mask_opponents", (int)opponent_measurements.size()}});
+    if (!robot_blob_keypoints.keypoints.empty() && field.child_frame_id != FrameId::EMPTY) {
+        auto blob_measurements = robot_keypoint_tracker_.detect(robot_blob_keypoints, field, camera_info,
+                                                                keypoints.header.stamp);
+        diagnostics_logger_->debug({{"num_blob_measurements", (int)blob_measurements.size()}});
 
-        std::vector<FrameId> all_opponent_fids = get_frame_ids_for_label(Label::OPPONENT);
-        std::vector<FrameId> available_fids;
-        for (const auto &fid : all_opponent_fids) {
-            bool already_used =
-                std::any_of(filter_measurements.begin(), filter_measurements.end(),
-                            [fid](const RobotDescription &m) { return m.frame_id == fid; });
-            if (!already_used) available_fids.push_back(fid);
+        std::map<Label, std::vector<MeasurementWithConfidence>> grouped_blob_measurements;
+        for (auto &measurement : blob_measurements) {
+            grouped_blob_measurements[measurement.label].push_back({0.0, std::move(measurement)});
         }
 
-        if (!available_fids.empty() && !opponent_measurements.empty()) {
-            std::vector<MeasurementWithConfidence> meas_with_conf;
-            for (auto &m : opponent_measurements) {
-                meas_with_conf.push_back({0.0, std::move(m)});
+        for (auto &[label, measurements] : grouped_blob_measurements) {
+            std::vector<FrameId> all_fids = get_frame_ids_for_label(label);
+            std::vector<FrameId> available_fids;
+            for (const auto &fid : all_fids) {
+                bool already_used =
+                    std::any_of(filter_measurements.begin(), filter_measurements.end(),
+                                [fid](const RobotDescription &m) { return m.frame_id == fid; });
+                if (!already_used) available_fids.push_back(fid);
             }
-            auto assigned = assign_frame_ids_to_measurements(meas_with_conf, available_fids);
-            for (auto &a : assigned) filter_measurements.push_back(std::move(a));
+            if (available_fids.empty()) continue;
+            auto assigned = assign_frame_ids_to_measurements(measurements, available_fids);
+            for (auto &a : assigned) {
+                // Orientation from blob rectangles is intentionally non-semantic. Keep identity.
+                a.pose.rotation = Rotation{1.0, 0.0, 0.0, 0.0};
+                filter_measurements.push_back(std::move(a));
+            }
         }
     }
 

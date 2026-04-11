@@ -11,7 +11,7 @@
 #include "robot_filter/config.hpp"
 #include "robot_filter/front_back_keypoint_converter.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
-#include "robot_filter/robot_mask_detector.hpp"
+#include "robot_filter/robot_keypoint_tracker.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
@@ -28,7 +28,8 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
 
     bool initialize(const std::vector<RobotConfig> &robots) override;
     RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
-                                    CameraInfo camera_info, MaskStamped robot_mask,
+                                    CameraInfo camera_info,
+                                    KeypointsStamped robot_blob_keypoints,
                                     CommandFeedback command_feedback) override;
     bool set_opponent_count(int count) override;
 
@@ -45,7 +46,7 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     double max_jump_distance_;
     /** After this many consecutive rejected frames, accept the measurement (tracking reset). */
     int max_consecutive_jump_rejects_;
-    RobotMaskDetector robot_mask_detector_;
+    RobotKeypointTracker robot_keypoint_tracker_;
     /** Last known position per FrameId for distance-based assignment when multiple of same label.
      */
     std::map<FrameId, Position> last_position_per_frame_id_;

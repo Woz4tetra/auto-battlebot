@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
 
     auto camera = make_rgbd_camera(*class_config.camera);
     auto field_model = make_mask_model(*class_config.field_model);
-    auto robot_mask_model = make_mask_model(*class_config.robot_mask_model);
+    auto robot_mask_model = make_robot_blob_model(*class_config.robot_mask_model);
     auto field_filter = make_field_filter(*class_config.field_filter);
     auto keypoint_model = make_keypoint_model(*class_config.keypoint_model);
     auto robot_filter = make_robot_filter(*class_config.robot_filter);

@@ -47,10 +47,11 @@ TrtEngine::~TrtEngine() {
         cudaFree(d_input_);
         d_input_ = nullptr;
     }
-    if (d_output_) {
-        cudaFree(d_output_);
-        d_output_ = nullptr;
+    for (void* ptr : d_outputs_) {
+        if (ptr) cudaFree(ptr);
     }
+    d_outputs_.clear();
+    d_output_ = nullptr;
     auto* ctx = static_cast<nvinfer1::IExecutionContext*>(context_);
     auto* eng = static_cast<nvinfer1::ICudaEngine*>(engine_);
     auto* rt = static_cast<nvinfer1::IRuntime*>(runtime_);
@@ -115,8 +116,8 @@ bool TrtEngine::load(const std::string& engine_path) {
     context_ = ctx;
 
     const int32_t nb_io = eng->getNbIOTensors();
-    if (nb_io != 2) {
-        spdlog::error("TrtEngine: expected 2 IO tensors, got {}", nb_io);
+    if (nb_io < 2) {
+        spdlog::error("TrtEngine: expected at least 2 IO tensors, got {}", nb_io);
         delete ctx;
         delete eng;
         delete rt;
@@ -127,7 +128,11 @@ bool TrtEngine::load(const std::string& engine_path) {
     }
 
     const char* input_name = nullptr;
-    const char* output_name = nullptr;
+    std::vector<std::string> output_names;
+    std::vector<int32_t> output_io_indices;
+    output_infos_.clear();
+    d_outputs_.clear();
+    d_output_ = nullptr;
     for (int32_t i = 0; i < nb_io; ++i) {
         const char* name = eng->getIOTensorName(i);
         const nvinfer1::TensorIOMode mode = eng->getTensorIOMode(name);
@@ -135,12 +140,12 @@ bool TrtEngine::load(const std::string& engine_path) {
             input_name = name;
             input_io_index_ = i;
         } else if (mode == nvinfer1::TensorIOMode::kOUTPUT) {
-            output_name = name;
-            output_io_index_ = i;
+            output_names.emplace_back(name);
+            output_io_indices.push_back(i);
         }
     }
-    if (!input_name || !output_name) {
-        spdlog::error("TrtEngine: could not identify input and output tensors by mode");
+    if (!input_name || output_names.empty()) {
+        spdlog::error("TrtEngine: could not identify input/output tensors by mode");
         delete ctx;
         delete eng;
         delete rt;
@@ -151,11 +156,9 @@ bool TrtEngine::load(const std::string& engine_path) {
     }
 
     nvinfer1::Dims input_dims = eng->getTensorShape(input_name);
-    nvinfer1::Dims output_dims = eng->getTensorShape(output_name);
     const int64_t input_vol = volume(input_dims);
-    const int64_t output_vol = volume(output_dims);
-    if (input_vol <= 0 || output_vol <= 0) {
-        spdlog::error("TrtEngine: invalid input or output shape");
+    if (input_vol <= 0) {
+        spdlog::error("TrtEngine: invalid input shape");
         delete ctx;
         delete eng;
         delete rt;
@@ -176,9 +179,8 @@ bool TrtEngine::load(const std::string& engine_path) {
         runtime_ = nullptr;
         return false;
     }
-    err = cudaMalloc(&d_output_, static_cast<size_t>(output_vol) * sizeof(float));
-    if (err != cudaSuccess) {
-        spdlog::error("TrtEngine: cudaMalloc output failed: {}", cudaGetErrorString(err));
+    if (!ctx->setTensorAddress(input_name, d_input_)) {
+        spdlog::error("TrtEngine: setTensorAddress failed");
         cudaFree(d_input_);
         d_input_ = nullptr;
         delete ctx;
@@ -190,35 +192,93 @@ bool TrtEngine::load(const std::string& engine_path) {
         return false;
     }
 
-    if (!ctx->setTensorAddress(input_name, d_input_) ||
-        !ctx->setTensorAddress(output_name, d_output_)) {
-        spdlog::error("TrtEngine: setTensorAddress failed");
-        cudaFree(d_input_);
-        cudaFree(d_output_);
-        d_input_ = nullptr;
-        d_output_ = nullptr;
-        delete ctx;
-        delete eng;
-        delete rt;
-        context_ = nullptr;
-        engine_ = nullptr;
-        runtime_ = nullptr;
-        return false;
+    int64_t first_output_vol = 0;
+    std::vector<int64_t> first_output_shape;
+    for (size_t i = 0; i < output_names.size(); ++i) {
+        const std::string& output_name = output_names[i];
+        const int32_t io_index = output_io_indices[i];
+        nvinfer1::Dims output_dims = eng->getTensorShape(output_name.c_str());
+        const int64_t output_vol = volume(output_dims);
+        if (output_vol <= 0) {
+            spdlog::error("TrtEngine: invalid output shape for tensor {}", output_name);
+            cudaFree(d_input_);
+            d_input_ = nullptr;
+            delete ctx;
+            delete eng;
+            delete rt;
+            context_ = nullptr;
+            engine_ = nullptr;
+            runtime_ = nullptr;
+            return false;
+        }
+
+        void* d_output_ptr = nullptr;
+        err = cudaMalloc(&d_output_ptr, static_cast<size_t>(output_vol) * sizeof(float));
+        if (err != cudaSuccess) {
+            spdlog::error("TrtEngine: cudaMalloc output '{}' failed: {}", output_name,
+                          cudaGetErrorString(err));
+            cudaFree(d_input_);
+            d_input_ = nullptr;
+            for (void* ptr : d_outputs_) {
+                if (ptr) cudaFree(ptr);
+            }
+            d_outputs_.clear();
+            delete ctx;
+            delete eng;
+            delete rt;
+            context_ = nullptr;
+            engine_ = nullptr;
+            runtime_ = nullptr;
+            return false;
+        }
+        d_outputs_.push_back(d_output_ptr);
+
+        if (!ctx->setTensorAddress(output_name.c_str(), d_output_ptr)) {
+            spdlog::error("TrtEngine: setTensorAddress failed for output {}", output_name);
+            cudaFree(d_input_);
+            d_input_ = nullptr;
+            for (void* ptr : d_outputs_) {
+                if (ptr) cudaFree(ptr);
+            }
+            d_outputs_.clear();
+            delete ctx;
+            delete eng;
+            delete rt;
+            context_ = nullptr;
+            engine_ = nullptr;
+            runtime_ = nullptr;
+            return false;
+        }
+
+        OutputTensorInfo info;
+        info.name = output_name;
+        info.shape = dimsToVector(output_dims);
+        info.io_index = io_index;
+        info.num_elements = output_vol;
+        output_infos_.push_back(info);
+
+        if (i == 0) {
+            first_output_vol = output_vol;
+            first_output_shape = info.shape;
+            output_io_index_ = io_index;
+            d_output_ = d_output_ptr;
+        }
     }
 
     input_shape_ = dimsToVector(input_dims);
-    output_shape_ = dimsToVector(output_dims);
     input_num_elements_ = input_vol;
-    output_num_elements_ = output_vol;
+    output_shape_ = first_output_shape;
+    output_num_elements_ = first_output_vol;
 
     {
         std::string in_shape_str, out_shape_str;
         for (size_t i = 0; i < input_shape_.size(); ++i)
             in_shape_str += (i ? ", " : "") + std::to_string(input_shape_[i]);
-        for (size_t i = 0; i < output_shape_.size(); ++i)
+        for (size_t i = 0; i < output_shape_.size(); ++i) {
             out_shape_str += (i ? ", " : "") + std::to_string(output_shape_[i]);
-        spdlog::info("TrtEngine: input \"{}\" shape [{}], output \"{}\" shape [{}]", input_name,
-                     in_shape_str, output_name, out_shape_str);
+        }
+        spdlog::info("TrtEngine: input \"{}\" shape [{}], outputs [{}], first output shape [{}]",
+                     input_name, in_shape_str, output_infos_.size(), out_shape_str);
     }
 
     return true;
@@ -237,13 +297,8 @@ bool TrtEngine::execute(const float* host_input, float* host_output) {
         return false;
     }
 
-    // executeV2(bindings): bindings[i] must match getIOTensorName(i).
-    void* bindings[2] = {nullptr, nullptr};
-    bindings[input_io_index_] = d_input_;
-    bindings[output_io_index_] = d_output_;
-
     auto* ctx = static_cast<nvinfer1::IExecutionContext*>(context_);
-    if (!ctx->executeV2(bindings)) {
+    if (!ctx->enqueueV3(nullptr)) {
         spdlog::error("TrtEngine: executeV2 failed");
         return false;
     }
@@ -254,6 +309,38 @@ bool TrtEngine::execute(const float* host_input, float* host_output) {
         return false;
     }
 
+    return true;
+}
+
+bool TrtEngine::execute_multi(const float* host_input, const std::vector<float*>& host_outputs) {
+    if (!context_ || !d_input_ || d_outputs_.empty()) return false;
+    if (host_outputs.size() != d_outputs_.size()) {
+        spdlog::error("TrtEngine: execute_multi output count mismatch host={} engine={}",
+                      host_outputs.size(), d_outputs_.size());
+        return false;
+    }
+
+    cudaError_t err = cudaMemcpy(d_input_, host_input, getInputSizeBytes(), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) {
+        spdlog::error("TrtEngine: cudaMemcpy H2D failed: {}", cudaGetErrorString(err));
+        return false;
+    }
+
+    auto* ctx = static_cast<nvinfer1::IExecutionContext*>(context_);
+    if (!ctx->enqueueV3(nullptr)) {
+        spdlog::error("TrtEngine: execute_multi enqueueV3 failed");
+        return false;
+    }
+
+    for (size_t i = 0; i < d_outputs_.size(); ++i) {
+        const size_t bytes = static_cast<size_t>(output_infos_[i].num_elements) * sizeof(float);
+        err = cudaMemcpy(host_outputs[i], d_outputs_[i], bytes, cudaMemcpyDeviceToHost);
+        if (err != cudaSuccess) {
+            spdlog::error("TrtEngine: cudaMemcpy D2H failed for output {}: {}", output_infos_[i].name,
+                          cudaGetErrorString(err));
+            return false;
+        }
+    }
     return true;
 }
 

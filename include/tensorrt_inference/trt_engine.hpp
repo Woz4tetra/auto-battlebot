@@ -12,6 +12,13 @@ namespace auto_battlebot {
 // Used by DeepLab and YOLO model implementations.
 class TrtEngine {
    public:
+    struct OutputTensorInfo {
+        std::string name;
+        std::vector<int64_t> shape;
+        int32_t io_index = -1;
+        int64_t num_elements = 0;
+    };
+
     TrtEngine() = default;
     ~TrtEngine();
 
@@ -35,6 +42,7 @@ class TrtEngine {
     // Number of float elements for input/output.
     int64_t getInputNumElements() const { return input_num_elements_; }
     int64_t getOutputNumElements() const { return output_num_elements_; }
+    const std::vector<OutputTensorInfo>& getOutputTensorInfos() const { return output_infos_; }
 
     // Size in bytes (input/output are float32).
     size_t getInputSizeBytes() const {
@@ -49,9 +57,15 @@ class TrtEngine {
     // Returns true on success.
     bool execute(const float* host_input, float* host_output);
 
+    // Run inference and copy each output to the corresponding pointer in host_outputs.
+    // host_outputs.size() must match getOutputTensorInfos().size() and each buffer must be large
+    // enough for the corresponding OutputTensorInfo::num_elements float values.
+    bool execute_multi(const float* host_input, const std::vector<float*>& host_outputs);
+
    private:
     void* d_input_{nullptr};
     void* d_output_{nullptr};
+    std::vector<void*> d_outputs_;
     void* context_{nullptr};
     void* engine_{nullptr};
     void* runtime_{nullptr};
@@ -61,6 +75,7 @@ class TrtEngine {
     int32_t output_io_index_{-1};
     std::vector<int64_t> input_shape_;
     std::vector<int64_t> output_shape_;
+    std::vector<OutputTensorInfo> output_infos_;
 };
 
 }  // namespace auto_battlebot

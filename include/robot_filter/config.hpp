@@ -4,7 +4,7 @@
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
-#include "robot_filter/robot_mask_detector.hpp"
+#include "robot_filter/robot_keypoint_tracker.hpp"
 
 namespace auto_battlebot {
 struct RobotFilterConfiguration {
@@ -37,7 +37,7 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
     double velocity_ema_alpha = 0.5;
     double max_jump_distance = 0.3;
     int max_consecutive_jump_rejects = 5;
-    RobotMaskDetectorConfig robot_mask_detector_config;
+    RobotKeypointTrackerConfig robot_keypoint_tracker_config;
 
     RobotFrontBackSimpleFilterConfiguration() { type = "RobotFrontBackSimpleFilter"; }
 
@@ -50,24 +50,28 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
         PARSE_FIELD_DOUBLE(max_jump_distance)
         max_consecutive_jump_rejects = static_cast<int>(
             parser.get_optional_int("max_consecutive_jump_rejects", max_consecutive_jump_rejects));
-        parse_robot_mask_detector_config(parser);
+        parse_robot_keypoint_tracker_config(parser);
         parser.validate_no_extra_fields();
     }
 
-    void parse_robot_mask_detector_config(ConfigParser &parser) {
-        robot_mask_detector_config.min_blob_area_pixels = static_cast<int>(parser.get_optional_int(
-            "robot_mask_min_blob_area_pixels", robot_mask_detector_config.min_blob_area_pixels));
-        robot_mask_detector_config.persistence_frames_required = static_cast<int>(
-            parser.get_optional_int("robot_mask_persistence_frames_required",
-                                    robot_mask_detector_config.persistence_frames_required));
-        robot_mask_detector_config.blob_match_distance_meters =
-            parser.get_optional_double("robot_mask_blob_match_distance_meters",
-                                       robot_mask_detector_config.blob_match_distance_meters);
-        robot_mask_detector_config.tracked_blob_timeout_seconds =
-            parser.get_optional_double("robot_mask_tracked_blob_timeout_seconds",
-                                       robot_mask_detector_config.tracked_blob_timeout_seconds);
-        robot_mask_detector_config.morph_kernel_size = static_cast<int>(parser.get_optional_int(
-            "robot_mask_morph_kernel_size", robot_mask_detector_config.morph_kernel_size));
+    void parse_robot_keypoint_tracker_config(ConfigParser &parser) {
+        robot_keypoint_tracker_config.min_length_meters = parser.get_optional_double(
+            "robot_blob_min_length_meters", robot_keypoint_tracker_config.min_length_meters);
+        robot_keypoint_tracker_config.max_length_meters = parser.get_optional_double(
+            "robot_blob_max_length_meters", robot_keypoint_tracker_config.max_length_meters);
+        robot_keypoint_tracker_config.min_confidence = parser.get_optional_double(
+            "robot_blob_min_confidence", robot_keypoint_tracker_config.min_confidence);
+        robot_keypoint_tracker_config.persistence_frames_required = static_cast<int>(
+            parser.get_optional_int("robot_blob_persistence_frames_required",
+                                    robot_keypoint_tracker_config.persistence_frames_required));
+        robot_keypoint_tracker_config.match_distance_meters = parser.get_optional_double(
+            "robot_blob_match_distance_meters", robot_keypoint_tracker_config.match_distance_meters);
+        robot_keypoint_tracker_config.tracked_timeout_seconds = parser.get_optional_double(
+            "robot_blob_tracked_timeout_seconds",
+            robot_keypoint_tracker_config.tracked_timeout_seconds);
+        robot_keypoint_tracker_config.max_candidates = static_cast<int>(
+            parser.get_optional_int("robot_blob_max_candidates",
+                                    robot_keypoint_tracker_config.max_candidates));
     }
 
     void parse_label_to_frame_id(ConfigParser &parser, const std::string &field_name) {

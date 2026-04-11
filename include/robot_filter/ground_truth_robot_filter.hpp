@@ -19,7 +19,7 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
 
     bool initialize(const std::vector<RobotConfig> &robots) override;
     RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
-                                    CameraInfo camera_info, MaskStamped robot_mask,
+                                    CameraInfo camera_info, KeypointsStamped robot_blob_keypoints,
                                     CommandFeedback command_feedback) override;
 
    private:
