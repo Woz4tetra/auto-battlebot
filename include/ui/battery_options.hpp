@@ -5,6 +5,8 @@
 namespace auto_battlebot {
 
 struct BatteryOptions {
+    int i2c_bus = 7;
+    int i2c_address = 0x41;
     double battery_capacity_ah = 5.0;
     double rest_current_threshold_a = 0.12;
     double rest_stability_delta_v = 0.01;

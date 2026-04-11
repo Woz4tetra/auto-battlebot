@@ -3,11 +3,12 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <unordered_map>
+
+#include "directories.hpp"
 
 namespace auto_battlebot::ui_internal {
 namespace {
@@ -63,11 +64,7 @@ int parse_int_or(const std::unordered_map<std::string, std::string> &kv, const s
 }
 
 std::string default_state_path() {
-    const char *override_path = std::getenv("AUTO_BATTLEBOT_BATTERY_SOC_STATE_PATH");
-    if (override_path && override_path[0] != '\0') return override_path;
-    const char *home = std::getenv("HOME");
-    if (!home || home[0] == '\0') return ".auto_battlebot_battery_soc_state";
-    return std::string(home) + "/.config/auto-battlebot/battery_soc_state.txt";
+    return auto_battlebot::get_project_path("data/battery_soc_state.txt").string();
 }
 
 }  // namespace

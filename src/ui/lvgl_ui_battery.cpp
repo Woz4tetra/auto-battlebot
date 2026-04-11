@@ -9,7 +9,6 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
-#include <cstdlib>
 #include <ctime>
 #include <string>
 
@@ -40,19 +39,6 @@ constexpr double INA219_CURRENT_LSB_A =
 // INA219 power register uses Power_LSB = 20 * Current_LSB.
 constexpr double INA219_POWER_CURRENT_LSB_MULTIPLIER = 20.0;
 constexpr double INA219_POWER_LSB_W = INA219_POWER_CURRENT_LSB_MULTIPLIER * INA219_CURRENT_LSB_A;
-// Default Linux I2C controller and INA219 device address for Jetson + Waveshare UPS.
-constexpr int BATTERY_I2C_BUS_DEFAULT = 7;
-constexpr int BATTERY_I2C_ADDRESS_DEFAULT = 0x41;
-
-int read_env_int(const char *name, int default_value) {
-    const char *raw = std::getenv(name);
-    if (!raw || raw[0] == '\0') return default_value;
-    char *end = nullptr;
-    const long parsed = std::strtol(raw, &end, 0);
-    if (end == raw || *end != '\0') return default_value;
-    return static_cast<int>(parsed);
-}
-
 bool write_i2c_register_u16(int fd, uint8_t reg, uint16_t value) {
     uint8_t payload[3] = {reg, static_cast<uint8_t>((value >> 8) & 0xFF),
                           static_cast<uint8_t>(value & 0xFF)};
@@ -72,53 +58,9 @@ bool read_i2c_register_u16(int fd, uint8_t reg, uint16_t &value) {
     return true;
 }
 
-double read_env_double(const char *name, double default_value) {
-    const char *raw = std::getenv(name);
-    if (!raw || raw[0] == '\0') return default_value;
-    char *end = nullptr;
-    const double parsed = std::strtod(raw, &end);
-    if (end == raw || *end != '\0') return default_value;
-    return parsed;
-}
-
-BatteryOptions apply_env_overrides(BatteryOptions options) {
-    options.battery_capacity_ah =
-        read_env_double("AUTO_BATTLEBOT_BATTERY_CAPACITY_AH", options.battery_capacity_ah);
-    options.rest_current_threshold_a =
-        read_env_double("AUTO_BATTLEBOT_BATTERY_REST_CURRENT_A", options.rest_current_threshold_a);
-    options.rest_stability_delta_v =
-        read_env_double("AUTO_BATTLEBOT_BATTERY_REST_STABILITY_V", options.rest_stability_delta_v);
-    options.rest_window_sec =
-        read_env_double("AUTO_BATTLEBOT_BATTERY_REST_WINDOW_SEC", options.rest_window_sec);
-    options.ocv_correction_gain =
-        read_env_double("AUTO_BATTLEBOT_BATTERY_OCV_CORRECTION_GAIN", options.ocv_correction_gain);
-    options.display_slew_pct_per_sec = read_env_double(
-        "AUTO_BATTLEBOT_BATTERY_DISPLAY_SLEW_PCT_PER_SEC", options.display_slew_pct_per_sec);
-    options.self_tune_learning_rate =
-        read_env_double("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_LR", options.self_tune_learning_rate);
-    options.self_tune_max_delta_pct = read_env_double("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_MAX_DELTA",
-                                                      options.self_tune_max_delta_pct);
-    options.persist_interval_sec = read_env_double("AUTO_BATTLEBOT_BATTERY_PERSIST_INTERVAL_SEC",
-                                                   options.persist_interval_sec);
-    options.invalid_read_grace =
-        read_env_int("AUTO_BATTLEBOT_BATTERY_INVALID_READ_GRACE", options.invalid_read_grace);
-    options.self_tune_min_samples =
-        read_env_int("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_MIN_SAMPLES", options.self_tune_min_samples);
-    options.self_tune_enabled = read_env_int("AUTO_BATTLEBOT_BATTERY_SELF_TUNE_ENABLE",
-                                             options.self_tune_enabled ? 1 : 0) != 0;
-    options.discharge_current_positive =
-        read_env_int("AUTO_BATTLEBOT_BATTERY_DISCHARGE_POSITIVE",
-                     options.discharge_current_positive ? 1 : 0) != 0;
-    const char *state_path = std::getenv("AUTO_BATTLEBOT_BATTERY_SOC_STATE_PATH");
-    if (state_path && state_path[0] != '\0') options.state_file_path = state_path;
-    return options;
-}
-
-bool read_waveshare_ups_sample(BatterySample &sample_out) {
-    const int battery_i2c_bus =
-        read_env_int("AUTO_BATTLEBOT_BATTERY_I2C_BUS", BATTERY_I2C_BUS_DEFAULT);
-    const int battery_i2c_address =
-        read_env_int("AUTO_BATTLEBOT_BATTERY_I2C_ADDRESS", BATTERY_I2C_ADDRESS_DEFAULT);
+bool read_waveshare_ups_sample(const BatteryOptions &options, BatterySample &sample_out) {
+    const int battery_i2c_bus = options.i2c_bus;
+    const int battery_i2c_address = options.i2c_address;
     const std::string dev_path = "/dev/i2c-" + std::to_string(battery_i2c_bus);
     int fd = open(dev_path.c_str(), O_RDWR);
     if (fd < 0) return false;
@@ -153,11 +95,11 @@ bool read_waveshare_ups_sample(BatterySample &sample_out) {
 class WaveshareUpsBatterySource : public IBatterySource {
    public:
     explicit WaveshareUpsBatterySource(const BatteryOptions &options)
-        : estimator_(apply_env_overrides(options)) {}
+        : options_(options), estimator_(options) {}
 
     BatteryReading read() override {
         BatterySample sample;
-        const bool ok = read_waveshare_ups_sample(sample);
+        const bool ok = read_waveshare_ups_sample(options_, sample);
         if (!ok) {
             sample.timestamp = std::chrono::steady_clock::now();
             sample.valid = false;
@@ -166,6 +108,7 @@ class WaveshareUpsBatterySource : public IBatterySource {
     }
 
    private:
+    BatteryOptions options_;
     BatterySocEstimator estimator_;
 };
 

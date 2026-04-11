@@ -16,6 +16,8 @@ void UiConfiguration::parse_fields(ConfigParser &parser) {
 
     if (const toml::table *battery_table = parser.get_table("battery")) {
         ConfigParser battery_parser(*battery_table, "ui.battery");
+        battery.i2c_bus = battery_parser.get_optional_int("i2c_bus", battery.i2c_bus);
+        battery.i2c_address = battery_parser.get_optional_int("i2c_address", battery.i2c_address);
         battery.battery_capacity_ah =
             battery_parser.get_optional_double("battery_capacity_ah", battery.battery_capacity_ah);
         battery.rest_current_threshold_a = battery_parser.get_optional_double(
