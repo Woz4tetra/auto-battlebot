@@ -55,6 +55,150 @@ std::vector<RobotConfig> Runner::build_effective_robot_configs() const {
     return out;
 }
 
+void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
+    if (!ui_state_) return;
+    const bool svo_recording_enabled = camera_->is_svo_recording_enabled();
+    const bool mcap_recording_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
+    SystemStatus status;
+    status.camera_ok = camera_ok;
+    status.transmitter_connected = transmitter_->is_connected();
+    status.loop_rate_hz = loop_rate_hz;
+    status.initialized = initialized_;
+    status.selected_opponent_count = runtime_opponent_count_;
+    status.autonomy_enabled = autonomy_enabled_;
+    status.svo_recording_enabled = svo_recording_enabled;
+    status.mcap_recording_enabled = mcap_recording_enabled;
+    status.recording_enabled = svo_recording_enabled && mcap_recording_enabled;
+    ui_state_->set_system_status(status);
+}
+
+void Runner::stop_recordings_for_shutdown() const {
+    if (!camera_->set_svo_recording_enabled(false)) {
+        spdlog::warn("Failed to disable SVO recording during shutdown.");
+    }
+    if (mcap_recorder_) {
+        mcap_recorder_->set_enabled(false);
+        mcap_recorder_->close();
+    }
+}
+
+void Runner::handle_opponent_count_request() {
+    int req = ui_state_->opponent_count_requested.exchange(-1);
+    if (req < 1 || req > 3) return;
+
+    runtime_opponent_count_ = req;
+    robot_filter_->set_opponent_count(runtime_opponent_count_);
+    robot_filter_reinit_pending_ = true;
+}
+
+void Runner::handle_autonomy_toggle_request() {
+    int autonomy_req = ui_state_->autonomy_toggle_requested.exchange(0);
+    if (autonomy_req == 1 && !autonomy_enabled_) {
+        transmitter_->enable();
+        autonomy_enabled_ = true;
+    } else if (autonomy_req == -1 && autonomy_enabled_) {
+        transmitter_->disable();
+        autonomy_enabled_ = false;
+    }
+}
+
+void Runner::handle_recording_toggle_request() const {
+    if (!ui_state_->recording_toggle_requested.exchange(false)) return;
+
+    const bool svo_enabled = camera_->is_svo_recording_enabled();
+    const bool mcap_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
+    const bool target_enabled = !(svo_enabled && mcap_enabled);
+
+    if (!camera_->set_svo_recording_enabled(target_enabled)) {
+        spdlog::warn("Failed to set SVO recording to {}", target_enabled ? "enabled" : "disabled");
+    }
+    if (mcap_recorder_ && !mcap_recorder_->set_enabled(target_enabled)) {
+        spdlog::warn("Failed to set MCAP recording to {}", target_enabled ? "enabled" : "disabled");
+    }
+}
+
+bool Runner::handle_system_action_request() {
+    int raw_action = ui_state_->system_action_requested.exchange(static_cast<int>(UISystemAction::NONE));
+    auto requested_action = static_cast<UISystemAction>(raw_action);
+    if (requested_action == UISystemAction::NONE) return true;
+
+    spdlog::warn("Runner received system action request: {}", raw_action);
+    if (system_action_callback_) {
+        system_action_callback_(requested_action);
+    }
+    if (requested_action != UISystemAction::QUIT_APP) return true;
+
+    spdlog::warn("Quit app action received; requesting runner shutdown.");
+    stop_recordings_for_shutdown();
+    ui_state_->quit_requested.store(true);
+    return false;
+}
+
+bool Runner::handle_ui_requests(bool &should_reinit_field) {
+    if (!ui_state_) return true;
+
+    if (ui_state_->quit_requested.load()) {
+        spdlog::warn("UI requested quit via UIState::quit_requested.");
+        stop_recordings_for_shutdown();
+        return false;
+    }
+
+    should_reinit_field = ui_state_->reinit_requested.exchange(false);
+    handle_opponent_count_request();
+    handle_autonomy_toggle_request();
+    handle_recording_toggle_request();
+    return handle_system_action_request();
+}
+
+bool Runner::recover_camera_after_failure() {
+    if (camera_->should_close()) {
+        spdlog::error("Camera signalled to close the application");
+        return false;
+    }
+
+    spdlog::error("Failed to get camera data. Reinitializing.");
+    auto is_running = [this]() {
+        if (!miniros::ok()) return false;
+        if (ui_state_ && ui_state_->quit_requested.load()) return false;
+        return true;
+    };
+    while (is_running()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (!is_running()) {
+            camera_->cancel_initialize();
+            break;
+        }
+        if (camera_->initialize()) break;
+    }
+
+    if (!is_running()) {
+        if (!miniros::ok()) miniros::shutdown();
+        return false;
+    }
+    return true;
+}
+
+void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const {
+    if (!ui_state_) return;
+    if (!camera_data.rgb.image.data || camera_data.rgb.image.empty()) return;
+
+    const cv::Mat &img = camera_data.rgb.image;
+    std::vector<uint8_t> data(img.ptr<uint8_t>(),
+                              img.ptr<uint8_t>() + img.total() * img.elemSize());
+    ui_state_->set_debug_image(img.cols, img.rows, img.channels(), data);
+}
+
+bool Runner::handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz) {
+    publisher_->publish_camera_data(camera_data);
+    if (ui_state_) {
+        ui_state_->set_camera_info(camera_data.camera_info);
+        ui_state_->set_field_description(std::nullopt);
+        set_ui_debug_image_from_camera(camera_data);
+    }
+    publish_system_status(true, loop_rate_hz);
+    return true;
+}
+
 void Runner::initialize() {
     // Initialize all interfaces
     if (!camera_->initialize()) {
@@ -146,32 +290,6 @@ bool Runner::tick() {
     rate_data["rate"] = loop_rate_hz;
     diagnostics_logger_->debug(rate_data);
 
-    auto publish_system_status = [this, loop_rate_hz](bool camera_ok) {
-        if (!ui_state_) return;
-        const bool svo_recording_enabled = camera_->is_svo_recording_enabled();
-        const bool mcap_recording_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
-        SystemStatus status;
-        status.camera_ok = camera_ok;
-        status.transmitter_connected = transmitter_->is_connected();
-        status.loop_rate_hz = loop_rate_hz;
-        status.initialized = initialized_;
-        status.selected_opponent_count = runtime_opponent_count_;
-        status.autonomy_enabled = autonomy_enabled_;
-        status.svo_recording_enabled = svo_recording_enabled;
-        status.mcap_recording_enabled = mcap_recording_enabled;
-        status.recording_enabled = svo_recording_enabled && mcap_recording_enabled;
-        ui_state_->set_system_status(status);
-    };
-    auto stop_recordings_for_shutdown = [this]() {
-        if (!camera_->set_svo_recording_enabled(false)) {
-            spdlog::warn("Failed to disable SVO recording during shutdown.");
-        }
-        if (mcap_recorder_) {
-            mcap_recorder_->set_enabled(false);
-            mcap_recorder_->close();
-        }
-    };
-
     if (!miniros::ok()) {
         spdlog::warn("miniros reported not ok; shutting down runner.");
         miniros::shutdown();
@@ -179,58 +297,8 @@ bool Runner::tick() {
     }
 
     bool should_reinit_field = false;
-    if (ui_state_) {
-        if (ui_state_->quit_requested.load()) {
-            spdlog::warn("UI requested quit via UIState::quit_requested.");
-            stop_recordings_for_shutdown();
-            return false;
-        }
-        should_reinit_field = ui_state_->reinit_requested.exchange(false);
-        int req = ui_state_->opponent_count_requested.exchange(-1);
-        if (req >= 1 && req <= 3) {
-            runtime_opponent_count_ = req;
-            robot_filter_->set_opponent_count(runtime_opponent_count_);
-            robot_filter_reinit_pending_ = true;
-        }
-        int autonomy_req = ui_state_->autonomy_toggle_requested.exchange(0);
-        if (autonomy_req == 1 && !autonomy_enabled_) {
-            transmitter_->enable();
-            autonomy_enabled_ = true;
-        } else if (autonomy_req == -1 && autonomy_enabled_) {
-            transmitter_->disable();
-            autonomy_enabled_ = false;
-        }
-
-        if (ui_state_->recording_toggle_requested.exchange(false)) {
-            const bool svo_enabled = camera_->is_svo_recording_enabled();
-            const bool mcap_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
-            const bool target_enabled = !(svo_enabled && mcap_enabled);
-
-            if (!camera_->set_svo_recording_enabled(target_enabled)) {
-                spdlog::warn("Failed to set SVO recording to {}",
-                             target_enabled ? "enabled" : "disabled");
-            }
-            if (mcap_recorder_ && !mcap_recorder_->set_enabled(target_enabled)) {
-                spdlog::warn("Failed to set MCAP recording to {}",
-                             target_enabled ? "enabled" : "disabled");
-            }
-        }
-
-        int raw_action =
-            ui_state_->system_action_requested.exchange(static_cast<int>(UISystemAction::NONE));
-        auto requested_action = static_cast<UISystemAction>(raw_action);
-        if (requested_action != UISystemAction::NONE) {
-            spdlog::warn("Runner received system action request: {}", raw_action);
-            if (system_action_callback_) {
-                system_action_callback_(requested_action);
-            }
-            if (requested_action == UISystemAction::QUIT_APP) {
-                spdlog::warn("Quit app action received; requesting runner shutdown.");
-                stop_recordings_for_shutdown();
-                ui_state_->quit_requested.store(true);
-                return false;
-            }
-        }
+    if (!handle_ui_requests(should_reinit_field)) {
+        return false;
     }
 
     CommandFeedback command_feedback = transmitter_->update();
@@ -244,35 +312,11 @@ bool Runner::tick() {
     }
 
     if (!is_camera_ok) {
-        publish_system_status(false);
+        publish_system_status(false, loop_rate_hz);
         if (ui_state_) {
             ui_state_->set_field_description(std::nullopt);
         }
-        if (camera_->should_close()) {
-            spdlog::error("Camera signalled to close the application");
-            return false;
-        }
-        spdlog::error("Failed to get camera data. Reinitializing.");
-        auto is_running = [this]() {
-            if (!miniros::ok()) return false;
-            if (ui_state_ && ui_state_->quit_requested.load()) return false;
-            return true;
-        };
-        while (is_running()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            if (!is_running()) {
-                camera_->cancel_initialize();
-                break;
-            }
-            if (camera_->initialize()) break;
-        }
-
-        if (!is_running()) {
-            if (!miniros::ok()) miniros::shutdown();
-            return false;
-        }
-
-        return true;
+        return recover_camera_after_failure();
     }
 
     if (should_reinit_field) {
@@ -284,21 +328,7 @@ bool Runner::tick() {
         navigation_->initialize();
     }
 
-    if (!initialized_) {
-        publisher_->publish_camera_data(camera_data);
-        if (ui_state_) {
-            ui_state_->set_camera_info(camera_data.camera_info);
-            ui_state_->set_field_description(std::nullopt);
-            if (camera_data.rgb.image.data && !camera_data.rgb.image.empty()) {
-                const cv::Mat &img = camera_data.rgb.image;
-                std::vector<uint8_t> data(img.ptr<uint8_t>(),
-                                          img.ptr<uint8_t>() + img.total() * img.elemSize());
-                ui_state_->set_debug_image(img.cols, img.rows, img.channels(), data);
-            }
-        }
-        publish_system_status(true);
-        return true;
-    }
+    if (!initialized_) return handle_uninitialized_tick(camera_data, loop_rate_hz);
 
     FieldDescription field_description;
     {
@@ -366,19 +396,14 @@ bool Runner::tick() {
         publisher_->publish_navigation(nav_viz);
     }
 
-    publish_system_status(true);
+    publish_system_status(true, loop_rate_hz);
     if (ui_state_) {
         ui_state_->set_camera_info(camera_data.camera_info);
         ui_state_->set_field_description(field_description);
         ui_state_->set_robots(robots);
         ui_state_->set_keypoints(keypoints);
         ui_state_->set_navigation_path(navigation_->get_last_path());
-        if (camera_data.rgb.image.data && !camera_data.rgb.image.empty()) {
-            const cv::Mat &img = camera_data.rgb.image;
-            std::vector<uint8_t> data(img.ptr<uint8_t>(),
-                                      img.ptr<uint8_t>() + img.total() * img.elemSize());
-            ui_state_->set_debug_image(img.cols, img.rows, img.channels(), data);
-        }
+        set_ui_debug_image_from_camera(camera_data);
     }
 
     return true;

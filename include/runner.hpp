@@ -79,6 +79,16 @@ class Runner {
     std::chrono::steady_clock::time_point start_time_;
 
     std::vector<RobotConfig> build_effective_robot_configs() const;
+    void publish_system_status(bool camera_ok, double loop_rate_hz) const;
+    void stop_recordings_for_shutdown() const;
+    void handle_opponent_count_request();
+    void handle_autonomy_toggle_request();
+    void handle_recording_toggle_request() const;
+    bool handle_system_action_request();
+    bool handle_ui_requests(bool &should_reinit_field);
+    bool recover_camera_after_failure();
+    void set_ui_debug_image_from_camera(const CameraData &camera_data) const;
+    bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);
     double elapsed_ms();
 };
 }  // namespace auto_battlebot
