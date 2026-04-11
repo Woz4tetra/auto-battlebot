@@ -4,9 +4,10 @@ sim_host = "127.0.0.1"
 sim_port = 14882
 
 [field_model]
-type = "DeepLabMaskModel"
-model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64_sm89.engine"
-# model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64_sm75.engine"
+type = "YoloSegMaskModel"
+model_path = "models/yolo_seg_field_2026-04-11_x86_64_sm89.engine"
+# model_path = "models/yolo_seg_field_2026-04-11_x86_64_sm75.engine"
+label_indices = ["FIELD"]
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"

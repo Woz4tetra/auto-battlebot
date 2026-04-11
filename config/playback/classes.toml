@@ -10,8 +10,9 @@ svo_real_time_mode = true
 svo_start_frame = 4100
 
 [field_model]
-type = "DeepLabMaskModel"
-model_path = "models/field_deeplabv3_r50_2024-09-05_x86_64_sm89.engine"
+type = "YoloSegMaskModel"
+model_path = "models/yolo_seg_field_2026-04-11_x86_64_sm89.engine"
+label_indices = ["FIELD"]
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
