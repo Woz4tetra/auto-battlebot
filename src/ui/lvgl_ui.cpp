@@ -1,5 +1,4 @@
 #include <lvgl.h>
-#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <array>
@@ -15,6 +14,7 @@
 #include "data_structures/target_selection.hpp"
 #include "lvgl_ui_battery.hpp"
 #include "lvgl_ui_composition.hpp"
+#include "lvgl_ui_presenter.hpp"
 #include "lvgl_ui_widgets.hpp"
 #include "transform_utils.hpp"
 #include "ui/ui_runner.hpp"
@@ -31,55 +31,6 @@ using ui_internal::SystemActionTileData;
 using ui_internal::TILE_PAD;
 using ui_internal::TILE_RADIUS;
 using ui_internal::UIWidgets;
-
-/** Push current rate into rolling history (call once per frame). Window size
- * from UIState. */
-void update_rate_history(UIWidgets &w, std::shared_ptr<UIState> us, double current_hz) {
-    if (!us) return;
-    int window = us->get_rate_avg_window();
-    if (window <= 0) window = 1;
-    w.rate_history.push_back(current_hz);
-    while (static_cast<int>(w.rate_history.size()) > window) w.rate_history.pop_front();
-}
-
-/** Return rolling average Hz from current history (no push). */
-double get_rate_avg(const UIWidgets &w, double fallback_hz) {
-    if (w.rate_history.empty()) return fallback_hz;
-    double sum = 0.0;
-    for (double v : w.rate_history) sum += v;
-    return sum / static_cast<double>(w.rate_history.size());
-}
-
-/** Only false when rate has been below threshold for at least
- * rate_fail_duration_sec (prevents strobing). */
-bool compute_loop_met_sustained(UIWidgets &w, std::shared_ptr<UIState> us, double avg_hz) {
-    if (!us) return true;
-    double max_hz = us->get_max_loop_rate();
-    double thresh = us->get_rate_fail_threshold();
-    double threshold_hz = max_hz * thresh;
-    double duration_sec = us->get_rate_fail_duration_sec();
-    auto now = std::chrono::steady_clock::now();
-
-    if (avg_hz >= threshold_hz) {
-        w.rate_below_since.reset();
-        return true;
-    }
-    if (!w.rate_below_since.has_value()) w.rate_below_since = now;
-    auto elapsed =
-        std::chrono::duration_cast<std::chrono::duration<double>>(now - *w.rate_below_since)
-            .count();
-    return elapsed < duration_sec;
-}
-
-void derive_robot_counts(const RobotDescriptionsStamped &robots, bool &our_seen, int &opp_count) {
-    our_seen = false;
-    opp_count = 0;
-    for (const auto &r : robots.descriptions) {
-        if (r.is_stale) continue;
-        if (r.group == Group::OURS) our_seen = true;
-        if (r.group == Group::THEIRS) opp_count++;
-    }
-}
 
 void reinit_cb(lv_event_t *e) {
     auto *us = static_cast<UIState *>(lv_event_get_user_data(e));
@@ -764,104 +715,50 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
     us->get_robots(robots);
     bool our_seen = false;
     int opp = 0;
-    derive_robot_counts(robots, our_seen, opp);
-    if (st.selected_opponent_count >= 1 && st.selected_opponent_count <= 3) {
-        w.selected_opponent_count = st.selected_opponent_count;
-    }
+    ui_internal::derive_robot_counts(robots, our_seen, opp);
 
-    update_rate_history(w, us, st.loop_rate_hz);
-    double avg_hz = get_rate_avg(w, st.loop_rate_hz);
-    bool loop_met = compute_loop_met_sustained(w, us, avg_hz);
-    bool hardware_ok = st.camera_ok && st.transmitter_connected;
-    bool needs_reinit = !st.initialized;
-    bool has_fault = !hardware_ok || !loop_met;
-    bool tracking = our_seen && opp >= 1;
+    ui_internal::update_rate_history(w.rate_history, us->get_rate_avg_window(), st.loop_rate_hz);
+    const double avg_hz = ui_internal::get_rate_avg(w.rate_history, st.loop_rate_hz);
+    const bool loop_met = ui_internal::compute_loop_met_sustained(
+        w.rate_below_since, avg_hz, us->get_max_loop_rate(), us->get_rate_fail_threshold(),
+        us->get_rate_fail_duration_sec());
+    const ui_internal::HomeViewModel vm =
+        ui_internal::present_home(st, our_seen, opp, w.selected_opponent_count, avg_hz, loop_met);
+    w.selected_opponent_count = vm.selected_opponent_count;
 
-    /* Green = fully ready + tracking; yellow = action/info; red = hardware or
-     * runtime fault */
     if (w.status_tile) {
-        lv_color_t tile_color;
-        if (has_fault)
-            tile_color = lv_color_hex(0xFF1744); /* red */
-        else if (!needs_reinit && tracking)
-            tile_color = lv_color_hex(0x00C853); /* green */
-        else
-            tile_color = lv_color_hex(0xFFC107); /* yellow */
-        lv_obj_set_style_bg_color(w.status_tile, tile_color, 0);
+        lv_obj_set_style_bg_color(w.status_tile, lv_color_hex(vm.status_tile_color), 0);
     }
     if (w.status_label) {
-        if (!hardware_ok) {
-            lv_label_set_text(w.status_label, "Hardware Disconnected");
-        } else if (!loop_met) {
-            lv_label_set_text(w.status_label, "Loop Rate Low");
-        } else if (needs_reinit) {
-            lv_label_set_text(w.status_label, "Press Reinitialize");
-        } else {
-            lv_label_set_text(w.status_label, "System Ready");
-        }
-        /* Dark text on yellow/green for readability */
-        lv_obj_set_style_text_color(w.status_label,
-                                    has_fault ? lv_color_hex(0xFFFFFF) : lv_color_hex(0x212121), 0);
+        lv_label_set_text(w.status_label, vm.status_label_text.c_str());
+        lv_obj_set_style_text_color(w.status_label, lv_color_hex(vm.status_label_text_color), 0);
     }
 
     if (w.status_detail) {
-        lv_obj_set_style_text_color(w.status_detail,
-                                    has_fault ? lv_color_hex(0xEEEEEE) : lv_color_hex(0x424242), 0);
-        char buf[256];
-        if (!hardware_ok || !loop_met) {
-            std::string details;
-            if (!st.camera_ok) details += "Camera disconnected  ";
-            if (!st.transmitter_connected) details += "Transmitter disconnected  ";
-            if (!loop_met) {
-                char rate_buf[64];
-                snprintf(rate_buf, sizeof(rate_buf), "Loop slow (%.1f Hz)  ", avg_hz);
-                details += rate_buf;
-            }
-            if (needs_reinit && hardware_ok) details += "Press Reinitialize Field  ";
-            snprintf(buf, sizeof(buf), "%s", details.c_str());
-        } else if (needs_reinit) {
-            snprintf(buf, sizeof(buf), "Press Reinitialize Field to start");
-        } else {
-            snprintf(buf, sizeof(buf), "%.1f Hz  |  %s  |  %d opponent%s seen", avg_hz,
-                     our_seen ? "our robot in view" : "our robot not seen", opp,
-                     opp != 1 ? "s" : "");
-        }
-        lv_label_set_text(w.status_detail, buf);
+        lv_obj_set_style_text_color(w.status_detail, lv_color_hex(vm.status_detail_text_color), 0);
+        lv_label_set_text(w.status_detail, vm.status_detail_text.c_str());
     }
 
     if (w.reinit_tile) {
-        lv_color_t reinit_color = lv_color_hex(0x00C853);
-        if (!st.initialized) {
-            reinit_color = hardware_ok ? lv_color_hex(0xFFC107) : lv_color_hex(0xFF1744);
-        }
-        lv_obj_set_style_bg_color(w.reinit_tile, reinit_color, 0);
+        lv_obj_set_style_bg_color(w.reinit_tile, lv_color_hex(vm.reinit_tile_color), 0);
     }
     if (w.reinit_status) {
-        if (st.initialized) {
-            lv_label_set_text(w.reinit_status, "field initialized");
-        } else if (hardware_ok) {
-            lv_label_set_text(w.reinit_status, "press to initialize field");
-        } else {
-            lv_label_set_text(w.reinit_status, "reconnect camera/transmitter");
-        }
+        lv_label_set_text(w.reinit_status, vm.reinit_status_text.c_str());
     }
 
-    if (hardware_ok && !st.initialized) {
+    if (vm.reinit_should_pulse) {
         start_reinit_pulse(w);
     } else {
         stop_reinit_pulse(w);
     }
 
     if (w.autonomy_tile) {
-        lv_obj_set_style_bg_color(
-            w.autonomy_tile, st.autonomy_enabled ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744),
-            0);
+        lv_obj_set_style_bg_color(w.autonomy_tile, lv_color_hex(vm.autonomy_tile_color), 0);
     }
     if (w.autonomy_label) {
-        lv_label_set_text(w.autonomy_label, st.autonomy_enabled ? "Autonomy\nON" : "Autonomy\nOFF");
-        lv_obj_set_style_text_color(
-            w.autonomy_label, st.autonomy_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF),
-            0);
+        lv_label_set_text(w.autonomy_label, vm.autonomy_label_text.c_str());
+        lv_obj_set_style_text_color(w.autonomy_label, lv_color_hex(vm.autonomy_label_text_color),
+                                    0);
     }
 
     for (int i = 0; i < 3; i++) {
@@ -877,27 +774,20 @@ void update_system(UIWidgets &w, std::shared_ptr<UIState> us) {
     if (!us) return;
     SystemStatus st;
     us->get_system_status(st);
+    const ui_internal::SystemViewModel vm = ui_internal::present_system(st);
 
     if (w.recording_tile) {
-        lv_obj_set_style_bg_color(
-            w.recording_tile,
-            st.recording_enabled ? lv_color_hex(0x00C853) : lv_color_hex(0xFF1744), 0);
+        lv_obj_set_style_bg_color(w.recording_tile, lv_color_hex(vm.recording_tile_color), 0);
     }
     if (w.recording_label) {
-        lv_label_set_text(w.recording_label,
-                          st.recording_enabled ? "Recording\nON" : "Recording\nOFF");
-        lv_obj_set_style_text_color(
-            w.recording_label,
-            st.recording_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFFFFFF), 0);
+        lv_label_set_text(w.recording_label, vm.recording_label_text.c_str());
+        lv_obj_set_style_text_color(w.recording_label, lv_color_hex(vm.recording_label_text_color),
+                                    0);
     }
     if (w.recording_detail) {
-        char buf[96];
-        snprintf(buf, sizeof(buf), "SVO %s | MCAP %s", st.svo_recording_enabled ? "ON" : "OFF",
-                 st.mcap_recording_enabled ? "ON" : "OFF");
-        lv_label_set_text(w.recording_detail, buf);
-        lv_obj_set_style_text_color(
-            w.recording_detail,
-            st.recording_enabled ? lv_color_hex(0x212121) : lv_color_hex(0xFAFAFA), 0);
+        lv_label_set_text(w.recording_detail, vm.recording_detail_text.c_str());
+        lv_obj_set_style_text_color(w.recording_detail,
+                                    lv_color_hex(vm.recording_detail_text_color), 0);
     }
 }
 
@@ -910,52 +800,18 @@ void update_health_rows(UIWidgets &w, std::shared_ptr<UIState> us) {
     us->get_robots(robots);
     bool our_seen = false;
     int opp = 0;
-    derive_robot_counts(robots, our_seen, opp);
-
-    char buf[128];
-
-    snprintf(buf, sizeof(buf), "Camera: %s", st.camera_ok ? "Connected" : "Disconnected");
-    set_health(w.health[0], st.camera_ok, buf);
-
-    snprintf(buf, sizeof(buf), "Transmitter: %s",
-             st.transmitter_connected ? "Connected" : "Disconnected");
-    set_health(w.health[1], st.transmitter_connected, buf);
-
-    if (st.initialized) {
-        snprintf(buf, sizeof(buf), "Field: Initialized");
-    } else if (st.camera_ok && st.transmitter_connected) {
-        snprintf(buf, sizeof(buf), "Field: Press Reinitialize");
-    } else {
-        snprintf(buf, sizeof(buf), "Field: Waiting for camera/transmitter");
+    ui_internal::derive_robot_counts(robots, our_seen, opp);
+    const double avg_hz = ui_internal::get_rate_avg(w.rate_history, st.loop_rate_hz);
+    const bool loop_met = ui_internal::compute_loop_met_sustained(
+        w.rate_below_since, avg_hz, us->get_max_loop_rate(), us->get_rate_fail_threshold(),
+        us->get_rate_fail_duration_sec());
+    const std::vector<ui_internal::HealthRowViewModel> rows =
+        ui_internal::present_health(st, our_seen, opp, avg_hz, loop_met);
+    const size_t limit = std::min(rows.size(), static_cast<size_t>(8));
+    for (size_t i = 0; i < limit; ++i) {
+        if (!rows[i].visible) continue;
+        set_health(w.health[i], rows[i].ok, rows[i].text.c_str());
     }
-    set_health(w.health[2], st.initialized || (st.camera_ok && st.transmitter_connected), buf);
-
-    snprintf(buf, sizeof(buf), "Our Robot Seen: %s", our_seen ? "Yes" : "No");
-    set_health(w.health[3], our_seen, buf);
-
-    snprintf(buf, sizeof(buf), "Opponents Seen: %d", opp);
-    set_health(w.health[4], opp > 0, buf);
-
-    double avg_hz = get_rate_avg(w, st.loop_rate_hz);
-    bool loop_met = compute_loop_met_sustained(w, us, avg_hz);
-    snprintf(buf, sizeof(buf), "Loop Rate: %.1f Hz %s", avg_hz, loop_met ? "(met)" : "(NOT MET)");
-    set_health(w.health[5], loop_met, buf);
-
-    if (st.jetson_temperature_c > 0.0) {
-        snprintf(buf, sizeof(buf), "Jetson Temp: %.1f C", st.jetson_temperature_c);
-        set_health(w.health[6], st.jetson_temperature_c < 80.0, buf);
-    }
-
-    if (!st.jetson_compute_mode.empty()) {
-        snprintf(buf, sizeof(buf), "Compute Mode: %s", st.jetson_compute_mode.c_str());
-        set_health(w.health[7], true, buf);
-    }
-}
-
-static std::string diag_section_key(const DiagnosticStatusSnapshot &snap) {
-    std::string key = snap.name;
-    if (!snap.subsection.empty()) key += "\x01" + snap.subsection;
-    return key;
 }
 
 void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
@@ -966,17 +822,7 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
     /* Merge new snapshots into cache; keep old entries, never remove */
     std::vector<DiagnosticStatusSnapshot> snaps;
     us->get_diagnostic_snapshots(snaps);
-    for (const auto &snap : snaps) {
-        std::string key = diag_section_key(snap);
-        auto it = w.diag_section_cache.find(key);
-        if (it == w.diag_section_cache.end()) {
-            w.diag_section_order.push_back(key);
-            w.diag_section_cache[key] = {snap, now};
-        } else {
-            it->second.first = snap;
-            it->second.second = now;
-        }
-    }
+    ui_internal::merge_diag_snapshots(w.diag_section_order, w.diag_section_cache, snaps, now);
 
     /* Preserve scroll position when rebuilding content */
     lv_obj_t *diag_tab = lv_obj_get_parent(w.sections_cont);
@@ -984,32 +830,26 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
 
     lv_obj_clean(w.sections_cont);
 
-    for (const std::string &key : w.diag_section_order) {
-        auto it = w.diag_section_cache.find(key);
-        if (it == w.diag_section_cache.end()) continue;
-        const DiagnosticStatusSnapshot &snap = it->second.first;
-        const std::chrono::steady_clock::time_point &updated = it->second.second;
-        const double age_sec = std::chrono::duration<double>(now - updated).count();
-        const bool stale = (age_sec > DIAG_STALE_SEC);
-
-        std::string title = snap.name;
-        if (!snap.subsection.empty()) title += ": " + snap.subsection;
-
+    const std::vector<ui_internal::DiagnosticsSectionViewModel> sections =
+        ui_internal::present_diagnostics_sections(w.diag_section_order, w.diag_section_cache, now,
+                                                  DIAG_STALE_SEC);
+    for (const auto &section : sections) {
         /* Section header bar: green when fresh, gray when stale */
         lv_obj_t *hdr = lv_obj_create(w.sections_cont);
         lv_obj_set_size(hdr, LV_PCT(100), LV_SIZE_CONTENT);
-        lv_obj_set_style_bg_color(hdr, stale ? lv_color_hex(0x757575) : lv_color_hex(0x4CAF50), 0);
+        lv_obj_set_style_bg_color(
+            hdr, section.stale ? lv_color_hex(0x757575) : lv_color_hex(0x4CAF50), 0);
         lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
         lv_obj_set_style_pad_all(hdr, 4, 0);
         lv_obj_set_style_radius(hdr, 4, 0);
         lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t *hlbl = lv_label_create(hdr);
-        lv_label_set_text(hlbl, title.c_str());
+        lv_label_set_text(hlbl, section.title.c_str());
         lv_obj_set_style_text_font(hlbl, &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(hlbl, lv_color_hex(0xFFFFFF), 0);
 
-        size_t rows = snap.values.size() + (snap.message.empty() ? 0 : 1);
+        size_t rows = section.rows.size();
         if (rows == 0) continue;
 
         lv_obj_t *table = lv_table_create(w.sections_cont);
@@ -1020,15 +860,11 @@ void rebuild_diag_sections(UIWidgets &w, std::shared_ptr<UIState> us) {
         lv_obj_set_width(table, LV_PCT(100));
         lv_obj_set_style_text_font(table, &lv_font_montserrat_20, LV_PART_ITEMS);
         lv_obj_set_style_pad_all(table, 2, LV_PART_ITEMS);
-        if (stale) lv_obj_set_style_text_color(table, lv_color_hex(0x9E9E9E), LV_PART_ITEMS);
+        if (section.stale)
+            lv_obj_set_style_text_color(table, lv_color_hex(0x9E9E9E), LV_PART_ITEMS);
 
         uint32_t row = 0;
-        if (!snap.message.empty()) {
-            lv_table_set_cell_value(table, row, 0, "message");
-            lv_table_set_cell_value(table, row, 1, snap.message.c_str());
-            row++;
-        }
-        for (const auto &[k, v] : snap.values) {
+        for (const auto &[k, v] : section.rows) {
             lv_table_set_cell_value(table, row, 0, k.c_str());
             lv_table_set_cell_value(table, row, 1, v.c_str());
             row++;

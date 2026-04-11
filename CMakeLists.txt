@@ -243,6 +243,7 @@ add_executable(auto_battlebot
     src/ui/lvgl_ui_battery.cpp
     src/ui/lvgl_ui_overlay.cpp
     src/ui/lvgl_ui_platform.cpp
+    src/ui/lvgl_ui_presenter.cpp
 )
 
 target_link_libraries(auto_battlebot
