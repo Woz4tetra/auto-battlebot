@@ -35,11 +35,19 @@ void handle_system_action(auto_battlebot::UISystemAction action) {
         case auto_battlebot::UISystemAction::REBOOT_HOST:
             rc = std::system("systemctl reboot");
             if (rc != 0) {
+                spdlog::warn("systemctl reboot failed (rc={}); trying sudo fallback", rc);
+                rc = std::system("sudo -n systemctl reboot");
+            }
+            if (rc != 0) {
                 spdlog::error("Failed to execute reboot command, rc={}", rc);
             }
             break;
         case auto_battlebot::UISystemAction::POWEROFF_HOST:
             rc = std::system("systemctl poweroff");
+            if (rc != 0) {
+                spdlog::warn("systemctl poweroff failed (rc={}); trying sudo fallback", rc);
+                rc = std::system("sudo -n systemctl poweroff");
+            }
             if (rc != 0) {
                 spdlog::error("Failed to execute poweroff command, rc={}", rc);
             }
