@@ -23,6 +23,10 @@ class_id = 0
 scale = 1.0
 # Relative probability of this robot being chosen for a scene.
 weight = 0.5
+# Ground orientation roll (Y-rotation, degrees) used when grounded.
+# Pitch is fixed at +/-90 deg and yaw is always randomized.
+ground_roll_upright = 9.587585
+ground_roll_inverted = 9.587585
 
 # 3D keypoint positions in model-local space (meters).
 # Measure these from the CAD model origin in OnShape.
@@ -67,9 +71,11 @@ material = "paper"
 [[robots]]
 name = "MRS_BUFF_MK3"
 model_path = "../data/models/MRS BUFF MK3.glb"
-class_id = 2
+class_id = 1
 scale = 1.0
-weight = 1.0
+weight = 2.0
+ground_roll_upright = 0.0
+ground_roll_inverted = -30.0
 
 [robots.keypoints]
 front = [0.0, 0.0, -0.05014]
@@ -214,6 +220,8 @@ material = "mrs_buff_mk3_bottom_sticker"
 # class_id = 0
 # scale = 1.0
 # weight = 1.0
+# ground_roll_upright = 0.0
+# ground_roll_inverted = 0.0
 #
 # [robots.keypoints]
 # front = [0.08, 0.0, 0.0]
@@ -843,9 +851,8 @@ air_height_range = [0.02, 0.4]
 # Ground orientation: pitch (X-rotation) is fixed at +90° for right-side-up
 # and -90° for upside-down.  Roll (Y-rotation, degrees) is configurable per
 # orientation to compensate for the model not sitting perfectly flat after
-# the GLTF axis conversion.  Yaw (Z-rotation) is always fully random.
-ground_roll_upright = 9.587585
-ground_roll_inverted = 9.587585
+# the GLTF axis conversion, configured per `[[robots]]` entry.
+# Yaw (Z-rotation) is always fully random.
 
 # Directional motion blur applied to robot and distractor objects.
 # Probability that a frame receives motion blur (0.0–1.0).

@@ -87,6 +87,16 @@ def load_config(config_path: Path) -> dict:
         return tomllib.load(f)
 
 
+def model_to_blender_local(vec: list[float] | np.ndarray) -> np.ndarray:
+    """Convert model-space keypoints (OnShape/GLTF) into Blender local axes.
+
+    GLTF import applies axis conversion (Y-up -> Z-up), so keypoints authored in
+    the model's native frame must be remapped before projection/visibility tests.
+    """
+    x, y, z = [float(v) for v in vec]
+    return np.array([x, -z, y], dtype=float)
+
+
 # ---------------------------------------------------------------------------
 # GLTF import and material helpers
 # ---------------------------------------------------------------------------
@@ -1164,8 +1174,8 @@ def main() -> None:
             parent=parent,
             bbox=bbox,
             size=size,
-            kp_front=np.array(rcfg["keypoints"]["front"]),
-            kp_back=np.array(rcfg["keypoints"]["back"]),
+            kp_front=model_to_blender_local(rcfg["keypoints"]["front"]),
+            kp_back=model_to_blender_local(rcfg["keypoints"]["back"]),
             class_id=rcfg["class_id"],
             weight=rcfg.get("weight", 1.0),
             config=rcfg,
@@ -1324,18 +1334,12 @@ def main() -> None:
                 air_cfg = rand_cfg.get("air_height_range", [0.02, 0.15])
                 robot_z = ground_z + random.uniform(air_cfg[0], air_cfg[1])
             else:
-                if random.random() < 0.5:
-                    pitch_deg = 90.0
-                    roll_deg = rcfg.get(
-                        "ground_roll_upright",
-                        rand_cfg.get("ground_roll_upright", 0.0),
-                    )
-                else:
+                if random.random() < 0.0:
                     pitch_deg = -90.0
-                    roll_deg = rcfg.get(
-                        "ground_roll_inverted",
-                        rand_cfg.get("ground_roll_inverted", 0.0),
-                    )
+                    roll_deg = rcfg.get("ground_roll_upright", 0.0)
+                else:
+                    pitch_deg = 90.0
+                    roll_deg = rcfg.get("ground_roll_inverted", 0.0)
                 robot_rot = (
                     math.radians(pitch_deg),
                     math.radians(roll_deg),
