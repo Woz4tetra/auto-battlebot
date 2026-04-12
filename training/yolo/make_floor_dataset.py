@@ -22,7 +22,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 import yaml
+from shapely.errors import GEOSException
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
+from shapely.ops import triangulate, unary_union
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
@@ -68,13 +70,13 @@ def parse_args() -> argparse.Namespace:
         "--max-polygons",
         type=int,
         default=5,
-        help="Maximum number of output polygons per image (largest by area)",
+        help="Keep only this many largest floor blobs per image",
     )
     parser.add_argument(
         "--mask-size",
         type=int,
         default=1024,
-        help="Minimum raster long-side for subtraction (uses image size if larger)",
+        help="Raster size used for floor/robot mask subtraction",
     )
     return parser.parse_args()
 
@@ -186,147 +188,226 @@ def parse_yolo_seg_rows(
     return rows
 
 
-def sanitize_polygon_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
-    sanitized: list[tuple[float, float]] = []
-    for point in points:
-        if len(point) != 2:
-            continue
-        x, y = point
-        try:
-            xf = float(x)
-            yf = float(y)
-        except (TypeError, ValueError):
-            continue
-        sanitized.append((max(0.0, min(1.0, xf)), max(0.0, min(1.0, yf))))
-    if len(sanitized) < 3:
-        return []
-    return sanitized
-
-
-def normalized_polygon_parts(
-    points: list[tuple[float, float]],
-) -> list[list[tuple[float, float]]]:
-    """
-    Normalize an input polygon into one or more valid simple polygons.
-
-    This keeps the raster pipeline but reuses the prior shapely-based repair that
-    fixed dropped robot masks when labels contained self-intersections or other
-    invalid geometries.
-    """
-    sanitized = sanitize_polygon_points(points)
-    if len(sanitized) < 3:
-        return []
-
+def as_valid_polygons(points: list[tuple[float, float]]) -> list[Polygon]:
     try:
-        geom: object = Polygon(sanitized)
+        polygon = Polygon(points)
     except Exception:
         return []
 
-    # The key fix: repair invalid inputs and keep all resulting polygon parts.
-    if not geom.is_valid:
+    if polygon.is_empty:
+        return []
+
+    if not polygon.is_valid:
+        polygon = polygon.buffer(0)
+
+    if polygon.is_empty:
+        return []
+
+    if isinstance(polygon, Polygon):
+        return [polygon]
+    if isinstance(polygon, MultiPolygon):
+        return [p for p in polygon.geoms if not p.is_empty]
+    if isinstance(polygon, GeometryCollection):
+        polys: list[Polygon] = []
+        for geom in polygon.geoms:
+            if isinstance(geom, Polygon) and not geom.is_empty:
+                polys.append(geom)
+            elif isinstance(geom, MultiPolygon):
+                polys.extend([p for p in geom.geoms if not p.is_empty])
+        return polys
+
+    return []
+
+
+def repair_geometry(geometry: object) -> object:
+    if geometry is None:
+        return None
+    try:
+        if getattr(geometry, "is_empty", True):
+            return geometry
+        if not getattr(geometry, "is_valid", True):
+            return geometry.buffer(0)
+        return geometry
+    except GEOSException:
+        return None
+
+
+def robust_unary_union(polygons: list[Polygon]) -> object:
+    if not polygons:
+        return GeometryCollection()
+    try:
+        return unary_union(polygons)
+    except GEOSException:
+        repaired: list[Polygon] = []
+        for poly in polygons:
+            fixed = repair_geometry(poly)
+            if isinstance(fixed, Polygon) and not fixed.is_empty:
+                repaired.append(fixed)
+            elif isinstance(fixed, MultiPolygon):
+                repaired.extend([p for p in fixed.geoms if not p.is_empty])
+        if not repaired:
+            return GeometryCollection()
+        return unary_union(repaired)
+
+
+def robust_difference(floor_geom: object, obstacle_geom: object) -> object:
+    try:
+        return floor_geom.difference(obstacle_geom)
+    except GEOSException:
+        pass
+
+    fixed_floor = repair_geometry(floor_geom)
+    fixed_obstacles = repair_geometry(obstacle_geom)
+    if fixed_floor is None or fixed_obstacles is None:
+        return GeometryCollection()
+
+    try:
+        return fixed_floor.difference(fixed_obstacles)
+    except GEOSException:
+        # Last-resort: subtract obstacle polygons one-by-one from each floor polygon.
+        obstacle_polys = explode_to_polygons(fixed_obstacles)
+        result_pieces: list[Polygon] = []
+        for floor_poly in explode_to_polygons(fixed_floor):
+            piece: object = floor_poly
+            for obs_poly in obstacle_polys:
+                try:
+                    piece = piece.difference(obs_poly)
+                except GEOSException:
+                    continue
+            result_pieces.extend(explode_to_polygons(piece))
+        return robust_unary_union(result_pieces)
+
+
+def decompose_polygon_without_holes(
+    polygon: Polygon,
+    min_area: float,
+) -> list[Polygon]:
+    """Convert polygons-with-holes into hole-free polygon pieces."""
+    if polygon.is_empty:
+        return []
+    if not polygon.interiors:
+        return [polygon] if polygon.area >= min_area else []
+
+    pieces: list[Polygon] = []
+    # Triangulate then clip each triangle back to the polygon. This yields
+    # hole-free polygon pieces that preserve floor-minus-robot geometry.
+    for tri in triangulate(polygon):
         try:
-            geom = geom.buffer(0)
-        except Exception:
-            return []
+            clipped = tri.intersection(polygon)
+        except GEOSException:
+            continue
+        for piece in explode_to_polygons(clipped):
+            if piece.is_empty:
+                continue
+            if not piece.is_valid:
+                piece = piece.buffer(0)
+            if piece.is_empty or not isinstance(piece, Polygon):
+                continue
+            if piece.area < min_area:
+                continue
+            pieces.append(piece)
+    return pieces
 
-    parts: list[list[tuple[float, float]]] = []
-    candidates: list[Polygon] = []
-    if isinstance(geom, Polygon):
-        candidates = [geom]
-    elif isinstance(geom, MultiPolygon):
-        candidates = [p for p in geom.geoms if not p.is_empty]
-    elif isinstance(geom, GeometryCollection):
-        for sub in geom.geoms:
-            if isinstance(sub, Polygon) and not sub.is_empty:
-                candidates.append(sub)
-            elif isinstance(sub, MultiPolygon):
-                candidates.extend([p for p in sub.geoms if not p.is_empty])
 
-    for poly in candidates:
+def normalize_result_polygons(result: object, min_area: float) -> list[Polygon]:
+    normalized: list[Polygon] = []
+    for poly in explode_to_polygons(result):
         if poly.is_empty:
             continue
-        coords = list(poly.exterior.coords)
-        if len(coords) < 4:
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        if poly.is_empty or not isinstance(poly, Polygon):
             continue
-        # Drop repeated closure point.
-        ring = [(float(x), float(y)) for x, y in coords[:-1]]
-        ring = sanitize_polygon_points(ring)
-        if len(ring) >= 3:
-            parts.append(ring)
-
-    return parts
+        if poly.area < min_area:
+            continue
+        normalized.extend(decompose_polygon_without_holes(poly, min_area=min_area))
+    return normalized
 
 
 def gather_polygons(
     rows: list[tuple[int, list[tuple[float, float]]]],
     floor_class_id: int,
-) -> tuple[list[list[tuple[float, float]]], list[list[tuple[float, float]]]]:
-    floor_polys: list[list[tuple[float, float]]] = []
-    obstacle_polys: list[list[tuple[float, float]]] = []
+    min_area: float,
+    max_polygons: int,
+    mask_size: int,
+) -> list[list[tuple[float, float]]]:
+    floor_polys: list[Polygon] = []
+    obstacle_polys: list[Polygon] = []
 
     for class_id, points in rows:
-        parts = normalized_polygon_parts(points)
-        if not parts:
+        polys = as_valid_polygons(points)
+        if not polys:
             continue
         if class_id == floor_class_id:
-            floor_polys.extend(parts)
+            floor_polys.extend(polys)
         else:
-            obstacle_polys.extend(parts)
+            obstacle_polys.extend(polys)
 
-    return floor_polys, obstacle_polys
+    if not floor_polys or max_polygons <= 0 or mask_size < 8:
+        return []
+
+    mask = np.zeros((mask_size, mask_size), dtype=np.uint8)
+
+    def to_cv_poly(poly: Polygon) -> np.ndarray | None:
+        coords = list(poly.exterior.coords)
+        if len(coords) < 4:
+            return None
+        max_idx = mask_size - 1
+        pts: list[list[int]] = []
+        for x, y in coords[:-1]:
+            px = int(round(clamp01(float(x)) * max_idx))
+            py = int(round(clamp01(float(y)) * max_idx))
+            pts.append([px, py])
+        if len(pts) < 3:
+            return None
+        return np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)
+
+    floor_cv = [arr for p in floor_polys if (arr := to_cv_poly(p)) is not None]
+    if not floor_cv:
+        return []
+    cv2.fillPoly(mask, floor_cv, 255)
+
+    obstacle_cv = [arr for p in obstacle_polys if (arr := to_cv_poly(p)) is not None]
+    if obstacle_cv:
+        cv2.fillPoly(mask, obstacle_cv, 0)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return []
+
+    min_area_px = float(min_area) * float(mask_size * mask_size)
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+    blobs: list[list[tuple[float, float]]] = []
+    max_idx = float(mask_size - 1)
+    for contour in contours[:max_polygons]:
+        if cv2.contourArea(contour) < min_area_px:
+            continue
+        points = contour.reshape(-1, 2)
+        if len(points) < 3:
+            continue
+        blobs.append([(float(x) / max_idx, float(y) / max_idx) for x, y in points])
+
+    return blobs
+
+
+def explode_to_polygons(geometry: object) -> list[Polygon]:
+    if geometry is None:
+        return []
+    if isinstance(geometry, Polygon):
+        return [geometry]
+    if isinstance(geometry, MultiPolygon):
+        return list(geometry.geoms)
+    if isinstance(geometry, GeometryCollection):
+        polys: list[Polygon] = []
+        for geom in geometry.geoms:
+            polys.extend(explode_to_polygons(geom))
+        return polys
+    return []
 
 
 def clamp01(value: float) -> float:
     return max(0.0, min(1.0, value))
-
-
-def polygon_to_cv_points(
-    points: list[tuple[float, float]], mask_width: int, mask_height: int
-) -> np.ndarray | None:
-    if len(points) < 3:
-        return None
-    max_x = mask_width - 1
-    max_y = mask_height - 1
-    arr = []
-    for x, y in points:
-        px = int(round(clamp01(x) * max_x))
-        py = int(round(clamp01(y) * max_y))
-        arr.append([px, py])
-    if len(arr) < 3:
-        return None
-    return np.asarray(arr, dtype=np.int32).reshape(-1, 1, 2)
-
-
-def contour_to_normalized_points(
-    contour: np.ndarray, mask_width: int, mask_height: int
-) -> list[tuple[float, float]]:
-    points = contour.reshape(-1, 2)
-    if len(points) < 3:
-        return []
-    max_x = float(mask_width - 1)
-    max_y = float(mask_height - 1)
-    return [(float(x) / max_x, float(y) / max_y) for x, y in points]
-
-
-def resolve_mask_dims(
-    image_width: int,
-    image_height: int,
-    min_long_side: int,
-) -> tuple[int, int]:
-    """Use image resolution by default, optionally upscaling to min long side."""
-    width = max(8, int(image_width))
-    height = max(8, int(image_height))
-    if min_long_side <= 0:
-        return width, height
-
-    long_side = max(width, height)
-    if long_side >= min_long_side:
-        return width, height
-
-    scale = float(min_long_side) / float(long_side)
-    scaled_w = max(8, int(round(width * scale)))
-    scaled_h = max(8, int(round(height * scale)))
-    return scaled_w, scaled_h
 
 
 def to_yolo_seg_line(class_id: int, points: list[tuple[float, float]]) -> str | None:
@@ -346,57 +427,19 @@ def build_floor_rows(
     floor_class_id: int,
     min_area: float,
     max_polygons: int,
-    image_width: int,
-    image_height: int,
-    min_mask_long_side: int,
+    mask_size: int,
 ) -> list[str]:
-    if max_polygons <= 0:
-        return []
-    if image_width < 1 or image_height < 1:
-        return []
-
-    floor_polys, obstacle_polys = gather_polygons(rows, floor_class_id=floor_class_id)
-    if not floor_polys:
-        return []
-
-    mask_width, mask_height = resolve_mask_dims(
-        image_width=image_width,
-        image_height=image_height,
-        min_long_side=min_mask_long_side,
+    blobs = gather_polygons(
+        rows=rows,
+        floor_class_id=floor_class_id,
+        min_area=min_area,
+        max_polygons=max_polygons,
+        mask_size=mask_size,
     )
-    mask = np.zeros((mask_height, mask_width), dtype=np.uint8)
-
-    floor_cv_polys = [
-        cv_poly
-        for poly in floor_polys
-        if (cv_poly := polygon_to_cv_points(poly, mask_width, mask_height)) is not None
-    ]
-    if not floor_cv_polys:
-        return []
-    cv2.fillPoly(mask, floor_cv_polys, 255)
-
-    obstacle_cv_polys = [
-        cv_poly
-        for poly in obstacle_polys
-        if (cv_poly := polygon_to_cv_points(poly, mask_width, mask_height)) is not None
-    ]
-    if obstacle_cv_polys:
-        cv2.fillPoly(mask, obstacle_cv_polys, 0)
-
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return []
-
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
-    min_area_px = float(min_area) * float(mask_width * mask_height)
 
     out_rows: list[str] = []
-    for contour in contours[:max_polygons]:
-        contour_area = cv2.contourArea(contour)
-        if contour_area < min_area_px:
-            continue
-        norm_points = contour_to_normalized_points(contour, mask_width, mask_height)
-        line = to_yolo_seg_line(0, norm_points)
+    for blob in blobs:
+        line = to_yolo_seg_line(0, blob)
         if line is not None:
             out_rows.append(line)
 
@@ -476,20 +519,12 @@ def main() -> None:
         datasets_used += 1
         total_pairs += len(pairs)
         print(
-            f"[DATASET] {dataset_root} "
-            f"(pairs={len(pairs)}, floor_id={floor_class_id})"
+            f"[DATASET] {dataset_root} (pairs={len(pairs)}, floor_id={floor_class_id})"
         )
 
         images_dir = dataset_root / "images"
         for img_path, label_path in pairs:
             scanned_images += 1
-
-            img = cv2.imread(str(img_path), cv2.IMREAD_UNCHANGED)
-            if img is None:
-                parse_skips += 1
-                continue
-            image_height, image_width = img.shape[:2]
-
             rows = parse_yolo_seg_rows(label_path)
             if not rows:
                 parse_skips += 1
@@ -500,9 +535,7 @@ def main() -> None:
                 floor_class_id=floor_class_id,
                 min_area=args.min_area,
                 max_polygons=args.max_polygons,
-                image_width=image_width,
-                image_height=image_height,
-                min_mask_long_side=args.mask_size,
+                mask_size=args.mask_size,
             )
             if not floor_rows:
                 empty_results += 1
