@@ -39,8 +39,9 @@ void YoloSegRobotBlobModelConfiguration::parse_fields(ConfigParser &parser) {
     neutral_robot_labels = parse_label_list(parser, "neutral_robot_labels");
     field_labels = parse_label_list(parser, "field_labels");
     if (label_indices.empty()) {
-        throw ConfigValidationError("Field 'label_indices' must not be empty in section "
-                                    "[robot_mask_model]");
+        throw ConfigValidationError(
+            "Field 'label_indices' must not be empty in section "
+            "[robot_mask_model]");
     }
     parser.validate_no_extra_fields();
 }
@@ -77,4 +78,3 @@ std::shared_ptr<RobotBlobModelInterface> make_robot_blob_model(
     throw std::invalid_argument("Failed to load RobotBlobModel of type " + config.type);
 }
 }  // namespace auto_battlebot
-

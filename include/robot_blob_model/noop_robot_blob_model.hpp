@@ -10,4 +10,3 @@ class NoopRobotBlobModel : public RobotBlobModelInterface {
     KeypointsStamped update([[maybe_unused]] RgbImage image) override { return KeypointsStamped{}; }
 };
 }  // namespace auto_battlebot
-

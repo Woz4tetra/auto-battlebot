@@ -49,7 +49,8 @@ class YoloSegRobotBlobModel : public RobotBlobModelInterface {
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
     void preprocess_image(const cv::Mat &image, cv::Size input_size, std::vector<float> &buffer);
-    float letterbox(cv::Mat &input_image, cv::Mat &output_image, const std::vector<int> &target_size);
+    float letterbox(cv::Mat &input_image, cv::Mat &output_image,
+                    const std::vector<int> &target_size);
     float generate_scale(cv::Mat &image, const std::vector<int> &target_size);
 
     std::vector<Detection> decode_detections(const std::vector<float> &det_output,
@@ -59,7 +60,8 @@ class YoloSegRobotBlobModel : public RobotBlobModelInterface {
     static float iou(const Detection &lhs, const Detection &rhs);
 
     cv::Mat decode_instance_mask(const Detection &det, const std::vector<float> &proto_output,
-                                 const std::vector<int64_t> &proto_shape, cv::Size input_size) const;
+                                 const std::vector<int64_t> &proto_shape,
+                                 cv::Size input_size) const;
     cv::Mat map_mask_to_original_image(const cv::Mat &input_mask, cv::Size original_size,
                                        cv::Size input_size) const;
     Category classify_category(Label label) const;
@@ -69,4 +71,3 @@ class YoloSegRobotBlobModel : public RobotBlobModelInterface {
                                     int detection_index, KeypointsStamped &output) const;
 };
 }  // namespace auto_battlebot
-

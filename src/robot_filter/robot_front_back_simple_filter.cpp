@@ -74,8 +74,8 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
     diagnostics_logger_->debug({{"num_keypoint_measurements", (int)filter_measurements.size()}});
 
     if (!robot_blob_keypoints.keypoints.empty() && field.child_frame_id != FrameId::EMPTY) {
-        auto blob_measurements = robot_keypoint_tracker_.detect(robot_blob_keypoints, field, camera_info,
-                                                                keypoints.header.stamp);
+        auto blob_measurements = robot_keypoint_tracker_.detect(
+            robot_blob_keypoints, field, camera_info, keypoints.header.stamp);
         diagnostics_logger_->debug({{"num_blob_measurements", (int)blob_measurements.size()}});
 
         std::map<Label, std::vector<MeasurementWithConfidence>> grouped_blob_measurements;

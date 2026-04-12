@@ -46,13 +46,12 @@ class RobotKeypointTracker {
     RobotKeypointTrackerConfig config_;
     std::vector<TrackedCandidate> tracked_;
 
-    std::vector<RobotKeypointCandidate> extract_candidates(const KeypointsStamped &robot_blob_keypoints,
-                                                           const FieldDescription &field,
-                                                           const CameraInfo &camera_info) const;
+    std::vector<RobotKeypointCandidate> extract_candidates(
+        const KeypointsStamped &robot_blob_keypoints, const FieldDescription &field,
+        const CameraInfo &camera_info) const;
     std::vector<RobotKeypointCandidate> update_tracking(
         const std::vector<RobotKeypointCandidate> &candidates, double timestamp);
     static std::vector<RobotDescription> to_descriptions(
         const std::vector<RobotKeypointCandidate> &candidates);
 };
 }  // namespace auto_battlebot
-

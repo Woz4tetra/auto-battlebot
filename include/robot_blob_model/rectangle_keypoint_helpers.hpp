@@ -23,4 +23,3 @@ void append_midline_keypoints(const MidlineSegment &midline, Label label,
                               double confidence, int detection_index,
                               std::vector<Keypoint> &output);
 }  // namespace auto_battlebot
-

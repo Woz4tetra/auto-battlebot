@@ -10,4 +10,3 @@ class RobotBlobModelInterface {
     virtual KeypointsStamped update(RgbImage image) = 0;
 };
 }  // namespace auto_battlebot
-

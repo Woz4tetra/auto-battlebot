@@ -49,4 +49,3 @@ std::unique_ptr<RobotBlobModelConfiguration> parse_robot_blob_model_config(Confi
 std::unique_ptr<RobotBlobModelConfiguration> load_robot_blob_model_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections);
 }  // namespace auto_battlebot
-

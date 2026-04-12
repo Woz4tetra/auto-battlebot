@@ -21,10 +21,9 @@ RobotKeypointTracker::RobotKeypointTracker(const RobotKeypointTrackerConfig &con
 
 void RobotKeypointTracker::reset() { tracked_.clear(); }
 
-std::vector<RobotDescription> RobotKeypointTracker::detect(const KeypointsStamped &robot_blob_keypoints,
-                                                           const FieldDescription &field,
-                                                           const CameraInfo &camera_info,
-                                                           double timestamp) {
+std::vector<RobotDescription> RobotKeypointTracker::detect(
+    const KeypointsStamped &robot_blob_keypoints, const FieldDescription &field,
+    const CameraInfo &camera_info, double timestamp) {
     auto candidates = extract_candidates(robot_blob_keypoints, field, camera_info);
     auto persistent = update_tracking(candidates, timestamp);
     return to_descriptions(persistent);
@@ -55,8 +54,9 @@ std::vector<RobotKeypointCandidate> RobotKeypointTracker::extract_candidates(
         if (group.size() < 2) continue;
 
         std::vector<Keypoint> sorted = group;
-        std::sort(sorted.begin(), sorted.end(),
-                  [](const Keypoint &lhs, const Keypoint &rhs) { return lhs.confidence > rhs.confidence; });
+        std::sort(sorted.begin(), sorted.end(), [](const Keypoint &lhs, const Keypoint &rhs) {
+            return lhs.confidence > rhs.confidence;
+        });
         const Keypoint &kp_a = sorted[0];
         const Keypoint &kp_b = sorted[1];
 
@@ -167,4 +167,3 @@ std::vector<RobotDescription> RobotKeypointTracker::to_descriptions(
     return descriptions;
 }
 }  // namespace auto_battlebot
-

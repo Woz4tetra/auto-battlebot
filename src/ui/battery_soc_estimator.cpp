@@ -1,5 +1,7 @@
 #include "battery_soc_estimator.hpp"
 
+#include <toml++/toml.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -10,7 +12,6 @@
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "directories.hpp"
-#include <toml++/toml.h>
 
 namespace auto_battlebot::ui_internal {
 namespace {
@@ -120,7 +121,8 @@ bool parse_ocv_section(const toml::table &root, const std::string &section_name,
 BatterySocEstimator::BatterySocEstimator(const BatteryOptions &options) : options_(options) {
     ocv_discharge_ = make_default_discharge_table();
     ocv_charge_ = make_default_charge_table();
-    if (options_.ocv_table_file_path.empty()) options_.ocv_table_file_path = default_ocv_table_path();
+    if (options_.ocv_table_file_path.empty())
+        options_.ocv_table_file_path = default_ocv_table_path();
     table_loaded_from_file_ = load_static_ocv_table();
     if (options_.state_file_path.empty()) options_.state_file_path = default_state_path();
     (void)load_state();

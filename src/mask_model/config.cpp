@@ -1,8 +1,9 @@
 #include "mask_model/config.hpp"
 
-#include <magic_enum.hpp>
 #include <spdlog/spdlog.h>
 #include <toml++/toml.h>
+
+#include <magic_enum.hpp>
 
 #include "config/config_parser.hpp"
 #include "mask_model/deeplab_mask_model.hpp"
@@ -31,7 +32,8 @@ void YoloSegMaskModelConfiguration::parse_fields(ConfigParser &parser) {
     model_path = parser.get_required_string("model_path");
     label_indices = parse_label_list(parser, "label_indices");
     if (label_indices.empty()) {
-        throw ConfigValidationError("Field 'label_indices' must not be empty in section [field_model]");
+        throw ConfigValidationError(
+            "Field 'label_indices' must not be empty in section [field_model]");
     }
 
     std::string output_label_name =

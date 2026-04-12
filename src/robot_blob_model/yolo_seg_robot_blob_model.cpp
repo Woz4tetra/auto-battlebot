@@ -109,7 +109,8 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
     }
 
     int proto_channels = 0;
-    if (proto_idx != std::numeric_limits<size_t>::max() && output_infos[proto_idx].shape.size() == 4) {
+    if (proto_idx != std::numeric_limits<size_t>::max() &&
+        output_infos[proto_idx].shape.size() == 4) {
         proto_channels = static_cast<int>(output_infos[proto_idx].shape[1]);
     }
 
@@ -250,8 +251,9 @@ std::vector<YoloSegRobotBlobModel::Detection> YoloSegRobotBlobModel::decode_dete
 std::vector<YoloSegRobotBlobModel::Detection> YoloSegRobotBlobModel::non_max_suppression(
     const std::vector<Detection> &detections) const {
     std::vector<Detection> ordered = detections;
-    std::sort(ordered.begin(), ordered.end(),
-              [](const Detection &lhs, const Detection &rhs) { return lhs.confidence > rhs.confidence; });
+    std::sort(ordered.begin(), ordered.end(), [](const Detection &lhs, const Detection &rhs) {
+        return lhs.confidence > rhs.confidence;
+    });
 
     std::vector<Detection> kept;
     std::vector<bool> suppressed(ordered.size(), false);
@@ -285,9 +287,9 @@ float YoloSegRobotBlobModel::iou(const Detection &lhs, const Detection &rhs) {
 }
 
 cv::Mat YoloSegRobotBlobModel::decode_instance_mask(const Detection &det,
-                                                     const std::vector<float> &proto_output,
-                                                     const std::vector<int64_t> &proto_shape,
-                                                     cv::Size input_size) const {
+                                                    const std::vector<float> &proto_output,
+                                                    const std::vector<int64_t> &proto_shape,
+                                                    cv::Size input_size) const {
     if (proto_shape.size() < 4) return cv::Mat{};
     const int channels = static_cast<int>(proto_shape[1]);
     const int proto_h = static_cast<int>(proto_shape[2]);
@@ -344,8 +346,8 @@ cv::Mat YoloSegRobotBlobModel::decode_instance_mask(const Detection &det,
 }
 
 cv::Mat YoloSegRobotBlobModel::map_mask_to_original_image(const cv::Mat &input_mask,
-                                                           cv::Size original_size,
-                                                           cv::Size input_size) const {
+                                                          cv::Size original_size,
+                                                          cv::Size input_size) const {
     if (input_mask.empty()) return input_mask;
     const double gain = std::min(static_cast<double>(input_size.width) / original_size.width,
                                  static_cast<double>(input_size.height) / original_size.height);
@@ -376,8 +378,8 @@ YoloSegRobotBlobModel::Category YoloSegRobotBlobModel::classify_category(Label l
 
 void YoloSegRobotBlobModel::append_detection_keypoints(const Detection &det,
                                                        const cv::Mat &instance_mask,
-                                                       cv::Size original_size,
-                                                       cv::Size input_size, int detection_index,
+                                                       cv::Size original_size, cv::Size input_size,
+                                                       int detection_index,
                                                        KeypointsStamped &output) const {
     if (det.class_id < 0 || det.class_id >= static_cast<int>(label_indices_.size())) return;
     const Label class_label = label_indices_[static_cast<size_t>(det.class_id)];
@@ -386,9 +388,9 @@ void YoloSegRobotBlobModel::append_detection_keypoints(const Detection &det,
 
     const Label output_label = (category == Category::THEIR) ? Label::OPPONENT : Label::HOUSE_BOT;
     const KeypointLabel a_label = (category == Category::THEIR) ? KeypointLabel::OPPONENT_BLOB_A
-                                                                 : KeypointLabel::HOUSE_BOT_BLOB_A;
+                                                                : KeypointLabel::HOUSE_BOT_BLOB_A;
     const KeypointLabel b_label = (category == Category::THEIR) ? KeypointLabel::OPPONENT_BLOB_B
-                                                                 : KeypointLabel::HOUSE_BOT_BLOB_B;
+                                                                : KeypointLabel::HOUSE_BOT_BLOB_B;
 
     MidlineSegment midline;
     if (!instance_mask.empty()) {
@@ -396,13 +398,12 @@ void YoloSegRobotBlobModel::append_detection_keypoints(const Detection &det,
     }
     if (!midline.valid) {
         // Fallback: use detection box if mask decoding is unavailable.
-        const double gain =
-            std::min(static_cast<double>(input_size.width) / original_size.width,
-                     static_cast<double>(input_size.height) / original_size.height);
+        const double gain = std::min(static_cast<double>(input_size.width) / original_size.width,
+                                     static_cast<double>(input_size.height) / original_size.height);
         const double pad_w =
             std::round((input_size.width - original_size.width * gain) / 2.0 - letterbox_padding_);
-        const double pad_h =
-            std::round((input_size.height - original_size.height * gain) / 2.0 - letterbox_padding_);
+        const double pad_h = std::round((input_size.height - original_size.height * gain) / 2.0 -
+                                        letterbox_padding_);
         const float x1 = static_cast<float>((det.x1 - pad_w) / gain);
         const float y1 = static_cast<float>((det.y1 - pad_h) / gain);
         const float x2 = static_cast<float>((det.x2 - pad_w) / gain);
@@ -413,4 +414,3 @@ void YoloSegRobotBlobModel::append_detection_keypoints(const Detection &det,
                              detection_index, output.keypoints);
 }
 }  // namespace auto_battlebot
-

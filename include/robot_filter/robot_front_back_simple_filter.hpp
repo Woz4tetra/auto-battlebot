@@ -28,8 +28,7 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
 
     bool initialize(const std::vector<RobotConfig> &robots) override;
     RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
-                                    CameraInfo camera_info,
-                                    KeypointsStamped robot_blob_keypoints,
+                                    CameraInfo camera_info, KeypointsStamped robot_blob_keypoints,
                                     CommandFeedback command_feedback) override;
     bool set_opponent_count(int count) override;
 

@@ -44,7 +44,8 @@ YoloSegMaskModel::YoloSegMaskModel(YoloSegMaskModelConfiguration &config)
 
 bool YoloSegMaskModel::initialize() {
     if (target_class_index_ < 0) {
-        spdlog::error("YoloSegMaskModel cannot initialize: output_label not found in label_indices");
+        spdlog::error(
+            "YoloSegMaskModel cannot initialize: output_label not found in label_indices");
         return false;
     }
 
@@ -133,7 +134,8 @@ MaskStamped YoloSegMaskModel::update(RgbImage image) {
     }
 
     int proto_channels = 0;
-    if (proto_idx != std::numeric_limits<size_t>::max() && output_infos[proto_idx].shape.size() == 4) {
+    if (proto_idx != std::numeric_limits<size_t>::max() &&
+        output_infos[proto_idx].shape.size() == 4) {
         proto_channels = static_cast<int>(output_infos[proto_idx].shape[1]);
     }
 
@@ -152,8 +154,8 @@ MaskStamped YoloSegMaskModel::update(RgbImage image) {
         if (proto_idx == std::numeric_limits<size_t>::max() || det.mask_coeffs.empty()) {
             continue;
         }
-        cv::Mat instance_mask =
-            decode_instance_mask(det, output_buffers[proto_idx], output_infos[proto_idx].shape, input_size);
+        cv::Mat instance_mask = decode_instance_mask(det, output_buffers[proto_idx],
+                                                     output_infos[proto_idx].shape, input_size);
         cv::Mat mapped_mask = map_mask_to_original_image(instance_mask, original_size, input_size);
         if (mapped_mask.empty()) continue;
         merged_mask.setTo(output_mask_value_, mapped_mask > 0);
@@ -283,8 +285,9 @@ std::vector<YoloSegMaskModel::Detection> YoloSegMaskModel::decode_detections(
 std::vector<YoloSegMaskModel::Detection> YoloSegMaskModel::non_max_suppression(
     const std::vector<Detection> &detections) const {
     std::vector<Detection> ordered = detections;
-    std::sort(ordered.begin(), ordered.end(),
-              [](const Detection &lhs, const Detection &rhs) { return lhs.confidence > rhs.confidence; });
+    std::sort(ordered.begin(), ordered.end(), [](const Detection &lhs, const Detection &rhs) {
+        return lhs.confidence > rhs.confidence;
+    });
 
     std::vector<Detection> kept;
     std::vector<bool> suppressed(ordered.size(), false);
@@ -376,8 +379,9 @@ cv::Mat YoloSegMaskModel::decode_instance_mask(const Detection &det,
     return binary;
 }
 
-cv::Mat YoloSegMaskModel::map_mask_to_original_image(const cv::Mat &input_mask, cv::Size original_size,
-                                                      cv::Size input_size) const {
+cv::Mat YoloSegMaskModel::map_mask_to_original_image(const cv::Mat &input_mask,
+                                                     cv::Size original_size,
+                                                     cv::Size input_size) const {
     if (input_mask.empty()) return input_mask;
     const double gain = std::min(static_cast<double>(input_size.width) / original_size.width,
                                  static_cast<double>(input_size.height) / original_size.height);

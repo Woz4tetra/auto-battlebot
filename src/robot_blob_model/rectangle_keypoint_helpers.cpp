@@ -1,7 +1,6 @@
 #include "robot_blob_model/rectangle_keypoint_helpers.hpp"
 
 #include <algorithm>
-
 #include <opencv2/imgproc.hpp>
 
 namespace auto_battlebot {
@@ -99,4 +98,3 @@ void append_midline_keypoints(const MidlineSegment &midline, Label label,
     output.push_back(b);
 }
 }  // namespace auto_battlebot
-

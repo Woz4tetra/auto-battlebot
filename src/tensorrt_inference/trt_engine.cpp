@@ -336,8 +336,8 @@ bool TrtEngine::execute_multi(const float* host_input, const std::vector<float*>
         const size_t bytes = static_cast<size_t>(output_infos_[i].num_elements) * sizeof(float);
         err = cudaMemcpy(host_outputs[i], d_outputs_[i], bytes, cudaMemcpyDeviceToHost);
         if (err != cudaSuccess) {
-            spdlog::error("TrtEngine: cudaMemcpy D2H failed for output {}: {}", output_infos_[i].name,
-                          cudaGetErrorString(err));
+            spdlog::error("TrtEngine: cudaMemcpy D2H failed for output {}: {}",
+                          output_infos_[i].name, cudaGetErrorString(err));
             return false;
         }
     }

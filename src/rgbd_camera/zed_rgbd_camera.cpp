@@ -248,8 +248,9 @@ bool ZedRgbdCamera::capture_frame() {
             recent_grab_outcomes_.pop_front();
         }
 
-        const bool window_is_full = !recent_grab_outcomes_.empty() &&
-                                    (now - recent_grab_outcomes_.front().first) >= kCorruptionWindow;
+        const bool window_is_full =
+            !recent_grab_outcomes_.empty() &&
+            (now - recent_grab_outcomes_.front().first) >= kCorruptionWindow;
         if (window_is_full && !should_close_.load()) {
             const double corrupted_ratio = static_cast<double>(recent_corrupted_frame_count_) /
                                            static_cast<double>(recent_grab_outcomes_.size());
@@ -259,9 +260,10 @@ bool ZedRgbdCamera::capture_frame() {
                     should_close_ = true;
                 }
                 data_cv_.notify_all();
-                spdlog::error("Camera corruption ratio {:.1f}% over last 10s exceeded {:.0f}% "
-                              "threshold. Requesting application shutdown.",
-                              corrupted_ratio * 100.0, kCorruptionExitThreshold * 100.0);
+                spdlog::error(
+                    "Camera corruption ratio {:.1f}% over last 10s exceeded {:.0f}% "
+                    "threshold. Requesting application shutdown.",
+                    corrupted_ratio * 100.0, kCorruptionExitThreshold * 100.0);
                 return false;
             }
         }
@@ -409,12 +411,13 @@ bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
 
         uint64_t current_frame = frame_counter_;
         uint64_t current_depth_frame = depth_frame_counter_;
-        while (!data_cv_.wait_for(lock, kGetWaitTimeout, [this, current_frame, current_depth_frame]() {
-            bool new_frame = frame_counter_ > current_frame;
-            bool depth_ready = depth_frame_counter_ > current_depth_frame;
-            return (new_frame && depth_ready) || should_close_ || stop_thread_ ||
-                   !camera_connected_.load();
-        })) {
+        while (
+            !data_cv_.wait_for(lock, kGetWaitTimeout, [this, current_frame, current_depth_frame]() {
+                bool new_frame = frame_counter_ > current_frame;
+                bool depth_ready = depth_frame_counter_ > current_depth_frame;
+                return (new_frame && depth_ready) || should_close_ || stop_thread_ ||
+                       !camera_connected_.load();
+            })) {
             if (!camera_connected_.load()) return false;
         }
     } else {
