@@ -482,41 +482,91 @@ class YOLODatasetValidator:
         return f"#{color_rgb[0]:02x}{color_rgb[1]:02x}{color_rgb[2]:02x}"
 
     def parse_yolo_annotation(self, label_path: Path) -> List[Dict]:
-        """Parse YOLO format annotation file, including optional keypoints."""
+        """Parse YOLO annotation file for bbox/pose and yolo-seg polygon rows."""
         annotations = []
         with open(label_path, "r") as f:
             for line in f:
                 parts = line.strip().split()
-                if len(parts) < 5:
+                if not parts:
                     continue
-                ann = {
-                    "class_id": int(parts[0]),
-                    "center_x": float(parts[1]),
-                    "center_y": float(parts[2]),
-                    "width": float(parts[3]),
-                    "height": float(parts[4]),
-                    "keypoints": [],
-                }
-                # Keypoints follow bbox: groups of (x, y, visibility)
-                kp_values = parts[5:]
-                for i in range(0, len(kp_values) - 2, 3):
-                    ann["keypoints"].append(
-                        {
-                            "x": float(kp_values[i]),
-                            "y": float(kp_values[i + 1]),
-                            "v": int(float(kp_values[i + 2])),
-                        }
-                    )
-                annotations.append(ann)
+
+                try:
+                    class_id = int(float(parts[0]))
+                    values = [float(v) for v in parts[1:]]
+                except ValueError:
+                    continue
+
+                # Parse standard YOLO detect/pose rows first:
+                # class cx cy w h [kpt_x kpt_y kpt_v]...
+                if len(values) >= 4:
+                    kp_values = values[4:]
+                    if len(kp_values) % 3 == 0:
+                        parsed_keypoints = []
+                        keypoints_valid = True
+                        for i in range(0, len(kp_values), 3):
+                            v_raw = kp_values[i + 2]
+                            v_int = int(round(v_raw))
+                            if abs(v_raw - v_int) > 1e-6 or v_int not in (0, 1, 2):
+                                keypoints_valid = False
+                                break
+                            parsed_keypoints.append(
+                                {"x": kp_values[i], "y": kp_values[i + 1], "v": v_int}
+                            )
+
+                        if keypoints_valid:
+                            annotations.append(
+                                {
+                                    "type": "bbox",
+                                    "class_id": class_id,
+                                    "center_x": values[0],
+                                    "center_y": values[1],
+                                    "width": values[2],
+                                    "height": values[3],
+                                    "keypoints": parsed_keypoints,
+                                }
+                            )
+                            continue
+
+                # Parse YOLO-seg rows:
+                # class x1 y1 x2 y2 ... xn yn
+                if len(values) < 6 or len(values) % 2 != 0:
+                    continue
+
+                polygon = []
+                for i in range(0, len(values), 2):
+                    polygon.append({"x": values[i], "y": values[i + 1]})
+
+                if len(polygon) < 3:
+                    continue
+
+                xs = [p["x"] for p in polygon]
+                ys = [p["y"] for p in polygon]
+                min_x, max_x = min(xs), max(xs)
+                min_y, max_y = min(ys), max(ys)
+
+                annotations.append(
+                    {
+                        "type": "seg",
+                        "class_id": class_id,
+                        "center_x": (min_x + max_x) / 2.0,
+                        "center_y": (min_y + max_y) / 2.0,
+                        "width": max_x - min_x,
+                        "height": max_y - min_y,
+                        "polygon": polygon,
+                        "keypoints": [],
+                    }
+                )
         return annotations
 
     def draw_image_with_annotations(
         self, img_path: Path, label_path: Path
     ) -> Image.Image:
-        """Draw bounding boxes and labels on image."""
+        """Draw parsed annotations (bbox/pose and seg polygons) on image."""
         # Load image
-        image = Image.open(img_path).convert("RGB")
+        image = Image.open(img_path).convert("RGBA")
         draw = ImageDraw.Draw(image)
+        seg_overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        seg_overlay_draw = ImageDraw.Draw(seg_overlay, "RGBA")
 
         # Get image dimensions
         img_width, img_height = image.size
@@ -548,8 +598,31 @@ class YOLODatasetValidator:
                 class_name = f"Class {class_id}"
                 color = self.colors[class_id % len(self.colors)]
 
-            # Always draw bounding box
-            draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+            if ann.get("type") == "seg":
+                polygon_points = [
+                    (p["x"] * img_width, p["y"] * img_height)
+                    for p in ann.get("polygon", [])
+                ]
+                if len(polygon_points) >= 3:
+                    color_str = color.lstrip("#")
+                    try:
+                        color_rgb = tuple(
+                            int(color_str[i : i + 2], 16) for i in (0, 2, 4)
+                        )
+                    except ValueError:
+                        color_rgb = (255, 0, 0)
+                    seg_overlay_draw.polygon(
+                        polygon_points,
+                        fill=(color_rgb[0], color_rgb[1], color_rgb[2], 35),
+                    )
+                    draw.line(
+                        polygon_points + [polygon_points[0]],
+                        fill=color,
+                        width=3,
+                    )
+            else:
+                # Always draw bounding box for detect/pose annotations
+                draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
 
             # Conditionally draw label text
             if self.show_labels:
@@ -592,7 +665,8 @@ class YOLODatasetValidator:
                     )
                     draw.text((kx + r + 2, ky - r), kp_label, fill=kp_color, font=font)
 
-        return image
+        image = Image.alpha_composite(image, seg_overlay)
+        return image.convert("RGB")
 
     def draw_feedback_overlay(self, image: Image.Image, passed: bool) -> Image.Image:
         """Draw checkmark or X overlay on image."""
