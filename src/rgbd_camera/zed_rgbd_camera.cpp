@@ -14,6 +14,9 @@ namespace auto_battlebot {
 namespace {
 constexpr uint64_t kBytesPerGb = 1024ULL * 1024ULL * 1024ULL;
 constexpr uint64_t kSizeCheckIntervalFrames = 100;
+constexpr auto kCorruptionWindow = std::chrono::seconds(10);
+constexpr double kCorruptionExitThreshold = 0.70;
+constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
 }  // namespace
 
 ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
@@ -21,10 +24,12 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
       is_initialized_(false),
       should_close_(false),
       stop_thread_(false),
+      camera_connected_(false),
       has_new_frame_(false),
       frame_counter_(0),
       depth_frame_counter_(0),
       last_returned_frame_counter_(0),
+      recent_corrupted_frame_count_(0),
       prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST),
       position_tracking_enabled_(config.position_tracking),
       is_playback_input_(!config.svo_file_path.empty()),
@@ -85,10 +90,13 @@ bool ZedRgbdCamera::initialize() {
     // Reset state variables for re-initialization
     stop_thread_ = false;
     should_close_ = false;
+    camera_connected_ = true;
     has_new_frame_ = false;
     frame_counter_ = 0;
     depth_frame_counter_ = 0;
     last_returned_frame_counter_ = 0;
+    recent_grab_outcomes_.clear();
+    recent_corrupted_frame_count_ = 0;
     prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST;
     reset_capture_timing_stats();
     {
@@ -225,6 +233,40 @@ bool ZedRgbdCamera::capture_frame() {
     sl::ERROR_CODE grab_status = zed_.grab(rt_params);
 
     if (grab_status != sl::ERROR_CODE::SUCCESS) {
+        camera_connected_ = false;
+        const auto now = std::chrono::steady_clock::now();
+        const bool is_corrupted_frame = (grab_status == sl::ERROR_CODE::CORRUPTED_FRAME);
+        recent_grab_outcomes_.emplace_back(now, is_corrupted_frame);
+        if (is_corrupted_frame) {
+            recent_corrupted_frame_count_++;
+        }
+        while (!recent_grab_outcomes_.empty() &&
+               (now - recent_grab_outcomes_.front().first) > kCorruptionWindow) {
+            if (recent_grab_outcomes_.front().second) {
+                recent_corrupted_frame_count_--;
+            }
+            recent_grab_outcomes_.pop_front();
+        }
+
+        const bool window_is_full = !recent_grab_outcomes_.empty() &&
+                                    (now - recent_grab_outcomes_.front().first) >= kCorruptionWindow;
+        if (window_is_full && !should_close_.load()) {
+            const double corrupted_ratio = static_cast<double>(recent_corrupted_frame_count_) /
+                                           static_cast<double>(recent_grab_outcomes_.size());
+            if (corrupted_ratio > kCorruptionExitThreshold) {
+                {
+                    std::lock_guard<std::mutex> lock(data_mutex_);
+                    should_close_ = true;
+                }
+                data_cv_.notify_all();
+                spdlog::error("Camera corruption ratio {:.1f}% over last 10s exceeded {:.0f}% "
+                              "threshold. Requesting application shutdown.",
+                              corrupted_ratio * 100.0, kCorruptionExitThreshold * 100.0);
+                return false;
+            }
+        }
+
+        data_cv_.notify_all();
         if (grab_status == sl::ERROR_CODE::END_OF_SVOFILE_REACHED) {
             {
                 std::lock_guard<std::mutex> lock(data_mutex_);
@@ -236,6 +278,18 @@ bool ZedRgbdCamera::capture_frame() {
             spdlog::error("Failed to grab frame: {}", sl::toString(grab_status).c_str());
         }
         return false;
+    }
+    camera_connected_ = true;
+    {
+        const auto now = std::chrono::steady_clock::now();
+        recent_grab_outcomes_.emplace_back(now, false);
+        while (!recent_grab_outcomes_.empty() &&
+               (now - recent_grab_outcomes_.front().first) > kCorruptionWindow) {
+            if (recent_grab_outcomes_.front().second) {
+                recent_corrupted_frame_count_--;
+            }
+            recent_grab_outcomes_.pop_front();
+        }
     }
 
     // Periodically check SVO file size and roll over if needed
@@ -355,22 +409,29 @@ bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
 
         uint64_t current_frame = frame_counter_;
         uint64_t current_depth_frame = depth_frame_counter_;
-        data_cv_.wait(lock, [this, current_frame, current_depth_frame]() {
+        while (!data_cv_.wait_for(lock, kGetWaitTimeout, [this, current_frame, current_depth_frame]() {
             bool new_frame = frame_counter_ > current_frame;
             bool depth_ready = depth_frame_counter_ > current_depth_frame;
-            return (new_frame && depth_ready) || should_close_ || stop_thread_;
-        });
+            return (new_frame && depth_ready) || should_close_ || stop_thread_ ||
+                   !camera_connected_.load();
+        })) {
+            if (!camera_connected_.load()) return false;
+        }
     } else {
         // If a prefetched frame is available, return immediately; otherwise, wait for one
         if (!(frame_counter_ > last_returned_frame_counter_)) {
-            data_cv_.wait(lock, [this]() {
+            while (!data_cv_.wait_for(lock, kGetWaitTimeout, [this]() {
                 bool new_frame_available = frame_counter_ > last_returned_frame_counter_;
-                return new_frame_available || should_close_ || stop_thread_;
-            });
+                return new_frame_available || should_close_ || stop_thread_ ||
+                       !camera_connected_.load();
+            })) {
+                if (!camera_connected_.load()) return false;
+            }
         }
     }
 
     if (should_close_ || stop_thread_) return false;
+    if (!camera_connected_) return false;
 
     data = latest_data_;
     // Mark the frame as consumed for non-depth path; harmless for depth path
