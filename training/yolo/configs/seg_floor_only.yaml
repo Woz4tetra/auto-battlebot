@@ -1,0 +1,15 @@
+mode: floor_only
+
+input_dir: ../data/nhrl_seg
+output_dir: ../data/floor_dataset
+
+overwrite: false
+copy_empty: false
+min_area: 1.0e-5
+max_polygons: 5
+mask_size: 2048
+
+modes:
+  floor_only:
+    floor_class_name: floor
+    output_class_name: floor

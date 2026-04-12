@@ -1,0 +1,27 @@
+mode: merged_classes
+
+input_dir: /path/to/input/search_root
+output_dir: /path/to/output/merged_robot_house_floor_dataset
+
+overwrite: false
+copy_empty: false
+min_area: 1.0e-5
+max_polygons: 5
+mask_size: 2048
+
+modes:
+  merged_classes:
+    # Optional catch-all: any class name not listed under groups maps here.
+    remaining_to_group: combat_robot
+    output_names:
+      - floor
+      - combat_robot
+      - house_bot
+    groups:
+      floor:
+        - Floor
+      house_bot:
+        - House Bot
+        - House Bot Flash Halloween
+        - House Bot Orange Halloween
+        - House Bot White Halloween
