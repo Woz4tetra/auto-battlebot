@@ -145,15 +145,36 @@ def color_distance(c1: tuple[int, int, int], c2: list[int]) -> float:
 
 def match_material_type(
     color: tuple[int, int, int], color_mapping: list[dict]
-) -> str | None:
+) -> tuple[str | None, float, bool]:
+    """Return best material for a color.
+
+    Strategy:
+    1) Exact/near match within configured tolerance (inclusive).
+    2) Conservative nearest-color fallback when nothing matches tolerance.
+
+    Returns:
+        (material_name, distance, used_fallback)
+    """
     best_match = None
     best_dist = float("inf")
+    nearest_match = None
+    nearest_dist = float("inf")
     for entry in color_mapping:
         dist = color_distance(color, entry["color"])
-        if dist < entry["tolerance"] and dist < best_dist:
+        if dist < nearest_dist:
+            nearest_dist = dist
+            nearest_match = entry["material"]
+        if dist <= entry["tolerance"] and dist < best_dist:
             best_dist = dist
             best_match = entry["material"]
-    return best_match
+    if best_match is not None:
+        return best_match, best_dist, False
+
+    # CAD exports can introduce close shade variants for the same part color.
+    fallback_max_dist = 45.0
+    if nearest_match is not None and nearest_dist <= fallback_max_dist:
+        return nearest_match, nearest_dist, True
+    return None, nearest_dist, False
 
 
 def import_gltf_as_robot(
@@ -304,6 +325,35 @@ def _find_cc_material(
     return None
 
 
+def _load_cc_materials(
+    materials_config: dict[str, dict],
+    cc_textures_dir: str | None,
+) -> dict[str, bproc.types.Material]:
+    """Load configured CC materials once and return lookup map."""
+    cc_materials: dict[str, bproc.types.Material] = {}
+    cc_path = resolve_path(Path(cc_textures_dir)) if cc_textures_dir else None
+    if not (cc_path and cc_path.exists()):
+        return cc_materials
+
+    needed = {
+        cfg["cc_texture"] for cfg in materials_config.values() if "cc_texture" in cfg
+    }
+    if not needed:
+        return cc_materials
+
+    loaded = bproc.loader.load_ccmaterials(str(cc_path), used_assets=list(needed))
+    cc_materials = {mat.get_name(): mat for mat in loaded}
+
+    # BlenderProc may return only newly loaded assets on subsequent calls.
+    for name in needed:
+        if name in cc_materials:
+            continue
+        existing = bpy.data.materials.get(name)
+        if existing is not None:
+            cc_materials[name] = bproc.types.Material(existing)
+    return cc_materials
+
+
 def _disconnect_base_color(bpy_mat: bpy.types.Material) -> None:
     """Remove any node links feeding into the Principled BSDF Base Color input."""
     if not bpy_mat.use_nodes:
@@ -414,24 +464,8 @@ def apply_pbr_materials(
     meshes: list[bproc.types.MeshObject],
     color_mapping: list[dict],
     materials_config: dict[str, dict],
-    cc_textures_dir: str | None,
+    cc_materials: dict[str, bproc.types.Material],
 ) -> None:
-    cc_materials: dict[str, bproc.types.Material] = {}
-    cc_path = resolve_path(Path(cc_textures_dir)) if cc_textures_dir else None
-    if cc_path and cc_path.exists():
-        needed = {
-            cfg["cc_texture"]
-            for cfg in materials_config.values()
-            if "cc_texture" in cfg
-        }
-        if needed:
-            loaded = bproc.loader.load_ccmaterials(
-                str(cc_path), used_assets=list(needed)
-            )
-            cc_materials = {mat.get_name(): mat for mat in loaded}
-            print(f"  CC materials loaded: {sorted(cc_materials.keys())}")
-            print(f"  Requested: {sorted(needed)}")
-
     applied: dict[str, int] = {}
     for mesh in meshes:
         bpy_obj = mesh.blender_obj
@@ -440,9 +474,21 @@ def apply_pbr_materials(
             color = get_material_base_color(bpy_mat)
             if color is None:
                 continue
-            mat_type = match_material_type(color, color_mapping)
+            mat_type, match_dist, used_fallback = match_material_type(
+                color, color_mapping
+            )
             if mat_type is None:
+                print(
+                    f"  Warning: No mapping for color {color} on {bpy_mat.name} "
+                    f"(nearest distance={match_dist:.2f})"
+                )
                 continue
+            if used_fallback:
+                print(
+                    f"  Note: Fallback mapped color {color} on {bpy_mat.name} "
+                    f"to '{mat_type}' (distance={match_dist:.2f}). "
+                    "Consider adding an explicit [[robots.color_mapping]] entry."
+                )
             mat_cfg = materials_config.get(mat_type, {})
 
             tex_dir = mat_cfg.get("texture_dir")
@@ -1083,6 +1129,7 @@ def main() -> None:
 
     robot_configs = config["robots"]
     cc_textures_dir = config.get("environment", {}).get("cc_textures_dir")
+    cc_materials = _load_cc_materials(config["materials"], cc_textures_dir)
     robots: list[RobotInstance] = []
 
     for ri, rcfg in enumerate(robot_configs, start=1):
@@ -1107,7 +1154,7 @@ def main() -> None:
             meshes,
             rcfg["color_mapping"],
             config["materials"],
-            cc_textures_dir,
+            cc_materials,
         )
 
         robot = RobotInstance(

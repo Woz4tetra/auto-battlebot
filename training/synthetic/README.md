@@ -110,7 +110,25 @@ front and back keypoints. Measure these in OnShape.
 - **How many:** **15-30** for good scene variety. More gives more diversity; fewer is fine for testing.
 - **Which ones:** Prefer **indoor or arena-like** environments (studios, halls, warehouses) so lighting matches typical competition settings. You can pick at random from those, or add a few outdoor/abstract ones for extra variation.
 
-Place all files directly in `data/hdris/` (no subfolders required).
+Download a defined number automatically:
+
+```bash
+python download_polyhaven_hdris.py ../data/hdris --count 20
+```
+
+Useful options:
+
+```bash
+# Prefer 4K EXR files
+python download_polyhaven_hdris.py ../data/hdris --count 20 --resolution 4k --format exr
+
+# Fully random sampling (disable indoor keyword preference)
+python download_polyhaven_hdris.py ../data/hdris --count 20 --no-indoor-preference
+```
+
+The downloader uses Poly Haven's API, picks random HDRIs (indoor-biased by default), and skips asset IDs that already exist in `data/hdris/`.
+
+Place all HDRIs directly in `data/hdris/` (no subfolders required).
 
 **CC0 Textures (robot materials + ground)**
 
@@ -129,11 +147,19 @@ python download_ambientcg.py ../data/cc_textures Plastic007 Metal012 Wood037
 python download_ambientcg.py ../data/cc_textures "https://ambientcg.com/get?file=Plastic007_2K-JPG.zip"
 ```
 
+Or list a random set of texture IDs first (without downloading), then copy the generated command:
+
+```bash
+python download_ambientcg.py ../data/cc_textures --list-random 20
+python download_ambientcg.py ../data/cc_textures --list-random 20 --seed 7
+```
+
 Assets that already exist in the output directory are skipped, so it's safe to re-run.
 
 - **Required:** Download the assets referenced in your `config.toml` under `[materials.*]` -> `cc_texture` (e.g. `Metal012`, `Metal030`, `Plastic006`, `Rubber001`, `Paper001`). Without these, the robot falls back to flat PBR values (no texture).
 - **For ground variety:** Add **10-25** extra ambientCG materials (e.g. more metals, plastics, wood, concrete, tiles). The loader only uses assets whose folder name starts with one of its built-in keywords (e.g. `metal`, `plastic`, `wood`, `concrete`, `tiles`), so names like `Metal012` or `Wood037` work.
 - **Non-default resolution:** Pass `--resolution 4K-JPG` (or any other ambientCG variant) to override the default `2K-JPG`.
+- **Discovery mode:** `--list-random N` prints a random set of available material IDs and a ready-to-run download command (use `--seed` for reproducible samples).
 
 ### 5. Acquire distractor models
 
@@ -149,6 +175,36 @@ python download_objaverse.py ../data/distractor_models/objaverse --max-models 10
 python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d
 python generate_sam3d_models.py --sam3d-dir ~/sam3/sam-3d-objects ../data/reference_photos ../data/distractor_models/sam3d
 ```
+
+Useful mesh-quality controls for less blocky SAM3D meshes:
+
+```bash
+# Medium smoothing (default): balanced realism/detail
+python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d --smoothing-preset medium
+
+# Light smoothing: keep more high-frequency detail
+python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d --smoothing-preset light
+
+# Strong smoothing: most organic, may blur small features
+python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d --smoothing-preset strong
+
+# Fine-tune reconstruction and smoothing
+python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d \
+  --poisson-depth 9 \
+  --density-quantile 0.02 \
+  --smoothing-method taubin \
+  --smoothing-iterations 14 \
+  --smoothing-lambda 0.5 \
+  --smoothing-mu -0.53
+```
+
+SAM3D mesh settings:
+
+- `--poisson-depth`: higher captures finer shape detail (slower, noisier risk).
+- `--density-quantile`: lower keeps more reconstructed surface and fill (can retain artifacts).
+- `--smoothing-preset`: `off`, `light`, `medium` (default), `strong`.
+- `--smoothing-method`: `taubin` (default, less shrink) or `laplacian`.
+- `--smoothing-iterations`, `--smoothing-lambda`, `--smoothing-mu`: advanced overrides.
 
 ### 6. Generate synthetic images
 
@@ -196,8 +252,9 @@ python train.py path/to/data.yaml yolo11n-pose
 | -------------------------- | ----------------- | --------------------------------------------------------- |
 | `config.toml`              | --                | All pipeline parameters                                   |
 | `prepare_robot_model.py`   | `blenderproc run` | Inspect GLTF colors, validate PBR mapping                 |
+| `download_polyhaven_hdris.py` | `python`       | Download a defined number of random HDRIs from Poly Haven |
 | `download_objaverse.py`    | `python`          | Download distractor models from Objaverse                 |
-| `download_ambientcg.py`    | `python`          | Download PBR textures from ambientCG                      |
+| `download_ambientcg.py`    | `python`          | Download PBR textures from ambientCG, or list random IDs |
 | `generate_sam3d_models.py` | `python`          | Generate distractor meshes from photos via SAM 3D Objects |
 | `render_scenes.py`         | `blenderproc run` | Main rendering pipeline                                   |
 

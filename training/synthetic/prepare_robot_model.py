@@ -218,16 +218,41 @@ def color_distance(c1: tuple[int, int, int], c2: list[int]) -> float:
 def match_material_type(
     color: tuple[int, int, int],
     color_mapping: list[dict],
-) -> str | None:
-    """Find the best matching material type for a given RGB color."""
+) -> tuple[str | None, float, bool]:
+    """Find the best material type for an RGB color.
+
+    Matching strategy:
+    1) Use explicit color_mapping entries within their configured tolerance.
+    2) If no explicit entry matches, allow a nearest-color fallback when the
+       closest mapped color is still reasonably close.
+
+    Returns:
+        (material_name, distance, used_fallback)
+    """
     best_match = None
     best_dist = float("inf")
+    nearest_match = None
+    nearest_dist = float("inf")
     for entry in color_mapping:
         dist = color_distance(color, entry["color"])
-        if dist < entry["tolerance"] and dist < best_dist:
+        if dist < nearest_dist:
+            nearest_dist = dist
+            nearest_match = entry["material"]
+        if dist <= entry["tolerance"] and dist < best_dist:
             best_dist = dist
             best_match = entry["material"]
-    return best_match
+
+    if best_match is not None:
+        return best_match, best_dist, False
+
+    # CAD exports sometimes introduce tiny color variants for what is
+    # semantically the same material.  Keep this conservative to avoid
+    # accidentally remapping unrelated colors.
+    fallback_max_dist = 45.0
+    if nearest_match is not None and nearest_dist <= fallback_max_dist:
+        return nearest_match, nearest_dist, True
+
+    return None, nearest_dist, False
 
 
 _PBR_SUFFIXES = [
@@ -283,23 +308,28 @@ def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
             for link in list(bsdf.inputs[input_name].links):
                 tree.links.remove(link)
 
+    applied_channels: list[str] = []
+
     color_file = _find_texture_file(texture_dir, "Color")
     if color_file:
         _disconnect("Base Color")
         tex = _add_tex_node(tree, color_file)
         tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+        applied_channels.append("Color")
 
     rough_file = _find_texture_file(texture_dir, "Roughness")
     if rough_file:
         _disconnect("Roughness")
         tex = _add_tex_node(tree, rough_file, non_color=True)
         tree.links.new(tex.outputs["Color"], bsdf.inputs["Roughness"])
+        applied_channels.append("Roughness")
 
     metal_file = _find_texture_file(texture_dir, "Metalness")
     if metal_file:
         _disconnect("Metallic")
         tex = _add_tex_node(tree, metal_file, non_color=True)
         tree.links.new(tex.outputs["Color"], bsdf.inputs["Metallic"])
+        applied_channels.append("Metalness")
 
     normal_file = _find_texture_file(texture_dir, "NormalGL") or _find_texture_file(
         texture_dir, "Normal"
@@ -310,6 +340,7 @@ def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
         normal_map = tree.nodes.new("ShaderNodeNormalMap")
         tree.links.new(tex.outputs["Color"], normal_map.inputs["Color"])
         tree.links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+        applied_channels.append("Normal")
 
     disp_file = _find_texture_file(texture_dir, "Displacement")
     if disp_file:
@@ -323,6 +354,65 @@ def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
             tree.links.new(
                 disp_node.outputs["Displacement"], mat_output.inputs["Displacement"]
             )
+        applied_channels.append("Displacement")
+
+    if not applied_channels:
+        print(
+            f"  Warning: No matching texture files found in {texture_dir} for {bpy_mat.name}"
+        )
+
+
+def _load_cc_materials(
+    materials_config: dict[str, dict],
+    cc_textures_dir: str | None,
+) -> dict[str, bproc.types.Material]:
+    """Load and cache configured CC materials once per script run."""
+    cc_materials: dict[str, bproc.types.Material] = {}
+    cc_path = resolve_path(Path(cc_textures_dir)) if cc_textures_dir else None
+    if not (cc_path and cc_path.exists()):
+        return cc_materials
+
+    needed = {
+        cfg["cc_texture"] for cfg in materials_config.values() if "cc_texture" in cfg
+    }
+    if not needed:
+        return cc_materials
+
+    loaded = bproc.loader.load_ccmaterials(str(cc_path), used_assets=list(needed))
+    cc_materials = {mat.get_name(): mat for mat in loaded}
+
+    # BlenderProc may return only newly loaded assets; include already-loaded
+    # materials from bpy as a fallback so multi-robot runs can reuse them.
+    for name in needed:
+        if name in cc_materials:
+            continue
+        existing = bpy.data.materials.get(name)
+        if existing is not None:
+            cc_materials[name] = bproc.types.Material(existing)
+    return cc_materials
+
+
+def _find_cc_material(
+    name: str, cc_materials: dict[str, bproc.types.Material]
+) -> bproc.types.Material | None:
+    """Find a CC material by exact name, then by substring match."""
+    if name in cc_materials:
+        return cc_materials[name]
+    lowered = name.lower()
+    for key, mat in cc_materials.items():
+        if lowered in key.lower():
+            return mat
+    return None
+
+
+def _material_has_image_textures(mat: bpy.types.Material) -> bool:
+    """True when a material node tree contains at least one image texture node."""
+    if not mat.use_nodes:
+        return False
+    return any(
+        node.type == "TEX_IMAGE" and getattr(node, "image", None) is not None
+        for node in mat.node_tree.nodes
+    )
 
 
 def apply_pbr_materials(
@@ -330,21 +420,14 @@ def apply_pbr_materials(
     color_mapping: list[dict],
     materials_config: dict[str, dict],
     cc_textures_dir: str | None,
+    cc_materials_cache: dict[str, bproc.types.Material],
 ) -> None:
     """Replace GLTF placeholder materials with PBR textures based on color mapping."""
-    cc_materials: dict[str, bproc.types.Material] = {}
-    cc_path = resolve_path(Path(cc_textures_dir)) if cc_textures_dir else None
-    if cc_path and cc_path.exists():
-        needed = {
-            cfg["cc_texture"]
-            for cfg in materials_config.values()
-            if "cc_texture" in cfg
-        }
-        if needed:
-            loaded = bproc.loader.load_ccmaterials(
-                str(cc_path), used_assets=list(needed)
-            )
-            cc_materials = {mat.get_name(): mat for mat in loaded}
+    # Keep prior behavior (load during apply) while preserving materials across
+    # multiple robots in one run.
+    loaded_this_pass = _load_cc_materials(materials_config, cc_textures_dir)
+    if loaded_this_pass:
+        cc_materials_cache.update(loaded_this_pass)
 
     for mesh_obj in meshes:
         bproc_mesh = bproc.types.MeshObject(mesh_obj)
@@ -353,10 +436,21 @@ def apply_pbr_materials(
             color = get_material_base_color(bpy_mat)
             if color is None:
                 continue
-            mat_type = match_material_type(color, color_mapping)
+            mat_type, match_dist, used_fallback = match_material_type(
+                color, color_mapping
+            )
             if mat_type is None:
-                print(f"  Warning: No mapping for color {color} on {bpy_mat.name}")
+                print(
+                    f"  Warning: No mapping for color {color} on {bpy_mat.name} "
+                    f"(nearest distance={match_dist:.2f})"
+                )
                 continue
+            if used_fallback:
+                print(
+                    f"  Note: Fallback mapped color {color} on {bpy_mat.name} "
+                    f"to '{mat_type}' (distance={match_dist:.2f}). "
+                    "Consider adding an explicit [[robots.color_mapping]] entry."
+                )
             mat_cfg = materials_config.get(mat_type)
             if mat_cfg is None:
                 print(f"  Warning: No material config for type '{mat_type}'")
@@ -372,9 +466,51 @@ def apply_pbr_materials(
                     print(f"  {bpy_mat.name} -> PBR textures from '{td.name}/'")
                 else:
                     print(f"  Warning: texture_dir not found: {td}")
-            elif cc_name and cc_name in cc_materials:
-                mesh_obj.data.materials[slot_idx] = cc_materials[cc_name].blender_obj
-                print(f"  {bpy_mat.name} -> CC texture '{cc_name}'")
+            elif cc_name:
+                cc_mat = _find_cc_material(cc_name, cc_materials_cache)
+                if cc_mat is not None:
+                    assigned_mat = cc_mat.blender_obj
+                    if _material_has_image_textures(assigned_mat):
+                        mesh_obj.data.materials[slot_idx] = assigned_mat
+                        print(f"  {bpy_mat.name} -> CC texture '{cc_name}'")
+                        continue
+
+                    # Some loaded CC entries can still be effectively flat in
+                    # specific Blender/asset combinations. Fall back to wiring
+                    # maps directly from the texture directory on the current
+                    # slot material.
+                    cc_dir = (
+                        resolve_path(Path(cc_textures_dir)) / cc_name
+                        if cc_textures_dir
+                        else None
+                    )
+                    if cc_dir and cc_dir.is_dir():
+                        _apply_pbr_textures(bpy_mat, cc_dir)
+                        print(
+                            f"  {bpy_mat.name} -> CC fallback maps from '{cc_dir.name}/' "
+                            "(assigned CC material had no image nodes)"
+                        )
+                    else:
+                        print(
+                            f"  Warning: CC material '{cc_name}' on {bpy_mat.name} "
+                            "has no image texture nodes and no fallback directory was found."
+                        )
+                else:
+                    print(
+                        f"  Warning: cc_texture '{cc_name}' not loaded for "
+                        f"{bpy_mat.name}; falling back to PBR scalar values."
+                    )
+                    bproc_mat.set_principled_shader_value(
+                        "Metallic", mat_cfg.get("metallic", 0.0)
+                    )
+                    bproc_mat.set_principled_shader_value(
+                        "Roughness", mat_cfg.get("roughness", 0.5)
+                    )
+                    print(
+                        f"  {bpy_mat.name} -> PBR values "
+                        f"(metallic={mat_cfg.get('metallic')}, "
+                        f"roughness={mat_cfg.get('roughness')})"
+                    )
             else:
                 bproc_mat.set_principled_shader_value(
                     "Metallic", mat_cfg.get("metallic", 0.0)
@@ -544,11 +680,17 @@ def main() -> None:
         "(with multiple robots, the robot name is appended)",
     )
     parser.add_argument(
-        "--preview",
+        "--preview-output",
         type=Path,
-        default=None,
-        help="Render 3 off-axis views and save concatenated image "
+        default=Path("../data/previews"),
+        help="Output path for preview image(s) (default: previews/ directory); "
+        "render 3 off-axis views and save concatenated image "
         "(with multiple robots, the robot name is appended)",
+    )
+    parser.add_argument(
+        "--skip-preview",
+        action="store_true",
+        help="Skip rendering preview images",
     )
     parser.add_argument(
         "--robot",
@@ -585,6 +727,7 @@ def main() -> None:
     multi = len(robot_configs) > 1
 
     bproc.init()
+    cc_materials_cache: dict[str, bproc.types.Material] = {}
 
     for rcfg in robot_configs:
         rname = rcfg.get("name", Path(rcfg["model_path"]).stem)
@@ -609,12 +752,14 @@ def main() -> None:
             rcfg["color_mapping"],
             config["materials"],
             cc_textures_dir,
+            cc_materials_cache,
         )
 
-        if args.preview:
-            out = _resolve_output_path(args.preview, rname, ".jpg", multi)
+        if not args.skip_preview:
+            out = _resolve_output_path(args.preview_output, rname, ".jpg", multi)
             render_preview(meshes, out)
             bproc.utility.reset_keyframes()
+            print(f"Saving preview to {out}")
 
         if args.save_blend:
             out = _resolve_output_path(args.save_blend, rname, ".blend", multi)
@@ -644,12 +789,12 @@ def main() -> None:
 
     if (
         not args.inspect
-        and not args.preview
+        and args.skip_preview
         and not args.save_blend
         and not args.export_gltf
     ):
         print(
-            "\nDone. Use --save-blend, --preview, or --export-gltf to output results."
+            "\nDone. Use --preview-output, --save-blend, or --export-gltf to output results."
         )
 
 

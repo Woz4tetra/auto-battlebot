@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -56,12 +56,23 @@ def _matches(name: str, patterns: list[str]) -> bool:
 
 
 def _get_color_key(mesh: trimesh.Trimesh) -> tuple[int, int, int, int]:
-    """Extract the PBR baseColorFactor as an RGBA tuple, or a default grey."""
+    """Extract a representative RGBA color from a mesh visual."""
     vis = mesh.visual
     if vis.kind == "texture" and hasattr(vis, "material"):
         color = getattr(vis.material, "baseColorFactor", None)
         if color is not None:
-            return tuple(int(c) for c in color)
+            vals = [float(c) for c in color[:4]]
+            # Trimesh can expose baseColorFactor as either 0..1 or 0..255.
+            if max(vals) <= 1.0:
+                vals = [v * 255.0 for v in vals]
+            return tuple(int(np.clip(round(v), 0, 255)) for v in vals)
+    elif vis.kind == "vertex" and hasattr(vis, "vertex_colors"):
+        vc = np.asarray(vis.vertex_colors)
+        if vc.ndim == 2 and vc.shape[1] >= 3 and vc.shape[0] > 0:
+            rgba = np.mean(vc[:, :4], axis=0)
+            if rgba.shape[0] < 4:
+                rgba = np.append(rgba, 255.0)
+            return tuple(int(np.clip(round(v), 0, 255)) for v in rgba[:4])
     return DEFAULT_COLOR
 
 
@@ -91,6 +102,12 @@ def _apply_pbr(mesh: trimesh.Trimesh, rgba: tuple[int, int, int, int]) -> None:
         roughnessFactor=0.8,
     )
     mesh.visual = trimesh.visual.TextureVisuals(material=mat)
+
+
+def _mesh_has_uv(mesh: trimesh.Trimesh) -> bool:
+    """Whether a mesh visual contains UV coordinates."""
+    uv = getattr(mesh.visual, "uv", None)
+    return uv is not None and len(uv) > 0
 
 
 def main() -> None:
@@ -123,7 +140,7 @@ def main() -> None:
     replaced = 0
     deleted = 0
 
-    # Collect meshes grouped by part name, preserving material color
+    # Collect meshes grouped by part name.
     part_submeshes: dict[
         str, list[tuple[trimesh.Trimesh, tuple[int, int, int, int]]]
     ] = defaultdict(list)
@@ -134,19 +151,17 @@ def main() -> None:
         if not isinstance(geom, trimesh.Trimesh):
             continue
 
-        color_key = _get_color_key(geom)
         mesh_copy = geom.copy()
-        mesh_copy.visual = trimesh.visual.ColorVisuals()
         mesh_copy.apply_transform(transform)
+        color_key = _get_color_key(mesh_copy)
 
         parts = node_name.rsplit("_", 1)
         part_name = parts[0] if len(parts) == 2 and len(parts[1]) == 6 else node_name
         part_submeshes[part_name].append((mesh_copy, color_key))
 
-    # Process parts: delete, replace, or keep — then bucket by color
-    color_buckets: dict[tuple[int, int, int, int], list[trimesh.Trimesh]] = defaultdict(
-        list
-    )
+    # Process parts: delete, replace, or keep.
+    processed: list[tuple[str, trimesh.Trimesh, bool]] = []
+    # (output_name, mesh, force_color_only_material)
 
     for part_name, entries in part_submeshes.items():
         if _matches(part_name, DELETE_PARTS):
@@ -158,69 +173,74 @@ def main() -> None:
 
         if _matches(part_name, REPLACE_WITH_CYLINDER):
             cyl = _make_cylinder_for(merged)
-            color_buckets[CYLINDER_COLOR].append(cyl)
+            processed.append((part_name, cyl, True))
             replaced += 1
         else:
-            dominant_color = max(
-                set(c for _, c in entries),
-                key=lambda c: sum(1 for _, cc in entries if cc == c),
-            )
-            color_buckets[dominant_color].append(merged)
+            processed.append((part_name, merged, False))
             kept += 1
 
     print(
         f"Parts — kept: {kept}, replaced with cylinder: {replaced}, deleted: {deleted}"
     )
 
-    # Merge each color bucket into one mesh and assign a PBR material
-    output_scene = trimesh.Scene()
-    total_faces = 0
+    total_faces = sum(mesh.faces.shape[0] for _, mesh, _ in processed)
+    print(f"Output parts: {len(processed)}, total faces: {total_faces:,}")
 
-    for color, bucket_meshes in color_buckets.items():
-        merged = (
-            trimesh.util.concatenate(bucket_meshes)
-            if len(bucket_meshes) > 1
-            else bucket_meshes[0]
+    # Decimate only non-UV meshes so UV-mapped surfaces remain texture-compatible.
+    if args.max_faces and total_faces > args.max_faces:
+        protected_faces = sum(
+            mesh.faces.shape[0]
+            for _, mesh, force_color_only in processed
+            if _mesh_has_uv(mesh) and not force_color_only
+        )
+        decimatable_faces = total_faces - protected_faces
+        target_decimatable = max(args.max_faces - protected_faces, 0)
+        ratio = (
+            min(1.0, target_decimatable / decimatable_faces)
+            if decimatable_faces > 0
+            else 1.0
         )
 
-        if args.max_faces:
-            # Proportional decimation per color group
-            pass  # handled below on the combined result
-
-        merged.update_faces(merged.nondegenerate_faces())
-        merged.remove_unreferenced_vertices()
-        merged.fix_normals()
-
-        _apply_pbr(merged, color)
-        r, g, b, a = color
-        name = f"mat_{r}_{g}_{b}"
-        output_scene.add_geometry(merged, geom_name=name)
-        total_faces += merged.faces.shape[0]
-
-    print(f"Color groups: {len(color_buckets)}, total faces: {total_faces:,}")
-
-    if args.max_faces and total_faces > args.max_faces:
-        # Re-do with proportional decimation per group
-        ratio = args.max_faces / total_faces
-        output_scene = trimesh.Scene()
-        total_faces = 0
-        for color, bucket_meshes in color_buckets.items():
-            merged = (
-                trimesh.util.concatenate(bucket_meshes)
-                if len(bucket_meshes) > 1
-                else bucket_meshes[0]
+        if protected_faces > 0:
+            print(
+                f"Skipping decimation for {protected_faces:,} UV-protected faces "
+                f"(target {args.max_faces:,})."
             )
-            target = max(100, int(merged.faces.shape[0] * ratio))
-            if merged.faces.shape[0] > target:
-                merged = merged.simplify_quadric_decimation(face_count=target)
-            merged.update_faces(merged.nondegenerate_faces())
-            merged.remove_unreferenced_vertices()
-            merged.fix_normals()
-            _apply_pbr(merged, color)
-            r, g, b, a = color
-            output_scene.add_geometry(merged, geom_name=f"mat_{r}_{g}_{b}")
-            total_faces += merged.faces.shape[0]
+
+        decimated: list[tuple[str, trimesh.Trimesh, bool]] = []
+        for name, mesh, force_color_only in processed:
+            can_decimate = not (_mesh_has_uv(mesh) and not force_color_only)
+            m = mesh
+            if can_decimate:
+                target = max(100, int(m.faces.shape[0] * ratio))
+                if m.faces.shape[0] > target:
+                    m = m.simplify_quadric_decimation(face_count=target)
+            decimated.append((name, m, force_color_only))
+        processed = decimated
+        total_faces = sum(mesh.faces.shape[0] for _, mesh, _ in processed)
         print(f"After decimation: {total_faces:,} faces")
+
+    output_scene = trimesh.Scene()
+    name_counts: Counter[str] = Counter()
+    for part_name, mesh, force_color_only in processed:
+        mesh.update_faces(mesh.nondegenerate_faces())
+        mesh.remove_unreferenced_vertices()
+        mesh.fix_normals()
+
+        if force_color_only:
+            _apply_pbr(mesh, CYLINDER_COLOR)
+            base_name = "mat_40_40_40"
+        else:
+            rgba = _get_color_key(mesh)
+            # If no usable visual remained, restore a deterministic flat material.
+            if mesh.visual is None:
+                _apply_pbr(mesh, rgba)
+            base_name = f"mat_{rgba[0]}_{rgba[1]}_{rgba[2]}"
+
+        idx = name_counts[base_name]
+        name_counts[base_name] += 1
+        geom_name = base_name if idx == 0 else f"{base_name}_{idx}"
+        output_scene.add_geometry(mesh, geom_name=geom_name)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     output_scene.export(str(args.output), file_type="glb")

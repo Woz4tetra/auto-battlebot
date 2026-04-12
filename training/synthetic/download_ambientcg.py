@@ -8,9 +8,12 @@ Usage:
     python download_ambientcg.py data/cc_textures Plastic007 Metal012 Rubber001
     python download_ambientcg.py data/cc_textures "https://ambientcg.com/get?file=Plastic007_2K-JPG.zip"
     python download_ambientcg.py data/cc_textures --from-config config.toml
+    python download_ambientcg.py data/cc_textures --list-random 20
 """
 
 import argparse
+import json
+import random
 import shutil
 import tempfile
 import urllib.request
@@ -21,6 +24,7 @@ from urllib.parse import parse_qs, urlparse
 import tomllib
 
 AMBIENTCG_URL_TEMPLATE = "https://ambientcg.com/get?file={asset}_2K-JPG.zip"
+AMBIENTCG_ASSETS_API = "https://ambientcg.com/api/v3/assets"
 
 # BlenderProc only uses these texture map suffixes (from CCMaterialLoader source).
 KEEP_SUFFIXES = {
@@ -84,7 +88,7 @@ def download_and_extract(url: str, asset_name: str, output_dir: Path) -> Path:
         with urllib.request.urlopen(req) as resp, open(zip_path, "wb") as out:
             shutil.copyfileobj(resp, out)
 
-        print(f"  Extracting ...")
+        print("  Extracting ...")
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(asset_dir)
 
@@ -127,6 +131,39 @@ def assets_from_config(config_path: Path) -> list[str]:
     return assets
 
 
+def fetch_asset_page(limit: int, offset: int) -> dict:
+    """Fetch one page of material assets from ambientCG API v3."""
+    url = f"{AMBIENTCG_ASSETS_API}?type=material&sort=alphabet&limit={limit}&offset={offset}"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req) as resp:
+        return json.load(resp)
+
+
+def list_random_assets(count: int, seed: int) -> list[str]:
+    """List random material asset IDs available on ambientCG."""
+    page_size = 500
+    first_page = fetch_asset_page(limit=page_size, offset=0)
+    total = int(first_page.get("totalResults", 0))
+    assets = first_page.get("assets", [])
+    ids = [a.get("id") for a in assets if a.get("id")]
+
+    # Fetch remaining pages (if any).
+    for offset in range(page_size, total, page_size):
+        page = fetch_asset_page(limit=page_size, offset=offset)
+        ids.extend(a.get("id") for a in page.get("assets", []) if a.get("id"))
+
+    # De-duplicate while preserving order.
+    unique_ids = list(dict.fromkeys(ids))
+    if not unique_ids:
+        return []
+
+    rng = random.Random(seed)
+    if count >= len(unique_ids):
+        rng.shuffle(unique_ids)
+        return unique_ids
+    return rng.sample(unique_ids, count)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -152,7 +189,46 @@ def main() -> None:
         default="2K-JPG",
         help="ambientCG resolution/format variant (default: 2K-JPG)",
     )
+    parser.add_argument(
+        "--list-random",
+        type=int,
+        default=0,
+        help="List N random texture asset IDs from ambientCG and exit",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed used by --list-random (default: 42)",
+    )
     args = parser.parse_args()
+
+    if args.list_random < 0:
+        parser.error("--list-random must be >= 0")
+
+    # List mode: print a random set of assets without downloading.
+    if args.list_random > 0:
+        print(f"Fetching ambientCG materials and sampling {args.list_random} at random...")
+        try:
+            sampled = list_random_assets(args.list_random, seed=args.seed)
+        except Exception as e:
+            parser.error(f"Failed to query ambientCG API: {e}")
+
+        if not sampled:
+            print("No texture assets were returned by ambientCG API.")
+            return
+
+        print("\nRandom texture asset IDs:")
+        for asset in sampled:
+            print(f"  {asset}")
+
+        joined_assets = " ".join(sampled)
+        print("\nDownload these with:")
+        print(
+            f"python download_ambientcg.py {args.output_dir} {joined_assets} "
+            f"--resolution {args.resolution}"
+        )
+        return
 
     inputs: list[str] = list(args.assets)
     if args.from_config:

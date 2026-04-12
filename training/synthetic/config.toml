@@ -15,7 +15,7 @@ min_robot_visibility = 0.10
 # Per scene, 1..max_robots_per_scene robots are selected using weighted
 # sampling without replacement.  See [scene].max_robots_per_scene.
 [[robots]]
-name = "MR STABS MK2"
+name = "MR_STABS_MK2"
 model_path = "../data/models/MR STABS MK2.gltf"
 class_id = 0
 # Scale factor applied to the imported model (1.0 = no scaling).
@@ -35,49 +35,34 @@ back = [-0.0206, 0.0, -0.00394205]
 # to list all colors present in the GLTF for filling this out.
 [[robots.color_mapping]]
 color = [128, 128, 128]
-tolerance = 20
+tolerance = 1
 material = "aluminum"
 
 [[robots.color_mapping]]
 color = [0, 0, 0]
-tolerance = 30
+tolerance = 1
 material = "steel"
 
 [[robots.color_mapping]]
 color = [255, 32, 65]
-tolerance = 20
+tolerance = 1
 material = "red_tpu"
 
 [[robots.color_mapping]]
 color = [165, 165, 165]
-tolerance = 20
+tolerance = 1
 material = "foam"
 
 [[robots.color_mapping]]
 color = [102, 102, 102]
-tolerance = 20
+tolerance = 1
 material = "foam"
 
 [[robots.color_mapping]]
 color = [232, 232, 232]
-tolerance = 20
+tolerance = 1
 material = "paper"
 
-[[robots]]
-name = "HOUSE_BOT"
-model_path = "../data/models/HOUSE BOT.glb"
-class_id = 1
-scale = 1.0
-weight = 0.5
-
-[robots.keypoints]
-front = [0.12700, 0.0, -0.10795]
-back = [-0.12700, 0.0, -0.10795]
-
-[[robots.color_mapping]]
-color = [255, 255, 255]
-tolerance = 25
-material = "housebot"
 
 [[robots]]
 name = "MRS_BUFF_MK3"
@@ -91,120 +76,135 @@ front = [0.0, 0.0, -0.05014]
 back = [-0.1528, 0.0, -0.05014]
 
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [40, 40, 40]
-tolerance = 5
+tolerance = 1
 material = "steel"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [165, 165, 165]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [230, 230, 230]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [232, 232, 232]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [179, 174, 159]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
-color = [59, 97, 180]
-tolerance = 5
+[[robots.color_mapping]]
+color = [41, 123, 203]
+tolerance = 1
 material = "blue_tpu"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
+color = [59, 97, 180]
+tolerance = 1
+material = "blue_tpu"
+
+[[robots.color_mapping]]
 color = [250, 182, 1]
-tolerance = 5
+tolerance = 1
 material = "yellow_plastic"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [179, 179, 179]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [128, 128, 128]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [157, 207, 237]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [230, 224, 207]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [255, 193, 14]
-tolerance = 5
+tolerance = 1
 material = "yellow_plastic"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [102, 102, 102]
-tolerance = 5
+tolerance = 1
 material = "steel"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [240, 223, 173]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [253, 62, 4]
-tolerance = 5
+tolerance = 1
 material = "red_tpu"
 
-[[robot.color_mapping]]
-color = [255, 0, 0]
-tolerance = 5
+[[robots.color_mapping]]
+color = [239, 34, 27]
+tolerance = 1
 material = "red_tpu"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [244, 229, 167]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [251, 212, 169]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [178, 178, 178]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [247, 224, 153]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [191, 191, 191]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [211, 212, 213]
-tolerance = 5
+tolerance = 1
 material = "aluminum"
 
-[[robot.color_mapping]]
+[[robots.color_mapping]]
 color = [77, 77, 77]
-tolerance = 5
+tolerance = 1
 material = "steel"
+
+[[robots.color_mapping]]
+color = [87, 198, 189]
+tolerance = 1
+material = "mrs_buff_mk3_top_sticker"
+
+[[robots.color_mapping]]
+color = [195, 139, 205]
+tolerance = 1
+material = "mrs_buff_mk3_bottom_sticker"
 
 
 # To add another robot, duplicate the block above:
@@ -245,6 +245,16 @@ metallic = 0.1
 roughness = 0.1
 cc_texture = "Plastic007"
 
+[materials.blue_tpu]
+metallic = 0.1
+roughness = 0.1
+cc_texture = "Plastic007_blue"
+
+[materials.yellow_plastic]
+metallic = 0.1
+roughness = 0.1
+cc_texture = "Plastic007_yellow"
+
 [materials.foam]
 metallic = 0.0
 roughness = 0.85
@@ -260,6 +270,12 @@ cc_texture = "Paper001"
 # NormalGL, Displacement).  Unlike cc_texture, this preserves the model's UV
 # layout instead of tiling with generated coordinates.
 texture_dir = "../data/cc_textures/HouseBot"
+
+[materials.mrs_buff_mk3_top_sticker]
+texture_dir = "../data/cc_textures/mrs_buff_mk3_top_sticker"
+
+[materials.mrs_buff_mk3_bottom_sticker]
+texture_dir = "../data/cc_textures/mrs_buff_mk3_bottom_sticker"
 
 [distractors]
 # Each source has a path and a weight controlling how often its models are
@@ -289,21 +305,506 @@ cc_textures_dir = "../data/cc_textures"
 # Extra ambientCG assets used for ground plane randomization.
 # `download_ambientcg.py --from-config` downloads these alongside the robot materials.
 ground_textures = [
-    "Concrete034",
-    "Concrete046",
-    "Concrete042A",
-    "Concrete031",
-    "Asphalt031",
-    "Ground037",
-    "Ground054",
-    "Ground068",
-    "Ground048",
-    "Tiles107",
-    "Tiles138",
-    "WoodFloor051",
+    "Road013C",
+    "ChristmasTreeOrnament003",
+    "Bamboo002A",
+    "Snow009C",
+    "Gravel038",
+    "Granite001A",
+    "Facade018C",
+    "Concrete035",
+    "Snow005",
+    "Chainmail003",
+    "Rocks004",
+    "Snow009A",
+    "Wood027",
+    "PavingStones092",
+    "Bricks099",
+    "Planks020",
+    "Metal057A",
+    "Bark012",
+    "Bark008",
+    "Carpet001",
+    "Facade010",
+    "Fingerprints001",
+    "PavingStones010",
+    "Planks030C",
+    "Bark001",
+    "PavingStones123",
+    "Fabric057",
+    "SheetMetal002",
+    "Rock015",
+    "Rope002",
+    "WoodFloor071",
+    "Metal055B",
+    "Facade014",
+    "Moss003",
+    "Planks017",
+    "Ground002",
+    "Tiles059",
+    "Wallpaper002B",
+    "Asphalt011",
+    "SurfaceImperfections014",
+    "Tiles052",
+    "CorrugatedSteel007C",
+    "RoofingTiles014B",
+    "Metal057B",
+    "Ivory002B",
+    "WoodFloor052",
+    "CorrugatedSteel003",
+    "Facade003",
+    "TactilePaving003",
+    "Ice001",
+    "WoodSiding004",
+    "Cardboard003",
+    "Marble023",
+    "Carpet008",
+    "Leather031",
+    "Tiles132D",
+    "Leaf003",
+    "Planks032",
+    "Gravel017",
+    "Tiles054",
+    "Bricks020",
+    "Sign025",
+    "Onyx006",
+    "PavingStones074",
+    "Concrete005",
+    "Wood085A",
+    "Marble020",
+    "Bricks082C",
+    "PavingStones106",
+    "Ground033",
+    "Tiles100",
+    "Road003",
+    "Plastic011",
+    "Wood013",
+    "Travertine008",
+    "Leather034A",
+    "Pipe001",
+    "Fabric043",
+    "Rust001",
+    "Bricks073B",
+    "Bricks025",
+    "Rock039",
+    "Fence003",
+    "Terrazzo010",
+    "Ground025",
+    "Bricks084",
+    "Tiles136D",
+    "WoodFloor065B",
+    "TreeEnd004",
+    "Carpet016",
+    "WoodFloor035",
+    "WoodFloor042",
+    "Net004B",
+    "Road011A",
+    "Tiles110",
+    "Leather035D",
+    "DiamondPlate004",
+    "Marble003",
+    "Leather023",
+    "Fabric079",
+    "Rock054",
+    "Gravel022",
+    "Rope003",
+    "Rocks018",
+    "Rock012",
+    "Bricks075B",
+    "Planks038",
+    "Road010C",
+    "DiamondPlate009",
+    "PavingStones069",
+    "Sign024",
+    "WoodSiding008",
+    "DiamondPlate005A",
+    "Onyx012",
+    "Marble022",
+    "Gravel028",
+    "Road014A",
+    "RoofingTiles002",
+    "PavingStones115B",
+    "Facade012",
+    "Rocks021",
+    "Ground091",
+    "Tiles128A",
+    "Tatami006",
+    "Terrazzo016",
+    "Bricks046",
+    "Fence006",
+    "Tiles085",
+    "WoodFloor067B",
+    "Tiles050",
+    "Ground075",
+    "Metal040",
+    "Gravel024",
+    "Bricks067",
+    "Fabric081B",
+    "PavingStones133",
+    "Wicker010A",
+    "Sign001",
+    "Ground073",
+    "Fabric082B",
+    "Rock027",
+    "Pathway002",
+    "Metal029",
+    "Wood011",
+    "Rock001",
+    "Onyx005",
+    "Concrete041B",
+    "Gravel018",
+    "WoodSiding006",
+    "Granite003A",
+    "Snow014",
+    "WoodFloor062",
+    "PavingStones079",
+    "Gravel014",
+    "SolarPanel003",
+    "Planks008",
+    "Metal061B",
+    "Planks006",
+    "Metal036",
+    "Leather034B",
+    "Wood072",
+    "Concrete033",
+    "PavingStones019",
+    "PaintedWood008C",
+    "Candy003",
+    "SurfaceImperfections007",
+    "Bricks028",
+    "Travertine007",
+    "Chipboard007",
+    "Cork002",
+    "Road001",
+    "CorrugatedSteel008A",
+    "Tiles024",
+    "Rocks012",
+    "WoodFloor068",
+    "Planks026A",
+    "Bricks062",
+    "Metal007",
+    "Marble026",
+    "Planks025C",
+    "PaintedBricks003",
+    "PavingStones059",
+    "Granite007B",
+    "PavingStones109",
+    "Travertine006",
+    "Asphalt020S",
+    "Wood018",
+    "Sign007",
+    "ChristmasTreeOrnament009",
+    "Rocks015",
+    "PavingStones075",
+    "Styrofoam002",
+    "Wood086",
+    "Terrazzo001",
+    "Road014C",
     "WoodFloor043",
-    "WoodFloor040",
+    "WoodSiding012",
+    "Ground034",
+    "MetalPlates008",
+    "CorrugatedSteel006C",
+    "OfficeCeiling001",
+    "Asphalt004",
+    "Sign009",
+    "Sign004",
+    "Gravel015",
+    "PavingStones001",
+    "SurfaceImperfections020",
+    "Fabric015",
+    "PavingStones015",
+    "Chip007",
+    "Plastic018B",
+    "Ground044",
+    "Tiles125",
+    "Road013B",
+    "Wicker002",
+    "Wood083B",
+    "WoodFloor061",
+    "Wood022",
+    "Marble010",
+    "TactilePaving001",
+    "DiamondPlate001",
+    "PavingStones080",
+    "Terrazzo019S",
+    "PavingStones062",
+    "AcousticFoam002",
+    "Planks027C",
+    "Ground090",
+    "PaintedWood004",
+    "Asphalt027C",
+    "ChristmasTreeOrnament004",
+    "Leather034D",
+    "Tiles105",
+    "WoodFloor028",
+    "Ground059",
+    "Foil002",
+    "Bricks050",
+    "Footsteps002",
+    "Wood056",
+    "WoodFloor020",
+    "Bricks096",
+    "Smear003",
+    "PaintedPlaster017",
+    "Tiles073",
+    "Bricks073A",
+    "SurfaceImperfections017",
+    "PavingStones066",
+    "Tatami001",
+    "Concrete007",
+    "Concrete012",
+    "Rock036",
+    "PaintedMetal013",
+    "PavingStones101",
+    "DiamondPlate006A",
+    "Wood044",
+    "PavingStones056",
+    "Planks035B",
+    "Metal057C",
+    "Fabric081C",
+    "Travertine014",
+    "SurfaceImperfections006",
+    "WoodFloor026",
+    "RoofingTiles005",
+    "Fabric061",
+    "Scratches001",
+    "Ground067",
+    "Wood033",
+    "Rock057",
+    "WoodFloor059",
+    "Marble009",
+    "MetalPlates015A",
+    "PavingStones035",
+    "Net002B",
+    "Clay001",
+    "Granite004A",
+    "Facade019C",
+    "Bricks063",
+    "Ice004",
+    "Asphalt029A",
+    "Planks015",
+    "PavingStones110",
+    "Fence007B",
+    "Planks016",
+    "WoodFloor055",
+    "Asphalt012",
+    "Bricks075A",
+    "Rust008",
+    "Road008A",
+    "Bricks052",
+    "Fence005",
+    "Bricks070",
+    "Bark011",
+    "Ground095C",
+    "Tiles109",
+    "PavingStones028",
+    "Foam002",
+    "Ground003",
+    "Rock052",
+    "PaintedPlaster016",
+    "Facade001",
+    "Tiles132B",
+    "Concrete020",
+    "Sign012",
+    "PavingStones141",
+    "PaymentCard002",
+    "PaintedMetal008",
+    "Footsteps006",
+    "Tiles008",
+    "Tiles089",
+    "Tiles055",
+    "Metal046A",
+    "Fabric039",
+    "Carpet003",
+    "WoodFloor034",
+    "Rock034",
+    "Metal063",
+    "Leather021",
+    "Metal058A",
+    "Metal049B",
+    "PaintedBricks001",
+    "Wood081",
+    "Bricks042",
+    "Rock061",
+    "Rock023",
+    "Rock008",
+    "Carpet011",
+    "Bricks056",
+    "Metal041C",
+    "Sign022",
+    "Ivory001B",
+    "Tiles041",
+    "Chipboard006",
+    "Granite005A",
+    "Fabric042",
+    "Tiles083",
+    "WoodFloor024",
+    "Moss002",
+    "Concrete037",
+    "Wood017",
+    "Fabric025",
+    "Tiles098",
+    "Onyx013",
+    "Granite006A",
+    "Bricks080B",
+    "MetalWalkway005",
+    "PavingStones103",
+    "Carpet010",
+    "Bricks035",
+    "Rock020",
+    "PavingStones083",
+    "Asphalt024C",
+    "WoodFloor066B",
+    "SurfaceImperfections003",
+    "Fingerprints009",
+    "DiamondPlate006C",
+    "Metal045B",
+    "Tiles096",
+    "PaintedPlaster007",
+    "Fabric083",
+    "Wood060",
+    "Tiles106",
+    "DiamondPlate005D",
+    "Marble021",
+    "Asphalt002",
+    "Metal018",
+    "Gravel019",
+    "Tiles007",
+    "Tiles009",
+    "OfficeCeiling003",
+    "Ground017",
+    "WoodFloor032",
+    "RoofingTiles013C",
+    "Smear001",
+    "Tiles006",
+    "PavingStones114",
+    "Rock040",
+    "Sign002",
+    "PaintedPlaster018",
+    "CorrugatedSteel002",
+    "Fabric038",
+    "Ground040",
+    "Facade008",
+    "Bricks051",
+    "Pizza001",
+    "Snow003",
+    "PavingStones086",
+    "Tiles068",
+    "Sponge001",
+    "Ground071",
+    "Bricks049",
+    "Bricks034",
+    "Planks007",
+    "PaintedMetal016",
+    "PavingStones005",
+    "PavingStones063",
+    "CorrugatedSteel006B",
+    "Bricks048",
+    "PavingStones016",
+    "Bricks085",
+    "Fabric030",
+    "Bricks072",
+    "Planks025A",
+    "Bricks071",
+    "Rocks001",
+    "Fingerprints006",
+    "Metal042B",
+    "ChristmasTreeOrnament020",
     "PavingStones138",
+    "Granite002B",
+    "Pipe004",
+    "Planks024C",
+    "Bricks013",
+    "Plastic012B",
+    "Bricks088",
+    "Metal055A",
+    "Rock031",
+    "Wood034",
+    "PavingStones129",
+    "PavingStones046",
+    "Ground076",
+    "Gravel010",
+    "Fabric068",
+    "Rock053",
+    "WoodFloor060",
+    "Ground072",
+    "Foam003",
+    "Tiles029",
+    "Wood049",
+    "Concrete018",
+    "Tiles127",
+    "Rock006",
+    "Ground047",
+    "Onyx002",
+    "Wood068",
+    "Styrofoam004",
+    "Bricks076B",
+    "Asphalt017",
+    "Onyx004",
+    "Plastic014B",
+    "PavingStones126A",
+    "Carpet014",
+    "Bricks077",
+    "PavingStones077",
+    "Fabric082C",
+    "PavingStones012",
+    "TactilePaving006",
+    "Concrete021",
+    "Leather010",
+    "Terrazzo019L",
+    "GlazedTerracotta003",
+    "Marble001",
+    "Ground016",
+    "Wicker009A",
+    "Tiles124",
+    "PavingStones088",
+    "Rubber003",
+    "Ground050",
+    "Plaster004",
+    "Rock024",
+    "Wood010",
+    "Asphalt014",
+    "Rock049",
+    "PavingStones111",
+    "Ground046",
+    "Rock042S",
+    "Chip002",
+    "Concrete025",
+    "WoodFloor029",
+    "ChristmasTreeOrnament011",
+    "Chipboard002",
+    "Snow010B",
+    "Wood008",
+    "WoodFloor041",
+    "Gravel033",
+    "Ground010",
+    "Planks033B",
+    "Fabric081A",
+    "Shells001",
+    "Leaf001",
+    "Fabric066",
+    "Rocks025",
+    "Road010A",
+    "Gravel016",
+    "PavingStones011",
+    "WoodFloor013",
+    "Wood009",
+    "Bricks036",
+    "WoodFloor036",
+    "Road010B",
+    "Tiles077",
+    "Gravel041",
+    "Bricks022",
+    "Asphalt005",
+    "Ground100",
+    "Concrete017",
+    "Road012A",
+    "Gravel012",
+    "TreeEnd001",
+    "MetalWalkway002",
+    "PavingStones105",
+    "Rust004",
 ]
 
 [camera]
@@ -319,7 +820,7 @@ ground_size_range = [0.5, 5.0]
 # Randomized range for the radius within which objects are placed (meters).
 arena_radius_range = [0.5, 1.5]
 # Fraction of scenes that include a visible ground plane (0.0–1.0).
-# The remainder show only the HDRI background behind the robot.
+# The remainder show only the HDRI background behind the robots.
 ground_visibility = 0.8
 # Maximum number of robots rendered simultaneously per scene (1 = always one).
 # Each scene randomly picks between 1 and this value, weighted by each robot's
