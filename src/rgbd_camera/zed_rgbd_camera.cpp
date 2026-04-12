@@ -14,8 +14,8 @@ namespace auto_battlebot {
 namespace {
 constexpr uint64_t kBytesPerGb = 1024ULL * 1024ULL * 1024ULL;
 constexpr uint64_t kSizeCheckIntervalFrames = 100;
-constexpr auto kCorruptionWindow = std::chrono::seconds(10);
-constexpr double kCorruptionExitThreshold = 0.70;
+constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
+constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
 }  // namespace
 
@@ -29,7 +29,7 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
       frame_counter_(0),
       depth_frame_counter_(0),
       last_returned_frame_counter_(0),
-      recent_corrupted_frame_count_(0),
+      recent_grab_error_count_(0),
       prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST),
       position_tracking_enabled_(config.position_tracking),
       is_playback_input_(!config.svo_file_path.empty()),
@@ -95,8 +95,8 @@ bool ZedRgbdCamera::initialize() {
     frame_counter_ = 0;
     depth_frame_counter_ = 0;
     last_returned_frame_counter_ = 0;
-    recent_grab_outcomes_.clear();
-    recent_corrupted_frame_count_ = 0;
+    recent_grab_results_.clear();
+    recent_grab_error_count_ = 0;
     prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST;
     reset_capture_timing_stats();
     {
@@ -235,35 +235,32 @@ bool ZedRgbdCamera::capture_frame() {
     if (grab_status != sl::ERROR_CODE::SUCCESS) {
         camera_connected_ = false;
         const auto now = std::chrono::steady_clock::now();
-        const bool is_corrupted_frame = (grab_status == sl::ERROR_CODE::CORRUPTED_FRAME);
-        recent_grab_outcomes_.emplace_back(now, is_corrupted_frame);
-        if (is_corrupted_frame) {
-            recent_corrupted_frame_count_++;
-        }
-        while (!recent_grab_outcomes_.empty() &&
-               (now - recent_grab_outcomes_.front().first) > kCorruptionWindow) {
-            if (recent_grab_outcomes_.front().second) {
-                recent_corrupted_frame_count_--;
+        recent_grab_results_.emplace_back(now, true);
+        recent_grab_error_count_++;
+        while (!recent_grab_results_.empty() &&
+               (now - recent_grab_results_.front().first) > kGrabErrorWindow) {
+            if (recent_grab_results_.front().second) {
+                recent_grab_error_count_--;
             }
-            recent_grab_outcomes_.pop_front();
+            recent_grab_results_.pop_front();
         }
 
         const bool window_is_full =
-            !recent_grab_outcomes_.empty() &&
-            (now - recent_grab_outcomes_.front().first) >= kCorruptionWindow;
+            !recent_grab_results_.empty() &&
+            (now - recent_grab_results_.front().first) >= kGrabErrorWindow;
         if (window_is_full && !should_close_.load()) {
-            const double corrupted_ratio = static_cast<double>(recent_corrupted_frame_count_) /
-                                           static_cast<double>(recent_grab_outcomes_.size());
-            if (corrupted_ratio > kCorruptionExitThreshold) {
+            const double grab_error_ratio = static_cast<double>(recent_grab_error_count_) /
+                                            static_cast<double>(recent_grab_results_.size());
+            if (grab_error_ratio > kGrabErrorExitThreshold) {
                 {
                     std::lock_guard<std::mutex> lock(data_mutex_);
                     should_close_ = true;
                 }
                 data_cv_.notify_all();
                 spdlog::error(
-                    "Camera corruption ratio {:.1f}% over last 10s exceeded {:.0f}% "
+                    "Camera grab error ratio {:.1f}% over last 10s exceeded {:.0f}% "
                     "threshold. Requesting application shutdown.",
-                    corrupted_ratio * 100.0, kCorruptionExitThreshold * 100.0);
+                    grab_error_ratio * 100.0, kGrabErrorExitThreshold * 100.0);
                 return false;
             }
         }
@@ -284,13 +281,13 @@ bool ZedRgbdCamera::capture_frame() {
     camera_connected_ = true;
     {
         const auto now = std::chrono::steady_clock::now();
-        recent_grab_outcomes_.emplace_back(now, false);
-        while (!recent_grab_outcomes_.empty() &&
-               (now - recent_grab_outcomes_.front().first) > kCorruptionWindow) {
-            if (recent_grab_outcomes_.front().second) {
-                recent_corrupted_frame_count_--;
+        recent_grab_results_.emplace_back(now, false);
+        while (!recent_grab_results_.empty() &&
+               (now - recent_grab_results_.front().first) > kGrabErrorWindow) {
+            if (recent_grab_results_.front().second) {
+                recent_grab_error_count_--;
             }
-            recent_grab_outcomes_.pop_front();
+            recent_grab_results_.pop_front();
         }
     }
 

@@ -104,8 +104,8 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     uint64_t depth_frame_counter_;
     mutable uint64_t last_returned_frame_counter_;
     mutable std::queue<int> depth_request_queue_;
-    std::deque<std::pair<std::chrono::steady_clock::time_point, bool>> recent_grab_outcomes_;
-    size_t recent_corrupted_frame_count_;
+    std::deque<std::pair<std::chrono::steady_clock::time_point, bool>> recent_grab_results_;
+    size_t recent_grab_error_count_;
     sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
     bool position_tracking_enabled_;
     bool is_playback_input_;
