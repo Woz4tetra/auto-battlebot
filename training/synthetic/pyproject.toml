@@ -12,8 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-sam3d = ["Pillow", "trimesh", "plyfile", "open3d"]
-rembg = ["rembg"]
+reference3d = ["Pillow", "trimesh", "tqdm"]
 
 [build-system]
 requires = ["setuptools>=45", "wheel"]

@@ -295,7 +295,7 @@ path = "../data/distractor_models/objaverse"
 weight = 1.0
 
 [[distractors.sources]]
-path = "../data/distractor_models/sam3d"
+path = "../data/distractor_models/reference3d"
 weight = 1.0
 
 min_per_scene = 1

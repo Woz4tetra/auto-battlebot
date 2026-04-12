@@ -6,6 +6,77 @@ YOLO-format labels compatible with the existing training pipeline.
 
 ## Prerequisites
 
+### Recommended: Docker (SF3D-ready)
+
+Use the containerized workflow for reproducibility and to avoid host CUDA/pip
+ABI conflicts.
+
+Build from repo root:
+
+```bash
+docker build -f training/synthetic/Dockerfile -t auto-battlebot-synthetic training/synthetic
+```
+
+Run an interactive shell in the container:
+
+```bash
+training/synthetic/docker/run_synthetic.sh auto-battlebot-synthetic
+```
+
+If your Docker daemon does not have NVIDIA runtime enabled yet, the helper
+auto-falls back to CPU mode. You can also force CPU mode:
+
+```bash
+training/synthetic/docker/run_synthetic.sh --cpu auto-battlebot-synthetic
+```
+
+To fail fast when GPU is required (no fallback), use:
+
+```bash
+training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic
+```
+
+Run a command directly:
+
+```bash
+training/synthetic/docker/run_synthetic.sh \
+  auto-battlebot-synthetic \
+  python training/synthetic/generate_reference_models.py --help
+```
+
+One-time model auth inside container (SF3D weights are gated on Hugging Face):
+
+```bash
+huggingface-cli login
+touch /opt/hf/.has_hf_login
+```
+
+Model caches are persisted on host by default:
+
+- Hugging Face cache: `${HOME}/.cache/huggingface` -> `/opt/hf`
+- rembg U2Net cache: `${HOME}/.cache/u2net` -> `/root/.u2net`
+
+To override U2Net cache location:
+
+```bash
+U2NET_HOST_CACHE=/path/to/cache training/synthetic/docker/run_synthetic.sh auto-battlebot-synthetic
+```
+
+You can run all synthetic tools from this container, including:
+
+- `python training/synthetic/download_polyhaven_hdris.py ...`
+- `python training/synthetic/download_ambientcg.py ...`
+- `python training/synthetic/generate_reference_models.py ...`
+- `python training/synthetic/benchmark_reference_models.py ...`
+- `blenderproc run training/synthetic/render_scenes.py -- training/synthetic/config.toml`
+
+The image includes both backends:
+
+- `triposr` CLI (wrapper around TripoSR `run.py`)
+- `python training/synthetic/scripts/sf3d_backend_wrapper.py`
+
+### Host setup (optional/manual)
+
 **Install Mamba** (if not already installed). Mamba is a fast drop-in replacement
 for conda. On Ubuntu:
 
@@ -27,47 +98,22 @@ pip install -e .
 
 This installs `blenderproc`, `objaverse`, and `opencv-python`.
 
-To install optional dependencies for SAM 3D mesh conversion:
+To install optional dependencies for segmentation-aware reference model generation:
 
 ```bash
-pip install -e '.[sam3d]'       # trimesh, plyfile, Pillow
-pip install -e '.[rembg]'      # background removal for SAM 3D
+pip install -e '.[reference3d]'   # Pillow + trimesh + tqdm progress bars
 ```
 
-**SAM 3D Objects** (for distractor generation from reference photos) has heavier
-dependencies and needs a GPU with at least 32 GB VRAM. Follow the
-[official setup guide](https://github.com/facebookresearch/sam-3d-objects/blob/main/doc/setup.md). Summary:
+For realism-first generation, use an external single-image 3D backend.
+This repo now includes an SF3D backend wrapper:
 
-1. **Clone the repo**
+```bash
+# In Docker, SF3D lives at /opt/sf3d and wrapper is in this repo.
+python training/synthetic/scripts/sf3d_backend_wrapper.py --help
+```
 
-   ```bash
-   git clone https://github.com/facebookresearch/sam-3d-objects.git ~/sam3/sam-3d-objects
-   ```
-
-2. **Create the environment and install**
-
-   ```bash
-   cd ~/sam3/sam-3d-objects
-   mamba env create -f environments/default.yml
-   mamba activate sam3d-objects
-
-   export PIP_EXTRA_INDEX_URL="https://pypi.ngc.nvidia.com https://download.pytorch.org/whl/cu121"
-   pip install -e '.[dev]'
-   pip install -e '.[p3d]'
-   export PIP_FIND_LINKS="https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.5.1_cu121.html"
-   pip install -e '.[inference]'
-   pip install 'numpy>=1.26,<2'   # kaolin wheels are compiled against numpy 1.x
-   ./patching/hydra
-   ```
-
-3. **Download checkpoints** from Hugging Face (requires [access approval](https://huggingface.co/facebook/sam-3d-objects))
-
-   ```bash
-   hf download facebook/sam-3d-objects \
-       --local-dir ~/sam3/sam-3d-objects/checkpoints/hf-download
-   mv ~/sam3/sam-3d-objects/checkpoints/hf-download/checkpoints ~/sam3/sam-3d-objects/checkpoints/hf
-   rm -rf ~/sam3/sam-3d-objects/checkpoints/hf-download
-   ```
+If no external backend is available, the pipeline automatically falls back to a
+segmentation-driven silhouette extrusion backend.
 
 ## Quick Start
 
@@ -169,42 +215,87 @@ Assets that already exist in the output directory are skipped, so it's safe to r
 python download_objaverse.py ../data/distractor_models/objaverse --max-models 100
 ```
 
-**From reference photos** (SAM 3D Objects — requires setup above):
+**From segmentation-labeled reference frames** (`nhrl_seg`-style YOLO-seg labels):
+
+Expected format per image: a matching `.txt` row in YOLO-seg polygon format:
+`class x1 y1 x2 y2 ... xn yn` (normalized coordinates).
 
 ```bash
-python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d
-python generate_sam3d_models.py --sam3d-dir ~/sam3/sam-3d-objects ../data/reference_photos ../data/distractor_models/sam3d
+python generate_reference_models.py \
+  ../data/nhrl_seg \
+  ../data/distractor_models/reference3d \
+  --backend triposr \
+  --backend-cmd 'triposr --input "{input}" --output "{output}"'
+
+# Or use SF3D through the wrapper:
+python generate_reference_models.py \
+  ../data/nhrl_seg \
+  ../data/distractor_models/reference3d \
+  --backend triposr \
+  --backend-cmd 'python training/synthetic/scripts/sf3d_backend_wrapper.py --input "{input}" --output "{output}"'
 ```
 
-Useful mesh-quality controls for less blocky SAM3D meshes:
+Useful controls:
 
 ```bash
-# Medium smoothing (default): balanced realism/detail
-python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d --smoothing-preset medium
+# Skip floor labels (example: label 1), evaluate several jittered candidates
+python generate_reference_models.py \
+  ../data/nhrl_seg \
+  ../data/distractor_models/reference3d \
+  --floor-labels 1 \
+  --num-candidates 4 \
+  --quality-threshold 0.35
 
-# Light smoothing: keep more high-frequency detail
-python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d --smoothing-preset light
-
-# Strong smoothing: most organic, may blur small features
-python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d --smoothing-preset strong
-
-# Fine-tune reconstruction and smoothing
-python generate_sam3d_models.py ../data/reference_photos ../data/distractor_models/sam3d \
-  --poisson-depth 9 \
-  --density-quantile 0.02 \
-  --smoothing-method taubin \
-  --smoothing-iterations 14 \
-  --smoothing-lambda 0.5 \
-  --smoothing-mu -0.53
+# Backend fallback only (no external model), useful for smoke tests
+python generate_reference_models.py \
+  ../data/nhrl_seg \
+  ../data/distractor_models/reference3d \
+  --backend silhouette-extrude
 ```
 
-SAM3D mesh settings:
+Reference-model generation settings:
 
-- `--poisson-depth`: higher captures finer shape detail (slower, noisier risk).
-- `--density-quantile`: lower keeps more reconstructed surface and fill (can retain artifacts).
-- `--smoothing-preset`: `off`, `light`, `medium` (default), `strong`.
-- `--smoothing-method`: `taubin` (default, less shrink) or `laplacian`.
-- `--smoothing-iterations`, `--smoothing-lambda`, `--smoothing-mu`: advanced overrides.
+- `--backend`: `triposr` (primary) or `silhouette-extrude`.
+- `--backend-cmd`: command template for the external single-image 3D backend.
+- `--floor-labels`: label IDs to skip (for example floor class IDs).
+- `--num-candidates`: candidates per instance; best-scoring mesh is kept.
+- `--quality-threshold`: drop low-quality meshes (or keep with `--keep-rejected`).
+- `--target-native-size`: normalize distractor scale for stable scene placement.
+
+### SF3D troubleshooting
+
+- `No module named 'torch'` while building `texture_baker`:
+  - Install torch first, then install `texture_baker` and `uv_unwrapper` with `--no-build-isolation`.
+  - The provided Dockerfile already does this.
+- `undefined symbol: ncclCommWindowDeregister` when importing torch:
+  - This indicates CUDA/NCCL runtime mismatch on host.
+  - Use the Docker image to keep CUDA + torch ABI aligned.
+- `gpytoolbox` wheel build errors:
+  - Ensure the container has `cmake`, compiler toolchain, and pinned python/torch versions.
+  - The provided Docker image includes these dependencies.
+- `docker run --gpus all` fails with `could not select device driver "" with capabilities: [[gpu]]`:
+  - Install and configure NVIDIA Container Toolkit:
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y nvidia-container-toolkit
+    sudo nvidia-ctk runtime configure --runtime=docker
+    sudo systemctl restart docker
+    ```
+  - Verify GPU passthrough in Docker:
+    ```bash
+    docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+    ```
+  - If you still need to proceed before GPU runtime is configured, use CPU mode:
+    `training/synthetic/docker/run_synthetic.sh --cpu ...`.
+
+Run a quick benchmark against an existing baseline directory:
+
+```bash
+python benchmark_reference_models.py \
+  --candidate-dir ../data/distractor_models/reference3d \
+  --baseline-dir ../data/distractor_models/sam3d \
+  --output-json ../data/distractor_models/reference3d/benchmark_report.json
+```
 
 ### 6. Generate synthetic images
 
@@ -255,7 +346,7 @@ python train.py path/to/data.yaml yolo11n-pose
 | `download_polyhaven_hdris.py` | `python`       | Download a defined number of random HDRIs from Poly Haven |
 | `download_objaverse.py`    | `python`          | Download distractor models from Objaverse                 |
 | `download_ambientcg.py`    | `python`          | Download PBR textures from ambientCG, or list random IDs |
-| `generate_sam3d_models.py` | `python`          | Generate distractor meshes from photos via SAM 3D Objects |
+| `benchmark_reference_models.py` | `python`    | Compare candidate distractor models to a baseline directory |
 | `render_scenes.py`         | `blenderproc run` | Main rendering pipeline                                   |
 
 ## Directory Structure
@@ -269,7 +360,7 @@ data/
 ├── distractor_models/
 │   ├── objaverse/                 # Downloaded Objaverse models
 │   │   └── manifest.json
-│   └── sam3d/                     # SAM 3D generated models
+│   └── reference3d/               # Segmentation-aware generated models
 │       └── manifest.json
 ├── hdris/                         # Poly Haven HDRIs
 ├── cc_textures/                   # ambientCG PBR textures
