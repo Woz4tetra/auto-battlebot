@@ -346,12 +346,15 @@ class YOLODatasetValidator:
         )
         self.status_icon_label.pack(pady=10)
 
-        ttk.Label(
+        self.frame_info_label = ttk.Label(
             status_section,
             textvariable=self.frame_info_var,
             font=("Arial", 11, "bold"),
             anchor=tk.CENTER,
-        ).pack(pady=5)
+            justify=tk.CENTER,
+            wraplength=180,
+        )
+        self.frame_info_label.pack(fill=tk.X, pady=5)
 
         # === VALIDATION BUTTONS SECTION ===
         validation_section = ttk.LabelFrame(sidebar, text="Validate", padding="15")
@@ -743,7 +746,7 @@ class YOLODatasetValidator:
         fail_count = sum(1 for v in self.validation_state.values() if v == "fail")
 
         self.frame_info_var.set(
-            f"Frame {self.current_index + 1} / {len(self.image_annotation_pairs)}"
+            f"Frame {self.current_index + 1:,}\n/ {len(self.image_annotation_pairs):,}"
         )
 
         # Update status icon
