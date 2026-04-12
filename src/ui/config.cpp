@@ -18,6 +18,8 @@ void UiConfiguration::parse_fields(ConfigParser &parser) {
         ConfigParser battery_parser(*battery_table, "ui.battery");
         battery.i2c_bus = battery_parser.get_optional_int("i2c_bus", battery.i2c_bus);
         battery.i2c_address = battery_parser.get_optional_int("i2c_address", battery.i2c_address);
+        battery.ocv_table_file_path =
+            battery_parser.get_optional_string("ocv_table_file_path", battery.ocv_table_file_path);
         battery.battery_capacity_ah =
             battery_parser.get_optional_double("battery_capacity_ah", battery.battery_capacity_ah);
         battery.rest_current_threshold_a = battery_parser.get_optional_double(
@@ -30,14 +32,6 @@ void UiConfiguration::parse_fields(ConfigParser &parser) {
             battery_parser.get_optional_double("ocv_correction_gain", battery.ocv_correction_gain);
         battery.display_slew_pct_per_sec = battery_parser.get_optional_double(
             "display_slew_pct_per_sec", battery.display_slew_pct_per_sec);
-        battery.self_tune_enabled =
-            battery_parser.get_optional_bool("self_tune_enabled", battery.self_tune_enabled);
-        battery.self_tune_learning_rate = battery_parser.get_optional_double(
-            "self_tune_learning_rate", battery.self_tune_learning_rate);
-        battery.self_tune_max_delta_pct = battery_parser.get_optional_double(
-            "self_tune_max_delta_pct", battery.self_tune_max_delta_pct);
-        battery.self_tune_min_samples =
-            battery_parser.get_optional_int("self_tune_min_samples", battery.self_tune_min_samples);
         battery.discharge_current_positive = battery_parser.get_optional_bool(
             "discharge_current_positive", battery.discharge_current_positive);
         battery.persist_interval_sec = battery_parser.get_optional_double(

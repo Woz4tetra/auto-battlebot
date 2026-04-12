@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "lvgl_platform_bound/lvgl_ui_services.hpp"
@@ -24,7 +25,6 @@ struct BatterySample {
 struct OcvTablePoint {
     double voltage_v = 0.0;
     double soc_percent = 0.0;
-    double learned_samples = 0.0;
 };
 
 class BatterySocEstimator {
@@ -38,8 +38,8 @@ class BatterySocEstimator {
     double debug_table_soc(size_t idx, BatteryFlowDirection direction) const;
 
    private:
+    bool load_static_ocv_table();
     double lookup_ocv_soc(double voltage_v, BatteryFlowDirection direction) const;
-    void maybe_self_tune(double voltage_v, BatteryFlowDirection direction);
     bool load_state();
     bool save_state() const;
 
@@ -53,6 +53,8 @@ class BatterySocEstimator {
     int invalid_streak_ = 0;
     double near_rest_sec_ = 0.0;
     double last_voltage_v_ = 0.0;
+    bool table_loaded_from_file_ = false;
+    std::string table_load_status_ = "fallback_default";
     BatteryFlowDirection last_direction_ = BatteryFlowDirection::Discharge;
     std::chrono::steady_clock::time_point last_timestamp_ = std::chrono::steady_clock::now();
     std::chrono::steady_clock::time_point last_persist_ =

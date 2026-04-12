@@ -8,9 +8,9 @@
 #include <string>
 #include <unordered_map>
 
-#include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "directories.hpp"
+#include <toml++/toml.h>
 
 namespace auto_battlebot::ui_internal {
 namespace {
@@ -69,13 +69,85 @@ std::string default_state_path() {
     return auto_battlebot::get_project_path("data/battery_soc_state.txt").string();
 }
 
+std::string default_ocv_table_path() {
+    return auto_battlebot::get_project_path("data/battery_ocv_table.toml").string();
+}
+
+bool parse_ocv_section(const toml::table &root, const std::string &section_name,
+                       std::vector<OcvTablePoint> &out, std::string &error) {
+    const toml::table *section = root[section_name].as_table();
+    if (!section) {
+        error = "missing section [" + section_name + "]";
+        return false;
+    }
+    const toml::array *voltage_arr = (*section)["voltage_v"].as_array();
+    const toml::array *soc_arr = (*section)["soc_percent"].as_array();
+    if (!voltage_arr || !soc_arr) {
+        error = "section [" + section_name + "] missing voltage_v or soc_percent array";
+        return false;
+    }
+    if (voltage_arr->empty() || soc_arr->empty() || voltage_arr->size() != soc_arr->size()) {
+        error = "section [" + section_name + "] has invalid array sizes";
+        return false;
+    }
+
+    out.clear();
+    out.reserve(voltage_arr->size());
+    double last_voltage = -1e9;
+    for (size_t i = 0; i < voltage_arr->size(); ++i) {
+        const auto v = (*voltage_arr)[i].value<double>();
+        const auto s = (*soc_arr)[i].value<double>();
+        if (!v || !s) {
+            error = "section [" + section_name + "] has non-numeric entries";
+            return false;
+        }
+        if (i > 0 && *v <= last_voltage) {
+            error = "section [" + section_name + "] voltage_v must be strictly increasing";
+            return false;
+        }
+        if (*s < 0.0 || *s > 100.0) {
+            error = "section [" + section_name + "] soc_percent must be in [0,100]";
+            return false;
+        }
+        out.push_back({.voltage_v = *v, .soc_percent = *s});
+        last_voltage = *v;
+    }
+    return true;
+}
+
 }  // namespace
 
 BatterySocEstimator::BatterySocEstimator(const BatteryOptions &options) : options_(options) {
     ocv_discharge_ = make_default_discharge_table();
     ocv_charge_ = make_default_charge_table();
+    if (options_.ocv_table_file_path.empty()) options_.ocv_table_file_path = default_ocv_table_path();
+    table_loaded_from_file_ = load_static_ocv_table();
     if (options_.state_file_path.empty()) options_.state_file_path = default_state_path();
     (void)load_state();
+}
+
+bool BatterySocEstimator::load_static_ocv_table() {
+    try {
+        const toml::table root = toml::parse_file(options_.ocv_table_file_path);
+        std::vector<OcvTablePoint> loaded_discharge;
+        std::vector<OcvTablePoint> loaded_charge;
+        std::string error;
+        if (!parse_ocv_section(root, "discharge", loaded_discharge, error)) {
+            table_load_status_ = "fallback_default: " + error;
+            return false;
+        }
+        if (!parse_ocv_section(root, "charge", loaded_charge, error)) {
+            table_load_status_ = "fallback_default: " + error;
+            return false;
+        }
+        ocv_discharge_ = std::move(loaded_discharge);
+        ocv_charge_ = std::move(loaded_charge);
+        table_load_status_ = "loaded_from_file";
+        return true;
+    } catch (const std::exception &e) {
+        table_load_status_ = std::string("fallback_default: ") + e.what();
+        return false;
+    }
 }
 
 double BatterySocEstimator::lookup_ocv_soc(double voltage_v, BatteryFlowDirection direction) const {
@@ -94,29 +166,6 @@ double BatterySocEstimator::lookup_ocv_soc(double voltage_v, BatteryFlowDirectio
         return lo.soc_percent + t * (hi.soc_percent - lo.soc_percent);
     }
     return table.back().soc_percent;
-}
-
-void BatterySocEstimator::maybe_self_tune(double voltage_v, BatteryFlowDirection direction) {
-    if (!options_.self_tune_enabled) return;
-    std::vector<OcvTablePoint> &table =
-        (direction == BatteryFlowDirection::Charge) ? ocv_charge_ : ocv_discharge_;
-    if (table.empty()) return;
-
-    auto nearest = std::min_element(
-        table.begin(), table.end(), [voltage_v](const OcvTablePoint &a, const OcvTablePoint &b) {
-            return std::abs(a.voltage_v - voltage_v) < std::abs(b.voltage_v - voltage_v);
-        });
-    if (nearest == table.end()) return;
-
-    const double error = soc_percent_ - nearest->soc_percent;
-    const double max_delta = std::max(0.0, options_.self_tune_max_delta_pct);
-    const double gain = std::max(0.0, options_.self_tune_learning_rate);
-    const double delta = std::clamp(error * gain, -max_delta, max_delta);
-
-    if (nearest->learned_samples >= options_.self_tune_min_samples || std::abs(error) < 25.0) {
-        nearest->soc_percent = std::clamp(nearest->soc_percent + delta, 0.0, 100.0);
-    }
-    nearest->learned_samples += 1.0;
 }
 
 BatteryReading BatterySocEstimator::update(const BatterySample &sample) {
@@ -177,7 +226,6 @@ BatteryReading BatterySocEstimator::update(const BatterySample &sample) {
         const double ocv_soc = lookup_ocv_soc(sample.bus_voltage_v, last_direction_);
         const double gain = std::clamp(options_.ocv_correction_gain, 0.0, 1.0);
         soc_percent_ = std::clamp(soc_percent_ + (ocv_soc - soc_percent_) * gain, 0.0, 100.0);
-        maybe_self_tune(sample.bus_voltage_v, last_direction_);
     }
 
     if (dt_sec > 0.0) {
@@ -232,30 +280,27 @@ void BatterySocEstimator::log_diagnostics(const BatterySample &sample,
     derived_data["last_voltage_v"] = last_voltage_v_;
     derived_data["last_direction_discharge"] =
         (last_direction_ == BatteryFlowDirection::Discharge) ? 1 : 0;
+    derived_data["table_loaded_from_file"] = table_loaded_from_file_ ? 1 : 0;
+    derived_data["table_load_status"] = table_load_status_;
+    derived_data["table_path"] = options_.ocv_table_file_path;
 
     std::vector<double> discharge_voltage;
     std::vector<double> discharge_soc;
-    std::vector<double> discharge_samples;
     for (const auto &point : ocv_discharge_) {
         discharge_voltage.push_back(point.voltage_v);
         discharge_soc.push_back(point.soc_percent);
-        discharge_samples.push_back(point.learned_samples);
     }
     derived_data["ocv_discharge_voltage_v"] = discharge_voltage;
     derived_data["ocv_discharge_soc_percent"] = discharge_soc;
-    derived_data["ocv_discharge_learned_samples"] = discharge_samples;
 
     std::vector<double> charge_voltage;
     std::vector<double> charge_soc;
-    std::vector<double> charge_samples;
     for (const auto &point : ocv_charge_) {
         charge_voltage.push_back(point.voltage_v);
         charge_soc.push_back(point.soc_percent);
-        charge_samples.push_back(point.learned_samples);
     }
     derived_data["ocv_charge_voltage_v"] = charge_voltage;
     derived_data["ocv_charge_soc_percent"] = charge_soc;
-    derived_data["ocv_charge_learned_samples"] = charge_samples;
 
     if (read_ok && reading.valid) {
         logger->debug("measurement", measurement_data);
@@ -288,26 +333,19 @@ bool BatterySocEstimator::load_state() {
         const std::string val = trim_copy(line.substr(eq + 1));
         if (!key.empty()) kv[key] = val;
     }
+    static const std::unordered_map<std::string, bool> allowed_keys = {
+        {"version", true},
+        {"soc_percent", true},
+        {"display_percent", true},
+    };
+    for (const auto &[key, _] : kv) {
+        if (allowed_keys.find(key) == allowed_keys.end()) return false;
+    }
     if (parse_int_or(kv, "version", -1) != kStateVersion) return false;
 
     soc_percent_ = std::clamp(parse_double_or(kv, "soc_percent", soc_percent_), 0.0, 100.0);
     display_percent_ = std::clamp(parse_double_or(kv, "display_percent", soc_percent_), 0.0, 100.0);
     has_estimate_ = true;
-
-    for (size_t i = 0; i < ocv_discharge_.size(); ++i) {
-        const std::string idx = std::to_string(i);
-        ocv_discharge_[i].soc_percent = std::clamp(
-            parse_double_or(kv, "discharge_soc_" + idx, ocv_discharge_[i].soc_percent), 0.0, 100.0);
-        ocv_discharge_[i].learned_samples =
-            std::max(0.0, parse_double_or(kv, "discharge_samples_" + idx, 0.0));
-    }
-    for (size_t i = 0; i < ocv_charge_.size(); ++i) {
-        const std::string idx = std::to_string(i);
-        ocv_charge_[i].soc_percent = std::clamp(
-            parse_double_or(kv, "charge_soc_" + idx, ocv_charge_[i].soc_percent), 0.0, 100.0);
-        ocv_charge_[i].learned_samples =
-            std::max(0.0, parse_double_or(kv, "charge_samples_" + idx, 0.0));
-    }
     return true;
 }
 
@@ -324,14 +362,6 @@ bool BatterySocEstimator::save_state() const {
     out << "version=" << kStateVersion << "\n";
     out << "soc_percent=" << soc_percent_ << "\n";
     out << "display_percent=" << display_percent_ << "\n";
-    for (size_t i = 0; i < ocv_discharge_.size(); ++i) {
-        out << "discharge_soc_" << i << "=" << ocv_discharge_[i].soc_percent << "\n";
-        out << "discharge_samples_" << i << "=" << ocv_discharge_[i].learned_samples << "\n";
-    }
-    for (size_t i = 0; i < ocv_charge_.size(); ++i) {
-        out << "charge_soc_" << i << "=" << ocv_charge_[i].soc_percent << "\n";
-        out << "charge_samples_" << i << "=" << ocv_charge_[i].learned_samples << "\n";
-    }
     return true;
 }
 
