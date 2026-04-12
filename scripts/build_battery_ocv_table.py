@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import signal
 import sys
 import time
@@ -46,6 +47,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--i2c-bus", type=int, default=7)
     parser.add_argument("--i2c-address", type=lambda x: int(x, 0), default=0x41)
     parser.add_argument("--sample-interval", type=float, default=2.0)
+    parser.add_argument(
+        "--checkpoint-interval-sec",
+        type=float,
+        default=30.0,
+        help="Periodically save CSV/table while capture is running",
+    )
     parser.add_argument("--cutoff-voltage", type=float, default=9.0)
     parser.add_argument("--point-count", type=int, default=7)
     parser.add_argument(
@@ -128,6 +135,8 @@ def write_capture_csv(path: Path, samples: list[Sample], soc_trace: np.ndarray) 
         writer.writerow(["timestamp", "bus_voltage_v", "current_a", "power_w", "soc_est_percent"])
         for sample, soc in zip(samples, soc_trace):
             writer.writerow([sample.t, sample.bus_voltage_v, sample.current_a, sample.power_w, soc])
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def write_table_toml(path: Path, voltage_v: list[float], soc_percent: list[float]) -> None:
@@ -138,6 +147,18 @@ def write_table_toml(path: Path, voltage_v: list[float], soc_percent: list[float
     }
     with path.open("wb") as f:
         f.write(tomli_w.dumps(data).encode("utf-8"))
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def checkpoint_outputs(args: argparse.Namespace, samples: list[Sample]) -> None:
+    if len(samples) < 2:
+        return
+    discharge_current_positive = not args.discharge_current_negative
+    soc_trace, voltage_trace = compute_soc_trace(samples, discharge_current_positive)
+    table_voltage, table_soc = build_table_from_trace(soc_trace, voltage_trace, args.point_count)
+    write_capture_csv(args.output_csv, samples, soc_trace)
+    write_table_toml(args.output_table, table_voltage, table_soc)
 
 
 def main() -> int:
@@ -152,6 +173,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, stop_handler)
 
     samples: list[Sample] = []
+    last_checkpoint_t = 0.0
     with SMBus(args.i2c_bus) as bus:
         write_reg_u16(bus, args.i2c_address, INA219_REG_CALIBRATION, INA219_CALIBRATION_16V_5A)
         write_reg_u16(bus, args.i2c_address, INA219_REG_CONFIG, INA219_CONFIG_16V_5A_CONTINUOUS)
@@ -163,6 +185,11 @@ def main() -> int:
                 f"V={sample.bus_voltage_v:.3f}V I={sample.current_a:.3f}A P={sample.power_w:.3f}W "
                 f"(n={len(samples)})"
             )
+            now = time.time()
+            if now - last_checkpoint_t >= max(1.0, args.checkpoint_interval_sec):
+                checkpoint_outputs(args, samples)
+                last_checkpoint_t = now
+                print(f"Checkpoint saved: {args.output_csv} and {args.output_table}")
             if sample.bus_voltage_v <= args.cutoff_voltage:
                 print(f"Reached cutoff voltage {args.cutoff_voltage:.3f}V; stopping capture.")
                 break
