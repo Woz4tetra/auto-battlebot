@@ -37,6 +37,9 @@ INA219_CALIBRATION_16V_5A = 26868
 INA219_CONFIG_16V_5A_CONTINUOUS = 0x0EEF
 INA219_CURRENT_LSB_A = 0.04096 / (INA219_CALIBRATION_16V_5A * 0.01)
 INA219_POWER_LSB_W = 20.0 * INA219_CURRENT_LSB_A
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
 
 
 @dataclass
@@ -80,7 +83,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-table",
         type=Path,
-        default=Path("data/battery_ocv_table.toml"),
+        default=Path("battery_ocv_table.toml"),
     )
     parser.add_argument(
         "--discharge-current-negative",
@@ -203,13 +206,20 @@ def checkpoint_outputs(args: argparse.Namespace, samples: list[Sample]) -> None:
     write_table_toml(args.output_table, args.mode, table_voltage, table_soc)
 
 
+def resolve_data_output_path(path: Path | None, default_name: str) -> Path:
+    if path is None:
+        return DATA_DIR / default_name
+    return DATA_DIR / path.name
+
+
 def main() -> int:
     args = parse_args()
-    if args.output_csv is None:
-        if args.mode == "charge":
-            args.output_csv = Path("data/battery_charge_capture.csv")
-        else:
-            args.output_csv = Path("data/battery_discharge_capture.csv")
+    if args.mode == "charge":
+        default_csv_name = "battery_charge_capture.csv"
+    else:
+        default_csv_name = "battery_discharge_capture.csv"
+    args.output_csv = resolve_data_output_path(args.output_csv, default_csv_name)
+    args.output_table = resolve_data_output_path(args.output_table, "battery_ocv_table.toml")
     keep_running = True
 
     def stop_handler(_sig: int, _frame: object) -> None:
