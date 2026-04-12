@@ -6,7 +6,6 @@ This script reads the validation state file created by validate_yolo_dataset.py
 and removes images and their corresponding annotation files that failed validation.
 """
 
-import os
 import json
 import shutil
 import argparse
@@ -53,6 +52,22 @@ def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
     return pairs
 
 
+def find_datasets_with_state(search_root: Path) -> List[Tuple[Path, Path]]:
+    """Recursively find dataset roots that have validation_state.json."""
+    found: List[Tuple[Path, Path]] = []
+    seen: set[Path] = set()
+
+    for state_file in sorted(search_root.rglob("validation_state.json")):
+        dataset_root = state_file.parent
+        if dataset_root in seen:
+            continue
+        if (dataset_root / "images").exists() and (dataset_root / "labels").exists():
+            found.append((dataset_root, state_file))
+            seen.add(dataset_root)
+
+    return found
+
+
 def remove_failed_annotations(dataset_path: Path, state_file: Path, 
                               dry_run: bool = False, backup: bool = True):
     """
@@ -73,7 +88,7 @@ def remove_failed_annotations(dataset_path: Path, state_file: Path,
     failed_count = sum(1 for v in validation_state.values() if v == 'fail')
     passed_count = sum(1 for v in validation_state.values() if v == 'pass')
     
-    print(f"\nValidation Statistics:")
+    print("\nValidation Statistics:")
     print(f"  Total validated: {total_validated}")
     print(f"  Passed: {passed_count}")
     print(f"  Failed: {failed_count}")
@@ -103,7 +118,7 @@ def remove_failed_annotations(dataset_path: Path, state_file: Path,
             removed_labels.append(label_path)
             
             if dry_run:
-                print(f"\n[DRY RUN] Would remove:")
+                print("\n[DRY RUN] Would remove:")
                 print(f"  Image: {img_path}")
                 print(f"  Label: {label_path}")
             else:
@@ -120,7 +135,7 @@ def remove_failed_annotations(dataset_path: Path, state_file: Path,
                     shutil.move(str(img_path), str(backup_img_path))
                     shutil.move(str(label_path), str(backup_label_path))
                     
-                    print(f"\n✓ Moved to backup:")
+                    print("\n✓ Moved to backup:")
                     print(f"  Image: {img_path.name}")
                     print(f"  Label: {label_path.name}")
                 else:
@@ -128,7 +143,7 @@ def remove_failed_annotations(dataset_path: Path, state_file: Path,
                     img_path.unlink()
                     label_path.unlink()
                     
-                    print(f"\n✗ Deleted:")
+                    print("\n✗ Deleted:")
                     print(f"  Image: {img_path.name}")
                     print(f"  Label: {label_path.name}")
     
@@ -160,7 +175,7 @@ def main():
     )
     parser.add_argument(
         'dataset_path', 
-        help='Path to YOLO dataset root directory'
+        help='Path to search root (recursively finds YOLO datasets with validation_state.json)'
     )
     parser.add_argument(
         '--state-file',
@@ -185,40 +200,52 @@ def main():
         print(f"Error: Dataset path does not exist: {dataset_path}")
         return 1
     
-    # Determine state file path
+    targets: List[Tuple[Path, Path]] = []
     if args.state_file:
         state_file = Path(args.state_file)
+        if not state_file.exists():
+            print(f"Error: State file not found: {state_file}")
+            print("Make sure you have run validate_yolo_dataset.py first")
+            return 1
+        targets = [(dataset_path, state_file)]
     else:
-        state_file = dataset_path / "validation_state.json"
-    
-    if not state_file.exists():
-        print(f"Error: State file not found: {state_file}")
-        print("Make sure you have run validate_yolo_dataset.py first")
-        return 1
-    
+        targets = find_datasets_with_state(dataset_path)
+        if not targets:
+            print(f"Error: No validation_state.json files found under: {dataset_path}")
+            print("Make sure you have run validate_yolo_dataset.py first")
+            return 1
+
+    print(f"Found {len(targets)} dataset(s) to process.")
+
     # Confirm before proceeding (unless dry run)
     if not args.dry_run:
-        print("\n⚠ WARNING: This will remove or backup failed annotations from your dataset!")
-        print(f"   Dataset: {dataset_path}")
-        print(f"   State file: {state_file}")
-        
+        print("\n⚠ WARNING: This will remove or backup failed annotations from your dataset(s)!")
+        print(f"   Search root: {dataset_path}")
+        if args.state_file:
+            print(f"   State file: {targets[0][1]}")
+        else:
+            print("   State files: recursively discovered validation_state.json")
+
         if args.no_backup:
             print("   Mode: DELETE (files will be permanently deleted)")
         else:
             print("   Mode: BACKUP (files will be moved to validation_backup/)")
-        
+
         response = input("\nProceed? (yes/no): ")
         if response.lower() != 'yes':
             print("Cancelled.")
             return 0
-    
-    # Perform removal
-    remove_failed_annotations(
-        dataset_path=dataset_path,
-        state_file=state_file,
-        dry_run=args.dry_run,
-        backup=not args.no_backup
-    )
+
+    # Perform removal for each discovered dataset
+    for ds_root, state_file in targets:
+        print(f"\n{'=' * 60}")
+        print(f"Processing dataset: {ds_root}")
+        remove_failed_annotations(
+            dataset_path=ds_root,
+            state_file=state_file,
+            dry_run=args.dry_run,
+            backup=not args.no_backup,
+        )
     
     return 0
 
