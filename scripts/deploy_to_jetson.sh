@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy source files (respecting .gitignore) and the models/ directory to a Jetson over a local network.
+# Deploy source files (respecting .gitignore) and the data/models/ directory to a Jetson over a local network.
 # Only changed files are transferred; files absent on the host are deleted on the remote.
 #
 # Usage:
@@ -36,7 +36,7 @@ RSYNC_OPTS=(
 
 # ── Code sync ────────────────────────────────────────────────────────────────
 # --filter reads each .gitignore encountered during traversal, excluding all
-# gitignored paths. /models is excluded by the root .gitignore, so --delete
+# gitignored paths. /data is excluded by the root .gitignore, so --delete
 # will not touch it on the remote. .git/ is excluded explicitly.
 echo "Syncing code to ${REMOTE_DEST}..."
 rsync "${RSYNC_OPTS[@]}" \
@@ -46,14 +46,14 @@ rsync "${RSYNC_OPTS[@]}" \
     "$REMOTE_DEST/"
 
 # ── Models sync ──────────────────────────────────────────────────────────────
-# models/ is gitignored and not included in the code pass above.
-if [ -d "$PROJECT_ROOT/models" ]; then
-    echo "Syncing models/ to ${REMOTE_DEST}/models/..."
+# data/models/ is gitignored and not included in the code pass above.
+if [ -d "$PROJECT_ROOT/data/models" ]; then
+    echo "Syncing data/models/ to ${REMOTE_DEST}/data/models/..."
     rsync --archive --verbose --human-readable --progress \
-        "$PROJECT_ROOT/models/" \
-        "${JETSON_USER}@${JETSON_HOST}:${JETSON_PATH}/models/"
+        "$PROJECT_ROOT/data/models/" \
+        "${JETSON_USER}@${JETSON_HOST}:${JETSON_PATH}/data/models/"
 else
-    echo "No local models/ directory found, skipping models sync."
+    echo "No local data/models/ directory found, skipping models sync."
 fi
 
 # ── Remote build/install ──────────────────────────────────────────────────────

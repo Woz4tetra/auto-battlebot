@@ -303,12 +303,12 @@ add_custom_target(copy_config_files ALL
 )
 add_dependencies(auto_battlebot copy_config_files)
 
-# Create symlink to models directory in build directory
+# Create symlink to data directory in build directory
 add_custom_command(TARGET auto_battlebot POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E create_symlink
-    ${CMAKE_SOURCE_DIR}/models
-    ${CMAKE_BINARY_DIR}/models
-    COMMENT "Creating symlink to models directory"
+    ${CMAKE_SOURCE_DIR}/data
+    ${CMAKE_BINARY_DIR}/data
+    COMMENT "Creating symlink to data directory"
 )
 
 # So the installed executable finds libauto_battlebot.so in PREFIX/lib when run from PREFIX/bin

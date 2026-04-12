@@ -1,7 +1,7 @@
 """
 Example usage:
 python fine_tune_train.py /path/to/merged/data.yaml yolo26n-pose \
-    -c ../../models/yolo26n-pose_mr_stabs_mk2_2026-03-08.pt \
+    -c ../../data/models/yolo26n-pose_mr_stabs_mk2_2026-03-08.pt \
     -e 200 --lr0 0.002
 """
 

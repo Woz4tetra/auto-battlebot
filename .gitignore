@@ -59,7 +59,6 @@ log/
 Thumbs.db
 
 # Specific directories
-/models
 /data
 /secrets
 

@@ -48,7 +48,7 @@ TEST_F(YoloSegMaskModelTest, UpdateWithoutInitialization) {
 TEST(YoloSegMaskModelConfigTest, ParseConfigWithDefaults) {
     toml::table table = toml::parse(R"(
 type = "YoloSegMaskModel"
-model_path = "models/field_yolo.engine"
+model_path = "data/models/field_yolo.engine"
 label_indices = ["FIELD", "OPPONENT"]
 )");
     ConfigParser parser(table, "field_model");
@@ -58,7 +58,7 @@ label_indices = ["FIELD", "OPPONENT"]
     EXPECT_EQ(base_config->type, "YoloSegMaskModel");
 
     const auto &config = config_cast<YoloSegMaskModelConfiguration>(*base_config);
-    EXPECT_EQ(config.model_path, "models/field_yolo.engine");
+    EXPECT_EQ(config.model_path, "data/models/field_yolo.engine");
     ASSERT_EQ(config.label_indices.size(), 2);
     EXPECT_EQ(config.label_indices[0], Label::FIELD);
     EXPECT_EQ(config.label_indices[1], Label::OPPONENT);

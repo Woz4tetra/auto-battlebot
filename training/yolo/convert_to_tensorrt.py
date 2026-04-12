@@ -15,7 +15,7 @@ uses TensorRT Builder + OnnxParser (no Ultralytics required).
 
 For C++ YoloKeypointModel compatibility, prefer building from ONNX (--from-onnx):
   python training/yolo/convert_to_onnx.py model.pt
-  python training/yolo/convert_to_tensorrt.py model.onnx --from-onnx -o models/model.engine
+  python training/yolo/convert_to_tensorrt.py model.onnx --from-onnx -o data/models/model.engine
 Engines built from .pt via Ultralytics may use a different plan format and fail to load in the C++ runtime.
 
 Output filenames include a platform tag (e.g. _x86_64_sm89, _aarch64_sm72) that

@@ -64,7 +64,7 @@ std::filesystem::path McapRecorder::make_file_path(const std::string& config_nam
     oss << std::put_time(&tm_buf, "%Y-%m-%d_%H-%M-%S");
     oss << ".mcap";
 
-    return std::filesystem::current_path() / "recordings" / oss.str();
+    return std::filesystem::current_path() / "data" / "recordings" / oss.str();
 }
 
 }  // namespace auto_battlebot

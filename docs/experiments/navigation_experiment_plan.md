@@ -136,4 +136,4 @@ After completing Experiment 1, the recommended order is driven by what the data 
 - **Sim config**: `simulation/sim_config_experiment1.toml` (one static opponent, controlled start geometry)
 - **C++ config**: `config/experiment1/classes.toml` (adjustable `command_delay_ms`)
 - **Run**: `./scripts/run_simulation.sh simulation/sim_config_experiment1.toml config/experiment1/`
-- **Analyze**: `python scripts/analyze_nav_diagnostics.py recordings/auto_battlebot_experiment1_*.mcap`
+- **Analyze**: `python scripts/analyze_nav_diagnostics.py data/recordings/auto_battlebot_experiment1_*.mcap`

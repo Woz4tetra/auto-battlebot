@@ -4,12 +4,12 @@ camera_fps = 30
 
 [field_model]
 type = "YoloSegMaskModel"
-model_path = "models/yolo_seg_field_2026-04-11_aarch64_sm87.engine"
+model_path = "data/models/yolo_seg_field_2026-04-11_aarch64_sm87.engine"
 label_indices = ["FIELD"]
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
-model_path = "models/yolo_seg_opponents_2026-04-11_aarch64_sm87.engine"
+model_path = "data/models/yolo_seg_opponents_2026-04-11_aarch64_sm87.engine"
 label_indices = ["OPPONENT", "HOUSE_BOT", "FIELD"]
 their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
@@ -26,7 +26,7 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "models/yolo26n-pose_mr_stabs_mk2_2026-03-08_aarch64_sm87.engine"
+model_path = "data/models/yolo26n-pose_mr_stabs_mk2_2026-03-08_aarch64_sm87.engine"
 label_indices = ["MR_STABS_MK2", "HOUSE_BOT"]
 debug_visualization = false
 threshold = 0.5

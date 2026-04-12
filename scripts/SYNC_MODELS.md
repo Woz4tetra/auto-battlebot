@@ -1,6 +1,6 @@
 # sync_models.py
 
-Downloads model files from a private Google Drive folder to the local `models/` directory using Google OAuth2 authentication.
+Downloads model files from a private Google Drive folder to the local `data/models/` directory using Google OAuth2 authentication.
 
 ## Prerequisites
 
@@ -116,7 +116,7 @@ python scripts/sync_models.py
 | ----------------------- | --------------------------------------------------------------- |
 | `--dry-run`             | Show what would be downloaded without downloading               |
 | `--force`               | Re-download all files even if they already exist locally        |
-| `-o`, `--output DIR`    | Download to a custom directory (default: `models/`)             |
+| `-o`, `--output DIR`    | Download to a custom directory (default: `data/models/`)        |
 | `--setup`               | Run the interactive credentials setup wizard                    |
 | `--headless`            | Force headless authentication mode (no browser on this machine) |
 | `--export-token [FILE]` | Export saved token as base64 (stdout) or to a file              |
@@ -129,7 +129,7 @@ python scripts/sync_models.py
 | OAuth credentials | `secrets/credentials.json`            | Google Cloud OAuth client secret (gitignored)    |
 | Drive folder ID   | `secrets/drive_folder_id`             | Google Drive folder ID to sync from (gitignored) |
 | Auth token        | `~/.config/auto-battlebot/token.json` | Saved OAuth token (per-user, not in repo)        |
-| Downloaded models | `models/`                             | Synced model files (gitignored)                  |
+| Downloaded models | `data/models/`                        | Synced model files (gitignored)                  |
 
 ## Troubleshooting
 

@@ -2,7 +2,7 @@
 """
 Sync models from a private Google Drive folder.
 
-Downloads model files from a private Google Drive folder to the local models directory.
+Downloads model files from a private Google Drive folder to the local data/models directory.
 Uses OAuth2 authentication - on first run, opens a browser for Google sign-in.
 
 Usage:
@@ -55,7 +55,7 @@ def get_project_root() -> Path:
 
 def get_models_dir() -> Path:
     """Get the models directory path."""
-    return get_project_root() / "models"
+    return get_project_root() / "data" / "models"
 
 
 def get_secrets_dir() -> Path:
@@ -797,7 +797,7 @@ Remote / headless machine workflow:
         "--output",
         type=str,
         default=None,
-        help="Output directory for models (default: models/ in project root)",
+        help="Output directory for models (default: data/models/ in project root)",
     )
     parser.add_argument(
         "--force",
