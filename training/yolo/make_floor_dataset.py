@@ -23,8 +23,8 @@ import cv2
 import numpy as np
 import yaml
 from shapely.errors import GEOSException
-from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
-from shapely.ops import triangulate, unary_union
+from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Polygon
+from shapely.ops import nearest_points, unary_union
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
@@ -70,12 +70,12 @@ def parse_args() -> argparse.Namespace:
         "--max-polygons",
         type=int,
         default=5,
-        help="Keep only this many largest floor blobs per image",
+        help="Keep only this many largest floor polygons per image",
     )
     parser.add_argument(
         "--mask-size",
         type=int,
-        default=1024,
+        default=2048,
         help="Raster size used for floor/robot mask subtraction",
     )
     return parser.parse_args()
@@ -282,30 +282,51 @@ def decompose_polygon_without_holes(
     polygon: Polygon,
     min_area: float,
 ) -> list[Polygon]:
-    """Convert polygons-with-holes into hole-free polygon pieces."""
+    """Convert polygons-with-holes into hole-free pieces using narrow slit cuts."""
     if polygon.is_empty:
         return []
     if not polygon.interiors:
         return [polygon] if polygon.area >= min_area else []
 
-    pieces: list[Polygon] = []
-    # Triangulate then clip each triangle back to the polygon. This yields
-    # hole-free polygon pieces that preserve floor-minus-robot geometry.
-    for tri in triangulate(polygon):
+    # Build tiny cuts from each hole to the exterior boundary. Removing those
+    # slits turns holey polygons into regular polygons without fan triangulation.
+    cutters = []
+    epsilon = 1e-4
+    for ring in polygon.interiors:
         try:
-            clipped = tri.intersection(polygon)
+            hole_poly = Polygon(ring)
+        except Exception:
+            continue
+        if hole_poly.is_empty:
+            continue
+        try:
+            shell_pt, hole_pt = nearest_points(polygon.exterior, hole_poly.exterior)
+            cut_line = LineString([shell_pt, hole_pt])
+            if cut_line.length <= 0.0:
+                continue
+            cutters.append(cut_line.buffer(epsilon, cap_style=2))
         except GEOSException:
             continue
-        for piece in explode_to_polygons(clipped):
-            if piece.is_empty:
-                continue
-            if not piece.is_valid:
-                piece = piece.buffer(0)
-            if piece.is_empty or not isinstance(piece, Polygon):
-                continue
-            if piece.area < min_area:
-                continue
-            pieces.append(piece)
+
+    if not cutters:
+        return [polygon] if polygon.area >= min_area else []
+
+    try:
+        split_geom = polygon.difference(unary_union(cutters))
+    except GEOSException:
+        return []
+
+    pieces: list[Polygon] = []
+    for piece in explode_to_polygons(split_geom):
+        if piece.is_empty:
+            continue
+        if not piece.is_valid:
+            piece = piece.buffer(0)
+        if piece.is_empty or not isinstance(piece, Polygon):
+            continue
+        if piece.area < min_area:
+            continue
+        pieces.append(piece)
     return pieces
 
 
@@ -327,10 +348,7 @@ def normalize_result_polygons(result: object, min_area: float) -> list[Polygon]:
 def gather_polygons(
     rows: list[tuple[int, list[tuple[float, float]]]],
     floor_class_id: int,
-    min_area: float,
-    max_polygons: int,
-    mask_size: int,
-) -> list[list[tuple[float, float]]]:
+) -> tuple[list[Polygon], list[Polygon]]:
     floor_polys: list[Polygon] = []
     obstacle_polys: list[Polygon] = []
 
@@ -343,52 +361,7 @@ def gather_polygons(
         else:
             obstacle_polys.extend(polys)
 
-    if not floor_polys or max_polygons <= 0 or mask_size < 8:
-        return []
-
-    mask = np.zeros((mask_size, mask_size), dtype=np.uint8)
-
-    def to_cv_poly(poly: Polygon) -> np.ndarray | None:
-        coords = list(poly.exterior.coords)
-        if len(coords) < 4:
-            return None
-        max_idx = mask_size - 1
-        pts: list[list[int]] = []
-        for x, y in coords[:-1]:
-            px = int(round(clamp01(float(x)) * max_idx))
-            py = int(round(clamp01(float(y)) * max_idx))
-            pts.append([px, py])
-        if len(pts) < 3:
-            return None
-        return np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)
-
-    floor_cv = [arr for p in floor_polys if (arr := to_cv_poly(p)) is not None]
-    if not floor_cv:
-        return []
-    cv2.fillPoly(mask, floor_cv, 255)
-
-    obstacle_cv = [arr for p in obstacle_polys if (arr := to_cv_poly(p)) is not None]
-    if obstacle_cv:
-        cv2.fillPoly(mask, obstacle_cv, 0)
-
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return []
-
-    min_area_px = float(min_area) * float(mask_size * mask_size)
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)
-
-    blobs: list[list[tuple[float, float]]] = []
-    max_idx = float(mask_size - 1)
-    for contour in contours[:max_polygons]:
-        if cv2.contourArea(contour) < min_area_px:
-            continue
-        points = contour.reshape(-1, 2)
-        if len(points) < 3:
-            continue
-        blobs.append([(float(x) / max_idx, float(y) / max_idx) for x, y in points])
-
-    return blobs
+    return floor_polys, obstacle_polys
 
 
 def explode_to_polygons(geometry: object) -> list[Polygon]:
@@ -410,12 +383,17 @@ def clamp01(value: float) -> float:
     return max(0.0, min(1.0, value))
 
 
-def to_yolo_seg_line(class_id: int, points: list[tuple[float, float]]) -> str | None:
-    if len(points) < 3:
+def to_yolo_seg_line(class_id: int, polygon: Polygon) -> str | None:
+    coords = list(polygon.exterior.coords)
+    if len(coords) < 4:
+        return None
+    # Last coord repeats first; YOLO polygon rows should not include duplicate closure.
+    coords = coords[:-1]
+    if len(coords) < 3:
         return None
 
     values: list[str] = []
-    for x, y in points:
+    for x, y in coords:
         values.append(f"{clamp01(float(x)):.6f}")
         values.append(f"{clamp01(float(y)):.6f}")
 
@@ -429,17 +407,120 @@ def build_floor_rows(
     max_polygons: int,
     mask_size: int,
 ) -> list[str]:
-    blobs = gather_polygons(
-        rows=rows,
-        floor_class_id=floor_class_id,
-        min_area=min_area,
-        max_polygons=max_polygons,
-        mask_size=mask_size,
+    floor_polys, obstacle_polys = gather_polygons(rows, floor_class_id=floor_class_id)
+    if not floor_polys or mask_size < 8 or max_polygons <= 0:
+        return []
+
+    max_idx = mask_size - 1
+    floor_mask = np.zeros((mask_size, mask_size), dtype=np.uint8)
+    obstacle_mask = np.zeros((mask_size, mask_size), dtype=np.uint8)
+
+    def to_cv_poly(poly: Polygon) -> np.ndarray | None:
+        coords = list(poly.exterior.coords)
+        if len(coords) < 4:
+            return None
+        pts: list[list[int]] = []
+        for x, y in coords[:-1]:
+            px = int(round(clamp01(float(x)) * max_idx))
+            py = int(round(clamp01(float(y)) * max_idx))
+            pts.append([px, py])
+        if len(pts) < 3:
+            return None
+        return np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)
+
+    def to_cv_poly_points(points: list[tuple[float, float]]) -> np.ndarray | None:
+        if len(points) < 3:
+            return None
+        pts: list[list[int]] = []
+        for x, y in points:
+            px = int(round(clamp01(float(x)) * max_idx))
+            py = int(round(clamp01(float(y)) * max_idx))
+            pts.append([px, py])
+        if len(pts) < 3:
+            return None
+        return np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)
+
+    floor_cv = [arr for p in floor_polys if (arr := to_cv_poly(p)) is not None]
+    if not floor_cv:
+        return []
+    cv2.fillPoly(floor_mask, floor_cv, 255)
+
+    # Subtract all non-floor rows as obstacles. We include both repaired shapely
+    # polygons and raw rows to avoid dropping invalid robot polygons.
+    obstacle_cv = [arr for p in obstacle_polys if (arr := to_cv_poly(p)) is not None]
+    for class_id, points in rows:
+        if class_id == floor_class_id:
+            continue
+        arr = to_cv_poly_points(points)
+        if arr is not None:
+            obstacle_cv.append(arr)
+    if obstacle_cv:
+        cv2.fillPoly(obstacle_mask, obstacle_cv, 255)
+
+    mask = cv2.bitwise_and(floor_mask, cv2.bitwise_not(obstacle_mask))
+
+    contours, hierarchy = cv2.findContours(
+        mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
     )
+    if not contours or hierarchy is None:
+        return []
+
+    # Build polygons with hole hierarchy first, then decompose holes into
+    # hole-free polygons so robot cutouts are not filled back in.
+    pieces: list[Polygon] = []
+    hierarchy_data = hierarchy[0]
+    for idx, contour in enumerate(contours):
+        # Parent == -1 means outer contour.
+        if hierarchy_data[idx][3] != -1:
+            continue
+        if len(contour) < 3:
+            continue
+
+        exterior = [
+            (float(pt[0][0]) / float(max_idx), float(pt[0][1]) / float(max_idx))
+            for pt in contour
+        ]
+        if len(exterior) < 3:
+            continue
+
+        holes: list[list[tuple[float, float]]] = []
+        child_idx = hierarchy_data[idx][2]
+        while child_idx != -1:
+            child = contours[child_idx]
+            if len(child) >= 3:
+                hole = [
+                    (float(pt[0][0]) / float(max_idx), float(pt[0][1]) / float(max_idx))
+                    for pt in child
+                ]
+                if len(hole) >= 3:
+                    holes.append(hole)
+            child_idx = hierarchy_data[child_idx][0]
+
+        try:
+            outer_poly = Polygon(exterior, holes)
+        except Exception:
+            continue
+        if not outer_poly.is_valid:
+            outer_poly = outer_poly.buffer(0)
+        if outer_poly.is_empty:
+            continue
+
+        for poly in explode_to_polygons(outer_poly):
+            if poly.is_empty:
+                continue
+            if poly.area < min_area:
+                continue
+            pieces.extend(decompose_polygon_without_holes(poly, min_area=min_area))
+
+    if not pieces:
+        return []
+
+    # Keep only largest polygons to control output size.
+    pieces = sorted(pieces, key=lambda p: p.area, reverse=True)[:max_polygons]
 
     out_rows: list[str] = []
-    for blob in blobs:
-        line = to_yolo_seg_line(0, blob)
+    for poly in pieces:
+        line = to_yolo_seg_line(0, poly)
         if line is not None:
             out_rows.append(line)
 
@@ -455,10 +536,6 @@ def prepare_output(output_dir: Path, overwrite: bool) -> tuple[Path, Path]:
     if output_dir.exists():
         if overwrite:
             shutil.rmtree(output_dir)
-        elif any(output_dir.iterdir()):
-            raise FileExistsError(
-                f"Output directory {output_dir} is not empty. Use --overwrite."
-            )
 
     out_images = output_dir / "images"
     out_labels = output_dir / "labels"
@@ -500,6 +577,7 @@ def main() -> None:
     wrote_labels = 0
     empty_results = 0
     copied_images = 0
+    skipped_existing = 0
 
     for dataset_root in dataset_roots:
         try:
@@ -525,6 +603,14 @@ def main() -> None:
         images_dir = dataset_root / "images"
         for img_path, label_path in pairs:
             scanned_images += 1
+
+            stem = flat_stem(dataset_root, images_dir, img_path)
+            out_img = out_images / f"{stem}{img_path.suffix.lower()}"
+            out_lbl = out_labels / f"{stem}.txt"
+            if not args.overwrite and (out_img.exists() or out_lbl.exists()):
+                skipped_existing += 1
+                continue
+
             rows = parse_yolo_seg_rows(label_path)
             if not rows:
                 parse_skips += 1
@@ -542,9 +628,6 @@ def main() -> None:
                 if not args.copy_empty:
                     continue
 
-            stem = flat_stem(dataset_root, images_dir, img_path)
-            out_img = out_images / f"{stem}{img_path.suffix.lower()}"
-            out_lbl = out_labels / f"{stem}.txt"
             if out_img.exists() or out_lbl.exists():
                 collision_count += 1
                 stem = f"{stem}_{collision_count}"
@@ -576,6 +659,7 @@ def main() -> None:
     print(f"Image/label pairs:  {total_pairs}")
     print(f"Scanned images:     {scanned_images}")
     print(f"Parse skips:        {parse_skips}")
+    print(f"Skipped existing:   {skipped_existing}")
     print(f"Empty floor result: {empty_results}")
     print(f"Copied images:      {copied_images}")
     print(f"Wrote label files:  {wrote_labels}")
