@@ -21,6 +21,11 @@ import numpy as np
 import tomli_w
 from smbus2 import SMBus
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    import tomli as tomllib
+
 
 INA219_REG_CONFIG = 0x00
 INA219_REG_BUSVOLTAGE = 0x02
@@ -43,9 +48,15 @@ class Sample:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build static OCV table from full discharge run")
+    parser = argparse.ArgumentParser(description="Build static OCV table from capture run")
     parser.add_argument("--i2c-bus", type=int, default=7)
     parser.add_argument("--i2c-address", type=lambda x: int(x, 0), default=0x41)
+    parser.add_argument(
+        "--mode",
+        choices=["discharge", "charge"],
+        default="discharge",
+        help="Capture mode to compute either discharge or charge table",
+    )
     parser.add_argument("--sample-interval", type=float, default=2.0)
     parser.add_argument(
         "--checkpoint-interval-sec",
@@ -53,7 +64,12 @@ def parse_args() -> argparse.Namespace:
         default=30.0,
         help="Periodically save CSV/table while capture is running",
     )
-    parser.add_argument("--cutoff-voltage", type=float, default=9.0)
+    parser.add_argument(
+        "--cutoff-voltage",
+        type=float,
+        default=9.0,
+        help="Stop threshold (<= for discharge mode, >= for charge mode)",
+    )
     parser.add_argument("--point-count", type=int, default=7)
     parser.add_argument(
         "--output-csv",
@@ -96,21 +112,32 @@ def read_sample(bus: SMBus, addr: int) -> Sample:
     return Sample(t=time.time(), bus_voltage_v=bus_v, current_a=current_a, power_w=power_w)
 
 
-def compute_soc_trace(samples: list[Sample], discharge_current_positive: bool) -> tuple[np.ndarray, np.ndarray]:
+def compute_soc_trace(
+    samples: list[Sample], discharge_current_positive: bool, mode: str
+) -> tuple[np.ndarray, np.ndarray]:
     if len(samples) < 2:
         raise ValueError("Need at least 2 samples to compute discharge curve")
 
-    discharged_ah = [0.0]
-    total_discharge_ah = 0.0
+    transferred_ah = [0.0]
+    total_transferred_ah = 0.0
     for i in range(1, len(samples)):
         dt_h = max(0.0, samples[i].t - samples[i - 1].t) / 3600.0
-        current = samples[i].current_a if discharge_current_positive else -samples[i].current_a
-        discharge_current = max(current, 0.0)
-        total_discharge_ah += discharge_current * dt_h
-        discharged_ah.append(total_discharge_ah)
+        discharge_current = (
+            samples[i].current_a if discharge_current_positive else -samples[i].current_a
+        )
+        if mode == "discharge":
+            transfer_current = max(discharge_current, 0.0)
+        else:
+            # In charge mode, positive transfer means charging into the pack.
+            transfer_current = max(-discharge_current, 0.0)
+        total_transferred_ah += transfer_current * dt_h
+        transferred_ah.append(total_transferred_ah)
 
-    total_discharge_ah = max(total_discharge_ah, 1e-6)
-    soc = [max(0.0, min(100.0, 100.0 * (1.0 - (x / total_discharge_ah)))) for x in discharged_ah]
+    total_transferred_ah = max(total_transferred_ah, 1e-6)
+    if mode == "discharge":
+        soc = [max(0.0, min(100.0, 100.0 * (1.0 - (x / total_transferred_ah)))) for x in transferred_ah]
+    else:
+        soc = [max(0.0, min(100.0, 100.0 * (x / total_transferred_ah))) for x in transferred_ah]
     voltage = [s.bus_voltage_v for s in samples]
     return np.asarray(soc, dtype=float), np.asarray(voltage, dtype=float)
 
@@ -139,12 +166,26 @@ def write_capture_csv(path: Path, samples: list[Sample], soc_trace: np.ndarray) 
         os.fsync(f.fileno())
 
 
-def write_table_toml(path: Path, voltage_v: list[float], soc_percent: list[float]) -> None:
+def write_table_toml(path: Path, mode: str, voltage_v: list[float], soc_percent: list[float]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = {
-        "discharge": {"voltage_v": voltage_v, "soc_percent": soc_percent},
-        "charge": {"voltage_v": voltage_v, "soc_percent": soc_percent},
-    }
+    data: dict[str, dict[str, list[float]]] = {}
+    if path.exists():
+        try:
+            with path.open("rb") as f:
+                loaded = tomllib.load(f)
+            for key in ("discharge", "charge"):
+                section = loaded.get(key)
+                if isinstance(section, dict):
+                    vv = section.get("voltage_v")
+                    ss = section.get("soc_percent")
+                    if isinstance(vv, list) and isinstance(ss, list):
+                        data[key] = {"voltage_v": vv, "soc_percent": ss}
+        except Exception:
+            data = {}
+    data[mode] = {"voltage_v": voltage_v, "soc_percent": soc_percent}
+    other_mode = "charge" if mode == "discharge" else "discharge"
+    if other_mode not in data:
+        data[other_mode] = {"voltage_v": voltage_v, "soc_percent": soc_percent}
     with path.open("wb") as f:
         f.write(tomli_w.dumps(data).encode("utf-8"))
         f.flush()
@@ -155,10 +196,10 @@ def checkpoint_outputs(args: argparse.Namespace, samples: list[Sample]) -> None:
     if len(samples) < 2:
         return
     discharge_current_positive = not args.discharge_current_negative
-    soc_trace, voltage_trace = compute_soc_trace(samples, discharge_current_positive)
+    soc_trace, voltage_trace = compute_soc_trace(samples, discharge_current_positive, args.mode)
     table_voltage, table_soc = build_table_from_trace(soc_trace, voltage_trace, args.point_count)
     write_capture_csv(args.output_csv, samples, soc_trace)
-    write_table_toml(args.output_table, table_voltage, table_soc)
+    write_table_toml(args.output_table, args.mode, table_voltage, table_soc)
 
 
 def main() -> int:
@@ -177,7 +218,9 @@ def main() -> int:
     with SMBus(args.i2c_bus) as bus:
         write_reg_u16(bus, args.i2c_address, INA219_REG_CALIBRATION, INA219_CALIBRATION_16V_5A)
         write_reg_u16(bus, args.i2c_address, INA219_REG_CONFIG, INA219_CONFIG_16V_5A_CONTINUOUS)
-        print(f"Capturing discharge data on i2c-{args.i2c_bus} addr {hex(args.i2c_address)}")
+        print(
+            f"Capturing {args.mode} data on i2c-{args.i2c_bus} addr {hex(args.i2c_address)}"
+        )
         while keep_running:
             sample = read_sample(bus, args.i2c_address)
             samples.append(sample)
@@ -190,8 +233,11 @@ def main() -> int:
                 checkpoint_outputs(args, samples)
                 last_checkpoint_t = now
                 print(f"Checkpoint saved: {args.output_csv} and {args.output_table}")
-            if sample.bus_voltage_v <= args.cutoff_voltage:
+            if args.mode == "discharge" and sample.bus_voltage_v <= args.cutoff_voltage:
                 print(f"Reached cutoff voltage {args.cutoff_voltage:.3f}V; stopping capture.")
+                break
+            if args.mode == "charge" and sample.bus_voltage_v >= args.cutoff_voltage:
+                print(f"Reached target voltage {args.cutoff_voltage:.3f}V; stopping capture.")
                 break
             time.sleep(max(0.1, args.sample_interval))
 
@@ -200,14 +246,14 @@ def main() -> int:
         return 1
 
     discharge_current_positive = not args.discharge_current_negative
-    soc_trace, voltage_trace = compute_soc_trace(samples, discharge_current_positive)
+    soc_trace, voltage_trace = compute_soc_trace(samples, discharge_current_positive, args.mode)
     table_voltage, table_soc = build_table_from_trace(soc_trace, voltage_trace, args.point_count)
     write_capture_csv(args.output_csv, samples, soc_trace)
-    write_table_toml(args.output_table, table_voltage, table_soc)
+    write_table_toml(args.output_table, args.mode, table_voltage, table_soc)
 
     print(f"Wrote capture CSV: {args.output_csv}")
     print(f"Wrote OCV table:  {args.output_table}")
-    print("Discharge table:")
+    print(f"{args.mode.capitalize()} table:")
     for v, s in zip(table_voltage, table_soc):
         print(f"  {v:>7.4f} V -> {s:>6.2f}%")
     return 0
