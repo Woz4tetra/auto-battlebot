@@ -74,7 +74,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-csv",
         type=Path,
-        default=Path("data/battery_discharge_capture.csv"),
+        default=None,
+        help="Capture CSV path (default depends on --mode)",
     )
     parser.add_argument(
         "--output-table",
@@ -204,6 +205,11 @@ def checkpoint_outputs(args: argparse.Namespace, samples: list[Sample]) -> None:
 
 def main() -> int:
     args = parse_args()
+    if args.output_csv is None:
+        if args.mode == "charge":
+            args.output_csv = Path("data/battery_charge_capture.csv")
+        else:
+            args.output_csv = Path("data/battery_discharge_capture.csv")
     keep_running = True
 
     def stop_handler(_sig: int, _frame: object) -> None:
