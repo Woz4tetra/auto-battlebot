@@ -1,6 +1,6 @@
 mode: merged_classes
 
-input_dir: training/data/nhrl_seg
+input_dir: training/data/nhrl_seg/nhrl_seg_indiv_labeled
 output_dir: training/data/robots_dataset
 
 overwrite: false
