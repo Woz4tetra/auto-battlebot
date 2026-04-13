@@ -1334,7 +1334,7 @@ def main() -> None:
                 air_cfg = rand_cfg.get("air_height_range", [0.02, 0.15])
                 robot_z = ground_z + random.uniform(air_cfg[0], air_cfg[1])
             else:
-                if random.random() < 0.0:
+                if random.random() < 0.5:
                     pitch_deg = -90.0
                     roll_deg = rcfg.get("ground_roll_upright", 0.0)
                 else:

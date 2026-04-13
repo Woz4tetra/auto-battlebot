@@ -303,7 +303,7 @@ min_per_scene = 1
 max_per_scene = 50
 # Scale range as multiples of the robot's largest dimension.
 # [0.5, 3.0] means distractors will be 0.5x to 3x the robot's size.
-scale_range = [0.5, 2.0]
+scale_range = [0.1, 2.0]
 # Re-roll the distractor pool every N images (0 to keep the same pool all run).
 shuffle_interval = 100
 
