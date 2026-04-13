@@ -4,22 +4,27 @@ set -euo pipefail
 if [ $# -lt 1 ]; then
   cat <<'EOF'
 Usage:
-  training/synthetic/docker/run_synthetic.sh [--cpu] [--require-gpu] <image_name> [args...]
+  training/synthetic/docker/run_synthetic.sh [--gpu] [--require-gpu] [--cpu] <image_name> [args...]
 
 Examples:
   training/synthetic/docker/run_synthetic.sh auto-battlebot-synthetic
+  training/synthetic/docker/run_synthetic.sh --gpu auto-battlebot-synthetic
   training/synthetic/docker/run_synthetic.sh --cpu auto-battlebot-synthetic
   training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic
-  training/synthetic/docker/run_synthetic.sh auto-battlebot-synthetic python training/synthetic/generate_reference_models.py --help
+  training/synthetic/docker/run_synthetic.sh auto-battlebot-synthetic python training/synthetic/download_objaverse.py --help
   training/synthetic/docker/run_synthetic.sh auto-battlebot-synthetic blenderproc run training/synthetic/render_scenes.py -- training/synthetic/config.toml --num-images 4
 EOF
   exit 1
 fi
 
-docker_gpu_args=(--gpus all)
+docker_gpu_args=()
 require_gpu=0
 while [ $# -gt 0 ]; do
   case "${1:-}" in
+    --gpu)
+      docker_gpu_args=(--gpus all)
+      shift
+      ;;
     --cpu)
       docker_gpu_args=()
       shift
@@ -47,8 +52,7 @@ if [ $# -eq 0 ]; then
 fi
 
 hf_cache_host="${HOME}/.cache/huggingface"
-u2net_cache_host="${U2NET_HOST_CACHE:-${HOME}/.cache/u2net}"
-mkdir -p "$hf_cache_host" "$u2net_cache_host"
+mkdir -p "$hf_cache_host"
 
 docker_tty_args=()
 if [ -t 0 ] && [ -t 1 ]; then
@@ -59,7 +63,6 @@ run_cmd=(
   docker run "${docker_gpu_args[@]}" --rm "${docker_tty_args[@]}"
   -v "$(pwd):/workspace"
   -v "${hf_cache_host}:/opt/hf"
-  -v "${u2net_cache_host}:/root/.u2net"
   -w /workspace/training/synthetic
   "$image_name" "$@"
 )
@@ -87,7 +90,6 @@ if [ $gpu_probe_exit -ne 0 ]; then
   docker run --rm "${docker_tty_args[@]}" \
     -v "$(pwd):/workspace" \
     -v "${hf_cache_host}:/opt/hf" \
-    -v "${u2net_cache_host}:/root/.u2net" \
     -w /workspace/training/synthetic \
     "$image_name" "$@"
   exit $?

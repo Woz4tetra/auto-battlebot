@@ -15,7 +15,7 @@ export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$HF_HOME/transformers}"
 mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE"
 
 if [ ! -f "$HF_HOME/.has_hf_login" ]; then
-  echo "[synthetic-entrypoint] Optional first-time step: run 'huggingface-cli login' for SF3D."
+  echo "[synthetic-entrypoint] Optional first-time step: run 'huggingface-cli login' for asset downloads."
   echo "[synthetic-entrypoint] If you already logged in, create $HF_HOME/.has_hf_login to silence this hint."
 fi
 

@@ -1,7 +1,7 @@
 mode: merged_classes
 
-input_dir: /path/to/input/search_root
-output_dir: /path/to/output/merged_robot_house_floor_dataset
+input_dir: training/data/nhrl_seg
+output_dir: training/data/robots_dataset
 
 overwrite: false
 copy_empty: false
