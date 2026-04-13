@@ -73,7 +73,7 @@ You can run all synthetic tools from this container, including:
 The image includes both backends:
 
 - `triposr` CLI (wrapper around TripoSR `run.py`)
-- `python training/synthetic/scripts/sf3d_backend_wrapper.py`
+- `python scripts/sf3d_backend_wrapper.py`
 
 ### Host setup (optional/manual)
 
@@ -109,7 +109,7 @@ This repo now includes an SF3D backend wrapper:
 
 ```bash
 # In Docker, SF3D lives at /opt/sf3d and wrapper is in this repo.
-python training/synthetic/scripts/sf3d_backend_wrapper.py --help
+python scripts/sf3d_backend_wrapper.py --help
 ```
 
 If no external backend is available, the pipeline automatically falls back to a
@@ -232,7 +232,7 @@ python generate_reference_models.py \
   ../data/nhrl_seg \
   ../data/distractor_models/reference3d \
   --backend triposr \
-  --backend-cmd 'python training/synthetic/scripts/sf3d_backend_wrapper.py --input "{input}" --output "{output}"'
+  --backend-cmd 'python scripts/sf3d_backend_wrapper.py --input "{input}" --output "{output}"'
 ```
 
 Useful controls:
@@ -259,6 +259,7 @@ Reference-model generation settings:
 - `--backend-cmd`: command template for the external single-image 3D backend.
 - `--floor-labels`: label IDs to skip (for example floor class IDs).
 - `--num-candidates`: candidates per instance; best-scoring mesh is kept.
+- `--full-image-num-candidates`: candidates per image in plain image-folder mode (default: 1 mesh per image).
 - `--quality-threshold`: drop low-quality meshes (or keep with `--keep-rejected`).
 - `--target-native-size`: normalize distractor scale for stable scene placement.
 
@@ -287,6 +288,12 @@ Reference-model generation settings:
     ```
   - If you still need to proceed before GPU runtime is configured, use CPU mode:
     `training/synthetic/docker/run_synthetic.sh --cpu ...`.
+- SF3D fails with `NotImplementedError: Could not run 'texture_baker_cpp::rasterize' ... CUDA backend`:
+  - Cause: `texture_baker` was built CPU-only.
+  - Fix: rebuild the image from updated Dockerfile (it now forces `USE_CUDA=1` during `texture_baker` install):
+    ```bash
+    docker build -f training/synthetic/Dockerfile -t auto-battlebot-synthetic training/synthetic
+    ```
 
 Run a quick benchmark against an existing baseline directory:
 

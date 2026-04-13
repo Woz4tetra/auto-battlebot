@@ -5,6 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PYOPENGL_PLATFORM=egl \
+    TORCH_CUDA_ARCH_LIST=8.9 \
     SF3D_USE_CPU=0 \
     HF_HOME=/opt/hf
 
@@ -19,13 +20,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3.10 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
-RUN pip install --upgrade pip setuptools wheel
+RUN pip install --upgrade pip==24.3.1 setuptools wheel
 
 # Install torch before building local SF3D extensions that import torch in setup.py.
 RUN pip install --index-url https://download.pytorch.org/whl/cu124 \
     torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1
 
-RUN pip install xformers==0.0.28.post3
+RUN pip install --index-url https://download.pytorch.org/whl/cu124 \
+    xformers==0.0.28.post3
 
 WORKDIR /opt/sf3d
 RUN git clone --depth=1 https://github.com/Stability-AI/stable-fast-3d.git .
@@ -33,7 +35,8 @@ RUN git clone --depth=1 https://github.com/Stability-AI/stable-fast-3d.git .
 # Build SF3D with no build isolation so torch from the active venv is visible.
 RUN python -c "import torch; print('torch', torch.__version__)" && \
     pip install gpytoolbox==0.2.0 antlr4-python3-runtime==4.9.3 && \
-    pip install --no-build-isolation ./texture_baker ./uv_unwrapper && \
+    USE_CUDA=1 pip install --no-build-isolation ./texture_baker && \
+    pip install --no-build-isolation ./uv_unwrapper && \
     bash -lc "grep -vE '^(\\./texture_baker/|\\./uv_unwrapper/)$' requirements.txt > /tmp/sf3d-req.txt" && \
     pip install --no-build-isolation -r /tmp/sf3d-req.txt
 

@@ -20,6 +20,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+import numpy as np
+from PIL import Image
+
 
 def _resolve_sf3d_root(explicit: str | None) -> Path:
     candidates: list[Path] = []
@@ -98,10 +101,23 @@ def main() -> int:
         tmp_output = Path(tmpdir) / "sf3d_out"
         tmp_output.mkdir(parents=True, exist_ok=True)
 
+        sf3d_input = input_image
+        # For full-image crops with fully opaque alpha, force RGB input so the
+        # backend can run its own background removal model.
+        try:
+            input_rgba = Image.open(input_image).convert("RGBA")
+            alpha = np.array(input_rgba)[:, :, 3]
+            if alpha.size > 0 and float((alpha >= 250).mean()) > 0.995:
+                rgb_input = Path(tmpdir) / f"{input_image.stem}_rgb_input.png"
+                input_rgba.convert("RGB").save(rgb_input)
+                sf3d_input = rgb_input
+        except Exception:
+            pass
+
         cmd = [
             sys.executable,
             str(run_script),
-            str(input_image),
+            str(sf3d_input),
             "--output-dir",
             str(tmp_output),
             "--texture-resolution",
@@ -124,7 +140,7 @@ def main() -> int:
             sys.stderr.write(proc.stdout or "")
             return proc.returncode
 
-        produced = _pick_output_glb(tmp_output, input_image)
+        produced = _pick_output_glb(tmp_output, sf3d_input)
         shutil.copy2(produced, output_path)
         print(f"SF3D wrapper: wrote {output_path}")
     return 0

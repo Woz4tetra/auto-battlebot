@@ -18,6 +18,8 @@ import random
 import shlex
 import subprocess
 import tempfile
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Iterator, TypeVar
@@ -467,14 +469,62 @@ def run_command_template(command_template: str, *, input_rgba: Path, output_mesh
         output_dir=str(output_mesh.parent),
         output_stem=output_mesh.stem,
     )
-    proc = subprocess.run(
-        shlex.split(cmd),
+    parsed = shlex.split(cmd)
+    if not parsed:
+        return False, "empty backend command"
+
+    start = time.monotonic()
+    next_heartbeat_s = 10
+    print(f"    [backend] starting: {parsed[0]}")
+    proc = subprocess.Popen(
+        parsed,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE,
         text=True,
-        check=False,
+        bufsize=1,
     )
-    return proc.returncode == 0, (proc.stdout or "").strip()
+
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+
+    def _forward(pipe: subprocess.PIPE, sink: list[str], label: str) -> None:
+        if pipe is None:
+            return
+        for line in iter(pipe.readline, ""):
+            sink.append(line)
+            print(f"    [backend {label}] {line.rstrip()}")
+        pipe.close()
+
+    t_out = threading.Thread(
+        target=_forward, args=(proc.stdout, stdout_lines, "stdout"), daemon=True
+    )
+    t_err = threading.Thread(
+        target=_forward, args=(proc.stderr, stderr_lines, "stderr"), daemon=True
+    )
+    t_out.start()
+    t_err.start()
+
+    while proc.poll() is None:
+        elapsed = int(time.monotonic() - start)
+        if elapsed >= next_heartbeat_s:
+            print(f"    [backend] still running... {elapsed}s elapsed")
+            next_heartbeat_s += 10
+        time.sleep(1.0)
+
+    ret = int(proc.wait())
+    t_out.join(timeout=5.0)
+    t_err.join(timeout=5.0)
+
+    elapsed_total = int(time.monotonic() - start)
+    print(f"    [backend] finished in {elapsed_total}s (exit={ret})")
+
+    output_parts: list[str] = []
+    if stdout_lines:
+        output_parts.append("[stdout]\n" + "".join(stdout_lines).strip())
+    if stderr_lines:
+        output_parts.append("[stderr]\n" + "".join(stderr_lines).strip())
+    output = "\n\n".join(part for part in output_parts if part.strip())
+    return ret == 0, output
 
 
 def generate_silhouette_mesh(rgba: np.ndarray, output_mesh: Path) -> tuple[bool, str]:
@@ -683,7 +733,12 @@ def process_sample(
                 jitter_shift=(dx, dy),
             )
             rgba_path = tmp / f"{sample.sample_id}_cand{idx:02d}.png"
-            Image.fromarray(rgba, mode="RGBA").save(rgba_path)
+            if sample.annotation_format == "full_image":
+                # For plain photo folders with no segmentation, keep RGB input
+                # so backends like TripoSR can run their own rembg step.
+                Image.fromarray(rgba[:, :, :3], mode="RGB").save(rgba_path)
+            else:
+                Image.fromarray(rgba, mode="RGBA").save(rgba_path)
 
             raw_mesh_path = tmp / f"{sample.sample_id}_cand{idx:02d}.glb"
             ok, backend_log = choose_backend(
@@ -828,6 +883,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--target-size", type=int, default=512, help="Crop resolution for backend")
     p.add_argument("--crop-padding", type=float, default=0.16, help="Relative crop padding")
     p.add_argument("--num-candidates", type=int, default=3, help="Candidates per instance")
+    p.add_argument(
+        "--full-image-num-candidates",
+        type=int,
+        default=1,
+        help=(
+            "Candidates per image when no segmentation is found (plain image folder mode). "
+            "Set >1 to evaluate multiple jittered candidates per image."
+        ),
+    )
     p.add_argument("--jitter-shift", type=float, default=0.04, help="Crop center jitter ratio")
     p.add_argument("--jitter-scale", type=float, default=0.08, help="Crop scale jitter ratio")
     p.add_argument("--target-max-faces", type=int, default=18000, help="Face budget after cleanup")
@@ -883,10 +947,15 @@ def main() -> None:
     )
     for i, sample in sample_iter:
         print(f"[{i}/{len(samples)}] {sample.sample_id}")
+        sample_num_candidates = (
+            int(args.full_image_num_candidates)
+            if sample.annotation_format == "full_image"
+            else int(args.num_candidates)
+        )
         best, meta = process_sample(
             sample,
             output_dir=output_dir,
-            num_candidates=args.num_candidates,
+            num_candidates=sample_num_candidates,
             target_size=args.target_size,
             crop_padding=args.crop_padding,
             jitter_shift=args.jitter_shift,
