@@ -1,6 +1,7 @@
 import blenderproc as bproc  # isort: skip  # must be first import for blenderproc run
 
 import argparse
+import gc
 import math
 import os
 import random
@@ -1134,6 +1135,9 @@ def main() -> None:
     bproc.camera.set_resolution(img_w, img_h)
     bproc.renderer.set_max_amount_of_samples(args.render_samples)
     bproc.renderer.enable_depth_output(activate_antialiasing=False)
+    if hasattr(bpy.context.scene, "cycles"):
+        # Prevent Cycles from keeping render data across frames/scenes.
+        bpy.context.scene.cycles.use_persistent_data = False
 
     # ------- Load target robots -------
 
@@ -1267,6 +1271,7 @@ def main() -> None:
     ground_size_range = scene_cfg.get("ground_size_range", [2.0, 5.0])
     arena_radius_range = scene_cfg.get("arena_radius_range", [0.5, 1.5])
     max_robots_per_scene = scene_cfg.get("max_robots_per_scene", 1)
+    memory_cleanup_interval = int(config["output"].get("memory_cleanup_interval", 25))
 
     # ------- Verify category_ids -------
 
@@ -1488,6 +1493,14 @@ def main() -> None:
                 clean_inst_seg_maps[local_idx] if clean_inst_seg_maps is not None else None
             )
             depth_map = depth_maps[local_idx]
+            rendered_robot_ids: set[int] = set()
+            if inst_seg is not None:
+                visible_ids = {int(v) for v in np.unique(inst_seg.squeeze()).tolist()}
+                rendered_robot_ids = {
+                    robot.instance_id
+                    for robot in scene_robots
+                    if robot.instance_id in visible_ids
+                }
 
             if scene_idx == 0 and local_idx == 0:
                 print(
@@ -1499,6 +1512,7 @@ def main() -> None:
 
             # -- Per-robot annotation --
             annotations: list[YoloAnnotation] = []
+            annotated_robot_ids: set[int] = set()
             for robot in scene_robots:
                 if inst_seg is not None:
                     seg_for_bbox = inst_seg
@@ -1546,6 +1560,13 @@ def main() -> None:
                     keypoints_2d.append((x_n, y_n, vis))
 
                 annotations.append((robot.class_id, bbox, keypoints_2d))
+                annotated_robot_ids.add(robot.instance_id)
+
+            missing_robot_ids = rendered_robot_ids - annotated_robot_ids
+            if missing_robot_ids:
+                # Discard this frame if any robot instance that appears in the
+                # rendered segmentation is missing from YOLO annotations.
+                continue
 
             if not annotations:
                 continue
@@ -1577,6 +1598,20 @@ def main() -> None:
             images_since_shuffle += 1
 
         scene_idx += 1
+        if memory_cleanup_interval > 0 and scene_idx % memory_cleanup_interval == 0:
+            gc.collect()
+            # Remove unused datablocks to keep long runs from exhausting VRAM.
+            for img in list(bpy.data.images):
+                if img.users == 0:
+                    bpy.data.images.remove(img)
+            try:
+                bpy.data.orphans_purge(do_recursive=True)
+            except TypeError:
+                # Older Blender versions expose a wider signature.
+                bpy.data.orphans_purge(
+                    do_local_ids=True, do_linked_ids=True, do_recursive=True
+                )
+
         if scene_idx % 50 == 0:
             names = [r.name for r in scene_robots]
             print(

@@ -11,6 +11,9 @@ images_per_scene = 10
 # Computed as: visible instance pixels (with distractors) divided by
 # unobstructed instance pixels from a distractor-free segmentation pass.
 min_robot_visibility = 0.10
+# Force periodic Blender data cleanup during long renders to avoid memory growth.
+# Set to 0 to disable.
+memory_cleanup_interval = 25
 
 # Each [[robots]] entry defines a robot model that can appear in scenes.
 # Per scene, 1..max_robots_per_scene robots are selected using weighted
