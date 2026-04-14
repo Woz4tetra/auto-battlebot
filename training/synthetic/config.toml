@@ -296,7 +296,7 @@ texture_dir = "../data/cc_textures/mrs_buff_mk3_bottom_sticker"
 # contribute a model as one with weight 1.0.
 [[distractors.sources]]
 path = "../data/distractor_models/objaverse"
-weight = 0.1
+weight = 0.5
 
 [[distractors.sources]]
 path = "../data/distractor_models/robots"
@@ -821,36 +821,36 @@ ground_textures = [
 
 [camera]
 min_distance = 0.3
-max_distance = 4.0
-height_range = [0.1, 2.0]
+max_distance = 6.0
+height_range = [0.1, 4.0]
 # Gaussian noise added to the camera look-at target (meters)
 look_at_noise = 0.4
 
 [scene]
 # Randomized range for the ground plane half-extent (meters).
-ground_size_range = [0.5, 5.0]
+ground_size_range = [0.5, 10.0]
 # Randomized range for the radius within which objects are placed (meters).
-arena_radius_range = [0.5, 1.5]
+arena_radius_range = [0.5, 3.5]
 # Fraction of scenes that include a visible ground plane (0.0–1.0).
 # The remainder show only the HDRI background behind the robots.
-ground_visibility = 0.8
+ground_visibility = 0.9
 # Maximum number of robots rendered simultaneously per scene (1 = always one).
 # Each scene randomly picks between 1 and this value, weighted by each robot's
 # `weight` field.  Clamped to the number of [[robots]] entries.
 max_robots_per_scene = 10
 
 [randomization]
-roughness_jitter = 0.1
-hue_jitter_degrees = 5
+roughness_jitter = 0.5
+hue_jitter_degrees = 10
 light_count_range = [1, 3]
-light_intensity_range = [10, 1000]
+light_intensity_range = [10, 2000]
 light_color_temp_range = [3500, 6500]
 
 # Probability the robot is airborne with a fully random tumbling orientation.
 # The remainder of images place the robot on the ground in a ground_pitch pose.
 air_probability = 0.3
 # Height range (meters) above ground when airborne
-air_height_range = [0.02, 0.4]
+air_height_range = [0.02, 1.0]
 
 # Ground orientation: pitch (X-rotation) is fixed at +90° for right-side-up
 # and -90° for upside-down.  Roll (Y-rotation, degrees) is configurable per
