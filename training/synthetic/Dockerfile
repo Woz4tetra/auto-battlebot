@@ -22,13 +22,38 @@ RUN pip install --upgrade pip setuptools wheel
 WORKDIR /workspace/training/synthetic
 COPY . /workspace/training/synthetic
 
-RUN pip install --no-build-isolation -e /workspace/training/synthetic
-RUN pip install gitpython scikit-learn pyyaml scikit-image trimesh
+RUN pip install --default-timeout=120 --retries=20 --no-build-isolation -e /workspace/training/synthetic
+RUN pip install --default-timeout=120 --retries=20 gitpython scikit-learn pyyaml scikit-image trimesh
 
-# BlenderProc's pinned 4.10.0.82 wheel is unavailable in this environment.
-# Preinstall a compatible wheel into Blender's Python runtime.
-RUN blenderproc pip install opencv-contrib-python==4.10.0.84
-RUN blenderproc pip install gitpython scikit-learn "pyglet<2" pyrender==0.1.45
+# Ensure Blender is downloaded and available in the image.
+RUN blenderproc pip install --default-timeout=120 --retries=20 opencv-contrib-python==4.10.0.82
+
+# Preinstall Blender runtime packages that BlenderProc otherwise installs on first run.
+RUN /root/blender/blender-4.2.1-linux-x64/4.2/python/bin/python3.11 -m pip install \
+    --default-timeout=120 \
+    --retries=20 \
+    --upgrade pip setuptools wheel && \
+    /root/blender/blender-4.2.1-linux-x64/4.2/python/bin/python3.11 -m pip install \
+    --default-timeout=120 \
+    --retries=20 \
+    numpy==1.26.4 \
+    pyyaml==6.0.1 \
+    imageio==2.34.1 \
+    gitpython==3.1.43 \
+    scikit-image==0.23.2 \
+    pypng==0.20220715.0 \
+    scipy==1.13.1 \
+    matplotlib==3.9.0 \
+    pytz==2024.1 \
+    h5py==3.11.0 \
+    pillow==10.3.0 \
+    opencv-contrib-python==4.10.0.82 \
+    scikit-learn==1.5.0 \
+    python-dateutil==2.9.0.post0 \
+    rich==13.7.1 \
+    trimesh==4.4.0 \
+    "pyglet<2" \
+    pyrender==0.1.45
 
 COPY docker/entrypoint.sh /usr/local/bin/synthetic-entrypoint
 RUN chmod +x /usr/local/bin/synthetic-entrypoint

@@ -7,8 +7,9 @@ image_height = 720
 # Number of camera viewpoints to render per scene arrangement.
 # Higher values = faster generation but less object placement diversity.
 images_per_scene = 10
-# Minimum fraction of the robot's bounding box that must be filled with
-# robot pixels (vs occluded by distractors). Frames below this are discarded.
+# Minimum visible fraction of robot pixels after occlusion.
+# Computed as: visible instance pixels (with distractors) divided by
+# unobstructed instance pixels from a distractor-free segmentation pass.
 min_robot_visibility = 0.10
 
 # Each [[robots]] entry defines a robot model that can appear in scenes.

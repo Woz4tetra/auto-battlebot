@@ -111,6 +111,59 @@ def parse_yolo_seg_rows(label_path: Path) -> list[tuple[int, list[tuple[float, f
     return rows
 
 
+def polygon_area(points: np.ndarray) -> float:
+    if len(points) < 3:
+        return 0.0
+    return float(abs(cv2.contourArea(points.astype(np.float32))))
+
+
+def polygon_interior_point(points: np.ndarray) -> tuple[float, float]:
+    moments = cv2.moments(points.astype(np.float32))
+    if abs(moments["m00"]) > 1e-8:
+        return (moments["m10"] / moments["m00"], moments["m01"] / moments["m00"])
+    p = points[0]
+    return (float(p[0]), float(p[1]))
+
+
+def compute_nesting_depths(polygons: list[np.ndarray]) -> list[int]:
+    if not polygons:
+        return []
+
+    areas = [polygon_area(poly) for poly in polygons]
+    parents: list[int] = [-1] * len(polygons)
+
+    for idx, poly in enumerate(polygons):
+        point = polygon_interior_point(poly)
+        parent_idx = -1
+        parent_area = float("inf")
+        for candidate_idx, candidate in enumerate(polygons):
+            if candidate_idx == idx:
+                continue
+            if areas[candidate_idx] <= areas[idx]:
+                continue
+            test = cv2.pointPolygonTest(
+                candidate.reshape((-1, 1, 2)).astype(np.float32), point, False
+            )
+            if test < 0:
+                continue
+            if areas[candidate_idx] < parent_area:
+                parent_idx = candidate_idx
+                parent_area = areas[candidate_idx]
+        parents[idx] = parent_idx
+
+    depths: list[int] = [0] * len(polygons)
+    for idx in range(len(polygons)):
+        depth = 0
+        current = parents[idx]
+        visited: set[int] = set()
+        while current != -1 and current not in visited:
+            visited.add(current)
+            depth += 1
+            current = parents[current]
+        depths[idx] = depth
+    return depths
+
+
 def rasterize_mask(
     image_shape: tuple[int, int],
     rows: list[tuple[int, list[tuple[float, float]]]],
@@ -120,17 +173,30 @@ def rasterize_mask(
     h, w = image_shape
     mask = np.zeros((h, w), dtype=np.uint8)
 
+    polygons_by_class: dict[int, list[np.ndarray]] = {}
     for class_id, polygon in rows:
-        pts = []
-        for x_norm, y_norm in polygon:
-            x = int(round(np.clip(x_norm, 0.0, 1.0) * (w - 1)))
-            y = int(round(np.clip(y_norm, 0.0, 1.0) * (h - 1)))
-            pts.append((x, y))
+        pts = np.array(
+            [
+                (
+                    int(round(np.clip(x_norm, 0.0, 1.0) * (w - 1))),
+                    int(round(np.clip(y_norm, 0.0, 1.0) * (h - 1))),
+                )
+                for x_norm, y_norm in polygon
+            ],
+            dtype=np.int32,
+        )
         if len(pts) < 3:
             continue
+        polygons_by_class.setdefault(class_id, []).append(pts)
 
+    for class_id, polygons in polygons_by_class.items():
+        if not polygons:
+            continue
+        depths = compute_nesting_depths(polygons)
         fill_value = 1 if binary else class_id + class_offset
-        cv2.fillPoly(mask, [np.array(pts, dtype=np.int32)], int(fill_value))
+        for polygon, depth in zip(polygons, depths):
+            value = 0 if depth % 2 == 1 else int(fill_value)
+            cv2.fillPoly(mask, [polygon], value)
     return mask
 
 

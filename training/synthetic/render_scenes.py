@@ -1434,7 +1434,7 @@ def main() -> None:
         for pose in cam_poses:
             bproc.camera.add_camera_pose(pose)
 
-        # -- Render --
+        # -- Render with distractors enabled --
         data = bproc.renderer.render()
 
         if scene_idx == 0:
@@ -1449,6 +1449,27 @@ def main() -> None:
         cat_seg_maps = data.get("category_id_segmaps", data.get("segmap"))
         inst_seg_maps = data.get("robot_instance_id_segmaps")
         depth_maps = data["depth"]
+        clean_inst_seg_maps = None
+
+        # True occlusion metric: visible robot pixels (with distractors) divided
+        # by unobstructed robot pixels from a second pass with distractors hidden.
+        if inst_seg_maps is not None:
+            if active_distractors:
+                saved_distractor_world = [
+                    group[0].matrix_world.copy() for group in active_distractors
+                ]
+                for group in active_distractors:
+                    hide_distractor(group)
+                bpy.context.view_layer.update()
+
+                clean_data = bproc.renderer.render()
+                clean_inst_seg_maps = clean_data.get("robot_instance_id_segmaps")
+
+                for group, mat in zip(active_distractors, saved_distractor_world):
+                    group[0].matrix_world = mat
+                bpy.context.view_layer.update()
+            else:
+                clean_inst_seg_maps = inst_seg_maps
 
         if cat_seg_maps is None:
             if scene_idx == 0:
@@ -1463,6 +1484,9 @@ def main() -> None:
             color_img = colors[local_idx]
             cat_seg = cat_seg_maps[local_idx]
             inst_seg = inst_seg_maps[local_idx] if inst_seg_maps else None
+            clean_inst_seg = (
+                clean_inst_seg_maps[local_idx] if clean_inst_seg_maps is not None else None
+            )
             depth_map = depth_maps[local_idx]
 
             if scene_idx == 0 and local_idx == 0:
@@ -1494,10 +1518,19 @@ def main() -> None:
                 if w_px < min_bbox_dim or h_px < min_bbox_dim:
                     continue
 
-                robot_px = int(np.sum(seg_for_bbox.squeeze() == seg_id))
-                bbox_area_px = max(1, w_px * h_px)
-                if robot_px < bbox_area_px * min_vis:
-                    continue
+                if inst_seg is not None and clean_inst_seg is not None:
+                    visible_px = int(np.sum(inst_seg.squeeze() == seg_id))
+                    unobstructed_px = int(np.sum(clean_inst_seg.squeeze() == seg_id))
+                    if unobstructed_px <= 0:
+                        continue
+                    if (visible_px / unobstructed_px) < min_vis:
+                        continue
+                else:
+                    # Fallback for configurations where instance segmaps are absent.
+                    robot_px = int(np.sum(seg_for_bbox.squeeze() == seg_id))
+                    bbox_area_px = max(1, w_px * h_px)
+                    if robot_px < bbox_area_px * min_vis:
+                        continue
 
                 robot_world_mat = np.array(robot.parent.matrix_world)
                 keypoints_2d: list[tuple[float, float, int]] = []
