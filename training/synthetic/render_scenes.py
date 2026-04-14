@@ -1600,17 +1600,17 @@ def main() -> None:
         scene_idx += 1
         if memory_cleanup_interval > 0 and scene_idx % memory_cleanup_interval == 0:
             gc.collect()
-            # Remove unused datablocks to keep long runs from exhausting VRAM.
+            # Free transient render buffers/images without touching materials.
+            # Avoid orphans_purge here: it can delete cached cc_textures that are
+            # intentionally kept for future scenes but temporarily have 0 users.
             for img in list(bpy.data.images):
-                if img.users == 0:
-                    bpy.data.images.remove(img)
-            try:
-                bpy.data.orphans_purge(do_recursive=True)
-            except TypeError:
-                # Older Blender versions expose a wider signature.
-                bpy.data.orphans_purge(
-                    do_local_ids=True, do_linked_ids=True, do_recursive=True
-                )
+                if img.name.startswith(("Render Result", "Viewer Node")):
+                    try:
+                        img.buffers_free()
+                    except Exception:
+                        pass
+                    if img.users == 0:
+                        bpy.data.images.remove(img)
 
         if scene_idx % 50 == 0:
             names = [r.name for r in scene_robots]
