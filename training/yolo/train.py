@@ -125,8 +125,9 @@ def main() -> None:
             data=dataset,
             name=run_name,
             project="../projects",
-            device=(0, 1, 2),
-            workers=24,
+            device=(0, 1),
+            workers=4,
+            cache="disk",
             **hyper_params,
             **settings,
         )
