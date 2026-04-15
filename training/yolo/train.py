@@ -29,6 +29,11 @@ def main() -> None:
             "epochs": 500,
             "imgsz": 640,
         },
+        "yolo26n-seg": {
+            "batch": 32,
+            "epochs": 500,
+            "imgsz": 640,
+        },
     }
 
     parser = argparse.ArgumentParser()
