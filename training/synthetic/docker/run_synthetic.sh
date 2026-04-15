@@ -74,18 +74,20 @@ fi
 
 # Probe GPU runtime support first to preserve interactive behavior and signals.
 set +e
-docker run --rm --gpus all --entrypoint /bin/sh "$image_name" -c "exit 0" >/dev/null 2>&1
+gpu_probe_output="$(docker run --rm --gpus all --entrypoint /bin/sh "$image_name" -c "exit 0" 2>&1)"
 gpu_probe_exit=$?
 set -e
 
 if [ $gpu_probe_exit -ne 0 ]; then
   if [ "$require_gpu" -eq 1 ]; then
     echo "GPU is required but Docker GPU runtime is unavailable." >&2
+    [ -n "${gpu_probe_output:-}" ] && echo "$gpu_probe_output" >&2
     echo "Tip: install/configure NVIDIA Container Toolkit." >&2
     exit $gpu_probe_exit
   fi
 
   echo "Docker GPU runtime unavailable; falling back to CPU mode." >&2
+  [ -n "${gpu_probe_output:-}" ] && echo "$gpu_probe_output" >&2
   echo "Tip: install/configure NVIDIA Container Toolkit for GPU runs." >&2
   docker run --rm "${docker_tty_args[@]}" \
     -v "$(pwd):/workspace" \
