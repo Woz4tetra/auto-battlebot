@@ -1,6 +1,7 @@
 import blenderproc as bproc  # isort: skip  # must be first import for blenderproc run
 
 import argparse
+import csv
 import gc
 import math
 import os
@@ -17,6 +18,8 @@ import numpy as np
 from bpy_extras.object_utils import world_to_camera_view
 
 _LAUNCH_CWD = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_CONFIG_BASE_DIR: Path | None = None
 
 ROBOT_CATEGORY_ID = 1
 DISTRACTOR_CATEGORY_ID = 2
@@ -77,14 +80,26 @@ def choose_scene_robots(
 
 
 def resolve_path(path: Path) -> Path:
-    """Resolve a potentially relative path against the original launch directory."""
+    """Resolve relative paths using config dir, launch CWD, then project root."""
     if path.is_absolute():
         return path
-    return (_LAUNCH_CWD / path).resolve()
+    candidates: list[Path] = []
+    if _CONFIG_BASE_DIR is not None:
+        candidates.append((_CONFIG_BASE_DIR / path).resolve())
+    candidates.append((_LAUNCH_CWD / path).resolve())
+    candidates.append((_PROJECT_ROOT / path).resolve())
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 def load_config(config_path: Path) -> dict:
-    with open(resolve_path(config_path), "rb") as f:
+    resolved_config = resolve_path(config_path)
+    global _CONFIG_BASE_DIR
+    _CONFIG_BASE_DIR = resolved_config.parent
+    with open(resolved_config, "rb") as f:
         return tomllib.load(f)
 
 
@@ -567,6 +582,95 @@ DistractorGroup = tuple[bpy.types.Object, list[bproc.types.MeshObject], float]
 """(parent_empty, meshes, native_max_dimension)"""
 
 
+def _estimate_image_gpu_bytes(img: bpy.types.Image) -> int:
+    """Approximate GPU memory footprint (bytes) for one Blender image."""
+    w, h = int(img.size[0]), int(img.size[1])
+    if w <= 0 or h <= 0:
+        return 0
+
+    channels = int(getattr(img, "channels", 4) or 4)
+    channels = max(1, channels)
+    bytes_per_channel = 4 if getattr(img, "is_float", False) else 1
+    base_level = w * h * channels * bytes_per_channel
+    # Include an approximate full mip chain cost.
+    return int(base_level * (4.0 / 3.0))
+
+
+def estimate_distractor_group_gpu_mb(group: DistractorGroup) -> float:
+    """Estimate the distractor's VRAM footprint from mesh + texture data."""
+    _parent, meshes, _ = group
+    seen_mesh_data: set[int] = set()
+    seen_images: set[int] = set()
+    total_bytes = 0
+
+    for mesh in meshes:
+        obj = mesh.blender_obj
+        mesh_data = obj.data
+        if mesh_data is not None:
+            mesh_ptr = mesh_data.as_pointer()
+            if mesh_ptr not in seen_mesh_data:
+                seen_mesh_data.add(mesh_ptr)
+                mesh_data.calc_loop_triangles()
+                vertex_count = len(mesh_data.vertices)
+                tri_count = len(mesh_data.loop_triangles)
+
+                # Approximate attribute payload per vertex.
+                uv_bytes = 8 if mesh_data.uv_layers else 0
+                color_bytes = (
+                    4 if (mesh_data.color_attributes or mesh_data.vertex_colors) else 0
+                )
+                total_bytes += vertex_count * (12 + 12 + uv_bytes + color_bytes)
+                # 3 uint32 indices per triangle.
+                total_bytes += tri_count * 12
+
+        for slot in obj.material_slots:
+            mat = slot.material
+            if not mat or not mat.use_nodes or not mat.node_tree:
+                continue
+            for node in mat.node_tree.nodes:
+                if node.type != "TEX_IMAGE":
+                    continue
+                img = getattr(node, "image", None)
+                if img is None:
+                    continue
+                img_ptr = img.as_pointer()
+                if img_ptr in seen_images:
+                    continue
+                seen_images.add(img_ptr)
+                total_bytes += _estimate_image_gpu_bytes(img)
+
+    return total_bytes / (1024**2)
+
+
+def load_distractor_vram_audit(csv_path: Path) -> dict[Path, float]:
+    """Load precomputed distractor VRAM estimates keyed by absolute model path."""
+    resolved = resolve_path(csv_path)
+    if not resolved.exists():
+        print(f"  VRAM audit CSV not found: {resolved}")
+        return {}
+
+    estimates: dict[Path, float] = {}
+    try:
+        with resolved.open(newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                file_str = row.get("file")
+                mb_str = row.get("total_gpu_mb_est")
+                if not file_str or not mb_str:
+                    continue
+                try:
+                    key = resolve_path(Path(file_str))
+                    estimates[key] = float(mb_str)
+                except Exception:
+                    continue
+    except Exception as e:
+        print(f"  Warning: failed to parse VRAM audit CSV {resolved}: {e}")
+        return {}
+
+    print(f"  Loaded VRAM audit entries: {len(estimates)} from {resolved}")
+    return estimates
+
+
 def _wire_vertex_colors(obj: bpy.types.Object) -> None:
     """Connect vertex color attributes to Principled BSDF Base Color.
 
@@ -669,7 +773,12 @@ def load_distractor(file_path: Path) -> DistractorGroup | None:
         return None
 
 
-def load_distractor_pool(sources: list[dict], max_count: int) -> list[DistractorGroup]:
+def load_distractor_pool(
+    sources: list[dict],
+    max_count: int,
+    vram_budget_mb: float | None = None,
+    vram_estimates_mb: dict[Path, float] | None = None,
+) -> list[DistractorGroup]:
     """Load a weighted-random pool of distractor models.
 
     *sources* is a list of ``{"path": ..., "weight": ...}`` dicts.
@@ -691,24 +800,70 @@ def load_distractor_pool(sources: list[dict], max_count: int) -> list[Distractor
         budgets[0] += remaining
 
     pool: list[DistractorGroup] = []
+    pool_vram_mb = 0.0
     for (file_list, weight), budget in zip(groups, budgets):
         loaded = 0
         for f in file_list:
             if loaded >= budget:
                 break
+            f_resolved = resolve_path(f)
+            est_mb_pre = (
+                vram_estimates_mb.get(f_resolved)
+                if vram_estimates_mb is not None
+                else None
+            )
+            if (
+                est_mb_pre is not None
+                and vram_budget_mb is not None
+                and vram_budget_mb > 0
+                and (pool_vram_mb + est_mb_pre) > vram_budget_mb
+            ):
+                print(
+                    f"  Skipped distractor (pre-check): {f.name} "
+                    f"(est {est_mb_pre:.1f} MB) "
+                    f"— pool budget {vram_budget_mb:.1f} MB would be exceeded "
+                    f"({pool_vram_mb + est_mb_pre:.1f} MB)"
+                )
+                continue
+
             group = load_distractor(f)
             if group:
+                est_mb = est_mb_pre
+                if est_mb is None:
+                    est_mb = estimate_distractor_group_gpu_mb(group)
+                    if vram_estimates_mb is not None:
+                        vram_estimates_mb[f_resolved] = est_mb
+                if (
+                    vram_budget_mb is not None
+                    and vram_budget_mb > 0
+                    and (pool_vram_mb + est_mb) > vram_budget_mb
+                ):
+                    unload_distractor_pool([group])
+                    print(
+                        f"  Skipped distractor: {f.name} "
+                        f"(est {est_mb:.1f} MB) "
+                        f"— pool budget {vram_budget_mb:.1f} MB would be exceeded "
+                        f"({pool_vram_mb + est_mb:.1f} MB)"
+                    )
+                    continue
+
                 pool.append(group)
+                pool_vram_mb += est_mb
                 _parent, meshes, sz = group
                 print(
                     f"  Loaded distractor: {f.name} "
-                    f"({len(meshes)} meshes, native {sz:.3f}m)"
+                    f"({len(meshes)} meshes, native {sz:.3f}m, est {est_mb:.1f} MB)"
                 )
                 loaded += 1
         dir_name = Path(file_list[0]).parent.name if file_list else "?"
         print(f"    {dir_name}: {loaded}/{budget} slots (weight {weight:.1f})")
 
     random.shuffle(pool)
+    if vram_budget_mb is not None and vram_budget_mb > 0:
+        print(
+            f"  Distractor pool VRAM estimate: {pool_vram_mb:.1f} MB "
+            f"(budget {vram_budget_mb:.1f} MB)"
+        )
     return pool
 
 
@@ -1200,6 +1355,13 @@ def main() -> None:
     dist_max_per_scene = dist_cfg.get("max_per_scene", 5)
     dist_min_per_scene = dist_cfg.get("min_per_scene", 0)
     dist_shuffle_interval = dist_cfg.get("shuffle_interval", 100)
+    dist_vram_budget_mb = dist_cfg.get("vram_budget_mb")
+    if dist_vram_budget_mb is not None:
+        dist_vram_budget_mb = float(dist_vram_budget_mb)
+    dist_vram_audit_csv = dist_cfg.get(
+        "vram_audit_csv", "training/data/distractor_models/distractor_gpu_audit.csv"
+    )
+    dist_vram_estimates = load_distractor_vram_audit(Path(dist_vram_audit_csv))
 
     def refresh_distractor_pool(
         old_pool: list[DistractorGroup],
@@ -1208,7 +1370,12 @@ def main() -> None:
         if old_pool:
             unload_distractor_pool(old_pool)
         print("Loading distractor models...")
-        pool = load_distractor_pool(dist_sources, dist_max_per_scene)
+        pool = load_distractor_pool(
+            dist_sources,
+            dist_max_per_scene,
+            vram_budget_mb=dist_vram_budget_mb,
+            vram_estimates_mb=dist_vram_estimates,
+        )
         print(f"  {len(pool)} distractors in pool")
         if dist_min_per_scene > len(pool):
             src_paths = [s["path"] for s in dist_sources]

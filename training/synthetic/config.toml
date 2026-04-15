@@ -305,6 +305,11 @@ weight = 1.0
 min_per_scene = 1
 # Also controls how many distractor models are loaded into memory at once.
 max_per_scene = 50
+# Optional approximate VRAM budget (MB) across the whole loaded distractor pool.
+# Set to 0 or remove to disable budget enforcement.
+vram_budget_mb = 3500
+# Precomputed per-model VRAM estimates used for pre-import budget checks.
+vram_audit_csv = "training/data/distractor_models/distractor_gpu_audit.csv"
 # Scale range as multiples of the robot's largest dimension.
 # [0.5, 3.0] means distractors will be 0.5x to 3x the robot's size.
 scale_range = [0.1, 2.0]
