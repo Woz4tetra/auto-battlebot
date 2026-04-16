@@ -24,6 +24,7 @@ PANEL_GROUPS = [
         "Train Losses",
         [
             ("train/box_loss",  "box"),
+            ("train/seg_loss",  "seg"),
             ("train/cls_loss",  "cls"),
             ("train/dfl_loss",  "dfl"),
             ("train/pose_loss", "pose"),
@@ -35,6 +36,7 @@ PANEL_GROUPS = [
         "Val Losses",
         [
             ("val/box_loss",  "box"),
+            ("val/seg_loss",  "seg"),
             ("val/cls_loss",  "cls"),
             ("val/dfl_loss",  "dfl"),
             ("val/pose_loss", "pose"),
@@ -49,6 +51,15 @@ PANEL_GROUPS = [
             ("metrics/mAP50-95(B)",  "mAP50-95"),
             ("metrics/precision(B)", "precision"),
             ("metrics/recall(B)",    "recall"),
+        ],
+    ),
+    (
+        "Segmentation Metrics (M)",
+        [
+            ("metrics/mAP50(M)",     "mAP50"),
+            ("metrics/mAP50-95(M)",  "mAP50-95"),
+            ("metrics/precision(M)", "precision"),
+            ("metrics/recall(M)",    "recall"),
         ],
     ),
     (
@@ -135,6 +146,7 @@ def make_figure(df: pd.DataFrame, csv_path: Path) -> plt.Figure:
         f"YOLO Training Results — {csv_path.name}\n"
         f"Epochs: {int(df['epoch'].max())}   "
         f"Best mAP50(B): {pd.to_numeric(df.get('metrics/mAP50(B)', pd.Series()), errors='coerce').max():.4f}   "
+        f"Best mAP50(M): {pd.to_numeric(df.get('metrics/mAP50(M)', pd.Series()), errors='coerce').max():.4f}   "
         f"Best mAP50(P): {pd.to_numeric(df.get('metrics/mAP50(P)', pd.Series()), errors='coerce').max():.4f}",
         fontsize=11,
         fontweight="bold",
