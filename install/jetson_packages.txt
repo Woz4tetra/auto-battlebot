@@ -6,3 +6,4 @@ libnvinfer-dev
 
 python3.10-venv
 python3.10-dev
+i2c-tools
