@@ -164,6 +164,10 @@ bool Runner::recover_camera_after_failure() {
         return true;
     };
     while (is_running()) {
+        if (ui_state_ && !handle_system_action_request()) {
+            camera_->cancel_initialize();
+            return false;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (!is_running()) {
             camera_->cancel_initialize();
