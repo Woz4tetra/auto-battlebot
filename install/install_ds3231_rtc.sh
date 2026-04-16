@@ -104,7 +104,7 @@ EOF
     echo ""
     echo "DS3231 setup complete."
     echo "Verification checklist:"
-    echo "  - sudo i2cdetect -y ${i2c_bus}"
+    echo "  - sudo i2cdetect -r -y ${i2c_bus}"
     echo "  - ls -l /sys/bus/i2c/devices/${device_key}"
     echo "  - timedatectl"
     echo "  - sudo hwclock -r"
