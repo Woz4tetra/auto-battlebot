@@ -15,7 +15,18 @@ install_ds3231_rtc() {
     local i2c_adapter="/sys/class/i2c-adapter/i2c-${i2c_bus}"
     local addr_hex addr_dec device_key device_path
 
-    echo "Configuring DS3231 RTC on i2c-${i2c_bus} at address ${i2c_address}..."
+    addr_dec=$((i2c_address))
+    addr_hex=$(printf "0x%02x" "$addr_dec")
+    device_key=$(printf "%d-%04x" "$i2c_bus" "$addr_dec")
+    device_path="/sys/bus/i2c/devices/${device_key}"
+
+    if [ -x "$init_script" ] && [ -f "$service_file" ] && [ -e "$device_path" ] \
+        && systemctl is-enabled --quiet auto-battlebot-ds3231.service; then
+        echo "DS3231 RTC setup already installed and enabled; skipping."
+        return
+    fi
+
+    echo "Configuring DS3231 RTC on i2c-${i2c_bus} at address ${addr_hex}..."
 
     for cmd in hwclock modprobe systemctl i2cdetect; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -30,11 +41,6 @@ install_ds3231_rtc() {
         echo "Check your DS3231 wiring and selected bus number."
         exit 1
     fi
-
-    addr_dec=$((i2c_address))
-    addr_hex=$(printf "0x%02x" "$addr_dec")
-    device_key=$(printf "%d-%04x" "$i2c_bus" "$addr_dec")
-    device_path="/sys/bus/i2c/devices/${device_key}"
 
     echo "Ensuring rtc-ds1307 kernel module loads on boot..."
     echo "rtc-ds1307" | sudo tee "$modules_file" >/dev/null
