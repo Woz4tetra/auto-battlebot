@@ -1,10 +1,10 @@
 [server]
 host = "127.0.0.1"
 port = 14882
-show_viewer = false
+show_viewer = true
 show_contact_forces = false
-physics_dt = 0.04
-substeps = 3
+physics_dt = 0.01
+substeps = 10
 settle_steps = 50
 
 [arena]
@@ -44,7 +44,7 @@ max_angular_speed = 6.0                                # rad/s at command=1.0
 model_euler = [0.0, 0.0, 0.0]                          # URDF meshes already x-forward
 wheel_radius = 0.025
 track_width = 0.128
-wheel_friction = 0.8
+wheel_friction = 1.6
 wheel_kp = 0.0
 wheel_kv = 50.0
 wheel_force_limit = 200.0
@@ -71,8 +71,8 @@ right_wheel_joints = ["front_right_wheel_joint", "rear_right_wheel_joint"]
 [[opponents]]
 model_path = "./assets/robots/mrs_buff_mk2.glb"
 scale = 1.0
-start_pos = [0.5, 0.0, 0.1]
+start_pos = [0.5, 0.0, 0.03]
 start_rotation = 180.0                          # yaw in degrees at spawn
-behavior = "random_walk"                        # "static", "random_walk", "circular"
+behavior = "circular"                           # "static", "random_walk", "circular"
 speed = 2.0                                     # m/s for moving behaviors
-model_euler = [-90.0, 0.0, 0.0]
+model_euler = [0.0, 0.0, 0.0]

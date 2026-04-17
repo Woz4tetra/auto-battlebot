@@ -109,7 +109,6 @@ class SimRunner:
         self._sim_debt: float = 0.0
         self._prev_time: float = 0.0
         self._timings = FrameTimings()
-        self._last_cmd_vel: list[float] = []
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -148,13 +147,14 @@ class SimRunner:
         w = self._our_wheels
 
         if w is not None:
-            v = linear_x * our.max_linear_speed
-            omega = angular_z * our.max_angular_speed
+            v_target = linear_x * our.max_linear_speed
+            omega_target = angular_z * our.max_angular_speed
+            v = v_target
+            omega = omega_target
             v_left = (v - omega * w.half_track) / w.wheel_radius
             v_right = (v + omega * w.half_track) / w.wheel_radius
             velocities = [v_left] * w.n_left + [v_right] * w.n_right
             robot.control_dofs_velocity(velocities, dofs_idx_local=w.all_dofs)
-            self._last_cmd_vel = velocities
         else:
             self._our_yaw += angular_z * our.max_angular_speed * dt
             speed = linear_x * our.max_linear_speed
@@ -223,10 +223,11 @@ class SimRunner:
         return buf
 
     def _send_frame(self, conn: socket.socket) -> None:
+        gt_payload = self._build_ground_truth_bytes()
         send_all(conn, self._header_bytes)
         send_all(conn, self._rgb_buf.data)
         send_all(conn, self._depth_buf.data)
-        send_all(conn, self._build_ground_truth_bytes())
+        send_all(conn, gt_payload)
 
     # -- main loop ----------------------------------------------------------
 
@@ -245,7 +246,6 @@ class SimRunner:
                 t1 = time.monotonic()
 
                 wall_dt = min(t1 - self._prev_time, 0.1)
-                self._prev_time = t1
 
                 self._apply_command(linear_x, linear_y, angular_z, wall_dt)
                 self._step_opponents(wall_dt)
@@ -267,6 +267,7 @@ class SimRunner:
                     t_process=0.0,
                     t_send=t5 - t4,
                 )
+                self._prev_time = t5
 
                 if self._timings.count % 10 == 0:
                     print(self._timings.report(steps, t5 - t0))

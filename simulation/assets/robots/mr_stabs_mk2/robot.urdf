@@ -2,7 +2,7 @@
 <robot name="mr_stabs_mk2">
   <link name="base_link">
     <inertial>
-      <origin xyz="0.0 0 0" rpy="0 0 0" />
+      <origin xyz="0.0 0 -0.004" rpy="0 0 0" />
       <mass value="4.2280000000e-01" />
       <inertia ixx="7.5028048089e-04" ixy="5.5791390000e-08" ixz="1.8346455500e-06"
         iyy="5.0764962881e-04" iyz="6.4056300000e-09" izz="1.1866097367e-03" />
@@ -24,7 +24,7 @@
     </inertial>
     <collision>
       <geometry>
-        <sphere radius="0.005" />
+        <sphere radius="0.001" />
       </geometry>
     </collision>
   </link>
@@ -41,7 +41,7 @@
     </inertial>
     <collision>
       <geometry>
-        <sphere radius="0.005" />
+        <sphere radius="0.001" />
       </geometry>
     </collision>
   </link>
