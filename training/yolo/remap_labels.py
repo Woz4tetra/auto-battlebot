@@ -48,44 +48,67 @@ def load_config(config_path: Path) -> tuple[dict[int, int], int, set[int]]:
     return label_map, default_label, delete_labels
 
 
-def find_label_files(dataset_dir: Path) -> list[Path]:
-    """Find YOLO label files under dataset_dir (prefers dataset_dir/labels)."""
-    search_root = (
-        dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
-    )
-    return sorted(search_root.rglob("*.txt"))
+def find_label_files(dataset_dir: Path) -> tuple[list[Path], Path]:
+    """Find YOLO label files under dataset_dir.
+
+    Returns (label_files, labels_root). If dataset_dir/labels exists, that is
+    used as labels_root; otherwise dataset_dir is used.
+    """
+    labels_root = dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
+    return sorted(labels_root.rglob("*.txt")), labels_root
 
 
-def find_paired_image(label_path: Path, dataset_dir: Path) -> Path | None:
+def find_existing_image_for_prefix(prefix_no_suffix: Path) -> Path | None:
+    """Find an existing image file for a stem, extension case-insensitive."""
+    parent = prefix_no_suffix.parent
+    stem = prefix_no_suffix.name
+    if not parent.is_dir():
+        return None
+
+    for candidate in parent.glob(f"{stem}.*"):
+        if candidate.is_file() and candidate.suffix.lower() in IMAGE_EXTENSIONS:
+            return candidate
+    return None
+
+
+def find_paired_image(label_path: Path, dataset_dir: Path, labels_root: Path) -> Path | None:
     """Best-effort lookup of the image paired with a label file."""
-    candidates: list[Path] = []
+    candidate_prefixes: list[Path] = []
 
-    # 1) Same directory as the label file.
-    candidates.extend(label_path.with_suffix(ext) for ext in IMAGE_EXTENSIONS)
+    # 1) Canonical YOLO layout: labels/<...>/<name>.txt -> images/<...>/<name>.<ext>
+    images_root = dataset_dir / "images"
+    if images_root.is_dir():
+        try:
+            rel_no_suffix = label_path.relative_to(labels_root).with_suffix("")
+            candidate_prefixes.append(images_root / rel_no_suffix)
+        except ValueError:
+            pass
 
-    # 2) If path includes /labels/, mirror to /images/.
+    # 2) Same directory as the label file.
+    candidate_prefixes.append(label_path.with_suffix(""))
+
+    # 3) If path includes /labels/, mirror to /images/.
     parts = label_path.parts
     if "labels" in parts:
         idx = parts.index("labels")
         prefix = Path(*parts[:idx])
         rel_no_suffix = Path(*parts[idx + 1 :]).with_suffix("")
-        image_prefix = prefix / "images" / rel_no_suffix
-        candidates.extend(image_prefix.with_suffix(ext) for ext in IMAGE_EXTENSIONS)
+        candidate_prefixes.append(prefix / "images" / rel_no_suffix)
 
-    # 3) Also try mirroring relative to the provided dataset root.
+    # 4) Also try mirroring relative to the provided dataset root.
     try:
         rel = label_path.relative_to(dataset_dir)
         rel_parts = list(rel.parts)
         if "labels" in rel_parts:
             idx = rel_parts.index("labels")
             rel_no_suffix = Path(*rel_parts[idx + 1 :]).with_suffix("")
-            image_prefix = dataset_dir / "images" / rel_no_suffix
-            candidates.extend(image_prefix.with_suffix(ext) for ext in IMAGE_EXTENSIONS)
+            candidate_prefixes.append(dataset_dir / "images" / rel_no_suffix)
     except ValueError:
         pass
 
-    for candidate in candidates:
-        if candidate.exists():
+    for prefix in candidate_prefixes:
+        candidate = find_existing_image_for_prefix(prefix)
+        if candidate is not None:
             return candidate
     return None
 
@@ -175,7 +198,7 @@ def main() -> None:
     if delete_labels:
         print(f"Delete labels: {sorted(delete_labels)}")
 
-    label_files = find_label_files(dataset_dir)
+    label_files, labels_root = find_label_files(dataset_dir)
     if not label_files:
         print(f"No .txt label files found in {dataset_dir}", file=sys.stderr)
         sys.exit(1)
@@ -184,6 +207,8 @@ def main() -> None:
     deleted_count = 0
     written_count = 0
     image_copy_count = 0
+    missing_paired_image_count = 0
+    missing_paired_image_examples: list[str] = []
     skipped_malformed_total = 0
 
     for label_path in tqdm(label_files, desc="Remapping labels", disable=args.dry_run):
@@ -215,7 +240,7 @@ def main() -> None:
             print(f"  {label_path.name}: {action}")
             continue
 
-        paired_image = find_paired_image(label_path, dataset_dir)
+        paired_image = find_paired_image(label_path, dataset_dir, labels_root)
 
         if should_delete:
             deleted_count += 1
@@ -240,6 +265,10 @@ def main() -> None:
             img_dest = output_dir / img_rel
             img_dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(paired_image, img_dest)
+        elif not args.skip_copy_images and output_dir is not None:
+            missing_paired_image_count += 1
+            if len(missing_paired_image_examples) < 5:
+                missing_paired_image_examples.append(str(label_path))
 
     if skipped_malformed_total:
         print(f"Skipped {skipped_malformed_total} malformed label lines")
@@ -248,6 +277,12 @@ def main() -> None:
         print(
             f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}"
         )
+        if missing_paired_image_count:
+            print(
+                f"Could not find paired images for {missing_paired_image_count} label files"
+            )
+            for sample in missing_paired_image_examples:
+                print(f"  missing image for label: {sample}")
         if deleted_count:
             print(f"Deleted {deleted_count} image+label pairs")
 
