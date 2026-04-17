@@ -5,7 +5,7 @@
 namespace auto_battlebot {
 class NoopRobotFilter : public RobotFilterInterface {
    public:
-    bool initialize([[maybe_unused]] const std::vector<RobotConfig> &robots) override {
+    bool initialize([[maybe_unused]] int opponent_count) override {
         return true;
     }
 

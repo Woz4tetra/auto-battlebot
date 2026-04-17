@@ -32,8 +32,7 @@ class Runner {
    public:
     using SystemActionCallback = std::function<void(UISystemAction)>;
 
-    Runner(const RunnerConfiguration &runner_config, const std::vector<RobotConfig> &robot_configs,
-           std::shared_ptr<RgbdCameraInterface> camera,
+    Runner(const RunnerConfiguration &runner_config, std::shared_ptr<RgbdCameraInterface> camera,
            std::shared_ptr<MaskModelInterface> field_model,
            std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
            std::shared_ptr<FieldFilterInterface> field_filter,
@@ -68,7 +67,6 @@ class Runner {
     std::shared_ptr<McapRecorder> mcap_recorder_;
     SystemActionCallback system_action_callback_;
 
-    std::vector<RobotConfig> initial_robot_configs_;
     int runtime_opponent_count_;
     bool robot_filter_reinit_pending_;
     TargetSelection previous_selected_target_;
@@ -79,7 +77,6 @@ class Runner {
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
     std::chrono::steady_clock::time_point start_time_;
 
-    std::vector<RobotConfig> build_effective_robot_configs() const;
     void publish_system_status(bool camera_ok, double loop_rate_hz) const;
     void stop_recordings_for_shutdown() const;
     void handle_opponent_count_request();

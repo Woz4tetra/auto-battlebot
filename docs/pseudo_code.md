@@ -154,7 +154,7 @@ KeypointModelInterface
 	KeypointsStamped update(RgbImage image)
 
 RobotFilterInterface
-	bool initialize(RobotConfig[] robots)
+	bool initialize(int opponent_count)
 	RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field)
 
 TargetSelectorInterface
@@ -183,7 +183,6 @@ PublisherInterface
 ```C++
 class Runner
     Runner(
-		RobotConfig[] robot_configs,
 		RgbdCameraInterface camera,
 		FieldModelInterface field_model,
 		FieldFilterInterface field_filter,
@@ -206,7 +205,7 @@ class Runner
         field_mask = field_model.update(camera_data.rgb)
         initial_field_description = field_filter.compute_field(camera_data, field_mask)
 
-        robot_filter.initialize(robot_configs)
+        robot_filter.initialize(opponent_count)
         navigation.initialize()
         initialized = true
 
@@ -241,7 +240,6 @@ class Runner
 
 int main()
     ClassConfiguration class_config = load_classes_from_config()
-	RobotConfig[] robot_configs = load_robots_from_config()
 	RgbdCameraInterface camera = make_rgbd_camera(class_config.camera)
 	FieldModelInterface field_model = make_(class_config.field_model)
 	FieldFilterInterface field_filter = make_field_filter(class_config.field_filter)
@@ -251,7 +249,6 @@ int main()
 	NavigationInterface navigation = make_navigation(class_config.navigation)
 	TransmitterInterface transmitter = make_transmitter(class_config.transmitter)
     runner = Runner(
-		robot_configs,
 		camera,
 		field_model,
 		field_filter,

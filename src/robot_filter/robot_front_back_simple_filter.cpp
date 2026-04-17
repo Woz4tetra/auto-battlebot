@@ -28,6 +28,27 @@ bool is_within_field_bounds(const auto_battlebot::Position &position,
     return std::abs(position.x) <= half_x && std::abs(position.y) <= half_y;
 }
 
+auto_battlebot::Group infer_group_from_frame_ids(
+    const std::vector<auto_battlebot::FrameId> &frame_ids) {
+    for (const auto frame_id : frame_ids) {
+        switch (frame_id) {
+            case auto_battlebot::FrameId::OUR_ROBOT_1:
+            case auto_battlebot::FrameId::OUR_ROBOT_2:
+                return auto_battlebot::Group::OURS;
+            case auto_battlebot::FrameId::NEUTRAL_ROBOT_1:
+            case auto_battlebot::FrameId::NEUTRAL_ROBOT_2:
+                return auto_battlebot::Group::NEUTRAL;
+            case auto_battlebot::FrameId::THEIR_ROBOT_1:
+            case auto_battlebot::FrameId::THEIR_ROBOT_2:
+            case auto_battlebot::FrameId::THEIR_ROBOT_3:
+                return auto_battlebot::Group::THEIRS;
+            default:
+                break;
+        }
+    }
+    return auto_battlebot::Group::THEIRS;
+}
+
 }  // namespace
 
 namespace auto_battlebot {
@@ -52,28 +73,28 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
     keypoint_converter_ = std::make_unique<FrontBackKeypointConverter>(converter_config);
 }
 
-bool RobotFrontBackSimpleFilter::initialize(const std::vector<RobotConfig> &robots) {
-    robot_configs_.clear();
-    robot_keypoint_tracker_.set_robot_configs(robot_configs_);
-    frame_id_assigner_.reset();
-    temporal_motion_filter_.reset();
-    for (const auto &robot : robots) {
-        robot_configs_[robot.label] = robot;
-    }
-    robot_keypoint_tracker_.set_robot_configs(robot_configs_);
-    return true;
-}
-
-bool RobotFrontBackSimpleFilter::set_opponent_count(int count) {
-    if (count < 1 || count > 3) {
+bool RobotFrontBackSimpleFilter::initialize(int opponent_count) {
+    if (opponent_count < 1 || opponent_count > 3) {
+        spdlog::error("Invalid opponent count: {}", opponent_count);
         return false;
     }
+
     static const std::vector<FrameId> opponent_frame_ids = {
         FrameId::THEIR_ROBOT_1, FrameId::THEIR_ROBOT_2, FrameId::THEIR_ROBOT_3};
-    label_to_frame_ids_[Label::OPPONENT].clear();
-    for (int i = 0; i < count; ++i) {
-        label_to_frame_ids_[Label::OPPONENT].push_back(opponent_frame_ids[static_cast<size_t>(i)]);
+    std::vector<FrameId> opponent_mapping;
+    for (int i = 0; i < opponent_count; ++i) {
+        opponent_mapping.push_back(opponent_frame_ids[static_cast<size_t>(i)]);
     }
+    label_to_frame_ids_[Label::OPPONENT] = opponent_mapping;
+
+    robot_configs_.clear();
+    frame_id_assigner_.reset();
+    temporal_motion_filter_.reset();
+    for (const auto &[label, frame_ids] : label_to_frame_ids_) {
+        robot_configs_[label] = RobotConfig{label, infer_group_from_frame_ids(frame_ids)};
+    }
+    robot_configs_[Label::OPPONENT] = RobotConfig{Label::OPPONENT, Group::THEIRS};
+    robot_keypoint_tracker_.set_robot_configs(robot_configs_);
     return true;
 }
 

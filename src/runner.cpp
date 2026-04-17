@@ -6,7 +6,6 @@
 
 namespace auto_battlebot {
 Runner::Runner(const RunnerConfiguration &runner_config,
-               const std::vector<RobotConfig> &robot_configs,
                std::shared_ptr<RgbdCameraInterface> camera,
                std::shared_ptr<MaskModelInterface> field_model,
                std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
@@ -33,7 +32,6 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       ui_state_(std::move(ui_state)),
       mcap_recorder_(std::move(mcap_recorder)),
       system_action_callback_(std::move(system_action_callback)),
-      initial_robot_configs_(robot_configs),
       runtime_opponent_count_(runner_config_.default_opponent_count),
       robot_filter_reinit_pending_(false),
       previous_selected_target_(TargetSelection{}),
@@ -42,17 +40,6 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       initial_field_description_(),
       start_time_(std::chrono::steady_clock::now()) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("runner");
-}
-
-std::vector<RobotConfig> Runner::build_effective_robot_configs() const {
-    std::vector<RobotConfig> out;
-    for (const auto &r : initial_robot_configs_) {
-        if (r.label != Label::OPPONENT) out.push_back(r);
-    }
-    for (int i = 0; i < runtime_opponent_count_; ++i) {
-        out.push_back(RobotConfig{Label::OPPONENT, Group::THEIRS});
-    }
-    return out;
 }
 
 void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
@@ -87,7 +74,6 @@ void Runner::handle_opponent_count_request() {
     if (req < 1 || req > 3) return;
 
     runtime_opponent_count_ = req;
-    robot_filter_->set_opponent_count(runtime_opponent_count_);
     robot_filter_reinit_pending_ = true;
 }
 
@@ -248,8 +234,7 @@ void Runner::initialize_field(const CameraData &camera_data) {
     }
     publisher_->publish_initial_field_description(*initial_field_description_);
 
-    robot_filter_->set_opponent_count(runtime_opponent_count_);
-    robot_filter_->initialize(build_effective_robot_configs());
+    robot_filter_->initialize(runtime_opponent_count_);
     navigation_->initialize();
     previous_selected_target_ = TargetSelection{};
     initialized_ = true;
@@ -333,7 +318,7 @@ bool Runner::tick() {
         }
     } else if (robot_filter_reinit_pending_ && initialized_) {
         robot_filter_reinit_pending_ = false;
-        robot_filter_->initialize(build_effective_robot_configs());
+        robot_filter_->initialize(runtime_opponent_count_);
         navigation_->initialize();
     }
 

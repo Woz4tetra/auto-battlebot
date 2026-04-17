@@ -54,5 +54,4 @@ struct ClassConfiguration {
 
 // Configuration loading functions
 ClassConfiguration load_classes_from_config(const std::string &config_path = "");
-std::vector<RobotConfig> load_robots_from_config(const std::string &config_path = "");
 }  // namespace auto_battlebot

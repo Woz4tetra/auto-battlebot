@@ -65,7 +65,7 @@ TEST(RobotFrontBackSimpleFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) 
     config.max_consecutive_jump_rejects = 1;
 
     RobotFrontBackSimpleFilter filter(config);
-    ASSERT_TRUE(filter.initialize({RobotConfig{Label::OPPONENT, Group::THEIRS}}));
+    ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();

@@ -19,4 +19,4 @@ echo "Installing to $PREFIX..."
 cd "$PROJECT_ROOT/build"
 cmake --install . --prefix "$PREFIX"
 
-echo "Run: $PREFIX/bin/auto_battlebot -c $PREFIX/share/auto_battlebot/config/main"
+echo "Run: $PREFIX/bin/auto_battlebot -c $PREFIX/share/auto_battlebot/config/main.toml"

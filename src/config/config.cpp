@@ -22,9 +22,18 @@ ConfigType parse_config_section(const toml::table &toml_data, const std::string 
 }
 
 ClassConfiguration load_classes_from_config(const std::string &config_path) {
-    std::filesystem::path path =
-        (config_path.empty() ? (get_config_dir() / "main") : std::filesystem::path(config_path)) /
-        "classes.toml";
+    std::filesystem::path path;
+    if (config_path.empty()) {
+        path = get_config_dir() / "main.toml";
+    } else {
+        std::filesystem::path input_path(config_path);
+        if (input_path.extension() == ".toml") {
+            path = input_path;
+        } else {
+            path = input_path;
+            path += ".toml";
+        }
+    }
     std::string path_string = path.u8string();
 
     ClassConfiguration config;
@@ -49,7 +58,6 @@ ClassConfiguration load_classes_from_config(const std::string &config_path) {
         config.mcap_recorder = load_mcap_config_from_toml(toml_data, parsed_sections);
 
         validate_no_extra_sections(toml_data, parsed_sections, path.stem());
-        validate_no_extra_sections(toml_data, parsed_sections, path.stem());
     } catch (const toml::parse_error &e) {
         spdlog::error("Error parsing classes config file: {}", path.string());
         spdlog::error("{}", e.description());
@@ -63,48 +71,5 @@ ClassConfiguration load_classes_from_config(const std::string &config_path) {
     }
 
     return config;
-}
-
-std::vector<RobotConfig> load_robots_from_config(const std::string &config_path) {
-    std::filesystem::path path =
-        (config_path.empty() ? (get_config_dir() / "main") : std::filesystem::path(config_path)) /
-        "robots.toml";
-    std::string path_string = path.u8string();
-
-    std::vector<RobotConfig> robots;
-
-    try {
-        auto toml_data = toml::parse_file(path_string);
-
-        if (auto robots_array = toml_data["robots"].as_array()) {
-            for (const auto &robot_toml : *robots_array) {
-                RobotConfig robot;
-                if (auto robot_table = robot_toml.as_table()) {
-                    std::string label_str = (*robot_table)["label"].value_or("");
-                    std::string group_str = (*robot_table)["group"].value_or("");
-
-                    auto label_opt = magic_enum::enum_cast<Label>(label_str);
-                    if (label_opt.has_value()) {
-                        robot.label = label_opt.value();
-                    }
-
-                    auto group_opt = magic_enum::enum_cast<Group>(group_str);
-                    if (group_opt.has_value()) {
-                        robot.group = group_opt.value();
-                    }
-                }
-                robots.push_back(robot);
-            }
-        }
-    } catch (const toml::parse_error &e) {
-        spdlog::error("Error parsing robot config file: {}", path.string());
-        spdlog::error("{}", e.description());
-        return robots;
-    } catch (const std::exception &e) {
-        spdlog::error("Error reading robot config file: {}", e.what());
-        return robots;
-    }
-
-    return robots;
 }
 }  // namespace auto_battlebot

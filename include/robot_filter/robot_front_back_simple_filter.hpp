@@ -19,12 +19,10 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
    public:
     RobotFrontBackSimpleFilter(RobotFrontBackSimpleFilterConfiguration &config);
 
-    bool initialize(const std::vector<RobotConfig> &robots) override;
+    bool initialize(int opponent_count) override;
     RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
                                     CameraInfo camera_info, KeypointsStamped robot_blob_keypoints,
                                     CommandFeedback command_feedback) override;
-    bool set_opponent_count(int count) override;
-
    private:
     std::unordered_map<Label, RobotConfig> robot_configs_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;

@@ -75,7 +75,7 @@ Analysis tool: `scripts/analyze_nav_diagnostics.py` reads MCAP recordings and pr
 - **Metrics**: Mean |angle_error|, peak |angle_error|, yaw jumps, spin events.
 - **Pass/fail**: If overshoot grows with injected delay, lag is a contributor. Check baseline overshoot at 0 ms to separate from other issues.
 
-Config: `config/experiment1/classes.toml`, sim: `simulation/sim_config_experiment1.toml`
+Config: `config/experiment1.toml`, sim: `simulation/sim_config_experiment1.toml`
 
 **Status: Complete. See [Experiment 1 Results](experiment1_results.md).**
 
@@ -134,6 +134,6 @@ After completing Experiment 1, the recommended order is driven by what the data 
 ## Tooling
 
 - **Sim config**: `simulation/sim_config_experiment1.toml` (one static opponent, controlled start geometry)
-- **C++ config**: `config/experiment1/classes.toml` (adjustable `command_delay_ms`)
-- **Run**: `./scripts/run_simulation.sh simulation/sim_config_experiment1.toml config/experiment1/`
+- **C++ config**: `config/experiment1.toml` (adjustable `command_delay_ms`)
+- **Run**: `./scripts/run_simulation.sh simulation/sim_config_experiment1.toml config/experiment1.toml`
 - **Analyze**: `python scripts/analyze_nav_diagnostics.py data/recordings/auto_battlebot_experiment1_*.mcap`

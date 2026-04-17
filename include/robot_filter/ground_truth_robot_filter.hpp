@@ -17,13 +17,12 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
    public:
     GroundTruthRobotFilter() = default;
 
-    bool initialize(const std::vector<RobotConfig> &robots) override;
+    bool initialize(int opponent_count) override;
     RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
                                     CameraInfo camera_info, KeypointsStamped robot_blob_keypoints,
                                     CommandFeedback command_feedback) override;
 
    private:
-    std::vector<RobotConfig> robot_configs_;
     std::vector<FrameId> our_frame_ids_;
     std::vector<FrameId> opponent_frame_ids_;
     std::shared_ptr<SimConnection> connection_;

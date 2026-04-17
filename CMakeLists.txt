@@ -293,7 +293,7 @@ else()
 endif()
 
 # Copy config directory to build directory
-file(GLOB CONFIG_FILES ${CMAKE_SOURCE_DIR}/config/*)
+file(GLOB_RECURSE CONFIG_FILES ${CMAKE_SOURCE_DIR}/config/*.toml)
 add_custom_target(copy_config_files ALL
     DEPENDS ${CONFIG_FILES}
     COMMAND ${CMAKE_COMMAND} -E copy_directory

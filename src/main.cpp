@@ -63,8 +63,8 @@ int main(int argc, char **argv) {
 
     CLI::App app{"Auto BattleBot - Autonomous robot control system"};
     std::string config_path = "";
-    app.add_option("-c,--config", config_path, "Path to configuration directory")
-        ->check(CLI::ExistingDirectory);
+    app.add_option("-c,--config", config_path,
+                   "Path to config profile (e.g. config/playback.toml or config/playback)");
 
     try {
         app.parse(argc, argv);
@@ -83,8 +83,6 @@ int main(int argc, char **argv) {
         mcap_recorder->set_ignored_topics(class_config.mcap_recorder.ignored_topics);
     }
     setup_logging(mcap_recorder);
-    std::vector<RobotConfig> robot_configs = load_robots_from_config(config_path);
-
     std::map<std::string, std::string> remappings;
     miniros::init(remappings, "auto_battlebot");
     miniros::NodeHandle nh;
@@ -120,9 +118,9 @@ int main(int argc, char **argv) {
     auto navigation = make_navigation(*class_config.navigation);
     auto transmitter = make_transmitter(*class_config.transmitter);
 
-    Runner runner(class_config.runner, robot_configs, camera, field_model, robot_mask_model,
-                  field_filter, keypoint_model, robot_filter, target_selector, navigation,
-                  transmitter, publisher, ui_state, mcap_recorder, handle_system_action);
+    Runner runner(class_config.runner, camera, field_model, robot_mask_model, field_filter,
+                  keypoint_model, robot_filter, target_selector, navigation, transmitter,
+                  publisher, ui_state, mcap_recorder, handle_system_action);
 
     runner.initialize();
 

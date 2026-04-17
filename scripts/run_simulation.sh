@@ -7,7 +7,7 @@
 # Usage:
 #   ./scripts/run_simulation.sh                                          # defaults
 #   ./scripts/run_simulation.sh path/to/sim_config.toml                  # custom sim config
-#   ./scripts/run_simulation.sh path/to/sim_config.toml config/myexp/    # custom sim + C++ config
+#   ./scripts/run_simulation.sh path/to/sim_config.toml config/myexp.toml # custom sim + C++ config
 
 set -e
 
@@ -23,7 +23,7 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 SIM_CONFIG="${1:-$SIM_DIR/sim_config.toml}"
-CPP_CONFIG="${2:-./config/simulation/}"
+CPP_CONFIG="${2:-./config/simulation.toml}"
 
 # --- Build C++ (while the sim server starts up in parallel) -------------------
 

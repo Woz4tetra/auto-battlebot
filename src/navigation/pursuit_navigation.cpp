@@ -8,6 +8,7 @@
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "enum_to_string_lower.hpp"
+#include "enums/frame_id.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
@@ -71,18 +72,8 @@ std::optional<NavigationPathSegment> PursuitNavigation::get_last_path() const { 
 
 std::optional<RobotDescription> PursuitNavigation::find_our_robot(
     const RobotDescriptionsStamped &robots) const {
-    // Look for robots with "MR_STABS" or "MRS_BUFF" labels (our robots)
-    // These are typically the controlled robots
     for (const auto &robot : robots.descriptions) {
-        switch (robot.label) {
-            case Label::MR_STABS_MK1:
-            case Label::MR_STABS_MK2:
-            case Label::MRS_BUFF_MK1:
-            case Label::MRS_BUFF_MK2:
-                return robot;
-            default:
-                break;
-        }
+        if (robot.frame_id == FrameId::OUR_ROBOT_1) return robot;
     }
     return std::nullopt;
 }

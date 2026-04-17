@@ -11,7 +11,7 @@
 - Same scenario as Experiment 1: static opponent at `[0.5, 0]`, our robot at `[-0.5, 0]` facing +y (90 deg initial error).
 - **Perception bypassed**: `NoopKeypointModel` + `GroundTruthRobotFilter` read poses directly from the simulation via `SimConnection`.
 - Ground truth poses of all robots logged to MCAP by `SimRgbdCamera` for post-hoc comparison.
-- Config: `config/experiment1_gt/classes.toml`
+- Config: `config/experiment1_gt.toml`
 
 ### Results
 

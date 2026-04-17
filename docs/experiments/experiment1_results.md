@@ -4,7 +4,7 @@
 
 - **Sim config**: `simulation/sim_config_experiment1.toml`
 - **Scenario**: One static opponent (house_bot) at `[0.5, 0.0]`. Our robot (mr_stabs_mk2) at `[-0.5, 0.0]`, facing +y (`start_rotation = 90 deg`). This creates 90 deg of initial heading error -- the target is due east, the robot faces north.
-- **Variable**: `command_delay_ms` in `config/experiment1/classes.toml`, swept over {0, 50, 100, 200} ms.
+- **Variable**: `command_delay_ms` in `config/experiment1.toml`, swept over {0, 50, 100, 200} ms.
 - **Implementation**: `SimTransmitter` buffers commands in a time-stamped deque and only forwards them to the sim connection once their age exceeds `command_delay_ms`.
 - **Recording**: MCAP with all topics enabled, ~10-30 seconds per run.
 

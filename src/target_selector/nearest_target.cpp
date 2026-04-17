@@ -3,30 +3,16 @@
 #include <cmath>
 #include <limits>
 
+#include "enums/frame_id.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
-namespace {
-bool is_our_robot(Label label) {
-    switch (label) {
-        case Label::MR_STABS_MK1:
-        case Label::MR_STABS_MK2:
-        case Label::MRS_BUFF_MK1:
-        case Label::MRS_BUFF_MK2:
-            return true;
-        default:
-            return false;
-    }
-}
-
-bool is_target_robot(Label label) { return label == Label::OPPONENT || label == Label::HOUSE_BOT; }
-}  // namespace
 
 std::optional<TargetSelection> NearestTarget::get_target(const RobotDescriptionsStamped &robots,
                                                          const FieldDescription &) {
     std::optional<Pose2D> our_pose;
     for (const auto &robot : robots.descriptions) {
-        if (is_our_robot(robot.label)) {
+        if (robot.frame_id == FrameId::OUR_ROBOT_1) {
             our_pose = pose_to_pose2d(robot.pose);
             break;
         }
@@ -36,7 +22,7 @@ std::optional<TargetSelection> NearestTarget::get_target(const RobotDescriptions
     std::optional<TargetSelection> best;
     double best_dist = std::numeric_limits<double>::max();
     for (const auto &robot : robots.descriptions) {
-        if (!is_target_robot(robot.label)) continue;
+        if (robot.group != Group::THEIRS) continue;
         const Pose2D target_pose = pose_to_pose2d(robot.pose);
         const double dx = target_pose.x - our_pose->x;
         const double dy = target_pose.y - our_pose->y;
