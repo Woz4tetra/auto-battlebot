@@ -2,7 +2,6 @@
 
 #include <cmath>
 #include <limits>
-
 #include <magic_enum.hpp>
 
 namespace auto_battlebot {
@@ -24,7 +23,9 @@ void FrameIdAssigner::reset() {
     jump_reject_count_per_frame_id_.clear();
 }
 
-void FrameIdAssigner::clear_last_position(FrameId frame_id) { last_position_per_frame_id_.erase(frame_id); }
+void FrameIdAssigner::clear_last_position(FrameId frame_id) {
+    last_position_per_frame_id_.erase(frame_id);
+}
 
 void FrameIdAssigner::set_last_position(FrameId frame_id, const Position &position) {
     last_position_per_frame_id_[frame_id] = position;
@@ -35,7 +36,8 @@ const std::map<FrameId, Position> &FrameIdAssigner::last_positions() const {
 }
 
 std::vector<RobotDescription> FrameIdAssigner::assign(
-    std::vector<MeasurementWithConfidence> &valid_measurements, const std::vector<FrameId> &frame_ids,
+    std::vector<MeasurementWithConfidence> &valid_measurements,
+    const std::vector<FrameId> &frame_ids,
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger) {
     std::vector<RobotDescription> result;
     const size_t N = std::min(valid_measurements.size(), frame_ids.size());
@@ -102,25 +104,28 @@ std::vector<RobotDescription> FrameIdAssigner::assign(
             reject_count++;
 
             if (reject_count <= max_consecutive_jump_rejects_) {
-                diagnostics_logger->debug("jump_reject",
-                                          {{"frame_id", std::string(magic_enum::enum_name(assigned_fid))},
-                                           {"distance", best_dist},
-                                           {"threshold", max_jump_distance_},
-                                           {"consecutive", reject_count}},
-                                          "Measurement rejected: jump too large");
+                diagnostics_logger->debug(
+                    "jump_reject",
+                    {{"frame_id", std::string(magic_enum::enum_name(assigned_fid))},
+                     {"distance", best_dist},
+                     {"threshold", max_jump_distance_},
+                     {"consecutive", reject_count}},
+                    "Measurement rejected: jump too large");
                 continue;
             }
 
-            diagnostics_logger->debug("jump_reject",
-                                      {{"frame_id", std::string(magic_enum::enum_name(assigned_fid))},
-                                       {"distance", best_dist},
-                                       {"consecutive", reject_count}},
-                                      "Accepting after max consecutive rejects");
+            diagnostics_logger->debug(
+                "jump_reject",
+                {{"frame_id", std::string(magic_enum::enum_name(assigned_fid))},
+                 {"distance", best_dist},
+                 {"consecutive", reject_count}},
+                "Accepting after max consecutive rejects");
         }
 
         jump_reject_count_per_frame_id_[assigned_fid] = 0;
         valid_measurements[best_meas].second.frame_id = assigned_fid;
-        last_position_per_frame_id_[assigned_fid] = valid_measurements[best_meas].second.pose.position;
+        last_position_per_frame_id_[assigned_fid] =
+            valid_measurements[best_meas].second.pose.position;
         result.push_back(std::move(valid_measurements[best_meas].second));
     }
     return result;

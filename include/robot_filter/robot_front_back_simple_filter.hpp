@@ -49,8 +49,8 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     RobotTemporalMotionFilter temporal_motion_filter_;
 
     std::vector<RobotDescription> convert_keypoints_to_measurements(
-        const KeypointsStamped &keypoints, const FieldDescription &field, const CameraInfo &camera_info,
-        const Eigen::Matrix4d &tf_fieldcenter_from_camera);
+        const KeypointsStamped &keypoints, const FieldDescription &field,
+        const CameraInfo &camera_info, const Eigen::Matrix4d &tf_fieldcenter_from_camera);
 
     using MeasurementWithConfidence = std::pair<double, RobotDescription>;
     std::vector<MeasurementWithConfidence> build_valid_measurements(

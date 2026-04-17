@@ -19,9 +19,10 @@ class FrameIdAssigner {
     void set_last_position(FrameId frame_id, const Position &position);
     const std::map<FrameId, Position> &last_positions() const;
 
-    std::vector<RobotDescription> assign(std::vector<MeasurementWithConfidence> &valid_measurements,
-                                         const std::vector<FrameId> &frame_ids,
-                                         std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger);
+    std::vector<RobotDescription> assign(
+        std::vector<MeasurementWithConfidence> &valid_measurements,
+        const std::vector<FrameId> &frame_ids,
+        std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger);
 
    private:
     double max_jump_distance_;

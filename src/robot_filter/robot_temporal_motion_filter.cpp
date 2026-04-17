@@ -92,14 +92,15 @@ void RobotTemporalMotionFilter::estimate_velocities(std::vector<RobotDescription
                 const double raw_vx = (current.x - prev.pose.x) / dt;
                 const double raw_vy = (current.y - prev.pose.y) / dt;
                 // Wrap-safe yaw difference
-                const double delta_yaw =
-                    std::atan2(std::sin(current.yaw - prev.pose.yaw), std::cos(current.yaw - prev.pose.yaw));
+                const double delta_yaw = std::atan2(std::sin(current.yaw - prev.pose.yaw),
+                                                    std::cos(current.yaw - prev.pose.yaw));
                 const double raw_omega = delta_yaw / dt;
 
                 const double alpha = velocity_ema_alpha_;
                 desc.velocity.vx = alpha * raw_vx + (1.0 - alpha) * prev.smoothed_velocity.vx;
                 desc.velocity.vy = alpha * raw_vy + (1.0 - alpha) * prev.smoothed_velocity.vy;
-                desc.velocity.omega = alpha * raw_omega + (1.0 - alpha) * prev.smoothed_velocity.omega;
+                desc.velocity.omega =
+                    alpha * raw_omega + (1.0 - alpha) * prev.smoothed_velocity.omega;
             } else {
                 // dt too small or too large -- carry forward previous estimate
                 desc.velocity = prev.smoothed_velocity;

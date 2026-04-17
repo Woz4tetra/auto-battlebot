@@ -245,9 +245,8 @@ bool ZedRgbdCamera::capture_frame() {
             recent_grab_results_.pop_front();
         }
 
-        const bool window_is_full =
-            !recent_grab_results_.empty() &&
-            (now - recent_grab_results_.front().first) >= kGrabErrorWindow;
+        const bool window_is_full = !recent_grab_results_.empty() &&
+                                    (now - recent_grab_results_.front().first) >= kGrabErrorWindow;
         if (window_is_full && !should_close_.load()) {
             const double grab_error_ratio = static_cast<double>(recent_grab_error_count_) /
                                             static_cast<double>(recent_grab_results_.size());

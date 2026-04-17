@@ -119,8 +119,8 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
 
     int detection_index = 0;
     for (const auto &det : detections) {
-        cv::Mat instance_mask = decode_mapped_instance_mask(
-            det, output_buffers, output_infos, proto_idx, original_size, input_size);
+        cv::Mat instance_mask = decode_mapped_instance_mask(det, output_buffers, output_infos,
+                                                            proto_idx, original_size, input_size);
 
         if (render_debug) {
             render_detection_debug(debug_vis, det, instance_mask, original_size, input_size);
@@ -141,8 +141,8 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
 }
 
 bool YoloSegRobotBlobModel::select_output_tensors(
-    const std::vector<TrtEngine::OutputTensorInfo> &output_infos, size_t &det_idx, size_t &proto_idx,
-    int &proto_channels) const {
+    const std::vector<TrtEngine::OutputTensorInfo> &output_infos, size_t &det_idx,
+    size_t &proto_idx, int &proto_channels) const {
     det_idx = std::numeric_limits<size_t>::max();
     proto_idx = std::numeric_limits<size_t>::max();
 
@@ -194,7 +194,8 @@ cv::Mat YoloSegRobotBlobModel::decode_mapped_instance_mask(
     return map_mask_to_original_image(instance_mask, original_size, input_size);
 }
 
-void YoloSegRobotBlobModel::map_detection_box_to_original(const Detection &det, cv::Size original_size,
+void YoloSegRobotBlobModel::map_detection_box_to_original(const Detection &det,
+                                                          cv::Size original_size,
                                                           cv::Size input_size, int &x1, int &y1,
                                                           int &x2, int &y2) const {
     const double gain = std::min(static_cast<double>(input_size.width) / original_size.width,
@@ -223,7 +224,8 @@ cv::Scalar YoloSegRobotBlobModel::debug_color_for_detection(const Detection &det
 }
 
 void YoloSegRobotBlobModel::render_detection_debug(cv::Mat &debug_vis, const Detection &det,
-                                                   const cv::Mat &instance_mask, cv::Size original_size,
+                                                   const cv::Mat &instance_mask,
+                                                   cv::Size original_size,
                                                    cv::Size input_size) const {
     int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
     map_detection_box_to_original(det, original_size, input_size, x1, y1, x2, y2);

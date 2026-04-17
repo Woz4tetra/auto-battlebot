@@ -66,16 +66,17 @@ class YoloSegRobotBlobModel : public RobotBlobModelInterface {
                                  cv::Size input_size) const;
     cv::Mat map_mask_to_original_image(const cv::Mat &input_mask, cv::Size original_size,
                                        cv::Size input_size) const;
-    cv::Mat decode_mapped_instance_mask(const Detection &det,
-                                        const std::vector<std::vector<float>> &output_buffers,
-                                        const std::vector<TrtEngine::OutputTensorInfo> &output_infos,
-                                        size_t proto_idx, cv::Size original_size,
-                                        cv::Size input_size) const;
-    void map_detection_box_to_original(const Detection &det, cv::Size original_size, cv::Size input_size,
-                                       int &x1, int &y1, int &x2, int &y2) const;
+    cv::Mat decode_mapped_instance_mask(
+        const Detection &det, const std::vector<std::vector<float>> &output_buffers,
+        const std::vector<TrtEngine::OutputTensorInfo> &output_infos, size_t proto_idx,
+        cv::Size original_size, cv::Size input_size) const;
+    void map_detection_box_to_original(const Detection &det, cv::Size original_size,
+                                       cv::Size input_size, int &x1, int &y1, int &x2,
+                                       int &y2) const;
     cv::Scalar debug_color_for_detection(const Detection &det) const;
-    void render_detection_debug(cv::Mat &debug_vis, const Detection &det, const cv::Mat &instance_mask,
-                                cv::Size original_size, cv::Size input_size) const;
+    void render_detection_debug(cv::Mat &debug_vis, const Detection &det,
+                                const cv::Mat &instance_mask, cv::Size original_size,
+                                cv::Size input_size) const;
     static void render_keypoints_debug(cv::Mat &debug_vis, const KeypointsStamped &keypoints);
     Category classify_category(Label label) const;
 
