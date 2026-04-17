@@ -31,7 +31,7 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "data/models/yolo26n-pose_our_robots_2026-04-16_aarch64_sm87.engine"
+model_path = "data/models/yolo26n-pose_our_robots_2026-04-17_x86_64_sm89.engine"
 label_indices = ["MR_STABS_MK2", "HOUSE_BOT"]
 debug_visualization = false
 threshold = 0.5
@@ -73,8 +73,8 @@ robot_blob_min_length_meters = 0.08
 robot_blob_max_length_meters = 0.7
 robot_blob_min_confidence = 0.4
 robot_blob_max_candidates = 8
-blob_overwrite_min_distance_meters = 0.20
-blob_overwrite_size_scale = 0.5
+blob_overwrite_min_distance_meters = 0.05
+blob_overwrite_size_scale = 0.08
 
 [robot_filter.label_mapping]
 "MR_STABS_MK2" = ["THEIR_ROBOT_1"]
