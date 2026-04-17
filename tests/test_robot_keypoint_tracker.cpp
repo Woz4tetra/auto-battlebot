@@ -17,9 +17,6 @@ class RobotKeypointTrackerTest : public ::testing::Test {
         config_.min_length_meters = 0.05;
         config_.max_length_meters = 2.0;
         config_.min_confidence = 0.2;
-        config_.persistence_frames_required = 1;
-        config_.match_distance_meters = 0.5;
-        config_.tracked_timeout_seconds = 1.0;
         config_.max_candidates = 8;
 
         camera_info_.width = 640;
@@ -65,24 +62,17 @@ class RobotKeypointTrackerTest : public ::testing::Test {
 TEST_F(RobotKeypointTrackerTest, EmptyInputReturnsNothing) {
     RobotKeypointTracker tracker(config_);
     KeypointsStamped empty;
-    auto detections = tracker.detect(empty, field_, camera_info_, 1.0);
+    auto detections = tracker.detect(empty, field_, camera_info_);
     EXPECT_TRUE(detections.empty());
 }
 
 TEST_F(RobotKeypointTrackerTest, BlobPairProducesDetection) {
     RobotKeypointTracker tracker(config_);
-    auto detections = tracker.detect(make_blob_keypoints(), field_, camera_info_, 1.0);
+    auto detections = tracker.detect(make_blob_keypoints(), field_, camera_info_);
     ASSERT_EQ(detections.size(), 1u);
     EXPECT_EQ(detections[0].label, Label::OPPONENT);
     EXPECT_EQ(detections[0].group, Group::THEIRS);
     EXPECT_GT(detections[0].size.x, 0.05);
-}
-
-TEST_F(RobotKeypointTrackerTest, PersistenceFiltersEarlyFrames) {
-    config_.persistence_frames_required = 2;
-    RobotKeypointTracker tracker(config_);
-    EXPECT_TRUE(tracker.detect(make_blob_keypoints(), field_, camera_info_, 1.0).empty());
-    EXPECT_EQ(tracker.detect(make_blob_keypoints(), field_, camera_info_, 1.05).size(), 1u);
 }
 
 TEST_F(RobotKeypointTrackerTest, UsesTwoHighestConfidenceKeypointsPerGroup) {
@@ -113,7 +103,7 @@ TEST_F(RobotKeypointTrackerTest, UsesTwoHighestConfidenceKeypointsPerGroup) {
     low_far.confidence = 0.10;
     keypoints.keypoints.push_back(low_far);
 
-    auto detections = tracker.detect(keypoints, field_, camera_info_, 1.0);
+    auto detections = tracker.detect(keypoints, field_, camera_info_);
     ASSERT_EQ(detections.size(), 1u);
     // If the low-confidence point were used, the resulting span would be much larger.
     EXPECT_NEAR(detections[0].size.x, 0.24, 0.03);
@@ -143,8 +133,47 @@ TEST_F(RobotKeypointTrackerTest, UsesInjectedRobotConfigForGroupMapping) {
     b.x = 340.0;
     keypoints.keypoints.push_back(b);
 
-    auto detections = tracker.detect(keypoints, field_, camera_info_, 1.0);
+    auto detections = tracker.detect(keypoints, field_, camera_info_);
     ASSERT_EQ(detections.size(), 1u);
     EXPECT_EQ(detections[0].group, Group::THEIRS);
+}
+
+TEST_F(RobotKeypointTrackerTest, DetectWithConfidenceReturnsSortedConfidence) {
+    RobotKeypointTracker tracker(config_);
+
+    KeypointsStamped keypoints;
+    keypoints.header.frame_id = FrameId::CAMERA;
+    keypoints.header.stamp = 1.0;
+
+    Keypoint a;
+    a.label = Label::OPPONENT;
+    a.keypoint_label = KeypointLabel::OPPONENT_FRONT;
+    a.x = 300.0;
+    a.y = 220.0;
+    a.confidence = 0.9;
+    a.detection_index = 1;
+    keypoints.keypoints.push_back(a);
+
+    Keypoint b = a;
+    b.keypoint_label = KeypointLabel::OPPONENT_BACK;
+    b.x = 340.0;
+    b.confidence = 0.8;
+    keypoints.keypoints.push_back(b);
+
+    Keypoint c = a;
+    c.detection_index = 2;
+    c.x = 280.0;
+    c.confidence = 0.6;
+    keypoints.keypoints.push_back(c);
+
+    Keypoint d = c;
+    d.keypoint_label = KeypointLabel::OPPONENT_BACK;
+    d.x = 320.0;
+    d.confidence = 0.5;
+    keypoints.keypoints.push_back(d);
+
+    const auto detections = tracker.detect_with_confidence(keypoints, field_, camera_info_);
+    ASSERT_EQ(detections.size(), 2u);
+    EXPECT_GT(detections[0].confidence, detections[1].confidence);
 }
 }  // namespace auto_battlebot

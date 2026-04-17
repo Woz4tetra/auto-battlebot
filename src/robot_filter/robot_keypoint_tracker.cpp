@@ -12,8 +12,6 @@ namespace auto_battlebot {
 RobotKeypointTracker::RobotKeypointTracker(const RobotKeypointTrackerConfig &config)
     : config_(config) {}
 
-void RobotKeypointTracker::reset() { tracked_.clear(); }
-
 void RobotKeypointTracker::set_robot_configs(
     const std::unordered_map<Label, RobotConfig> &robot_configs) {
     robot_configs_ = robot_configs;
@@ -21,10 +19,21 @@ void RobotKeypointTracker::set_robot_configs(
 
 std::vector<RobotDescription> RobotKeypointTracker::detect(
     const KeypointsStamped &robot_blob_keypoints, const FieldDescription &field,
-    const CameraInfo &camera_info, double timestamp) {
+    const CameraInfo &camera_info) {
+    auto detections = detect_with_confidence(robot_blob_keypoints, field, camera_info);
+    std::vector<RobotDescription> descriptions;
+    descriptions.reserve(detections.size());
+    for (auto &detection : detections) {
+        descriptions.push_back(std::move(detection.description));
+    }
+    return descriptions;
+}
+
+std::vector<RobotKeypointDetection> RobotKeypointTracker::detect_with_confidence(
+    const KeypointsStamped &robot_blob_keypoints, const FieldDescription &field,
+    const CameraInfo &camera_info) {
     auto candidates = extract_candidates(robot_blob_keypoints, field, camera_info);
-    auto persistent = update_tracking(candidates, timestamp);
-    return to_descriptions(persistent);
+    return to_detections_with_confidence(candidates);
 }
 
 std::vector<RobotKeypointCandidate> RobotKeypointTracker::extract_candidates(
@@ -93,68 +102,24 @@ std::vector<RobotKeypointCandidate> RobotKeypointTracker::extract_candidates(
     return candidates;
 }
 
-std::vector<RobotKeypointCandidate> RobotKeypointTracker::update_tracking(
-    const std::vector<RobotKeypointCandidate> &candidates, double timestamp) {
-    std::vector<bool> matched(candidates.size(), false);
-
-    for (auto &track : tracked_) {
-        double best_distance = config_.match_distance_meters;
-        int best_idx = -1;
-        for (size_t i = 0; i < candidates.size(); ++i) {
-            if (matched[i]) continue;
-            if (candidates[i].label != track.candidate.label) continue;
-            const double distance = (candidates[i].center - track.candidate.center).norm();
-            if (distance < best_distance) {
-                best_distance = distance;
-                best_idx = static_cast<int>(i);
-            }
-        }
-
-        if (best_idx >= 0) {
-            track.candidate = candidates[static_cast<size_t>(best_idx)];
-            track.consecutive_frames++;
-            track.last_seen_timestamp = timestamp;
-            matched[static_cast<size_t>(best_idx)] = true;
-        }
-    }
-
-    for (size_t i = 0; i < candidates.size(); ++i) {
-        if (matched[i]) continue;
-        tracked_.push_back({candidates[i], 1, timestamp});
-    }
-
-    tracked_.erase(std::remove_if(tracked_.begin(), tracked_.end(),
-                                  [this, timestamp](const TrackedCandidate &track) {
-                                      return (timestamp - track.last_seen_timestamp) >
-                                             config_.tracked_timeout_seconds;
-                                  }),
-                   tracked_.end());
-
-    std::vector<RobotKeypointCandidate> persistent;
-    for (const auto &track : tracked_) {
-        if (track.consecutive_frames >= config_.persistence_frames_required) {
-            persistent.push_back(track.candidate);
-        }
-    }
-    return persistent;
-}
-
-std::vector<RobotDescription> RobotKeypointTracker::to_descriptions(
+std::vector<RobotKeypointDetection> RobotKeypointTracker::to_detections_with_confidence(
     const std::vector<RobotKeypointCandidate> &candidates) {
-    std::vector<RobotDescription> descriptions;
-    descriptions.reserve(candidates.size());
+    std::vector<RobotKeypointDetection> detections;
+    detections.reserve(candidates.size());
     for (const auto &candidate : candidates) {
         Position pos{candidate.center.x(), candidate.center.y(), candidate.center.z()};
         Pose pose{pos, Rotation{1.0, 0.0, 0.0, 0.0}};
-        descriptions.push_back({FrameId::EMPTY,
-                                candidate.label,
-                                candidate.group,
-                                pose,
-                                Size{candidate.size_meters, candidate.size_meters, 0.1},
-                                {},
-                                Velocity2D{},
-                                false});
+        RobotDescription description{FrameId::EMPTY,
+                                     candidate.label,
+                                     candidate.group,
+                                     pose,
+                                     Size{candidate.size_meters, candidate.size_meters, 0.1},
+                                     {},
+                                     Velocity2D{},
+                                     false};
+        detections.push_back({std::move(description), candidate.confidence});
     }
-    return descriptions;
+    return detections;
 }
+
 }  // namespace auto_battlebot

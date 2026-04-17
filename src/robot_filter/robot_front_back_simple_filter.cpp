@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-
 #include <magic_enum.hpp>
 
 #include "data_structures/robot.hpp"
@@ -27,7 +26,8 @@ bool blob_is_overwritten_by_keypoint(
         keypoint_measurements.begin(), keypoint_measurements.end(),
         [&blob_measurement, min_overwrite_radius_meters,
          overwrite_size_scale](const auto_battlebot::RobotDescription &keypoint_measurement) {
-            // Keypoint detections are more semantically reliable, so suppress nearby blob detections.
+            // Keypoint detections are more semantically reliable, so suppress nearby blob
+            // detections.
             const double overwrite_radius = std::max(
                 min_overwrite_radius_meters,
                 overwrite_size_scale * (blob_measurement.size.x + keypoint_measurement.size.x));
@@ -64,7 +64,6 @@ bool RobotFrontBackSimpleFilter::initialize(const std::vector<RobotConfig> &robo
     robot_keypoint_tracker_.set_robot_configs(robot_configs_);
     frame_id_assigner_.reset();
     temporal_motion_filter_.reset();
-    robot_keypoint_tracker_.reset();
     for (const auto &robot : robots) {
         robot_configs_[robot.label] = robot;
     }
@@ -93,18 +92,20 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = keypoints.header.stamp;
-    const Eigen::Matrix4d tf_fieldcenter_from_camera = field.tf_camera_from_fieldcenter.tf.inverse();
+    const Eigen::Matrix4d tf_fieldcenter_from_camera =
+        field.tf_camera_from_fieldcenter.tf.inverse();
 
-    std::vector<RobotDescription> filter_measurements =
-        convert_keypoints_to_measurements(keypoints, field, camera_info, tf_fieldcenter_from_camera);
+    std::vector<RobotDescription> filter_measurements = convert_keypoints_to_measurements(
+        keypoints, field, camera_info, tf_fieldcenter_from_camera);
     const std::vector<RobotDescription> keypoint_measurements = filter_measurements;
     diagnostics_logger_->debug({{"num_keypoint_measurements", (int)filter_measurements.size()}});
 
     if (!robot_blob_keypoints.keypoints.empty() && field.child_frame_id != FrameId::EMPTY) {
-        auto blob_measurements = robot_keypoint_tracker_.detect(
-            robot_blob_keypoints, field, camera_info, keypoints.header.stamp);
+        auto blob_detections = robot_keypoint_tracker_.detect_with_confidence(
+            robot_blob_keypoints, field, camera_info);
 
-        for (auto &measurement : blob_measurements) {
+        for (auto &blob_detection : blob_detections) {
+            auto &measurement = blob_detection.description;
             const Eigen::Vector3d blob_center_camera(measurement.pose.position.x,
                                                      measurement.pose.position.y,
                                                      measurement.pose.position.z);
@@ -113,24 +114,30 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
             measurement.pose.position = vector_to_position(blob_center_field);
         }
 
-        blob_measurements.erase(
+        blob_detections.erase(
             std::remove_if(
-                blob_measurements.begin(), blob_measurements.end(),
-                [this, &keypoint_measurements](const RobotDescription &blob_measurement) {
-                    return blob_is_overwritten_by_keypoint(
-                        blob_measurement, keypoint_measurements,
-                        blob_overwrite_min_distance_meters_, blob_overwrite_size_scale_);
+                blob_detections.begin(), blob_detections.end(),
+                [this, &keypoint_measurements](const RobotKeypointDetection &blob_detection) {
+                    const RobotDescription &blob_measurement = blob_detection.description;
+                    return blob_is_overwritten_by_keypoint(blob_measurement, keypoint_measurements,
+                                                           blob_overwrite_min_distance_meters_,
+                                                           blob_overwrite_size_scale_);
                 }),
-            blob_measurements.end());
+            blob_detections.end());
 
-        diagnostics_logger_->debug({{"num_blob_measurements", (int)blob_measurements.size()}});
+        diagnostics_logger_->debug({{"num_blob_measurements", (int)blob_detections.size()}});
 
         std::map<Label, std::vector<MeasurementWithConfidence>> grouped_blob_measurements;
-        for (auto &measurement : blob_measurements) {
-            grouped_blob_measurements[measurement.label].push_back({0.0, std::move(measurement)});
+        for (auto &blob_detection : blob_detections) {
+            grouped_blob_measurements[blob_detection.description.label].push_back(
+                {blob_detection.confidence, std::move(blob_detection.description)});
         }
 
         for (auto &[label, measurements] : grouped_blob_measurements) {
+            std::sort(measurements.begin(), measurements.end(),
+                      [](const MeasurementWithConfidence &a, const MeasurementWithConfidence &b) {
+                          return a.first > b.first;
+                      });
             std::vector<FrameId> all_fids = get_frame_ids_for_label(label);
             std::vector<FrameId> available_fids;
             for (const auto &fid : all_fids) {
@@ -140,7 +147,8 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
                 if (!already_used) available_fids.push_back(fid);
             }
             if (available_fids.empty()) continue;
-            auto assigned = frame_id_assigner_.assign(measurements, available_fids, diagnostics_logger_);
+            auto assigned =
+                frame_id_assigner_.assign(measurements, available_fids, diagnostics_logger_);
             for (auto &a : assigned) {
                 // Orientation from blob rectangles is intentionally non-semantic. Keep identity.
                 a.pose.rotation = Rotation{1.0, 0.0, 0.0, 0.0};
@@ -167,7 +175,8 @@ std::vector<RobotDescription> RobotFrontBackSimpleFilter::convert_keypoints_to_m
     // so when they reappear we assign without bias from an old position.
     for (const auto &[label, frame_ids] : label_to_frame_ids_) {
         if (frame_ids.size() != 1) continue;
-        if (front_back_mapping.count(label) == 0) frame_id_assigner_.clear_last_position(frame_ids[0]);
+        if (front_back_mapping.count(label) == 0)
+            frame_id_assigner_.clear_last_position(frame_ids[0]);
     }
 
     for (const auto &[label, assignments_with_conf] : front_back_mapping) {

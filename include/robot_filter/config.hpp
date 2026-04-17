@@ -67,15 +67,6 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
             "robot_blob_max_length_meters", robot_keypoint_tracker_config.max_length_meters);
         robot_keypoint_tracker_config.min_confidence = parser.get_optional_double(
             "robot_blob_min_confidence", robot_keypoint_tracker_config.min_confidence);
-        robot_keypoint_tracker_config.persistence_frames_required = static_cast<int>(
-            parser.get_optional_int("robot_blob_persistence_frames_required",
-                                    robot_keypoint_tracker_config.persistence_frames_required));
-        robot_keypoint_tracker_config.match_distance_meters =
-            parser.get_optional_double("robot_blob_match_distance_meters",
-                                       robot_keypoint_tracker_config.match_distance_meters);
-        robot_keypoint_tracker_config.tracked_timeout_seconds =
-            parser.get_optional_double("robot_blob_tracked_timeout_seconds",
-                                       robot_keypoint_tracker_config.tracked_timeout_seconds);
         robot_keypoint_tracker_config.max_candidates = static_cast<int>(parser.get_optional_int(
             "robot_blob_max_candidates", robot_keypoint_tracker_config.max_candidates));
     }
