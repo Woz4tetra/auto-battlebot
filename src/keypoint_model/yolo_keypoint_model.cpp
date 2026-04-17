@@ -483,7 +483,7 @@ void YoloKeypointModel::visualize_output(const cv::Mat &original_image,
             const int class_id = static_cast<int>(row[5]);
             const Label box_label = label_indices_[class_id];
 
-            auto [b, g, r] = get_color_for_label(box_label).to_bgr_255();
+            auto [b, g, r] = get_color_for_index(box_label).to_bgr_255();
             const cv::Scalar color(b, g, r);
 
             std::ostringstream label_stream;
@@ -528,7 +528,7 @@ void YoloKeypointModel::visualize_output(const cv::Mat &original_image,
 
     for (const auto &[label, points] : keypoints_by_label) {
         if (points.size() >= 2) {
-            auto [b, g, r] = get_color_for_label(label).to_bgr_255();
+            auto [b, g, r] = get_color_for_index(label).to_bgr_255();
             cv::Scalar color(b, g, r);
             cv::line(vis_img, points[0], points[1], color, 2, cv::LINE_AA);
         }
@@ -537,7 +537,7 @@ void YoloKeypointModel::visualize_output(const cv::Mat &original_image,
     for (const auto &kp : keypoints.keypoints) {
         const int x = static_cast<int>(std::round(kp.x));
         const int y = static_cast<int>(std::round(kp.y));
-        auto [b, g, r_val] = get_color_for_label(kp.label).to_bgr_255();
+        auto [b, g, r_val] = get_color_for_index(kp.label).to_bgr_255();
         cv::Scalar color(b, g, r_val);
         const std::string kp_name =
             get_short_name(std::string(magic_enum::enum_name(kp.keypoint_label)));

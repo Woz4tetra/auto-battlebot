@@ -4,6 +4,7 @@
 #include <magic_enum.hpp>
 
 #include "enum_to_string_lower.hpp"
+#include "enums/frame_id.hpp"
 #include "label_utils.hpp"
 #include "transform_utils.hpp"
 
@@ -13,8 +14,8 @@ namespace {
 /**
  * @brief Convert ColorRGBf to std_msgs::ColorRGBA
  */
-std_msgs::ColorRGBA to_ros_color(Label label, float alpha = 1.0f) {
-    auto color = get_color_for_label(label);
+std_msgs::ColorRGBA to_ros_color(Group group, float alpha = 1.0f) {
+    auto color = get_color_for_index(group);
     std_msgs::ColorRGBA ros_color;
     ros_color.r = color.r;
     ros_color.g = color.g;
@@ -142,8 +143,8 @@ std::vector<visualization_msgs::Marker> to_ros_robot_markers(
         const auto robot_frame_id_index = magic_enum::enum_index(robot.frame_id);
 
         // Get color based on robot label for consistency
-        std_msgs::ColorRGBA robot_color = to_ros_color(robot.label, 0.7f);
-        std_msgs::ColorRGBA solid_color = to_ros_color(robot.label, 1.0f);
+        std_msgs::ColorRGBA robot_color = to_ros_color(robot.group, 0.7f);
+        std_msgs::ColorRGBA solid_color = to_ros_color(robot.group, 1.0f);
 
         // Cube marker for robot body
         visualization_msgs::Marker cube_marker;

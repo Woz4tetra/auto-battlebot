@@ -1,10 +1,12 @@
 #pragma once
 
 #include <cmath>
+#include <iostream>
 #include <string>
 
 #include "enum_to_string_lower.hpp"
 #include "enums.hpp"
+#include "enums/frame_id.hpp"
 
 namespace auto_battlebot {
 /**
@@ -29,13 +31,12 @@ struct ColorRGBf {
 };
 
 /**
- * @brief Generate a distinct color for a label using HSV color wheel
+ * @brief Generate a distinct color for an index using HSV color wheel
  * Uses golden angle distribution for visually distinct colors
- * @param label The label to generate a color for
+ * @param index The index to generate a color for
  * @return ColorRGBf with normalized RGB values
  */
-inline ColorRGBf get_color_for_label(Label label) {
-    int index = static_cast<int>(label);
+inline ColorRGBf get_color_for_index(int index) {
     // Use HSV color wheel for distinct colors
     float hue = std::fmod(index * 137.5f, 360.0f);  // Golden angle for good distribution
     float sat = 0.8f;
@@ -74,6 +75,21 @@ inline ColorRGBf get_color_for_label(Label label) {
     }
 
     return ColorRGBf{r + m, g + m, b + m};
+}
+
+inline ColorRGBf get_color_for_index(FrameId frame_id) {
+    int index = static_cast<int>(frame_id);
+    return get_color_for_index(index);
+}
+
+inline ColorRGBf get_color_for_index(Label label) {
+    int index = static_cast<int>(label);
+    return get_color_for_index(index);
+}
+
+inline ColorRGBf get_color_for_index(Group group) {
+    int index = static_cast<int>(group);
+    return get_color_for_index(index);
 }
 
 /**

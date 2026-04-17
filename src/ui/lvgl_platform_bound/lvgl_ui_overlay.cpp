@@ -14,8 +14,8 @@
 namespace auto_battlebot::ui_internal {
 namespace {
 
-cv::Scalar to_cv_bgr(Label label) {
-    ColorRGBf color = get_color_for_label(label);
+cv::Scalar to_cv_bgr(Group group) {
+    ColorRGBf color = get_color_for_index(group);
     return cv::Scalar(color.b * 255.0f, color.g * 255.0f, color.r * 255.0f);
 }
 
@@ -66,7 +66,7 @@ void draw_robot_pose_arrows(cv::Mat &image, const RobotDescriptionsStamped &robo
                 pose2d.y + arrow_len_m * std::sin(pose2d.yaw), z, end_px)) {
             continue;
         }
-        cv::arrowedLine(image, start_px, end_px, to_cv_bgr(robot.label), 2, cv::LINE_AA, 0, 0.25);
+        cv::arrowedLine(image, start_px, end_px, to_cv_bgr(robot.group), 2, cv::LINE_AA, 0, 0.25);
     }
 }
 

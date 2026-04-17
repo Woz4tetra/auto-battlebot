@@ -21,8 +21,8 @@ label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
 their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
-confidence_threshold = 0.2
-debug_visualization = false
+confidence_threshold = 0.5
+debug_visualization = true
 
 [field_filter]
 type = "PointCloudFieldFilter"
@@ -74,10 +74,10 @@ robot_blob_max_length_meters = 0.7
 robot_blob_min_confidence = 0.4
 robot_blob_max_candidates = 8
 blob_overwrite_min_distance_meters = 0.05
-blob_overwrite_size_scale = 0.08
+blob_overwrite_size_scale = 0.5
 
 [robot_filter.label_mapping]
-"MR_STABS_MK2" = ["THEIR_ROBOT_1"]
+"MR_STABS_MK2" = ["OUR_ROBOT_1"]
 "MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]

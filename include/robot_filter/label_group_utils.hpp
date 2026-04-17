@@ -13,4 +13,21 @@ inline Group group_for_label(Label label,
     }
     return Group::THEIRS;
 }
+
+inline Group group_for_frame_id(FrameId frame_id, Group fallback_group) {
+    switch (frame_id) {
+        case FrameId::OUR_ROBOT_1:
+        case FrameId::OUR_ROBOT_2:
+            return Group::OURS;
+        case FrameId::THEIR_ROBOT_1:
+        case FrameId::THEIR_ROBOT_2:
+        case FrameId::THEIR_ROBOT_3:
+            return Group::THEIRS;
+        case FrameId::NEUTRAL_ROBOT_1:
+        case FrameId::NEUTRAL_ROBOT_2:
+            return Group::NEUTRAL;
+        default:
+            return fallback_group;
+    }
+}
 }  // namespace auto_battlebot
