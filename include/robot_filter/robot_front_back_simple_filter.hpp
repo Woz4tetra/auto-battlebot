@@ -1,5 +1,7 @@
 #pragma once
 
+#include <spdlog/spdlog.h>
+
 #include <Eigen/Dense>
 #include <map>
 #include <unordered_map>
@@ -23,6 +25,7 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
                                     CameraInfo camera_info, KeypointsStamped robot_blob_keypoints,
                                     CommandFeedback command_feedback) override;
+
    private:
     std::unordered_map<Label, RobotConfig> robot_configs_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
