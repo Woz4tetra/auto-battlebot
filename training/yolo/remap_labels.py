@@ -148,8 +148,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--skip-copy-images",
-        action="store_false",
-        help="When using --output, also copy paired images",
+        action="store_true",
+        help="When using --output, do not copy paired images",
     )
     parser.add_argument(
         "--dry-run",
