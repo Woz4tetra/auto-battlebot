@@ -1,7 +1,7 @@
 [server]
 host = "127.0.0.1"
 port = 14882
-show_viewer = true
+show_viewer = false
 show_contact_forces = false
 physics_dt = 0.01
 substeps = 10

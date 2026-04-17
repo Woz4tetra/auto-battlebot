@@ -88,10 +88,11 @@ type = "NearestTarget"
 
 [navigation]
 type = "PursuitNavigation"
-angular_kp = 6.0
+angular_kp = 26.0
 angular_kd = 0.2
 max_angular_velocity = 15.625
 max_linear_velocity = 2.0
+angle_threshold = 1.5
 
 [transmitter]
 type = "SimTransmitter"
@@ -103,7 +104,7 @@ type = "RosPublisher"
 
 [runner]
 max_loop_rate = 30.0
-default_opponent_count = 3
+default_opponent_count = 1
 autonomy_enabled_by_default = true
 
 [ui]
