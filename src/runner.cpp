@@ -325,8 +325,12 @@ bool Runner::tick() {
     }
 
     if (should_reinit_field) {
-        robot_filter_reinit_pending_ = false;
-        initialize_field(camera_data);
+        if (camera_data.tracking_ok) {
+            robot_filter_reinit_pending_ = false;
+            initialize_field(camera_data);
+        } else {
+            spdlog::warn("Skipping field initialization because camera tracking is not ready.");
+        }
     } else if (robot_filter_reinit_pending_ && initialized_) {
         robot_filter_reinit_pending_ = false;
         robot_filter_->initialize(build_effective_robot_configs());

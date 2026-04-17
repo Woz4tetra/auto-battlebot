@@ -67,6 +67,7 @@ def build_engine_from_onnx(
     *,
     fp16: bool = True,
     workspace_gib: int = 4,
+    version_compatible: bool = False,
     logger: trt.ILogger | None = None,
 ) -> None:
     """Build a TensorRT engine from an ONNX file (fixed input shape)."""
@@ -88,8 +89,14 @@ def build_engine_from_onnx(
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_gib << 30)
     if fp16 and builder.platform_has_fast_fp16:
         config.set_flag(trt.BuilderFlag.FP16)
-    if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE") and _has_lean_runtime():
-        config.set_flag(trt.BuilderFlag.VERSION_COMPATIBLE)
+    if version_compatible:
+        if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE") and _has_lean_runtime():
+            config.set_flag(trt.BuilderFlag.VERSION_COMPATIBLE)
+        else:
+            print(
+                "Warning: --version-compatible requested, but TensorRT VERSION_COMPATIBLE "
+                "or lean runtime is unavailable. Building without VERSION_COMPATIBLE."
+            )
 
     serialized = builder.build_serialized_network(network, config)
     if serialized is None:
@@ -133,6 +140,14 @@ def main() -> None:
         metavar="GIB",
         help="TensorRT workspace size in GiB (default: 4)",
     )
+    parser.add_argument(
+        "--version-compatible",
+        action="store_true",
+        help=(
+            "Enable TensorRT VERSION_COMPATIBLE (requires lean runtime). Disabled by "
+            "default to avoid host-code deserialization requirements in some loaders."
+        ),
+    )
     args = parser.parse_args()
 
     model_path = Path(args.model)
@@ -155,6 +170,7 @@ def main() -> None:
         output_path,
         fp16=not args.no_fp16,
         workspace_gib=args.workspace,
+        version_compatible=args.version_compatible,
     )
     print(f"Engine saved to: {output_path}")
 

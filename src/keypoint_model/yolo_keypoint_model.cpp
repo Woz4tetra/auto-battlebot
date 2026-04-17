@@ -36,7 +36,7 @@ bool YoloKeypointModel::initialize() {
             return false;
         }
     }
-    spdlog::info("YoloKeypointModel initialized!");
+    spdlog::info("YoloKeypointModel initialized");
 
     initialized_ = true;
     diagnostics_logger_->info({}, "YoloKeypointModel initialized successfully");

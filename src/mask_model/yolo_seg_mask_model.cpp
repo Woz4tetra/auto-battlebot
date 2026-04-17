@@ -63,6 +63,7 @@ bool YoloSegMaskModel::initialize() {
             return false;
         }
     }
+    spdlog::info("YoloSegMaskModel initialized");
 
     initialized_ = true;
     diagnostics_logger_->info({}, "YoloSegMaskModel initialized successfully");
@@ -122,15 +123,40 @@ MaskStamped YoloSegMaskModel::update(RgbImage image) {
         return result;
     }
 
-    size_t det_idx = 0;
+    size_t det_idx = std::numeric_limits<size_t>::max();
     size_t proto_idx = std::numeric_limits<size_t>::max();
     for (size_t i = 0; i < output_infos.size(); ++i) {
+        // YOLO-seg proto output is rank-4 [1, C, H, W].
         if (output_infos[i].shape.size() == 4) {
-            proto_idx = i;
+            if (proto_idx == std::numeric_limits<size_t>::max() ||
+                output_infos[i].num_elements > output_infos[proto_idx].num_elements) {
+                proto_idx = i;
+            }
+            continue;
         }
-        if (output_infos[i].num_elements > output_infos[det_idx].num_elements) {
-            det_idx = i;
+
+        // Prefer rank-3 tensors for detection output [1, F, N] (or [1, N, F]).
+        if (output_infos[i].shape.size() == 3) {
+            if (det_idx == std::numeric_limits<size_t>::max() ||
+                output_infos[i].num_elements > output_infos[det_idx].num_elements) {
+                det_idx = i;
+            }
         }
+    }
+
+    // Fallback for unusual layouts: pick the largest non-proto tensor.
+    if (det_idx == std::numeric_limits<size_t>::max()) {
+        for (size_t i = 0; i < output_infos.size(); ++i) {
+            if (i == proto_idx) continue;
+            if (det_idx == std::numeric_limits<size_t>::max() ||
+                output_infos[i].num_elements > output_infos[det_idx].num_elements) {
+                det_idx = i;
+            }
+        }
+    }
+    if (det_idx == std::numeric_limits<size_t>::max()) {
+        diagnostics_logger_->error({}, "YOLO-seg could not identify detection output tensor");
+        return result;
     }
 
     int proto_channels = 0;

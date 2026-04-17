@@ -19,6 +19,8 @@ struct CameraInfo {
 
 struct CameraData {
     TransformStamped tf_visodom_from_camera;
+    // True when camera pose tracking is ready for stable field initialization.
+    bool tracking_ok = true;
     CameraInfo camera_info;
     RgbImage rgb;
     DepthImage depth;

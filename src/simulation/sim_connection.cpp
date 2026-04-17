@@ -214,6 +214,7 @@ bool SimConnection::step_and_receive(CameraData &data) {
     data.tf_visodom_from_camera.header = {now, FrameId::VISUAL_ODOMETRY};
     data.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
     data.tf_visodom_from_camera.transform.tf = tf;
+    data.tracking_ok = true;
 
     return true;
 }

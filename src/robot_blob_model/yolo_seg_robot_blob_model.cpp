@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <map>
 
 namespace auto_battlebot {
 namespace {
@@ -45,6 +44,7 @@ bool YoloSegRobotBlobModel::initialize() {
             return false;
         }
     }
+    spdlog::info("YoloSegRobotBlobModel initialized");
 
     initialized_ = true;
     diagnostics_logger_->info({}, "YoloSegRobotBlobModel initialized successfully");
@@ -96,16 +96,40 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
         return result;
     }
 
-    // Pick the output with the largest rank/element count as detection tensor by default.
-    size_t det_idx = 0;
+    size_t det_idx = std::numeric_limits<size_t>::max();
     size_t proto_idx = std::numeric_limits<size_t>::max();
     for (size_t i = 0; i < output_infos.size(); ++i) {
+        // YOLO-seg proto output is rank-4 [1, C, H, W].
         if (output_infos[i].shape.size() == 4) {
-            proto_idx = i;
+            if (proto_idx == std::numeric_limits<size_t>::max() ||
+                output_infos[i].num_elements > output_infos[proto_idx].num_elements) {
+                proto_idx = i;
+            }
+            continue;
         }
-        if (output_infos[i].num_elements > output_infos[det_idx].num_elements) {
-            det_idx = i;
+
+        // Prefer rank-3 tensors for detection output [1, F, N] (or [1, N, F]).
+        if (output_infos[i].shape.size() == 3) {
+            if (det_idx == std::numeric_limits<size_t>::max() ||
+                output_infos[i].num_elements > output_infos[det_idx].num_elements) {
+                det_idx = i;
+            }
         }
+    }
+
+    // Fallback for unusual layouts: pick the largest non-proto tensor.
+    if (det_idx == std::numeric_limits<size_t>::max()) {
+        for (size_t i = 0; i < output_infos.size(); ++i) {
+            if (i == proto_idx) continue;
+            if (det_idx == std::numeric_limits<size_t>::max() ||
+                output_infos[i].num_elements > output_infos[det_idx].num_elements) {
+                det_idx = i;
+            }
+        }
+    }
+    if (det_idx == std::numeric_limits<size_t>::max()) {
+        diagnostics_logger_->error({}, "YOLO-seg could not identify detection output tensor");
+        return result;
     }
 
     int proto_channels = 0;
@@ -121,6 +145,12 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
         detections.resize(static_cast<size_t>(max_detections_));
     }
 
+    cv::Mat debug_vis;
+    const bool render_debug = debug_visualization_ && !image.image.empty();
+    if (render_debug) {
+        debug_vis = image.image.clone();
+    }
+
     int detection_index = 0;
     for (const auto &det : detections) {
         cv::Mat instance_mask;
@@ -129,9 +159,62 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
                                                  output_infos[proto_idx].shape, input_size);
             instance_mask = map_mask_to_original_image(instance_mask, original_size, input_size);
         }
+
+        if (render_debug) {
+            const double gain = std::min(static_cast<double>(input_size.width) / original_size.width,
+                                         static_cast<double>(input_size.height) / original_size.height);
+            const double pad_w =
+                std::round((input_size.width - original_size.width * gain) / 2.0 - letterbox_padding_);
+            const double pad_h = std::round((input_size.height - original_size.height * gain) / 2.0 -
+                                            letterbox_padding_);
+            const int x1 = static_cast<int>(std::round((det.x1 - pad_w) / gain));
+            const int y1 = static_cast<int>(std::round((det.y1 - pad_h) / gain));
+            const int x2 = static_cast<int>(std::round((det.x2 - pad_w) / gain));
+            const int y2 = static_cast<int>(std::round((det.y2 - pad_h) / gain));
+
+            cv::Scalar color(0, 255, 0);
+            if (det.class_id >= 0 && det.class_id < static_cast<int>(label_indices_.size())) {
+                const Label cls = label_indices_[static_cast<size_t>(det.class_id)];
+                const Category cat = classify_category(cls);
+                if (cat == Category::THEIR) {
+                    color = cv::Scalar(0, 0, 255);
+                } else if (cat == Category::NEUTRAL) {
+                    color = cv::Scalar(255, 255, 0);
+                } else if (cat == Category::FIELD) {
+                    color = cv::Scalar(0, 255, 0);
+                } else {
+                    color = cv::Scalar(180, 180, 180);
+                }
+            }
+
+            cv::rectangle(debug_vis, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
+            const std::string det_text =
+                "cls=" + std::to_string(det.class_id) + " conf=" + cv::format("%.2f", det.confidence);
+            cv::putText(debug_vis, det_text, cv::Point(x1, std::max(0, y1 - 6)),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
+
+            if (!instance_mask.empty()) {
+                cv::Mat color_overlay(debug_vis.size(), CV_8UC3, color);
+                cv::Mat blend;
+                cv::addWeighted(debug_vis, 0.7, color_overlay, 0.3, 0.0, blend);
+                blend.copyTo(debug_vis, instance_mask > 0);
+            }
+        }
+
         append_detection_keypoints(det, instance_mask, original_size, input_size, detection_index,
                                    result);
         ++detection_index;
+    }
+
+    if (render_debug) {
+        for (const auto &kp : result.keypoints) {
+            const int x = static_cast<int>(std::round(kp.x));
+            const int y = static_cast<int>(std::round(kp.y));
+            cv::circle(debug_vis, cv::Point(x, y), 5, cv::Scalar(255, 255, 255), -1);
+            cv::circle(debug_vis, cv::Point(x, y), 3, cv::Scalar(0, 0, 0), -1);
+        }
+        cv::imshow("YOLO Seg Robot Blob Debug", debug_vis);
+        cv::waitKey(1);
     }
 
     return result;

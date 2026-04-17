@@ -345,6 +345,7 @@ bool ZedRgbdCamera::capture_frame() {
     if (position_tracking_enabled_) {
         sl::POSITIONAL_TRACKING_STATE tracking_state =
             zed_.getPosition(zed_pose_, sl::REFERENCE_FRAME::WORLD);
+        latest_data_.tracking_ok = (tracking_state == sl::POSITIONAL_TRACKING_STATE::OK);
         if (tracking_state != prev_tracking_state_) {
             spdlog::info("Tracking state: {}", sl::toString(tracking_state).c_str());
             prev_tracking_state_ = tracking_state;
@@ -360,6 +361,7 @@ bool ZedRgbdCamera::capture_frame() {
         }
     } else {
         latest_data_.tf_visodom_from_camera.transform.tf = Eigen::MatrixXd::Identity(4, 4);
+        latest_data_.tracking_ok = true;
     }
 
     // Convert ZED RGB image to OpenCV Mat (BGRA to BGR)
