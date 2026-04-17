@@ -42,6 +42,8 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     double blob_overwrite_min_distance_meters_;
     /** Radius scale for suppression based on blob/keypoint size estimates. */
     double blob_overwrite_size_scale_;
+    /** Extra margin added to field half extents before out-of-bounds rejection. */
+    double field_bounds_margin_meters_;
     RobotKeypointTracker robot_keypoint_tracker_;
     FrameIdAssigner frame_id_assigner_;
     RobotTemporalMotionFilter temporal_motion_filter_;

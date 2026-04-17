@@ -22,7 +22,7 @@ their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
 confidence_threshold = 0.5
-debug_visualization = true
+debug_visualization = false
 
 [field_filter]
 type = "PointCloudFieldFilter"
@@ -32,8 +32,8 @@ distance_threshold = 0.1
 [keypoint_model]
 type = "YoloKeypointModel"
 model_path = "data/models/yolo26n-pose_our_robots_2026-04-17_x86_64_sm89.engine"
-label_indices = ["MR_STABS_MK2", "HOUSE_BOT"]
-debug_visualization = false
+label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
+debug_visualization = true
 threshold = 0.5
 
 [[keypoint_model.label_map]]
@@ -64,7 +64,7 @@ front_keypoints = [
 ]
 back_keypoints = [
     "MR_STABS_MK2_BACK",
-    "MRS_BUFF_MK2_BACK",
+    "MRS_BUFF_MK3_BACK",
     "HOUSE_BOT_BACK",
     "OPPONENT_BACK",
 ]
@@ -75,9 +75,10 @@ robot_blob_min_confidence = 0.4
 robot_blob_max_candidates = 8
 blob_overwrite_min_distance_meters = 0.05
 blob_overwrite_size_scale = 0.5
+field_bounds_margin_meters = 0.2
 
 [robot_filter.label_mapping]
-"MR_STABS_MK2" = ["OUR_ROBOT_1"]
+"MR_STABS_MK2" = ["THEIR_ROBOT_1"]
 "MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]

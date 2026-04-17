@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cmath>
-#include <iostream>
 #include <string>
 
 #include "enum_to_string_lower.hpp"

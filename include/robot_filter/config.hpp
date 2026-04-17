@@ -2,7 +2,6 @@
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
-#include "data_structures.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "robot_filter/robot_keypoint_tracker.hpp"
 
@@ -39,6 +38,7 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
     int max_consecutive_jump_rejects = 5;
     double blob_overwrite_min_distance_meters = 0.20;
     double blob_overwrite_size_scale = 0.5;
+    double field_bounds_margin_meters = 0.2;
     RobotKeypointTrackerConfig robot_keypoint_tracker_config;
 
     RobotFrontBackSimpleFilterConfiguration() { type = "RobotFrontBackSimpleFilter"; }
@@ -56,6 +56,8 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
             "blob_overwrite_min_distance_meters", blob_overwrite_min_distance_meters);
         blob_overwrite_size_scale =
             parser.get_optional_double("blob_overwrite_size_scale", blob_overwrite_size_scale);
+        field_bounds_margin_meters =
+            parser.get_optional_double("field_bounds_margin_meters", field_bounds_margin_meters);
         parse_robot_keypoint_tracker_config(parser);
         parser.validate_no_extra_fields();
     }
