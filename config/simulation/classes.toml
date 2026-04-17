@@ -73,8 +73,8 @@ blob_overwrite_size_scale = 0.5
 field_bounds_margin_meters = 0.2
 
 [robot_filter.label_mapping]
-"MR_STABS_MK2" = ["THEIR_ROBOT_1"]
-"MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
+"MR_STABS_MK2" = ["OUR_ROBOT_1"]
+"MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
