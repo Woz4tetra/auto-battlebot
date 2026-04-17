@@ -30,10 +30,15 @@ FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
     using GroupKey = std::pair<Label, int>;
     std::map<GroupKey, FrontBackAssignment> group_assignments;
     std::map<GroupKey, double> group_confidence;
+    std::map<GroupKey, bool> group_has_front;
+    std::map<GroupKey, bool> group_has_back;
 
     for (const Keypoint &keypoint : keypoints.keypoints) {
-        Eigen::Vector3d projected_keypoint =
-            project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info);
+        Eigen::Vector3d projected_keypoint;
+        if (!project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info,
+                                         projected_keypoint)) {
+            continue;
+        }
         std::string keypoint_label_str =
             std::string(magic_enum::enum_name(keypoint.keypoint_label));
         diagnostics_logger_->debug(keypoint_label_str, {{"x", projected_keypoint[0]},
@@ -50,6 +55,7 @@ FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
                                          config_.front_keypoints.end(), keypoint.keypoint_label);
         if (front_assign_it != config_.front_keypoints.end()) {
             group_assignments[key].front = projected_keypoint;
+            group_has_front[key] = true;
             diagnostics_logger_->debug(keypoint_label_str, {{"type", "front"}});
             continue;
         }
@@ -57,6 +63,7 @@ FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
                                         config_.back_keypoints.end(), keypoint.keypoint_label);
         if (back_assign_it != config_.back_keypoints.end()) {
             group_assignments[key].back = projected_keypoint;
+            group_has_back[key] = true;
             diagnostics_logger_->debug(keypoint_label_str, {{"type", "back"}});
             continue;
         }
@@ -68,31 +75,14 @@ FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
     // pose (front and back set)
     std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>> result;
     for (const auto &[group_key, assignment] : group_assignments) {
+        if (!group_has_front[group_key] || !group_has_back[group_key]) {
+            continue;
+        }
         const Label label = group_key.first;
         double conf = group_confidence[group_key];
         result[label].push_back({assignment, conf});
     }
     return result;
-}
-
-Eigen::Vector3d FrontBackKeypointConverter::project_keypoint_onto_plane(
-    const Keypoint &keypoint, const Eigen::Vector3d &plane_center,
-    const Eigen::Vector3d &plane_normal, const CameraInfo &camera_info) {
-    Eigen::Vector3d ray;
-    if (!pixel_to_camera_ray(camera_info, keypoint.x, keypoint.y, ray))
-        return Eigen::Vector3d::Zero();
-    Eigen::Vector3d point_on_plane;
-    if (!intersect_camera_ray_with_plane(ray, plane_center, plane_normal, point_on_plane)) {
-        return Eigen::Vector3d::Zero();
-    }
-    return point_on_plane;
-}
-
-Eigen::Vector3d FrontBackKeypointConverter::transform_point(const Eigen::Matrix4d &tf,
-                                                            const Eigen::Vector3d &point) {
-    Eigen::Vector4d point_homogenous(point[0], point[1], point[2], 1);
-    Eigen::Vector3d transformed_point = (tf * point_homogenous).head<3>();
-    return transformed_point;
 }
 
 bool FrontBackKeypointConverter::get_pose_from_points(const Eigen::Vector3d &front_point,

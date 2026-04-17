@@ -5,6 +5,7 @@
 #include <string>
 
 #include "data_structures/camera.hpp"
+#include "data_structures/keypoint.hpp"
 #include "data_structures/pose.hpp"
 #include "data_structures/transform.hpp"
 
@@ -156,5 +157,29 @@ bool intersect_camera_ray_with_plane(const Eigen::Vector3d &ray,
  */
 bool transform_to_plane_center_normal(const Transform &transform, Eigen::Vector3d &out_center,
                                       Eigen::Vector3d &out_normal);
+
+/**
+ * @brief Project a keypoint pixel to a 3D point on a known plane in camera frame.
+ * @param keypoint Input keypoint with pixel coordinates
+ * @param plane_center Any point on the plane in camera frame
+ * @param plane_normal Plane normal in camera frame
+ * @param camera_info Camera intrinsics
+ * @param out_point Projected point on plane in camera frame
+ * @return True when projection succeeds
+ */
+bool project_keypoint_onto_plane(const Keypoint &keypoint, const Eigen::Vector3d &plane_center,
+                                 const Eigen::Vector3d &plane_normal, const CameraInfo &camera_info,
+                                 Eigen::Vector3d &out_point);
+
+/**
+ * @brief Transform a 3D point by a homogeneous 4x4 transform.
+ */
+Eigen::Vector3d transform_point(const Eigen::Matrix4d &tf, const Eigen::Vector3d &point);
+
+/**
+ * @brief Rotate body-frame linear velocity into field frame.
+ * @return XY velocity in field frame
+ */
+Eigen::Vector2d body_velocity_to_field(double linear_x, double linear_y, double yaw);
 
 }  // namespace auto_battlebot

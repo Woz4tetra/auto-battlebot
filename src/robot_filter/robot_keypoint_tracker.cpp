@@ -5,21 +5,19 @@
 #include <map>
 #include <tuple>
 
+#include "robot_filter/label_group_utils.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
-namespace {
-Group infer_group(Label label) {
-    if (label == Label::HOUSE_BOT) return Group::NEUTRAL;
-    if (label == Label::OPPONENT) return Group::THEIRS;
-    return Group::OURS;
-}
-}  // namespace
-
 RobotKeypointTracker::RobotKeypointTracker(const RobotKeypointTrackerConfig &config)
     : config_(config) {}
 
 void RobotKeypointTracker::reset() { tracked_.clear(); }
+
+void RobotKeypointTracker::set_robot_configs(
+    const std::unordered_map<Label, RobotConfig> &robot_configs) {
+    robot_configs_ = robot_configs;
+}
 
 std::vector<RobotDescription> RobotKeypointTracker::detect(
     const KeypointsStamped &robot_blob_keypoints, const FieldDescription &field,
@@ -60,17 +58,10 @@ std::vector<RobotKeypointCandidate> RobotKeypointTracker::extract_candidates(
         const Keypoint &kp_a = sorted[0];
         const Keypoint &kp_b = sorted[1];
 
-        Eigen::Vector3d ray_a;
-        Eigen::Vector3d ray_b;
-        if (!pixel_to_camera_ray(camera_info, kp_a.x, kp_a.y, ray_a) ||
-            !pixel_to_camera_ray(camera_info, kp_b.x, kp_b.y, ray_b)) {
-            continue;
-        }
-
         Eigen::Vector3d point_a;
         Eigen::Vector3d point_b;
-        if (!intersect_camera_ray_with_plane(ray_a, plane_center, plane_normal, point_a) ||
-            !intersect_camera_ray_with_plane(ray_b, plane_center, plane_normal, point_b)) {
+        if (!project_keypoint_onto_plane(kp_a, plane_center, plane_normal, camera_info, point_a) ||
+            !project_keypoint_onto_plane(kp_b, plane_center, plane_normal, camera_info, point_b)) {
             continue;
         }
 
@@ -82,7 +73,7 @@ std::vector<RobotKeypointCandidate> RobotKeypointTracker::extract_candidates(
 
         RobotKeypointCandidate candidate;
         candidate.label = group_key.first;
-        candidate.group = infer_group(group_key.first);
+        candidate.group = group_for_label(group_key.first, robot_configs_);
         candidate.center = center;
         candidate.size_meters = length;
         candidate.confidence = confidence;

@@ -2,6 +2,7 @@
 
 #include <Eigen/Dense>
 #include <opencv2/core.hpp>
+#include <unordered_map>
 
 #include "robot_filter/robot_keypoint_tracker.hpp"
 
@@ -82,5 +83,68 @@ TEST_F(RobotKeypointTrackerTest, PersistenceFiltersEarlyFrames) {
     RobotKeypointTracker tracker(config_);
     EXPECT_TRUE(tracker.detect(make_blob_keypoints(), field_, camera_info_, 1.0).empty());
     EXPECT_EQ(tracker.detect(make_blob_keypoints(), field_, camera_info_, 1.05).size(), 1u);
+}
+
+TEST_F(RobotKeypointTrackerTest, UsesTwoHighestConfidenceKeypointsPerGroup) {
+    RobotKeypointTracker tracker(config_);
+
+    KeypointsStamped keypoints;
+    keypoints.header.frame_id = FrameId::CAMERA;
+    keypoints.header.stamp = 1.0;
+
+    Keypoint high_left;
+    high_left.label = Label::OPPONENT;
+    high_left.keypoint_label = KeypointLabel::OPPONENT_FRONT;
+    high_left.x = 300.0;
+    high_left.y = 220.0;
+    high_left.confidence = 0.95;
+    high_left.detection_index = 1;
+    keypoints.keypoints.push_back(high_left);
+
+    Keypoint high_right = high_left;
+    high_right.keypoint_label = KeypointLabel::OPPONENT_BACK;
+    high_right.x = 340.0;
+    high_right.confidence = 0.90;
+    keypoints.keypoints.push_back(high_right);
+
+    Keypoint low_far = high_left;
+    low_far.keypoint_label = KeypointLabel::MRS_BUFF_MK3_BACK;
+    low_far.x = 420.0;
+    low_far.confidence = 0.10;
+    keypoints.keypoints.push_back(low_far);
+
+    auto detections = tracker.detect(keypoints, field_, camera_info_, 1.0);
+    ASSERT_EQ(detections.size(), 1u);
+    // If the low-confidence point were used, the resulting span would be much larger.
+    EXPECT_NEAR(detections[0].size.x, 0.24, 0.03);
+}
+
+TEST_F(RobotKeypointTrackerTest, UsesInjectedRobotConfigForGroupMapping) {
+    RobotKeypointTracker tracker(config_);
+    std::unordered_map<Label, RobotConfig> robot_configs;
+    robot_configs[Label::MRS_BUFF_MK1] = RobotConfig{Label::MRS_BUFF_MK1, Group::THEIRS};
+    tracker.set_robot_configs(robot_configs);
+
+    KeypointsStamped keypoints;
+    keypoints.header.frame_id = FrameId::CAMERA;
+    keypoints.header.stamp = 1.0;
+
+    Keypoint a;
+    a.label = Label::MRS_BUFF_MK1;
+    a.keypoint_label = KeypointLabel::MRS_BUFF_MK1_FRONT;
+    a.x = 300.0;
+    a.y = 220.0;
+    a.confidence = 0.9;
+    a.detection_index = 1;
+    keypoints.keypoints.push_back(a);
+
+    Keypoint b = a;
+    b.keypoint_label = KeypointLabel::MRS_BUFF_MK1_BACK;
+    b.x = 340.0;
+    keypoints.keypoints.push_back(b);
+
+    auto detections = tracker.detect(keypoints, field_, camera_info_, 1.0);
+    ASSERT_EQ(detections.size(), 1u);
+    EXPECT_EQ(detections[0].group, Group::THEIRS);
 }
 }  // namespace auto_battlebot

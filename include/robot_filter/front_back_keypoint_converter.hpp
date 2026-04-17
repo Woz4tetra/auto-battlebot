@@ -50,19 +50,9 @@ class FrontBackKeypointConverter {
     bool get_pose_from_points(const Eigen::Vector3d &front_point, const Eigen::Vector3d &back_point,
                               Transform &out_transform);
 
-    /**
-     * @brief Transform a point using a 4x4 transformation matrix
-     */
-    static Eigen::Vector3d transform_point(const Eigen::Matrix4d &tf, const Eigen::Vector3d &point);
-
    private:
     FrontBackKeypointConverterConfig config_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
-
-    Eigen::Vector3d project_keypoint_onto_plane(const Keypoint &keypoint,
-                                                const Eigen::Vector3d &plane_center,
-                                                const Eigen::Vector3d &plane_normal,
-                                                const CameraInfo &camera_info);
 };
 
 }  // namespace auto_battlebot

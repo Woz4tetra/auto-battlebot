@@ -37,6 +37,8 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
     double velocity_ema_alpha = 0.5;
     double max_jump_distance = 0.3;
     int max_consecutive_jump_rejects = 5;
+    double blob_overwrite_min_distance_meters = 0.20;
+    double blob_overwrite_size_scale = 0.5;
     RobotKeypointTrackerConfig robot_keypoint_tracker_config;
 
     RobotFrontBackSimpleFilterConfiguration() { type = "RobotFrontBackSimpleFilter"; }
@@ -50,6 +52,10 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
         PARSE_FIELD_DOUBLE(max_jump_distance)
         max_consecutive_jump_rejects = static_cast<int>(
             parser.get_optional_int("max_consecutive_jump_rejects", max_consecutive_jump_rejects));
+        blob_overwrite_min_distance_meters = parser.get_optional_double(
+            "blob_overwrite_min_distance_meters", blob_overwrite_min_distance_meters);
+        blob_overwrite_size_scale =
+            parser.get_optional_double("blob_overwrite_size_scale", blob_overwrite_size_scale);
         parse_robot_keypoint_tracker_config(parser);
         parser.validate_no_extra_fields();
     }

@@ -1,27 +1,20 @@
 #pragma once
 
+#include <Eigen/Dense>
 #include <map>
 #include <unordered_map>
 #include <vector>
 
 #include "data_structures/command_feedback.hpp"
-#include "data_structures/pose.hpp"
-#include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "robot_filter/config.hpp"
+#include "robot_filter/frame_id_assigner.hpp"
 #include "robot_filter/front_back_keypoint_converter.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "robot_filter/robot_keypoint_tracker.hpp"
-#include "transform_utils.hpp"
+#include "robot_filter/robot_temporal_motion_filter.hpp"
 
 namespace auto_battlebot {
-/** Per-robot state used to estimate velocity across frames. */
-struct RobotVelocityState {
-    double timestamp = 0.0;
-    Pose2D pose;
-    Velocity2D smoothed_velocity;
-};
-
 class RobotFrontBackSimpleFilter : public RobotFilterInterface {
    public:
     RobotFrontBackSimpleFilter(RobotFrontBackSimpleFilterConfiguration &config);
@@ -45,38 +38,22 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     double max_jump_distance_;
     /** After this many consecutive rejected frames, accept the measurement (tracking reset). */
     int max_consecutive_jump_rejects_;
+    /** Minimum radius (meters) for suppressing blobs near keypoint detections. */
+    double blob_overwrite_min_distance_meters_;
+    /** Radius scale for suppression based on blob/keypoint size estimates. */
+    double blob_overwrite_size_scale_;
     RobotKeypointTracker robot_keypoint_tracker_;
-    /** Last known position per FrameId for distance-based assignment when multiple of same label.
-     */
-    std::map<FrameId, Position> last_position_per_frame_id_;
-    /** Velocity estimation state per FrameId. */
-    std::map<FrameId, RobotVelocityState> velocity_state_per_frame_id_;
-    /** Consecutive jump-rejection count per FrameId. */
-    std::map<FrameId, int> jump_reject_count_per_frame_id_;
-    /** Last emitted description per FrameId to persist estimates across dropped detections. */
-    std::map<FrameId, RobotDescription> last_description_per_frame_id_;
+    FrameIdAssigner frame_id_assigner_;
+    RobotTemporalMotionFilter temporal_motion_filter_;
 
-    std::vector<RobotDescription> convert_keypoints_to_measurements(KeypointsStamped keypoints,
-                                                                    FieldDescription field,
-                                                                    CameraInfo camera_info);
-    std::vector<RobotDescription> update_filter(std::vector<RobotDescription> inputs,
-                                                CommandFeedback command_feedback, double timestamp);
-
-    /**
-     * Estimate velocity for each robot description.
-     * Our robots (present in command_feedback): use commanded velocity rotated to field frame.
-     * Opponent robots: differentiate position over time with EMA smoothing.
-     */
-    void estimate_velocities(std::vector<RobotDescription> &descriptions, double timestamp,
-                             const CommandFeedback &command_feedback);
+    std::vector<RobotDescription> convert_keypoints_to_measurements(
+        const KeypointsStamped &keypoints, const FieldDescription &field, const CameraInfo &camera_info,
+        const Eigen::Matrix4d &tf_fieldcenter_from_camera);
 
     using MeasurementWithConfidence = std::pair<double, RobotDescription>;
     std::vector<MeasurementWithConfidence> build_valid_measurements(
         const Eigen::Matrix4d &tf_fieldcenter_from_camera, Label label,
         const std::vector<std::pair<FrontBackAssignment, double>> &assignments_with_conf);
-    std::vector<RobotDescription> assign_frame_ids_to_measurements(
-        std::vector<MeasurementWithConfidence> &valid_measurements,
-        const std::vector<FrameId> &frame_ids);
 
     /** FrameIds to assign for this label (from config or single default). */
     std::vector<FrameId> get_frame_ids_for_label(Label label) const;

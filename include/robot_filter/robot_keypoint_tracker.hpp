@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Dense>
+#include <unordered_map>
 #include <vector>
 
 #include "data_structures/camera.hpp"
@@ -32,6 +33,7 @@ class RobotKeypointTracker {
     explicit RobotKeypointTracker(const RobotKeypointTrackerConfig &config);
 
     void reset();
+    void set_robot_configs(const std::unordered_map<Label, RobotConfig> &robot_configs);
     std::vector<RobotDescription> detect(const KeypointsStamped &robot_blob_keypoints,
                                          const FieldDescription &field,
                                          const CameraInfo &camera_info, double timestamp);
@@ -44,6 +46,7 @@ class RobotKeypointTracker {
     };
 
     RobotKeypointTrackerConfig config_;
+    std::unordered_map<Label, RobotConfig> robot_configs_;
     std::vector<TrackedCandidate> tracked_;
 
     std::vector<RobotKeypointCandidate> extract_candidates(

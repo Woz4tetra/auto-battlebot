@@ -244,4 +244,25 @@ bool transform_to_plane_center_normal(const Transform &transform, Eigen::Vector3
            std::isfinite(out_normal.y()) && std::isfinite(out_normal.z());
 }
 
+bool project_keypoint_onto_plane(const Keypoint &keypoint, const Eigen::Vector3d &plane_center,
+                                 const Eigen::Vector3d &plane_normal, const CameraInfo &camera_info,
+                                 Eigen::Vector3d &out_point) {
+    Eigen::Vector3d ray;
+    if (!pixel_to_camera_ray(camera_info, keypoint.x, keypoint.y, ray)) {
+        return false;
+    }
+    return intersect_camera_ray_with_plane(ray, plane_center, plane_normal, out_point);
+}
+
+Eigen::Vector3d transform_point(const Eigen::Matrix4d &tf, const Eigen::Vector3d &point) {
+    Eigen::Vector4d point_homogenous(point[0], point[1], point[2], 1.0);
+    return (tf * point_homogenous).head<3>();
+}
+
+Eigen::Vector2d body_velocity_to_field(double linear_x, double linear_y, double yaw) {
+    const double cos_yaw = std::cos(yaw);
+    const double sin_yaw = std::sin(yaw);
+    return {linear_x * cos_yaw - linear_y * sin_yaw, linear_x * sin_yaw + linear_y * cos_yaw};
+}
+
 }  // namespace auto_battlebot
