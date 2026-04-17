@@ -108,7 +108,7 @@ default_opponent_count = 1
 autonomy_enabled_by_default = true
 
 [ui]
-enable = true
+enable = false
 fullscreen = false
 battery_source = "None"
 
