@@ -98,44 +98,10 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
 
     size_t det_idx = std::numeric_limits<size_t>::max();
     size_t proto_idx = std::numeric_limits<size_t>::max();
-    for (size_t i = 0; i < output_infos.size(); ++i) {
-        // YOLO-seg proto output is rank-4 [1, C, H, W].
-        if (output_infos[i].shape.size() == 4) {
-            if (proto_idx == std::numeric_limits<size_t>::max() ||
-                output_infos[i].num_elements > output_infos[proto_idx].num_elements) {
-                proto_idx = i;
-            }
-            continue;
-        }
-
-        // Prefer rank-3 tensors for detection output [1, F, N] (or [1, N, F]).
-        if (output_infos[i].shape.size() == 3) {
-            if (det_idx == std::numeric_limits<size_t>::max() ||
-                output_infos[i].num_elements > output_infos[det_idx].num_elements) {
-                det_idx = i;
-            }
-        }
-    }
-
-    // Fallback for unusual layouts: pick the largest non-proto tensor.
-    if (det_idx == std::numeric_limits<size_t>::max()) {
-        for (size_t i = 0; i < output_infos.size(); ++i) {
-            if (i == proto_idx) continue;
-            if (det_idx == std::numeric_limits<size_t>::max() ||
-                output_infos[i].num_elements > output_infos[det_idx].num_elements) {
-                det_idx = i;
-            }
-        }
-    }
-    if (det_idx == std::numeric_limits<size_t>::max()) {
+    int proto_channels = 0;
+    if (!select_output_tensors(output_infos, det_idx, proto_idx, proto_channels)) {
         diagnostics_logger_->error({}, "YOLO-seg could not identify detection output tensor");
         return result;
-    }
-
-    int proto_channels = 0;
-    if (proto_idx != std::numeric_limits<size_t>::max() &&
-        output_infos[proto_idx].shape.size() == 4) {
-        proto_channels = static_cast<int>(output_infos[proto_idx].shape[1]);
     }
 
     auto detections =
@@ -153,52 +119,11 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
 
     int detection_index = 0;
     for (const auto &det : detections) {
-        cv::Mat instance_mask;
-        if (proto_idx != std::numeric_limits<size_t>::max() && !det.mask_coeffs.empty()) {
-            instance_mask = decode_instance_mask(det, output_buffers[proto_idx],
-                                                 output_infos[proto_idx].shape, input_size);
-            instance_mask = map_mask_to_original_image(instance_mask, original_size, input_size);
-        }
+        cv::Mat instance_mask = decode_mapped_instance_mask(
+            det, output_buffers, output_infos, proto_idx, original_size, input_size);
 
         if (render_debug) {
-            const double gain = std::min(static_cast<double>(input_size.width) / original_size.width,
-                                         static_cast<double>(input_size.height) / original_size.height);
-            const double pad_w =
-                std::round((input_size.width - original_size.width * gain) / 2.0 - letterbox_padding_);
-            const double pad_h = std::round((input_size.height - original_size.height * gain) / 2.0 -
-                                            letterbox_padding_);
-            const int x1 = static_cast<int>(std::round((det.x1 - pad_w) / gain));
-            const int y1 = static_cast<int>(std::round((det.y1 - pad_h) / gain));
-            const int x2 = static_cast<int>(std::round((det.x2 - pad_w) / gain));
-            const int y2 = static_cast<int>(std::round((det.y2 - pad_h) / gain));
-
-            cv::Scalar color(0, 255, 0);
-            if (det.class_id >= 0 && det.class_id < static_cast<int>(label_indices_.size())) {
-                const Label cls = label_indices_[static_cast<size_t>(det.class_id)];
-                const Category cat = classify_category(cls);
-                if (cat == Category::THEIR) {
-                    color = cv::Scalar(0, 0, 255);
-                } else if (cat == Category::NEUTRAL) {
-                    color = cv::Scalar(255, 255, 0);
-                } else if (cat == Category::FIELD) {
-                    color = cv::Scalar(0, 255, 0);
-                } else {
-                    color = cv::Scalar(180, 180, 180);
-                }
-            }
-
-            cv::rectangle(debug_vis, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
-            const std::string det_text =
-                "cls=" + std::to_string(det.class_id) + " conf=" + cv::format("%.2f", det.confidence);
-            cv::putText(debug_vis, det_text, cv::Point(x1, std::max(0, y1 - 6)),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
-
-            if (!instance_mask.empty()) {
-                cv::Mat color_overlay(debug_vis.size(), CV_8UC3, color);
-                cv::Mat blend;
-                cv::addWeighted(debug_vis, 0.7, color_overlay, 0.3, 0.0, blend);
-                blend.copyTo(debug_vis, instance_mask > 0);
-            }
+            render_detection_debug(debug_vis, det, instance_mask, original_size, input_size);
         }
 
         append_detection_keypoints(det, instance_mask, original_size, input_size, detection_index,
@@ -207,17 +132,125 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
     }
 
     if (render_debug) {
-        for (const auto &kp : result.keypoints) {
-            const int x = static_cast<int>(std::round(kp.x));
-            const int y = static_cast<int>(std::round(kp.y));
-            cv::circle(debug_vis, cv::Point(x, y), 5, cv::Scalar(255, 255, 255), -1);
-            cv::circle(debug_vis, cv::Point(x, y), 3, cv::Scalar(0, 0, 0), -1);
-        }
+        render_keypoints_debug(debug_vis, result);
         cv::imshow("YOLO Seg Robot Blob Debug", debug_vis);
         cv::waitKey(1);
     }
 
     return result;
+}
+
+bool YoloSegRobotBlobModel::select_output_tensors(
+    const std::vector<TrtEngine::OutputTensorInfo> &output_infos, size_t &det_idx, size_t &proto_idx,
+    int &proto_channels) const {
+    det_idx = std::numeric_limits<size_t>::max();
+    proto_idx = std::numeric_limits<size_t>::max();
+
+    for (size_t i = 0; i < output_infos.size(); ++i) {
+        if (output_infos[i].shape.size() == 4) {
+            if (proto_idx == std::numeric_limits<size_t>::max() ||
+                output_infos[i].num_elements > output_infos[proto_idx].num_elements) {
+                proto_idx = i;
+            }
+            continue;
+        }
+
+        if (output_infos[i].shape.size() == 3) {
+            if (det_idx == std::numeric_limits<size_t>::max() ||
+                output_infos[i].num_elements > output_infos[det_idx].num_elements) {
+                det_idx = i;
+            }
+        }
+    }
+
+    if (det_idx == std::numeric_limits<size_t>::max()) {
+        for (size_t i = 0; i < output_infos.size(); ++i) {
+            if (i == proto_idx) continue;
+            if (det_idx == std::numeric_limits<size_t>::max() ||
+                output_infos[i].num_elements > output_infos[det_idx].num_elements) {
+                det_idx = i;
+            }
+        }
+    }
+
+    proto_channels = 0;
+    if (proto_idx != std::numeric_limits<size_t>::max() &&
+        output_infos[proto_idx].shape.size() == 4) {
+        proto_channels = static_cast<int>(output_infos[proto_idx].shape[1]);
+    }
+
+    return det_idx != std::numeric_limits<size_t>::max();
+}
+
+cv::Mat YoloSegRobotBlobModel::decode_mapped_instance_mask(
+    const Detection &det, const std::vector<std::vector<float>> &output_buffers,
+    const std::vector<TrtEngine::OutputTensorInfo> &output_infos, size_t proto_idx,
+    cv::Size original_size, cv::Size input_size) const {
+    if (proto_idx == std::numeric_limits<size_t>::max() || det.mask_coeffs.empty()) {
+        return cv::Mat{};
+    }
+    cv::Mat instance_mask = decode_instance_mask(det, output_buffers[proto_idx],
+                                                 output_infos[proto_idx].shape, input_size);
+    return map_mask_to_original_image(instance_mask, original_size, input_size);
+}
+
+void YoloSegRobotBlobModel::map_detection_box_to_original(const Detection &det, cv::Size original_size,
+                                                          cv::Size input_size, int &x1, int &y1,
+                                                          int &x2, int &y2) const {
+    const double gain = std::min(static_cast<double>(input_size.width) / original_size.width,
+                                 static_cast<double>(input_size.height) / original_size.height);
+    const double pad_w =
+        std::round((input_size.width - original_size.width * gain) / 2.0 - letterbox_padding_);
+    const double pad_h =
+        std::round((input_size.height - original_size.height * gain) / 2.0 - letterbox_padding_);
+    x1 = static_cast<int>(std::round((det.x1 - pad_w) / gain));
+    y1 = static_cast<int>(std::round((det.y1 - pad_h) / gain));
+    x2 = static_cast<int>(std::round((det.x2 - pad_w) / gain));
+    y2 = static_cast<int>(std::round((det.y2 - pad_h) / gain));
+}
+
+cv::Scalar YoloSegRobotBlobModel::debug_color_for_detection(const Detection &det) const {
+    cv::Scalar color(0, 255, 0);
+    if (det.class_id < 0 || det.class_id >= static_cast<int>(label_indices_.size())) {
+        return cv::Scalar(180, 180, 180);
+    }
+    const Label cls = label_indices_[static_cast<size_t>(det.class_id)];
+    const Category cat = classify_category(cls);
+    if (cat == Category::THEIR) return cv::Scalar(0, 0, 255);
+    if (cat == Category::NEUTRAL) return cv::Scalar(255, 255, 0);
+    if (cat == Category::FIELD) return cv::Scalar(0, 255, 0);
+    return cv::Scalar(180, 180, 180);
+}
+
+void YoloSegRobotBlobModel::render_detection_debug(cv::Mat &debug_vis, const Detection &det,
+                                                   const cv::Mat &instance_mask, cv::Size original_size,
+                                                   cv::Size input_size) const {
+    int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    map_detection_box_to_original(det, original_size, input_size, x1, y1, x2, y2);
+    const cv::Scalar color = debug_color_for_detection(det);
+
+    cv::rectangle(debug_vis, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
+    const std::string det_text =
+        "cls=" + std::to_string(det.class_id) + " conf=" + cv::format("%.2f", det.confidence);
+    cv::putText(debug_vis, det_text, cv::Point(x1, std::max(0, y1 - 6)), cv::FONT_HERSHEY_SIMPLEX,
+                0.5, color, 1);
+
+    if (!instance_mask.empty()) {
+        cv::Mat color_overlay(debug_vis.size(), CV_8UC3, color);
+        cv::Mat blend;
+        cv::addWeighted(debug_vis, 0.7, color_overlay, 0.3, 0.0, blend);
+        blend.copyTo(debug_vis, instance_mask > 0);
+    }
+}
+
+void YoloSegRobotBlobModel::render_keypoints_debug(cv::Mat &debug_vis,
+                                                   const KeypointsStamped &keypoints) {
+    for (const auto &kp : keypoints.keypoints) {
+        const int x = static_cast<int>(std::round(kp.x));
+        const int y = static_cast<int>(std::round(kp.y));
+        cv::circle(debug_vis, cv::Point(x, y), 5, cv::Scalar(255, 255, 255), -1);
+        cv::circle(debug_vis, cv::Point(x, y), 3, cv::Scalar(0, 0, 0), -1);
+    }
 }
 
 void YoloSegRobotBlobModel::preprocess_image(const cv::Mat &image, cv::Size input_size,
