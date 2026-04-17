@@ -387,10 +387,10 @@ void YoloSegRobotBlobModel::append_detection_keypoints(const Detection &det,
     if (category != Category::THEIR && category != Category::NEUTRAL) return;
 
     const Label output_label = (category == Category::THEIR) ? Label::OPPONENT : Label::HOUSE_BOT;
-    const KeypointLabel a_label = (category == Category::THEIR) ? KeypointLabel::OPPONENT_BLOB_A
-                                                                : KeypointLabel::HOUSE_BOT_BLOB_A;
-    const KeypointLabel b_label = (category == Category::THEIR) ? KeypointLabel::OPPONENT_BLOB_B
-                                                                : KeypointLabel::HOUSE_BOT_BLOB_B;
+    const KeypointLabel a_label = (category == Category::THEIR) ? KeypointLabel::OPPONENT_FRONT
+                                                                : KeypointLabel::HOUSE_BOT_FRONT;
+    const KeypointLabel b_label = (category == Category::THEIR) ? KeypointLabel::OPPONENT_BACK
+                                                                : KeypointLabel::HOUSE_BOT_BACK;
 
     MidlineSegment midline;
     if (!instance_mask.empty()) {

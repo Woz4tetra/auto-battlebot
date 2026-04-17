@@ -45,7 +45,7 @@ class RobotKeypointTrackerTest : public ::testing::Test {
 
         Keypoint a;
         a.label = Label::OPPONENT;
-        a.keypoint_label = KeypointLabel::OPPONENT_BLOB_A;
+        a.keypoint_label = KeypointLabel::OPPONENT_FRONT;
         a.x = 300.0;
         a.y = 220.0;
         a.confidence = 0.9;
@@ -53,7 +53,7 @@ class RobotKeypointTrackerTest : public ::testing::Test {
         keypoints.keypoints.push_back(a);
 
         Keypoint b = a;
-        b.keypoint_label = KeypointLabel::OPPONENT_BLOB_B;
+        b.keypoint_label = KeypointLabel::OPPONENT_BACK;
         b.x = 340.0;
         b.y = 220.0;
         keypoints.keypoints.push_back(b);
@@ -84,4 +84,3 @@ TEST_F(RobotKeypointTrackerTest, PersistenceFiltersEarlyFrames) {
     EXPECT_EQ(tracker.detect(make_blob_keypoints(), field_, camera_info_, 1.05).size(), 1u);
 }
 }  // namespace auto_battlebot
-

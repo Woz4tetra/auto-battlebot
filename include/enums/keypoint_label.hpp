@@ -15,9 +15,7 @@ enum class KeypointLabel {
     HOUSE_BOT_BACK,
     OPPONENT_FRONT,
     OPPONENT_BACK,
-    HOUSE_BOT_BLOB_A,
-    HOUSE_BOT_BLOB_B,
-    OPPONENT_BLOB_A,
-    OPPONENT_BLOB_B
+    MRS_BUFF_MK3_FRONT,
+    MRS_BUFF_MK3_BACK,
 };
 }  // namespace auto_battlebot
