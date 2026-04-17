@@ -183,6 +183,7 @@ def main() -> None:
 
     deleted_count = 0
     written_count = 0
+    image_copy_count = 0
     skipped_malformed_total = 0
 
     for label_path in tqdm(label_files, desc="Remapping labels", disable=args.dry_run):
@@ -234,6 +235,7 @@ def main() -> None:
             and paired_image
             and paired_image.exists()
         ):
+            image_copy_count += 1
             img_rel = paired_image.relative_to(dataset_dir)
             img_dest = output_dir / img_rel
             img_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -243,7 +245,9 @@ def main() -> None:
         print(f"Skipped {skipped_malformed_total} malformed label lines")
     if not args.dry_run:
         target = output_dir if output_dir else dataset_dir
-        print(f"Done. Wrote {written_count} label files to {target}")
+        print(
+            f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}"
+        )
         if deleted_count:
             print(f"Deleted {deleted_count} image+label pairs")
 
