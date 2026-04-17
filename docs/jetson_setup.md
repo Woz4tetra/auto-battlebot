@@ -15,7 +15,7 @@ I recommend running all of these commands inside of a tmux session in case of ne
 Setup options:
 
 -   username: ben
--   password: s0mething
+    **If you use a different name, make sure to change all the commands below accordingly**
 
 After rebooting, try ssh: `ssh ben@ubuntu.local` <br>
 Install openssh server if it doesn’t work: `sudo apt-get install openssh-server -y`

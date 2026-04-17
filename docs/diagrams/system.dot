@@ -1,0 +1,87 @@
+digraph AutoBattlebotSystem {
+  graph [
+    rankdir=TB
+    label="Auto Battlebot Closed-Loop Flow"
+    labelloc=t
+    fontsize=22
+    fontname="Helvetica"
+    pad=0.25
+    nodesep=0.45
+    ranksep=0.7
+    splines=spline
+    overlap=false
+    bgcolor="white"
+  ];
+
+  node [
+    shape=box
+    style="rounded,filled"
+    fillcolor="#F8FAFC"
+    color="#CBD5E1"
+    fontname="Helvetica"
+    fontsize=13
+    penwidth=1.4
+    margin="0.20,0.14"
+  ];
+
+  edge [
+    color="#475569"
+    penwidth=1.5
+    arrowsize=0.9
+    fontname="Helvetica"
+    fontsize=12
+  ];
+
+  rgbd_input [label="RGB-D Input"];
+  segmentation_keypoints [label="Segmentation / Keypoints"];
+  robot_pose_estimation [label="Robot Pose Estimation"];
+  transmitter_publisher [label="Transmitter / Publisher"];
+  pursuit_command [label="Pursuit Command"];
+  target_selection [label="Target Selection"];
+  real_world [
+    label="Real World"
+    shape=ellipse
+    fillcolor="#E0F2FE"
+    color="#7DD3FC"
+  ];
+  row1_pad_right [label="", shape=box, style=invis, width=2.2, height=0.75];
+
+  {
+    rank=same;
+    rgbd_input;
+    segmentation_keypoints;
+    robot_pose_estimation;
+    row1_pad_right;
+  }
+
+  {
+    rank=same;
+    real_world;
+    transmitter_publisher;
+    pursuit_command;
+    target_selection;
+  }
+
+  // Keep row ordering stable for snake-grid readability.
+  rgbd_input -> segmentation_keypoints [style=invis, weight=10];
+  segmentation_keypoints -> robot_pose_estimation [style=invis, weight=10];
+  robot_pose_estimation -> row1_pad_right [style=invis, weight=10];
+  real_world -> transmitter_publisher [style=invis, weight=10];
+  transmitter_publisher -> pursuit_command [style=invis, weight=10];
+  pursuit_command -> target_selection [style=invis, weight=10];
+
+  rgbd_input -> segmentation_keypoints;
+  segmentation_keypoints -> robot_pose_estimation;
+  robot_pose_estimation -> target_selection [minlen=2];
+  pursuit_command -> transmitter_publisher;
+  target_selection -> pursuit_command;
+  transmitter_publisher -> real_world;
+  real_world -> rgbd_input [
+    label="feedback"
+    style=dashed
+    color="#6366F1"
+    fontcolor="#4F46E5"
+    penwidth=1.6
+    minlen=2
+  ];
+}
