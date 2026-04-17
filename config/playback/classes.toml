@@ -17,7 +17,7 @@ label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
 model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-16_x86_64_sm89.engine"
-label_indices = ["OPPONENT", "HOUSE_BOT", "FIELD"]
+label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
 their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
@@ -76,10 +76,10 @@ robot_blob_tracked_timeout_seconds = 0.6
 robot_blob_max_candidates = 8
 
 [robot_filter.label_mapping]
-"MR_STABS_MK2" = ["THEIR_ROBOT_3"]
+"MR_STABS_MK2" = ["THEIR_ROBOT_1"]
 "MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
-"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2"]
+"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
 [target_selector]
 type = "NearestTarget"
@@ -93,7 +93,7 @@ max_linear_velocity = 2.0
 
 [transmitter]
 type = "PlaybackTransmitter"
-init_delay_seconds = 0.2
+init_delay_seconds = 0.4
 
 [publisher]
 type = "RosPublisher"

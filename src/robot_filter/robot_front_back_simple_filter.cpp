@@ -68,6 +68,7 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = keypoints.header.stamp;
+    const Eigen::Matrix4d tf_fieldcenter_from_camera = field.tf_camera_from_fieldcenter.tf.inverse();
 
     std::vector<RobotDescription> filter_measurements =
         convert_keypoints_to_measurements(keypoints, field, camera_info);
@@ -76,6 +77,16 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
     if (!robot_blob_keypoints.keypoints.empty() && field.child_frame_id != FrameId::EMPTY) {
         auto blob_measurements = robot_keypoint_tracker_.detect(
             robot_blob_keypoints, field, camera_info, keypoints.header.stamp);
+
+        for (auto &measurement : blob_measurements) {
+            const Eigen::Vector3d blob_center_camera(measurement.pose.position.x,
+                                                     measurement.pose.position.y,
+                                                     measurement.pose.position.z);
+            const Eigen::Vector3d blob_center_field =
+                FrontBackKeypointConverter::transform_point(tf_fieldcenter_from_camera,
+                                                            blob_center_camera);
+            measurement.pose.position = vector_to_position(blob_center_field);
+        }
         diagnostics_logger_->debug({{"num_blob_measurements", (int)blob_measurements.size()}});
 
         std::map<Label, std::vector<MeasurementWithConfidence>> grouped_blob_measurements;
