@@ -50,7 +50,9 @@ def load_config(config_path: Path) -> tuple[dict[int, int], int, set[int]]:
 
 def find_label_files(dataset_dir: Path) -> list[Path]:
     """Find YOLO label files under dataset_dir (prefers dataset_dir/labels)."""
-    search_root = dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
+    search_root = (
+        dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
+    )
     return sorted(search_root.rglob("*.txt"))
 
 
@@ -145,8 +147,8 @@ def main() -> None:
         help="Output directory (default: overwrite in place)",
     )
     parser.add_argument(
-        "--copy-images",
-        action="store_true",
+        "--skip-copy-images",
+        action="store_false",
         help="When using --output, also copy paired images",
     )
     parser.add_argument(
@@ -206,7 +208,9 @@ def main() -> None:
             if should_delete:
                 action = "DELETE"
             else:
-                action = f"{sorted(classes_before)} -> {sorted(classes_after)} => {dest}"
+                action = (
+                    f"{sorted(classes_before)} -> {sorted(classes_after)} => {dest}"
+                )
             print(f"  {label_path.name}: {action}")
             continue
 
@@ -224,7 +228,12 @@ def main() -> None:
         dest.write_text("\n".join(remapped) + "\n")
         written_count += 1
 
-        if args.copy_images and output_dir is not None and paired_image and paired_image.exists():
+        if (
+            not args.skip_copy_images
+            and output_dir is not None
+            and paired_image
+            and paired_image.exists()
+        ):
             img_rel = paired_image.relative_to(dataset_dir)
             img_dest = output_dir / img_rel
             img_dest.parent.mkdir(parents=True, exist_ok=True)
