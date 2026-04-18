@@ -15,7 +15,7 @@ Driving skill in leagues like NHRL (https://www.nhrl.io/) is usually the decidin
 assuming equally robust hardware. This project aims to deliver autonomous control to any radio-controlled
 combat robot.
 
-<p align="center"><video width="70%" src="docs/media/playback-demo.webm" autoplay muted loop playsinline controls allowfullscreen width="100%"></video></p>
+[![Playback demo](docs/media/playback-demo.gif)](https://youtu.be/DhecUUJivEk)
 
 Play recorded video through the system
 
@@ -53,7 +53,7 @@ If there's interest, I'll release the BOM and parts list.
 This application utilizes **Foxglove** for visualization, **MCAP** for replay debugging, 
 and ZED SDK's **SVO** for video playback.
 
-<p align="center"><video width="70%" src="docs/media/foxglove-demo.webm" autoplay muted loop playsinline controls allowfullscreen width="100%"></video></p>
+[![Foxglove demo](docs/media/foxglove-demo.gif)](https://youtu.be/qqPpfk3PQDA)
 
 ## Simulation and playback testing
 
@@ -61,6 +61,8 @@ To ensure any change doesn't cause regressions in performance, I've added the ab
 SVO files through the system as if real hardware were connected.
 
 I've also added a simulator to test closed-loop behavior using [Genesis](https://genesis-embodied-ai.github.io/)
+
+[![Simulation demo](docs/media/simulation-demo.gif)](https://youtu.be/I6TsnE2lxu0)
 
 <p align="center"><video width="70%" src="docs/media/simulation-demo.webm" autoplay muted loop playsinline controls allowfullscreen width="100%"></video></p>
 
