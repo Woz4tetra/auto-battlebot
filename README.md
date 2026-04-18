@@ -10,7 +10,7 @@
 
 # auto-battlebots
 
-Drive like a pro! The project brings aim-assist to the world of combat robots.
+Drive like a pro! This project brings aim-assist to the world of combat robots.
 Driving skill in leagues like NHRL (https://www.nhrl.io/) is usually the deciding factor for who wins fights
 assuming equally robust hardware. This project aims to deliver autonomous control to any radio-controlled
 combat robot.
@@ -33,13 +33,20 @@ Supported platforms:
 
 ## Fast deployment
 
-At NHRL, there's no time to setup tripods hardware at their 8+ cages.
+At NHRL, there's no time to setup tripods hardware at their 8+ cages and calibrate the camera systems.
 This system is completely handheld. The handheld device features:
 - Jetson Orin Nano
 - ZED 2i stereo camera
 - USB connection to any OpenTX transmitter
 - 2+ hours of battery
 - 8 inch LCD display
+
+<p align="center">
+  <img src="docs/media/handheld_autonomy.jpg" alt="Handheld autonomy device" width="70%" />
+</p>
+
+
+If there's interest, I'll release the BOM and parts list.
 
 ## Easy to debug
 
