@@ -54,7 +54,9 @@ def find_label_files(dataset_dir: Path) -> tuple[list[Path], Path]:
     Returns (label_files, labels_root). If dataset_dir/labels exists, that is
     used as labels_root; otherwise dataset_dir is used.
     """
-    labels_root = dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
+    labels_root = (
+        dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
+    )
     return sorted(labels_root.rglob("*.txt")), labels_root
 
 
@@ -71,7 +73,9 @@ def find_existing_image_for_prefix(prefix_no_suffix: Path) -> Path | None:
     return None
 
 
-def find_paired_image(label_path: Path, dataset_dir: Path, labels_root: Path) -> Path | None:
+def find_paired_image(
+    label_path: Path, dataset_dir: Path, labels_root: Path
+) -> Path | None:
     """Best-effort lookup of the image paired with a label file."""
     candidate_prefixes: list[Path] = []
 

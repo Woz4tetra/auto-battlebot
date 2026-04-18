@@ -1657,7 +1657,9 @@ def main() -> None:
             cat_seg = cat_seg_maps[local_idx]
             inst_seg = inst_seg_maps[local_idx] if inst_seg_maps else None
             clean_inst_seg = (
-                clean_inst_seg_maps[local_idx] if clean_inst_seg_maps is not None else None
+                clean_inst_seg_maps[local_idx]
+                if clean_inst_seg_maps is not None
+                else None
             )
             depth_map = depth_maps[local_idx]
             rendered_robot_ids: set[int] = set()

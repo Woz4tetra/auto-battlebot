@@ -208,7 +208,9 @@ def main() -> None:
 
     # List mode: print a random set of assets without downloading.
     if args.list_random > 0:
-        print(f"Fetching ambientCG materials and sampling {args.list_random} at random...")
+        print(
+            f"Fetching ambientCG materials and sampling {args.list_random} at random..."
+        )
         try:
             sampled = list_random_assets(args.list_random, seed=args.seed)
         except Exception as e:

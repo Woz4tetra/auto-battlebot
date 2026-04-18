@@ -23,52 +23,52 @@ PANEL_GROUPS = [
     (
         "Train Losses",
         [
-            ("train/box_loss",  "box"),
-            ("train/seg_loss",  "seg"),
-            ("train/cls_loss",  "cls"),
-            ("train/dfl_loss",  "dfl"),
+            ("train/box_loss", "box"),
+            ("train/seg_loss", "seg"),
+            ("train/cls_loss", "cls"),
+            ("train/dfl_loss", "dfl"),
             ("train/pose_loss", "pose"),
             ("train/kobj_loss", "kobj"),
-            ("train/rle_loss",  "rle"),
+            ("train/rle_loss", "rle"),
         ],
     ),
     (
         "Val Losses",
         [
-            ("val/box_loss",  "box"),
-            ("val/seg_loss",  "seg"),
-            ("val/cls_loss",  "cls"),
-            ("val/dfl_loss",  "dfl"),
+            ("val/box_loss", "box"),
+            ("val/seg_loss", "seg"),
+            ("val/cls_loss", "cls"),
+            ("val/dfl_loss", "dfl"),
             ("val/pose_loss", "pose"),
             ("val/kobj_loss", "kobj"),
-            ("val/rle_loss",  "rle"),
+            ("val/rle_loss", "rle"),
         ],
     ),
     (
         "Detection Metrics (B)",
         [
-            ("metrics/mAP50(B)",     "mAP50"),
-            ("metrics/mAP50-95(B)",  "mAP50-95"),
+            ("metrics/mAP50(B)", "mAP50"),
+            ("metrics/mAP50-95(B)", "mAP50-95"),
             ("metrics/precision(B)", "precision"),
-            ("metrics/recall(B)",    "recall"),
+            ("metrics/recall(B)", "recall"),
         ],
     ),
     (
         "Segmentation Metrics (M)",
         [
-            ("metrics/mAP50(M)",     "mAP50"),
-            ("metrics/mAP50-95(M)",  "mAP50-95"),
+            ("metrics/mAP50(M)", "mAP50"),
+            ("metrics/mAP50-95(M)", "mAP50-95"),
             ("metrics/precision(M)", "precision"),
-            ("metrics/recall(M)",    "recall"),
+            ("metrics/recall(M)", "recall"),
         ],
     ),
     (
         "Pose Metrics (P)",
         [
-            ("metrics/mAP50(P)",     "mAP50"),
-            ("metrics/mAP50-95(P)",  "mAP50-95"),
+            ("metrics/mAP50(P)", "mAP50"),
+            ("metrics/mAP50-95(P)", "mAP50-95"),
             ("metrics/precision(P)", "precision"),
-            ("metrics/recall(P)",    "recall"),
+            ("metrics/recall(P)", "recall"),
         ],
     ),
     (
@@ -88,8 +88,14 @@ PANEL_GROUPS = [
 
 # Distinct colors for lines within each panel
 LINE_COLORS = [
-    "#E74C3C", "#3498DB", "#2ECC71", "#F39C12",
-    "#9B59B6", "#1ABC9C", "#E67E22", "#34495E",
+    "#E74C3C",
+    "#3498DB",
+    "#2ECC71",
+    "#F39C12",
+    "#9B59B6",
+    "#1ABC9C",
+    "#E67E22",
+    "#34495E",
 ]
 
 
@@ -129,8 +135,14 @@ def plot_panel(ax: plt.Axes, df: pd.DataFrame, title: str, series_specs: list):
         ax.legend(fontsize=7, loc="best", framealpha=0.7)
     else:
         ax.text(
-            0.5, 0.5, "No data", transform=ax.transAxes,
-            ha="center", va="center", fontsize=9, color="gray"
+            0.5,
+            0.5,
+            "No data",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=9,
+            color="gray",
         )
 
     return plotted
@@ -172,16 +184,19 @@ def main():
     parser = argparse.ArgumentParser(description="Plot YOLO training results CSV")
     parser.add_argument("csv", type=Path, help="Path to results.csv")
     parser.add_argument(
-        "--output", "-o", type=Path, default=None,
-        help="Output image path (default: <csv_stem>_plot.png next to the CSV)"
+        "--output",
+        "-o",
+        type=Path,
+        default=None,
+        help="Output image path (default: <csv_stem>_plot.png next to the CSV)",
     )
     parser.add_argument(
-        "--show", action="store_true",
-        help="Display the plot interactively instead of saving"
+        "--show",
+        action="store_true",
+        help="Display the plot interactively instead of saving",
     )
     parser.add_argument(
-        "--dpi", type=int, default=150,
-        help="Output DPI (default: 150)"
+        "--dpi", type=int, default=150, help="Output DPI (default: 150)"
     )
     args = parser.parse_args()
 

@@ -51,7 +51,9 @@ def parse_args() -> argparse.Namespace:
         description="Convert a YOLO-seg dataset into a Deeplab segmask dataset"
     )
     parser.add_argument("input", type=Path, help="Path to YOLO-seg dataset root")
-    parser.add_argument("output", type=Path, help="Path for output segmask dataset root")
+    parser.add_argument(
+        "output", type=Path, help="Path for output segmask dataset root"
+    )
     parser.add_argument(
         "--class-offset",
         type=int,
@@ -88,7 +90,9 @@ def load_data_yaml(dataset_root: Path) -> dict:
     return {}
 
 
-def parse_yolo_seg_rows(label_path: Path) -> list[tuple[int, list[tuple[float, float]]]]:
+def parse_yolo_seg_rows(
+    label_path: Path,
+) -> list[tuple[int, list[tuple[float, float]]]]:
     rows: list[tuple[int, list[tuple[float, float]]]] = []
     text = label_path.read_text(encoding="utf-8")
     for line in text.splitlines():

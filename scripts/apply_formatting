@@ -1,6 +1,8 @@
 #!/bin/bash
-# Apply clang-format to all C/C++ sources under src/ and include/.
-# Uses the same formatter Cursor invokes on save (clangd → clang-format, reads .clang-format).
+# Apply project formatters:
+# - clang-format for C/C++ sources under src/ and include/
+# - taplo for TOML files under config/
+# - ruff for Python sources under scripts/, simulation/, training/, and firmware/
 
 set -e
 
@@ -12,8 +14,27 @@ if [ -z "$(which clang-format 2>/dev/null)" ]; then
     exit 1
 fi
 
+if [ -z "$(which taplo 2>/dev/null)" ]; then
+    echo "Error: taplo not found." >&2
+    exit 1
+fi
+
+if [ -z "$(which ruff 2>/dev/null)" ]; then
+    echo "Error: ruff not found." >&2
+    exit 1
+fi
+
 echo "Applying clang-format to C/C++ sources..."
 find "${PROJECT_ROOT}/src" "${PROJECT_ROOT}/include" \
     \( -name "*.cpp" -o -name "*.hpp" -o -name "*.h" -o -name "*.c" \) \
-    -print0 | xargs -0 clang-format -i
+    -print0 | xargs -0 -r clang-format -i
+
+echo "Applying taplo to TOML files under config/..."
+find "${PROJECT_ROOT}/config" -name "*.toml" -print0 | xargs -0 -r taplo format
+
+echo "Applying ruff to Python files..."
+find "${PROJECT_ROOT}/scripts" "${PROJECT_ROOT}/simulation" "${PROJECT_ROOT}/training" "${PROJECT_ROOT}/firmware" \
+    \( -type d \( -name "venv" -o -name ".venv" -o -name "env" \) -prune \) -o \
+    \( -type f -name "*.py" -print0 \) | xargs -0 -r ruff format
+
 echo "Done."

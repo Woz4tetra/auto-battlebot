@@ -57,16 +57,16 @@ type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
-    "MR_STABS_MK2_FRONT",
-    "MRS_BUFF_MK3_FRONT",
-    "HOUSE_BOT_FRONT",
-    "OPPONENT_FRONT",
+  "MR_STABS_MK2_FRONT",
+  "MRS_BUFF_MK3_FRONT",
+  "HOUSE_BOT_FRONT",
+  "OPPONENT_FRONT",
 ]
 back_keypoints = [
-    "MR_STABS_MK2_BACK",
-    "MRS_BUFF_MK3_BACK",
-    "HOUSE_BOT_BACK",
-    "OPPONENT_BACK",
+  "MR_STABS_MK2_BACK",
+  "MRS_BUFF_MK3_BACK",
+  "HOUSE_BOT_BACK",
+  "OPPONENT_BACK",
 ]
 
 robot_blob_min_length_meters = 0.08

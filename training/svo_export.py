@@ -60,12 +60,16 @@ def main(opt: argparse.Namespace) -> None:
         # Specify SVO path parameter
         init_params = sl.InitParameters()
         if channel == 2:
-            init_params.depth_mode = sl.DEPTH_MODE.NEURAL_PLUS  # Compute depth for depth channel export
+            init_params.depth_mode = (
+                sl.DEPTH_MODE.NEURAL_PLUS
+            )  # Compute depth for depth channel export
         else:
             init_params.depth_mode = sl.DEPTH_MODE.NONE  # No depth computation needed
         init_params.set_from_svo_file(svo_file)
         init_params.svo_real_time_mode = False  # Don't convert in realtime
-        init_params.coordinate_units = sl.UNIT.MILLIMETER  # Use milliliter units (for depth measurements)
+        init_params.coordinate_units = (
+            sl.UNIT.MILLIMETER
+        )  # Use milliliter units (for depth measurements)
 
         # Create ZED objects
         zed = sl.Camera()
@@ -99,7 +103,9 @@ def main(opt: argparse.Namespace) -> None:
             (width, height),
         )
         if not video_writer.isOpened():
-            print("OpenCV video writer cannot be opened. Please check the .avi file path and write permissions.")
+            print(
+                "OpenCV video writer cannot be opened. Please check the .avi file path and write permissions."
+            )
             zed.close()
             exit()
 
@@ -154,8 +160,15 @@ def main(opt: argparse.Namespace) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument("svo_files", type=str, nargs="+", help="Path to the .svo file(s)")
-    parser.add_argument("--channel", type=int, help="Channel to export (0: Left, 1: Right, 3: Depth)", default=0)
+    parser.add_argument(
+        "svo_files", type=str, nargs="+", help="Path to the .svo file(s)"
+    )
+    parser.add_argument(
+        "--channel",
+        type=int,
+        help="Channel to export (0: Left, 1: Right, 3: Depth)",
+        default=0,
+    )
     parser.add_argument(
         "--output",
         type=str,

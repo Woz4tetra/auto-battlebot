@@ -17,38 +17,40 @@ def load_validation_state(state_file: Path) -> Dict[str, str]:
     """Load validation state from JSON file."""
     if not state_file.exists():
         raise FileNotFoundError(f"State file not found: {state_file}")
-    
-    with open(state_file, 'r') as f:
+
+    with open(state_file, "r") as f:
         return json.load(f)
 
 
 def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
     """Recursively find all image and annotation pairs in the dataset."""
-    image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}
-    
+    image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+
     # Find all images
     image_files = []
     for ext in image_extensions:
         image_files.extend(dataset_path.rglob(f"*{ext}"))
         image_files.extend(dataset_path.rglob(f"*{ext.upper()}"))
-    
+
     # Match with annotation files
     pairs = []
     for img_path in sorted(image_files):
         # Try to find corresponding label file
         img_str = str(img_path)
-        
+
         # Check if in an 'images' directory
-        if '/images/' in img_str or '\\images\\' in img_str:
-            label_str = img_str.replace('/images/', '/labels/').replace('\\images\\', '\\labels\\')
+        if "/images/" in img_str or "\\images\\" in img_str:
+            label_str = img_str.replace("/images/", "/labels/").replace(
+                "\\images\\", "\\labels\\"
+            )
         else:
             label_str = img_str
-            
-        label_path = Path(label_str).with_suffix('.txt')
-        
+
+        label_path = Path(label_str).with_suffix(".txt")
+
         if label_path.exists():
             pairs.append((img_path, label_path))
-    
+
     return pairs
 
 
@@ -68,11 +70,12 @@ def find_datasets_with_state(search_root: Path) -> List[Tuple[Path, Path]]:
     return found
 
 
-def remove_failed_annotations(dataset_path: Path, state_file: Path, 
-                              dry_run: bool = False, backup: bool = True):
+def remove_failed_annotations(
+    dataset_path: Path, state_file: Path, dry_run: bool = False, backup: bool = True
+):
     """
     Remove image and annotation files that failed validation.
-    
+
     Args:
         dataset_path: Root path of the YOLO dataset
         state_file: Path to validation_state.json file
@@ -82,41 +85,41 @@ def remove_failed_annotations(dataset_path: Path, state_file: Path,
     # Load validation state
     print(f"Loading validation state from {state_file}")
     validation_state = load_validation_state(state_file)
-    
+
     # Count statistics
     total_validated = len(validation_state)
-    failed_count = sum(1 for v in validation_state.values() if v == 'fail')
-    passed_count = sum(1 for v in validation_state.values() if v == 'pass')
-    
+    failed_count = sum(1 for v in validation_state.values() if v == "fail")
+    passed_count = sum(1 for v in validation_state.values() if v == "pass")
+
     print("\nValidation Statistics:")
     print(f"  Total validated: {total_validated}")
     print(f"  Passed: {passed_count}")
     print(f"  Failed: {failed_count}")
-    
+
     # Find all image-annotation pairs
     print(f"\nScanning dataset at {dataset_path}")
     all_pairs = find_image_annotation_pairs(dataset_path)
     print(f"Found {len(all_pairs)} image-annotation pairs")
-    
+
     # Create backup directory if needed
     backup_dir = None
     if backup and not dry_run:
         backup_dir = dataset_path / "validation_backup"
         backup_dir.mkdir(exist_ok=True)
         print(f"\nCreated backup directory: {backup_dir}")
-    
+
     # Process failed images
     removed_images = []
     removed_labels = []
-    
+
     for img_path, label_path in all_pairs:
         img_key = str(img_path.relative_to(dataset_path))
-        
+
         # Check if this image failed validation
-        if validation_state.get(img_key) == 'fail':
+        if validation_state.get(img_key) == "fail":
             removed_images.append(img_path)
             removed_labels.append(label_path)
-            
+
             if dry_run:
                 print("\n[DRY RUN] Would remove:")
                 print(f"  Image: {img_path}")
@@ -125,16 +128,18 @@ def remove_failed_annotations(dataset_path: Path, state_file: Path,
                 if backup:
                     # Move to backup directory
                     backup_img_path = backup_dir / img_path.relative_to(dataset_path)
-                    backup_label_path = backup_dir / label_path.relative_to(dataset_path)
-                    
+                    backup_label_path = backup_dir / label_path.relative_to(
+                        dataset_path
+                    )
+
                     # Create parent directories
                     backup_img_path.parent.mkdir(parents=True, exist_ok=True)
                     backup_label_path.parent.mkdir(parents=True, exist_ok=True)
-                    
+
                     # Move files
                     shutil.move(str(img_path), str(backup_img_path))
                     shutil.move(str(label_path), str(backup_label_path))
-                    
+
                     print("\n✓ Moved to backup:")
                     print(f"  Image: {img_path.name}")
                     print(f"  Label: {label_path.name}")
@@ -142,64 +147,68 @@ def remove_failed_annotations(dataset_path: Path, state_file: Path,
                     # Delete files
                     img_path.unlink()
                     label_path.unlink()
-                    
+
                     print("\n✗ Deleted:")
                     print(f"  Image: {img_path.name}")
                     print(f"  Label: {label_path.name}")
-    
+
     # Summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("Summary:")
-    print(f"  Images {'that would be' if dry_run else ''} removed: {len(removed_images)}")
-    print(f"  Labels {'that would be' if dry_run else ''} removed: {len(removed_labels)}")
-    
+    print(
+        f"  Images {'that would be' if dry_run else ''} removed: {len(removed_images)}"
+    )
+    print(
+        f"  Labels {'that would be' if dry_run else ''} removed: {len(removed_labels)}"
+    )
+
     if backup and not dry_run:
         print(f"  Backup location: {backup_dir}")
-    
+
     if dry_run:
         print("\n⚠ This was a dry run. No files were actually removed.")
         print("  Run without --dry-run to perform the actual removal.")
     else:
         print("\n✓ Removal complete!")
-        
+
         # Update state file to mark as processed
         processed_state_file = dataset_path / "validation_state_processed.json"
-        with open(processed_state_file, 'w') as f:
+        with open(processed_state_file, "w") as f:
             json.dump(validation_state, f, indent=2)
         print(f"  Saved processed state to: {processed_state_file}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Remove failed annotations from YOLO dataset based on validation state'
+        description="Remove failed annotations from YOLO dataset based on validation state"
     )
     parser.add_argument(
-        'dataset_path', 
-        help='Path to search root (recursively finds YOLO datasets with validation_state.json)'
+        "dataset_path",
+        help="Path to search root (recursively finds YOLO datasets with validation_state.json)",
     )
     parser.add_argument(
-        '--state-file',
-        help='Path to validation_state.json file (default: dataset_path/validation_state.json)'
+        "--state-file",
+        help="Path to validation_state.json file (default: dataset_path/validation_state.json)",
     )
     parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show what would be deleted without actually deleting'
+        "--dry-run",
+        action="store_true",
+        help="Show what would be deleted without actually deleting",
     )
     parser.add_argument(
-        '--no-backup',
-        action='store_true',
-        help='Delete files instead of moving to backup directory'
+        "--no-backup",
+        action="store_true",
+        help="Delete files instead of moving to backup directory",
     )
-    
+
     args = parser.parse_args()
-    
+
     dataset_path = Path(args.dataset_path)
-    
+
     if not dataset_path.exists():
         print(f"Error: Dataset path does not exist: {dataset_path}")
         return 1
-    
+
     targets: List[Tuple[Path, Path]] = []
     if args.state_file:
         state_file = Path(args.state_file)
@@ -219,7 +228,9 @@ def main():
 
     # Confirm before proceeding (unless dry run)
     if not args.dry_run:
-        print("\n⚠ WARNING: This will remove or backup failed annotations from your dataset(s)!")
+        print(
+            "\n⚠ WARNING: This will remove or backup failed annotations from your dataset(s)!"
+        )
         print(f"   Search root: {dataset_path}")
         if args.state_file:
             print(f"   State file: {targets[0][1]}")
@@ -232,7 +243,7 @@ def main():
             print("   Mode: BACKUP (files will be moved to validation_backup/)")
 
         response = input("\nProceed? (yes/no): ")
-        if response.lower() != 'yes':
+        if response.lower() != "yes":
             print("Cancelled.")
             return 0
 
@@ -246,9 +257,9 @@ def main():
             dry_run=args.dry_run,
             backup=not args.no_backup,
         )
-    
+
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     exit(main())

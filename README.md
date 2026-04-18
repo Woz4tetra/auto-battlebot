@@ -108,10 +108,6 @@ To install the core application, run one of the following scripts:
 - `scripts/install_ubuntu_22.sh`
 - `scripts/install_ubuntu_24.sh`
 
-To run the application in playback mode, run this command.
-
-`./scripts/build_and_run.sh -c ./config/playback.toml`
-
 ## Training and python tools
 
 To install tools for training, firmware and more, run the python setup script:
@@ -125,6 +121,46 @@ To install and run the simulation, run these commands:
 `scripts/setup_simulation.sh`
 
 `scripts/run_simulation.sh`
+
+# Obtaining model files
+
+After running the python tools setup script, run these commands:
+
+`source ./scripts/activate_python.sh`
+
+`python scripts/sync_models.py`
+
+The script will list model files that match your architecure. If none appear, move to the next section.
+
+## Creating new engine files
+
+To create engine files on systems I haven't pre-built for, run these scripts:
+
+For yolo:
+
+`python training/yolo/convert_to_tensorrt.py <path to onnx file>`
+
+For deeplabv3:
+
+`python training/deeplabv3/convert_to_tensorrt.py <path to pt file>`
+
+# Running the application
+
+To run the application in playback mode, run this command.
+
+`./scripts/build_and_run.sh -c ./config/playback.toml`
+
+If installing on a new Jetson, run this script to deploy, build, and run the systemd service:
+
+`./scripts/deploy_to_jetson.sh <host name or ip address>`
+
+To run the unit tests, run this command.
+
+`./scripts/build_and_test.sh`
+
+# Code style
+
+There's no explicit style guide for this repository. Running `./scripts/apply_formatting` will apply basic style corrections.
 
 #### Footnotes
 

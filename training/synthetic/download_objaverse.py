@@ -323,7 +323,8 @@ def main() -> None:
     parser.add_argument(
         "--audit-csv",
         type=Path,
-        default=_PROJECT_ROOT / "training/data/distractor_models/distractor_gpu_audit.csv",
+        default=_PROJECT_ROOT
+        / "training/data/distractor_models/distractor_gpu_audit.csv",
         help=(
             "Path to distractor GPU audit CSV to update as files are downloaded "
             "(default: training/data/distractor_models/distractor_gpu_audit.csv)"

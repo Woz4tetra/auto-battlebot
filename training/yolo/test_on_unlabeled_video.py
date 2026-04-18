@@ -113,7 +113,9 @@ def main() -> None:
 
     if input_path.is_dir():
         image_paths = sorted(
-            p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+            p
+            for p in input_path.iterdir()
+            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
         )
         if not image_paths:
             print(f"Error: No images found in directory '{input_path}'")
@@ -121,12 +123,18 @@ def main() -> None:
 
         output_dir = None
         if not args.no_save:
-            output_dir = Path(args.output) if args.output else input_path.parent / f"{input_path.name}_annotated"
+            output_dir = (
+                Path(args.output)
+                if args.output
+                else input_path.parent / f"{input_path.name}_annotated"
+            )
             output_dir.mkdir(parents=True, exist_ok=True)
             print(f"Saving annotated images to {output_dir}")
 
         try:
-            with tqdm(total=len(image_paths), desc="Processing images", unit="image") as pbar:
+            with tqdm(
+                total=len(image_paths), desc="Processing images", unit="image"
+            ) as pbar:
                 for image_path in image_paths:
                     frame = cv2.imread(str(image_path))
                     if frame is None:
@@ -142,7 +150,9 @@ def main() -> None:
                         cv2.imwrite(str(out_path), annotated_frame)
 
                     if args.show:
-                        cv2.imshow(f"YOLO {model_task.capitalize()} Results", annotated_frame)
+                        cv2.imshow(
+                            f"YOLO {model_task.capitalize()} Results", annotated_frame
+                        )
                         if cv2.waitKey(1) & 0xFF == ord("q"):
                             print("Interrupted by user")
                             break
@@ -211,7 +221,9 @@ def main() -> None:
                     writer.write(annotated_frame)
 
                 if args.show:
-                    cv2.imshow(f"YOLO {model_task.capitalize()} Results", annotated_frame)
+                    cv2.imshow(
+                        f"YOLO {model_task.capitalize()} Results", annotated_frame
+                    )
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         print("Interrupted by user")
                         break

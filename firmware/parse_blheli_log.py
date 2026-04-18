@@ -65,8 +65,13 @@ def extract_strings(data: bytes) -> list[dict]:
 
 LABEL_SUFFIXES = (": ", ":")
 KV_LABELS = {
-    "ESC =", "CMD =", "ADRESS =", "PARAM_LEN =", "PARAM =",
-    "ACK =", "CRC =",
+    "ESC =",
+    "CMD =",
+    "ADRESS =",
+    "PARAM_LEN =",
+    "PARAM =",
+    "ACK =",
+    "CRC =",
 }
 
 
@@ -85,7 +90,14 @@ def group_entries(entries: list[dict]) -> list[dict]:
         offset = entries[i]["offset"]
 
         if text.startswith("24 4D") or text.startswith("2F ") or text.startswith("2E "):
-            output.append({"type": "frame", "hex": text, "offset": offset, "time_ms": cumulative_ms})
+            output.append(
+                {
+                    "type": "frame",
+                    "hex": text,
+                    "offset": offset,
+                    "time_ms": cumulative_ms,
+                }
+            )
             i += 1
             continue
 
@@ -97,13 +109,15 @@ def group_entries(entries: list[dict]) -> list[dict]:
         for kl in KV_LABELS:
             if text == kl.rstrip() or text.startswith(kl):
                 if i + 1 < n:
-                    output.append({
-                        "type": "field",
-                        "label": text.rstrip(": "),
-                        "value": entries[i + 1]["text"],
-                        "offset": offset,
-                        "time_ms": cumulative_ms,
-                    })
+                    output.append(
+                        {
+                            "type": "field",
+                            "label": text.rstrip(": "),
+                            "value": entries[i + 1]["text"],
+                            "offset": offset,
+                            "time_ms": cumulative_ms,
+                        }
+                    )
                     i += 2
                     matched_kv = True
                 break
@@ -116,29 +130,35 @@ def group_entries(entries: list[dict]) -> list[dict]:
                 cumulative_ms += elapsed
             except ValueError:
                 pass
-            output.append({
-                "type": "timing",
-                "elapsed_ms": entries[i + 1]["text"] if i + 1 < n else "?",
-                "cumulative_ms": cumulative_ms,
-                "offset": offset,
-            })
+            output.append(
+                {
+                    "type": "timing",
+                    "elapsed_ms": entries[i + 1]["text"] if i + 1 < n else "?",
+                    "cumulative_ms": cumulative_ms,
+                    "offset": offset,
+                }
+            )
             i += 2
             continue
 
         if text.endswith(":") and i + 1 < n:
             nxt = entries[i + 1]["text"]
             if len(nxt) < 60:
-                output.append({
-                    "type": "field",
-                    "label": text.rstrip(":").strip(),
-                    "value": nxt,
-                    "offset": offset,
-                    "time_ms": cumulative_ms,
-                })
+                output.append(
+                    {
+                        "type": "field",
+                        "label": text.rstrip(":").strip(),
+                        "value": nxt,
+                        "offset": offset,
+                        "time_ms": cumulative_ms,
+                    }
+                )
                 i += 2
                 continue
 
-        output.append({"type": "text", "text": text, "offset": offset, "time_ms": cumulative_ms})
+        output.append(
+            {"type": "text", "text": text, "offset": offset, "time_ms": cumulative_ms}
+        )
         i += 1
 
     return output
@@ -148,11 +168,15 @@ def main():
     parser = argparse.ArgumentParser(description="Parse BLHeliSuite32 .xlg log files")
     parser.add_argument("input", type=Path, help="Path to .xlg file")
     parser.add_argument(
-        "-o", "--output", type=Path, default=None,
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
         help="Output .jsonl file (default: stdout)",
     )
     parser.add_argument(
-        "--raw", action="store_true",
+        "--raw",
+        action="store_true",
         help="Output raw extracted strings without grouping",
     )
     args = parser.parse_args()

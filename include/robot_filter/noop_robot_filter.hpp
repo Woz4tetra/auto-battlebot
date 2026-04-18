@@ -5,9 +5,7 @@
 namespace auto_battlebot {
 class NoopRobotFilter : public RobotFilterInterface {
    public:
-    bool initialize([[maybe_unused]] int opponent_count) override {
-        return true;
-    }
+    bool initialize([[maybe_unused]] int opponent_count) override { return true; }
 
     RobotDescriptionsStamped update([[maybe_unused]] KeypointsStamped keypoints,
                                     [[maybe_unused]] FieldDescription field,

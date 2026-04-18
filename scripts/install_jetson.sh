@@ -14,6 +14,7 @@ source "$PROJECT_ROOT/install/install_pytorch_jetson.sh"
 source "$PROJECT_ROOT/install/install_ros_connector.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
 source "$PROJECT_ROOT/install/install_mcap_cli.sh"
+source "$PROJECT_ROOT/install/install_taplo.sh"
 source "$PROJECT_ROOT/install/install_udev_rules.sh"
 source "$PROJECT_ROOT/install/install_ds3231_rtc.sh"
 
@@ -27,6 +28,7 @@ install_opencv_jetson
 install_pytorch_jetson
 install_ros_connector
 install_mcap_cli
+install_taplo
 build_cpp_project "$@"
 install_udev_rules
 install_ds3231_rtc

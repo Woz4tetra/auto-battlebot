@@ -92,7 +92,9 @@ def choose_assets(
     return selected
 
 
-def get_download_url(files_metadata: dict, resolution: str, preferred_format: str) -> tuple[str, str]:
+def get_download_url(
+    files_metadata: dict, resolution: str, preferred_format: str
+) -> tuple[str, str]:
     """Resolve a downloadable HDRI URL and extension from Poly Haven file metadata."""
     hdri_section = files_metadata.get("hdri", {})
     resolution_data = hdri_section.get(resolution)
@@ -184,11 +186,15 @@ def main() -> None:
 
     existing_ids = existing_asset_ids(output_dir)
     available_assets = {
-        asset_id: meta for asset_id, meta in assets.items() if asset_id not in existing_ids
+        asset_id: meta
+        for asset_id, meta in assets.items()
+        if asset_id not in existing_ids
     }
 
     if not available_assets:
-        print(f"No new HDRIs to download. Existing library already has {len(existing_ids)} assets.")
+        print(
+            f"No new HDRIs to download. Existing library already has {len(existing_ids)} assets."
+        )
         return
 
     requested = min(args.count, len(available_assets))
@@ -218,7 +224,10 @@ def main() -> None:
                 preferred_format=args.format,
             )
 
-            filename = Path(urlsplit(download_url).path).name or f"{asset_id}_{args.resolution}.{chosen_format}"
+            filename = (
+                Path(urlsplit(download_url).path).name
+                or f"{asset_id}_{args.resolution}.{chosen_format}"
+            )
             output_path = output_dir / filename
 
             if output_path.exists():
