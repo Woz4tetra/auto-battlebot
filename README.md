@@ -8,59 +8,54 @@
 
 <br/>
 
-# auto-battlebots
+This project brings aim-assist and autonomous control to combat robots.
 
-Drive like a pro! This project brings aim-assist to the world of combat robots.
-Driving skill in leagues like NHRL (https://www.nhrl.io/) is usually the deciding factor for who wins fights
-assuming equally robust hardware. This project aims to deliver autonomous control to any radio-controlled
-combat robot.
+Driving skill in leagues like [NHRL](https://www.nhrl.io/) is often the deciding factor when hardware is similarly robust. The goal of this project is to deliver autonomous control to any radio-controlled combat robot.
 
 [![Playback demo](docs/media/playback-demo.gif)](https://youtu.be/DhecUUJivEk)
 
-Play recorded video through the system
+Play recorded video through the full control pipeline.
 
-## Built for low-latency
+## Built for Low Latency
 
-This application is written in **C++** and **TensorRT** for inference.
+The application is written in **C++** and uses **TensorRT** for inference.
 
-On the Jetson Orin Nano, camera capture to motor motion is <60 ms*.
+On the Jetson Orin Nano, camera capture to motor motion is **< 60 ms**.*
 
 Supported platforms:
 - Jetson Orin Nano
-- Intel x86 + NVidia GPU
-    - Ubuntu 22
-    - Ubuntu 24
+- Intel x86 + NVIDIA GPU
+  - Ubuntu 22
+  - Ubuntu 24
 
-## Fast deployment
+## Fast Deployment
 
-At NHRL, there's no time to setup tripods hardware at their 8+ cages and calibrate the camera systems.
-This system is completely handheld. The handheld device features:
+At NHRL, there is no time to set up tripod hardware across 8+ cages and calibrate fixed camera systems.
+
+This system is fully handheld. The handheld device features:
 - Jetson Orin Nano
 - ZED 2i stereo camera
 - USB connection to any OpenTX transmitter
 - 2+ hours of battery
-- 8 inch LCD display
+- 8-inch LCD display
 
 <p align="center">
   <img src="docs/media/handheld_autonomy.jpg" alt="Handheld autonomy device" width="70%" />
 </p>
 
+If there is interest, I can release the BOM and parts list.
 
-If there's interest, I'll release the BOM and parts list.
+## Easy to Debug
 
-## Easy to debug
-
-This application utilizes **Foxglove** for visualization, **MCAP** for replay debugging, 
-and ZED SDK's **SVO** for video playback.
+The application uses **Foxglove** for visualization, **MCAP** for replay debugging, and ZED SDK's **SVO** format for video playback.
 
 [![Foxglove demo](docs/media/foxglove-demo.gif)](https://youtu.be/qqPpfk3PQDA)
 
-## Simulation and playback testing
+## Simulation and Playback Testing
 
-To ensure any change doesn't cause regressions in performance, I've added the ability to replay recorded
-SVO files through the system as if real hardware were connected.
+To reduce regression risk, the system can replay recorded SVO files as if real hardware were connected.
 
-I've also added a simulator to test closed-loop behavior using [Genesis](https://genesis-embodied-ai.github.io/)
+It also includes a simulator for closed-loop behavior testing using [Genesis](https://genesis-embodied-ai.github.io/).
 
 [![Simulation demo](docs/media/simulation-demo.gif)](https://youtu.be/I6TsnE2lxu0)
 
@@ -70,111 +65,128 @@ I've also added a simulator to test closed-loop behavior using [Genesis](https:/
 
 ![Auto Battlebot system diagram](docs/diagrams/system.svg)
 
-The system has 3 control modes controlled by a configuration system.
-- Hardware - Receive images from a real ZED 2i. Send control commands to a real OpenTX transmitter.
-- Simulation - Images from simulation. Send commands via TCP to the simulation.
-- Playback - Images from SVO file. Commands don't go anywhere.
+The system has 3 modes defined by configuration files:
+- **Hardware**: Receives images from a real ZED 2i and sends control commands to a real OpenTX transmitter.
+- **Simulation**: Receives images from simulation and sends commands over TCP to the simulator.
+- **Playback**: Receives images from an SVO file; commands are generated but not transmitted.
 
 ## Engineering Highlights
 
-The goal of this project is to implement end-to-end autonomy under real-time and real-world constraints.
+The project focuses on end-to-end autonomy under real-time and real-world constraints.
 
 - **Real-time systems:** C++17 implementation for camera, perception, filtering, navigation, and transmission.
-- **Maintainable systems:** Each component of the system is swappable with a different implementation and controllable by configuration. Interfaces can be mix
-- **ML in the loop:** TensorRT-accelerated YOLO segmentation and keypoint models running in the control pipeline.
+- **Maintainable systems:** Components are swappable through interfaces and controlled by configuration.
+- **ML in the loop:** TensorRT-accelerated YOLO segmentation and keypoint models run in the control pipeline.
 - **Control + geometry:** Pursuit navigation with field-boundary clamping and velocity command generation.
-- **Reproducibility/tooling:** Simulation harness, playback workflows, tests, and model-sync scripts to reduce iteration risk.
+- **Reproducibility/tooling:** Simulation harnesses, playback workflows, tests, and model-sync scripts reduce iteration risk.
 
-## Pseudo code
+## Pseudocode
 
-[This document](docs/pseudo_code.md) describes the runtime orchestration of all the modules.
+[This document](docs/pseudo_code.md) describes runtime orchestration across modules.
 
-## Repo tour
+## Repo Tour
 
-- `src/`, `include/`: core C++ runtime and interfaces.
-- `simulation/`: Genesis server + protocol bridge.
-- `config/`: mode-specific TOML configurations.
-- `training/`: synthetic data + model training utilities.
-- `scripts/`, `install/`: setup/build/run workflows.
-- `firmware/`: robot-side firmware experiments and support code.
-- `playground/`: A place to dump experiments.
+- `src/`, `include/`: Core C++ runtime and interfaces
+- `simulation/`: Genesis server and protocol bridge
+- `config/`: Mode-specific TOML configurations
+- `training/`: Synthetic data and model training utilities
+- `scripts/`, `install/`: Setup, build, and run workflows
+- `firmware/`: Robot-side firmware experiments and support code
+- `playground/`: Experimental work
 
-# Setup and install
+# Setup and Install
 
-These scripts you're on one of the supported hardware configurations:
+These scripts assume you are on one of the supported hardware configurations:
 - Jetson Orin Nano
-- Ubuntu 22 or 24 (x86 + NVidia GPU with compute capability 87 or higher)
+- Ubuntu 22 or 24 (x86 + NVIDIA GPU with compute capability 8.7 or higher)
 
-This section assumes you have already setup CUDA and TensorRT.
+This section assumes CUDA and TensorRT are already installed.
 
-[For Jetson instructions, look here.](docs/jetson_setup.md)
+For Jetson-specific setup, see [docs/jetson_setup.md](docs/jetson_setup.md).
 
-I may add docker support in the future if necessary.
+Docker support may be added in the future if needed.
 
-To install the core application, run one of the following scripts:
-
+To install the core application, run one of:
 - `scripts/install_jetson.sh`
 - `scripts/install_ubuntu_22.sh`
 - `scripts/install_ubuntu_24.sh`
 
-## Training and python tools
+## Training and Python Tools
 
-To install tools for training, firmware and more, run the python setup script:
+To install tools for training, firmware, and other Python workflows:
 
-`./scripts/setup_python.sh`
+```bash
+./scripts/setup_python.sh
+```
 
 ## Simulation
 
-To install and run the simulation, run these commands:
+To install and run simulation:
 
-`scripts/setup_simulation.sh`
+```bash
+scripts/setup_simulation.sh
+scripts/run_simulation.sh
+```
 
-`scripts/run_simulation.sh`
+## Obtaining Model Files
 
-# Obtaining model files
+After running the Python tools setup script:
 
-After running the python tools setup script, run these commands:
+```bash
+source ./scripts/activate_python.sh
+python scripts/sync_models.py
+```
 
-`source ./scripts/activate_python.sh`
+The script lists model files that match your architecture. If none appear, continue to the next section.
 
-`python scripts/sync_models.py`
+### Creating New Engine Files
 
-The script will list model files that match your architecure. If none appear, move to the next section.
+To create engine files for systems that do not have prebuilt artifacts:
 
-## Creating new engine files
+For YOLO:
 
-To create engine files on systems I haven't pre-built for, run these scripts:
+```bash
+python training/yolo/convert_to_tensorrt.py <path to onnx file>
+```
 
-For yolo:
+For DeepLabV3:
 
-`python training/yolo/convert_to_tensorrt.py <path to onnx file>`
+```bash
+python training/deeplabv3/convert_to_tensorrt.py <path to pt file>
+```
 
-For deeplabv3:
+## Running the Application
 
-`python training/deeplabv3/convert_to_tensorrt.py <path to pt file>`
+To run playback mode:
 
-# Running the application
+```bash
+./scripts/build_and_run.sh -c ./config/playback.toml
+```
 
-To run the application in playback mode, run this command.
+If installing on a new Jetson, deploy, build, and run the systemd service with:
 
-`./scripts/build_and_run.sh -c ./config/playback.toml`
+```bash
+./scripts/deploy_to_jetson.sh <host name or ip address>
+```
 
-If installing on a new Jetson, run this script to deploy, build, and run the systemd service:
+To run unit tests:
 
-`./scripts/deploy_to_jetson.sh <host name or ip address>`
+```bash
+./scripts/build_and_test.sh
+```
 
-To run the unit tests, run this command.
+## Code Style
 
-`./scripts/build_and_test.sh`
+There is no strict style guide yet. Running the formatter script applies baseline corrections:
 
-# Code style
-
-There's no explicit style guide for this repository. Running `./scripts/apply_formatting` will apply basic style corrections.
+```bash
+./scripts/apply_formatting
+```
 
 #### Footnotes
 
-\* - [Crossfire has 19.5 ms of latency](https://oscarliang.com/rc-protocols/#CRSF). 
-    The sense and control loop takes ~35 ms on the Jetson Orin Nano.
-    Camera image image acquisition takes ~20 ms.
-    Because these are asynchronous, you can't simply add them together. I've put the latency of the
-    worst case and am making a guaratee that latency will always less than that.
+* [Crossfire has 19.5 ms of latency](https://oscarliang.com/rc-protocols/#CRSF).
+  The sense-and-control loop takes ~35 ms on the Jetson Orin Nano.
+  Camera image acquisition takes ~20 ms.
+  Because these steps are asynchronous, they cannot be summed directly.
+  The stated figure is a worst-case latency guarantee.
