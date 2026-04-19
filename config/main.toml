@@ -48,16 +48,16 @@ type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
-  "MR_STABS_MK2_FRONT",
-  "MRS_BUFF_MK3_FRONT",
-  "HOUSE_BOT_FRONT",
-  "OPPONENT_FRONT",
+    "MR_STABS_MK2_FRONT",
+    "MRS_BUFF_MK3_FRONT",
+    "HOUSE_BOT_FRONT",
+    "OPPONENT_FRONT",
 ]
 back_keypoints = [
-  "MR_STABS_MK2_BACK",
-  "MRS_BUFF_MK3_BACK",
-  "HOUSE_BOT_BACK",
-  "OPPONENT_BACK",
+    "MR_STABS_MK2_BACK",
+    "MRS_BUFF_MK3_BACK",
+    "HOUSE_BOT_BACK",
+    "OPPONENT_BACK",
 ]
 
 robot_blob_min_length_meters = 0.08
@@ -81,11 +81,14 @@ type = "NearestTarget"
 type = "PursuitNavigation"
 angular_kp = 0.5
 angular_kd = 0.02
-max_angular_velocity = 15.625
-max_linear_velocity = 2.0
 
 [transmitter]
 type = "OpenTxTransmitter"
+wheel_track_width = 0.195
+max_motor_rpm = 1500
+wheel_diameter = 0.05
+deadzone_percent = 20
+reverse_right_channel = true
 
 [publisher]
 type = "RosPublisher"

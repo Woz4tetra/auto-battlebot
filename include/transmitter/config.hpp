@@ -1,9 +1,7 @@
 #pragma once
 
-#include "config/config_cast.hpp"
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
-#include "data_structures.hpp"
 #include "transmitter/transmitter_interface.hpp"
 
 namespace auto_battlebot {
@@ -32,19 +30,33 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
 struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     int init_button_channel = 5;      // RC channel index used as the init button
     int init_button_threshold = 500;  // channel value above which = button pressed
-    int linear_channel = 3;
-    int angular_channel = 0;
+    int left_channel = 0;
+    int right_channel = 1;
+    bool reverse_left_channel = false;
+    bool reverse_right_channel = false;
+    double deadzone_percent = 0.0;
+    double wheel_track_width = 1.0;
+    double max_motor_rpm = 1500.0;
+    double wheel_diameter = 0.05;
 
     OpenTxTransmitterConfiguration() { type = "OpenTxTransmitter"; }
 
-    // clang-format off
-    PARSE_CONFIG_FIELDS(
-        PARSE_FIELD(init_button_channel)
-        PARSE_FIELD(init_button_threshold)
-        PARSE_FIELD(linear_channel)
-        PARSE_FIELD(angular_channel)
-    )
-    // clang-format on
+    void parse_fields(ConfigParser &parser) override {
+        init_button_channel = static_cast<int>(
+            parser.get_optional_int("init_button_channel", init_button_channel));
+        init_button_threshold = static_cast<int>(
+            parser.get_optional_int("init_button_threshold", init_button_threshold));
+        left_channel = static_cast<int>(parser.get_optional_int("left_channel", left_channel));
+        right_channel = static_cast<int>(parser.get_optional_int("right_channel", right_channel));
+        reverse_left_channel =
+            parser.get_optional_bool("reverse_left_channel", reverse_left_channel);
+        reverse_right_channel =
+            parser.get_optional_bool("reverse_right_channel", reverse_right_channel);
+        deadzone_percent = parser.get_optional_double("deadzone_percent", deadzone_percent);
+        wheel_track_width = parser.get_optional_double("wheel_track_width", wheel_track_width);
+        max_motor_rpm = parser.get_optional_double("max_motor_rpm", max_motor_rpm);
+        wheel_diameter = parser.get_optional_double("wheel_diameter", wheel_diameter);
+    }
 };
 
 struct SimTransmitterConfiguration : public TransmitterConfiguration {

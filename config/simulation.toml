@@ -90,8 +90,6 @@ type = "NearestTarget"
 type = "PursuitNavigation"
 angular_kp = 26.0
 angular_kd = 0.2
-max_angular_velocity = 15.625
-max_linear_velocity = 2.0
 angle_threshold = 1.5
 
 [transmitter]

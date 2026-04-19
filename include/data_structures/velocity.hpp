@@ -2,9 +2,9 @@
 
 namespace auto_battlebot {
 struct VelocityCommand {
-    double linear_x;   // nomalized command -1..+1
-    double linear_y;   // nomalized command -1..+1
-    double angular_z;  // nomalized command -1..+1
+    double linear_x;   // forward velocity in m/s
+    double linear_y;   // lateral velocity in m/s
+    double angular_z;  // yaw rate in rad/s
 };
 
 }  // namespace auto_battlebot

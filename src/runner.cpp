@@ -4,6 +4,8 @@
 
 #include <opencv2/core.hpp>
 
+#include "time_utils.hpp"
+
 namespace auto_battlebot {
 Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<RgbdCameraInterface> camera,
@@ -375,8 +377,7 @@ bool Runner::tick() {
     transmitter_->send(command);
 
     {
-        auto now = std::chrono::steady_clock::now();
-        double now_s = std::chrono::duration<double>(now.time_since_epoch()).count();
+        double now_s = auto_battlebot::now();
         double pipeline_latency_ms = (now_s - robots.header.stamp) * 1000.0;
         diagnostics_logger_->debug("pipeline", {{"latency_ms", pipeline_latency_ms}});
     }

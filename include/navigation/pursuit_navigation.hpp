@@ -53,8 +53,6 @@ class PursuitNavigation : public NavigationInterface {
      */
     static double distance_2d(const Pose2D &a, const Pose2D &b);
 
-    double max_linear_velocity_;
-    double max_angular_velocity_;
     double slowdown_distance_;
     double stop_distance_;
     double angular_kp_;

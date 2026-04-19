@@ -24,7 +24,7 @@ class OpenTxTransmitter : public TransmitterInterface {
     /** Read available serial data, parse CRSF telemetry and channel updates. */
     CommandFeedback update() override;
 
-    /** Send trainer commands for linear_x (ch3) and angular_z (ch0). */
+    /** Convert velocity command (m/s, rad/s) to tank steering trainer channels. */
     void send(VelocityCommand command) override;
 
     /**

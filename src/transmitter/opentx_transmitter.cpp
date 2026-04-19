@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <string>
 
 namespace auto_battlebot {
@@ -71,10 +72,15 @@ CommandFeedback OpenTxTransmitter::update() {
     // Parse OpenTX channel streaming
     auto channel_updates = channels_parser_.process(bytes);
     if (!channel_updates.empty()) {
-        latest_channels_ = channel_updates.back();
+        const auto& newest_channels = channel_updates.back();
+        const bool channels_changed =
+            !latest_channels_.has_value() || newest_channels != latest_channels_.value();
+        latest_channels_ = newest_channels;
 
-        std::vector<int> channel_values(latest_channels_->begin(), latest_channels_->end());
-        logger_->debug("channels", {{"values", channel_values}});
+        if (channels_changed) {
+            std::vector<int> channel_values(latest_channels_->begin(), latest_channels_->end());
+            logger_->debug("channels", {{"values", channel_values}});
+        }
     }
 
     return {};
@@ -101,19 +107,57 @@ void OpenTxTransmitter::send(VelocityCommand command) {
     if (!serial_.is_open()) return;
     if (!enabled_) return;
 
-    int linear_val = to_trainer_value(command.linear_x);
-    int angular_val = -1 * to_trainer_value(command.angular_z);
+    double linear_x = command.linear_x;
+    double angular_z = command.angular_z;
 
-    logger_->debug("send", {{"linear", linear_val}, {"angular", angular_val}});
+    double half_track = 0.5 * config_.wheel_track_width;
+    double left_ground_vel = linear_x - angular_z * half_track;
+    double right_ground_vel = linear_x + angular_z * half_track;
 
-    bool linear_write_ok = serial_.write("trainer " + std::to_string(config_.linear_channel) + " " +
-                                         std::to_string(linear_val) + "\r\n");
-    bool angular_write_ok = serial_.write("trainer " + std::to_string(config_.angular_channel) +
-                                          " " + std::to_string(angular_val) + "\r\n");
+    constexpr double kPi = 3.14159265358979323846;
+    double wheel_circumference = std::max(kPi * config_.wheel_diameter, 1e-6);
+    double left_rpm = (left_ground_vel / wheel_circumference) * 60.0;
+    double right_rpm = (right_ground_vel / wheel_circumference) * 60.0;
 
-    if (!linear_write_ok || !angular_write_ok) {
-        logger_->warning("write_failed_reconnecting", {{"linear_write_ok", linear_write_ok},
-                                                       {"angular_write_ok", angular_write_ok}});
+    double max_rpm = std::max(config_.max_motor_rpm, 1e-6);
+    double left_normalized = std::clamp(left_rpm / max_rpm, -1.0, 1.0);
+    double right_normalized = std::clamp(right_rpm / max_rpm, -1.0, 1.0);
+
+    if (config_.reverse_left_channel) left_normalized = -left_normalized;
+    if (config_.reverse_right_channel) right_normalized = -right_normalized;
+
+    const double deadzone = std::clamp(config_.deadzone_percent, 0.0, 100.0) / 100.0;
+    auto apply_lifted_deadzone = [deadzone](double normalized) {
+        const double magnitude = std::abs(normalized);
+        if (magnitude <= 0.0) return 0.0;
+        const double lifted = deadzone + (1.0 - deadzone) * magnitude;
+        return std::copysign(std::clamp(lifted, 0.0, 1.0), normalized);
+    };
+    left_normalized = apply_lifted_deadzone(left_normalized);
+    right_normalized = apply_lifted_deadzone(right_normalized);
+
+    int left_channel_val = to_trainer_value(left_normalized);
+    int right_channel_val = to_trainer_value(right_normalized);
+
+    logger_->debug("send", {{"linear_x_mps", command.linear_x},
+                            {"angular_z_radps", command.angular_z},
+                            {"left_ground_vel_mps", left_ground_vel},
+                            {"right_ground_vel_mps", right_ground_vel},
+                            {"left_rpm", left_rpm},
+                            {"right_rpm", right_rpm},
+                            {"left_normalized", left_normalized},
+                            {"right_normalized", right_normalized},
+                            {"left_channel", left_channel_val},
+                            {"right_channel", right_channel_val}});
+
+    bool left_write_ok = serial_.write("trainer " + std::to_string(config_.left_channel) + " " +
+                                       std::to_string(left_channel_val) + "\r\n");
+    bool right_write_ok = serial_.write("trainer " + std::to_string(config_.right_channel) + " " +
+                                        std::to_string(right_channel_val) + "\r\n");
+
+    if (!left_write_ok || !right_write_ok) {
+        logger_->warning("write_failed_reconnecting",
+                         {{"left_write_ok", left_write_ok}, {"right_write_ok", right_write_ok}});
         serial_.close();
         next_reconnect_attempt_ = std::chrono::steady_clock::now();
     }
@@ -143,8 +187,8 @@ bool OpenTxTransmitter::did_init_button_press() {
 }
 
 int OpenTxTransmitter::to_trainer_value(double normalized) {
-    constexpr int kMax = 1000;
-    constexpr int kMin = -1000;
+    constexpr int kMax = 500;
+    constexpr int kMin = -500;
     int value = static_cast<int>(normalized * kMax);
     return std::clamp(value, kMin, kMax);
 }

@@ -21,12 +21,6 @@ struct NoopNavigationConfiguration : public NavigationConfiguration {
 };
 
 struct PursuitNavigationConfiguration : public NavigationConfiguration {
-    /** Maximum linear velocity in m/s */
-    double max_linear_velocity = 1.0;
-
-    /** Maximum angular velocity in rad/s */
-    double max_angular_velocity = 6.0;
-
     /** Distance at which to start slowing down in meters */
     double slowdown_distance = 0.5;
 
@@ -55,8 +49,6 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
 
     // clang-format off
     PARSE_CONFIG_FIELDS(
-        PARSE_FIELD_DOUBLE(max_linear_velocity)
-        PARSE_FIELD_DOUBLE(max_angular_velocity)
         PARSE_FIELD_DOUBLE(slowdown_distance)
         PARSE_FIELD_DOUBLE(stop_distance)
         PARSE_FIELD_DOUBLE(angular_kp)
@@ -70,13 +62,13 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
 };
 
 struct FixedVelocityNavigationConfiguration : public NavigationConfiguration {
-    /** Fixed normalized linear X command (-1..+1) */
+    /** Fixed linear X command in m/s */
     double linear_x = 0.0;
 
-    /** Fixed normalized linear Y command (-1..+1) */
+    /** Fixed linear Y command in m/s */
     double linear_y = 0.0;
 
-    /** Fixed normalized angular Z command (-1..+1) */
+    /** Fixed angular Z command in rad/s */
     double angular_z = 0.0;
 
     FixedVelocityNavigationConfiguration() { type = "FixedVelocityNavigation"; }

@@ -64,11 +64,9 @@ namespace auto_battlebot
         PursuitNavigationConfiguration config;
 
         EXPECT_EQ(config.type, "PursuitNavigation");
-        EXPECT_DOUBLE_EQ(config.max_linear_velocity, 1.0);
-        EXPECT_DOUBLE_EQ(config.max_angular_velocity, 3.0);
         EXPECT_DOUBLE_EQ(config.slowdown_distance, 0.5);
         EXPECT_DOUBLE_EQ(config.stop_distance, 0.1);
-        EXPECT_DOUBLE_EQ(config.angular_kp, 2.0);
+        EXPECT_DOUBLE_EQ(config.angular_kp, 3.0);
         EXPECT_DOUBLE_EQ(config.angle_threshold, 0.3);
         EXPECT_DOUBLE_EQ(config.lookahead_time, 0.1);
         EXPECT_DOUBLE_EQ(config.boundary_margin, 0.1);
@@ -77,8 +75,6 @@ namespace auto_battlebot
     TEST(PursuitNavigationConfigTest, CustomValues)
     {
         PursuitNavigationConfiguration config;
-        config.max_linear_velocity = 2.5;
-        config.max_angular_velocity = 5.0;
         config.slowdown_distance = 1.0;
         config.stop_distance = 0.2;
         config.angular_kp = 3.0;
@@ -311,7 +307,6 @@ namespace auto_battlebot
         PursuitNavigationConfiguration config;
         config.slowdown_distance = 1.0;
         config.stop_distance = 0.1;
-        config.max_linear_velocity = 2.0;
         PursuitNavigation nav(config);
         nav.initialize();
 
@@ -326,15 +321,14 @@ namespace auto_battlebot
 
         // Should be slower than max velocity
         EXPECT_GT(cmd.linear_x, 0.0);
-        EXPECT_LT(cmd.linear_x, config.max_linear_velocity);
+        EXPECT_LT(cmd.linear_x, 1.0);
     }
 
     // ==================== Velocity Limits Tests ====================
 
-    TEST_F(PursuitNavigationTest, RespectsMaxLinearVelocity)
+    TEST_F(PursuitNavigationTest, ForwardVelocityIsBoundedByControllerScaling)
     {
         PursuitNavigationConfiguration config;
-        config.max_linear_velocity = 0.5;
         config.slowdown_distance = 0.1; // Small so we don't slow down
         PursuitNavigation nav(config);
         nav.initialize();
@@ -346,14 +340,13 @@ namespace auto_battlebot
 
         VelocityCommand cmd = nav.update(robots, field, make_target(10.0, 0.0));
 
-        EXPECT_LE(cmd.linear_x, config.max_linear_velocity);
+        EXPECT_LE(cmd.linear_x, 1.0);
     }
 
-    TEST_F(PursuitNavigationTest, RespectsMaxAngularVelocity)
+    TEST_F(PursuitNavigationTest, AngularVelocityUsesRealUnits)
     {
         PursuitNavigationConfiguration config;
-        config.max_angular_velocity = 1.0;
-        config.angular_kp = 100.0; // Very high gain to saturate
+        config.angular_kp = 2.0;
         PursuitNavigation nav(config);
         nav.initialize();
 
@@ -365,7 +358,7 @@ namespace auto_battlebot
 
         VelocityCommand cmd = nav.update(robots, field, make_target(-1.0, 0.1));
 
-        EXPECT_LE(std::abs(cmd.angular_z), config.max_angular_velocity);
+        EXPECT_GT(std::abs(cmd.angular_z), 1.0);
     }
 
     // ==================== Target Prediction Tests ====================

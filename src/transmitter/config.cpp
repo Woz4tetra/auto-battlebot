@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 #include <toml++/toml.h>
 
+#include "config/config_cast.hpp"
 #include "config/config_parser.hpp"
 #include "transmitter/noop_transmitter.hpp"
 #include "transmitter/opentx_transmitter.hpp"

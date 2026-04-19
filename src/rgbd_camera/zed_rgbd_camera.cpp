@@ -17,6 +17,16 @@ constexpr uint64_t kSizeCheckIntervalFrames = 100;
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
 constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
+
+bool is_transient_grab_error(sl::ERROR_CODE error_code) {
+    switch (error_code) {
+        case sl::ERROR_CODE::CORRUPTED_FRAME:
+        case sl::ERROR_CODE::CAMERA_REBOOTING:
+            return true;
+        default:
+            return false;
+    }
+}
 }  // namespace
 
 ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
@@ -85,6 +95,13 @@ bool ZedRgbdCamera::initialize() {
         stop_thread_ = true;
         data_cv_.notify_all();
         capture_thread_.join();
+    }
+
+    // Ensure the SDK camera handle is reset before calling open() again.
+    if (is_initialized_) {
+        stop_svo_recording();
+        zed_.close();
+        is_initialized_ = false;
     }
 
     // Reset state variables for re-initialization
@@ -231,6 +248,11 @@ bool ZedRgbdCamera::capture_frame() {
     sl::RuntimeParameters rt_params;
     rt_params.enable_depth = true;
     sl::ERROR_CODE grab_status = zed_.grab(rt_params);
+
+    if (is_transient_grab_error(grab_status)) {
+        // Treat transient frame grab issues as recoverable: wait for the next good frame.
+        return false;
+    }
 
     if (grab_status != sl::ERROR_CODE::SUCCESS) {
         camera_connected_ = false;

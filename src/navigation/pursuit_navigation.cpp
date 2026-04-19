@@ -14,9 +14,7 @@
 namespace auto_battlebot {
 
 PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &config)
-    : max_linear_velocity_(config.max_linear_velocity),
-      max_angular_velocity_(config.max_angular_velocity),
-      slowdown_distance_(config.slowdown_distance),
+    : slowdown_distance_(config.slowdown_distance),
       stop_distance_(config.stop_distance),
       angular_kp_(config.angular_kp),
       angular_kd_(config.angular_kd),
@@ -27,10 +25,7 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       logger_(DiagnosticsLogger::get_logger("pursuit_nav")) {}
 
 bool PursuitNavigation::initialize() {
-    spdlog::info(
-        "PursuitNavigation initialized with: max_linear_velocity={} m/s, "
-        "max_angular_velocity={} rad/s, lookahead_time={} s",
-        max_linear_velocity_, max_angular_velocity_, lookahead_time_);
+    spdlog::info("PursuitNavigation initialized with lookahead_time={} s", lookahead_time_);
     return true;
 }
 
@@ -129,7 +124,7 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
         return cmd;
     }
 
-    // PD angular control (normalized to [-1, 1])
+    // PD angular control in real angular velocity units (rad/s).
     double now_s =
         std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
     double d_term = 0.0;
@@ -142,10 +137,9 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     prev_angle_error_ = angle_error;
     prev_timestamp_ = now_s;
 
-    cmd.angular_z = (angular_kp_ * angle_error + d_term) / max_angular_velocity_;
-    cmd.angular_z = std::clamp(cmd.angular_z, -1.0, 1.0);
+    cmd.angular_z = angular_kp_ * angle_error + d_term;
 
-    // Linear velocity (normalized to [0, 1]) - only drive forward if roughly facing target
+    // Linear velocity in m/s. Only drive forward if roughly facing target.
     if (std::abs(angle_error) < angle_threshold_) {
         double speed_scale = 1.0;
         if (distance < slowdown_distance_) {
