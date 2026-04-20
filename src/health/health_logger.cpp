@@ -1,6 +1,7 @@
 #include "health/health_logger.hpp"
 
 #include <unistd.h>
+#include <poll.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -153,43 +154,112 @@ bool HealthLogger::parse_int(const std::string& value, int& out) {
     }
 }
 
-bool HealthLogger::collect_tegrastats() {
-    DiagnosticsData data;
-    data["enabled"] = config_.tegrastats_enable ? 1 : 0;
-
+bool HealthLogger::start_tegrastats_stream() {
+    if (tegrastats_pipe_) {
+        return true;
+    }
+    if (tegrastats_unavailable_) {
+        return false;
+    }
     if (!command_exists("tegrastats")) {
+        tegrastats_unavailable_ = true;
+        DiagnosticsData data;
+        data["enabled"] = config_.tegrastats_enable ? 1 : 0;
         data["available"] = 0;
         logger_->warning("tegrastats", data, "tegrastats unavailable");
         return false;
     }
 
-    std::string output;
-    if (!run_command("tegrastats --interval 1000 --count 1 2>/dev/null", output)) {
-        data["available"] = 1;
-        logger_->warning("tegrastats", data, "tegrastats command failed");
+    const int interval_ms = std::max(250, config_.sample_period_ms);
+    const std::string command = "tegrastats --interval " + std::to_string(interval_ms) + " 2>&1";
+    FILE* pipe = popen(command.c_str(), "r");
+    if (!pipe) {
+        DiagnosticsData data;
+        data["enabled"] = config_.tegrastats_enable ? 1 : 0;
+        data["available"] = 0;
+        logger_->warning("tegrastats", data, "failed to start tegrastats stream");
+        return false;
+    }
+    tegrastats_pipe_ = std::shared_ptr<FILE>(pipe, [](FILE* p) {
+        if (p) {
+            pclose(p);
+        }
+    });
+
+    return true;
+}
+
+void HealthLogger::stop_tegrastats_stream() {
+    tegrastats_pipe_.reset();
+}
+
+bool HealthLogger::collect_tegrastats() {
+    DiagnosticsData data;
+    data["enabled"] = config_.tegrastats_enable ? 1 : 0;
+
+    if (!start_tegrastats_stream()) {
         return false;
     }
 
-    const std::string line = trim(output);
     data["available"] = 1;
+    std::string line;
+    pollfd pfd{};
+    pfd.fd = fileno(tegrastats_pipe_.get());
+    pfd.events = POLLIN;
+    const int ready = poll(&pfd, 1, 250);
+    if (ready <= 0 || (pfd.revents & POLLIN) == 0) {
+        logger_->warning("tegrastats", data, "tegrastats produced no line");
+        return false;
+    }
+
+    char buffer[2048];
+    while (fgets(buffer, sizeof(buffer), tegrastats_pipe_.get()) != nullptr) {
+        const std::string candidate = trim(buffer);
+        if (!candidate.empty()) {
+            line = candidate;
+        }
+
+        pfd.revents = 0;
+        const int has_more = poll(&pfd, 1, 0);
+        if (has_more <= 0 || (pfd.revents & POLLIN) == 0) {
+            break;
+        }
+    }
+
     if (line.empty()) {
+        if (feof(tegrastats_pipe_.get())) {
+            stop_tegrastats_stream();
+            logger_->warning("tegrastats", data, "tegrastats stream ended");
+            return false;
+        }
         logger_->warning("tegrastats", data, "tegrastats returned empty output");
         return false;
     }
+
+    bool parse_ok = false;
 
     std::smatch match;
     const std::regex ram_regex(R"(RAM\s+(\d+)\/(\d+)MB)");
     if (std::regex_search(line, match, ram_regex) && match.size() >= 3) {
         int used_mb = 0;
         int total_mb = 0;
-        if (parse_int(match[1].str(), used_mb)) data["ram_used_mb"] = used_mb;
-        if (parse_int(match[2].str(), total_mb)) data["ram_total_mb"] = total_mb;
+        if (parse_int(match[1].str(), used_mb)) {
+            data["ram_used_mb"] = used_mb;
+            parse_ok = true;
+        }
+        if (parse_int(match[2].str(), total_mb)) {
+            data["ram_total_mb"] = total_mb;
+            parse_ok = true;
+        }
     }
 
     const std::regex gr3d_regex(R"(GR3D_FREQ\s+(\d+)%)");
     if (std::regex_search(line, match, gr3d_regex) && match.size() >= 2) {
         int gr3d = 0;
-        if (parse_int(match[1].str(), gr3d)) data["gpu_util_percent"] = gr3d;
+        if (parse_int(match[1].str(), gr3d)) {
+            data["gpu_util_percent"] = gr3d;
+            parse_ok = true;
+        }
     }
 
     const std::regex temp_regex(R"(([A-Za-z0-9_]+)@([0-9]+(?:\.[0-9]+)?)C)");
@@ -203,6 +273,7 @@ bool HealthLogger::collect_tegrastats() {
         if (!parse_double((*it)[2].str(), temp)) continue;
         max_temp_c = std::max(max_temp_c, temp);
         temp_count++;
+        parse_ok = true;
         const std::string label = (*it)[1].str();
         if (label == "GPU") {
             data["gpu_temp_c"] = temp;
@@ -211,6 +282,13 @@ bool HealthLogger::collect_tegrastats() {
     if (temp_count > 0) {
         data["max_temp_c"] = max_temp_c;
         data["temp_sensor_count"] = temp_count;
+    }
+
+    data["parse_ok"] = parse_ok ? 1 : 0;
+    if (!parse_ok) {
+        data["raw_line"] = line;
+        logger_->warning("tegrastats", data, "tegrastats line parsed no known metrics");
+        return false;
     }
 
     logger_->debug("tegrastats", data);

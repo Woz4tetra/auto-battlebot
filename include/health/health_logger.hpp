@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <vector>
@@ -20,6 +21,8 @@ class HealthLogger {
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
     std::chrono::steady_clock::time_point last_sample_time_;
     bool has_sampled_ = false;
+    std::shared_ptr<FILE> tegrastats_pipe_;
+    bool tegrastats_unavailable_ = false;
 
     static bool is_x86();
     static bool command_exists(const std::string& command);
@@ -29,6 +32,8 @@ class HealthLogger {
     static bool parse_double(const std::string& value, double& out);
     static bool parse_int(const std::string& value, int& out);
 
+    bool start_tegrastats_stream();
+    void stop_tegrastats_stream();
     bool collect_tegrastats();
     bool collect_x86_health();
     bool collect_nvidia_smi();
