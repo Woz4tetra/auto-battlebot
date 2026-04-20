@@ -42,8 +42,8 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     OpenTxTransmitterConfiguration() { type = "OpenTxTransmitter"; }
 
     void parse_fields(ConfigParser &parser) override {
-        init_button_channel = static_cast<int>(
-            parser.get_optional_int("init_button_channel", init_button_channel));
+        init_button_channel =
+            static_cast<int>(parser.get_optional_int("init_button_channel", init_button_channel));
         init_button_threshold = static_cast<int>(
             parser.get_optional_int("init_button_threshold", init_button_threshold));
         left_channel = static_cast<int>(parser.get_optional_int("left_channel", left_channel));

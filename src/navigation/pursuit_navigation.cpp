@@ -7,7 +7,6 @@
 #include <cmath>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
-#include "enum_to_string_lower.hpp"
 #include "enums/frame_id.hpp"
 #include "transform_utils.hpp"
 
@@ -25,27 +24,41 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       logger_(DiagnosticsLogger::get_logger("pursuit_nav")) {}
 
 bool PursuitNavigation::initialize() {
+    committed_turn_sign_ = 0;
+    prev_angle_error_ = 0.0;
+    prev_timestamp_ = 0.0;
+    last_known_our_pose_.reset();
+    last_path_.reset();
     spdlog::info("PursuitNavigation initialized with lookahead_time={} s", lookahead_time_);
     return true;
 }
 
 VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, FieldDescription field,
                                           const TargetSelection &target) {
+    enum class PoseSource { Live, Cached };
+
     last_path_ = std::nullopt;
 
     auto our_robot_opt = find_our_robot(robots);
-    if (!our_robot_opt.has_value()) {
-        logger_->debug("no_robot", "Our robot not found");
+    Pose2D our_pose;
+    PoseSource pose_source = PoseSource::Live;
+    if (our_robot_opt.has_value()) {
+        our_pose = pose_to_pose2d(our_robot_opt->pose);
+        last_known_our_pose_ = our_pose;
+    } else if (last_known_our_pose_.has_value()) {
+        our_pose = *last_known_our_pose_;
+        pose_source = PoseSource::Cached;
+        logger_->debug("no_robot", "Our robot not found; using cached pose");
+    } else {
+        logger_->debug("no_robot", "Our robot not found and no cached pose");
         return VelocityCommand{0.0, 0.0, 0.0};
     }
-    const auto &our_robot = our_robot_opt.value();
-
-    Pose2D our_pose = pose_to_pose2d(our_robot.pose);
 
     last_path_ = NavigationPathSegment{our_pose.x, our_pose.y, target.pose.x, target.pose.y};
 
     logger_->debug("poses", {
-                                {"our_frame_id", enum_to_string_lower(our_robot.frame_id)},
+                                {"our_pose_source",
+                                 pose_source == PoseSource::Cached ? "cached" : "live"},
                                 {"our_x", our_pose.x},
                                 {"our_y", our_pose.y},
                                 {"our_yaw_deg", our_pose.yaw * 180.0 / M_PI},

@@ -69,6 +69,7 @@ class PursuitNavigation : public NavigationInterface {
     int committed_turn_sign_ = 0;
     double prev_angle_error_ = 0.0;
     double prev_timestamp_ = 0.0;
+    std::optional<Pose2D> last_known_our_pose_;
 };
 
 }  // namespace auto_battlebot

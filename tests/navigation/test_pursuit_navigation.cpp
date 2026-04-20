@@ -18,6 +18,15 @@ namespace auto_battlebot
         return robot;
     }
 
+    RobotDescription make_robot_with_frame(
+        Label label, FrameId frame_id, Group group, double x, double y, double yaw)
+    {
+        RobotDescription robot = make_robot(label, x, y, yaw);
+        robot.frame_id = frame_id;
+        robot.group = group;
+        return robot;
+    }
+
     // Helper to create a field description
     FieldDescription make_field(double width, double height)
     {
@@ -118,6 +127,43 @@ namespace auto_battlebot
 
         VelocityCommand cmd = nav_->update(robots, field, make_target(1.0, 0.0));
 
+        EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
+        EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
+        EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
+    }
+
+    TEST_F(PursuitNavigationTest, UsesCachedOurRobotPoseWhenTemporarilyMissing)
+    {
+        FieldDescription field = make_field(4.0, 4.0);
+        TargetSelection target = make_target(1.0, 0.0);
+
+        RobotDescriptionsStamped first_tick_robots;
+        first_tick_robots.descriptions.push_back(make_robot_with_frame(
+            Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1, Group::OURS, 0.0, 0.0, 0.0));
+        first_tick_robots.descriptions.push_back(make_robot_with_frame(
+            Label::OPPONENT, FrameId::THEIR_ROBOT_1, Group::THEIRS, 1.0, 0.0, 0.0));
+
+        VelocityCommand first_cmd = nav_->update(first_tick_robots, field, target);
+        EXPECT_GT(first_cmd.linear_x, 0.0);
+
+        RobotDescriptionsStamped second_tick_robots;
+        second_tick_robots.descriptions.push_back(make_robot_with_frame(
+            Label::OPPONENT, FrameId::THEIR_ROBOT_1, Group::THEIRS, 1.0, 0.0, 0.0));
+
+        VelocityCommand second_cmd = nav_->update(second_tick_robots, field, target);
+        EXPECT_GT(second_cmd.linear_x, 0.0);
+    }
+
+    TEST_F(PursuitNavigationTest, MissingOurRobotWithoutCacheStillReturnsZeroCommand)
+    {
+        FieldDescription field = make_field(4.0, 4.0);
+        TargetSelection target = make_target(1.0, 0.0);
+
+        RobotDescriptionsStamped robots;
+        robots.descriptions.push_back(make_robot_with_frame(
+            Label::OPPONENT, FrameId::THEIR_ROBOT_1, Group::THEIRS, 1.0, 0.0, 0.0));
+
+        VelocityCommand cmd = nav_->update(robots, field, target);
         EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
         EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
         EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);

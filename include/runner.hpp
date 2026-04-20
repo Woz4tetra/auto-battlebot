@@ -70,6 +70,8 @@ class Runner {
     int runtime_opponent_count_;
     bool robot_filter_reinit_pending_;
     TargetSelection previous_selected_target_;
+    RobotDescriptionsStamped previous_navigation_robots_;
+    bool has_previous_navigation_robots_;
 
     bool initialized_;
     bool autonomy_enabled_;
@@ -87,6 +89,9 @@ class Runner {
     bool recover_camera_after_failure();
     void set_ui_debug_image_from_camera(const CameraData &camera_data) const;
     bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);
+    static bool has_our_robot(const RobotDescriptionsStamped &robots);
+    static bool has_their_robot(const RobotDescriptionsStamped &robots);
+    static bool has_navigation_critical_robots(const RobotDescriptionsStamped &robots);
     double elapsed_ms();
 };
 }  // namespace auto_battlebot

@@ -22,10 +22,10 @@ struct NoopNavigationConfiguration : public NavigationConfiguration {
 
 struct PursuitNavigationConfiguration : public NavigationConfiguration {
     /** Distance at which to start slowing down in meters */
-    double slowdown_distance = 0.5;
+    double slowdown_distance = 0.0;
 
     /** Distance at which to stop in meters */
-    double stop_distance = 0.1;
+    double stop_distance = 0.0;
 
     /** Proportional gain for angular control */
     double angular_kp = 3.0;
@@ -34,7 +34,7 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     double angular_kd = 0.0;
 
     /** Angle threshold below which robot drives forward (rad) */
-    double angle_threshold = 0.3;
+    double angle_threshold = 0.5;
 
     /** Lookahead time for target position prediction in seconds */
     double lookahead_time = 0.1;
