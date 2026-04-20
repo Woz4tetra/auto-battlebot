@@ -10,6 +10,7 @@ import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 import bpy
 import cv2
@@ -21,9 +22,15 @@ _LAUNCH_CWD = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _CONFIG_BASE_DIR: Path | None = None
 
+ANNOTATION_MODE_KEYPOINTS_BBOX = "keypoints_bbox"
+ANNOTATION_MODE_SEGMENTATION_BBOX = "segmentation_bbox"
+
+BACKGROUND_CATEGORY_ID = 0
 ROBOT_CATEGORY_ID = 1
 DISTRACTOR_CATEGORY_ID = 2
-BACKGROUND_CATEGORY_ID = 0
+
+SEG_FLOOR_CLASS_ID = 1
+SEG_OBJECT_CLASS_ID = 2
 
 MODEL_EXTENSIONS = {".glb", ".gltf", ".obj", ".ply"}
 
@@ -204,7 +211,7 @@ def match_material_type(
 
 
 def import_gltf_as_robot(
-    model_path: Path, scale: float = 1.0
+    model_path: Path, scale: float = 1.0, category_id: int = ROBOT_CATEGORY_ID
 ) -> tuple[list[bproc.types.MeshObject], bpy.types.Object, list[mathutils.Vector]]:
     """Import GLTF and parent all parts under an empty for group transforms.
 
@@ -264,7 +271,8 @@ def import_gltf_as_robot(
     bproc_meshes = []
     for obj in bpy_meshes:
         mesh = bproc.types.MeshObject(obj)
-        mesh.set_cp("category_id", ROBOT_CATEGORY_ID)
+        mesh.set_cp("category_id", category_id)
+        mesh.set_cp("is_distractor", 0)
         bproc_meshes.append(mesh)
 
     return bproc_meshes, parent, bbox_corners
@@ -558,23 +566,27 @@ def apply_pbr_materials(
 
 def discover_model_files(
     sources: list[dict],
-) -> list[tuple[list[Path], float]]:
+) -> list[tuple[list[Path], float, Path, str]]:
     """Find loadable 3D model files grouped by source directory.
 
     *sources* is a list of dicts with ``"path"`` and ``"weight"`` keys.
-    Returns ``[(files, weight), ...]`` for each source that has files.
+    Returns ``[(files, weight, source_dir, source_kind), ...]`` for each source that
+    has files.
     """
-    groups: list[tuple[list[Path], float]] = []
+    groups: list[tuple[list[Path], float, Path, str]] = []
     for src in sources:
         d = resolve_path(Path(src["path"]))
         weight = float(src.get("weight", 1.0))
         if not d.exists():
             continue
+        source_kind = str(src.get("kind", "")).strip().lower()
+        if not source_kind:
+            source_kind = "objaverse" if "objaverse" in d.name.lower() else "cad"
         files: list[Path] = []
         for ext in MODEL_EXTENSIONS:
             files.extend(d.glob(f"*{ext}"))
         if files:
-            groups.append((files, weight))
+            groups.append((files, weight, d, source_kind))
     return groups
 
 
@@ -710,7 +722,9 @@ def _wire_vertex_colors(obj: bpy.types.Object) -> None:
         tree.links.new(vcol.outputs["Color"], bsdf.inputs["Base Color"])
 
 
-def load_distractor(file_path: Path) -> DistractorGroup | None:
+def load_distractor(
+    file_path: Path, category_id: int, source_kind: str
+) -> DistractorGroup | None:
     """Load a single distractor model under a parent empty.
 
     Returns ``(parent, meshes, native_size)`` or *None* on failure.  The
@@ -739,6 +753,7 @@ def load_distractor(file_path: Path) -> DistractorGroup | None:
         saved_world = {obj.name: obj.matrix_world.copy() for obj in imported}
 
         parent = bpy.data.objects.new(f"dist_{file_path.stem}", None)
+        parent["distractor_source_kind"] = source_kind
         bpy.context.scene.collection.objects.link(parent)
         bpy.context.view_layer.update()
 
@@ -763,8 +778,9 @@ def load_distractor(file_path: Path) -> DistractorGroup | None:
         meshes = []
         for obj in imported:
             mesh = bproc.types.MeshObject(obj)
-            mesh.set_cp("category_id", DISTRACTOR_CATEGORY_ID)
+            mesh.set_cp("category_id", category_id)
             mesh.set_cp("robot_instance_id", 0)
+            mesh.set_cp("is_distractor", 1)
             meshes.append(mesh)
 
         return (parent, meshes, native_size)
@@ -776,6 +792,7 @@ def load_distractor(file_path: Path) -> DistractorGroup | None:
 def load_distractor_pool(
     sources: list[dict],
     max_count: int,
+    assign_class_id: Callable[[Path, str], int],
     vram_budget_mb: float | None = None,
     vram_estimates_mb: dict[Path, float] | None = None,
 ) -> list[DistractorGroup]:
@@ -790,18 +807,18 @@ def load_distractor_pool(
         print("  No distractor models found.")
         return []
 
-    for file_list, _ in groups:
+    for file_list, _, _, _ in groups:
         random.shuffle(file_list)
 
-    total_weight = sum(w for _, w in groups)
-    budgets = [max(1, round(max_count * w / total_weight)) for _, w in groups]
+    total_weight = sum(w for _, w, _, _ in groups)
+    budgets = [max(1, round(max_count * w / total_weight)) for _, w, _, _ in groups]
     remaining = max_count - sum(budgets)
     if remaining > 0:
         budgets[0] += remaining
 
     pool: list[DistractorGroup] = []
     pool_vram_mb = 0.0
-    for (file_list, weight), budget in zip(groups, budgets):
+    for (file_list, weight, _source_dir, source_kind), budget in zip(groups, budgets):
         loaded = 0
         for f in file_list:
             if loaded >= budget:
@@ -826,7 +843,8 @@ def load_distractor_pool(
                 )
                 continue
 
-            group = load_distractor(f)
+            class_id = assign_class_id(f, source_kind)
+            group = load_distractor(f, class_id, source_kind)
             if group:
                 est_mb = est_mb_pre
                 if est_mb is None:
@@ -959,7 +977,7 @@ def _ray_hits_distractor(
     hit, _loc, _norm, _idx, obj, _mat = scene.ray_cast(
         depsgraph, origin, direction, distance=dist * 0.99
     )
-    if hit and obj.get("category_id", -1) == DISTRACTOR_CATEGORY_ID:
+    if hit and obj.get("is_distractor", 0) == 1:
         return obj
     return None
 
@@ -1170,6 +1188,72 @@ def write_yolo_labels(
             f.write(" ".join(parts) + "\n")
 
 
+YoloSegAnnotation = tuple[int, list[tuple[float, float]]]
+"""(class_id, [(x1, y1), (x2, y2), ...])"""
+
+
+def normalize_annotation_mode(mode: str) -> str:
+    mode_norm = mode.strip().lower()
+    valid_modes = {
+        ANNOTATION_MODE_KEYPOINTS_BBOX,
+        ANNOTATION_MODE_SEGMENTATION_BBOX,
+    }
+    if mode_norm not in valid_modes:
+        raise ValueError(
+            f"Unsupported output.annotation_mode='{mode}'. "
+            f"Expected one of: {sorted(valid_modes)}"
+        )
+    return mode_norm
+
+
+def segmentation_annotations_from_segmap(
+    seg_map: np.ndarray,
+    img_w: int,
+    img_h: int,
+    min_bbox_dim: int = 32,
+) -> list[YoloSegAnnotation]:
+    """Convert a category-id segmentation map into YOLO-seg annotations."""
+    seg_2d = seg_map.squeeze()
+    annotations: list[YoloSegAnnotation] = []
+    for class_id in sorted(int(v) for v in np.unique(seg_2d).tolist()):
+        if class_id <= BACKGROUND_CATEGORY_ID:
+            continue
+
+        mask = (seg_2d == class_id).astype(np.uint8)
+        if not np.any(mask):
+            continue
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            if contour.shape[0] < 3:
+                continue
+            xs = contour[:, 0, 0]
+            ys = contour[:, 0, 1]
+            if (xs.max() - xs.min()) < min_bbox_dim or (ys.max() - ys.min()) < min_bbox_dim:
+                continue
+            polygon = [(float(x) / img_w, float(y) / img_h) for x, y in contour[:, 0, :]]
+            annotations.append((class_id, polygon))
+    return annotations
+
+
+def write_yolo_seg_labels(filepath: Path, annotations: list[YoloSegAnnotation]) -> None:
+    """Write YOLO segmentation labels (class + polygon points)."""
+    with open(filepath, "w") as f:
+        for class_id, polygon in annotations:
+            parts = [str(class_id)]
+            for x, y in polygon:
+                parts.append(f"{x:.6f}")
+                parts.append(f"{y:.6f}")
+            f.write(" ".join(parts) + "\n")
+
+
+def write_label_index(filepath: Path, labels: dict[int, str]) -> None:
+    """Write a human-readable class-id map for segmentation mode."""
+    with open(filepath, "w") as f:
+        for class_id, name in sorted(labels.items()):
+            f.write(f"{class_id}:{name}\n")
+
+
 def _directional_blur_kernel(kernel_size: int, angle: float) -> np.ndarray:
     """Build a normalized 1-D directional blur kernel."""
     ks = max(3, kernel_size) | 1
@@ -1263,11 +1347,48 @@ def main() -> None:
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
+    annotation_mode = normalize_annotation_mode(
+        config["output"].get("annotation_mode", ANNOTATION_MODE_KEYPOINTS_BBOX)
+    )
+    is_segmentation_mode = annotation_mode == ANNOTATION_MODE_SEGMENTATION_BBOX
+
     num_images = args.num_images or config["output"]["num_images"]
     img_w = config["output"].get("image_width", 1280)
     img_h = config["output"].get("image_height", 720)
     images_per_scene = config["output"].get("images_per_scene", 5)
     max_scenes = math.ceil(num_images / images_per_scene) * 3
+
+    robot_configs = config["robots"]
+    seg_robot_class_ids: dict[int, int] = {}
+    seg_label_names: dict[int, str] = {}
+    if is_segmentation_mode:
+        seg_label_names[SEG_FLOOR_CLASS_ID] = "floor"
+        seg_label_names[SEG_OBJECT_CLASS_ID] = "object"
+        next_seg_class_id = SEG_OBJECT_CLASS_ID + 1
+        for ri, rcfg in enumerate(robot_configs, start=1):
+            seg_robot_class_ids[ri] = next_seg_class_id
+            name = str(rcfg.get("name", Path(rcfg["model_path"]).stem))
+            seg_label_names[next_seg_class_id] = name
+            next_seg_class_id += 1
+    else:
+        next_seg_class_id = SEG_OBJECT_CLASS_ID + 1
+
+    seg_distractor_class_ids: dict[Path, int] = {}
+
+    def assign_distractor_class_id(model_path: Path, source_kind: str) -> int:
+        nonlocal next_seg_class_id
+        if not is_segmentation_mode:
+            return DISTRACTOR_CATEGORY_ID
+
+        if source_kind == "objaverse":
+            return SEG_OBJECT_CLASS_ID
+
+        key = resolve_path(model_path)
+        if key not in seg_distractor_class_ids:
+            seg_distractor_class_ids[key] = next_seg_class_id
+            seg_label_names[next_seg_class_id] = key.stem
+            next_seg_class_id += 1
+        return seg_distractor_class_ids[key]
 
     output_image_dir = resolve_path(Path(config["output"]["image_dir"]))
     output_label_dir = resolve_path(Path(config["output"]["label_dir"]))
@@ -1296,7 +1417,6 @@ def main() -> None:
 
     # ------- Load target robots -------
 
-    robot_configs = config["robots"]
     cc_textures_dir = config.get("environment", {}).get("cc_textures_dir")
     cc_materials = _load_cc_materials(config["materials"], cc_textures_dir)
     robots: list[RobotInstance] = []
@@ -1305,8 +1425,13 @@ def main() -> None:
         rname = rcfg.get("name", Path(rcfg["model_path"]).stem)
         model_path = Path(rcfg["model_path"])
         robot_scale = rcfg.get("scale", 1.0)
+        robot_category_id = (
+            seg_robot_class_ids[ri] if is_segmentation_mode else ROBOT_CATEGORY_ID
+        )
         print(f"Loading robot model: {rname} ({model_path})")
-        meshes, parent, bbox = import_gltf_as_robot(model_path, robot_scale)
+        meshes, parent, bbox = import_gltf_as_robot(
+            model_path, robot_scale, category_id=robot_category_id
+        )
         print(f"  {len(meshes)} mesh parts loaded, instance_id={ri}")
         size = max(
             max(c.x for c in bbox) - min(c.x for c in bbox),
@@ -1335,7 +1460,7 @@ def main() -> None:
             size=size,
             kp_front=model_to_blender_local(rcfg["keypoints"]["front"]),
             kp_back=model_to_blender_local(rcfg["keypoints"]["back"]),
-            class_id=rcfg["class_id"],
+            class_id=(robot_category_id if is_segmentation_mode else rcfg["class_id"]),
             weight=rcfg.get("weight", 1.0),
             config=rcfg,
         )
@@ -1373,6 +1498,7 @@ def main() -> None:
         pool = load_distractor_pool(
             dist_sources,
             dist_max_per_scene,
+            assign_class_id=assign_distractor_class_id,
             vram_budget_mb=dist_vram_budget_mb,
             vram_estimates_mb=dist_vram_estimates,
         )
@@ -1388,6 +1514,8 @@ def main() -> None:
             )
         for group in pool:
             hide_distractor(group)
+        if is_segmentation_mode:
+            write_label_index(output_label_dir / "label_index.txt", seg_label_names)
         return pool
 
     distractor_pool = refresh_distractor_pool([])
@@ -1411,15 +1539,17 @@ def main() -> None:
     # ------- Create ground plane -------
 
     scene_cfg = config.get("scene", {})
+    ground_category_id = SEG_FLOOR_CLASS_ID if is_segmentation_mode else BACKGROUND_CATEGORY_ID
     ground = bproc.object.create_primitive("PLANE", scale=[1, 1, 1], location=[0, 0, 0])
-    ground.set_cp("category_id", BACKGROUND_CATEGORY_ID)
+    ground.set_cp("category_id", ground_category_id)
     ground.set_cp("robot_instance_id", 0)
+    ground.set_cp("is_distractor", 0)
 
     # Enable segmentation AFTER all mesh objects are in the scene, because
     # enable_segmentation_output assigns pass_index to every mesh at call time.
     bproc.renderer.enable_segmentation_output(
         map_by=["category_id", "robot_instance_id"],
-        default_values={"robot_instance_id": 0},
+        default_values={"category_id": BACKGROUND_CATEGORY_ID, "robot_instance_id": 0},
     )
 
     # ------- Create reusable lights -------
@@ -1449,11 +1579,15 @@ def main() -> None:
         id_counts[cid] = id_counts.get(cid, 0) + 1
     print(f"\nCategory ID distribution across {len(all_scene_meshes)} mesh objects:")
     for cid, count in sorted(id_counts.items()):
-        label = {
-            ROBOT_CATEGORY_ID: "robot",
-            DISTRACTOR_CATEGORY_ID: "distractor",
-            BACKGROUND_CATEGORY_ID: "background",
-        }.get(cid, "UNSET" if cid == -1 else "unknown")
+        if is_segmentation_mode:
+            default_label = "background" if cid == BACKGROUND_CATEGORY_ID else "unknown"
+            label = seg_label_names.get(cid, default_label)
+        else:
+            label = {
+                ROBOT_CATEGORY_ID: "robot",
+                DISTRACTOR_CATEGORY_ID: "distractor",
+                BACKGROUND_CATEGORY_ID: "background",
+            }.get(cid, "UNSET" if cid == -1 else "unknown")
         print(f"  category_id={cid} ({label}): {count} objects")
 
     # ------- Render loop -------
@@ -1649,6 +1783,15 @@ def main() -> None:
             continue
 
         min_vis = config["output"].get("min_robot_visibility", 0.10)
+        blur_category_ids: set[int] = set()
+        for robot in scene_robots:
+            if robot.meshes:
+                blur_category_ids.add(int(robot.meshes[0].blender_obj.get("category_id", -1)))
+        for group in active_distractors:
+            meshes = group[1]
+            if meshes:
+                blur_category_ids.add(int(meshes[0].blender_obj.get("category_id", -1)))
+        blur_category_ids.discard(-1)
 
         for local_idx in range(cam_count):
             bpy.context.scene.frame_set(local_idx)
@@ -1662,14 +1805,6 @@ def main() -> None:
                 else None
             )
             depth_map = depth_maps[local_idx]
-            rendered_robot_ids: set[int] = set()
-            if inst_seg is not None:
-                visible_ids = {int(v) for v in np.unique(inst_seg.squeeze()).tolist()}
-                rendered_robot_ids = {
-                    robot.instance_id
-                    for robot in scene_robots
-                    if robot.instance_id in visible_ids
-                }
 
             if scene_idx == 0 and local_idx == 0:
                 print(
@@ -1679,72 +1814,91 @@ def main() -> None:
                 if inst_seg is not None:
                     print(f"  Inst segmap unique={np.unique(inst_seg).tolist()}")
 
-            # -- Per-robot annotation --
-            annotations: list[YoloAnnotation] = []
-            annotated_robot_ids: set[int] = set()
-            for robot in scene_robots:
+            keypoint_annotations: list[YoloAnnotation] = []
+            seg_annotations: list[YoloSegAnnotation] = []
+            if is_segmentation_mode:
+                seg_annotations = segmentation_annotations_from_segmap(
+                    cat_seg,
+                    img_w,
+                    img_h,
+                    min_bbox_dim=32,
+                )
+                if not seg_annotations:
+                    continue
+            else:
+                rendered_robot_ids: set[int] = set()
                 if inst_seg is not None:
-                    seg_for_bbox = inst_seg
-                    seg_id = robot.instance_id
-                else:
-                    seg_for_bbox = cat_seg
-                    seg_id = ROBOT_CATEGORY_ID
+                    visible_ids = {int(v) for v in np.unique(inst_seg.squeeze()).tolist()}
+                    rendered_robot_ids = {
+                        robot.instance_id
+                        for robot in scene_robots
+                        if robot.instance_id in visible_ids
+                    }
 
-                bbox = bbox_from_category_segmap(seg_for_bbox, seg_id, img_w, img_h)
-                if bbox is None:
+                annotated_robot_ids: set[int] = set()
+                for robot in scene_robots:
+                    if inst_seg is not None:
+                        seg_for_bbox = inst_seg
+                        seg_id = robot.instance_id
+                    else:
+                        seg_for_bbox = cat_seg
+                        seg_id = ROBOT_CATEGORY_ID
+
+                    bbox = bbox_from_category_segmap(seg_for_bbox, seg_id, img_w, img_h)
+                    if bbox is None:
+                        continue
+
+                    cx, cy, bw, bh = bbox
+                    w_px = int(bw * img_w)
+                    h_px = int(bh * img_h)
+                    min_bbox_dim = 32
+                    if w_px < min_bbox_dim or h_px < min_bbox_dim:
+                        continue
+
+                    if inst_seg is not None and clean_inst_seg is not None:
+                        visible_px = int(np.sum(inst_seg.squeeze() == seg_id))
+                        unobstructed_px = int(np.sum(clean_inst_seg.squeeze() == seg_id))
+                        if unobstructed_px <= 0:
+                            continue
+                        if (visible_px / unobstructed_px) < min_vis:
+                            continue
+                    else:
+                        # Fallback for configurations where instance segmaps are absent.
+                        robot_px = int(np.sum(seg_for_bbox.squeeze() == seg_id))
+                        bbox_area_px = max(1, w_px * h_px)
+                        if robot_px < bbox_area_px * min_vis:
+                            continue
+
+                    robot_world_mat = np.array(robot.parent.matrix_world)
+                    keypoints_2d: list[tuple[float, float, int]] = []
+                    for kp_local in [robot.kp_front, robot.kp_back]:
+                        proj = project_keypoint_to_2d(kp_local, robot_world_mat)
+                        if proj is None:
+                            keypoints_2d.append((0.0, 0.0, 0))
+                            continue
+                        x_n, y_n, depth = proj
+                        vis = check_keypoint_visibility(
+                            x_n, y_n, depth, depth_map, img_w, img_h
+                        )
+                        keypoints_2d.append((x_n, y_n, vis))
+
+                    keypoint_annotations.append((robot.class_id, bbox, keypoints_2d))
+                    annotated_robot_ids.add(robot.instance_id)
+
+                missing_robot_ids = rendered_robot_ids - annotated_robot_ids
+                if missing_robot_ids:
+                    # Discard this frame if any robot instance that appears in the
+                    # rendered segmentation is missing from YOLO annotations.
                     continue
 
-                cx, cy, bw, bh = bbox
-                w_px = int(bw * img_w)
-                h_px = int(bh * img_h)
-                min_bbox_dim = 32
-                if w_px < min_bbox_dim or h_px < min_bbox_dim:
+                if not keypoint_annotations:
                     continue
-
-                if inst_seg is not None and clean_inst_seg is not None:
-                    visible_px = int(np.sum(inst_seg.squeeze() == seg_id))
-                    unobstructed_px = int(np.sum(clean_inst_seg.squeeze() == seg_id))
-                    if unobstructed_px <= 0:
-                        continue
-                    if (visible_px / unobstructed_px) < min_vis:
-                        continue
-                else:
-                    # Fallback for configurations where instance segmaps are absent.
-                    robot_px = int(np.sum(seg_for_bbox.squeeze() == seg_id))
-                    bbox_area_px = max(1, w_px * h_px)
-                    if robot_px < bbox_area_px * min_vis:
-                        continue
-
-                robot_world_mat = np.array(robot.parent.matrix_world)
-                keypoints_2d: list[tuple[float, float, int]] = []
-                for kp_local in [robot.kp_front, robot.kp_back]:
-                    proj = project_keypoint_to_2d(kp_local, robot_world_mat)
-                    if proj is None:
-                        keypoints_2d.append((0.0, 0.0, 0))
-                        continue
-                    x_n, y_n, depth = proj
-                    vis = check_keypoint_visibility(
-                        x_n, y_n, depth, depth_map, img_w, img_h
-                    )
-                    keypoints_2d.append((x_n, y_n, vis))
-
-                annotations.append((robot.class_id, bbox, keypoints_2d))
-                annotated_robot_ids.add(robot.instance_id)
-
-            missing_robot_ids = rendered_robot_ids - annotated_robot_ids
-            if missing_robot_ids:
-                # Discard this frame if any robot instance that appears in the
-                # rendered segmentation is missing from YOLO annotations.
-                continue
-
-            if not annotations:
-                continue
 
             # -- Motion blur (applied to all robot pixels jointly) --
             blur_prob = rand_cfg.get("motion_blur_probability", 0.0)
             blur_range = rand_cfg.get("motion_blur_strength_range", [5, 25])
             blur_lo, blur_hi = int(blur_range[0]), int(blur_range[1])
-            for blur_cid in [ROBOT_CATEGORY_ID, DISTRACTOR_CATEGORY_ID]:
+            for blur_cid in sorted(blur_category_ids):
                 if random.random() < blur_prob:
                     color_img = apply_object_motion_blur(
                         color_img,
@@ -1755,10 +1909,13 @@ def main() -> None:
                     )
 
             frame_name = f"{global_idx:06d}"
-            write_yolo_labels(
-                output_label_dir / f"{frame_name}.txt",
-                annotations,
-            )
+            if is_segmentation_mode:
+                write_yolo_seg_labels(output_label_dir / f"{frame_name}.txt", seg_annotations)
+            else:
+                write_yolo_labels(
+                    output_label_dir / f"{frame_name}.txt",
+                    keypoint_annotations,
+                )
             cv2.imwrite(
                 str(output_image_dir / f"{frame_name}.jpg"),
                 cv2.cvtColor(color_img, cv2.COLOR_RGB2BGR),
