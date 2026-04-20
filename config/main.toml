@@ -66,7 +66,7 @@ robot_blob_min_confidence = 0.4
 robot_blob_max_candidates = 8
 blob_overwrite_min_distance_meters = 0.20
 blob_overwrite_size_scale = 0.5
-field_bounds_margin_meters = 0.2
+field_bounds_margin_meters = 0.5
 
 [robot_filter.label_mapping]
 "MR_STABS_MK2" = ["THEIR_ROBOT_1"]
@@ -81,14 +81,15 @@ type = "NearestTarget"
 type = "PursuitNavigation"
 angular_kp = 0.35
 angular_kd = 0.02
-angle_threshold = 1.57
+angle_threshold = 2.8
 
 [transmitter]
 type = "OpenTxTransmitter"
 wheel_track_width = 0.195
 max_motor_rpm = 1500
 wheel_diameter = 0.05
-deadzone_percent = 20
+lifted_deadzone_percent = 15
+zero_deadzone_percent = 5
 reverse_right_channel = true
 
 [publisher]

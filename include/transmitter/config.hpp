@@ -34,7 +34,10 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     int right_channel = 1;
     bool reverse_left_channel = false;
     bool reverse_right_channel = false;
-    double deadzone_percent = 0.0;
+    /** Minimum non-zero output magnitude (%) after zero deadzone is exceeded. */
+    double lifted_deadzone_percent = 0.0;
+    /** Input magnitude (%) below which output is forced to zero. */
+    double zero_deadzone_percent = 0.0;
     double wheel_track_width = 1.0;
     double max_motor_rpm = 1500.0;
     double wheel_diameter = 0.05;
@@ -52,7 +55,10 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
             parser.get_optional_bool("reverse_left_channel", reverse_left_channel);
         reverse_right_channel =
             parser.get_optional_bool("reverse_right_channel", reverse_right_channel);
-        deadzone_percent = parser.get_optional_double("deadzone_percent", deadzone_percent);
+        lifted_deadzone_percent =
+            parser.get_optional_double("lifted_deadzone_percent", lifted_deadzone_percent);
+        zero_deadzone_percent =
+            parser.get_optional_double("zero_deadzone_percent", zero_deadzone_percent);
         wheel_track_width = parser.get_optional_double("wheel_track_width", wheel_track_width);
         max_motor_rpm = parser.get_optional_double("max_motor_rpm", max_motor_rpm);
         wheel_diameter = parser.get_optional_double("wheel_diameter", wheel_diameter);

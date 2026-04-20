@@ -115,11 +115,16 @@ void OpenTxTransmitter::send(VelocityCommand command) {
     if (config_.reverse_left_channel) linear_normalized = -linear_normalized;
     if (config_.reverse_right_channel) angular_normalized = -angular_normalized;
 
-    const double deadzone = std::clamp(config_.deadzone_percent, 0.0, 100.0) / 100.0;
-    auto apply_lifted_deadzone = [deadzone](double normalized) {
+    const double lifted_deadzone =
+        std::clamp(config_.lifted_deadzone_percent, 0.0, 100.0) / 100.0;
+    const double zero_deadzone = std::clamp(config_.zero_deadzone_percent, 0.0, 100.0) / 100.0;
+    auto apply_lifted_deadzone = [lifted_deadzone, zero_deadzone](double normalized) {
         const double magnitude = std::abs(normalized);
+        if (magnitude <= zero_deadzone) return 0.0;
         if (magnitude <= 0.0) return 0.0;
-        const double lifted = deadzone + (1.0 - deadzone) * magnitude;
+        const double denom = std::max(1e-6, 1.0 - zero_deadzone);
+        const double shifted = std::clamp((magnitude - zero_deadzone) / denom, 0.0, 1.0);
+        const double lifted = lifted_deadzone + (1.0 - lifted_deadzone) * shifted;
         return std::copysign(std::clamp(lifted, 0.0, 1.0), normalized);
     };
     linear_normalized = apply_lifted_deadzone(linear_normalized);
@@ -132,6 +137,8 @@ void OpenTxTransmitter::send(VelocityCommand command) {
                             {"angular_z_normalized_in", command.angular_z},
                             {"linear_normalized_out", linear_normalized},
                             {"angular_normalized_out", angular_normalized},
+                            {"lifted_deadzone_percent", config_.lifted_deadzone_percent},
+                            {"zero_deadzone_percent", config_.zero_deadzone_percent},
                             {"linear_channel", config_.left_channel},
                             {"angular_channel", config_.right_channel},
                             {"linear_channel_val", left_channel_val},
