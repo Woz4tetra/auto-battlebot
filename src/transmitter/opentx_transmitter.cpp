@@ -107,24 +107,13 @@ void OpenTxTransmitter::send(VelocityCommand command) {
     if (!serial_.is_open()) return;
     if (!enabled_) return;
 
-    double linear_x = command.linear_x;
-    double angular_z = command.angular_z;
+    // Differential control mode: left_channel carries linear command, right_channel carries
+    // angular command.
+    double linear_normalized = std::clamp(command.linear_x, -1.0, 1.0);
+    double angular_normalized = std::clamp(command.angular_z, -1.0, 1.0);
 
-    double half_track = 0.5 * config_.wheel_track_width;
-    double left_ground_vel = linear_x - angular_z * half_track;
-    double right_ground_vel = linear_x + angular_z * half_track;
-
-    constexpr double kPi = 3.14159265358979323846;
-    double wheel_circumference = std::max(kPi * config_.wheel_diameter, 1e-6);
-    double left_rpm = (left_ground_vel / wheel_circumference) * 60.0;
-    double right_rpm = (right_ground_vel / wheel_circumference) * 60.0;
-
-    double max_rpm = std::max(config_.max_motor_rpm, 1e-6);
-    double left_normalized = std::clamp(left_rpm / max_rpm, -1.0, 1.0);
-    double right_normalized = std::clamp(right_rpm / max_rpm, -1.0, 1.0);
-
-    if (config_.reverse_left_channel) left_normalized = -left_normalized;
-    if (config_.reverse_right_channel) right_normalized = -right_normalized;
+    if (config_.reverse_left_channel) linear_normalized = -linear_normalized;
+    if (config_.reverse_right_channel) angular_normalized = -angular_normalized;
 
     const double deadzone = std::clamp(config_.deadzone_percent, 0.0, 100.0) / 100.0;
     auto apply_lifted_deadzone = [deadzone](double normalized) {
@@ -133,22 +122,20 @@ void OpenTxTransmitter::send(VelocityCommand command) {
         const double lifted = deadzone + (1.0 - deadzone) * magnitude;
         return std::copysign(std::clamp(lifted, 0.0, 1.0), normalized);
     };
-    left_normalized = apply_lifted_deadzone(left_normalized);
-    right_normalized = apply_lifted_deadzone(right_normalized);
+    linear_normalized = apply_lifted_deadzone(linear_normalized);
+    angular_normalized = apply_lifted_deadzone(angular_normalized);
 
-    int left_channel_val = to_trainer_value(left_normalized);
-    int right_channel_val = to_trainer_value(right_normalized);
+    int left_channel_val = to_trainer_value(linear_normalized);
+    int right_channel_val = to_trainer_value(angular_normalized);
 
-    logger_->debug("send", {{"linear_x_mps", command.linear_x},
-                            {"angular_z_radps", command.angular_z},
-                            {"left_ground_vel_mps", left_ground_vel},
-                            {"right_ground_vel_mps", right_ground_vel},
-                            {"left_rpm", left_rpm},
-                            {"right_rpm", right_rpm},
-                            {"left_normalized", left_normalized},
-                            {"right_normalized", right_normalized},
-                            {"left_channel", left_channel_val},
-                            {"right_channel", right_channel_val}});
+    logger_->debug("send", {{"linear_x_normalized_in", command.linear_x},
+                            {"angular_z_normalized_in", command.angular_z},
+                            {"linear_normalized_out", linear_normalized},
+                            {"angular_normalized_out", angular_normalized},
+                            {"linear_channel", config_.left_channel},
+                            {"angular_channel", config_.right_channel},
+                            {"linear_channel_val", left_channel_val},
+                            {"angular_channel_val", right_channel_val}});
 
     bool left_write_ok = serial_.write("trainer " + std::to_string(config_.left_channel) + " " +
                                        std::to_string(left_channel_val) + "\r\n");

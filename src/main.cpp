@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
     if (class_config.mcap_recorder.enable) {
         std::string config_name = config_path.empty()
                                       ? "main"
-                                      : std::filesystem::canonical(config_path).filename().string();
+                                      : std::filesystem::canonical(config_path).stem().string();
         mcap_recorder = std::make_shared<McapRecorder>(config_name);
         mcap_recorder->set_ignored_topics(class_config.mcap_recorder.ignored_topics);
     }
