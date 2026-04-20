@@ -6,6 +6,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SERVICE_NAME="auto_battlebot"
+JOURNALD_DIR="/etc/systemd/journald.conf.d"
+JOURNALD_FILE="${JOURNALD_DIR}/99-auto-battlebot-persistent.conf"
 
 if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     echo "Stopping $SERVICE_NAME (was running)..."
@@ -33,6 +35,20 @@ if [ ! -f "$SERVICE_FILE" ] || ! diff -q "$STAGED_FILE" "$SERVICE_FILE" > /dev/n
     echo "Service installed and enabled."
 fi
 rm -f "$STAGED_FILE"
+
+# Ensure journald keeps logs on disk so service logs survive reboot.
+if [ ! -f "$JOURNALD_FILE" ] || ! rg -q '^Storage=persistent$' "$JOURNALD_FILE"; then
+    echo "Configuring persistent journald storage..."
+    sudo mkdir -p "$JOURNALD_DIR"
+    sudo tee "$JOURNALD_FILE" >/dev/null <<'EOF'
+[Journal]
+Storage=persistent
+SystemMaxUse=200M
+RuntimeMaxUse=50M
+EOF
+    sudo mkdir -p /var/log/journal
+    sudo systemctl restart systemd-journald
+fi
 
 echo "Restarting $SERVICE_NAME service..."
 sudo systemctl restart "$SERVICE_NAME"

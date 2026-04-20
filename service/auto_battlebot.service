@@ -14,6 +14,9 @@ Restart=always
 RestartSec=5
 User=__USER__
 SupplementaryGroups=dialout
+SyslogIdentifier=auto_battlebot
+StandardOutput=journal
+StandardError=journal
 Environment="XDG_RUNTIME_DIR=/run/user/%U"
 Environment="DISPLAY=:0"
 

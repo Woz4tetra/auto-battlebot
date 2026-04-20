@@ -17,6 +17,7 @@ source "$PROJECT_ROOT/install/install_mcap_cli.sh"
 source "$PROJECT_ROOT/install/install_taplo.sh"
 source "$PROJECT_ROOT/install/install_udev_rules.sh"
 source "$PROJECT_ROOT/install/install_ds3231_rtc.sh"
+source "$PROJECT_ROOT/install/install_pstore_ramoops.sh"
 
 # Run checks and installation
 check_jetson_orin_nano
@@ -32,3 +33,4 @@ install_taplo
 build_cpp_project "$@"
 install_udev_rules
 install_ds3231_rtc
+install_pstore_ramoops

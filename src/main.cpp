@@ -118,9 +118,9 @@ int main(int argc, char **argv) {
     auto navigation = make_navigation(*class_config.navigation);
     auto transmitter = make_transmitter(*class_config.transmitter);
 
-    Runner runner(class_config.runner, camera, field_model, robot_mask_model, field_filter,
-                  keypoint_model, robot_filter, target_selector, navigation, transmitter, publisher,
-                  ui_state, mcap_recorder, handle_system_action);
+    Runner runner(class_config.runner, camera, class_config.health, field_model, robot_mask_model,
+                  field_filter, keypoint_model, robot_filter, target_selector, navigation,
+                  transmitter, publisher, ui_state, mcap_recorder, handle_system_action);
 
     runner.initialize();
 

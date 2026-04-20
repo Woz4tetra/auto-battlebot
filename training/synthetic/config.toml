@@ -1,6 +1,9 @@
 [output]
 image_dir = "../data/synthetic/images"
 label_dir = "../data/synthetic/labels"
+# "keypoints_bbox" (default): YOLO pose labels with bbox + keypoints.
+# "segmentation_bbox": YOLO segmentation polygons (bbox implied by polygons).
+annotation_mode = "keypoints_bbox"
 num_images = 20000
 image_width = 1280
 image_height = 720
@@ -297,10 +300,12 @@ texture_dir = "../data/cc_textures/mrs_buff_mk3_bottom_sticker"
 [[distractors.sources]]
 path = "../data/distractor_models/objaverse"
 weight = 0.5
+kind = "objaverse"
 
 [[distractors.sources]]
 path = "../data/distractor_models/robots"
 weight = 1.0
+kind = "cad"
 
 min_per_scene = 1
 # Also controls how many distractor models are loaded into memory at once.

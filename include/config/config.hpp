@@ -14,6 +14,7 @@
 #include "directories.hpp"
 #include "field_filter/config.hpp"
 #include "field_filter/field_filter_interface.hpp"
+#include "health/config.hpp"
 #include "keypoint_model/config.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
 #include "mask_model/config.hpp"
@@ -48,6 +49,7 @@ struct ClassConfiguration {
     std::unique_ptr<TransmitterConfiguration> transmitter;
     std::unique_ptr<PublisherConfiguration> publisher;
     RunnerConfiguration runner;
+    HealthConfiguration health;
     std::unique_ptr<UiConfiguration> ui;
     McapRecorderConfig mcap_recorder;
 };

@@ -401,6 +401,88 @@ type = "NoopPublisher"
         EXPECT_EQ(config.transmitter->type, "NoopTransmitter");
     }
 
+    TEST_F(ConfigTest, HealthConfigurationDefaultsWhenMissing)
+    {
+        write_config_file(R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopMaskModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+)");
+
+        auto config = load_classes_from_config(temp_config_file.string());
+        EXPECT_FALSE(config.health.enable);
+        EXPECT_FALSE(config.health.tegrastats_enable);
+        EXPECT_FALSE(config.health.x86_tools_enable);
+        EXPECT_EQ(config.health.sample_period_ms, 5000);
+    }
+
+    TEST_F(ConfigTest, HealthConfigurationParsesValues)
+    {
+        write_config_file(R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopMaskModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+
+[health]
+enable = true
+tegrastats_enable = true
+x86_tools_enable = true
+sample_period_ms = 1200
+)");
+
+        auto config = load_classes_from_config(temp_config_file.string());
+        EXPECT_TRUE(config.health.enable);
+        EXPECT_TRUE(config.health.tegrastats_enable);
+        EXPECT_TRUE(config.health.x86_tools_enable);
+        EXPECT_EQ(config.health.sample_period_ms, 1200);
+    }
+
     // Test ConfigParser directly
     TEST(ConfigParserTest, GetRequiredString)
     {

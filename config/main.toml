@@ -100,6 +100,12 @@ max_loop_rate = 30.0
 default_opponent_count = 1
 autonomy_enabled_by_default = true
 
+[health]
+enable = true
+tegrastats_enable = true
+x86_tools_enable = true
+sample_period_ms = 500
+
 [ui]
 enable = true
 fullscreen = true

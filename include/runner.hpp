@@ -14,6 +14,8 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
 #include "field_filter/field_filter_interface.hpp"
+#include "health/config.hpp"
+#include "health/health_logger.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
 #include "mask_model/mask_model_interface.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
@@ -33,6 +35,7 @@ class Runner {
     using SystemActionCallback = std::function<void(UISystemAction)>;
 
     Runner(const RunnerConfiguration &runner_config, std::shared_ptr<RgbdCameraInterface> camera,
+           const HealthConfiguration &health_config,
            std::shared_ptr<MaskModelInterface> field_model,
            std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
            std::shared_ptr<FieldFilterInterface> field_filter,
@@ -53,6 +56,7 @@ class Runner {
 
    private:
     RunnerConfiguration runner_config_;
+    HealthConfiguration health_config_;
     std::shared_ptr<RgbdCameraInterface> camera_;
     std::shared_ptr<MaskModelInterface> field_model_;
     std::shared_ptr<RobotBlobModelInterface> robot_mask_model_;
@@ -77,6 +81,7 @@ class Runner {
     bool autonomy_enabled_;
     std::shared_ptr<FieldDescriptionWithInlierPoints> initial_field_description_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
+    std::unique_ptr<HealthLogger> health_logger_;
     std::chrono::steady_clock::time_point start_time_;
 
     void publish_system_status(bool camera_ok, double loop_rate_hz) const;

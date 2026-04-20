@@ -9,6 +9,7 @@
 namespace auto_battlebot {
 Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<RgbdCameraInterface> camera,
+               const HealthConfiguration &health_config,
                std::shared_ptr<MaskModelInterface> field_model,
                std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
                std::shared_ptr<FieldFilterInterface> field_filter,
@@ -21,6 +22,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<McapRecorder> mcap_recorder,
                SystemActionCallback system_action_callback)
     : runner_config_(runner_config),
+      health_config_(health_config),
       camera_(camera),
       field_model_(field_model),
       robot_mask_model_(robot_mask_model),
@@ -44,6 +46,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       initial_field_description_(),
       start_time_(std::chrono::steady_clock::now()) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("runner");
+    health_logger_ = std::make_unique<HealthLogger>(health_config_);
 }
 
 void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
@@ -289,6 +292,9 @@ int Runner::run() {
             return 0;
         }
 
+        if (health_logger_) {
+            health_logger_->maybe_log();
+        }
         DiagnosticsLogger::publish();
     }
 }
