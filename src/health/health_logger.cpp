@@ -4,6 +4,7 @@
 #include <poll.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -19,6 +20,31 @@ namespace {
 bool is_regular_executable(const std::filesystem::path& path) {
     return std::filesystem::exists(path) && std::filesystem::is_regular_file(path) &&
            access(path.c_str(), X_OK) == 0;
+}
+
+std::string normalize_metric_key(const std::string& raw) {
+    std::string out;
+    out.reserve(raw.size());
+    bool last_was_underscore = false;
+    for (char ch : raw) {
+        const unsigned char uch = static_cast<unsigned char>(ch);
+        if (std::isalnum(uch)) {
+            out.push_back(static_cast<char>(std::tolower(uch)));
+            last_was_underscore = false;
+            continue;
+        }
+        if (!last_was_underscore) {
+            out.push_back('_');
+            last_was_underscore = true;
+        }
+    }
+    while (!out.empty() && out.front() == '_') {
+        out.erase(out.begin());
+    }
+    while (!out.empty() && out.back() == '_') {
+        out.pop_back();
+    }
+    return out;
 }
 
 }  // namespace
@@ -239,7 +265,7 @@ bool HealthLogger::collect_tegrastats() {
     bool parse_ok = false;
 
     std::smatch match;
-    const std::regex ram_regex(R"(RAM\s+(\d+)\/(\d+)MB)");
+    const std::regex ram_regex(R"(RAM\s+(\d+)\/(\d+)MB(?:\s+\(lfb\s+(\d+)x(\d+)MB\))?)");
     if (std::regex_search(line, match, ram_regex) && match.size() >= 3) {
         int used_mb = 0;
         int total_mb = 0;
@@ -251,14 +277,96 @@ bool HealthLogger::collect_tegrastats() {
             data["ram_total_mb"] = total_mb;
             parse_ok = true;
         }
+        if (match.size() >= 5) {
+            int lfb_blocks = 0;
+            int lfb_block_size_mb = 0;
+            if (parse_int(match[3].str(), lfb_blocks)) {
+                data["ram_lfb_blocks"] = lfb_blocks;
+                parse_ok = true;
+            }
+            if (parse_int(match[4].str(), lfb_block_size_mb)) {
+                data["ram_lfb_block_size_mb"] = lfb_block_size_mb;
+                parse_ok = true;
+            }
+        }
     }
 
-    const std::regex gr3d_regex(R"(GR3D_FREQ\s+(\d+)%)");
+    const std::regex swap_regex(R"(SWAP\s+(\d+)\/(\d+)MB(?:\s+\(cached\s+(\d+)MB\))?)");
+    if (std::regex_search(line, match, swap_regex) && match.size() >= 3) {
+        int used_mb = 0;
+        int total_mb = 0;
+        if (parse_int(match[1].str(), used_mb)) {
+            data["swap_used_mb"] = used_mb;
+            parse_ok = true;
+        }
+        if (parse_int(match[2].str(), total_mb)) {
+            data["swap_total_mb"] = total_mb;
+            parse_ok = true;
+        }
+        if (match.size() >= 4) {
+            int cached_mb = 0;
+            if (parse_int(match[3].str(), cached_mb)) {
+                data["swap_cached_mb"] = cached_mb;
+                parse_ok = true;
+            }
+        }
+    }
+
+    const std::regex cpu_regex(R"(CPU\s+\[([^\]]+)\])");
+    if (std::regex_search(line, match, cpu_regex) && match.size() >= 2) {
+        const std::vector<std::string> cpu_entries = split(match[1].str(), ',');
+        const std::regex cpu_core_regex(R"((\d+)%@(\d+))");
+        int total_cores = static_cast<int>(cpu_entries.size());
+        int active_cores = 0;
+        double util_sum = 0.0;
+        int util_count = 0;
+        double freq_sum_mhz = 0.0;
+        int freq_count = 0;
+        for (size_t i = 0; i < cpu_entries.size(); ++i) {
+            const std::string token = trim(cpu_entries[i]);
+            std::smatch cpu_match;
+            if (!std::regex_match(token, cpu_match, cpu_core_regex) || cpu_match.size() < 3) {
+                continue;
+            }
+            int core_util = 0;
+            int core_freq_mhz = 0;
+            if (parse_int(cpu_match[1].str(), core_util)) {
+                data["cpu" + std::to_string(i) + "_util_percent"] = core_util;
+                util_sum += core_util;
+                util_count++;
+                parse_ok = true;
+            }
+            if (parse_int(cpu_match[2].str(), core_freq_mhz)) {
+                data["cpu" + std::to_string(i) + "_freq_mhz"] = core_freq_mhz;
+                freq_sum_mhz += core_freq_mhz;
+                freq_count++;
+                parse_ok = true;
+            }
+            active_cores++;
+        }
+        data["cpu_core_count"] = total_cores;
+        data["cpu_active_core_count"] = active_cores;
+        if (util_count > 0) {
+            data["cpu_avg_util_percent"] = util_sum / static_cast<double>(util_count);
+        }
+        if (freq_count > 0) {
+            data["cpu_avg_freq_mhz"] = freq_sum_mhz / static_cast<double>(freq_count);
+        }
+    }
+
+    const std::regex gr3d_regex(R"(GR3D_FREQ\s+(\d+)%(?:@(\d+))?)");
     if (std::regex_search(line, match, gr3d_regex) && match.size() >= 2) {
         int gr3d = 0;
         if (parse_int(match[1].str(), gr3d)) {
             data["gpu_util_percent"] = gr3d;
             parse_ok = true;
+        }
+        if (match.size() >= 3) {
+            int gr3d_freq_mhz = 0;
+            if (parse_int(match[2].str(), gr3d_freq_mhz)) {
+                data["gpu_freq_mhz"] = gr3d_freq_mhz;
+                parse_ok = true;
+            }
         }
     }
 
@@ -275,13 +383,51 @@ bool HealthLogger::collect_tegrastats() {
         temp_count++;
         parse_ok = true;
         const std::string label = (*it)[1].str();
-        if (label == "GPU") {
+        const std::string label_key = normalize_metric_key(label);
+        if (!label_key.empty()) {
+            data["temp_" + label_key + "_c"] = temp;
+        }
+        if (label_key == "gpu") {
             data["gpu_temp_c"] = temp;
         }
     }
     if (temp_count > 0) {
         data["max_temp_c"] = max_temp_c;
         data["temp_sensor_count"] = temp_count;
+    }
+
+    const std::regex rail_regex(R"(([A-Z][A-Z0-9_]+)\s+([0-9]+(?:\.[0-9]+)?)mW\/([0-9]+(?:\.[0-9]+)?)mW)");
+    std::sregex_iterator rail_begin(line.begin(), line.end(), rail_regex);
+    int rail_count = 0;
+    double rail_now_total_mw = 0.0;
+    double rail_avg_total_mw = 0.0;
+    for (auto it = rail_begin; it != end; ++it) {
+        if (it->size() < 4) continue;
+        const std::string rail_name = (*it)[1].str();
+        const std::string rail_key = normalize_metric_key(rail_name);
+        if (rail_key.empty()) continue;
+        double now_mw = 0.0;
+        double avg_mw = 0.0;
+        bool parsed_any = false;
+        if (parse_double((*it)[2].str(), now_mw)) {
+            data["power_" + rail_key + "_mw"] = now_mw;
+            rail_now_total_mw += now_mw;
+            parsed_any = true;
+        }
+        if (parse_double((*it)[3].str(), avg_mw)) {
+            data["power_" + rail_key + "_avg_mw"] = avg_mw;
+            rail_avg_total_mw += avg_mw;
+            parsed_any = true;
+        }
+        if (parsed_any) {
+            rail_count++;
+            parse_ok = true;
+        }
+    }
+    if (rail_count > 0) {
+        data["power_rail_count"] = rail_count;
+        data["power_total_mw"] = rail_now_total_mw;
+        data["power_total_avg_mw"] = rail_avg_total_mw;
     }
 
     data["parse_ok"] = parse_ok ? 1 : 0;
