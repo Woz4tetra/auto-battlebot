@@ -1210,7 +1210,7 @@ def segmentation_annotations_from_segmap(
     seg_map: np.ndarray,
     img_w: int,
     img_h: int,
-    min_bbox_dim: int = 32,
+    min_bbox_dim: int = 1,
 ) -> list[YoloSegAnnotation]:
     """Convert a category-id segmentation map into YOLO-seg annotations."""
     seg_2d = seg_map.squeeze()
@@ -1225,13 +1225,30 @@ def segmentation_annotations_from_segmap(
 
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for contour in contours:
-            if contour.shape[0] < 3:
-                continue
             xs = contour[:, 0, 0]
             ys = contour[:, 0, 1]
-            if (xs.max() - xs.min()) < min_bbox_dim or (ys.max() - ys.min()) < min_bbox_dim:
+            bbox_w = int(xs.max() - xs.min() + 1)
+            bbox_h = int(ys.max() - ys.min() + 1)
+            if bbox_w < min_bbox_dim or bbox_h < min_bbox_dim:
                 continue
-            polygon = [(float(x) / img_w, float(y) / img_h) for x, y in contour[:, 0, :]]
+
+            if contour.shape[0] >= 3:
+                polygon = [
+                    (float(x) / img_w, float(y) / img_h) for x, y in contour[:, 0, :]
+                ]
+            else:
+                # Preserve tiny visible objects (e.g. heavily occluded or edge-clipped)
+                # by emitting a minimal rectangle polygon.
+                x_min = int(xs.min())
+                x_max = int(xs.max())
+                y_min = int(ys.min())
+                y_max = int(ys.max())
+                polygon = [
+                    (float(x_min) / img_w, float(y_min) / img_h),
+                    (float(x_max) / img_w, float(y_min) / img_h),
+                    (float(x_max) / img_w, float(y_max) / img_h),
+                    (float(x_min) / img_w, float(y_max) / img_h),
+                ]
             annotations.append((class_id, polygon))
     return annotations
 
@@ -1252,6 +1269,38 @@ def write_label_index(filepath: Path, labels: dict[int, str]) -> None:
     with open(filepath, "w") as f:
         for class_id, name in sorted(labels.items()):
             f.write(f"{class_id}:{name}\n")
+
+
+def build_names_list(labels: dict[int, str]) -> list[str]:
+    """Build a dense names list indexed by class id."""
+    if not labels:
+        return []
+    max_id = max(int(class_id) for class_id in labels)
+    names: list[str] = []
+    for class_id in range(max_id + 1):
+        names.append(labels.get(class_id, f"unknown_{class_id}"))
+    return names
+
+
+def write_data_yml(
+    filepath: Path, dataset_root: Path, names: list[str], annotation_mode: str
+) -> None:
+    """Write YOLO dataset metadata as data.yml."""
+    lines = [
+        f"path: {dataset_root.resolve()}",
+        "train: images",
+        "val: images",
+        f"nc: {len(names)}",
+        f"names: {names}",
+    ]
+    if annotation_mode == ANNOTATION_MODE_KEYPOINTS_BBOX:
+        lines.extend(
+            [
+                "kpt_shape: [2, 3]",
+                "flip_idx: [0, 1]",
+            ]
+        )
+    filepath.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _directional_blur_kernel(kernel_size: int, angle: float) -> np.ndarray:
@@ -1362,6 +1411,7 @@ def main() -> None:
     seg_robot_class_ids: dict[int, int] = {}
     seg_label_names: dict[int, str] = {}
     if is_segmentation_mode:
+        seg_label_names[BACKGROUND_CATEGORY_ID] = "background"
         seg_label_names[SEG_FLOOR_CLASS_ID] = "floor"
         seg_label_names[SEG_OBJECT_CLASS_ID] = "object"
         next_seg_class_id = SEG_OBJECT_CLASS_ID + 1
@@ -1394,6 +1444,12 @@ def main() -> None:
     output_label_dir = resolve_path(Path(config["output"]["label_dir"]))
     output_image_dir.mkdir(parents=True, exist_ok=True)
     output_label_dir.mkdir(parents=True, exist_ok=True)
+    dataset_root = (
+        output_image_dir.parent
+        if output_image_dir.parent == output_label_dir.parent
+        else output_label_dir.parent
+    )
+    data_yml_path = dataset_root / "data.yml"
 
     if args.start_index is None:
         existing = [
@@ -1473,6 +1529,20 @@ def main() -> None:
     for robot in robots:
         hide_robot(robot)
 
+    if not is_segmentation_mode:
+        keypoint_label_names: dict[int, str] = {}
+        for rcfg in robot_configs:
+            class_id = int(rcfg["class_id"])
+            keypoint_label_names.setdefault(
+                class_id, str(rcfg.get("name", Path(rcfg["model_path"]).stem))
+            )
+        write_data_yml(
+            data_yml_path,
+            dataset_root,
+            build_names_list(keypoint_label_names),
+            annotation_mode,
+        )
+
     # ------- Load distractors -------
 
     dist_cfg = config.get("distractors", {})
@@ -1516,6 +1586,12 @@ def main() -> None:
             hide_distractor(group)
         if is_segmentation_mode:
             write_label_index(output_label_dir / "label_index.txt", seg_label_names)
+            write_data_yml(
+                data_yml_path,
+                dataset_root,
+                build_names_list(seg_label_names),
+                annotation_mode,
+            )
         return pool
 
     distractor_pool = refresh_distractor_pool([])
@@ -1539,7 +1615,9 @@ def main() -> None:
     # ------- Create ground plane -------
 
     scene_cfg = config.get("scene", {})
-    ground_category_id = SEG_FLOOR_CLASS_ID if is_segmentation_mode else BACKGROUND_CATEGORY_ID
+    ground_category_id = (
+        SEG_FLOOR_CLASS_ID if is_segmentation_mode else BACKGROUND_CATEGORY_ID
+    )
     ground = bproc.object.create_primitive("PLANE", scale=[1, 1, 1], location=[0, 0, 0])
     ground.set_cp("category_id", ground_category_id)
     ground.set_cp("robot_instance_id", 0)
@@ -1569,6 +1647,7 @@ def main() -> None:
     arena_radius_range = scene_cfg.get("arena_radius_range", [0.5, 1.5])
     max_robots_per_scene = scene_cfg.get("max_robots_per_scene", 1)
     memory_cleanup_interval = int(config["output"].get("memory_cleanup_interval", 25))
+    seg_min_bbox_dim = int(config["output"].get("segmentation_min_bbox_dim", 1))
 
     # ------- Verify category_ids -------
 
@@ -1786,7 +1865,9 @@ def main() -> None:
         blur_category_ids: set[int] = set()
         for robot in scene_robots:
             if robot.meshes:
-                blur_category_ids.add(int(robot.meshes[0].blender_obj.get("category_id", -1)))
+                blur_category_ids.add(
+                    int(robot.meshes[0].blender_obj.get("category_id", -1))
+                )
         for group in active_distractors:
             meshes = group[1]
             if meshes:
@@ -1817,18 +1898,40 @@ def main() -> None:
             keypoint_annotations: list[YoloAnnotation] = []
             seg_annotations: list[YoloSegAnnotation] = []
             if is_segmentation_mode:
+                visible_category_ids = {
+                    int(v)
+                    for v in np.unique(cat_seg.squeeze()).tolist()
+                    if int(v) > BACKGROUND_CATEGORY_ID
+                }
+                # Skip floor-only frames (no robots or distractor objects visible).
+                if visible_category_ids == {SEG_FLOOR_CLASS_ID}:
+                    continue
                 seg_annotations = segmentation_annotations_from_segmap(
                     cat_seg,
                     img_w,
                     img_h,
-                    min_bbox_dim=32,
+                    min_bbox_dim=seg_min_bbox_dim,
                 )
                 if not seg_annotations:
+                    continue
+                annotated_category_ids = {class_id for class_id, _ in seg_annotations}
+                # In segmentation mode, require every visible foreground class
+                # (robots + floor + distractors/object) to be present in labels.
+                required_visible_category_ids = set(visible_category_ids)
+
+                missing_required_ids = (
+                    required_visible_category_ids - annotated_category_ids
+                )
+                if missing_required_ids:
+                    # Discard frames when expected visible classes (especially robots)
+                    # are dropped from YOLO-seg labels by contour filtering.
                     continue
             else:
                 rendered_robot_ids: set[int] = set()
                 if inst_seg is not None:
-                    visible_ids = {int(v) for v in np.unique(inst_seg.squeeze()).tolist()}
+                    visible_ids = {
+                        int(v) for v in np.unique(inst_seg.squeeze()).tolist()
+                    }
                     rendered_robot_ids = {
                         robot.instance_id
                         for robot in scene_robots
@@ -1857,7 +1960,9 @@ def main() -> None:
 
                     if inst_seg is not None and clean_inst_seg is not None:
                         visible_px = int(np.sum(inst_seg.squeeze() == seg_id))
-                        unobstructed_px = int(np.sum(clean_inst_seg.squeeze() == seg_id))
+                        unobstructed_px = int(
+                            np.sum(clean_inst_seg.squeeze() == seg_id)
+                        )
                         if unobstructed_px <= 0:
                             continue
                         if (visible_px / unobstructed_px) < min_vis:
@@ -1910,7 +2015,9 @@ def main() -> None:
 
             frame_name = f"{global_idx:06d}"
             if is_segmentation_mode:
-                write_yolo_seg_labels(output_label_dir / f"{frame_name}.txt", seg_annotations)
+                write_yolo_seg_labels(
+                    output_label_dir / f"{frame_name}.txt", seg_annotations
+                )
             else:
                 write_yolo_labels(
                     output_label_dir / f"{frame_name}.txt",
