@@ -2,7 +2,9 @@
 type = "ZedRgbdCamera"
 camera_fps = 60
 
-svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
+svo_file_path = "data/svo/2026-04-20T18-02-50.svo2"
+
+# svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
 
 # svo_file_path = "data/svo/1729981242.4295187.svo2"
 

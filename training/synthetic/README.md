@@ -37,7 +37,7 @@ Run a command directly:
 ```bash
 training/synthetic/docker/run_synthetic.sh \
   auto-battlebot-synthetic \
-  blenderproc run training/synthetic/prepare_robot_model.py -- training/synthetic/config.toml --inspect
+  blenderproc run prepare_robot_model.py -- config.toml --inspect
 ```
 
 You can run synthetic tools from this container, including:
@@ -45,8 +45,8 @@ You can run synthetic tools from this container, including:
 - `python training/synthetic/download_polyhaven_hdris.py ...`
 - `python training/synthetic/download_ambientcg.py ...`
 - `python training/synthetic/download_objaverse.py ...`
-- `blenderproc run training/synthetic/prepare_robot_model.py -- training/synthetic/config.toml --inspect`
-- `blenderproc run training/synthetic/render_scenes.py -- training/synthetic/config.toml`
+- `blenderproc run prepare_robot_model.py -- config.toml --inspect`
+- `blenderproc run render_scenes.py -- config.toml`
 
 ### Host setup (optional/manual)
 
