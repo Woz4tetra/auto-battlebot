@@ -294,7 +294,8 @@ cc_texture = "Paper001"
 [materials.tin_foil]
 metallic = 1.0
 roughness = 0.1
-cc_texture = "Foil003"
+cc_texture = "Foil002" # gold foil
+# cc_texture = "Foil003"  # silver foil
 
 [materials.housebot]
 # UV-mapped PBR textures loaded from a directory (Color, Roughness, Metalness,
