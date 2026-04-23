@@ -3,21 +3,21 @@ image_dir = "../data/synthetic/images"
 label_dir = "../data/synthetic/labels"
 # "keypoints_bbox" (default): YOLO pose labels with bbox + keypoints.
 # "segmentation_bbox": YOLO segmentation polygons (bbox implied by polygons).
-annotation_mode = "keypoints_bbox"
-# annotation_mode = "segmentation_bbox"
+# annotation_mode = "keypoints_bbox"
+annotation_mode = "segmentation_bbox"
 num_images = 20000
 image_width = 1280
 image_height = 720
 # Number of camera viewpoints to render per scene arrangement.
 # Higher values = faster generation but less object placement diversity.
-images_per_scene = 10
+images_per_scene = 5
 # Minimum visible fraction of robot pixels after occlusion.
 # Computed as: visible instance pixels (with distractors) divided by
 # unobstructed instance pixels from a distractor-free segmentation pass.
 min_robot_visibility = 0.10
 # Force periodic Blender data cleanup during long renders to avoid memory growth.
 # Set to 0 to disable.
-memory_cleanup_interval = 25
+memory_cleanup_interval = 1000
 
 # Each [[robots]] entry defines a robot model that can appear in scenes.
 # Per scene, 1..max_robots_per_scene robots are selected using weighted
@@ -103,20 +103,20 @@ material = "blue_tpu"
 [[robots.color_mapping]]
 color = [1, 0, 203]
 tolerance = 1
-# material = "blue_tpu"
-material = "tin_foil" # front guard with tin foil
+material = "blue_tpu"
+# material = "tin_foil" # front guard with tin foil
 
 [[robots.color_mapping]]
 color = [250, 182, 1]
 tolerance = 1
-# material = "yellow_plastic"
-material = "tin_foil" # weapon guard with tin foil
+material = "yellow_plastic"
+# material = "tin_foil" # weapon guard with tin foil
 
 [[robots.color_mapping]]
 color = [255, 193, 14]
 tolerance = 1
-# material = "yellow_plastic"
-material = "tin_foil" # weapon guard with tin foil
+material = "yellow_plastic"
+# material = "tin_foil" # weapon guard with tin foil
 
 [[robots.color_mapping]]
 color = [253, 62, 4]
@@ -126,8 +126,8 @@ material = "red_tpu"
 [[robots.color_mapping]]
 color = [239, 34, 27]
 tolerance = 1
-# material = "red_tpu"
-material = "tin_foil" # front guard with tin foil
+material = "red_tpu"
+# material = "tin_foil" # front guard with tin foil
 
 
 [[robots.color_mapping]]
@@ -314,6 +314,20 @@ texture_dir = "../data/cc_textures/mrs_buff_mk3_bottom_sticker"
 # picked when filling the pool.  Weights are relative (they don't need to
 # sum to 1).  A source with weight 3.0 is three times as likely to
 # contribute a model as one with weight 1.0.
+min_per_scene = 1
+# Also controls how many distractor models are loaded into memory at once.
+max_per_scene = 5
+# Optional approximate VRAM budget (MB) across the whole loaded distractor pool.
+# Set to 0 or remove to disable budget enforcement.
+vram_budget_mb = 3500
+# Precomputed per-model VRAM estimates used for pre-import budget checks.
+vram_audit_csv = "training/data/distractor_models/distractor_gpu_audit.csv"
+# Scale range as multiples of the robot's largest dimension.
+# [0.5, 3.0] means distractors will be 0.5x to 3x the robot's size.
+scale_range = [0.5, 2.0]
+# Re-roll the distractor pool every N images (0 to keep the same pool all run).
+shuffle_interval = 10
+
 [[distractors.sources]]
 path = "../data/distractor_models/objaverse"
 weight = 0.5
@@ -323,20 +337,6 @@ kind = "objaverse"
 path = "../data/distractor_models/robots"
 weight = 1.0
 kind = "cad"
-
-min_per_scene = 1
-# Also controls how many distractor models are loaded into memory at once.
-max_per_scene = 50
-# Optional approximate VRAM budget (MB) across the whole loaded distractor pool.
-# Set to 0 or remove to disable budget enforcement.
-vram_budget_mb = 3500
-# Precomputed per-model VRAM estimates used for pre-import budget checks.
-vram_audit_csv = "training/data/distractor_models/distractor_gpu_audit.csv"
-# Scale range as multiples of the robot's largest dimension.
-# [0.5, 3.0] means distractors will be 0.5x to 3x the robot's size.
-scale_range = [0.1, 2.0]
-# Re-roll the distractor pool every N images (0 to keep the same pool all run).
-shuffle_interval = 100
 
 [environment]
 hdri_dir = "../data/hdris"

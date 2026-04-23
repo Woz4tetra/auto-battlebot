@@ -54,6 +54,11 @@ fi
 hf_cache_host="${HOME}/.cache/huggingface"
 mkdir -p "$hf_cache_host"
 
+# Resolve repository root from this script location so behavior is stable
+# regardless of the caller's current working directory.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${script_dir}/../../.." && pwd)"
+
 docker_tty_args=()
 if [ -t 0 ] && [ -t 1 ]; then
   docker_tty_args=(-it)
@@ -61,7 +66,7 @@ fi
 
 run_cmd=(
   docker run "${docker_gpu_args[@]}" --rm "${docker_tty_args[@]}"
-  -v "$(pwd):/workspace"
+  -v "${repo_root}:/workspace"
   -v "${hf_cache_host}:/opt/hf"
   -w /workspace/training/synthetic
   "$image_name" "$@"
@@ -90,7 +95,7 @@ if [ $gpu_probe_exit -ne 0 ]; then
   [ -n "${gpu_probe_output:-}" ] && echo "$gpu_probe_output" >&2
   echo "Tip: install/configure NVIDIA Container Toolkit for GPU runs." >&2
   docker run --rm "${docker_tty_args[@]}" \
-    -v "$(pwd):/workspace" \
+    -v "${repo_root}:/workspace" \
     -v "${hf_cache_host}:/opt/hf" \
     -w /workspace/training/synthetic \
     "$image_name" "$@"

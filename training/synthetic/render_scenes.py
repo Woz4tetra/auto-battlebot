@@ -3,10 +3,12 @@ import blenderproc as bproc  # isort: skip  # must be first import for blenderpr
 import argparse
 import csv
 import gc
+import json
 import math
 import os
 import random
 import sys
+import time
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +33,7 @@ DISTRACTOR_CATEGORY_ID = 2
 
 SEG_FLOOR_CLASS_ID = 1
 SEG_OBJECT_CLASS_ID = 2
+SEG_ROBOT_CLASS_ID = 3
 
 MODEL_EXTENSIONS = {".glb", ".gltf", ".obj", ".ply"}
 
@@ -106,6 +109,7 @@ def load_config(config_path: Path) -> dict:
     resolved_config = resolve_path(config_path)
     global _CONFIG_BASE_DIR
     _CONFIG_BASE_DIR = resolved_config.parent
+    print(f"Loading config: {resolved_config}")
     with open(resolved_config, "rb") as f:
         return tomllib.load(f)
 
@@ -1414,16 +1418,15 @@ def main() -> None:
         seg_label_names[BACKGROUND_CATEGORY_ID] = "background"
         seg_label_names[SEG_FLOOR_CLASS_ID] = "floor"
         seg_label_names[SEG_OBJECT_CLASS_ID] = "object"
-        next_seg_class_id = SEG_OBJECT_CLASS_ID + 1
+        seg_label_names[SEG_ROBOT_CLASS_ID] = "robot"
+        next_seg_class_id = SEG_ROBOT_CLASS_ID + 1
         for ri, rcfg in enumerate(robot_configs, start=1):
             seg_robot_class_ids[ri] = next_seg_class_id
             name = str(rcfg.get("name", Path(rcfg["model_path"]).stem))
             seg_label_names[next_seg_class_id] = name
             next_seg_class_id += 1
     else:
-        next_seg_class_id = SEG_OBJECT_CLASS_ID + 1
-
-    seg_distractor_class_ids: dict[Path, int] = {}
+        next_seg_class_id = SEG_ROBOT_CLASS_ID + 1
 
     def assign_distractor_class_id(model_path: Path, source_kind: str) -> int:
         nonlocal next_seg_class_id
@@ -1432,13 +1435,11 @@ def main() -> None:
 
         if source_kind == "objaverse":
             return SEG_OBJECT_CLASS_ID
-
-        key = resolve_path(model_path)
-        if key not in seg_distractor_class_ids:
-            seg_distractor_class_ids[key] = next_seg_class_id
-            seg_label_names[next_seg_class_id] = key.stem
+        elif source_kind == "cad":
+            return SEG_ROBOT_CLASS_ID
+        else:
             next_seg_class_id += 1
-        return seg_distractor_class_ids[key]
+            return next_seg_class_id
 
     output_image_dir = resolve_path(Path(config["output"]["image_dir"]))
     output_label_dir = resolve_path(Path(config["output"]["label_dir"]))
@@ -1925,6 +1926,10 @@ def main() -> None:
                 if missing_required_ids:
                     # Discard frames when expected visible classes (especially robots)
                     # are dropped from YOLO-seg labels by contour filtering.
+                    continue
+                robot_class_ids = set(seg_robot_class_ids.values())
+                annotated_robot_class_ids = annotated_category_ids & robot_class_ids
+                if not annotated_robot_class_ids:
                     continue
             else:
                 rendered_robot_ids: set[int] = set()
