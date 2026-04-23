@@ -284,8 +284,7 @@ class YOLODatasetValidator:
             self.root.quit()
 
     def load_class_info(self, class_labels_path: Path):
-        """Load class information from JSON file if present."""
-        # Look for common class info file names
+        """Load class names/colors from dataset yaml if present."""
 
         class_labels_path = Path(class_labels_path)
         if not class_labels_path.exists():
@@ -295,12 +294,33 @@ class YOLODatasetValidator:
         print(f"Loading class information from {class_labels_path}")
         try:
             with open(class_labels_path, "r") as f:
-                data = yaml.safe_load(f)
+                data = yaml.safe_load(f) or {}
 
-            # Parse class info
-            for class_id, (class_name, color_hex) in enumerate(
-                zip(data["names"], data["colors"])
-            ):
+            names_data = data.get("names", [])
+            colors_data = data.get("colors", [])
+
+            if isinstance(names_data, dict):
+                # YOLO can store names as {0: "a", 1: "b", ...}
+                normalized_names = []
+                for key in sorted(names_data.keys(), key=lambda x: int(x)):
+                    normalized_names.append(str(names_data[key]))
+                names_data = normalized_names
+            elif isinstance(names_data, list):
+                names_data = [str(name) for name in names_data]
+            else:
+                names_data = []
+
+            if not names_data:
+                print(
+                    "No 'names' field found in class yaml; using default class labels"
+                )
+                return
+
+            for class_id, class_name in enumerate(names_data):
+                if class_id < len(colors_data):
+                    color_hex = colors_data[class_id]
+                else:
+                    color_hex = self.colors[class_id % len(self.colors)]
                 self.class_info[class_id] = {
                     "name": class_name,
                     "color": color_hex,
