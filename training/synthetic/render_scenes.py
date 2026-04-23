@@ -3,12 +3,10 @@ import blenderproc as bproc  # isort: skip  # must be first import for blenderpr
 import argparse
 import csv
 import gc
-import json
 import math
 import os
 import random
 import sys
-import time
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1585,6 +1583,12 @@ def main() -> None:
             )
         for group in pool:
             hide_distractor(group)
+        # Segmentation pass indices are assigned at call time only. Refreshing
+        # distractors creates new meshes, so we must re-run this assignment.
+        bproc.renderer.enable_segmentation_output(
+            map_by=["category_id", "robot_instance_id"],
+            default_values={"category_id": BACKGROUND_CATEGORY_ID, "robot_instance_id": 0},
+        )
         if is_segmentation_mode:
             write_label_index(output_label_dir / "label_index.txt", seg_label_names)
             write_data_yml(
