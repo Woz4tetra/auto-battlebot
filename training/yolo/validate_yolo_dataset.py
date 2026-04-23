@@ -12,6 +12,7 @@ import yaml
 import json
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+from collections import OrderedDict
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 from pathlib import Path
 from typing import List, Dict, Tuple
@@ -201,6 +202,15 @@ class YOLODatasetValidator:
         self.canvas = None
         self.image_label = None
         self.current_photo = None
+        self.current_canvas_image_id = None
+        self.current_annotated_image = None
+        self.zoom_factor = 1.0
+        self.min_zoom = 0.25
+        self.max_zoom = 8.0
+        self.zoom_step = 1.2
+        self.render_cache: "OrderedDict[Tuple[int, int, int], Image.Image]" = OrderedDict()
+        self.render_cache_limit = 8
+        self.pending_hq_render = None
         self.status_icon_label = None
         self.status_icon_label = None
 
@@ -208,6 +218,7 @@ class YOLODatasetValidator:
         self.status_var = tk.StringVar()
         self.frame_info_var = tk.StringVar()
         self.show_labels_var = tk.BooleanVar(value=True)
+        self.zoom_var = tk.StringVar(value="Zoom: 100%")
 
         # Colors for bounding boxes
         self.colors = [
@@ -324,8 +335,28 @@ class YOLODatasetValidator:
         image_frame = ttk.Frame(main_container)
         image_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self.image_label = ttk.Label(image_frame)
-        self.image_label.pack(fill=tk.BOTH, expand=True)
+        canvas_frame = ttk.Frame(image_frame)
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.canvas = tk.Canvas(canvas_frame, background="#111111", highlightthickness=0)
+        x_scroll = ttk.Scrollbar(
+            canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview
+        )
+        y_scroll = ttk.Scrollbar(
+            canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview
+        )
+        self.canvas.configure(xscrollcommand=x_scroll.set, yscrollcommand=y_scroll.set)
+
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        y_scroll.grid(row=0, column=1, sticky="ns")
+        x_scroll.grid(row=1, column=0, sticky="ew")
+        canvas_frame.grid_rowconfigure(0, weight=1)
+        canvas_frame.grid_columnconfigure(0, weight=1)
+
+        # Pan by dragging when zoomed
+        self.canvas.bind("<ButtonPress-1>", self.on_pan_start)
+        self.canvas.bind("<B1-Motion>", self.on_pan_move)
+        self.canvas.bind("<Configure>", lambda _e: self.schedule_hq_render())
 
         # Sidebar (right side)
         sidebar = ttk.Frame(main_container, relief=tk.RIDGE, borderwidth=2)
@@ -430,6 +461,19 @@ class YOLODatasetValidator:
         )
         show_labels_check.pack(anchor=tk.W, pady=5)
 
+        zoom_controls = ttk.Frame(options_section)
+        zoom_controls.pack(fill=tk.X, pady=5)
+        ttk.Button(zoom_controls, text="-", command=self.zoom_out, width=4).pack(
+            side=tk.LEFT
+        )
+        ttk.Button(zoom_controls, text="+", command=self.zoom_in, width=4).pack(
+            side=tk.LEFT, padx=4
+        )
+        ttk.Button(
+            zoom_controls, text="Reset", command=self.reset_zoom, width=7
+        ).pack(side=tk.LEFT)
+        ttk.Label(options_section, textvariable=self.zoom_var).pack(anchor=tk.W, pady=2)
+
         # === KEYBOARD SHORTCUTS SECTION ===
         shortcuts_section = ttk.LabelFrame(
             sidebar, text="Keyboard Shortcuts", padding="15"
@@ -444,7 +488,10 @@ class YOLODatasetValidator:
             "→ - Next\n"
             "Space - Next Unvalidated\n"
             "Home - Start\n"
-            "End - End"
+            "End - End\n"
+            "+/- - Zoom In/Out\n"
+            "0 - Reset Zoom\n"
+            "Ctrl+MouseWheel - Zoom"
         )
         ttk.Label(
             shortcuts_section, text=shortcuts_text, font=("Courier", 9), justify=tk.LEFT
@@ -468,6 +515,15 @@ class YOLODatasetValidator:
         self.root.bind("<Home>", lambda e: self.jump_to_start())
         self.root.bind("<End>", lambda e: self.jump_to_end())
         self.root.bind("<space>", lambda e: self.jump_to_next_unvalidated())
+        self.root.bind("<plus>", lambda e: self.zoom_in())
+        self.root.bind("<equal>", lambda e: self.zoom_in())
+        self.root.bind("<KP_Add>", lambda e: self.zoom_in())
+        self.root.bind("<minus>", lambda e: self.zoom_out())
+        self.root.bind("<KP_Subtract>", lambda e: self.zoom_out())
+        self.root.bind("0", lambda e: self.reset_zoom())
+        self.root.bind("<Control-MouseWheel>", self.on_ctrl_mousewheel)
+        self.root.bind("<Control-Button-4>", self.on_ctrl_mousewheel)
+        self.root.bind("<Control-Button-5>", self.on_ctrl_mousewheel)
 
         # Update display
         self.update_display()
@@ -724,16 +780,10 @@ class YOLODatasetValidator:
         img_path, label_path = self.image_annotation_pairs[self.current_index]
 
         # Draw image with annotations
-        image = self.draw_image_with_annotations(img_path, label_path)
-
-        # Resize to fit window
-        display_width = 1100
-        display_height = 700
-        image.thumbnail((display_width, display_height), Image.Resampling.LANCZOS)
-
-        # Convert to PhotoImage
-        self.current_photo = ImageTk.PhotoImage(image)
-        self.image_label.config(image=self.current_photo)
+        self.current_annotated_image = self.draw_image_with_annotations(img_path, label_path)
+        self.render_cache.clear()
+        self.render_current_image(resample=Image.Resampling.BILINEAR, use_cache=True)
+        self.schedule_hq_render(delay_ms=20)
 
         # Update info
         img_key = str(img_path.relative_to(self.dataset_path))
@@ -796,21 +846,114 @@ class YOLODatasetValidator:
 
         # Draw image with annotations and feedback
         image = self.draw_image_with_annotations(img_path, label_path)
+        self.current_annotated_image = self.draw_feedback_overlay(image, passed)
+        self.render_cache.clear()
+        self.render_current_image(resample=Image.Resampling.BILINEAR, use_cache=True)
+        self.schedule_hq_render(delay_ms=20)
 
-        # Resize to fit window
-        display_width = 1100
-        display_height = 700
-        image.thumbnail((display_width, display_height), Image.Resampling.LANCZOS)
+    def get_resized_image(
+        self, img: Image.Image, width: int, height: int, resample: int, use_cache: bool
+    ) -> Image.Image:
+        """Resize image with a small LRU cache for repeated zoom levels."""
+        if not use_cache:
+            return img.resize((width, height), resample)
 
-        # Add feedback overlay
-        image = self.draw_feedback_overlay(image, passed)
+        cache_key = (width, height, int(resample))
+        cached = self.render_cache.get(cache_key)
+        if cached is not None:
+            self.render_cache.move_to_end(cache_key)
+            return cached
 
-        # Convert to PhotoImage
-        feedback_photo = ImageTk.PhotoImage(image)
-        self.image_label.config(image=feedback_photo)
+        resized = img.resize((width, height), resample)
+        self.render_cache[cache_key] = resized
+        self.render_cache.move_to_end(cache_key)
+        while len(self.render_cache) > self.render_cache_limit:
+            self.render_cache.popitem(last=False)
+        return resized
 
-        # Keep reference to prevent garbage collection
-        self.image_label.feedback_photo = feedback_photo
+    def render_current_image(self, resample=Image.Resampling.LANCZOS, use_cache=True):
+        """Render current annotated image with zoom and scrolling."""
+        if self.canvas is None or self.current_annotated_image is None:
+            return
+
+        img = self.current_annotated_image
+        img_width, img_height = img.size
+
+        canvas_width = max(1, self.canvas.winfo_width())
+        canvas_height = max(1, self.canvas.winfo_height())
+
+        # Base scale fits image to canvas at 100%; zoom scales from there.
+        fit_scale = min(canvas_width / img_width, canvas_height / img_height)
+        display_scale = fit_scale * self.zoom_factor
+        scaled_w = max(1, int(img_width * display_scale))
+        scaled_h = max(1, int(img_height * display_scale))
+        resized = self.get_resized_image(img, scaled_w, scaled_h, resample, use_cache)
+
+        self.current_photo = ImageTk.PhotoImage(resized)
+
+        if self.current_canvas_image_id is None:
+            self.current_canvas_image_id = self.canvas.create_image(
+                0, 0, anchor=tk.NW, image=self.current_photo
+            )
+        else:
+            self.canvas.itemconfig(self.current_canvas_image_id, image=self.current_photo)
+            self.canvas.coords(self.current_canvas_image_id, 0, 0)
+
+        self.canvas.configure(scrollregion=(0, 0, scaled_w, scaled_h))
+        self.zoom_var.set(f"Zoom: {int(round(self.zoom_factor * 100))}%")
+
+    def set_zoom(self, new_zoom: float):
+        """Set zoom factor and rerender."""
+        clamped = max(self.min_zoom, min(self.max_zoom, new_zoom))
+        if abs(clamped - self.zoom_factor) < 1e-9:
+            return
+        self.zoom_factor = clamped
+        # Fast preview while user is zooming repeatedly.
+        self.render_current_image(resample=Image.Resampling.BILINEAR, use_cache=True)
+        # Follow with one high-quality render after interaction settles.
+        self.schedule_hq_render()
+
+    def schedule_hq_render(self, delay_ms: int = 90):
+        """Debounce expensive high-quality rendering during zoom/resize bursts."""
+        if self.pending_hq_render is not None:
+            self.root.after_cancel(self.pending_hq_render)
+        self.pending_hq_render = self.root.after(delay_ms, self.render_hq_image)
+
+    def render_hq_image(self):
+        """Render using LANCZOS after zooming settles."""
+        self.pending_hq_render = None
+        self.render_current_image(resample=Image.Resampling.LANCZOS, use_cache=True)
+
+    def zoom_in(self):
+        self.set_zoom(self.zoom_factor * self.zoom_step)
+
+    def zoom_out(self):
+        self.set_zoom(self.zoom_factor / self.zoom_step)
+
+    def reset_zoom(self):
+        self.set_zoom(1.0)
+
+    def on_ctrl_mousewheel(self, event):
+        """Zoom with Ctrl + mouse wheel (supports Linux/Windows)."""
+        if hasattr(event, "delta") and event.delta:
+            if event.delta > 0:
+                self.zoom_in()
+            elif event.delta < 0:
+                self.zoom_out()
+        elif getattr(event, "num", None) == 4:
+            self.zoom_in()
+        elif getattr(event, "num", None) == 5:
+            self.zoom_out()
+
+    def on_pan_start(self, event):
+        """Remember drag start for canvas panning."""
+        if self.canvas is not None:
+            self.canvas.scan_mark(event.x, event.y)
+
+    def on_pan_move(self, event):
+        """Pan canvas while dragging."""
+        if self.canvas is not None:
+            self.canvas.scan_dragto(event.x, event.y, gain=1)
 
     def next_image(self):
         """Navigate to next image."""

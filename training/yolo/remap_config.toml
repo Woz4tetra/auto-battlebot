@@ -1,5 +1,6 @@
-default_label = 0
-delete_labels = [1]
+default_label = 1
+delete_labels = [0]
 
 [label_map]
-0 = 0
+1 = 0
+2 = 1
