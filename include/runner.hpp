@@ -2,6 +2,7 @@
 
 #include <miniros/ros.h>
 
+#include <atomic>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -83,6 +84,9 @@ class Runner {
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
     std::unique_ptr<HealthLogger> health_logger_;
     std::chrono::steady_clock::time_point start_time_;
+    std::atomic<int64_t> last_tick_ns_{0};
+    std::atomic<bool> watchdog_stop_{false};
+    std::thread watchdog_thread_;
 
     void publish_system_status(bool camera_ok, double loop_rate_hz) const;
     void stop_recordings_for_shutdown() const;

@@ -22,10 +22,23 @@ constexpr double kJoinWaitWarnMs = 1000.0;
 constexpr double kGrabWarnMs = 250.0;
 constexpr double kCaptureLockWarnMs = 150.0;
 constexpr double kGetWaitWarnMs = 500.0;
+constexpr auto kJoinHardTimeout = std::chrono::seconds(10);
+constexpr auto kOpenHardTimeout = std::chrono::seconds(30);
 
 double elapsed_ms(const std::chrono::steady_clock::time_point &start) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
         .count();
+}
+
+void join_with_timeout(std::thread &thread, const char *context) {
+    auto future = std::async(std::launch::async, [&thread]() { thread.join(); });
+    if (future.wait_for(kJoinHardTimeout) == std::future_status::timeout) {
+        spdlog::critical(
+            "{}: capture thread stuck in ZED grab() after {}s, aborting", context,
+            kJoinHardTimeout.count());
+        spdlog::default_logger()->flush();
+        std::abort();
+    }
 }
 
 bool is_transient_grab_error(sl::ERROR_CODE error_code) {
@@ -85,7 +98,13 @@ ZedRgbdCamera::~ZedRgbdCamera() {
     cancel_open_ = true;
     if (pending_open_.valid()) {
         const auto open_wait_start = std::chrono::steady_clock::now();
-        pending_open_.wait();
+        if (pending_open_.wait_for(kOpenHardTimeout) == std::future_status::timeout) {
+            spdlog::critical(
+                "ZedRgbdCamera destructor: zed_.open() stuck after {}s, aborting",
+                kOpenHardTimeout.count());
+            spdlog::default_logger()->flush();
+            std::abort();
+        }
         const double open_wait_ms = elapsed_ms(open_wait_start);
         if (open_wait_ms > kOpenWaitWarnMs) {
             spdlog::warn(
@@ -97,7 +116,7 @@ ZedRgbdCamera::~ZedRgbdCamera() {
         if (capture_thread_.joinable()) {
             data_cv_.notify_all();
             const auto join_start = std::chrono::steady_clock::now();
-            capture_thread_.join();
+            join_with_timeout(capture_thread_, "ZedRgbdCamera destructor");
             const double join_ms = elapsed_ms(join_start);
             if (join_ms > kJoinWaitWarnMs) {
                 spdlog::warn("validation: capture_thread_join_destructor slow elapsed_ms={:.2f}",
@@ -119,7 +138,7 @@ bool ZedRgbdCamera::initialize() {
         stop_thread_ = true;
         data_cv_.notify_all();
         const auto join_start = std::chrono::steady_clock::now();
-        capture_thread_.join();
+        join_with_timeout(capture_thread_, "ZedRgbdCamera::initialize");
         const double join_ms = elapsed_ms(join_start);
         if (join_ms > kJoinWaitWarnMs) {
             spdlog::warn("validation: capture_thread_join_initialize slow elapsed_ms={:.2f}",
@@ -163,7 +182,13 @@ bool ZedRgbdCamera::initialize() {
             // We can't interrupt zed_.open() itself; wait for it to return before we leave so
             // the ZED object is never used concurrently or destroyed mid-open.
             const auto cancel_wait_start = std::chrono::steady_clock::now();
-            pending_open_.wait();
+            if (pending_open_.wait_for(kOpenHardTimeout) == std::future_status::timeout) {
+                spdlog::critical(
+                    "ZedRgbdCamera::initialize cancel: zed_.open() stuck after {}s, aborting",
+                    kOpenHardTimeout.count());
+                spdlog::default_logger()->flush();
+                std::abort();
+            }
             const double cancel_wait_ms = elapsed_ms(cancel_wait_start);
             if (cancel_wait_ms > kOpenWaitWarnMs) {
                 spdlog::warn("validation: pending_open_wait_cancel slow elapsed_ms={:.2f}",

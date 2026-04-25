@@ -14,6 +14,8 @@ constexpr double kHealthLogWarnMs = 150.0;
 constexpr double kDiagnosticsPublishWarnMs = 100.0;
 constexpr double kRecoverLoopWarnMs = 5000.0;
 constexpr double kUiDebugCopyWarnMs = 40.0;
+constexpr auto kWatchdogCheckInterval = std::chrono::seconds(3);
+constexpr auto kWatchdogStallThreshold = std::chrono::seconds(10);
 }  // namespace
 
 Runner::Runner(const RunnerConfiguration &runner_config,
@@ -304,6 +306,23 @@ int Runner::run() {
     double max_health_ms = 0.0;
     double max_publish_ms = 0.0;
 
+    watchdog_stop_ = false;
+    last_tick_ns_ = std::chrono::steady_clock::now().time_since_epoch().count();
+    watchdog_thread_ = std::thread([this]() {
+        while (!watchdog_stop_) {
+            std::this_thread::sleep_for(kWatchdogCheckInterval);
+            if (watchdog_stop_) break;
+            const int64_t now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
+            const auto stall = std::chrono::nanoseconds(now_ns - last_tick_ns_.load());
+            if (stall > kWatchdogStallThreshold) {
+                spdlog::critical("Watchdog: main loop stalled for {:.1f}s, aborting",
+                                 std::chrono::duration<double>(stall).count());
+                spdlog::default_logger()->flush();
+                std::abort();
+            }
+        }
+    });
+
     while (true) {
         auto current_time = std::chrono::steady_clock::now();
 
@@ -318,9 +337,13 @@ int Runner::run() {
         }
         std::this_thread::sleep_for(remaining_time);
 
+        last_tick_ns_ = std::chrono::steady_clock::now().time_since_epoch().count();
+
         const auto tick_start = std::chrono::steady_clock::now();
         if (!tick()) {
             spdlog::warn("Runner::tick requested shutdown; runner loop exiting.");
+            watchdog_stop_ = true;
+            watchdog_thread_.join();
             return 0;
         }
         const double tick_ms =
