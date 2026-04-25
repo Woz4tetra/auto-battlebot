@@ -1,6 +1,0 @@
-default_label = 1
-delete_labels = [0]
-
-[label_map]
-1 = 0
-2 = 1

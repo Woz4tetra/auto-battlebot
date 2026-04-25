@@ -23,7 +23,7 @@ distance_threshold = 0.1
 
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "data/models/yolo26n-pose_our_robots_2026-04-17_x86_64_sm89.engine"
+model_path = "data/models/yolo26n-pose_our_robots_2026-04-24_x86_64_sm89.engine"
 label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
 debug_visualization = false
 threshold = 0.5
@@ -52,16 +52,16 @@ type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
-  "MR_STABS_MK2_FRONT",
-  "MRS_BUFF_MK3_FRONT",
-  "HOUSE_BOT_FRONT",
-  "OPPONENT_FRONT",
+    "MR_STABS_MK2_FRONT",
+    "MRS_BUFF_MK3_FRONT",
+    "HOUSE_BOT_FRONT",
+    "OPPONENT_FRONT",
 ]
 back_keypoints = [
-  "MR_STABS_MK2_BACK",
-  "MRS_BUFF_MK3_BACK",
-  "HOUSE_BOT_BACK",
-  "OPPONENT_BACK",
+    "MR_STABS_MK2_BACK",
+    "MRS_BUFF_MK3_BACK",
+    "HOUSE_BOT_BACK",
+    "OPPONENT_BACK",
 ]
 
 robot_blob_min_length_meters = 0.08

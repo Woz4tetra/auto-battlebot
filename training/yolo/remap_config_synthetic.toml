@@ -1,0 +1,8 @@
+default_label = 0
+remove_labels = [0, 1]
+
+[label_map]
+2 = 0
+3 = 1
+4 = 2
+5 = 3
