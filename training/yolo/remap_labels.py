@@ -9,24 +9,17 @@ Usage:
     python remap_labels.py remap_config.toml /path/to/dataset --output /path/to/output
 
 Example TOML config:
-    # Source class -> target class. Any source class not listed is mapped
-    # to `default_label`.
-    default_label = 0
-
-    # Delete image+label pairs that contain ANY of these classes.
-    delete_labels = [3, 4]
-
-    # Remove annotation lines for these classes (keep image+label files).
-    remove_labels = [5]
-
     [label_map]
     0 = 1
     1 = 0
     2 = 0
+
+Source classes not listed in `label_map` are left unchanged.
 """
 
 import argparse
 import ast
+import multiprocessing as mp
 import shutil
 import sys
 from pathlib import Path
@@ -36,22 +29,20 @@ from tqdm import tqdm
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
 SPLIT_NAMES = ("train", "val", "test")
+WORKER_CONTEXT: dict[str, object] = {}
 
 
-def load_config(config_path: Path) -> tuple[dict[int, int], int, set[int], set[int]]:
+def load_config(config_path: Path) -> dict[int, int]:
     with open(config_path, "rb") as f:
         config = tomllib.load(f)
 
-    default_label = int(config.get("default_label", 0))
     raw_map = config.get("label_map", {})
-    delete_labels = set(int(v) for v in config.get("delete_labels", []))
-    remove_labels = set(int(v) for v in config.get("remove_labels", []))
 
     label_map: dict[int, int] = {}
     for src, dst in raw_map.items():
         label_map[int(src)] = int(dst)
 
-    return label_map, default_label, delete_labels, remove_labels
+    return label_map
 
 
 def find_label_files(dataset_dir: Path) -> tuple[list[Path], Path]:
@@ -126,9 +117,8 @@ def find_paired_image(
 def remap_label_lines(
     lines: list[str],
     label_map: dict[int, int],
-    default_label: int,
-    remove_labels: set[int],
-) -> tuple[list[str], set[int], set[int], int, int]:
+    unmapped_classes: set[int],
+) -> tuple[list[str], set[int], set[int], int]:
     """Remap YOLO label lines.
 
     Returns:
@@ -136,13 +126,11 @@ def remap_label_lines(
       - classes seen before remap
       - classes seen after remap
       - malformed line count
-      - removed annotation line count
     """
     remapped_lines: list[str] = []
     classes_before: set[int] = set()
     classes_after: set[int] = set()
     malformed_count = 0
-    removed_count = 0
 
     for raw_line in lines:
         stripped = raw_line.strip()
@@ -157,16 +145,105 @@ def remap_label_lines(
             continue
 
         classes_before.add(src_cls)
-        if src_cls in remove_labels:
-            removed_count += 1
-            continue
-
-        dst_cls = label_map.get(src_cls, default_label)
+        dst_cls = label_map.get(src_cls, src_cls)
+        if src_cls not in label_map:
+            unmapped_classes.add(src_cls)
         classes_after.add(dst_cls)
         parts[0] = str(dst_cls)
         remapped_lines.append(" ".join(parts))
 
-    return remapped_lines, classes_before, classes_after, malformed_count, removed_count
+    return remapped_lines, classes_before, classes_after, malformed_count
+
+
+def init_worker(
+    dataset_dir: str,
+    labels_root: str,
+    output_dir: str | None,
+    label_map: dict[int, int],
+    skip_copy_images: bool,
+    dry_run: bool,
+) -> None:
+    WORKER_CONTEXT["dataset_dir"] = Path(dataset_dir)
+    WORKER_CONTEXT["labels_root"] = Path(labels_root)
+    WORKER_CONTEXT["output_dir"] = Path(output_dir) if output_dir else None
+    WORKER_CONTEXT["label_map"] = label_map
+    WORKER_CONTEXT["skip_copy_images"] = skip_copy_images
+    WORKER_CONTEXT["dry_run"] = dry_run
+
+
+def process_label_file(label_path_str: str) -> dict[str, object]:
+    label_path = Path(label_path_str)
+    dataset_dir = WORKER_CONTEXT["dataset_dir"]
+    labels_root = WORKER_CONTEXT["labels_root"]
+    output_dir = WORKER_CONTEXT["output_dir"]
+    label_map = WORKER_CONTEXT["label_map"]
+    skip_copy_images = WORKER_CONTEXT["skip_copy_images"]
+    dry_run = WORKER_CONTEXT["dry_run"]
+    unmapped_classes: set[int] = set()
+
+    lines = label_path.read_text().splitlines()
+    (
+        remapped,
+        classes_before,
+        classes_after,
+        malformed_count,
+    ) = remap_label_lines(lines, label_map, unmapped_classes)
+
+    result: dict[str, object] = {
+        "label_path": str(label_path),
+        "malformed_count": malformed_count,
+        "classes_before": classes_before,
+        "classes_after": classes_after,
+        "unmapped_classes": unmapped_classes,
+        "written": False,
+        "image_copied": False,
+        "missing_image_for_label": None,
+        "split_name": None,
+        "has_valid_labels": bool(classes_before),
+        "dry_run_action": None,
+    }
+
+    # If a .txt file has no valid YOLO lines, skip it (e.g. classes.txt).
+    if not classes_before:
+        return result
+
+    if output_dir is not None:
+        rel = label_path.relative_to(dataset_dir)
+        dest = output_dir / rel
+    else:
+        dest = label_path
+
+    if dry_run:
+        result["dry_run_action"] = (
+            f"{sorted(classes_before)} -> {sorted(classes_after)} => {dest}"
+        )
+        return result
+
+    paired_image = find_paired_image(label_path, dataset_dir, labels_root)
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("\n".join(remapped) + "\n")
+
+    result["written"] = True
+    split_name = infer_split_name(label_path, labels_root)
+    if split_name:
+        result["split_name"] = split_name
+
+    if (
+        not skip_copy_images
+        and output_dir is not None
+        and paired_image
+        and paired_image.exists()
+    ):
+        img_rel = paired_image.relative_to(dataset_dir)
+        img_dest = output_dir / img_rel
+        img_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(paired_image, img_dest)
+        result["image_copied"] = True
+    elif not skip_copy_images and output_dir is not None:
+        result["missing_image_for_label"] = str(label_path)
+
+    return result
 
 
 def parse_yaml_names_list(data_yaml_path: Path) -> list[str] | None:
@@ -252,13 +329,11 @@ def infer_split_name(label_path: Path, labels_root: Path) -> str | None:
 
 def build_output_names(
     label_map: dict[int, int],
-    default_label: int,
     observed_output_classes: set[int],
     source_names: list[str] | None,
 ) -> list[str]:
     class_ids = set(observed_output_classes)
     class_ids.update(label_map.values())
-    class_ids.add(default_label)
 
     if not class_ids:
         class_ids = {0}
@@ -268,7 +343,7 @@ def build_output_names(
 
     if source_names:
         for src_idx, src_name in enumerate(source_names):
-            dst_idx = label_map.get(src_idx, default_label)
+            dst_idx = label_map.get(src_idx, src_idx)
             if 0 <= dst_idx < len(names) and names[dst_idx].startswith("class_"):
                 names[dst_idx] = src_name
 
@@ -320,6 +395,13 @@ def main() -> None:
         action="store_true",
         help="Print what would be done without writing files",
     )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=0,
+        help="Worker processes (default: CPU count)",
+    )
     args = parser.parse_args()
 
     config_path = Path(args.config)
@@ -333,15 +415,10 @@ def main() -> None:
         print(f"Error: dataset directory not found: {dataset_dir}", file=sys.stderr)
         sys.exit(1)
 
-    label_map, default_label, delete_labels, remove_labels = load_config(config_path)
+    label_map = load_config(config_path)
     source_yaml = find_dataset_yaml(dataset_dir)
     source_names = parse_yaml_names_list(source_yaml) if source_yaml else None
     print(f"Label map: {label_map}")
-    print(f"Default label (unmapped sources): {default_label}")
-    if delete_labels:
-        print(f"Delete labels: {sorted(delete_labels)}")
-    if remove_labels:
-        print(f"Remove labels: {sorted(remove_labels)}")
     if source_yaml:
         print(f"Source dataset yaml: {source_yaml}")
 
@@ -351,9 +428,7 @@ def main() -> None:
         sys.exit(1)
     print(f"Found {len(label_files)} label files")
 
-    deleted_count = 0
-    hit_delete_labels: set[int] = set()
-    hit_remove_labels: set[int] = set()
+    unmapped_classes_seen: set[int] = set()
     written_count = 0
     image_copy_count = 0
     missing_paired_image_count = 0
@@ -361,136 +436,120 @@ def main() -> None:
     skipped_malformed_total = 0
     remapped_output_classes: set[int] = set()
     observed_splits: set[str] = set()
-    removed_annotations_total = 0
 
-    for label_path in tqdm(label_files, desc="Remapping labels", disable=args.dry_run):
-        lines = label_path.read_text().splitlines()
-        remapped, classes_before, classes_after, malformed_count, removed_count = remap_label_lines(
-            lines, label_map, default_label, remove_labels
+    jobs = args.jobs if args.jobs > 0 else (mp.cpu_count() or 1)
+    jobs = max(1, jobs)
+    print(f"Using {jobs} worker process(es)")
+
+    worker_inputs = [str(p) for p in label_files]
+    if jobs == 1:
+        init_worker(
+            str(dataset_dir),
+            str(labels_root),
+            str(output_dir) if output_dir else None,
+            label_map,
+            args.skip_copy_images,
+            args.dry_run,
         )
-        skipped_malformed_total += malformed_count
-        removed_annotations_total += removed_count
+        results_iter = map(process_label_file, worker_inputs)
+        progress_iter = tqdm(results_iter, total=len(worker_inputs), desc="Remapping labels")
+    else:
+        with mp.Pool(
+            processes=jobs,
+            initializer=init_worker,
+            initargs=(
+                str(dataset_dir),
+                str(labels_root),
+                str(output_dir) if output_dir else None,
+                label_map,
+                args.skip_copy_images,
+                args.dry_run,
+            ),
+        ) as pool:
+            results_iter = pool.imap_unordered(process_label_file, worker_inputs, chunksize=64)
+            progress_iter = tqdm(
+                results_iter, total=len(worker_inputs), desc="Remapping labels"
+            )
 
-        # If a .txt file has no valid YOLO lines, skip it (e.g. classes.txt).
-        if not classes_before:
-            continue
+            for result in progress_iter:
+                skipped_malformed_total += int(result["malformed_count"])
+                unmapped_classes_seen.update(result["unmapped_classes"])
 
-        hit_remove_labels.update(classes_before & remove_labels)
-        matched_delete_labels = classes_before & delete_labels
-        should_delete = bool(matched_delete_labels)
-        hit_delete_labels.update(matched_delete_labels)
+                if args.dry_run and result["has_valid_labels"]:
+                    label_name = Path(str(result["label_path"])).name
+                    print(f"  {label_name}: {result['dry_run_action']}")
 
-        if output_dir is not None:
-            rel = label_path.relative_to(dataset_dir)
-            dest = output_dir / rel
-        else:
-            dest = label_path
+                if bool(result["written"]):
+                    written_count += 1
+                    remapped_output_classes.update(result["classes_after"])
+                    split_name = result["split_name"]
+                    if split_name:
+                        observed_splits.add(str(split_name))
 
-        if args.dry_run:
-            if should_delete:
-                action = "DELETE"
-            else:
-                action = (
-                    f"{sorted(classes_before)} -> {sorted(classes_after)} => {dest}"
-                )
-                if removed_count:
-                    action += f" (removed {removed_count} annotations)"
-            print(f"  {label_path.name}: {action}")
-            continue
+                if bool(result["image_copied"]):
+                    image_copy_count += 1
+                elif result["missing_image_for_label"] is not None:
+                    missing_paired_image_count += 1
+                    if len(missing_paired_image_examples) < 5:
+                        missing_paired_image_examples.append(
+                            str(result["missing_image_for_label"])
+                        )
 
-        paired_image = find_paired_image(label_path, dataset_dir, labels_root)
+        progress_iter.close()
 
-        if should_delete:
-            deleted_count += 1
-            if output_dir is None:
-                label_path.unlink(missing_ok=True)
-                if paired_image and paired_image.exists():
-                    paired_image.unlink()
-            continue
+    if jobs == 1:
+        for result in progress_iter:
+            skipped_malformed_total += int(result["malformed_count"])
+            unmapped_classes_seen.update(result["unmapped_classes"])
 
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if remapped:
-            dest.write_text("\n".join(remapped) + "\n")
-        else:
-            # Keep empty labels so their paired images are treated as negatives.
-            dest.write_text("")
-        written_count += 1
-        remapped_output_classes.update(classes_after)
-        split_name = infer_split_name(label_path, labels_root)
-        if split_name:
-            observed_splits.add(split_name)
+            if args.dry_run and result["has_valid_labels"]:
+                label_name = Path(str(result["label_path"])).name
+                print(f"  {label_name}: {result['dry_run_action']}")
 
-        if (
-            not args.skip_copy_images
-            and output_dir is not None
-            and paired_image
-            and paired_image.exists()
-        ):
-            image_copy_count += 1
-            img_rel = paired_image.relative_to(dataset_dir)
-            img_dest = output_dir / img_rel
-            img_dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(paired_image, img_dest)
-        elif not args.skip_copy_images and output_dir is not None:
-            missing_paired_image_count += 1
-            if len(missing_paired_image_examples) < 5:
-                missing_paired_image_examples.append(str(label_path))
+            if bool(result["written"]):
+                written_count += 1
+                remapped_output_classes.update(result["classes_after"])
+                split_name = result["split_name"]
+                if split_name:
+                    observed_splits.add(str(split_name))
+
+            if bool(result["image_copied"]):
+                image_copy_count += 1
+            elif result["missing_image_for_label"] is not None:
+                missing_paired_image_count += 1
+                if len(missing_paired_image_examples) < 5:
+                    missing_paired_image_examples.append(
+                        str(result["missing_image_for_label"])
+                    )
 
     if skipped_malformed_total:
         print(f"Skipped {skipped_malformed_total} malformed label lines")
-    if delete_labels:
-        missing_delete_labels = sorted(delete_labels - hit_delete_labels)
-        if missing_delete_labels:
-            if source_names:
-                missing_labels_with_names = []
-                for cls_id in missing_delete_labels:
-                    if 0 <= cls_id < len(source_names):
-                        missing_labels_with_names.append(
-                            f"{cls_id} ({source_names[cls_id]})"
-                        )
-                    else:
-                        missing_labels_with_names.append(str(cls_id))
-                print(
-                    "Warning: delete_labels not found in parsed annotations: "
-                    + ", ".join(missing_labels_with_names)
-                )
-            else:
-                print(
-                    "Warning: delete_labels not found in parsed annotations: "
-                    + ", ".join(str(v) for v in missing_delete_labels)
-                )
-    if remove_labels:
-        missing_remove_labels = sorted(remove_labels - hit_remove_labels)
-        if missing_remove_labels:
-            if source_names:
-                missing_labels_with_names = []
-                for cls_id in missing_remove_labels:
-                    if 0 <= cls_id < len(source_names):
-                        missing_labels_with_names.append(
-                            f"{cls_id} ({source_names[cls_id]})"
-                        )
-                    else:
-                        missing_labels_with_names.append(str(cls_id))
-                print(
-                    "Warning: remove_labels not found in parsed annotations: "
-                    + ", ".join(missing_labels_with_names)
-                )
-            else:
-                print(
-                    "Warning: remove_labels not found in parsed annotations: "
-                    + ", ".join(str(v) for v in missing_remove_labels)
-                )
+    if unmapped_classes_seen:
+        if source_names:
+            unmapped_labels_with_names = []
+            for cls_id in sorted(unmapped_classes_seen):
+                if 0 <= cls_id < len(source_names):
+                    unmapped_labels_with_names.append(f"{cls_id} ({source_names[cls_id]})")
+                else:
+                    unmapped_labels_with_names.append(str(cls_id))
+            print(
+                "Warning: source classes not present in label_map (left unchanged): "
+                + ", ".join(unmapped_labels_with_names)
+            )
+        else:
+            print(
+                "Warning: source classes not present in label_map (left unchanged): "
+                + ", ".join(str(v) for v in sorted(unmapped_classes_seen))
+            )
     if not args.dry_run:
         target = output_dir if output_dir else dataset_dir
         output_names = build_output_names(
-            label_map, default_label, remapped_output_classes, source_names
+            label_map, remapped_output_classes, source_names
         )
         data_yml_path = write_data_yml(target, output_names, observed_splits)
         print(
             f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}"
         )
-        if removed_annotations_total:
-            print(f"Removed {removed_annotations_total} label annotations")
         print(f"Wrote data.yml -> {data_yml_path}")
         if missing_paired_image_count:
             print(
@@ -498,12 +557,10 @@ def main() -> None:
             )
             for sample in missing_paired_image_examples:
                 print(f"  missing image for label: {sample}")
-        if deleted_count:
-            print(f"Deleted {deleted_count} image+label pairs")
     else:
         target = output_dir if output_dir else dataset_dir
         output_names = build_output_names(
-            label_map, default_label, remapped_output_classes, source_names
+            label_map, remapped_output_classes, source_names
         )
         print(
             f"Dry run: would write {target / 'data.yml'} with nc={len(output_names)} and names={output_names}"

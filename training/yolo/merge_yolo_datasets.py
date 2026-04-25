@@ -16,9 +16,12 @@ Usage:
 
 import argparse
 import json
+import multiprocessing as mp
 import shutil
 import yaml
 from pathlib import Path
+
+from tqdm import tqdm
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
@@ -47,6 +50,36 @@ def load_dataset_yaml(dataset_root: Path) -> dict:
             with open(p) as f:
                 return yaml.safe_load(f) or {}
     return {}
+
+
+def extract_names(meta: dict) -> list[str]:
+    """
+    Extract class names from dataset metadata.
+
+    Supports common YOLO forms:
+      - names: [class_a, class_b, ...]
+      - names: {0: class_a, 1: class_b, ...}
+      - names: {"0": class_a, "1": class_b, ...}
+    """
+    raw_names = meta.get("names", [])
+
+    if isinstance(raw_names, list):
+        return [str(v) for v in raw_names]
+
+    if isinstance(raw_names, dict):
+        parsed: dict[int, str] = {}
+        for k, v in raw_names.items():
+            try:
+                idx = int(k)
+            except (TypeError, ValueError):
+                continue
+            parsed[idx] = str(v)
+        if not parsed:
+            return []
+        max_idx = max(parsed)
+        return [parsed.get(i, f"class_{i}") for i in range(max_idx + 1)]
+
+    return []
 
 
 def find_image_label_pairs(dataset_root: Path) -> list[tuple[Path, Path]]:
@@ -106,12 +139,45 @@ def remap_label_line(line: str, old_id_to_new: dict[int, int]) -> str | None:
     parts = line.strip().split()
     if not parts:
         return None
-    old_id = int(parts[0])
+    try:
+        old_id = int(parts[0])
+    except ValueError:
+        return None
     new_id = old_id_to_new.get(old_id)
     if new_id is None:
         return None
     parts[0] = str(new_id)
     return " ".join(parts)
+
+
+def process_pair_task(task: dict) -> tuple[bool, bool]:
+    """
+    Process one (image, label) pair task.
+
+    Returns:
+      (copied, skipped_no_label)
+    """
+    img_path = Path(task["img_path"])
+    label_path = Path(task["label_path"])
+    out_img = Path(task["out_img"])
+    out_lbl = Path(task["out_lbl"])
+    old_id_to_new = task["old_id_to_new"]
+
+    remapped_lines = []
+    with open(label_path) as f:
+        for line in f:
+            remapped = remap_label_line(line, old_id_to_new)
+            if remapped is not None:
+                remapped_lines.append(remapped)
+
+    if not remapped_lines:
+        return False, True
+
+    out_img.parent.mkdir(parents=True, exist_ok=True)
+    out_lbl.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(img_path, out_img)
+    out_lbl.write_text("\n".join(remapped_lines) + "\n")
+    return True, False
 
 
 def is_image_passing(
@@ -168,9 +234,18 @@ def main():
         action="store_true",
         help="Exclude images that have no entry in validation_state.json",
     )
+    parser.add_argument(
+        "-j",
+        "--jobs",
+        type=int,
+        default=0,
+        help="Worker processes for pair processing (default: CPU count)",
+    )
     args = parser.parse_args()
 
     include_unvalidated = not args.exclude_unvalidated
+    jobs = args.jobs if args.jobs > 0 else (mp.cpu_count() or 1)
+    jobs = max(1, jobs)
     out_images = args.output_dir / "images" / args.split
     out_labels = args.output_dir / "labels" / args.split
     out_images.mkdir(parents=True, exist_ok=True)
@@ -189,7 +264,7 @@ def main():
     datasets_info = []
     for root in dataset_roots:
         meta = load_dataset_yaml(root)
-        names = meta.get("names", [])
+        names = extract_names(meta)
         if not names:
             print(f"  [SKIP] {root.name}: no 'names' field in data yaml")
             continue
@@ -226,6 +301,8 @@ def main():
     total_skipped_no_label = 0
     collision_count = 0
 
+    print(f"Using {jobs} worker process(es)\n")
+
     for info in datasets_info:
         root = info["root"]
         names = info["names"]
@@ -240,8 +317,8 @@ def main():
             )
         pairs = find_image_label_pairs(root)
 
-        ds_copied = 0
         ds_fail = 0
+        candidate_pairs: list[tuple[Path, Path]] = []
 
         for img_path, label_path in pairs:
             # Filter by validation state
@@ -250,39 +327,69 @@ def main():
             ):
                 ds_fail += 1
                 continue
+            candidate_pairs.append((img_path, label_path))
 
-            # Build collision-safe output filename
-            stem = safe_stem(root, img_path)
+        stem_counts: dict[str, int] = {}
+        tasks: list[dict] = []
+        for img_path, label_path in candidate_pairs:
+            base_stem = safe_stem(root, img_path)
+            count = stem_counts.get(base_stem, 0)
+            stem_counts[base_stem] = count + 1
+            stem = base_stem if count == 0 else f"{base_stem}_{count}"
+            if count > 0:
+                collision_count += 1
+
             out_img = out_images / (stem + img_path.suffix)
             out_lbl = out_labels / (stem + ".txt")
+            tasks.append(
+                {
+                    "img_path": str(img_path),
+                    "label_path": str(label_path),
+                    "out_img": str(out_img),
+                    "out_lbl": str(out_lbl),
+                    "old_id_to_new": old_id_to_new,
+                }
+            )
 
-            if out_img.exists():
-                collision_count += 1
-                stem = f"{stem}_{collision_count}"
-                out_img = out_images / (stem + img_path.suffix)
-                out_lbl = out_labels / (stem + ".txt")
+        ds_copied = 0
+        ds_no_label = 0
+        if jobs == 1:
+            results_iter = map(process_pair_task, tasks)
+            progress_iter = tqdm(
+                results_iter,
+                total=len(tasks),
+                desc=f"Merging {root.name}",
+                leave=False,
+            )
+            for copied, skipped_no_label in progress_iter:
+                if copied:
+                    ds_copied += 1
+                if skipped_no_label:
+                    ds_no_label += 1
+        else:
+            with mp.Pool(processes=jobs) as pool:
+                results_iter = pool.imap_unordered(process_pair_task, tasks, chunksize=64)
+                progress_iter = tqdm(
+                    results_iter,
+                    total=len(tasks),
+                    desc=f"Merging {root.name}",
+                    leave=False,
+                )
+                for copied, skipped_no_label in progress_iter:
+                    if copied:
+                        ds_copied += 1
+                    if skipped_no_label:
+                        ds_no_label += 1
+                progress_iter.close()
 
-            # Remap label file
-            remapped_lines = []
-            with open(label_path) as f:
-                for line in f:
-                    remapped = remap_label_line(line, old_id_to_new)
-                    if remapped is not None:
-                        remapped_lines.append(remapped)
-
-            if not remapped_lines:
-                total_skipped_no_label += 1
-                continue
-
-            shutil.copy2(img_path, out_img)
-            out_lbl.write_text("\n".join(remapped_lines) + "\n")
-            ds_copied += 1
-
-        print(f"  {root.name}: copied {ds_copied}, skipped (fail) {ds_fail}")
+        total_skipped_no_label += ds_no_label
+        print(
+            f"  {root.name}: copied {ds_copied}, skipped (fail) {ds_fail}, skipped (no lbl) {ds_no_label}"
+        )
         total_copied += ds_copied
         total_skipped_fail += ds_fail
 
-    # ── 5. Write data.yaml ────────────────────────────────────────────────────
+    # ── 5. Write data.yml ─────────────────────────────────────────────────────
     yaml_lines = [
         f"path: {args.output_dir.resolve()}",
         f"{args.split}: images/{args.split}",
@@ -292,7 +399,7 @@ def main():
     if out_kpt_shape is not None:
         yaml_lines.append(f"kpt_shape: {out_kpt_shape}")
 
-    yaml_path = args.output_dir / "data.yaml"
+    yaml_path = args.output_dir / "data.yml"
     yaml_path.write_text("\n".join(yaml_lines) + "\n")
 
     print(f"\nTotal copied:           {total_copied}")
@@ -300,7 +407,7 @@ def main():
     print(f"Total skipped (no lbl): {total_skipped_no_label}")
     if collision_count:
         print(f"Filename collisions resolved: {collision_count}")
-    print(f"\nWrote data.yaml -> {yaml_path}")
+    print(f"\nWrote data.yml -> {yaml_path}")
     print("Done.")
 
 

@@ -17,7 +17,7 @@ svo_real_time_mode = true
 
 [field_model]
 type = "YoloSegMaskModel"
-model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-16_x86_64_sm89.engine"
+model_path = "data/models/yolo26n-seg_nhrl_field_2026-04-16_x86_64_sm89.engine"
 label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
 
 # [field_model]
