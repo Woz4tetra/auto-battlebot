@@ -1,8 +1,16 @@
 #include "ui/ui_state.hpp"
 
+#include <chrono>
+#include <spdlog/spdlog.h>
+
 #include "data_structures/target_selection.hpp"
 
 namespace auto_battlebot {
+namespace {
+constexpr double kDebugImageLockWaitWarnMs = 10.0;
+constexpr double kDebugImageTotalWarnMs = 30.0;
+}  // namespace
+
 void UIState::set_system_status(const SystemStatus &s) {
     std::lock_guard<std::mutex> lock(status_mutex_);
     system_status_ = s;
@@ -35,20 +43,46 @@ void UIState::get_diagnostic_snapshots(std::vector<DiagnosticStatusSnapshot> &ou
 
 void UIState::set_debug_image(int width, int height, int channels,
                               const std::vector<uint8_t> &data) {
-    std::lock_guard<std::mutex> lock(status_mutex_);
+    const auto lock_start = std::chrono::steady_clock::now();
+    std::unique_lock<std::mutex> lock(status_mutex_);
+    const double lock_wait_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - lock_start)
+            .count();
     debug_image_width_ = width;
     debug_image_height_ = height;
     debug_image_channels_ = channels;
     debug_image_data_ = data;
+    const double total_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - lock_start)
+            .count();
+    if (lock_wait_ms > kDebugImageLockWaitWarnMs || total_ms > kDebugImageTotalWarnMs) {
+        spdlog::warn(
+            "validation: ui_state_set_debug_image slow lock_wait_ms={:.2f} total_ms={:.2f} "
+            "bytes={}",
+            lock_wait_ms, total_ms, data.size());
+    }
 }
 
 void UIState::get_debug_image(int &width, int &height, int &channels,
                               std::vector<uint8_t> &data) const {
-    std::lock_guard<std::mutex> lock(status_mutex_);
+    const auto lock_start = std::chrono::steady_clock::now();
+    std::unique_lock<std::mutex> lock(status_mutex_);
+    const double lock_wait_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - lock_start)
+            .count();
     width = debug_image_width_;
     height = debug_image_height_;
     channels = debug_image_channels_;
     data = debug_image_data_;
+    const double total_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - lock_start)
+            .count();
+    if (lock_wait_ms > kDebugImageLockWaitWarnMs || total_ms > kDebugImageTotalWarnMs) {
+        spdlog::warn(
+            "validation: ui_state_get_debug_image slow lock_wait_ms={:.2f} total_ms={:.2f} "
+            "bytes={}",
+            lock_wait_ms, total_ms, data.size());
+    }
 }
 
 void UIState::set_robots(const RobotDescriptionsStamped &robots) {

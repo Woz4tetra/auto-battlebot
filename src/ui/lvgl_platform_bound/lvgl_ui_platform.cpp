@@ -3,6 +3,8 @@
 #include <lvgl.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <chrono>
 #include <memory>
 #include <string>
 
@@ -81,7 +83,13 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
 
     bool running = true;
     const int delay_ms = 5;
+    constexpr double kUiLoopWarnMs = 120.0;
+    const auto heartbeat_interval = std::chrono::seconds(2);
+    auto heartbeat_start = std::chrono::steady_clock::now();
+    uint64_t loop_count = 0;
+    double max_loop_ms = 0.0;
     while (running) {
+        const auto loop_start = std::chrono::steady_clock::now();
         if (ui_state->quit_requested.load()) {
             spdlog::warn("UI thread observed quit_requested=true, exiting UI loop.");
             break;
@@ -111,6 +119,23 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
         lv_tick_inc(delay_ms);
         lv_timer_handler();
         SDL_Delay(delay_ms);
+
+        const double loop_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - loop_start)
+                .count();
+        max_loop_ms = std::max(max_loop_ms, loop_ms);
+        if (loop_ms > kUiLoopWarnMs) {
+            spdlog::warn("UI loop iteration slow: elapsed_ms={:.2f}", loop_ms);
+        }
+
+        loop_count++;
+        const auto now = std::chrono::steady_clock::now();
+        if ((now - heartbeat_start) >= heartbeat_interval) {
+            spdlog::debug("UI heartbeat: loops={} max_loop_ms={:.2f}", loop_count, max_loop_ms);
+            heartbeat_start = now;
+            loop_count = 0;
+            max_loop_ms = 0.0;
+        }
     }
 
     lv_sdl_quit();

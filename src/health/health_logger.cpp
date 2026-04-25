@@ -13,9 +13,11 @@
 #include <sstream>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "spdlog/spdlog.h"
 
 namespace auto_battlebot {
 namespace {
+constexpr double kTegrastatsCollectWarnMs = 200.0;
 
 bool is_regular_executable(const std::filesystem::path& path) {
     return std::filesystem::exists(path) && std::filesystem::is_regular_file(path) &&
@@ -220,6 +222,7 @@ void HealthLogger::stop_tegrastats_stream() {
 }
 
 bool HealthLogger::collect_tegrastats() {
+    const auto collect_start = std::chrono::steady_clock::now();
     DiagnosticsData data;
     data["enabled"] = config_.tegrastats_enable ? 1 : 0;
 
@@ -239,7 +242,9 @@ bool HealthLogger::collect_tegrastats() {
     }
 
     char buffer[2048];
+    int lines_read = 0;
     while (fgets(buffer, sizeof(buffer), tegrastats_pipe_.get()) != nullptr) {
+        lines_read++;
         const std::string candidate = trim(buffer);
         if (!candidate.empty()) {
             line = candidate;
@@ -251,6 +256,12 @@ bool HealthLogger::collect_tegrastats() {
             break;
         }
     }
+
+    const double collect_elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - collect_start)
+            .count();
+    data["collect_elapsed_ms"] = collect_elapsed_ms;
+    data["lines_read"] = lines_read;
 
     if (line.empty()) {
         if (feof(tegrastats_pipe_.get())) {
@@ -437,6 +448,10 @@ bool HealthLogger::collect_tegrastats() {
         return false;
     }
 
+    if (collect_elapsed_ms > kTegrastatsCollectWarnMs) {
+        spdlog::warn("validation: collect_tegrastats slow elapsed_ms={:.2f} lines_read={}",
+                     collect_elapsed_ms, lines_read);
+    }
     logger_->debug("tegrastats", data);
     return true;
 }

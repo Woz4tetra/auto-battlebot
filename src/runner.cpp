@@ -1,5 +1,6 @@
 #include "runner.hpp"
 
+#include <algorithm>
 #include <spdlog/spdlog.h>
 
 #include <opencv2/core.hpp>
@@ -7,6 +8,14 @@
 #include "time_utils.hpp"
 
 namespace auto_battlebot {
+namespace {
+constexpr double kTickWarnMs = 250.0;
+constexpr double kHealthLogWarnMs = 150.0;
+constexpr double kDiagnosticsPublishWarnMs = 100.0;
+constexpr double kRecoverLoopWarnMs = 5000.0;
+constexpr double kUiDebugCopyWarnMs = 40.0;
+}  // namespace
+
 Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<RgbdCameraInterface> camera,
                const HealthConfiguration &health_config,
@@ -157,6 +166,7 @@ bool Runner::recover_camera_after_failure() {
         return true;
     };
     while (is_running()) {
+        const auto iteration_start = std::chrono::steady_clock::now();
         if (ui_state_ && !handle_system_action_request()) {
             camera_->cancel_initialize();
             return false;
@@ -167,6 +177,14 @@ bool Runner::recover_camera_after_failure() {
             break;
         }
         if (camera_->initialize()) break;
+
+        const double iteration_ms = std::chrono::duration<double, std::milli>(
+                                        std::chrono::steady_clock::now() - iteration_start)
+                                        .count();
+        if (iteration_ms > kRecoverLoopWarnMs) {
+            spdlog::warn("validation: camera_recover_iteration slow elapsed_ms={:.2f}",
+                         iteration_ms);
+        }
     }
 
     if (!is_running()) {
@@ -180,10 +198,18 @@ void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const
     if (!ui_state_) return;
     if (!camera_data.rgb.image.data || camera_data.rgb.image.empty()) return;
 
+    const auto copy_start = std::chrono::steady_clock::now();
     const cv::Mat &img = camera_data.rgb.image;
     std::vector<uint8_t> data(img.ptr<uint8_t>(),
                               img.ptr<uint8_t>() + img.total() * img.elemSize());
     ui_state_->set_debug_image(img.cols, img.rows, img.channels(), data);
+    const double copy_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - copy_start)
+            .count();
+    if (copy_ms > kUiDebugCopyWarnMs) {
+        spdlog::warn("validation: set_ui_debug_image slow elapsed_ms={:.2f} bytes={}", copy_ms,
+                     data.size());
+    }
 }
 
 bool Runner::handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz) {
@@ -272,6 +298,11 @@ int Runner::run() {
     auto loop_duration =
         std::chrono::microseconds(static_cast<int64_t>(1000000.0 / runner_config_.max_loop_rate));
     auto prev_time = std::chrono::steady_clock::now();
+    auto heartbeat_window_start = std::chrono::steady_clock::now();
+    uint64_t heartbeat_ticks = 0;
+    double max_tick_ms = 0.0;
+    double max_health_ms = 0.0;
+    double max_publish_ms = 0.0;
 
     while (true) {
         auto current_time = std::chrono::steady_clock::now();
@@ -287,15 +318,59 @@ int Runner::run() {
         }
         std::this_thread::sleep_for(remaining_time);
 
+        const auto tick_start = std::chrono::steady_clock::now();
         if (!tick()) {
             spdlog::warn("Runner::tick requested shutdown; runner loop exiting.");
             return 0;
         }
+        const double tick_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tick_start)
+                .count();
+        max_tick_ms = std::max(max_tick_ms, tick_ms);
+        if (tick_ms > kTickWarnMs) {
+            spdlog::warn("validation: tick slow elapsed_ms={:.2f}", tick_ms);
+        }
 
         if (health_logger_) {
+            const auto health_start = std::chrono::steady_clock::now();
             health_logger_->maybe_log();
+            const double health_ms = std::chrono::duration<double, std::milli>(
+                                         std::chrono::steady_clock::now() - health_start)
+                                         .count();
+            max_health_ms = std::max(max_health_ms, health_ms);
+            if (health_ms > kHealthLogWarnMs) {
+                spdlog::warn("validation: health_logger.maybe_log slow elapsed_ms={:.2f}",
+                             health_ms);
+            }
         }
+        const auto publish_start = std::chrono::steady_clock::now();
         DiagnosticsLogger::publish();
+        const double publish_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                      publish_start)
+                .count();
+        max_publish_ms = std::max(max_publish_ms, publish_ms);
+        if (publish_ms > kDiagnosticsPublishWarnMs) {
+            spdlog::warn("validation: DiagnosticsLogger::publish slow elapsed_ms={:.2f}",
+                         publish_ms);
+        }
+
+        heartbeat_ticks++;
+        const auto now = std::chrono::steady_clock::now();
+        const auto heartbeat_elapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - heartbeat_window_start)
+                .count();
+        if (heartbeat_elapsed >= 1000) {
+            spdlog::debug(
+                "runner heartbeat: ticks={} tick_ms_max={:.2f} health_ms_max={:.2f} "
+                "publish_ms_max={:.2f}",
+                heartbeat_ticks, max_tick_ms, max_health_ms, max_publish_ms);
+            heartbeat_window_start = now;
+            heartbeat_ticks = 0;
+            max_tick_ms = 0.0;
+            max_health_ms = 0.0;
+            max_publish_ms = 0.0;
+        }
     }
 }
 

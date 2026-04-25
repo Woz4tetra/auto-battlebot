@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <ctime>
+#include <spdlog/spdlog.h>
 #include <string>
 
 #include "battery_soc_estimator.hpp"
@@ -39,6 +40,8 @@ constexpr double INA219_CURRENT_LSB_A =
 // INA219 power register uses Power_LSB = 20 * Current_LSB.
 constexpr double INA219_POWER_CURRENT_LSB_MULTIPLIER = 20.0;
 constexpr double INA219_POWER_LSB_W = INA219_POWER_CURRENT_LSB_MULTIPLIER * INA219_CURRENT_LSB_A;
+constexpr double kBatteryReadWarnMs = 30.0;
+
 bool write_i2c_register_u16(int fd, uint8_t reg, uint16_t value) {
     uint8_t payload[3] = {reg, static_cast<uint8_t>((value >> 8) & 0xFF),
                           static_cast<uint8_t>(value & 0xFF)};
@@ -59,14 +62,25 @@ bool read_i2c_register_u16(int fd, uint8_t reg, uint16_t &value) {
 }
 
 bool read_waveshare_ups_sample(const BatteryOptions &options, BatterySample &sample_out) {
+    const auto read_start = std::chrono::steady_clock::now();
+    auto finish = [&](bool ok) {
+        const double elapsed_ms = std::chrono::duration<double, std::milli>(
+                                      std::chrono::steady_clock::now() - read_start)
+                                      .count();
+        if (elapsed_ms > kBatteryReadWarnMs) {
+            spdlog::warn("Waveshare UPS read slow: elapsed_ms={:.2f} ok={}", elapsed_ms, ok);
+        }
+        return ok;
+    };
+
     const int battery_i2c_bus = options.i2c_bus;
     const int battery_i2c_address = options.i2c_address;
     const std::string dev_path = "/dev/i2c-" + std::to_string(battery_i2c_bus);
     int fd = open(dev_path.c_str(), O_RDWR);
-    if (fd < 0) return false;
+    if (fd < 0) return finish(false);
     if (ioctl(fd, I2C_SLAVE, battery_i2c_address) < 0) {
         close(fd);
-        return false;
+        return finish(false);
     }
 
     bool ok = write_i2c_register_u16(fd, INA219_REG_CALIBRATION, INA219_CALIBRATION_16V_5A);
@@ -80,7 +94,7 @@ bool read_waveshare_ups_sample(const BatteryOptions &options, BatterySample &sam
     if (ok) ok = read_i2c_register_u16(fd, INA219_REG_CURRENT, raw_current);
     if (ok) ok = read_i2c_register_u16(fd, INA219_REG_POWER, raw_power);
     close(fd);
-    if (!ok) return false;
+    if (!ok) return finish(false);
 
     const int16_t current_signed = static_cast<int16_t>(raw_current);
     const int16_t power_signed = static_cast<int16_t>(raw_power);
@@ -92,7 +106,7 @@ bool read_waveshare_ups_sample(const BatteryOptions &options, BatterySample &sam
     sample_out.current_a = static_cast<double>(current_signed) * INA219_CURRENT_LSB_A;
     sample_out.power_w = static_cast<double>(power_signed) * INA219_POWER_LSB_W;
     sample_out.valid = true;
-    return true;
+    return finish(true);
 }
 
 class WaveshareUpsBatterySource : public IBatterySource {
