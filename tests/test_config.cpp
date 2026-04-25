@@ -57,7 +57,7 @@ type = "NoopRgbdCamera"
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -67,6 +67,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"
@@ -98,7 +101,7 @@ type = "ZedRgbdCamera"
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -108,6 +111,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"
@@ -129,7 +135,7 @@ type = "NoopPublisher"
         // Check default values
         EXPECT_EQ(zed_config->camera_fps, 30);
         EXPECT_EQ(zed_config->camera_resolution, Resolution::RES_1280x720);
-        EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_NEURAL);
+        EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_NEURAL_LIGHT);
         EXPECT_EQ(zed_config->svo_start_frame, 0);
     }
 
@@ -148,7 +154,7 @@ svo_start_frame = 1200
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -158,6 +164,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"
@@ -194,7 +203,7 @@ camera_fps = 90
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -204,6 +213,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"
@@ -221,8 +233,8 @@ type = "NoopPublisher"
 
         // Only camera_fps should be custom, others should be defaults
         EXPECT_EQ(zed_config->camera_fps, 90);
-        EXPECT_EQ(zed_config->camera_resolution, Resolution::RES_1280x720); // default
-        EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_NEURAL);           // default
+        EXPECT_EQ(zed_config->camera_resolution, Resolution::RES_1280x720);   // default
+        EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_NEURAL_LIGHT);       // default
     }
 
     // Test unknown camera type
@@ -236,7 +248,7 @@ type = "UnknownCamera"
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -246,6 +258,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"
@@ -285,7 +300,7 @@ unknown_field = "should cause error"
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -295,6 +310,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"
@@ -353,7 +371,7 @@ type = "NoopRgbdCamera"
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -363,6 +381,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"
@@ -383,7 +404,7 @@ type = "NoopPublisher"
         EXPECT_EQ(config.field_model->type, "NoopMaskModel");
 
         ASSERT_NE(config.robot_mask_model, nullptr);
-        EXPECT_EQ(config.robot_mask_model->type, "NoopMaskModel");
+        EXPECT_EQ(config.robot_mask_model->type, "NoopRobotBlobModel");
 
         ASSERT_NE(config.field_filter, nullptr);
         EXPECT_EQ(config.field_filter->type, "NoopFieldFilter");
@@ -411,7 +432,7 @@ type = "NoopRgbdCamera"
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -421,6 +442,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"
@@ -449,7 +473,7 @@ type = "NoopRgbdCamera"
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -459,6 +483,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"
@@ -744,7 +771,7 @@ type = "NoopRgbdCamera"
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -754,6 +781,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"
@@ -785,7 +815,7 @@ type = "NoopRgbdCamera"
 type = "NoopMaskModel"
 
 [robot_mask_model]
-type = "NoopMaskModel"
+type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -795,6 +825,9 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
 
 [navigation]
 type = "NoopNavigation"

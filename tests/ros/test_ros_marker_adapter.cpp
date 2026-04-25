@@ -82,24 +82,23 @@ TEST_F(RosMarkerAdapterTest, FieldMarkerConversion) {
 
     EXPECT_EQ(marker.ns, "field");
     EXPECT_EQ(marker.id, 0);
-    EXPECT_EQ(marker.type, visualization_msgs::Marker::CUBE);
+    EXPECT_EQ(marker.type, visualization_msgs::Marker::LINE_STRIP);
     EXPECT_EQ(marker.action, visualization_msgs::Marker::ADD);
 
-    // Check pose
-    EXPECT_DOUBLE_EQ(marker.pose.position.x, 1.0);
-    EXPECT_DOUBLE_EQ(marker.pose.position.y, 2.0);
-    EXPECT_DOUBLE_EQ(marker.pose.position.z, 3.0);
+    // Pose is identity (corners are pre-transformed into the points list)
+    EXPECT_DOUBLE_EQ(marker.pose.orientation.w, 1.0);
 
-    // Check scale
-    EXPECT_DOUBLE_EQ(marker.scale.x, 2.0);
-    EXPECT_DOUBLE_EQ(marker.scale.y, 3.0);
-    EXPECT_DOUBLE_EQ(marker.scale.z, 0.01);  // Thin for field
+    // Line width
+    EXPECT_DOUBLE_EQ(marker.scale.x, 0.01);
 
-    // Check color (green field)
+    // 4 corners + 1 closing point
+    EXPECT_EQ(marker.points.size(), 5u);
+
+    // Check color (green border, fully opaque)
     EXPECT_FLOAT_EQ(marker.color.r, 0.0f);
     EXPECT_FLOAT_EQ(marker.color.g, 1.0f);
     EXPECT_FLOAT_EQ(marker.color.b, 0.0f);
-    EXPECT_FLOAT_EQ(marker.color.a, 0.5f);
+    EXPECT_FLOAT_EQ(marker.color.a, 1.0f);
 }
 
 // Test robot markers conversion
@@ -110,9 +109,12 @@ TEST_F(RosMarkerAdapterTest, RobotMarkersConversion) {
     // 2 robots * 3 markers each = 6 markers
     EXPECT_EQ(markers.size(), 6);
 
+    // IDs come from magic_enum::enum_index(robot.frame_id); both robots have FrameId::FIELD = 11
+    constexpr int kFieldFrameId = 11;
+
     // Check first robot's cube marker (bounds)
     EXPECT_EQ(markers[0].ns, "robot_bounds");
-    EXPECT_EQ(markers[0].id, 0);
+    EXPECT_EQ(markers[0].id, kFieldFrameId);
     EXPECT_EQ(markers[0].type, visualization_msgs::Marker::CUBE);
     EXPECT_DOUBLE_EQ(markers[0].pose.position.x, 1.0);
     EXPECT_DOUBLE_EQ(markers[0].pose.position.y, 2.0);
@@ -122,31 +124,31 @@ TEST_F(RosMarkerAdapterTest, RobotMarkersConversion) {
 
     // Check first robot's arrow marker (pose)
     EXPECT_EQ(markers[1].ns, "robot_poses");
-    EXPECT_EQ(markers[1].id, 1);
+    EXPECT_EQ(markers[1].id, kFieldFrameId);
     EXPECT_EQ(markers[1].type, visualization_msgs::Marker::ARROW);
     EXPECT_DOUBLE_EQ(markers[1].pose.position.x, 1.0);
     EXPECT_DOUBLE_EQ(markers[1].pose.position.y, 2.0);
 
     // Check first robot's text marker (label)
     EXPECT_EQ(markers[2].ns, "robot_labels");
-    EXPECT_EQ(markers[2].id, 2);
+    EXPECT_EQ(markers[2].id, kFieldFrameId);
     EXPECT_EQ(markers[2].type, visualization_msgs::Marker::TEXT_VIEW_FACING);
 
     // Check second robot's cube marker (bounds)
     EXPECT_EQ(markers[3].ns, "robot_bounds");
-    EXPECT_EQ(markers[3].id, 3);
+    EXPECT_EQ(markers[3].id, kFieldFrameId);
     EXPECT_EQ(markers[3].type, visualization_msgs::Marker::CUBE);
     EXPECT_DOUBLE_EQ(markers[3].pose.position.x, -1.0);
     EXPECT_DOUBLE_EQ(markers[3].pose.position.y, -2.0);
 
     // Check second robot's arrow marker (pose)
     EXPECT_EQ(markers[4].ns, "robot_poses");
-    EXPECT_EQ(markers[4].id, 4);
+    EXPECT_EQ(markers[4].id, kFieldFrameId);
     EXPECT_EQ(markers[4].type, visualization_msgs::Marker::ARROW);
 
     // Check second robot's text marker (label)
     EXPECT_EQ(markers[5].ns, "robot_labels");
-    EXPECT_EQ(markers[5].id, 5);
+    EXPECT_EQ(markers[5].id, kFieldFrameId);
     EXPECT_EQ(markers[5].type, visualization_msgs::Marker::TEXT_VIEW_FACING);
 }
 
