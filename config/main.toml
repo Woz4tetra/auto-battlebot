@@ -86,11 +86,11 @@ type = "NearestTarget"
 
 [navigation]
 type = "PursuitNavigation"
-angular_kp = 0.5
-angular_kd = 0.02
-angle_threshold = 2.0
-velocity_ramp_far_distance = 2.5
-velocity_ramp_near_distance = 1.0
+angular_kp = 0.25
+angular_kd = 0.01
+angle_threshold = 1.7
+velocity_ramp_far_distance = 1.5
+velocity_ramp_near_distance = 0.75
 velocity_ramp_min_scale = 0.5
 
 [transmitter]
