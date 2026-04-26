@@ -22,3 +22,4 @@ valgrind
 clang-tidy
 clangd
 clang-format
+ripgrep

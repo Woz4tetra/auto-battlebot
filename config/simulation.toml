@@ -10,8 +10,14 @@ label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
-model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-16_x86_64_sm89.engine"
-label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
+model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-26_x86_64_sm89.engine"
+label_indices = [
+    "OPPONENT",
+    "OPPONENT",
+    "HOUSE_BOT",
+    "MR_STABS_MK2",
+    "OPPONENT",
+]
 their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
