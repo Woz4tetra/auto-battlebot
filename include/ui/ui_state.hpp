@@ -19,7 +19,6 @@
 namespace auto_battlebot {
 enum class UISystemAction : int {
     NONE = 0,
-    QUIT_APP = 1,
     REBOOT_HOST = 2,
     POWEROFF_HOST = 3,
 };

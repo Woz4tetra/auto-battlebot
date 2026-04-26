@@ -131,12 +131,7 @@ bool Runner::handle_system_action_request() {
     if (system_action_callback_) {
         system_action_callback_(requested_action);
     }
-    if (requested_action != UISystemAction::QUIT_APP) return true;
-
-    spdlog::warn("Quit app action received; requesting runner shutdown.");
-    stop_recordings_for_shutdown();
-    ui_state_->quit_requested.store(true);
-    return false;
+    return true;
 }
 
 bool Runner::handle_ui_requests(bool &should_reinit_field) {

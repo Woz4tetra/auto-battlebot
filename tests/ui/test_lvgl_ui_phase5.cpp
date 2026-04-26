@@ -155,9 +155,9 @@ TEST(UiControllerTest, DispatchesCommandCallbacksToUiState) {
     controller.toggle_recording();
     EXPECT_TRUE(ui_state->recording_toggle_requested.exchange(false));
 
-    controller.request_system_action(UISystemAction::QUIT_APP);
+    controller.request_system_action(UISystemAction::REBOOT_HOST);
     EXPECT_EQ(ui_state->system_action_requested.exchange(static_cast<int>(UISystemAction::NONE)),
-              static_cast<int>(UISystemAction::QUIT_APP));
+              static_cast<int>(UISystemAction::REBOOT_HOST));
 
     TargetSelection manual;
     manual.pose.x = 1.0;

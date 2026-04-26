@@ -62,9 +62,7 @@ void system_action_cb(lv_event_t *e) {
     d->widgets->pending_confirm_action = d->action;
     if (d->widgets->confirm_message) {
         const char *msg = "Confirm action?";
-        if (d->action == UISystemAction::QUIT_APP) {
-            msg = "Quit app now?\n(service will restart)";
-        } else if (d->action == UISystemAction::REBOOT_HOST) {
+        if (d->action == UISystemAction::REBOOT_HOST) {
             msg = "Reboot host now?";
         } else if (d->action == UISystemAction::POWEROFF_HOST) {
             msg = "Power off host now?";
@@ -83,7 +81,6 @@ void system_confirm_yes_cb(lv_event_t *e) {
     lv_obj_add_flag(w->confirm_overlay, LV_OBJ_FLAG_HIDDEN);
     if (action == UISystemAction::NONE) return;
     switch (action) {
-        case UISystemAction::QUIT_APP:
         case UISystemAction::REBOOT_HOST:
         case UISystemAction::POWEROFF_HOST:
             if (w->controller) w->controller->request_system_action(action);
@@ -619,9 +616,7 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
         UISystemAction action;
         lv_obj_t **widget_slot;
     };
-    std::array<ActionSpec, 3> specs{{
-        {"Quit App", "service restarts", lv_color_hex(0xFB8C00), UISystemAction::QUIT_APP,
-         &w.quit_tile},
+    std::array<ActionSpec, 2> specs{{
         {"Reboot Host", "full system reboot", lv_color_hex(0x1E88E5), UISystemAction::REBOOT_HOST,
          &w.reboot_tile},
         {"Power Off", "safe shutdown", lv_color_hex(0xE53935), UISystemAction::POWEROFF_HOST,
