@@ -2,9 +2,9 @@
 type = "ZedRgbdCamera"
 camera_fps = 60
 
-svo_file_path = "data/svo/2026-04-20T18-02-50.svo2"
+# svo_file_path = "data/svo/2026-04-20T18-02-50.svo2"
 
-# svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
+svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
 
 # svo_file_path = "data/svo/1729981242.4295187.svo2"
 
@@ -26,9 +26,15 @@ label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
-model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-16_x86_64_sm89.engine"
-label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
-their_robot_labels = ["OPPONENT"]
+model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-26_x86_64_sm89.engine"
+label_indices = [
+    "OPPONENT",
+    "OPPONENT",
+    "HOUSE_BOT",
+    "MR_STABS_MK2",
+    "MRS_BUFF_MK3",
+]
+their_robot_labels = ["OPPONENT", "MRS_BUFF_MK3"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
 confidence_threshold = 0.5
