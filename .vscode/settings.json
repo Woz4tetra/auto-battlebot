@@ -10,6 +10,17 @@
         "**/build-test": true,
         "**/*.egg-info": true,
         "**/venv": true,
+        "**/training": true,
+        "**/data": true,
+    },
+    "C_Cpp.files.exclude": {
+        "**/training/**": true,
+        "**/data/**": true,
+        "**/simulation/venv/**": true,
+        "**/simulation/assets/**": true,
+        "**/stickers/**": true,
+        "**/docs/**": true,
+        "**/*.egg-info/**": true,
     },
     "python-envs.pythonProjects": [],
 }
