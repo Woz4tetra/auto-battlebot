@@ -77,7 +77,7 @@ def _glb_color_rgba(geom_key: str) -> str:
     if len(parts) == 4 and parts[0] == "mat":
         try:
             r, g, b = int(parts[1]), int(parts[2]), int(parts[3])
-            return f"{r/255:.3f} {g/255:.3f} {b/255:.3f} 1"
+            return f"{r / 255:.3f} {g / 255:.3f} {b / 255:.3f} 1"
         except ValueError:
             pass
     return "0.6 0.6 0.6 1"
@@ -95,8 +95,7 @@ def _convert_glb(glb_path: Path) -> list[tuple[str, Path, str]]:
     sentinel = cache_dir / f"{glb_path.stem}.stamp"
 
     needs_rebuild = (
-        not sentinel.exists()
-        or glb_path.stat().st_mtime > sentinel.stat().st_mtime
+        not sentinel.exists() or glb_path.stat().st_mtime > sentinel.stat().st_mtime
     )
 
     if needs_rebuild:
@@ -111,7 +110,7 @@ def _convert_glb(glb_path: Path) -> list[tuple[str, Path, str]]:
 
     result: list[tuple[str, Path, str]] = []
     for f in sorted((glb_path.parent / "_mujoco").glob(f"{glb_path.stem}_*.obj")):
-        geom_key = f.stem[len(glb_path.stem) + 1:]
+        geom_key = f.stem[len(glb_path.stem) + 1 :]
         rgba = _glb_color_rgba(geom_key)
         result.append((geom_key, f, rgba))
     return result
@@ -132,8 +131,7 @@ def _split_obj_by_material(
     sentinel = cache_dir / f"{obj_path.stem}.stamp"
 
     needs_rebuild = (
-        not sentinel.exists()
-        or obj_path.stat().st_mtime > sentinel.stat().st_mtime
+        not sentinel.exists() or obj_path.stat().st_mtime > sentinel.stat().st_mtime
     )
 
     if needs_rebuild:
@@ -144,8 +142,7 @@ def _split_obj_by_material(
             # Use the material's own name as the file stem (not the OBJ object name)
             mat = getattr(geom, "visual", None)
             mat_name: str = (
-                getattr(getattr(mat, "material", None), "name", None)
-                or _geom_key
+                getattr(getattr(mat, "material", None), "name", None) or _geom_key
             )
             out_obj = cache_dir / f"{obj_path.stem}_{mat_name}.obj"
             geom.export(str(out_obj))
@@ -154,7 +151,7 @@ def _split_obj_by_material(
     result: list[tuple[str, Path, Path | None]] = []
     cache_dir.mkdir(exist_ok=True)
     for f in sorted(cache_dir.glob(f"{obj_path.stem}_*.obj")):
-        mat_name = f.stem[len(obj_path.stem) + 1:]
+        mat_name = f.stem[len(obj_path.stem) + 1 :]
         # look for a same-named PNG texture in the original mesh directory
         tex: Path | None = None
         for ext in (".png", ".jpg", ".jpeg"):
@@ -558,7 +555,9 @@ def _build_arena_xml(cfg: SimConfig, config_dir: Path) -> str:
     <light name="top" pos="0 0 3.5" diffuse="1 1 1" specular="0.1 0.1 0.1"
            castshadow="false"/>
     <geom name="floor" type="plane" size="0 0 0.01" friction="{ff} {ff} 0.001"
-          rgba="0.35 0.35 0.35 1"/>
+          rgba="0 0 0 0"/>
+    <geom name="floor_vis" type="box" size="{half_w} {half_h} 0.001"
+          pos="0 0 -0.001" rgba="0.35 0.30 0.25 1" contype="0" conaffinity="0"/>
     <geom name="wall_n" type="box"
           pos="0 {half_h + wall_t} {wall_h}" size="{half_w} {wall_t} {wall_h}"
           rgba="0.6 0.6 0.6 1"/>

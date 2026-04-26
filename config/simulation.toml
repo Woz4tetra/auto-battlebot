@@ -94,7 +94,7 @@ angle_threshold = 1.5
 
 [transmitter]
 type = "SimTransmitter"
-init_delay_seconds = 0.5
+init_delay_seconds = 3.0
 command_delay_ms = 0.0
 
 [publisher]
