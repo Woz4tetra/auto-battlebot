@@ -73,8 +73,10 @@ namespace auto_battlebot
         PursuitNavigationConfiguration config;
 
         EXPECT_EQ(config.type, "PursuitNavigation");
-        EXPECT_DOUBLE_EQ(config.slowdown_distance, 0.0);
         EXPECT_DOUBLE_EQ(config.stop_distance, 0.0);
+        EXPECT_DOUBLE_EQ(config.velocity_ramp_far_distance, 2.5);
+        EXPECT_DOUBLE_EQ(config.velocity_ramp_near_distance, 1.0);
+        EXPECT_DOUBLE_EQ(config.velocity_ramp_min_scale, 0.5);
         EXPECT_DOUBLE_EQ(config.angular_kp, 3.0);
         EXPECT_DOUBLE_EQ(config.angle_threshold, 0.5);
         EXPECT_DOUBLE_EQ(config.lookahead_time, 0.1);
@@ -84,7 +86,8 @@ namespace auto_battlebot
     TEST(PursuitNavigationConfigTest, CustomValues)
     {
         PursuitNavigationConfiguration config;
-        config.slowdown_distance = 1.0;
+        config.velocity_ramp_far_distance = 2.0;
+        config.velocity_ramp_near_distance = 0.5;
         config.stop_distance = 0.2;
         config.angular_kp = 3.0;
         config.angle_threshold = 0.5;
@@ -347,27 +350,50 @@ namespace auto_battlebot
         EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
     }
 
-    TEST_F(PursuitNavigationTest, SlowsDownNearTarget)
+    TEST_F(PursuitNavigationTest, VelocityRampReducesSpeedAtFarDistance)
     {
-        // Create nav with known slowdown distance
+        // At distances beyond velocity_ramp_far_distance, speed_scale == velocity_ramp_min_scale
         PursuitNavigationConfiguration config;
-        config.slowdown_distance = 1.0;
-        config.stop_distance = 0.1;
+        config.velocity_ramp_far_distance = 1.0;
+        config.velocity_ramp_near_distance = 0.3;
+        config.velocity_ramp_min_scale = 0.5;
+        config.stop_distance = 0.05;
         PursuitNavigation nav(config);
         nav.initialize();
 
         RobotDescriptionsStamped robots;
-        // Our robot facing target
         robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1, Group::OURS, 0.0, 0.0, 0.0));
-        // Target at half the slowdown distance
+        // Target well beyond far_distance
+        robots.descriptions.push_back(make_robot(Label::OPPONENT, 2.0, 0.0, 0.0));
+        FieldDescription field = make_field(10.0, 10.0);
+
+        VelocityCommand cmd = nav.update(robots, field, make_target(2.0, 0.0));
+
+        // Speed must be positive but capped at min_scale (0.5)
+        EXPECT_GT(cmd.linear_x, 0.0);
+        EXPECT_LE(cmd.linear_x, 0.5);
+    }
+
+    TEST_F(PursuitNavigationTest, VelocityRampFullSpeedBelowNearDistance)
+    {
+        PursuitNavigationConfiguration config;
+        config.velocity_ramp_far_distance = 2.0;
+        config.velocity_ramp_near_distance = 1.0;
+        config.velocity_ramp_min_scale = 0.5;
+        config.stop_distance = 0.05;
+        PursuitNavigation nav(config);
+        nav.initialize();
+
+        RobotDescriptionsStamped robots;
+        robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1, Group::OURS, 0.0, 0.0, 0.0));
+        // Target below near_distance — speed_scale must be 1.0
         robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.5, 0.0, 0.0));
-        FieldDescription field = make_field(4.0, 4.0);
+        FieldDescription field = make_field(10.0, 10.0);
 
         VelocityCommand cmd = nav.update(robots, field, make_target(0.5, 0.0));
 
-        // Should be slower than max velocity
-        EXPECT_GT(cmd.linear_x, 0.0);
-        EXPECT_LT(cmd.linear_x, 1.0);
+        // Angle error is ~0, so turn/steer scaling is ~1; linear_x should be ~1.0
+        EXPECT_GT(cmd.linear_x, 0.9);
     }
 
     // ==================== Velocity Limits Tests ====================
@@ -375,7 +401,6 @@ namespace auto_battlebot
     TEST_F(PursuitNavigationTest, ForwardVelocityIsBoundedByControllerScaling)
     {
         PursuitNavigationConfiguration config;
-        config.slowdown_distance = 0.1; // Small so we don't slow down
         PursuitNavigation nav(config);
         nav.initialize();
 

@@ -81,6 +81,9 @@ type = "NearestTarget"
 type = "PursuitNavigation"
 angular_kp = 0.1
 angular_kd = 0.1
+velocity_ramp_far_distance = 2.5
+velocity_ramp_near_distance = 1.0
+velocity_ramp_min_scale = 0.5
 
 [transmitter]
 type = "OpenTxTransmitter"

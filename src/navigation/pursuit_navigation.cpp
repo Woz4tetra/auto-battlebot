@@ -13,8 +13,10 @@
 namespace auto_battlebot {
 
 PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &config)
-    : slowdown_distance_(config.slowdown_distance),
-      stop_distance_(config.stop_distance),
+    : stop_distance_(config.stop_distance),
+      velocity_ramp_far_distance_(config.velocity_ramp_far_distance),
+      velocity_ramp_near_distance_(config.velocity_ramp_near_distance),
+      velocity_ramp_min_scale_(config.velocity_ramp_min_scale),
       angular_kp_(config.angular_kp),
       angular_kd_(config.angular_kd),
       angle_threshold_(config.angle_threshold),
@@ -154,10 +156,17 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
 
     // Linear velocity in m/s. Only drive forward if roughly facing target.
     if (std::abs(angle_error) < angle_threshold_) {
+        // Velocity ramp: full speed below near_distance, min_scale at far_distance and beyond,
+        // linear interpolation in between.
         double speed_scale = 1.0;
-        if (distance < slowdown_distance_) {
-            double t = distance / slowdown_distance_;
-            speed_scale = t * t;
+        if (distance > velocity_ramp_near_distance_) {
+            if (distance >= velocity_ramp_far_distance_) {
+                speed_scale = velocity_ramp_min_scale_;
+            } else {
+                double t = (distance - velocity_ramp_near_distance_) /
+                           (velocity_ramp_far_distance_ - velocity_ramp_near_distance_);
+                speed_scale = 1.0 - t * (1.0 - velocity_ramp_min_scale_);
+            }
         }
 
         double turn_scale = 1.0 - (std::abs(angle_error) / angle_threshold_) * 0.5;

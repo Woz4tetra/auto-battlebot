@@ -21,11 +21,18 @@ struct NoopNavigationConfiguration : public NavigationConfiguration {
 };
 
 struct PursuitNavigationConfiguration : public NavigationConfiguration {
-    /** Distance at which to start slowing down in meters */
-    double slowdown_distance = 0.0;
-
     /** Distance at which to stop in meters */
     double stop_distance = 0.0;
+
+    /** Distance (m) at which velocity ramp begins. At this distance and beyond, speed is
+     * velocity_ramp_min_scale * max. */
+    double velocity_ramp_far_distance = 2.5;
+
+    /** Distance (m) at which velocity reaches maximum. At this distance and below, speed is max. */
+    double velocity_ramp_near_distance = 1.0;
+
+    /** Speed scale applied at distances >= velocity_ramp_far_distance (0..1, fraction of max). */
+    double velocity_ramp_min_scale = 0.5;
 
     /** Proportional gain for angular control */
     double angular_kp = 3.0;
@@ -49,8 +56,10 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
 
     // clang-format off
     PARSE_CONFIG_FIELDS(
-        PARSE_FIELD_DOUBLE(slowdown_distance)
         PARSE_FIELD_DOUBLE(stop_distance)
+        PARSE_FIELD_DOUBLE(velocity_ramp_far_distance)
+        PARSE_FIELD_DOUBLE(velocity_ramp_near_distance)
+        PARSE_FIELD_DOUBLE(velocity_ramp_min_scale)
         PARSE_FIELD_DOUBLE(angular_kp)
         PARSE_FIELD_DOUBLE(angular_kd)
         PARSE_FIELD_DOUBLE(angle_threshold)
