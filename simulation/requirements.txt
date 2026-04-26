@@ -1,4 +1,4 @@
-genesis-world
+mujoco>=3.1
 tomli
 torch
 opencv-python

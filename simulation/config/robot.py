@@ -18,12 +18,16 @@ class RobotConfig:
     # Wheel-based control (active when wheel_radius > 0)
     wheel_radius: float = 0.0
     track_width: float = 0.0
-    wheel_friction: float = 0.7
     left_wheel_joints: list[str] = field(default_factory=list)
     right_wheel_joints: list[str] = field(default_factory=list)
-    wheel_kp: float = 0.0
     wheel_kv: float = 50.0
-    wheel_force_limit: float = 200.0
+    wheel_force_limit: float = 80.0
+    # MuJoCo joint dynamics (replaces Genesis wheel_kp/wheel_friction)
+    wheel_armature: float = 1.2e-4
+    wheel_damping: float = 0.034
+    wheel_frictionloss: float = 0.05
+    # Contact friction [longitudinal, lateral, rolling]
+    wheel_contact_friction: list[float] = field(default_factory=lambda: [1.6, 1.6, 0.001])
 
     @property
     def has_wheels(self) -> bool:

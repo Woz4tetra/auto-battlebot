@@ -6,16 +6,11 @@ import math
 import socket
 import struct
 import time
-from typing import TYPE_CHECKING
 
 import cv2
+import mujoco
 import numpy as np
 import numpy.typing as npt
-
-import genesis as gs
-
-if TYPE_CHECKING:
-    from genesis.vis.camera import Camera
 
 from behaviors import OpponentBehavior, make_opponent_behavior
 from camera_utils import camera_view_matrix, fov_to_intrinsics
@@ -30,15 +25,9 @@ from protocol import (
     recv_all,
     send_all,
 )
-from scene import pad_pos_3d, robot_quat
-from sim_types import (
-    DOF_VX,
-    DOF_VY,
-    DOF_WZ,
-    FrameTimings,
-    SceneHandles,
-    WheelDriveInfo,
-)
+from scene import _pad3, _yaw_quat
+from sim_types import FrameTimings, SceneHandles, WheelDriveInfo
+from sim_types.scene_handles import MocapHandle, RobotHandle
 
 
 class SimRunner:
@@ -47,13 +36,14 @@ class SimRunner:
     def __init__(self, cfg: SimConfig, handles: SceneHandles) -> None:
         self._cfg = cfg
         self._handles = handles
+        self._model: mujoco.MjModel = handles.model
+        self._data: mujoco.MjData = handles.data
+        self._renderer: mujoco.Renderer = handles.renderer
 
         cam = cfg.camera
-        self._scene: gs.Scene = handles.scene
-        self._camera: Camera = handles.camera
-
-        self._our_cfg = cfg.our_robot
+        self._camera_name = "overhead_cam"
         self._phys_dt: float = cfg.server.physics_dt
+        self._substeps: int = cfg.server.substeps
         self._max_steps: int = cfg.server.max_physics_steps_per_frame
 
         fx, fy, cx, cy = fov_to_intrinsics(cam.fov, cam.res_width, cam.res_height)
@@ -71,63 +61,40 @@ class SimRunner:
         )
 
         self._rgb_buf: npt.NDArray[np.uint8] = np.empty(
-            (cam.res_height, cam.res_width, 3),
-            dtype=np.uint8,
+            (cam.res_height, cam.res_width, 3), dtype=np.uint8
         )
         self._depth_buf: npt.NDArray[np.float32] = np.empty(
-            (cam.res_height, cam.res_width),
-            dtype=np.float32,
+            (cam.res_height, cam.res_width), dtype=np.float32
         )
         self._bg_mask: npt.NDArray[np.bool_] = np.empty(
-            (cam.res_height, cam.res_width),
-            dtype=np.bool_,
+            (cam.res_height, cam.res_width), dtype=np.bool_
         )
         self._far_thresh: float = cam.far - 0.1
         self._panorama_bg: npt.NDArray[np.uint8] | None = handles.panorama_bg
 
-        # Resolve wheel DOF indices (requires scene to be built already)
-        self._our_wheels: WheelDriveInfo | None = None
-        if cfg.our_robot.has_wheels:
-            self._our_wheels = WheelDriveInfo.from_entity(
-                handles.our_robot, cfg.our_robot
-            )
-
-        self._opp_wheels: list[WheelDriveInfo | None] = []
-        for opp_cfg, opp_entity in zip(cfg.opponents, handles.opponents):
-            if opp_cfg.has_wheels:
-                self._opp_wheels.append(WheelDriveInfo.from_entity(opp_entity, opp_cfg))
-            else:
-                self._opp_wheels.append(None)
-
-        half_w, half_h = cfg.arena.width / 2, cfg.arena.height / 2
+        half_w = cfg.arena.width / 2
+        half_h = cfg.arena.height / 2
         self._opp_behaviors: list[OpponentBehavior] = [
-            make_opponent_behavior(opp_cfg, half_w, half_h, winfo)
-            for opp_cfg, winfo in zip(cfg.opponents, self._opp_wheels)
+            make_opponent_behavior(opp_cfg, half_w, half_h, handle)
+            for opp_cfg, handle in zip(cfg.opponents, handles.opponents)
         ]
 
-        self._our_yaw: float = 0.0
         self._sim_debt: float = 0.0
         self._prev_time: float = 0.0
         self._timings = FrameTimings()
+        self._shutting_down: bool = False
+        self._srv_socket: socket.socket | None = None
 
     # -- lifecycle ----------------------------------------------------------
 
     def reset_robots(self) -> None:
-        """Move all robots to their configured start positions."""
-        our = self._our_cfg
-        handles = self._handles
+        """Reset all robots to their start positions."""
+        mujoco.mj_resetData(self._model, self._data)
 
-        handles.our_robot.set_pos(list(pad_pos_3d(our.start_pos)))
-        self._our_yaw = math.radians(our.start_rotation)
-        handles.our_robot.set_quat(robot_quat(our.model_euler, self._our_yaw))
-        handles.our_robot.set_dofs_velocity(np.zeros(handles.our_robot.n_dofs))
-
-        for opp_cfg, opp_entity in zip(self._cfg.opponents, handles.opponents):
-            opp_entity.set_pos(list(pad_pos_3d(opp_cfg.start_pos)))
-            opp_entity.set_quat(
-                robot_quat(opp_cfg.model_euler, math.radians(opp_cfg.start_rotation))
-            )
-            opp_entity.set_dofs_velocity(np.zeros(opp_entity.n_dofs))
+        # Settle physics before starting
+        for _ in range(self._cfg.server.settle_steps):
+            for _ in range(self._substeps):
+                mujoco.mj_step(self._model, self._data)
 
         self._sim_debt = 0.0
         self._prev_time = time.monotonic()
@@ -135,48 +102,28 @@ class SimRunner:
 
     # -- per-frame helpers --------------------------------------------------
 
-    def _apply_command(
-        self,
-        linear_x: float,
-        linear_y: float,
-        angular_z: float,
-        dt: float,
-    ) -> None:
-        our = self._our_cfg
-        robot = self._handles.our_robot
-        w = self._our_wheels
-
-        if w is not None:
-            v_target = linear_x * our.max_linear_speed
-            omega_target = angular_z * our.max_angular_speed
-            v = v_target
-            omega = omega_target
-            v_left = (v - omega * w.half_track) / w.wheel_radius
-            v_right = (v + omega * w.half_track) / w.wheel_radius
-            velocities = [v_left] * w.n_left + [v_right] * w.n_right
-            robot.control_dofs_velocity(velocities, dofs_idx_local=w.all_dofs)
-        else:
-            self._our_yaw += angular_z * our.max_angular_speed * dt
-            speed = linear_x * our.max_linear_speed
-            vel_x = speed * math.cos(self._our_yaw)
-            vel_y = speed * math.sin(self._our_yaw)
-            robot.set_dofs_velocity(
-                np.array([vel_x, vel_y, angular_z * our.max_angular_speed]),
-                [DOF_VX, DOF_VY, DOF_WZ],
-            )
+    def _apply_command(self, linear_x: float, linear_y: float, angular_z: float) -> None:
+        our = self._cfg.our_robot
+        w = self._handles.our_robot.wheel_drive
+        v_target = linear_x * our.max_linear_speed
+        omega_target = angular_z * our.max_angular_speed
+        v_left = (v_target - omega_target * w.half_track) / w.wheel_radius
+        v_right = (v_target + omega_target * w.half_track) / w.wheel_radius
+        for aid in w.left_act_ids:
+            self._data.ctrl[aid] = v_left
+        for aid in w.right_act_ids:
+            self._data.ctrl[aid] = v_right
 
     def _step_opponents(self, dt: float) -> None:
-        for behavior, opp_entity in zip(
-            self._opp_behaviors,
-            self._handles.opponents,
-        ):
-            behavior.step(opp_entity, dt)
+        for behavior in self._opp_behaviors:
+            behavior.step(self._data, dt)
 
     def _step_physics(self, wall_dt: float) -> int:
         self._sim_debt += wall_dt
         steps = 0
         while self._sim_debt >= self._phys_dt and steps < self._max_steps:
-            self._scene.step()
+            for _ in range(self._substeps):
+                mujoco.mj_step(self._model, self._data)
             self._sim_debt -= self._phys_dt
             steps += 1
         if self._sim_debt > self._phys_dt:
@@ -184,17 +131,22 @@ class SimRunner:
         return steps
 
     def _render_and_process(self) -> None:
-        rgb_raw, depth_raw, _, _ = self._camera.render(depth=True)
+        renderer = self._renderer
 
-        cv2.cvtColor(np.squeeze(rgb_raw), cv2.COLOR_RGB2BGR, dst=self._rgb_buf)
+        # RGB
+        renderer.update_scene(self._data, camera=self._camera_name)
+        rgb_raw = renderer.render()  # (H, W, 3) uint8 RGB
+        cv2.cvtColor(rgb_raw, cv2.COLOR_RGB2BGR, dst=self._rgb_buf)
 
-        np.copyto(self._depth_buf, np.squeeze(depth_raw), casting="unsafe")
+        # Depth
+        renderer.enable_depth_rendering()
+        renderer.update_scene(self._data, camera=self._camera_name)
+        depth_raw = renderer.render()  # (H, W) float32, meters
+        renderer.disable_depth_rendering()
+
+        np.copyto(self._depth_buf, depth_raw, casting="unsafe")
         np.greater_equal(self._depth_buf, self._far_thresh, out=self._bg_mask)
-        np.logical_or(
-            self._bg_mask,
-            ~np.isfinite(self._depth_buf),
-            out=self._bg_mask,
-        )
+        np.logical_or(self._bg_mask, ~np.isfinite(self._depth_buf), out=self._bg_mask)
         self._depth_buf[self._bg_mask] = np.nan
 
         if self._panorama_bg is not None:
@@ -204,21 +156,17 @@ class SimRunner:
                 where=self._bg_mask[:, :, np.newaxis],
             )
 
-    def _get_entity_yaw(self, entity) -> float:
-        """Extract yaw (Z-axis rotation) from a Genesis entity's quaternion."""
-        quat = entity.get_quat().cpu().numpy().squeeze()  # (w, x, y, z)
-        w, x, y, z = float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])
-        siny_cosp = 2.0 * (w * z + x * y)
-        cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
-        return math.atan2(siny_cosp, cosy_cosp)
+    def _get_entity_yaw(self, body_id: int) -> float:
+        """Extract yaw from MuJoCo's 3x3 rotation matrix stored row-major."""
+        mat = self._data.xmat[body_id].reshape(3, 3)
+        return math.atan2(float(mat[1, 0]), float(mat[0, 0]))
 
     def _build_ground_truth_bytes(self) -> bytes:
-        """Pack ground truth (x, y, yaw) for our robot + all opponents."""
-        entities = [self._handles.our_robot] + list(self._handles.opponents)
-        buf = struct.pack(GT_COUNT_FMT, len(entities))
-        for entity in entities:
-            pos = entity.get_pos().cpu().numpy().squeeze()
-            yaw = self._get_entity_yaw(entity)
+        handles = [self._handles.our_robot] + list(self._handles.opponents)
+        buf = struct.pack(GT_COUNT_FMT, len(handles))
+        for handle in handles:
+            pos = self._data.xpos[handle.body_id]
+            yaw = self._get_entity_yaw(handle.body_id)
             buf += struct.pack(GT_POSE_FMT, float(pos[0]), float(pos[1]), yaw)
         return buf
 
@@ -235,9 +183,6 @@ class SimRunner:
         """Service one client connection until it disconnects."""
         self.reset_robots()
 
-        for _ in range(self._cfg.server.settle_steps):
-            self._scene.step()
-
         try:
             while True:
                 t0 = time.monotonic()
@@ -247,7 +192,7 @@ class SimRunner:
 
                 wall_dt = min(t1 - self._prev_time, 0.1)
 
-                self._apply_command(linear_x, linear_y, angular_z, wall_dt)
+                self._apply_command(linear_x, linear_y, angular_z)
                 self._step_opponents(wall_dt)
                 t2 = time.monotonic()
 
@@ -275,20 +220,46 @@ class SimRunner:
         except (ConnectionError, BrokenPipeError, OSError) as e:
             print(f"Client disconnected: {e}")
 
+    def shutdown(self) -> None:
+        """Signal the server to stop. Safe to call from a signal handler."""
+        self._shutting_down = True
+        srv = self._srv_socket
+        if srv is not None:
+            try:
+                srv.close()
+            except OSError:
+                pass
+
     def serve_forever(self) -> None:
         """Accept clients in a loop, handling one at a time."""
         srv_cfg = self._cfg.server
-        print(f"Genesis sim ready. Listening on {srv_cfg.host}:{srv_cfg.port}")
+        print(f"MuJoCo sim ready. Listening on {srv_cfg.host}:{srv_cfg.port}")
 
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((srv_cfg.host, srv_cfg.port))
         srv.listen(1)
+        self._srv_socket: socket.socket | None = srv
 
-        while True:
-            print("Waiting for C++ client...")
-            conn, addr = srv.accept()
-            configure_socket(conn)
-            print(f"Client connected from {addr}")
-            self.handle_client(conn)
-            conn.close()
+        try:
+            while not self._shutting_down:
+                print("Waiting for C++ client...")
+                try:
+                    conn, addr = srv.accept()
+                except OSError:
+                    # Socket closed by shutdown() or a real error — either way, stop.
+                    break
+                configure_socket(conn)
+                print(f"Client connected from {addr}")
+                try:
+                    self.handle_client(conn)
+                finally:
+                    conn.close()
+        finally:
+            self._srv_socket = None
+            try:
+                srv.close()
+            except OSError:
+                pass
+            self._renderer.close()
+            print("Simulation server stopped.")

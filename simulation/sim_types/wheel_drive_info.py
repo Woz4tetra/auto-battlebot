@@ -3,48 +3,42 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 if TYPE_CHECKING:
-    from genesis.engine.entities.rigid_entity import RigidEntity
+    import mujoco
 
 from config.robot import RobotConfig
 
 
 @dataclass
 class WheelDriveInfo:
-    """Resolved wheel DOF indices and kinematic parameters."""
+    """Resolved actuator IDs and kinematic parameters for a wheeled robot."""
 
-    left_dofs: list[int]
-    right_dofs: list[int]
-    all_dofs: list[int]
+    left_act_ids: list[int]
+    right_act_ids: list[int]
     n_left: int
     n_right: int
     wheel_radius: float
     half_track: float
 
     @staticmethod
-    def from_entity(entity: RigidEntity, cfg: RobotConfig) -> WheelDriveInfo:
-        left = [entity.get_joint(j).dofs_idx_local[0] for j in cfg.left_wheel_joints]
-        right = [entity.get_joint(j).dofs_idx_local[0] for j in cfg.right_wheel_joints]
-        info = WheelDriveInfo(
-            left_dofs=left,
-            right_dofs=right,
-            all_dofs=left + right,
-            n_left=len(left),
-            n_right=len(right),
+    def from_model(
+        model: mujoco.MjModel, cfg: RobotConfig, prefix: str
+    ) -> WheelDriveInfo:
+        left_ids = [
+            model.actuator(f"{prefix}{j}_vel").id for j in cfg.left_wheel_joints
+        ]
+        right_ids = [
+            model.actuator(f"{prefix}{j}_vel").id for j in cfg.right_wheel_joints
+        ]
+        return WheelDriveInfo(
+            left_act_ids=left_ids,
+            right_act_ids=right_ids,
+            n_left=len(left_ids),
+            n_right=len(right_ids),
             wheel_radius=cfg.wheel_radius,
             half_track=cfg.track_width / 2.0,
         )
-        info._configure_gains(entity, cfg)
-        return info
 
-    def _configure_gains(self, entity: RigidEntity, cfg: RobotConfig) -> None:
-        n = len(self.all_dofs)
-        entity.set_dofs_kp(np.full(n, cfg.wheel_kp), dofs_idx_local=self.all_dofs)
-        entity.set_dofs_kv(np.full(n, cfg.wheel_kv), dofs_idx_local=self.all_dofs)
-        entity.set_dofs_force_range(
-            lower=np.full(n, -cfg.wheel_force_limit),
-            upper=np.full(n, cfg.wheel_force_limit),
-            dofs_idx_local=self.all_dofs,
-        )
+    @property
+    def all_act_ids(self) -> list[int]:
+        return self.left_act_ids + self.right_act_ids

@@ -30,7 +30,7 @@ CPP_CONFIG="${2:-./config/simulation.toml}"
 "$SCRIPT_DIR/build.sh" &
 BUILD_PID=$!
 
-# --- Start Genesis sim server -------------------------------------------------
+# --- Start MuJoCo sim server --------------------------------------------------
 
 "$VENV_DIR/bin/python" "$SIM_DIR/sim_server.py" "$SIM_CONFIG" &
 SIM_PID=$!

@@ -1,6 +1,6 @@
-"""Genesis simulation server for auto-battlebot.
+"""MuJoCo simulation server for auto-battlebot.
 
-Loads a scene from a TOML config, runs physics + rendering in Genesis,
+Loads a scene from a TOML config, runs physics + rendering in MuJoCo,
 and communicates with the C++ pipeline over a TCP socket using a simple
 binary protocol.
 
@@ -14,8 +14,6 @@ import argparse
 import signal
 import sys
 from pathlib import Path
-
-import genesis as gs
 
 from config import SimConfig, load_sim_config
 from runner import SimRunner
@@ -35,14 +33,19 @@ def main() -> None:
 
     runner = SimRunner(cfg, handles)
 
-    def _shutdown_on_sigterm(_signum: int, _frame: object | None) -> None:
-        print("Caught shutdown signal")
-        gs.destroy()
-        sys.exit(0)
+    def _on_signal(_signum: int, _frame: object | None) -> None:
+        # Closing the server socket unblocks accept() immediately even under
+        # PEP 475 (which would otherwise retry the system call forever).
+        runner.shutdown()
 
-    signal.signal(signal.SIGTERM, _shutdown_on_sigterm)
+    signal.signal(signal.SIGTERM, _on_signal)
+    signal.signal(signal.SIGINT, _on_signal)
 
-    runner.serve_forever()
+    try:
+        runner.serve_forever()
+    except KeyboardInterrupt:
+        # Fallback for interactive Ctrl-C before serve_forever installs its handler.
+        runner.shutdown()
 
 
 if __name__ == "__main__":

@@ -47,6 +47,7 @@ lib/
 *.log
 *.tmp
 *.temp
+MUJOCO_LOG.TXT
 
 # ROS and Bag files
 *.bag

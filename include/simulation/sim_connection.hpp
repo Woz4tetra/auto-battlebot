@@ -13,6 +13,8 @@ class SimConnection {
    public:
     static void configure(const std::string &host, int port);
     static std::shared_ptr<SimConnection> instance();
+    // Async-signal-safe: shuts down the active socket to unblock any recv()/send().
+    static void interrupt();
 
     ~SimConnection();
 
