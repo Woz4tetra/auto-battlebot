@@ -81,16 +81,16 @@ field_bounds_margin_meters = 0.2
 [target_selector]
 type = "NearestTarget"
 
-# [navigation]
-# type = "FixedVelocityNavigation"
-# linear_x = 1.0
-# angular_z = 1.0
-
 [navigation]
-type = "PursuitNavigation"
-angular_kp = 26.0
-angular_kd = 0.2
-angle_threshold = 1.5
+type = "FixedVelocityNavigation"
+linear_x = 0.0
+angular_z = 0.0
+
+# [navigation]
+# type = "PursuitNavigation"
+# angular_kp = 0.35
+# angular_kd = 0.02
+# angle_threshold = 2.8
 
 [transmitter]
 type = "SimTransmitter"

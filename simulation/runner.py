@@ -91,14 +91,106 @@ class SimRunner:
         """Reset all robots to their start positions."""
         mujoco.mj_resetData(self._model, self._data)
 
+        # Use PGS solver for settling: it never produces negative normal forces
+        # or explosive impulses, unlike the Newton solver which blows up when
+        # all contact normals are coplanar (degenerate Jacobian at Z=0).
+        _orig_solver = int(self._model.opt.solver)
+        _orig_iterations = int(self._model.opt.iterations)
+        self._model.opt.solver = mujoco.mjtSolver.mjSOLVER_PGS
+        self._model.opt.iterations = 200
+
         # Settle physics before starting
-        for _ in range(self._cfg.server.settle_steps):
-            for _ in range(self._substeps):
+        # #region agent log
+        import json as _json, time as _time
+        def _snap(label: str) -> None:
+            _qveladr = self._handles.our_robot.freejoint_qveladr
+            _contacts_r0 = []
+            for _i in range(self._data.ncon):
+                _c = self._data.contact[_i]
+                _g1 = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, _c.geom1) or ""
+                _g2 = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, _c.geom2) or ""
+                if "r0_" in _g1 or "r0_" in _g2:
+                    _contacts_r0.append([_g1, _g2])
+            with open("/home/ben/auto-battlebot/.cursor/debug-505331.log", "a") as _f:
+                _f.write(_json.dumps({
+                    "sessionId": "505331", "hypothesisId": "H-I",
+                    "location": "runner.py:settle",
+                    "message": label,
+                    "data": {
+                        "pos_z": float(self._data.xpos[self._handles.our_robot.body_id][2]),
+                        "vel_z": float(self._data.qvel[_qveladr + 2]),
+                        "ang_vel_y": float(self._data.qvel[_qveladr + 4]),
+                        "ncon_r0": len(_contacts_r0),
+                        "contacts_r0": _contacts_r0,
+                    },
+                    "timestamp": int(_time.time() * 1000),
+                }) + "\n")
+        _snap("step-0 (before settle)")
+        # #endregion
+        for _settle_i in range(self._cfg.server.settle_steps):
+            for _sub_i in range(self._substeps):
                 mujoco.mj_step(self._model, self._data)
+                # #region agent log
+                if _settle_i == 0 and _sub_i < 10:
+                    _qveladr2 = self._handles.our_robot.freejoint_qveladr
+                    _qposadr2 = self._handles.our_robot.freejoint_qposadr
+                    _r0_cons = []
+                    for _ci in range(self._data.ncon):
+                        _c2 = self._data.contact[_ci]
+                        _g1 = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, _c2.geom1) or ""
+                        _g2 = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, _c2.geom2) or ""
+                        if "r0_" in _g1 or "r0_" in _g2:
+                            _r0_cons.append([_g1, _g2])
+                    with open("/home/ben/auto-battlebot/.cursor/debug-505331.log", "a") as _f:
+                        _f.write(_json.dumps({
+                            "sessionId": "505331", "hypothesisId": "H-I",
+                            "location": "runner.py:substep",
+                            "message": f"substep-{_sub_i}",
+                            "data": {
+                                "qpos_z": float(self._data.qpos[_qposadr2 + 2]),
+                                "vel_z": float(self._data.qvel[_qveladr2 + 2]),
+                                "ang_vel_y": float(self._data.qvel[_qveladr2 + 4]),
+                                "ncon_r0": len(_r0_cons),
+                                "contacts_r0": _r0_cons,
+                            },
+                            "timestamp": int(_time.time() * 1000),
+                        }) + "\n")
+                # #endregion
+            # #region agent log
+            if _settle_i in (0, 4, 9, 19, 49):
+                _snap(f"settle-step-{_settle_i}")
+            # #endregion
+
+        self._model.opt.solver = _orig_solver
+        self._model.opt.iterations = _orig_iterations
 
         self._sim_debt = 0.0
         self._prev_time = time.monotonic()
         self._timings = FrameTimings()
+
+        # #region agent log
+        import json as _json, time as _time
+        def _log_contacts(label: str) -> None:
+            _contacts = []
+            for _i in range(self._data.ncon):
+                _c = self._data.contact[_i]
+                _g1 = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, _c.geom1) or str(_c.geom1)
+                _g2 = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_GEOM, _c.geom2) or str(_c.geom2)
+                _contacts.append([_g1, _g2])
+            _pos_z = float(self._data.xpos[self._handles.our_robot.body_id][2])
+            _qveladr = self._handles.our_robot.freejoint_qveladr
+            _ang_y = float(self._data.qvel[_qveladr + 4])
+            with open("/home/ben/auto-battlebot/.cursor/debug-505331.log", "a") as _f:
+                _f.write(_json.dumps({
+                    "sessionId": "505331", "hypothesisId": "H-E",
+                    "location": "runner.py:reset_robots",
+                    "message": label,
+                    "data": {"ncon": self._data.ncon, "contacts": _contacts,
+                             "pos_z": _pos_z, "ang_vel_y": _ang_y},
+                    "timestamp": int(_time.time() * 1000),
+                }) + "\n")
+        _log_contacts("post-settle contacts")
+        # #endregion
 
     # -- per-frame helpers --------------------------------------------------
 

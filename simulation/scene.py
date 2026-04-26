@@ -258,16 +258,16 @@ def _mr_stabs_xml(
       <inertial mass="4.228e-1" pos="0 0 -4e-3"
                 fullinertia="7.503e-4 5.076e-4 1.187e-3 5.579e-8 1.835e-6 6.406e-9"/>
       <geom name="{prefix}chassis_col" type="mesh" mesh="{col_name}"
-            group="3" friction="0.3 0.3 0.001"/>
+            group="3" friction="0.3 0.3 0.001" contype="2" conaffinity="2"/>
       {chassis_vis_block}
       <body name="{prefix}caster_front" pos="0.08 0 -0.020">
         <inertial mass="1e-3" pos="0 0 0" diaginertia="1e-8 1e-8 1e-8"/>
-        <geom name="{prefix}caster_f" type="sphere" size="0.001"
+        <geom name="{prefix}caster_f" type="sphere" size="0.005"
               group="3" friction="0.01 0.01 0.001"/>
       </body>
       <body name="{prefix}caster_rear" pos="-0.08 0 -0.020">
         <inertial mass="1e-3" pos="0 0 0" diaginertia="1e-8 1e-8 1e-8"/>
-        <geom name="{prefix}caster_r" type="sphere" size="0.001"
+        <geom name="{prefix}caster_r" type="sphere" size="0.005"
               group="3" friction="0.01 0.01 0.001"/>
       </body>
       <body name="{prefix}left_wheel" pos="0 0.064 0">
@@ -275,7 +275,7 @@ def _mr_stabs_xml(
                armature="{arm}" damping="{dmp}" frictionloss="{frl}"/>
         <inertial mass="1.5e-2" pos="0 0 5.8e-6"
                   fullinertia="1.821e-6 3.325e-6 1.821e-6 3.700e-9 -9.361e-9 -3.702e-9"/>
-        <geom name="{prefix}lw_col" type="cylinder" size="0.025 0.006" euler="90 0 0"
+        <geom name="{prefix}lw_col" type="sphere" size="0.025"
               group="3" friction="{fr}"/>
         {wheel_vis_l}
       </body>
@@ -284,7 +284,7 @@ def _mr_stabs_xml(
                armature="{arm}" damping="{dmp}" frictionloss="{frl}"/>
         <inertial mass="1.5e-2" pos="0 0 5.8e-6"
                   fullinertia="1.821e-6 3.325e-6 1.821e-6 3.700e-9 -9.361e-9 -3.702e-9"/>
-        <geom name="{prefix}rw_col" type="cylinder" size="0.025 0.006" euler="90 0 0"
+        <geom name="{prefix}rw_col" type="sphere" size="0.025"
               group="3" friction="{fr}"/>
         {wheel_vis_r}
       </body>
@@ -390,7 +390,7 @@ def _house_bot_xml(
       <inertial mass="4.8e1" pos="0 0 0"
                 fullinertia="6.49e-1 4.72e-1 6.94e-1 0 0 0"/>
       <geom name="{prefix}chassis_col" type="mesh" mesh="{col_name}"
-            group="3" friction="0.3 0.3 0.001"/>
+            group="3" friction="0.3 0.3 0.001" contype="2" conaffinity="2"/>
       {chassis_vis_block}
       {wheel_bodies}
     </body>"""
@@ -560,16 +560,16 @@ def _build_arena_xml(cfg: SimConfig, config_dir: Path) -> str:
           pos="0 0 -0.001" rgba="0.35 0.30 0.25 1" contype="0" conaffinity="0"/>
     <geom name="wall_n" type="box"
           pos="0 {half_h + wall_t} {wall_h}" size="{half_w} {wall_t} {wall_h}"
-          rgba="0.6 0.6 0.6 1"/>
+          rgba="0.6 0.6 0.6 1" contype="3" conaffinity="3"/>
     <geom name="wall_s" type="box"
           pos="0 {-(half_h + wall_t)} {wall_h}" size="{half_w} {wall_t} {wall_h}"
-          rgba="0.6 0.6 0.6 1"/>
+          rgba="0.6 0.6 0.6 1" contype="3" conaffinity="3"/>
     <geom name="wall_e" type="box"
           pos="{half_w + wall_t} 0 {wall_h}" size="{wall_t} {half_h} {wall_h}"
-          rgba="0.6 0.6 0.6 1"/>
+          rgba="0.6 0.6 0.6 1" contype="3" conaffinity="3"/>
     <geom name="wall_w" type="box"
           pos="{-(half_w + wall_t)} 0 {wall_h}" size="{wall_t} {half_h} {wall_h}"
-          rgba="0.6 0.6 0.6 1"/>
+          rgba="0.6 0.6 0.6 1" contype="3" conaffinity="3"/>
     <camera name="overhead_cam" pos="{cam_pos_str}" xyaxes="{xyaxes}" fovy="{cam.fov}"/>
     {body_block}
   </worldbody>
