@@ -18,6 +18,7 @@ source "$PROJECT_ROOT/install/install_taplo.sh"
 source "$PROJECT_ROOT/install/install_udev_rules.sh"
 source "$PROJECT_ROOT/install/install_ds3231_rtc.sh"
 source "$PROJECT_ROOT/install/install_pstore_ramoops.sh"
+source "$PROJECT_ROOT/install/install_jetson_stability.sh"
 
 # Run checks and installation
 check_jetson_orin_nano
@@ -34,3 +35,4 @@ build_cpp_project "$@"
 install_udev_rules
 install_ds3231_rtc
 install_pstore_ramoops
+install_jetson_stability
