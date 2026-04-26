@@ -44,6 +44,16 @@ class PursuitNavigation : public NavigationInterface {
     Pose2D clamp_to_field(const Pose2D &pose, const FieldDescription &field) const;
 
     /**
+     * @brief Distance from pose to the nearest field wall (ignoring boundary_margin)
+     */
+    static double distance_to_nearest_wall(const Pose2D &pose, const FieldDescription &field);
+
+    /**
+     * @brief Angle (rad) pointing from pose toward the nearest field wall
+     */
+    static double wall_facing_angle(const Pose2D &pose, const FieldDescription &field);
+
+    /**
      * @brief Normalize angle to [-pi, pi]
      */
     static double normalize_angle(double angle);
@@ -57,6 +67,10 @@ class PursuitNavigation : public NavigationInterface {
     double velocity_ramp_far_distance_;
     double velocity_ramp_near_distance_;
     double velocity_ramp_min_scale_;
+    double wall_reverse_distance_;
+    double wall_heading_threshold_;
+    double max_linear_x_;
+    double max_angular_z_;
     double angular_kp_;
     double angular_kd_;
     double angle_threshold_;

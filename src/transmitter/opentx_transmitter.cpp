@@ -109,8 +109,19 @@ void OpenTxTransmitter::send(VelocityCommand command) {
 
     // Differential control mode: left_channel carries linear command, right_channel carries
     // angular command.
-    double linear_normalized = std::clamp(command.linear_x, -1.0, 1.0);
+    //
+    // Velocity saturation: angular takes full budget first; linear fills remaining headroom.
+    // When saturation_limit == 0 each channel is clamped independently to [-1, 1].
     double angular_normalized = std::clamp(command.angular_z, -1.0, 1.0);
+    double linear_normalized;
+    if (config_.velocity_saturation_limit > 0.0) {
+        const double limit = std::clamp(config_.velocity_saturation_limit, 0.0, 1.0);
+        const double linear_headroom =
+            std::max(0.0, limit - std::abs(angular_normalized));
+        linear_normalized = std::clamp(command.linear_x, -linear_headroom, linear_headroom);
+    } else {
+        linear_normalized = std::clamp(command.linear_x, -1.0, 1.0);
+    }
 
     if (config_.reverse_left_channel) linear_normalized = -linear_normalized;
     if (config_.reverse_right_channel) angular_normalized = -angular_normalized;
@@ -137,6 +148,7 @@ void OpenTxTransmitter::send(VelocityCommand command) {
                             {"angular_z_normalized_in", command.angular_z},
                             {"linear_normalized_out", linear_normalized},
                             {"angular_normalized_out", angular_normalized},
+                            {"velocity_saturation_limit", config_.velocity_saturation_limit},
                             {"lifted_deadzone_percent", config_.lifted_deadzone_percent},
                             {"zero_deadzone_percent", config_.zero_deadzone_percent},
                             {"linear_channel", config_.left_channel},

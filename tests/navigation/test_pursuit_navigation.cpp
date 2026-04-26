@@ -481,6 +481,58 @@ namespace auto_battlebot
         EXPECT_TRUE(cmd.linear_x >= 0.0 || cmd.angular_z != 0.0);
     }
 
+    // ==================== Wall Reverse Tests ====================
+
+    TEST_F(PursuitNavigationTest, WallReverseDisabledByDefault)
+    {
+        // Default wall_reverse_distance = 0 — no reversal even when hugging a wall
+        RobotDescriptionsStamped robots;
+        // Robot near the wall (x = 0.9 on a 2m-wide field, wall at x = 1.0)
+        robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1, Group::OURS, 0.9, 0.0, 0.0));
+        robots.descriptions.push_back(make_robot(Label::OPPONENT, -0.5, 0.0, M_PI));
+        FieldDescription field = make_field(2.0, 2.0);
+
+        VelocityCommand cmd = nav_->update(robots, field, make_target(-0.5, 0.0));
+        EXPECT_GE(cmd.linear_x, 0.0);
+    }
+
+    TEST_F(PursuitNavigationTest, WallReverseEngagesWhenTooClose)
+    {
+        PursuitNavigationConfiguration config;
+        config.wall_reverse_distance = 0.3;
+        PursuitNavigation nav(config);
+        nav.initialize();
+
+        RobotDescriptionsStamped robots;
+        // Robot 0.1 m from the wall (wall at x = 1.0 on a 2m-wide field)
+        robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1, Group::OURS, 0.9, 0.0, 0.0));
+        // Target is ahead — without wall reverse this would give positive linear_x
+        robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.5, 0.0, 0.0));
+        FieldDescription field = make_field(2.0, 2.0);
+
+        VelocityCommand cmd = nav.update(robots, field, make_target(0.5, 0.0));
+
+        EXPECT_LT(cmd.linear_x, 0.0);
+    }
+
+    TEST_F(PursuitNavigationTest, WallReverseDoesNotEngageWhenFarFromWall)
+    {
+        PursuitNavigationConfiguration config;
+        config.wall_reverse_distance = 0.3;
+        PursuitNavigation nav(config);
+        nav.initialize();
+
+        RobotDescriptionsStamped robots;
+        // Robot at the centre — 1.0 m from wall, threshold = 0.3
+        robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1, Group::OURS, 0.0, 0.0, 0.0));
+        robots.descriptions.push_back(make_robot(Label::OPPONENT, 0.5, 0.0, 0.0));
+        FieldDescription field = make_field(2.0, 2.0);
+
+        VelocityCommand cmd = nav.update(robots, field, make_target(0.5, 0.0));
+
+        EXPECT_GT(cmd.linear_x, 0.0);
+    }
+
     // ==================== Linear Y Velocity Tests ====================
 
     TEST_F(PursuitNavigationTest, LinearYIsAlwaysZero)

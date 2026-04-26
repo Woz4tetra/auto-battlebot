@@ -42,6 +42,11 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     double max_motor_rpm = 1500.0;
     double wheel_diameter = 0.05;
 
+    /** Combined output budget: |linear| + |angular| <= limit.
+     *  Angular takes priority; linear fills remaining headroom.
+     *  0 = disabled (each channel clamped independently to [-1, 1]). */
+    double velocity_saturation_limit = 1.0;
+
     OpenTxTransmitterConfiguration() { type = "OpenTxTransmitter"; }
 
     void parse_fields(ConfigParser &parser) override {
@@ -62,6 +67,8 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
         wheel_track_width = parser.get_optional_double("wheel_track_width", wheel_track_width);
         max_motor_rpm = parser.get_optional_double("max_motor_rpm", max_motor_rpm);
         wheel_diameter = parser.get_optional_double("wheel_diameter", wheel_diameter);
+        velocity_saturation_limit =
+            parser.get_optional_double("velocity_saturation_limit", velocity_saturation_limit);
     }
 };
 

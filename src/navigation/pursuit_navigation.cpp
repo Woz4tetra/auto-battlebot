@@ -17,6 +17,10 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       velocity_ramp_far_distance_(config.velocity_ramp_far_distance),
       velocity_ramp_near_distance_(config.velocity_ramp_near_distance),
       velocity_ramp_min_scale_(config.velocity_ramp_min_scale),
+      wall_reverse_distance_(config.wall_reverse_distance),
+      wall_heading_threshold_(config.wall_heading_threshold),
+      max_linear_x_(config.max_linear_x),
+      max_angular_z_(config.max_angular_z),
       angular_kp_(config.angular_kp),
       angular_kd_(config.angular_kd),
       angle_threshold_(config.angle_threshold),
@@ -179,7 +183,51 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
         cmd.linear_x = 0.0;
     }
 
+    if (wall_reverse_distance_ > 0.0) {
+        double wall_dist = distance_to_nearest_wall(our_pose, field);
+        if (wall_dist < wall_reverse_distance_) {
+            double angle_to_wall = wall_facing_angle(our_pose, field);
+            double heading_err = std::abs(normalize_angle(angle_to_wall - our_pose.yaw));
+            if (heading_err < wall_heading_threshold_) {
+                cmd.linear_x = -std::abs(cmd.linear_x);
+                logger_->debug("wall_reverse", {{"wall_dist", wall_dist},
+                                                {"angle_to_wall_deg", angle_to_wall * 180.0 / M_PI},
+                                                {"heading_err_deg", heading_err * 180.0 / M_PI}});
+            }
+        }
+    }
+
+    if (max_linear_x_ > 0.0) {
+        cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_x_, max_linear_x_);
+    }
+    if (max_angular_z_ > 0.0) {
+        cmd.angular_z = std::clamp(cmd.angular_z, -max_angular_z_, max_angular_z_);
+    }
+
     return cmd;
+}
+
+double PursuitNavigation::distance_to_nearest_wall(const Pose2D &pose,
+                                                    const FieldDescription &field) {
+    double half_x = field.size.size.x / 2.0;
+    double half_y = field.size.size.y / 2.0;
+    double dist_x = half_x - std::abs(pose.x);
+    double dist_y = half_y - std::abs(pose.y);
+    return std::min(dist_x, dist_y);
+}
+
+double PursuitNavigation::wall_facing_angle(const Pose2D &pose, const FieldDescription &field) {
+    double half_x = field.size.size.x / 2.0;
+    double half_y = field.size.size.y / 2.0;
+    double dist_x = half_x - std::abs(pose.x);
+    double dist_y = half_y - std::abs(pose.y);
+    if (dist_x <= dist_y) {
+        // Nearest wall is left or right; normal points in ±X direction
+        return (pose.x >= 0.0) ? 0.0 : M_PI;
+    } else {
+        // Nearest wall is top or bottom; normal points in ±Y direction
+        return (pose.y >= 0.0) ? M_PI / 2.0 : -M_PI / 2.0;
+    }
 }
 
 Pose2D PursuitNavigation::clamp_to_field(const Pose2D &pose, const FieldDescription &field) const {

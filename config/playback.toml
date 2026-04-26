@@ -3,8 +3,8 @@ type = "ZedRgbdCamera"
 camera_fps = 60
 
 # svo_file_path = "data/svo/2026-04-20T18-02-50.svo2"
-# svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
-svo_file_path = "data/svo/2026-04-26T13-29-40.svo2"
+svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
+# svo_file_path = "data/svo/2026-04-26T13-29-40.svo2"
 
 # svo_file_path = "data/svo/1729981242.4295187.svo2"
 
@@ -109,6 +109,10 @@ angular_kd = 0.1
 velocity_ramp_far_distance = 2.5
 velocity_ramp_near_distance = 1.0
 velocity_ramp_min_scale = 0.5
+wall_reverse_distance = 0.0  # set > 0 to reverse when within this distance of any wall
+wall_heading_threshold = 1.047  # ~60 deg; heading must point toward wall to trigger reversal
+max_linear_x = 0.0           # 0 = no limit
+max_angular_z = 0.0          # 0 = no limit
 
 [transmitter]
 type = "PlaybackTransmitter"

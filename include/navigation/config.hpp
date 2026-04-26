@@ -34,6 +34,14 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     /** Speed scale applied at distances >= velocity_ramp_far_distance (0..1, fraction of max). */
     double velocity_ramp_min_scale = 0.5;
 
+    /** Distance from any field wall at which linear_x is reversed to back away (m).
+     *  0 = disabled. */
+    double wall_reverse_distance = 0.0;
+
+    /** Heading must be within this angle of the nearest wall normal to trigger reversal (rad).
+     *  Default ~60 deg. */
+    double wall_heading_threshold = M_PI / 3.0;
+
     /** Proportional gain for angular control */
     double angular_kp = 3.0;
 
@@ -52,6 +60,12 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     /** Enable hysteresis to prevent dithering when target is behind */
     bool enable_hysteresis = true;
 
+    /** Maximum magnitude for linear_x output (m/s). 0 = no limit. */
+    double max_linear_x = 0.0;
+
+    /** Maximum magnitude for angular_z output (rad/s). 0 = no limit. */
+    double max_angular_z = 0.0;
+
     PursuitNavigationConfiguration() { type = "PursuitNavigation"; }
 
     // clang-format off
@@ -60,12 +74,16 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(velocity_ramp_far_distance)
         PARSE_FIELD_DOUBLE(velocity_ramp_near_distance)
         PARSE_FIELD_DOUBLE(velocity_ramp_min_scale)
+        PARSE_FIELD_DOUBLE(wall_reverse_distance)
+        PARSE_FIELD_DOUBLE(wall_heading_threshold)
         PARSE_FIELD_DOUBLE(angular_kp)
         PARSE_FIELD_DOUBLE(angular_kd)
         PARSE_FIELD_DOUBLE(angle_threshold)
         PARSE_FIELD_DOUBLE(lookahead_time)
         PARSE_FIELD_DOUBLE(boundary_margin)
         PARSE_FIELD_BOOL(enable_hysteresis)
+        PARSE_FIELD_DOUBLE(max_linear_x)
+        PARSE_FIELD_DOUBLE(max_angular_z)
     )
     // clang-format on
 };
