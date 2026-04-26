@@ -1,8 +1,8 @@
 #include "runner.hpp"
 
-#include <algorithm>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <opencv2/core.hpp>
 
 #include "time_utils.hpp"
@@ -15,7 +15,13 @@ constexpr double kDiagnosticsPublishWarnMs = 100.0;
 constexpr double kRecoverLoopWarnMs = 5000.0;
 constexpr double kUiDebugCopyWarnMs = 40.0;
 constexpr auto kWatchdogCheckInterval = std::chrono::seconds(3);
-constexpr auto kWatchdogStallThreshold = std::chrono::seconds(10);
+// Stall threshold must stay larger than the camera layer's own hard timeouts
+// (kOpenHardTimeout = 30 s in zed_rgbd_camera.cpp) so a legitimately slow ZED reopen
+// during recover_camera_after_failure() does not look like a wedged main loop.
+constexpr auto kWatchdogStallThreshold = std::chrono::seconds(45);
+constexpr auto kCameraRecoverInitialBackoff = std::chrono::milliseconds(1000);
+constexpr auto kCameraRecoverMaxBackoff = std::chrono::milliseconds(10000);
+constexpr auto kCameraRecoverPetInterval = std::chrono::milliseconds(500);
 }  // namespace
 
 Runner::Runner(const RunnerConfiguration &runner_config,
@@ -162,18 +168,45 @@ bool Runner::recover_camera_after_failure() {
         if (ui_state_ && ui_state_->quit_requested.load()) return false;
         return true;
     };
+
+    // Sleep with periodic watchdog pets so a long back-off does not get mistaken
+    // for a stalled main loop. Returns false if the run state goes away during the sleep.
+    auto pet_sleep = [&](std::chrono::milliseconds total) {
+        const auto deadline = std::chrono::steady_clock::now() + total;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (!is_running()) return false;
+            const auto remaining = deadline - std::chrono::steady_clock::now();
+            const auto step =
+                std::min<std::chrono::steady_clock::duration>(kCameraRecoverPetInterval, remaining);
+            if (step.count() <= 0) break;
+            std::this_thread::sleep_for(step);
+            pet_watchdog();
+        }
+        return true;
+    };
+
+    auto backoff = kCameraRecoverInitialBackoff;
     while (is_running()) {
         const auto iteration_start = std::chrono::steady_clock::now();
+        pet_watchdog();
         if (ui_state_ && !handle_system_action_request()) {
             camera_->cancel_initialize();
             return false;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (!pet_sleep(std::chrono::milliseconds(100))) {
+            camera_->cancel_initialize();
+            break;
+        }
         if (!is_running()) {
             camera_->cancel_initialize();
             break;
         }
-        if (camera_->initialize()) break;
+        pet_watchdog();
+        if (camera_->initialize()) {
+            pet_watchdog();
+            break;
+        }
+        pet_watchdog();
 
         const double iteration_ms = std::chrono::duration<double, std::milli>(
                                         std::chrono::steady_clock::now() - iteration_start)
@@ -182,6 +215,14 @@ bool Runner::recover_camera_after_failure() {
             spdlog::warn("validation: camera_recover_iteration slow elapsed_ms={:.2f}",
                          iteration_ms);
         }
+
+        spdlog::warn("Camera reinitialize attempt failed; backing off {} ms before retry",
+                     backoff.count());
+        if (!pet_sleep(backoff)) {
+            camera_->cancel_initialize();
+            break;
+        }
+        backoff = std::min(backoff * 2, kCameraRecoverMaxBackoff);
     }
 
     if (!is_running()) {
@@ -302,7 +343,7 @@ int Runner::run() {
     double max_publish_ms = 0.0;
 
     watchdog_stop_ = false;
-    last_tick_ns_ = std::chrono::steady_clock::now().time_since_epoch().count();
+    pet_watchdog();
     watchdog_thread_ = std::thread([this]() {
         while (!watchdog_stop_) {
             std::this_thread::sleep_for(kWatchdogCheckInterval);
@@ -332,7 +373,7 @@ int Runner::run() {
         }
         std::this_thread::sleep_for(remaining_time);
 
-        last_tick_ns_ = std::chrono::steady_clock::now().time_since_epoch().count();
+        pet_watchdog();
 
         const auto tick_start = std::chrono::steady_clock::now();
         if (!tick()) {
@@ -363,10 +404,9 @@ int Runner::run() {
         }
         const auto publish_start = std::chrono::steady_clock::now();
         DiagnosticsLogger::publish();
-        const double publish_ms =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                      publish_start)
-                .count();
+        const double publish_ms = std::chrono::duration<double, std::milli>(
+                                      std::chrono::steady_clock::now() - publish_start)
+                                      .count();
         max_publish_ms = std::max(max_publish_ms, publish_ms);
         if (publish_ms > kDiagnosticsPublishWarnMs) {
             spdlog::warn("validation: DiagnosticsLogger::publish slow elapsed_ms={:.2f}",
@@ -547,6 +587,10 @@ double Runner::elapsed_ms() {
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(now - start_time_);
     start_time_ = now;
     return duration.count() / 1000.0;
+}
+
+void Runner::pet_watchdog() {
+    last_tick_ns_ = std::chrono::steady_clock::now().time_since_epoch().count();
 }
 
 }  // namespace auto_battlebot

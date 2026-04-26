@@ -85,6 +85,7 @@ class ZedRgbdCamera : public RgbdCameraInterface {
 
     std::atomic<bool> cancel_open_{false};
     std::future<sl::ERROR_CODE> pending_open_;
+    std::atomic<bool> capture_thread_done_{false};
 
     sl::Camera zed_;
     sl::InitParameters params_;

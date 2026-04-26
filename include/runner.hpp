@@ -96,6 +96,7 @@ class Runner {
     bool handle_system_action_request();
     bool handle_ui_requests(bool &should_reinit_field);
     bool recover_camera_after_failure();
+    void pet_watchdog();
     void set_ui_debug_image_from_camera(const CameraData &camera_data) const;
     bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);
     static bool has_our_robot(const RobotDescriptionsStamped &robots);
