@@ -308,13 +308,17 @@ int Runner::run() {
 
     watchdog_stop_ = false;
     last_tick_ns_ = std::chrono::steady_clock::now().time_since_epoch().count();
-    watchdog_thread_ = std::thread([this]() {
+    const auto watchdog_check = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::duration<double>(runner_config_.watchdog_check_interval_s));
+    const auto watchdog_stall = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::duration<double>(runner_config_.watchdog_stall_threshold_s));
+    watchdog_thread_ = std::thread([this, watchdog_check, watchdog_stall]() {
         while (!watchdog_stop_) {
-            std::this_thread::sleep_for(kWatchdogCheckInterval);
+            std::this_thread::sleep_for(watchdog_check);
             if (watchdog_stop_) break;
             const int64_t now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
             const auto stall = std::chrono::nanoseconds(now_ns - last_tick_ns_.load());
-            if (stall > kWatchdogStallThreshold) {
+            if (stall > watchdog_stall) {
                 spdlog::critical("Watchdog: main loop stalled for {:.1f}s, aborting",
                                  std::chrono::duration<double>(stall).count());
                 spdlog::default_logger()->flush();

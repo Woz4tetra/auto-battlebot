@@ -14,6 +14,9 @@ option(BUILD_TESTING "Build tests" OFF)
 # Option to enable debug build
 option(BUILD_DEBUG "Build with debug flags" OFF)
 
+# Option to build standalone Jetson lockup diagnostic probes (tests/stress/diag_*.cpp)
+option(BUILD_DIAGNOSTICS "Build Jetson lockup diagnostic probes" OFF)
+
 if(BUILD_TESTING)
     message("Building tests")
 endif()
@@ -336,10 +339,17 @@ if(BUILD_TESTING)
         "tests/*.cpp"
         "tests/**/*.cpp"
     )
+    # Diagnostic probes have their own main() and are built as standalone executables;
+    # exclude them from the gtest binary.
+    list(FILTER AUTO_BATTLEBOT_TEST_SOURCES EXCLUDE REGEX ".*tests/stress/diag_.*\\.cpp$")
 
     # Test executable for data structures
     add_executable(auto_battlebot_test
         ${AUTO_BATTLEBOT_TEST_SOURCES}
+    )
+
+    target_include_directories(auto_battlebot_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
     )
 
     target_link_libraries(auto_battlebot_test
@@ -350,4 +360,53 @@ if(BUILD_TESTING)
 
     include(GoogleTest)
     gtest_discover_tests(auto_battlebot_test)
+endif()
+
+# Standalone Jetson lockup diagnostic probes.
+# Each probe has its own main() and is intentionally minimal in dependencies so a
+# hang attributes to one subsystem only. Not built or installed by default.
+if(BUILD_DIAGNOSTICS)
+    set(DIAG_COMMON_INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/stress
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    function(add_diag_executable target_name source_file)
+        add_executable(${target_name} ${source_file})
+        target_include_directories(${target_name} PRIVATE ${DIAG_COMMON_INCLUDE_DIRS})
+        target_link_libraries(${target_name} PRIVATE
+            CLI11::CLI11
+            spdlog::spdlog
+            Threads::Threads
+        )
+        target_compile_options(${target_name} PRIVATE
+            ${COMMON_COMPILE_FLAGS}
+            ${RELEASE_COMPILE_FLAGS}
+        )
+    endfunction()
+
+    add_diag_executable(diag_zed_grab tests/stress/diag_zed_grab.cpp)
+    target_link_libraries(diag_zed_grab PRIVATE ${ZED_LIBRARIES} ${CUDA_LIBRARIES})
+
+    add_diag_executable(diag_trt_loop tests/stress/diag_trt_loop.cpp)
+    target_link_libraries(diag_trt_loop PRIVATE ${CUDA_LIBRARIES} ${TensorRT_LIBRARIES})
+
+    add_diag_executable(diag_cuda_thermal tests/stress/diag_cuda_thermal.cpp)
+    target_link_libraries(diag_cuda_thermal PRIVATE ${CUDA_LIBRARIES})
+
+    add_diag_executable(diag_zed_trt_combined tests/stress/diag_zed_trt_combined.cpp)
+    target_link_libraries(diag_zed_trt_combined PRIVATE
+        ${ZED_LIBRARIES}
+        ${CUDA_LIBRARIES}
+        ${TensorRT_LIBRARIES}
+    )
+
+    add_diag_executable(diag_tegrastats tests/stress/diag_tegrastats.cpp)
+
+    add_diag_executable(diag_ups_i2c tests/stress/diag_ups_i2c.cpp)
+
+    add_diag_executable(diag_serial_opentx tests/stress/diag_serial_opentx.cpp)
+    target_link_libraries(diag_serial_opentx PRIVATE auto_battlebot_lib)
+
+    add_diag_executable(diag_mcap_disk tests/stress/diag_mcap_disk.cpp)
 endif()
