@@ -48,6 +48,9 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     RobotKeypointTracker robot_keypoint_tracker_;
     FrameIdAssigner frame_id_assigner_;
     RobotTemporalMotionFilter temporal_motion_filter_;
+    /** Last rotation produced by the keypoint model for each frame_id, used to preserve
+     *  heading when only blob position is available (blobs carry no reliable heading). */
+    std::map<FrameId, Rotation> last_keypoint_rotation_;
 
     std::vector<RobotDescription> convert_keypoints_to_measurements(
         const KeypointsStamped &keypoints, const FieldDescription &field,

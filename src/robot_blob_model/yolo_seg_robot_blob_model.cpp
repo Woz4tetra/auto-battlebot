@@ -1,5 +1,6 @@
 #include "robot_blob_model/yolo_seg_robot_blob_model.hpp"
 
+#include <magic_enum.hpp>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -23,6 +24,7 @@ YoloSegRobotBlobModel::YoloSegRobotBlobModel(YoloSegRobotBlobModelConfiguration 
       max_detections_(config.max_detections),
       debug_visualization_(config.debug_visualization),
       label_indices_(config.label_indices),
+      our_robot_labels_(config.our_robot_labels.begin(), config.our_robot_labels.end()),
       their_robot_labels_(config.their_robot_labels.begin(), config.their_robot_labels.end()),
       neutral_robot_labels_(config.neutral_robot_labels.begin(), config.neutral_robot_labels.end()),
       field_labels_(config.field_labels.begin(), config.field_labels.end()) {
@@ -217,8 +219,9 @@ cv::Scalar YoloSegRobotBlobModel::debug_color_for_detection(const Detection &det
     }
     const Label cls = label_indices_[static_cast<size_t>(det.class_id)];
     const Category cat = classify_category(cls);
+    if (cat == Category::OURS) return cv::Scalar(255, 255, 0);
     if (cat == Category::THEIR) return cv::Scalar(0, 0, 255);
-    if (cat == Category::NEUTRAL) return cv::Scalar(255, 255, 0);
+    if (cat == Category::NEUTRAL) return cv::Scalar(255, 165, 0);
     if (cat == Category::FIELD) return cv::Scalar(0, 255, 0);
     return cv::Scalar(180, 180, 180);
 }
@@ -488,6 +491,7 @@ cv::Mat YoloSegRobotBlobModel::map_mask_to_original_image(const cv::Mat &input_m
 }
 
 YoloSegRobotBlobModel::Category YoloSegRobotBlobModel::classify_category(Label label) const {
+    if (our_robot_labels_.count(label) > 0) return Category::OURS;
     if (their_robot_labels_.count(label) > 0) return Category::THEIR;
     if (neutral_robot_labels_.count(label) > 0) return Category::NEUTRAL;
     if (field_labels_.count(label) > 0) return Category::FIELD;
@@ -502,13 +506,31 @@ void YoloSegRobotBlobModel::append_detection_keypoints(const Detection &det,
     if (det.class_id < 0 || det.class_id >= static_cast<int>(label_indices_.size())) return;
     const Label class_label = label_indices_[static_cast<size_t>(det.class_id)];
     const Category category = classify_category(class_label);
-    if (category != Category::THEIR && category != Category::NEUTRAL) return;
+    if (category == Category::FIELD || category == Category::OTHER) return;
 
-    const Label output_label = (category == Category::THEIR) ? Label::OPPONENT : Label::HOUSE_BOT;
-    const KeypointLabel a_label = (category == Category::THEIR) ? KeypointLabel::OPPONENT_FRONT
-                                                                : KeypointLabel::HOUSE_BOT_FRONT;
-    const KeypointLabel b_label = (category == Category::THEIR) ? KeypointLabel::OPPONENT_BACK
-                                                                : KeypointLabel::HOUSE_BOT_BACK;
+    Label output_label;
+    KeypointLabel a_label;
+    KeypointLabel b_label;
+    if (category == Category::OURS) {
+        const std::string lname = std::string(magic_enum::enum_name(class_label));
+        auto kp_a = magic_enum::enum_cast<KeypointLabel>(lname + "_FRONT");
+        auto kp_b = magic_enum::enum_cast<KeypointLabel>(lname + "_BACK");
+        if (!kp_a.has_value() || !kp_b.has_value()) {
+            spdlog::warn("YoloSegRobotBlobModel: no FRONT/BACK keypoint labels for {}", lname);
+            return;
+        }
+        output_label = class_label;
+        a_label = kp_a.value();
+        b_label = kp_b.value();
+    } else if (category == Category::THEIR) {
+        output_label = Label::OPPONENT;
+        a_label = KeypointLabel::OPPONENT_FRONT;
+        b_label = KeypointLabel::OPPONENT_BACK;
+    } else {
+        output_label = Label::HOUSE_BOT;
+        a_label = KeypointLabel::HOUSE_BOT_FRONT;
+        b_label = KeypointLabel::HOUSE_BOT_BACK;
+    }
 
     MidlineSegment midline;
     if (!instance_mask.empty()) {

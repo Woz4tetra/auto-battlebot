@@ -29,7 +29,7 @@ class YoloSegRobotBlobModel : public RobotBlobModelInterface {
         std::vector<float> mask_coeffs;
     };
 
-    enum class Category { THEIR, NEUTRAL, FIELD, OTHER };
+    enum class Category { OURS, THEIR, NEUTRAL, FIELD, OTHER };
 
     std::string model_path_;
     float confidence_threshold_;
@@ -40,6 +40,7 @@ class YoloSegRobotBlobModel : public RobotBlobModelInterface {
     int max_detections_;
     bool debug_visualization_;
     std::vector<Label> label_indices_;
+    std::set<Label> our_robot_labels_;
     std::set<Label> their_robot_labels_;
     std::set<Label> neutral_robot_labels_;
     std::set<Label> field_labels_;
