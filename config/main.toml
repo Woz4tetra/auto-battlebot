@@ -16,7 +16,7 @@ label_indices = [
     "OPPONENT",
     "HOUSE_BOT",
     "MR_STABS_MK2",
-    "OPPONENT",
+    "MRS_BUFF_MK3",
 ]
 their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
