@@ -90,7 +90,6 @@ bool RobotFrontBackSimpleFilter::initialize(int opponent_count) {
     robot_configs_.clear();
     frame_id_assigner_.reset();
     temporal_motion_filter_.reset();
-    last_keypoint_rotation_.clear();
     for (const auto &[label, frame_ids] : label_to_frame_ids_) {
         robot_configs_[label] = RobotConfig{label, infer_group_from_frame_ids(frame_ids)};
     }
@@ -125,9 +124,6 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
                               filter_measurements.end());
     const std::vector<RobotDescription> keypoint_measurements = filter_measurements;
     diagnostics_logger_->debug({{"num_keypoint_measurements", (int)filter_measurements.size()}});
-    for (const auto &m : keypoint_measurements) {
-        if (m.frame_id != FrameId::EMPTY) last_keypoint_rotation_[m.frame_id] = m.pose.rotation;
-    }
 
     if (!robot_blob_keypoints.keypoints.empty() && field.child_frame_id != FrameId::EMPTY) {
         auto blob_detections = robot_keypoint_tracker_.detect_with_confidence(robot_blob_keypoints,
@@ -231,17 +227,9 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
                  {"num_assigned", static_cast<int>(assigned.size())},
                  {"skipped_no_available_fids", "false"}});
             for (auto &a : assigned) {
+                // Orientation from blob rectangles is intentionally non-semantic. Keep identity.
+                a.pose.rotation = Rotation{1.0, 0.0, 0.0, 0.0};
                 a.group = group_for_frame_id(a.frame_id, a.group);
-                if (a.group == Group::OURS) {
-                    // Preserve last heading from keypoint model; blobs carry no reliable heading.
-                    auto it = last_keypoint_rotation_.find(a.frame_id);
-                    a.pose.rotation = (it != last_keypoint_rotation_.end())
-                                          ? it->second
-                                          : Rotation{1.0, 0.0, 0.0, 0.0};
-                } else {
-                    // Orientation from blob rectangles is intentionally non-semantic. Keep identity.
-                    a.pose.rotation = Rotation{1.0, 0.0, 0.0, 0.0};
-                }
                 filter_measurements.push_back(std::move(a));
             }
         }

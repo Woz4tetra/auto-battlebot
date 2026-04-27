@@ -18,7 +18,6 @@ label_indices = [
     "MR_STABS_MK2",
     "MRS_BUFF_MK3",
 ]
-our_robot_labels = ["MRS_BUFF_MK3"]
 their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]

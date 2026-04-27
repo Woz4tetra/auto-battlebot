@@ -34,7 +34,6 @@ struct YoloSegRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
     int max_detections = 32;
     bool debug_visualization = false;
     std::vector<Label> label_indices;
-    std::vector<Label> our_robot_labels;
     std::vector<Label> their_robot_labels;
     std::vector<Label> neutral_robot_labels;
     std::vector<Label> field_labels;

@@ -35,7 +35,6 @@ void YoloSegRobotBlobModelConfiguration::parse_fields(ConfigParser &parser) {
     max_detections = parser.get_optional_int("max_detections", max_detections);
     debug_visualization = parser.get_optional_bool("debug_visualization", debug_visualization);
     label_indices = parse_label_list(parser, "label_indices");
-    our_robot_labels = parse_label_list(parser, "our_robot_labels");
     their_robot_labels = parse_label_list(parser, "their_robot_labels");
     neutral_robot_labels = parse_label_list(parser, "neutral_robot_labels");
     field_labels = parse_label_list(parser, "field_labels");
