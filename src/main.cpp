@@ -11,6 +11,7 @@
 #include "config/config.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/ros_diagnostics_backend.hpp"
+#include "health/health_logger.hpp"
 #include "logging/logging.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "quittable.hpp"
@@ -80,8 +81,9 @@ int main(int argc, char** argv) {
     auto target_selector = make_target_selector(*class_config.target_selector);
     auto navigation = make_navigation(*class_config.navigation);
     auto transmitter = make_transmitter(*class_config.transmitter);
+    auto health_logger = std::make_shared<HealthLogger>(class_config.health);
 
-    Runner runner(class_config.runner, camera, class_config.health, field_model, robot_mask_model,
+    Runner runner(class_config.runner, camera, health_logger, field_model, robot_mask_model,
                   field_filter, keypoint_model, robot_filter, target_selector, navigation,
                   transmitter, publisher, handle_system_action,
                   ui_manager ? ui_manager->ui_state() : nullptr, mcap_recorder);

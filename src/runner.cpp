@@ -10,7 +10,7 @@
 namespace auto_battlebot {
 Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<RgbdCameraInterface> camera,
-               const HealthConfiguration &health_config,
+               std::shared_ptr<HealthLogger> health_logger,
                std::shared_ptr<MaskModelInterface> field_model,
                std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
                std::shared_ptr<FieldFilterInterface> field_filter,
@@ -23,7 +23,6 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                SystemActionCallback system_action_callback, std::shared_ptr<UIState> ui_state,
                std::shared_ptr<McapRecorder> mcap_recorder)
     : runner_config_(runner_config),
-      health_config_(health_config),
       camera_(camera),
       field_model_(field_model),
       robot_mask_model_(robot_mask_model),
@@ -46,7 +45,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       autonomy_enabled_(runner_config_.autonomy_enabled_by_default),
       initial_field_description_(),
       diagnostics_logger_(DiagnosticsLogger::get_logger("runner")),
-      health_logger_(std::make_unique<HealthLogger>(health_config_)),
+      health_logger_(std::move(health_logger)),
       start_time_(std::chrono::steady_clock::now()) {}
 
 void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
@@ -293,20 +292,15 @@ int Runner::run() {
         const double tick_ms =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tick_start)
                 .count();
-
-        if (health_logger_) {
-            health_logger_->record_tick(tick_ms);
-            health_logger_->maybe_log();
-        }
+        health_logger_->record_tick(tick_ms);
+        health_logger_->maybe_log();
 
         const auto publish_start = std::chrono::steady_clock::now();
         DiagnosticsLogger::publish();
         const double publish_ms = std::chrono::duration<double, std::milli>(
                                       std::chrono::steady_clock::now() - publish_start)
                                       .count();
-        if (health_logger_) {
-            health_logger_->record_publish_ms(publish_ms);
-        }
+        health_logger_->record_publish_ms(publish_ms);
     }
 }
 
