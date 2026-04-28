@@ -167,45 +167,18 @@ bool Runner::recover_camera_after_failure() {
         if (ui_state_ && ui_state_->quit_requested.load()) return false;
         return true;
     };
-
-    // Sleep with periodic watchdog pets so a long back-off does not get mistaken
-    // for a stalled main loop. Returns false if the run state goes away during the sleep.
-    auto pet_sleep = [&](std::chrono::milliseconds total) {
-        const auto deadline = std::chrono::steady_clock::now() + total;
-        while (std::chrono::steady_clock::now() < deadline) {
-            if (!is_running()) return false;
-            const auto remaining = deadline - std::chrono::steady_clock::now();
-            const auto step =
-                std::min<std::chrono::steady_clock::duration>(kCameraRecoverPetInterval, remaining);
-            if (step.count() <= 0) break;
-            std::this_thread::sleep_for(step);
-            pet_watchdog();
-        }
-        return true;
-    };
-
-    auto backoff = kCameraRecoverInitialBackoff;
     while (is_running()) {
         const auto iteration_start = std::chrono::steady_clock::now();
-        pet_watchdog();
         if (ui_state_ && !handle_system_action_request()) {
             camera_->cancel_initialize();
             return false;
         }
-        if (!pet_sleep(std::chrono::milliseconds(100))) {
-            camera_->cancel_initialize();
-            break;
-        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (!is_running()) {
             camera_->cancel_initialize();
             break;
         }
-        pet_watchdog();
-        if (camera_->initialize()) {
-            pet_watchdog();
-            break;
-        }
-        pet_watchdog();
+        if (camera_->initialize()) break;
 
         const double iteration_ms = std::chrono::duration<double, std::milli>(
                                         std::chrono::steady_clock::now() - iteration_start)
@@ -215,13 +188,8 @@ bool Runner::recover_camera_after_failure() {
                          iteration_ms);
         }
 
-        spdlog::warn("Camera reinitialize attempt failed; backing off {} ms before retry",
-                     backoff.count());
-        if (!pet_sleep(backoff)) {
-            camera_->cancel_initialize();
-            break;
-        }
-        backoff = std::min(backoff * 2, kCameraRecoverMaxBackoff);
+        spdlog::warn("Camera reinitialize attempt failed. Exiting.");
+        return false;
     }
 
     if (!is_running()) {
@@ -341,23 +309,6 @@ int Runner::run() {
     double max_health_ms = 0.0;
     double max_publish_ms = 0.0;
 
-    watchdog_stop_ = false;
-    pet_watchdog();
-    watchdog_thread_ = std::thread([this]() {
-        while (!watchdog_stop_) {
-            std::this_thread::sleep_for(kWatchdogCheckInterval);
-            if (watchdog_stop_) break;
-            const int64_t now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
-            const auto stall = std::chrono::nanoseconds(now_ns - last_tick_ns_.load());
-            if (stall > kWatchdogStallThreshold) {
-                spdlog::critical("Watchdog: main loop stalled for {:.1f}s, aborting",
-                                 std::chrono::duration<double>(stall).count());
-                spdlog::default_logger()->flush();
-                std::abort();
-            }
-        }
-    });
-
     while (true) {
         auto current_time = std::chrono::steady_clock::now();
 
@@ -372,13 +323,9 @@ int Runner::run() {
         }
         std::this_thread::sleep_for(remaining_time);
 
-        pet_watchdog();
-
         const auto tick_start = std::chrono::steady_clock::now();
         if (!tick()) {
             spdlog::warn("Runner::tick requested shutdown; runner loop exiting.");
-            watchdog_stop_ = true;
-            watchdog_thread_.join();
             return 0;
         }
         const double tick_ms =
@@ -586,10 +533,6 @@ double Runner::elapsed_ms() {
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(now - start_time_);
     start_time_ = now;
     return duration.count() / 1000.0;
-}
-
-void Runner::pet_watchdog() {
-    last_tick_ns_ = std::chrono::steady_clock::now().time_since_epoch().count();
 }
 
 }  // namespace auto_battlebot

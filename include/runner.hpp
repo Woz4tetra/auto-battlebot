@@ -2,7 +2,6 @@
 
 #include <miniros/ros.h>
 
-#include <atomic>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -83,9 +82,6 @@ class Runner {
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
     std::unique_ptr<HealthLogger> health_logger_;
     std::chrono::steady_clock::time_point start_time_;
-    std::atomic<int64_t> last_tick_ns_{0};
-    std::atomic<bool> watchdog_stop_{false};
-    std::thread watchdog_thread_;
 
     void publish_system_status(bool camera_ok, double loop_rate_hz) const;
     void stop_recordings_for_shutdown() const;
@@ -95,7 +91,6 @@ class Runner {
     bool handle_system_action_request();
     bool handle_ui_requests(bool &should_reinit_field);
     bool recover_camera_after_failure();
-    void pet_watchdog();
     void set_ui_debug_image_from_camera(const CameraData &camera_data) const;
     bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);
     static bool has_our_robot(const RobotDescriptionsStamped &robots);
