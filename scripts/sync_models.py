@@ -129,7 +129,7 @@ def _get_compute_capability() -> tuple[int, int]:
         return (0, 0)
     if torch.cuda.is_available():
         return torch.cuda.get_device_capability(0)
-    raise RuntimeError("CUDA not available — cannot determine GPU compute capability")
+    raise RuntimeError("CUDA not available - cannot determine GPU compute capability")
 
 
 def get_platform_compute_tag() -> str:
@@ -166,7 +166,7 @@ def print_platform_tag_matches(models_dir: Path) -> None:
 def engine_path_with_platform_tag(path: Path) -> Path:
     """Append platform + GPU compute capability tag so incompatible engines are distinct.
 
-    Produces filenames like ``model_x86_64_sm89.engine`` — the ``sm`` tag
+    Produces filenames like ``model_x86_64_sm89.engine`` - the ``sm`` tag
     prevents silently loading an engine built for a different GPU architecture.
     """
     tag = get_platform_compute_tag()
