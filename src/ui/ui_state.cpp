@@ -1,7 +1,8 @@
 #include "ui/ui_state.hpp"
 
-#include <chrono>
 #include <spdlog/spdlog.h>
+
+#include <chrono>
 
 #include "data_structures/target_selection.hpp"
 

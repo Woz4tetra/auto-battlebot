@@ -1,7 +1,6 @@
-#include "ui/ui_manager.hpp"
-
 #include "diagnostics_logger/ui_diagnostics_backend.hpp"
 #include "ui/config.hpp"
+#include "ui/ui_manager.hpp"
 #include "ui/ui_runner.hpp"
 #include "ui/ui_state.hpp"
 

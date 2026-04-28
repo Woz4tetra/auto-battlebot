@@ -2,6 +2,7 @@
 
 #include <fcntl.h>
 #include <linux/i2c-dev.h>
+#include <spdlog/spdlog.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -10,7 +11,6 @@
 #include <chrono>
 #include <cmath>
 #include <ctime>
-#include <spdlog/spdlog.h>
 #include <string>
 
 #include "battery_soc_estimator.hpp"
@@ -64,9 +64,9 @@ bool read_i2c_register_u16(int fd, uint8_t reg, uint16_t &value) {
 bool read_waveshare_ups_sample(const BatteryOptions &options, BatterySample &sample_out) {
     const auto read_start = std::chrono::steady_clock::now();
     auto finish = [&](bool ok) {
-        const double elapsed_ms = std::chrono::duration<double, std::milli>(
-                                      std::chrono::steady_clock::now() - read_start)
-                                      .count();
+        const double elapsed_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - read_start)
+                .count();
         if (elapsed_ms > kBatteryReadWarnMs) {
             spdlog::warn("Waveshare UPS read slow: elapsed_ms={:.2f} ok={}", elapsed_ms, ok);
         }

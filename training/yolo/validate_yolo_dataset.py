@@ -208,7 +208,9 @@ class YOLODatasetValidator:
         self.min_zoom = 0.25
         self.max_zoom = 8.0
         self.zoom_step = 1.2
-        self.render_cache: "OrderedDict[Tuple[int, int, int], Image.Image]" = OrderedDict()
+        self.render_cache: "OrderedDict[Tuple[int, int, int], Image.Image]" = (
+            OrderedDict()
+        )
         self.render_cache_limit = 8
         self.pending_hq_render = None
         self.status_icon_label = None
@@ -358,7 +360,9 @@ class YOLODatasetValidator:
         canvas_frame = ttk.Frame(image_frame)
         canvas_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(canvas_frame, background="#111111", highlightthickness=0)
+        self.canvas = tk.Canvas(
+            canvas_frame, background="#111111", highlightthickness=0
+        )
         x_scroll = ttk.Scrollbar(
             canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview
         )
@@ -489,9 +493,9 @@ class YOLODatasetValidator:
         ttk.Button(zoom_controls, text="+", command=self.zoom_in, width=4).pack(
             side=tk.LEFT, padx=4
         )
-        ttk.Button(
-            zoom_controls, text="Reset", command=self.reset_zoom, width=7
-        ).pack(side=tk.LEFT)
+        ttk.Button(zoom_controls, text="Reset", command=self.reset_zoom, width=7).pack(
+            side=tk.LEFT
+        )
         ttk.Label(options_section, textvariable=self.zoom_var).pack(anchor=tk.W, pady=2)
 
         # === KEYBOARD SHORTCUTS SECTION ===
@@ -800,7 +804,9 @@ class YOLODatasetValidator:
         img_path, label_path = self.image_annotation_pairs[self.current_index]
 
         # Draw image with annotations
-        self.current_annotated_image = self.draw_image_with_annotations(img_path, label_path)
+        self.current_annotated_image = self.draw_image_with_annotations(
+            img_path, label_path
+        )
         self.render_cache.clear()
         self.render_current_image(resample=Image.Resampling.BILINEAR, use_cache=True)
         self.schedule_hq_render(delay_ms=20)
@@ -916,7 +922,9 @@ class YOLODatasetValidator:
                 0, 0, anchor=tk.NW, image=self.current_photo
             )
         else:
-            self.canvas.itemconfig(self.current_canvas_image_id, image=self.current_photo)
+            self.canvas.itemconfig(
+                self.current_canvas_image_id, image=self.current_photo
+            )
             self.canvas.coords(self.current_canvas_image_id, 0, 0)
 
         self.canvas.configure(scrollregion=(0, 0, scaled_w, scaled_h))

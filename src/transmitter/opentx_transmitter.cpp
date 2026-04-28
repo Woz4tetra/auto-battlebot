@@ -116,8 +116,7 @@ void OpenTxTransmitter::send(VelocityCommand command) {
     double linear_normalized;
     if (config_.velocity_saturation_limit > 0.0) {
         const double limit = std::clamp(config_.velocity_saturation_limit, 0.0, 1.0);
-        const double linear_headroom =
-            std::max(0.0, limit - std::abs(angular_normalized));
+        const double linear_headroom = std::max(0.0, limit - std::abs(angular_normalized));
         linear_normalized = std::clamp(command.linear_x, -linear_headroom, linear_headroom);
     } else {
         linear_normalized = std::clamp(command.linear_x, -1.0, 1.0);
@@ -126,8 +125,7 @@ void OpenTxTransmitter::send(VelocityCommand command) {
     if (config_.reverse_left_channel) linear_normalized = -linear_normalized;
     if (config_.reverse_right_channel) angular_normalized = -angular_normalized;
 
-    const double lifted_deadzone =
-        std::clamp(config_.lifted_deadzone_percent, 0.0, 100.0) / 100.0;
+    const double lifted_deadzone = std::clamp(config_.lifted_deadzone_percent, 0.0, 100.0) / 100.0;
     const double zero_deadzone = std::clamp(config_.zero_deadzone_percent, 0.0, 100.0) / 100.0;
     auto apply_lifted_deadzone = [lifted_deadzone, zero_deadzone](double normalized) {
         const double magnitude = std::abs(normalized);

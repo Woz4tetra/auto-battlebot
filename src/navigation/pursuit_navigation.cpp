@@ -62,15 +62,15 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
 
     last_path_ = NavigationPathSegment{our_pose.x, our_pose.y, target.pose.x, target.pose.y};
 
-    logger_->debug("poses", {
-                                {"our_pose_source",
-                                 pose_source == PoseSource::Cached ? "cached" : "live"},
-                                {"our_x", our_pose.x},
-                                {"our_y", our_pose.y},
-                                {"our_yaw_deg", our_pose.yaw * 180.0 / M_PI},
-                                {"target_x", target.pose.x},
-                                {"target_y", target.pose.y},
-                            });
+    logger_->debug("poses",
+                   {
+                       {"our_pose_source", pose_source == PoseSource::Cached ? "cached" : "live"},
+                       {"our_x", our_pose.x},
+                       {"our_y", our_pose.y},
+                       {"our_yaw_deg", our_pose.yaw * 180.0 / M_PI},
+                       {"target_x", target.pose.x},
+                       {"target_y", target.pose.y},
+                   });
 
     auto cmd = compute_pursuit_command(our_pose, target.pose, field);
 
@@ -208,7 +208,7 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
 }
 
 double PursuitNavigation::distance_to_nearest_wall(const Pose2D &pose,
-                                                    const FieldDescription &field) {
+                                                   const FieldDescription &field) {
     double half_x = field.size.size.x / 2.0;
     double half_y = field.size.size.y / 2.0;
     double dist_x = half_x - std::abs(pose.x);

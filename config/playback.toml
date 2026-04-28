@@ -30,11 +30,11 @@ label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
 type = "YoloSegRobotBlobModel"
 model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-26_x86_64_sm89.engine"
 label_indices = [
-    "OPPONENT",
-    "OPPONENT",
-    "HOUSE_BOT",
-    "MR_STABS_MK2",
-    "MRS_BUFF_MK3",
+  "OPPONENT",
+  "OPPONENT",
+  "HOUSE_BOT",
+  "MR_STABS_MK2",
+  "MRS_BUFF_MK3",
 ]
 their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
@@ -75,16 +75,16 @@ type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
-    "MR_STABS_MK2_FRONT",
-    "MRS_BUFF_MK3_FRONT",
-    "HOUSE_BOT_FRONT",
-    "OPPONENT_FRONT",
+  "MR_STABS_MK2_FRONT",
+  "MRS_BUFF_MK3_FRONT",
+  "HOUSE_BOT_FRONT",
+  "OPPONENT_FRONT",
 ]
 back_keypoints = [
-    "MR_STABS_MK2_BACK",
-    "MRS_BUFF_MK3_BACK",
-    "HOUSE_BOT_BACK",
-    "OPPONENT_BACK",
+  "MR_STABS_MK2_BACK",
+  "MRS_BUFF_MK3_BACK",
+  "HOUSE_BOT_BACK",
+  "OPPONENT_BACK",
 ]
 
 robot_blob_min_length_meters = 0.08
@@ -111,10 +111,10 @@ angular_kd = 0.1
 velocity_ramp_far_distance = 2.5
 velocity_ramp_near_distance = 1.0
 velocity_ramp_min_scale = 0.5
-wall_reverse_distance = 0.0  # set > 0 to reverse when within this distance of any wall
-wall_heading_threshold = 1.047  # ~60 deg; heading must point toward wall to trigger reversal
-max_linear_x = 0.0           # 0 = no limit
-max_angular_z = 0.0          # 0 = no limit
+wall_reverse_distance = 0.0       # set > 0 to reverse when within this distance of any wall
+wall_heading_threshold = 1.047    # ~60 deg; heading must point toward wall to trigger reversal
+max_linear_x = 0.0                # 0 = no limit
+max_angular_z = 0.0               # 0 = no limit
 
 [transmitter]
 type = "PlaybackTransmitter"

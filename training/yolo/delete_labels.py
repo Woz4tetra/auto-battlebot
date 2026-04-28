@@ -281,7 +281,9 @@ def main() -> None:
             args.dry_run,
         )
         results_iter = map(process_label_file, worker_inputs)
-        progress_iter = tqdm(results_iter, total=len(worker_inputs), desc="Removing labels")
+        progress_iter = tqdm(
+            results_iter, total=len(worker_inputs), desc="Removing labels"
+        )
     else:
         with mp.Pool(
             processes=jobs,
@@ -295,7 +297,9 @@ def main() -> None:
                 args.dry_run,
             ),
         ) as pool:
-            results_iter = pool.imap_unordered(process_label_file, worker_inputs, chunksize=64)
+            results_iter = pool.imap_unordered(
+                process_label_file, worker_inputs, chunksize=64
+            )
             progress_iter = tqdm(
                 results_iter, total=len(worker_inputs), desc="Removing labels"
             )
@@ -364,7 +368,9 @@ def main() -> None:
         print(
             f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}"
         )
-        print(f"Removed {removed_annotations_total} label annotations across {files_with_removals} files")
+        print(
+            f"Removed {removed_annotations_total} label annotations across {files_with_removals} files"
+        )
         if output_dir is not None:
             copied_yaml = copy_dataset_yaml_if_present(dataset_dir, output_dir)
             if copied_yaml:

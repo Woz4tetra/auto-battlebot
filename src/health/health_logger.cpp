@@ -1,7 +1,7 @@
 #include "health/health_logger.hpp"
 
-#include <unistd.h>
 #include <poll.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cctype>
@@ -217,9 +217,7 @@ bool HealthLogger::start_tegrastats_stream() {
     return true;
 }
 
-void HealthLogger::stop_tegrastats_stream() {
-    tegrastats_pipe_.reset();
-}
+void HealthLogger::stop_tegrastats_stream() { tegrastats_pipe_.reset(); }
 
 bool HealthLogger::collect_tegrastats() {
     const auto collect_start = std::chrono::steady_clock::now();
@@ -407,7 +405,8 @@ bool HealthLogger::collect_tegrastats() {
         data["temp_sensor_count"] = temp_count;
     }
 
-    const std::regex rail_regex(R"(([A-Z][A-Z0-9_]+)\s+([0-9]+(?:\.[0-9]+)?)mW\/([0-9]+(?:\.[0-9]+)?)mW)");
+    const std::regex rail_regex(
+        R"(([A-Z][A-Z0-9_]+)\s+([0-9]+(?:\.[0-9]+)?)mW\/([0-9]+(?:\.[0-9]+)?)mW)");
     std::sregex_iterator rail_begin(line.begin(), line.end(), rail_regex);
     int rail_count = 0;
     double rail_now_total_mw = 0.0;
@@ -479,7 +478,8 @@ bool HealthLogger::collect_nvidia_smi() {
 
     std::string output;
     if (!run_command(
-            "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw "
+            "nvidia-smi "
+            "--query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw "
             "--format=csv,noheader,nounits 2>/dev/null",
             output)) {
         data["available"] = 1;

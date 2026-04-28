@@ -368,7 +368,9 @@ def main():
                     ds_no_label += 1
         else:
             with mp.Pool(processes=jobs) as pool:
-                results_iter = pool.imap_unordered(process_pair_task, tasks, chunksize=64)
+                results_iter = pool.imap_unordered(
+                    process_pair_task, tasks, chunksize=64
+                )
                 progress_iter = tqdm(
                     results_iter,
                     total=len(tasks),
