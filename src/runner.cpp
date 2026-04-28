@@ -277,10 +277,7 @@ int Runner::run() {
         auto remaining_time = loop_duration - (current_time - prev_time);
         prev_time = current_time;
         if (remaining_time.count() < 0) {
-            double exceeded_time =
-                -1 * std::chrono::duration_cast<std::chrono::microseconds>(remaining_time).count() /
-                1000.0;
-            diagnostics_logger_->debug("", {{"loop_duration_exceeded_ms", exceeded_time}});
+            diagnostics_logger_->debug("", {{"loop_duration_exceeded_ms", -to_ms(remaining_time)}});
         }
         std::this_thread::sleep_for(remaining_time);
 
@@ -289,10 +286,7 @@ int Runner::run() {
             spdlog::warn("Runner::tick requested shutdown; runner loop exiting.");
             return 0;
         }
-        const double tick_ms =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tick_start)
-                .count();
-        health_logger_->record_tick(tick_ms);
+        health_logger_->record_tick(ms_since(tick_start));
         health_logger_->maybe_log();
 
         DiagnosticsLogger::publish();
