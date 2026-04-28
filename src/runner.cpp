@@ -35,9 +35,9 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<TargetSelectorInterface> target_selector,
                std::shared_ptr<NavigationInterface> navigation,
                std::shared_ptr<TransmitterInterface> transmitter,
-               std::shared_ptr<PublisherInterface> publisher, std::shared_ptr<UIState> ui_state,
-               std::shared_ptr<McapRecorder> mcap_recorder,
-               SystemActionCallback system_action_callback)
+               std::shared_ptr<PublisherInterface> publisher,
+               SystemActionCallback system_action_callback, std::shared_ptr<UIState> ui_state,
+               std::shared_ptr<McapRecorder> mcap_recorder)
     : runner_config_(runner_config),
       health_config_(health_config),
       camera_(camera),
@@ -61,10 +61,9 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       initialized_(false),
       autonomy_enabled_(runner_config_.autonomy_enabled_by_default),
       initial_field_description_(),
-      start_time_(std::chrono::steady_clock::now()) {
-    diagnostics_logger_ = DiagnosticsLogger::get_logger("runner");
-    health_logger_ = std::make_unique<HealthLogger>(health_config_);
-}
+      diagnostics_logger_(DiagnosticsLogger::get_logger("runner")),
+      health_logger_(std::make_unique<HealthLogger>(health_config_)),
+      start_time_(std::chrono::steady_clock::now()) {}
 
 void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
     if (!ui_state_) return;

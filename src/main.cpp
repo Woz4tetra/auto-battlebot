@@ -83,8 +83,8 @@ int main(int argc, char** argv) {
 
     Runner runner(class_config.runner, camera, class_config.health, field_model, robot_mask_model,
                   field_filter, keypoint_model, robot_filter, target_selector, navigation,
-                  transmitter, publisher, ui_manager ? ui_manager->ui_state() : nullptr,
-                  mcap_recorder, handle_system_action);
+                  transmitter, publisher, handle_system_action,
+                  ui_manager ? ui_manager->ui_state() : nullptr, mcap_recorder);
 
     runner.initialize();
 

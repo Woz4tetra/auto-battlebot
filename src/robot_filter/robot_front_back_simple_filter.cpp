@@ -54,7 +54,8 @@ auto_battlebot::Group infer_group_from_frame_ids(
 namespace auto_battlebot {
 RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
     RobotFrontBackSimpleFilterConfiguration &config)
-    : label_to_frame_ids_(config.label_to_frame_ids),
+    : diagnostics_logger_(DiagnosticsLogger::get_logger("robot_front_back_simple_filter")),
+      label_to_frame_ids_(config.label_to_frame_ids),
       default_frame_id_(config.default_frame_id),
       velocity_ema_alpha_(config.velocity_ema_alpha),
       max_jump_distance_(config.max_jump_distance),
@@ -64,8 +65,7 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
       field_bounds_margin_meters_(config.field_bounds_margin_meters),
       robot_keypoint_tracker_(config.robot_keypoint_tracker_config),
       frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects),
-      temporal_motion_filter_(config.velocity_ema_alpha),
-      diagnostics_logger_(DiagnosticsLogger::get_logger("robot_front_back_simple_filter")) {
+      temporal_motion_filter_(config.velocity_ema_alpha) {
     FrontBackKeypointConverterConfig converter_config;
     converter_config.front_keypoints = config.front_keypoints;
     converter_config.back_keypoints = config.back_keypoints;

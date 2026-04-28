@@ -46,9 +46,8 @@ class Runner {
            std::shared_ptr<NavigationInterface> navigation,
            std::shared_ptr<TransmitterInterface> transmitter,
            std::shared_ptr<PublisherInterface> publisher,
-           std::shared_ptr<UIState> ui_state = nullptr,
-           std::shared_ptr<McapRecorder> mcap_recorder = nullptr,
-           SystemActionCallback system_action_callback = nullptr);
+           SystemActionCallback system_action_callback, std::shared_ptr<UIState> ui_state = nullptr,
+           std::shared_ptr<McapRecorder> mcap_recorder = nullptr);
 
     void initialize();
     void initialize_field(const CameraData &camera_data);
