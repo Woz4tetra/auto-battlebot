@@ -75,7 +75,10 @@ void Runner::stop_recordings_for_shutdown() const {
 
 void Runner::handle_opponent_count_request() {
     int req = ui_state_->opponent_count_requested.exchange(-1);
-    if (req < 1 || req > 3) return;
+    if (req < 1 || req > 3) {
+        spdlog::warn("Requested number of opponents is not between 1 and 3. Ignoring.");
+        return;
+    }
 
     runtime_opponent_count_ = req;
     robot_filter_reinit_pending_ = true;
@@ -118,6 +121,16 @@ bool Runner::handle_system_action_request() {
         system_action_callback_(requested_action);
     }
     return true;
+}
+
+void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const {
+    if (!ui_state_) return;
+    if (!camera_data.rgb.image.data || camera_data.rgb.image.empty()) return;
+
+    const cv::Mat &img = camera_data.rgb.image;
+    std::vector<uint8_t> data(img.ptr<uint8_t>(),
+                              img.ptr<uint8_t>() + img.total() * img.elemSize());
+    ui_state_->set_debug_image(img.cols, img.rows, img.channels(), data);
 }
 
 bool Runner::handle_ui_requests(bool &should_reinit_field) {
@@ -169,16 +182,6 @@ bool Runner::recover_camera_after_failure() {
         return false;
     }
     return true;
-}
-
-void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const {
-    if (!ui_state_) return;
-    if (!camera_data.rgb.image.data || camera_data.rgb.image.empty()) return;
-
-    const cv::Mat &img = camera_data.rgb.image;
-    std::vector<uint8_t> data(img.ptr<uint8_t>(),
-                              img.ptr<uint8_t>() + img.total() * img.elemSize());
-    ui_state_->set_debug_image(img.cols, img.rows, img.channels(), data);
 }
 
 bool Runner::handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz) {
@@ -402,9 +405,9 @@ bool Runner::tick() {
 
 double Runner::elapsed_ms() {
     auto now = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(now - start_time_);
+    double elapsed = to_ms(now - start_time_);
     start_time_ = now;
-    return duration.count() / 1000.0;
+    return elapsed;
 }
 
 }  // namespace auto_battlebot
