@@ -12,7 +12,7 @@ class NoopPublisher : public PublisherInterface {
         [[maybe_unused]] const FieldDescriptionWithInlierPoints &field) override {}
     void publish_field_description([[maybe_unused]] const FieldDescription &field_description,
                                    [[maybe_unused]] const FieldDescriptionWithInlierPoints
-                                       &initial_field_description) override {};
+                                       &initial_field_description) override{};
     void publish_robots([[maybe_unused]] const RobotDescriptionsStamped &robots) override {}
     void publish_navigation([[maybe_unused]] const NavigationVisualization &nav) override {}
 };

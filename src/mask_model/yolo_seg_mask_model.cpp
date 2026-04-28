@@ -26,9 +26,8 @@ YoloSegMaskModel::YoloSegMaskModel(YoloSegMaskModelConfiguration &config)
       max_detections_(config.max_detections),
       debug_visualization_(config.debug_visualization),
       output_label_(config.output_label),
-      label_indices_(config.label_indices) {
-    diagnostics_logger_ = DiagnosticsLogger::get_logger("yolo_seg_mask_model");
-
+      label_indices_(config.label_indices),
+      diagnostics_logger_(DiagnosticsLogger::get_logger("yolo_seg_mask_model")) {
     for (size_t i = 0; i < label_indices_.size(); ++i) {
         if (label_indices_[i] == output_label_) {
             target_class_index_ = static_cast<int>(i);
