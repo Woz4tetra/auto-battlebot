@@ -98,7 +98,6 @@ int main()
 ```cpp
 RgbdCameraInterface
 	bool initialize()
-	void cancel_initialize()
 	bool get(CameraData& data, bool get_depth=false)
 	bool should_close()
 	bool set_svo_recording_enabled(bool enabled)

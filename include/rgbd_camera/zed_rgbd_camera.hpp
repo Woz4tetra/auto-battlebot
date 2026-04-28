@@ -4,9 +4,9 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <filesystem>
-#include <future>
 #include <limits>
 #include <mutex>
 #include <queue>
@@ -67,7 +67,6 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     explicit ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
     ~ZedRgbdCamera();
     bool initialize() override;
-    void cancel_initialize() override;
     bool get(CameraData &data, bool get_depth) override;
     bool should_close() override;
     bool set_recording_enabled(bool enabled) override;
@@ -75,17 +74,40 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     std::string get_current_svo_path() const;
 
    private:
+    // What the main thread is asking the capture thread to do. Close is just the initial
+    // value while the thread idles between construction and the first initialize() call;
+    // there is no public method that sets Close.
+    enum class Request : uint8_t {
+        Close,  // no camera; stay idle (initial value)
+        Open,   // open and grab continuously (set by initialize())
+        Stop    // exit the thread entirely (set by the destructor)
+    };
+
+    // What the capture thread is currently doing.
+    enum class State : uint8_t {
+        Idle,     // alive, no camera open
+        Opening,  // currently inside zed_.open() / enablePositionalTracking()
+        Ready,    // camera open, grab loop running
+        Closing   // currently inside zed_.close()
+    };
+
+    // SVO recording change requested via set_recording_enabled(). Consumed and reset to
+    // None by the capture thread between grabs.
+    enum class RecordIntent : uint8_t {
+        None,   // no change requested
+        Stop,   // please stop recording
+        Start   // please start recording
+    };
+
     void capture_thread_loop();
-    bool capture_frame();
+    bool open_and_configure();
+    bool grab_one_frame();
+    void apply_record_intent();
     void reset_capture_timing_stats() const;
     bool start_svo_recording();
     void stop_svo_recording();
     void enforce_holding_dir_size();
     std::string generate_svo_filename() const;
-
-    std::atomic<bool> cancel_open_{false};
-    std::future<sl::ERROR_CODE> pending_open_;
-    std::atomic<bool> capture_thread_done_{false};
 
     sl::Camera zed_;
     sl::InitParameters params_;
@@ -96,15 +118,20 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     mutable std::mutex data_mutex_;
     mutable std::condition_variable data_cv_;
     std::thread capture_thread_;
-    std::atomic<bool> is_initialized_;
-    std::atomic<bool> should_close_;
-    std::atomic<bool> stop_thread_;
-    std::atomic<bool> camera_connected_;
-    std::atomic<bool> has_new_frame_;
+
+    std::atomic<Request> request_{Request::Close};
+    std::atomic<State> state_{State::Idle};
+    std::atomic<sl::ERROR_CODE> last_open_error_{sl::ERROR_CODE::SUCCESS};
+    std::atomic<RecordIntent> record_intent_{RecordIntent::None};
+    // Sticky "the application should shut down" flag (SVO end-of-file or grab error
+    // ratio threshold exceeded). Reset by initialize() on a fresh attempt.
+    std::atomic<bool> should_close_{false};
+
     std::atomic<uint64_t> frame_counter_;
     uint64_t depth_frame_counter_;
     mutable uint64_t last_returned_frame_counter_;
     mutable std::queue<int> depth_request_queue_;
+    // Capture-thread-local error window (only touched by capture thread).
     std::deque<std::pair<std::chrono::steady_clock::time_point, bool>> recent_grab_results_;
     size_t recent_grab_error_count_;
     sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;

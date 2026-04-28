@@ -15,9 +15,10 @@ constexpr double kDiagnosticsPublishWarnMs = 100.0;
 constexpr double kRecoverLoopWarnMs = 5000.0;
 constexpr double kUiDebugCopyWarnMs = 40.0;
 constexpr auto kWatchdogCheckInterval = std::chrono::seconds(3);
-// Stall threshold must stay larger than the camera layer's own hard timeouts
-// (kOpenHardTimeout = 30 s in zed_rgbd_camera.cpp) so a legitimately slow ZED reopen
-// during recover_camera_after_failure() does not look like a wedged main loop.
+// The camera layer no longer enforces its own open/grab timeouts; this watchdog is the
+// sole backstop for a wedged ZED SDK call. The threshold must be large enough that a
+// legitimately slow open or recovery attempt does not get mistaken for a stall, but small
+// enough that a truly hung process is restarted promptly by systemd.
 constexpr auto kWatchdogStallThreshold = std::chrono::seconds(45);
 constexpr auto kCameraRecoverInitialBackoff = std::chrono::milliseconds(1000);
 constexpr auto kCameraRecoverMaxBackoff = std::chrono::milliseconds(10000);
@@ -189,17 +190,10 @@ bool Runner::recover_camera_after_failure() {
         const auto iteration_start = std::chrono::steady_clock::now();
         pet_watchdog();
         if (ui_state_ && !handle_system_action_request()) {
-            camera_->cancel_initialize();
             return false;
         }
-        if (!pet_sleep(std::chrono::milliseconds(100))) {
-            camera_->cancel_initialize();
-            break;
-        }
-        if (!is_running()) {
-            camera_->cancel_initialize();
-            break;
-        }
+        if (!pet_sleep(std::chrono::milliseconds(100))) break;
+        if (!is_running()) break;
         pet_watchdog();
         if (camera_->initialize()) {
             pet_watchdog();
@@ -217,10 +211,7 @@ bool Runner::recover_camera_after_failure() {
 
         spdlog::warn("Camera reinitialize attempt failed; backing off {} ms before retry",
                      backoff.count());
-        if (!pet_sleep(backoff)) {
-            camera_->cancel_initialize();
-            break;
-        }
+        if (!pet_sleep(backoff)) break;
         backoff = std::min(backoff * 2, kCameraRecoverMaxBackoff);
     }
 
