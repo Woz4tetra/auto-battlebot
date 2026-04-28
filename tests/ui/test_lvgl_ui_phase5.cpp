@@ -2,9 +2,8 @@
 
 #include <chrono>
 #include <future>
-#include <thread>
-
 #include <opencv2/core.hpp>
+#include <thread>
 
 #include "lvgl_platform_bound/lvgl_ui_controller.hpp"
 #include "lvgl_platform_bound/lvgl_ui_presenter.hpp"
@@ -82,7 +81,8 @@ TEST(UiPresenterTest, PresentsHomeFaultAndReadyStates) {
 
 TEST(UiPresenterTest, DiagnosticsSectionsRemainOrderedAndStale) {
     std::vector<std::string> order;
-    std::map<std::string, std::pair<DiagnosticStatusSnapshot, std::chrono::steady_clock::time_point>>
+    std::map<std::string,
+             std::pair<DiagnosticStatusSnapshot, std::chrono::steady_clock::time_point>>
         cache;
 
     DiagnosticStatusSnapshot snap_a;

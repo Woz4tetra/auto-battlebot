@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include <cmath>
 #include <Eigen/Dense>
+#include <cmath>
 #include <opencv2/core.hpp>
 
 #include "robot_filter/robot_front_back_simple_filter.hpp"
@@ -78,8 +78,8 @@ TEST(RobotFrontBackSimpleFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) 
     const double first_x = first.descriptions[0].pose.position.x;
     EXPECT_FALSE(first.descriptions[0].is_stale);
 
-    const auto second = filter.update(make_opponent_keypoints(1.1, 460.0, 500.0), field, camera_info,
-                                      empty_blob_keypoints, command_feedback);
+    const auto second = filter.update(make_opponent_keypoints(1.1, 460.0, 500.0), field,
+                                      camera_info, empty_blob_keypoints, command_feedback);
     ASSERT_EQ(second.descriptions.size(), 1u);
     EXPECT_TRUE(second.descriptions[0].is_stale);
     EXPECT_NEAR(second.descriptions[0].pose.position.x, first_x, 1e-6);
