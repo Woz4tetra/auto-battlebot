@@ -27,7 +27,7 @@ using DetectionRow = std::vector<float>;
 
 class YoloKeypointModel : public KeypointModelInterface {
    public:
-    YoloKeypointModel(YoloKeypointModelConfiguration &config);
+    explicit YoloKeypointModel(YoloKeypointModelConfiguration &config);
 
     bool initialize() override;
     KeypointsStamped update(RgbImage image) override;

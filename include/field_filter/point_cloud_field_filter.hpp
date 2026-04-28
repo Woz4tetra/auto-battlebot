@@ -17,7 +17,7 @@
 namespace auto_battlebot {
 class PointCloudFieldFilter : public FieldFilterInterface {
    public:
-    PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config);
+    explicit PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config);
     ~PointCloudFieldFilter() override = default;
 
     void reset(TransformStamped tf_visodom_from_camera) override;

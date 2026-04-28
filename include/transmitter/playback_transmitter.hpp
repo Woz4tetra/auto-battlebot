@@ -8,7 +8,7 @@
 namespace auto_battlebot {
 class PlaybackTransmitter : public TransmitterInterface {
    public:
-    PlaybackTransmitter(PlaybackTransmitterConfiguration &config);
+    explicit PlaybackTransmitter(PlaybackTransmitterConfiguration &config);
 
     bool initialize() override;
     CommandFeedback update() override;

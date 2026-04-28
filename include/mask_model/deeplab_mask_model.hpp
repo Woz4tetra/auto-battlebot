@@ -18,7 +18,7 @@
 namespace auto_battlebot {
 class DeepLabMaskModel : public MaskModelInterface {
    public:
-    DeepLabMaskModel(DeepLabMaskModelConfiguration &config);
+    explicit DeepLabMaskModel(DeepLabMaskModelConfiguration &config);
 
     bool initialize() override;
     MaskStamped update(RgbImage image) override;

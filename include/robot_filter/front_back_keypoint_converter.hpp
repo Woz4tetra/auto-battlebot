@@ -27,7 +27,7 @@ struct FrontBackKeypointConverterConfig {
  */
 class FrontBackKeypointConverter {
    public:
-    FrontBackKeypointConverter(const FrontBackKeypointConverterConfig &config);
+    explicit FrontBackKeypointConverter(const FrontBackKeypointConverterConfig &config);
 
     /**
      * @brief Convert keypoints to front/back 3D positions in camera frame

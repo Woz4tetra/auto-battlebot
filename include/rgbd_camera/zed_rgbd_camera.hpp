@@ -64,7 +64,7 @@ inline sl::DEPTH_MODE get_zed_depth_mode(DepthMode depth_mode) {
 
 class ZedRgbdCamera : public RgbdCameraInterface {
    public:
-    ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
+    explicit ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
     ~ZedRgbdCamera();
     bool initialize() override;
     void cancel_initialize() override;

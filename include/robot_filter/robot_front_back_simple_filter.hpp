@@ -19,7 +19,7 @@
 namespace auto_battlebot {
 class RobotFrontBackSimpleFilter : public RobotFilterInterface {
    public:
-    RobotFrontBackSimpleFilter(RobotFrontBackSimpleFilterConfiguration &config);
+    explicit RobotFrontBackSimpleFilter(RobotFrontBackSimpleFilterConfiguration &config);
 
     bool initialize(int opponent_count) override;
     RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
