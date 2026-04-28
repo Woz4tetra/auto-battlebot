@@ -92,6 +92,8 @@ class Runner {
     bool recover_camera_after_failure();
     void set_ui_debug_image_from_camera(const CameraData &camera_data) const;
     bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);
+    TargetSelection resolve_target(const RobotDescriptionsStamped &robots,
+                                   const FieldDescription &field_description);
     static bool has_our_robot(const RobotDescriptionsStamped &robots);
     static bool has_their_robot(const RobotDescriptionsStamped &robots);
     static bool has_navigation_critical_robots(const RobotDescriptionsStamped &robots);

@@ -265,6 +265,21 @@ bool Runner::has_navigation_critical_robots(const RobotDescriptionsStamped &robo
     return has_our_robot(robots) && has_their_robot(robots);
 }
 
+TargetSelection Runner::resolve_target(const RobotDescriptionsStamped &robots,
+                                       const FieldDescription &field_description) {
+    if (ui_state_) {
+        if (auto manual_target = ui_state_->get_manual_target()) {
+            return *manual_target;
+        }
+    }
+    if (target_selector_) {
+        if (auto selected = target_selector_->get_target(robots, field_description)) {
+            previous_selected_target_ = *selected;
+        }
+    }
+    return previous_selected_target_;
+}
+
 int Runner::run() {
     auto loop_duration =
         std::chrono::microseconds(static_cast<int64_t>(1000000.0 / runner_config_.max_loop_rate));
@@ -394,19 +409,7 @@ bool Runner::tick() {
         using_previous_navigation_robots = true;
     }
 
-    TargetSelection resolved_target = previous_selected_target_;
-    std::optional<TargetSelection> manual_target;
-    if (ui_state_) manual_target = ui_state_->get_manual_target();
-    if (manual_target.has_value()) {
-        resolved_target = *manual_target;
-    } else if (target_selector_) {
-        std::optional<TargetSelection> selected =
-            target_selector_->get_target(robots_for_navigation, field_description);
-        if (selected.has_value()) {
-            resolved_target = *selected;
-            previous_selected_target_ = resolved_target;
-        }
-    }
+    TargetSelection resolved_target = resolve_target(robots_for_navigation, field_description);
 
     diagnostics_logger_->debug("navigation",
                                {{"using_previous_robots", (int)using_previous_navigation_robots}});
