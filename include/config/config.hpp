@@ -55,5 +55,6 @@ struct ClassConfiguration {
 };
 
 // Configuration loading functions
-ClassConfiguration load_classes_from_config(const std::string &config_path = "");
+ClassConfiguration load_classes_from_config(const std::filesystem::path &path = {});
+std::filesystem::path normalize_config_path(const std::string &config_path);
 }  // namespace auto_battlebot

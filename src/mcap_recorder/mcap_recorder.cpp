@@ -54,6 +54,15 @@ bool McapRecorder::is_enabled() const {
     return writer_open_ && enabled_;
 }
 
+std::shared_ptr<McapRecorder> make_mcap_recorder(const McapRecorderConfig& config,
+                                                 const std::filesystem::path& config_path) {
+    if (!config.enable) return nullptr;
+    std::string config_name = std::filesystem::canonical(config_path).stem().string();
+    auto recorder = std::make_shared<McapRecorder>(config_name);
+    recorder->set_ignored_topics(config.ignored_topics);
+    return recorder;
+}
+
 std::filesystem::path McapRecorder::make_file_path(const std::string& config_name) {
     std::time_t now = std::time(nullptr);
     std::tm tm_buf{};

@@ -7,11 +7,14 @@
 #include <cstring>
 #include <filesystem>
 #include <mcap/writer.hpp>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#include "mcap_recorder/config.hpp"
 
 namespace auto_battlebot {
 
@@ -115,5 +118,8 @@ class McapRecorder {
     std::unordered_set<std::string> ignored_topics_;
     uint32_t sequence_{0};
 };
+
+std::shared_ptr<McapRecorder> make_mcap_recorder(const McapRecorderConfig& config,
+                                                 const std::filesystem::path& config_path);
 
 }  // namespace auto_battlebot

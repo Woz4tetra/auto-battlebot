@@ -62,8 +62,8 @@ int main(int argc, char **argv) {
     using namespace auto_battlebot;
 
     CLI::App app{"Auto BattleBot - Autonomous robot control system"};
-    std::string config_path = "";
-    app.add_option("-c,--config", config_path,
+    std::string config_path_string = "";
+    app.add_option("-c,--config", config_path_string,
                    "Path to config profile (e.g. config/playback.toml or config/playback)");
 
     try {
@@ -72,16 +72,10 @@ int main(int argc, char **argv) {
         return app.exit(e);
     }
 
+    std::filesystem::path config_path = normalize_config_path(config_path_string);
     ClassConfiguration class_config = load_classes_from_config(config_path);
 
-    std::shared_ptr<McapRecorder> mcap_recorder;
-    if (class_config.mcap_recorder.enable) {
-        std::string config_name = config_path.empty()
-                                      ? "main"
-                                      : std::filesystem::canonical(config_path).stem().string();
-        mcap_recorder = std::make_shared<McapRecorder>(config_name);
-        mcap_recorder->set_ignored_topics(class_config.mcap_recorder.ignored_topics);
-    }
+    auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, config_path);
     setup_logging(mcap_recorder);
     std::map<std::string, std::string> remappings;
     miniros::init(remappings, "auto_battlebot");
