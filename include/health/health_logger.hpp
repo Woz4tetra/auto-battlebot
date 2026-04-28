@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -15,6 +16,8 @@ class HealthLogger {
    public:
     explicit HealthLogger(const HealthConfiguration& config);
     void maybe_log();
+    void record_tick(double tick_ms);
+    void record_publish_ms(double publish_ms);
 
    private:
     HealthConfiguration config_;
@@ -23,6 +26,16 @@ class HealthLogger {
     bool has_sampled_ = false;
     std::shared_ptr<FILE> tegrastats_pipe_;
     bool tegrastats_unavailable_ = false;
+
+    std::chrono::steady_clock::time_point heartbeat_window_start_;
+    bool heartbeat_window_started_ = false;
+    uint64_t heartbeat_ticks_ = 0;
+    double max_tick_ms_ = 0.0;
+    double max_health_ms_ = 0.0;
+    double max_publish_ms_ = 0.0;
+
+    void perform_sampling();
+    void emit_heartbeat_if_due(std::chrono::steady_clock::time_point now);
 
     static bool is_x86();
     static bool command_exists(const std::string& command);

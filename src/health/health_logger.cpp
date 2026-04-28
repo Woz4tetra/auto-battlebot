@@ -58,6 +58,25 @@ HealthLogger::HealthLogger(const HealthConfiguration& config) : config_(config) 
 }
 
 void HealthLogger::maybe_log() {
+    const auto health_start = std::chrono::steady_clock::now();
+    perform_sampling();
+    const auto health_end = std::chrono::steady_clock::now();
+    const double health_ms =
+        std::chrono::duration<double, std::milli>(health_end - health_start).count();
+    max_health_ms_ = std::max(max_health_ms_, health_ms);
+    emit_heartbeat_if_due(health_end);
+}
+
+void HealthLogger::record_tick(double tick_ms) {
+    heartbeat_ticks_++;
+    max_tick_ms_ = std::max(max_tick_ms_, tick_ms);
+}
+
+void HealthLogger::record_publish_ms(double publish_ms) {
+    max_publish_ms_ = std::max(max_publish_ms_, publish_ms);
+}
+
+void HealthLogger::perform_sampling() {
     if (!config_.enable) {
         return;
     }
@@ -98,6 +117,29 @@ void HealthLogger::maybe_log() {
     status["sample_period_ms"] = config_.sample_period_ms;
     status["any_source_logged"] = any_logged ? 1 : 0;
     logger_->debug("status", status);
+}
+
+void HealthLogger::emit_heartbeat_if_due(std::chrono::steady_clock::time_point now) {
+    if (!heartbeat_window_started_) {
+        heartbeat_window_start_ = now;
+        heartbeat_window_started_ = true;
+        return;
+    }
+    const auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - heartbeat_window_start_)
+            .count();
+    if (elapsed_ms < 1000) {
+        return;
+    }
+    spdlog::debug(
+        "runner heartbeat: ticks={} tick_ms_max={:.2f} health_ms_max={:.2f} "
+        "publish_ms_max={:.2f}",
+        heartbeat_ticks_, max_tick_ms_, max_health_ms_, max_publish_ms_);
+    heartbeat_window_start_ = now;
+    heartbeat_ticks_ = 0;
+    max_tick_ms_ = 0.0;
+    max_health_ms_ = 0.0;
+    max_publish_ms_ = 0.0;
 }
 
 bool HealthLogger::is_x86() {
