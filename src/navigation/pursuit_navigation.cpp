@@ -18,6 +18,7 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       velocity_ramp_near_distance_(config.velocity_ramp_near_distance),
       velocity_ramp_min_scale_(config.velocity_ramp_min_scale),
       wall_reverse_distance_(config.wall_reverse_distance),
+      wall_reverse_min_speed_(config.wall_reverse_min_speed),
       wall_heading_threshold_(config.wall_heading_threshold),
       max_linear_x_(config.max_linear_x),
       max_angular_z_(config.max_angular_z),
@@ -189,7 +190,7 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
             double angle_to_wall = wall_facing_angle(our_pose, field);
             double heading_err = std::abs(normalize_angle(angle_to_wall - our_pose.yaw));
             if (heading_err < wall_heading_threshold_) {
-                cmd.linear_x = -std::abs(cmd.linear_x);
+                cmd.linear_x = -std::max(std::abs(cmd.linear_x), wall_reverse_min_speed_);
                 logger_->debug("wall_reverse", {{"wall_dist", wall_dist},
                                                 {"angle_to_wall_deg", angle_to_wall * 180.0 / M_PI},
                                                 {"heading_err_deg", heading_err * 180.0 / M_PI}});

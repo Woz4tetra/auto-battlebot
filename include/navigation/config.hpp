@@ -38,6 +38,10 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
      *  0 = disabled. */
     double wall_reverse_distance = 0.0;
 
+    /** Minimum speed (m/s) used when wall reverse engages and no forward drive was commanded.
+     *  Ensures a meaningful reversal even when the robot was stationary or turning in place. */
+    double wall_reverse_min_speed = 1.0;
+
     /** Heading must be within this angle of the nearest wall normal to trigger reversal (rad).
      *  Default ~60 deg. */
     double wall_heading_threshold = M_PI / 3.0;
@@ -75,6 +79,7 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(velocity_ramp_near_distance)
         PARSE_FIELD_DOUBLE(velocity_ramp_min_scale)
         PARSE_FIELD_DOUBLE(wall_reverse_distance)
+        PARSE_FIELD_DOUBLE(wall_reverse_min_speed)
         PARSE_FIELD_DOUBLE(wall_heading_threshold)
         PARSE_FIELD_DOUBLE(angular_kp)
         PARSE_FIELD_DOUBLE(angular_kd)
