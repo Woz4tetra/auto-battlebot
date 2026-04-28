@@ -2,63 +2,33 @@
 #include <spdlog/spdlog.h>
 
 #include <CLI/CLI.hpp>
-#include <atomic>
 #include <csignal>
-#include <cstdlib>
 #include <diagnostic_msgs/DiagnosticArray.hxx>
 #include <filesystem>
 #include <memory>
-#include <thread>
 #include <vector>
 
 #include "config/config.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/ros_diagnostics_backend.hpp"
-#include "diagnostics_logger/ui_diagnostics_backend.hpp"
 #include "logging/logging.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
+#include "quittable.hpp"
 #include "runner.hpp"
-#include "ui/ui_runner.hpp"
-#include "ui/ui_state.hpp"
+#include "ui/system_actions.hpp"
+#include "ui/ui_manager.hpp"
 
 namespace {
-std::atomic<auto_battlebot::UIState *> g_ui_state_for_signal{nullptr};
+constexpr std::size_t kMaxQuittables = 8;
+auto_battlebot::Quittable* g_quittables[kMaxQuittables] = {};
+std::size_t g_quittables_count = 0;
 
 void signal_quit(int) {
-    auto *s = g_ui_state_for_signal.load(std::memory_order_relaxed);
-    if (s) s->quit_requested.store(true);
-}
-
-void handle_system_action(auto_battlebot::UISystemAction action) {
-    int rc = 0;
-    switch (action) {
-        case auto_battlebot::UISystemAction::REBOOT_HOST:
-            rc = std::system("systemctl reboot");
-            if (rc != 0) {
-                spdlog::warn("systemctl reboot failed (rc={}); trying sudo fallback", rc);
-                rc = std::system("sudo reboot");
-            }
-            if (rc != 0) {
-                spdlog::error("Failed to execute reboot command, rc={}", rc);
-            }
-            break;
-        case auto_battlebot::UISystemAction::POWEROFF_HOST:
-            rc = std::system("systemctl poweroff");
-            if (rc != 0) {
-                spdlog::warn("systemctl poweroff failed (rc={}); trying sudo fallback", rc);
-                rc = std::system("sudo shutdown now");
-            }
-            if (rc != 0) {
-                spdlog::error("Failed to execute poweroff command, rc={}", rc);
-            }
-            break;
-        default:
-            break;
-    }
+    for (std::size_t i = 0; i < g_quittables_count; ++i) g_quittables[i]->request_quit();
 }
 }  // namespace
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     using namespace auto_battlebot;
 
     CLI::App app{"Auto BattleBot - Autonomous robot control system"};
@@ -68,7 +38,7 @@ int main(int argc, char **argv) {
 
     try {
         app.parse(argc, argv);
-    } catch (const CLI::ParseError &e) {
+    } catch (const CLI::ParseError& e) {
         return app.exit(e);
     }
 
@@ -82,15 +52,16 @@ int main(int argc, char **argv) {
     miniros::NodeHandle nh;
     setup_rosout_publisher(nh);
 
-    std::shared_ptr<UIState> ui_state;
+    std::unique_ptr<UIManager> ui_manager;
     std::vector<std::shared_ptr<DiagnosticsBackend>> backends;
 
     if (class_config.ui && class_config.ui->enable) {
-        ui_state = std::make_shared<UIState>();
-        backends.push_back(std::make_shared<UIDiagnosticsBackend>(ui_state));
+        ui_manager =
+            std::make_unique<UIManager>(*class_config.ui, class_config.runner.max_loop_rate);
+        backends.push_back(ui_manager->diagnostics_backend());
     }
 
-    if (class_config.publisher->type == "RosPublisher") {
+    if (class_config.publisher->uses_ros()) {
         auto ros_diag_publisher = std::make_shared<miniros::Publisher>(
             nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 100));
         backends.push_back(
@@ -99,9 +70,7 @@ int main(int argc, char **argv) {
 
     DiagnosticsLogger::initialize(backends);
 
-    std::shared_ptr<PublisherInterface> publisher =
-        make_publisher(nh, *class_config.publisher, mcap_recorder);
-
+    auto publisher = make_publisher(nh, *class_config.publisher, mcap_recorder);
     auto camera = make_rgbd_camera(*class_config.camera);
     auto field_model = make_mask_model(*class_config.field_model);
     auto robot_mask_model = make_robot_blob_model(*class_config.robot_mask_model);
@@ -114,39 +83,24 @@ int main(int argc, char **argv) {
 
     Runner runner(class_config.runner, camera, class_config.health, field_model, robot_mask_model,
                   field_filter, keypoint_model, robot_filter, target_selector, navigation,
-                  transmitter, publisher, ui_state, mcap_recorder, handle_system_action);
+                  transmitter, publisher, ui_manager ? ui_manager->ui_state() : nullptr,
+                  mcap_recorder, handle_system_action);
 
     runner.initialize();
 
-    std::thread ui_thread;
-    if (class_config.ui && class_config.ui->enable && ui_state) {
-        g_ui_state_for_signal.store(ui_state.get(), std::memory_order_relaxed);
-        std::signal(SIGINT, signal_quit);
-        std::signal(SIGTERM, signal_quit);
-        ui_state->set_window_size(class_config.ui->width, class_config.ui->height);
-        ui_state->set_fullscreen(class_config.ui->fullscreen);
-        ui_state->set_battery_source(class_config.ui->battery_source);
-        ui_state->set_battery_options(class_config.ui->battery);
-        ui_state->set_rate_avg_window(class_config.ui->rate_avg_window);
-        ui_state->set_max_loop_rate(class_config.runner.max_loop_rate);
-        ui_state->set_rate_fail_threshold(class_config.ui->rate_fail_threshold);
-        ui_state->set_rate_fail_duration_sec(class_config.ui->rate_fail_duration_sec);
-        ui_thread = std::thread(run_ui_thread, ui_state);
-    }
+    if (ui_manager) g_quittables[g_quittables_count++] = ui_manager.get();
+
+    std::signal(SIGINT, signal_quit);
+    std::signal(SIGTERM, signal_quit);
+
+    if (ui_manager) ui_manager->start();
 
     int result = runner.run();
-    spdlog::warn("runner.run() returned with code {}", result);
+    spdlog::warn("Runner returned with code {}", result);
 
-    if (ui_state) {
-        ui_state->quit_requested.store(true);
-    }
-
-    if (ui_thread.joinable()) {
-        ui_thread.join();
-    }
-
-    g_ui_state_for_signal.store(nullptr, std::memory_order_relaxed);
     std::signal(SIGINT, SIG_DFL);
     std::signal(SIGTERM, SIG_DFL);
+    g_quittables_count = 0;
+    // ui_manager destructor: request_stop + join
     return result;
 }

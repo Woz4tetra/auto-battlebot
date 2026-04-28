@@ -22,6 +22,7 @@ struct PublisherConfiguration {
     std::string type;
     virtual ~PublisherConfiguration() = default;
     virtual void parse_fields([[maybe_unused]] ConfigParser &parser) {}
+    virtual bool uses_ros() const { return false; }
 };
 
 struct NoopPublisherConfiguration : public PublisherConfiguration {
@@ -34,6 +35,7 @@ struct NoopPublisherConfiguration : public PublisherConfiguration {
 
 struct RosPublisherConfiguration : public PublisherConfiguration {
     RosPublisherConfiguration() { type = "RosPublisher"; }
+    bool uses_ros() const override { return true; }
 
     PARSE_CONFIG_FIELDS(
         // No additional fields

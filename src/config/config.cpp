@@ -39,7 +39,7 @@ std::filesystem::path normalize_config_path(const std::string &config_path) {
 
 ClassConfiguration load_classes_from_config(const std::filesystem::path &path) {
     ClassConfiguration config;
-    std::string path_string = path.u8string();
+    std::string path_string = path.string();
 
     try {
         auto toml_data = toml::parse_file(path_string);

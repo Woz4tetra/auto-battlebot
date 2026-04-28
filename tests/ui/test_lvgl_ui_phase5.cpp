@@ -179,8 +179,9 @@ TEST(UiIntegrationSmokeTest, UiThreadStartsAndShutsDown) {
 
     std::promise<void> done;
     auto future = done.get_future();
-    std::thread ui_thread([&done, &ui_state]() {
-        run_ui_thread(ui_state);
+    std::stop_source stop_src;
+    std::thread ui_thread([&done, &ui_state, stop = stop_src.get_token()]() {
+        run_ui_thread(stop, ui_state);
         done.set_value();
     });
 
