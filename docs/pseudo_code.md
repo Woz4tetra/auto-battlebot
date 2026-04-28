@@ -4,6 +4,7 @@
 class Runner
     Runner(
 		RgbdCameraInterface camera,
+        HealthLogger health_logger,
 		MaskModelInterface field_model,
 		RobotBlobModelInterface robot_blob_model,
 		FieldFilterInterface field_filter,
@@ -17,6 +18,7 @@ class Runner
 		// assign properties
         initialized = false
         initial_field_description = FieldDescription()
+        previous_selected_target = TargetSelection()
 
     void initialize()
         // initialize all interfaces
@@ -32,8 +34,12 @@ class Runner
 
     int run()
         while true
+            tick_start = steady_clock.now()
             if not tick()
                 return 0
+            health_logger.record_tick(ms_since(tick_start))
+            health_logger.maybe_log()
+            DiagnosticsLogger.publish()
 
     bool tick()
         command_feedback = transmitter.update()
@@ -58,27 +64,30 @@ class Runner
             robot_blob_keypoints,
             command_feedback
         )
-        selected_target = target_selector.get_target(robots, field_description)
-        if selected_target.has_value():
-            target = selected_target.value()
-        // Add target overrides here
+        target = resolve_target(robots, field_description)
         command = navigation.update(robots, field_description, target)
         transmitter.send(command)
 
+    TargetSelection resolve_target(RobotDescriptionsStamped robots, FieldDescription field_description)
+        // Manual UI target overrides automatic selection (does not update cache)
+        // Otherwise, refresh the cached selection if the selector returns one
+
 int main()
     ClassConfiguration class_config = load_classes_from_config()
-	RgbdCameraInterface camera = make_rgbd_camera(class_config.camera)
-	MaskModelInterface field_model = make_mask_model(class_config.field_model)
-	RobotBlobModelInterface robot_blob_model = make_robot_blob_model(class_config.robot_mask_model)
-	FieldFilterInterface field_filter = make_field_filter(class_config.field_filter)
-	KeypointModelInterface keypoint_model = make_keypoint_model(class_config.keypoint_model)
-	RobotFilterInterface robot_filter = make_robot_filter(class_config.robot_filter)
+    RgbdCameraInterface camera = make_rgbd_camera(class_config.camera)
+    HealthLogger health_logger = HealthLogger(class_config.health)
+    MaskModelInterface field_model = make_mask_model(class_config.field_model)
+    RobotBlobModelInterface robot_blob_model = make_robot_blob_model(class_config.robot_mask_model)
+    FieldFilterInterface field_filter = make_field_filter(class_config.field_filter)
+    KeypointModelInterface keypoint_model = make_keypoint_model(class_config.keypoint_model)
+    RobotFilterInterface robot_filter = make_robot_filter(class_config.robot_filter)
     TargetSelectorInterface target_selector = make_target_selector(class_config.target_selector)
-	NavigationInterface navigation = make_navigation(class_config.navigation)
-	TransmitterInterface transmitter = make_transmitter(class_config.transmitter)
+    NavigationInterface navigation = make_navigation(class_config.navigation)
+    TransmitterInterface transmitter = make_transmitter(class_config.transmitter)
     PublisherInterface publisher = make_publisher(class_config.publisher)
     runner = Runner(
 		camera,
+        health_logger,
 		field_model,
         robot_blob_model,
 		field_filter,
@@ -161,6 +170,12 @@ PublisherInterface
 
 DiagnosticsBackend
     void receive(const vector<DiagnosticStatusSnapshot>& snapshots)
+
+
+class HealthLogger
+    void record_tick(double tick_ms)
+    void maybe_log()
+
 ```
 
 # Data classes/structs
