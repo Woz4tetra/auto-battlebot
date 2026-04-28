@@ -1,8 +1,6 @@
 #pragma once
 
-#include <algorithm>
 #include <diagnostic_msgs/DiagnosticStatus.hxx>
-#include <set>
 #include <string>
 #include <vector>
 

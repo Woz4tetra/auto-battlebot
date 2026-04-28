@@ -120,16 +120,6 @@ void run_ui_thread(std::stop_token stop, std::shared_ptr<UIState> ui_state) {
 
         lv_tick_inc(delay_ms);
         lv_timer_handler();
-        // LVGL's SDL driver may consume SDL_WINDOWEVENT_CLOSE or SDL_QUIT internally and destroy
-        // the display. If so, we must exit the loop now rather than call update_ui_content on the
-        // next iteration with a null display.
-        if (lv_display_get_default() == nullptr) {
-            spdlog::warn(
-                "UI: LVGL display destroyed inside lv_timer_handler (SDL close/quit consumed "
-                "internally), exiting loop.");
-            if (ui_state) ui_state->quit_requested.store(true);
-            break;
-        }
         SDL_Delay(delay_ms);
 
         const double loop_ms =
