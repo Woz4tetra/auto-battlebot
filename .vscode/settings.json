@@ -2,6 +2,10 @@
     "editor.formatOnSave": true,
     "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.formatting": "clangFormat",
+    "C_Cpp.clang_format_path": "/usr/bin/clang-format",
+    "C_Cpp.clang_format_style": "file",
     "cmake.buildDirectory": "${workspaceFolder}/build",
     "cmake.configureOnOpen": false,
     "files.exclude": {
