@@ -68,7 +68,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
 
 void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
     if (!ui_state_) return;
-    const bool svo_recording_enabled = camera_->is_svo_recording_enabled();
+    const bool svo_recording_enabled = camera_->is_recording_enabled();
     const bool mcap_recording_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
     SystemStatus status;
     status.camera_ok = camera_ok;
@@ -84,7 +84,7 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
 }
 
 void Runner::stop_recordings_for_shutdown() const {
-    if (!camera_->set_svo_recording_enabled(false)) {
+    if (!camera_->set_recording_enabled(false)) {
         spdlog::warn("Failed to disable SVO recording during shutdown.");
     }
     if (mcap_recorder_) {
@@ -115,11 +115,11 @@ void Runner::handle_autonomy_toggle_request() {
 void Runner::handle_recording_toggle_request() const {
     if (!ui_state_->recording_toggle_requested.exchange(false)) return;
 
-    const bool svo_enabled = camera_->is_svo_recording_enabled();
+    const bool svo_enabled = camera_->is_recording_enabled();
     const bool mcap_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
     const bool target_enabled = !(svo_enabled && mcap_enabled);
 
-    if (!camera_->set_svo_recording_enabled(target_enabled)) {
+    if (!camera_->set_recording_enabled(target_enabled)) {
         spdlog::warn("Failed to set SVO recording to {}", target_enabled ? "enabled" : "disabled");
     }
     if (mcap_recorder_ && !mcap_recorder_->set_enabled(target_enabled)) {

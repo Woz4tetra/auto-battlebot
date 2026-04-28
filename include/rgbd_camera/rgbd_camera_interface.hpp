@@ -1,6 +1,6 @@
 #pragma once
 
-#include "data_structures.hpp"
+#include "data_structures/camera.hpp"
 
 namespace auto_battlebot {
 class RgbdCameraInterface {
@@ -12,9 +12,9 @@ class RgbdCameraInterface {
     virtual void cancel_initialize() {}
     virtual bool get(CameraData &data, bool get_depth = false) = 0;
     virtual bool should_close() = 0;
-    /** Runtime control for SVO capture on cameras that support it. */
-    virtual bool set_svo_recording_enabled([[maybe_unused]] bool enabled) { return false; }
-    virtual bool is_svo_recording_enabled() const { return false; }
+    /** Runtime control for capture on cameras that support it. */
+    virtual bool set_recording_enabled([[maybe_unused]] bool enabled) { return false; }
+    virtual bool is_recording_enabled() const { return false; }
 };
 
 }  // namespace auto_battlebot
