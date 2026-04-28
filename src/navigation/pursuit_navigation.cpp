@@ -10,6 +10,10 @@
 #include "enums/frame_id.hpp"
 #include "transform_utils.hpp"
 
+namespace {
+enum class PoseSource { Live, Cached };
+}
+
 namespace auto_battlebot {
 
 PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &config)
@@ -36,15 +40,19 @@ bool PursuitNavigation::initialize() {
     prev_timestamp_ = 0.0;
     last_known_our_pose_.reset();
     last_path_.reset();
+    nav_robots_cache_.reset();
     spdlog::info("PursuitNavigation initialized with lookahead_time={} s", lookahead_time_);
     return true;
 }
 
 VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, FieldDescription field,
                                           const TargetSelection &target) {
-    enum class PoseSource { Live, Cached };
-
     last_path_ = std::nullopt;
+
+    auto cache_result = nav_robots_cache_.resolve(robots);
+    robots = cache_result.robots;
+    logger_->debug("nav_robots",
+                   {{"using_previous_robots", static_cast<int>(cache_result.using_previous)}});
 
     auto our_robot_opt = find_our_robot(robots);
     Pose2D our_pose;

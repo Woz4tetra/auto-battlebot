@@ -5,6 +5,7 @@
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "navigation/config.hpp"
+#include "navigation/navigation_robots_cache.hpp"
 
 namespace auto_battlebot {
 /**
@@ -87,6 +88,7 @@ class PursuitNavigation : public NavigationInterface {
     double prev_angle_error_ = 0.0;
     double prev_timestamp_ = 0.0;
     std::optional<Pose2D> last_known_our_pose_;
+    NavigationRobotsCache nav_robots_cache_;
 };
 
 }  // namespace auto_battlebot

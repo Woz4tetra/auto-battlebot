@@ -39,8 +39,6 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       runtime_opponent_count_(runner_config_.default_opponent_count),
       robot_filter_reinit_pending_(false),
       previous_selected_target_(TargetSelection{}),
-      previous_navigation_robots_(),
-      has_previous_navigation_robots_(false),
       initialized_(false),
       autonomy_enabled_(runner_config_.autonomy_enabled_by_default),
       initial_field_description_(),
@@ -241,28 +239,8 @@ void Runner::initialize_field(const CameraData &camera_data) {
     robot_filter_->initialize(runtime_opponent_count_);
     navigation_->initialize();
     previous_selected_target_ = TargetSelection{};
-    has_previous_navigation_robots_ = false;
-    previous_navigation_robots_.descriptions.clear();
     initialized_ = true;
     spdlog::info("Field initialized");
-}
-
-bool Runner::has_our_robot(const RobotDescriptionsStamped &robots) {
-    for (const auto &robot : robots.descriptions) {
-        if (robot.frame_id == FrameId::OUR_ROBOT_1) return true;
-    }
-    return false;
-}
-
-bool Runner::has_their_robot(const RobotDescriptionsStamped &robots) {
-    for (const auto &robot : robots.descriptions) {
-        if (robot.group == Group::THEIRS) return true;
-    }
-    return false;
-}
-
-bool Runner::has_navigation_critical_robots(const RobotDescriptionsStamped &robots) {
-    return has_our_robot(robots) && has_their_robot(robots);
 }
 
 TargetSelection Runner::resolve_target(const RobotDescriptionsStamped &robots,
@@ -359,8 +337,6 @@ bool Runner::tick() {
         robot_filter_reinit_pending_ = false;
         robot_filter_->initialize(runtime_opponent_count_);
         navigation_->initialize();
-        has_previous_navigation_robots_ = false;
-        previous_navigation_robots_.descriptions.clear();
     }
 
     if (!initialized_) return handle_uninitialized_tick(camera_data, loop_rate_hz);
@@ -398,24 +374,9 @@ bool Runner::tick() {
         publisher_->publish_robots(robots);
     }
 
-    RobotDescriptionsStamped robots_for_navigation = robots;
-    bool using_previous_navigation_robots = false;
-    if (has_navigation_critical_robots(robots)) {
-        previous_navigation_robots_ = robots;
-        has_previous_navigation_robots_ = true;
-    } else if (has_previous_navigation_robots_ &&
-               has_navigation_critical_robots(previous_navigation_robots_)) {
-        robots_for_navigation = previous_navigation_robots_;
-        using_previous_navigation_robots = true;
-    }
+    TargetSelection resolved_target = resolve_target(robots, field_description);
 
-    TargetSelection resolved_target = resolve_target(robots_for_navigation, field_description);
-
-    diagnostics_logger_->debug("navigation",
-                               {{"using_previous_robots", (int)using_previous_navigation_robots}});
-
-    VelocityCommand command =
-        navigation_->update(robots_for_navigation, field_description, resolved_target);
+    VelocityCommand command = navigation_->update(robots, field_description, resolved_target);
     transmitter_->send(command);
 
     {
