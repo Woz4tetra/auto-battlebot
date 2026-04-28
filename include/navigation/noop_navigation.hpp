@@ -7,11 +7,23 @@ class NoopNavigation : public NavigationInterface {
    public:
     bool initialize() override { return true; }
 
-    VelocityCommand update([[maybe_unused]] RobotDescriptionsStamped robots,
+    VelocityCommand update(RobotDescriptionsStamped robots,
                            [[maybe_unused]] FieldDescription field,
                            [[maybe_unused]] const TargetSelection &target) override {
-        return VelocityCommand{};
+        VelocityCommand cmd{};
+        last_visualization_ = NavigationVisualization{};
+        last_visualization_.header = robots.header;
+        last_visualization_.command = cmd;
+        last_visualization_.robots = std::move(robots);
+        return cmd;
     }
+
+    const NavigationVisualization &get_last_visualization() const override {
+        return last_visualization_;
+    }
+
+   private:
+    NavigationVisualization last_visualization_;
 };
 
 }  // namespace auto_battlebot

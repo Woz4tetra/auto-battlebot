@@ -24,13 +24,22 @@ class FixedVelocityNavigation : public NavigationInterface {
         return true;
     }
 
-    VelocityCommand update([[maybe_unused]] RobotDescriptionsStamped robots,
+    VelocityCommand update(RobotDescriptionsStamped robots,
                            [[maybe_unused]] FieldDescription field,
                            [[maybe_unused]] const TargetSelection &target) override {
         logger_->debug(
             "command",
             {{"linear_x", linear_x_}, {"linear_y", linear_y_}, {"angular_z", angular_z_}});
-        return VelocityCommand{linear_x_, linear_y_, angular_z_};
+        VelocityCommand cmd{linear_x_, linear_y_, angular_z_};
+        last_visualization_ = NavigationVisualization{};
+        last_visualization_.header = robots.header;
+        last_visualization_.command = cmd;
+        last_visualization_.robots = std::move(robots);
+        return cmd;
+    }
+
+    const NavigationVisualization &get_last_visualization() const override {
+        return last_visualization_;
     }
 
    private:
@@ -38,6 +47,7 @@ class FixedVelocityNavigation : public NavigationInterface {
     double linear_y_;
     double angular_z_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
+    NavigationVisualization last_visualization_;
 };
 
 }  // namespace auto_battlebot

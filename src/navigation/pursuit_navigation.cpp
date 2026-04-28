@@ -39,7 +39,7 @@ bool PursuitNavigation::initialize() {
     prev_angle_error_ = 0.0;
     prev_timestamp_ = 0.0;
     last_known_our_pose_.reset();
-    last_path_.reset();
+    last_visualization_ = NavigationVisualization{};
     nav_robots_cache_.reset();
     spdlog::info("PursuitNavigation initialized with lookahead_time={} s", lookahead_time_);
     return true;
@@ -47,7 +47,9 @@ bool PursuitNavigation::initialize() {
 
 VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, FieldDescription field,
                                           const TargetSelection &target) {
-    last_path_ = std::nullopt;
+    last_visualization_ = NavigationVisualization{};
+    last_visualization_.header = robots.header;
+    last_visualization_.robots = robots;
 
     auto cache_result = nav_robots_cache_.resolve(robots);
     robots = cache_result.robots;
@@ -69,7 +71,8 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
         return VelocityCommand{0.0, 0.0, 0.0};
     }
 
-    last_path_ = NavigationPathSegment{our_pose.x, our_pose.y, target.pose.x, target.pose.y};
+    last_visualization_.path =
+        NavigationPathSegment{our_pose.x, our_pose.y, target.pose.x, target.pose.y};
 
     logger_->debug("poses",
                    {
@@ -88,10 +91,9 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
                                   {"angular_z", cmd.angular_z},
                               });
 
+    last_visualization_.command = cmd;
     return cmd;
 }
-
-std::optional<NavigationPathSegment> PursuitNavigation::get_last_path() const { return last_path_; }
 
 std::optional<RobotDescription> PursuitNavigation::find_our_robot(
     const RobotDescriptionsStamped &robots) const {

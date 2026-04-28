@@ -385,14 +385,7 @@ bool Runner::tick() {
         diagnostics_logger_->debug("pipeline", {{"latency_ms", pipeline_latency_ms}});
     }
 
-    {
-        NavigationVisualization nav_viz;
-        nav_viz.header = robots.header;
-        nav_viz.path = navigation_->get_last_path();
-        nav_viz.command = command;
-        nav_viz.robots = robots;
-        publisher_->publish_navigation(nav_viz);
-    }
+    publisher_->publish_navigation(navigation_->get_last_visualization());
 
     publish_system_status(true, loop_rate_hz);
     if (ui_state_) {
@@ -400,7 +393,7 @@ bool Runner::tick() {
         ui_state_->set_field_description(field_description);
         ui_state_->set_robots(robots);
         ui_state_->set_keypoints(keypoints);
-        ui_state_->set_navigation_path(navigation_->get_last_path());
+        ui_state_->set_navigation_path(navigation_->get_last_visualization().path);
         set_ui_debug_image_from_camera(camera_data);
     }
 

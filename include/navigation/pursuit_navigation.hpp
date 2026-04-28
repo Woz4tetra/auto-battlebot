@@ -25,7 +25,10 @@ class PursuitNavigation : public NavigationInterface {
 
     VelocityCommand update(RobotDescriptionsStamped robots, FieldDescription field,
                            const TargetSelection &target) override;
-    std::optional<NavigationPathSegment> get_last_path() const override;
+
+    const NavigationVisualization &get_last_visualization() const override {
+        return last_visualization_;
+    }
 
    private:
     /**
@@ -79,7 +82,6 @@ class PursuitNavigation : public NavigationInterface {
     double lookahead_time_;
     double boundary_margin_;
     bool enable_hysteresis_;
-    mutable std::optional<NavigationPathSegment> last_path_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
 
     /** Latched turn direction (+1 or -1) to avoid dithering when target is behind us. 0 =
@@ -89,6 +91,7 @@ class PursuitNavigation : public NavigationInterface {
     double prev_timestamp_ = 0.0;
     std::optional<Pose2D> last_known_our_pose_;
     NavigationRobotsCache nav_robots_cache_;
+    NavigationVisualization last_visualization_;
 };
 
 }  // namespace auto_battlebot
