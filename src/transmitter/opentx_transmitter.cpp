@@ -11,9 +11,7 @@ constexpr auto kReconnectInterval = std::chrono::seconds(1);
 }
 
 OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& config)
-    : config_(config) {
-    logger_ = DiagnosticsLogger::get_logger("opentx_transmitter");
-}
+    : config_(config), logger_(DiagnosticsLogger::get_logger("opentx_transmitter")) {}
 
 bool OpenTxTransmitter::initialize() {
     auto device = find_opentx_device();

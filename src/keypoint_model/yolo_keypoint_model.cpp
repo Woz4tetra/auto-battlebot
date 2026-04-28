@@ -16,9 +16,8 @@ YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config)
       debug_visualization_(config.debug_visualization),
       label_map_(config.label_map),
       label_indices_(config.label_indices),
-      initialized_(false) {
-    diagnostics_logger_ = DiagnosticsLogger::get_logger("yolo_keypoint_model");
-}
+      initialized_(false),
+      diagnostics_logger_(DiagnosticsLogger::get_logger("yolo_keypoint_model")) {}
 
 bool YoloKeypointModel::initialize() {
     spdlog::info("Loading TensorRT engine from: {}", model_path_);

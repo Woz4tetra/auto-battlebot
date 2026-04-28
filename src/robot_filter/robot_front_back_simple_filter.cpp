@@ -64,9 +64,8 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
       field_bounds_margin_meters_(config.field_bounds_margin_meters),
       robot_keypoint_tracker_(config.robot_keypoint_tracker_config),
       frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects),
-      temporal_motion_filter_(config.velocity_ema_alpha) {
-    diagnostics_logger_ = DiagnosticsLogger::get_logger("robot_front_back_simple_filter");
-
+      temporal_motion_filter_(config.velocity_ema_alpha),
+      diagnostics_logger_(DiagnosticsLogger::get_logger("robot_front_back_simple_filter")) {
     FrontBackKeypointConverterConfig converter_config;
     converter_config.front_keypoints = config.front_keypoints;
     converter_config.back_keypoints = config.back_keypoints;

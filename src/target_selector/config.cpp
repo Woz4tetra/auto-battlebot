@@ -28,8 +28,12 @@ std::unique_ptr<TargetSelectorConfiguration> load_target_selector_from_toml(
 std::shared_ptr<TargetSelectorInterface> make_target_selector(
     const TargetSelectorConfiguration &config) {
     spdlog::info("Selected {} for TargetSelector", config.type);
-    if (config.type == "NearestTarget") return std::make_shared<NearestTarget>();
-    if (config.type == "NoopTarget") return std::make_shared<NoopTarget>();
+    if (config.type == "NearestTarget") {
+        return std::make_shared<NearestTarget>()
+    };
+    if (config.type == "NoopTarget") {
+        return std::make_shared<NoopTarget>()
+    };
     throw std::invalid_argument("Failed to load TargetSelector of type " + config.type);
 }
 }  // namespace auto_battlebot

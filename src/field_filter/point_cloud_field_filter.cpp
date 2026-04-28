@@ -6,9 +6,8 @@ namespace auto_battlebot {
 PointCloudFieldFilter::PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config)
     : distance_threshold_(config.distance_threshold),
       local_visualize_debug_(config.local_visualize_debug),
-      depth_units_per_meter_(config.depth_units_per_meter) {
-    diagnostics_logger_ = DiagnosticsLogger::get_logger("point_cloud_field_filter");
-}
+      depth_units_per_meter_(config.depth_units_per_meter),
+      diagnostics_logger_(DiagnosticsLogger::get_logger("point_cloud_field_filter")) {}
 
 void PointCloudFieldFilter::reset(TransformStamped tf_visodom_from_camera) {
     tf_visodom_from_cameraworld_ = tf_visodom_from_camera;
