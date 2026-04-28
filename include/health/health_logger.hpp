@@ -17,7 +17,6 @@ class HealthLogger {
     explicit HealthLogger(const HealthConfiguration& config);
     void maybe_log();
     void record_tick(double tick_ms);
-    void record_publish_ms(double publish_ms);
 
    private:
     HealthConfiguration config_;
@@ -31,8 +30,6 @@ class HealthLogger {
     bool heartbeat_window_started_ = false;
     uint64_t heartbeat_ticks_ = 0;
     double max_tick_ms_ = 0.0;
-    double max_health_ms_ = 0.0;
-    double max_publish_ms_ = 0.0;
 
     void perform_sampling();
     void emit_heartbeat_if_due(std::chrono::steady_clock::time_point now);

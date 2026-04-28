@@ -295,12 +295,7 @@ int Runner::run() {
         health_logger_->record_tick(tick_ms);
         health_logger_->maybe_log();
 
-        const auto publish_start = std::chrono::steady_clock::now();
         DiagnosticsLogger::publish();
-        const double publish_ms = std::chrono::duration<double, std::milli>(
-                                      std::chrono::steady_clock::now() - publish_start)
-                                      .count();
-        health_logger_->record_publish_ms(publish_ms);
     }
 }
 
