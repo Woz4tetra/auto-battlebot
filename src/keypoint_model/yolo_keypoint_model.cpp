@@ -333,24 +333,17 @@ void YoloKeypointModel::scale_boxes(std::vector<DetectionRow> &detections,
     }
 }
 
-KeypointsStamped YoloKeypointModel::postprocess_output(const float *output, const Header &header,
-                                                       cv::Size original_image_size,
-                                                       cv::Size input_image_size,
-                                                       const cv::Mat &original_image) {
-    KeypointsStamped result;
-    result.header = header;
-
+bool YoloKeypointModel::resolve_output_layout(const float *output, int &num_features,
+                                              int &num_predictions,
+                                              std::vector<float> &transposed_buf,
+                                              const float *&prediction_ptr) {
     const std::vector<int64_t> out_shape = engine_.getOutputShape();
     if (out_shape.size() < 3) {
         diagnostics_logger_->warning({}, "Invalid output dimensions");
-        return result;
+        return false;
     }
     const int dim1 = static_cast<int>(out_shape[1]);
     const int dim2 = static_cast<int>(out_shape[2]);
-    int num_features;
-    int num_predictions;
-    std::vector<float> prediction_row_major;
-    const float *prediction_ptr;
     if (dim1 > dim2) {
         num_predictions = dim1;
         num_features = dim2;
@@ -358,40 +351,26 @@ KeypointsStamped YoloKeypointModel::postprocess_output(const float *output, cons
     } else {
         num_features = dim1;
         num_predictions = dim2;
-        prediction_row_major.resize(static_cast<size_t>(num_predictions) * num_features);
+        transposed_buf.resize(static_cast<size_t>(num_predictions) * num_features);
         for (int p = 0; p < num_predictions; p++)
             for (int f = 0; f < num_features; f++)
-                prediction_row_major[static_cast<size_t>(p) * num_features + f] =
+                transposed_buf[static_cast<size_t>(p) * num_features + f] =
                     output[static_cast<size_t>(f) * num_predictions + p];
-        prediction_ptr = prediction_row_major.data();
+        prediction_ptr = transposed_buf.data();
     }
+    return true;
+}
 
-    int num_keypoints = 0;
-    if (!label_map_.label_to_keypoints.empty()) {
-        num_keypoints = static_cast<int>(label_map_.label_to_keypoints.front().second.size());
-    }
-
-    std::vector<DetectionRow> keep =
-        non_max_suppression(prediction_ptr, num_features, num_predictions, num_keypoints,
-                            threshold_, iou_threshold_, 300);
-
-    const int num_detections = static_cast<int>(keep.size());
-    int valid_detections = 0;
-
-    if (num_detections == 0) {
-        DiagnosticsData summary_data;
-        summary_data["total_detections"] = 0;
-        summary_data["valid_detections"] = 0;
-        summary_data["threshold"] = threshold_;
-        summary_data["iou_threshold"] = iou_threshold_;
-        diagnostics_logger_->info(summary_data);
-        return result;
-    }
-
+int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<DetectionRow> &keep,
+                                                         const Header &header,
+                                                         cv::Size original_image_size,
+                                                         cv::Size input_image_size,
+                                                         KeypointsStamped &result) {
     const int num_classes = static_cast<int>(label_map_.size());
     const int keypoint_start_idx = 6;
+    int valid_detections = 0;
 
-    for (int i = 0; i < num_detections; i++) {
+    for (int i = 0; i < static_cast<int>(keep.size()); i++) {
         const DetectionRow &row = keep[i];
         if (row.size() < 6) continue;
         const float confidence = row[4];
@@ -432,6 +411,48 @@ KeypointsStamped YoloKeypointModel::postprocess_output(const float *output, cons
             result.keypoints.push_back(keypoint);
         }
     }
+    return valid_detections;
+}
+
+KeypointsStamped YoloKeypointModel::postprocess_output(const float *output, const Header &header,
+                                                       cv::Size original_image_size,
+                                                       cv::Size input_image_size,
+                                                       const cv::Mat &original_image) {
+    KeypointsStamped result;
+    result.header = header;
+
+    int num_features = 0;
+    int num_predictions = 0;
+    std::vector<float> transposed_buf;
+    const float *prediction_ptr = nullptr;
+    if (!resolve_output_layout(output, num_features, num_predictions, transposed_buf,
+                               prediction_ptr)) {
+        return result;
+    }
+
+    int num_keypoints = 0;
+    if (!label_map_.label_to_keypoints.empty()) {
+        num_keypoints = static_cast<int>(label_map_.label_to_keypoints.front().second.size());
+    }
+
+    std::vector<DetectionRow> keep =
+        non_max_suppression(prediction_ptr, num_features, num_predictions, num_keypoints,
+                            threshold_, iou_threshold_, 300);
+
+    const int num_detections = static_cast<int>(keep.size());
+
+    if (num_detections == 0) {
+        DiagnosticsData summary_data;
+        summary_data["total_detections"] = 0;
+        summary_data["valid_detections"] = 0;
+        summary_data["threshold"] = threshold_;
+        summary_data["iou_threshold"] = iou_threshold_;
+        diagnostics_logger_->info(summary_data);
+        return result;
+    }
+
+    const int valid_detections = extract_keypoints_from_detections(
+        keep, header, original_image_size, input_image_size, result);
 
     DiagnosticsData summary_data;
     summary_data["total_detections"] = num_detections;
