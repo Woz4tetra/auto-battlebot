@@ -104,7 +104,7 @@ max_motor_rpm = 1500            # RPM
 wheel_diameter = 0.05
 lifted_deadzone_percent = 10
 zero_deadzone_percent = 2
-reverse_right_channel = true
+reverse_angular_channel = true
 velocity_saturation_limit = 1.0 # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
 
 [publisher]

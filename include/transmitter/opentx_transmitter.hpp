@@ -52,6 +52,7 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     bool reconnect_if_needed();
     void process_channel_updates(const std::vector<uint8_t>& bytes);
+    void write_trainer_channels(int linear_value, int angular_value);
 
     void handle_packet(const CrsfLinkStatistics& pkt);
     void handle_packet(const CrsfBattery& pkt);
