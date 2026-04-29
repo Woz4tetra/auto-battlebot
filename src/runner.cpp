@@ -132,10 +132,8 @@ void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const
     if (!ui_state_) return;
     if (!camera_data.rgb.image.data || camera_data.rgb.image.empty()) return;
 
-    const cv::Mat &img = camera_data.rgb.image;
-    std::vector<uint8_t> data(img.ptr<uint8_t>(),
-                              img.ptr<uint8_t>() + img.total() * img.elemSize());
-    ui_state_->set_debug_image(img.cols, img.rows, img.channels(), data);
+    // UIState clones internally to detach from the camera SDK's reusable buffer.
+    ui_state_->set_debug_image(camera_data.rgb.image);
 }
 
 bool Runner::handle_ui_requests(bool &should_reinit_field) {
