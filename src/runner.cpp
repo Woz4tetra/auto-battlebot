@@ -395,8 +395,11 @@ bool Runner::tick() {
     transmitter_->send(command);
 
     {
-        double now_s = auto_battlebot::now();
-        double pipeline_latency_ms = (now_s - robots.header.stamp) * 1000.0;
+        // Measure end-to-end latency from when the image was sampled (camera frame timestamp)
+        // rather than from `robots.header.stamp`, which gets reused across cache substitutions
+        // and so under-reports latency on substituted ticks.
+        const double pipeline_latency_ms =
+            (auto_battlebot::now() - camera_data.rgb.header.stamp) * 1000.0;
         diagnostics_logger_->debug("pipeline", {{"latency_ms", pipeline_latency_ms}});
     }
 
