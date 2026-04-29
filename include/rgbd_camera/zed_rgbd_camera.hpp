@@ -13,7 +13,6 @@
 #include <sl/Camera.hpp>
 #include <thread>
 
-#include "cuda/pinned_host_mat_allocator.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "rgbd_camera/config.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
@@ -120,10 +119,6 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     int svo_start_frame_;
 
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
-
-    // Pinned-host pool for the BGR cv::Mat handed to downstream TensorRT preprocessors.
-    // Outlives latest_data_.rgb.image and any consumer's shallow cv::Mat copy.
-    PinnedHostMatAllocator pinned_bgr_allocator_;
 
     // Capture timing statistics (protected by data_mutex_)
     mutable uint64_t captures_since_last_report_;

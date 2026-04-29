@@ -511,20 +511,10 @@ bool ZedRgbdCamera::capture_frame() {
         latest_data_.tracking_ok = true;
     }
 
-    // Convert ZED RGB image to OpenCV Mat (BGRA to BGR).
-    // The BGR destination is allocated through pinned_bgr_allocator_ so its backing memory is
-    // page-locked + device-mapped: downstream cudaMemcpy(H2D) into the TensorRT input runs at
-    // full bandwidth on x86 and becomes a pointer alias on Tegra (Orin) where CPU/GPU share
-    // physical LPDDR5. Allocating a fresh cv::Mat per frame (rather than reusing
-    // latest_data_.rgb.image in place) lets the pool hand out a different buffer when a
-    // consumer is still reading the previous frame, eliminating the in-place overwrite race
-    // that the old direct-write path had.
+    // Convert ZED RGB image to OpenCV Mat (BGRA to BGR)
     cv::Mat zed_rgb_mat(zed_rgb_.getHeight(), zed_rgb_.getWidth(), CV_8UC4,
                         zed_rgb_.getPtr<sl::uchar1>());
-    cv::Mat bgr_pinned;
-    bgr_pinned.allocator = &pinned_bgr_allocator_;
-    cv::cvtColor(zed_rgb_mat, bgr_pinned, cv::COLOR_BGRA2BGR);
-    latest_data_.rgb.image = std::move(bgr_pinned);
+    cv::cvtColor(zed_rgb_mat, latest_data_.rgb.image, cv::COLOR_BGRA2BGR);
 
     // Convert ZED depth image to OpenCV Mat (float32) if requested
     if (need_depth) {
