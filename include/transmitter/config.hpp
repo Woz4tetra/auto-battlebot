@@ -21,10 +21,24 @@ struct NoopTransmitterConfiguration : public TransmitterConfiguration {
 
 struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
     double init_delay_seconds = 0.0;
+    double velocity_saturation_limit = 1.0;
+    double zero_deadzone_percent = 0.0;
+    double lifted_deadzone_percent = 0.0;
+    bool reverse_linear_channel = false;
+    bool reverse_angular_channel = false;
 
     PlaybackTransmitterConfiguration() { type = "PlaybackTransmitter"; }
 
-    PARSE_CONFIG_FIELDS(PARSE_FIELD_DOUBLE(init_delay_seconds))
+    // clang-format off
+    PARSE_CONFIG_FIELDS(
+        PARSE_FIELD_DOUBLE(init_delay_seconds)
+        PARSE_FIELD_DOUBLE(velocity_saturation_limit)
+        PARSE_FIELD_DOUBLE(zero_deadzone_percent)
+        PARSE_FIELD_DOUBLE(lifted_deadzone_percent)
+        PARSE_FIELD_BOOL(reverse_linear_channel)
+        PARSE_FIELD_BOOL(reverse_angular_channel)
+    )
+    // clang-format on
 };
 
 struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {

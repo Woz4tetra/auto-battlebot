@@ -10,6 +10,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "serial/serial_port.hpp"
 #include "transmitter/config.hpp"
+#include "transmitter/differential_drive_processor.hpp"
 #include "transmitter/transmitter_interface.hpp"
 
 namespace auto_battlebot {
@@ -39,10 +40,11 @@ class OpenTxTransmitter : public TransmitterInterface {
 
    private:
     OpenTxTransmitterConfiguration config_;
+    std::shared_ptr<DiagnosticsModuleLogger> logger_;
+    DifferentialDriveProcessor processor_;
     SerialPort serial_;
     CrsfParser crsf_parser_;
     ChannelsParser channels_parser_;
-    std::shared_ptr<DiagnosticsModuleLogger> logger_;
 
     std::optional<std::array<int16_t, kMaxChannels>> latest_channels_;
     bool init_button_was_pressed_ = false;
