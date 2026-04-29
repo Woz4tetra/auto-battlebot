@@ -3,9 +3,9 @@ type = "ZedRgbdCamera"
 camera_fps = 60
 
 # svo_file_path = "data/svo/2026-04-20T18-02-50.svo2"
-svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
+# svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
 # svo_file_path = "data/svo/2026-04-26T20-21-45.svo2"
-# svo_file_path = "data/svo/2026-04-26T20-22-08.svo2"
+svo_file_path = "data/svo/2026-04-26T20-22-08.svo2"
 
 # svo_file_path = "data/svo/1729981242.4295187.svo2"
 
@@ -90,9 +90,9 @@ robot_blob_min_length_meters = 0.08
 robot_blob_max_length_meters = 0.7
 robot_blob_min_confidence = 0.4
 robot_blob_max_candidates = 8
-blob_overwrite_min_distance_meters = 0.05
+blob_overwrite_min_distance_meters = 0.20
 blob_overwrite_size_scale = 0.5
-field_bounds_margin_meters = 0.2
+field_bounds_margin_meters = 0.5
 
 [robot_filter.label_mapping]
 "MR_STABS_MK2" = ["THEIR_ROBOT_1"]
@@ -136,7 +136,7 @@ fullscreen = false
 battery_source = "None"
 
 [mcap]
-enable = false
+enable = true
 ignored_topics = []
 
 [health]

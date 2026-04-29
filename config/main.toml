@@ -3,10 +3,14 @@ type = "ZedRgbdCamera"
 camera_fps = 30
 
 [field_model]
-type = "YoloSegMaskModel"
-model_path = "data/models/yolo26n-seg_nhrl_field_2026-04-16_aarch64_sm87.engine"
-label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
-mask_threshold = 0.1
+type = "DeepLabMaskModel"
+model_path = "data/models/field_deeplabv3p_r50_2026-04-29_aarch64_sm87.engine"
+
+# [field_model]
+# type = "YoloSegMaskModel"
+# model_path = "data/models/yolo26n-seg_nhrl_field_2026-04-16_aarch64_sm87.engine"
+# label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
+# mask_threshold = 0.1
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
@@ -115,12 +119,6 @@ max_loop_rate = 30.0
 default_opponent_count = 1
 autonomy_enabled_by_default = true
 
-[health]
-enable = true
-tegrastats_enable = true
-x86_tools_enable = true
-sample_period_ms = 500
-
 [ui]
 enable = true
 fullscreen = true
@@ -129,3 +127,9 @@ battery_source = "Waveshare UPS"
 [mcap]
 enable = true
 ignored_topics = ["/camera/image"]
+
+[health]
+enable = true
+tegrastats_enable = true
+x86_tools_enable = true
+sample_period_ms = 500
