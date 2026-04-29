@@ -60,6 +60,10 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
     status.svo_recording_enabled = svo_recording_enabled;
     status.mcap_recording_enabled = mcap_recording_enabled;
     status.recording_enabled = svo_recording_enabled && mcap_recording_enabled;
+    if (health_logger_) {
+        status.jetson_temperature_c = health_logger_->get_last_temp_c();
+        status.jetson_compute_mode = health_logger_->get_last_compute_mode();
+    }
     ui_state_->set_system_status(status);
 }
 

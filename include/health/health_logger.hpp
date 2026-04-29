@@ -18,6 +18,11 @@ class HealthLogger {
     void maybe_log();
     void record_tick(double tick_ms);
 
+    /** Most-recently collected Jetson SoC temperature (degrees C). 0 = not yet available. */
+    double get_last_temp_c() const { return last_temp_c_; }
+    /** Most-recently collected nvpmodel compute mode string (e.g. "MAXN"). Empty = not available. */
+    const std::string& get_last_compute_mode() const { return last_compute_mode_; }
+
    private:
     HealthConfiguration config_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
@@ -25,6 +30,9 @@ class HealthLogger {
     bool has_sampled_ = false;
     std::shared_ptr<FILE> tegrastats_pipe_;
     bool tegrastats_unavailable_ = false;
+
+    double last_temp_c_ = 0.0;
+    std::string last_compute_mode_;
 
     std::chrono::steady_clock::time_point heartbeat_window_start_;
     bool heartbeat_window_started_ = false;
@@ -45,6 +53,7 @@ class HealthLogger {
     bool start_tegrastats_stream();
     void stop_tegrastats_stream();
     bool collect_tegrastats();
+    void collect_compute_mode();
     bool collect_x86_health();
     bool collect_nvidia_smi();
     bool collect_cpu_temp_sysfs_or_sensors();

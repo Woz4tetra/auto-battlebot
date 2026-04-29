@@ -95,6 +95,7 @@ void HealthLogger::perform_sampling() {
     bool any_logged = false;
     if (config_.tegrastats_enable) {
         any_logged = collect_tegrastats() || any_logged;
+        collect_compute_mode();
     }
 
     if (config_.x86_tools_enable && is_x86()) {
@@ -431,6 +432,7 @@ bool HealthLogger::collect_tegrastats() {
     if (temp_count > 0) {
         data["max_temp_c"] = max_temp_c;
         data["temp_sensor_count"] = temp_count;
+        last_temp_c_ = max_temp_c;
     }
 
     const std::regex rail_regex(
@@ -481,6 +483,21 @@ bool HealthLogger::collect_tegrastats() {
     }
     logger_->debug("tegrastats", data);
     return true;
+}
+
+void HealthLogger::collect_compute_mode() {
+    if (!command_exists("nvpmodel")) return;
+    std::string output;
+    if (!run_command("nvpmodel -q 2>/dev/null", output)) return;
+    // Output is typically:
+    //   NV Power Mode: MAXN
+    //   0: MAXN
+    // Extract the mode name from the first "NV Power Mode: <NAME>" line.
+    const std::regex mode_regex(R"(NV Power Mode:\s*(\S+))");
+    std::smatch match;
+    if (std::regex_search(output, match, mode_regex) && match.size() >= 2) {
+        last_compute_mode_ = match[1].str();
+    }
 }
 
 bool HealthLogger::collect_x86_health() {
