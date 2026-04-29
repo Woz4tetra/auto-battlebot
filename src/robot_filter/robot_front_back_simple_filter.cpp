@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <magic_enum.hpp>
+#include <numeric>
+#include <set>
 
 #include "data_structures/robot.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
@@ -242,40 +244,64 @@ void RobotFrontBackSimpleFilter::merge_blob_detections(
     diagnostics_logger_->debug(
         {{"num_blob_labels_with_candidates", static_cast<int>(grouped_blob_measurements.size())}});
 
+    // Pool every blob measurement into a single global assignment. For each measurement we
+    // record its allowed FrameIds (its label's own configured slots, with THEIRS-fallback to
+    // OPPONENT slots), then call the assigner once. Iteration order across labels no longer
+    // affects the result -- a previous per-label loop let label enum order decide which label
+    // got first claim on shared OPPONENT slots, silently dropping detections whose label
+    // happened to sort last.
+    std::vector<MeasurementWithConfidence> pool;
+    std::vector<std::vector<FrameId>> pool_allowed_fids;
+    std::set<FrameId> available_fids_set;
     for (auto &[label, measurements] : grouped_blob_measurements) {
-        std::sort(measurements.begin(), measurements.end(),
-                  [](const MeasurementWithConfidence &a, const MeasurementWithConfidence &b) {
-                      return a.confidence > b.confidence;
-                  });
-
-        const std::vector<FrameId> all_fids = get_frame_ids_for_label(label);
-        const std::vector<FrameId> available_fids =
-            get_assignment_frame_ids(label, all_measurements);
+        const std::vector<FrameId> allowed = get_assignment_frame_ids(label, keypoint_measurements);
+        for (auto fid : allowed) available_fids_set.insert(fid);
         diagnostics_logger_->debug(
-            std::string("blob_assignment_") + std::string(magic_enum::enum_name(label)),
+            std::string("blob_pool_") + std::string(magic_enum::enum_name(label)),
             {{"num_candidates", static_cast<int>(measurements.size())},
-             {"num_all_fids", static_cast<int>(all_fids.size())},
-             {"num_available_fids", static_cast<int>(available_fids.size())},
-             {"num_assigned", 0},
-             {"skipped_no_available_fids", available_fids.empty() ? "true" : "false"}});
-
-        if (available_fids.empty()) continue;
-
-        auto assigned =
-            frame_id_assigner_.assign(measurements, available_fids, diagnostics_logger_);
-        diagnostics_logger_->debug(
-            std::string("blob_assignment_") + std::string(magic_enum::enum_name(label)),
-            {{"num_candidates", static_cast<int>(measurements.size())},
-             {"num_all_fids", static_cast<int>(all_fids.size())},
-             {"num_available_fids", static_cast<int>(available_fids.size())},
-             {"num_assigned", static_cast<int>(assigned.size())},
-             {"skipped_no_available_fids", "false"}});
-        for (auto &a : assigned) {
-            // Orientation from blob rectangles is intentionally non-semantic. Keep identity.
-            a.pose.rotation = Rotation{1.0, 0.0, 0.0, 0.0};
-            a.group = group_for_frame_id(a.frame_id, a.group);
-            all_measurements.push_back(std::move(a));
+             {"num_allowed_fids", static_cast<int>(allowed.size())}});
+        for (auto &m : measurements) {
+            pool_allowed_fids.push_back(allowed);
+            pool.push_back(std::move(m));
         }
+    }
+
+    if (pool.empty() || available_fids_set.empty()) {
+        diagnostics_logger_->debug(
+            {{"num_blob_pool", static_cast<int>(pool.size())},
+             {"num_available_fids", static_cast<int>(available_fids_set.size())},
+             {"num_assigned", 0}});
+        return;
+    }
+
+    // Sort by confidence so higher-confidence blobs get priority on distance ties in the
+    // global greedy assignment. We sort indices to keep `pool_allowed_fids` aligned.
+    std::vector<size_t> order(pool.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(),
+              [&pool](size_t a, size_t b) { return pool[a].confidence > pool[b].confidence; });
+    std::vector<MeasurementWithConfidence> sorted_pool;
+    std::vector<std::vector<FrameId>> sorted_allowed;
+    sorted_pool.reserve(pool.size());
+    sorted_allowed.reserve(pool.size());
+    for (size_t i : order) {
+        sorted_pool.push_back(std::move(pool[i]));
+        sorted_allowed.push_back(std::move(pool_allowed_fids[i]));
+    }
+
+    const std::vector<FrameId> available_fids(available_fids_set.begin(), available_fids_set.end());
+    auto assigned =
+        frame_id_assigner_.assign(sorted_pool, available_fids, diagnostics_logger_, sorted_allowed);
+
+    diagnostics_logger_->debug({{"num_blob_pool", static_cast<int>(sorted_pool.size())},
+                                {"num_available_fids", static_cast<int>(available_fids.size())},
+                                {"num_assigned", static_cast<int>(assigned.size())}});
+
+    for (auto &a : assigned) {
+        // Orientation from blob rectangles is intentionally non-semantic. Keep identity.
+        a.pose.rotation = Rotation{1.0, 0.0, 0.0, 0.0};
+        a.group = group_for_frame_id(a.frame_id, a.group);
+        all_measurements.push_back(std::move(a));
     }
 }
 

@@ -95,8 +95,11 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
 
     /**
      * Runs the full blob detection pipeline: detect, transform to field frame, filter by field
-     * bounds, suppress detections already covered by keypoint measurements, group by label,
-     * assign FrameIds, and append results to all_measurements.
+     * bounds, suppress detections already covered by keypoint measurements, then perform a
+     * single global FrameId assignment over all surviving blobs (regardless of label) using
+     * per-measurement allowed-FrameId constraints. Appends assigned results to
+     * `all_measurements`. The global assignment makes the output independent of `Label` enum
+     * order, which previously decided which label got first claim on shared OPPONENT slots.
      */
     void merge_blob_detections(const KeypointsStamped &robot_blob_keypoints,
                                const std::vector<RobotDescription> &keypoint_measurements,
