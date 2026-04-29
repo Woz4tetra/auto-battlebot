@@ -46,25 +46,7 @@ CommandFeedback OpenTxTransmitter::update() {
     for (const auto& [packet, error] : crsf_results) {
         if (!packet) continue;
 
-        std::visit(
-            [&](const auto& pkt) {
-                using T = std::decay_t<decltype(pkt)>;
-                if constexpr (std::is_same_v<T, CrsfLinkStatistics>) {
-                    logger_->debug("link_statistics",
-                                   {{"up_lq", pkt.up_link_quality},
-                                    {"up_rssi", -static_cast<int>(pkt.up_rssi_ant1)},
-                                    {"down_lq", pkt.down_link_quality},
-                                    {"down_rssi", -static_cast<int>(pkt.down_rssi)}});
-                } else if constexpr (std::is_same_v<T, CrsfBattery>) {
-                    logger_->debug("battery", {{"voltage", pkt.voltage}, {"current", pkt.current}});
-                } else if constexpr (std::is_same_v<T, CrsfAttitude>) {
-                    logger_->debug("attitude",
-                                   {{"roll", pkt.roll}, {"pitch", pkt.pitch}, {"yaw", pkt.yaw}});
-                } else if constexpr (std::is_same_v<T, CrsfFlightMode>) {
-                    logger_->debug("flight_mode", {{"mode", pkt.flight_mode}});
-                }
-            },
-            *packet);
+        std::visit([&](const auto& pkt) { handle_packet(pkt); }, *packet);
     }
 
     // Parse OpenTX channel streaming
@@ -193,6 +175,25 @@ int OpenTxTransmitter::to_trainer_value(double normalized) {
     constexpr int kMin = -500;
     int value = static_cast<int>(normalized * kMax);
     return std::clamp(value, kMin, kMax);
+}
+
+void OpenTxTransmitter::handle_packet(const CrsfLinkStatistics& pkt) {
+    logger_->debug("link_statistics", {{"up_lq", pkt.up_link_quality},
+                                       {"up_rssi", -static_cast<int>(pkt.up_rssi_ant1)},
+                                       {"down_lq", pkt.down_link_quality},
+                                       {"down_rssi", -static_cast<int>(pkt.down_rssi)}});
+}
+
+void OpenTxTransmitter::handle_packet(const CrsfBattery& pkt) {
+    logger_->debug("battery", {{"voltage", pkt.voltage}, {"current", pkt.current}});
+}
+
+void OpenTxTransmitter::handle_packet(const CrsfAttitude& pkt) {
+    logger_->debug("attitude", {{"roll", pkt.roll}, {"pitch", pkt.pitch}, {"yaw", pkt.yaw}});
+}
+
+void OpenTxTransmitter::handle_packet(const CrsfFlightMode& pkt) {
+    logger_->debug("flight_mode", {{"mode", pkt.flight_mode}});
 }
 
 bool OpenTxTransmitter::reconnect_if_needed() {

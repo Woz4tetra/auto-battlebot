@@ -52,6 +52,11 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     bool reconnect_if_needed();
 
+    void handle_packet(const CrsfLinkStatistics& pkt);
+    void handle_packet(const CrsfBattery& pkt);
+    void handle_packet(const CrsfAttitude& pkt);
+    void handle_packet(const CrsfFlightMode& pkt);
+
     /** Scale and clamp a normalized [-1, 1] value to the trainer range [-1000, 1000]. */
     static int to_trainer_value(double normalized);
 
