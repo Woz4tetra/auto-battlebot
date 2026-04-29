@@ -300,6 +300,15 @@ void RobotFrontBackSimpleFilter::merge_blob_detections(
     for (auto &a : assigned) {
         // Orientation from blob rectangles is intentionally non-semantic. Keep identity.
         a.pose.rotation = Rotation{1.0, 0.0, 0.0, 0.0};
+        // If this measurement got a FrameId outside its label's own configured slots, the
+        // THEIRS-fallback to OPPONENT slots fired. Re-label to OPPONENT so (label, frame_id,
+        // group) stay consistent -- otherwise downstream consumers that key off `label` see a
+        // specific-model description sitting in a generic opponent slot, and the label flips
+        // back to its specific value the next tick a "proper" slot frees up (an ID swap).
+        const std::vector<FrameId> own_fids = get_frame_ids_for_label(a.label);
+        const bool used_fallback =
+            std::find(own_fids.begin(), own_fids.end(), a.frame_id) == own_fids.end();
+        if (used_fallback) a.label = Label::OPPONENT;
         a.group = group_for_frame_id(a.frame_id, a.group);
         all_measurements.push_back(std::move(a));
     }
