@@ -51,6 +51,7 @@ class OpenTxTransmitter : public TransmitterInterface {
         std::chrono::steady_clock::now();
 
     bool reconnect_if_needed();
+    void process_channel_updates(const std::vector<uint8_t>& bytes);
 
     void handle_packet(const CrsfLinkStatistics& pkt);
     void handle_packet(const CrsfBattery& pkt);

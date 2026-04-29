@@ -8,6 +8,8 @@
 namespace auto_battlebot {
 namespace {
 constexpr auto kReconnectInterval = std::chrono::seconds(1);
+constexpr int kChannelMax = 1000;   // raw RC channel range [-1000, 1000]
+constexpr int kTrainerMax = 500;    // OpenTX trainer output range [-500, 500]
 }
 
 OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& config)
@@ -49,21 +51,21 @@ CommandFeedback OpenTxTransmitter::update() {
         std::visit([&](const auto& pkt) { handle_packet(pkt); }, *packet);
     }
 
-    // Parse OpenTX channel streaming
-    auto channel_updates = channels_parser_.process(bytes);
-    if (!channel_updates.empty()) {
-        const auto& newest_channels = channel_updates.back();
-        const bool channels_changed =
-            !latest_channels_.has_value() || newest_channels != latest_channels_.value();
-        latest_channels_ = newest_channels;
+    process_channel_updates(bytes);
 
-        if (channels_changed) {
-            std::vector<int> channel_values(latest_channels_->begin(), latest_channels_->end());
-            logger_->debug("channels", {{"values", channel_values}});
-        }
-    }
+    if (!latest_channels_) return {};
 
-    return {};
+    constexpr double kChannelScale = 1.0 / kChannelMax;
+    const double max_linear_mps = config_.max_motor_rpm * M_PI * config_.wheel_diameter / 60.0;
+    const double max_angular_radps = 2.0 * max_linear_mps / config_.wheel_track_width;
+
+    CommandFeedback feedback;
+    feedback.commands[FrameId::OUR_ROBOT_1] = {
+        .linear_x = get_channel_value(config_.left_channel) * kChannelScale * max_linear_mps,
+        .linear_y = 0.0,
+        .angular_z = get_channel_value(config_.right_channel) * kChannelScale * max_angular_radps,
+    };
+    return feedback;
 }
 
 void OpenTxTransmitter::enable() {
@@ -149,7 +151,7 @@ void OpenTxTransmitter::send(VelocityCommand command) {
 
 int OpenTxTransmitter::get_channel_value(int channel_idx) const {
     if (!latest_channels_ || channel_idx < 0 || channel_idx >= kMaxChannels) return 0;
-    return std::clamp(static_cast<int>((*latest_channels_)[channel_idx]), -1000, 1000);
+    return std::clamp(static_cast<int>((*latest_channels_)[channel_idx]), -kChannelMax, kChannelMax);
 }
 
 bool OpenTxTransmitter::did_init_button_press() {
@@ -171,10 +173,8 @@ bool OpenTxTransmitter::did_init_button_press() {
 }
 
 int OpenTxTransmitter::to_trainer_value(double normalized) {
-    constexpr int kMax = 500;
-    constexpr int kMin = -500;
-    int value = static_cast<int>(normalized * kMax);
-    return std::clamp(value, kMin, kMax);
+    int value = static_cast<int>(normalized * kTrainerMax);
+    return std::clamp(value, -kTrainerMax, kTrainerMax);
 }
 
 void OpenTxTransmitter::handle_packet(const CrsfLinkStatistics& pkt) {
@@ -194,6 +194,21 @@ void OpenTxTransmitter::handle_packet(const CrsfAttitude& pkt) {
 
 void OpenTxTransmitter::handle_packet(const CrsfFlightMode& pkt) {
     logger_->debug("flight_mode", {{"mode", pkt.flight_mode}});
+}
+
+void OpenTxTransmitter::process_channel_updates(const std::vector<uint8_t>& bytes) {
+    auto channel_updates = channels_parser_.process(bytes);
+    if (channel_updates.empty()) return;
+
+    const auto& newest_channels = channel_updates.back();
+    const bool channels_changed =
+        !latest_channels_.has_value() || newest_channels != latest_channels_.value();
+    latest_channels_ = newest_channels;
+
+    if (channels_changed) {
+        std::vector<int> channel_values(latest_channels_->begin(), latest_channels_->end());
+        logger_->debug("channels", {{"values", channel_values}});
+    }
 }
 
 bool OpenTxTransmitter::reconnect_if_needed() {
