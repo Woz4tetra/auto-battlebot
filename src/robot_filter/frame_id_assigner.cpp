@@ -55,7 +55,7 @@ std::vector<RobotDescription> FrameIdAssigner::assign(
 
         for (size_t m = 0; m < valid_measurements.size(); m++) {
             if (meas_assigned[m]) continue;
-            const Position &pos = valid_measurements[m].second.pose.position;
+            const Position &pos = valid_measurements[m].description.pose.position;
             for (size_t f = 0; f < frame_ids.size(); f++) {
                 if (frame_id_assigned[f]) continue;
                 const FrameId fid = frame_ids[f];
@@ -123,10 +123,10 @@ std::vector<RobotDescription> FrameIdAssigner::assign(
         }
 
         jump_reject_count_per_frame_id_[assigned_fid] = 0;
-        valid_measurements[best_meas].second.frame_id = assigned_fid;
+        valid_measurements[best_meas].description.frame_id = assigned_fid;
         last_position_per_frame_id_[assigned_fid] =
-            valid_measurements[best_meas].second.pose.position;
-        result.push_back(std::move(valid_measurements[best_meas].second));
+            valid_measurements[best_meas].description.pose.position;
+        result.push_back(std::move(valid_measurements[best_meas].description));
     }
     return result;
 }

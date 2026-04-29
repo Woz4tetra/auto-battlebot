@@ -1,9 +1,24 @@
 #include "robot_filter/robot_temporal_motion_filter.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <set>
 
 #include "transform_utils.hpp"
+
+namespace {
+void clip_to_field_bounds(auto_battlebot::Position &position,
+                          const auto_battlebot::FieldDescription &field,
+                          double margin_meters) {
+    const double width = field.size.size.x;
+    const double height = field.size.size.y;
+    if (width <= 0.0 || height <= 0.0) return;
+    const double half_x = width * 0.5 + margin_meters;
+    const double half_y = height * 0.5 + margin_meters;
+    position.x = std::clamp(position.x, -half_x, half_x);
+    position.y = std::clamp(position.y, -half_y, half_y);
+}
+}  // namespace
 
 namespace auto_battlebot {
 RobotTemporalMotionFilter::RobotTemporalMotionFilter(double velocity_ema_alpha)
@@ -16,7 +31,8 @@ void RobotTemporalMotionFilter::reset() {
 
 std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
     std::vector<RobotDescription> inputs, const CommandFeedback &command_feedback, double timestamp,
-    FrameIdAssigner &frame_id_assigner) {
+    FrameIdAssigner &frame_id_assigner, const FieldDescription &field,
+    double field_bounds_margin_meters) {
     std::set<FrameId> measured_frame_ids;
 
     for (const auto &input : inputs) {
@@ -50,6 +66,7 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
         predicted_pose.yaw = std::atan2(std::sin(predicted_pose.yaw + cmd.angular_z * dt),
                                         std::cos(predicted_pose.yaw + cmd.angular_z * dt));
         desc.pose = pose2d_to_pose(predicted_pose);
+        clip_to_field_bounds(desc.pose.position, field, field_bounds_margin_meters);
         frame_id_assigner.set_last_position(frame_id, desc.pose.position);
     }
 

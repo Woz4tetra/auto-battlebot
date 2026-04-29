@@ -20,13 +20,25 @@ class RobotTemporalMotionFilter {
    public:
     explicit RobotTemporalMotionFilter(double velocity_ema_alpha);
 
+    /** Clears all tracked robot state. Call before starting a new match. */
     void reset();
 
+    /**
+     * Merges new measurements into tracked state and returns one RobotDescription per tracked
+     * robot. Robots with no new measurement this frame are predicted forward using their last
+     * commanded velocity and clamped to field bounds. Predicted robots are flagged is_stale=true.
+     */
     std::vector<RobotDescription> update_with_prediction(std::vector<RobotDescription> inputs,
                                                          const CommandFeedback &command_feedback,
                                                          double timestamp,
-                                                         FrameIdAssigner &frame_id_assigner);
+                                                         FrameIdAssigner &frame_id_assigner,
+                                                         const FieldDescription &field,
+                                                         double field_bounds_margin_meters);
 
+    /**
+     * Fills velocity on each description in-place. Our robots use commanded velocity; opponents
+     * use EMA-smoothed finite differences from consecutive poses.
+     */
     void estimate_velocities(std::vector<RobotDescription> &descriptions, double timestamp,
                              const CommandFeedback &command_feedback);
 

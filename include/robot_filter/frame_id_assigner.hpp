@@ -3,6 +3,7 @@
 #include <map>
 #include <vector>
 
+#include "data_structures/measurement.hpp"
 #include "data_structures/pose.hpp"
 #include "data_structures/robot.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
@@ -10,8 +11,6 @@
 namespace auto_battlebot {
 class FrameIdAssigner {
    public:
-    using MeasurementWithConfidence = std::pair<double, RobotDescription>;
-
     FrameIdAssigner(double max_jump_distance, int max_consecutive_jump_rejects);
 
     void reset();
