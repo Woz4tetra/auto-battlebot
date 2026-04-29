@@ -75,8 +75,9 @@ void Runner::stop_recordings_for_shutdown() const {
 
 void Runner::handle_opponent_count_request() {
     int req = ui_state_->opponent_count_requested.exchange(-1);
+    if (req == -1) return;
     if (req < 1 || req > 3) {
-        spdlog::warn("Requested number of opponents is not between 1 and 3. Ignoring.");
+        spdlog::warn("Requested number of opponents is not between 1 and 3 ({}). Ignoring.", req);
         return;
     }
 
