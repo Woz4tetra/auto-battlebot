@@ -5,8 +5,8 @@ camera_fps = 60
 # svo_file_path = "data/svo/2026-04-20T18-02-50.svo2"
 # svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
 # svo_file_path = "data/svo/2026-04-26T13-29-40.svo2"
-svo_file_path = "data/svo/2026-04-26T20-21-45.svo2"
-# svo_file_path = "data/svo/2026-04-26T20-22-08.svo2"
+# svo_file_path = "data/svo/2026-04-26T20-21-45.svo2"
+svo_file_path = "data/svo/2026-04-26T20-22-08.svo2"
 
 # svo_file_path = "data/svo/1729981242.4295187.svo2"
 
@@ -17,14 +17,14 @@ svo_file_path = "data/svo/2026-04-26T20-21-45.svo2"
 # position_tracking = false
 svo_real_time_mode = true
 
-[field_model]
-type = "YoloSegMaskModel"
-model_path = "data/models/yolo26n-seg_nhrl_field_2026-04-16_x86_64_sm89.engine"
-label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
-
 # [field_model]
-# type = "DeepLabMaskModel"
-# model_path = "data/models/field_deeplabv3_r50_2026-04-18_x86_64_sm89.engine"
+# type = "YoloSegMaskModel"
+# model_path = "data/models/yolo26n-seg_nhrl_field_2026-04-16_x86_64_sm89.engine"
+# label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
+
+[field_model]
+type = "DeepLabMaskModel"
+model_path = "data/models/field_deeplabv3_r50_2024-09-05_x86_64_sm89.engine"
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
