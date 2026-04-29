@@ -30,6 +30,7 @@ class HealthLogger {
     bool has_sampled_ = false;
     std::shared_ptr<FILE> tegrastats_pipe_;
     bool tegrastats_unavailable_ = false;
+    bool compute_mode_initialized_ = false;
 
     double last_temp_c_ = 0.0;
     std::string last_compute_mode_;

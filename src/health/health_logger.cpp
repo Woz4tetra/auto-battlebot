@@ -95,7 +95,10 @@ void HealthLogger::perform_sampling() {
     bool any_logged = false;
     if (config_.tegrastats_enable) {
         any_logged = collect_tegrastats() || any_logged;
-        collect_compute_mode();
+        if (!compute_mode_initialized_) {
+            collect_compute_mode();
+            compute_mode_initialized_ = true;
+        }
     }
 
     if (config_.x86_tools_enable && is_x86()) {
