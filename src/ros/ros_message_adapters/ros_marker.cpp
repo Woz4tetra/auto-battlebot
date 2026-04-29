@@ -297,15 +297,9 @@ std::vector<visualization_msgs::Marker> to_ros_navigation_markers(
     // Find our robot in the descriptions for position/heading
     const RobotDescription *our_robot = nullptr;
     for (const auto &r : nav.robots.descriptions) {
-        switch (r.label) {
-            case Label::MR_STABS_MK1:
-            case Label::MR_STABS_MK2:
-            case Label::MRS_BUFF_MK1:
-            case Label::MRS_BUFF_MK2:
-                if (!our_robot) our_robot = &r;
-                break;
-            default:
-                break;
+        if (r.frame_id == FrameId::OUR_ROBOT_1) {
+            our_robot = &r;
+            break;
         }
     }
 
