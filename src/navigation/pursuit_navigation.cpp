@@ -40,21 +40,16 @@ bool PursuitNavigation::initialize() {
     prev_timestamp_ = 0.0;
     last_known_our_pose_.reset();
     last_visualization_ = NavigationVisualization{};
-    nav_robots_cache_.reset();
     spdlog::info("PursuitNavigation initialized with lookahead_time={} s", lookahead_time_);
     return true;
 }
 
 VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, FieldDescription field,
                                           const TargetSelection &target) {
+    // Continuity across momentary detection gaps is provided upstream by Runner's
+    // RobotDescriptionsCache so that target selection and navigation see the same robot set.
     last_visualization_ = NavigationVisualization{};
     last_visualization_.header = robots.header;
-    last_visualization_.robots = robots;
-
-    auto cache_result = nav_robots_cache_.resolve(robots);
-    robots = cache_result.robots;
-    logger_->debug("nav_robots",
-                   {{"using_previous_robots", static_cast<int>(cache_result.using_previous)}});
 
     auto our_robot_opt = find_our_robot(robots);
     Pose2D our_pose;
@@ -68,6 +63,7 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
         logger_->debug("no_robot", "Our robot not found; using cached pose");
     } else {
         logger_->debug("no_robot", "Our robot not found and no cached pose");
+        last_visualization_.robots = std::move(robots);
         return VelocityCommand{0.0, 0.0, 0.0};
     }
 
@@ -92,6 +88,9 @@ VelocityCommand PursuitNavigation::update(RobotDescriptionsStamped robots, Field
                               });
 
     last_visualization_.command = cmd;
+    // Last write to last_visualization_; this also retires effective_robots, which we no longer
+    // need.
+    last_visualization_.robots = std::move(robots);
     return cmd;
 }
 
@@ -117,8 +116,8 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     if (distance < stop_distance_) {
         committed_turn_sign_ = 0;
         prev_angle_error_ = 0.0;
-        logger_->debug("pursuit", {{"distance", distance},
-                                   {"angle_error_deg", angle_error * 180.0 / M_PI}},
+        logger_->debug("pursuit",
+                       {{"distance", distance}, {"angle_error_deg", angle_error * 180.0 / M_PI}},
                        "Stopped: at target");
         return VelocityCommand{0.0, 0.0, 0.0};
     }
@@ -154,8 +153,8 @@ double PursuitNavigation::apply_hysteresis(double angle_error) {
         return angle_error;
     }
 
-    constexpr double commit_threshold = M_PI * 0.75;   // 135 deg
-    constexpr double release_threshold = M_PI * 0.5;   // 90 deg
+    constexpr double commit_threshold = M_PI * 0.75;  // 135 deg
+    constexpr double release_threshold = M_PI * 0.5;  // 90 deg
 
     if (std::abs(angle_error) > commit_threshold) {
         const int sign = (angle_error > 0) ? 1 : -1;

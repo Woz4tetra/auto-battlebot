@@ -244,6 +244,7 @@ void Runner::initialize_field(const CameraData &camera_data) {
 
     robot_filter_->initialize(runtime_opponent_count_);
     navigation_->initialize();
+    robot_descriptions_cache_.reset();
     previous_selected_target_ = TargetSelection{};
     initialized_ = true;
     spdlog::info("Field initialized");
@@ -343,6 +344,7 @@ bool Runner::tick() {
         robot_filter_reinit_pending_ = false;
         robot_filter_->initialize(runtime_opponent_count_);
         navigation_->initialize();
+        robot_descriptions_cache_.reset();
     }
 
     if (!initialized_) return handle_uninitialized_tick(camera_data, loop_rate_hz);
@@ -380,9 +382,16 @@ bool Runner::tick() {
         publisher_->publish_robots(robots);
     }
 
-    TargetSelection resolved_target = resolve_target(robots, field_description);
+    // Resolve once so target selection and navigation operate on the same robot set within a
+    // tick. Substitutes the previous critical snapshot when this frame is missing OUR or THEIRS.
+    auto cached_robots = robot_descriptions_cache_.resolve(robots);
+    diagnostics_logger_->debug(
+        "navigation", {{"using_previous_robots", static_cast<int>(cached_robots.using_previous)}});
 
-    VelocityCommand command = navigation_->update(robots, field_description, resolved_target);
+    TargetSelection resolved_target = resolve_target(cached_robots.robots, field_description);
+
+    VelocityCommand command =
+        navigation_->update(cached_robots.robots, field_description, resolved_target);
     transmitter_->send(command);
 
     {

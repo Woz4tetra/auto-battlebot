@@ -23,6 +23,7 @@
 #include "publisher/publisher_interface.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "robot_blob_model/robot_blob_model_interface.hpp"
+#include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
 #include "target_selector/target_selector_interface.hpp"
@@ -72,6 +73,7 @@ class Runner {
     int runtime_opponent_count_;
     bool robot_filter_reinit_pending_;
     TargetSelection previous_selected_target_;
+    RobotDescriptionsCache robot_descriptions_cache_;
 
     bool initialized_;
     bool autonomy_enabled_;

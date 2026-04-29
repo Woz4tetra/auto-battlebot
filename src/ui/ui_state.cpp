@@ -59,10 +59,9 @@ void UIState::set_debug_image(const cv::Mat &image) {
     // cv::Mat assignment is a refcount swap; the previous Mat stays alive for any reader still
     // holding a refcount-shared view from get_debug_image().
     debug_image_ = std::move(fresh);
-    const double total_ms = lock_wait_ms +
-                            std::chrono::duration<double, std::milli>(
-                                std::chrono::steady_clock::now() - lock_start)
-                                .count();
+    const double total_ms = lock_wait_ms + std::chrono::duration<double, std::milli>(
+                                               std::chrono::steady_clock::now() - lock_start)
+                                               .count();
     if (lock_wait_ms > kDebugImageLockWaitWarnMs || total_ms > kDebugImageTotalWarnMs ||
         clone_ms > kDebugImageTotalWarnMs) {
         spdlog::warn(
@@ -80,10 +79,9 @@ cv::Mat UIState::get_debug_image() const {
             .count();
     // Refcount-shared view; no memcpy.
     cv::Mat out = debug_image_;
-    const double total_ms = lock_wait_ms +
-                            std::chrono::duration<double, std::milli>(
-                                std::chrono::steady_clock::now() - lock_start)
-                                .count();
+    const double total_ms = lock_wait_ms + std::chrono::duration<double, std::milli>(
+                                               std::chrono::steady_clock::now() - lock_start)
+                                               .count();
     if (lock_wait_ms > kDebugImageLockWaitWarnMs || total_ms > kDebugImageTotalWarnMs) {
         spdlog::warn(
             "validation: ui_state_get_debug_image slow lock_wait_ms={:.2f} total_ms={:.2f} "

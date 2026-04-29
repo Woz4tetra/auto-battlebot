@@ -24,8 +24,7 @@ class FixedVelocityNavigation : public NavigationInterface {
         return true;
     }
 
-    VelocityCommand update(RobotDescriptionsStamped robots,
-                           [[maybe_unused]] FieldDescription field,
+    VelocityCommand update(RobotDescriptionsStamped robots, [[maybe_unused]] FieldDescription field,
                            [[maybe_unused]] const TargetSelection &target) override {
         logger_->debug(
             "command",

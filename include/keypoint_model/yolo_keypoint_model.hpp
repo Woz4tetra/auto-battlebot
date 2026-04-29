@@ -69,8 +69,7 @@ class YoloKeypointModel : public KeypointModelInterface {
     // populates num_features / num_predictions. transposed_buf owns the memory when a transpose
     // was performed; prediction_ptr always points into valid storage after a true return.
     bool resolve_output_layout(const float *output, int &num_features, int &num_predictions,
-                               std::vector<float> &transposed_buf,
-                               const float *&prediction_ptr);
+                               std::vector<float> &transposed_buf, const float *&prediction_ptr);
 
     // Iterates NMS-filtered detections, scales each keypoint back to original-image coordinates,
     // appends them to result, and returns the number of detections that passed the threshold.

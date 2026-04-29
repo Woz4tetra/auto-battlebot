@@ -8,8 +8,7 @@
 
 namespace {
 void clip_to_field_bounds(auto_battlebot::Position &position,
-                          const auto_battlebot::FieldDescription &field,
-                          double margin_meters) {
+                          const auto_battlebot::FieldDescription &field, double margin_meters) {
     const double width = field.size.size.x;
     const double height = field.size.size.y;
     if (width <= 0.0 || height <= 0.0) return;

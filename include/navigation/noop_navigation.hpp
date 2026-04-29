@@ -7,8 +7,7 @@ class NoopNavigation : public NavigationInterface {
    public:
     bool initialize() override { return true; }
 
-    VelocityCommand update(RobotDescriptionsStamped robots,
-                           [[maybe_unused]] FieldDescription field,
+    VelocityCommand update(RobotDescriptionsStamped robots, [[maybe_unused]] FieldDescription field,
                            [[maybe_unused]] const TargetSelection &target) override {
         VelocityCommand cmd{};
         last_visualization_ = NavigationVisualization{};

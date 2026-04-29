@@ -128,8 +128,8 @@ MaskStamped YoloSegMaskModel::update(RgbImage image) {
 
     if (tensors.proto_idx) {
         render_detections_to_mask(detections, output_buffers[*tensors.proto_idx],
-                                  output_infos[*tensors.proto_idx].shape, input_size,
-                                  original_size, merged_mask);
+                                  output_infos[*tensors.proto_idx].shape, input_size, original_size,
+                                  merged_mask);
     }
 
     if (debug_visualization_ && !merged_mask.empty()) {
