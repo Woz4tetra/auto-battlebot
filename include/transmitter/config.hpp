@@ -85,6 +85,7 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
         wheel_diameter = parser.get_optional_double("wheel_diameter", wheel_diameter);
         velocity_saturation_limit =
             parser.get_optional_double("velocity_saturation_limit", velocity_saturation_limit);
+        parser.validate_no_extra_fields();
     }
 };
 
