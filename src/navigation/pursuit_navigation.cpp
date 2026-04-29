@@ -106,36 +106,34 @@ std::optional<RobotDescription> PursuitNavigation::find_our_robot(
 VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pose,
                                                            const Pose2D &target_pose,
                                                            const FieldDescription &field) {
-    Pose2D clamped_target = clamp_to_field(target_pose, field);
+    const Pose2D clamped_target = clamp_to_field(target_pose, field);
+    const double dx = clamped_target.x - our_pose.x;
+    const double dy = clamped_target.y - our_pose.y;
+    const double distance = std::sqrt(dx * dx + dy * dy);
+    const double angle_to_target = std::atan2(dy, dx);
+    const double raw_angle_error = normalize_angle(angle_to_target - our_pose.yaw);
+    const double angle_error = apply_hysteresis(raw_angle_error);
 
-    double dx = clamped_target.x - our_pose.x;
-    double dy = clamped_target.y - our_pose.y;
-    double distance = std::sqrt(dx * dx + dy * dy);
-
-    double angle_to_target = std::atan2(dy, dx);
-    double angle_error = normalize_angle(angle_to_target - our_pose.yaw);
-
-    if (enable_hysteresis_) {
-        constexpr double commit_threshold = M_PI * 0.75;  // 135 deg
-        constexpr double release_threshold = M_PI * 0.5;  // 90 deg
-
-        if (std::abs(angle_error) > commit_threshold) {
-            int sign = (angle_error > 0) ? 1 : -1;
-            if (committed_turn_sign_ == 0 || committed_turn_sign_ != sign) {
-                committed_turn_sign_ = sign;
-            }
-        } else if (std::abs(angle_error) < release_threshold) {
-            committed_turn_sign_ = 0;
-        }
-
-        if (committed_turn_sign_ != 0 && std::abs(angle_error) > release_threshold) {
-            angle_error = std::abs(angle_error) * committed_turn_sign_;
-        }
-    } else {
+    if (distance < stop_distance_) {
         committed_turn_sign_ = 0;
+        prev_angle_error_ = 0.0;
+        logger_->debug("pursuit", {{"distance", distance},
+                                   {"angle_error_deg", angle_error * 180.0 / M_PI}},
+                       "Stopped: at target");
+        return VelocityCommand{0.0, 0.0, 0.0};
     }
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
+    cmd.angular_z = compute_angular_velocity(angle_error);
+    cmd.linear_x = compute_linear_velocity(angle_error, distance, cmd.angular_z);
+    apply_wall_reverse(our_pose, field, cmd);
+
+    if (max_linear_x_ > 0.0) {
+        cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_x_, max_linear_x_);
+    }
+    if (max_angular_z_ > 0.0) {
+        cmd.angular_z = std::clamp(cmd.angular_z, -max_angular_z_, max_angular_z_);
+    }
 
     logger_->debug("pursuit",
                    {
@@ -147,19 +145,39 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
                        {"turn_commit", committed_turn_sign_},
                    });
 
-    if (distance < stop_distance_) {
+    return cmd;
+}
+
+double PursuitNavigation::apply_hysteresis(double angle_error) {
+    if (!enable_hysteresis_) {
         committed_turn_sign_ = 0;
-        prev_angle_error_ = 0.0;
-        logger_->debug("pursuit", "Stopped: at target");
-        return cmd;
+        return angle_error;
     }
 
-    // PD angular control in real angular velocity units (rad/s).
-    double now_s =
+    constexpr double commit_threshold = M_PI * 0.75;   // 135 deg
+    constexpr double release_threshold = M_PI * 0.5;   // 90 deg
+
+    if (std::abs(angle_error) > commit_threshold) {
+        const int sign = (angle_error > 0) ? 1 : -1;
+        if (committed_turn_sign_ == 0 || committed_turn_sign_ != sign) {
+            committed_turn_sign_ = sign;
+        }
+    } else if (std::abs(angle_error) < release_threshold) {
+        committed_turn_sign_ = 0;
+    }
+
+    if (committed_turn_sign_ != 0 && std::abs(angle_error) > release_threshold) {
+        return std::abs(angle_error) * committed_turn_sign_;
+    }
+    return angle_error;
+}
+
+double PursuitNavigation::compute_angular_velocity(double angle_error) {
+    const double now_s =
         std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
     double d_term = 0.0;
     if (angular_kd_ != 0.0 && prev_timestamp_ > 0.0) {
-        double dt = now_s - prev_timestamp_;
+        const double dt = now_s - prev_timestamp_;
         if (dt > 0.0 && dt < 0.5) {
             d_term = angular_kd_ * normalize_angle(angle_error - prev_angle_error_) / dt;
         }
@@ -167,55 +185,48 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     prev_angle_error_ = angle_error;
     prev_timestamp_ = now_s;
 
-    cmd.angular_z = angular_kp_ * angle_error + d_term;
+    return angular_kp_ * angle_error + d_term;
+}
 
-    // Linear velocity in m/s. Only drive forward if roughly facing target.
-    if (std::abs(angle_error) < angle_threshold_) {
-        // Velocity ramp: full speed below near_distance, min_scale at far_distance and beyond,
-        // linear interpolation in between.
-        double speed_scale = 1.0;
-        if (distance > velocity_ramp_near_distance_) {
-            if (distance >= velocity_ramp_far_distance_) {
-                speed_scale = velocity_ramp_min_scale_;
-            } else {
-                double t = (distance - velocity_ramp_near_distance_) /
-                           (velocity_ramp_far_distance_ - velocity_ramp_near_distance_);
-                speed_scale = 1.0 - t * (1.0 - velocity_ramp_min_scale_);
-            }
-        }
+double PursuitNavigation::compute_linear_velocity(double angle_error, double distance,
+                                                  double angular_z) {
+    if (std::abs(angle_error) >= angle_threshold_) return 0.0;
 
-        double turn_scale = 1.0 - (std::abs(angle_error) / angle_threshold_) * 0.5;
-
-        // Reduce speed proportionally to how hard we're turning
-        double steer_brake = 1.0 - 0.5 * std::abs(cmd.angular_z);
-
-        cmd.linear_x = speed_scale * turn_scale * steer_brake;
-    } else {
-        cmd.linear_x = 0.0;
-    }
-
-    if (wall_reverse_distance_ > 0.0) {
-        double wall_dist = distance_to_nearest_wall(our_pose, field);
-        if (wall_dist < wall_reverse_distance_) {
-            double angle_to_wall = wall_facing_angle(our_pose, field);
-            double heading_err = std::abs(normalize_angle(angle_to_wall - our_pose.yaw));
-            if (heading_err < wall_heading_threshold_) {
-                cmd.linear_x = -std::max(std::abs(cmd.linear_x), wall_reverse_min_speed_);
-                logger_->debug("wall_reverse", {{"wall_dist", wall_dist},
-                                                {"angle_to_wall_deg", angle_to_wall * 180.0 / M_PI},
-                                                {"heading_err_deg", heading_err * 180.0 / M_PI}});
-            }
+    // Velocity ramp: full speed below near_distance, min_scale at far_distance and beyond,
+    // linear interpolation in between.
+    double speed_scale = 1.0;
+    if (distance > velocity_ramp_near_distance_) {
+        if (distance >= velocity_ramp_far_distance_) {
+            speed_scale = velocity_ramp_min_scale_;
+        } else {
+            const double t = (distance - velocity_ramp_near_distance_) /
+                             (velocity_ramp_far_distance_ - velocity_ramp_near_distance_);
+            speed_scale = 1.0 - t * (1.0 - velocity_ramp_min_scale_);
         }
     }
 
-    if (max_linear_x_ > 0.0) {
-        cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_x_, max_linear_x_);
-    }
-    if (max_angular_z_ > 0.0) {
-        cmd.angular_z = std::clamp(cmd.angular_z, -max_angular_z_, max_angular_z_);
-    }
+    const double turn_scale = 1.0 - (std::abs(angle_error) / angle_threshold_) * 0.5;
+    // Reduce speed proportionally to how hard we're turning
+    const double steer_brake = 1.0 - 0.5 * std::abs(angular_z);
 
-    return cmd;
+    return speed_scale * turn_scale * steer_brake;
+}
+
+void PursuitNavigation::apply_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
+                                           VelocityCommand &cmd) {
+    if (wall_reverse_distance_ <= 0.0) return;
+
+    const double wall_dist = distance_to_nearest_wall(our_pose, field);
+    if (wall_dist >= wall_reverse_distance_) return;
+
+    const double angle_to_wall = wall_facing_angle(our_pose, field);
+    const double heading_err = std::abs(normalize_angle(angle_to_wall - our_pose.yaw));
+    if (heading_err >= wall_heading_threshold_) return;
+
+    cmd.linear_x = -std::max(std::abs(cmd.linear_x), wall_reverse_min_speed_);
+    logger_->debug("wall_reverse", {{"wall_dist", wall_dist},
+                                    {"angle_to_wall_deg", angle_to_wall * 180.0 / M_PI},
+                                    {"heading_err_deg", heading_err * 180.0 / M_PI}});
 }
 
 double PursuitNavigation::distance_to_nearest_wall(const Pose2D &pose,

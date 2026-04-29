@@ -43,6 +43,39 @@ class PursuitNavigation : public NavigationInterface {
                                             const FieldDescription &field);
 
     /**
+     * @brief Apply turn-direction hysteresis to the raw angle error.
+     *
+     * When the target swings far behind us (above a commit threshold), latches a turn direction
+     * to prevent dithering. The latch releases once we are roughly facing the target again.
+     * Updates committed_turn_sign_ as a side effect and returns the (possibly sign-overridden)
+     * angle error.
+     */
+    double apply_hysteresis(double angle_error);
+
+    /**
+     * @brief Compute angular velocity (rad/s) using a PD controller on angle_error.
+     *
+     * Updates prev_angle_error_ and prev_timestamp_ for use on the next call.
+     */
+    double compute_angular_velocity(double angle_error);
+
+    /**
+     * @brief Compute forward linear velocity (m/s).
+     *
+     * Returns 0 unless we are roughly facing the target. Otherwise scales speed by a velocity
+     * ramp (full speed near the target, reduced at distance), an angle-error penalty, and a
+     * steer-brake that slows us when angular_z is large.
+     */
+    double compute_linear_velocity(double angle_error, double distance, double angular_z);
+
+    /**
+     * @brief If close to and facing a wall, override cmd.linear_x with a reverse command to
+     * back away. Modifies cmd in place.
+     */
+    void apply_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
+                            VelocityCommand &cmd);
+
+    /**
      * @brief Clamp position to stay within field boundaries
      */
     Pose2D clamp_to_field(const Pose2D &pose, const FieldDescription &field) const;
