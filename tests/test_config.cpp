@@ -400,6 +400,58 @@ type = "NoopPublisher"
     EXPECT_EQ(config.transmitter->type, "NoopTransmitter");
 }
 
+TEST_F(ConfigTest, OpenTxTransmitterRejectsUnknownFields) {
+    // Regression test: when channel-control fields were renamed
+    // (left_channel/right_channel -> linear_channel/angular_channel,
+    // reverse_left_channel/reverse_right_channel -> reverse_linear_channel/reverse_angular_channel)
+    // an old config that still uses the legacy keys must fail loudly rather than silently fall back
+    // to the defaults.
+    write_config_file(R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "OpenTxTransmitter"
+reverse_right_channel = true
+
+[publisher]
+type = "NoopPublisher"
+)");
+
+    EXPECT_THROW(
+        {
+            try {
+                load_classes_from_config(temp_config_file.string());
+            } catch (const ConfigValidationError &e) {
+                std::string msg = e.what();
+                EXPECT_NE(msg.find("reverse_right_channel"), std::string::npos) << msg;
+                throw;
+            }
+        },
+        ConfigValidationError);
+}
+
 TEST_F(ConfigTest, HealthConfigurationDefaultsWhenMissing) {
     write_config_file(R"(
 [rgbd_camera]
