@@ -386,6 +386,7 @@ std::vector<visualization_msgs::Marker> to_ros_navigation_markers(
                 vel_arrow.type = visualization_msgs::Marker::ARROW;
                 vel_arrow.action = visualization_msgs::Marker::ADD;
                 vel_arrow.pose.orientation.w = 1.0;
+                vel_arrow.lifetime = miniros::Duration(0.1);
 
                 vel_arrow.scale.x = 0.008;  // shaft diameter
                 vel_arrow.scale.y = 0.014;  // head diameter
@@ -422,6 +423,7 @@ std::vector<visualization_msgs::Marker> to_ros_navigation_markers(
                 arc.action = visualization_msgs::Marker::ADD;
                 arc.pose.orientation.w = 1.0;
                 arc.scale.x = 0.004;
+                arc.lifetime = miniros::Duration(0.1);
 
                 arc.color.r = 0.4f;
                 arc.color.g = 0.6f;
@@ -457,6 +459,7 @@ std::vector<visualization_msgs::Marker> to_ros_navigation_markers(
                 arc_head.pose.orientation.w = 1.0;
                 arc_head.scale.x = 0.004;
                 arc_head.color = arc.color;
+                arc_head.lifetime = miniros::Duration(0.1);
 
                 geometry_msgs::Point tip;
                 tip.x = pose.x + arc_radius * std::cos(tip_angle);
