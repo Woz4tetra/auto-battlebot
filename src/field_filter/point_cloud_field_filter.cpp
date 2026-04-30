@@ -7,6 +7,8 @@ PointCloudFieldFilter::PointCloudFieldFilter(PointCloudFieldFilterConfiguration 
     : distance_threshold_(config.distance_threshold),
       local_visualize_debug_(config.local_visualize_debug),
       depth_units_per_meter_(config.depth_units_per_meter),
+      ransac_max_iterations_(config.ransac_max_iterations),
+      ransac_probability_(config.ransac_probability),
       diagnostics_logger_(DiagnosticsLogger::get_logger("point_cloud_field_filter")) {}
 
 void PointCloudFieldFilter::reset(TransformStamped tf_visodom_from_camera) {
@@ -233,13 +235,8 @@ Eigen::Vector4f PointCloudFieldFilter::fit_plane_ransac(
     // Create RANSAC object
     pcl::RandomSampleConsensus<pcl::PointXYZ> ransac(model);
     ransac.setDistanceThreshold(distance_threshold);
-
-    // Set maximum iterations to prevent infinite loops (sklearn default ~100-1000)
-    ransac.setMaxIterations(100);
-
-    // Set probability of finding a good model (enables early termination)
-    // 0.99 means 99% confidence of finding inliers-only sample
-    ransac.setProbability(0.99);
+    ransac.setMaxIterations(ransac_max_iterations_);
+    ransac.setProbability(ransac_probability_);
 
     // Compute the model
     ransac.computeModel();
