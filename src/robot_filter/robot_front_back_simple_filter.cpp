@@ -77,15 +77,13 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
     : diagnostics_logger_(DiagnosticsLogger::get_logger("robot_front_back_simple_filter")),
       label_to_frame_ids_(config.label_to_frame_ids),
       default_frame_id_(config.default_frame_id),
-      velocity_ema_alpha_(config.velocity_ema_alpha),
       max_jump_distance_(config.max_jump_distance),
       max_consecutive_jump_rejects_(config.max_consecutive_jump_rejects),
       blob_overwrite_min_distance_meters_(config.blob_overwrite_min_distance_meters),
       blob_overwrite_size_scale_(config.blob_overwrite_size_scale),
       field_bounds_margin_meters_(config.field_bounds_margin_meters),
       robot_keypoint_tracker_(config.robot_keypoint_tracker_config),
-      frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects),
-      temporal_motion_filter_(config.velocity_ema_alpha) {
+      frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects) {
     FrontBackKeypointConverterConfig converter_config;
     converter_config.front_keypoints = config.front_keypoints;
     converter_config.back_keypoints = config.back_keypoints;
@@ -108,7 +106,6 @@ bool RobotFrontBackSimpleFilter::initialize(int opponent_count) {
 
     robot_configs_.clear();
     frame_id_assigner_.reset();
-    temporal_motion_filter_.reset();
     for (const auto &[label, frame_ids] : label_to_frame_ids_) {
         robot_configs_[label] = RobotConfig{label, infer_group_from_frame_ids(frame_ids)};
     }
@@ -117,11 +114,9 @@ bool RobotFrontBackSimpleFilter::initialize(int opponent_count) {
     return true;
 }
 
-RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped keypoints,
-                                                            FieldDescription field,
-                                                            CameraInfo camera_info,
-                                                            KeypointsStamped robot_blob_keypoints,
-                                                            CommandFeedback command_feedback) {
+RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(
+    KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info,
+    KeypointsStamped robot_blob_keypoints, [[maybe_unused]] CommandFeedback command_feedback) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = keypoints.header.stamp;
@@ -139,20 +134,14 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
                               tf_fieldcenter_from_camera, all_measurements);
     }
 
-    const int num_measurements_before_temporal = static_cast<int>(all_measurements.size());
-    result.descriptions = temporal_motion_filter_.update_with_prediction(
-        all_measurements, command_feedback, result.header.stamp, frame_id_assigner_, field,
-        field_bounds_margin_meters_);
-    temporal_motion_filter_.estimate_velocities(result.descriptions, result.header.stamp,
-                                                command_feedback);
+    result.descriptions = std::move(all_measurements);
 
     diagnostics_logger_->debug(
         {{"num_input_keypoints", static_cast<int>(keypoints.keypoints.size())},
          {"num_input_blob_keypoints", static_cast<int>(robot_blob_keypoints.keypoints.size())},
          {"field_frame_valid", field.child_frame_id == FrameId::EMPTY ? "false" : "true"},
          {"num_keypoint_measurements", num_keypoint_measurements},
-         {"num_measurements_before_temporal", num_measurements_before_temporal},
-         {"num_measurements_after_temporal", static_cast<int>(result.descriptions.size())}});
+         {"num_measurements", static_cast<int>(result.descriptions.size())}});
 
     return result;
 }

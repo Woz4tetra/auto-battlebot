@@ -15,7 +15,6 @@
 #include "robot_filter/front_back_keypoint_converter.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "robot_filter/robot_keypoint_tracker.hpp"
-#include "robot_filter/robot_temporal_motion_filter.hpp"
 
 namespace auto_battlebot {
 class RobotFrontBackSimpleFilter : public RobotFilterInterface {
@@ -27,7 +26,7 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
 
     /**
      * Runs one filter cycle: converts keypoints and blob detections to field-frame measurements,
-     * merges them, applies temporal prediction, and returns stamped robot descriptions.
+     * merges them, and returns stamped robot descriptions.
      */
     RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
                                     CameraInfo camera_info, KeypointsStamped robot_blob_keypoints,
@@ -39,9 +38,6 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     std::unique_ptr<FrontBackKeypointConverter> keypoint_converter_;
     std::map<Label, std::vector<FrameId>> label_to_frame_ids_;
     FrameId default_frame_id_;
-    /** Exponential moving average smoothing factor for opponent velocity estimation (0..1, higher =
-     * more responsive). */
-    double velocity_ema_alpha_;
     /** Reject measurements that jump further than this (meters) from last known position. */
     double max_jump_distance_;
     /** After this many consecutive rejected frames, accept the measurement (tracking reset). */
@@ -54,7 +50,6 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     double field_bounds_margin_meters_;
     RobotKeypointTracker robot_keypoint_tracker_;
     FrameIdAssigner frame_id_assigner_;
-    RobotTemporalMotionFilter temporal_motion_filter_;
 
     /**
      * Converts front/back keypoint detections into field-frame RobotDescriptions.

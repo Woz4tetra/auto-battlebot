@@ -1,25 +1,34 @@
 #pragma once
 
+#include <map>
+
 #include "data_structures/robot.hpp"
+#include "enums/frame_id.hpp"
 
 namespace auto_battlebot {
 
 /**
- * @brief Caches the most recent "navigation-critical" robot set (one that contains our robot AND
- * an opposing robot) and substitutes it when the current frame is missing either side.
+ * @brief Per-FrameId hold-last cache for robot descriptions.
  *
- * Owned by Runner so that target selection and navigation operate on the same effective robot
- * set within a tick. Both consumers read the resolved view; without this, target selection would
- * flap to the previous selection while navigation operated on a stale cache.
+ * Each call to resolve() updates an internal per-FrameId snapshot with this frame's
+ * descriptions, then returns a merged view that contains one entry per ever-seen FrameId.
+ * FrameIds detected this frame appear with their fresh measurement and is_stale=false;
+ * FrameIds not detected this frame appear with their last cached measurement and
+ * is_stale=true. This lets target selection and navigation see every robot that has ever
+ * been detected, bridging momentary detection gaps without requiring downstream code to
+ * track its own history.
+ *
+ * Owned by Runner so target selection and navigation operate on the same merged robot set
+ * within a tick.
  */
 class RobotDescriptionsCache {
    public:
     /**
-     * @brief Non-owning view of the resolved robot set.
+     * @brief Non-owning view of the resolved (merged) robot set.
      *
-     * `robots` references either the `current` argument passed to resolve() or the cache's
-     * internal `previous_` snapshot. The reference is valid until the next call to resolve()
-     * or reset(), and (for the `current` branch) the lifetime of the caller's argument.
+     * `robots` references the cache's internal storage and is valid until the next call to
+     * resolve() or reset(). `using_previous` is true iff at least one FrameId in the merged
+     * view was substituted from the cache (i.e. not measured this frame).
      */
     struct Resolved {
         const RobotDescriptionsStamped &robots;
@@ -28,16 +37,16 @@ class RobotDescriptionsCache {
 
     void reset();
 
-    /** Update cache with `current` if it is critical, otherwise substitute the cached set. */
+    /**
+     * Update the per-FrameId cache with `current`'s descriptions and return the merged view.
+     * The merged header takes its frame_id and stamp from `current`. Descriptions with
+     * FrameId::EMPTY in `current` are passed through to the merged view but not cached.
+     */
     Resolved resolve(const RobotDescriptionsStamped &current);
 
    private:
-    static bool has_our_robot(const RobotDescriptionsStamped &robots);
-    static bool has_their_robot(const RobotDescriptionsStamped &robots);
-    static bool has_navigation_critical_robots(const RobotDescriptionsStamped &robots);
-
-    RobotDescriptionsStamped previous_;
-    bool has_previous_ = false;
+    std::map<FrameId, RobotDescription> last_per_frame_id_;
+    RobotDescriptionsStamped merged_;
 };
 
 }  // namespace auto_battlebot

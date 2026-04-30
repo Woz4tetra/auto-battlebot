@@ -74,42 +74,6 @@ void append_keypoint_pair(KeypointsStamped &keypoints, Label label, KeypointLabe
 }
 }  // namespace
 
-TEST(RobotFrontBackSimpleFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) {
-    RobotFrontBackSimpleFilterConfiguration config;
-    config.front_keypoints = {KeypointLabel::OPPONENT_FRONT};
-    config.back_keypoints = {KeypointLabel::OPPONENT_BACK};
-    config.label_to_frame_ids = {{Label::OPPONENT, {FrameId::THEIR_ROBOT_1}}};
-    config.default_frame_id = FrameId::THEIR_ROBOT_1;
-    config.max_jump_distance = 0.2;
-    config.max_consecutive_jump_rejects = 1;
-
-    RobotFrontBackSimpleFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const KeypointsStamped empty_blob_keypoints;
-    const CommandFeedback command_feedback;
-
-    const auto first = filter.update(make_opponent_keypoints(1.0, 300.0, 340.0), field, camera_info,
-                                     empty_blob_keypoints, command_feedback);
-    ASSERT_EQ(first.descriptions.size(), 1u);
-    const double first_x = first.descriptions[0].pose.position.x;
-    EXPECT_FALSE(first.descriptions[0].is_stale);
-
-    const auto second = filter.update(make_opponent_keypoints(1.1, 460.0, 500.0), field,
-                                      camera_info, empty_blob_keypoints, command_feedback);
-    ASSERT_EQ(second.descriptions.size(), 1u);
-    EXPECT_TRUE(second.descriptions[0].is_stale);
-    EXPECT_NEAR(second.descriptions[0].pose.position.x, first_x, 1e-6);
-
-    const auto third = filter.update(make_opponent_keypoints(1.2, 460.0, 500.0), field, camera_info,
-                                     empty_blob_keypoints, command_feedback);
-    ASSERT_EQ(third.descriptions.size(), 1u);
-    EXPECT_FALSE(third.descriptions[0].is_stale);
-    EXPECT_GT(std::abs(third.descriptions[0].pose.position.x - first_x), 0.5);
-}
-
 // when a specific THEIRS-label blob can't be assigned to its own configured
 // FrameId (because a keypoint detection took it) and falls back to a generic OPPONENT slot,
 // the resulting RobotDescription must be re-labeled to Label::OPPONENT so (label, frame_id,
