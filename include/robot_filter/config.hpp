@@ -33,6 +33,7 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
     std::vector<KeypointLabel> back_keypoints;
     std::map<Label, std::vector<FrameId>> label_to_frame_ids;
     FrameId default_frame_id;
+    double velocity_ema_alpha = 0.5;
     double max_jump_distance = 0.3;
     int max_consecutive_jump_rejects = 5;
     double blob_overwrite_min_distance_meters = 0.20;
@@ -47,6 +48,7 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
         back_keypoints = parse_keypoints(parser, "back_keypoints");
         parse_label_to_frame_id(parser, "label_mapping");
         PARSE_ENUM_REQUIRED(default_frame_id, FrameId);
+        PARSE_FIELD_DOUBLE(velocity_ema_alpha)
         PARSE_FIELD_DOUBLE(max_jump_distance)
         max_consecutive_jump_rejects = static_cast<int>(
             parser.get_optional_int("max_consecutive_jump_rejects", max_consecutive_jump_rejects));
