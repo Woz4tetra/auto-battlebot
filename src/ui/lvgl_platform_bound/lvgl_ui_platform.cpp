@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <stop_token>
 #include <string>
 
 #include "lvgl_platform_bound/lvgl_ui_battery.hpp"
@@ -15,8 +16,9 @@
 
 namespace auto_battlebot {
 
-void run_ui_thread(std::shared_ptr<UIState> ui_state) {
+void run_ui_thread(std::stop_token stop, std::shared_ptr<UIState> ui_state) {
     if (!ui_state) return;
+    std::stop_callback on_stop(stop, [&ui_state] { ui_state->quit_requested.store(true); });
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         spdlog::error("UI thread failed to initialize SDL.");
@@ -118,6 +120,16 @@ void run_ui_thread(std::shared_ptr<UIState> ui_state) {
 
         lv_tick_inc(delay_ms);
         lv_timer_handler();
+        // LVGL's SDL driver may consume SDL_WINDOWEVENT_CLOSE / SDL_QUIT inside
+        // lv_timer_handler() and destroy the default display. Without this guard, the next
+        // iteration calls update_ui_content on a freed display and segfaults.
+        if (lv_display_get_default() == nullptr) {
+            spdlog::warn(
+                "UI: LVGL display destroyed inside lv_timer_handler (SDL close/quit consumed "
+                "internally), exiting loop.");
+            ui_state->quit_requested.store(true);
+            break;
+        }
         SDL_Delay(delay_ms);
 
         const double loop_ms =

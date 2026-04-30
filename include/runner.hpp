@@ -2,7 +2,6 @@
 
 #include <miniros/ros.h>
 
-#include <atomic>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -24,6 +23,7 @@
 #include "publisher/publisher_interface.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "robot_blob_model/robot_blob_model_interface.hpp"
+#include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
 #include "target_selector/target_selector_interface.hpp"
@@ -36,7 +36,7 @@ class Runner {
     using SystemActionCallback = std::function<void(UISystemAction)>;
 
     Runner(const RunnerConfiguration &runner_config, std::shared_ptr<RgbdCameraInterface> camera,
-           const HealthConfiguration &health_config,
+           std::shared_ptr<HealthLogger> health_logger,
            std::shared_ptr<MaskModelInterface> field_model,
            std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
            std::shared_ptr<FieldFilterInterface> field_filter,
@@ -46,9 +46,8 @@ class Runner {
            std::shared_ptr<NavigationInterface> navigation,
            std::shared_ptr<TransmitterInterface> transmitter,
            std::shared_ptr<PublisherInterface> publisher,
-           std::shared_ptr<UIState> ui_state = nullptr,
-           std::shared_ptr<McapRecorder> mcap_recorder = nullptr,
-           SystemActionCallback system_action_callback = nullptr);
+           SystemActionCallback system_action_callback, std::shared_ptr<UIState> ui_state = nullptr,
+           std::shared_ptr<McapRecorder> mcap_recorder = nullptr);
 
     void initialize();
     void initialize_field(const CameraData &camera_data);
@@ -57,7 +56,6 @@ class Runner {
 
    private:
     RunnerConfiguration runner_config_;
-    HealthConfiguration health_config_;
     std::shared_ptr<RgbdCameraInterface> camera_;
     std::shared_ptr<MaskModelInterface> field_model_;
     std::shared_ptr<RobotBlobModelInterface> robot_mask_model_;
@@ -75,18 +73,14 @@ class Runner {
     int runtime_opponent_count_;
     bool robot_filter_reinit_pending_;
     TargetSelection previous_selected_target_;
-    RobotDescriptionsStamped previous_navigation_robots_;
-    bool has_previous_navigation_robots_;
+    RobotDescriptionsCache robot_descriptions_cache_;
 
     bool initialized_;
     bool autonomy_enabled_;
     std::shared_ptr<FieldDescriptionWithInlierPoints> initial_field_description_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
-    std::unique_ptr<HealthLogger> health_logger_;
+    std::shared_ptr<HealthLogger> health_logger_;
     std::chrono::steady_clock::time_point start_time_;
-    std::atomic<int64_t> last_tick_ns_{0};
-    std::atomic<bool> watchdog_stop_{false};
-    std::thread watchdog_thread_;
 
     void publish_system_status(bool camera_ok, double loop_rate_hz) const;
     void stop_recordings_for_shutdown() const;
@@ -96,12 +90,10 @@ class Runner {
     bool handle_system_action_request();
     bool handle_ui_requests(bool &should_reinit_field);
     bool recover_camera_after_failure();
-    void pet_watchdog();
     void set_ui_debug_image_from_camera(const CameraData &camera_data) const;
     bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);
-    static bool has_our_robot(const RobotDescriptionsStamped &robots);
-    static bool has_their_robot(const RobotDescriptionsStamped &robots);
-    static bool has_navigation_critical_robots(const RobotDescriptionsStamped &robots);
+    TargetSelection resolve_target(const RobotDescriptionsStamped &robots,
+                                   const FieldDescription &field_description);
     double elapsed_ms();
 };
 }  // namespace auto_battlebot

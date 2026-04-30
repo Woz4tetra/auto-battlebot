@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
+#include <toml++/toml.h>
 
 #include <opencv2/opencv.hpp>
-#include <toml++/toml.h>
 
 #include "config/config_cast.hpp"
 #include "config/config_parser.hpp"

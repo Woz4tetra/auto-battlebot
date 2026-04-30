@@ -64,14 +64,14 @@ inline sl::DEPTH_MODE get_zed_depth_mode(DepthMode depth_mode) {
 
 class ZedRgbdCamera : public RgbdCameraInterface {
    public:
-    ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
+    explicit ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
     ~ZedRgbdCamera();
     bool initialize() override;
     void cancel_initialize() override;
     bool get(CameraData &data, bool get_depth) override;
     bool should_close() override;
-    bool set_svo_recording_enabled(bool enabled) override;
-    bool is_svo_recording_enabled() const override;
+    bool set_recording_enabled(bool enabled) override;
+    bool is_recording_enabled() const override;
     std::string get_current_svo_path() const;
 
    private:

@@ -21,7 +21,7 @@ ConfigType parse_config_section(const toml::table &toml_data, const std::string 
     return config;
 }
 
-ClassConfiguration load_classes_from_config(const std::string &config_path) {
+std::filesystem::path normalize_config_path(const std::string &config_path) {
     std::filesystem::path path;
     if (config_path.empty()) {
         path = get_config_dir() / "main.toml";
@@ -34,9 +34,12 @@ ClassConfiguration load_classes_from_config(const std::string &config_path) {
             path += ".toml";
         }
     }
-    std::string path_string = path.u8string();
+    return path;
+}
 
+ClassConfiguration load_classes_from_config(const std::filesystem::path &path) {
     ClassConfiguration config;
+    std::string path_string = path.string();
 
     try {
         auto toml_data = toml::parse_file(path_string);

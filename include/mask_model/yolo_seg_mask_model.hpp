@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -29,6 +31,12 @@ class YoloSegMaskModel : public MaskModelInterface {
         std::vector<float> mask_coeffs;
     };
 
+    /** Indices into the engine's output tensor list for the detection and prototype outputs. */
+    struct OutputTensorIndices {
+        std::optional<size_t> det_idx;
+        std::optional<size_t> proto_idx;
+    };
+
     std::string model_path_;
     float confidence_threshold_;
     float iou_threshold_;
@@ -51,10 +59,19 @@ class YoloSegMaskModel : public MaskModelInterface {
                     const std::vector<int> &target_size);
     float generate_scale(cv::Mat &image, const std::vector<int> &target_size);
 
+    bool run_inference(const std::vector<float> &input_buffer,
+                       const std::vector<TrtEngine::OutputTensorInfo> &output_infos,
+                       std::vector<std::vector<float>> &output_buffers);
+    static OutputTensorIndices select_output_tensors(
+        const std::vector<TrtEngine::OutputTensorInfo> &output_infos);
+
     std::vector<Detection> decode_detections(const std::vector<float> &det_output,
                                              const std::vector<int64_t> &det_shape,
                                              int proto_channels) const;
     std::vector<Detection> non_max_suppression(const std::vector<Detection> &detections) const;
+    std::vector<Detection> extract_detections(const std::vector<float> &det_buffer,
+                                              const std::vector<int64_t> &det_shape,
+                                              int proto_channels) const;
     static float iou(const Detection &lhs, const Detection &rhs);
 
     cv::Mat decode_instance_mask(const Detection &det, const std::vector<float> &proto_output,
@@ -62,5 +79,9 @@ class YoloSegMaskModel : public MaskModelInterface {
                                  cv::Size input_size) const;
     cv::Mat map_mask_to_original_image(const cv::Mat &input_mask, cv::Size original_size,
                                        cv::Size input_size) const;
+    void render_detections_to_mask(const std::vector<Detection> &detections,
+                                   const std::vector<float> &proto_buffer,
+                                   const std::vector<int64_t> &proto_shape, cv::Size input_size,
+                                   cv::Size original_size, cv::Mat &merged_mask) const;
 };
 }  // namespace auto_battlebot

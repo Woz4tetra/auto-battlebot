@@ -8,12 +8,22 @@
 namespace auto_battlebot {
 namespace {
 constexpr auto kReconnectInterval = std::chrono::seconds(1);
-}
+constexpr int kChannelMax = 1000;  // raw RC channel range [-1000, 1000]
+constexpr int kTrainerMax = 500;   // OpenTX trainer output range [-500, 500]
+}  // namespace
 
 OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& config)
-    : config_(config) {
-    logger_ = DiagnosticsLogger::get_logger("opentx_transmitter");
-}
+    : config_(config),
+      logger_(DiagnosticsLogger::get_logger("opentx_transmitter")),
+      processor_(
+          {
+              .velocity_saturation_limit = config.velocity_saturation_limit,
+              .zero_deadzone_percent = config.zero_deadzone_percent,
+              .lifted_deadzone_percent = config.lifted_deadzone_percent,
+              .reverse_linear = config.reverse_linear_channel,
+              .reverse_angular = config.reverse_angular_channel,
+          },
+          logger_) {}
 
 bool OpenTxTransmitter::initialize() {
     auto device = find_opentx_device();
@@ -48,42 +58,24 @@ CommandFeedback OpenTxTransmitter::update() {
     for (const auto& [packet, error] : crsf_results) {
         if (!packet) continue;
 
-        std::visit(
-            [&](const auto& pkt) {
-                using T = std::decay_t<decltype(pkt)>;
-                if constexpr (std::is_same_v<T, CrsfLinkStatistics>) {
-                    logger_->debug("link_statistics",
-                                   {{"up_lq", pkt.up_link_quality},
-                                    {"up_rssi", -static_cast<int>(pkt.up_rssi_ant1)},
-                                    {"down_lq", pkt.down_link_quality},
-                                    {"down_rssi", -static_cast<int>(pkt.down_rssi)}});
-                } else if constexpr (std::is_same_v<T, CrsfBattery>) {
-                    logger_->debug("battery", {{"voltage", pkt.voltage}, {"current", pkt.current}});
-                } else if constexpr (std::is_same_v<T, CrsfAttitude>) {
-                    logger_->debug("attitude",
-                                   {{"roll", pkt.roll}, {"pitch", pkt.pitch}, {"yaw", pkt.yaw}});
-                } else if constexpr (std::is_same_v<T, CrsfFlightMode>) {
-                    logger_->debug("flight_mode", {{"mode", pkt.flight_mode}});
-                }
-            },
-            *packet);
+        std::visit([&](const auto& pkt) { handle_packet(pkt); }, *packet);
     }
 
-    // Parse OpenTX channel streaming
-    auto channel_updates = channels_parser_.process(bytes);
-    if (!channel_updates.empty()) {
-        const auto& newest_channels = channel_updates.back();
-        const bool channels_changed =
-            !latest_channels_.has_value() || newest_channels != latest_channels_.value();
-        latest_channels_ = newest_channels;
+    process_channel_updates(bytes);
 
-        if (channels_changed) {
-            std::vector<int> channel_values(latest_channels_->begin(), latest_channels_->end());
-            logger_->debug("channels", {{"values", channel_values}});
-        }
-    }
+    if (!latest_channels_) return {};
 
-    return {};
+    constexpr double kChannelScale = 1.0 / kChannelMax;
+    const double max_linear_mps = config_.max_motor_rpm * M_PI * config_.wheel_diameter / 60.0;
+    const double max_angular_radps = 2.0 * max_linear_mps / config_.wheel_track_width;
+
+    CommandFeedback feedback;
+    feedback.commands[FrameId::OUR_ROBOT_1] = {
+        .linear_x = get_channel_value(config_.linear_channel) * kChannelScale * max_linear_mps,
+        .linear_y = 0.0,
+        .angular_z = get_channel_value(config_.angular_channel) * kChannelScale * max_angular_radps,
+    };
+    return feedback;
 }
 
 void OpenTxTransmitter::enable() {
@@ -104,66 +96,31 @@ void OpenTxTransmitter::disable() {
 
 void OpenTxTransmitter::send(VelocityCommand command) {
     reconnect_if_needed();
-    if (!serial_.is_open()) return;
-    if (!enabled_) return;
+    if (!serial_.is_open() || !enabled_) return;
 
-    // Differential control mode: left_channel carries linear command, right_channel carries
-    // angular command.
-    //
-    // Velocity saturation: angular takes full budget first; linear fills remaining headroom.
-    // When saturation_limit == 0 each channel is clamped independently to [-1, 1].
-    double angular_normalized = std::clamp(command.angular_z, -1.0, 1.0);
-    double linear_normalized;
-    if (config_.velocity_saturation_limit > 0.0) {
-        const double limit = std::clamp(config_.velocity_saturation_limit, 0.0, 1.0);
-        const double linear_headroom =
-            std::max(0.0, limit - std::abs(angular_normalized));
-        linear_normalized = std::clamp(command.linear_x, -linear_headroom, linear_headroom);
-    } else {
-        linear_normalized = std::clamp(command.linear_x, -1.0, 1.0);
-    }
+    // Differential control mode: linear_channel carries forward velocity, angular_channel
+    // carries yaw rate. The OpenTX-side mixer combines them into per-wheel motor outputs.
+    const auto p = processor_.process(command);
+    const int linear_value = to_trainer_value(p.linear);
+    const int angular_value = to_trainer_value(p.angular);
 
-    if (config_.reverse_left_channel) linear_normalized = -linear_normalized;
-    if (config_.reverse_right_channel) angular_normalized = -angular_normalized;
+    logger_->debug("send", {{"linear_channel", config_.linear_channel},
+                            {"angular_channel", config_.angular_channel},
+                            {"linear_channel_val", linear_value},
+                            {"angular_channel_val", angular_value}});
 
-    const double lifted_deadzone =
-        std::clamp(config_.lifted_deadzone_percent, 0.0, 100.0) / 100.0;
-    const double zero_deadzone = std::clamp(config_.zero_deadzone_percent, 0.0, 100.0) / 100.0;
-    auto apply_lifted_deadzone = [lifted_deadzone, zero_deadzone](double normalized) {
-        const double magnitude = std::abs(normalized);
-        if (magnitude <= zero_deadzone) return 0.0;
-        if (magnitude <= 0.0) return 0.0;
-        const double denom = std::max(1e-6, 1.0 - zero_deadzone);
-        const double shifted = std::clamp((magnitude - zero_deadzone) / denom, 0.0, 1.0);
-        const double lifted = lifted_deadzone + (1.0 - lifted_deadzone) * shifted;
-        return std::copysign(std::clamp(lifted, 0.0, 1.0), normalized);
-    };
-    linear_normalized = apply_lifted_deadzone(linear_normalized);
-    angular_normalized = apply_lifted_deadzone(angular_normalized);
+    write_trainer_channels(linear_value, angular_value);
+}
 
-    int left_channel_val = to_trainer_value(linear_normalized);
-    int right_channel_val = to_trainer_value(angular_normalized);
+void OpenTxTransmitter::write_trainer_channels(int linear_value, int angular_value) {
+    const bool linear_ok = serial_.write("trainer " + std::to_string(config_.linear_channel) + " " +
+                                         std::to_string(linear_value) + "\r\n");
+    const bool angular_ok = serial_.write("trainer " + std::to_string(config_.angular_channel) +
+                                          " " + std::to_string(angular_value) + "\r\n");
 
-    logger_->debug("send", {{"linear_x_normalized_in", command.linear_x},
-                            {"angular_z_normalized_in", command.angular_z},
-                            {"linear_normalized_out", linear_normalized},
-                            {"angular_normalized_out", angular_normalized},
-                            {"velocity_saturation_limit", config_.velocity_saturation_limit},
-                            {"lifted_deadzone_percent", config_.lifted_deadzone_percent},
-                            {"zero_deadzone_percent", config_.zero_deadzone_percent},
-                            {"linear_channel", config_.left_channel},
-                            {"angular_channel", config_.right_channel},
-                            {"linear_channel_val", left_channel_val},
-                            {"angular_channel_val", right_channel_val}});
-
-    bool left_write_ok = serial_.write("trainer " + std::to_string(config_.left_channel) + " " +
-                                       std::to_string(left_channel_val) + "\r\n");
-    bool right_write_ok = serial_.write("trainer " + std::to_string(config_.right_channel) + " " +
-                                        std::to_string(right_channel_val) + "\r\n");
-
-    if (!left_write_ok || !right_write_ok) {
+    if (!linear_ok || !angular_ok) {
         logger_->warning("write_failed_reconnecting",
-                         {{"left_write_ok", left_write_ok}, {"right_write_ok", right_write_ok}});
+                         {{"linear_write_ok", linear_ok}, {"angular_write_ok", angular_ok}});
         serial_.close();
         next_reconnect_attempt_ = std::chrono::steady_clock::now();
     }
@@ -171,7 +128,8 @@ void OpenTxTransmitter::send(VelocityCommand command) {
 
 int OpenTxTransmitter::get_channel_value(int channel_idx) const {
     if (!latest_channels_ || channel_idx < 0 || channel_idx >= kMaxChannels) return 0;
-    return std::clamp(static_cast<int>((*latest_channels_)[channel_idx]), -1000, 1000);
+    return std::clamp(static_cast<int>((*latest_channels_)[channel_idx]), -kChannelMax,
+                      kChannelMax);
 }
 
 bool OpenTxTransmitter::did_init_button_press() {
@@ -193,10 +151,42 @@ bool OpenTxTransmitter::did_init_button_press() {
 }
 
 int OpenTxTransmitter::to_trainer_value(double normalized) {
-    constexpr int kMax = 500;
-    constexpr int kMin = -500;
-    int value = static_cast<int>(normalized * kMax);
-    return std::clamp(value, kMin, kMax);
+    int value = static_cast<int>(normalized * kTrainerMax);
+    return std::clamp(value, -kTrainerMax, kTrainerMax);
+}
+
+void OpenTxTransmitter::handle_packet(const CrsfLinkStatistics& pkt) {
+    logger_->debug("link_statistics", {{"up_lq", pkt.up_link_quality},
+                                       {"up_rssi", -static_cast<int>(pkt.up_rssi_ant1)},
+                                       {"down_lq", pkt.down_link_quality},
+                                       {"down_rssi", -static_cast<int>(pkt.down_rssi)}});
+}
+
+void OpenTxTransmitter::handle_packet(const CrsfBattery& pkt) {
+    logger_->debug("battery", {{"voltage", pkt.voltage}, {"current", pkt.current}});
+}
+
+void OpenTxTransmitter::handle_packet(const CrsfAttitude& pkt) {
+    logger_->debug("attitude", {{"roll", pkt.roll}, {"pitch", pkt.pitch}, {"yaw", pkt.yaw}});
+}
+
+void OpenTxTransmitter::handle_packet(const CrsfFlightMode& pkt) {
+    logger_->debug("flight_mode", {{"mode", pkt.flight_mode}});
+}
+
+void OpenTxTransmitter::process_channel_updates(const std::vector<uint8_t>& bytes) {
+    auto channel_updates = channels_parser_.process(bytes);
+    if (channel_updates.empty()) return;
+
+    const auto& newest_channels = channel_updates.back();
+    const bool channels_changed =
+        !latest_channels_.has_value() || newest_channels != latest_channels_.value();
+    latest_channels_ = newest_channels;
+
+    if (channels_changed) {
+        std::vector<int> channel_values(latest_channels_->begin(), latest_channels_->end());
+        logger_->debug("channels", {{"values", channel_values}});
+    }
 }
 
 bool OpenTxTransmitter::reconnect_if_needed() {

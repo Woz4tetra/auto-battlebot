@@ -452,7 +452,9 @@ def main() -> None:
             args.dry_run,
         )
         results_iter = map(process_label_file, worker_inputs)
-        progress_iter = tqdm(results_iter, total=len(worker_inputs), desc="Remapping labels")
+        progress_iter = tqdm(
+            results_iter, total=len(worker_inputs), desc="Remapping labels"
+        )
     else:
         with mp.Pool(
             processes=jobs,
@@ -466,7 +468,9 @@ def main() -> None:
                 args.dry_run,
             ),
         ) as pool:
-            results_iter = pool.imap_unordered(process_label_file, worker_inputs, chunksize=64)
+            results_iter = pool.imap_unordered(
+                process_label_file, worker_inputs, chunksize=64
+            )
             progress_iter = tqdm(
                 results_iter, total=len(worker_inputs), desc="Remapping labels"
             )
@@ -529,7 +533,9 @@ def main() -> None:
             unmapped_labels_with_names = []
             for cls_id in sorted(unmapped_classes_seen):
                 if 0 <= cls_id < len(source_names):
-                    unmapped_labels_with_names.append(f"{cls_id} ({source_names[cls_id]})")
+                    unmapped_labels_with_names.append(
+                        f"{cls_id} ({source_names[cls_id]})"
+                    )
                 else:
                     unmapped_labels_with_names.append(str(cls_id))
             print(

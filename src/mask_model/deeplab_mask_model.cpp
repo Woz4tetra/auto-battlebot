@@ -6,7 +6,7 @@
 #include <filesystem>
 
 namespace auto_battlebot {
-DeepLabMaskModel::DeepLabMaskModel(DeepLabMaskModelConfiguration &config)
+DeepLabMaskModel::DeepLabMaskModel(DeepLabMaskModelConfiguration& config)
     : model_path_(config.model_path),
       model_type_(config.model_type),
       output_label_(config.output_label),
@@ -37,7 +37,7 @@ bool DeepLabMaskModel::load_model_config() {
 
         spdlog::info("Model config: image_size={}, border_padding={}", image_size_,
                      border_padding_);
-    } catch (const toml::parse_error &e) {
+    } catch (const toml::parse_error& e) {
         spdlog::error("Failed to parse model config {}: {}", toml_path.string(), e.description());
         return false;
     }
@@ -100,7 +100,7 @@ MaskStamped DeepLabMaskModel::update(RgbImage image) {
     return result;
 }
 
-void DeepLabMaskModel::preprocess_image(const cv::Mat &image, std::vector<float> &buffer) {
+void DeepLabMaskModel::preprocess_image(const cv::Mat& image, std::vector<float>& buffer) {
     const std::vector<int64_t> in_shape = engine_.getInputShape();
     if (in_shape.size() < 4 || in_shape[0] != 1 || in_shape[1] != 3) {
         return;
@@ -131,7 +131,7 @@ void DeepLabMaskModel::preprocess_image(const cv::Mat &image, std::vector<float>
     cv::Mat float_image;
     resized.convertTo(float_image, CV_32F, 1.0 / 255.0);
 
-    // ImageNet per-channel normalization — must match transforms.Normalize in training pipeline
+    // ImageNet per-channel normalization - must match transforms.Normalize in training pipeline
     const std::vector<float> mean = {0.485f, 0.456f, 0.406f};
     const std::vector<float> std_dev = {0.229f, 0.224f, 0.225f};
 
@@ -142,10 +142,10 @@ void DeepLabMaskModel::preprocess_image(const cv::Mat &image, std::vector<float>
     }
     cv::merge(channels, float_image);
 
-    // NCHW: 1 * 3 * H * W — size must match engine input
+    // NCHW: 1 * 3 * H * W - size must match engine input
     const int64_t num_elements = engine_.getInputNumElements();
     buffer.resize(static_cast<size_t>(num_elements));
-    float *ptr = buffer.data();
+    float* ptr = buffer.data();
     for (int c = 0; c < 3; c++) {
         for (int y = 0; y < model_h; y++) {
             for (int x = 0; x < model_w; x++) {
@@ -155,7 +155,7 @@ void DeepLabMaskModel::preprocess_image(const cv::Mat &image, std::vector<float>
     }
 }
 
-cv::Mat DeepLabMaskModel::postprocess_output(const float *output, int original_height,
+cv::Mat DeepLabMaskModel::postprocess_output(const float* output, int original_height,
                                              int original_width) {
     const std::vector<int64_t> out_shape = engine_.getOutputShape();
     if (out_shape.size() < 4) {
@@ -166,7 +166,7 @@ cv::Mat DeepLabMaskModel::postprocess_output(const float *output, int original_h
     const int W = static_cast<int>(out_shape[3]);
 
     cv::Mat mask(H, W, CV_8UC1);
-    uint8_t *mask_ptr = mask.data;
+    uint8_t* mask_ptr = mask.data;
 
     for (int y = 0; y < H; y++) {
         for (int x = 0; x < W; x++) {

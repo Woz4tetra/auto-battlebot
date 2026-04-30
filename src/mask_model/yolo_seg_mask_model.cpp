@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
@@ -26,9 +25,8 @@ YoloSegMaskModel::YoloSegMaskModel(YoloSegMaskModelConfiguration &config)
       max_detections_(config.max_detections),
       debug_visualization_(config.debug_visualization),
       output_label_(config.output_label),
-      label_indices_(config.label_indices) {
-    diagnostics_logger_ = DiagnosticsLogger::get_logger("yolo_seg_mask_model");
-
+      label_indices_(config.label_indices),
+      diagnostics_logger_(DiagnosticsLogger::get_logger("yolo_seg_mask_model")) {
     for (size_t i = 0; i < label_indices_.size(); ++i) {
         if (label_indices_[i] == output_label_) {
             target_class_index_ = static_cast<int>(i);
@@ -109,82 +107,29 @@ MaskStamped YoloSegMaskModel::update(RgbImage image) {
     }
 
     std::vector<std::vector<float>> output_buffers;
-    output_buffers.reserve(output_infos.size());
-    for (const auto &info : output_infos) {
-        output_buffers.emplace_back(static_cast<size_t>(info.num_elements), 0.0f);
-    }
-
-    std::vector<float *> output_ptrs;
-    output_ptrs.reserve(output_buffers.size());
-    for (auto &buffer : output_buffers) output_ptrs.push_back(buffer.data());
-
-    if (!engine_.execute_multi(input_buffer.data(), output_ptrs)) {
+    if (!run_inference(input_buffer, output_infos, output_buffers)) {
         diagnostics_logger_->error({}, "YOLO-seg inference failed");
         return result;
     }
 
-    size_t det_idx = std::numeric_limits<size_t>::max();
-    size_t proto_idx = std::numeric_limits<size_t>::max();
-    for (size_t i = 0; i < output_infos.size(); ++i) {
-        // YOLO-seg proto output is rank-4 [1, C, H, W].
-        if (output_infos[i].shape.size() == 4) {
-            if (proto_idx == std::numeric_limits<size_t>::max() ||
-                output_infos[i].num_elements > output_infos[proto_idx].num_elements) {
-                proto_idx = i;
-            }
-            continue;
-        }
-
-        // Prefer rank-3 tensors for detection output [1, F, N] (or [1, N, F]).
-        if (output_infos[i].shape.size() == 3) {
-            if (det_idx == std::numeric_limits<size_t>::max() ||
-                output_infos[i].num_elements > output_infos[det_idx].num_elements) {
-                det_idx = i;
-            }
-        }
-    }
-
-    // Fallback for unusual layouts: pick the largest non-proto tensor.
-    if (det_idx == std::numeric_limits<size_t>::max()) {
-        for (size_t i = 0; i < output_infos.size(); ++i) {
-            if (i == proto_idx) continue;
-            if (det_idx == std::numeric_limits<size_t>::max() ||
-                output_infos[i].num_elements > output_infos[det_idx].num_elements) {
-                det_idx = i;
-            }
-        }
-    }
-    if (det_idx == std::numeric_limits<size_t>::max()) {
+    const OutputTensorIndices tensors = select_output_tensors(output_infos);
+    if (!tensors.det_idx) {
         diagnostics_logger_->error({}, "YOLO-seg could not identify detection output tensor");
         return result;
     }
 
     int proto_channels = 0;
-    if (proto_idx != std::numeric_limits<size_t>::max() &&
-        output_infos[proto_idx].shape.size() == 4) {
-        proto_channels = static_cast<int>(output_infos[proto_idx].shape[1]);
+    if (tensors.proto_idx && output_infos[*tensors.proto_idx].shape.size() == 4) {
+        proto_channels = static_cast<int>(output_infos[*tensors.proto_idx].shape[1]);
     }
 
-    auto detections =
-        decode_detections(output_buffers[det_idx], output_infos[det_idx].shape, proto_channels);
-    detections.erase(
-        std::remove_if(detections.begin(), detections.end(),
-                       [&](const Detection &det) { return det.class_id != target_class_index_; }),
-        detections.end());
-    detections = non_max_suppression(detections);
-    if (static_cast<int>(detections.size()) > max_detections_) {
-        detections.resize(static_cast<size_t>(max_detections_));
-    }
+    auto detections = extract_detections(output_buffers[*tensors.det_idx],
+                                         output_infos[*tensors.det_idx].shape, proto_channels);
 
-    for (const auto &det : detections) {
-        if (proto_idx == std::numeric_limits<size_t>::max() || det.mask_coeffs.empty()) {
-            continue;
-        }
-        cv::Mat instance_mask = decode_instance_mask(det, output_buffers[proto_idx],
-                                                     output_infos[proto_idx].shape, input_size);
-        cv::Mat mapped_mask = map_mask_to_original_image(instance_mask, original_size, input_size);
-        if (mapped_mask.empty()) continue;
-        merged_mask.setTo(output_mask_value_, mapped_mask > 0);
+    if (tensors.proto_idx) {
+        render_detections_to_mask(detections, output_buffers[*tensors.proto_idx],
+                                  output_infos[*tensors.proto_idx].shape, input_size, original_size,
+                                  merged_mask);
     }
 
     if (debug_visualization_ && !merged_mask.empty()) {
@@ -195,6 +140,86 @@ MaskStamped YoloSegMaskModel::update(RgbImage image) {
 
     result.mask.mask = merged_mask;
     return result;
+}
+
+bool YoloSegMaskModel::run_inference(const std::vector<float> &input_buffer,
+                                     const std::vector<TrtEngine::OutputTensorInfo> &output_infos,
+                                     std::vector<std::vector<float>> &output_buffers) {
+    output_buffers.clear();
+    output_buffers.reserve(output_infos.size());
+    for (const auto &info : output_infos) {
+        output_buffers.emplace_back(static_cast<size_t>(info.num_elements), 0.0f);
+    }
+
+    std::vector<float *> output_ptrs;
+    output_ptrs.reserve(output_buffers.size());
+    for (auto &buffer : output_buffers) output_ptrs.push_back(buffer.data());
+
+    return engine_.execute_multi(input_buffer.data(), output_ptrs);
+}
+
+YoloSegMaskModel::OutputTensorIndices YoloSegMaskModel::select_output_tensors(
+    const std::vector<TrtEngine::OutputTensorInfo> &output_infos) {
+    OutputTensorIndices indices;
+    for (size_t i = 0; i < output_infos.size(); ++i) {
+        // YOLO-seg proto output is rank-4 [1, C, H, W].
+        if (output_infos[i].shape.size() == 4) {
+            if (!indices.proto_idx ||
+                output_infos[i].num_elements > output_infos[*indices.proto_idx].num_elements) {
+                indices.proto_idx = i;
+            }
+            continue;
+        }
+
+        // Prefer rank-3 tensors for detection output [1, F, N] (or [1, N, F]).
+        if (output_infos[i].shape.size() == 3) {
+            if (!indices.det_idx ||
+                output_infos[i].num_elements > output_infos[*indices.det_idx].num_elements) {
+                indices.det_idx = i;
+            }
+        }
+    }
+
+    // Fallback for unusual layouts: pick the largest non-proto tensor.
+    if (!indices.det_idx) {
+        for (size_t i = 0; i < output_infos.size(); ++i) {
+            if (indices.proto_idx && i == *indices.proto_idx) continue;
+            if (!indices.det_idx ||
+                output_infos[i].num_elements > output_infos[*indices.det_idx].num_elements) {
+                indices.det_idx = i;
+            }
+        }
+    }
+    return indices;
+}
+
+std::vector<YoloSegMaskModel::Detection> YoloSegMaskModel::extract_detections(
+    const std::vector<float> &det_buffer, const std::vector<int64_t> &det_shape,
+    int proto_channels) const {
+    auto detections = decode_detections(det_buffer, det_shape, proto_channels);
+    detections.erase(
+        std::remove_if(detections.begin(), detections.end(),
+                       [&](const Detection &det) { return det.class_id != target_class_index_; }),
+        detections.end());
+    detections = non_max_suppression(detections);
+    if (static_cast<int>(detections.size()) > max_detections_) {
+        detections.resize(static_cast<size_t>(max_detections_));
+    }
+    return detections;
+}
+
+void YoloSegMaskModel::render_detections_to_mask(const std::vector<Detection> &detections,
+                                                 const std::vector<float> &proto_buffer,
+                                                 const std::vector<int64_t> &proto_shape,
+                                                 cv::Size input_size, cv::Size original_size,
+                                                 cv::Mat &merged_mask) const {
+    for (const auto &det : detections) {
+        if (det.mask_coeffs.empty()) continue;
+        cv::Mat instance_mask = decode_instance_mask(det, proto_buffer, proto_shape, input_size);
+        cv::Mat mapped_mask = map_mask_to_original_image(instance_mask, original_size, input_size);
+        if (mapped_mask.empty()) continue;
+        merged_mask.setTo(output_mask_value_, mapped_mask > 0);
+    }
 }
 
 void YoloSegMaskModel::preprocess_image(const cv::Mat &image, cv::Size input_size,

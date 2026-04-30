@@ -1,8 +1,6 @@
 #pragma once
 
-#include <algorithm>
 #include <diagnostic_msgs/DiagnosticStatus.hxx>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -23,7 +21,7 @@ class DiagnosticsModuleLogger {
      *
      * @param logger_name Name of this specific logger module
      */
-    DiagnosticsModuleLogger(const std::string &logger_name);
+    explicit DiagnosticsModuleLogger(const std::string &logger_name);
 
     /**
      * @brief Log diagnostic information with a specific level

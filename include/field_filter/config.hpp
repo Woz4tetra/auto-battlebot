@@ -23,6 +23,8 @@ struct PointCloudFieldFilterConfiguration : public FieldFilterConfiguration {
     double distance_threshold = 0.1;
     bool local_visualize_debug = false;
     double depth_units_per_meter = 1.0;
+    int ransac_max_iterations = 1000;
+    double ransac_probability = 0.999;
 
     PointCloudFieldFilterConfiguration() { type = "PointCloudFieldFilter"; }
 
@@ -31,6 +33,8 @@ struct PointCloudFieldFilterConfiguration : public FieldFilterConfiguration {
             PARSE_FIELD_DOUBLE(distance_threshold)
             PARSE_FIELD_BOOL(local_visualize_debug)
             PARSE_FIELD_DOUBLE(depth_units_per_meter)
+            PARSE_FIELD(ransac_max_iterations)
+            PARSE_FIELD_DOUBLE(ransac_probability)
         )
     // clang-format on
 };

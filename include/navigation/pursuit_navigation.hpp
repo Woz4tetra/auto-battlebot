@@ -24,7 +24,10 @@ class PursuitNavigation : public NavigationInterface {
 
     VelocityCommand update(RobotDescriptionsStamped robots, FieldDescription field,
                            const TargetSelection &target) override;
-    std::optional<NavigationPathSegment> get_last_path() const override;
+
+    const NavigationVisualization &get_last_visualization() const override {
+        return last_visualization_;
+    }
 
    private:
     /**
@@ -37,6 +40,39 @@ class PursuitNavigation : public NavigationInterface {
      */
     VelocityCommand compute_pursuit_command(const Pose2D &our_pose, const Pose2D &target_pose,
                                             const FieldDescription &field);
+
+    /**
+     * @brief Apply turn-direction hysteresis to the raw angle error.
+     *
+     * When the target swings far behind us (above a commit threshold), latches a turn direction
+     * to prevent dithering. The latch releases once we are roughly facing the target again.
+     * Updates committed_turn_sign_ as a side effect and returns the (possibly sign-overridden)
+     * angle error.
+     */
+    double apply_hysteresis(double angle_error);
+
+    /**
+     * @brief Compute angular velocity (rad/s) using a PD controller on angle_error.
+     *
+     * Updates prev_angle_error_ and prev_timestamp_ for use on the next call.
+     */
+    double compute_angular_velocity(double angle_error);
+
+    /**
+     * @brief Compute forward linear velocity (m/s).
+     *
+     * Returns 0 unless we are roughly facing the target. Otherwise scales speed by a velocity
+     * ramp (full speed near the target, reduced at distance), an angle-error penalty, and a
+     * steer-brake that slows us when angular_z is large.
+     */
+    double compute_linear_velocity(double angle_error, double distance, double angular_z);
+
+    /**
+     * @brief If close to and facing a wall, override cmd.linear_x with a reverse command to
+     * back away. Modifies cmd in place.
+     */
+    void apply_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
+                            VelocityCommand &cmd);
 
     /**
      * @brief Clamp position to stay within field boundaries
@@ -78,7 +114,6 @@ class PursuitNavigation : public NavigationInterface {
     double lookahead_time_;
     double boundary_margin_;
     bool enable_hysteresis_;
-    mutable std::optional<NavigationPathSegment> last_path_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
 
     /** Latched turn direction (+1 or -1) to avoid dithering when target is behind us. 0 =
@@ -87,6 +122,7 @@ class PursuitNavigation : public NavigationInterface {
     double prev_angle_error_ = 0.0;
     double prev_timestamp_ = 0.0;
     std::optional<Pose2D> last_known_our_pose_;
+    NavigationVisualization last_visualization_;
 };
 
 }  // namespace auto_battlebot

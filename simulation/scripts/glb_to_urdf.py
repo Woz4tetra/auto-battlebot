@@ -402,7 +402,7 @@ def main() -> None:
     chassis_com = chassis_cfg["com"]
     chassis_mass = chassis_cfg["mass"]
 
-    # Wheels — rotate so Z (spin axis) maps to Y (URDF joint axis)
+    # Wheels - rotate so Z (spin axis) maps to Y (URDF joint axis)
     wheel_I_raw = _parse_inertia(wheels_cfg["inertia"])
     wheel_I = _inertia_g_mm2_to_kg_m2(wheel_I_raw)
     wheel_I = _rotate_inertia(wheel_I, _rot_x(90.0))
@@ -425,7 +425,7 @@ def main() -> None:
     # -- build URDF ----------------------------------------------------------
     robot = Element("robot", name=robot_name)
 
-    # Base link (no collision mesh — stabilizer casters + wheels only)
+    # Base link (no collision mesh - stabilizer casters + wheels only)
     base = SubElement(robot, "link", name="base_link")
     _add_inertial(base, chassis_mass, chassis_com, chassis_I)
     _add_visual(base, "meshes/chassis.obj")

@@ -53,7 +53,7 @@ URDF_TEMPLATE = textwrap.dedent("""\
     </visual>
   </link>
 
-  <!-- Pitch stabilizer casters — ~zero normal force at equilibrium (COM at origin) -->
+  <!-- Pitch stabilizer casters - ~zero normal force at equilibrium (COM at origin) -->
   <link name="caster_front">
     <inertial>
       <mass value="0.001" />

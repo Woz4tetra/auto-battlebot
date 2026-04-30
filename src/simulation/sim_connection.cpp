@@ -20,7 +20,7 @@ void interrupt_handler(int) { g_interrupted.store(true, std::memory_order_relaxe
 
 namespace auto_battlebot {
 
-// Wire format — keep in sync with simulation/sim_server.py
+// Wire format - keep in sync with simulation/sim_server.py
 #pragma pack(push, 1)
 struct SimRequest {
     double linear_x;
@@ -38,7 +38,7 @@ struct SimResponseHeader {
 
 std::shared_ptr<SimConnection> SimConnection::instance_;
 
-void SimConnection::configure(const std::string &host, int port) {
+void SimConnection::configure(const std::string& host, int port) {
     instance_ = std::shared_ptr<SimConnection>(new SimConnection(host, port));
 }
 
@@ -49,7 +49,7 @@ std::shared_ptr<SimConnection> SimConnection::instance() {
     return instance_;
 }
 
-SimConnection::SimConnection(const std::string &host, int port) : host_(host), port_(port) {}
+SimConnection::SimConnection(const std::string& host, int port) : host_(host), port_(port) {}
 
 SimConnection::~SimConnection() { disconnect(); }
 
@@ -85,7 +85,7 @@ bool SimConnection::connect() {
             break;
         }
 
-        if (::connect(sock_fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0) {
+        if (::connect(sock_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0) {
             int flag = 1;
             setsockopt(sock_fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
             constexpr int buf_size = 4 * 1024 * 1024;
@@ -132,7 +132,7 @@ bool SimConnection::is_connected() const { return sock_fd_ >= 0; }
 
 void SimConnection::set_command(VelocityCommand cmd) { pending_command_ = cmd; }
 
-bool SimConnection::step_and_receive(CameraData &data) {
+bool SimConnection::step_and_receive(CameraData& data) {
     if (!is_connected()) return false;
 
     SimRequest req{};
@@ -219,8 +219,8 @@ bool SimConnection::step_and_receive(CameraData &data) {
     return true;
 }
 
-bool SimConnection::send_all(const void *buf, size_t len) {
-    const auto *p = static_cast<const uint8_t *>(buf);
+bool SimConnection::send_all(const void* buf, size_t len) {
+    const auto* p = static_cast<const uint8_t*>(buf);
     size_t sent = 0;
     while (sent < len) {
         ssize_t n = ::send(sock_fd_, p + sent, len - sent, MSG_NOSIGNAL);
@@ -230,8 +230,8 @@ bool SimConnection::send_all(const void *buf, size_t len) {
     return true;
 }
 
-bool SimConnection::recv_all(void *buf, size_t len) {
-    auto *p = static_cast<uint8_t *>(buf);
+bool SimConnection::recv_all(void* buf, size_t len) {
+    auto* p = static_cast<uint8_t*>(buf);
     size_t received = 0;
     while (received < len) {
         ssize_t n = ::recv(sock_fd_, p + received, len - received, 0);

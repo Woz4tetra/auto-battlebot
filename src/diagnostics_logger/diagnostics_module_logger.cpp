@@ -1,5 +1,7 @@
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 
+#include <algorithm>
+
 namespace auto_battlebot {
 DiagnosticsModuleLogger::DiagnosticsModuleLogger(const std::string &logger_name)
     : logger_name_(logger_name), level_(diagnostic_msgs::DiagnosticStatus::OK) {}

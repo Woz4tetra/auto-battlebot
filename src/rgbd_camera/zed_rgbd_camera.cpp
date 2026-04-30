@@ -618,7 +618,7 @@ bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
 
 bool ZedRgbdCamera::should_close() { return should_close_; }
 
-bool ZedRgbdCamera::set_svo_recording_enabled(bool enabled) {
+bool ZedRgbdCamera::set_recording_enabled(bool enabled) {
     if (is_playback_input_) {
         spdlog::warn("Ignoring SVO recording toggle while using SVO playback input.");
         return false;
@@ -645,7 +645,7 @@ bool ZedRgbdCamera::set_svo_recording_enabled(bool enabled) {
     return true;
 }
 
-bool ZedRgbdCamera::is_svo_recording_enabled() const {
+bool ZedRgbdCamera::is_recording_enabled() const {
     if (!svo_recording_enabled_.load()) return false;
     std::lock_guard<std::mutex> lock(data_mutex_);
     return !current_svo_path_.empty();

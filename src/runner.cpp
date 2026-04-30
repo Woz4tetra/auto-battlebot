@@ -8,25 +8,9 @@
 #include "time_utils.hpp"
 
 namespace auto_battlebot {
-namespace {
-constexpr double kTickWarnMs = 250.0;
-constexpr double kHealthLogWarnMs = 150.0;
-constexpr double kDiagnosticsPublishWarnMs = 100.0;
-constexpr double kRecoverLoopWarnMs = 5000.0;
-constexpr double kUiDebugCopyWarnMs = 40.0;
-constexpr auto kWatchdogCheckInterval = std::chrono::seconds(3);
-// Stall threshold must stay larger than the camera layer's own hard timeouts
-// (kOpenHardTimeout = 30 s in zed_rgbd_camera.cpp) so a legitimately slow ZED reopen
-// during recover_camera_after_failure() does not look like a wedged main loop.
-constexpr auto kWatchdogStallThreshold = std::chrono::seconds(45);
-constexpr auto kCameraRecoverInitialBackoff = std::chrono::milliseconds(1000);
-constexpr auto kCameraRecoverMaxBackoff = std::chrono::milliseconds(10000);
-constexpr auto kCameraRecoverPetInterval = std::chrono::milliseconds(500);
-}  // namespace
-
 Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<RgbdCameraInterface> camera,
-               const HealthConfiguration &health_config,
+               std::shared_ptr<HealthLogger> health_logger,
                std::shared_ptr<MaskModelInterface> field_model,
                std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
                std::shared_ptr<FieldFilterInterface> field_filter,
@@ -35,11 +19,10 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<TargetSelectorInterface> target_selector,
                std::shared_ptr<NavigationInterface> navigation,
                std::shared_ptr<TransmitterInterface> transmitter,
-               std::shared_ptr<PublisherInterface> publisher, std::shared_ptr<UIState> ui_state,
-               std::shared_ptr<McapRecorder> mcap_recorder,
-               SystemActionCallback system_action_callback)
+               std::shared_ptr<PublisherInterface> publisher,
+               SystemActionCallback system_action_callback, std::shared_ptr<UIState> ui_state,
+               std::shared_ptr<McapRecorder> mcap_recorder)
     : runner_config_(runner_config),
-      health_config_(health_config),
       camera_(camera),
       field_model_(field_model),
       robot_mask_model_(robot_mask_model),
@@ -56,19 +39,16 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       runtime_opponent_count_(runner_config_.default_opponent_count),
       robot_filter_reinit_pending_(false),
       previous_selected_target_(TargetSelection{}),
-      previous_navigation_robots_(),
-      has_previous_navigation_robots_(false),
       initialized_(false),
       autonomy_enabled_(runner_config_.autonomy_enabled_by_default),
       initial_field_description_(),
-      start_time_(std::chrono::steady_clock::now()) {
-    diagnostics_logger_ = DiagnosticsLogger::get_logger("runner");
-    health_logger_ = std::make_unique<HealthLogger>(health_config_);
-}
+      diagnostics_logger_(DiagnosticsLogger::get_logger("runner")),
+      health_logger_(std::move(health_logger)),
+      start_time_(std::chrono::steady_clock::now()) {}
 
 void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
     if (!ui_state_) return;
-    const bool svo_recording_enabled = camera_->is_svo_recording_enabled();
+    const bool svo_recording_enabled = camera_->is_recording_enabled();
     const bool mcap_recording_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
     SystemStatus status;
     status.camera_ok = camera_ok;
@@ -80,11 +60,15 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
     status.svo_recording_enabled = svo_recording_enabled;
     status.mcap_recording_enabled = mcap_recording_enabled;
     status.recording_enabled = svo_recording_enabled && mcap_recording_enabled;
+    if (health_logger_) {
+        status.jetson_temperature_c = health_logger_->get_last_temp_c();
+        status.jetson_compute_mode = health_logger_->get_last_compute_mode();
+    }
     ui_state_->set_system_status(status);
 }
 
 void Runner::stop_recordings_for_shutdown() const {
-    if (!camera_->set_svo_recording_enabled(false)) {
+    if (!camera_->set_recording_enabled(false)) {
         spdlog::warn("Failed to disable SVO recording during shutdown.");
     }
     if (mcap_recorder_) {
@@ -95,7 +79,11 @@ void Runner::stop_recordings_for_shutdown() const {
 
 void Runner::handle_opponent_count_request() {
     int req = ui_state_->opponent_count_requested.exchange(-1);
-    if (req < 1 || req > 3) return;
+    if (req == -1) return;
+    if (req < 1 || req > 3) {
+        spdlog::warn("Requested number of opponents is not between 1 and 3 ({}). Ignoring.", req);
+        return;
+    }
 
     runtime_opponent_count_ = req;
     robot_filter_reinit_pending_ = true;
@@ -115,11 +103,11 @@ void Runner::handle_autonomy_toggle_request() {
 void Runner::handle_recording_toggle_request() const {
     if (!ui_state_->recording_toggle_requested.exchange(false)) return;
 
-    const bool svo_enabled = camera_->is_svo_recording_enabled();
+    const bool svo_enabled = camera_->is_recording_enabled();
     const bool mcap_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
     const bool target_enabled = !(svo_enabled && mcap_enabled);
 
-    if (!camera_->set_svo_recording_enabled(target_enabled)) {
+    if (!camera_->set_recording_enabled(target_enabled)) {
         spdlog::warn("Failed to set SVO recording to {}", target_enabled ? "enabled" : "disabled");
     }
     if (mcap_recorder_ && !mcap_recorder_->set_enabled(target_enabled)) {
@@ -138,6 +126,14 @@ bool Runner::handle_system_action_request() {
         system_action_callback_(requested_action);
     }
     return true;
+}
+
+void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const {
+    if (!ui_state_) return;
+    if (!camera_data.rgb.image.data || camera_data.rgb.image.empty()) return;
+
+    // UIState clones internally to detach from the camera SDK's reusable buffer.
+    ui_state_->set_debug_image(camera_data.rgb.image);
 }
 
 bool Runner::handle_ui_requests(bool &should_reinit_field) {
@@ -168,61 +164,20 @@ bool Runner::recover_camera_after_failure() {
         if (ui_state_ && ui_state_->quit_requested.load()) return false;
         return true;
     };
-
-    // Sleep with periodic watchdog pets so a long back-off does not get mistaken
-    // for a stalled main loop. Returns false if the run state goes away during the sleep.
-    auto pet_sleep = [&](std::chrono::milliseconds total) {
-        const auto deadline = std::chrono::steady_clock::now() + total;
-        while (std::chrono::steady_clock::now() < deadline) {
-            if (!is_running()) return false;
-            const auto remaining = deadline - std::chrono::steady_clock::now();
-            const auto step =
-                std::min<std::chrono::steady_clock::duration>(kCameraRecoverPetInterval, remaining);
-            if (step.count() <= 0) break;
-            std::this_thread::sleep_for(step);
-            pet_watchdog();
-        }
-        return true;
-    };
-
-    auto backoff = kCameraRecoverInitialBackoff;
     while (is_running()) {
-        const auto iteration_start = std::chrono::steady_clock::now();
-        pet_watchdog();
         if (ui_state_ && !handle_system_action_request()) {
             camera_->cancel_initialize();
             return false;
         }
-        if (!pet_sleep(std::chrono::milliseconds(100))) {
-            camera_->cancel_initialize();
-            break;
-        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (!is_running()) {
             camera_->cancel_initialize();
             break;
         }
-        pet_watchdog();
-        if (camera_->initialize()) {
-            pet_watchdog();
-            break;
-        }
-        pet_watchdog();
+        if (camera_->initialize()) break;
 
-        const double iteration_ms = std::chrono::duration<double, std::milli>(
-                                        std::chrono::steady_clock::now() - iteration_start)
-                                        .count();
-        if (iteration_ms > kRecoverLoopWarnMs) {
-            spdlog::warn("validation: camera_recover_iteration slow elapsed_ms={:.2f}",
-                         iteration_ms);
-        }
-
-        spdlog::warn("Camera reinitialize attempt failed; backing off {} ms before retry",
-                     backoff.count());
-        if (!pet_sleep(backoff)) {
-            camera_->cancel_initialize();
-            break;
-        }
-        backoff = std::min(backoff * 2, kCameraRecoverMaxBackoff);
+        spdlog::warn("Camera reinitialize attempt failed. Exiting.");
+        return false;
     }
 
     if (!is_running()) {
@@ -230,24 +185,6 @@ bool Runner::recover_camera_after_failure() {
         return false;
     }
     return true;
-}
-
-void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const {
-    if (!ui_state_) return;
-    if (!camera_data.rgb.image.data || camera_data.rgb.image.empty()) return;
-
-    const auto copy_start = std::chrono::steady_clock::now();
-    const cv::Mat &img = camera_data.rgb.image;
-    std::vector<uint8_t> data(img.ptr<uint8_t>(),
-                              img.ptr<uint8_t>() + img.total() * img.elemSize());
-    ui_state_->set_debug_image(img.cols, img.rows, img.channels(), data);
-    const double copy_ms =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - copy_start)
-            .count();
-    if (copy_ms > kUiDebugCopyWarnMs) {
-        spdlog::warn("validation: set_ui_debug_image slow elapsed_ms={:.2f} bytes={}", copy_ms,
-                     data.size());
-    }
 }
 
 bool Runner::handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz) {
@@ -307,57 +244,31 @@ void Runner::initialize_field(const CameraData &camera_data) {
 
     robot_filter_->initialize(runtime_opponent_count_);
     navigation_->initialize();
+    robot_descriptions_cache_.reset();
     previous_selected_target_ = TargetSelection{};
-    has_previous_navigation_robots_ = false;
-    previous_navigation_robots_.descriptions.clear();
     initialized_ = true;
     spdlog::info("Field initialized");
 }
 
-bool Runner::has_our_robot(const RobotDescriptionsStamped &robots) {
-    for (const auto &robot : robots.descriptions) {
-        if (robot.frame_id == FrameId::OUR_ROBOT_1) return true;
+TargetSelection Runner::resolve_target(const RobotDescriptionsStamped &robots,
+                                       const FieldDescription &field_description) {
+    if (ui_state_) {
+        if (auto manual_target = ui_state_->get_manual_target()) {
+            return *manual_target;
+        }
     }
-    return false;
-}
-
-bool Runner::has_their_robot(const RobotDescriptionsStamped &robots) {
-    for (const auto &robot : robots.descriptions) {
-        if (robot.group == Group::THEIRS) return true;
+    if (target_selector_) {
+        if (auto selected = target_selector_->get_target(robots, field_description)) {
+            previous_selected_target_ = *selected;
+        }
     }
-    return false;
-}
-
-bool Runner::has_navigation_critical_robots(const RobotDescriptionsStamped &robots) {
-    return has_our_robot(robots) && has_their_robot(robots);
+    return previous_selected_target_;
 }
 
 int Runner::run() {
     auto loop_duration =
         std::chrono::microseconds(static_cast<int64_t>(1000000.0 / runner_config_.max_loop_rate));
     auto prev_time = std::chrono::steady_clock::now();
-    auto heartbeat_window_start = std::chrono::steady_clock::now();
-    uint64_t heartbeat_ticks = 0;
-    double max_tick_ms = 0.0;
-    double max_health_ms = 0.0;
-    double max_publish_ms = 0.0;
-
-    watchdog_stop_ = false;
-    pet_watchdog();
-    watchdog_thread_ = std::thread([this]() {
-        while (!watchdog_stop_) {
-            std::this_thread::sleep_for(kWatchdogCheckInterval);
-            if (watchdog_stop_) break;
-            const int64_t now_ns = std::chrono::steady_clock::now().time_since_epoch().count();
-            const auto stall = std::chrono::nanoseconds(now_ns - last_tick_ns_.load());
-            if (stall > kWatchdogStallThreshold) {
-                spdlog::critical("Watchdog: main loop stalled for {:.1f}s, aborting",
-                                 std::chrono::duration<double>(stall).count());
-                spdlog::default_logger()->flush();
-                std::abort();
-            }
-        }
-    });
 
     while (true) {
         auto current_time = std::chrono::steady_clock::now();
@@ -366,69 +277,19 @@ int Runner::run() {
         auto remaining_time = loop_duration - (current_time - prev_time);
         prev_time = current_time;
         if (remaining_time.count() < 0) {
-            double exceeded_time =
-                -1 * std::chrono::duration_cast<std::chrono::microseconds>(remaining_time).count() /
-                1000.0;
-            diagnostics_logger_->debug("", {{"loop_duration_exceeded_ms", exceeded_time}});
+            diagnostics_logger_->debug("", {{"loop_duration_exceeded_ms", -to_ms(remaining_time)}});
         }
         std::this_thread::sleep_for(remaining_time);
-
-        pet_watchdog();
 
         const auto tick_start = std::chrono::steady_clock::now();
         if (!tick()) {
             spdlog::warn("Runner::tick requested shutdown; runner loop exiting.");
-            watchdog_stop_ = true;
-            watchdog_thread_.join();
             return 0;
         }
-        const double tick_ms =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tick_start)
-                .count();
-        max_tick_ms = std::max(max_tick_ms, tick_ms);
-        if (tick_ms > kTickWarnMs) {
-            spdlog::warn("validation: tick slow elapsed_ms={:.2f}", tick_ms);
-        }
+        health_logger_->record_tick(ms_since(tick_start));
+        health_logger_->maybe_log();
 
-        if (health_logger_) {
-            const auto health_start = std::chrono::steady_clock::now();
-            health_logger_->maybe_log();
-            const double health_ms = std::chrono::duration<double, std::milli>(
-                                         std::chrono::steady_clock::now() - health_start)
-                                         .count();
-            max_health_ms = std::max(max_health_ms, health_ms);
-            if (health_ms > kHealthLogWarnMs) {
-                spdlog::warn("validation: health_logger.maybe_log slow elapsed_ms={:.2f}",
-                             health_ms);
-            }
-        }
-        const auto publish_start = std::chrono::steady_clock::now();
         DiagnosticsLogger::publish();
-        const double publish_ms = std::chrono::duration<double, std::milli>(
-                                      std::chrono::steady_clock::now() - publish_start)
-                                      .count();
-        max_publish_ms = std::max(max_publish_ms, publish_ms);
-        if (publish_ms > kDiagnosticsPublishWarnMs) {
-            spdlog::warn("validation: DiagnosticsLogger::publish slow elapsed_ms={:.2f}",
-                         publish_ms);
-        }
-
-        heartbeat_ticks++;
-        const auto now = std::chrono::steady_clock::now();
-        const auto heartbeat_elapsed =
-            std::chrono::duration_cast<std::chrono::milliseconds>(now - heartbeat_window_start)
-                .count();
-        if (heartbeat_elapsed >= 1000) {
-            spdlog::debug(
-                "runner heartbeat: ticks={} tick_ms_max={:.2f} health_ms_max={:.2f} "
-                "publish_ms_max={:.2f}",
-                heartbeat_ticks, max_tick_ms, max_health_ms, max_publish_ms);
-            heartbeat_window_start = now;
-            heartbeat_ticks = 0;
-            max_tick_ms = 0.0;
-            max_health_ms = 0.0;
-            max_publish_ms = 0.0;
-        }
     }
 }
 
@@ -483,8 +344,7 @@ bool Runner::tick() {
         robot_filter_reinit_pending_ = false;
         robot_filter_->initialize(runtime_opponent_count_);
         navigation_->initialize();
-        has_previous_navigation_robots_ = false;
-        previous_navigation_robots_.descriptions.clear();
+        robot_descriptions_cache_.reset();
     }
 
     if (!initialized_) return handle_uninitialized_tick(camera_data, loop_rate_hz);
@@ -522,52 +382,28 @@ bool Runner::tick() {
         publisher_->publish_robots(robots);
     }
 
-    RobotDescriptionsStamped robots_for_navigation = robots;
-    bool using_previous_navigation_robots = false;
-    if (has_navigation_critical_robots(robots)) {
-        previous_navigation_robots_ = robots;
-        has_previous_navigation_robots_ = true;
-    } else if (has_previous_navigation_robots_ &&
-               has_navigation_critical_robots(previous_navigation_robots_)) {
-        robots_for_navigation = previous_navigation_robots_;
-        using_previous_navigation_robots = true;
-    }
+    // Resolve once so target selection and navigation operate on the same robot set within a
+    // tick. Substitutes the previous critical snapshot when this frame is missing OUR or THEIRS.
+    auto cached_robots = robot_descriptions_cache_.resolve(robots);
+    diagnostics_logger_->debug(
+        "navigation", {{"using_previous_robots", static_cast<int>(cached_robots.using_previous)}});
 
-    TargetSelection resolved_target = previous_selected_target_;
-    std::optional<TargetSelection> manual_target;
-    if (ui_state_) manual_target = ui_state_->get_manual_target();
-    if (manual_target.has_value()) {
-        resolved_target = *manual_target;
-    } else if (target_selector_) {
-        std::optional<TargetSelection> selected =
-            target_selector_->get_target(robots_for_navigation, field_description);
-        if (selected.has_value()) {
-            resolved_target = *selected;
-            previous_selected_target_ = resolved_target;
-        }
-    }
-
-    diagnostics_logger_->debug("navigation",
-                               {{"using_previous_robots", (int)using_previous_navigation_robots}});
+    TargetSelection resolved_target = resolve_target(cached_robots.robots, field_description);
 
     VelocityCommand command =
-        navigation_->update(robots_for_navigation, field_description, resolved_target);
+        navigation_->update(cached_robots.robots, field_description, resolved_target);
     transmitter_->send(command);
 
     {
-        double now_s = auto_battlebot::now();
-        double pipeline_latency_ms = (now_s - robots.header.stamp) * 1000.0;
+        // Measure end-to-end latency from when the image was sampled (camera frame timestamp)
+        // rather than from `robots.header.stamp`, which gets reused across cache substitutions
+        // and so under-reports latency on substituted ticks.
+        const double pipeline_latency_ms =
+            (auto_battlebot::now() - camera_data.rgb.header.stamp) * 1000.0;
         diagnostics_logger_->debug("pipeline", {{"latency_ms", pipeline_latency_ms}});
     }
 
-    {
-        NavigationVisualization nav_viz;
-        nav_viz.header = robots.header;
-        nav_viz.path = navigation_->get_last_path();
-        nav_viz.command = command;
-        nav_viz.robots = robots;
-        publisher_->publish_navigation(nav_viz);
-    }
+    publisher_->publish_navigation(navigation_->get_last_visualization());
 
     publish_system_status(true, loop_rate_hz);
     if (ui_state_) {
@@ -575,7 +411,7 @@ bool Runner::tick() {
         ui_state_->set_field_description(field_description);
         ui_state_->set_robots(robots);
         ui_state_->set_keypoints(keypoints);
-        ui_state_->set_navigation_path(navigation_->get_last_path());
+        ui_state_->set_navigation_path(navigation_->get_last_visualization().path);
         set_ui_debug_image_from_camera(camera_data);
     }
 
@@ -584,13 +420,9 @@ bool Runner::tick() {
 
 double Runner::elapsed_ms() {
     auto now = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(now - start_time_);
+    double elapsed = to_ms(now - start_time_);
     start_time_ = now;
-    return duration.count() / 1000.0;
-}
-
-void Runner::pet_watchdog() {
-    last_tick_ns_ = std::chrono::steady_clock::now().time_since_epoch().count();
+    return elapsed;
 }
 
 }  // namespace auto_battlebot

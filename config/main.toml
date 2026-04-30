@@ -3,20 +3,24 @@ type = "ZedRgbdCamera"
 camera_fps = 30
 
 [field_model]
-type = "YoloSegMaskModel"
-model_path = "data/models/yolo26n-seg_nhrl_field_2026-04-16_aarch64_sm87.engine"
-label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
-mask_threshold = 0.1
+type = "DeepLabMaskModel"
+model_path = "data/models/field_deeplabv3p_r50_2026-04-29_aarch64_sm87.engine"
+
+# [field_model]
+# type = "YoloSegMaskModel"
+# model_path = "data/models/yolo26n-seg_nhrl_field_2026-04-16_aarch64_sm87.engine"
+# label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
+# mask_threshold = 0.1
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
 model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-26_aarch64_sm87.engine"
 label_indices = [
-    "OPPONENT",
-    "OPPONENT",
-    "HOUSE_BOT",
-    "MR_STABS_MK2",
-    "MRS_BUFF_MK3",
+  "OPPONENT",
+  "OPPONENT",
+  "HOUSE_BOT",
+  "MR_STABS_MK2",
+  "MRS_BUFF_MK3",
 ]
 their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
@@ -55,16 +59,16 @@ type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
-    "MR_STABS_MK2_FRONT",
-    "MRS_BUFF_MK3_FRONT",
-    "HOUSE_BOT_FRONT",
-    "OPPONENT_FRONT",
+  "MR_STABS_MK2_FRONT",
+  "MRS_BUFF_MK3_FRONT",
+  "HOUSE_BOT_FRONT",
+  "OPPONENT_FRONT",
 ]
 back_keypoints = [
-    "MR_STABS_MK2_BACK",
-    "MRS_BUFF_MK3_BACK",
-    "HOUSE_BOT_BACK",
-    "OPPONENT_BACK",
+  "MR_STABS_MK2_BACK",
+  "MRS_BUFF_MK3_BACK",
+  "HOUSE_BOT_BACK",
+  "OPPONENT_BACK",
 ]
 
 robot_blob_min_length_meters = 0.08
@@ -86,26 +90,26 @@ type = "NearestTarget"
 
 [navigation]
 type = "PursuitNavigation"
-angular_kp = 0.35
+angular_kp = 0.4
 angular_kd = 0.01
 angle_threshold = 1.7
 velocity_ramp_far_distance = 1.5
-velocity_ramp_near_distance = 0.75
-velocity_ramp_min_scale = 0.5
-wall_reverse_distance = 0.25  # set > 0 to reverse when within this distance of any wall
-wall_heading_threshold = 1.047  # ~60 deg; heading must point toward wall to trigger reversal
-max_linear_x = 0.75           # 0 = no limit
-max_angular_z = 0.0          # 0 = no limit
+velocity_ramp_near_distance = 0.5
+velocity_ramp_min_scale = 0.35
+wall_reverse_distance = 0.25       # set > 0 to reverse when within this distance of any wall
+wall_heading_threshold = 1.047     # ~60 deg; heading must point toward wall to trigger reversal
+max_linear_x = 0.75                # 0 = no limit
+max_angular_z = 0.0                # 0 = no limit
 
 [transmitter]
 type = "OpenTxTransmitter"
 wheel_track_width = 0.195
-max_motor_rpm = 1500 # RPM
+max_motor_rpm = 1500            # RPM
 wheel_diameter = 0.05
 lifted_deadzone_percent = 10
 zero_deadzone_percent = 2
-reverse_right_channel = true
-velocity_saturation_limit = 1.0  # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
+reverse_angular_channel = true
+velocity_saturation_limit = 1.0 # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
 
 [publisher]
 type = "RosPublisher"
@@ -115,12 +119,6 @@ max_loop_rate = 30.0
 default_opponent_count = 1
 autonomy_enabled_by_default = true
 
-[health]
-enable = true
-tegrastats_enable = true
-x86_tools_enable = true
-sample_period_ms = 500
-
 [ui]
 enable = true
 fullscreen = true
@@ -129,3 +127,9 @@ battery_source = "Waveshare UPS"
 [mcap]
 enable = true
 ignored_topics = ["/camera/image"]
+
+[health]
+enable = true
+tegrastats_enable = true
+x86_tools_enable = true
+sample_period_ms = 500
