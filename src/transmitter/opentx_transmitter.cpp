@@ -43,6 +43,13 @@ bool OpenTxTransmitter::initialize() {
 
     logger_->info("initialized", {{"device", *device}});
     next_reconnect_attempt_ = std::chrono::steady_clock::now() + kReconnectInterval;
+
+    // Re-prime the OpenTX-side streams every time the port (re)opens. Without this, a
+    // reconnect after the device was unplugged or not yet present at startup leaves the
+    // radio silent on the receive side until enable() happens to be called while the port
+    // is open.
+    serial_.write("telemetry on\r\n");
+    serial_.write("channels on\r\n");
     return true;
 }
 
@@ -78,21 +85,12 @@ CommandFeedback OpenTxTransmitter::update() {
     return feedback;
 }
 
-void OpenTxTransmitter::enable() {
-    enabled_ = true;
-    if (serial_.is_open()) {
-        serial_.write("telemetry on\r\n");
-        serial_.write("channels on\r\n");
-    }
-}
+// enable()/disable() only gate trainer command output. Telemetry and channel streams stay on
+// whenever the serial port is open so that link statistics and the init button on the radio
+// remain functional even when autonomy is disabled.
+void OpenTxTransmitter::enable() { enabled_ = true; }
 
-void OpenTxTransmitter::disable() {
-    enabled_ = false;
-    if (serial_.is_open()) {
-        serial_.write("telemetry off\r\n");
-        serial_.write("channels off\r\n");
-    }
-}
+void OpenTxTransmitter::disable() { enabled_ = false; }
 
 void OpenTxTransmitter::send(VelocityCommand command) {
     reconnect_if_needed();
