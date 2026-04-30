@@ -136,7 +136,7 @@ fullscreen = false
 battery_source = "None"
 
 [mcap]
-enable = true
+enable = false
 ignored_topics = []
 
 [health]
