@@ -6,7 +6,12 @@ camera_fps = 60
 # svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
 # svo_file_path = "data/svo/2026-04-26T20-21-45.svo2"
 # svo_file_path = "data/svo/2026-04-26T20-22-08.svo2"
-svo_file_path = "data/svo/2026-04-29T21-48-07.svo2"
+
+# svo_file_path = "data/svo/2026-05-01T09-47-40.svo2"
+# svo_file_path = "data/svo/2026-05-01T09-40-36.svo2"
+# svo_file_path = "data/svo/2026-05-01T09-35-26.svo2"
+# svo_file_path = "data/svo/2026-05-01T11-22-34.svo2"
+svo_file_path = "data/svo/2026-05-01T11-27-37.svo2"
 
 # svo_file_path = "data/svo/1729981242.4295187.svo2"
 
@@ -36,23 +41,23 @@ label_indices = [
   "MR_STABS_MK2",
   "MRS_BUFF_MK3",
 ]
-their_robot_labels = ["OPPONENT"]
+their_robot_labels = ["OPPONENT", "MR_STABS_MK2"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
-confidence_threshold = 0.5
+confidence_threshold = 0.6
 debug_visualization = false
 
 [field_filter]
 type = "PointCloudFieldFilter"
 local_visualize_debug = false
-distance_threshold = 0.1
+distance_threshold = 0.05
 
 [keypoint_model]
 type = "YoloKeypointModel"
 model_path = "data/models/yolo26n-pose_our_robots_2026-04-24_x86_64_sm89.engine"
 label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
 debug_visualization = false
-threshold = 0.5
+threshold = 0.6
 
 [[keypoint_model.label_map]]
 label = "MR_STABS_MK2"

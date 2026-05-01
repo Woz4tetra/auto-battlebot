@@ -1,17 +1,18 @@
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 30
-
-[field_model]
-type = "DeepLabMaskModel"
-model_path = "data/models/field_deeplabv3p_r50_2026-04-29_aarch64_sm87.engine"
-# model_path = "data/models/field_deeplabv3_r50_2024-09-05_aarch64_sm87.engine"
+camera_resolution = "RES_1920x1080"
 
 # [field_model]
 # type = "YoloSegMaskModel"
 # model_path = "data/models/yolo26n-seg_nhrl_field_2026-04-16_aarch64_sm87.engine"
 # label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
 # mask_threshold = 0.1
+
+[field_model]
+type = "DeepLabMaskModel"
+model_path = "data/models/field_deeplabv3p_r50_2026-04-29_aarch64_sm87.engine"
+# model_path = "data/models/field_deeplabv3_r50_2024-09-05_aarch64_sm87.engine"
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
@@ -23,21 +24,23 @@ label_indices = [
   "MR_STABS_MK2",
   "MRS_BUFF_MK3",
 ]
-their_robot_labels = ["OPPONENT"]
+their_robot_labels = ["OPPONENT", "MR_STABS_MK2"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
+confidence_threshold = 0.6
+debug_visualization = false
 
 [field_filter]
 type = "PointCloudFieldFilter"
 local_visualize_debug = false
-distance_threshold = 0.1
+distance_threshold = 0.05
 
 [keypoint_model]
 type = "YoloKeypointModel"
 model_path = "data/models/yolo26n-pose_our_robots_2026-04-24_aarch64_sm87.engine"
 label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
 debug_visualization = false
-threshold = 0.5
+threshold = 0.6
 
 [[keypoint_model.label_map]]
 label = "MR_STABS_MK2"
