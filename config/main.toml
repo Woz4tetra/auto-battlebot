@@ -1,7 +1,6 @@
 [rgbd_camera]
 type = "ZedRgbdCamera"
 camera_fps = 30
-camera_resolution = "RES_1920x1080"
 
 # [field_model]
 # type = "YoloSegMaskModel"
