@@ -5,7 +5,10 @@
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+#include <mutex>
 #include <sstream>
+#include <utility>
+#include <vector>
 
 #include "directories.hpp"
 
@@ -17,6 +20,54 @@ constexpr uint64_t kSizeCheckIntervalFrames = 100;
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
 constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
+constexpr double kOpenWaitWarnMs = 2000.0;
+constexpr double kJoinWaitWarnMs = 1000.0;
+constexpr double kGrabWarnMs = 250.0;
+constexpr double kCaptureLockWarnMs = 150.0;
+constexpr double kGetWaitWarnMs = 500.0;
+constexpr auto kJoinHardTimeout = std::chrono::seconds(10);
+constexpr auto kOpenHardTimeout = std::chrono::seconds(30);
+
+double elapsed_ms(const std::chrono::steady_clock::time_point &start) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+        .count();
+}
+
+// Deliberate static leak: a std::future whose underlying task is wedged inside the ZED SDK
+// cannot be safely destroyed (its destructor blocks on the task). On a hard timeout we move
+// the stuck future here so it outlives the rest of the program; the OS reclaims memory at
+// process exit. Allocated with `new` and never freed so neither the vector nor the mutex
+// ever has its destructor invoked at static teardown.
+std::mutex *g_leaked_open_futures_mutex = new std::mutex;
+std::vector<std::future<sl::ERROR_CODE>> *g_leaked_open_futures =
+    new std::vector<std::future<sl::ERROR_CODE>>;
+
+void leak_open_future(std::future<sl::ERROR_CODE> &&future) {
+    std::lock_guard<std::mutex> lock(*g_leaked_open_futures_mutex);
+    g_leaked_open_futures->push_back(std::move(future));
+}
+
+// Returns true if the thread joined cleanly within kJoinHardTimeout, false if it had to be
+// detached because it appeared wedged. We poll a "done" flag the capture thread sets on exit
+// rather than calling thread.join() directly with a separate timer, because we need to be
+// able to give up without blocking the process shutdown path.
+bool join_with_timeout(std::thread &thread, const std::atomic<bool> &done_flag,
+                       const char *context) {
+    const auto deadline = std::chrono::steady_clock::now() + kJoinHardTimeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (done_flag.load(std::memory_order_acquire)) {
+            thread.join();
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    spdlog::critical(
+        "{}: capture thread stuck in ZED grab() after {}s; detaching for soft shutdown", context,
+        kJoinHardTimeout.count());
+    spdlog::default_logger()->flush();
+    thread.detach();
+    return false;
+}
 
 bool is_transient_grab_error(sl::ERROR_CODE error_code) {
     switch (error_code) {
@@ -74,13 +125,44 @@ ZedRgbdCamera::~ZedRgbdCamera() {
     // Cancel any in-progress initialize() before doing anything else.
     cancel_open_ = true;
     if (pending_open_.valid()) {
-        pending_open_.wait();
+        const auto open_wait_start = std::chrono::steady_clock::now();
+        if (pending_open_.wait_for(kOpenHardTimeout) == std::future_status::timeout) {
+            spdlog::critical(
+                "ZedRgbdCamera destructor: zed_.open() stuck after {}s; leaking the open future "
+                "for soft shutdown (the ZED SDK call will complete in the background and be "
+                "reaped at process exit)",
+                kOpenHardTimeout.count());
+            spdlog::default_logger()->flush();
+            leak_open_future(std::move(pending_open_));
+            // is_initialized_ is false (only set after a successful open returns), so the
+            // capture-thread / zed_.close() block below is correctly skipped. Returning here
+            // also avoids racing zed_.close() against the still-running zed_.open() call.
+            return;
+        }
+        const double open_wait_ms = elapsed_ms(open_wait_start);
+        if (open_wait_ms > kOpenWaitWarnMs) {
+            spdlog::warn("validation: pending_open_wait_destructor slow elapsed_ms={:.2f}",
+                         open_wait_ms);
+        }
     }
     if (is_initialized_) {
         stop_thread_ = true;
         if (capture_thread_.joinable()) {
             data_cv_.notify_all();
-            capture_thread_.join();
+            const auto join_start = std::chrono::steady_clock::now();
+            const bool joined = join_with_timeout(capture_thread_, capture_thread_done_,
+                                                  "ZedRgbdCamera destructor");
+            const double join_ms = elapsed_ms(join_start);
+            if (join_ms > kJoinWaitWarnMs) {
+                spdlog::warn("validation: capture_thread_join_destructor slow elapsed_ms={:.2f}",
+                             join_ms);
+            }
+            if (!joined) {
+                // Detached capture thread is potentially still inside zed_.grab(); calling
+                // stop_svo_recording() / zed_.close() concurrently against the same handle
+                // would race the SDK. Skip them and let the OS reap on process exit.
+                return;
+            }
         }
         stop_svo_recording();
         zed_.close();
@@ -90,11 +172,27 @@ ZedRgbdCamera::~ZedRgbdCamera() {
 void ZedRgbdCamera::cancel_initialize() { cancel_open_ = true; }
 
 bool ZedRgbdCamera::initialize() {
+    const auto initialize_start = std::chrono::steady_clock::now();
+
     // Clean up previous thread if it exists (support re-initialization)
     if (capture_thread_.joinable()) {
         stop_thread_ = true;
         data_cv_.notify_all();
-        capture_thread_.join();
+        const auto join_start = std::chrono::steady_clock::now();
+        const bool joined =
+            join_with_timeout(capture_thread_, capture_thread_done_, "ZedRgbdCamera::initialize");
+        const double join_ms = elapsed_ms(join_start);
+        if (join_ms > kJoinWaitWarnMs) {
+            spdlog::warn("validation: capture_thread_join_initialize slow elapsed_ms={:.2f}",
+                         join_ms);
+        }
+        if (!joined) {
+            // Old capture thread is detached and may still be inside zed_.grab(). Re-opening
+            // the same SDK handle while another thread is using it would race; signal a soft
+            // shutdown so the runner exits cleanly via Restart=on-failure rather than racing.
+            should_close_ = true;
+            return false;
+        }
     }
 
     // Ensure the SDK camera handle is reset before calling open() again.
@@ -109,6 +207,7 @@ bool ZedRgbdCamera::initialize() {
     should_close_ = false;
     camera_connected_ = true;
     has_new_frame_ = false;
+    capture_thread_done_.store(false, std::memory_order_release);
     frame_counter_ = 0;
     depth_frame_counter_ = 0;
     last_returned_frame_counter_ = 0;
@@ -132,7 +231,22 @@ bool ZedRgbdCamera::initialize() {
         if (cancel_open_) {
             // We can't interrupt zed_.open() itself; wait for it to return before we leave so
             // the ZED object is never used concurrently or destroyed mid-open.
-            pending_open_.wait();
+            const auto cancel_wait_start = std::chrono::steady_clock::now();
+            if (pending_open_.wait_for(kOpenHardTimeout) == std::future_status::timeout) {
+                spdlog::critical(
+                    "ZedRgbdCamera::initialize cancel: zed_.open() stuck after {}s; leaking the "
+                    "open future and signalling soft shutdown",
+                    kOpenHardTimeout.count());
+                spdlog::default_logger()->flush();
+                leak_open_future(std::move(pending_open_));
+                should_close_ = true;
+                return false;
+            }
+            const double cancel_wait_ms = elapsed_ms(cancel_wait_start);
+            if (cancel_wait_ms > kOpenWaitWarnMs) {
+                spdlog::warn("validation: pending_open_wait_cancel slow elapsed_ms={:.2f}",
+                             cancel_wait_ms);
+            }
             return false;
         }
     }
@@ -206,6 +320,11 @@ bool ZedRgbdCamera::initialize() {
     // Start capture thread
     capture_thread_ = std::thread(&ZedRgbdCamera::capture_thread_loop, this);
 
+    const double initialize_ms = elapsed_ms(initialize_start);
+    if (initialize_ms > kOpenWaitWarnMs) {
+        spdlog::warn("validation: zed_initialize_total slow elapsed_ms={:.2f}", initialize_ms);
+    }
+
     return true;
 }
 
@@ -226,6 +345,7 @@ void ZedRgbdCamera::capture_thread_loop() {
             break;
         }
     }
+    capture_thread_done_.store(true, std::memory_order_release);
 }
 
 bool ZedRgbdCamera::capture_frame() {
@@ -247,7 +367,12 @@ bool ZedRgbdCamera::capture_frame() {
     // Grab new frame (without lock)
     sl::RuntimeParameters rt_params;
     rt_params.enable_depth = true;
+    const auto grab_start = std::chrono::steady_clock::now();
     sl::ERROR_CODE grab_status = zed_.grab(rt_params);
+    const double grab_ms = elapsed_ms(grab_start);
+    if (grab_ms > kGrabWarnMs) {
+        spdlog::warn("validation: zed_grab slow elapsed_ms={:.2f}", grab_ms);
+    }
 
     if (is_transient_grab_error(grab_status)) {
         // Treat transient frame grab issues as recoverable: wait for the next good frame.
@@ -333,6 +458,7 @@ bool ZedRgbdCamera::capture_frame() {
     }
 
     // Lock mutex to modify data
+    const auto lock_hold_start = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(data_mutex_);
 
     // Retrieve RGB image
@@ -418,11 +544,19 @@ bool ZedRgbdCamera::capture_frame() {
     capture_time_min_ms_ = std::min(capture_time_min_ms_, capture_time_ms);
     capture_time_max_ms_ = std::max(capture_time_max_ms_, capture_time_ms);
 
+    const double lock_hold_ms = elapsed_ms(lock_hold_start);
+    if (lock_hold_ms > kCaptureLockWarnMs) {
+        spdlog::warn("validation: capture_data_mutex_hold slow elapsed_ms={:.2f} need_depth={}",
+                     lock_hold_ms, need_depth);
+    }
+
     return true;
 }
 
 bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
     if (!is_initialized_) return false;
+    const auto get_start = std::chrono::steady_clock::now();
+    int wait_loops = 0;
     std::unique_lock<std::mutex> lock(data_mutex_);
 
     if (get_depth) {
@@ -438,6 +572,7 @@ bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
                 return (new_frame && depth_ready) || should_close_ || stop_thread_ ||
                        !camera_connected_.load();
             })) {
+            wait_loops++;
             if (!camera_connected_.load()) return false;
         }
     } else {
@@ -448,6 +583,7 @@ bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
                 return new_frame_available || should_close_ || stop_thread_ ||
                        !camera_connected_.load();
             })) {
+                wait_loops++;
                 if (!camera_connected_.load()) return false;
             }
         }
@@ -471,12 +607,18 @@ bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
 
         reset_capture_timing_stats();
     }
+
+    const double get_wait_ms = elapsed_ms(get_start);
+    if (wait_loops > 0 && get_wait_ms > kGetWaitWarnMs) {
+        spdlog::warn("validation: zed_get_wait slow elapsed_ms={:.2f} wait_loops={} get_depth={}",
+                     get_wait_ms, wait_loops, get_depth);
+    }
     return true;
 }
 
 bool ZedRgbdCamera::should_close() { return should_close_; }
 
-bool ZedRgbdCamera::set_svo_recording_enabled(bool enabled) {
+bool ZedRgbdCamera::set_recording_enabled(bool enabled) {
     if (is_playback_input_) {
         spdlog::warn("Ignoring SVO recording toggle while using SVO playback input.");
         return false;
@@ -503,7 +645,7 @@ bool ZedRgbdCamera::set_svo_recording_enabled(bool enabled) {
     return true;
 }
 
-bool ZedRgbdCamera::is_svo_recording_enabled() const {
+bool ZedRgbdCamera::is_recording_enabled() const {
     if (!svo_recording_enabled_.load()) return false;
     std::lock_guard<std::mutex> lock(data_mutex_);
     return !current_svo_path_.empty();

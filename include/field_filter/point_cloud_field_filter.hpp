@@ -17,7 +17,7 @@
 namespace auto_battlebot {
 class PointCloudFieldFilter : public FieldFilterInterface {
    public:
-    PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config);
+    explicit PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config);
     ~PointCloudFieldFilter() override = default;
 
     void reset(TransformStamped tf_visodom_from_camera) override;
@@ -31,6 +31,8 @@ class PointCloudFieldFilter : public FieldFilterInterface {
     double distance_threshold_;
     bool local_visualize_debug_;
     double depth_units_per_meter_;
+    int ransac_max_iterations_;
+    double ransac_probability_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
     TransformStamped tf_visodom_from_cameraworld_;
 

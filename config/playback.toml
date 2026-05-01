@@ -2,9 +2,16 @@
 type = "ZedRgbdCamera"
 camera_fps = 60
 
-svo_file_path = "data/svo/2026-04-20T18-02-50.svo2"
-
+# svo_file_path = "data/svo/2026-04-20T18-02-50.svo2"
 # svo_file_path = "data/svo/2026-04-19T17-01-18.svo2"
+# svo_file_path = "data/svo/2026-04-26T20-21-45.svo2"
+# svo_file_path = "data/svo/2026-04-26T20-22-08.svo2"
+
+# svo_file_path = "data/svo/2026-05-01T09-47-40.svo2"
+# svo_file_path = "data/svo/2026-05-01T09-40-36.svo2"
+# svo_file_path = "data/svo/2026-05-01T09-35-26.svo2"
+# svo_file_path = "data/svo/2026-05-01T11-22-34.svo2"
+svo_file_path = "data/svo/2026-05-01T11-27-37.svo2"
 
 # svo_file_path = "data/svo/1729981242.4295187.svo2"
 
@@ -15,36 +22,42 @@ svo_file_path = "data/svo/2026-04-20T18-02-50.svo2"
 # position_tracking = false
 svo_real_time_mode = true
 
-[field_model]
-type = "YoloSegMaskModel"
-model_path = "data/models/yolo26n-seg_nhrl_field_2026-04-16_x86_64_sm89.engine"
-label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
-
 # [field_model]
-# type = "DeepLabMaskModel"
-# model_path = "data/models/field_deeplabv3_r50_2026-04-18_x86_64_sm89.engine"
+# type = "YoloSegMaskModel"
+# model_path = "data/models/yolo26n-seg_nhrl_field_2026-04-16_x86_64_sm89.engine"
+# label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
+
+[field_model]
+type = "DeepLabMaskModel"
+model_path = "data/models/field_deeplabv3p_r50_2026-04-29_x86_64_sm89.engine"
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
-model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-16_x86_64_sm89.engine"
-label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
-their_robot_labels = ["OPPONENT"]
+model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-26_x86_64_sm89.engine"
+label_indices = [
+  "OPPONENT",
+  "OPPONENT",
+  "HOUSE_BOT",
+  "MR_STABS_MK2",
+  "MRS_BUFF_MK3",
+]
+their_robot_labels = ["OPPONENT", "MR_STABS_MK2"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
-confidence_threshold = 0.5
+confidence_threshold = 0.6
 debug_visualization = false
 
 [field_filter]
 type = "PointCloudFieldFilter"
 local_visualize_debug = false
-distance_threshold = 0.1
+distance_threshold = 0.05
 
 [keypoint_model]
 type = "YoloKeypointModel"
 model_path = "data/models/yolo26n-pose_our_robots_2026-04-24_x86_64_sm89.engine"
 label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
 debug_visualization = false
-threshold = 0.5
+threshold = 0.6
 
 [[keypoint_model.label_map]]
 label = "MR_STABS_MK2"
@@ -67,25 +80,25 @@ type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
-    "MR_STABS_MK2_FRONT",
-    "MRS_BUFF_MK3_FRONT",
-    "HOUSE_BOT_FRONT",
-    "OPPONENT_FRONT",
+  "MR_STABS_MK2_FRONT",
+  "MRS_BUFF_MK3_FRONT",
+  "HOUSE_BOT_FRONT",
+  "OPPONENT_FRONT",
 ]
 back_keypoints = [
-    "MR_STABS_MK2_BACK",
-    "MRS_BUFF_MK3_BACK",
-    "HOUSE_BOT_BACK",
-    "OPPONENT_BACK",
+  "MR_STABS_MK2_BACK",
+  "MRS_BUFF_MK3_BACK",
+  "HOUSE_BOT_BACK",
+  "OPPONENT_BACK",
 ]
 
 robot_blob_min_length_meters = 0.08
 robot_blob_max_length_meters = 0.7
 robot_blob_min_confidence = 0.4
 robot_blob_max_candidates = 8
-blob_overwrite_min_distance_meters = 0.05
+blob_overwrite_min_distance_meters = 0.20
 blob_overwrite_size_scale = 0.5
-field_bounds_margin_meters = 0.2
+field_bounds_margin_meters = 0.5
 
 [robot_filter.label_mapping]
 "MR_STABS_MK2" = ["THEIR_ROBOT_1"]
@@ -98,12 +111,22 @@ type = "NearestTarget"
 
 [navigation]
 type = "PursuitNavigation"
-angular_kp = 0.1
-angular_kd = 0.1
+angular_kp = 0.35
+angular_kd = 0.01
+angle_threshold = 1.7
+velocity_ramp_far_distance = 1.5
+velocity_ramp_near_distance = 0.75
+velocity_ramp_min_scale = 0.5
+wall_reverse_distance = 0.25       # set > 0 to reverse when within this distance of any wall
+wall_heading_threshold = 1.047     # ~60 deg; heading must point toward wall to trigger reversal
+max_linear_x = 0.75                # 0 = no limit
+max_angular_z = 0.0                # 0 = no limit
 
 [transmitter]
 type = "PlaybackTransmitter"
 init_delay_seconds = 0.4
+lifted_deadzone_percent = 10
+zero_deadzone_percent = 2
 
 [publisher]
 type = "RosPublisher"

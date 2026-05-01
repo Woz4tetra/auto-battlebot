@@ -97,7 +97,6 @@ struct UIWidgets {
     lv_obj_t *recording_label = nullptr;
     lv_obj_t *recording_detail = nullptr;
 
-    lv_obj_t *quit_tile = nullptr;
     lv_obj_t *reboot_tile = nullptr;
     lv_obj_t *poweroff_tile = nullptr;
     lv_obj_t *confirm_overlay = nullptr;
@@ -124,7 +123,7 @@ struct UIWidgets {
              std::pair<DiagnosticStatusSnapshot, std::chrono::steady_clock::time_point>>
         diag_section_cache;
     std::array<OpponentTileData, 3> opp_tile_data = {};
-    std::array<SystemActionTileData, 3> system_action_tile_data = {};
+    std::array<SystemActionTileData, 2> system_action_tile_data = {};
     CameraTouchData camera_touch_data = {};
 };
 

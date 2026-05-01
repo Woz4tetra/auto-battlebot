@@ -10,8 +10,14 @@ label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
 
 [robot_mask_model]
 type = "YoloSegRobotBlobModel"
-model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-16_x86_64_sm89.engine"
-label_indices = ["FIELD", "OPPONENT", "HOUSE_BOT"]
+model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-26_x86_64_sm89.engine"
+label_indices = [
+  "OPPONENT",
+  "OPPONENT",
+  "HOUSE_BOT",
+  "MR_STABS_MK2",
+  "OPPONENT",
+]
 their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
@@ -52,16 +58,16 @@ type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
-    "MR_STABS_MK2_FRONT",
-    "MRS_BUFF_MK3_FRONT",
-    "HOUSE_BOT_FRONT",
-    "OPPONENT_FRONT",
+  "MR_STABS_MK2_FRONT",
+  "MRS_BUFF_MK3_FRONT",
+  "HOUSE_BOT_FRONT",
+  "OPPONENT_FRONT",
 ]
 back_keypoints = [
-    "MR_STABS_MK2_BACK",
-    "MRS_BUFF_MK3_BACK",
-    "HOUSE_BOT_BACK",
-    "OPPONENT_BACK",
+  "MR_STABS_MK2_BACK",
+  "MRS_BUFF_MK3_BACK",
+  "HOUSE_BOT_BACK",
+  "OPPONENT_BACK",
 ]
 
 robot_blob_min_length_meters = 0.08

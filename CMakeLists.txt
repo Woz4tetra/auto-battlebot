@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.14)
 project(auto_battlebot)
 
 # Set C++ standard
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Generate compile_commands.json for IDE support
@@ -186,6 +186,7 @@ target_link_libraries(auto_battlebot_ui PUBLIC
     ${SDL2_TARGET}
     spdlog::spdlog
     magic_enum::magic_enum
+    tomlplusplus::tomlplusplus
 )
 
 # Set library properties

@@ -10,6 +10,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "serial/serial_port.hpp"
 #include "transmitter/config.hpp"
+#include "transmitter/differential_drive_processor.hpp"
 #include "transmitter/transmitter_interface.hpp"
 
 namespace auto_battlebot {
@@ -39,10 +40,11 @@ class OpenTxTransmitter : public TransmitterInterface {
 
    private:
     OpenTxTransmitterConfiguration config_;
+    std::shared_ptr<DiagnosticsModuleLogger> logger_;
+    DifferentialDriveProcessor processor_;
     SerialPort serial_;
     CrsfParser crsf_parser_;
     ChannelsParser channels_parser_;
-    std::shared_ptr<DiagnosticsModuleLogger> logger_;
 
     std::optional<std::array<int16_t, kMaxChannels>> latest_channels_;
     bool init_button_was_pressed_ = false;
@@ -51,6 +53,13 @@ class OpenTxTransmitter : public TransmitterInterface {
         std::chrono::steady_clock::now();
 
     bool reconnect_if_needed();
+    void process_channel_updates(const std::vector<uint8_t>& bytes);
+    void write_trainer_channels(int linear_value, int angular_value);
+
+    void handle_packet(const CrsfLinkStatistics& pkt);
+    void handle_packet(const CrsfBattery& pkt);
+    void handle_packet(const CrsfAttitude& pkt);
+    void handle_packet(const CrsfFlightMode& pkt);
 
     /** Scale and clamp a normalized [-1, 1] value to the trainer range [-1000, 1000]. */
     static int to_trainer_value(double normalized);

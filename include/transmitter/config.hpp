@@ -21,19 +21,33 @@ struct NoopTransmitterConfiguration : public TransmitterConfiguration {
 
 struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
     double init_delay_seconds = 0.0;
+    double velocity_saturation_limit = 1.0;
+    double zero_deadzone_percent = 0.0;
+    double lifted_deadzone_percent = 0.0;
+    bool reverse_linear_channel = false;
+    bool reverse_angular_channel = false;
 
     PlaybackTransmitterConfiguration() { type = "PlaybackTransmitter"; }
 
-    PARSE_CONFIG_FIELDS(PARSE_FIELD_DOUBLE(init_delay_seconds))
+    // clang-format off
+    PARSE_CONFIG_FIELDS(
+        PARSE_FIELD_DOUBLE(init_delay_seconds)
+        PARSE_FIELD_DOUBLE(velocity_saturation_limit)
+        PARSE_FIELD_DOUBLE(zero_deadzone_percent)
+        PARSE_FIELD_DOUBLE(lifted_deadzone_percent)
+        PARSE_FIELD_BOOL(reverse_linear_channel)
+        PARSE_FIELD_BOOL(reverse_angular_channel)
+    )
+    // clang-format on
 };
 
 struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     int init_button_channel = 5;      // RC channel index used as the init button
     int init_button_threshold = 500;  // channel value above which = button pressed
-    int left_channel = 0;
-    int right_channel = 1;
-    bool reverse_left_channel = false;
-    bool reverse_right_channel = false;
+    int linear_channel = 0;
+    int angular_channel = 1;
+    bool reverse_linear_channel = false;
+    bool reverse_angular_channel = false;
     /** Minimum non-zero output magnitude (%) after zero deadzone is exceeded. */
     double lifted_deadzone_percent = 0.0;
     /** Input magnitude (%) below which output is forced to zero. */
@@ -42,6 +56,11 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     double max_motor_rpm = 1500.0;
     double wheel_diameter = 0.05;
 
+    /** Combined output budget: |linear| + |angular| <= limit.
+     *  Angular takes priority; linear fills remaining headroom.
+     *  0 = disabled (each channel clamped independently to [-1, 1]). */
+    double velocity_saturation_limit = 1.0;
+
     OpenTxTransmitterConfiguration() { type = "OpenTxTransmitter"; }
 
     void parse_fields(ConfigParser &parser) override {
@@ -49,12 +68,14 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
             static_cast<int>(parser.get_optional_int("init_button_channel", init_button_channel));
         init_button_threshold = static_cast<int>(
             parser.get_optional_int("init_button_threshold", init_button_threshold));
-        left_channel = static_cast<int>(parser.get_optional_int("left_channel", left_channel));
-        right_channel = static_cast<int>(parser.get_optional_int("right_channel", right_channel));
-        reverse_left_channel =
-            parser.get_optional_bool("reverse_left_channel", reverse_left_channel);
-        reverse_right_channel =
-            parser.get_optional_bool("reverse_right_channel", reverse_right_channel);
+        linear_channel =
+            static_cast<int>(parser.get_optional_int("linear_channel", linear_channel));
+        angular_channel =
+            static_cast<int>(parser.get_optional_int("angular_channel", angular_channel));
+        reverse_linear_channel =
+            parser.get_optional_bool("reverse_linear_channel", reverse_linear_channel);
+        reverse_angular_channel =
+            parser.get_optional_bool("reverse_angular_channel", reverse_angular_channel);
         lifted_deadzone_percent =
             parser.get_optional_double("lifted_deadzone_percent", lifted_deadzone_percent);
         zero_deadzone_percent =
@@ -62,6 +83,8 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
         wheel_track_width = parser.get_optional_double("wheel_track_width", wheel_track_width);
         max_motor_rpm = parser.get_optional_double("max_motor_rpm", max_motor_rpm);
         wheel_diameter = parser.get_optional_double("wheel_diameter", wheel_diameter);
+        velocity_saturation_limit =
+            parser.get_optional_double("velocity_saturation_limit", velocity_saturation_limit);
     }
 };
 

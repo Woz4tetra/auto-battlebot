@@ -62,9 +62,7 @@ void system_action_cb(lv_event_t *e) {
     d->widgets->pending_confirm_action = d->action;
     if (d->widgets->confirm_message) {
         const char *msg = "Confirm action?";
-        if (d->action == UISystemAction::QUIT_APP) {
-            msg = "Quit app now?\n(service will restart)";
-        } else if (d->action == UISystemAction::REBOOT_HOST) {
+        if (d->action == UISystemAction::REBOOT_HOST) {
             msg = "Reboot host now?";
         } else if (d->action == UISystemAction::POWEROFF_HOST) {
             msg = "Power off host now?";
@@ -83,7 +81,6 @@ void system_confirm_yes_cb(lv_event_t *e) {
     lv_obj_add_flag(w->confirm_overlay, LV_OBJ_FLAG_HIDDEN);
     if (action == UISystemAction::NONE) return;
     switch (action) {
-        case UISystemAction::QUIT_APP:
         case UISystemAction::REBOOT_HOST:
         case UISystemAction::POWEROFF_HOST:
             if (w->controller) w->controller->request_system_action(action);
@@ -619,9 +616,7 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
         UISystemAction action;
         lv_obj_t **widget_slot;
     };
-    std::array<ActionSpec, 3> specs{{
-        {"Quit App", "service restarts", lv_color_hex(0xFB8C00), UISystemAction::QUIT_APP,
-         &w.quit_tile},
+    std::array<ActionSpec, 2> specs{{
         {"Reboot Host", "full system reboot", lv_color_hex(0x1E88E5), UISystemAction::REBOOT_HOST,
          &w.reboot_tile},
         {"Power Off", "safe shutdown", lv_color_hex(0xE53935), UISystemAction::POWEROFF_HOST,
@@ -893,9 +888,7 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
                   ui_internal::IDebugOverlayRenderer *overlay_renderer) {
     if (!w.debug_img || !us) return;
 
-    int dw = 0, dh = 0, dc = 0;
-    std::vector<uint8_t> data;
-    us->get_debug_image(dw, dh, dc, data);
+    cv::Mat debug_mat = us->get_debug_image();
     RobotDescriptionsStamped robots;
     us->get_robots(robots);
     std::optional<NavigationPathSegment> navigation_path;
@@ -905,58 +898,61 @@ void update_debug(UIWidgets &w, std::shared_ptr<UIState> us, lv_image_dsc_t &img
     CameraInfo camera_info;
     us->get_camera_info(camera_info);
 
-    if (dw > 0 && dh > 0 && !data.empty()) {
-        size_t expected = static_cast<size_t>(dw) * dh * (dc == 4 ? 4 : 3);
-        if (data.size() >= expected) {
-            std::vector<uint8_t> src_copy = data;
-            if (field_description.has_value()) {
-                if (camera_info.width <= 0 || camera_info.height <= 0) {
-                    camera_info.width = dw;
-                    camera_info.height = dh;
-                }
-                cv::Mat image(dh, dw, dc == 4 ? CV_8UC4 : CV_8UC3, src_copy.data());
-                if (overlay_renderer) {
-                    overlay_renderer->render(image, robots, navigation_path, *field_description,
-                                             camera_info);
-                }
+    if (!debug_mat.empty()) {
+        const int dw = debug_mat.cols;
+        const int dh = debug_mat.rows;
+        const int dc = debug_mat.channels();
+        const int channels = (dc == 4) ? 4 : 3;
+
+        // Only clone when we are about to mutate via the overlay renderer; otherwise share by
+        // refcount with UIState.
+        cv::Mat working;
+        if (field_description.has_value() && overlay_renderer) {
+            working = debug_mat.clone();
+            if (camera_info.width <= 0 || camera_info.height <= 0) {
+                camera_info.width = dw;
+                camera_info.height = dh;
             }
-            w.camera_src_width = dw;
-            w.camera_src_height = dh;
-
-            /* Resize image buffer to fit container while preserving full frame. */
-            lv_obj_t *cont = lv_obj_get_parent(w.debug_img);
-            const int32_t cont_w = cont ? lv_obj_get_content_width(cont) : dw;
-            const int32_t cont_h = cont ? lv_obj_get_content_height(cont) : dh;
-            const double scale = std::min(
-                1.0, std::min(static_cast<double>(cont_w) / dw, static_cast<double>(cont_h) / dh));
-            const int32_t sw = std::max(1, static_cast<int32_t>(std::round(dw * scale)));
-            const int32_t sh = std::max(1, static_cast<int32_t>(std::round(dh * scale)));
-
-            const int channels = (dc == 4) ? 4 : 3;
-            if (sw == dw && sh == dh) {
-                img_copy = std::move(src_copy);
-            } else {
-                img_copy.resize(static_cast<size_t>(sw) * sh * channels);
-                cv::Mat src_image(dh, dw, channels == 4 ? CV_8UC4 : CV_8UC3, src_copy.data());
-                cv::Mat dst_image(sh, sw, channels == 4 ? CV_8UC4 : CV_8UC3, img_copy.data());
-                cv::resize(src_image, dst_image, dst_image.size(), 0.0, 0.0, cv::INTER_LINEAR);
-            }
-
-            img_copy_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-            img_copy_dsc.header.cf = (dc == 4) ? LV_COLOR_FORMAT_XRGB8888 : LV_COLOR_FORMAT_RGB888;
-            img_copy_dsc.header.flags = 0;
-            img_copy_dsc.header.w = static_cast<uint32_t>(sw);
-            img_copy_dsc.header.h = static_cast<uint32_t>(sh);
-            img_copy_dsc.header.stride = sw * channels;
-            img_copy_dsc.data_size = static_cast<uint32_t>(img_copy.size());
-            img_copy_dsc.data = img_copy.data();
-            lv_image_set_src(w.debug_img, &img_copy_dsc);
-
-            lv_obj_set_size(w.debug_img, sw, sh);
-            lv_obj_set_size(w.debug_kp_cont, sw, sh);
-            lv_obj_align(w.debug_img, LV_ALIGN_CENTER, 0, 0);
-            lv_obj_align(w.debug_kp_cont, LV_ALIGN_CENTER, 0, 0);
+            overlay_renderer->render(working, robots, navigation_path, *field_description,
+                                     camera_info);
+        } else {
+            working = debug_mat;
         }
+
+        w.camera_src_width = dw;
+        w.camera_src_height = dh;
+
+        /* Resize image buffer to fit container while preserving full frame. */
+        lv_obj_t *cont = lv_obj_get_parent(w.debug_img);
+        const int32_t cont_w = cont ? lv_obj_get_content_width(cont) : dw;
+        const int32_t cont_h = cont ? lv_obj_get_content_height(cont) : dh;
+        const double scale = std::min(
+            1.0, std::min(static_cast<double>(cont_w) / dw, static_cast<double>(cont_h) / dh));
+        const int32_t sw = std::max(1, static_cast<int32_t>(std::round(dw * scale)));
+        const int32_t sh = std::max(1, static_cast<int32_t>(std::round(dh * scale)));
+
+        img_copy.resize(static_cast<size_t>(sw) * sh * channels);
+        cv::Mat dst_image(sh, sw, channels == 4 ? CV_8UC4 : CV_8UC3, img_copy.data());
+        if (sw == dw && sh == dh) {
+            working.copyTo(dst_image);
+        } else {
+            cv::resize(working, dst_image, dst_image.size(), 0.0, 0.0, cv::INTER_LINEAR);
+        }
+
+        img_copy_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+        img_copy_dsc.header.cf = (dc == 4) ? LV_COLOR_FORMAT_XRGB8888 : LV_COLOR_FORMAT_RGB888;
+        img_copy_dsc.header.flags = 0;
+        img_copy_dsc.header.w = static_cast<uint32_t>(sw);
+        img_copy_dsc.header.h = static_cast<uint32_t>(sh);
+        img_copy_dsc.header.stride = sw * channels;
+        img_copy_dsc.data_size = static_cast<uint32_t>(img_copy.size());
+        img_copy_dsc.data = img_copy.data();
+        lv_image_set_src(w.debug_img, &img_copy_dsc);
+
+        lv_obj_set_size(w.debug_img, sw, sh);
+        lv_obj_set_size(w.debug_kp_cont, sw, sh);
+        lv_obj_align(w.debug_img, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_align(w.debug_kp_cont, LV_ALIGN_CENTER, 0, 0);
     }
 
     for (lv_obj_t *dot : w.kp_dots) {

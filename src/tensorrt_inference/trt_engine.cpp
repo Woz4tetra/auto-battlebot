@@ -5,12 +5,14 @@
 #include <cuda_runtime.h>
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <cstring>
 #include <fstream>
-#include <stdexcept>
 
 namespace auto_battlebot {
 namespace {
+constexpr double kExecuteWarnMs = 120.0;
+constexpr double kMemcpyWarnMs = 80.0;
 // Minimal TensorRT logger (only log errors/warnings via spdlog).
 class TrtLogger : public nvinfer1::ILogger {
    public:
@@ -291,22 +293,45 @@ std::vector<int64_t> TrtEngine::getOutputShape() const { return output_shape_; }
 bool TrtEngine::execute(const float* host_input, float* host_output) {
     if (!context_ || !d_input_ || !d_output_) return false;
 
+    const auto exec_start = std::chrono::steady_clock::now();
+    const auto h2d_start = exec_start;
     cudaError_t err = cudaMemcpy(d_input_, host_input, getInputSizeBytes(), cudaMemcpyHostToDevice);
+    const double h2d_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - h2d_start)
+            .count();
     if (err != cudaSuccess) {
         spdlog::error("TrtEngine: cudaMemcpy H2D failed: {}", cudaGetErrorString(err));
         return false;
     }
 
     auto* ctx = static_cast<nvinfer1::IExecutionContext*>(context_);
+    const auto enqueue_start = std::chrono::steady_clock::now();
     if (!ctx->enqueueV3(nullptr)) {
         spdlog::error("TrtEngine: executeV2 failed");
         return false;
     }
+    const double enqueue_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - enqueue_start)
+            .count();
 
+    const auto d2h_start = std::chrono::steady_clock::now();
     err = cudaMemcpy(host_output, d_output_, getOutputSizeBytes(), cudaMemcpyDeviceToHost);
+    const double d2h_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - d2h_start)
+            .count();
     if (err != cudaSuccess) {
         spdlog::error("TrtEngine: cudaMemcpy D2H failed: {}", cudaGetErrorString(err));
         return false;
+    }
+
+    const double total_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - exec_start)
+            .count();
+    if (total_ms > kExecuteWarnMs || h2d_ms > kMemcpyWarnMs || d2h_ms > kMemcpyWarnMs) {
+        spdlog::warn(
+            "TrtEngine::execute slow path total_ms={:.2f} h2d_ms={:.2f} enqueue_ms={:.2f} "
+            "d2h_ms={:.2f}",
+            total_ms, h2d_ms, enqueue_ms, d2h_ms);
     }
 
     return true;
@@ -320,26 +345,51 @@ bool TrtEngine::execute_multi(const float* host_input, const std::vector<float*>
         return false;
     }
 
+    const auto exec_start = std::chrono::steady_clock::now();
+    const auto h2d_start = exec_start;
     cudaError_t err = cudaMemcpy(d_input_, host_input, getInputSizeBytes(), cudaMemcpyHostToDevice);
+    const double h2d_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - h2d_start)
+            .count();
     if (err != cudaSuccess) {
         spdlog::error("TrtEngine: cudaMemcpy H2D failed: {}", cudaGetErrorString(err));
         return false;
     }
 
     auto* ctx = static_cast<nvinfer1::IExecutionContext*>(context_);
+    const auto enqueue_start = std::chrono::steady_clock::now();
     if (!ctx->enqueueV3(nullptr)) {
         spdlog::error("TrtEngine: execute_multi enqueueV3 failed");
         return false;
     }
+    const double enqueue_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - enqueue_start)
+            .count();
 
+    double d2h_total_ms = 0.0;
     for (size_t i = 0; i < d_outputs_.size(); ++i) {
         const size_t bytes = static_cast<size_t>(output_infos_[i].num_elements) * sizeof(float);
+        const auto d2h_start = std::chrono::steady_clock::now();
         err = cudaMemcpy(host_outputs[i], d_outputs_[i], bytes, cudaMemcpyDeviceToHost);
+        const double d2h_ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - d2h_start)
+                .count();
+        d2h_total_ms += d2h_ms;
         if (err != cudaSuccess) {
             spdlog::error("TrtEngine: cudaMemcpy D2H failed for output {}: {}",
                           output_infos_[i].name, cudaGetErrorString(err));
             return false;
         }
+    }
+
+    const double total_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - exec_start)
+            .count();
+    if (total_ms > kExecuteWarnMs || h2d_ms > kMemcpyWarnMs || d2h_total_ms > kMemcpyWarnMs) {
+        spdlog::warn(
+            "TrtEngine::execute_multi slow path total_ms={:.2f} h2d_ms={:.2f} "
+            "enqueue_ms={:.2f} d2h_total_ms={:.2f} outputs={}",
+            total_ms, h2d_ms, enqueue_ms, d2h_total_ms, d_outputs_.size());
     }
     return true;
 }

@@ -17,4 +17,19 @@ inline double now() {
     return seconds.count();
 }
 
+/**
+ * @brief Convert a chrono duration to fractional milliseconds (double).
+ */
+template <typename Rep, typename Period>
+inline double to_ms(const std::chrono::duration<Rep, Period>& d) {
+    return std::chrono::duration<double, std::milli>(d).count();
+}
+
+/**
+ * @brief Milliseconds elapsed (as a double) since the given steady_clock time point.
+ */
+inline double ms_since(const std::chrono::steady_clock::time_point& start) {
+    return to_ms(std::chrono::steady_clock::now() - start);
+}
+
 }  // namespace auto_battlebot

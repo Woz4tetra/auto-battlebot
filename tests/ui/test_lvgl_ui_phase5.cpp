@@ -2,9 +2,8 @@
 
 #include <chrono>
 #include <future>
-#include <thread>
-
 #include <opencv2/core.hpp>
+#include <thread>
 
 #include "lvgl_platform_bound/lvgl_ui_controller.hpp"
 #include "lvgl_platform_bound/lvgl_ui_presenter.hpp"
@@ -82,7 +81,8 @@ TEST(UiPresenterTest, PresentsHomeFaultAndReadyStates) {
 
 TEST(UiPresenterTest, DiagnosticsSectionsRemainOrderedAndStale) {
     std::vector<std::string> order;
-    std::map<std::string, std::pair<DiagnosticStatusSnapshot, std::chrono::steady_clock::time_point>>
+    std::map<std::string,
+             std::pair<DiagnosticStatusSnapshot, std::chrono::steady_clock::time_point>>
         cache;
 
     DiagnosticStatusSnapshot snap_a;
@@ -155,9 +155,9 @@ TEST(UiControllerTest, DispatchesCommandCallbacksToUiState) {
     controller.toggle_recording();
     EXPECT_TRUE(ui_state->recording_toggle_requested.exchange(false));
 
-    controller.request_system_action(UISystemAction::QUIT_APP);
+    controller.request_system_action(UISystemAction::REBOOT_HOST);
     EXPECT_EQ(ui_state->system_action_requested.exchange(static_cast<int>(UISystemAction::NONE)),
-              static_cast<int>(UISystemAction::QUIT_APP));
+              static_cast<int>(UISystemAction::REBOOT_HOST));
 
     TargetSelection manual;
     manual.pose.x = 1.0;
@@ -179,8 +179,9 @@ TEST(UiIntegrationSmokeTest, UiThreadStartsAndShutsDown) {
 
     std::promise<void> done;
     auto future = done.get_future();
-    std::thread ui_thread([&done, &ui_state]() {
-        run_ui_thread(ui_state);
+    std::stop_source stop_src;
+    std::thread ui_thread([&done, &ui_state, stop = stop_src.get_token()]() {
+        run_ui_thread(stop, ui_state);
         done.set_value();
     });
 

@@ -27,7 +27,7 @@ using DetectionRow = std::vector<float>;
 
 class YoloKeypointModel : public KeypointModelInterface {
    public:
-    YoloKeypointModel(YoloKeypointModelConfiguration &config);
+    explicit YoloKeypointModel(YoloKeypointModelConfiguration &config);
 
     bool initialize() override;
     KeypointsStamped update(RgbImage image) override;
@@ -64,6 +64,18 @@ class YoloKeypointModel : public KeypointModelInterface {
                             cv::Size input_image_size);
     void scale_boxes(std::vector<DetectionRow> &detections, cv::Size original_image_size,
                      cv::Size input_image_size);
+
+    // Resolves whether the engine output is row-major or column-major, transposes if needed, and
+    // populates num_features / num_predictions. transposed_buf owns the memory when a transpose
+    // was performed; prediction_ptr always points into valid storage after a true return.
+    bool resolve_output_layout(const float *output, int &num_features, int &num_predictions,
+                               std::vector<float> &transposed_buf, const float *&prediction_ptr);
+
+    // Iterates NMS-filtered detections, scales each keypoint back to original-image coordinates,
+    // appends them to result, and returns the number of detections that passed the threshold.
+    int extract_keypoints_from_detections(const std::vector<DetectionRow> &keep,
+                                          const Header &header, cv::Size original_image_size,
+                                          cv::Size input_image_size, KeypointsStamped &result);
 
     KeypointsStamped postprocess_output(const float *output, const Header &header,
                                         cv::Size original_image_size, cv::Size input_image_size,

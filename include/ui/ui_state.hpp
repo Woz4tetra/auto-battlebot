@@ -19,7 +19,6 @@
 namespace auto_battlebot {
 enum class UISystemAction : int {
     NONE = 0,
-    QUIT_APP = 1,
     REBOOT_HOST = 2,
     POWEROFF_HOST = 3,
 };
@@ -74,9 +73,11 @@ class UIState {
     void set_diagnostic_snapshots(const std::vector<DiagnosticStatusSnapshot> &snapshots);
     void get_diagnostic_snapshots(std::vector<DiagnosticStatusSnapshot> &out) const;
 
-    /** Debug image: raw RGB bytes, row-major. Runner sets; UI draws keypoints and displays. */
-    void set_debug_image(int width, int height, int channels, const std::vector<uint8_t> &data);
-    void get_debug_image(int &width, int &height, int &channels, std::vector<uint8_t> &data) const;
+    /** Debug image: BGR/BGRA `cv::Mat`. Runner sets (clones internally to detach from the
+     *  camera's reusable buffer); UI gets a refcount-shared view and clones only if it needs to
+     *  mutate (e.g. draw an overlay). */
+    void set_debug_image(const cv::Mat &image);
+    cv::Mat get_debug_image() const;
 
     /** Robot descriptions (tracked robots). UI derives our_robot_seen, opponent_count_seen from
      * these. */
@@ -134,10 +135,7 @@ class UIState {
     SystemStatus system_status_;
     std::map<std::string, std::string> diagnostics_;
     std::vector<DiagnosticStatusSnapshot> diagnostic_snapshots_;
-    int debug_image_width_ = 0;
-    int debug_image_height_ = 0;
-    int debug_image_channels_ = 0;
-    std::vector<uint8_t> debug_image_data_;
+    cv::Mat debug_image_;
     RobotDescriptionsStamped robots_;
     KeypointsStamped keypoints_;
     std::optional<NavigationPathSegment> navigation_path_;

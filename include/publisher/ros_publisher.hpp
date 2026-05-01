@@ -1,34 +1,27 @@
 #pragma once
 
-#include <miniros/publisher.h>
+#include <sensor_msgs/CameraInfo.hxx>
+#include <sensor_msgs/CompressedImage.hxx>
+#include <tf2_msgs/TFMessage.hxx>
+#include <visualization_msgs/MarkerArray.hxx>
 
-#include "colorize_labels.hpp"
-#include "diagnostics_logger/diagnostics_logger.hpp"
-#include "diagnostics_logger/function_timer.hpp"
+#include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "publisher/publisher_interface.hpp"
-#include "ros/ros_message_adapters/ros_camera_info.hpp"
-#include "ros/ros_message_adapters/ros_image.hpp"
-#include "ros/ros_message_adapters/ros_marker.hpp"
-#include "ros/ros_message_adapters/ros_tf2.hpp"
-#include "transform_utils.hpp"
+#include "ros/typed_publisher.hpp"
 
 namespace auto_battlebot {
 class RosPublisher : public PublisherInterface {
    public:
-    RosPublisher(
-        std::shared_ptr<miniros::Publisher> rgb_image_publisher,    // sensor_msgs::CompressedImage
-        std::shared_ptr<miniros::Publisher> camera_info_publisher,  // sensor_msgs::CameraInfo
-        std::shared_ptr<miniros::Publisher> field_mask_publisher,   // sensor_msgs::CompressedImage
-        std::shared_ptr<miniros::Publisher> tf_publisher,           // tf2_msgs::TFMessage
-        std::shared_ptr<miniros::Publisher> static_tf_publisher,    // tf2_msgs::TFMessage
-        std::shared_ptr<miniros::Publisher>
-            field_marker_publisher,  // visualization_msgs::MarkerArray
-        std::shared_ptr<miniros::Publisher>
-            robot_marker_publisher,  // visualization_msgs::MarkerArray
-        std::shared_ptr<miniros::Publisher>
-            nav_marker_publisher,                    // visualization_msgs::MarkerArray
-        std::shared_ptr<McapRecorder> mcap_recorder  // optional, may be null
+    RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_image_publisher,
+                 TypedPublisher<sensor_msgs::CameraInfo> camera_info_publisher,
+                 TypedPublisher<sensor_msgs::CompressedImage> field_mask_publisher,
+                 TypedPublisher<tf2_msgs::TFMessage> tf_publisher,
+                 TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher,
+                 TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher,
+                 TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher,
+                 TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher,
+                 std::shared_ptr<McapRecorder> mcap_recorder  // optional, may be null
     );
     void publish_camera_data(const CameraData &data) override;
     void publish_field_mask(const MaskStamped &field_mask, const RgbImage &image) override;
@@ -40,14 +33,14 @@ class RosPublisher : public PublisherInterface {
     void publish_navigation(const NavigationVisualization &nav) override;
 
    private:
-    std::shared_ptr<miniros::Publisher> rgb_image_publisher_;
-    std::shared_ptr<miniros::Publisher> camera_info_publisher_;
-    std::shared_ptr<miniros::Publisher> field_mask_publisher_;
-    std::shared_ptr<miniros::Publisher> tf_publisher_;
-    std::shared_ptr<miniros::Publisher> static_tf_publisher_;
-    std::shared_ptr<miniros::Publisher> field_marker_publisher_;
-    std::shared_ptr<miniros::Publisher> robot_marker_publisher_;
-    std::shared_ptr<miniros::Publisher> nav_marker_publisher_;
+    TypedPublisher<sensor_msgs::CompressedImage> rgb_image_publisher_;
+    TypedPublisher<sensor_msgs::CameraInfo> camera_info_publisher_;
+    TypedPublisher<sensor_msgs::CompressedImage> field_mask_publisher_;
+    TypedPublisher<tf2_msgs::TFMessage> tf_publisher_;
+    TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher_;
+    TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher_;
+    TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher_;
+    TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher_;
 
     std::shared_ptr<McapRecorder> mcap_recorder_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;

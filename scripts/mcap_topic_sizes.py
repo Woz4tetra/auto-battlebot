@@ -32,7 +32,7 @@ def analyze(path: Path) -> None:
         summary = reader.get_summary()
         if summary is None:
             print(
-                "No summary found — scanning all messages (slower)...", file=sys.stderr
+                "No summary found - scanning all messages (slower)...", file=sys.stderr
             )
         else:
             channels = summary.channels

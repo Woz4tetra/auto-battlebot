@@ -10,8 +10,8 @@
 namespace auto_battlebot::ui_internal {
 namespace {
 
-BatterySample make_sample(std::chrono::steady_clock::time_point ts, double voltage_v, double current_a,
-                         bool valid = true) {
+BatterySample make_sample(std::chrono::steady_clock::time_point ts, double voltage_v,
+                          double current_a, bool valid = true) {
     BatterySample sample;
     sample.timestamp = ts;
     sample.bus_voltage_v = voltage_v;
@@ -21,7 +21,8 @@ BatterySample make_sample(std::chrono::steady_clock::time_point ts, double volta
 }
 
 std::string make_temp_state_file(const std::string &name) {
-    const auto path = std::filesystem::temp_directory_path() / ("auto_battlebot_" + name + ".state");
+    const auto path =
+        std::filesystem::temp_directory_path() / ("auto_battlebot_" + name + ".state");
     std::error_code ec;
     std::filesystem::remove(path, ec);
     return path.string();
@@ -140,7 +141,8 @@ TEST(BatterySocEstimatorTest, CorruptVersionFallsBackToDefaultTable) {
     }
 
     BatterySocEstimator estimator(options);
-    const auto reading = estimator.update(make_sample(std::chrono::steady_clock::time_point{}, 12.6, 0.0));
+    const auto reading =
+        estimator.update(make_sample(std::chrono::steady_clock::time_point{}, 12.6, 0.0));
     EXPECT_GT(reading.percent, 90.0);
 }
 

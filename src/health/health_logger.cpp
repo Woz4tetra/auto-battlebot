@@ -1,7 +1,7 @@
 #include "health/health_logger.hpp"
 
-#include <unistd.h>
 #include <poll.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cctype>
@@ -13,9 +13,11 @@
 #include <sstream>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "spdlog/spdlog.h"
 
 namespace auto_battlebot {
 namespace {
+constexpr double kTegrastatsCollectWarnMs = 200.0;
 
 bool is_regular_executable(const std::filesystem::path& path) {
     return std::filesystem::exists(path) && std::filesystem::is_regular_file(path) &&
@@ -56,6 +58,16 @@ HealthLogger::HealthLogger(const HealthConfiguration& config) : config_(config) 
 }
 
 void HealthLogger::maybe_log() {
+    perform_sampling();
+    emit_heartbeat_if_due(std::chrono::steady_clock::now());
+}
+
+void HealthLogger::record_tick(double tick_ms) {
+    heartbeat_ticks_++;
+    max_tick_ms_ = std::max(max_tick_ms_, tick_ms);
+}
+
+void HealthLogger::perform_sampling() {
     if (!config_.enable) {
         return;
     }
@@ -83,6 +95,10 @@ void HealthLogger::maybe_log() {
     bool any_logged = false;
     if (config_.tegrastats_enable) {
         any_logged = collect_tegrastats() || any_logged;
+        if (!compute_mode_initialized_) {
+            collect_compute_mode();
+            compute_mode_initialized_ = true;
+        }
     }
 
     if (config_.x86_tools_enable && is_x86()) {
@@ -96,6 +112,24 @@ void HealthLogger::maybe_log() {
     status["sample_period_ms"] = config_.sample_period_ms;
     status["any_source_logged"] = any_logged ? 1 : 0;
     logger_->debug("status", status);
+}
+
+void HealthLogger::emit_heartbeat_if_due(std::chrono::steady_clock::time_point now) {
+    if (!heartbeat_window_started_) {
+        heartbeat_window_start_ = now;
+        heartbeat_window_started_ = true;
+        return;
+    }
+    const auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - heartbeat_window_start_)
+            .count();
+    if (elapsed_ms < 1000) {
+        return;
+    }
+    spdlog::debug("runner heartbeat: ticks={} tick_ms_max={:.2f}", heartbeat_ticks_, max_tick_ms_);
+    heartbeat_window_start_ = now;
+    heartbeat_ticks_ = 0;
+    max_tick_ms_ = 0.0;
 }
 
 bool HealthLogger::is_x86() {
@@ -215,11 +249,10 @@ bool HealthLogger::start_tegrastats_stream() {
     return true;
 }
 
-void HealthLogger::stop_tegrastats_stream() {
-    tegrastats_pipe_.reset();
-}
+void HealthLogger::stop_tegrastats_stream() { tegrastats_pipe_.reset(); }
 
 bool HealthLogger::collect_tegrastats() {
+    const auto collect_start = std::chrono::steady_clock::now();
     DiagnosticsData data;
     data["enabled"] = config_.tegrastats_enable ? 1 : 0;
 
@@ -239,7 +272,9 @@ bool HealthLogger::collect_tegrastats() {
     }
 
     char buffer[2048];
+    int lines_read = 0;
     while (fgets(buffer, sizeof(buffer), tegrastats_pipe_.get()) != nullptr) {
+        lines_read++;
         const std::string candidate = trim(buffer);
         if (!candidate.empty()) {
             line = candidate;
@@ -251,6 +286,12 @@ bool HealthLogger::collect_tegrastats() {
             break;
         }
     }
+
+    const double collect_elapsed_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - collect_start)
+            .count();
+    data["collect_elapsed_ms"] = collect_elapsed_ms;
+    data["lines_read"] = lines_read;
 
     if (line.empty()) {
         if (feof(tegrastats_pipe_.get())) {
@@ -394,9 +435,11 @@ bool HealthLogger::collect_tegrastats() {
     if (temp_count > 0) {
         data["max_temp_c"] = max_temp_c;
         data["temp_sensor_count"] = temp_count;
+        last_temp_c_ = max_temp_c;
     }
 
-    const std::regex rail_regex(R"(([A-Z][A-Z0-9_]+)\s+([0-9]+(?:\.[0-9]+)?)mW\/([0-9]+(?:\.[0-9]+)?)mW)");
+    const std::regex rail_regex(
+        R"(([A-Z][A-Z0-9_]+)\s+([0-9]+(?:\.[0-9]+)?)mW\/([0-9]+(?:\.[0-9]+)?)mW)");
     std::sregex_iterator rail_begin(line.begin(), line.end(), rail_regex);
     int rail_count = 0;
     double rail_now_total_mw = 0.0;
@@ -437,8 +480,27 @@ bool HealthLogger::collect_tegrastats() {
         return false;
     }
 
+    if (collect_elapsed_ms > kTegrastatsCollectWarnMs) {
+        spdlog::warn("validation: collect_tegrastats slow elapsed_ms={:.2f} lines_read={}",
+                     collect_elapsed_ms, lines_read);
+    }
     logger_->debug("tegrastats", data);
     return true;
+}
+
+void HealthLogger::collect_compute_mode() {
+    if (!command_exists("nvpmodel")) return;
+    std::string output;
+    if (!run_command("nvpmodel -q 2>/dev/null", output)) return;
+    // Output is typically:
+    //   NV Power Mode: MAXN
+    //   0: MAXN
+    // Extract the mode name from the first "NV Power Mode: <NAME>" line.
+    const std::regex mode_regex(R"(NV Power Mode:\s*(\S+))");
+    std::smatch match;
+    if (std::regex_search(output, match, mode_regex) && match.size() >= 2) {
+        last_compute_mode_ = match[1].str();
+    }
 }
 
 bool HealthLogger::collect_x86_health() {
@@ -464,7 +526,8 @@ bool HealthLogger::collect_nvidia_smi() {
 
     std::string output;
     if (!run_command(
-            "nvidia-smi --query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw "
+            "nvidia-smi "
+            "--query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw "
             "--format=csv,noheader,nounits 2>/dev/null",
             output)) {
         data["available"] = 1;

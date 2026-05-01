@@ -29,8 +29,9 @@ class NavigationInterface {
     virtual bool initialize() = 0;
     virtual VelocityCommand update(RobotDescriptionsStamped robots, FieldDescription field,
                                    const TargetSelection &target) = 0;
-    /** Last pursuit path (our position to target). Empty if not available. */
-    virtual std::optional<NavigationPathSegment> get_last_path() const { return std::nullopt; }
+
+    /** Snapshot of the last navigation tick (header, robots, command, path) for publishing. */
+    virtual const NavigationVisualization &get_last_visualization() const = 0;
 };
 
 }  // namespace auto_battlebot

@@ -1,8 +1,17 @@
 #include "ui/ui_state.hpp"
 
+#include <spdlog/spdlog.h>
+
+#include <chrono>
+
 #include "data_structures/target_selection.hpp"
 
 namespace auto_battlebot {
+namespace {
+constexpr double kDebugImageLockWaitWarnMs = 10.0;
+constexpr double kDebugImageTotalWarnMs = 30.0;
+}  // namespace
+
 void UIState::set_system_status(const SystemStatus &s) {
     std::lock_guard<std::mutex> lock(status_mutex_);
     system_status_ = s;
@@ -33,22 +42,53 @@ void UIState::get_diagnostic_snapshots(std::vector<DiagnosticStatusSnapshot> &ou
     out = diagnostic_snapshots_;
 }
 
-void UIState::set_debug_image(int width, int height, int channels,
-                              const std::vector<uint8_t> &data) {
-    std::lock_guard<std::mutex> lock(status_mutex_);
-    debug_image_width_ = width;
-    debug_image_height_ = height;
-    debug_image_channels_ = channels;
-    debug_image_data_ = data;
+void UIState::set_debug_image(const cv::Mat &image) {
+    // Clone outside the lock: the producer's only memcpy. Required because the camera SDK
+    // reuses its backing buffer between captures, so we cannot safely share a refcount with it.
+    const auto clone_start = std::chrono::steady_clock::now();
+    cv::Mat fresh = image.clone();
+    const double clone_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - clone_start)
+            .count();
+
+    const auto lock_start = std::chrono::steady_clock::now();
+    std::unique_lock<std::mutex> lock(status_mutex_);
+    const double lock_wait_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - lock_start)
+            .count();
+    // cv::Mat assignment is a refcount swap; the previous Mat stays alive for any reader still
+    // holding a refcount-shared view from get_debug_image().
+    debug_image_ = std::move(fresh);
+    const double total_ms = lock_wait_ms + std::chrono::duration<double, std::milli>(
+                                               std::chrono::steady_clock::now() - lock_start)
+                                               .count();
+    if (lock_wait_ms > kDebugImageLockWaitWarnMs || total_ms > kDebugImageTotalWarnMs ||
+        clone_ms > kDebugImageTotalWarnMs) {
+        spdlog::warn(
+            "validation: ui_state_set_debug_image slow clone_ms={:.2f} lock_wait_ms={:.2f} "
+            "total_ms={:.2f} bytes={}",
+            clone_ms, lock_wait_ms, total_ms, image.total() * image.elemSize());
+    }
 }
 
-void UIState::get_debug_image(int &width, int &height, int &channels,
-                              std::vector<uint8_t> &data) const {
-    std::lock_guard<std::mutex> lock(status_mutex_);
-    width = debug_image_width_;
-    height = debug_image_height_;
-    channels = debug_image_channels_;
-    data = debug_image_data_;
+cv::Mat UIState::get_debug_image() const {
+    const auto lock_start = std::chrono::steady_clock::now();
+    std::unique_lock<std::mutex> lock(status_mutex_);
+    const double lock_wait_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - lock_start)
+            .count();
+    // Refcount-shared view; no memcpy.
+    cv::Mat out = debug_image_;
+    const double total_ms = lock_wait_ms + std::chrono::duration<double, std::milli>(
+                                               std::chrono::steady_clock::now() - lock_start)
+                                               .count();
+    if (lock_wait_ms > kDebugImageLockWaitWarnMs || total_ms > kDebugImageTotalWarnMs) {
+        spdlog::warn(
+            "validation: ui_state_get_debug_image slow lock_wait_ms={:.2f} total_ms={:.2f} "
+            "bytes={}",
+            lock_wait_ms, total_ms, out.total() * out.elemSize());
+    }
+    return out;
 }
 
 void UIState::set_robots(const RobotDescriptionsStamped &robots) {

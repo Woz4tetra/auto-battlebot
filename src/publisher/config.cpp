@@ -4,6 +4,7 @@
 #include <toml++/toml.h>
 
 #include "config/config_parser.hpp"
+#include "ros/typed_publisher.hpp"
 
 namespace auto_battlebot {
 // Automatic registration of config types
@@ -34,6 +35,19 @@ std::shared_ptr<PublisherInterface> make_publisher_no_ros(const PublisherConfigu
     spdlog::info("Selected NoopPublisher");
     return std::make_shared<NoopPublisher>();
 }
+std::shared_ptr<RosPublisher> make_ros_publisher(miniros::NodeHandle &nh,
+                                                 std::shared_ptr<McapRecorder> mcap_recorder) {
+    return std::make_shared<RosPublisher>(
+        TypedPublisher<sensor_msgs::CompressedImage>::advertise(nh, "/camera/image", 10),
+        TypedPublisher<sensor_msgs::CameraInfo>::advertise(nh, "/camera/camera_info", 10),
+        TypedPublisher<sensor_msgs::CompressedImage>::advertise(nh, "/field_mask", 10, true),
+        TypedPublisher<tf2_msgs::TFMessage>::advertise(nh, "/tf", 10),
+        TypedPublisher<tf2_msgs::TFMessage>::advertise(nh, "/tf_static", 10, true),
+        TypedPublisher<visualization_msgs::MarkerArray>::advertise(nh, "/field_markers", 10, true),
+        TypedPublisher<visualization_msgs::MarkerArray>::advertise(nh, "/robot_markers", 10, true),
+        TypedPublisher<visualization_msgs::MarkerArray>::advertise(nh, "/nav_markers", 10, true),
+        std::move(mcap_recorder));
+}
 
 std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh,
                                                    const PublisherConfiguration &config,
@@ -42,27 +56,7 @@ std::shared_ptr<PublisherInterface> make_publisher(miniros::NodeHandle &nh,
     if (config.type == "NoopPublisher") {
         return std::make_shared<NoopPublisher>();
     } else if (config.type == "RosPublisher") {
-        auto rgb_image_publisher = std::make_shared<miniros::Publisher>(
-            nh.advertise<sensor_msgs::CompressedImage>("/camera/image", 10));
-        auto camera_info_publisher = std::make_shared<miniros::Publisher>(
-            nh.advertise<sensor_msgs::CameraInfo>("/camera/camera_info", 10));
-        auto field_mask_publisher = std::make_shared<miniros::Publisher>(
-            nh.advertise<sensor_msgs::CompressedImage>("/field_mask", 10, true));
-        auto tf_publisher =
-            std::make_shared<miniros::Publisher>(nh.advertise<tf2_msgs::TFMessage>("/tf", 10));
-        auto static_tf_publisher = std::make_shared<miniros::Publisher>(
-            nh.advertise<tf2_msgs::TFMessage>("/tf_static", 10, true));
-        auto field_marker_publisher = std::make_shared<miniros::Publisher>(
-            nh.advertise<visualization_msgs::MarkerArray>("/field_markers", 10, true));
-        auto robot_marker_publisher = std::make_shared<miniros::Publisher>(
-            nh.advertise<visualization_msgs::MarkerArray>("/robot_markers", 10, true));
-        auto nav_marker_publisher = std::make_shared<miniros::Publisher>(
-            nh.advertise<visualization_msgs::MarkerArray>("/nav_markers", 10, true));
-
-        return std::make_shared<RosPublisher>(
-            rgb_image_publisher, camera_info_publisher, field_mask_publisher, tf_publisher,
-            static_tf_publisher, field_marker_publisher, robot_marker_publisher,
-            nav_marker_publisher, std::move(mcap_recorder));
+        return make_ros_publisher(nh, std::move(mcap_recorder));
     }
     throw std::invalid_argument("Failed to load Publisher of type " + config.type);
 }

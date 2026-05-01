@@ -1,5 +1,6 @@
 #include "robot_filter/frame_id_assigner.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <magic_enum.hpp>
@@ -38,10 +39,18 @@ const std::map<FrameId, Position> &FrameIdAssigner::last_positions() const {
 std::vector<RobotDescription> FrameIdAssigner::assign(
     std::vector<MeasurementWithConfidence> &valid_measurements,
     const std::vector<FrameId> &frame_ids,
-    std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger) {
+    std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger,
+    const std::vector<std::vector<FrameId>> &per_measurement_allowed_frame_ids) {
     std::vector<RobotDescription> result;
     const size_t N = std::min(valid_measurements.size(), frame_ids.size());
     if (N == 0) return result;
+
+    const bool has_constraints = !per_measurement_allowed_frame_ids.empty();
+    auto is_allowed = [&](size_t m, size_t f) {
+        if (!has_constraints) return true;
+        const auto &allowed = per_measurement_allowed_frame_ids[m];
+        return std::find(allowed.begin(), allowed.end(), frame_ids[f]) != allowed.end();
+    };
 
     std::vector<bool> meas_assigned(valid_measurements.size(), false);
     std::vector<bool> frame_id_assigned(frame_ids.size(), false);
@@ -52,12 +61,15 @@ std::vector<RobotDescription> FrameIdAssigner::assign(
         size_t best_meas = 0;
         size_t best_fid = 0;
         bool best_has_previous = false;
+        bool any_pair_found = false;
 
         for (size_t m = 0; m < valid_measurements.size(); m++) {
             if (meas_assigned[m]) continue;
-            const Position &pos = valid_measurements[m].second.pose.position;
+            const Position &pos = valid_measurements[m].description.pose.position;
             for (size_t f = 0; f < frame_ids.size(); f++) {
                 if (frame_id_assigned[f]) continue;
+                if (!is_allowed(m, f)) continue;
+                any_pair_found = true;
                 const FrameId fid = frame_ids[f];
                 auto it = last_position_per_frame_id_.find(fid);
                 double d = no_previous;
@@ -80,19 +92,23 @@ std::vector<RobotDescription> FrameIdAssigner::assign(
             }
         }
 
+        if (!any_pair_found) break;
+
         if (best_dist == no_previous && !best_has_previous) {
-            for (size_t m = 0; m < valid_measurements.size(); m++) {
-                if (!meas_assigned[m]) {
+            // No FrameId has a previous position; pick the first allowed unassigned pair.
+            bool fallback_found = false;
+            for (size_t m = 0; m < valid_measurements.size() && !fallback_found; m++) {
+                if (meas_assigned[m]) continue;
+                for (size_t f = 0; f < frame_ids.size(); f++) {
+                    if (frame_id_assigned[f]) continue;
+                    if (!is_allowed(m, f)) continue;
                     best_meas = m;
-                    break;
-                }
-            }
-            for (size_t f = 0; f < frame_ids.size(); f++) {
-                if (!frame_id_assigned[f]) {
                     best_fid = f;
+                    fallback_found = true;
                     break;
                 }
             }
+            if (!fallback_found) break;
         }
 
         meas_assigned[best_meas] = true;
@@ -123,10 +139,10 @@ std::vector<RobotDescription> FrameIdAssigner::assign(
         }
 
         jump_reject_count_per_frame_id_[assigned_fid] = 0;
-        valid_measurements[best_meas].second.frame_id = assigned_fid;
+        valid_measurements[best_meas].description.frame_id = assigned_fid;
         last_position_per_frame_id_[assigned_fid] =
-            valid_measurements[best_meas].second.pose.position;
-        result.push_back(std::move(valid_measurements[best_meas].second));
+            valid_measurements[best_meas].description.pose.position;
+        result.push_back(std::move(valid_measurements[best_meas].description));
     }
     return result;
 }

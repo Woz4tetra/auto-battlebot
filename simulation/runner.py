@@ -1,4 +1,4 @@
-"""SimRunner: drives the simulation loop — physics, rendering, and client I/O."""
+"""SimRunner: drives the simulation loop - physics, rendering, and client I/O."""
 
 from __future__ import annotations
 

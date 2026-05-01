@@ -19,7 +19,7 @@ if [ ! -f "${COMPILE_COMMANDS}" ]; then
     exit 1
 fi
 
-# Only lint files under src/ — excludes build/, build-test/, and all fetched deps.
+# Only lint files under src/ - excludes build/, build-test/, and all fetched deps.
 # run-clang-tidy accepts a regex as positional file arguments to filter by path.
 SOURCE_FILTER="^${PROJECT_ROOT}/src/"
 

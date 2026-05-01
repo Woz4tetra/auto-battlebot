@@ -63,7 +63,7 @@ class ConfigFactory {
 template <typename BaseConfig, typename DerivedConfig>
 class ConfigRegistrar {
    public:
-    ConfigRegistrar(const std::string &type_name) {
+    explicit ConfigRegistrar(const std::string &type_name) {
         ConfigFactory<BaseConfig>::instance().register_type(
             type_name,
             []() -> std::unique_ptr<BaseConfig> { return std::make_unique<DerivedConfig>(); },
