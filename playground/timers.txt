@@ -1,0 +1,2 @@
+Jetson boot: 42 sec
+yolo-seg convert_to_tensorrt.py: 7 min

@@ -19,7 +19,7 @@ label_indices = [
 their_robot_labels = ["OPPONENT", "MR_STABS_MK2"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
-confidence_threshold = 0.5
+confidence_threshold = 0.6
 debug_visualization = false
 
 [field_filter]

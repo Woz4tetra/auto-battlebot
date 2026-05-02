@@ -7,13 +7,13 @@ camera_fps = 60
 # svo_file_path = "data/svo/2026-04-26T20-21-45.svo2"
 # svo_file_path = "data/svo/2026-04-26T20-22-08.svo2"
 
-# svo_file_path = "data/svo/2026-05-01T09-47-40.svo2"
+# svo_file_path = "data/svo/2026-05-01T09-35-26.svo2"
 # svo_file_path = "data/svo/2026-05-01T09-40-36.svo2"
-svo_file_path = "data/svo/2026-05-01T09-35-26.svo2"
-# svo_file_path = "data/svo/2026-05-01T11-22-34.svo2"
-# svo_file_path = "data/svo/2026-05-01T11-27-37.svo2"
-# svo_file_path = "data/svo/2026-05-01T14-17-26.svo2"
-# svo_file_path = "data/svo/2026-05-01T17-42-24.svo2"
+# svo_file_path = "data/svo/2026-05-01T09-47-40.svo2"
+# svo_file_path = "data/svo/2026-05-01T11-22-34.svo2"  # field finding
+# svo_file_path = "data/svo/2026-05-01T11-27-37.svo2"  # auto driving with eric
+# svo_file_path = "data/svo/2026-05-01T14-17-26.svo2"  # 1080p foil safety cage
+svo_file_path = "data/svo/2026-05-01T17-42-24.svo2"
 
 # svo_file_path = "data/svo/1729981242.4295187.svo2"
 
@@ -46,7 +46,7 @@ label_indices = [
 their_robot_labels = ["OPPONENT", "MR_STABS_MK2"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
-confidence_threshold = 0.5
+confidence_threshold = 0.6
 debug_visualization = false
 
 [field_filter]
@@ -113,12 +113,12 @@ type = "NearestTarget"
 
 [navigation]
 type = "PursuitNavigation"
-angular_kp = 0.35
+angular_kp = 0.4
 angular_kd = 0.01
 angle_threshold = 1.7
 velocity_ramp_far_distance = 1.5
-velocity_ramp_near_distance = 0.75
-velocity_ramp_min_scale = 0.5
+velocity_ramp_near_distance = 0.5
+velocity_ramp_min_scale = 0.35
 wall_reverse_distance = 0.25       # set > 0 to reverse when within this distance of any wall
 wall_heading_threshold = 1.047     # ~60 deg; heading must point toward wall to trigger reversal
 max_linear_x = 0.75                # 0 = no limit
