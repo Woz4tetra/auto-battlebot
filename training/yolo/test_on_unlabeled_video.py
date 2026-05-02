@@ -64,9 +64,9 @@ def main() -> None:
     parser.add_argument(
         "-c",
         "--conf",
-        default=0.25,
+        default=0.6,
         type=float,
-        help="Confidence threshold for detections (default: 0.25)",
+        help="Confidence threshold for detections (default: 0.6)",
     )
     parser.add_argument(
         "--imgsz",

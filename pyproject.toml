@@ -29,6 +29,7 @@ dependencies = [
     "trimesh",
     "shapely",
     # x86 only: often unavailable or different on Jetson (aarch64)
+    "pycuda; platform_machine == \"x86_64\"",
     "torch>=2.0.0; platform_machine == \"x86_64\"",
     "tensorrt==10.14.1.48.post1; platform_machine == \"x86_64\"",
 ]
