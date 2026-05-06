@@ -30,8 +30,16 @@ build_cpp_project() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}/"
 
-    echo "Running cmake with BUILD_TESTING=${BUILD_TESTING_FLAG} and BUILD_TYPE=${BUILD_TYPE}..."
-    cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_TESTING="${BUILD_TESTING_FLAG}" -DBUILD_DEBUG="${BUILD_TESTING_FLAG}"
+    # Only run cmake configure on the first build. After that, the generated
+    # Makefiles contain a cmake_check_build_system hook that automatically
+    # re-runs cmake if CMakeLists.txt or any cmake file actually changes.
+    # Running cmake unconditionally regenerates internal files (compiler_depend.make,
+    # Makefile2, etc.) on every invocation, causing spurious "Built target" output
+    # and slow cmake overhead even when nothing has changed.
+    if [ ! -f "CMakeCache.txt" ]; then
+        echo "Running cmake with BUILD_TESTING=${BUILD_TESTING_FLAG} and BUILD_TYPE=${BUILD_TYPE}..."
+        cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_TESTING="${BUILD_TESTING_FLAG}" -DBUILD_DEBUG="${BUILD_TESTING_FLAG}"
+    fi
 
     echo "Building project..."
     make -j"$(nproc)"
