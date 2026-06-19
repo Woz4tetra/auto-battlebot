@@ -29,9 +29,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from tqdm import tqdm
-
 import tomllib
+from tqdm import tqdm
 
 
 def load_config(config_path: Path) -> tuple[dict[int, int], int, set[int]]:
@@ -49,9 +48,7 @@ def load_config(config_path: Path) -> tuple[dict[int, int], int, set[int]]:
     return label_map, default_label, delete_labels
 
 
-def remap_mask(
-    mask: np.ndarray, label_map: dict[int, int], default_label: int
-) -> np.ndarray:
+def remap_mask(mask: np.ndarray, label_map: dict[int, int], default_label: int) -> np.ndarray:
     remapped = np.full_like(mask, default_label)
     for src, dst in label_map.items():
         remapped[mask == src] = dst
@@ -64,9 +61,7 @@ def find_mask_files(dataset_dir: Path) -> list[Path]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Remap label indices in segmentation mask PNGs"
-    )
+    parser = argparse.ArgumentParser(description="Remap label indices in segmentation mask PNGs")
     parser.add_argument(
         "config",
         type=str,
@@ -131,9 +126,7 @@ def main() -> None:
         channel = mask[:, :, 0] if mask.ndim == 3 else mask
         unique_before = np.unique(channel)
 
-        should_delete = delete_labels and bool(
-            set(unique_before.tolist()) & delete_labels
-        )
+        should_delete = delete_labels and bool(set(unique_before.tolist()) & delete_labels)
 
         if output_dir is not None:
             rel = mask_path.relative_to(dataset_dir)
@@ -147,9 +140,7 @@ def main() -> None:
             else:
                 remapped = remap_mask(channel, label_map, default_label)
                 unique_after = np.unique(remapped)
-                action = (
-                    f"{unique_before.tolist()} -> {unique_after.tolist()} => {dest}"
-                )
+                action = f"{unique_before.tolist()} -> {unique_after.tolist()} => {dest}"
             print(f"  {mask_path.name}: {action}")
             continue
 
@@ -157,9 +148,7 @@ def main() -> None:
             deleted_count += 1
             if output_dir is None:
                 mask_path.unlink()
-                img_path = mask_path.parent / mask_path.name.replace(
-                    "_mask.png", ".jpg"
-                )
+                img_path = mask_path.parent / mask_path.name.replace("_mask.png", ".jpg")
                 if img_path.exists():
                     img_path.unlink()
             continue

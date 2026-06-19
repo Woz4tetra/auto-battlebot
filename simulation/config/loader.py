@@ -1,19 +1,35 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+from typing import TypeVar
 
 import dacite
 
-try:
+if sys.version_info >= (3, 11):
     import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib  # type: ignore[no-redef]
+else:
+    import tomli as tomllib
 
 from config.root import SimConfig
+
+T = TypeVar("T")
+
+
+def load_config(path: str | Path, data_class: type[T], strict: bool = True) -> T:
+    """Load a TOML file into a typed dataclass, validating via dacite.
+
+    With strict=True, unknown keys raise (catches config typos); pass strict=False to tolerate
+    extra keys.
+    """
+    with open(path, "rb") as f:
+        raw = tomllib.load(f)
+    parsed: T = dacite.from_dict(
+        data_class=data_class, data=raw, config=dacite.Config(strict=strict)
+    )
+    return parsed
 
 
 def load_sim_config(path: str | Path) -> SimConfig:
     """Load a TOML config file and return a fully-typed SimConfig."""
-    with open(path, "rb") as f:
-        raw = tomllib.load(f)
-    return dacite.from_dict(data_class=SimConfig, data=raw)
+    return load_config(path, SimConfig, strict=False)

@@ -6,9 +6,9 @@ This script reads the validation state file created by validate_yolo_dataset.py
 and removes images and their corresponding annotation files that failed validation.
 """
 
+import argparse
 import json
 import shutil
-import argparse
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -40,9 +40,7 @@ def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
 
         # Check if in an 'images' directory
         if "/images/" in img_str or "\\images\\" in img_str:
-            label_str = img_str.replace("/images/", "/labels/").replace(
-                "\\images\\", "\\labels\\"
-            )
+            label_str = img_str.replace("/images/", "/labels/").replace("\\images\\", "\\labels\\")
         else:
             label_str = img_str
 
@@ -128,9 +126,7 @@ def remove_failed_annotations(
                 if backup:
                     # Move to backup directory
                     backup_img_path = backup_dir / img_path.relative_to(dataset_path)
-                    backup_label_path = backup_dir / label_path.relative_to(
-                        dataset_path
-                    )
+                    backup_label_path = backup_dir / label_path.relative_to(dataset_path)
 
                     # Create parent directories
                     backup_img_path.parent.mkdir(parents=True, exist_ok=True)
@@ -155,12 +151,8 @@ def remove_failed_annotations(
     # Summary
     print(f"\n{'=' * 60}")
     print("Summary:")
-    print(
-        f"  Images {'that would be' if dry_run else ''} removed: {len(removed_images)}"
-    )
-    print(
-        f"  Labels {'that would be' if dry_run else ''} removed: {len(removed_labels)}"
-    )
+    print(f"  Images {'that would be' if dry_run else ''} removed: {len(removed_images)}")
+    print(f"  Labels {'that would be' if dry_run else ''} removed: {len(removed_labels)}")
 
     if backup and not dry_run:
         print(f"  Backup location: {backup_dir}")
@@ -228,9 +220,7 @@ def main():
 
     # Confirm before proceeding (unless dry run)
     if not args.dry_run:
-        print(
-            "\n⚠ WARNING: This will remove or backup failed annotations from your dataset(s)!"
-        )
+        print("\n⚠ WARNING: This will remove or backup failed annotations from your dataset(s)!")
         print(f"   Search root: {dataset_path}")
         if args.state_file:
             print(f"   State file: {targets[0][1]}")

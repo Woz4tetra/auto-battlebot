@@ -132,9 +132,7 @@ def parse_merged_class_rules(
 ) -> tuple[list[str], dict[str, str], str | None]:
     output_names = mode_cfg.get("output_names")
     if not isinstance(output_names, list) or not output_names:
-        raise ValueError(
-            "merged_classes config must define non-empty 'output_names' list"
-        )
+        raise ValueError("merged_classes config must define non-empty 'output_names' list")
 
     groups = mode_cfg.get("groups", {})
     if not isinstance(groups, dict) or not groups:
@@ -156,10 +154,7 @@ def parse_merged_class_rules(
             )
         for alias in aliases:
             norm_alias = normalize_label(str(alias))
-            if (
-                norm_alias in alias_to_output
-                and alias_to_output[norm_alias] != output_name_str
-            ):
+            if norm_alias in alias_to_output and alias_to_output[norm_alias] != output_name_str:
                 raise ValueError(
                     f"Alias '{alias}' maps to multiple outputs: "
                     f"{alias_to_output[norm_alias]} and {output_name_str}"
@@ -222,9 +217,7 @@ def find_floor_class_id(dataset_yaml: dict, floor_class_name: str) -> int:
         if class_name.strip().lower() == target:
             return class_id
 
-    raise ValueError(
-        f"Floor class '{floor_class_name}' not found in dataset names: {names}"
-    )
+    raise ValueError(f"Floor class '{floor_class_name}' not found in dataset names: {names}")
 
 
 def iter_image_label_pairs(dataset_root: Path) -> list[tuple[Path, Path]]:
@@ -487,9 +480,7 @@ def to_yolo_seg_line(class_id: int, polygon: Polygon) -> str | None:
     return " ".join([str(class_id), *values])
 
 
-def row_points_to_yolo_line(
-    class_id: int, points: list[tuple[float, float]]
-) -> str | None:
+def row_points_to_yolo_line(class_id: int, points: list[tuple[float, float]]) -> str | None:
     if len(points) < 3:
         return None
 
@@ -559,9 +550,7 @@ def build_floor_rows(
 
     mask = cv2.bitwise_and(floor_mask, cv2.bitwise_not(obstacle_mask))
 
-    contours, hierarchy = cv2.findContours(
-        mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
-    )
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     if not contours or hierarchy is None:
         return []
 
@@ -577,8 +566,7 @@ def build_floor_rows(
             continue
 
         exterior = [
-            (float(pt[0][0]) / float(max_idx), float(pt[0][1]) / float(max_idx))
-            for pt in contour
+            (float(pt[0][0]) / float(max_idx), float(pt[0][1]) / float(max_idx)) for pt in contour
         ]
         if len(exterior) < 3:
             continue
@@ -693,9 +681,7 @@ def write_output_yaml(output_dir: Path, names: list[str]) -> None:
         f"nc: {len(names)}",
         f"names: {names}",
     ]
-    (output_dir / "data.yaml").write_text(
-        "\n".join(yaml_lines) + "\n", encoding="utf-8"
-    )
+    (output_dir / "data.yaml").write_text("\n".join(yaml_lines) + "\n", encoding="utf-8")
 
 
 def main() -> None:
@@ -706,31 +692,19 @@ def main() -> None:
         raise SystemExit(f"Failed to load config: {exc}") from exc
     mode = choose_arg_or_config(args.mode, config.get("mode"), "floor_only")
     if mode not in {"floor_only", "merged_classes"}:
-        raise SystemExit(
-            f"Unsupported mode '{mode}'. Expected floor_only or merged_classes"
-        )
+        raise SystemExit(f"Unsupported mode '{mode}'. Expected floor_only or merged_classes")
 
     input_dir_raw = choose_arg_or_config(args.input_dir, config.get("input_dir"), None)
-    output_dir_raw = choose_arg_or_config(
-        args.output_dir, config.get("output_dir"), None
-    )
+    output_dir_raw = choose_arg_or_config(args.output_dir, config.get("output_dir"), None)
     if input_dir_raw is None or output_dir_raw is None:
-        raise SystemExit(
-            "Both input_dir and output_dir must be set via CLI or config file"
-        )
+        raise SystemExit("Both input_dir and output_dir must be set via CLI or config file")
 
     input_dir = Path(input_dir_raw)
     output_dir = Path(output_dir_raw)
-    overwrite = bool(
-        choose_arg_or_config(args.overwrite, config.get("overwrite"), False)
-    )
-    copy_empty = bool(
-        choose_arg_or_config(args.copy_empty, config.get("copy_empty"), False)
-    )
+    overwrite = bool(choose_arg_or_config(args.overwrite, config.get("overwrite"), False))
+    copy_empty = bool(choose_arg_or_config(args.copy_empty, config.get("copy_empty"), False))
     min_area = float(choose_arg_or_config(args.min_area, config.get("min_area"), 1e-5))
-    max_polygons = int(
-        choose_arg_or_config(args.max_polygons, config.get("max_polygons"), 5)
-    )
+    max_polygons = int(choose_arg_or_config(args.max_polygons, config.get("max_polygons"), 5))
     mask_size = int(choose_arg_or_config(args.mask_size, config.get("mask_size"), 2048))
     output_names: list[str]
     alias_to_output_name: dict[str, str] = {}
@@ -753,11 +727,9 @@ def main() -> None:
     else:
         merged_cfg = modes_cfg.get("merged_classes", {})
         if not isinstance(merged_cfg, dict):
-            raise SystemExit(
-                "Config field 'modes.merged_classes' must be a mapping/object"
-            )
-        output_names, alias_to_output_name, remaining_to_group = (
-            parse_merged_class_rules(merged_cfg)
+            raise SystemExit("Config field 'modes.merged_classes' must be a mapping/object")
+        output_names, alias_to_output_name, remaining_to_group = parse_merged_class_rules(
+            merged_cfg
         )
         output_name_to_id = {name: idx for idx, name in enumerate(output_names)}
 
@@ -794,9 +766,7 @@ def main() -> None:
                 floor_class_id = find_floor_class_id(dataset_yaml, floor_class_name)
             else:
                 if not dataset_names:
-                    raise ValueError(
-                        "Dataset YAML does not contain a usable 'names' field"
-                    )
+                    raise ValueError("Dataset YAML does not contain a usable 'names' field")
                 id_remap, diagnostics = build_class_id_remap(
                     dataset_names=dataset_names,
                     output_name_to_id=output_name_to_id,
@@ -822,9 +792,7 @@ def main() -> None:
         datasets_used += 1
         total_pairs += len(pairs)
         if mode == "floor_only":
-            print(
-                f"[DATASET] {dataset_root} (pairs={len(pairs)}, floor_id={floor_class_id})"
-            )
+            print(f"[DATASET] {dataset_root} (pairs={len(pairs)}, floor_id={floor_class_id})")
         else:
             print(f"[DATASET] {dataset_root} (pairs={len(pairs)})")
 

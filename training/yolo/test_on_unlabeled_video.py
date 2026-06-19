@@ -113,9 +113,7 @@ def main() -> None:
 
     if input_path.is_dir():
         image_paths = sorted(
-            p
-            for p in input_path.iterdir()
-            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+            p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
         )
         if not image_paths:
             print(f"Error: No images found in directory '{input_path}'")
@@ -132,9 +130,7 @@ def main() -> None:
             print(f"Saving annotated images to {output_dir}")
 
         try:
-            with tqdm(
-                total=len(image_paths), desc="Processing images", unit="image"
-            ) as pbar:
+            with tqdm(total=len(image_paths), desc="Processing images", unit="image") as pbar:
                 for image_path in image_paths:
                     frame = cv2.imread(str(image_path))
                     if frame is None:
@@ -150,9 +146,7 @@ def main() -> None:
                         cv2.imwrite(str(out_path), annotated_frame)
 
                     if args.show:
-                        cv2.imshow(
-                            f"YOLO {model_task.capitalize()} Results", annotated_frame
-                        )
+                        cv2.imshow(f"YOLO {model_task.capitalize()} Results", annotated_frame)
                         if cv2.waitKey(1) & 0xFF == ord("q"):
                             print("Interrupted by user")
                             break
@@ -167,9 +161,7 @@ def main() -> None:
 
         elapsed_time = time.time() - start_time
         avg_fps = frame_count / elapsed_time if elapsed_time > 0 else 0
-        print(
-            f"\nProcessing complete! Processed {frame_count} images in {elapsed_time:.2f}s"
-        )
+        print(f"\nProcessing complete! Processed {frame_count} images in {elapsed_time:.2f}s")
         print(f"Average FPS: {avg_fps:.2f}")
         if output_dir is not None:
             print(f"Output saved to: {output_dir}")
@@ -181,9 +173,7 @@ def main() -> None:
 
     # Video path flow
     output_path = (
-        Path(args.output)
-        if args.output
-        else input_path.parent / f"{input_path.stem}_annotated.mp4"
+        Path(args.output) if args.output else input_path.parent / f"{input_path.stem}_annotated.mp4"
     )
 
     cap = cv2.VideoCapture(str(input_path))
@@ -221,9 +211,7 @@ def main() -> None:
                     writer.write(annotated_frame)
 
                 if args.show:
-                    cv2.imshow(
-                        f"YOLO {model_task.capitalize()} Results", annotated_frame
-                    )
+                    cv2.imshow(f"YOLO {model_task.capitalize()} Results", annotated_frame)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         print("Interrupted by user")
                         break
@@ -241,9 +229,7 @@ def main() -> None:
 
     elapsed_time = time.time() - start_time
     avg_fps = frame_count / elapsed_time if elapsed_time > 0 else 0
-    print(
-        f"\nProcessing complete! Processed {frame_count} frames in {elapsed_time:.2f}s"
-    )
+    print(f"\nProcessing complete! Processed {frame_count} frames in {elapsed_time:.2f}s")
     print(f"Average FPS: {avg_fps:.2f}")
     if not args.no_save:
         print(f"Output saved to: {output_path}")

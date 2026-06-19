@@ -417,9 +417,7 @@ def main() -> None:
     # unacceptable sliding friction drag in Genesis).
     if layout == "differential":
         if chassis_com[0] != 0.0:
-            print(
-                f"  Centering COM over wheel axis: ({chassis_com[0]:.4f}, 0, 0) -> (0, 0, 0)"
-            )
+            print(f"  Centering COM over wheel axis: ({chassis_com[0]:.4f}, 0, 0) -> (0, 0, 0)")
             chassis_com = [0.0, chassis_com[1], chassis_com[2]]
 
     # -- build URDF ----------------------------------------------------------

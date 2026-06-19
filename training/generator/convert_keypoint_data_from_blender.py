@@ -1,19 +1,17 @@
-import math
 import argparse
+import math
 import traceback
-from pathlib import Path
-import tomllib
 from multiprocessing import Pool, cpu_count
+from pathlib import Path
 
-
+import tomllib
 from find_unique_blobs import (
-    find_unique_blobs_with_color_priors,
-    ColorRgbUint8,
     Blob,
-    get_blob_centroid,
+    ColorRgbUint8,
+    find_unique_blobs_with_color_priors,
     get_blob_bounding_rectangle,
+    get_blob_centroid,
 )
-
 from load_image_render import load_image_render
 
 
@@ -67,9 +65,7 @@ def make_keypoint_annotation(
     matched_keypoint_id = None
     matched_class_id = None
     for class_id, keypoint_label_colors in keypoint_colors.items():
-        matched_keypoint_id = match_class_id(
-            blob.color, keypoint_label_colors, color_tolerance
-        )
+        matched_keypoint_id = match_class_id(blob.color, keypoint_label_colors, color_tolerance)
         if matched_keypoint_id is not None:
             matched_class_id = class_id
             break
@@ -146,9 +142,7 @@ def get_image_paths(config: dict, data_dir: Path) -> list[tuple[Path, Path]]:
         elif stem in mask_dict:
             print(f"Warning: No keypoint image found for mask image: {mask_dict[stem]}")
         else:
-            print(
-                f"Warning: No mask image found for keypoint image: {keypoint_dict[stem]}"
-            )
+            print(f"Warning: No mask image found for keypoint image: {keypoint_dict[stem]}")
 
     return matched_pairs
 
@@ -184,9 +178,7 @@ def convert_render_pair_to_yolo(
                 blob, width, height, keypoint_colors_map, color_tolerance
             )
             if annotation:
-                keypoint_annotations.setdefault(annotation[0], []).append(
-                    annotation[1:]
-                )
+                keypoint_annotations.setdefault(annotation[0], []).append(annotation[1:])
         for keypoint_label_annotations in keypoint_annotations.values():
             keypoint_label_annotations.sort(key=lambda val: val[0])
 
@@ -205,9 +197,7 @@ def convert_render_pair_to_yolo(
                 raise ValueError("Failed to find bounding box")
             class_id, x_center, y_center, box_w, box_h = bbox_anno
             if class_id not in keypoint_annotations:
-                raise ValueError(
-                    f"Bounding box has no corresponding class ID ({class_id})"
-                )
+                raise ValueError(f"Bounding box has no corresponding class ID ({class_id})")
             keypoint_label_annotations = keypoint_annotations[class_id]
 
             expected_keypoints_num = len(keypoint_colors_map[class_id])
@@ -223,12 +213,8 @@ def convert_render_pair_to_yolo(
             yolo_keypoint_annotations = []
             for key_anno in keypoint_label_annotations:
                 keypoint_id, key_x, key_y = key_anno
-                yolo_keypoint_annotations.append(
-                    f"{key_x:.6f} {key_y:.6f} {visibility}"
-                )
-            yolo_annotation = " ".join(
-                [yolo_base_annotation] + yolo_keypoint_annotations
-            )
+                yolo_keypoint_annotations.append(f"{key_x:.6f} {key_y:.6f} {visibility}")
+            yolo_annotation = " ".join([yolo_base_annotation] + yolo_keypoint_annotations)
             yolo_lines.append(yolo_annotation)
 
         # Write YOLO label file

@@ -22,12 +22,10 @@ import shutil
 import tempfile
 from pathlib import Path
 
-import torch
-
-from load_deeplabv3 import build_model, SegModelWrapper
-from model_config import load_model_config, config_path_for
-
 import tensorrt as trt
+import torch
+from load_deeplabv3 import SegModelWrapper, build_model
+from model_config import config_path_for, load_model_config
 
 
 def _has_lean_runtime() -> bool:
@@ -100,9 +98,7 @@ def build_tensorrt_engine(
     if logger is None:
         logger = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(logger)
-    network = builder.create_network(
-        1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-    )
+    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
     parser = trt.OnnxParser(network, logger)
 
     onnx_path = Path(onnx_path)
@@ -201,9 +197,7 @@ def main() -> None:
         print(f"Using pre-exported ONNX model: {onnx_path}")
     else:
         print(f"Loading checkpoint from {model_path}...")
-        wrapper = build_model(
-            cfg.backbone, cfg.num_classes, device, decoder=cfg.decoder
-        )
+        wrapper = build_model(cfg.backbone, cfg.num_classes, device, decoder=cfg.decoder)
         wrapper.eval()
         state = torch.load(model_path, map_location=device, weights_only=True)
         wrapper.model.load_state_dict(state, strict=False)
@@ -238,9 +232,7 @@ def main() -> None:
         shutil.copy2(config_path_for(model_path), config_path_for(output_path))
         print(f"Engine saved to: {output_path}")
         print(f"Config copied to: {config_path_for(output_path)}")
-        print(
-            "For Jetson: run this script on the Jetson to build an engine that runs there."
-        )
+        print("For Jetson: run this script on the Jetson to build an engine that runs there.")
     finally:
         if use_temp and onnx_path.exists():
             try:

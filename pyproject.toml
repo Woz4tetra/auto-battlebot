@@ -14,7 +14,9 @@ dependencies = [
     "tqdm>=4.60.0",
     "tomli; python_version < '3.11'",
     "tomli_w",
+    "dacite",
     "ruff",
+    "mypy",
     "livelossplot",
     "ipython",
     "torchmetrics",
@@ -44,3 +46,48 @@ py-modules = []
 [tool.setuptools.packages.find]
 where = ["."]
 include = []
+
+# --- tooling (style + typing rules; mirrors Pickle-Robot conventions) ---------
+# The playground/ directory is intentionally excluded: it holds throwaway analysis
+# scripts that are not held to the project style/typing bar.
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+fix = true
+exclude = [
+    ".git",
+    "*venv*",
+    "__pycache__",
+    "build",
+    "build-test",
+    "dist",
+    "data",
+    "playground",
+]
+lint.select = ["C9", "E", "F", "N", "Q", "W", "I", "INP"]
+lint.ignore = [
+    "E402", # module level import not at top of file
+    "Q003", # avoidable-escaped-quote
+]
+lint.unfixable = [
+    "F401", # unused imports
+    "F841", # unused variables
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Top-level scripts are run directly, not imported as a package.
+"scripts/*" = ["INP"]
+"simulation/*.py" = ["INP"]
+"training/**/*.py" = ["INP"]
+
+[tool.ruff.lint.flake8-quotes]
+multiline-quotes = "double"
+avoid-escape = false
+inline-quotes = "double"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.format]
+quote-style = "double"

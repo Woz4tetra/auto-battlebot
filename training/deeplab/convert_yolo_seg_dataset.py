@@ -40,7 +40,6 @@ import numpy as np
 import yaml
 from tqdm import tqdm
 
-
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 DEFAULT_SPLIT = "train"
 VALID_SPLITS = {"train", "val", "test"}
@@ -51,9 +50,7 @@ def parse_args() -> argparse.Namespace:
         description="Convert a YOLO-seg dataset into a Deeplab segmask dataset"
     )
     parser.add_argument("input", type=Path, help="Path to YOLO-seg dataset root")
-    parser.add_argument(
-        "output", type=Path, help="Path for output segmask dataset root"
-    )
+    parser.add_argument("output", type=Path, help="Path for output segmask dataset root")
     parser.add_argument(
         "--class-offset",
         type=int,

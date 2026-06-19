@@ -96,10 +96,7 @@ def convert_split(
                     kps = kps[:expected_kp_values]
 
                 # Swap keypoint 0 and keypoint 1 for mr_stabs_mk2 only
-                if (
-                    num_keypoints >= 2
-                    and keep_categories[new_class_id] == "mr_stabs_mk2"
-                ):
+                if num_keypoints >= 2 and keep_categories[new_class_id] == "mr_stabs_mk2":
                     kps[0:3], kps[3:6] = list(kps[3:6]), list(kps[0:3])
 
                 for i in range(0, expected_kp_values, 3):
@@ -136,9 +133,7 @@ def convert_split(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Convert COCO keypoint dataset to YOLO format"
-    )
+    parser = argparse.ArgumentParser(description="Convert COCO keypoint dataset to YOLO format")
     parser.add_argument(
         "--input-dir",
         default="/home/ben/Downloads/True Battlebots Keypoints.coco",

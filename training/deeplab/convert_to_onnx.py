@@ -5,15 +5,12 @@ import shutil
 from pathlib import Path
 
 import torch
-
 from load_deeplabv3 import build_model
-from model_config import load_model_config, config_path_for
+from model_config import config_path_for, load_model_config
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Convert DeepLab .pth checkpoint to ONNX format"
-    )
+    parser = argparse.ArgumentParser(description="Convert DeepLab .pth checkpoint to ONNX format")
     parser.add_argument(
         "model",
         type=str,

@@ -75,9 +75,7 @@ DEFAULT_SEARCH_DIRS = [
 # spdlog::info("Resolved SVO path: {}", ...) and "SVO recording started: {}".
 # Path is plain ASCII; the next ROS1 string field's length prefix is
 # non-printable, so a greedy \S+ capture is naturally bounded.
-SVO_PATH_REGEX = re.compile(
-    rb"(?:Resolved SVO path|SVO recording started):\s+(\S+\.svo2)"
-)
+SVO_PATH_REGEX = re.compile(rb"(?:Resolved SVO path|SVO recording started):\s+(\S+\.svo2)")
 
 
 def extract_svo_paths(mcap_path: Path) -> List[Path]:
@@ -110,9 +108,7 @@ def resolve_svo_path(referenced: Path, search_dirs: List[Path]) -> Optional[Path
     return None
 
 
-def convert_svo_to_mcap(
-    svo_path: Path, intermediate_path: Path, editor_bin: str
-) -> Path:
+def convert_svo_to_mcap(svo_path: Path, intermediate_path: Path, editor_bin: str) -> Path:
     """Run ZED_SVO_Editor -export-to-mcap and move output to intermediate_path.
 
     The tool is interactive: it prompts "Export SVO into readable MCAP [Y/n]"
@@ -182,16 +178,12 @@ def convert_svo_to_mcap(
         if returncode != 0:
             for line in captured:
                 sys.stderr.write(line + "\n")
-            raise RuntimeError(
-                f"ZED_SVO_Editor failed (exit {returncode}) for {svo_path}"
-            )
+            raise RuntimeError(f"ZED_SVO_Editor failed (exit {returncode}) for {svo_path}")
 
         if not default_out.exists():
             for line in captured:
                 sys.stderr.write(line + "\n")
-            raise RuntimeError(
-                f"ZED_SVO_Editor did not produce {default_out} for {svo_path}"
-            )
+            raise RuntimeError(f"ZED_SVO_Editor did not produce {default_out} for {svo_path}")
 
         intermediate_path.parent.mkdir(parents=True, exist_ok=True)
         if intermediate_path.exists():
@@ -285,17 +277,13 @@ def _make_ros1_compressed_image(
     if isinstance(ts_field, int):
         ts_ns = ts_field
     elif isinstance(ts_field, dict):
-        ts_ns = int(ts_field.get("sec", 0)) * 1_000_000_000 + int(
-            ts_field.get("nsec", 0)
-        )
+        ts_ns = int(ts_field.get("sec", 0)) * 1_000_000_000 + int(ts_field.get("nsec", 0))
     else:
         ts_ns = fallback_log_time_ns
     sec = ts_ns // 1_000_000_000
     nsec = ts_ns - sec * 1_000_000_000
 
-    fid = (frame_id if frame_id is not None else obj.get("frame_id") or "").encode(
-        "utf-8"
-    )
+    fid = (frame_id if frame_id is not None else obj.get("frame_id") or "").encode("utf-8")
     fmt_bytes = fmt.encode("utf-8")
 
     parts = [
@@ -461,9 +449,7 @@ def merge_mcaps(
     # Total is an upper bound: the original count is pre-time-slice, so the
     # bar may finish slightly before 100% on recordings that extend past the
     # SVO's time range. tqdm handles that gracefully.
-    total_messages = _summary_message_count(original_path) + _summary_message_count(
-        svo_mcap_path
-    )
+    total_messages = _summary_message_count(original_path) + _summary_message_count(svo_mcap_path)
 
     # Per-source maps: source_schema_id -> writer_schema_id, same for channels.
     # Source idx 0 = original, 1 = svo.
@@ -553,9 +539,7 @@ def merge_mcaps(
                 original_iter, svo_iter, key=lambda x: (x[0], x[1])
             ):
                 if source_idx == 1 and channel.topic == SVO_SIDE_BY_SIDE_TOPIC:
-                    data = _make_ros1_compressed_image(
-                        message.data, log_time, camera_frame_id
-                    )
+                    data = _make_ros1_compressed_image(message.data, log_time, camera_frame_id)
                     writer.add_message(
                         channel_id=left_image_channel_id,
                         log_time=log_time,
@@ -738,14 +722,10 @@ def main() -> int:
 
     editor_bin = shutil.which("ZED_SVO_Editor")
     if editor_bin is None and not args.dry_run:
-        logger.error(
-            "ZED_SVO_Editor not found on PATH. Install the ZED SDK or pass --dry-run."
-        )
+        logger.error("ZED_SVO_Editor not found on PATH. Install the ZED SDK or pass --dry-run.")
         return 2
 
-    search_dirs = (
-        list(args.svo_search_dir) if args.svo_search_dir else list(DEFAULT_SEARCH_DIRS)
-    )
+    search_dirs = list(args.svo_search_dir) if args.svo_search_dir else list(DEFAULT_SEARCH_DIRS)
 
     total_written = 0
     mcap_iter = tqdm(

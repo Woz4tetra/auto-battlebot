@@ -4,13 +4,13 @@ import argparse
 import math
 import os
 import sys
-import tomllib
 from pathlib import Path
 
 import bpy
 import cv2
 import mathutils
 import numpy as np
+import tomllib
 
 # BlenderProc changes CWD to a temp directory, so capture it now.
 _LAUNCH_CWD = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
@@ -205,9 +205,7 @@ def inspect_model(model_path: Path, scale: float = 1.0) -> None:
                 swatch = "N/A"
             print(f"  Material: {mat.name:30s}  Color: {swatch}  ({source})")
     print(f"\n{len(seen_materials)} unique materials found.")
-    print(
-        "Use these colors to fill in [[robots.color_mapping]] entries in config.toml."
-    )
+    print("Use these colors to fill in [[robots.color_mapping]] entries in config.toml.")
 
 
 def color_distance(c1: tuple[int, int, int], c2: list[int]) -> float:
@@ -351,15 +349,11 @@ def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
         if mat_output and "Displacement" in mat_output.inputs:
             for link in list(mat_output.inputs["Displacement"].links):
                 tree.links.remove(link)
-            tree.links.new(
-                disp_node.outputs["Displacement"], mat_output.inputs["Displacement"]
-            )
+            tree.links.new(disp_node.outputs["Displacement"], mat_output.inputs["Displacement"])
         applied_channels.append("Displacement")
 
     if not applied_channels:
-        print(
-            f"  Warning: No matching texture files found in {texture_dir} for {bpy_mat.name}"
-        )
+        print(f"  Warning: No matching texture files found in {texture_dir} for {bpy_mat.name}")
 
 
 def _load_cc_materials(
@@ -372,9 +366,7 @@ def _load_cc_materials(
     if not (cc_path and cc_path.exists()):
         return cc_materials
 
-    needed = {
-        cfg["cc_texture"] for cfg in materials_config.values() if "cc_texture" in cfg
-    }
+    needed = {cfg["cc_texture"] for cfg in materials_config.values() if "cc_texture" in cfg}
     if not needed:
         return cc_materials
 
@@ -436,9 +428,7 @@ def apply_pbr_materials(
             color = get_material_base_color(bpy_mat)
             if color is None:
                 continue
-            mat_type, match_dist, used_fallback = match_material_type(
-                color, color_mapping
-            )
+            mat_type, match_dist, used_fallback = match_material_type(color, color_mapping)
             if mat_type is None:
                 print(
                     f"  Warning: No mapping for color {color} on {bpy_mat.name} "
@@ -480,9 +470,7 @@ def apply_pbr_materials(
                     # maps directly from the texture directory on the current
                     # slot material.
                     cc_dir = (
-                        resolve_path(Path(cc_textures_dir)) / cc_name
-                        if cc_textures_dir
-                        else None
+                        resolve_path(Path(cc_textures_dir)) / cc_name if cc_textures_dir else None
                     )
                     if cc_dir and cc_dir.is_dir():
                         _apply_pbr_textures(bpy_mat, cc_dir)
@@ -500,9 +488,7 @@ def apply_pbr_materials(
                         f"  Warning: cc_texture '{cc_name}' not loaded for "
                         f"{bpy_mat.name}; falling back to PBR scalar values."
                     )
-                    bproc_mat.set_principled_shader_value(
-                        "Metallic", mat_cfg.get("metallic", 0.0)
-                    )
+                    bproc_mat.set_principled_shader_value("Metallic", mat_cfg.get("metallic", 0.0))
                     bproc_mat.set_principled_shader_value(
                         "Roughness", mat_cfg.get("roughness", 0.5)
                     )
@@ -512,12 +498,8 @@ def apply_pbr_materials(
                         f"roughness={mat_cfg.get('roughness')})"
                     )
             else:
-                bproc_mat.set_principled_shader_value(
-                    "Metallic", mat_cfg.get("metallic", 0.0)
-                )
-                bproc_mat.set_principled_shader_value(
-                    "Roughness", mat_cfg.get("roughness", 0.5)
-                )
+                bproc_mat.set_principled_shader_value("Metallic", mat_cfg.get("metallic", 0.0))
+                bproc_mat.set_principled_shader_value("Roughness", mat_cfg.get("roughness", 0.5))
                 print(
                     f"  {bpy_mat.name} -> PBR values "
                     f"(metallic={mat_cfg.get('metallic')}, "
@@ -543,9 +525,7 @@ def render_preview(
 ) -> None:
     """Render 6 views (front/back/left/right/top/bottom) as a 3x2 grid."""
     bpy.context.view_layer.update()
-    all_pts = [
-        obj.matrix_world @ mathutils.Vector(c) for obj in meshes for c in obj.bound_box
-    ]
+    all_pts = [obj.matrix_world @ mathutils.Vector(c) for obj in meshes for c in obj.bound_box]
     xs = [p.x for p in all_pts]
     ys = [p.y for p in all_pts]
     zs = [p.z for p in all_pts]
@@ -644,18 +624,14 @@ def _slugify(name: str) -> str:
     return name.lower().replace(" ", "_").replace("/", "_")
 
 
-def _resolve_output_path(
-    user_path: Path, robot_name: str, default_ext: str, multi: bool
-) -> Path:
+def _resolve_output_path(user_path: Path, robot_name: str, default_ext: str, multi: bool) -> Path:
     """Turn a user-supplied path into a concrete file path.
 
     If *user_path* looks like a directory (no image extension or ends with /),
     the output file is placed inside it.  When *multi* is true, the robot name
     is always embedded in the filename.
     """
-    is_dir = (
-        not user_path.suffix or user_path.suffix.lower() not in _KNOWN_OUTPUT_EXTENSIONS
-    )
+    is_dir = not user_path.suffix or user_path.suffix.lower() not in _KNOWN_OUTPUT_EXTENSIONS
     slug = _slugify(robot_name)
     if is_dir:
         return user_path / f"{slug}{default_ext}"
@@ -714,14 +690,10 @@ def main() -> None:
 
     if args.robot:
         robot_configs = [
-            r
-            for r in robot_configs
-            if r.get("name", Path(r["model_path"]).stem) == args.robot
+            r for r in robot_configs if r.get("name", Path(r["model_path"]).stem) == args.robot
         ]
         if not robot_configs:
-            available = [
-                r.get("name", Path(r["model_path"]).stem) for r in config["robots"]
-            ]
+            available = [r.get("name", Path(r["model_path"]).stem) for r in config["robots"]]
             parser.error(f"Robot '{args.robot}' not found. Available: {available}")
 
     multi = len(robot_configs) > 1
@@ -787,15 +759,8 @@ def main() -> None:
 
         cleanup_meshes(meshes)
 
-    if (
-        not args.inspect
-        and args.skip_preview
-        and not args.save_blend
-        and not args.export_gltf
-    ):
-        print(
-            "\nDone. Use --preview-output, --save-blend, or --export-gltf to output results."
-        )
+    if not args.inspect and args.skip_preview and not args.save_blend and not args.export_gltf:
+        print("\nDone. Use --preview-output, --save-blend, or --export-gltf to output results.")
 
 
 if __name__ == "__main__":

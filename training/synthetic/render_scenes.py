@@ -7,7 +7,6 @@ import math
 import os
 import random
 import sys
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -16,6 +15,7 @@ import bpy
 import cv2
 import mathutils
 import numpy as np
+import tomllib
 from bpy_extras.object_utils import world_to_camera_view
 
 _LAUNCH_CWD = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
@@ -67,9 +67,7 @@ def show_robot(robot: RobotInstance) -> None:
         mesh.blender_obj.hide_viewport = False
 
 
-def choose_scene_robots(
-    robots: list[RobotInstance], max_count: int
-) -> list[RobotInstance]:
+def choose_scene_robots(robots: list[RobotInstance], max_count: int) -> list[RobotInstance]:
     """Weighted sampling without replacement to pick 1..max_count robots."""
     max_count = min(max_count, len(robots))
     num = random.randint(1, max_count)
@@ -250,11 +248,7 @@ def import_gltf_as_robot(
 
     bpy.context.view_layer.update()
 
-    all_pts = [
-        obj.matrix_world @ mathutils.Vector(c)
-        for obj in bpy_meshes
-        for c in obj.bound_box
-    ]
+    all_pts = [obj.matrix_world @ mathutils.Vector(c) for obj in bpy_meshes for c in obj.bound_box]
     xs = [p.x for p in all_pts]
     ys = [p.y for p in all_pts]
     zs = [p.z for p in all_pts]
@@ -371,9 +365,7 @@ def _load_cc_materials(
     if not (cc_path and cc_path.exists()):
         return cc_materials
 
-    needed = {
-        cfg["cc_texture"] for cfg in materials_config.values() if "cc_texture" in cfg
-    }
+    needed = {cfg["cc_texture"] for cfg in materials_config.values() if "cc_texture" in cfg}
     if not needed:
         return cc_materials
 
@@ -491,9 +483,7 @@ def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
         if mat_output and "Displacement" in mat_output.inputs:
             for link in list(mat_output.inputs["Displacement"].links):
                 tree.links.remove(link)
-            tree.links.new(
-                disp_node.outputs["Displacement"], mat_output.inputs["Displacement"]
-            )
+            tree.links.new(disp_node.outputs["Displacement"], mat_output.inputs["Displacement"])
 
 
 def apply_pbr_materials(
@@ -510,9 +500,7 @@ def apply_pbr_materials(
             color = get_material_base_color(bpy_mat)
             if color is None:
                 continue
-            mat_type, match_dist, used_fallback = match_material_type(
-                color, color_mapping
-            )
+            mat_type, match_dist, used_fallback = match_material_type(color, color_mapping)
             if mat_type is None:
                 print(
                     f"  Warning: No mapping for color {color} on {bpy_mat.name} "
@@ -545,12 +533,8 @@ def apply_pbr_materials(
                     tint_material_albedo(cc_bpy_mat, base_color_rgb)
                 bpy_obj.data.materials[slot_idx] = cc_bpy_mat
             else:
-                bproc_mat.set_principled_shader_value(
-                    "Metallic", mat_cfg.get("metallic", 0.0)
-                )
-                bproc_mat.set_principled_shader_value(
-                    "Roughness", mat_cfg.get("roughness", 0.5)
-                )
+                bproc_mat.set_principled_shader_value("Metallic", mat_cfg.get("metallic", 0.0))
+                bproc_mat.set_principled_shader_value("Roughness", mat_cfg.get("roughness", 0.5))
                 if base_color_rgb:
                     _disconnect_base_color(bpy_mat)
                     rgba = [c / 255.0 for c in base_color_rgb] + [1.0]
@@ -630,9 +614,7 @@ def estimate_distractor_group_gpu_mb(group: DistractorGroup) -> float:
 
                 # Approximate attribute payload per vertex.
                 uv_bytes = 8 if mesh_data.uv_layers else 0
-                color_bytes = (
-                    4 if (mesh_data.color_attributes or mesh_data.vertex_colors) else 0
-                )
+                color_bytes = 4 if (mesh_data.color_attributes or mesh_data.vertex_colors) else 0
                 total_bytes += vertex_count * (12 + 12 + uv_bytes + color_bytes)
                 # 3 uint32 indices per triangle.
                 total_bytes += tri_count * 12
@@ -724,9 +706,7 @@ def _wire_vertex_colors(obj: bpy.types.Object) -> None:
         tree.links.new(vcol.outputs["Color"], bsdf.inputs["Base Color"])
 
 
-def load_distractor(
-    file_path: Path, category_id: int, source_kind: str
-) -> DistractorGroup | None:
+def load_distractor(file_path: Path, category_id: int, source_kind: str) -> DistractorGroup | None:
     """Load a single distractor model under a parent empty.
 
     Returns ``(parent, meshes, native_size)`` or *None* on failure.  The
@@ -768,9 +748,7 @@ def load_distractor(
         bpy.context.view_layer.update()
 
         all_pts = [
-            obj.matrix_world @ mathutils.Vector(c)
-            for obj in imported
-            for c in obj.bound_box
+            obj.matrix_world @ mathutils.Vector(c) for obj in imported for c in obj.bound_box
         ]
         xs = [p.x for p in all_pts]
         ys = [p.y for p in all_pts]
@@ -827,9 +805,7 @@ def load_distractor_pool(
                 break
             f_resolved = resolve_path(f)
             est_mb_pre = (
-                vram_estimates_mb.get(f_resolved)
-                if vram_estimates_mb is not None
-                else None
+                vram_estimates_mb.get(f_resolved) if vram_estimates_mb is not None else None
             )
             if (
                 est_mb_pre is not None
@@ -1084,9 +1060,7 @@ def sample_camera_pose(
         camera.matrix_world = mathutils.Matrix(cam2world.tolist())
         bpy.context.view_layer.update()
 
-        co_2d = world_to_camera_view(
-            bpy.context.scene, camera, mathutils.Vector(robot_center)
-        )
+        co_2d = world_to_camera_view(bpy.context.scene, camera, mathutils.Vector(robot_center))
         if 0 <= co_2d.x <= 1 and 0 <= co_2d.y <= 1 and co_2d.z > 0:
             return cam2world
 
@@ -1202,8 +1176,7 @@ def normalize_annotation_mode(mode: str) -> str:
     }
     if mode_norm not in valid_modes:
         raise ValueError(
-            f"Unsupported output.annotation_mode='{mode}'. "
-            f"Expected one of: {sorted(valid_modes)}"
+            f"Unsupported output.annotation_mode='{mode}'. Expected one of: {sorted(valid_modes)}"
         )
     return mode_norm
 
@@ -1235,9 +1208,7 @@ def segmentation_annotations_from_segmap(
                 continue
 
             if contour.shape[0] >= 3:
-                polygon = [
-                    (float(x) / img_w, float(y) / img_h) for x, y in contour[:, 0, :]
-                ]
+                polygon = [(float(x) / img_w, float(y) / img_h) for x, y in contour[:, 0, :]]
             else:
                 # Preserve tiny visible objects (e.g. heavily occluded or edge-clipped)
                 # by emitting a minimal rectangle polygon.
@@ -1369,8 +1340,7 @@ def jitter_materials(
                         0,
                         min(
                             1,
-                            roughness
-                            + random.uniform(-roughness_jitter, roughness_jitter),
+                            roughness + random.uniform(-roughness_jitter, roughness_jitter),
                         ),
                     )
                     mat.set_principled_shader_value("Roughness", new_r)
@@ -1451,9 +1421,7 @@ def main() -> None:
     data_yml_path = dataset_root / "data.yml"
 
     if args.start_index is None:
-        existing = [
-            int(p.stem) for p in output_image_dir.glob("*.jpg") if p.stem.isdigit()
-        ]
+        existing = [int(p.stem) for p in output_image_dir.glob("*.jpg") if p.stem.isdigit()]
         args.start_index = max(existing) + 1 if existing else 0
         if existing:
             print(
@@ -1480,9 +1448,7 @@ def main() -> None:
         rname = rcfg.get("name", Path(rcfg["model_path"]).stem)
         model_path = Path(rcfg["model_path"])
         robot_scale = rcfg.get("scale", 1.0)
-        robot_category_id = (
-            seg_robot_class_ids[ri] if is_segmentation_mode else ROBOT_CATEGORY_ID
-        )
+        robot_category_id = seg_robot_class_ids[ri] if is_segmentation_mode else ROBOT_CATEGORY_ID
         print(f"Loading robot model: {rname} ({model_path})")
         meshes, parent, bbox = import_gltf_as_robot(
             model_path, robot_scale, category_id=robot_category_id
@@ -1623,9 +1589,7 @@ def main() -> None:
     # ------- Create ground plane -------
 
     scene_cfg = config.get("scene", {})
-    ground_category_id = (
-        SEG_FLOOR_CLASS_ID if is_segmentation_mode else BACKGROUND_CATEGORY_ID
-    )
+    ground_category_id = SEG_FLOOR_CLASS_ID if is_segmentation_mode else BACKGROUND_CATEGORY_ID
     ground = bproc.object.create_primitive("PLANE", scale=[1, 1, 1], location=[0, 0, 0])
     ground.set_cp("category_id", ground_category_id)
     ground.set_cp("robot_instance_id", 0)
@@ -1758,9 +1722,7 @@ def main() -> None:
         # -- Distractor placement (scale relative to largest robot in scene) --
         max_robot_size = max(r.size for r in scene_robots)
         num_dist = random.randint(dist_min_per_scene, len(distractor_pool))
-        active_distractors = (
-            random.sample(distractor_pool, num_dist) if num_dist > 0 else []
-        )
+        active_distractors = random.sample(distractor_pool, num_dist) if num_dist > 0 else []
         for group in distractor_pool:
             hide_distractor(group)
         for group in active_distractors:
@@ -1798,9 +1760,7 @@ def main() -> None:
             )
 
         # -- Camera poses (look at centroid of all placed robots) --
-        centroid = [
-            sum(p[i] for p in robot_positions) / len(robot_positions) for i in range(3)
-        ]
+        centroid = [sum(p[i] for p in robot_positions) / len(robot_positions) for i in range(3)]
         cam_count = min(images_per_scene, args.start_index + num_images - global_idx)
         cam_poses = []
         for _ in range(cam_count):
@@ -1819,9 +1779,7 @@ def main() -> None:
         for robot in scene_robots:
             wmat = np.array(robot.parent.matrix_world)
             for kp in [robot.kp_front, robot.kp_back]:
-                all_keypoints_world.append(
-                    mathutils.Vector((wmat @ np.append(kp, 1.0))[:3])
-                )
+                all_keypoints_world.append(mathutils.Vector((wmat @ np.append(kp, 1.0))[:3]))
         clear_blocking_distractors(cam_poses, all_keypoints_world, active_distractors)
 
         for pose in cam_poses:
@@ -1873,9 +1831,7 @@ def main() -> None:
         blur_category_ids: set[int] = set()
         for robot in scene_robots:
             if robot.meshes:
-                blur_category_ids.add(
-                    int(robot.meshes[0].blender_obj.get("category_id", -1))
-                )
+                blur_category_ids.add(int(robot.meshes[0].blender_obj.get("category_id", -1)))
         for group in active_distractors:
             meshes = group[1]
             if meshes:
@@ -1889,17 +1845,12 @@ def main() -> None:
             cat_seg = cat_seg_maps[local_idx]
             inst_seg = inst_seg_maps[local_idx] if inst_seg_maps else None
             clean_inst_seg = (
-                clean_inst_seg_maps[local_idx]
-                if clean_inst_seg_maps is not None
-                else None
+                clean_inst_seg_maps[local_idx] if clean_inst_seg_maps is not None else None
             )
             depth_map = depth_maps[local_idx]
 
             if scene_idx == 0 and local_idx == 0:
-                print(
-                    f"  Cat segmap shape={cat_seg.shape}, "
-                    f"unique={np.unique(cat_seg).tolist()}"
-                )
+                print(f"  Cat segmap shape={cat_seg.shape}, unique={np.unique(cat_seg).tolist()}")
                 if inst_seg is not None:
                     print(f"  Inst segmap unique={np.unique(inst_seg).tolist()}")
 
@@ -1927,9 +1878,7 @@ def main() -> None:
                 # (robots + floor + distractors/object) to be present in labels.
                 required_visible_category_ids = set(visible_category_ids)
 
-                missing_required_ids = (
-                    required_visible_category_ids - annotated_category_ids
-                )
+                missing_required_ids = required_visible_category_ids - annotated_category_ids
                 if missing_required_ids:
                     # Discard frames when expected visible classes (especially robots)
                     # are dropped from YOLO-seg labels by contour filtering.
@@ -1941,9 +1890,7 @@ def main() -> None:
             else:
                 rendered_robot_ids: set[int] = set()
                 if inst_seg is not None:
-                    visible_ids = {
-                        int(v) for v in np.unique(inst_seg.squeeze()).tolist()
-                    }
+                    visible_ids = {int(v) for v in np.unique(inst_seg.squeeze()).tolist()}
                     rendered_robot_ids = {
                         robot.instance_id
                         for robot in scene_robots
@@ -1972,9 +1919,7 @@ def main() -> None:
 
                     if inst_seg is not None and clean_inst_seg is not None:
                         visible_px = int(np.sum(inst_seg.squeeze() == seg_id))
-                        unobstructed_px = int(
-                            np.sum(clean_inst_seg.squeeze() == seg_id)
-                        )
+                        unobstructed_px = int(np.sum(clean_inst_seg.squeeze() == seg_id))
                         if unobstructed_px <= 0:
                             continue
                         if (visible_px / unobstructed_px) < min_vis:
@@ -1994,9 +1939,7 @@ def main() -> None:
                             keypoints_2d.append((0.0, 0.0, 0))
                             continue
                         x_n, y_n, depth = proj
-                        vis = check_keypoint_visibility(
-                            x_n, y_n, depth, depth_map, img_w, img_h
-                        )
+                        vis = check_keypoint_visibility(x_n, y_n, depth, depth_map, img_w, img_h)
                         keypoints_2d.append((x_n, y_n, vis))
 
                     keypoint_annotations.append((robot.class_id, bbox, keypoints_2d))
@@ -2027,9 +1970,7 @@ def main() -> None:
 
             frame_name = f"{global_idx:06d}"
             if is_segmentation_mode:
-                write_yolo_seg_labels(
-                    output_label_dir / f"{frame_name}.txt", seg_annotations
-                )
+                write_yolo_seg_labels(output_label_dir / f"{frame_name}.txt", seg_annotations)
             else:
                 write_yolo_labels(
                     output_label_dir / f"{frame_name}.txt",

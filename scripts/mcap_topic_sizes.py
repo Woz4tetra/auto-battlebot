@@ -31,9 +31,7 @@ def analyze(path: Path) -> None:
 
         summary = reader.get_summary()
         if summary is None:
-            print(
-                "No summary found - scanning all messages (slower)...", file=sys.stderr
-            )
+            print("No summary found - scanning all messages (slower)...", file=sys.stderr)
         else:
             channels = summary.channels
             schemas = summary.schemas
@@ -49,11 +47,7 @@ def analyze(path: Path) -> None:
         reader = make_reader(f)
         for schema, channel, message in reader.iter_messages():
             topic = channel.topic
-            size = (
-                message.data_length
-                if hasattr(message, "data_length")
-                else len(message.data)
-            )
+            size = message.data_length if hasattr(message, "data_length") else len(message.data)
             topic_bytes[topic] += size
 
             t = message.log_time  # nanoseconds
@@ -122,9 +116,7 @@ def analyze(path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Print per-topic sizes in an MCAP file."
-    )
+    parser = argparse.ArgumentParser(description="Print per-topic sizes in an MCAP file.")
     parser.add_argument("files", nargs="+", type=Path, help="MCAP file(s) to analyze")
     args = parser.parse_args()
 

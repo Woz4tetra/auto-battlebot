@@ -186,15 +186,11 @@ def main() -> None:
 
     existing_ids = existing_asset_ids(output_dir)
     available_assets = {
-        asset_id: meta
-        for asset_id, meta in assets.items()
-        if asset_id not in existing_ids
+        asset_id: meta for asset_id, meta in assets.items() if asset_id not in existing_ids
     }
 
     if not available_assets:
-        print(
-            f"No new HDRIs to download. Existing library already has {len(existing_ids)} assets."
-        )
+        print(f"No new HDRIs to download. Existing library already has {len(existing_ids)} assets.")
         return
 
     requested = min(args.count, len(available_assets))

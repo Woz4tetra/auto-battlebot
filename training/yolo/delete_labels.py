@@ -21,9 +21,7 @@ WORKER_CONTEXT: dict[str, object] = {}
 
 
 def find_label_files(dataset_dir: Path) -> tuple[list[Path], Path]:
-    labels_root = (
-        dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
-    )
+    labels_root = dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
     return sorted(labels_root.rglob("*.txt")), labels_root
 
 
@@ -39,9 +37,7 @@ def find_existing_image_for_prefix(prefix_no_suffix: Path) -> Path | None:
     return None
 
 
-def find_paired_image(
-    label_path: Path, dataset_dir: Path, labels_root: Path
-) -> Path | None:
+def find_paired_image(label_path: Path, dataset_dir: Path, labels_root: Path) -> Path | None:
     candidate_prefixes: list[Path] = []
 
     images_root = dataset_dir / "images"
@@ -174,12 +170,7 @@ def process_label_file(label_path_str: str) -> dict[str, object]:
         dest.write_text("")
     result["written"] = True
 
-    if (
-        not skip_copy_images
-        and output_dir is not None
-        and paired_image
-        and paired_image.exists()
-    ):
+    if not skip_copy_images and output_dir is not None and paired_image and paired_image.exists():
         img_rel = paired_image.relative_to(dataset_dir)
         img_dest = output_dir / img_rel
         img_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -203,9 +194,7 @@ def copy_dataset_yaml_if_present(dataset_dir: Path, output_dir: Path) -> Path | 
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Remove class IDs from YOLO label files"
-    )
+    parser = argparse.ArgumentParser(description="Remove class IDs from YOLO label files")
     parser.add_argument("dataset", type=str, help="Path to dataset directory")
     parser.add_argument(
         "label_ids",
@@ -281,9 +270,7 @@ def main() -> None:
             args.dry_run,
         )
         results_iter = map(process_label_file, worker_inputs)
-        progress_iter = tqdm(
-            results_iter, total=len(worker_inputs), desc="Removing labels"
-        )
+        progress_iter = tqdm(results_iter, total=len(worker_inputs), desc="Removing labels")
     else:
         with mp.Pool(
             processes=jobs,
@@ -297,12 +284,8 @@ def main() -> None:
                 args.dry_run,
             ),
         ) as pool:
-            results_iter = pool.imap_unordered(
-                process_label_file, worker_inputs, chunksize=64
-            )
-            progress_iter = tqdm(
-                results_iter, total=len(worker_inputs), desc="Removing labels"
-            )
+            results_iter = pool.imap_unordered(process_label_file, worker_inputs, chunksize=64)
+            progress_iter = tqdm(results_iter, total=len(worker_inputs), desc="Removing labels")
 
             for result in progress_iter:
                 skipped_malformed_total += int(result["malformed_count"])
@@ -323,9 +306,7 @@ def main() -> None:
                 elif result["missing_image_for_label"] is not None:
                     missing_paired_image_count += 1
                     if len(missing_paired_image_examples) < 5:
-                        missing_paired_image_examples.append(
-                            str(result["missing_image_for_label"])
-                        )
+                        missing_paired_image_examples.append(str(result["missing_image_for_label"]))
 
         progress_iter.close()
 
@@ -349,9 +330,7 @@ def main() -> None:
             elif result["missing_image_for_label"] is not None:
                 missing_paired_image_count += 1
                 if len(missing_paired_image_examples) < 5:
-                    missing_paired_image_examples.append(
-                        str(result["missing_image_for_label"])
-                    )
+                    missing_paired_image_examples.append(str(result["missing_image_for_label"]))
 
     if skipped_malformed_total:
         print(f"Skipped {skipped_malformed_total} malformed label lines")
@@ -365,9 +344,7 @@ def main() -> None:
 
     if not args.dry_run:
         target = output_dir if output_dir else dataset_dir
-        print(
-            f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}"
-        )
+        print(f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}")
         print(
             f"Removed {removed_annotations_total} label annotations across {files_with_removals} files"
         )
@@ -376,9 +353,7 @@ def main() -> None:
             if copied_yaml:
                 print(f"Copied dataset yaml -> {copied_yaml}")
         if missing_paired_image_count:
-            print(
-                f"Could not find paired images for {missing_paired_image_count} label files"
-            )
+            print(f"Could not find paired images for {missing_paired_image_count} label files")
             for sample in missing_paired_image_examples:
                 print(f"  missing image for label: {sample}")
     else:

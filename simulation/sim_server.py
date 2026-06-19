@@ -16,11 +16,11 @@ import sys
 from pathlib import Path
 
 import genesis as gs
-
-from config import SimConfig, load_sim_config
 from runner import SimRunner
 from scene import build_scene
 from sim_types import SceneHandles
+
+from config import SimConfig, load_sim_config
 
 
 def main() -> None:

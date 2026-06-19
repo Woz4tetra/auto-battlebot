@@ -4,14 +4,13 @@ import numpy as np
 import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
+from model_config import ModelConfig, load_model_config
+from torchvision import transforms
 from torchvision.models.segmentation import (
     deeplabv3_mobilenet_v3_large,
     deeplabv3_resnet50,
     deeplabv3_resnet101,
 )
-from torchvision import transforms
-
-from model_config import ModelConfig, load_model_config
 
 TORCHVISION_BACKBONE_BUILDERS = {
     "mbv3": deeplabv3_mobilenet_v3_large,
@@ -70,20 +69,16 @@ def common_transforms(
 def _build_torchvision(backbone: str, num_classes: int) -> nn.Module:
     if backbone not in TORCHVISION_BACKBONE_BUILDERS:
         raise ValueError(
-            f"Unknown backbone '{backbone}'. "
-            f"Must be one of: {list(TORCHVISION_BACKBONE_BUILDERS)}"
+            f"Unknown backbone '{backbone}'. Must be one of: {list(TORCHVISION_BACKBONE_BUILDERS)}"
         )
-    return TORCHVISION_BACKBONE_BUILDERS[backbone](
-        num_classes=num_classes, aux_loss=True
-    )
+    return TORCHVISION_BACKBONE_BUILDERS[backbone](num_classes=num_classes, aux_loss=True)
 
 
 def _build_smp(backbone: str, num_classes: int) -> nn.Module:
     encoder = SMP_ENCODER_NAMES.get(backbone)
     if encoder is None:
         raise ValueError(
-            f"Unknown backbone '{backbone}' for SMP. "
-            f"Must be one of: {list(SMP_ENCODER_NAMES)}"
+            f"Unknown backbone '{backbone}' for SMP. Must be one of: {list(SMP_ENCODER_NAMES)}"
         )
     return smp.DeepLabV3Plus(
         encoder_name=encoder,
@@ -99,9 +94,7 @@ def build_model(
     decoder: str = "v3",
 ) -> SegModelWrapper:
     if decoder not in VALID_DECODERS:
-        raise ValueError(
-            f"Unknown decoder '{decoder}'. Must be one of: {list(VALID_DECODERS)}"
-        )
+        raise ValueError(f"Unknown decoder '{decoder}'. Must be one of: {list(VALID_DECODERS)}")
     if decoder == "v3plus":
         raw_model = _build_smp(backbone, num_classes)
         dict_output = False
@@ -112,9 +105,7 @@ def build_model(
     return SegModelWrapper(raw_model, dict_output).to(device)
 
 
-def load_model(
-    checkpoint_path: Path, device: torch.device
-) -> tuple[SegModelWrapper, ModelConfig]:
+def load_model(checkpoint_path: Path, device: torch.device) -> tuple[SegModelWrapper, ModelConfig]:
     """Load a trained model and its config from the sibling .toml."""
     cfg = load_model_config(checkpoint_path)
 

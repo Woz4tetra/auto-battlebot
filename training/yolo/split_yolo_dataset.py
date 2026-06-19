@@ -17,12 +17,8 @@ def main() -> None:
     parser.add_argument("images", help="Path to images")
     parser.add_argument("labels", help="Path to labels")
     parser.add_argument("output", help="Output path")
-    parser.add_argument(
-        "-t", "--train", type=float, help="Train percentage", default=0.9
-    )
-    parser.add_argument(
-        "-v", "--val", type=float, help="Validation percentage", default=0.1
-    )
+    parser.add_argument("-t", "--train", type=float, help="Train percentage", default=0.9)
+    parser.add_argument("-v", "--val", type=float, help="Validation percentage", default=0.1)
     parser.add_argument(
         "-n",
         "--num-images",
@@ -66,9 +62,7 @@ def main() -> None:
                 print(f"Skipping {stem}. No annotation.")
                 continue
             annotation_path = stem_to_annotation_map[stem]
-            shutil.copyfile(
-                image_path, output_path / subdir_key / "images" / image_path.name
-            )
+            shutil.copyfile(image_path, output_path / subdir_key / "images" / image_path.name)
             shutil.copyfile(
                 annotation_path,
                 output_path / subdir_key / "labels" / annotation_path.name,

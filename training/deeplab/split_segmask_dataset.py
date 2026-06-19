@@ -57,9 +57,7 @@ def main() -> None:
         help="Limit the number of images to include",
         default=None,
     )
-    parser.add_argument(
-        "--seed", type=int, help="Random seed for reproducibility", default=None
-    )
+    parser.add_argument("--seed", type=int, help="Random seed for reproducibility", default=None)
     args = parser.parse_args()
 
     input_path = Path(args.input)

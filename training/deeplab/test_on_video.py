@@ -34,9 +34,7 @@ def predict_mask(
     image_size: int,
     pad_size: int,
 ) -> np.ndarray:
-    resized = cv2.resize(
-        frame_rgb, (image_size, image_size), interpolation=cv2.INTER_LINEAR
-    )
+    resized = cv2.resize(frame_rgb, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
     input_tensor = transform(resized).unsqueeze(0).to(device)
 
     with torch.no_grad():

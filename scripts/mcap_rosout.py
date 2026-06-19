@@ -24,11 +24,11 @@ _LEVEL_NAME = {
 
 # ANSI colour codes (disabled when not a tty)
 _COLOURS = {
-    "DEBUG": "\033[37m",     # grey
-    "INFO": "",              # default
-    "WARN": "\033[33m",      # yellow
-    "ERROR": "\033[31m",     # red
-    "FATAL": "\033[1;31m",   # bold red
+    "DEBUG": "\033[37m",  # grey
+    "INFO": "",  # default
+    "WARN": "\033[33m",  # yellow
+    "ERROR": "\033[31m",  # red
+    "FATAL": "\033[1;31m",  # bold red
     "RESET": "\033[0m",
 }
 
@@ -62,9 +62,7 @@ def print_log(path: Path, use_colour: bool, min_level: int) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Print /rosout from an MCAP file like journalctl."
-    )
+    parser = argparse.ArgumentParser(description="Print /rosout from an MCAP file like journalctl.")
     parser.add_argument("files", nargs="+", type=Path, help="MCAP file(s) to read")
     parser.add_argument(
         "--level",

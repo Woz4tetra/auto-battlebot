@@ -23,11 +23,10 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from tqdm import tqdm
-
-import tensorrt as trt
-import pycuda.driver as cuda
 import pycuda.autoinit  # noqa: F401
+import pycuda.driver as cuda
+import tensorrt as trt
+from tqdm import tqdm
 
 
 def letterbox(
@@ -45,9 +44,7 @@ def letterbox(
     if new_w == target_w and new_h == target_h:
         if image.shape[0] == target_h and image.shape[1] == target_w:
             return image, scale, 0.0, 0.0
-        resized = cv2.resize(
-            image, (target_w, target_h), interpolation=cv2.INTER_LINEAR
-        )
+        resized = cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
         return resized, scale, 0.0, 0.0
     resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
     left = int(round((target_w - new_w) / 2.0 - padding))
@@ -72,9 +69,7 @@ def preprocess_frame(
 ) -> tuple[np.ndarray, float, float, float]:
     """BGR frame -> NCHW float32 [0,1] RGB, plus scale and pad for inverse transform."""
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    padded, scale, pad_left, pad_top = letterbox(
-        rgb, input_h, input_w, padding=letterbox_padding
-    )
+    padded, scale, pad_left, pad_top = letterbox(rgb, input_h, input_w, padding=letterbox_padding)
     blob = padded.astype(np.float32) / 255.0
     blob = np.transpose(blob, (2, 0, 1))
     blob = np.expand_dims(blob, axis=0)
@@ -168,9 +163,7 @@ def non_max_suppression(
         )
     scores = max_scores[mask]
     cls_ids = best_cls[mask]
-    kp_data = transposed[
-        mask, 4 + num_classes : 4 + num_classes + num_keypoint_vals
-    ].copy()
+    kp_data = transposed[mask, 4 + num_classes : 4 + num_classes + num_keypoint_vals].copy()
     kp_vis = kp_data[:, 2::3]
     kp_vis_min, kp_vis_max = np.min(kp_vis), np.max(kp_vis)
     if not (kp_vis_min >= 0.0 and kp_vis_max <= 1.0):
@@ -256,9 +249,7 @@ def scale_detections_to_frame(
         return []
     result = []
     xyxy0 = detections[0][0]
-    need_scale = (
-        input_w > 0 and input_h > 0 and np.max(xyxy0) <= 1.0 and np.min(xyxy0) >= 0.0
-    )
+    need_scale = input_w > 0 and input_h > 0 and np.max(xyxy0) <= 1.0 and np.min(xyxy0) >= 0.0
     for xyxy, conf, cls_id, kps in detections:
         xyxy = xyxy.copy()
         kps = kps.copy()
@@ -301,9 +292,7 @@ def draw_detections(
         cv2.rectangle(out, (x1, y1), (x2, y2), color, 2)
         conf_display = min(1.0, max(0.0, conf))
         label = (
-            class_names[cls_id]
-            if class_names and cls_id < len(class_names)
-            else f"class_{cls_id}"
+            class_names[cls_id] if class_names and cls_id < len(class_names) else f"class_{cls_id}"
         ) + f" {conf_display:.2f}"
         cv2.putText(out, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
         for j in range(kps.shape[0]):
@@ -433,9 +422,7 @@ def main() -> None:
     input_shape = context.get_tensor_shape(input_name)
     output_shape = context.get_tensor_shape(output_name)
     if len(input_shape) != 4 or input_shape[0] != 1 or input_shape[1] != 3:
-        raise RuntimeError(
-            f"Expected input shape [1, 3, H, W], got {list(input_shape)}"
-        )
+        raise RuntimeError(f"Expected input shape [1, 3, H, W], got {list(input_shape)}")
     input_h, input_w = int(input_shape[2]), int(input_shape[3])
     if args.imgsz > 0 and (args.imgsz != input_h or args.imgsz != input_w):
         raise RuntimeError(
@@ -520,9 +507,7 @@ def main() -> None:
             blob = np.ascontiguousarray(blob.astype(np.float32))
             cuda.memcpy_htod_async(d_input, blob, stream)
             context.execute_async_v3(stream_handle=stream.handle)
-            out_host = np.empty(
-                (1, int(output_shape[1]), int(output_shape[2])), dtype=np.float32
-            )
+            out_host = np.empty((1, int(output_shape[1]), int(output_shape[2])), dtype=np.float32)
             cuda.memcpy_dtoh_async(out_host, d_output, stream)
             stream.synchronize()
             prediction = out_host[0]
@@ -565,9 +550,7 @@ def main() -> None:
                     break
             frame_count += 1
             elapsed = time.time() - start_time
-            pbar.set_postfix(
-                {"FPS": f"{frame_count / elapsed:.1f}" if elapsed > 0 else "0"}
-            )
+            pbar.set_postfix({"FPS": f"{frame_count / elapsed:.1f}" if elapsed > 0 else "0"})
             pbar.update(1)
         pbar.close()
     finally:

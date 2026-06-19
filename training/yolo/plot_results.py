@@ -12,11 +12,10 @@ import argparse
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import pandas as pd
+import matplotlib.pyplot as plt
 import numpy as np
-
+import pandas as pd
 
 # Column groups to plot, each as (display_title, [(col_suffix, legend_label), ...])
 PANEL_GROUPS = [
@@ -195,9 +194,7 @@ def main():
         action="store_true",
         help="Display the plot interactively instead of saving",
     )
-    parser.add_argument(
-        "--dpi", type=int, default=150, help="Output DPI (default: 150)"
-    )
+    parser.add_argument("--dpi", type=int, default=150, help="Output DPI (default: 150)")
     args = parser.parse_args()
 
     if not args.csv.exists():

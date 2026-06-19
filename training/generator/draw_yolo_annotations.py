@@ -1,8 +1,9 @@
 import argparse
-import cv2
-import numpy as np
 from pathlib import Path
 from typing import List, Tuple
+
+import cv2
+import numpy as np
 from load_image_render import load_image_render
 
 
@@ -68,9 +69,7 @@ def draw_annotations(image: np.ndarray, annotations: List[Tuple]) -> np.ndarray:
 
         # Draw class label
         label = f"Class {class_id}"
-        cv2.putText(
-            annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2
-        )
+        cv2.putText(annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
         # Draw center point
         cv2.circle(annotated, (cx_px, cy_px), 4, (0, 0, 255), -1)
@@ -106,9 +105,7 @@ def draw_annotations(image: np.ndarray, annotations: List[Tuple]) -> np.ndarray:
     return annotated
 
 
-def get_image_label_pairs(
-    images_path: Path, labels_path: Path
-) -> List[Tuple[Path, Path]]:
+def get_image_label_pairs(images_path: Path, labels_path: Path) -> List[Tuple[Path, Path]]:
     """Find all matching image-label pairs."""
     pairs = []
 
@@ -140,9 +137,7 @@ def main() -> None:
         "Use arrow keys to navigate: → (next), ← (previous), ESC/q (quit)"
     )
     parser.add_argument("images", type=Path, help="Path to directory containing images")
-    parser.add_argument(
-        "labels", type=Path, help="Path to directory containing label files"
-    )
+    parser.add_argument("labels", type=Path, help="Path to directory containing label files")
     args = parser.parse_args()
 
     images_path: Path = args.images
@@ -182,9 +177,7 @@ def main() -> None:
         print(f"Image size: {image.shape[1]}x{image.shape[0]}")
         for ann in annotations:
             class_id, cx, cy, w, h, keypoints = ann
-            print(
-                f"  Class {class_id}: bbox=({cx:.3f}, {cy:.3f}) size=({w:.3f}, {h:.3f})"
-            )
+            print(f"  Class {class_id}: bbox=({cx:.3f}, {cy:.3f}) size=({w:.3f}, {h:.3f})")
             for i, (kp_x, kp_y, kp_vis) in enumerate(keypoints):
                 print(f"    Keypoint {i}: ({kp_x:.3f}, {kp_y:.3f}) vis={kp_vis}")
 

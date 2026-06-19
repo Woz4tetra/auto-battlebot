@@ -7,17 +7,18 @@ Users can review images with their bounding boxes and labels, marking them as
 pass or fail. The validation state is saved and can be resumed later.
 """
 
-import re
-import yaml
-import json
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
-from collections import OrderedDict
-from PIL import Image, ImageDraw, ImageFont, ImageTk
-from pathlib import Path
-from typing import List, Dict, Tuple
 import argparse
+import json
+import re
+import tkinter as tk
+from collections import OrderedDict
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+from typing import Dict, List, Tuple
+
+import yaml
 from natsort import natsorted
+from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 NAMED_COLORS: Dict[str, List[int]] = {
     # Primary colors
@@ -208,9 +209,7 @@ class YOLODatasetValidator:
         self.min_zoom = 0.25
         self.max_zoom = 8.0
         self.zoom_step = 1.2
-        self.render_cache: "OrderedDict[Tuple[int, int, int], Image.Image]" = (
-            OrderedDict()
-        )
+        self.render_cache: "OrderedDict[Tuple[int, int, int], Image.Image]" = OrderedDict()
         self.render_cache_limit = 8
         self.pending_hq_render = None
         self.status_icon_label = None
@@ -313,9 +312,7 @@ class YOLODatasetValidator:
                 names_data = []
 
             if not names_data:
-                print(
-                    "No 'names' field found in class yaml; using default class labels"
-                )
+                print("No 'names' field found in class yaml; using default class labels")
                 return
 
             for class_id, class_name in enumerate(names_data):
@@ -360,15 +357,9 @@ class YOLODatasetValidator:
         canvas_frame = ttk.Frame(image_frame)
         canvas_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(
-            canvas_frame, background="#111111", highlightthickness=0
-        )
-        x_scroll = ttk.Scrollbar(
-            canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview
-        )
-        y_scroll = ttk.Scrollbar(
-            canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview
-        )
+        self.canvas = tk.Canvas(canvas_frame, background="#111111", highlightthickness=0)
+        x_scroll = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        y_scroll = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
         self.canvas.configure(xscrollcommand=x_scroll.set, yscrollcommand=y_scroll.set)
 
         self.canvas.grid(row=0, column=0, sticky="nsew")
@@ -439,12 +430,12 @@ class YOLODatasetValidator:
         nav_buttons_frame = ttk.Frame(nav_section)
         nav_buttons_frame.pack(fill=tk.X, pady=(0, 5))
 
-        ttk.Button(
-            nav_buttons_frame, text="⏮", command=self.jump_to_start, width=4
-        ).pack(side=tk.LEFT, padx=1, expand=True, fill=tk.X)
-        ttk.Button(
-            nav_buttons_frame, text="◀", command=self.previous_image, width=4
-        ).pack(side=tk.LEFT, padx=1, expand=True, fill=tk.X)
+        ttk.Button(nav_buttons_frame, text="⏮", command=self.jump_to_start, width=4).pack(
+            side=tk.LEFT, padx=1, expand=True, fill=tk.X
+        )
+        ttk.Button(nav_buttons_frame, text="◀", command=self.previous_image, width=4).pack(
+            side=tk.LEFT, padx=1, expand=True, fill=tk.X
+        )
         ttk.Button(nav_buttons_frame, text="▶", command=self.next_image, width=4).pack(
             side=tk.LEFT, padx=1, expand=True, fill=tk.X
         )
@@ -469,9 +460,7 @@ class YOLODatasetValidator:
 
         self.jump_entry = ttk.Entry(jump_frame, width=10)
         self.jump_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        ttk.Button(jump_frame, text="Go", command=self.jump_to_frame, width=5).pack(
-            side=tk.RIGHT
-        )
+        ttk.Button(jump_frame, text="Go", command=self.jump_to_frame, width=5).pack(side=tk.RIGHT)
 
         # === DISPLAY OPTIONS SECTION ===
         options_section = ttk.LabelFrame(sidebar, text="Display Options", padding="15")
@@ -487,21 +476,15 @@ class YOLODatasetValidator:
 
         zoom_controls = ttk.Frame(options_section)
         zoom_controls.pack(fill=tk.X, pady=5)
-        ttk.Button(zoom_controls, text="-", command=self.zoom_out, width=4).pack(
-            side=tk.LEFT
-        )
+        ttk.Button(zoom_controls, text="-", command=self.zoom_out, width=4).pack(side=tk.LEFT)
         ttk.Button(zoom_controls, text="+", command=self.zoom_in, width=4).pack(
             side=tk.LEFT, padx=4
         )
-        ttk.Button(zoom_controls, text="Reset", command=self.reset_zoom, width=7).pack(
-            side=tk.LEFT
-        )
+        ttk.Button(zoom_controls, text="Reset", command=self.reset_zoom, width=7).pack(side=tk.LEFT)
         ttk.Label(options_section, textvariable=self.zoom_var).pack(anchor=tk.W, pady=2)
 
         # === KEYBOARD SHORTCUTS SECTION ===
-        shortcuts_section = ttk.LabelFrame(
-            sidebar, text="Keyboard Shortcuts", padding="15"
-        )
+        shortcuts_section = ttk.LabelFrame(sidebar, text="Keyboard Shortcuts", padding="15")
         shortcuts_section.pack(fill=tk.X, padx=10, pady=5)
 
         shortcuts_text = (
@@ -524,9 +507,7 @@ class YOLODatasetValidator:
         # Status bar at bottom
         status_frame = ttk.Frame(self.root)
         status_frame.pack(side=tk.BOTTOM, fill=tk.X)
-        ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN).pack(
-            fill=tk.X
-        )
+        ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN).pack(fill=tk.X)
 
         # Keyboard bindings
         self.root.bind("y", lambda e: self.validate("pass"))
@@ -641,9 +622,7 @@ class YOLODatasetValidator:
                 )
         return annotations
 
-    def draw_image_with_annotations(
-        self, img_path: Path, label_path: Path
-    ) -> Image.Image:
+    def draw_image_with_annotations(self, img_path: Path, label_path: Path) -> Image.Image:
         """Draw parsed annotations (bbox/pose and seg polygons) on image."""
         # Load image
         image = Image.open(img_path).convert("RGBA")
@@ -683,15 +662,12 @@ class YOLODatasetValidator:
 
             if ann.get("type") == "seg":
                 polygon_points = [
-                    (p["x"] * img_width, p["y"] * img_height)
-                    for p in ann.get("polygon", [])
+                    (p["x"] * img_width, p["y"] * img_height) for p in ann.get("polygon", [])
                 ]
                 if len(polygon_points) >= 3:
                     color_str = color.lstrip("#")
                     try:
-                        color_rgb = tuple(
-                            int(color_str[i : i + 2], 16) for i in (0, 2, 4)
-                        )
+                        color_rgb = tuple(int(color_str[i : i + 2], 16) for i in (0, 2, 4))
                     except ValueError:
                         color_rgb = (255, 0, 0)
                     seg_overlay_draw.polygon(
@@ -735,9 +711,7 @@ class YOLODatasetValidator:
                 ky = kp["y"] * img_height
                 kp_color = kp_colors[kp_idx % len(kp_colors)]
                 # Filled circle with dark outline
-                draw.ellipse(
-                    [kx - r - 1, ky - r - 1, kx + r + 1, ky + r + 1], fill="#000000"
-                )
+                draw.ellipse([kx - r - 1, ky - r - 1, kx + r + 1, ky + r + 1], fill="#000000")
                 draw.ellipse([kx - r, ky - r, kx + r, ky + r], fill=kp_color)
                 if self.show_labels:
                     kp_label = str(kp_idx)
@@ -804,9 +778,7 @@ class YOLODatasetValidator:
         img_path, label_path = self.image_annotation_pairs[self.current_index]
 
         # Draw image with annotations
-        self.current_annotated_image = self.draw_image_with_annotations(
-            img_path, label_path
-        )
+        self.current_annotated_image = self.draw_image_with_annotations(img_path, label_path)
         self.render_cache.clear()
         self.render_current_image(resample=Image.Resampling.BILINEAR, use_cache=True)
         self.schedule_hq_render(delay_ms=20)
@@ -815,9 +787,7 @@ class YOLODatasetValidator:
         img_key = str(img_path.relative_to(self.dataset_path))
         status = self.validation_state.get(img_key, "unvalidated")
 
-        validated_count = sum(
-            1 for v in self.validation_state.values() if v in ["pass", "fail"]
-        )
+        validated_count = sum(1 for v in self.validation_state.values() if v in ["pass", "fail"])
         pass_count = sum(1 for v in self.validation_state.values() if v == "pass")
         fail_count = sum(1 for v in self.validation_state.values() if v == "fail")
 
@@ -922,9 +892,7 @@ class YOLODatasetValidator:
                 0, 0, anchor=tk.NW, image=self.current_photo
             )
         else:
-            self.canvas.itemconfig(
-                self.current_canvas_image_id, image=self.current_photo
-            )
+            self.canvas.itemconfig(self.current_canvas_image_id, image=self.current_photo)
             self.canvas.coords(self.current_canvas_image_id, 0, 0)
 
         self.canvas.configure(scrollregion=(0, 0, scaled_w, scaled_h))
@@ -1057,12 +1025,8 @@ class YOLODatasetValidator:
 
 def main():
     parser = argparse.ArgumentParser(description="YOLO Dataset Validation UI")
-    parser.add_argument(
-        "dataset_path", nargs="?", help="Path to YOLO dataset root directory"
-    )
-    parser.add_argument(
-        "-c", "--classes", type=str, help="Path to class label info JSON file."
-    )
+    parser.add_argument("dataset_path", nargs="?", help="Path to YOLO dataset root directory")
+    parser.add_argument("-c", "--classes", type=str, help="Path to class label info JSON file.")
     args = parser.parse_args()
 
     if args.dataset_path:
@@ -1071,9 +1035,7 @@ def main():
         # Ask user to select directory
         root = tk.Tk()
         root.withdraw()
-        dataset_path_str = filedialog.askdirectory(
-            title="Select YOLO Dataset Directory"
-        )
+        dataset_path_str = filedialog.askdirectory(title="Select YOLO Dataset Directory")
         root.destroy()
 
         if not dataset_path_str:

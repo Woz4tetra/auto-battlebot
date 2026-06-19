@@ -6,20 +6,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import cv2
+import genesis as gs
 import numpy as np
 import numpy.typing as npt
 from scipy.spatial.transform import Rotation as R
-
-import genesis as gs
 
 if TYPE_CHECKING:
     from genesis.engine.entities.rigid_entity import RigidEntity
     from genesis.vis.camera import Camera
 
 from camera_utils import camera_view_matrix, fov_to_intrinsics, project_panorama
-from config import SimConfig
 from config.robot import RobotConfig
 from sim_types import SceneHandles
+
+from config import SimConfig
 
 
 def resolve_path(base_dir: Path, p: str) -> str:
@@ -173,9 +173,7 @@ def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
 
     panorama_bg: npt.NDArray[np.uint8] | None = None
     if arena.panorama is not None:
-        pano_path = str(
-            Path(__file__).resolve().parent / "assets" / "panoramas" / arena.panorama
-        )
+        pano_path = str(Path(__file__).resolve().parent / "assets" / "panoramas" / arena.panorama)
         pano_img: npt.NDArray[np.uint8] | None = cv2.imread(pano_path)
         if pano_img is None:
             print(f"Warning: could not load panorama '{pano_path}', skipping")

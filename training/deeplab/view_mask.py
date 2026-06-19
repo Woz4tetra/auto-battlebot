@@ -29,14 +29,10 @@ def build_colormap(num_labels: int) -> ListedColormap:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="View an image with segmentation mask overlay"
-    )
+    parser = argparse.ArgumentParser(description="View an image with segmentation mask overlay")
     parser.add_argument("image", type=str, help="Path to the image (.jpg or .png)")
     parser.add_argument("mask", type=str, help="Path to the mask (_mask.png)")
-    parser.add_argument(
-        "--alpha", type=float, default=0.45, help="Overlay opacity (default: 0.45)"
-    )
+    parser.add_argument("--alpha", type=float, default=0.45, help="Overlay opacity (default: 0.45)")
     args = parser.parse_args()
 
     image_path = Path(args.image)

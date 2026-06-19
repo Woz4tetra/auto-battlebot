@@ -26,10 +26,7 @@ def analyze(path: Path) -> None:
             ts: datetime = msg.log_time
 
             for status in diag.status:
-                if (
-                    status.hardware_id != "opentx_transmitter"
-                    or status.name != "channels"
-                ):
+                if status.hardware_id != "opentx_transmitter" or status.name != "channels":
                     continue
 
                 ch15 = next(
@@ -57,20 +54,14 @@ def analyze(path: Path) -> None:
             last_switch_to_manual_ts = raw[i][0]
 
     # Match window: first auto → last switch to manual (or last auto if still in auto at end).
-    match_end = (
-        last_switch_to_manual_ts
-        if last_switch_to_manual_ts is not None
-        else last_auto_ts
-    )
+    match_end = last_switch_to_manual_ts if last_switch_to_manual_ts is not None else last_auto_ts
     duration_s = (match_end - first_auto_ts) if (first_auto_ts and match_end) else 0.0
 
     # Count only samples inside the match window for the percentage.
     match_samples = [
         (t, a)
         for t, a in raw
-        if first_auto_ts is not None
-        and match_end is not None
-        and first_auto_ts <= t <= match_end
+        if first_auto_ts is not None and match_end is not None and first_auto_ts <= t <= match_end
     ]
     total_samples = len(match_samples)
     auto_samples = sum(1 for _, a in match_samples if a)

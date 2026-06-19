@@ -11,14 +11,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
+from constants import IMAGE_SIZE, NUM_CLASSES, PAD_SIZE
 from livelossplot import PlotLosses
 from livelossplot.outputs.matplotlib_plot import MatplotlibPlot
-from constants import IMAGE_SIZE, PAD_SIZE, NUM_CLASSES
 from load_deeplabv3 import (
-    seed_everything,
-    common_transforms,
-    build_model,
     VALID_DECODERS,
+    build_model,
+    common_transforms,
+    seed_everything,
 )
 from model_config import ModelConfig, load_model_config, save_model_config
 from PIL import Image
@@ -101,9 +101,7 @@ class SegDataset(Dataset):
         return image_tensor, reordered_mask
 
     @staticmethod
-    def _augment(
-        image: Image.Image, mask: Image.Image
-    ) -> tuple[Image.Image, Image.Image]:
+    def _augment(image: Image.Image, mask: Image.Image) -> tuple[Image.Image, Image.Image]:
         # Photometric (image only)
         image = TF.adjust_brightness(image, pyrandom.uniform(0.7, 1.3))
         image = TF.adjust_contrast(image, pyrandom.uniform(0.7, 1.3))
@@ -257,9 +255,7 @@ def convert_2_onehot(matrix: torch.Tensor, num_classes: int = 3) -> torch.Tensor
 
 
 class Metric(nn.Module):
-    def __init__(
-        self, num_classes: int = 3, smooth: float = 1e-6, use_dice: bool = False
-    ):
+    def __init__(self, num_classes: int = 3, smooth: float = 1e-6, use_dice: bool = False):
         super().__init__()
         self.num_classes = num_classes
         self.smooth = smooth
@@ -271,9 +267,7 @@ class Metric(nn.Module):
 
         # Converting unnormalized predictions into one-hot encoded across channels.
         # Shape: (B, #C, H, W)
-        predictions = convert_2_onehot(
-            predictions, num_classes=self.num_classes
-        )  # one hot encoded
+        predictions = convert_2_onehot(predictions, num_classes=self.num_classes)  # one hot encoded
 
         metric = intermediate_metric_calculation(
             predictions, targets, use_dice=self.use_dice, smooth=self.smooth
@@ -537,9 +531,7 @@ def main() -> None:
         model.eval()
 
     _ = model(
-        torch.randn(
-            (2, 3, image_size + 2 * pad_size, image_size + 2 * pad_size), device=device
-        )
+        torch.randn((2, 3, image_size + 2 * pad_size, image_size + 2 * pad_size), device=device)
     )
 
     train_loader, valid_loader = get_dataset(

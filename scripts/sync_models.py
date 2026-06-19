@@ -12,11 +12,12 @@ Usage:
     python scripts/sync_models.py --url URL      # Override Drive folder URL
 """
 
-import platform
 import argparse
-import gdown
+import platform
 import sys
 from pathlib import Path
+
+import gdown
 
 DEFAULT_DRIVE_FOLDER_URL = (
     "https://drive.google.com/drive/u/0/folders/1rkVKwUzK0L4K7sQYzrZ-hZ0uGaTnZWpo"
@@ -115,8 +116,7 @@ def sync_models_cmd(output_dir: Path, url: str, dry_run: bool = False) -> None:
         print("No new files downloaded; all listed files already exist locally.")
     else:
         print(
-            f"Sync complete: {downloaded} downloaded, "
-            f"{skipped_existing} skipped (already exists)."
+            f"Sync complete: {downloaded} downloaded, {skipped_existing} skipped (already exists)."
         )
     print_platform_tag_matches(get_models_dir())
 

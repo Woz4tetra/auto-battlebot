@@ -11,17 +11,18 @@ Mask convention: each image foo.jpg has a corresponding foo_mask.png where
 pixel values are integer class IDs (same format used by semantic_train.py).
 """
 
-import re
-import yaml
-import json
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
-from PIL import Image, ImageDraw, ImageFont, ImageTk
-from pathlib import Path
-from typing import List, Dict, Tuple, Optional
 import argparse
+import json
+import re
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
+import yaml
 from natsort import natsorted
+from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 NAMED_COLORS: Dict[str, List[int]] = {
     # Primary colors
@@ -274,9 +275,7 @@ class SegmaskDatasetValidator:
             with open(class_labels_path, "r") as f:
                 data = yaml.safe_load(f)
 
-            for class_id, (class_name, color_hex) in enumerate(
-                zip(data["names"], data["colors"])
-            ):
+            for class_id, (class_name, color_hex) in enumerate(zip(data["names"], data["colors"])):
                 self.class_info[class_id] = {
                     "name": class_name,
                     "color": color_hex,
@@ -365,12 +364,12 @@ class SegmaskDatasetValidator:
         nav_buttons_frame = ttk.Frame(nav_section)
         nav_buttons_frame.pack(fill=tk.X, pady=(0, 5))
 
-        ttk.Button(
-            nav_buttons_frame, text="⏮", command=self.jump_to_start, width=4
-        ).pack(side=tk.LEFT, padx=1, expand=True, fill=tk.X)
-        ttk.Button(
-            nav_buttons_frame, text="◀", command=self.previous_image, width=4
-        ).pack(side=tk.LEFT, padx=1, expand=True, fill=tk.X)
+        ttk.Button(nav_buttons_frame, text="⏮", command=self.jump_to_start, width=4).pack(
+            side=tk.LEFT, padx=1, expand=True, fill=tk.X
+        )
+        ttk.Button(nav_buttons_frame, text="◀", command=self.previous_image, width=4).pack(
+            side=tk.LEFT, padx=1, expand=True, fill=tk.X
+        )
         ttk.Button(nav_buttons_frame, text="▶", command=self.next_image, width=4).pack(
             side=tk.LEFT, padx=1, expand=True, fill=tk.X
         )
@@ -393,9 +392,7 @@ class SegmaskDatasetValidator:
 
         self.jump_entry = ttk.Entry(jump_frame, width=10)
         self.jump_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        ttk.Button(jump_frame, text="Go", command=self.jump_to_frame, width=5).pack(
-            side=tk.RIGHT
-        )
+        ttk.Button(jump_frame, text="Go", command=self.jump_to_frame, width=5).pack(side=tk.RIGHT)
 
         # === DISPLAY OPTIONS SECTION ===
         options_section = ttk.LabelFrame(sidebar, text="Display Options", padding="15")
@@ -420,9 +417,7 @@ class SegmaskDatasetValidator:
         self.alpha_scale.pack(fill=tk.X, pady=(0, 5))
 
         # === KEYBOARD SHORTCUTS SECTION ===
-        shortcuts_section = ttk.LabelFrame(
-            sidebar, text="Keyboard Shortcuts", padding="15"
-        )
+        shortcuts_section = ttk.LabelFrame(sidebar, text="Keyboard Shortcuts", padding="15")
         shortcuts_section.pack(fill=tk.X, padx=10, pady=5)
 
         shortcuts_text = (
@@ -442,9 +437,7 @@ class SegmaskDatasetValidator:
         # Status bar at bottom
         status_frame = ttk.Frame(self.root)
         status_frame.pack(side=tk.BOTTOM, fill=tk.X)
-        ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN).pack(
-            fill=tk.X
-        )
+        ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN).pack(fill=tk.X)
 
         # Keyboard bindings
         self.root.bind("y", lambda e: self.validate("pass"))
@@ -521,9 +514,7 @@ class SegmaskDatasetValidator:
                 overlay_arr[pixels, 3] = alpha_val
 
             overlay = Image.fromarray(overlay_arr, mode="RGBA")
-            result = Image.alpha_composite(image.convert("RGBA"), overlay).convert(
-                "RGB"
-            )
+            result = Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB")
         else:
             result = image
 
@@ -613,15 +604,11 @@ class SegmaskDatasetValidator:
         img_key = str(img_path.relative_to(self.dataset_path))
         status = self.validation_state.get(img_key, "unvalidated")
 
-        validated_count = sum(
-            1 for v in self.validation_state.values() if v in ["pass", "fail"]
-        )
+        validated_count = sum(1 for v in self.validation_state.values() if v in ["pass", "fail"])
         pass_count = sum(1 for v in self.validation_state.values() if v == "pass")
         fail_count = sum(1 for v in self.validation_state.values() if v == "fail")
 
-        self.frame_info_var.set(
-            f"Frame {self.current_index + 1} / {len(self.image_mask_pairs)}"
-        )
+        self.frame_info_var.set(f"Frame {self.current_index + 1} / {len(self.image_mask_pairs)}")
 
         if status == "pass":
             self.status_icon_label.config(text="✓", fg="#00AA00", bg="#E8F5E9")
@@ -723,12 +710,8 @@ class SegmaskDatasetValidator:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Segmentation Mask Dataset Validation UI"
-    )
-    parser.add_argument(
-        "dataset_path", nargs="?", help="Path to segmask dataset root directory"
-    )
+    parser = argparse.ArgumentParser(description="Segmentation Mask Dataset Validation UI")
+    parser.add_argument("dataset_path", nargs="?", help="Path to segmask dataset root directory")
     parser.add_argument(
         "-c",
         "--classes",

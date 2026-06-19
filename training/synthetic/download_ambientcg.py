@@ -208,9 +208,7 @@ def main() -> None:
 
     # List mode: print a random set of assets without downloading.
     if args.list_random > 0:
-        print(
-            f"Fetching ambientCG materials and sampling {args.list_random} at random..."
-        )
+        print(f"Fetching ambientCG materials and sampling {args.list_random} at random...")
         try:
             sampled = list_random_assets(args.list_random, seed=args.seed)
         except Exception as e:
@@ -241,9 +239,7 @@ def main() -> None:
 
     # Override URL template if non-default resolution
     global AMBIENTCG_URL_TEMPLATE
-    AMBIENTCG_URL_TEMPLATE = (
-        f"https://ambientcg.com/get?file={{asset}}_{args.resolution}.zip"
-    )
+    AMBIENTCG_URL_TEMPLATE = f"https://ambientcg.com/get?file={{asset}}_{args.resolution}.zip"
 
     output_dir: Path = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)

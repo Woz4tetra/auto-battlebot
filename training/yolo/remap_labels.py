@@ -51,9 +51,7 @@ def find_label_files(dataset_dir: Path) -> tuple[list[Path], Path]:
     Returns (label_files, labels_root). If dataset_dir/labels exists, that is
     used as labels_root; otherwise dataset_dir is used.
     """
-    labels_root = (
-        dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
-    )
+    labels_root = dataset_dir / "labels" if (dataset_dir / "labels").is_dir() else dataset_dir
     return sorted(labels_root.rglob("*.txt")), labels_root
 
 
@@ -70,9 +68,7 @@ def find_existing_image_for_prefix(prefix_no_suffix: Path) -> Path | None:
     return None
 
 
-def find_paired_image(
-    label_path: Path, dataset_dir: Path, labels_root: Path
-) -> Path | None:
+def find_paired_image(label_path: Path, dataset_dir: Path, labels_root: Path) -> Path | None:
     """Best-effort lookup of the image paired with a label file."""
     candidate_prefixes: list[Path] = []
 
@@ -214,9 +210,7 @@ def process_label_file(label_path_str: str) -> dict[str, object]:
         dest = label_path
 
     if dry_run:
-        result["dry_run_action"] = (
-            f"{sorted(classes_before)} -> {sorted(classes_after)} => {dest}"
-        )
+        result["dry_run_action"] = f"{sorted(classes_before)} -> {sorted(classes_after)} => {dest}"
         return result
 
     paired_image = find_paired_image(label_path, dataset_dir, labels_root)
@@ -229,12 +223,7 @@ def process_label_file(label_path_str: str) -> dict[str, object]:
     if split_name:
         result["split_name"] = split_name
 
-    if (
-        not skip_copy_images
-        and output_dir is not None
-        and paired_image
-        and paired_image.exists()
-    ):
+    if not skip_copy_images and output_dir is not None and paired_image and paired_image.exists():
         img_rel = paired_image.relative_to(dataset_dir)
         img_dest = output_dir / img_rel
         img_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -452,9 +441,7 @@ def main() -> None:
             args.dry_run,
         )
         results_iter = map(process_label_file, worker_inputs)
-        progress_iter = tqdm(
-            results_iter, total=len(worker_inputs), desc="Remapping labels"
-        )
+        progress_iter = tqdm(results_iter, total=len(worker_inputs), desc="Remapping labels")
     else:
         with mp.Pool(
             processes=jobs,
@@ -468,12 +455,8 @@ def main() -> None:
                 args.dry_run,
             ),
         ) as pool:
-            results_iter = pool.imap_unordered(
-                process_label_file, worker_inputs, chunksize=64
-            )
-            progress_iter = tqdm(
-                results_iter, total=len(worker_inputs), desc="Remapping labels"
-            )
+            results_iter = pool.imap_unordered(process_label_file, worker_inputs, chunksize=64)
+            progress_iter = tqdm(results_iter, total=len(worker_inputs), desc="Remapping labels")
 
             for result in progress_iter:
                 skipped_malformed_total += int(result["malformed_count"])
@@ -495,9 +478,7 @@ def main() -> None:
                 elif result["missing_image_for_label"] is not None:
                     missing_paired_image_count += 1
                     if len(missing_paired_image_examples) < 5:
-                        missing_paired_image_examples.append(
-                            str(result["missing_image_for_label"])
-                        )
+                        missing_paired_image_examples.append(str(result["missing_image_for_label"]))
 
         progress_iter.close()
 
@@ -522,9 +503,7 @@ def main() -> None:
             elif result["missing_image_for_label"] is not None:
                 missing_paired_image_count += 1
                 if len(missing_paired_image_examples) < 5:
-                    missing_paired_image_examples.append(
-                        str(result["missing_image_for_label"])
-                    )
+                    missing_paired_image_examples.append(str(result["missing_image_for_label"]))
 
     if skipped_malformed_total:
         print(f"Skipped {skipped_malformed_total} malformed label lines")
@@ -533,9 +512,7 @@ def main() -> None:
             unmapped_labels_with_names = []
             for cls_id in sorted(unmapped_classes_seen):
                 if 0 <= cls_id < len(source_names):
-                    unmapped_labels_with_names.append(
-                        f"{cls_id} ({source_names[cls_id]})"
-                    )
+                    unmapped_labels_with_names.append(f"{cls_id} ({source_names[cls_id]})")
                 else:
                     unmapped_labels_with_names.append(str(cls_id))
             print(
@@ -549,25 +526,17 @@ def main() -> None:
             )
     if not args.dry_run:
         target = output_dir if output_dir else dataset_dir
-        output_names = build_output_names(
-            label_map, remapped_output_classes, source_names
-        )
+        output_names = build_output_names(label_map, remapped_output_classes, source_names)
         data_yml_path = write_data_yml(target, output_names, observed_splits)
-        print(
-            f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}"
-        )
+        print(f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}")
         print(f"Wrote data.yml -> {data_yml_path}")
         if missing_paired_image_count:
-            print(
-                f"Could not find paired images for {missing_paired_image_count} label files"
-            )
+            print(f"Could not find paired images for {missing_paired_image_count} label files")
             for sample in missing_paired_image_examples:
                 print(f"  missing image for label: {sample}")
     else:
         target = output_dir if output_dir else dataset_dir
-        output_names = build_output_names(
-            label_map, remapped_output_classes, source_names
-        )
+        output_names = build_output_names(label_map, remapped_output_classes, source_names)
         print(
             f"Dry run: would write {target / 'data.yml'} with nc={len(output_names)} and names={output_names}"
         )

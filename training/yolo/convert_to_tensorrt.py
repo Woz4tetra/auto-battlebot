@@ -74,9 +74,7 @@ def build_engine_from_onnx(
     if logger is None:
         logger = trt.Logger(trt.Logger.INFO)
     builder = trt.Builder(logger)
-    network = builder.create_network(
-        1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-    )
+    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
     parser = trt.OnnxParser(network, logger)
 
     onnx_path = Path(onnx_path)
@@ -175,9 +173,7 @@ def main() -> None:
     print(f"Engine saved to: {output_path}")
 
     print("Done. Use the .engine path as model_path in config for YoloKeypointModel.")
-    print(
-        "For Jetson: run this script on the Jetson to build an engine that runs there."
-    )
+    print("For Jetson: run this script on the Jetson to build an engine that runs there.")
 
 
 if __name__ == "__main__":

@@ -160,9 +160,7 @@ def main(opt: argparse.Namespace) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument(
-        "svo_files", type=str, nargs="+", help="Path to the .svo file(s)"
-    )
+    parser.add_argument("svo_files", type=str, nargs="+", help="Path to the .svo file(s)")
     parser.add_argument(
         "--channel",
         type=int,

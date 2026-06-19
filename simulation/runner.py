@@ -9,17 +9,15 @@ import time
 from typing import TYPE_CHECKING
 
 import cv2
+import genesis as gs
 import numpy as np
 import numpy.typing as npt
-
-import genesis as gs
 
 if TYPE_CHECKING:
     from genesis.vis.camera import Camera
 
 from behaviors import OpponentBehavior, make_opponent_behavior
 from camera_utils import camera_view_matrix, fov_to_intrinsics
-from config import SimConfig
 from protocol import (
     GT_COUNT_FMT,
     GT_POSE_FMT,
@@ -39,6 +37,8 @@ from sim_types import (
     SceneHandles,
     WheelDriveInfo,
 )
+
+from config import SimConfig
 
 
 class SimRunner:
@@ -89,9 +89,7 @@ class SimRunner:
         # Resolve wheel DOF indices (requires scene to be built already)
         self._our_wheels: WheelDriveInfo | None = None
         if cfg.our_robot.has_wheels:
-            self._our_wheels = WheelDriveInfo.from_entity(
-                handles.our_robot, cfg.our_robot
-            )
+            self._our_wheels = WheelDriveInfo.from_entity(handles.our_robot, cfg.our_robot)
 
         self._opp_wheels: list[WheelDriveInfo | None] = []
         for opp_cfg, opp_entity in zip(cfg.opponents, handles.opponents):

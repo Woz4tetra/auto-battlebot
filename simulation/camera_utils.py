@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import cv2
 import numpy as np
 import numpy.typing as npt
 
 
-def fov_to_intrinsics(
-    fov_deg: float, width: int, height: int
-) -> tuple[float, float, float, float]:
+def fov_to_intrinsics(fov_deg: float, width: int, height: int) -> tuple[float, float, float, float]:
     """Derive (fx, fy, cx, cy) from a vertical FOV and resolution.
 
     Genesis's camera FOV is vertical, so fy is computed from height.
@@ -91,9 +89,7 @@ def project_panorama(
     u = np.arange(width, dtype=np.float64)
     v = np.arange(height, dtype=np.float64)
     uu, vv = np.meshgrid(u, v)  # (H, W)
-    dirs_cam = np.stack(
-        [(uu - cx) / fx, -(vv - cy) / fy, np.ones_like(uu)], axis=-1
-    )  # (H, W, 3)
+    dirs_cam = np.stack([(uu - cx) / fx, -(vv - cy) / fy, np.ones_like(uu)], axis=-1)  # (H, W, 3)
     dirs_cam /= np.linalg.norm(dirs_cam, axis=-1, keepdims=True)
 
     # Transform to world space
@@ -110,11 +106,11 @@ def project_panorama(
     pano_u = ((lon / (2.0 * np.pi)) + 0.5) * (pano_w - 1)  # [0, W-1]
     pano_v = (0.5 - lat / np.pi) * (pano_h - 1)  # [0, H-1]
 
-    result: npt.NDArray[np.uint8] = cv2.remap(
+    result = cv2.remap(
         pano_bgr,
         pano_u.astype(np.float32),
         pano_v.astype(np.float32),
         interpolation=cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_WRAP,
     )
-    return result
+    return cast("npt.NDArray[np.uint8]", result)

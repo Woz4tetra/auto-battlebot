@@ -17,9 +17,7 @@ def disable_end2end(model: YOLO) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Convert YOLO model to TorchScript format"
-    )
+    parser = argparse.ArgumentParser(description="Convert YOLO model to TorchScript format")
     parser.add_argument("model", type=str, help="Path to YOLO model (.pt file)")
     parser.add_argument(
         "-o",

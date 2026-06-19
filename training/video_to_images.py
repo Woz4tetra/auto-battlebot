@@ -8,16 +8,10 @@ import tqdm
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "video", type=str, nargs="+", help="path to input video file(s)"
-    )
+    parser.add_argument("video", type=str, nargs="+", help="path to input video file(s)")
     parser.add_argument("-o", "--output", type=str, default="", help="output directory")
-    parser.add_argument(
-        "-s", "--skip", type=int, default=0, help="select x number of frames"
-    )
-    parser.add_argument(
-        "-l", "--left", action="store_true", help="extract left half of the video"
-    )
+    parser.add_argument("-s", "--skip", type=int, default=0, help="select x number of frames")
+    parser.add_argument("-l", "--left", action="store_true", help="extract left half of the video")
     args = parser.parse_args()
 
     frame_skip = args.skip
@@ -28,9 +22,7 @@ def main():
         print(f"Processing video: {video_path}")
         if len(args.output) == 0:
             filename = os.path.basename(video_path)
-            output_dir = os.path.join(
-                os.path.dirname(video_path), os.path.splitext(filename)[0]
-            )
+            output_dir = os.path.join(os.path.dirname(video_path), os.path.splitext(filename)[0])
         else:
             output_dir = args.output
         print(f"Output directory: {output_dir}")

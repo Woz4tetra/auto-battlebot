@@ -156,9 +156,7 @@ def group_entries(entries: list[dict]) -> list[dict]:
                 i += 2
                 continue
 
-        output.append(
-            {"type": "text", "text": text, "offset": offset, "time_ms": cumulative_ms}
-        )
+        output.append({"type": "text", "text": text, "offset": offset, "time_ms": cumulative_ms})
         i += 1
 
     return output

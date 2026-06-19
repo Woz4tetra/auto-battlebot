@@ -1,9 +1,8 @@
-import cv2
-import numpy as np
-
 from dataclasses import dataclass
 from pathlib import Path
 
+import cv2
+import numpy as np
 from load_image_render import load_image_render
 
 ColorRgbUint8 = tuple[int, int, int]
@@ -38,9 +37,7 @@ def find_unique_blobs(
     color_tolerance: float = 10.0,
 ) -> list[Blob]:
     if expected_color is None:
-        nonzero_mask = (cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) > 0).astype(
-            np.uint8
-        ) * 255
+        nonzero_mask = (cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) > 0).astype(np.uint8) * 255
     else:
         color_range = color_tolerance * 255 / 100
         color_array = np.array(expected_color[::-1])
@@ -56,9 +53,7 @@ def find_unique_blobs(
         blob_mask = (labels == label_id).astype(np.uint8) * 255
 
         # Find contours for this blob
-        contours, _ = cv2.findContours(
-            blob_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        contours, _ = cv2.findContours(blob_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             continue
 

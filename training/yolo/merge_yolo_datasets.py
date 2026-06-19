@@ -18,11 +18,10 @@ import argparse
 import json
 import multiprocessing as mp
 import shutil
-import yaml
 from pathlib import Path
 
+import yaml
 from tqdm import tqdm
-
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
@@ -312,9 +311,7 @@ def main():
 
         validation_state = load_validation_state(root)
         if validation_state is None:
-            print(
-                f"  WARNING: {root.name}: no validation_state.json found — skipping all images"
-            )
+            print(f"  WARNING: {root.name}: no validation_state.json found — skipping all images")
         pairs = find_image_label_pairs(root)
 
         ds_fail = 0
@@ -322,9 +319,7 @@ def main():
 
         for img_path, label_path in pairs:
             # Filter by validation state
-            if not is_image_passing(
-                img_path, root, validation_state, include_unvalidated
-            ):
+            if not is_image_passing(img_path, root, validation_state, include_unvalidated):
                 ds_fail += 1
                 continue
             candidate_pairs.append((img_path, label_path))
@@ -368,9 +363,7 @@ def main():
                     ds_no_label += 1
         else:
             with mp.Pool(processes=jobs) as pool:
-                results_iter = pool.imap_unordered(
-                    process_pair_task, tasks, chunksize=64
-                )
+                results_iter = pool.imap_unordered(process_pair_task, tasks, chunksize=64)
                 progress_iter = tqdm(
                     results_iter,
                     total=len(tasks),

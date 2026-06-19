@@ -35,11 +35,11 @@ Usage:
 import argparse
 import json
 import shutil
-import yaml
-import cv2
-import numpy as np
 from pathlib import Path
 
+import cv2
+import numpy as np
+import yaml
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
 
@@ -133,9 +133,7 @@ def build_merged_class_list(datasets_info: list[dict]) -> tuple[list[str], list[
             if name not in seen:
                 merged_names.append(name)
                 merged_colors.append(
-                    color
-                    if color
-                    else DEFAULT_COLORS[color_pool_idx % len(DEFAULT_COLORS)]
+                    color if color else DEFAULT_COLORS[color_pool_idx % len(DEFAULT_COLORS)]
                 )
                 if not color:
                     color_pool_idx += 1
@@ -298,18 +296,14 @@ def main():
 
         validation_state = load_validation_state(root)
         if validation_state is None:
-            print(
-                f"  WARNING: {root.name}: no validation_state.json — skipping all images"
-            )
+            print(f"  WARNING: {root.name}: no validation_state.json — skipping all images")
 
         pairs = find_image_mask_pairs(root)
         ds_copied = 0
         ds_fail = 0
 
         for img_path, mask_path in pairs:
-            if not is_image_passing(
-                img_path, root, validation_state, include_unvalidated
-            ):
+            if not is_image_passing(img_path, root, validation_state, include_unvalidated):
                 ds_fail += 1
                 continue
 
