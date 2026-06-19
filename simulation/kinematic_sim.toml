@@ -47,7 +47,7 @@ dropout_prob = 0.0
 enabled = false
 keypoint_height = 0.06
 
-[[opponent]]
+[[opponents]]
 behavior = "static"   # static | straight | circle | random_walk | replay
 start_pos = [0.5, 0.5]
 speed = 1.0
