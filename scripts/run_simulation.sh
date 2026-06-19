@@ -23,7 +23,7 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 SIM_CONFIG="${1:-$SIM_DIR/sim_config.toml}"
-CPP_CONFIG="${2:-./config/simulation.toml}"
+CPP_CONFIG="${2:-./config/genesis.toml}"
 
 # --- Build C++ (while the sim server starts up in parallel) -------------------
 

@@ -267,20 +267,28 @@ TargetSelection Runner::resolve_target(const RobotDescriptionsStamped &robots,
 }
 
 int Runner::run() {
-    auto loop_duration =
-        std::chrono::microseconds(static_cast<int64_t>(1000000.0 / runner_config_.max_loop_rate));
+    // max_loop_rate <= 0 means free-run: no wall-clock pacing, so the loop runs as fast as it can.
+    // In the headless sim that is lockstep with the sim server's responses.
+    const bool paced = runner_config_.max_loop_rate > 0.0;
+    const auto loop_duration =
+        paced ? std::chrono::microseconds(
+                    static_cast<int64_t>(1000000.0 / runner_config_.max_loop_rate))
+              : std::chrono::microseconds(0);
     auto prev_time = std::chrono::steady_clock::now();
 
     while (true) {
         auto current_time = std::chrono::steady_clock::now();
 
-        // Sleep until next tick to maintain loop rate
-        auto remaining_time = loop_duration - (current_time - prev_time);
-        prev_time = current_time;
-        if (remaining_time.count() < 0) {
-            diagnostics_logger_->debug("", {{"loop_duration_exceeded_ms", -to_ms(remaining_time)}});
+        // Sleep until next tick to maintain loop rate (skipped when free-running).
+        if (paced) {
+            auto remaining_time = loop_duration - (current_time - prev_time);
+            if (remaining_time.count() < 0) {
+                diagnostics_logger_->debug("",
+                                           {{"loop_duration_exceeded_ms", -to_ms(remaining_time)}});
+            }
+            std::this_thread::sleep_for(remaining_time);
         }
-        std::this_thread::sleep_for(remaining_time);
+        prev_time = current_time;
 
         const auto tick_start = std::chrono::steady_clock::now();
         if (!tick()) {

@@ -1,0 +1,14 @@
+# Genesis simulator profile: the full NN perception stack runs on Genesis-rendered images. Carries
+# the navigation tuning and transmitter startup delay specific to the Genesis sim (kept out of the
+# shared simulation base so they don't leak into the headless kinematic sim).
+# Run via scripts/run_simulation.sh.
+extends = "simulation"
+
+[navigation]
+type = "PursuitNavigation"
+angular_kp = 26.0
+angular_kd = 0.2
+angle_threshold = 1.5
+
+[transmitter]
+init_delay_seconds = 0.5

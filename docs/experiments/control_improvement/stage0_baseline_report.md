@@ -23,7 +23,7 @@ results differ from the Jetson). The analyzer is `playground/control_stage0/stag
 
 ## Baseline numbers
 
-![Aggregate baseline across recordings](media/stage0/aggregate.png)
+![Aggregate baseline across recordings](assets/aggregate.png)
 
 | Fight (time) | Auto window | Latency p50 / p95 (ms) | Facing target | Near wall | Proj. error median | Near-wall error alignment |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -64,7 +64,7 @@ Crucially, during near-wall frames the error vector points into the contacted wa
 thinks it has more room than it does and drives into the wall. This is strong, consistent evidence that
 height compensation would reduce wall collisions. See the per-fight detail plots, e.g.:
 
-![17-26-12 detail](media/stage0/detail_17-26-12.png)
+![17-26-12 detail](assets/detail_17-26-12.png)
 
 The trajectory panel (coloured by distance to the nearest wall) shows the robot repeatedly reaching the
 red field boundary; the projection-error panel shows the 10-30 cm bias sustained throughout.
@@ -85,12 +85,12 @@ This is why the new forward-looking logs were added (they only affect future Jet
 
 ## Per-fight detail plots
 
-- `media/stage0/detail_11-45-05.png`
-- `media/stage0/detail_14-12-25.png`
-- `media/stage0/detail_15-35-00.png`
-- `media/stage0/detail_16-18-05.png`
-- `media/stage0/detail_17-26-12.png`
-- `media/stage0/detail_10-06-02.png`
+- `assets/detail_11-45-05.png`
+- `assets/detail_14-12-25.png`
+- `assets/detail_15-35-00.png`
+- `assets/detail_16-18-05.png`
+- `assets/detail_17-26-12.png`
+- `assets/detail_10-06-02.png`
 
 Each shows four panels: trajectory coloured by wall distance, end-to-end latency, heading error, and
 flat-plane projection error.
@@ -101,7 +101,7 @@ flat-plane projection error.
 source scripts/activate_python.sh
 python playground/control_stage0/stage0_metrics.py \
     data/recordings/auto_battlebot_main_2026-05-02_*[0-9]_repaired.mcap \
-    --plots docs/media/stage0
+    --plots docs/experiments/control_improvement/assets
 ```
 
 Tunable thresholds: `--keypoint-height` (default 0.06 m), `--wall-contact-margin` (default 0.11 m),

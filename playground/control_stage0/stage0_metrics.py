@@ -12,7 +12,7 @@ re-run (laptop results differ from the Jetson).
 Run (activate the project venv first):
 
     source scripts/activate_python.sh
-    python playground/control_stage0/stage0_metrics.py <file.mcap> [...] --plots docs/media/stage0
+    python playground/control_stage0/stage0_metrics.py <file.mcap> [...] --plots docs/experiments/control_improvement/assets
 
 Reuses playground/analyze_nav_diagnostics.py helpers for time-to-contact, and
 playground/control_stage0/diag_io.py for all loading.

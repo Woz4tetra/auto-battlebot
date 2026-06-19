@@ -26,8 +26,13 @@ type = "NoopKeypointModel"
 [robot_filter]
 type = "GroundTruthRobotFilter"
 
-# Same PursuitNavigation type as simulation, so these merge onto its gains.
+# Match the real robot's tuning (main.toml) so the sim exercises the controller the robot runs.
+# simulation.toml no longer defines navigation, so the type is declared here.
 [navigation]
+type = "PursuitNavigation"
+angular_kp = 0.4
+angular_kd = 0.01
+angle_threshold = 1.7
 velocity_ramp_far_distance = 1.5
 velocity_ramp_near_distance = 0.5
 velocity_ramp_min_scale = 0.5
@@ -42,7 +47,7 @@ init_delay_seconds = 0.0
 # Free-run (accelerated): logical time comes from the sim frame stamp via [clock] ManualClock, so the
 # controller's dt is correct regardless of loop speed. The loop is gated by the sim's lockstep protocol.
 [runner]
-max_loop_rate = 1000.0
+max_loop_rate = 0.0   # free-run: pacing comes from lockstep with the sim server
 
 [mcap]
 enable = true

@@ -1,4 +1,6 @@
-# Unity/sim profile: SimRgbdCamera over a socket, x86 engines, swapped team mapping, sim transmitter.
+# Shared simulation base (not run directly): SimRgbdCamera over a socket, x86 engines, swapped team
+# mapping, sim transmitter. Navigation tuning and transmitter startup delay are NOT defined here so
+# they don't leak into every sim profile; leaf configs (genesis.toml, headless_sim.toml) set their own.
 extends = "common"
 
 # Type change -> replaces common's ZedRgbdCamera.
@@ -37,15 +39,8 @@ model_path = "data/models/yolo26n-pose_our_robots_2026-04-24_x86_64_sm89.engine"
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
-[navigation]
-type = "PursuitNavigation"
-angular_kp = 26.0
-angular_kd = 0.2
-angle_threshold = 1.5
-
 [transmitter]
 type = "SimTransmitter"
-init_delay_seconds = 0.5
 command_delay_ms = 0.0
 
 [ui]
