@@ -1,0 +1,68 @@
+# Headless control-tuning config: pairs with simulation/kinematic_sim_server.py.
+# Perception is bypassed (Noop everywhere) and ground-truth poses come from the kinematic sim,
+# so the real PursuitNavigation runs unchanged and the MCAP is scored by
+# playground/control_stage0/stage0_metrics.py exactly like a real fight.
+
+[rgbd_camera]
+type = "SimRgbdCamera"
+sim_host = "127.0.0.1"
+sim_port = 14882
+
+[field_model]
+type = "FixedMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+# Fixed arena: gives navigation wall bounds without a RANSAC field fit.
+# Keep size_x/size_y in sync with the kinematic sim [arena].
+[field_filter]
+type = "FixedFieldFilter"
+size_x = 2.4
+size_y = 2.4
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "GroundTruthRobotFilter"
+
+[target_selector]
+type = "NearestTarget"
+
+[navigation]
+type = "PursuitNavigation"
+angular_kp = 26.0
+angular_kd = 0.2
+angle_threshold = 1.5
+velocity_ramp_far_distance = 1.5
+velocity_ramp_near_distance = 0.5
+velocity_ramp_min_scale = 0.5
+max_linear_x = 1.0
+stop_distance = 0.0
+
+# Actuation latency is modeled in sim-ticks by the kinematic server, so keep this at 0
+# (the SimTransmitter delay is wall-clock based and would not survive accelerated runs).
+[transmitter]
+type = "SimTransmitter"
+init_delay_seconds = 0.0
+command_delay_ms = 0.0
+
+[publisher]
+type = "RosPublisher"
+
+# Run at ~real-time: the controller's PD derivative uses wall-clock dt, so the loop rate must
+# match the sim dt (30 Hz <-> dt 0.0333) for correct controller timing.
+[runner]
+max_loop_rate = 30.0
+default_opponent_count = 1
+autonomy_enabled_by_default = true
+
+[ui]
+enable = false
+fullscreen = false
+battery_source = "None"
+
+[mcap]
+enable = true
+ignored_topics = []

@@ -22,6 +22,14 @@ struct NoopMaskModelConfiguration : public MaskModelConfiguration {
     )
 };
 
+struct FixedMaskModelConfiguration : public MaskModelConfiguration {
+    FixedMaskModelConfiguration() { type = "FixedMaskModel"; }
+
+    PARSE_CONFIG_FIELDS(
+        // No additional fields
+    )
+};
+
 struct DeepLabMaskModelConfiguration : public MaskModelConfiguration {
     std::string model_path;
     DeepLabModelType model_type = DeepLabModelType::DeepLabV3;

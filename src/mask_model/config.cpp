@@ -7,6 +7,7 @@
 
 #include "config/config_parser.hpp"
 #include "mask_model/deeplab_mask_model.hpp"
+#include "mask_model/fixed_mask_model.hpp"
 #include "mask_model/noop_mask_model.hpp"
 #include "mask_model/yolo_seg_mask_model.hpp"
 
@@ -57,6 +58,7 @@ void YoloSegMaskModelConfiguration::parse_fields(ConfigParser &parser) {
 
 // Automatic registration of config types
 REGISTER_CONFIG(MaskModelConfiguration, NoopMaskModelConfiguration, "NoopMaskModel")
+REGISTER_CONFIG(MaskModelConfiguration, FixedMaskModelConfiguration, "FixedMaskModel")
 REGISTER_CONFIG(MaskModelConfiguration, DeepLabMaskModelConfiguration, "DeepLabMaskModel")
 REGISTER_CONFIG(MaskModelConfiguration, YoloSegMaskModelConfiguration, "YoloSegMaskModel")
 
@@ -92,6 +94,8 @@ std::shared_ptr<MaskModelInterface> make_mask_model(const MaskModelConfiguration
     spdlog::info("Selected {} for MaskModel", config.type);
     if (config.type == "NoopMaskModel") {
         return std::make_shared<NoopMaskModel>();
+    } else if (config.type == "FixedMaskModel") {
+        return std::make_shared<FixedMaskModel>();
     } else if (config.type == "DeepLabMaskModel") {
         return std::make_shared<DeepLabMaskModel>(
             config_cast<DeepLabMaskModelConfiguration>(config));

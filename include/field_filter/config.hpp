@@ -19,6 +19,22 @@ struct NoopFieldFilterConfiguration : public FieldFilterConfiguration {
     )
 };
 
+struct FixedFieldFilterConfiguration : public FieldFilterConfiguration {
+    /** Arena width (m) along field x. */
+    double size_x = 2.4;
+    /** Arena height (m) along field y. */
+    double size_y = 2.4;
+
+    FixedFieldFilterConfiguration() { type = "FixedFieldFilter"; }
+
+    // clang-format off
+    PARSE_CONFIG_FIELDS(
+        PARSE_FIELD_DOUBLE(size_x)
+        PARSE_FIELD_DOUBLE(size_y)
+    )
+    // clang-format on
+};
+
 struct PointCloudFieldFilterConfiguration : public FieldFilterConfiguration {
     double distance_threshold = 0.1;
     bool local_visualize_debug = false;

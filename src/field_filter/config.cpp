@@ -5,12 +5,14 @@
 
 #include "config/config_cast.hpp"
 #include "config/config_parser.hpp"
+#include "field_filter/fixed_field_filter.hpp"
 #include "field_filter/noop_field_filter.hpp"
 #include "field_filter/point_cloud_field_filter.hpp"
 
 namespace auto_battlebot {
 // Automatic registration of config types
 REGISTER_CONFIG(FieldFilterConfiguration, NoopFieldFilterConfiguration, "NoopFieldFilter")
+REGISTER_CONFIG(FieldFilterConfiguration, FixedFieldFilterConfiguration, "FixedFieldFilter")
 REGISTER_CONFIG(FieldFilterConfiguration, PointCloudFieldFilterConfiguration,
                 "PointCloudFieldFilter")
 
@@ -34,6 +36,9 @@ std::shared_ptr<FieldFilterInterface> make_field_filter(const FieldFilterConfigu
     spdlog::info("Selected {} for FieldFilter", config.type);
     if (config.type == "NoopFieldFilter") {
         return std::make_shared<NoopFieldFilter>();
+    } else if (config.type == "FixedFieldFilter") {
+        const auto &fixed = config_cast<FixedFieldFilterConfiguration>(config);
+        return std::make_shared<FixedFieldFilter>(fixed.size_x, fixed.size_y);
     } else if (config.type == "PointCloudFieldFilter") {
         return std::make_shared<PointCloudFieldFilter>(
             config_cast<PointCloudFieldFilterConfiguration>(config));

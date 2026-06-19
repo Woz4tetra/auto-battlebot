@@ -1,0 +1,56 @@
+# Config for the fast headless kinematic sim (simulation/kinematic_sim_server.py).
+# Plant params (max speeds, tau) should be fitted to recordings via
+# playground/control_stage0/fit_plant.py. Keep [arena] in sync with config/headless_sim.toml.
+
+[server]
+host = "127.0.0.1"
+port = 14882
+
+[sim]
+dt = 0.0333          # seconds per tick (~30 Hz sim time)
+max_ticks = 900
+seed = 0
+
+[arena]
+width = 2.4
+height = 2.4
+
+# Actuation + perception latency, in milliseconds of sim time (converted to ticks).
+[latency]
+command_ms = 60.0
+observation_ms = 0.0
+
+# Only the world position is used for the flat-plane projection bias; resolution is tiny
+# because no images are rendered (Noop perception ignores them).
+[camera]
+res_width = 16
+res_height = 16
+fov = 70.0
+pos = [0.0, -1.5, 0.6]
+lookat = [0.0, 0.0, 0.0]
+
+[our_robot]
+start_pos = [-0.6, -0.6]
+start_yaw_deg = 45.0
+max_linear_speed = 2.0
+max_angular_speed = 6.0
+tau_linear = 0.15
+tau_angular = 0.08
+radius = 0.11
+
+[perception]
+pos_noise_std = 0.0
+yaw_noise_std = 0.0
+dropout_prob = 0.0
+
+[perception.projection_bias]
+enabled = false
+keypoint_height = 0.06
+
+[[opponent]]
+behavior = "static"   # static | straight | circle | random_walk | replay
+start_pos = [0.5, 0.5]
+speed = 1.0
+heading_deg = 180.0
+radius = 0.5
+replay_csv = ""
