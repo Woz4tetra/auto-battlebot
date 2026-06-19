@@ -4,9 +4,11 @@
 
 namespace auto_battlebot {
 
-SimTransmitter::SimTransmitter(const SimTransmitterConfiguration &config)
+SimTransmitter::SimTransmitter(const SimTransmitterConfiguration &config,
+                               std::shared_ptr<ClockInterface> clock)
     : init_delay_seconds_(config.init_delay_seconds),
       command_delay_ms_(config.command_delay_ms),
+      clock_(std::move(clock)),
       connection_(SimConnection::instance()) {
     if (command_delay_ms_ > 0.0) {
         spdlog::info("SimTransmitter: artificial command delay = {} ms", command_delay_ms_);
@@ -14,7 +16,7 @@ SimTransmitter::SimTransmitter(const SimTransmitterConfiguration &config)
 }
 
 bool SimTransmitter::initialize() {
-    start_time_ = std::chrono::steady_clock::now();
+    start_time_ = clock_->now();
     initialized_ = true;
     return true;
 }
@@ -22,8 +24,7 @@ bool SimTransmitter::initialize() {
 CommandFeedback SimTransmitter::update() {
     if (!initialized_ || init_button_pressed_) return CommandFeedback{};
 
-    auto elapsed =
-        std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time_).count();
+    const double elapsed = clock_->now() - start_time_;
     if (elapsed >= init_delay_seconds_) {
         init_button_pressed_ = true;
     }
@@ -42,12 +43,11 @@ void SimTransmitter::send(VelocityCommand command) {
         return;
     }
 
-    auto now = std::chrono::steady_clock::now();
+    const double now = clock_->now();
     command_queue_.push_back({now, command});
 
     while (!command_queue_.empty()) {
-        double age_ms =
-            std::chrono::duration<double, std::milli>(now - command_queue_.front().first).count();
+        const double age_ms = (now - command_queue_.front().first) * 1000.0;
         if (age_ms >= command_delay_ms_) {
             connection_->set_command(command_queue_.front().second);
             command_queue_.pop_front();

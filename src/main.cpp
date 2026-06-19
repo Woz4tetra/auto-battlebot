@@ -77,16 +77,17 @@ int main(int argc, char** argv) {
     auto robot_mask_model = make_robot_blob_model(*class_config.robot_mask_model);
     auto field_filter = make_field_filter(*class_config.field_filter);
     auto keypoint_model = make_keypoint_model(*class_config.keypoint_model);
-    auto robot_filter = make_robot_filter(*class_config.robot_filter);
+    auto clock = make_clock(*class_config.clock);
+    auto robot_filter = make_robot_filter(*class_config.robot_filter, clock);
     auto target_selector = make_target_selector(*class_config.target_selector);
-    auto navigation = make_navigation(*class_config.navigation);
-    auto transmitter = make_transmitter(*class_config.transmitter);
+    auto navigation = make_navigation(*class_config.navigation, clock);
+    auto transmitter = make_transmitter(*class_config.transmitter, clock);
     auto health_logger = std::make_shared<HealthLogger>(class_config.health);
 
     Runner runner(class_config.runner, camera, health_logger, field_model, robot_mask_model,
                   field_filter, keypoint_model, robot_filter, target_selector, navigation,
                   transmitter, publisher, handle_system_action,
-                  ui_manager ? ui_manager->ui_state() : nullptr, mcap_recorder);
+                  ui_manager ? ui_manager->ui_state() : nullptr, mcap_recorder, clock);
 
     runner.initialize();
 

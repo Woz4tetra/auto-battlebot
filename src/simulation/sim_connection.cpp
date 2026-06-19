@@ -33,6 +33,7 @@ struct SimResponseHeader {
     uint32_t height;
     double tf_matrix[16];
     double fx, fy, cx, cy;
+    double sim_time;  // sim's logical time in seconds; the sim owns the only dt
 };
 #pragma pack(pop)
 
@@ -190,9 +191,9 @@ bool SimConnection::step_and_receive(CameraData& data) {
     }
     last_gt_poses_ = data.ground_truth_poses;
 
-    double now =
-        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
-    Header stamp{now, FrameId::CAMERA};
+    // Stamp the frame with the sim's logical time (single dt source), not wall-clock, so the
+    // control loop's clock follows sim time and accelerated runs stay correct and deterministic.
+    Header stamp{hdr.sim_time, FrameId::CAMERA};
 
     data.rgb.header = stamp;
     data.rgb.image = rgb;
@@ -211,7 +212,7 @@ bool SimConnection::step_and_receive(CameraData& data) {
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c) tf(r, c) = hdr.tf_matrix[r * 4 + c];
 
-    data.tf_visodom_from_camera.header = {now, FrameId::VISUAL_ODOMETRY};
+    data.tf_visodom_from_camera.header = {hdr.sim_time, FrameId::VISUAL_ODOMETRY};
     data.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
     data.tf_visodom_from_camera.transform.tf = tf;
     data.tracking_ok = true;

@@ -51,10 +51,10 @@ command_delay_ms = 0.0
 [publisher]
 type = "RosPublisher"
 
-# Run at ~real-time: the controller's PD derivative uses wall-clock dt, so the loop rate must
-# match the sim dt (30 Hz <-> dt 0.0333) for correct controller timing.
+# Free-run (accelerated): logical time comes from the sim frame stamp via [clock] ManualClock, so the
+# controller's dt is correct regardless of loop speed. The loop is gated by the sim's lockstep protocol.
 [runner]
-max_loop_rate = 30.0
+max_loop_rate = 1000.0
 default_opponent_count = 1
 autonomy_enabled_by_default = true
 
@@ -66,3 +66,8 @@ battery_source = "None"
 [mcap]
 enable = true
 ignored_topics = []
+
+# Logical time follows the sim frame stamp (sim_time), so the run is deterministic and the controller's
+# dt is correct even when the loop free-runs far faster than real time.
+[clock]
+type = "ManualClock"

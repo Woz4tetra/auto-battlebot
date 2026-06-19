@@ -1,12 +1,12 @@
 #pragma once
 
-#include <chrono>
 #include <deque>
 #include <memory>
 #include <utility>
 
 #include "data_structures/velocity.hpp"
 #include "simulation/sim_connection.hpp"
+#include "time/clock_interface.hpp"
 #include "transmitter/config.hpp"
 #include "transmitter/transmitter_interface.hpp"
 
@@ -14,7 +14,8 @@ namespace auto_battlebot {
 
 class SimTransmitter : public TransmitterInterface {
    public:
-    explicit SimTransmitter(const SimTransmitterConfiguration &config);
+    SimTransmitter(const SimTransmitterConfiguration &config,
+                   std::shared_ptr<ClockInterface> clock);
 
     bool initialize() override;
     CommandFeedback update() override;
@@ -25,17 +26,17 @@ class SimTransmitter : public TransmitterInterface {
     void disable() override;
 
    private:
-    using TimePoint = std::chrono::steady_clock::time_point;
-
     double init_delay_seconds_;
     double command_delay_ms_;
-    std::chrono::steady_clock::time_point start_time_;
+    double start_time_ = 0.0;  // logical seconds
     bool init_button_pressed_ = false;
     bool init_button_done_ = false;
     bool initialized_ = false;
     bool enabled_ = false;
+    std::shared_ptr<ClockInterface> clock_;
     std::shared_ptr<SimConnection> connection_;
-    std::deque<std::pair<TimePoint, VelocityCommand>> command_queue_;
+    // Queued commands with their logical enqueue time, for the artificial actuation delay.
+    std::deque<std::pair<double, VelocityCommand>> command_queue_;
 };
 
 }  // namespace auto_battlebot

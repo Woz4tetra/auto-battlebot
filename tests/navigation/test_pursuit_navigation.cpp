@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "navigation/pursuit_navigation.hpp"
+#include "time/manual_clock.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
@@ -50,11 +51,13 @@ class PursuitNavigationTest : public ::testing::Test {
    protected:
     void SetUp() override {
         config_ = make_default_config();
-        nav_ = std::make_unique<PursuitNavigation>(config_);
+        clock_ = std::make_shared<ManualClock>();
+        nav_ = std::make_unique<PursuitNavigation>(config_, clock_);
         nav_->initialize();
     }
 
     PursuitNavigationConfiguration config_;
+    std::shared_ptr<ManualClock> clock_;
     std::unique_ptr<PursuitNavigation> nav_;
 };
 
@@ -84,7 +87,7 @@ TEST(PursuitNavigationConfigTest, CustomValues) {
     config.lookahead_time = 0.2;
     config.boundary_margin = 0.15;
 
-    PursuitNavigation nav(config);
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
     EXPECT_TRUE(nav.initialize());
 }
 
@@ -92,7 +95,7 @@ TEST(PursuitNavigationConfigTest, CustomValues) {
 
 TEST_F(PursuitNavigationTest, InitializeReturnsTrue) {
     PursuitNavigationConfiguration config;
-    PursuitNavigation nav(config);
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
     EXPECT_TRUE(nav.initialize());
 }
 
@@ -107,6 +110,36 @@ TEST_F(PursuitNavigationTest, NoRobotsReturnsZeroCommand) {
     EXPECT_DOUBLE_EQ(cmd.linear_x, 0.0);
     EXPECT_DOUBLE_EQ(cmd.linear_y, 0.0);
     EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
+}
+
+// The PD derivative must use the injected (logical) clock's dt, not wall-clock. With a ManualClock
+// we control dt exactly, so the derivative output is deterministic: kd * d(angle_error) / dt.
+TEST_F(PursuitNavigationTest, DerivativeTermUsesLogicalClockDt) {
+    PursuitNavigationConfiguration config = make_default_config();
+    config.angular_kp = 0.0;  // isolate the derivative term
+    config.angular_kd = 0.1;
+    config.angle_threshold = M_PI;  // never gate on heading error
+    config.max_angular_z = 0.0;     // no output clamp
+    config.enable_hysteresis = false;
+    auto clock = std::make_shared<ManualClock>();
+    PursuitNavigation nav(config, clock);
+    nav.initialize();
+
+    FieldDescription field = make_field(4.0, 4.0);
+    RobotDescriptionsStamped robots;
+    robots.descriptions.push_back(make_robot_with_frame(Label::MR_STABS_MK1, FrameId::OUR_ROBOT_1,
+                                                        Group::OURS, 0.0, 0.0, 0.0));
+
+    // First tick at t=1.0s: target straight ahead -> angle_error 0; establishes prev timestamp.
+    clock->set(1.0);
+    VelocityCommand c1 = nav.update(robots, field, make_target(1.0, 0.0));
+    EXPECT_NEAR(c1.angular_z, 0.0, 1e-9);
+
+    // 0.1s later, target at 45 deg -> angle_error pi/4. d_term = kd * (pi/4) / 0.1.
+    clock->set(1.1);
+    VelocityCommand c2 = nav.update(robots, field, make_target(1.0, 1.0));
+    const double expected = config.angular_kd * (M_PI / 4.0) / 0.1;
+    EXPECT_NEAR(c2.angular_z, expected, 1e-6);
 }
 
 TEST_F(PursuitNavigationTest, NoOurRobotReturnsZeroCommand) {
@@ -340,7 +373,7 @@ TEST_F(PursuitNavigationTest, VelocityRampReducesSpeedAtFarDistance) {
     config.velocity_ramp_near_distance = 0.3;
     config.velocity_ramp_min_scale = 0.5;
     config.stop_distance = 0.05;
-    PursuitNavigation nav(config);
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
     RobotDescriptionsStamped robots;
@@ -363,7 +396,7 @@ TEST_F(PursuitNavigationTest, VelocityRampFullSpeedBelowNearDistance) {
     config.velocity_ramp_near_distance = 1.0;
     config.velocity_ramp_min_scale = 0.5;
     config.stop_distance = 0.05;
-    PursuitNavigation nav(config);
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
     RobotDescriptionsStamped robots;
@@ -383,7 +416,7 @@ TEST_F(PursuitNavigationTest, VelocityRampFullSpeedBelowNearDistance) {
 
 TEST_F(PursuitNavigationTest, ForwardVelocityIsBoundedByControllerScaling) {
     PursuitNavigationConfiguration config;
-    PursuitNavigation nav(config);
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
     RobotDescriptionsStamped robots;
@@ -399,7 +432,7 @@ TEST_F(PursuitNavigationTest, ForwardVelocityIsBoundedByControllerScaling) {
 TEST_F(PursuitNavigationTest, AngularVelocityUsesRealUnits) {
     PursuitNavigationConfiguration config;
     config.angular_kp = 2.0;
-    PursuitNavigation nav(config);
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
     RobotDescriptionsStamped robots;
@@ -419,7 +452,7 @@ TEST_F(PursuitNavigationTest, AngularVelocityUsesRealUnits) {
 TEST_F(PursuitNavigationTest, NavigatesWithLookaheadTimeConfigured) {
     PursuitNavigationConfiguration config;
     config.lookahead_time = 1.0;
-    PursuitNavigation nav(config);
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
     RobotDescriptionsStamped robots;
@@ -445,7 +478,7 @@ TEST_F(PursuitNavigationTest, NavigatesWithLookaheadTimeConfigured) {
 TEST_F(PursuitNavigationTest, ClampsTargetToFieldBoundary) {
     PursuitNavigationConfiguration config;
     config.boundary_margin = 0.1;
-    PursuitNavigation nav(config);
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
     RobotDescriptionsStamped robots;
@@ -480,7 +513,7 @@ TEST_F(PursuitNavigationTest, WallReverseDisabledByDefault) {
 TEST_F(PursuitNavigationTest, WallReverseEngagesWhenTooClose) {
     PursuitNavigationConfiguration config;
     config.wall_reverse_distance = 0.3;
-    PursuitNavigation nav(config);
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
     RobotDescriptionsStamped robots;
@@ -499,7 +532,7 @@ TEST_F(PursuitNavigationTest, WallReverseEngagesWhenTooClose) {
 TEST_F(PursuitNavigationTest, WallReverseDoesNotEngageWhenFarFromWall) {
     PursuitNavigationConfiguration config;
     config.wall_reverse_distance = 0.3;
-    PursuitNavigation nav(config);
+    PursuitNavigation nav(config, std::make_shared<ManualClock>());
     nav.initialize();
 
     RobotDescriptionsStamped robots;

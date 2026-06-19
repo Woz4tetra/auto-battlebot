@@ -480,8 +480,9 @@ bool ZedRgbdCamera::capture_frame() {
         }
     }
 
-    // Get timestamp
-    sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::CURRENT);
+    // Use the frame capture time (IMAGE): live it is the true capture instant, and in SVO playback
+    // it is the original recording time, which lets a ManualClock drive deterministic replay.
+    sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE);
     double stamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
 
     latest_data_.tf_visodom_from_camera.header.stamp = stamp;

@@ -27,6 +27,7 @@
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
 #include "target_selector/target_selector_interface.hpp"
+#include "time/clock_interface.hpp"
 #include "transmitter/transmitter_interface.hpp"
 #include "ui/ui_state.hpp"
 
@@ -47,7 +48,8 @@ class Runner {
            std::shared_ptr<TransmitterInterface> transmitter,
            std::shared_ptr<PublisherInterface> publisher,
            SystemActionCallback system_action_callback, std::shared_ptr<UIState> ui_state = nullptr,
-           std::shared_ptr<McapRecorder> mcap_recorder = nullptr);
+           std::shared_ptr<McapRecorder> mcap_recorder = nullptr,
+           std::shared_ptr<ClockInterface> clock = nullptr);
 
     void initialize();
     void initialize_field(const CameraData &camera_data);
@@ -68,6 +70,7 @@ class Runner {
     std::shared_ptr<PublisherInterface> publisher_;
     std::shared_ptr<UIState> ui_state_;
     std::shared_ptr<McapRecorder> mcap_recorder_;
+    std::shared_ptr<ClockInterface> clock_;
     SystemActionCallback system_action_callback_;
 
     int runtime_opponent_count_;

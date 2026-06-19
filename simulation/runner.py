@@ -59,8 +59,8 @@ class SimRunner:
         fx, fy, cx, cy = fov_to_intrinsics(cam.fov, cam.res_width, cam.res_height)
         tf_matrix = camera_view_matrix(cam.pos, cam.lookat)
 
-        self._header_bytes: bytes = struct.pack(
-            RESPONSE_HEADER_FMT,
+        # Constant header fields; sim_time is appended per frame (see _send_frame).
+        self._header_const: list[float] = [
             cam.res_width,
             cam.res_height,
             *tf_matrix.flatten().tolist(),
@@ -68,7 +68,8 @@ class SimRunner:
             fy,
             cx,
             cy,
-        )
+        ]
+        self._sim_time: float = 0.0
 
         self._rgb_buf: npt.NDArray[np.uint8] = np.empty(
             (cam.res_height, cam.res_width, 3),
@@ -224,7 +225,8 @@ class SimRunner:
 
     def _send_frame(self, conn: socket.socket) -> None:
         gt_payload = self._build_ground_truth_bytes()
-        send_all(conn, self._header_bytes)
+        header = struct.pack(RESPONSE_HEADER_FMT, *self._header_const, self._sim_time)
+        send_all(conn, header)
         send_all(conn, self._rgb_buf.data)
         send_all(conn, self._depth_buf.data)
         send_all(conn, gt_payload)
@@ -252,6 +254,7 @@ class SimRunner:
                 t2 = time.monotonic()
 
                 steps = self._step_physics(wall_dt)
+                self._sim_time += steps * self._phys_dt
                 t3 = time.monotonic()
 
                 self._render_and_process()

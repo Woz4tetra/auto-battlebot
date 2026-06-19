@@ -21,7 +21,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<TransmitterInterface> transmitter,
                std::shared_ptr<PublisherInterface> publisher,
                SystemActionCallback system_action_callback, std::shared_ptr<UIState> ui_state,
-               std::shared_ptr<McapRecorder> mcap_recorder)
+               std::shared_ptr<McapRecorder> mcap_recorder, std::shared_ptr<ClockInterface> clock)
     : runner_config_(runner_config),
       camera_(camera),
       field_model_(field_model),
@@ -35,6 +35,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       publisher_(publisher),
       ui_state_(std::move(ui_state)),
       mcap_recorder_(std::move(mcap_recorder)),
+      clock_(std::move(clock)),
       system_action_callback_(std::move(system_action_callback)),
       runtime_opponent_count_(runner_config_.default_opponent_count),
       robot_filter_reinit_pending_(false),
@@ -331,6 +332,13 @@ bool Runner::tick() {
             ui_state_->set_field_description(std::nullopt);
         }
         return recover_camera_after_failure();
+    }
+
+    // Drive logical time from the frame stamp: control dt and message stamps come from this single
+    // source, so sim/playback runs are deterministic and correct regardless of wall-clock speed.
+    // (Pipeline latency below intentionally stays on wall-clock.)
+    if (clock_) {
+        clock_->set(camera_data.rgb.header.stamp);
     }
 
     if (should_reinit_field) {

@@ -4,6 +4,7 @@
 #include "config/config_parser.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "robot_filter/robot_keypoint_tracker.hpp"
+#include "time/clock_interface.hpp"
 
 namespace auto_battlebot {
 struct RobotFilterConfiguration {
@@ -141,7 +142,8 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
     }
 };
 
-std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfiguration &config);
+std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfiguration &config,
+                                                        std::shared_ptr<ClockInterface> clock);
 std::unique_ptr<RobotFilterConfiguration> parse_robot_filter_config(ConfigParser &parser);
 std::unique_ptr<RobotFilterConfiguration> load_robot_filter_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections);

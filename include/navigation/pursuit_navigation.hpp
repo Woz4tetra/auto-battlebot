@@ -5,6 +5,7 @@
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "navigation/config.hpp"
+#include "time/clock_interface.hpp"
 
 namespace auto_battlebot {
 /**
@@ -18,7 +19,8 @@ namespace auto_battlebot {
  */
 class PursuitNavigation : public NavigationInterface {
    public:
-    explicit PursuitNavigation(const PursuitNavigationConfiguration &config);
+    PursuitNavigation(const PursuitNavigationConfiguration &config,
+                      std::shared_ptr<ClockInterface> clock);
 
     bool initialize() override;
 
@@ -115,6 +117,7 @@ class PursuitNavigation : public NavigationInterface {
     double boundary_margin_;
     bool enable_hysteresis_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
+    std::shared_ptr<ClockInterface> clock_;
 
     /** Latched turn direction (+1 or -1) to avoid dithering when target is behind us. 0 =
      * uncommitted. */

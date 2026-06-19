@@ -6,6 +6,7 @@
 
 #include "robot_filter/robot_filter_interface.hpp"
 #include "simulation/sim_connection.hpp"
+#include "time/clock_interface.hpp"
 
 namespace auto_battlebot {
 
@@ -15,7 +16,8 @@ namespace auto_battlebot {
  */
 class GroundTruthRobotFilter : public RobotFilterInterface {
    public:
-    GroundTruthRobotFilter() = default;
+    explicit GroundTruthRobotFilter(std::shared_ptr<ClockInterface> clock)
+        : clock_(std::move(clock)) {}
 
     bool initialize(int opponent_count) override;
     RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
@@ -26,6 +28,7 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
     std::vector<FrameId> our_frame_ids_;
     std::vector<FrameId> opponent_frame_ids_;
     std::shared_ptr<SimConnection> connection_;
+    std::shared_ptr<ClockInterface> clock_;
 };
 
 }  // namespace auto_battlebot

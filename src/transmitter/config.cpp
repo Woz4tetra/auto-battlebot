@@ -33,7 +33,8 @@ std::unique_ptr<TransmitterConfiguration> load_transmitter_from_toml(
     return config;
 }
 
-std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config) {
+std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config,
+                                                       std::shared_ptr<ClockInterface> clock) {
     spdlog::info("Selected {} for Transmitter", config.type);
     if (config.type == "NoopTransmitter") {
         return std::make_shared<NoopTransmitter>();
@@ -44,7 +45,8 @@ std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfigur
         return std::make_shared<OpenTxTransmitter>(
             config_cast<OpenTxTransmitterConfiguration>(config));
     } else if (config.type == "SimTransmitter") {
-        return std::make_shared<SimTransmitter>(config_cast<SimTransmitterConfiguration>(config));
+        return std::make_shared<SimTransmitter>(config_cast<SimTransmitterConfiguration>(config),
+                                                std::move(clock));
     }
     throw std::invalid_argument("Failed to load Transmitter of type " + config.type);
 }

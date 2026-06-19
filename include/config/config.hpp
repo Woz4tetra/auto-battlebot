@@ -32,6 +32,7 @@
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
 #include "target_selector/config.hpp"
+#include "time/config.hpp"
 #include "transmitter/config.hpp"
 #include "transmitter/transmitter_interface.hpp"
 #include "ui/config.hpp"
@@ -52,6 +53,7 @@ struct ClassConfiguration {
     HealthConfiguration health;
     std::unique_ptr<UiConfiguration> ui;
     McapRecorderConfig mcap_recorder;
+    std::unique_ptr<ClockConfiguration> clock;
 };
 
 // Configuration loading functions

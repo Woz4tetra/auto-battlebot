@@ -4,6 +4,7 @@
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
 #include "navigation/navigation_interface.hpp"
+#include "time/clock_interface.hpp"
 
 namespace auto_battlebot {
 struct NavigationConfiguration {
@@ -114,7 +115,8 @@ struct FixedVelocityNavigationConfiguration : public NavigationConfiguration {
     // clang-format on
 };
 
-std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config);
+std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config,
+                                                     std::shared_ptr<ClockInterface> clock);
 std::unique_ptr<NavigationConfiguration> parse_navigation_config(ConfigParser &parser);
 std::unique_ptr<NavigationConfiguration> load_navigation_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections);

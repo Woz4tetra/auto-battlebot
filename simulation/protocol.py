@@ -11,7 +11,9 @@ import struct
 REQUEST_FMT: str = "<ddd"  # linear_x, linear_y, angular_z (3 x float64 = 24 bytes)
 REQUEST_SIZE: int = struct.calcsize(REQUEST_FMT)
 
-RESPONSE_HEADER_FMT: str = "<II16d4d"  # width, height, tf_matrix[16], fx/fy/cx/cy
+RESPONSE_HEADER_FMT: str = (
+    "<II16d4dd"  # width, height, tf_matrix[16], fx/fy/cx/cy, sim_time
+)
 RESPONSE_HEADER_SIZE: int = struct.calcsize(RESPONSE_HEADER_FMT)
 
 # Ground truth poses appended after depth buffer:

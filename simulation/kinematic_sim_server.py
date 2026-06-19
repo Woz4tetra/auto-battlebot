@@ -128,7 +128,9 @@ def load_config(path: Path) -> SimCfg:
     cfg.arena_h = float(arena.get("height", cfg.arena_h))
     lat = raw.get("latency", {})
     cfg.command_latency_ms = float(lat.get("command_ms", cfg.command_latency_ms))
-    cfg.observation_latency_ms = float(lat.get("observation_ms", cfg.observation_latency_ms))
+    cfg.observation_latency_ms = float(
+        lat.get("observation_ms", cfg.observation_latency_ms)
+    )
 
     cam = raw.get("camera", {})
     cfg.camera = CameraCfg(
@@ -224,7 +226,9 @@ class Plant:
 
 
 class Opponent:
-    def __init__(self, cfg: OpponentCfg, arena_w: float, arena_h: float, rng: np.random.Generator):
+    def __init__(
+        self, cfg: OpponentCfg, arena_w: float, arena_h: float, rng: np.random.Generator
+    ):
         self.cfg = cfg
         self.x, self.y = cfg.start_pos
         self.yaw = math.radians(cfg.heading_deg)
@@ -263,7 +267,9 @@ class Opponent:
             self.x += self.cfg.speed * math.cos(self.yaw) * dt
             self.y += self.cfg.speed * math.sin(self.yaw) * dt
             if abs(self.x) >= self.half_x or abs(self.y) >= self.half_y:
-                self.yaw = math.atan2(math.sin(self.yaw + math.pi), math.cos(self.yaw + math.pi))
+                self.yaw = math.atan2(
+                    math.sin(self.yaw + math.pi), math.cos(self.yaw + math.pi)
+                )
             self._clamp()
             return
         if b == "circle":
@@ -307,8 +313,14 @@ def _load_replay_csv(path: Path) -> list[tuple[float, float, float]]:
 class Perception:
     """Degrades true poses into observed ones: latency, noise, dropout, flat-plane bias."""
 
-    def __init__(self, cfg: PerceptionCfg, cam: CameraCfg, dt: float, obs_latency_ms: float,
-                 rng: np.random.Generator) -> None:
+    def __init__(
+        self,
+        cfg: PerceptionCfg,
+        cam: CameraCfg,
+        dt: float,
+        obs_latency_ms: float,
+        rng: np.random.Generator,
+    ) -> None:
         self.cfg = cfg
         self.cam_x, self.cam_y, self.cam_z = cam.pos
         self.rng = rng
@@ -358,10 +370,16 @@ class KinematicServer:
         cam = cfg.camera
         fx, fy, cx, cy = fov_to_intrinsics(cam.fov, cam.res_width, cam.res_height)
         tf_matrix = camera_view_matrix(cam.pos, cam.lookat)
-        self.header_bytes = struct.pack(
-            RESPONSE_HEADER_FMT, cam.res_width, cam.res_height,
-            *tf_matrix.flatten().tolist(), fx, fy, cx, cy,
-        )
+        # Constant header fields; sim_time is appended per frame (the sim owns the only dt).
+        self.header_const = [
+            cam.res_width,
+            cam.res_height,
+            *tf_matrix.flatten().tolist(),
+            fx,
+            fy,
+            cx,
+            cy,
+        ]
         self.rgb = np.zeros((cam.res_height, cam.res_width, 3), dtype=np.uint8)
         self.depth = np.zeros((cam.res_height, cam.res_width), dtype=np.float32)
 
@@ -369,7 +387,9 @@ class KinematicServer:
         cfg = self.cfg
         rng = np.random.default_rng(cfg.seed)
         self.plant = Plant(cfg.plant, cfg.arena_w, cfg.arena_h)
-        self.opponents = [Opponent(o, cfg.arena_w, cfg.arena_h, rng) for o in cfg.opponents]
+        self.opponents = [
+            Opponent(o, cfg.arena_w, cfg.arena_h, rng) for o in cfg.opponents
+        ]
         self.perception = Perception(
             cfg.perception, cfg.camera, cfg.dt, cfg.observation_latency_ms, rng
         )
@@ -377,12 +397,13 @@ class KinematicServer:
         self.cmd_buf: deque = deque([(0.0, 0.0)] * delay, maxlen=delay + 1)
         self.tick = 0
 
-    def _send_frame(self, conn: socket.socket, our, opps) -> None:
+    def _send_frame(self, conn: socket.socket, our, opps, sim_time: float) -> None:
         gt = struct.pack(GT_COUNT_FMT, 1 + len(opps))
         gt += struct.pack(GT_POSE_FMT, *our)
         for p in opps:
             gt += struct.pack(GT_POSE_FMT, *p)
-        send_all(conn, self.header_bytes)
+        header = struct.pack(RESPONSE_HEADER_FMT, *self.header_const, sim_time)
+        send_all(conn, header)
         send_all(conn, self.rgb.data)
         send_all(conn, self.depth.data)
         send_all(conn, gt)
@@ -404,7 +425,7 @@ class KinematicServer:
             obs_our, obs_opps = self.perception.observe(
                 self.plant.pose(), [o.pose() for o in self.opponents]
             )
-            self._send_frame(conn, obs_our, obs_opps)
+            self._send_frame(conn, obs_our, obs_opps, self.tick * cfg.dt)
             self.tick += 1
         print(f"Reached max_ticks={cfg.max_ticks}; closing connection.")
 

@@ -33,12 +33,13 @@ std::unique_ptr<RobotFilterConfiguration> load_robot_filter_from_toml(
     return config;
 }
 
-std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfiguration &config) {
+std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfiguration &config,
+                                                        std::shared_ptr<ClockInterface> clock) {
     spdlog::info("Selected {} for RobotFilter", config.type);
     if (config.type == "NoopRobotFilter") {
         return std::make_shared<NoopRobotFilter>();
     } else if (config.type == "GroundTruthRobotFilter") {
-        return std::make_shared<GroundTruthRobotFilter>();
+        return std::make_shared<GroundTruthRobotFilter>(std::move(clock));
     } else if (config.type == "RobotFrontBackSimpleFilter") {
         return std::make_shared<RobotFrontBackSimpleFilter>(
             config_cast<RobotFrontBackSimpleFilterConfiguration>(config));

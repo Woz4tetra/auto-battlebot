@@ -31,14 +31,15 @@ std::unique_ptr<NavigationConfiguration> load_navigation_from_toml(
     return config;
 }
 
-std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config) {
+std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config,
+                                                     std::shared_ptr<ClockInterface> clock) {
     spdlog::info("Selected {} for Navigation", config.type);
     if (config.type == "NoopNavigation") {
         return std::make_shared<NoopNavigation>();
     }
     if (config.type == "PursuitNavigation") {
         const auto &pursuit_config = dynamic_cast<const PursuitNavigationConfiguration &>(config);
-        return std::make_shared<PursuitNavigation>(pursuit_config);
+        return std::make_shared<PursuitNavigation>(pursuit_config, std::move(clock));
     }
     if (config.type == "FixedVelocityNavigation") {
         const auto &fv_config = dynamic_cast<const FixedVelocityNavigationConfiguration &>(config);

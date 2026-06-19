@@ -16,7 +16,8 @@ enum class PoseSource { Live, Cached };
 
 namespace auto_battlebot {
 
-PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &config)
+PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &config,
+                                     std::shared_ptr<ClockInterface> clock)
     : stop_distance_(config.stop_distance),
       velocity_ramp_far_distance_(config.velocity_ramp_far_distance),
       velocity_ramp_near_distance_(config.velocity_ramp_near_distance),
@@ -32,7 +33,8 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       lookahead_time_(config.lookahead_time),
       boundary_margin_(config.boundary_margin),
       enable_hysteresis_(config.enable_hysteresis),
-      logger_(DiagnosticsLogger::get_logger("pursuit_nav")) {}
+      logger_(DiagnosticsLogger::get_logger("pursuit_nav")),
+      clock_(std::move(clock)) {}
 
 bool PursuitNavigation::initialize() {
     committed_turn_sign_ = 0;
@@ -172,8 +174,10 @@ double PursuitNavigation::apply_hysteresis(double angle_error) {
 }
 
 double PursuitNavigation::compute_angular_velocity(double angle_error) {
-    const double now_s =
-        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    // Logical time (frame stamp), not wall-clock: the PD derivative dt must track the time between
+    // the frames the controller actually processed, so it stays correct under sim/playback time
+    // scaling.
+    const double now_s = clock_->now();
     double d_term = 0.0;
     if (angular_kd_ != 0.0 && prev_timestamp_ > 0.0) {
         const double dt = now_s - prev_timestamp_;

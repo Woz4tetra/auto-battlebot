@@ -32,8 +32,7 @@ RobotDescriptionsStamped GroundTruthRobotFilter::update(
     [[maybe_unused]] CommandFeedback cf) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
-    result.header.stamp =
-        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    result.header.stamp = clock_->now();
 
     const auto &gt = connection_->last_ground_truth_poses();
     if (gt.empty()) return result;

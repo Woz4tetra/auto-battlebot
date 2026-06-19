@@ -2,6 +2,7 @@
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
+#include "time/clock_interface.hpp"
 #include "transmitter/transmitter_interface.hpp"
 
 namespace auto_battlebot {
@@ -103,7 +104,8 @@ struct SimTransmitterConfiguration : public TransmitterConfiguration {
     // clang-format on
 };
 
-std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config);
+std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config,
+                                                       std::shared_ptr<ClockInterface> clock);
 std::unique_ptr<TransmitterConfiguration> parse_transmitter_config(ConfigParser &parser);
 std::unique_ptr<TransmitterConfiguration> load_transmitter_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections);
