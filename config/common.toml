@@ -1,0 +1,82 @@
+# Shared base for all profiles. Not run directly: every profile sets `extends = "common"`
+# (directly or transitively) and overrides only its deltas. `model_path` is profile-specific
+# (architecture/date), so it lives in the profiles rather than here.
+#
+# Merge rules (see src/config/config.cpp):
+#   - scalars and arrays in a profile replace the value here
+#   - a section whose `type` differs from here is replaced wholesale (stale fields dropped)
+#   - sub-tables are merged by key. When overriding [robot_filter.label_mapping] a profile must
+#     restate every key it wants, since keys present here but omitted there would persist.
+
+[rgbd_camera]
+type = "ZedRgbdCamera"
+camera_fps = 30
+
+[field_filter]
+type = "PointCloudFieldFilter"
+local_visualize_debug = false
+distance_threshold = 0.05
+
+[keypoint_model]
+type = "YoloKeypointModel"
+label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
+debug_visualization = false
+threshold = 0.5
+
+[[keypoint_model.label_map]]
+label = "MR_STABS_MK2"
+keypoints = ["MR_STABS_MK2_FRONT", "MR_STABS_MK2_BACK"]
+
+[[keypoint_model.label_map]]
+label = "MRS_BUFF_MK3"
+keypoints = ["MRS_BUFF_MK3_FRONT", "MRS_BUFF_MK3_BACK"]
+
+[[keypoint_model.label_map]]
+label = "HOUSE_BOT"
+keypoints = ["HOUSE_BOT_FRONT", "HOUSE_BOT_BACK"]
+
+[[keypoint_model.label_map]]
+label = "OPPONENT"
+keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
+
+[robot_filter]
+type = "RobotFrontBackSimpleFilter"
+default_frame_id = "OUR_ROBOT_1"
+
+front_keypoints = [
+  "MR_STABS_MK2_FRONT",
+  "MRS_BUFF_MK3_FRONT",
+  "HOUSE_BOT_FRONT",
+  "OPPONENT_FRONT",
+]
+back_keypoints = [
+  "MR_STABS_MK2_BACK",
+  "MRS_BUFF_MK3_BACK",
+  "HOUSE_BOT_BACK",
+  "OPPONENT_BACK",
+]
+
+robot_blob_min_length_meters = 0.08
+robot_blob_max_length_meters = 0.7
+robot_blob_min_confidence = 0.4
+robot_blob_max_candidates = 8
+blob_overwrite_min_distance_meters = 0.20
+blob_overwrite_size_scale = 0.5
+field_bounds_margin_meters = 0.2
+
+[robot_filter.label_mapping]
+"MR_STABS_MK2" = ["THEIR_ROBOT_1"]
+"MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
+"HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
+"OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
+
+[target_selector]
+type = "NearestTarget"
+
+[publisher]
+type = "RosPublisher"
+
+[runner]
+max_loop_rate = 30.0
+default_opponent_count = 1
+autonomy_enabled_by_default = true

@@ -40,7 +40,52 @@ class ConfigTest : public ::testing::Test {
         file << content;
         file.close();
     }
+
+    // Write a named config file in temp_dir and return its path. Used for inheritance tests where
+    // an `extends` target must resolve relative to the declaring file's directory.
+    std::filesystem::path write_named_config(const std::string &name, const std::string &content) {
+        std::filesystem::path path = temp_dir / name;
+        std::ofstream file(path);
+        file << content;
+        file.close();
+        return path;
+    }
 };
+
+// Full valid config with every section set to a Noop/Zed implementation. Inheritance tests use this
+// as a base and layer small overrides on top.
+static const char *kBaseConfig = R"(
+[rgbd_camera]
+type = "ZedRgbdCamera"
+camera_fps = 60
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+)";
 
 // Test NoopRgbdCamera configuration
 TEST_F(ConfigTest, NoopRgbdCameraConfiguration) {
@@ -536,6 +581,110 @@ sample_period_ms = 1200
     EXPECT_TRUE(config.health.tegrastats_enable);
     EXPECT_TRUE(config.health.x86_tools_enable);
     EXPECT_EQ(config.health.sample_period_ms, 1200);
+}
+
+// A variant that `extends` a base inherits the base's sections and overrides only its own fields.
+// This also proves the synthetic `extends` key is stripped before validate_no_extra_sections runs
+// (otherwise loading would throw on an unknown [extends] section).
+TEST_F(ConfigTest, ExtendsMergesBaseAndOverrides) {
+    write_named_config("base.toml", kBaseConfig);
+    auto child = write_named_config("child.toml", R"(
+extends = "base"
+
+[rgbd_camera]
+camera_fps = 90
+)");
+
+    auto config = load_classes_from_config(child.string());
+
+    // Overridden scalar wins.
+    auto *zed = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
+    ASSERT_NE(zed, nullptr);
+    EXPECT_EQ(zed->camera_fps, 90);
+
+    // Sections only present in the base are inherited.
+    ASSERT_NE(config.navigation, nullptr);
+    EXPECT_EQ(config.navigation->type, "NoopNavigation");
+    ASSERT_NE(config.publisher, nullptr);
+    EXPECT_EQ(config.publisher->type, "NoopPublisher");
+}
+
+// When a variant changes a section's `type`, the whole section is replaced: stale base-only fields
+// (here camera_fps) are dropped, so the new implementation loads without an "unknown fields" error.
+TEST_F(ConfigTest, ExtendsTypeChangeReplacesSection) {
+    write_named_config("base.toml", kBaseConfig);
+    auto child = write_named_config("child.toml", R"(
+extends = "base"
+
+[rgbd_camera]
+type = "NoopRgbdCamera"
+)");
+
+    auto config = load_classes_from_config(child.string());
+
+    auto *noop = dynamic_cast<NoopRgbdCameraConfiguration *>(config.camera.get());
+    ASSERT_NE(noop, nullptr);
+    EXPECT_EQ(config.camera->type, "NoopRgbdCamera");
+}
+
+// Extending a base that does not exist fails with a clear error.
+TEST_F(ConfigTest, ExtendsMissingBaseThrows) {
+    auto child = write_named_config("child.toml", R"(
+extends = "does_not_exist"
+)");
+
+    EXPECT_THROW(
+        {
+            try {
+                load_classes_from_config(child.string());
+            } catch (const ConfigValidationError &e) {
+                std::string msg = e.what();
+                EXPECT_NE(msg.find("does_not_exist"), std::string::npos) << msg;
+                throw;
+            }
+        },
+        ConfigValidationError);
+}
+
+// A cycle in the extends chain is detected rather than recursing forever.
+TEST_F(ConfigTest, ExtendsCycleThrows) {
+    write_named_config("a.toml", "extends = \"b\"\n");
+    auto b = write_named_config("b.toml", "extends = \"a\"\n");
+
+    EXPECT_THROW(
+        {
+            try {
+                load_classes_from_config(b.string());
+            } catch (const ConfigValidationError &e) {
+                std::string msg = e.what();
+                EXPECT_NE(msg.find("Circular"), std::string::npos) << msg;
+                throw;
+            }
+        },
+        ConfigValidationError);
+}
+
+// Inheritance chains more than one level deep resolve correctly (grandchild -> child -> base).
+TEST_F(ConfigTest, ExtendsMultiLevelChain) {
+    write_named_config("base.toml", kBaseConfig);
+    write_named_config("mid.toml", R"(
+extends = "base"
+
+[rgbd_camera]
+camera_fps = 45
+)");
+    auto leaf = write_named_config("leaf.toml", R"(
+extends = "mid"
+
+[transmitter]
+type = "NoopTransmitter"
+)");
+
+    auto config = load_classes_from_config(leaf.string());
+
+    auto *zed = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
+    ASSERT_NE(zed, nullptr);
+    EXPECT_EQ(zed->camera_fps, 45);  // inherited from mid, which overrode base's 60
 }
 
 // Test ConfigParser directly

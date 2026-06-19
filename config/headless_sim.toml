@@ -1,12 +1,11 @@
 # Headless control-tuning config: pairs with simulation/kinematic_sim_server.py.
-# Perception is bypassed (Noop everywhere) and ground-truth poses come from the kinematic sim,
+# Perception is bypassed (Noop/Fixed everywhere) and ground-truth poses come from the kinematic sim,
 # so the real PursuitNavigation runs unchanged and the MCAP is scored by
 # playground/control_stage0/stage0_metrics.py exactly like a real fight.
-
-[rgbd_camera]
-type = "SimRgbdCamera"
-sim_host = "127.0.0.1"
-sim_port = 14882
+#
+# Extends simulation: every perception section below changes `type`, which replaces the inherited
+# section wholesale (dropping model paths, label maps, keypoint lists, etc.).
+extends = "simulation"
 
 [field_model]
 type = "FixedMaskModel"
@@ -27,14 +26,8 @@ type = "NoopKeypointModel"
 [robot_filter]
 type = "GroundTruthRobotFilter"
 
-[target_selector]
-type = "NearestTarget"
-
+# Same PursuitNavigation type as simulation, so these merge onto its gains.
 [navigation]
-type = "PursuitNavigation"
-angular_kp = 26.0
-angular_kd = 0.2
-angle_threshold = 1.5
 velocity_ramp_far_distance = 1.5
 velocity_ramp_near_distance = 0.5
 velocity_ramp_min_scale = 0.5
@@ -44,28 +37,15 @@ stop_distance = 0.0
 # Actuation latency is modeled in sim-ticks by the kinematic server, so keep this at 0
 # (the SimTransmitter delay is wall-clock based and would not survive accelerated runs).
 [transmitter]
-type = "SimTransmitter"
 init_delay_seconds = 0.0
-command_delay_ms = 0.0
-
-[publisher]
-type = "RosPublisher"
 
 # Free-run (accelerated): logical time comes from the sim frame stamp via [clock] ManualClock, so the
 # controller's dt is correct regardless of loop speed. The loop is gated by the sim's lockstep protocol.
 [runner]
 max_loop_rate = 1000.0
-default_opponent_count = 1
-autonomy_enabled_by_default = true
-
-[ui]
-enable = false
-fullscreen = false
-battery_source = "None"
 
 [mcap]
 enable = true
-ignored_topics = []
 
 # Logical time follows the sim frame stamp (sim_time), so the run is deterministic and the controller's
 # dt is correct even when the loop free-runs far faster than real time.

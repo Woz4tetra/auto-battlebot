@@ -1,3 +1,7 @@
+# Unity/sim profile: SimRgbdCamera over a socket, x86 engines, swapped team mapping, sim transmitter.
+extends = "common"
+
+# Type change -> replaces common's ZedRgbdCamera.
 [rgbd_camera]
 type = "SimRgbdCamera"
 sim_host = "127.0.0.1"
@@ -22,75 +26,16 @@ their_robot_labels = ["OPPONENT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
 
-[field_filter]
-type = "PointCloudFieldFilter"
-local_visualize_debug = false
-distance_threshold = 0.1
-
 [keypoint_model]
-type = "YoloKeypointModel"
 model_path = "data/models/yolo26n-pose_our_robots_2026-04-24_x86_64_sm89.engine"
-label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
-debug_visualization = false
-threshold = 0.5
 
-[[keypoint_model.label_map]]
-label = "MR_STABS_MK2"
-keypoints = ["MR_STABS_MK2_FRONT", "MR_STABS_MK2_BACK"]
-
-[[keypoint_model.label_map]]
-label = "MRS_BUFF_MK3"
-keypoints = ["MRS_BUFF_MK3_FRONT", "MRS_BUFF_MK3_BACK"]
-
-[[keypoint_model.label_map]]
-label = "HOUSE_BOT"
-keypoints = ["HOUSE_BOT_FRONT", "HOUSE_BOT_BACK"]
-
-[[keypoint_model.label_map]]
-label = "OPPONENT"
-keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
-
-# [robot_filter]
-# type = "GroundTruthRobotFilter"
-
-[robot_filter]
-type = "RobotFrontBackSimpleFilter"
-default_frame_id = "OUR_ROBOT_1"
-
-front_keypoints = [
-  "MR_STABS_MK2_FRONT",
-  "MRS_BUFF_MK3_FRONT",
-  "HOUSE_BOT_FRONT",
-  "OPPONENT_FRONT",
-]
-back_keypoints = [
-  "MR_STABS_MK2_BACK",
-  "MRS_BUFF_MK3_BACK",
-  "HOUSE_BOT_BACK",
-  "OPPONENT_BACK",
-]
-
-robot_blob_min_length_meters = 0.08
-robot_blob_max_length_meters = 0.7
-robot_blob_min_confidence = 0.4
-robot_blob_max_candidates = 8
-blob_overwrite_min_distance_meters = 0.20
-blob_overwrite_size_scale = 0.5
-field_bounds_margin_meters = 0.2
-
+# Swapped vs common (our/their robot identities are flipped in sim). Restate every key, since
+# label_mapping is merged by key.
 [robot_filter.label_mapping]
 "MR_STABS_MK2" = ["OUR_ROBOT_1"]
 "MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
-
-[target_selector]
-type = "NearestTarget"
-
-# [navigation]
-# type = "FixedVelocityNavigation"
-# linear_x = 1.0
-# angular_z = 1.0
 
 [navigation]
 type = "PursuitNavigation"
@@ -102,14 +47,6 @@ angle_threshold = 1.5
 type = "SimTransmitter"
 init_delay_seconds = 0.5
 command_delay_ms = 0.0
-
-[publisher]
-type = "RosPublisher"
-
-[runner]
-max_loop_rate = 30.0
-default_opponent_count = 1
-autonomy_enabled_by_default = true
 
 [ui]
 enable = false

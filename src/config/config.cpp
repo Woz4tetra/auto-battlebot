@@ -2,7 +2,95 @@
 
 #include <spdlog/spdlog.h>
 
+#include <filesystem>
+#include <system_error>
+
 namespace auto_battlebot {
+namespace {
+// Deep-copy an overlay node into dst[key], replacing whatever is there.
+void assign_copy(toml::table &dst, std::string_view key, const toml::node &src) {
+    src.visit([&](auto &&node) { dst.insert_or_assign(key, node); });
+}
+
+// Recursively merge `overlay` onto `base` in place.
+// - Tables whose `type` field differs are replaced wholesale (a different implementation has been
+//   selected, so the base section's fields are meaningless). This lets a variant swap e.g. a
+//   YoloKeypointModel for a NoopKeypointModel without inheriting stale fields.
+// - Otherwise tables are merged key-by-key; scalars and arrays from the overlay replace the base.
+void merge_into(toml::table &base, const toml::table &overlay) {
+    for (auto &&[key, value] : overlay) {
+        const toml::table *overlay_sub = value.as_table();
+        toml::node *base_node = base.get(key.str());
+        toml::table *base_sub = base_node ? base_node->as_table() : nullptr;
+
+        if (overlay_sub && base_sub) {
+            auto base_type = (*base_sub)["type"].value<std::string>();
+            auto overlay_type = (*overlay_sub)["type"].value<std::string>();
+            if (base_type && overlay_type && *base_type != *overlay_type) {
+                assign_copy(base, key.str(), value);  // type changed -> replace section
+            } else {
+                merge_into(*base_sub, *overlay_sub);
+            }
+        } else {
+            assign_copy(base, key.str(), value);
+        }
+    }
+}
+
+// Resolve an `extends` target to a concrete path via a single deterministic join against the
+// declaring file's directory (never a recursive/name-based search), appending `.toml` if needed.
+std::filesystem::path resolve_extends(const std::filesystem::path &declaring_file,
+                                      const std::string &value) {
+    std::filesystem::path resolved = declaring_file.parent_path() / value;
+    if (resolved.extension() != ".toml") {
+        resolved += ".toml";
+    }
+    return resolved;
+}
+
+// Parse `path` and, if it declares `extends`, recursively load+merge its base config underneath it.
+// `chain` holds the canonical paths currently being resolved, for cycle detection.
+toml::table load_and_merge_config(const std::filesystem::path &path,
+                                  std::vector<std::filesystem::path> &chain) {
+    std::error_code ec;
+    std::filesystem::path canonical = std::filesystem::weakly_canonical(path, ec);
+    if (ec) {
+        canonical = path;
+    }
+
+    for (const auto &visited : chain) {
+        if (visited == canonical) {
+            std::string msg = "Circular config inheritance detected: ";
+            for (const auto &c : chain) {
+                msg += c.filename().string() + " -> ";
+            }
+            msg += canonical.filename().string();
+            throw ConfigValidationError(msg);
+        }
+    }
+    chain.push_back(canonical);
+
+    toml::table data = toml::parse_file(path.string());
+
+    if (auto extends = data["extends"].value<std::string>()) {
+        std::filesystem::path base_path = resolve_extends(path, *extends);
+        if (!std::filesystem::exists(base_path)) {
+            throw ConfigValidationError("Config '" + path.filename().string() + "' extends base '" +
+                                        *extends + "' which was not found at " +
+                                        base_path.string());
+        }
+        toml::table merged = load_and_merge_config(base_path, chain);
+        merge_into(merged, data);
+        merged.erase("extends");
+        chain.pop_back();
+        return merged;
+    }
+
+    chain.pop_back();
+    return data;
+}
+}  // namespace
+
 template <typename ConfigType>
 ConfigType parse_config_section(const toml::table &toml_data, const std::string &section_name,
                                 std::vector<std::string> &parsed_sections) {
@@ -39,10 +127,10 @@ std::filesystem::path normalize_config_path(const std::string &config_path) {
 
 ClassConfiguration load_classes_from_config(const std::filesystem::path &path) {
     ClassConfiguration config;
-    std::string path_string = path.string();
 
     try {
-        auto toml_data = toml::parse_file(path_string);
+        std::vector<std::filesystem::path> chain;
+        auto toml_data = load_and_merge_config(path, chain);
 
         std::vector<std::string> parsed_sections;
 
