@@ -376,6 +376,26 @@ bool Runner::tick() {
     }
 
     {
+        // Raw detection counts before the cache resolves missing critical robots, so future
+        // recordings expose how often a fresh (non-stale) opponent fix was actually available.
+        int their_total = 0;
+        int their_live = 0;
+        int our_live = 0;
+        for (const auto &robot : robots.descriptions) {
+            if (robot.group == Group::THEIRS) {
+                ++their_total;
+                if (!robot.is_stale) ++their_live;
+            }
+            if (robot.frame_id == FrameId::OUR_ROBOT_1 && !robot.is_stale) {
+                our_live = 1;
+            }
+        }
+        diagnostics_logger_->debug("perception", {{"their_count_total", their_total},
+                                                  {"their_count_live", their_live},
+                                                  {"our_present_live", our_live}});
+    }
+
+    {
         FunctionTimer timer(diagnostics_logger_, "publishers");
         publisher_->publish_camera_data(camera_data);
         publisher_->publish_field_description(field_description, *initial_field_description_);

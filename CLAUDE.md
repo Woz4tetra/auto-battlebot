@@ -33,6 +33,16 @@ Run before committing:
 - Python: `ruff`
 - TOML: `taplo`
 
+## Python
+
+Python scripts run in the project virtual environment at `venv/`. Activate it before running any Python:
+
+```bash
+source scripts/activate_python.sh   # activates venv/ (create it first with scripts/setup_python.sh)
+```
+
+Do not use `uv run` or create a `uv.lock`. The venv is the intended environment for `scripts/`, `playground/`, `training/`, and `simulation/`.
+
 ## Architecture
 
 Config-driven factory pattern. The active TOML config selects which implementation of each interface gets instantiated at startup. Main loop in `Runner`:

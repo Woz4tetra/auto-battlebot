@@ -68,3 +68,7 @@ Thumbs.db
 # training
 runs/
 *.pt
+
+# AI tools
+.claude/
+.serena/

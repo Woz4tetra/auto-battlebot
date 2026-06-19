@@ -6,6 +6,8 @@
 #include <cmath>
 #include <limits>
 
+#include "enum_to_string_lower.hpp"
+
 namespace auto_battlebot {
 namespace {
 constexpr float kMinBoxEdge = 1.0f;
@@ -119,6 +121,18 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
 
     int detection_index = 0;
     for (const auto &det : detections) {
+        // Log the raw class before it is collapsed to OPPONENT/HOUSE_BOT (or dropped),
+        // so the mislabel/drop rate is visible in future recordings: e.g. an opponent
+        // classified as one of our robots falls to OTHER and is never targeted.
+        if (det.class_id >= 0 && det.class_id < static_cast<int>(label_indices_.size())) {
+            const Label raw_label = label_indices_[static_cast<size_t>(det.class_id)];
+            diagnostics_logger_->info(
+                "detection-" + std::to_string(detection_index),
+                {{"raw_class", enum_to_string_lower(raw_label)},
+                 {"category", enum_to_string_lower(classify_category(raw_label))},
+                 {"confidence", static_cast<double>(det.confidence)}});
+        }
+
         cv::Mat instance_mask = decode_mapped_instance_mask(det, output_buffers, output_infos,
                                                             proto_idx, original_size, input_size);
 
