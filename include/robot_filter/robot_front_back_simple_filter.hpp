@@ -39,9 +39,6 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     std::unique_ptr<FrontBackKeypointConverter> keypoint_converter_;
     std::map<Label, std::vector<FrameId>> label_to_frame_ids_;
     FrameId default_frame_id_;
-    /** Exponential moving average smoothing factor for opponent velocity estimation (0..1, higher =
-     * more responsive). */
-    double velocity_ema_alpha_;
     /** Reject measurements that jump further than this (meters) from last known position. */
     double max_jump_distance_;
     /** After this many consecutive rejected frames, accept the measurement (tracking reset). */

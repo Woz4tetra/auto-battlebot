@@ -9,16 +9,10 @@
 #include "robot_filter/frame_id_assigner.hpp"
 
 namespace auto_battlebot {
-/** Per-robot state used to estimate velocity across frames. */
-struct RobotVelocityState {
-    double timestamp = 0.0;
-    Pose2D pose;
-    Velocity2D smoothed_velocity;
-};
 
 class RobotTemporalMotionFilter {
    public:
-    explicit RobotTemporalMotionFilter(double velocity_ema_alpha);
+    RobotTemporalMotionFilter() = default;
 
     /** Clears all tracked robot state. Call before starting a new match. */
     void reset();
@@ -35,16 +29,10 @@ class RobotTemporalMotionFilter {
                                                          const FieldDescription &field,
                                                          double field_bounds_margin_meters);
 
-    /**
-     * Fills velocity on each description in-place. Our robots use commanded velocity; opponents
-     * use EMA-smoothed finite differences from consecutive poses.
-     */
-    void estimate_velocities(std::vector<RobotDescription> &descriptions, double timestamp,
-                             const CommandFeedback &command_feedback);
-
    private:
-    double velocity_ema_alpha_;
-    std::map<FrameId, RobotVelocityState> velocity_state_per_frame_id_;
+    // Last timestamp each tracked robot appeared in the output. Used only to compute the dt for the
+    // commanded-velocity dead-reckoning of unmeasured robots in update_with_prediction.
+    std::map<FrameId, double> last_timestamp_per_frame_id_;
     std::map<FrameId, RobotDescription> last_description_per_frame_id_;
 };
 }  // namespace auto_battlebot

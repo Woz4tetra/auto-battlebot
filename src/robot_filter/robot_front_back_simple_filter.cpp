@@ -77,15 +77,13 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
     : diagnostics_logger_(DiagnosticsLogger::get_logger("robot_front_back_simple_filter")),
       label_to_frame_ids_(config.label_to_frame_ids),
       default_frame_id_(config.default_frame_id),
-      velocity_ema_alpha_(config.velocity_ema_alpha),
       max_jump_distance_(config.max_jump_distance),
       max_consecutive_jump_rejects_(config.max_consecutive_jump_rejects),
       blob_overwrite_min_distance_meters_(config.blob_overwrite_min_distance_meters),
       blob_overwrite_size_scale_(config.blob_overwrite_size_scale),
       field_bounds_margin_meters_(config.field_bounds_margin_meters),
       robot_keypoint_tracker_(config.robot_keypoint_tracker_config),
-      frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects),
-      temporal_motion_filter_(config.velocity_ema_alpha) {
+      frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects) {
     FrontBackKeypointConverterConfig converter_config;
     converter_config.front_keypoints = config.front_keypoints;
     converter_config.back_keypoints = config.back_keypoints;
@@ -143,8 +141,6 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
     result.descriptions = temporal_motion_filter_.update_with_prediction(
         all_measurements, command_feedback, result.header.stamp, frame_id_assigner_, field,
         field_bounds_margin_meters_);
-    temporal_motion_filter_.estimate_velocities(result.descriptions, result.header.stamp,
-                                                command_feedback);
 
     diagnostics_logger_->debug(
         {{"num_input_keypoints", static_cast<int>(keypoints.keypoints.size())},

@@ -20,11 +20,8 @@ void clip_to_field_bounds(auto_battlebot::Position &position,
 }  // namespace
 
 namespace auto_battlebot {
-RobotTemporalMotionFilter::RobotTemporalMotionFilter(double velocity_ema_alpha)
-    : velocity_ema_alpha_(velocity_ema_alpha) {}
-
 void RobotTemporalMotionFilter::reset() {
-    velocity_state_per_frame_id_.clear();
+    last_timestamp_per_frame_id_.clear();
     last_description_per_frame_id_.clear();
 }
 
@@ -49,10 +46,10 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
             continue;
         }
 
-        auto vel_state_it = velocity_state_per_frame_id_.find(frame_id);
-        if (vel_state_it == velocity_state_per_frame_id_.end()) continue;
+        auto ts_it = last_timestamp_per_frame_id_.find(frame_id);
+        if (ts_it == last_timestamp_per_frame_id_.end()) continue;
 
-        const double dt = timestamp - vel_state_it->second.timestamp;
+        const double dt = timestamp - ts_it->second;
         if (dt <= 0.0 || dt > 1.0) continue;
 
         const VelocityCommand &cmd = cmd_it->second;
@@ -74,58 +71,10 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
     for (const auto &[frame_id, desc] : last_description_per_frame_id_) {
         RobotDescription output = desc;
         output.is_stale = measured_frame_ids.count(frame_id) == 0;
+        // Refresh the per-robot timestamp so the next frame's dead-reckoning dt spans one frame.
+        last_timestamp_per_frame_id_[frame_id] = timestamp;
         outputs.push_back(std::move(output));
     }
     return outputs;
-}
-
-void RobotTemporalMotionFilter::estimate_velocities(std::vector<RobotDescription> &descriptions,
-                                                    double timestamp,
-                                                    const CommandFeedback &command_feedback) {
-    for (auto &desc : descriptions) {
-        if (desc.frame_id == FrameId::EMPTY) continue;
-
-        const Pose2D current = pose_to_pose2d(desc.pose);
-
-        // Check if command feedback is available for this robot (i.e. it's "ours")
-        auto cmd_it = command_feedback.commands.find(desc.frame_id);
-        auto state_it = velocity_state_per_frame_id_.find(desc.frame_id);
-
-        if (cmd_it != command_feedback.commands.end()) {
-            // Our robot: use commanded velocity rotated from body frame to field frame.
-            const VelocityCommand &cmd = cmd_it->second;
-            const Eigen::Vector2d velocity_field =
-                body_velocity_to_field(cmd.linear_x, cmd.linear_y, current.yaw);
-            desc.velocity.vx = velocity_field.x();
-            desc.velocity.vy = velocity_field.y();
-            desc.velocity.omega = cmd.angular_z;
-        } else if (state_it != velocity_state_per_frame_id_.end()) {
-            // Opponent robot: differentiate position over time with EMA smoothing.
-            const RobotVelocityState &prev = state_it->second;
-            const double dt = timestamp - prev.timestamp;
-
-            if (dt > 0.001 && dt < 1.0) {
-                const double raw_vx = (current.x - prev.pose.x) / dt;
-                const double raw_vy = (current.y - prev.pose.y) / dt;
-                // Wrap-safe yaw difference
-                const double delta_yaw = std::atan2(std::sin(current.yaw - prev.pose.yaw),
-                                                    std::cos(current.yaw - prev.pose.yaw));
-                const double raw_omega = delta_yaw / dt;
-
-                const double alpha = velocity_ema_alpha_;
-                desc.velocity.vx = alpha * raw_vx + (1.0 - alpha) * prev.smoothed_velocity.vx;
-                desc.velocity.vy = alpha * raw_vy + (1.0 - alpha) * prev.smoothed_velocity.vy;
-                desc.velocity.omega =
-                    alpha * raw_omega + (1.0 - alpha) * prev.smoothed_velocity.omega;
-            } else {
-                // dt too small or too large -- carry forward previous estimate
-                desc.velocity = prev.smoothed_velocity;
-            }
-        }
-        // else: first observation for this FrameId, velocity stays at default (0, 0, 0)
-
-        // Store state for next frame
-        velocity_state_per_frame_id_[desc.frame_id] = {timestamp, current, desc.velocity};
-    }
 }
 }  // namespace auto_battlebot
