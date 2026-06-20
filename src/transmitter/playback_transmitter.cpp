@@ -28,15 +28,21 @@ bool PlaybackTransmitter::initialize() {
 }
 
 CommandFeedback PlaybackTransmitter::update() {
-    if (!initialized_ || init_button_pressed_) {
+    if (!initialized_) {
         return CommandFeedback{};
     }
 
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(now - start_time_);
-
-    if (elapsed.count() >= init_delay_seconds_) {
-        init_button_pressed_ = true;
+    // One-shot init button: fires once after the delay, mirroring the physical init button on the
+    // radio. It must NOT gate command feedback. OpenTxTransmitter streams channel feedback every
+    // frame regardless of the init button, and the robot filter's motion prediction depends on that
+    // continuous stream. Gating feedback on init_button_pressed_ left the command-driven prediction
+    // path inert (and therefore untested) in playback.
+    if (!init_button_pressed_) {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(now - start_time_);
+        if (elapsed.count() >= init_delay_seconds_) {
+            init_button_pressed_ = true;
+        }
     }
 
     if (!last_processed_) return CommandFeedback{};
