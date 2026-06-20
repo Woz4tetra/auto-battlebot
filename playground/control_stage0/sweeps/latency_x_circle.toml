@@ -1,0 +1,28 @@
+# Latency x moving-target sweep: opponent circles at constant speed; vary actuation latency.
+# Latency on a moving target compounds the lag (the controller chases where the opponent was),
+# so contact should degrade much faster with latency than against a static opponent.
+# Run: python playground/control_stage0/sim_sweep.py --sweep playground/control_stage0/sweeps/latency_x_circle.toml --out playground/control_stage0/sweep_out/latency_x_circle
+
+[[runs]]
+name = "circ_lat0"
+[runs.sim]
+"latency.command_ms" = 0.0
+opponents = [{ behavior = "circle", radius = 0.6, speed = 1.0 }]
+
+[[runs]]
+name = "circ_lat30"
+[runs.sim]
+"latency.command_ms" = 30.0
+opponents = [{ behavior = "circle", radius = 0.6, speed = 1.0 }]
+
+[[runs]]
+name = "circ_lat60"
+[runs.sim]
+"latency.command_ms" = 60.0
+opponents = [{ behavior = "circle", radius = 0.6, speed = 1.0 }]
+
+[[runs]]
+name = "circ_lat90"
+[runs.sim]
+"latency.command_ms" = 90.0
+opponents = [{ behavior = "circle", radius = 0.6, speed = 1.0 }]
