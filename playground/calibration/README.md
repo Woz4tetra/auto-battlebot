@@ -23,12 +23,18 @@ These tools fix that with a deliberate excitation run against clean AprilTag gro
   the venv if missing.
 - An AprilTag (`DICT_APRILTAG_36h11`) mounted flat on the robot top; note its physical edge length
   (`--tag-size`, metres) and its heading offset vs robot forward (`--yaw-offset-deg`).
-- The overhead camera. With the ZED (`--source zed`) intrinsics come from the SDK automatically; otherwise
-  pass `--intrinsics` (the ones you already have) as `{ "camera_matrix": [...], "dist_coeffs": [...] }` or
-  `{ "fx":.., "fy":.., "cx":.., "cy":.. }`.
-- A floor reference file (`floor_calib.json`): four image points mapped to four known floor points in
-  metres (e.g. the arena corners). With the intrinsics these are solved by PnP to fix the metric floor
-  frame, so the tag's height above the floor does not bias (x, y). See `apriltag_track.py` for the format.
+- A printed AprilTag **floor grid** (a `GridBoard`) taped flat on the floor, fully in view, plus the
+  **robot tag** taped flat on the robot top. Generate both as print-accurate PDFs with `make_print_tags.py`
+  (step 0 below). The grid auto-detects the world frame, so no clicking pixels by hand. Its marker ids
+  (`[--floor-first-id, +cols*rows)`, default 10..21) must not collide with the robot `--tag-id` (default 0).
+  Defaults are sized for the ZED at VGA: 0.16 m floor markers, a 0.13 m robot tag (~38 px / ~31 px at a
+  1 m mount). Print at 100% and verify a marker edge measures the stated size.
+- The overhead camera. With the ZED (`--source zed`) intrinsics come from the SDK automatically and the
+  camera runs its fastest mode (VGA @ 100 fps; high fps sharpens the actuation-lag estimate). Otherwise
+  pass `--intrinsics` as `{ "camera_matrix": [...], "dist_coeffs": [...] }` or `{ "fx":.., "fy":.., "cx":..,
+  "cy":.. }`, matched to the running resolution.
+- With the intrinsics, the floor grid and the robot tag are both solved by `solvePnP`, so the tag's height
+  above the floor does not bias (x, y) (no flat-plane parallax).
 - **Guard plates ON**, competition battery, surface matched to the NHRL arena floor. Plate friction is part
   of the plant. See `am32_tuning.md`.
 - Driver radio sticks centered: trainer mode adds stick input to the script's command.
@@ -40,14 +46,17 @@ These tools fix that with a deliberate excitation run against clean AprilTag gro
 ```bash
 source scripts/activate_python.sh
 
+# 0. Generate the floor grid + robot tag PDFs, print at 100%, tape the grid on the floor (fully in view)
+#    and the tag flat on the robot top.
+python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
+
 # 1. Dry-run the protocol (no hardware) to review the maneuver schedule.
 python playground/calibration/calibrate_drive.py --dry-run
 
-# 2. Start the overhead ground-truth capture (own terminal). ZED intrinsics come from the SDK;
-#    --tag-size is the AprilTag edge length in metres.
+# 2. Start the overhead ground-truth capture (own terminal). ZED intrinsics + fastest fps (VGA@100) come
+#    from the SDK. The floor-grid defaults match make_print_tags.py, so only --tag-size is needed.
 python playground/calibration/apriltag_track.py \
-    --source zed --calib playground/calibration/floor_calib.json --tag-size 0.10 \
-    --out playground/calibration/out/truth_log.csv
+    --source zed --tag-size 0.13 --out playground/calibration/out/truth_log.csv
 
 # 3. Run the excitation. Arms only after you type 'go'; disarms on any exit.
 python playground/calibration/calibrate_drive.py --out playground/calibration/out/cmd_log.csv

@@ -1,0 +1,73 @@
+digraph RobotFilterPipeline {
+  graph [
+    rankdir=TB
+    label="Robot Filter Pipeline  (RobotFrontBackSimpleFilter::update)"
+    labelloc=t
+    fontsize=22
+    fontname="Helvetica"
+    pad=0.3
+    nodesep=0.5
+    ranksep=0.7
+    splines=ortho
+    bgcolor="white"
+  ];
+
+  node [
+    shape=box
+    style="rounded,filled"
+    fillcolor="#F8FAFC"
+    color="#CBD5E1"
+    fontname="Helvetica"
+    fontsize=12
+    penwidth=1.4
+    margin="0.22,0.16"
+  ];
+
+  edge [
+    color="#475569"
+    penwidth=1.5
+    arrowsize=0.9
+    fontname="Helvetica"
+    fontsize=11
+  ];
+
+  // ----- External inputs (top row, ordered so stage 1 sits above the spine) -----
+  field [label="field + camera_info\n(field model)"];
+  kp    [label="keypoints\n(perception)"];
+  blob  [label="robot_blob_keypoints\n(perception)"];
+  cmd   [label="command_feedback\n(transmitter / RC channels)", fillcolor="#EEF2FF", color="#A5B4FC"];
+  { rank=source; field; kp; blob; cmd; }
+  field -> kp -> blob -> cmd [style=invis];
+
+  // ----- Pipeline stages (one box each; sub-steps inline) -----
+  s1 [label=<<b>1. convert_keypoints_to_measurements</b><br align="left"/><br align="left"/>FrontBackKeypointConverter: pair front/back, project to field plane<br align="left"/>erase_out_of_field<br align="left"/>FrameIdAssigner::assign: greedy nearest-neighbor + jump gate<br align="left"/>>];
+
+  s2 [label=<<b>2. merge_blob_detections</b><br align="left"/><br align="left"/>suppress blobs near keypoint measurements<br align="left"/>assign leftover frame_ids<br align="left"/>>];
+
+  s3 [label=<<b>3. RobotTemporalMotionFilter::update_with_prediction</b><br align="left"/><br align="left"/>store measured robots<br align="left"/>predict unmeasured: dead-reckon along command velocity<br align="left"/>(OUR_ROBOT_1 only), clip to field, flag is_stale<br align="left"/>emit one RobotDescription per robot<br align="left"/>>];
+
+  // ----- Persistent state (single node on the right) -----
+  state [label=<<b>Persistent track state</b> (per frame_id)<br align="left"/><br align="left"/>FrameIdAssigner: last_position + jump_reject_count<br align="left"/>last_description_per_frame_id_<br align="left"/>last_timestamp_per_frame_id_<br align="left"/>>, shape=folder, fillcolor="#F1F5F9", color="#94A3B8"];
+
+  // ----- Output -----
+  out        [label="RobotDescriptionsStamped\n(pose, frame_id, is_stale per robot)", fillcolor="#E0F2FE", color="#7DD3FC"];
+  downstream [label="target selection → navigation", shape=ellipse, fillcolor="#ECFDF5", color="#6EE7B7"];
+
+  // ----- Main vertical spine (weighted so 1 -> 2 -> 3 stays straight) -----
+  field -> s1;
+  kp    -> s1;
+  s1    -> s2 [weight=10];
+  blob  -> s2;
+  s2    -> s3 [weight=10];
+  cmd   -> s3;
+  s3    -> out [weight=10];
+  out   -> downstream [weight=10];
+
+  // ----- State on the right: read/write edges plus the one highlighted feedback -----
+  s1 -> state [label="match / update\nlast_position", dir=both, style=dashed, color="#64748B", fontcolor="#64748B", constraint=false];
+  s3 -> state [label="read / write\nlast_description, last_timestamp", dir=both, style=dashed, color="#64748B", fontcolor="#64748B", constraint=false];
+  s3 -> state [label="set_last_position:\npredicted pose advances\nassociation through dropouts", style=dashed, color="#6366F1", fontcolor="#4F46E5", penwidth=1.8, constraint=false];
+
+  // Keep the state box aligned beside the stages, not on the input/output rows.
+  { rank=same; s2; state; }
+}

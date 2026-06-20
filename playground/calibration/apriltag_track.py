@@ -5,14 +5,18 @@ Tracks a fiducial mounted on top of Mrs Buff and writes a (t, x, y, yaw) CSV in 
 projection bias and the yaw keypoint flips that corrupt fit_plant.py on perception poses.
 
 Pose is solved with the camera intrinsics (cv2.solvePnP), not a 2D homography. Two PnP solves:
-  1. The four floor reference points (floor_calib.json) + intrinsics give the camera pose relative to the
-     floor, i.e. the metric driving plane and a 2D frame on it. This is correct even for a tilted mount.
-  2. Each frame, the AprilTag's known physical size + intrinsics give the tag's true 3D pose in the camera
-     frame, which is then expressed in the floor frame.
+  1. A printed AprilTag GridBoard lying flat on the floor defines the world (field) frame. Its markers are
+     detected and the board pose is solved once at startup, fixing the metric driving plane and a 2D frame
+     on it. No clicking pixels by hand; correct even for a tilted mount.
+  2. Each frame, the robot's AprilTag (known physical size) + intrinsics give the tag's true 3D pose in the
+     camera frame, which is then expressed in the floor frame.
 
 Because the tag pose is solved in 3D, the tag's height above the floor (it sits on top of the robot) does
 not bias the (x, y) the way a floor homography would: solvePnP recovers the tag's real position and we read
 off its floor-plane coordinates directly.
+
+The floor grid and the robot tag share one dictionary (DICT_APRILTAG_36h11) but must use disjoint ids: the
+grid uses ids [--floor-first-id, --floor-first-id + cols*rows), the robot tag uses --tag-id outside that.
 
 Intrinsics come from the ZED SDK automatically when --source zed (or an .svo path), or from --intrinsics
 (the ones you already have). For a plain camera/video --intrinsics is required. The ZED's rectified LEFT
@@ -23,20 +27,15 @@ as calibrate_drive.py the two CSVs share a clock and need no alignment.
 
 Usage:
     source scripts/activate_python.sh
-    # ZED live, intrinsics from the SDK:
+    # 1. Generate and print the floor grid + robot tag PDFs (see make_print_tags.py), tape them down.
+    python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
+    # 2. ZED live, intrinsics + fastest fps from the SDK. The defaults here match make_print_tags.py, so
+    #    only --tag-size (the robot tag edge length) is needed:
     python playground/calibration/apriltag_track.py \
-        --source zed --calib playground/calibration/floor_calib.json --tag-size 0.10 \
-        --out playground/calibration/out/truth_log.csv
-    # Any camera/video with your own intrinsics:
-    python playground/calibration/apriltag_track.py \
-        --source 0 --intrinsics playground/calibration/zed_intrinsics.json \
-        --calib playground/calibration/floor_calib.json --tag-size 0.10
-
-floor_calib.json (four points on the floor, e.g. arena corners):
-    {
-      "image_points": [[x0,y0],[x1,y1],[x2,y2],[x3,y3]],   pixels in the LEFT image
-      "world_points": [[X0,Y0],[X1,Y1],[X2,Y2],[X3,Y3]]    metres, floor (field) frame, z = 0
-    }
+        --source zed --tag-size 0.13 --out playground/calibration/out/truth_log.csv
+    # Any camera/video with your own intrinsics instead of the ZED:
+    python playground/calibration/apriltag_track.py --source 0 \
+        --intrinsics playground/calibration/zed_intrinsics.json --tag-size 0.13
 
 zed_intrinsics.json (either form is accepted):
     { "camera_matrix": [[fx,0,cx],[0,fy,cy],[0,0,1]], "dist_coeffs": [k1,k2,p1,p2,k3] }
@@ -115,11 +114,23 @@ class ZedSource:
         init = sl.InitParameters()
         init.coordinate_units = sl.UNIT.METER
         init.depth_mode = sl.DEPTH_MODE.NONE  # we only need the rectified image
-        if source != "zed":
+        # Fastest mode on the ZED 2i: VGA (672x376) at 100 FPS. The high frame rate sharpens the
+        # actuation-lag estimate (fit_plant_calib needs >=60 fps to resolve it). Intrinsics are pulled from
+        # the SDK below, so they match this resolution. If the tag is too small to detect from a high mount,
+        # step down to RESOLUTION.HD720 @ 60.
+        if source == "zed":
+            init.camera_resolution = sl.RESOLUTION.VGA
+            init.camera_fps = 100
+        else:
             init.set_from_svo_file(source)
         err = self._zed.open(init)
         if err != sl.ERROR_CODE.SUCCESS:
             raise SystemExit(f"ZED open failed: {err}")
+        if source == "zed":
+            info = self._zed.get_camera_information()
+            cfg = getattr(info, "camera_configuration", info)
+            fps = getattr(cfg, "fps", 0.0) or getattr(cfg, "camera_fps", 0.0)
+            print(f"ZED opened at {fps:.0f} fps (VGA, fastest mode)")
         self._runtime = sl.RuntimeParameters()
         self._mat = sl.Mat()
 
@@ -154,23 +165,62 @@ def open_source(source: str) -> CvSource | ZedSource:
 # ---------------------------------------------------------------------------
 
 
-def camera_extrinsic_from_floor(
-    calib_path: Path, k: np.ndarray, d: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    """Camera pose relative to the floor frame, from four floor points by PnP.
+def make_floor_board(
+    cols: int, rows: int, marker_size: float, marker_sep: float, first_id: int
+) -> cv2.aruco.GridBoard:
+    """AprilTag GridBoard for the floor reference. Its frame is the field frame (z = 0 on the floor)."""
+    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+    ids = np.arange(first_id, first_id + cols * rows)
+    return cv2.aruco.GridBoard((cols, rows), marker_size, marker_sep, dictionary, ids)
 
-    Returns (R_fc, t_fc) mapping a floor point X_f to camera coords: X_c = R_fc @ X_f + t_fc.
+
+def camera_extrinsic_from_board(
+    source: "CvSource | ZedSource",
+    detector: cv2.aruco.ArucoDetector,
+    board: cv2.aruco.GridBoard,
+    k: np.ndarray,
+    d: np.ndarray,
+    n_frames: int = 20,
+    min_markers: int = 4,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Lock the camera pose relative to the floor grid, once, by PnP over several startup frames.
+
+    Returns (R_fc, t_fc) mapping a floor point X_f to camera coords: X_c = R_fc @ X_f + t_fc. The board is
+    static, so correspondences from several frames are stacked into one solve to average detection noise.
+    Locking once means the robot may later occlude the grid without affecting the extrinsic.
     """
-    data = json.loads(calib_path.read_text())
-    img = np.asarray(data["image_points"], dtype=np.float64)
-    world = np.asarray(data["world_points"], dtype=np.float64)
-    if img.shape != (4, 2) or world.shape != (4, 2):
-        raise ValueError("floor_calib.json needs exactly 4 image_points and 4 world_points")
-    obj = np.hstack([world, np.zeros((4, 1))])  # floor is z = 0
-    ok, rvec, tvec = cv2.solvePnP(obj, img, k, d, flags=cv2.SOLVEPNP_IPPE)
+    board_ids = set(board.getIds().flatten().tolist())
+    obj_all: list[np.ndarray] = []
+    img_all: list[np.ndarray] = []
+    used = 0
+    while used < n_frames:
+        ok, frame = source.read()
+        if not ok:
+            break
+        corners, ids, _ = detector.detectMarkers(frame)
+        if ids is None:
+            continue
+        keep = [i for i, mid in enumerate(ids.flatten()) if int(mid) in board_ids]
+        if len(keep) < min_markers:
+            continue
+        sel_corners = [corners[i] for i in keep]
+        sel_ids = ids[keep].reshape(-1, 1)
+        obj, img = board.matchImagePoints(sel_corners, sel_ids)
+        if obj is None or len(obj) < min_markers:
+            continue
+        obj_all.append(obj.reshape(-1, 3))
+        img_all.append(img.reshape(-1, 2))
+        used += 1
+    if used == 0:
+        raise SystemExit(
+            "Floor grid not detected. Make sure the printed GridBoard is flat, fully in view, and that "
+            "--floor-cols/--floor-rows/--floor-first-id match the printed board."
+        )
+    ok, rvec, tvec = cv2.solvePnP(np.vstack(obj_all), np.vstack(img_all), k, d)
     if not ok:
-        raise SystemExit("Floor PnP failed; check floor_calib.json points and intrinsics.")
+        raise SystemExit("Floor board PnP failed; check intrinsics and the printed marker size.")
     r, _ = cv2.Rodrigues(rvec)
+    print(f"floor frame locked from {used} frames, {len(np.vstack(obj_all))} marker corners")
     return r, tvec.reshape(3)
 
 
@@ -206,8 +256,7 @@ def tag_pose_field(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source", default="zed", help="'zed', an .svo path, a camera index, or a video")
-    parser.add_argument("--calib", type=Path, required=True, help="floor reference points JSON")
-    parser.add_argument("--tag-size", type=float, required=True, help="AprilTag edge length in metres")
+    parser.add_argument("--tag-size", type=float, help="robot AprilTag edge length in metres (required to track)")
     parser.add_argument(
         "--intrinsics", type=Path, default=None, help="K/D JSON; required unless --source provides them"
     )
@@ -217,8 +266,28 @@ def main() -> None:
         "--yaw-offset-deg", type=float, default=0.0,
         help="tag +x (TL->TR edge) direction relative to robot forward",
     )
+    # Floor reference grid (an AprilTag GridBoard taped flat on the floor). Defaults match
+    # make_print_tags.py, which generates the printable PDF; keep the two in sync.
+    parser.add_argument("--floor-cols", type=int, default=4, help="grid markers in x")
+    parser.add_argument("--floor-rows", type=int, default=3, help="grid markers in y")
+    parser.add_argument("--floor-marker-size", type=float, default=0.16, help="grid marker edge (m)")
+    parser.add_argument("--floor-marker-sep", type=float, default=0.05, help="gap between grid markers (m)")
+    parser.add_argument("--floor-first-id", type=int, default=10, help="first grid marker id")
     parser.add_argument("--show", action="store_true", help="display detections for setup/aiming")
     args = parser.parse_args()
+
+    board = make_floor_board(
+        args.floor_cols, args.floor_rows, args.floor_marker_size, args.floor_marker_sep, args.floor_first_id
+    )
+
+    if args.tag_size is None:
+        raise SystemExit("--tag-size is required to track (the robot AprilTag edge length in metres).")
+    board_id_range = range(args.floor_first_id, args.floor_first_id + args.floor_cols * args.floor_rows)
+    if args.tag_id in board_id_range:
+        raise SystemExit(
+            f"--tag-id {args.tag_id} collides with the floor grid ids "
+            f"[{board_id_range.start}, {board_id_range.stop}). Pick a robot tag id outside that range."
+        )
 
     detector = make_detector()
     source = open_source(args.source)
@@ -234,7 +303,7 @@ def main() -> None:
         k, d = from_source
         print(f"intrinsics from source: fx={k[0, 0]:.1f} fy={k[1, 1]:.1f} cx={k[0, 2]:.1f} cy={k[1, 2]:.1f}")
 
-    r_fc, t_fc = camera_extrinsic_from_floor(args.calib, k, d)
+    r_fc, t_fc = camera_extrinsic_from_board(source, detector, board, k, d)
     obj = tag_object_points(args.tag_size)
     yaw_offset = math.radians(args.yaw_offset_deg)
 
