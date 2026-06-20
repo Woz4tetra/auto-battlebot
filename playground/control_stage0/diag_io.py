@@ -148,8 +148,15 @@ def load_diagnostics(path: Path) -> pd.DataFrame:
                         # FunctionTimer stage (tick, camera.get, robot_filter.update, ...)
                         rows[ts][f"stage/{name}/elapsed_ms"] = kv["elapsed_ms"]
                 elif hw == TRANSMITTER_HW_ID and name == "channels":
-                    if "values/15" in kv:
-                        rows[ts]["ch15"] = kv["values/15"]
+                    # values/15 = auto switch. values/0,1 = the actual transmitted drive command
+                    # (post trainer-mode mix of navigation + driver sticks), the true plant input.
+                    for src, dst in (
+                        ("values/0", "ch_linear"),
+                        ("values/1", "ch_angular"),
+                        ("values/15", "ch15"),
+                    ):
+                        if src in kv:
+                            rows[ts][dst] = kv[src]
 
     if not rows:
         raise SystemExit(f"No /diagnostics found in {path}")
@@ -178,6 +185,12 @@ def load_diagnostics(path: Path) -> pd.DataFrame:
     else:
         ch15 = pd.Series(index=df.index, dtype=object)
     df["is_auto"] = ch15.astype(str).str.strip() == "1024"
+
+    # Drive command channels are also logged only on change; forward-fill them.
+    for col in ("ch_linear", "ch_angular"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").ffill()
+
     t0 = df["timestamp_ns"].iloc[0]
     df["t"] = (df["timestamp_ns"] - t0) / 1e9
     return df
