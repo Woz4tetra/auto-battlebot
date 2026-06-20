@@ -4,18 +4,19 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <deque>
-#include <filesystem>
+#include <functional>
 #include <future>
 #include <limits>
+#include <memory>
 #include <mutex>
-#include <queue>
 #include <sl/Camera.hpp>
 #include <thread>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "rgbd_camera/config.hpp"
+#include "rgbd_camera/grab_health_monitor.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
+#include "rgbd_camera/svo_recorder.hpp"
 
 namespace auto_battlebot {
 inline sl::RESOLUTION get_zed_resolution(Resolution resolution) {
@@ -78,15 +79,21 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     void capture_thread_loop();
     bool capture_frame();
     void reset_capture_timing_stats() const;
-    bool start_svo_recording();
-    void stop_svo_recording();
-    void enforce_holding_dir_size();
-    std::string generate_svo_filename() const;
+    void reset_runtime_state();
+    // Wait for the pending open() future, leaking it on hard timeout so shutdown never
+    // blocks on a wedged SDK call. Returns true if open() completed, false if it was leaked.
+    bool await_or_leak_open(const char *context, const char *validation_label);
+    // Block until frame_ready() (or a lifecycle/disconnect event). `lock` must be held on
+    // entry. Returns false if the camera disconnected while waiting.
+    bool wait_for_new_frame(std::unique_lock<std::mutex> &lock, int &wait_loops,
+                            const std::function<bool()> &frame_ready);
 
+    // Asynchronous open() handling.
     std::atomic<bool> cancel_open_{false};
     std::future<sl::ERROR_CODE> pending_open_;
     std::atomic<bool> capture_thread_done_{false};
 
+    // ZED SDK handles and the most recently captured frame.
     sl::Camera zed_;
     sl::InitParameters params_;
     sl::Mat zed_rgb_;
@@ -96,28 +103,31 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     mutable std::mutex data_mutex_;
     mutable std::condition_variable data_cv_;
     std::thread capture_thread_;
+
+    // Lifecycle flags.
+    //   is_initialized_:   open() succeeded and the capture thread is running.
+    //   should_close_:     capture requested application shutdown (fatal error / end of SVO).
+    //   stop_thread_:      request the capture thread to exit (re-init / destruction).
+    //   camera_connected_: last grab() succeeded; cleared on grab failure.
     std::atomic<bool> is_initialized_;
     std::atomic<bool> should_close_;
     std::atomic<bool> stop_thread_;
     std::atomic<bool> camera_connected_;
-    std::atomic<bool> has_new_frame_;
+
+    // Frame handoff between capture thread and get(). Counters guarded by data_mutex_.
     std::atomic<uint64_t> frame_counter_;
     uint64_t depth_frame_counter_;
     mutable uint64_t last_returned_frame_counter_;
-    mutable std::queue<int> depth_request_queue_;
-    std::deque<std::pair<std::chrono::steady_clock::time_point, bool>> recent_grab_results_;
-    size_t recent_grab_error_count_;
+    bool depth_requested_ = false;
+
+    GrabHealthMonitor grab_health_;
+
     sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
     bool position_tracking_enabled_;
     bool is_playback_input_;
-    std::atomic<bool> svo_recording_enabled_;
-    std::filesystem::path svo_holding_dir_;
-    std::filesystem::path current_svo_path_;
-    uint64_t svo_max_size_bytes_;
-    uint64_t svo_holding_dir_max_size_bytes_;
-    uint64_t frames_since_size_check_;
     int svo_start_frame_;
 
+    std::unique_ptr<SvoRecorder> svo_recorder_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
     // Capture timing statistics (protected by data_mutex_)

@@ -254,6 +254,7 @@ if(BUILD_DEBUG)
     set_source_files_properties(
         src/rgbd_camera/zed_rgbd_camera.hpp
         src/rgbd_camera/zed_rgbd_camera.cpp
+        src/rgbd_camera/svo_recorder.cpp
         src/rgbd_camera/config.cpp
         PROPERTIES COMPILE_FLAGS "-Wall -Wno-extra -Wno-error -O2 -DNDEBUG"
     )
