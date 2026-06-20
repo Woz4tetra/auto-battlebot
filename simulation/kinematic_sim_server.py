@@ -72,11 +72,32 @@ class Plant:
         self._half_x = arena_w / 2.0 - cfg.radius
         self._half_y = arena_h / 2.0 - cfg.radius
 
+    @staticmethod
+    def _apply_deadzone(cmd: float, dz: float) -> float:
+        if dz <= 0.0 or abs(cmd) <= dz:
+            return 0.0 if abs(cmd) <= dz else cmd
+        return math.copysign((abs(cmd) - dz) / (1.0 - dz), cmd)
+
     def step(self, linear_cmd: float, angular_cmd: float, dt: float) -> None:
-        v_target = float(np.clip(linear_cmd, -1.0, 1.0)) * self._cfg.max_linear_speed
-        w_target = float(np.clip(angular_cmd, -1.0, 1.0)) * self._cfg.max_angular_speed
-        a_lin = 1.0 - math.exp(-dt / max(self._cfg.tau_linear, 1e-4))
-        a_ang = 1.0 - math.exp(-dt / max(self._cfg.tau_angular, 1e-4))
+        cfg = self._cfg
+        lc = self._apply_deadzone(float(np.clip(linear_cmd, -1.0, 1.0)), cfg.deadzone_linear)
+        ac = self._apply_deadzone(float(np.clip(angular_cmd, -1.0, 1.0)), cfg.deadzone_angular)
+
+        # Direction-dependent gain (forward/reverse asymmetry), with fall-backs to the symmetric value.
+        fwd = cfg.max_linear_speed_fwd or cfg.max_linear_speed
+        rev = cfg.max_linear_speed_rev or fwd
+        v_target = lc * (fwd if lc >= 0.0 else rev)
+        # Steer-brake coupling: turning bleeds forward speed.
+        v_target *= max(0.0, 1.0 - cfg.steer_brake_coeff * abs(ac))
+        w_target = ac * cfg.max_angular_speed
+
+        # Separate spin-up vs coast/brake time constants, again falling back to the single tau.
+        tau_l_acc = cfg.tau_linear_accel or cfg.tau_linear
+        tau_a_acc = cfg.tau_angular_accel or cfg.tau_angular
+        tau_lin = tau_l_acc if abs(v_target) > abs(self.v) else (cfg.tau_linear_decel or tau_l_acc)
+        tau_ang = tau_a_acc if abs(w_target) > abs(self.w) else (cfg.tau_angular_decel or tau_a_acc)
+        a_lin = 1.0 - math.exp(-dt / max(tau_lin, 1e-4))
+        a_ang = 1.0 - math.exp(-dt / max(tau_ang, 1e-4))
         self.v += a_lin * (v_target - self.v)
         self.w += a_ang * (w_target - self.w)
 

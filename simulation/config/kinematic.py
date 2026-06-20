@@ -55,6 +55,21 @@ class PlantConfig:
     tau_angular: float = 0.064  # s (FIT TO RECORDINGS)
     radius: float = 0.11  # m, half robot length for wall clamp
 
+    # Physical-realism fields fit by playground/calibration/fit_plant_calib.py. Each defaults to 0 meaning
+    # "unset, fall back to the symmetric values above", so existing configs behave exactly as before.
+    max_linear_speed_fwd: float = 0.0  # forward gain; falls back to max_linear_speed
+    max_linear_speed_rev: float = 0.0  # reverse gain (asymmetry); falls back to the forward gain
+    tau_linear_accel: float = 0.0  # spin-up; falls back to tau_linear
+    tau_linear_decel: float = 0.0  # coast/brake; falls back to tau_linear_accel
+    tau_angular_accel: float = 0.0  # falls back to tau_angular
+    tau_angular_decel: float = 0.0  # falls back to tau_angular_accel
+    steer_brake_coeff: float = 0.0  # forward-speed loss per unit |angular cmd| (physical coupling)
+    # Residual deadzone the plant still shows AFTER the transmitter's lifted_deadzone compensation. The
+    # measured physical deadzone belongs in config/main.toml lifted_deadzone_percent, not here; set this
+    # only if the real closed loop still has a dead low end. 0 = none.
+    deadzone_linear: float = 0.0  # command fraction
+    deadzone_angular: float = 0.0
+
 
 @dataclass
 class ProjectionBiasConfig:

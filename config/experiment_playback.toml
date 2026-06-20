@@ -1,0 +1,19 @@
+# Velocity-prediction A/B experiment profile. Extends playback with batch-friendly toggles:
+# MCAP recording on (for offline scoring), UI off, SVO replayed as fast as possible (not real time)
+# so both arms process identical frames deterministically. Pair with the PlaybackTransmitter fix
+# that streams command feedback continuously; without it the filter's motion prediction never fires
+# in playback. See playground/control_stage0/prediction_eval.py.
+extends = "playback"
+
+[rgbd_camera]
+# Auto-driving recording: OUR_ROBOT_1 is driven closed-loop and prominent, so the command-based
+# prediction (which only applies to our robot) is actually exercised, with command ~ actual motion.
+svo_file_path = "data/svo/tests/2026-05-01T11-27-37.svo2"
+svo_real_time_mode = false
+
+[ui]
+enable = false
+
+[mcap]
+enable = true
+ignored_topics = ["/camera/image"]
