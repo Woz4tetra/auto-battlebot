@@ -123,6 +123,9 @@ bool Runner::handle_system_action_request() {
     if (requested_action == UISystemAction::NONE) return true;
 
     spdlog::warn("Runner received system action request: {}", raw_action);
+    // Finalize recordings before the host reboots/powers off, otherwise the MCAP
+    // writer is never closed and the file is left corrupted.
+    stop_recordings_for_shutdown();
     if (system_action_callback_) {
         system_action_callback_(requested_action);
     }
