@@ -50,8 +50,8 @@ DT_MIN, DT_MAX = 0.025, 0.08  # accept ~12-40 Hz steps
 TELEPORT_M = 0.12  # reject pose jumps > this between frames (~3 m/s; perception spike/track switch)
 SMOOTH_WINDOW = 3  # light pose smoothing (~120 ms); larger over-attenuates velocity vs tau ~0.1 s
 CHANNEL_MAX = 1000.0  # opentx raw channel range [-1000, 1000] (kChannelMax in opentx_transmitter.cpp)
-# Only fit the gain above the ESC deadzone; near-zero commands move ~0 m/s and would bias the
-# through-origin slope toward zero (most gentle driving sits inside the deadzone).
+# Only fit the gain above the ESC deadzone; near-zero commands move ~0 m/s and would bias
+# the through-origin slope toward zero (most gentle driving sits inside the deadzone).
 GAIN_MIN_CMD = 0.2
 
 
@@ -233,6 +233,61 @@ def replay(
     return px, py
 
 
+def _short_label(path: Path) -> str:
+    s = path.stem
+    for prefix in ("auto_battlebot_main.toml_", "auto_battlebot_main_"):
+        if s.startswith(prefix):
+            s = s[len(prefix) :]
+    return s.replace("_repaired", "")
+
+
+def plot_per_recording(
+    per_file: list[tuple[str, list[Segment]]], params: dict[str, float], out: Path
+) -> None:
+    """One row per recording: open-loop trajectory (recorded vs replay) + speed + yaw rate.
+
+    Uses the longest continuous segment of each recording. The open-loop replay drifts over long
+    horizons (see the printed short-horizon metrics); the trajectory view is kept to the recorded
+    path so it stays readable while the replay's divergence is still visible.
+    """
+    files = [(lbl, segs) for lbl, segs in per_file if segs]
+    nrows = len(files)
+    fig, axes = plt.subplots(nrows, 3, figsize=(15, 3.6 * nrows), squeeze=False)
+    for i, (label, segs) in enumerate(files):
+        seg = max(segs, key=lambda s: len(s.t))
+        px, py = replay(seg, params)  # open-loop (no re-anchoring)
+        t = seg.t - seg.t[0]
+        v_obs, _ = axis_velocity(seg, angular=False)
+        w_obs, _ = axis_velocity(seg, angular=True)
+
+        ax = axes[i][0]
+        ax.plot(seg.x, seg.y, label="recorded", lw=1.3)
+        ax.plot(px, py, "--", color="crimson", lw=1.3, label="open-loop replay")
+        ax.plot(seg.x[0], seg.y[0], "ko", ms=6)
+        ax.set_aspect("equal")
+        margin = 0.6 * max(float(np.ptp(seg.x)), float(np.ptp(seg.y)), 0.5)
+        ax.set_xlim(seg.x.min() - margin, seg.x.max() + margin)
+        ax.set_ylim(seg.y.min() - margin, seg.y.max() + margin)
+        ax.legend(fontsize=7, loc="upper right")
+        ax.set_ylabel(f"{label}\ny (m)", fontsize=8)
+        ax.set_xlabel("x (m)")
+
+        axes[i][1].plot(t[:-1], v_obs, lw=0.7)
+        axes[i][1].set_xlabel("t (s)")
+        axes[i][1].set_ylabel("m/s")
+        axes[i][2].plot(t[:-1], w_obs, lw=0.7, color="darkorange")
+        axes[i][2].set_xlabel("t (s)")
+        axes[i][2].set_ylabel("rad/s")
+
+    axes[0][0].set_title("open-loop trajectory")
+    axes[0][1].set_title("forward speed (recorded)")
+    axes[0][2].set_title("yaw rate (recorded)")
+    fig.suptitle("Plant fit per recording (longest continuous segment)", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(out, dpi=110)
+    plt.close(fig)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -241,13 +296,16 @@ def main() -> None:
     ap.add_argument("--plot", type=Path, default=None, help="write a validation plot to this path")
     args = ap.parse_args()
 
+    per_file: list[tuple[str, list[Segment]]] = []
     segments: list[Segment] = []
     for path in args.files:
         if not path.exists():
             sys.exit(f"not found: {path}")
-        segments.extend(extract_segments(path))
+        segs = extract_segments(path)
+        per_file.append((_short_label(path), segs))
+        segments.extend(segs)
     if not segments:
-        sys.exit("no usable autonomous segments found")
+        sys.exit("no usable driving segments found")
 
     all_dt = np.concatenate([np.diff(s.t) for s in segments])
     dt = float(np.median(all_dt))
@@ -285,36 +343,13 @@ def main() -> None:
               f"{horizon_rmse(round(horizon_s / dt)) * 100:.1f} cm")
     print(f"  pure open-loop (drift-dominated, not a fidelity metric): "
           f"{horizon_rmse(None) * 100:.0f} cm")
-    px, py = replay(longest, params, reanchor_frames=round(1.0 / dt))
-    rmse = horizon_rmse(round(1.0 / dt))
 
     print("\nPaste into simulation/kinematic_sim.toml [our_robot]:")
     for key in ("max_linear_speed", "max_angular_speed", "tau_linear", "tau_angular"):
         print(f"  {key} = {params[key]:.3f}")
 
     if args.plot is not None:
-        fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-        axes[0].plot(longest.x, longest.y, label="recorded", lw=1.5)
-        axes[0].plot(px, py, "--", label="fitted replay", lw=1.5)
-        axes[0].set_aspect("equal")
-        axes[0].legend()
-        axes[0].set_title(f"open-loop trajectory (RMSE {rmse * 100:.1f} cm)")
-        axes[0].set_xlabel("x (m)")
-        axes[0].set_ylabel("y (m)")
-
-        t = longest.t - longest.t[0]
-        v_obs, _ = axis_velocity(longest, angular=False)
-        w_obs, _ = axis_velocity(longest, angular=True)
-        axes[1].plot(t[:-1], v_obs, lw=0.8)
-        axes[1].set_title("forward speed (recorded)")
-        axes[1].set_xlabel("t (s)")
-        axes[1].set_ylabel("m/s")
-        axes[2].plot(t[:-1], w_obs, lw=0.8, color="darkorange")
-        axes[2].set_title("yaw rate (recorded)")
-        axes[2].set_xlabel("t (s)")
-        axes[2].set_ylabel("rad/s")
-        fig.tight_layout()
-        fig.savefig(args.plot, dpi=110)
+        plot_per_recording(per_file, params, args.plot)
         print(f"\nwrote {args.plot}")
 
 

@@ -49,10 +49,10 @@ class CameraConfig:
 class PlantConfig:
     start_pos: list[float] = field(default_factory=lambda: [-0.6, -0.6])
     start_yaw_deg: float = 45.0
-    max_linear_speed: float = 2.0  # m/s at command magnitude 1.0
-    max_angular_speed: float = 6.0  # rad/s at command magnitude 1.0
-    tau_linear: float = 0.15  # s, first-order coast time constant (FIT TO RECORDINGS)
-    tau_angular: float = 0.08  # s (FIT TO RECORDINGS)
+    max_linear_speed: float = 0.434  # m/s at command magnitude 1.0
+    max_angular_speed: float = 0.212  # rad/s at command magnitude 1.0
+    tau_linear: float = 0.060  # s, first-order coast time constant (FIT TO RECORDINGS)
+    tau_angular: float = 0.064  # s (FIT TO RECORDINGS)
     radius: float = 0.11  # m, half robot length for wall clamp
 
 
