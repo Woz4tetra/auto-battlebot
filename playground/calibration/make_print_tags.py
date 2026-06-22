@@ -6,18 +6,19 @@ true_battlebot scripts/tags/tag_tools.py. The tags themselves are rendered with 
 pose. cv2.aruco's ids match the canonical AprilRobotics tag36h11 family (verified), so these are real
 AprilTags.
 
-Sizing keeps the ZED resolution in mind. In its fastest mode (VGA 672x376 @ 100 fps) the ZED 2i has coarse
-ground sampling, so markers must be physically large to detect from an overhead mount. The script prints the
-estimated marker size in pixels at the ZED for the given mount height; aim for >= ~30 px. If your mount is
-high and the estimate is small, increase --floor-marker-size / --robot-tag-size, or run the camera at
-HD720 @ 60 instead of VGA.
+Sizing keeps the camera resolution in mind. apriltag_track.py runs the OAK-1 W at 1080p (1920x1080 @ 60 fps);
+the script prints the estimated marker size in pixels at that resolution for the given mount height. Face-on,
+36h11 needs ~18 px edge to decode, so aim well above that (>= ~30 px). If your mount is high and the estimate
+is small, increase --floor-marker-size / --robot-tag-size, lower the mount, or step up to 4K.
 
 Usage:
     source scripts/activate_python.sh
     python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
 
-Defaults match apriltag_track.py: floor grid 4x3 of 0.16 m markers (ids 10..21), robot tag id 0 at 0.13 m.
-Print both at 100% (no "fit to page"), tape the grid flat on the floor and the tag flat on the robot top.
+The floor grid is normally the manufactured board (3x5 of 65 mm markers, 15 mm gaps, ids 160..174 numbered
+right-to-left per row); this script reproduces it only if you need a reprint. The robot tag (id 20, off the
+floor's 160..174 range) is the piece you actually print here. Defaults match apriltag_track.py. Print at 100%
+(no "fit to page"), tape the tag flat on the robot top.
 """
 
 from __future__ import annotations
@@ -52,7 +53,8 @@ def floor_grid_pdf(
     quiet_mm: float, px_per_mm: float, out: Path,
 ) -> None:
     dictionary = cv2.aruco.getPredefinedDictionary(DICTIONARY)
-    ids = np.arange(first_id, first_id + cols * rows)
+    # Match the manufactured board: ids run right-to-left within each row (see apriltag_track.make_floor_board).
+    ids = np.arange(first_id, first_id + cols * rows).reshape(rows, cols)[:, ::-1].reshape(-1)
     board = cv2.aruco.GridBoard((cols, rows), marker_m, sep_m, dictionary, ids)
     board_w_mm = (cols * marker_m + (cols - 1) * sep_m) * 1000.0
     board_h_mm = (rows * marker_m + (rows - 1) * sep_m) * 1000.0
@@ -74,7 +76,7 @@ def robot_tag_pdf(tag_id: int, tag_m: float, quiet_mm: float, px_per_mm: float, 
     save_pdf(img, px_per_mm, out)
 
 
-def zed_px(marker_m: float, mount_m: float, hfov_deg: float, width_px: int) -> float:
+def cam_px(marker_m: float, mount_m: float, hfov_deg: float, width_px: int) -> float:
     """Estimated marker size in pixels at the camera (ground sampling from an overhead mount)."""
     gsd = (2.0 * mount_m * math.tan(math.radians(hfov_deg) / 2.0)) / width_px  # m / px
     return marker_m / gsd
@@ -85,19 +87,19 @@ def main() -> None:
     p.add_argument("--out-dir", type=Path, default=Path("playground/calibration/print"))
     p.add_argument("--px-per-mm", type=float, default=8.0, help="print resolution (8 = ~203 DPI)")
     p.add_argument("--quiet-mm", type=float, default=20.0, help="white border around tags/board (mm)")
-    # Floor grid (must match apriltag_track.py --floor-* defaults).
-    p.add_argument("--floor-cols", type=int, default=4)
-    p.add_argument("--floor-rows", type=int, default=3)
-    p.add_argument("--floor-marker-size", type=float, default=0.16, help="floor marker edge (m)")
-    p.add_argument("--floor-marker-sep", type=float, default=0.05, help="gap between floor markers (m)")
-    p.add_argument("--floor-first-id", type=int, default=10)
-    # Robot tag.
-    p.add_argument("--robot-tag-id", type=int, default=0)
+    # Floor grid (must match apriltag_track.py --floor-* defaults; mirrors the manufactured board).
+    p.add_argument("--floor-cols", type=int, default=3)
+    p.add_argument("--floor-rows", type=int, default=5)
+    p.add_argument("--floor-marker-size", type=float, default=0.065, help="floor marker edge (m)")
+    p.add_argument("--floor-marker-sep", type=float, default=0.015, help="gap between floor markers (m)")
+    p.add_argument("--floor-first-id", type=int, default=160)
+    # Robot tag (id off the floor's 160..174 range).
+    p.add_argument("--robot-tag-id", type=int, default=20)
     p.add_argument("--robot-tag-size", type=float, default=0.13, help="robot tag edge (m)")
-    # ZED sizing estimate.
+    # Camera sizing estimate (defaults: OAK-1 W wide lens at 1080p).
     p.add_argument("--mount-height", type=float, default=1.0, help="camera height above the floor (m)")
-    p.add_argument("--zed-hfov-deg", type=float, default=110.0, help="ZED 2i wide-lens horizontal FOV")
-    p.add_argument("--zed-width", type=int, default=672, help="VGA width in pixels")
+    p.add_argument("--cam-hfov-deg", type=float, default=127.0, help="OAK-1 W wide-lens horizontal FOV")
+    p.add_argument("--cam-width", type=int, default=1920, help="capture width in pixels (1080p = 1920)")
     args = p.parse_args()
 
     floor_grid_pdf(
@@ -109,11 +111,11 @@ def main() -> None:
         args.out_dir / "robot_tag.pdf",
     )
 
-    print(f"\nZED VGA check (mount {args.mount_height:.2f} m, HFOV {args.zed_hfov_deg:.0f} deg, "
-          f"{args.zed_width}px):")
+    print(f"\nOAK-1 W 1080p check (mount {args.mount_height:.2f} m, HFOV {args.cam_hfov_deg:.0f} deg, "
+          f"{args.cam_width}px):")
     for name, size in (("floor marker", args.floor_marker_size), ("robot tag", args.robot_tag_size)):
-        px = zed_px(size, args.mount_height, args.zed_hfov_deg, args.zed_width)
-        flag = "ok" if px >= 30 else "LOW - enlarge it, lower the mount, or use HD720@60"
+        px = cam_px(size, args.mount_height, args.cam_hfov_deg, args.cam_width)
+        flag = "ok" if px >= 30 else ("usable" if px >= 18 else "LOW - enlarge it, lower the mount, or 4K")
         print(f"  {name} {size * 1000:.0f} mm -> ~{px:.0f} px  [{flag}]")
     print("\nPrint both PDFs at 100% (no fit-to-page). Verify a marker edge measures the stated mm.")
 

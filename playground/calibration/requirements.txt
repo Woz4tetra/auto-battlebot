@@ -1,0 +1,26 @@
+# Dependencies for the Mrs Buff MK3 drivetrain calibration tools (playground/calibration/).
+# Install into the project venv:
+#   source scripts/activate_python.sh
+#   pip install -r playground/calibration/requirements.txt
+
+# Overhead ground-truth camera: Luxonis OAK-1 W via DepthAI (apriltag_track.py).
+# Pinned to the v2 line: apriltag_track.py uses the v2 ColorCamera/XLinkOut pipeline API. depthai 3.x is a
+# different API and will not work with this code.
+depthai>=2.24.0,<3.0.0
+
+# AprilTag detection + linear algebra (apriltag_track.py, make_print_tags.py, fit_plant_calib.py,
+# make_robot_tag_3d.py). 4.7 is the first release with the cv2.aruco.ArucoDetector API this code uses.
+opencv-python>=4.7.0
+numpy>=1.24.0
+
+# Excitation driver over the OpenTX trainer USB-CDC link (calibrate_drive.py).
+pyserial>=3.5
+
+# Print-accurate AprilTag PDF export (make_print_tags.py).
+Pillow>=9.0.0
+
+# Plant-fit validation plots (fit_plant_calib.py).
+matplotlib>=3.5.0
+
+# 3D robot-tag mount model export (make_robot_tag_3d.py).
+trimesh>=3.20.0

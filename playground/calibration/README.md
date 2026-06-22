@@ -19,22 +19,30 @@ These tools fix that with a deliberate excitation run against clean AprilTag gro
 
 ## Prerequisites
 
-- `pyserial` (driver script) and `opencv-python` (AprilTag, already a project dep). Install pyserial into
-  the venv if missing.
+- Install the subfolder deps into the venv: `pip install -r playground/calibration/requirements.txt`
+  (DepthAI for the OAK, plus opencv/numpy/pyserial/Pillow/matplotlib/trimesh). DepthAI is pinned to the v2
+  line; `apriltag_track.py` uses the v2 pipeline API.
 - An AprilTag (`DICT_APRILTAG_36h11`) mounted flat on the robot top; note its physical edge length
   (`--tag-size`, metres) and its heading offset vs robot forward (`--yaw-offset-deg`).
-- A printed AprilTag **floor grid** (a `GridBoard`) taped flat on the floor, fully in view, plus the
-  **robot tag** taped flat on the robot top. Generate both as print-accurate PDFs with `make_print_tags.py`
-  (step 0 below). The grid auto-detects the world frame, so no clicking pixels by hand. Its marker ids
-  (`[--floor-first-id, +cols*rows)`, default 10..21) must not collide with the robot `--tag-id` (default 0).
-  Defaults are sized for the ZED at VGA: 0.16 m floor markers, a 0.13 m robot tag (~38 px / ~31 px at a
-  1 m mount). Print at 100% and verify a marker edge measures the stated size.
-- The overhead camera. With the ZED (`--source zed`) intrinsics come from the SDK automatically and the
-  camera runs its fastest mode (VGA @ 100 fps; high fps sharpens the actuation-lag estimate). Otherwise
-  pass `--intrinsics` as `{ "camera_matrix": [...], "dist_coeffs": [...] }` or `{ "fx":.., "fy":.., "cx":..,
-  "cy":.. }`, matched to the running resolution.
-- With the intrinsics, the floor grid and the robot tag are both solved by `solvePnP`, so the tag's height
-  above the floor does not bias (x, y) (no flat-plane parallax).
+- The manufactured AprilTag **floor grid** (a `GridBoard`, 3x5 of 65 mm markers, 15 mm gaps, ids 160..174
+  numbered right-to-left per row) placed flat and fully in view for the one-time floor lock, then
+  **removed** so it never obstructs the robot. Plus the **robot tag** (id 20, off the grid's range); generate
+  its print-accurate PDF with `make_print_tags.py` (step 0). The grid auto-detects the world frame, so no
+  clicking pixels by hand. Detection is pixels-limited: face-on, 36h11 needs ~18 px edge to decode. At
+  1080p the 65 mm floor markers are ~36 px @1 m, so the one-time lock works at the mount; if it does not
+  catch, place or hold the board closer (it is removed afterward anyway).
+- The overhead camera: a Luxonis **OAK-1 W** (`--source oak`). Intrinsics and distortion come from the
+  on-device factory calibration automatically; it runs 1080p @ 60 fps (resolution clears the ~18 px
+  detection cliff at a 1-1.5 m mount, 60 fps meets the actuation-lag estimate's >=60 fps need). For any
+  other camera/video, pass `--intrinsics` as `{ "camera_matrix": [...], "dist_coeffs": [...] }` or
+  `{ "fx":.., "fy":.., "cx":.., "cy":.. }`, matched to the running resolution.
+- Lighting. Dim arenas crush the marker contrast and detection fails (a raw frame at mean ~52/255 detected
+  0 tags). Each frame is auto-brightened before detection (recovered ~10/15 on that frame), and the preview
+  shows the brightened image, but good, even lighting still helps: avoid a bright background that fools the
+  camera's auto-exposure into underexposing the floor.
+- The OAK-1 W's wide lens is distorted, but the floor grid and the robot tag are both solved by `solvePnP`
+  with the real distortion coefficients, so the tag's height above the floor does not bias (x, y) (no
+  flat-plane parallax).
 - **Guard plates ON**, competition battery, surface matched to the NHRL arena floor. Plate friction is part
   of the plant. See `am32_tuning.md`.
 - Driver radio sticks centered: trainer mode adds stick input to the script's command.
@@ -45,18 +53,20 @@ These tools fix that with a deliberate excitation run against clean AprilTag gro
 
 ```bash
 source scripts/activate_python.sh
+pip install -r playground/calibration/requirements.txt   # once: DepthAI (OAK) + the rest
 
-# 0. Generate the floor grid + robot tag PDFs, print at 100%, tape the grid on the floor (fully in view)
-#    and the tag flat on the robot top.
+# 0. Print the robot tag PDF at 100% and tape it flat on the robot top. The floor grid is the manufactured
+#    board, so it needs no printing (make_print_tags also writes a floor_grid.pdf for reprints only).
 python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
 
 # 1. Dry-run the protocol (no hardware) to review the maneuver schedule.
 python playground/calibration/calibrate_drive.py --dry-run
 
-# 2. Start the overhead ground-truth capture (own terminal). ZED intrinsics + fastest fps (VGA@100) come
-#    from the SDK. The floor-grid defaults match make_print_tags.py, so only --tag-size is needed.
+# 2. Start the overhead ground-truth capture (own terminal). OAK-1 W intrinsics + distortion + 1080p@60
+#    come from the device; defaults match the manufactured board. It prompts you to place the floor board
+#    to lock the world frame, then to REMOVE the board before driving so it does not block the robot.
 python playground/calibration/apriltag_track.py \
-    --source zed --tag-size 0.13 --out playground/calibration/out/truth_log.csv
+    --source oak --out playground/calibration/out/truth_log.csv
 
 # 3. Run the excitation. Arms only after you type 'go'; disarms on any exit.
 python playground/calibration/calibrate_drive.py --out playground/calibration/out/cmd_log.csv
