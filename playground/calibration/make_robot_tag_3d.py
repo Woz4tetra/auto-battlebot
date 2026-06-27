@@ -85,7 +85,9 @@ def black_cell_boxes(
                 c += 1
             run = c - run_start
             cx = origin[0] + cell * (run_start + run / 2.0)
-            cy = origin[1] + cell * (r + 0.5)
+            # Image row r counts from the top, world +y points up: row 0 must land at the high-y edge so a
+            # top-down camera sees the tag, not its vertical mirror. (A reflected 36h11 tag never decodes.)
+            cy = origin[1] + cell * (side - 1 - r + 0.5)
             box = trimesh.creation.box(extents=[cell * run, cell, tag_h])
             box.apply_translation([cx, cy, base_h + tag_h / 2.0])
             box.visual.face_colors = BLACK
@@ -161,7 +163,8 @@ def main() -> None:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--out-dir", type=Path, default=Path("playground/calibration/print_3d"))
+    p.add_argument("--out-dir", type=Path, default=Path(__file__).resolve().parent / "print_3d",
+                   help="output directory for robot_tag.3mf and the STLs (default: alongside this script)")
     p.add_argument("--tag-id", type=int, default=0)
     p.add_argument("--tag-size", type=float, default=0.1, help="AprilTag edge length (m)")
     p.add_argument("--base-height", type=float, default=2.0, help="white base thickness (mm)")

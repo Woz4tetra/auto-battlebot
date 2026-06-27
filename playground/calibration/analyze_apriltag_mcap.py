@@ -15,6 +15,8 @@ Usage:
         playground/calibration/out/apriltag_track.mcap --out playground/calibration/out/truth_log.csv
     # Re-solve with a corrected yaw offset (overrides the value recorded at capture):
     python playground/calibration/analyze_apriltag_mcap.py rec.mcap --yaw-offset-deg 90 --plot fit.png
+    # Also emit a Foxglove overlay (camera frames + solved pose markers via TF) to eyeball the fit:
+    python playground/calibration/analyze_apriltag_mcap.py rec.mcap --overlay-mcap overlay.mcap
 """
 
 from __future__ import annotations
@@ -42,8 +44,12 @@ def solve_floor(metadata: dict, path: Path, detector, k: np.ndarray, d: np.ndarr
     return ad.solve_floor_extrinsic(frames, detector, board, k, d)
 
 
-def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float) -> list[dict]:
-    """Detect the robot tag in each /camera/image frame and solve its field-plane (t, x, y, yaw, visible)."""
+def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
+    """Detect the robot tag in each /camera/image frame and solve its field-plane (t, x, y, yaw, visible).
+
+    Returns (rows, r_fc, t_fc): the per-frame poses plus the floor extrinsic, which the overlay writer
+    needs to place the camera in the field frame.
+    """
     k = np.asarray(metadata["camera_matrix"], dtype=np.float64).reshape(3, 3)
     d = np.asarray(metadata["dist_coeffs"], dtype=np.float64).reshape(-1, 1)
     detector = ad.make_detector()
@@ -61,7 +67,7 @@ def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float) -> l
             rows.append({"t": t, "x": pose[0], "y": pose[1], "yaw": pose[2], "visible": 1})
         else:
             rows.append({"t": t, "x": None, "y": None, "yaw": None, "visible": 0})
-    return rows
+    return rows, r_fc, t_fc
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
@@ -144,6 +150,9 @@ def main() -> None:
     parser.add_argument("--yaw-offset-deg", type=float, default=None,
                         help="override the yaw offset recorded at capture")
     parser.add_argument("--plot", type=Path, default=None, help="also save a trajectory plot to this path")
+    parser.add_argument("--overlay-mcap", type=Path, default=None,
+                        help="also write a Foxglove overlay MCAP (camera frames + CameraInfo + TF + pose "
+                             "markers) to this path for eyeballing the solved poses on the video")
     args = parser.parse_args()
 
     metadata = amcap.read_metadata(args.mcap)
@@ -151,7 +160,7 @@ def main() -> None:
     yaw_offset_deg = (args.yaw_offset_deg if args.yaw_offset_deg is not None
                       else float(metadata["yaw_offset_deg"]))
 
-    rows = solve_poses(metadata, args.mcap, tag_id, math.radians(yaw_offset_deg))
+    rows, r_fc, t_fc = solve_poses(metadata, args.mcap, tag_id, math.radians(yaw_offset_deg))
 
     out = args.out if args.out is not None else args.mcap.with_suffix(".csv")
     write_csv(out, rows)
@@ -159,6 +168,9 @@ def main() -> None:
     print(f"truth log: {out}")
     if args.plot is not None:
         save_plot(args.plot, rows, tag_id)
+    if args.overlay_mcap is not None:
+        amcap.write_overlay(args.overlay_mcap, args.mcap, metadata, rows, r_fc, t_fc)
+        print(f"overlay mcap: {args.overlay_mcap}")
 
 
 if __name__ == "__main__":

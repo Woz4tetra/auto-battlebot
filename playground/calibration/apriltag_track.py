@@ -72,11 +72,11 @@ import math
 import sys
 import time
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 import cv2
 import numpy as np
-
 from calib_lib import apriltag_detect as ad
 from calib_lib import apriltag_mcap as amcap
 
@@ -507,7 +507,9 @@ def main() -> None:
     parser.add_argument(
         "--intrinsics", type=Path, default=None, help="K/D JSON; required unless --source provides them"
     )
-    parser.add_argument("--out", type=Path, default=Path("playground/calibration/out/apriltag_track.mcap"),
+    default_out = (Path(__file__).resolve().parent / "out" /
+                   f"apriltag_track_{datetime.now():%Y%m%d_%H%M%S}.mcap")
+    parser.add_argument("--out", type=Path, default=default_out,
                         help="MCAP recording of raw camera images; solve poses with analyze_apriltag_mcap.py")
     parser.add_argument("--tag-id", type=int, default=20, help="AprilTag id mounted on the robot")
     parser.add_argument(
@@ -523,6 +525,9 @@ def main() -> None:
     parser.add_argument("--floor-first-id", type=int, default=160, help="lowest grid marker id (board uses 160..174)")
     parser.add_argument("--no-preview", action="store_true",
                         help="disable the live preview window (use for headless / automated video replay)")
+    parser.add_argument("--show-other-tags", action="store_true",
+                        help="in the tracking preview, also draw the floor-frame pose of every non-robot "
+                             "tag (floor-marker size for grid ids, robot tag size otherwise)")
     parser.add_argument("--image-format", choices=amcap.IMAGE_FORMATS, default="jpeg",
                         help="jpeg: smaller, lossy (default); raw: lossless bgr8, larger, exact corners")
     args = parser.parse_args()
@@ -555,6 +560,11 @@ def main() -> None:
 
     obj = ad.tag_object_points(args.tag_size)
     yaw_offset = math.radians(args.yaw_offset_deg)
+    # Non-robot tags solved with --show-other-tags: grid markers use the floor-marker size, every
+    # other id falls back to the robot tag size (axes still draw, but the x/y is approximate).
+    floor_obj = ad.tag_object_points(args.floor_marker_size)
+    n_floor = args.floor_cols * args.floor_rows
+    floor_ids = frozenset(range(args.floor_first_id, args.floor_first_id + n_floor))
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     writer = amcap.CaptureWriter(args.out, image_format=args.image_format)
@@ -630,6 +640,28 @@ def main() -> None:
                         cv2.aruco.drawDetectedMarkers(disp, [corners[idx]], np.array([[args.tag_id]]))
                         if pose is not None:
                             cv2.drawFrameAxes(disp, k, d, pose[3], pose[4], args.tag_size / 2.0)
+                    if args.show_other_tags and ids is not None:
+                        for j, tid in enumerate(int(t) for t in ids.flatten()):
+                            if tid == args.tag_id:
+                                continue
+                            is_floor = tid in floor_ids
+                            tag_obj = floor_obj if is_floor else obj
+                            tag_size = args.floor_marker_size if is_floor else args.tag_size
+                            tpose = ad.tag_pose_field(
+                                corners[j], tag_obj, k, d, r_fc, t_fc, yaw_offset,
+                            )
+                            if tpose is None:
+                                continue
+                            cv2.aruco.drawDetectedMarkers(disp, [corners[j]], np.array([[tid]]))
+                            cv2.drawFrameAxes(disp, k, d, tpose[3], tpose[4], tag_size / 2.0)
+                            c = corners[j].reshape(-1, 2).mean(axis=0)
+                            cv2.putText(
+                                disp,
+                                f"id{tid} x={tpose[0]:+.2f} y={tpose[1]:+.2f} "
+                                f"yaw={math.degrees(tpose[2]):+.0f}",
+                                (int(c[0]) - 40, int(c[1])), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                                (0, 255, 255), 1, cv2.LINE_AA,
+                            )
                     status = (f"x={pose[0]:+.3f} y={pose[1]:+.3f} yaw={math.degrees(pose[2]):+6.1f}deg"
                               if pose is not None else "robot tag NOT visible")
                     draw_hud(disp, [
