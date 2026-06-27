@@ -160,7 +160,7 @@ class OakSource:
     # frames; blocking=False means a full queue drops the OLDEST. 16 covers a ~270ms stall at 60fps.
     QUEUE_SIZE = 16
 
-    def __init__(self, source: str = "oak") -> None:
+    def __init__(self, source: str = "oak", exposure_us: int | None = None, iso: int = 800) -> None:
         try:
             import depthai as dai
         except ModuleNotFoundError as e:
@@ -183,6 +183,13 @@ class OakSource:
         cam.setFps(self.FPS)
         cam.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
         cam.setInterleaved(False)
+        # Fix a short shutter to freeze the robot's motion. Auto-exposure would otherwise stretch
+        # the shutter toward the 16.7 ms frame period and smear the tag in fast moves; gain (iso)
+        # carries the brightness instead. Omit exposure_us to leave the camera on auto-exposure.
+        self._exposure_us = exposure_us
+        self._iso = iso
+        if exposure_us is not None:
+            cam.initialControl.setManualExposure(exposure_us, iso)
         xout = pipeline.create(dai.node.XLinkOut)
         xout.setStreamName("video")
         cam.video.link(xout.input)
@@ -195,7 +202,11 @@ class OakSource:
         f0 = self._pending.getCvFrame()
         self._h, self._w = f0.shape[:2]
         speed = str(self._device.getUsbSpeed())
-        print(f"OAK opened: {self._w}x{self._h} @ {self.FPS:.0f} fps (CAM_A), USB link: {speed}")
+        if self._exposure_us:
+            mode = f"manual {self._exposure_us}us iso{self._iso}"
+        else:
+            mode = "auto-exposure"
+        print(f"OAK opened: {self._w}x{self._h} @ {self.FPS:.0f}fps (CAM_A), {mode}, USB: {speed}")
         if "SUPER" not in speed.upper():
             print(f"  WARNING: USB link is {speed} (USB 2.0). 1080p cannot stream at {self.FPS:.0f} fps over "
                   "USB 2.0 and will be throttled to ~25-30 fps. Plug the OAK into a USB 3 port (blue USB-A "
@@ -228,9 +239,9 @@ class OakSource:
         self._device.close()
 
 
-def open_source(source: str) -> CvSource | OakSource:
+def open_source(source: str, exposure_us: int | None = None, iso: int = 800) -> CvSource | OakSource:
     if source == "oak":
-        return OakSource(source)
+        return OakSource(source, exposure_us=exposure_us, iso=iso)
     return CvSource(source)
 
 
@@ -515,6 +526,12 @@ def main() -> None:
     parser.add_argument(
         "--intrinsics", type=Path, default=None, help="K/D JSON; required unless --source provides them"
     )
+    parser.add_argument("--exposure-us", type=int, default=2090,
+                        help="fix the OAK shutter (microseconds) to freeze motion blur; omit for "
+                             "auto-exposure. Shorter = less blur, more --iso. Try 2000/1500/1000")
+    parser.add_argument("--iso", type=int, default=1000,
+                        help="OAK sensor gain (100-1600) used with --exposure-us; raise it when a "
+                             "shorter exposure darkens the image (default 800)")
     default_out = (Path(__file__).resolve().parent / "out" /
                    f"apriltag_track_{datetime.now():%Y%m%d_%H%M%S}.mcap")
     parser.add_argument("--out", type=Path, default=default_out,
@@ -553,7 +570,7 @@ def main() -> None:
         )
 
     detector = ad.make_detector()
-    source = open_source(args.source)
+    source = open_source(args.source, exposure_us=args.exposure_us, iso=args.iso)
 
     # Intrinsics: explicit file wins; otherwise ask the source (the OAK on-device calibration).
     if args.intrinsics is not None:
