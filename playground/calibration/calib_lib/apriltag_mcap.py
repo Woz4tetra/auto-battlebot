@@ -13,8 +13,10 @@ A recording holds:
 Images are stored either as ROS1 sensor_msgs/CompressedImage (JPEG, the default) or sensor_msgs/Image
 (uncompressed bgr8, lossless) depending on the capture format; both open in Foxglove. JPEG is lossy at the
 marker edges the subpixel corner refinement keys on, so its stored corners differ slightly from the live
-frame; raw is bit-identical to what the camera produced. The MCAP chunks are ZSTD-compressed regardless,
-so raw frames still shrink losslessly on disk rather than landing at full BGR size.
+frame; raw is bit-identical to what the camera produced. MCAP chunk compression is chosen per format: JPEG
+uses ZSTD (frames are already small, so it is cheap and shrinks them further), while raw uses no compression.
+Compressing 6 MB raw frames per frame is the capture bottleneck (ZSTD ~26 ms, LZ4 ~13 ms, both cap fps below
+60 and barely shrink noisy sensor data), so raw stores uncompressed (~3.6 ms/frame) and relies on the NVMe.
 
 Timestamps are CLOCK_MONOTONIC seconds (the same clock calibrate_drive.py logs against); each frame's
 monotonic time is the MCAP log_time, and analysis reads the pose timestamps straight back from it.
@@ -31,7 +33,7 @@ from typing import Iterator
 import cv2
 import numpy as np
 from mcap.reader import make_reader
-from mcap.writer import Writer
+from mcap.writer import CompressionType, Writer
 
 TOPIC_METADATA = "/calibration/metadata"
 TOPIC_FLOOR_IMAGE = "/floor/image"
@@ -182,7 +184,11 @@ class CaptureWriter:
             raise ValueError(f"image_format must be one of {IMAGE_FORMATS}, got {image_format!r}")
         self._image_format = image_format
         self._file = open(path, "wb")
-        self._writer = Writer(self._file)
+        # JPEG frames are tiny and already compressed, so ZSTD is cheap. Raw frames are 6 MB each
+        # and ZSTD-ing each is the capture wall (~26 ms; LZ4 ~13 ms), both under 60 fps. Raw uses
+        # NONE: ~3.6 ms/frame, lossless; NVMe carries the ~370 MB/s (~3.6 GB per ~10 s capture).
+        compression = CompressionType.ZSTD if image_format == "jpeg" else CompressionType.NONE
+        self._writer = Writer(self._file, compression=compression)
         self._writer.start(profile="apriltag_track")
         self._meta_chan = self._writer.register_channel(
             topic=TOPIC_METADATA, message_encoding="json",

@@ -30,6 +30,9 @@ import numpy as np
 from calib_lib import apriltag_detect as ad
 from calib_lib import apriltag_mcap as amcap
 
+# Sentinel for --overlay-mcap given with no argument: write next to the recording.
+OVERLAY_DEFAULT = object()
+
 
 def solve_floor(metadata: dict, path: Path, detector, k: np.ndarray, d: np.ndarray):
     """Re-solve the floor extrinsic (R_fc, t_fc) from the recorded /floor/image lock burst."""
@@ -189,9 +192,10 @@ def main() -> None:
     parser.add_argument("--yaw-offset-deg", type=float, default=None,
                         help="override the yaw offset recorded at capture")
     parser.add_argument("--plot", type=Path, default=None, help="also save a trajectory plot to this path")
-    parser.add_argument("--overlay-mcap", type=Path, default=None,
+    parser.add_argument("--overlay-mcap", type=Path, nargs="?", default=None, const=OVERLAY_DEFAULT,
                         help="also write a Foxglove overlay MCAP (camera frames + CameraInfo + TF + pose "
-                             "markers) to this path for eyeballing the solved poses on the video")
+                             "markers) for eyeballing the solved poses on the video. Pass a path, or give "
+                             "the flag with no argument to write <mcap stem>_overlay.mcap next to the recording")
     args = parser.parse_args()
 
     metadata = amcap.read_metadata(args.mcap)
@@ -209,8 +213,11 @@ def main() -> None:
     if args.plot is not None:
         save_plot(args.plot, rows, tag_id)
     if args.overlay_mcap is not None:
-        amcap.write_overlay(args.overlay_mcap, args.mcap, metadata, rows, r_fc, t_fc)
-        print(f"overlay mcap: {args.overlay_mcap}")
+        overlay_path = args.overlay_mcap
+        if overlay_path is OVERLAY_DEFAULT:
+            overlay_path = args.mcap.with_name(f"{args.mcap.stem}_overlay.mcap")
+        amcap.write_overlay(overlay_path, args.mcap, metadata, rows, r_fc, t_fc)
+        print(f"overlay mcap: {overlay_path}")
 
 
 if __name__ == "__main__":
