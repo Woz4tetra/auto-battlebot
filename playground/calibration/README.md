@@ -65,13 +65,19 @@ python playground/calibration/calibrate_drive.py --dry-run
 # 2. Start the overhead ground-truth capture (own terminal). OAK-1 W intrinsics + distortion + 1080p@60
 #    come from the device; defaults match the manufactured board. It prompts you to place the floor board
 #    to lock the world frame, then to REMOVE the board before driving so it does not block the robot.
+#    This records the raw camera images to MCAP; AprilTag detection + the pose solve happen offline (step 4).
 python playground/calibration/apriltag_track.py \
-    --source oak --out playground/calibration/out/truth_log.csv
+    --source oak --out playground/calibration/out/apriltag_track.mcap
 
 # 3. Run the excitation. Arms only after you type 'go'; disarms on any exit.
 python playground/calibration/calibrate_drive.py --out playground/calibration/out/cmd_log.csv
 
-# 4. Fit the plant and write the validation plot.
+# 4. Solve the field-plane poses from the recording -> the (t, x, y, yaw, visible) truth CSV.
+python playground/calibration/analyze_apriltag_mcap.py \
+    playground/calibration/out/apriltag_track.mcap \
+    --out playground/calibration/out/truth_log.csv --plot playground/calibration/out/track.png
+
+# 5. Fit the plant and write the validation plot.
 python playground/calibration/fit_plant_calib.py \
     playground/calibration/out/cmd_log.csv playground/calibration/out/truth_log.csv \
     --plot playground/calibration/out/fit.png

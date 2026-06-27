@@ -13,6 +13,9 @@ depthai>=2.24.0,<3.0.0
 opencv-python>=4.7.0
 numpy>=1.24.0
 
+# MCAP recording of raw camera images (apriltag_track.py) + offline pose solve (analyze_apriltag_mcap.py).
+mcap>=1.0.0
+
 # Excitation driver over the OpenTX trainer USB-CDC link (calibrate_drive.py).
 pyserial>=3.5
 
