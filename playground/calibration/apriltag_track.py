@@ -53,6 +53,8 @@ Usage:
     # Any other camera/video with your own intrinsics instead of the OAK:
     python playground/calibration/apriltag_track.py --source 0 \
         --intrinsics playground/calibration/cam_intrinsics.json --tag-size 0.13
+    # Store lossless raw frames instead of JPEG (larger files, no compression-induced corner shift):
+    python playground/calibration/apriltag_track.py --source oak --image-format raw
     # 3. Solve the field-plane poses offline and write the (t, x, y, yaw, visible) truth CSV:
     python playground/calibration/analyze_apriltag_mcap.py \
         playground/calibration/out/apriltag_track.mcap --out playground/calibration/out/truth_log.csv
@@ -521,6 +523,8 @@ def main() -> None:
     parser.add_argument("--floor-first-id", type=int, default=160, help="lowest grid marker id (board uses 160..174)")
     parser.add_argument("--no-preview", action="store_true",
                         help="disable the live preview window (use for headless / automated video replay)")
+    parser.add_argument("--image-format", choices=amcap.IMAGE_FORMATS, default="jpeg",
+                        help="jpeg: smaller, lossy (default); raw: lossless bgr8, larger, exact corners")
     args = parser.parse_args()
     preview = not args.no_preview
 
@@ -553,7 +557,8 @@ def main() -> None:
     yaw_offset = math.radians(args.yaw_offset_deg)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    writer = amcap.CaptureWriter(args.out)
+    writer = amcap.CaptureWriter(args.out, image_format=args.image_format)
+    print(f"recording {args.image_format} images to {args.out}")
     # Metadata (filled with the image size from the first recorded frame) carries everything analysis needs
     # except the floor extrinsic, which it re-solves from the recorded /floor/image frames.
     writer.set_metadata({
