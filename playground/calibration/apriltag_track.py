@@ -34,8 +34,11 @@ Intrinsics come from the OAK on-device calibration automatically when --source o
 For a plain camera/video --intrinsics is required. The OAK-1 W's wide lens IS distorted, so the real
 distortion coefficients are used and solvePnP undistorts the marker corners.
 
-Timestamps use CLOCK_MONOTONIC (time.monotonic), system-wide on Linux, so when this runs on the same host
-as calibrate_drive.py the recording and the cmd log share a clock and need no alignment.
+Timestamps are in the CLOCK_MONOTONIC domain, system-wide on Linux, so when this runs on the same host as
+calibrate_drive.py the recording and the cmd log share a clock and need no alignment. For the OAK, each
+frame is stamped with its hardware capture time (depthai's getTimestamp(), synced to host CLOCK_MONOTONIC),
+not the host time at dequeue, so queue buffering does not skew the recorded frame timing. A generic camera
+(CvSource) has no per-frame hardware stamp and falls back to time.monotonic() at read.
 
 Install deps first: pip install -r playground/calibration/requirements.txt
 
@@ -127,8 +130,10 @@ class CvSource:
         if not self._cap.isOpened():
             raise SystemExit(f"Could not open video source: {source}")
 
-    def read(self) -> tuple[bool, np.ndarray]:
-        return self._cap.read()
+    def read(self) -> tuple[bool, float, np.ndarray]:
+        # No per-frame hardware timestamp from a generic source; fall back to the host monotonic clock.
+        ok, frame = self._cap.read()
+        return ok, time.monotonic(), frame
 
     def intrinsics(self) -> tuple[np.ndarray, np.ndarray] | None:
         return None
@@ -151,6 +156,9 @@ class OakSource:
 
     RESOLUTION = "1080"  # one of: "1080" (1920x1080), "4k" (3840x2160), "12mp"
     FPS = 60.0
+    # Device->host frame queue. Bigger absorbs host stalls (encode/disk) without the device dropping
+    # frames; blocking=False means a full queue drops the OLDEST. 16 covers a ~270ms stall at 60fps.
+    QUEUE_SIZE = 16
 
     def __init__(self, source: str = "oak") -> None:
         try:
@@ -180,7 +188,7 @@ class OakSource:
         cam.video.link(xout.input)
 
         self._device = dai.Device(pipeline)
-        self._queue = self._device.getOutputQueue("video", maxSize=4, blocking=False)
+        self._queue = self._device.getOutputQueue("video", maxSize=self.QUEUE_SIZE, blocking=False)
         # Grab one frame up front to learn the true output size (needed to scale the intrinsics); serve it
         # back on the first read() so it is not wasted.
         self._pending = self._queue.get()
@@ -193,13 +201,13 @@ class OakSource:
                   "USB 2.0 and will be throttled to ~25-30 fps. Plug the OAK into a USB 3 port (blue USB-A "
                   "or USB-C) for full frame rate.")
 
-    def read(self) -> tuple[bool, np.ndarray]:
-        if self._pending is not None:
-            frame = self._pending.getCvFrame()
-            self._pending = None
-            return True, frame
-        frame = self._queue.get()
-        return True, frame.getCvFrame()
+    def read(self) -> tuple[bool, float, np.ndarray]:
+        # getTimestamp() is the sensor capture time depthai syncs to the host CLOCK_MONOTONIC, so it
+        # shares the cmd log's clock domain and is immune to host dequeue jitter (vs a monotonic()
+        # stamp taken after queue.get()). getTimestampDevice() is NOT host-synced; avoid it here.
+        msg = self._pending if self._pending is not None else self._queue.get()
+        self._pending = None
+        return True, msg.getTimestamp().total_seconds(), msg.getCvFrame()
 
     def intrinsics(self) -> tuple[np.ndarray, np.ndarray] | None:
         dai = self._dai
@@ -378,10 +386,10 @@ def record_floor_burst(
     """
     frames: list[np.ndarray] = []
     while len(frames) < n_frames:
-        ok, frame = source.read()
+        ok, t, frame = source.read()
         if not ok:
             break
-        writer.write_floor_image(time.monotonic(), frame)
+        writer.write_floor_image(t, frame)
         frames.append(frame)
     if not frames:
         raise SystemExit("camera read failed during floor lock")
@@ -409,7 +417,7 @@ def lock_floor_with_preview(
     last_show = 0.0
     while True:
         with prof.section("read"):
-            ok, frame = source.read()
+            ok, _t, frame = source.read()
         if not ok:
             raise SystemExit("camera read failed during floor lock")
         fps.tick()
@@ -459,7 +467,7 @@ def confirm_robot_with_preview(
     last_show = 0.0
     while True:
         with prof.section("read"):
-            ok, frame = source.read()
+            ok, _t, frame = source.read()
         if not ok:
             raise SystemExit("camera read failed before tracking")
         fps.tick()
@@ -528,7 +536,7 @@ def main() -> None:
     parser.add_argument("--show-other-tags", action="store_true",
                         help="in the tracking preview, also draw the floor-frame pose of every non-robot "
                              "tag (floor-marker size for grid ids, robot tag size otherwise)")
-    parser.add_argument("--image-format", choices=amcap.IMAGE_FORMATS, default="jpeg",
+    parser.add_argument("--image-format", choices=amcap.IMAGE_FORMATS, default="raw",
                         help="jpeg: smaller, lossy (default); raw: lossless bgr8, larger, exact corners")
     args = parser.parse_args()
     preview = not args.no_preview
@@ -616,10 +624,9 @@ def main() -> None:
         # frames, purely to tell the operator whether the robot tag is in view; analysis re-detects offline.
         while True:
             with prof.section("read"):
-                ok, frame = source.read()
+                ok, t, frame = source.read()
             if not ok:
                 break
-            t = time.monotonic()
             fps.tick()
             n_frames += 1
             with prof.section("record"):

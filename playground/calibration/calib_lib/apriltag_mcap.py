@@ -269,17 +269,6 @@ def read_floor_frames(path: Path) -> list[np.ndarray]:
     return [frame for _t, frame in iter_images(path, TOPIC_FLOOR_IMAGE)]
 
 
-def iter_raw_messages(path: Path, topic: str) -> Iterator[tuple[float, str, bytes]]:
-    """Yield (t_seconds, schema_name, raw_message_bytes) for each message on `topic`, in recorded order.
-
-    Unlike iter_images this does not decode the frame, so the wire bytes can be copied verbatim into the
-    overlay recording (lossless, no JPEG re-encode).
-    """
-    with open(path, "rb") as f:
-        for schema, _channel, message in make_reader(f).iter_messages(topics=[topic]):
-            yield message.log_time / 1e9, (schema.name if schema else ""), message.data
-
-
 # --------------------------------------------------------------------------------------------------
 # Foxglove overlay recording
 #
@@ -303,6 +292,12 @@ TOPIC_TF = "/tf"
 TOPIC_TF_STATIC = "/tf_static"
 TOPIC_MARKERS = "/overlay/markers"
 
+# The calibration field frame (the GridBoard frame) can have +z pointing either way depending on board
+# orientation; when it points toward the floor the camera renders below the field in Foxglove's z-up world.
+# WORLD is a display-only root that flips the field (identity or 180deg about x, chosen from the camera's
+# z) so the rig shows upright. It does not affect the image overlay, which depends only on the
+# field -> camera relative transform.
+WORLD_FRAME = "world"
 FIELD_FRAME = "field"
 CAMERA_FRAME = "camera"
 ROBOT_FRAME = "robot"
@@ -420,7 +415,6 @@ MARKER_ARRAY_SCHEMA = (
     b"float32 b\n"
     b"float32 a\n"
 )
-
 
 def _pack_time(t: float) -> bytes:
     """ROS1 time (uint32 sec, uint32 nsec) for a monotonic-seconds timestamp."""
@@ -547,30 +541,36 @@ class OverlayWriter:
     """
 
     # Robot body box (m) and heading arrow (m); tuned for a Mrs-Buff-sized bot, purely cosmetic.
+    # Two sets are drawn: a "3d" set at the tag's true height (sits on the tag in the image) and a "floor"
+    # set flattened to z=0 (the ground track, registered to the plywood). The floor set is dimmer.
     _BODY = (0.16, 0.16, 0.05)
     _ARROW = (0.22, 0.02, 0.04)
     _BODY_COLOR = (0.10, 0.80, 0.30, 0.6)
     _ARROW_COLOR = (1.00, 0.55, 0.05, 0.95)
     _TRAJ_COLOR = (0.20, 0.55, 1.00, 0.9)
+    _BODY_FLOOR_COLOR = (0.45, 0.45, 0.50, 0.35)
+    _ARROW_FLOOR_COLOR = (0.70, 0.55, 0.35, 0.5)
+    _TRAJ_FLOOR_COLOR = (0.40, 0.45, 0.55, 0.55)
 
-    def __init__(self, path: Path, image_format: str, k: list[float], d: list[float],
+    def __init__(self, path: Path, k: list[float], d: list[float],
                  width: int, height: int) -> None:
-        if image_format not in IMAGE_FORMATS:
-            raise ValueError(f"image_format must be one of {IMAGE_FORMATS}, got {image_format!r}")
         self._k = [float(v) for v in k]
-        self._d = [float(v) for v in d]
         self._w = int(width)
         self._h = int(height)
+        # Frames are undistorted before writing and the published CameraInfo carries zero distortion, so
+        # Foxglove's pinhole projection of the 3D markers lands exactly on the (now rectified) image. The
+        # ZED's full distortion model has too many coefficients for Foxglove to apply, so we bake it out
+        # here instead. Keeping the same K as the new camera matrix preserves focal length and centre.
+        k3 = np.asarray(k, dtype=np.float64).reshape(3, 3)
+        dv = np.asarray(d, dtype=np.float64).reshape(-1)
+        self._map1, self._map2 = cv2.initUndistortRectifyMap(
+            k3, dv, None, k3, (self._w, self._h), cv2.CV_16SC2)
         self._file = open(path, "wb")
         self._writer = Writer(self._file)
         self._writer.start(profile="apriltag_overlay")
 
-        if image_format == "raw":
-            img_schema = self._writer.register_schema(
-                name="sensor_msgs/Image", encoding="ros1msg", data=RAW_IMAGE_SCHEMA)
-        else:
-            img_schema = self._writer.register_schema(
-                name="sensor_msgs/CompressedImage", encoding="ros1msg", data=COMPRESSED_IMAGE_SCHEMA)
+        img_schema = self._writer.register_schema(
+            name="sensor_msgs/CompressedImage", encoding="ros1msg", data=COMPRESSED_IMAGE_SCHEMA)
         self._img_chan = self._writer.register_channel(
             topic=TOPIC_CAMERA_IMAGE, message_encoding="ros1", schema_id=img_schema)
 
@@ -598,57 +598,93 @@ class OverlayWriter:
                                  data=data, sequence=self._seq)
 
     def write_static_tf(self, t: float, r_fc: np.ndarray, t_fc: np.ndarray) -> None:
-        """field -> camera, the fixed extrinsic. Published on /tf_static (Foxglove latches it forever)."""
+        """The two fixed transforms, on /tf_static (Foxglove latches them forever):
+
+        world -> field : orients the field so the camera renders above the floor (Foxglove is z-up). The
+                         calibration field frame's z can point either way depending on board orientation,
+                         so this is identity or a 180deg-about-x flip chosen from the camera's z.
+        field -> camera: the locked extrinsic (camera pose in the field frame).
+        """
         r_fc = np.asarray(r_fc, dtype=np.float64).reshape(3, 3)
         t_fc = np.asarray(t_fc, dtype=np.float64).reshape(3)
         # Pose of the camera in the field frame: rotation r_fc^T, origin -r_fc^T @ t_fc.
         r_cf = r_fc.T
-        cam_in_field = (-r_cf @ t_fc).tolist()
+        cam_in_field = -r_cf @ t_fc
         quat = _quat_from_matrix(r_cf)
-        self._add(self._tf_static_chan, t,
-                  _serialize_tf(t, [(FIELD_FRAME, CAMERA_FRAME, cam_in_field, quat)]))
+        # If the camera sits on the -z side of the field, flip 180deg about x so it shows above the floor.
+        flip = (0.0, 0.0, 0.0, 1.0) if cam_in_field[2] >= 0.0 else (1.0, 0.0, 0.0, 0.0)
+        self._add(self._tf_static_chan, t, _serialize_tf(t, [
+            (WORLD_FRAME, FIELD_FRAME, (0.0, 0.0, 0.0), flip),
+            (FIELD_FRAME, CAMERA_FRAME, cam_in_field.tolist(), quat),
+        ]))
 
     def write_trajectory(self, t: float, rows: list[dict]) -> None:
-        """Full solved path as a single field-frame LINE_STRIP, drawn for the whole timeline."""
-        pts = [(float(r["x"]), float(r["y"]), 0.0) for r in rows if r["visible"]]
-        if len(pts) < 2:
-            return
-        marker = _serialize_marker(
-            t, FIELD_FRAME, "trajectory", 0, _MARKER_LINE_STRIP, _ACTION_ADD,
-            (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0), (0.01, 0.0, 0.0), self._TRAJ_COLOR, points=pts)
-        self._add(self._marker_chan, t, _serialize_marker_array([marker]))
+        """Full solved path, drawn for the whole timeline as two field-frame LINE_STRIPs:
 
-    def write_image(self, t: float, data: bytes) -> None:
-        """Copy a source camera frame verbatim (no decode/re-encode)."""
-        self._add(self._img_chan, t, data)
+        trajectory_3d   : tag's true field height (z), so it overlays the tag in the image.
+        trajectory_floor: flattened to z=0, the ground track registered to the floor plane.
+        """
+        pts_3d = [(float(r["x"]), float(r["y"]), float(r.get("z") or 0.0))
+                  for r in rows if r["visible"]]
+        if len(pts_3d) < 2:
+            return
+        pts_floor = [(p[0], p[1], 0.0) for p in pts_3d]
+        identity = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
+        markers = [
+            _serialize_marker(t, FIELD_FRAME, "trajectory_3d", 0, _MARKER_LINE_STRIP, _ACTION_ADD,
+                              identity, (0.01, 0.0, 0.0), self._TRAJ_COLOR, points=pts_3d),
+            _serialize_marker(t, FIELD_FRAME, "trajectory_floor", 0, _MARKER_LINE_STRIP, _ACTION_ADD,
+                              identity, (0.01, 0.0, 0.0), self._TRAJ_FLOOR_COLOR, points=pts_floor),
+        ]
+        self._add(self._marker_chan, t, _serialize_marker_array(markers))
+
+    def write_image(self, t: float, frame: np.ndarray) -> None:
+        """Undistort a source camera frame and write it as JPEG so the pinhole overlay aligns."""
+        rectified = cv2.remap(frame, self._map1, self._map2, cv2.INTER_LINEAR)
+        ok, encoded = cv2.imencode(".jpg", rectified, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+        if not ok:
+            raise RuntimeError("cv2.imencode failed for overlay frame")
+        self._add(self._img_chan, t, _serialize_compressed_image(t, encoded.tobytes(), CAMERA_FRAME))
 
     def write_camera_info(self, t: float) -> None:
+        # Zero distortion: the frames are already rectified, so the overlay is a pure pinhole projection.
         self._add(self._info_chan, t,
-                  _serialize_camera_info(t, CAMERA_FRAME, self._w, self._h, self._k, self._d))
+                  _serialize_camera_info(t, CAMERA_FRAME, self._w, self._h, self._k, [0.0] * 5))
+
+    def _robot_markers(self, t: float, ns: str, x: float, y: float, z: float, quat: tuple,
+                       body_color: tuple, arrow_color: tuple) -> list[bytes]:
+        """A body CUBE (id 0) + heading ARROW (id 1) at (x, y, z) with the given yaw quaternion."""
+        pose = (x, y, z, *quat)
+        return [
+            _serialize_marker(t, FIELD_FRAME, ns, 0, _MARKER_CUBE, _ACTION_ADD,
+                              pose, self._BODY, body_color),
+            _serialize_marker(t, FIELD_FRAME, ns, 1, _MARKER_ARROW, _ACTION_ADD,
+                              pose, self._ARROW, arrow_color),
+        ]
 
     def write_pose(self, t: float, row: dict) -> None:
-        """field -> robot TF and the robot body/arrow markers for one frame (DELETE when not visible)."""
+        """field -> robot TF and the robot markers for one frame: a "robot_3d" set at the tag's true
+        height and a "robot_floor" set flattened to z=0. Both are DELETEd when the tag is not visible."""
         if row["visible"]:
             x, y, yaw = float(row["x"]), float(row["y"]), float(row["yaw"])
+            z = float(row.get("z") or 0.0)  # tag's true field height, so the 3d marker sits on the tag
             quat = _quat_from_yaw(yaw)
             self._add(self._tf_chan, t,
-                      _serialize_tf(t, [(FIELD_FRAME, ROBOT_FRAME, (x, y, 0.0), quat)]))
-            pose = (x, y, 0.0, *quat)
-            body = _serialize_marker(t, FIELD_FRAME, "robot", 0, _MARKER_CUBE, _ACTION_ADD,
-                                     pose, self._BODY, self._BODY_COLOR)
-            # Arrow sits at the box centre and points along the robot's heading.
-            arrow = _serialize_marker(t, FIELD_FRAME, "robot", 1, _MARKER_ARROW, _ACTION_ADD,
-                                      pose, self._ARROW, self._ARROW_COLOR)
-            self._add(self._marker_chan, t, _serialize_marker_array([body, arrow]))
+                      _serialize_tf(t, [(FIELD_FRAME, ROBOT_FRAME, (x, y, z), quat)]))
+            markers = self._robot_markers(t, "robot_3d", x, y, z, quat,
+                                          self._BODY_COLOR, self._ARROW_COLOR)
+            markers += self._robot_markers(t, "robot_floor", x, y, 0.0, quat,
+                                           self._BODY_FLOOR_COLOR, self._ARROW_FLOOR_COLOR)
+            self._add(self._marker_chan, t, _serialize_marker_array(markers))
         else:
-            empty = (0.0,) * 7
-            unit = (1.0, 1.0, 1.0)
-            clear = (0.0, 0.0, 0.0, 0.0)
-            body = _serialize_marker(t, FIELD_FRAME, "robot", 0, _MARKER_CUBE, _ACTION_DELETE,
-                                     empty, unit, clear)
-            arrow = _serialize_marker(t, FIELD_FRAME, "robot", 1, _MARKER_ARROW, _ACTION_DELETE,
-                                      empty, unit, clear)
-            self._add(self._marker_chan, t, _serialize_marker_array([body, arrow]))
+            empty, unit, clear = (0.0,) * 7, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0, 0.0)
+            markers = []
+            for ns in ("robot_3d", "robot_floor"):
+                markers.append(_serialize_marker(t, FIELD_FRAME, ns, 0, _MARKER_CUBE, _ACTION_DELETE,
+                                                 empty, unit, clear))
+                markers.append(_serialize_marker(t, FIELD_FRAME, ns, 1, _MARKER_ARROW, _ACTION_DELETE,
+                                                 empty, unit, clear))
+            self._add(self._marker_chan, t, _serialize_marker_array(markers))
 
     def close(self) -> None:
         self._writer.finish()
@@ -659,21 +695,21 @@ def write_overlay(out_path: Path, src_path: Path, metadata: dict, rows: list[dic
                   r_fc: np.ndarray, t_fc: np.ndarray) -> None:
     """Write a Foxglove overlay MCAP next to the solved poses.
 
-    Copies the source /camera/image frames and adds, per frame, a CameraInfo, the field->robot TF, and the
-    robot markers; plus a one-time field->camera static TF and the full trajectory line. rows must be in the
-    same order as the source frames (analyze_apriltag_mcap.solve_poses produces exactly that, one per frame).
+    Undistorts the source /camera/image frames and adds, per frame, a CameraInfo, the field->robot TF, and
+    the robot markers (a true-3d set at the tag height and a floor set at z=0); plus the one-time static
+    TFs (world->field, field->camera) and the trajectory (also 3d + floor). rows must be in the same order
+    as the source frames (analyze_apriltag_mcap.solve_poses produces exactly that, one per frame).
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     writer = OverlayWriter(
-        out_path, metadata.get("image_format", "jpeg"),
-        metadata["camera_matrix"], metadata["dist_coeffs"],
+        out_path, metadata["camera_matrix"], metadata["dist_coeffs"],
         int(metadata["image_width"]), int(metadata["image_height"]))
     if rows:
         writer.write_static_tf(rows[0]["t"], r_fc, t_fc)
         writer.write_trajectory(rows[0]["t"], rows)
-    for row, (_t, _schema, data) in zip(rows, iter_raw_messages(src_path, TOPIC_CAMERA_IMAGE)):
+    for row, (_t, frame) in zip(rows, iter_images(src_path, TOPIC_CAMERA_IMAGE)):
         ts = row["t"]
-        writer.write_image(ts, data)
+        writer.write_image(ts, frame)
         writer.write_camera_info(ts)
         writer.write_pose(ts, row)
     writer.close()

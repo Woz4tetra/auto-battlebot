@@ -64,9 +64,14 @@ def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
             idx = int(np.where(ids.flatten() == tag_id)[0][0])
             pose = ad.tag_pose_field(corners[idx], obj, k, d, r_fc, t_fc, yaw_offset)
         if pose is not None:
-            rows.append({"t": t, "x": pose[0], "y": pose[1], "yaw": pose[2], "visible": 1})
+            # pose is (x, y, yaw, rvec, tvec); recover the tag's field-frame height (z) from tvec so the
+            # overlay can draw markers at the tag's true 3D position instead of flat on z=0. z is not
+            # written to the truth CSV (write_csv only emits x, y, yaw), only used by the overlay.
+            tvec = np.asarray(pose[4], dtype=np.float64).reshape(3)
+            z = float((r_fc.T @ (tvec - t_fc))[2])
+            rows.append({"t": t, "x": pose[0], "y": pose[1], "yaw": pose[2], "z": z, "visible": 1})
         else:
-            rows.append({"t": t, "x": None, "y": None, "yaw": None, "visible": 0})
+            rows.append({"t": t, "x": None, "y": None, "yaw": None, "z": None, "visible": 0})
     return rows, r_fc, t_fc
 
 
@@ -101,6 +106,40 @@ def print_summary(rows: list[dict], tag_id: int) -> None:
     print(f"  median dt {dt * 1e3:.1f} ms (~{1.0 / dt:.0f} fps)" if dt == dt else "  single frame")
     print(f"  x [{x.min():+.3f}, {x.max():+.3f}] m   y [{y.min():+.3f}, {y.max():+.3f}] m")
     print(f"  yaw [{yaw_deg.min():+.1f}, {yaw_deg.max():+.1f}] deg")
+
+
+def print_timing(rows: list[dict]) -> None:
+    """Report frame-rate consistency over every recorded frame, to surface recording hitches.
+
+    Uses all frame timestamps (not just solved ones), since hitches are a camera/recording issue
+    independent of whether the tag was detected. A "hitch" is a gap longer than 1.5x the median period;
+    dropped frames are estimated by how many nominal periods each gap overran.
+    """
+    ts = np.array([r["t"] for r in rows], dtype=np.float64)
+    if len(ts) < 2:
+        return
+    dt = np.diff(ts)
+    dt = dt[dt > 0.0]  # guard against duplicate / non-monotonic stamps
+    if dt.size == 0:
+        return
+    med = float(np.median(dt))
+    dropped = int(np.maximum(0, np.round(dt / med).astype(int) - 1).sum())
+    hitches = int(np.count_nonzero(dt > 1.5 * med))
+    worst_i = int(np.argmax(dt))
+    worst_dt = float(dt[worst_i])
+    print(f"frame timing: {len(ts)} frames over {ts[-1] - ts[0]:.1f} s")
+    print(f"  median {med * 1e3:.1f} ms ({1.0 / med:.1f} fps)   mean {dt.mean() * 1e3:.1f} ms   "
+          f"jitter(std) {dt.std() * 1e3:.1f} ms")
+    print(f"  dt range [{dt.min() * 1e3:.1f}, {dt.max() * 1e3:.1f}] ms   "
+          f"p95 {np.percentile(dt, 95) * 1e3:.1f} ms   p99 {np.percentile(dt, 99) * 1e3:.1f} ms")
+    if hitches:
+        worst_t = float(ts[worst_i + 1] - ts[0])
+        print(f"  hitches (dt > 1.5x median): {hitches} ({100.0 * hitches / dt.size:.1f}% of frames)   "
+              f"est. dropped frames: {dropped}")
+        print(f"  worst: {worst_dt * 1e3:.1f} ms gap at t={worst_t:.2f} s "
+              f"(~{int(round(worst_dt / med)) - 1} frames skipped)")
+    else:
+        print("  no hitches (every gap within 1.5x median)")
 
 
 def save_plot(path: Path, rows: list[dict], tag_id: int) -> None:
@@ -165,6 +204,7 @@ def main() -> None:
     out = args.out if args.out is not None else args.mcap.with_suffix(".csv")
     write_csv(out, rows)
     print_summary(rows, tag_id)
+    print_timing(rows)
     print(f"truth log: {out}")
     if args.plot is not None:
         save_plot(args.plot, rows, tag_id)
