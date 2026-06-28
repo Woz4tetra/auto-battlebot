@@ -1,9 +1,10 @@
 """Fit the full Mrs Buff MK3 drivetrain plant from a calibration session.
 
-Inputs are the two CSVs from one calibration run. Both must be recorded on the same host so they share one
-absolute CLOCK_MONOTONIC clock (no time alignment is done here):
-  - command log  from calibrate_drive.py  (t, cmd_lin, cmd_ang, trainer_lin, trainer_ang, label)
-  - truth log    from apriltag_track.py   (t, x, y, yaw, visible)
+Input is one CSV from analyze_apriltag_mcap.py run on an apriltag_track.py --drive recording. That single
+file carries both halves the fit needs, recorded in one process on one absolute CLOCK_MONOTONIC clock (no
+time alignment is done here):
+  - the solved ground-truth pose per frame   (t, x, y, yaw, visible)
+  - the scripted command active at that frame (cmd_lin, cmd_ang, trainer_lin, trainer_ang, label)
 
 It extends playground/control_stage0/fit_plant.py: the same first-order AR(1) identification
 (v[k+1] = a*v[k] + b*cmd[k], tau = -dt/ln(a), gain = b/(1-a)) and lag-by-cross-correlation idea, but driven
@@ -17,7 +18,7 @@ recommended `lifted_deadzone_percent` for config/main.toml, and a validation plo
 Usage:
     source scripts/activate_python.sh
     python playground/calibration/fit_plant_calib.py \
-        playground/calibration/out/cmd_log.csv playground/calibration/out/truth_log.csv \
+        playground/calibration/out/truth_log.csv \
         --plot playground/calibration/out/fit.png
 """
 
@@ -82,23 +83,36 @@ def _zoh(src_t: np.ndarray, src_v: np.ndarray, dst_t: np.ndarray) -> np.ndarray:
     return src_v[idx]
 
 
-def load_session(cmd_path: Path, truth_path: Path) -> Session:
-    cmd = _read_csv(cmd_path)
-    tru = _read_csv(truth_path)
+def load_session(session_path: Path) -> Session:
+    """Load one CSV from analyze_apriltag_mcap.py (a --drive recording) into a fitting Session.
 
-    cmd_t = np.array(cmd["t"], dtype=float)
-    cmd_lin = np.array(cmd["cmd_lin"], dtype=float)
-    cmd_ang = np.array(cmd["cmd_ang"], dtype=float)
-    cmd_label = np.array(cmd["label"])
+    The CSV carries both halves the fit needs: the solved pose per frame (x, y, yaw, visible) and the
+    scripted command active at that frame (cmd_lin, cmd_ang, label, zero-order-held onto the frame time).
+    Commands are read from every row (the full timeline, including frames where the tag was not visible);
+    pose is read only from visible frames.
+    """
+    data = _read_csv(session_path)
+    if "cmd_lin" not in data:
+        raise SystemExit(
+            f"{session_path} has no command columns. fit_plant_calib needs an apriltag_track.py --drive "
+            "recording analyzed by analyze_apriltag_mcap.py (read-only stick captures are not enough)."
+        )
 
-    visible = np.array(tru["visible"], dtype=float) > 0.5
-    tru_t = np.array(tru["t"], dtype=float)[visible]
-    x = np.array([v or "nan" for v in tru["x"]], dtype=float)[visible]
-    y = np.array([v or "nan" for v in tru["y"]], dtype=float)[visible]
-    yaw = np.array([v or "nan" for v in tru["yaw"]], dtype=float)[visible]
+    # Commands span the full timeline. Frames before the first issued command have empty cells; treat the
+    # command there as zero (no command) and the label as unset (matches no protocol phase).
+    cmd_t = np.array(data["t"], dtype=float)
+    cmd_lin = np.array([v or "0" for v in data["cmd_lin"]], dtype=float)
+    cmd_ang = np.array([v or "0" for v in data["cmd_ang"]], dtype=float)
+    cmd_label = np.array([v or "" for v in data["label"]])
 
-    # The two logs share one absolute CLOCK_MONOTONIC clock (both scripts run on the same host), so no time
-    # alignment is needed. The sync twitches at the protocol's start/end are a visual cross-check in --plot.
+    visible = np.array(data["visible"], dtype=float) > 0.5
+    tru_t = np.array(data["t"], dtype=float)[visible]
+    x = np.array([v or "nan" for v in data["x"]], dtype=float)[visible]
+    y = np.array([v or "nan" for v in data["y"]], dtype=float)[visible]
+    yaw = np.array([v or "nan" for v in data["yaw"]], dtype=float)[visible]
+
+    # Commands and poses come from one recording on one absolute CLOCK_MONOTONIC clock, so no time alignment
+    # is needed. The sync twitches at the protocol's start/end are a visual cross-check in --plot.
     # Resample the (gappy, variable-rate) truth onto a uniform grid at FIT_HZ so the fits do not depend on
     # the camera frame rate, then differentiate. Differentiating raw pose amplifies perception noise by
     # 1/dt, so a fixed-time smoother (not fixed-sample) is applied before differentiation; the unsmoothed
@@ -192,7 +206,13 @@ def _rise_tau(mv: np.ndarray, vss: float, dt: float, eps: float) -> float:
 
 
 def fit_drive_segments(
-    s: Session, cmd: np.ndarray, vel: np.ndarray, mask: np.ndarray, dz_fwd: float, dz_rev: float, eps: float
+    s: Session,
+    cmd: np.ndarray,
+    vel: np.ndarray,
+    mask: np.ndarray,
+    dz_fwd: float,
+    dz_rev: float,
+    eps: float,
 ) -> tuple[list[float], list[float], list[float], list[float]]:
     """Per held-drive segment: steady-state gain and rise tau, bucketed by command sign.
 
@@ -217,7 +237,7 @@ def fit_drive_segments(
         if ceff <= 1e-3:
             continue
         mv = np.abs(vel[a:b])
-        vss = float(np.median(mv[int(0.6 * n):]))
+        vss = float(np.median(mv[int(0.6 * n) :]))
         if vss <= max(3 * eps, 1e-3):
             continue
         tau = _rise_tau(mv, vss, s.dt, eps)
@@ -227,7 +247,9 @@ def fit_drive_segments(
     return gf, gr, tf, tr
 
 
-def fit_decay_tau(s: Session, cmd: np.ndarray, vel: np.ndarray, mask: np.ndarray, eps: float) -> float:
+def fit_decay_tau(
+    s: Session, cmd: np.ndarray, vel: np.ndarray, mask: np.ndarray, eps: float
+) -> float:
     """Coast (decel) time constant from the zero-command tails after each step: |v| = V0 exp(-t/tau)."""
     quiet = mask & (np.abs(cmd) < 0.02)
     taus: list[float] = []
@@ -262,7 +284,7 @@ def fit_steer_brake(s: Session) -> float:
         if b - a < max(5, round(0.5 / s.dt)):
             continue
         ang = round(float(np.median(np.abs(s.cmd_ang[a:b]))), 2)
-        spd = float(np.median(s.v[int(0.5 * (a + b)):b]))
+        spd = float(np.median(s.v[int(0.5 * (a + b)) : b]))
         levels.setdefault(ang, spd)
     if 0.0 not in levels or len(levels) < 3:
         return float("nan")
@@ -320,10 +342,16 @@ def fit_all(s: Session) -> dict[str, float]:
         s.cmd_lin[_mask(s, "lin_deadzone_rev")], s.v[_mask(s, "lin_deadzone_rev")], -1.0, dz_eps_lin
     )
     dz_ang_l = fit_deadzone(
-        s.cmd_ang[_mask(s, "ang_deadzone_left")], s.w[_mask(s, "ang_deadzone_left")], 1.0, dz_eps_ang
+        s.cmd_ang[_mask(s, "ang_deadzone_left")],
+        s.w[_mask(s, "ang_deadzone_left")],
+        1.0,
+        dz_eps_ang,
     )
     dz_ang_r = fit_deadzone(
-        s.cmd_ang[_mask(s, "ang_deadzone_right")], s.w[_mask(s, "ang_deadzone_right")], -1.0, dz_eps_ang
+        s.cmd_ang[_mask(s, "ang_deadzone_right")],
+        s.w[_mask(s, "ang_deadzone_right")],
+        -1.0,
+        dz_eps_ang,
     )
 
     gf, gr, tf, tr = fit_drive_segments(s, s.cmd_lin, s.v, lin, dz_lin_fwd, dz_lin_rev, eps_lin)
@@ -356,16 +384,28 @@ def print_report(p: dict[str, float]) -> None:
         return "n/a" if (isinstance(v, float) and math.isnan(v)) else f"{v:.3f}{unit}"
 
     print("\n=== Mrs Buff MK3 plant fit ===")
-    print(f"  linear deadzone   fwd {f('linear_deadzone_fwd')}  rev {f('linear_deadzone_rev')}  (cmd frac)")
-    print(f"  angular deadzone  left {f('angular_deadzone_left')}  right {f('angular_deadzone_right')}")
-    print(f"  max linear speed  fwd {f('max_linear_speed_fwd', ' m/s')}  rev {f('max_linear_speed_rev', ' m/s')}")
+    print(
+        f"  linear deadzone   fwd {f('linear_deadzone_fwd')}  rev {f('linear_deadzone_rev')}  (cmd frac)"
+    )
+    print(
+        f"  angular deadzone  left {f('angular_deadzone_left')}  right {f('angular_deadzone_right')}"
+    )
+    print(
+        f"  max linear speed  fwd {f('max_linear_speed_fwd', ' m/s')}  rev {f('max_linear_speed_rev', ' m/s')}"
+    )
     print(f"  max angular speed {f('max_angular_speed', ' rad/s')}")
-    print(f"  tau linear        accel {f('tau_linear_accel', ' s')}  decel {f('tau_linear_decel', ' s')}")
+    print(
+        f"  tau linear        accel {f('tau_linear_accel', ' s')}  decel {f('tau_linear_decel', ' s')}"
+    )
     print(f"  tau angular accel {f('tau_angular_accel', ' s')}")
     print(f"  steer-brake coeff {f('steer_brake_coeff')}  (fwd speed loss per unit |ang cmd|)")
-    print(f"  actuation lag     {f('actuation_lag_ms', ' ms')}  (+/- {p['truth_dt_ms']:.0f} ms: one truth frame)")
+    print(
+        f"  actuation lag     {f('actuation_lag_ms', ' ms')}  (+/- {p['truth_dt_ms']:.0f} ms: one truth frame)"
+    )
     if p["truth_dt_ms"] > 20.0:
-        print(f"    note: truth is {1000.0 / p['truth_dt_ms']:.0f} fps; the lag needs >=60 fps capture to resolve well")
+        print(
+            f"    note: truth is {1000.0 / p['truth_dt_ms']:.0f} fps; the lag needs >=60 fps capture to resolve well"
+        )
 
     dz_vals = [v for v in (p["linear_deadzone_fwd"], p["linear_deadzone_rev"]) if not math.isnan(v)]
     dz = max(dz_vals) if dz_vals else float("nan")
@@ -379,9 +419,13 @@ def print_report(p: dict[str, float]) -> None:
     if not math.isnan(p["steer_brake_coeff"]):
         print(f"  steer_brake_coeff    = {p['steer_brake_coeff']:.3f}")
     print("\nUpdate simulation/kinematic_sim.toml [latency]:")
-    print(f"  command_ms = {p['actuation_lag_ms']:.0f}   # already includes Crossfire + ESC + mechanical")
+    print(
+        f"  command_ms = {p['actuation_lag_ms']:.0f}   # already includes Crossfire + ESC + mechanical"
+    )
     if not math.isnan(dz):
-        print(f"\nRecommended config/main.toml [transmitter] lifted_deadzone_percent = {dz * 100:.0f}")
+        print(
+            f"\nRecommended config/main.toml [transmitter] lifted_deadzone_percent = {dz * 100:.0f}"
+        )
 
 
 def plot_session(s: Session, out: Path) -> None:
@@ -411,12 +455,15 @@ def plot_session(s: Session, out: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("cmd_log", type=Path, help="command CSV from calibrate_drive.py")
-    parser.add_argument("truth_log", type=Path, help="truth CSV from apriltag_track.py")
+    parser.add_argument(
+        "session_csv",
+        type=Path,
+        help="truth+command CSV from analyze_apriltag_mcap.py on a --drive recording",
+    )
     parser.add_argument("--plot", type=Path, default=None)
     args = parser.parse_args()
 
-    s = load_session(args.cmd_log, args.truth_log)
+    s = load_session(args.session_csv)
     params = fit_all(s)
     print_report(params)
     if args.plot:

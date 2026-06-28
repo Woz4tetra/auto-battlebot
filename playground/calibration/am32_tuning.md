@@ -83,8 +83,7 @@ not a hard limiter.
 Each ESC setting change is followed by a re-measure so its effect is known, not guessed.
 
 1. Dump the current AM32 config to `playground/calibration/am32_settings_<date>.txt` (versioned in git).
-2. Run a calibration session (`calibrate_drive.py` + `apriltag_track.py`) and fit the plant
-   (`fit_plant_calib.py`).
+2. Run a calibration session (`apriltag_track.py --drive`) and fit the plant (`fit_plant_calib.py`).
 3. Change **one** setting (e.g. Startup Power up, or Brake on Stop on), re-run, and compare deadzone,
    max speed, accel tau, and coast tau.
 4. Keep the change only if the measured plant moved the way you wanted. Record the final config.

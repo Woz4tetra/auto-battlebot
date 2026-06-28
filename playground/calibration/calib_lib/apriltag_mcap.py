@@ -9,6 +9,11 @@ A recording holds:
   - /calibration/metadata : one JSON message (intrinsics, image size, robot tag + floor board params).
   - /floor/image          : the frames captured during the one-time floor-board lock (board visible).
   - /camera/image         : the driving frames to track the robot tag in.
+  - /transmitter/channels : one JSON message per driving frame, stamped with that frame's time, holding
+                            the transmitter stick axes the driver was commanding (read-only; present only
+                            when the OpenTX radio is connected).
+  - /drive/command        : one JSON message per issued command (~50 Hz), stamped with its send time,
+                            holding the scripted excitation command (present only when run with --drive).
 
 Images are stored either as ROS1 sensor_msgs/CompressedImage (JPEG, the default) or sensor_msgs/Image
 (uncompressed bgr8, lossless) depending on the capture format; both open in Foxglove. JPEG is lossy at the
@@ -18,8 +23,9 @@ uses ZSTD (frames are already small, so it is cheap and shrinks them further), w
 Compressing 6 MB raw frames per frame is the capture bottleneck (ZSTD ~26 ms, LZ4 ~13 ms, both cap fps below
 60 and barely shrink noisy sensor data), so raw stores uncompressed (~3.6 ms/frame) and relies on the NVMe.
 
-Timestamps are CLOCK_MONOTONIC seconds (the same clock calibrate_drive.py logs against); each frame's
-monotonic time is the MCAP log_time, and analysis reads the pose timestamps straight back from it.
+Timestamps are CLOCK_MONOTONIC seconds; each frame's monotonic time is the MCAP log_time, and analysis
+reads the pose timestamps straight back from it. With --drive the issued commands share that same clock
+(one process), so the command log and the solved poses align with no time correction.
 """
 
 from __future__ import annotations
@@ -38,6 +44,8 @@ from mcap.writer import CompressionType, Writer
 TOPIC_METADATA = "/calibration/metadata"
 TOPIC_FLOOR_IMAGE = "/floor/image"
 TOPIC_CAMERA_IMAGE = "/camera/image"
+TOPIC_TRANSMITTER = "/transmitter/channels"
+TOPIC_COMMAND = "/drive/command"
 
 # JPEG quality for the stored frames. High enough that the lossy edges do not meaningfully move the
 # subpixel-refined marker corners, while keeping 1080p frames a few hundred KB so 60 fps capture sustains.
@@ -47,8 +55,11 @@ METADATA_SCHEMA = {
     "type": "object",
     "properties": {
         "t": {"type": "number", "description": "CLOCK_MONOTONIC seconds at recording start"},
-        "camera_matrix": {"type": "array", "items": {"type": "number"},
-                          "description": "3x3 K, row-major (9 values)"},
+        "camera_matrix": {
+            "type": "array",
+            "items": {"type": "number"},
+            "description": "3x3 K, row-major (9 values)",
+        },
         "dist_coeffs": {"type": "array", "items": {"type": "number"}},
         "image_width": {"type": "integer"},
         "image_height": {"type": "integer"},
@@ -58,6 +69,39 @@ METADATA_SCHEMA = {
         "floor": {"type": "object", "description": "floor grid board parameters for the lock"},
         "image_format": {"type": "string", "description": "jpeg (lossy) or raw (lossless bgr8)"},
         "clock": {"type": "string"},
+    },
+}
+
+# JSON schema for the transmitter stick axes recorded per driving frame. The MCAP log_time is the image
+# timestamp (for alignment); sample_t is when the snapshot was actually decoded off the radio, so analysis
+# can tell how stale the sticks were relative to the frame. channels holds the raw OpenTX values.
+CHANNELS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "sample_t": {
+            "type": "number",
+            "description": "CLOCK_MONOTONIC seconds the channel snapshot was decoded",
+        },
+        "channels": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "raw OpenTX channel values (~[-1024, 1024]); stick axes are low chans",
+        },
+    },
+}
+
+# JSON schema for the scripted excitation command issued per send (~50 Hz) when run with --drive. The MCAP
+# log_time is the command's CLOCK_MONOTONIC send time. cmd_lin/cmd_ang are the normalized [-1, 1] commands;
+# trainer_lin/trainer_ang are the integer [-500, 500] values actually written to the trainer link; label
+# tags the protocol phase so the fitter can slice the run.
+COMMAND_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "cmd_lin": {"type": "number", "description": "normalized linear command [-1, 1]"},
+        "cmd_ang": {"type": "number", "description": "normalized angular command [-1, 1]"},
+        "trainer_lin": {"type": "integer", "description": "trainer linear value sent [-500, 500]"},
+        "trainer_ang": {"type": "integer", "description": "trainer angular value sent [-500, 500]"},
+        "label": {"type": "string", "description": "excitation protocol phase label"},
     },
 }
 
@@ -108,21 +152,26 @@ def _serialize_compressed_image(t: float, jpeg: bytes, frame_id: str = "camera")
         nsec -= 1_000_000_000
     fid = frame_id.encode("utf-8")
     fmt = b"jpeg"
-    return b"".join([
-        struct.pack("<I", 0),               # header.seq
-        struct.pack("<II", sec, nsec),      # header.stamp
-        struct.pack("<I", len(fid)) + fid,  # header.frame_id
-        struct.pack("<I", len(fmt)) + fmt,  # format
-        struct.pack("<I", len(jpeg)) + jpeg,  # data
-    ])
+    return b"".join(
+        [
+            struct.pack("<I", 0),  # header.seq
+            struct.pack("<II", sec, nsec),  # header.stamp
+            struct.pack("<I", len(fid)) + fid,  # header.frame_id
+            struct.pack("<I", len(fmt)) + fmt,  # format
+            struct.pack("<I", len(jpeg)) + jpeg,  # data
+        ]
+    )
 
 
 def _decode_compressed_image(data: bytes) -> np.ndarray:
     """Inverse of _serialize_compressed_image: pull the JPEG payload out and decode to a BGR frame."""
     off = 12  # header.seq (4) + header.stamp (8)
-    (fid_len,) = struct.unpack_from("<I", data, off); off += 4 + fid_len
-    (fmt_len,) = struct.unpack_from("<I", data, off); off += 4 + fmt_len
-    (data_len,) = struct.unpack_from("<I", data, off); off += 4
+    (fid_len,) = struct.unpack_from("<I", data, off)
+    off += 4 + fid_len
+    (fmt_len,) = struct.unpack_from("<I", data, off)
+    off += 4 + fmt_len
+    (data_len,) = struct.unpack_from("<I", data, off)
+    off += 4
     jpeg = np.frombuffer(data, dtype=np.uint8, count=data_len, offset=off)
     return cv2.imdecode(jpeg, cv2.IMREAD_COLOR)
 
@@ -138,29 +187,36 @@ def _serialize_raw_image(t: float, frame: np.ndarray, frame_id: str = "camera") 
     fid = frame_id.encode("utf-8")
     enc = b"bgr8"
     payload = np.ascontiguousarray(frame).tobytes()
-    return b"".join([
-        struct.pack("<I", 0),               # header.seq
-        struct.pack("<II", sec, nsec),      # header.stamp
-        struct.pack("<I", len(fid)) + fid,  # header.frame_id
-        struct.pack("<I", h),               # height
-        struct.pack("<I", w),               # width
-        struct.pack("<I", len(enc)) + enc,  # encoding
-        struct.pack("<B", 0),               # is_bigendian
-        struct.pack("<I", w * 3),           # step
-        struct.pack("<I", len(payload)) + payload,  # data
-    ])
+    return b"".join(
+        [
+            struct.pack("<I", 0),  # header.seq
+            struct.pack("<II", sec, nsec),  # header.stamp
+            struct.pack("<I", len(fid)) + fid,  # header.frame_id
+            struct.pack("<I", h),  # height
+            struct.pack("<I", w),  # width
+            struct.pack("<I", len(enc)) + enc,  # encoding
+            struct.pack("<B", 0),  # is_bigendian
+            struct.pack("<I", w * 3),  # step
+            struct.pack("<I", len(payload)) + payload,  # data
+        ]
+    )
 
 
 def _decode_raw_image(data: bytes) -> np.ndarray:
     """Inverse of _serialize_raw_image: reshape the uncompressed bgr8 bytes into a BGR frame."""
     off = 12  # header.seq (4) + header.stamp (8)
-    (fid_len,) = struct.unpack_from("<I", data, off); off += 4 + fid_len
-    (h,) = struct.unpack_from("<I", data, off); off += 4
-    (w,) = struct.unpack_from("<I", data, off); off += 4
-    (enc_len,) = struct.unpack_from("<I", data, off); off += 4 + enc_len  # encoding (bgr8)
+    (fid_len,) = struct.unpack_from("<I", data, off)
+    off += 4 + fid_len
+    (h,) = struct.unpack_from("<I", data, off)
+    off += 4
+    (w,) = struct.unpack_from("<I", data, off)
+    off += 4
+    (enc_len,) = struct.unpack_from("<I", data, off)
+    off += 4 + enc_len  # encoding (bgr8)
     off += 1  # is_bigendian
     off += 4  # step
-    (data_len,) = struct.unpack_from("<I", data, off); off += 4
+    (data_len,) = struct.unpack_from("<I", data, off)
+    off += 4
     return np.frombuffer(data, dtype=np.uint8, count=data_len, offset=off).reshape(h, w, 3)
 
 
@@ -191,21 +247,46 @@ class CaptureWriter:
         self._writer = Writer(self._file, compression=compression)
         self._writer.start(profile="apriltag_track")
         self._meta_chan = self._writer.register_channel(
-            topic=TOPIC_METADATA, message_encoding="json",
+            topic=TOPIC_METADATA,
+            message_encoding="json",
             schema_id=self._writer.register_schema(
-                name="apriltag_calibration_metadata", encoding="jsonschema",
-                data=json.dumps(METADATA_SCHEMA).encode()),
+                name="apriltag_calibration_metadata",
+                encoding="jsonschema",
+                data=json.dumps(METADATA_SCHEMA).encode(),
+            ),
         )
         if image_format == "raw":
             img_schema = self._writer.register_schema(
-                name="sensor_msgs/Image", encoding="ros1msg", data=RAW_IMAGE_SCHEMA)
+                name="sensor_msgs/Image", encoding="ros1msg", data=RAW_IMAGE_SCHEMA
+            )
         else:
             img_schema = self._writer.register_schema(
-                name="sensor_msgs/CompressedImage", encoding="ros1msg", data=COMPRESSED_IMAGE_SCHEMA)
+                name="sensor_msgs/CompressedImage", encoding="ros1msg", data=COMPRESSED_IMAGE_SCHEMA
+            )
         self._floor_chan = self._writer.register_channel(
-            topic=TOPIC_FLOOR_IMAGE, message_encoding="ros1", schema_id=img_schema)
+            topic=TOPIC_FLOOR_IMAGE, message_encoding="ros1", schema_id=img_schema
+        )
         self._cam_chan = self._writer.register_channel(
-            topic=TOPIC_CAMERA_IMAGE, message_encoding="ros1", schema_id=img_schema)
+            topic=TOPIC_CAMERA_IMAGE, message_encoding="ros1", schema_id=img_schema
+        )
+        self._tx_chan = self._writer.register_channel(
+            topic=TOPIC_TRANSMITTER,
+            message_encoding="json",
+            schema_id=self._writer.register_schema(
+                name="transmitter_channels",
+                encoding="jsonschema",
+                data=json.dumps(CHANNELS_SCHEMA).encode(),
+            ),
+        )
+        self._cmd_chan = self._writer.register_channel(
+            topic=TOPIC_COMMAND,
+            message_encoding="json",
+            schema_id=self._writer.register_schema(
+                name="drive_command",
+                encoding="jsonschema",
+                data=json.dumps(COMMAND_SCHEMA).encode(),
+            ),
+        )
         self._meta: dict | None = None
         self._meta_written = False
         self._seq = 0
@@ -220,10 +301,20 @@ class CaptureWriter:
         if self._meta is None:
             raise RuntimeError("set_metadata() must be called before recording frames")
         h, w = frame.shape[:2]
-        payload = {**self._meta, "t": t, "image_width": int(w), "image_height": int(h),
-                   "image_format": self._image_format}
-        self._writer.add_message(channel_id=self._meta_chan, log_time=_ns(t), publish_time=_ns(t),
-                                 data=json.dumps(payload).encode(), sequence=0)
+        payload = {
+            **self._meta,
+            "t": t,
+            "image_width": int(w),
+            "image_height": int(h),
+            "image_format": self._image_format,
+        }
+        self._writer.add_message(
+            channel_id=self._meta_chan,
+            log_time=_ns(t),
+            publish_time=_ns(t),
+            data=json.dumps(payload).encode(),
+            sequence=0,
+        )
         self._meta_written = True
 
     def _serialize(self, t: float, frame: np.ndarray) -> bytes:
@@ -237,14 +328,67 @@ class CaptureWriter:
     def _write_image(self, channel_id: int, t: float, frame: np.ndarray) -> None:
         self._ensure_metadata(t, frame)
         self._seq += 1
-        self._writer.add_message(channel_id=channel_id, log_time=_ns(t), publish_time=_ns(t),
-                                 data=self._serialize(t, frame), sequence=self._seq)
+        self._writer.add_message(
+            channel_id=channel_id,
+            log_time=_ns(t),
+            publish_time=_ns(t),
+            data=self._serialize(t, frame),
+            sequence=self._seq,
+        )
 
     def write_floor_image(self, t: float, frame: np.ndarray) -> None:
         self._write_image(self._floor_chan, t, frame)
 
     def write_image(self, t: float, frame: np.ndarray) -> None:
         self._write_image(self._cam_chan, t, frame)
+
+    def write_channels(self, image_t: float, sample_t: float, channels: list[int]) -> None:
+        """Record the driver's stick axes for one frame, stamped (log_time) with image time `image_t`.
+
+        `sample_t` is when the snapshot was decoded off the radio; its difference from `image_t` is the
+        staleness of the sticks relative to the frame. No metadata gate: channels only ever accompany
+        the /camera/image frames, which write the metadata first.
+        """
+        payload = {"sample_t": sample_t, "channels": [int(c) for c in channels]}
+        self._seq += 1
+        self._writer.add_message(
+            channel_id=self._tx_chan,
+            log_time=_ns(image_t),
+            publish_time=_ns(image_t),
+            data=json.dumps(payload).encode(),
+            sequence=self._seq,
+        )
+
+    def write_command(
+        self,
+        t: float,
+        cmd_lin: float,
+        cmd_ang: float,
+        trainer_lin: int,
+        trainer_ang: int,
+        label: str,
+    ) -> None:
+        """Record one scripted excitation command (--drive), stamped (log_time) with its send time `t`.
+
+        Commands run on their own ~50 Hz clock independent of the camera; analysis zero-order-holds them
+        onto the frame times. No metadata gate: commands only ever accompany the /camera/image frames, which
+        write the metadata first.
+        """
+        payload = {
+            "cmd_lin": float(cmd_lin),
+            "cmd_ang": float(cmd_ang),
+            "trainer_lin": int(trainer_lin),
+            "trainer_ang": int(trainer_ang),
+            "label": str(label),
+        }
+        self._seq += 1
+        self._writer.add_message(
+            channel_id=self._cmd_chan,
+            log_time=_ns(t),
+            publish_time=_ns(t),
+            data=json.dumps(payload).encode(),
+            sequence=self._seq,
+        )
 
     def close(self) -> None:
         self._writer.finish()
@@ -273,6 +417,40 @@ def iter_images(path: Path, topic: str) -> Iterator[tuple[float, np.ndarray]]:
 def read_floor_frames(path: Path) -> list[np.ndarray]:
     """Load every floor-lock frame (the board-visible burst) into memory for the one-time extrinsic solve."""
     return [frame for _t, frame in iter_images(path, TOPIC_FLOOR_IMAGE)]
+
+
+def read_channels(path: Path) -> dict[float, dict]:
+    """Read the per-frame transmitter stick axes, keyed by the frame time they were stamped with.
+
+    apriltag_track.py writes each /transmitter/channels message with the same log_time as the
+    /camera/image frame it accompanies, so the float key here equals the `t` iter_images() yields for
+    that frame exactly (both are log_time / 1e9). Each value is the decoded payload
+    {"sample_t": float, "channels": list[int]}. Returns {} for recordings with no transmitter topic
+    (older captures, or a session run without the radio connected).
+    """
+    out: dict[float, dict] = {}
+    with open(path, "rb") as f:
+        for _schema, _channel, message in make_reader(f).iter_messages(topics=[TOPIC_TRANSMITTER]):
+            out[message.log_time / 1e9] = json.loads(message.data)
+    return out
+
+
+def read_commands(path: Path) -> list[dict]:
+    """Read the scripted excitation commands (--drive recordings), sorted by send time.
+
+    Each entry is the decoded payload {cmd_lin, cmd_ang, trainer_lin, trainer_ang, label} plus a "t" key
+    holding its CLOCK_MONOTONIC send time (log_time / 1e9). Commands run at ~50 Hz on their own clock, so
+    analysis zero-order-holds them onto the camera frame times. Returns [] for recordings with no command
+    topic (read-only stick captures, or older recordings).
+    """
+    out: list[dict] = []
+    with open(path, "rb") as f:
+        for _schema, _channel, message in make_reader(f).iter_messages(topics=[TOPIC_COMMAND]):
+            payload = json.loads(message.data)
+            payload["t"] = message.log_time / 1e9
+            out.append(payload)
+    out.sort(key=lambda r: r["t"])
+    return out
 
 
 # --------------------------------------------------------------------------------------------------
@@ -422,6 +600,7 @@ MARKER_ARRAY_SCHEMA = (
     b"float32 a\n"
 )
 
+
 def _pack_time(t: float) -> bytes:
     """ROS1 time (uint32 sec, uint32 nsec) for a monotonic-seconds timestamp."""
     sec = int(t)
@@ -488,8 +667,9 @@ def _serialize_tf(t: float, transforms: list[tuple]) -> bytes:
     return b"".join(out)
 
 
-def _serialize_camera_info(t: float, frame_id: str, w: int, h: int,
-                           k: list[float], d: list[float]) -> bytes:
+def _serialize_camera_info(
+    t: float, frame_id: str, w: int, h: int, k: list[float], d: list[float]
+) -> bytes:
     """sensor_msgs/CameraInfo for the (already-rectified-to-itself) pinhole+plumb_bob model used here."""
     k = [float(v) for v in k]
     d = [float(v) for v in d]
@@ -503,34 +683,44 @@ def _serialize_camera_info(t: float, frame_id: str, w: int, h: int,
         struct.pack("<9d", *k),
         struct.pack("<9d", 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),  # R = identity
         struct.pack("<12d", *p),
-        struct.pack("<II", 0, 0),                    # binning_x, binning_y
+        struct.pack("<II", 0, 0),  # binning_x, binning_y
         struct.pack("<IIII", 0, 0, 0, 0) + struct.pack("<B", 0),  # roi (+ do_rectify)
     ]
     return b"".join(out)
 
 
-def _serialize_marker(t: float, frame_id: str, ns: str, mid: int, mtype: int, action: int,
-                      pose: tuple, scale: tuple, color: tuple,
-                      points: list[tuple] | None = None, frame_locked: bool = True) -> bytes:
+def _serialize_marker(
+    t: float,
+    frame_id: str,
+    ns: str,
+    mid: int,
+    mtype: int,
+    action: int,
+    pose: tuple,
+    scale: tuple,
+    color: tuple,
+    points: list[tuple] | None = None,
+    frame_locked: bool = True,
+) -> bytes:
     """One visualization_msgs/Marker (lifetime 0 = forever, no per-vertex colors / mesh)."""
     out = [
         _pack_header(t, frame_id),
         _pack_string(ns),
         struct.pack("<iii", mid, mtype, action),
-        struct.pack("<7d", *pose),                   # position(3) + orientation(4)
+        struct.pack("<7d", *pose),  # position(3) + orientation(4)
         struct.pack("<3d", *scale),
         struct.pack("<4f", *color),
-        struct.pack("<ii", 0, 0),                    # lifetime
+        struct.pack("<ii", 0, 0),  # lifetime
         struct.pack("<B", 1 if frame_locked else 0),
     ]
     pts = points or []
     out.append(struct.pack("<I", len(pts)))
     for px, py, pz in pts:
         out.append(struct.pack("<3d", px, py, pz))
-    out.append(struct.pack("<I", 0))                 # colors[]
-    out.append(_pack_string(""))                     # text
-    out.append(_pack_string(""))                     # mesh_resource
-    out.append(struct.pack("<B", 0))                 # mesh_use_embedded_materials
+    out.append(struct.pack("<I", 0))  # colors[]
+    out.append(_pack_string(""))  # text
+    out.append(_pack_string(""))  # mesh_resource
+    out.append(struct.pack("<B", 0))  # mesh_use_embedded_materials
     return b"".join(out)
 
 
@@ -558,8 +748,7 @@ class OverlayWriter:
     _ARROW_FLOOR_COLOR = (0.70, 0.55, 0.35, 0.5)
     _TRAJ_FLOOR_COLOR = (0.40, 0.45, 0.55, 0.55)
 
-    def __init__(self, path: Path, k: list[float], d: list[float],
-                 width: int, height: int) -> None:
+    def __init__(self, path: Path, k: list[float], d: list[float], width: int, height: int) -> None:
         self._k = [float(v) for v in k]
         self._w = int(width)
         self._h = int(height)
@@ -570,38 +759,65 @@ class OverlayWriter:
         k3 = np.asarray(k, dtype=np.float64).reshape(3, 3)
         dv = np.asarray(d, dtype=np.float64).reshape(-1)
         self._map1, self._map2 = cv2.initUndistortRectifyMap(
-            k3, dv, None, k3, (self._w, self._h), cv2.CV_16SC2)
+            k3, dv, None, k3, (self._w, self._h), cv2.CV_16SC2
+        )
         self._file = open(path, "wb")
         self._writer = Writer(self._file)
         self._writer.start(profile="apriltag_overlay")
 
         img_schema = self._writer.register_schema(
-            name="sensor_msgs/CompressedImage", encoding="ros1msg", data=COMPRESSED_IMAGE_SCHEMA)
+            name="sensor_msgs/CompressedImage", encoding="ros1msg", data=COMPRESSED_IMAGE_SCHEMA
+        )
         self._img_chan = self._writer.register_channel(
-            topic=TOPIC_CAMERA_IMAGE, message_encoding="ros1", schema_id=img_schema)
+            topic=TOPIC_CAMERA_IMAGE, message_encoding="ros1", schema_id=img_schema
+        )
 
         info_schema = self._writer.register_schema(
-            name="sensor_msgs/CameraInfo", encoding="ros1msg", data=CAMERA_INFO_SCHEMA)
+            name="sensor_msgs/CameraInfo", encoding="ros1msg", data=CAMERA_INFO_SCHEMA
+        )
         self._info_chan = self._writer.register_channel(
-            topic=TOPIC_CAMERA_INFO, message_encoding="ros1", schema_id=info_schema)
+            topic=TOPIC_CAMERA_INFO, message_encoding="ros1", schema_id=info_schema
+        )
 
         tf_schema = self._writer.register_schema(
-            name="tf2_msgs/TFMessage", encoding="ros1msg", data=TF_SCHEMA)
+            name="tf2_msgs/TFMessage", encoding="ros1msg", data=TF_SCHEMA
+        )
         self._tf_chan = self._writer.register_channel(
-            topic=TOPIC_TF, message_encoding="ros1", schema_id=tf_schema)
+            topic=TOPIC_TF, message_encoding="ros1", schema_id=tf_schema
+        )
         self._tf_static_chan = self._writer.register_channel(
-            topic=TOPIC_TF_STATIC, message_encoding="ros1", schema_id=tf_schema)
+            topic=TOPIC_TF_STATIC, message_encoding="ros1", schema_id=tf_schema
+        )
 
         marker_schema = self._writer.register_schema(
-            name="visualization_msgs/MarkerArray", encoding="ros1msg", data=MARKER_ARRAY_SCHEMA)
+            name="visualization_msgs/MarkerArray", encoding="ros1msg", data=MARKER_ARRAY_SCHEMA
+        )
         self._marker_chan = self._writer.register_channel(
-            topic=TOPIC_MARKERS, message_encoding="ros1", schema_id=marker_schema)
+            topic=TOPIC_MARKERS, message_encoding="ros1", schema_id=marker_schema
+        )
+
+        # Copy the driver's stick axes across so they can be plotted next to the video and pose in
+        # Foxglove (Plot panel path /transmitter/channels.channels[N]). Only written when present.
+        self._tx_chan = self._writer.register_channel(
+            topic=TOPIC_TRANSMITTER,
+            message_encoding="json",
+            schema_id=self._writer.register_schema(
+                name="transmitter_channels",
+                encoding="jsonschema",
+                data=json.dumps(CHANNELS_SCHEMA).encode(),
+            ),
+        )
         self._seq = 0
 
     def _add(self, channel_id: int, t: float, data: bytes) -> None:
         self._seq += 1
-        self._writer.add_message(channel_id=channel_id, log_time=_ns(t), publish_time=_ns(t),
-                                 data=data, sequence=self._seq)
+        self._writer.add_message(
+            channel_id=channel_id,
+            log_time=_ns(t),
+            publish_time=_ns(t),
+            data=data,
+            sequence=self._seq,
+        )
 
     def write_static_tf(self, t: float, r_fc: np.ndarray, t_fc: np.ndarray) -> None:
         """The two fixed transforms, on /tf_static (Foxglove latches them forever):
@@ -619,10 +835,17 @@ class OverlayWriter:
         quat = _quat_from_matrix(r_cf)
         # If the camera sits on the -z side of the field, flip 180deg about x so it shows above the floor.
         flip = (0.0, 0.0, 0.0, 1.0) if cam_in_field[2] >= 0.0 else (1.0, 0.0, 0.0, 0.0)
-        self._add(self._tf_static_chan, t, _serialize_tf(t, [
-            (WORLD_FRAME, FIELD_FRAME, (0.0, 0.0, 0.0), flip),
-            (FIELD_FRAME, CAMERA_FRAME, cam_in_field.tolist(), quat),
-        ]))
+        self._add(
+            self._tf_static_chan,
+            t,
+            _serialize_tf(
+                t,
+                [
+                    (WORLD_FRAME, FIELD_FRAME, (0.0, 0.0, 0.0), flip),
+                    (FIELD_FRAME, CAMERA_FRAME, cam_in_field.tolist(), quat),
+                ],
+            ),
+        )
 
     def write_trajectory(self, t: float, rows: list[dict]) -> None:
         """Full solved path, drawn for the whole timeline as two field-frame LINE_STRIPs:
@@ -630,17 +853,38 @@ class OverlayWriter:
         trajectory_3d   : tag's true field height (z), so it overlays the tag in the image.
         trajectory_floor: flattened to z=0, the ground track registered to the floor plane.
         """
-        pts_3d = [(float(r["x"]), float(r["y"]), float(r.get("z") or 0.0))
-                  for r in rows if r["visible"]]
+        pts_3d = [
+            (float(r["x"]), float(r["y"]), float(r.get("z") or 0.0)) for r in rows if r["visible"]
+        ]
         if len(pts_3d) < 2:
             return
         pts_floor = [(p[0], p[1], 0.0) for p in pts_3d]
         identity = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0)
         markers = [
-            _serialize_marker(t, FIELD_FRAME, "trajectory_3d", 0, _MARKER_LINE_STRIP, _ACTION_ADD,
-                              identity, (0.01, 0.0, 0.0), self._TRAJ_COLOR, points=pts_3d),
-            _serialize_marker(t, FIELD_FRAME, "trajectory_floor", 0, _MARKER_LINE_STRIP, _ACTION_ADD,
-                              identity, (0.01, 0.0, 0.0), self._TRAJ_FLOOR_COLOR, points=pts_floor),
+            _serialize_marker(
+                t,
+                FIELD_FRAME,
+                "trajectory_3d",
+                0,
+                _MARKER_LINE_STRIP,
+                _ACTION_ADD,
+                identity,
+                (0.01, 0.0, 0.0),
+                self._TRAJ_COLOR,
+                points=pts_3d,
+            ),
+            _serialize_marker(
+                t,
+                FIELD_FRAME,
+                "trajectory_floor",
+                0,
+                _MARKER_LINE_STRIP,
+                _ACTION_ADD,
+                identity,
+                (0.01, 0.0, 0.0),
+                self._TRAJ_FLOOR_COLOR,
+                points=pts_floor,
+            ),
         ]
         self._add(self._marker_chan, t, _serialize_marker_array(markers))
 
@@ -650,22 +894,38 @@ class OverlayWriter:
         ok, encoded = cv2.imencode(".jpg", rectified, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         if not ok:
             raise RuntimeError("cv2.imencode failed for overlay frame")
-        self._add(self._img_chan, t, _serialize_compressed_image(t, encoded.tobytes(), CAMERA_FRAME))
+        self._add(
+            self._img_chan, t, _serialize_compressed_image(t, encoded.tobytes(), CAMERA_FRAME)
+        )
 
     def write_camera_info(self, t: float) -> None:
         # Zero distortion: the frames are already rectified, so the overlay is a pure pinhole projection.
-        self._add(self._info_chan, t,
-                  _serialize_camera_info(t, CAMERA_FRAME, self._w, self._h, self._k, [0.0] * 5))
+        self._add(
+            self._info_chan,
+            t,
+            _serialize_camera_info(t, CAMERA_FRAME, self._w, self._h, self._k, [0.0] * 5),
+        )
 
-    def _robot_markers(self, t: float, ns: str, x: float, y: float, z: float, quat: tuple,
-                       body_color: tuple, arrow_color: tuple) -> list[bytes]:
+    def _robot_markers(
+        self,
+        t: float,
+        ns: str,
+        x: float,
+        y: float,
+        z: float,
+        quat: tuple,
+        body_color: tuple,
+        arrow_color: tuple,
+    ) -> list[bytes]:
         """A body CUBE (id 0) + heading ARROW (id 1) at (x, y, z) with the given yaw quaternion."""
         pose = (x, y, z, *quat)
         return [
-            _serialize_marker(t, FIELD_FRAME, ns, 0, _MARKER_CUBE, _ACTION_ADD,
-                              pose, self._BODY, body_color),
-            _serialize_marker(t, FIELD_FRAME, ns, 1, _MARKER_ARROW, _ACTION_ADD,
-                              pose, self._ARROW, arrow_color),
+            _serialize_marker(
+                t, FIELD_FRAME, ns, 0, _MARKER_CUBE, _ACTION_ADD, pose, self._BODY, body_color
+            ),
+            _serialize_marker(
+                t, FIELD_FRAME, ns, 1, _MARKER_ARROW, _ACTION_ADD, pose, self._ARROW, arrow_color
+            ),
         ]
 
     def write_pose(self, t: float, row: dict) -> None:
@@ -673,43 +933,72 @@ class OverlayWriter:
         height and a "robot_floor" set flattened to z=0. Both are DELETEd when the tag is not visible."""
         if row["visible"]:
             x, y, yaw = float(row["x"]), float(row["y"]), float(row["yaw"])
-            z = float(row.get("z") or 0.0)  # tag's true field height, so the 3d marker sits on the tag
+            z = float(
+                row.get("z") or 0.0
+            )  # tag's true field height, so the 3d marker sits on the tag
             quat = _quat_from_yaw(yaw)
-            self._add(self._tf_chan, t,
-                      _serialize_tf(t, [(FIELD_FRAME, ROBOT_FRAME, (x, y, z), quat)]))
-            markers = self._robot_markers(t, "robot_3d", x, y, z, quat,
-                                          self._BODY_COLOR, self._ARROW_COLOR)
-            markers += self._robot_markers(t, "robot_floor", x, y, 0.0, quat,
-                                           self._BODY_FLOOR_COLOR, self._ARROW_FLOOR_COLOR)
+            self._add(
+                self._tf_chan, t, _serialize_tf(t, [(FIELD_FRAME, ROBOT_FRAME, (x, y, z), quat)])
+            )
+            markers = self._robot_markers(
+                t, "robot_3d", x, y, z, quat, self._BODY_COLOR, self._ARROW_COLOR
+            )
+            markers += self._robot_markers(
+                t, "robot_floor", x, y, 0.0, quat, self._BODY_FLOOR_COLOR, self._ARROW_FLOOR_COLOR
+            )
             self._add(self._marker_chan, t, _serialize_marker_array(markers))
         else:
             empty, unit, clear = (0.0,) * 7, (1.0, 1.0, 1.0), (0.0, 0.0, 0.0, 0.0)
             markers = []
             for ns in ("robot_3d", "robot_floor"):
-                markers.append(_serialize_marker(t, FIELD_FRAME, ns, 0, _MARKER_CUBE, _ACTION_DELETE,
-                                                 empty, unit, clear))
-                markers.append(_serialize_marker(t, FIELD_FRAME, ns, 1, _MARKER_ARROW, _ACTION_DELETE,
-                                                 empty, unit, clear))
+                markers.append(
+                    _serialize_marker(
+                        t, FIELD_FRAME, ns, 0, _MARKER_CUBE, _ACTION_DELETE, empty, unit, clear
+                    )
+                )
+                markers.append(
+                    _serialize_marker(
+                        t, FIELD_FRAME, ns, 1, _MARKER_ARROW, _ACTION_DELETE, empty, unit, clear
+                    )
+                )
             self._add(self._marker_chan, t, _serialize_marker_array(markers))
+
+    def write_channels(self, t: float, sample_t: float, channels: list[int]) -> None:
+        """Copy one frame's transmitter stick axes into the overlay, stamped with the frame time `t`
+        (same as the image) so they line up on the Foxglove timeline for plotting."""
+        payload = {"sample_t": sample_t, "channels": [int(c) for c in channels]}
+        self._add(self._tx_chan, t, json.dumps(payload).encode())
 
     def close(self) -> None:
         self._writer.finish()
         self._file.close()
 
 
-def write_overlay(out_path: Path, src_path: Path, metadata: dict, rows: list[dict],
-                  r_fc: np.ndarray, t_fc: np.ndarray) -> None:
+def write_overlay(
+    out_path: Path,
+    src_path: Path,
+    metadata: dict,
+    rows: list[dict],
+    r_fc: np.ndarray,
+    t_fc: np.ndarray,
+) -> None:
     """Write a Foxglove overlay MCAP next to the solved poses.
 
     Undistorts the source /camera/image frames and adds, per frame, a CameraInfo, the field->robot TF, and
     the robot markers (a true-3d set at the tag height and a floor set at z=0); plus the one-time static
-    TFs (world->field, field->camera) and the trajectory (also 3d + floor). rows must be in the same order
-    as the source frames (analyze_apriltag_mcap.solve_poses produces exactly that, one per frame).
+    TFs (world->field, field->camera) and the trajectory (also 3d + floor). When the rows carry the
+    driver's transmitter stick axes, those are copied onto /transmitter/channels per frame so they can be
+    plotted alongside the video. rows must be in the same order as the source frames
+    (analyze_apriltag_mcap.solve_poses produces exactly that, one per frame).
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     writer = OverlayWriter(
-        out_path, metadata["camera_matrix"], metadata["dist_coeffs"],
-        int(metadata["image_width"]), int(metadata["image_height"]))
+        out_path,
+        metadata["camera_matrix"],
+        metadata["dist_coeffs"],
+        int(metadata["image_width"]),
+        int(metadata["image_height"]),
+    )
     if rows:
         writer.write_static_tf(rows[0]["t"], r_fc, t_fc)
         writer.write_trajectory(rows[0]["t"], rows)
@@ -718,4 +1007,6 @@ def write_overlay(out_path: Path, src_path: Path, metadata: dict, rows: list[dic
         writer.write_image(ts, frame)
         writer.write_camera_info(ts)
         writer.write_pose(ts, row)
+        if "channels" in row:
+            writer.write_channels(ts, row["sample_t"], row["channels"])
     writer.close()

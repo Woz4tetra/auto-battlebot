@@ -34,11 +34,16 @@ Intrinsics come from the OAK on-device calibration automatically when --source o
 For a plain camera/video --intrinsics is required. The OAK-1 W's wide lens IS distorted, so the real
 distortion coefficients are used and solvePnP undistorts the marker corners.
 
-Timestamps are in the CLOCK_MONOTONIC domain, system-wide on Linux, so when this runs on the same host as
-calibrate_drive.py the recording and the cmd log share a clock and need no alignment. For the OAK, each
-frame is stamped with its hardware capture time (depthai's getTimestamp(), synced to host CLOCK_MONOTONIC),
-not the host time at dequeue, so queue buffering does not skew the recorded frame timing. A generic camera
-(CvSource) has no per-frame hardware stamp and falls back to time.monotonic() at read.
+With --drive this same process plays a scripted excitation sequence (drive_protocol.py) on the OpenTX
+trainer link while it records, so the issued commands land on /drive/command in the recording and the plant
+fit gets the command log and the AprilTag truth from one file on one clock. Without --drive the transmitter
+sticks are read read-only (/transmitter/channels) if a radio is connected, or ignored if not.
+
+Timestamps are in the CLOCK_MONOTONIC domain, system-wide on Linux, so the camera frames and the issued
+commands share one clock and need no alignment. For the OAK, each frame is stamped with its hardware capture
+time (depthai's getTimestamp(), synced to host CLOCK_MONOTONIC), not the host time at dequeue, so queue
+buffering does not skew the recorded frame timing. A generic camera (CvSource) has no per-frame hardware
+stamp and falls back to time.monotonic() at read.
 
 Install deps first: pip install -r playground/calibration/requirements.txt
 
@@ -47,12 +52,16 @@ Usage:
     # 1. Print the robot tag PDF (see make_print_tags.py) and tape it flat on the robot top. The floor
     #    grid is the manufactured 3x5 board, so it does not need printing.
     python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
+    # 1b. Review the excitation schedule (no hardware touched):
+    python playground/calibration/apriltag_track.py --dry-run
     # 2. OAK-1 W live (1080p @ 60 fps), intrinsics from the device; defaults match the manufactured board.
     #    A live preview window opens: aim the floor board and press [L] to lock the frame, remove the board
     #    and press [S] to start tracking (shows the robot's live x/y/yaw), press [Q] to stop. --no-preview
-    #    runs headless.
+    #    runs headless. Add --drive to also run the scripted excitation: pressing [S] then ARMS the robot
+    #    and drives the protocol, recording the issued commands to /drive/command. Guard plates ON, clear
+    #    space, driver sticks CENTERED (trainer mode adds stick input to the command).
     python playground/calibration/apriltag_track.py \
-        --source oak --out playground/calibration/out/apriltag_track.mcap
+        --source oak --drive --out playground/calibration/out/apriltag_track.mcap
     # Any other camera/video with your own intrinsics instead of the OAK:
     python playground/calibration/apriltag_track.py --source 0 \
         --intrinsics playground/calibration/cam_intrinsics.json --tag-size 0.13
@@ -72,7 +81,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import queue
+import signal
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -82,8 +94,12 @@ import cv2
 import numpy as np
 from calib_lib import apriltag_detect as ad
 from calib_lib import apriltag_mcap as amcap
+from calib_lib import drive_protocol as dp
+from calib_lib import transmitter_axes as tx
 
-FLOOR_LOCK_FRAMES = 20  # frames captured (and recorded) at the lock keypress to solve the floor extrinsic
+FLOOR_LOCK_FRAMES = (
+    100  # frames captured (and recorded) at the lock keypress to solve the floor extrinsic
+)
 
 
 def wait_for_enter(message: str) -> None:
@@ -208,9 +224,11 @@ class OakSource:
             mode = "auto-exposure"
         print(f"OAK opened: {self._w}x{self._h} @ {self.FPS:.0f}fps (CAM_A), {mode}, USB: {speed}")
         if "SUPER" not in speed.upper():
-            print(f"  WARNING: USB link is {speed} (USB 2.0). 1080p cannot stream at {self.FPS:.0f} fps over "
-                  "USB 2.0 and will be throttled to ~25-30 fps. Plug the OAK into a USB 3 port (blue USB-A "
-                  "or USB-C) for full frame rate.")
+            print(
+                f"  WARNING: USB link is {speed} (USB 2.0). 1080p cannot stream at {self.FPS:.0f} fps over "
+                "USB 2.0 and will be throttled to ~25-30 fps. Plug the OAK into a USB 3 port (blue USB-A "
+                "or USB-C) for full frame rate."
+            )
 
     def read(self) -> tuple[bool, float, np.ndarray]:
         # getTimestamp() is the sensor capture time depthai syncs to the host CLOCK_MONOTONIC, so it
@@ -224,29 +242,34 @@ class OakSource:
         dai = self._dai
         calib = self._device.readCalibration()
         k = np.array(
-            calib.getCameraIntrinsics(dai.CameraBoardSocket.CAM_A, self._w, self._h), dtype=np.float64
+            calib.getCameraIntrinsics(dai.CameraBoardSocket.CAM_A, self._w, self._h),
+            dtype=np.float64,
         )
         d = np.array(
             calib.getDistortionCoefficients(dai.CameraBoardSocket.CAM_A), dtype=np.float64
         ).reshape(-1, 1)
         model = calib.getDistortionModel(dai.CameraBoardSocket.CAM_A)
         if "FISHEYE" in str(model).upper():
-            print(f"WARNING: OAK reports a {model} distortion model; solvePnP assumes Brown-Conrady. "
-                  "Pose near the frame edges may be off on this ultra-wide lens.")
+            print(
+                f"WARNING: OAK reports a {model} distortion model; solvePnP assumes Brown-Conrady. "
+                "Pose near the frame edges may be off on this ultra-wide lens."
+            )
         return k, d
 
     def release(self) -> None:
         self._device.close()
 
 
-def open_source(source: str, exposure_us: int | None = None, iso: int = 800) -> CvSource | OakSource:
+def open_source(
+    source: str, exposure_us: int | None = None, iso: int = 800
+) -> CvSource | OakSource:
     if source == "oak":
         return OakSource(source, exposure_us=exposure_us, iso=iso)
     return CvSource(source)
 
 
 WINDOW = "apriltag_track"
-PREVIEW_MAX_FPS = 20.0       # cap the preview redraw so imshow/waitKey does not gate the capture loop
+PREVIEW_MAX_FPS = 20.0  # cap the preview redraw so imshow/waitKey does not gate the capture loop
 PREVIEW_DISPLAY_WIDTH = 1280  # downscale before imshow (the window upscales) to cut render cost
 
 
@@ -258,8 +281,11 @@ def show_scaled(frame: np.ndarray) -> int:
     """
     h, w = frame.shape[:2]
     if w > PREVIEW_DISPLAY_WIDTH:
-        frame = cv2.resize(frame, (PREVIEW_DISPLAY_WIDTH, round(h * PREVIEW_DISPLAY_WIDTH / w)),
-                           interpolation=cv2.INTER_NEAREST)
+        frame = cv2.resize(
+            frame,
+            (PREVIEW_DISPLAY_WIDTH, round(h * PREVIEW_DISPLAY_WIDTH / w)),
+            interpolation=cv2.INTER_NEAREST,
+        )
     cv2.imshow(WINDOW, frame)
     return cv2.waitKey(1) & 0xFF
 
@@ -275,7 +301,10 @@ def screen_workarea() -> tuple[int, int, int, int] | None:
 
     try:
         out = subprocess.run(
-            ["xprop", "-root", "-notype", "_NET_WORKAREA"], capture_output=True, text=True, timeout=2
+            ["xprop", "-root", "-notype", "_NET_WORKAREA"],
+            capture_output=True,
+            text=True,
+            timeout=2,
         ).stdout
         nums = [int(n) for n in out.split("=", 1)[1].replace(",", " ").split()]
         if len(nums) >= 4:
@@ -283,7 +312,9 @@ def screen_workarea() -> tuple[int, int, int, int] | None:
     except Exception:
         pass
     try:
-        out = subprocess.run(["xrandr", "--current"], capture_output=True, text=True, timeout=2).stdout
+        out = subprocess.run(
+            ["xrandr", "--current"], capture_output=True, text=True, timeout=2
+        ).stdout
         for line in out.splitlines():
             if "*" in line:  # the active mode, e.g. "   1920x1080     60.00*+"
                 w, h = line.split()[0].split("x")
@@ -328,7 +359,9 @@ class FpsMeter:
             dt = t - self._last
             if dt > 0:
                 inst = 1.0 / dt
-                self.fps = inst if self.fps == 0.0 else (1 - self._alpha) * self.fps + self._alpha * inst
+                self.fps = (
+                    inst if self.fps == 0.0 else (1 - self._alpha) * self.fps + self._alpha * inst
+                )
                 self.lo = inst if self.lo == 0.0 else min(self.lo, inst)
         self._last = t
         return self.fps
@@ -380,7 +413,9 @@ class LoopProfiler:
         fps = self._n / (now - self._t0)
         per = " | ".join(f"{name} {sec / self._n * 1000:5.1f}" for name, sec in self._acc.items())
         total = sum(self._acc.values()) / self._n * 1000
-        print(f"[prof:{self.label}] {fps:5.1f} fps  ({total:5.1f} ms/frame, tags={self._tags})  {per}")
+        print(
+            f"[prof:{self.label}] {fps:5.1f} fps  ({total:5.1f} ms/frame, tags={self._tags})  {per}"
+        )
         self._acc = {k: 0.0 for k in self._acc}
         self._n = 0
         self._t0 = now
@@ -435,7 +470,11 @@ def lock_floor_with_preview(
         with prof.section("detect"):
             disp, corners, ids = ad.detect_markers(detector, frame)
         n_all = 0 if ids is None else len(ids)
-        keep = [i for i, m in enumerate(ids.flatten()) if int(m) in board_ids] if ids is not None else []
+        keep = (
+            [i for i, m in enumerate(ids.flatten()) if int(m) in board_ids]
+            if ids is not None
+            else []
+        )
         n = len(keep)
         ready = n >= 4
         key = 255
@@ -444,12 +483,16 @@ def lock_floor_with_preview(
             with prof.section("show"):
                 if keep:
                     cv2.aruco.drawDetectedMarkers(disp, [corners[i] for i in keep], ids[keep])
-                draw_hud(disp, [
-                    "FLOOR LOCK (one time)",
-                    f"board markers seen: {n}  (need >= 4)",
-                    "aim so the grid is flat and fully in view",
-                    "[L] lock floor frame    [Q] quit",
-                ], ok=ready)
+                draw_hud(
+                    disp,
+                    [
+                        "FLOOR LOCK (one time)",
+                        f"board markers seen: {n}  (need >= 4)",
+                        "aim so the grid is flat and fully in view",
+                        "[L] lock floor frame    [Q] quit",
+                    ],
+                    ok=ready,
+                )
                 draw_fps(disp, fps)
                 key = show_scaled(disp)
         prof.frame(tags=n_all)
@@ -470,9 +513,13 @@ def confirm_robot_with_preview(
     r_fc: np.ndarray,
     t_fc: np.ndarray,
     yaw_offset: float,
+    drive: bool = False,
 ) -> None:
     """After the lock, preview the robot tag's live field pose so the board can be removed and the robot
-    placed in view before recording starts. Press S to start tracking, Q to quit."""
+    placed in view before recording starts. Press S to start tracking, Q to quit.
+
+    When `drive`, pressing S also ARMS the robot and starts the scripted excitation, so the HUD warns that
+    the robot is about to move (guard plates on, driver sticks centered)."""
     fps = FpsMeter()
     prof = LoopProfiler("confirm")
     last_show = 0.0
@@ -499,14 +546,27 @@ def confirm_robot_with_preview(
                     cv2.aruco.drawDetectedMarkers(disp, [corners[idx]], np.array([[tag_id]]))
                     if pose is not None:
                         cv2.drawFrameAxes(disp, k, d, pose[3], pose[4], obj[1, 0] - obj[0, 0])
-                status = (f"robot x={pose[0]:+.3f} y={pose[1]:+.3f} yaw={math.degrees(pose[2]):+6.1f}deg"
-                          if pose is not None else f"robot tag (id {tag_id}) not visible")
-                draw_hud(disp, [
-                    "FLOOR LOCKED.  Remove the grid board.",
-                    f"place robot (tag id {tag_id}) in view",
-                    status,
-                    "[S] start tracking    [Q] quit",
-                ], ok=pose is not None)
+                status = (
+                    f"robot x={pose[0]:+.3f} y={pose[1]:+.3f} yaw={math.degrees(pose[2]):+6.1f}deg"
+                    if pose is not None
+                    else f"robot tag (id {tag_id}) not visible"
+                )
+                if drive:
+                    hud_lines = [
+                        "FLOOR LOCKED.  Remove the grid board.",
+                        f"place robot (tag id {tag_id}) in view",
+                        status,
+                        "WARNING: [S] ARMS + DRIVES the robot (plates on, sticks centered)",
+                        "[S] arm + start driving    [Q] quit",
+                    ]
+                else:
+                    hud_lines = [
+                        "FLOOR LOCKED.  Remove the grid board.",
+                        f"place robot (tag id {tag_id}) in view",
+                        status,
+                        "[S] start tracking    [Q] quit",
+                    ]
+                draw_hud(disp, hud_lines, ok=pose is not None)
                 draw_fps(disp, fps)
                 key = show_scaled(disp)
         prof.frame(tags=n_all)
@@ -517,52 +577,150 @@ def confirm_robot_with_preview(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--source", default="oak",
-                        help="'oak' (OAK-1 W via DepthAI), a camera index, or a video file")
-    parser.add_argument("--tag-size", type=float, default=0.13,
-                        help="robot AprilTag edge length in metres (default 0.13 = make_print_tags robot tag; "
-                             "must match the tag you actually mounted, it sets the metric scale)")
-    parser.add_argument(
-        "--intrinsics", type=Path, default=None, help="K/D JSON; required unless --source provides them"
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--exposure-us", type=int, default=2090,
-                        help="fix the OAK shutter (microseconds) to freeze motion blur; omit for "
-                             "auto-exposure. Shorter = less blur, more --iso. Try 2000/1500/1000")
-    parser.add_argument("--iso", type=int, default=1000,
-                        help="OAK sensor gain (100-1600) used with --exposure-us; raise it when a "
-                             "shorter exposure darkens the image (default 800)")
-    default_out = (Path(__file__).resolve().parent / "out" /
-                   f"apriltag_track_{datetime.now():%Y%m%d_%H%M%S}.mcap")
-    parser.add_argument("--out", type=Path, default=default_out,
-                        help="MCAP recording of raw camera images; solve poses with analyze_apriltag_mcap.py")
+    parser.add_argument(
+        "--source",
+        default="oak",
+        help="'oak' (OAK-1 W via DepthAI), a camera index, or a video file",
+    )
+    parser.add_argument(
+        "--tag-size",
+        type=float,
+        default=0.13,
+        help="robot AprilTag edge length in metres (default 0.13 = make_print_tags robot tag; "
+        "must match the tag you actually mounted, it sets the metric scale)",
+    )
+    parser.add_argument(
+        "--intrinsics",
+        type=Path,
+        default=None,
+        help="K/D JSON; required unless --source provides them",
+    )
+    parser.add_argument(
+        "--exposure-us",
+        type=int,
+        default=2090,
+        help="fix the OAK shutter (microseconds) to freeze motion blur; omit for "
+        "auto-exposure. Shorter = less blur, more --iso. Try 2000/1500/1000",
+    )
+    parser.add_argument(
+        "--iso",
+        type=int,
+        default=1000,
+        help="OAK sensor gain (100-1600) used with --exposure-us; raise it when a "
+        "shorter exposure darkens the image (default 800)",
+    )
+    default_out = (
+        Path(__file__).resolve().parent
+        / "out"
+        / f"apriltag_track_{datetime.now():%Y%m%d_%H%M%S}.mcap"
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=default_out,
+        help="MCAP recording of raw camera images; solve poses with analyze_apriltag_mcap.py",
+    )
     parser.add_argument("--tag-id", type=int, default=20, help="AprilTag id mounted on the robot")
     parser.add_argument(
-        "--yaw-offset-deg", type=float, default=0.0,
+        "--yaw-offset-deg",
+        type=float,
+        default=0.0,
         help="tag +x (TL->TR edge) direction relative to robot forward",
     )
     # Floor reference grid (an AprilTag GridBoard placed flat on the floor for the one-time frame lock).
     # Defaults match the manufactured board: 3x5 markers, 65 mm edge, 15 mm gaps, ids 160..174.
     parser.add_argument("--floor-cols", type=int, default=3, help="grid markers in x")
     parser.add_argument("--floor-rows", type=int, default=5, help="grid markers in y")
-    parser.add_argument("--floor-marker-size", type=float, default=0.065, help="grid marker edge (m)")
-    parser.add_argument("--floor-marker-sep", type=float, default=0.015, help="gap between grid markers (m)")
-    parser.add_argument("--floor-first-id", type=int, default=160, help="lowest grid marker id (board uses 160..174)")
-    parser.add_argument("--no-preview", action="store_true",
-                        help="disable the live preview window (use for headless / automated video replay)")
-    parser.add_argument("--show-other-tags", action="store_true",
-                        help="in the tracking preview, also draw the floor-frame pose of every non-robot "
-                             "tag (floor-marker size for grid ids, robot tag size otherwise)")
-    parser.add_argument("--image-format", choices=amcap.IMAGE_FORMATS, default="raw",
-                        help="jpeg: smaller, lossy (default); raw: lossless bgr8, larger, exact corners")
+    parser.add_argument(
+        "--floor-marker-size", type=float, default=0.065, help="grid marker edge (m)"
+    )
+    parser.add_argument(
+        "--floor-marker-sep", type=float, default=0.015, help="gap between grid markers (m)"
+    )
+    parser.add_argument(
+        "--floor-first-id",
+        type=int,
+        default=160,
+        help="lowest grid marker id (board uses 160..174)",
+    )
+    parser.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="disable the live preview window (use for headless / automated video replay)",
+    )
+    parser.add_argument(
+        "--show-other-tags",
+        action="store_true",
+        help="in the tracking preview, also draw the floor-frame pose of every non-robot "
+        "tag (floor-marker size for grid ids, robot tag size otherwise)",
+    )
+    parser.add_argument(
+        "--image-format",
+        choices=amcap.IMAGE_FORMATS,
+        default="raw",
+        help="jpeg: smaller, lossy (default); raw: lossless bgr8, larger, exact corners",
+    )
+    parser.add_argument(
+        "--transmitter-port",
+        type=str,
+        default=None,
+        help="OpenTX serial device (auto-detected if omitted). Without --drive the driver's "
+        "stick axes are read read-only to /transmitter/channels; with --drive this is "
+        "the link the scripted commands are sent on.",
+    )
+    parser.add_argument(
+        "--drive",
+        action="store_true",
+        help="play the scripted excitation protocol on the trainer link while recording "
+        "(replaces the read-only stick capture), logging commands to /drive/command. "
+        "Robot MOVES: guard plates on, clear space, driver sticks centered.",
+    )
+    parser.add_argument(
+        "--rate", type=float, default=50.0, help="--drive command send rate in Hz (default 50)"
+    )
+    parser.add_argument(
+        "--no-reverse-angular",
+        action="store_true",
+        help="--drive: disable the reverse_angular convention (default matches main.toml)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the --drive excitation schedule and exit; touches no hardware",
+    )
     args = parser.parse_args()
     preview = not args.no_preview
 
+    # --dry-run just inspects the deterministic protocol; do it before opening any camera or radio.
+    if args.dry_run:
+        protocol = dp.build_protocol()
+        elapsed = 0.0
+        for s in protocol:
+            print(
+                f"  {elapsed:6.2f}s  +{s.duration:4.2f}s  lin={s.linear:+.2f} ang={s.angular:+.2f}  "
+                f"{s.label}"
+            )
+            elapsed += s.duration
+        print(
+            f"\nTotal: {dp.protocol_duration(protocol):.1f}s, {len(protocol)} segments. "
+            "(dry run, no hardware touched)"
+        )
+        return
+
     board = ad.make_floor_board(
-        args.floor_cols, args.floor_rows, args.floor_marker_size, args.floor_marker_sep, args.floor_first_id
+        args.floor_cols,
+        args.floor_rows,
+        args.floor_marker_size,
+        args.floor_marker_sep,
+        args.floor_first_id,
     )
 
-    board_id_range = range(args.floor_first_id, args.floor_first_id + args.floor_cols * args.floor_rows)
+    board_id_range = range(
+        args.floor_first_id, args.floor_first_id + args.floor_cols * args.floor_rows
+    )
     if args.tag_id in board_id_range:
         raise SystemExit(
             f"--tag-id {args.tag_id} collides with the floor grid ids "
@@ -581,7 +739,9 @@ def main() -> None:
             source.release()
             raise SystemExit("No intrinsics: pass --intrinsics (only --source oak provides them).")
         k, d = from_source
-        print(f"intrinsics from source: fx={k[0, 0]:.1f} fy={k[1, 1]:.1f} cx={k[0, 2]:.1f} cy={k[1, 2]:.1f}")
+        print(
+            f"intrinsics from source: fx={k[0, 0]:.1f} fy={k[1, 1]:.1f} cx={k[0, 2]:.1f} cy={k[1, 2]:.1f}"
+        )
 
     obj = ad.tag_object_points(args.tag_size)
     yaw_offset = math.radians(args.yaw_offset_deg)
@@ -596,19 +756,86 @@ def main() -> None:
     print(f"recording {args.image_format} images to {args.out}")
     # Metadata (filled with the image size from the first recorded frame) carries everything analysis needs
     # except the floor extrinsic, which it re-solves from the recorded /floor/image frames.
-    writer.set_metadata({
-        "camera_matrix": k.reshape(-1).tolist(),
-        "dist_coeffs": d.reshape(-1).tolist(),
-        "tag_size": args.tag_size,
-        "tag_id": args.tag_id,
-        "yaw_offset_deg": args.yaw_offset_deg,
-        "floor": {
-            "cols": args.floor_cols, "rows": args.floor_rows,
-            "marker_size": args.floor_marker_size, "marker_sep": args.floor_marker_sep,
-            "first_id": args.floor_first_id,
-        },
-        "clock": "monotonic",
-    })
+    writer.set_metadata(
+        {
+            "camera_matrix": k.reshape(-1).tolist(),
+            "dist_coeffs": d.reshape(-1).tolist(),
+            "tag_size": args.tag_size,
+            "tag_id": args.tag_id,
+            "yaw_offset_deg": args.yaw_offset_deg,
+            "floor": {
+                "cols": args.floor_cols,
+                "rows": args.floor_rows,
+                "marker_size": args.floor_marker_size,
+                "marker_sep": args.floor_marker_sep,
+                "first_id": args.floor_first_id,
+            },
+            "clock": "monotonic",
+            "drive": args.drive,
+        }
+    )
+
+    # Transmitter. The OpenTX serial port can only be held one way, so --drive (sends the scripted
+    # excitation) and the read-only stick capture are mutually exclusive; they never both run.
+    reader: tx.TransmitterReader | None = None  # read-only stick capture (no --drive)
+    link: dp.TrainerLink | None = None  # scripted command link (--drive)
+    protocol: list[dp.Segment] = []
+    tx_port = args.transmitter_port or tx.find_transmitter_port()
+    if args.drive:
+        if tx_port is None:
+            source.release()
+            writer.close()
+            raise SystemExit(
+                "--drive needs an OpenTX device (none found). Pass --transmitter-port, or "
+                "check the cable."
+            )
+        link = dp.TrainerLink(tx_port, reverse_angular=not args.no_reverse_angular)
+        protocol = dp.build_protocol()
+        print(
+            f"transmitter: DRIVE mode on {tx_port} -> {amcap.TOPIC_COMMAND} "
+            f"({dp.protocol_duration(protocol):.1f}s protocol @ {args.rate:.0f} Hz)"
+        )
+        print(
+            "SAFETY: guard plates ON, clear bounded space, driver sticks CENTERED (trainer adds sticks)."
+        )
+    elif tx_port is not None:
+        try:
+            reader = tx.TransmitterReader(tx_port)
+            print(f"transmitter: reading stick axes from {tx_port} -> {amcap.TOPIC_TRANSMITTER}")
+        except Exception as e:
+            print(
+                f"transmitter: could not open {tx_port} ({e}); recording images without stick axes"
+            )
+    else:
+        print(
+            "transmitter: no OpenTX device found; recording images without stick axes "
+            "(pass --transmitter-port to override)"
+        )
+
+    # --drive plumbing: the protocol runs on a background thread (DriveRunner) that pushes each issued
+    # command onto this queue; the capture loop below is the sole MCAP writer and drains it per frame.
+    cmd_queue: "queue.Queue[dp.CommandSample]" = queue.Queue()
+    stop_event = threading.Event()
+    driver: dp.DriveRunner | None = None
+
+    def drain_commands() -> str:
+        """Write every queued command to the recording; return the most recent label (for the HUD)."""
+        label = ""
+        while True:
+            try:
+                sample = cmd_queue.get_nowait()
+            except queue.Empty:
+                break
+            writer.write_command(
+                sample.t,
+                sample.cmd_lin,
+                sample.cmd_ang,
+                sample.trainer_lin,
+                sample.trainer_ang,
+                sample.label,
+            )
+            label = sample.label
+        return label
 
     n_frames = 0
     fps = FpsMeter()
@@ -619,10 +846,12 @@ def main() -> None:
         if preview:
             open_preview_window()
             # Phase 1: live-aim the floor board and lock on keypress (records the floor burst). Phase 2:
-            # confirm the robot tag is visible with the board removed, start recording on keypress.
+            # confirm the robot tag is visible with the board removed; the S keypress starts recording (and,
+            # with --drive, ARMS the robot and starts driving).
             r_fc, t_fc = lock_floor_with_preview(source, detector, board, k, d, writer)
-            confirm_robot_with_preview(source, detector, args.tag_id, obj, k, d, r_fc, t_fc, yaw_offset)
-            print("Recording. Press Q in the preview window to stop.")
+            confirm_robot_with_preview(
+                source, detector, args.tag_id, obj, k, d, r_fc, t_fc, yaw_offset, drive=args.drive
+            )
         else:
             wait_for_enter(
                 "FLOOR LOCK (one time): place the AprilTag grid board flat in the arena, fully visible to "
@@ -636,6 +865,35 @@ def main() -> None:
                 "Floor frame locked. REMOVE the grid board from the arena so it does not obstruct the "
                 "robot, then place the robot (tag up) in view. Recording starts after you continue."
             )
+            if args.drive:
+                # Headless arming gate (the preview path arms on the S keypress instead). Needs a human.
+                if not sys.stdin.isatty():
+                    raise SystemExit(
+                        "--drive needs an interactive terminal to arm; stdin is not a tty."
+                    )
+                if input("Type 'go' to ARM and drive the robot: ").strip() != "go":
+                    raise SystemExit("Aborted (not armed).")
+
+        # Robot is placed and the run is armed: start the scripted excitation on its background thread.
+        last_cmd_label = ""
+        if args.drive and link is not None:
+            # Disarm on every exit path: SIGTERM and the SIGALRM hard timeout just set the stop flag; the
+            # DriveRunner cuts output and the finally block closes (disarms) the link.
+            signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
+            signal.signal(signal.SIGALRM, lambda *_: stop_event.set())
+            signal.alarm(int(dp.protocol_duration(protocol)) + 5)
+            driver = dp.DriveRunner(link, protocol, args.rate, cmd_queue.put, stop_event)
+            driver.start()
+            print(
+                f"DRIVING + recording ({dp.protocol_duration(protocol):.1f}s). "
+                + (
+                    "Press Q in the preview window to stop early."
+                    if preview
+                    else "Ctrl-C to stop early."
+                )
+            )
+        elif preview:
+            print("Recording. Press Q in the preview window to stop.")
 
         # Record the driving frames raw to /camera/image. Detection runs only on the throttled preview
         # frames, purely to tell the operator whether the robot tag is in view; analysis re-detects offline.
@@ -648,8 +906,23 @@ def main() -> None:
             n_frames += 1
             with prof.section("record"):
                 writer.write_image(t, frame)
+                if driver is not None:
+                    # Drain every command the protocol thread issued since the last frame, each stamped
+                    # with its own send time, so /drive/command carries the full ~50 Hz log.
+                    label = drain_commands()
+                    if (
+                        label
+                    ):  # keep the last phase shown between bursts (50 Hz cmds vs 60 fps frames)
+                        last_cmd_label = label
+                elif reader is not None:
+                    # Stamp the latest stick snapshot with this frame's time so the sticks line up with the
+                    # ground-truth pose on the MCAP timeline. None until the radio's first packet arrives.
+                    sample = reader.latest()
+                    if sample is not None:
+                        writer.write_channels(t, sample.t, sample.channels)
 
-            stop = False
+            # --drive stops recording when the protocol finishes (or a stop was requested mid-run).
+            stop = driver is not None and (driver.finished.is_set() or stop_event.is_set())
             if preview and t - last_show >= 1.0 / PREVIEW_MAX_FPS:
                 last_show = t
                 with prof.section("show"):
@@ -661,7 +934,9 @@ def main() -> None:
                         idx = int(np.where(ids.flatten() == args.tag_id)[0][0])
                         pose = ad.tag_pose_field(corners[idx], obj, k, d, r_fc, t_fc, yaw_offset)
                     if idx >= 0:
-                        cv2.aruco.drawDetectedMarkers(disp, [corners[idx]], np.array([[args.tag_id]]))
+                        cv2.aruco.drawDetectedMarkers(
+                            disp, [corners[idx]], np.array([[args.tag_id]])
+                        )
                         if pose is not None:
                             cv2.drawFrameAxes(disp, k, d, pose[3], pose[4], args.tag_size / 2.0)
                     if args.show_other_tags and ids is not None:
@@ -672,7 +947,13 @@ def main() -> None:
                             tag_obj = floor_obj if is_floor else obj
                             tag_size = args.floor_marker_size if is_floor else args.tag_size
                             tpose = ad.tag_pose_field(
-                                corners[j], tag_obj, k, d, r_fc, t_fc, yaw_offset,
+                                corners[j],
+                                tag_obj,
+                                k,
+                                d,
+                                r_fc,
+                                t_fc,
+                                yaw_offset,
                             )
                             if tpose is None:
                                 continue
@@ -683,28 +964,54 @@ def main() -> None:
                                 disp,
                                 f"id{tid} x={tpose[0]:+.2f} y={tpose[1]:+.2f} "
                                 f"yaw={math.degrees(tpose[2]):+.0f}",
-                                (int(c[0]) - 40, int(c[1])), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
-                                (0, 255, 255), 1, cv2.LINE_AA,
+                                (int(c[0]) - 40, int(c[1])),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.45,
+                                (0, 255, 255),
+                                1,
+                                cv2.LINE_AA,
                             )
-                    status = (f"x={pose[0]:+.3f} y={pose[1]:+.3f} yaw={math.degrees(pose[2]):+6.1f}deg"
-                              if pose is not None else "robot tag NOT visible")
-                    draw_hud(disp, [
-                        "TRACKING (recording images)",
-                        status,
-                        f"frame {n_frames}",
-                        "[Q] stop",
-                    ], ok=pose is not None)
+                    status = (
+                        f"x={pose[0]:+.3f} y={pose[1]:+.3f} yaw={math.degrees(pose[2]):+6.1f}deg"
+                        if pose is not None
+                        else "robot tag NOT visible"
+                    )
+                    if driver is not None:
+                        title = "DRIVING + RECORDING"
+                        third = f"frame {n_frames}   cmd: {last_cmd_label or '...'}"
+                    else:
+                        title = "TRACKING (recording images)"
+                        third = f"frame {n_frames}"
+                    draw_hud(disp, [title, status, third, "[Q] stop"], ok=pose is not None)
                     draw_fps(disp, fps)
-                    stop = show_scaled(disp) == ord("q")
+                    stop = stop or show_scaled(disp) == ord("q")
             prof.frame(tags=last_tags)
             if stop:
+                if driver is not None:
+                    stop_event.set()  # halt the protocol thread before we leave the loop
                 break
     finally:
+        stop_event.set()
+        if driver is not None:
+            signal.alarm(0)  # cancel the hard-timeout alarm now that we are tearing down
+            driver.join(timeout=1.0)
+            drain_commands()  # flush any commands queued between the last frame and the stop
+        if link is not None:
+            link.close()  # zeroes the channels and disarms
+        if reader is not None:
+            reader.close()
         writer.close()
         source.release()
     if preview:
         cv2.destroyAllWindows()
-    print(f"{n_frames} frames recorded ~{fps.fps:.0f} fps (min {fps.lo:.0f}). Recording: {args.out}")
+    if reader is not None:
+        print(f"transmitter: {reader.packets} channel packets decoded during capture")
+    if driver is not None:
+        done = "completed" if driver.completed else "stopped early"
+        print(f"drive: excitation {done}; commands logged to {amcap.TOPIC_COMMAND}")
+    print(
+        f"{n_frames} frames recorded ~{fps.fps:.0f} fps (min {fps.lo:.0f}). Recording: {args.out}"
+    )
     print(f"Solve poses with: python playground/calibration/analyze_apriltag_mcap.py {args.out}")
 
 
