@@ -1,8 +1,7 @@
 #pragma once
 #include <Arduino.h>
 
-typedef struct
-{
+typedef struct {
     uint32_t timestamp_ms;
     bool radio_connected;
     bool armed;
@@ -18,21 +17,24 @@ typedef struct
     bool is_upside_down;
     uint32_t loop_us;
     uint8_t wifi_clients;
+    float orientation_x;
+    float orientation_y;
+    float orientation_z;
+    float pid_setpoint;
+    float pid_output;
 } diag_data_t;
 
-struct tunable_ptrs_t
-{
+struct tunable_ptrs_t {
     float *left_esc_deadzone = nullptr;
     float *right_esc_deadzone = nullptr;
 };
 
-class DiagnosticsServer
-{
-public:
+class DiagnosticsServer {
+   public:
     void begin(tunable_ptrs_t tunables = {});
     void update(const diag_data_t *data);
 
-private:
+   private:
     bool _recording = false;
     uint32_t _last_send_ms = 0;
     tunable_ptrs_t _tunables;

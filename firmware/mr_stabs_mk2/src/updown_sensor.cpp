@@ -4,20 +4,23 @@ using namespace updown_sensor;
 
 UpdownSensor::UpdownSensor()
 {
-    accel = new Adafruit_ADXL375(12345);
-    accel_vec = make_unit_vector(0.0, 0.0, -1.0);
-    max_accel_vec = init_vector3(0.0, 0.0, 0.0);
-    min_accel_vec = init_vector3(0.0, 0.0, 0.0);
+    sensor = new Adafruit_BNO055(55, 0x28, &Wire1);
+    grav_vec = make_unit_vector(0.0, 0.0, -9.81);
+    max_grav_vec = init_vector3(0.0, 0.0, 0.0);
+    min_grav_vec = init_vector3(0.0, 0.0, 0.0);
+    orientation = init_vector3(0.0, 0.0, 0.0);
+    gyro_vec = init_vector3(0.0, 0.0, 0.0);
 }
 
 bool UpdownSensor::begin()
 {
     if (initialized)
         return true;
-    if (accel->begin())
+    if (sensor->begin())
     {
-        accel->setTrimOffsets(0, 0, 0);
+        delay(1000);
         initialized = true;
+        sensor->setExtCrystalUse(true);
         return true;
     }
     else
@@ -48,19 +51,19 @@ vector3_t *UpdownSensor::init_vector3(float x, float y, float z)
 
 bool UpdownSensor::get_is_upside_down(bool radio_connected)
 {
-    if (!get_accel(radio_connected))
+    if (!update_sensor(radio_connected))
         return is_upside_down;
 
-    float z = accel_vec->z;
+    float z = -1 * grav_vec->z;
 
-    if (z > RIGHT_SIDE_UP_THRESHOLD)
+    if (z < RIGHT_SIDE_UP_THRESHOLD)
         is_upside_down = false;
-    else if (z < UPSIDE_DOWN_THRESHOLD)
+    else if (z > UPSIDE_DOWN_THRESHOLD)
         is_upside_down = true;
     return is_upside_down;
 }
 
-bool UpdownSensor::get_accel(bool radio_connected)
+bool UpdownSensor::update_sensor(bool radio_connected)
 {
     if (!initialized && !radio_connected)
     {
@@ -71,9 +74,17 @@ bool UpdownSensor::get_accel(bool radio_connected)
         }
         return false;
     }
-    sensors_event_t event;
-    uint32_t start_time = millis();
-    accel->getEvent(&event);
+    uint32_t now = millis();
+    if (now - sample_timer < SAMPLE_INTERVAL)
+    {
+        return false;
+    }
+    sample_timer = now;
+    uint32_t start_time = now;
+    sensors_event_t gravity_data, orientation_data, gyro_data;
+    sensor->getEvent(&gravity_data, Adafruit_BNO055::VECTOR_GRAVITY);
+    sensor->getEvent(&orientation_data, Adafruit_BNO055::VECTOR_EULER);
+    sensor->getEvent(&gyro_data, Adafruit_BNO055::VECTOR_GYROSCOPE);
     uint32_t end_time = millis();
 
     if (end_time - start_time > 250)
@@ -82,17 +93,25 @@ bool UpdownSensor::get_accel(bool radio_connected)
         return false;
     }
 
-    accel_vec->x = event.acceleration.x;
-    accel_vec->y = event.acceleration.y;
-    accel_vec->z = event.acceleration.z;
+    grav_vec->x = gravity_data.acceleration.x;
+    grav_vec->y = gravity_data.acceleration.y;
+    grav_vec->z = gravity_data.acceleration.z;
 
-    max_accel_vec->x = max(max_accel_vec->x, accel_vec->x);
-    max_accel_vec->y = max(max_accel_vec->y, accel_vec->y);
-    max_accel_vec->z = max(max_accel_vec->z, accel_vec->z);
+    max_grav_vec->x = max(max_grav_vec->x, grav_vec->x);
+    max_grav_vec->y = max(max_grav_vec->y, grav_vec->y);
+    max_grav_vec->z = max(max_grav_vec->z, grav_vec->z);
 
-    min_accel_vec->x = min(min_accel_vec->x, accel_vec->x);
-    min_accel_vec->y = min(min_accel_vec->y, accel_vec->y);
-    min_accel_vec->z = min(min_accel_vec->z, accel_vec->z);
+    min_grav_vec->x = min(min_grav_vec->x, grav_vec->x);
+    min_grav_vec->y = min(min_grav_vec->y, grav_vec->y);
+    min_grav_vec->z = min(min_grav_vec->z, grav_vec->z);
+
+    orientation->x = orientation_data.orientation.x;
+    orientation->y = orientation_data.orientation.y;
+    orientation->z = orientation_data.orientation.z;
+
+    gyro_vec->x = gyro_data.gyro.x;
+    gyro_vec->y = gyro_data.gyro.y;
+    gyro_vec->z = gyro_data.gyro.z;
 
     return true;
 }
