@@ -210,8 +210,9 @@ double PursuitNavigation::compute_linear_velocity(double angle_error, double dis
 
     const double turn_scale = 1.0 - (std::abs(angle_error) / angle_threshold_) * 0.5;
     // Reduce speed when commanding a hard turn. Brake on the angular command as a fraction of the
-    // configured limit so the term is dimensionless and bounded; with no limit set, fall back to the
-    // legacy form but clamp it so a large angular command can never flip linear into reverse thrust.
+    // configured limit so the term is dimensionless and bounded; with no limit set, fall back to
+    // the legacy form but clamp it so a large angular command can never flip linear into reverse
+    // thrust.
     double steer_brake;
     if (max_angular_z_ > 0.0) {
         steer_brake = 1.0 - 0.5 * std::min(1.0, std::abs(angular_z) / max_angular_z_);

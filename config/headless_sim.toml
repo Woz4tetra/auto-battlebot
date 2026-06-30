@@ -47,7 +47,7 @@ init_delay_seconds = 0.0
 # Free-run (accelerated): logical time comes from the sim frame stamp via [clock] ManualClock, so the
 # controller's dt is correct regardless of loop speed. The loop is gated by the sim's lockstep protocol.
 [runner]
-max_loop_rate = 0.0   # free-run: pacing comes from lockstep with the sim server
+max_loop_rate = 0.0 # free-run: pacing comes from lockstep with the sim server
 
 [mcap]
 enable = true

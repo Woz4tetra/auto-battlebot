@@ -107,17 +107,14 @@ void reset_angle_pid(float sensed_angle_z) {
 bool compare_radio_data(const crsf_bridge::radio_data_t *data1,
                         const crsf_bridge::radio_data_t *data2) {
     return (data1->a_percent == data2->a_percent) && (data1->b_percent == data2->b_percent) &&
-           (data1->c_percent == data2->c_percent) &&
-           (data1->lifter_command == data2->lifter_command) && (data1->armed == data2->armed) &&
-           (data1->connected == data2->connected) && (data1->button_state == data2->button_state) &&
+           (data1->armed == data2->armed) && (data1->connected == data2->connected) &&
+           (data1->button_state == data2->button_state) &&
            (data1->flip_switch_state == data2->flip_switch_state);
 }
 
 void copy_radio_data(const crsf_bridge::radio_data_t *src, crsf_bridge::radio_data_t *dest) {
     dest->a_percent = src->a_percent;
     dest->b_percent = src->b_percent;
-    dest->c_percent = src->c_percent;
-    dest->lifter_command = src->lifter_command;
     dest->armed = src->armed;
     dest->connected = src->connected;
     dest->button_state = src->button_state;
