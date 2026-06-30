@@ -39,6 +39,7 @@ float angle_setpoint = 0.0f;
 float angle_pid_output = 0.0f;
 bool was_turning = false;
 float cooldown_timer = 0.0f;
+bool was_auto_steer_enabled = false;
 const float TURNING_COOLDOWN_TIME = 0.25f;  // coast time after a turn before heading hold engages
 const float ANGULAR_SCALE = 1.0f;           // scales the manual turn command (b stick)
 
@@ -121,9 +122,8 @@ void copy_radio_data(const crsf_bridge::radio_data_t *src, crsf_bridge::radio_da
     dest->flip_switch_state = src->flip_switch_state;
 }
 
-void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle_z, float dt,
-                       float &left_command, float &right_command) {
-    float angular_v = radio_data->b_percent * ANGULAR_SCALE;
+float get_filtered_angular_z(float percent_input, float sensed_angle_z, float dt) {
+    float angular_v = percent_input * ANGULAR_SCALE;
     float filtered_angular_v;
 
     if (fabs(angular_v) > 1.0f) {
@@ -147,11 +147,23 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
             filtered_angular_v = angle_pid->update(angle_setpoint, sensed_angle_z, dt);
         }
     }
+    return filtered_angular_v;
+}
 
-    angle_pid_output = filtered_angular_v;
+void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle_z,
+                       bool auto_steer_enabled, float dt, float &left_command,
+                       float &right_command) {
+    float a_percent = radio_data->a_percent;
+    float b_percent = radio_data->b_percent;
+    if (auto_steer_enabled) {
+        float filtered_angular_v = get_filtered_angular_z(b_percent, sensed_angle_z, dt);
+        angle_pid_output = filtered_angular_v;
+    } else {
+        angle_pid_output = b_percent;
+    }
 
-    left_command = -1 * radio_data->a_percent + filtered_angular_v;
-    right_command = -1 * radio_data->a_percent - filtered_angular_v;
+    left_command = -1 * a_percent + angle_pid_output;
+    right_command = -1 * a_percent - angle_pid_output;
     float max_command = max(abs(left_command), abs(right_command));
     if (max_command > 100.0) {
         left_command = left_command / max_command * 100.0;
@@ -347,6 +359,7 @@ void loop() {
     // Read the IMU every armed loop so heading stays fresh for the PID, regardless of flip mode
     bool sensed_upside_down = accel->get_is_upside_down(radio_data->connected);
     bool is_upside_down;
+    bool auto_steer_enabled = false;
     switch (radio_data->flip_switch_state) {
         case crsf_bridge::UP:
             is_upside_down = true;
@@ -354,7 +367,8 @@ void loop() {
         case crsf_bridge::MIDDLE:
             is_upside_down = false;
             break;
-        case crsf_bridge::DOWN:
+        case crsf_bridge::DOWN:  // this is the default position when the transmitter powers on
+            auto_steer_enabled = true;
             is_upside_down = sensed_upside_down;
             break;
         default:
@@ -366,9 +380,14 @@ void loop() {
 
     updown_sensor::vector3_t *orientation = accel->get_orientation();
     float sensed_angle_z = orientation->x;
+    if (auto_steer_enabled != was_auto_steer_enabled && auto_steer_enabled) {
+        reset_angle_pid(sensed_angle_z);
+    }
+    was_auto_steer_enabled = auto_steer_enabled;
 
     float left_command, right_command;
-    mix_motor_outputs(radio_data, sensed_angle_z, dt, left_command, right_command);
+    mix_motor_outputs(radio_data, sensed_angle_z, auto_steer_enabled, dt, left_command,
+                      right_command);
 
     left_esc->write(left_command);
     right_esc->write(right_command);
