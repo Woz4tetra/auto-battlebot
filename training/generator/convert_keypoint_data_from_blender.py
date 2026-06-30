@@ -204,7 +204,8 @@ def convert_render_pair_to_yolo(
             keypoints_found_num = len(keypoint_label_annotations)
             if expected_keypoints_num != keypoints_found_num:
                 raise ValueError(
-                    f"Found {keypoints_found_num} instead of {expected_keypoints_num} keypoints for class ID {class_id}"
+                    f"Found {keypoints_found_num} instead of"
+                    f" {expected_keypoints_num} keypoints for class ID {class_id}"
                 )
 
             yolo_base_annotation = (
@@ -230,7 +231,9 @@ def convert_render_pair_to_yolo(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Convert keypoint and mask data from Blender renders to YOLO format using config file"
+        description=(
+            "Convert keypoint and mask data from Blender renders to YOLO format using config file"
+        )
     )
     parser.add_argument(
         "data_dir",

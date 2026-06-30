@@ -36,7 +36,10 @@ def letterbox(
     pad_val: float = 114.0,
     padding: float = 0.0,
 ) -> tuple[np.ndarray, float, float, float]:
-    """Resize with aspect ratio and pad to target size. Returns (padded image, scale, pad_left, pad_top)."""
+    """Resize with aspect ratio and pad to target size.
+
+    Returns (padded image, scale, pad_left, pad_top).
+    """
     h, w = image.shape[:2]
     scale = min(target_h / h, target_w / w)
     new_w = int(round(w * scale))
@@ -82,7 +85,10 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
 
 
 def xywh2xyxy(boxes: np.ndarray, half_wh: bool = False) -> None:
-    """In-place: (cx, cy, w, h) -> (x1, y1, x2, y2). If half_wh, 3rd/4th are half-width/half-height (no /2)."""
+    """In-place: (cx, cy, w, h) -> (x1, y1, x2, y2).
+
+    If half_wh, 3rd/4th are half-width/half-height (no /2).
+    """
     cx, cy = boxes[:, 0].copy(), boxes[:, 1].copy()
     w, h = boxes[:, 2].copy(), boxes[:, 3].copy()
     if half_wh:
@@ -135,7 +141,13 @@ def non_max_suppression(
     swap_wh: bool = False,
     bbox_xyxy: bool = False,
 ) -> list[tuple[np.ndarray, float, int, np.ndarray]]:
-    """prediction: (num_features, num_predictions) or (num_predictions, num_features). Returns list of (xyxy, conf, class_id, keypoints (N,3)). Per-class NMS. Class scores and keypoint visibility are expected to be sigmoid-activated (values in [0,1]); sigmoid is applied as fallback if raw logits are detected."""
+    """Apply per-class NMS to raw predictions.
+
+    prediction: (num_features, num_predictions) or (num_predictions, num_features).
+    Returns list of (xyxy, conf, class_id, keypoints (N,3)).
+    Class scores and keypoint visibility are expected to be sigmoid-activated (values in [0,1]);
+    sigmoid is applied as fallback if raw logits are detected.
+    """
     num_keypoint_vals = num_keypoints * 3
     num_classes = num_features - 4 - num_keypoint_vals
     if num_classes <= 0 or num_predictions <= 0:
@@ -310,7 +322,8 @@ def load_engine(engine_path: str):
     with open(engine_path, "rb") as f:
         engine_data = f.read()
     runtime = trt.Runtime(logger)
-    # Allow engine host code (required for engines built with lean / host code, match C++ TrtEngine::load)
+    # Allow engine host code (required for engines built with lean / host code,
+    # match C++ TrtEngine::load)
     if hasattr(runtime, "engine_host_code_allowed"):
         runtime.engine_host_code_allowed = True
     elif hasattr(runtime, "set_engine_host_code_allowed"):

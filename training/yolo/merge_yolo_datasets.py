@@ -379,7 +379,8 @@ def main():
 
         total_skipped_no_label += ds_no_label
         print(
-            f"  {root.name}: copied {ds_copied}, skipped (fail) {ds_fail}, skipped (no lbl) {ds_no_label}"
+            f"  {root.name}: copied {ds_copied},"
+            f" skipped (fail) {ds_fail}, skipped (no lbl) {ds_no_label}"
         )
         total_copied += ds_copied
         total_skipped_fail += ds_fail

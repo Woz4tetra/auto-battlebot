@@ -137,7 +137,10 @@ def main() -> None:
         "-o",
         "--output",
         type=str,
-        help="Output path for TensorRT engine; platform+GPU tag (e.g. _x86_64_sm89) is appended to stem (default: same name with .engine)",
+        help=(
+            "Output path for TensorRT engine; platform+GPU tag"
+            " (e.g. _x86_64_sm89) is appended to stem (default: same name with .engine)"
+        ),
     )
     parser.add_argument(
         "--opset",

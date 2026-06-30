@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Sequence, cast
+from typing import Sequence, cast
 
 import cv2
 import numpy as np

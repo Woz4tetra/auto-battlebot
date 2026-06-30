@@ -543,7 +543,8 @@ def main() -> None:
     )
     for i, j in valid_loader:
         print(
-            f"Image shape: {i.shape}, Image type: {i.dtype}, Mask shape: {j.shape}, Mask type: {j.dtype}"
+            f"Image shape: {i.shape}, Image type: {i.dtype},"
+            f" Mask shape: {j.shape}, Mask type: {j.dtype}"
         )
         break
 

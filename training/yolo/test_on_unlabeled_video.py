@@ -44,7 +44,10 @@ def main() -> None:
     parser.add_argument(
         "model",
         type=str,
-        help="Path to trained model weights (e.g., ../projects/auto_battlebots_keypoints/weights/best.pt)",
+        help=(
+            "Path to trained model weights"
+            " (e.g., ../projects/auto_battlebots_keypoints/weights/best.pt)"
+        ),
     )
     parser.add_argument(
         "input_path",

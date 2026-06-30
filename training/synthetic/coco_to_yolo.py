@@ -15,7 +15,6 @@ All values are normalized to [0, 1] except visibility flags.
 
 import argparse
 import json
-import os
 import shutil
 from collections import defaultdict
 from pathlib import Path

@@ -38,7 +38,10 @@ def progress_bar(percent_done: float, bar_length: int = 50) -> None:
 
 def export_avi_to_mp4(input_avi: str, output_mp4: str) -> None:
     # use ffmpeg to convert avi to mp4
-    command = f"ffmpeg -i {input_avi} -c:v libx264 -crf 23 -preset medium -c:a aac -b:a 192k {output_mp4} -y"
+    command = (
+        f"ffmpeg -i {input_avi}"
+        f" -c:v libx264 -crf 23 -preset medium -c:a aac -b:a 192k {output_mp4} -y"
+    )
     os.system(command)
 
 
@@ -104,7 +107,8 @@ def main(opt: argparse.Namespace) -> None:
         )
         if not video_writer.isOpened():
             print(
-                "OpenCV video writer cannot be opened. Please check the .avi file path and write permissions."
+                "OpenCV video writer cannot be opened."
+                " Please check the .avi file path and write permissions."
             )
             zed.close()
             exit()
@@ -170,7 +174,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output",
         type=str,
-        help="Path to output svo. If not specified, the output will be saved in the same folder as the input file.",
+        help=(
+            "Path to output svo. If not specified,"
+            " the output will be saved in the same folder as the input file."
+        ),
         default="",
     )
     parser.add_argument(

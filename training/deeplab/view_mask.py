@@ -75,7 +75,7 @@ def main() -> None:
     fig, ax = plt.subplots(1, 1, figsize=(12, 8))
     fig.canvas.manager.set_window_title(f"Mask Viewer - {image_path.name}")
 
-    img_layer = ax.imshow(image_rgb)
+    ax.imshow(image_rgb)
     overlay_layer = ax.imshow(
         mask,
         cmap=cmap,

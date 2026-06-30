@@ -83,7 +83,8 @@ class Plant:
         lc = self._apply_deadzone(float(np.clip(linear_cmd, -1.0, 1.0)), cfg.deadzone_linear)
         ac = self._apply_deadzone(float(np.clip(angular_cmd, -1.0, 1.0)), cfg.deadzone_angular)
 
-        # Direction-dependent gain (forward/reverse asymmetry), with fall-backs to the symmetric value.
+        # Direction-dependent gain (forward/reverse asymmetry), with fall-backs to the
+        # symmetric value.
         fwd = cfg.max_linear_speed_fwd or cfg.max_linear_speed
         rev = cfg.max_linear_speed_rev or fwd
         v_target = lc * (fwd if lc >= 0.0 else rev)

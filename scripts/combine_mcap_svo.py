@@ -433,7 +433,8 @@ def merge_mcaps(
     if retimer:
         avg_offset_ns, max_abs_offset_ns = retimer.offset_stats_ns
         logger.info(
-            "Retiming original MCAP via %d %s samples (avg log_time-stamp offset %.2f ms, max abs %.2f ms)",
+            "Retiming original MCAP via %d %s samples"
+            " (avg log_time-stamp offset %.2f ms, max abs %.2f ms)",
             retimer.sample_count,
             CAMERA_INFO_TOPIC,
             avg_offset_ns / 1e6,

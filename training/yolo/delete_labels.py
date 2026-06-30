@@ -346,7 +346,8 @@ def main() -> None:
         target = output_dir if output_dir else dataset_dir
         print(f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}")
         print(
-            f"Removed {removed_annotations_total} label annotations across {files_with_removals} files"
+            f"Removed {removed_annotations_total} label annotations"
+            f" across {files_with_removals} files"
         )
         if output_dir is not None:
             copied_yaml = copy_dataset_yaml_if_present(dataset_dir, output_dir)

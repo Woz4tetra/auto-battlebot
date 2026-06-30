@@ -24,7 +24,9 @@ def main() -> None:
     }
 
     parser = argparse.ArgumentParser(
-        description="Fine-tune a YOLO pose model from an existing checkpoint with a reduced learning rate.",
+        description=(
+            "Fine-tune a YOLO pose model from an existing checkpoint with a reduced learning rate."
+        ),
     )
     parser.add_argument(
         "dataset",

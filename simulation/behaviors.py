@@ -27,8 +27,6 @@ def _apply_velocity(
     """Set entity velocity, using wheels when available, else base DOFs."""
     if wheels is not None:
         speed = math.hypot(vx, vy)
-        heading = math.atan2(vy, vx)
-        entity_pos = entity.get_pos().cpu().numpy().squeeze()
         v_left = speed / wheels.wheel_radius
         v_right = speed / wheels.wheel_radius
         velocities = [v_left] * wheels.n_left + [v_right] * wheels.n_right

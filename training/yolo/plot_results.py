@@ -14,7 +14,6 @@ from pathlib import Path
 
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
 # Column groups to plot, each as (display_title, [(col_suffix, legend_label), ...])
@@ -153,12 +152,15 @@ def make_figure(df: pd.DataFrame, csv_path: Path) -> plt.Figure:
     n_rows = (n_panels + n_cols - 1) // n_cols
 
     fig = plt.figure(figsize=(14, n_rows * 3.8))
+    map50_b = pd.to_numeric(df.get("metrics/mAP50(B)", pd.Series()), errors="coerce").max()
+    map50_m = pd.to_numeric(df.get("metrics/mAP50(M)", pd.Series()), errors="coerce").max()
+    map50_p = pd.to_numeric(df.get("metrics/mAP50(P)", pd.Series()), errors="coerce").max()
     fig.suptitle(
         f"YOLO Training Results — {csv_path.name}\n"
         f"Epochs: {int(df['epoch'].max())}   "
-        f"Best mAP50(B): {pd.to_numeric(df.get('metrics/mAP50(B)', pd.Series()), errors='coerce').max():.4f}   "
-        f"Best mAP50(M): {pd.to_numeric(df.get('metrics/mAP50(M)', pd.Series()), errors='coerce').max():.4f}   "
-        f"Best mAP50(P): {pd.to_numeric(df.get('metrics/mAP50(P)', pd.Series()), errors='coerce').max():.4f}",
+        f"Best mAP50(B): {map50_b:.4f}   "
+        f"Best mAP50(M): {map50_m:.4f}   "
+        f"Best mAP50(P): {map50_p:.4f}",
         fontsize=11,
         fontweight="bold",
         y=0.995,

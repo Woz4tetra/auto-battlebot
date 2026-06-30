@@ -538,7 +538,8 @@ def main() -> None:
         target = output_dir if output_dir else dataset_dir
         output_names = build_output_names(label_map, remapped_output_classes, source_names)
         print(
-            f"Dry run: would write {target / 'data.yml'} with nc={len(output_names)} and names={output_names}"
+            f"Dry run: would write {target / 'data.yml'}"
+            f" with nc={len(output_names)} and names={output_names}"
         )
 
 

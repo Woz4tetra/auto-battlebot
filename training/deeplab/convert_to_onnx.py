@@ -26,7 +26,8 @@ def main() -> None:
         "--opset",
         type=int,
         default=18,
-        help="ONNX opset version (default: 18; must match PyTorch native to avoid broken version downgrade)",
+        help="ONNX opset version (default: 18; must match PyTorch native"
+        " to avoid broken version downgrade)",
     )
     parser.add_argument(
         "--dynamic-batch",
@@ -73,7 +74,8 @@ def main() -> None:
             "output": {0: "batch"},
         }
     print(
-        f"Exporting to ONNX (input shape: [1, 3, {input_size}, {input_size}], opset={args.opset})..."
+        f"Exporting to ONNX (input shape: [1, 3, {input_size}, {input_size}],"
+        f" opset={args.opset})..."
     )
     torch.onnx.export(
         wrapper,

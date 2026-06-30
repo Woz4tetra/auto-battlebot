@@ -16,7 +16,8 @@ uses TensorRT Builder + OnnxParser (no Ultralytics required).
 For C++ YoloKeypointModel compatibility, prefer building from ONNX (--from-onnx):
   python training/yolo/convert_to_onnx.py model.pt
   python training/yolo/convert_to_tensorrt.py model.onnx --from-onnx -o data/models/model.engine
-Engines built from .pt via Ultralytics may use a different plan format and fail to load in the C++ runtime.
+Engines built from .pt via Ultralytics may use a different plan format and fail to load in the
+C++ runtime.
 
 Output filenames include a platform tag (e.g. _x86_64_sm89, _aarch64_sm72) that
 encodes both CPU architecture and GPU compute capability so incompatible engines
@@ -118,7 +119,10 @@ def main() -> None:
         "-o",
         "--output",
         type=str,
-        help="Output path for TensorRT engine; platform+GPU tag (e.g. _x86_64_sm89) is appended to stem (default: same name with .engine)",
+        help=(
+            "Output path for TensorRT engine; platform+GPU tag"
+            " (e.g. _x86_64_sm89) is appended to stem (default: same name with .engine)"
+        ),
     )
     parser.add_argument(
         "--imgsz",

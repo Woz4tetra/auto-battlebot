@@ -166,7 +166,8 @@ def parse_merged_class_rules(
         remaining_to_group = str(remaining_to_group)
         if remaining_to_group not in output_set:
             raise ValueError(
-                f"remaining_to_group '{remaining_to_group}' is not present in output_names {output_names_str}"
+                f"remaining_to_group '{remaining_to_group}' is not present"
+                f" in output_names {output_names_str}"
             )
 
     return output_names_str, alias_to_output, remaining_to_group
@@ -776,7 +777,8 @@ def main() -> None:
                 unmapped = diagnostics["unmapped_names"]
                 if unmapped:
                     print(
-                        f"[WARN] {dataset_root}: unmapped dataset classes skipped: {sorted(set(unmapped))}"
+                        f"[WARN] {dataset_root}: unmapped dataset classes skipped:"
+                        f" {sorted(set(unmapped))}"
                     )
         except (FileNotFoundError, ValueError) as exc:
             print(f"[SKIP] {dataset_root}: {exc}")

@@ -204,7 +204,7 @@ def _add_collision_cylinder(
     length: float,
 ) -> None:
     collision = SubElement(parent, "collision")
-    origin = SubElement(collision, "origin", xyz="0 0 0", rpy=f"{np.pi / 2} 0 0")
+    SubElement(collision, "origin", xyz="0 0 0", rpy=f"{np.pi / 2} 0 0")
     geom = SubElement(collision, "geometry")
     SubElement(geom, "cylinder", radius=_fmt(radius), length=_fmt(length))
 

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from genesis.engine.entities.rigid_entity import RigidEntity
     from genesis.vis.camera import Camera
 
-from camera_utils import camera_view_matrix, fov_to_intrinsics, project_panorama
+from camera_utils import project_panorama
 from config.robot import RobotConfig
 from sim_types import SceneHandles
 

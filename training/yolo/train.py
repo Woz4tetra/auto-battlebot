@@ -104,10 +104,11 @@ def main() -> None:
         copy_paste_mode="flip",  # (str) the method to do copy_paste augmentation (flip, mixup)
         # (str) auto augmentation policy for classification (randaugment, autoaugment, augmix)
         auto_augment="randaugment",
-        # (float) probability of random erasing during classification training (0-0.9), 0 means no erasing,
-        # must be less than 1.0.
+        # (float) probability of random erasing during classification training (0-0.9),
+        # 0 means no erasing, must be less than 1.0.
         erasing=0.4,
-        # (float) image crop fraction for classification (0.1-1), 1.0 means no crop, must be greater than 0.
+        # (float) image crop fraction for classification (0.1-1), 1.0 means no crop,
+        # must be greater than 0.
         crop_fraction=0.2,
     )
 

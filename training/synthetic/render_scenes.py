@@ -1362,7 +1362,10 @@ def main() -> None:
         "--start-index",
         type=int,
         default=None,
-        help="Starting frame index (for resuming). Defaults to auto-detecting the next index from existing output files.",
+        help=(
+            "Starting frame index (for resuming). Defaults to auto-detecting"
+            " the next index from existing output files."
+        ),
     )
     argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else sys.argv[1:]
     args = parser.parse_args(argv)
@@ -1425,7 +1428,8 @@ def main() -> None:
         args.start_index = max(existing) + 1 if existing else 0
         if existing:
             print(
-                f"Auto-resuming from index {args.start_index} ({len(existing)} existing images found)"
+                f"Auto-resuming from index {args.start_index}"
+                f" ({len(existing)} existing images found)"
             )
 
     # ------- Initialize BlenderProc -------
