@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import cv2
 import numpy as np
@@ -135,7 +136,7 @@ def _orient_predictions(
     """Return predictions as (num_predictions, num_features), transposing if needed."""
     if prediction.shape[0] == num_predictions and prediction.shape[1] == num_features:
         return prediction
-    return prediction.T
+    return cast(np.ndarray, prediction.T)
 
 
 def _activate_class_scores(raw_class: np.ndarray) -> np.ndarray:
@@ -450,7 +451,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def select_io_tensor_names(engine) -> tuple[str, str]:
+def select_io_tensor_names(engine: Any) -> tuple[str, str]:
     """Return (input_name, output_name) for an engine with exactly one of each."""
     input_name = None
     output_name = None
@@ -465,7 +466,7 @@ def select_io_tensor_names(engine) -> tuple[str, str]:
     return input_name, output_name
 
 
-def resolve_input_dims(input_shape, args: argparse.Namespace) -> tuple[int, int]:
+def resolve_input_dims(input_shape: Any, args: argparse.Namespace) -> tuple[int, int]:
     """Validate the engine input shape and return (input_h, input_w)."""
     if len(input_shape) != 4 or input_shape[0] != 1 or input_shape[1] != 3:
         raise RuntimeError(f"Expected input shape [1, 3, H, W], got {list(input_shape)}")
@@ -520,8 +521,13 @@ def resolve_model_layout(
 
 
 def allocate_io_buffers(
-    context, input_name: str, output_name: str, input_h: int, input_w: int, output_shape
-):
+    context: Any,
+    input_name: str,
+    output_name: str,
+    input_h: int,
+    input_w: int,
+    output_shape: Any,
+) -> tuple[Any, Any, Any]:
     """Allocate device buffers, bind tensor addresses, return (d_input, d_output, stream)."""
     input_nbytes = 1 * 3 * input_h * input_w * 4
     output_nbytes = int(np.prod([1, output_shape[1], output_shape[2]])) * 4
@@ -545,7 +551,14 @@ def open_video(video_path: Path) -> tuple[cv2.VideoCapture, int, int, int, int]:
     return cap, width, height, fps, total_frames
 
 
-def run_engine(context, d_input, d_output, output_shape, stream, blob: np.ndarray) -> np.ndarray:
+def run_engine(
+    context: Any,
+    d_input: Any,
+    d_output: Any,
+    output_shape: Any,
+    stream: Any,
+    blob: np.ndarray,
+) -> np.ndarray:
     """Run one forward pass and return the prediction as (output_shape[1], output_shape[2])."""
     blob = np.ascontiguousarray(blob.astype(np.float32))
     cuda.memcpy_htod_async(d_input, blob, stream)
@@ -553,7 +566,7 @@ def run_engine(context, d_input, d_output, output_shape, stream, blob: np.ndarra
     out_host = np.empty((1, int(output_shape[1]), int(output_shape[2])), dtype=np.float32)
     cuda.memcpy_dtoh_async(out_host, d_output, stream)
     stream.synchronize()
-    return out_host[0]
+    return cast(np.ndarray, out_host[0])
 
 
 def decode_detections(
@@ -585,7 +598,9 @@ def decode_detections(
     )
 
 
-def _write_and_show(annotated: np.ndarray, writer, args: argparse.Namespace) -> bool:
+def _write_and_show(
+    annotated: np.ndarray, writer: cv2.VideoWriter | None, args: argparse.Namespace
+) -> bool:
     """Write the annotated frame and optionally display it. Returns True to stop processing."""
     if writer is not None:
         writer.write(annotated)
@@ -599,12 +614,12 @@ def _write_and_show(annotated: np.ndarray, writer, args: argparse.Namespace) -> 
 
 def process_video(
     cap: cv2.VideoCapture,
-    writer,
-    context,
-    d_input,
-    d_output,
-    output_shape,
-    stream,
+    writer: cv2.VideoWriter | None,
+    context: Any,
+    d_input: Any,
+    d_output: Any,
+    output_shape: Any,
+    stream: Any,
     input_h: int,
     input_w: int,
     total_frames: int,

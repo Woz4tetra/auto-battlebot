@@ -9,7 +9,7 @@ import random
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import bpy
 import cv2
@@ -1509,10 +1509,12 @@ def _resolve_start_index(start_index: int | None, output_image_dir: Path) -> int
 
 def _robot_max_dimension(bbox: list[mathutils.Vector]) -> float:
     """Largest axis-aligned extent of a bounding box."""
-    return max(
-        max(c.x for c in bbox) - min(c.x for c in bbox),
-        max(c.y for c in bbox) - min(c.y for c in bbox),
-        max(c.z for c in bbox) - min(c.z for c in bbox),
+    return float(
+        max(
+            max(c.x for c in bbox) - min(c.x for c in bbox),
+            max(c.y for c in bbox) - min(c.y for c in bbox),
+            max(c.z for c in bbox) - min(c.z for c in bbox),
+        )
     )
 
 
@@ -1895,7 +1897,9 @@ def _save_debug_frame(data: dict, output_image_dir: Path) -> None:
     print(f"  Saved debug image: {debug_path}")
 
 
-def _render_clean_inst_seg_maps(inst_seg_maps, active_distractors: list[DistractorGroup]):
+def _render_clean_inst_seg_maps(
+    inst_seg_maps: Any, active_distractors: list[DistractorGroup]
+) -> Any:
     """Render an occlusion-free instance segmentation pass with distractors hidden."""
     if inst_seg_maps is None:
         return None
@@ -2118,11 +2122,11 @@ def _apply_frame_motion_blur(
 def _save_scene_frames(
     cam_count: int,
     scene_idx: int,
-    colors,
-    cat_seg_maps,
-    inst_seg_maps,
-    clean_inst_seg_maps,
-    depth_maps,
+    colors: Any,
+    cat_seg_maps: Any,
+    inst_seg_maps: Any,
+    clean_inst_seg_maps: Any,
+    depth_maps: Any,
     is_segmentation_mode: bool,
     img_w: int,
     img_h: int,

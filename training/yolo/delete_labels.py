@@ -15,6 +15,7 @@ import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from tqdm import tqdm
 
@@ -243,7 +244,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def accumulate_result(stats: RemovalStats, result: dict[str, object], dry_run: bool) -> None:
+def accumulate_result(stats: RemovalStats, result: dict[str, Any], dry_run: bool) -> None:
     stats.skipped_malformed_total += int(result["malformed_count"])
     stats.removed_annotations_total += int(result["removed_count"])
     stats.hit_labels.update(result["hit_labels"])
@@ -266,7 +267,7 @@ def accumulate_result(stats: RemovalStats, result: dict[str, object], dry_run: b
 
 
 def consume_results(
-    progress_iter: Iterable[dict[str, object]], stats: RemovalStats, dry_run: bool
+    progress_iter: Iterable[dict[str, Any]], stats: RemovalStats, dry_run: bool
 ) -> None:
     for result in progress_iter:
         accumulate_result(stats, result, dry_run)

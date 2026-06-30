@@ -141,7 +141,7 @@ def process_single_mask(
     channel = mask[:, :, 0] if mask.ndim == 3 else mask
     unique_before = np.unique(channel)
 
-    should_delete = delete_labels and bool(set(unique_before.tolist()) & delete_labels)
+    should_delete = bool(delete_labels) and bool(set(unique_before.tolist()) & delete_labels)
 
     if output_dir is not None:
         rel = mask_path.relative_to(dataset_dir)

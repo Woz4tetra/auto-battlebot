@@ -101,7 +101,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def process_image_directory(args, model, model_task: str, inference_kwargs: dict, input_path: Path):
+def process_image_directory(
+    args: argparse.Namespace,
+    model: YOLO,
+    model_task: str,
+    inference_kwargs: dict,
+    input_path: Path,
+) -> None:
     image_paths = sorted(
         p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
     )
@@ -158,8 +164,15 @@ def process_image_directory(args, model, model_task: str, inference_kwargs: dict
 
 
 def run_video_loop(
-    args, model, model_task: str, inference_kwargs: dict, cap, writer, total_frames, start_time
-):
+    args: argparse.Namespace,
+    model: YOLO,
+    model_task: str,
+    inference_kwargs: dict,
+    cap: cv2.VideoCapture,
+    writer: "cv2.VideoWriter | None",
+    total_frames: int,
+    start_time: float,
+) -> int:
     frame_count = 0
     with tqdm(total=total_frames, desc="Processing video", unit="frame") as pbar:
         while True:
@@ -186,7 +199,13 @@ def run_video_loop(
     return frame_count
 
 
-def process_video(args, model, model_task: str, inference_kwargs: dict, input_path: Path):
+def process_video(
+    args: argparse.Namespace,
+    model: YOLO,
+    model_task: str,
+    inference_kwargs: dict,
+    input_path: Path,
+) -> None:
     output_path = (
         Path(args.output) if args.output else input_path.parent / f"{input_path.stem}_annotated.mp4"
     )
