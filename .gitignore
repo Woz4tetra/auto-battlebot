@@ -70,5 +70,4 @@ runs/
 *.pt
 
 # AI tools
-.claude/
 .serena/

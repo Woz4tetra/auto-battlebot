@@ -64,6 +64,20 @@ All code is in namespace `auto_battlebot`. Interfaces live in `include/<module>/
 
 Tests use GoogleTest in `tests/`. Build with `build-test/` (debug + `BUILD_TESTING=ON`). Playback mode with SVO recordings is the primary way to regression-test without hardware.
 
+## Validation
+
+Before reporting a feature complete, run:
+
+```bash
+# Python type checking
+venv/bin/mypy scripts/ simulation/ training/
+
+# C++ static analysis on modified files (build-test/ must exist first)
+git diff --name-only HEAD | grep '\.cpp$' | xargs -r clang-tidy -p build-test/
+```
+
+Hooks run `ruff check` and `clang-format --dry-run` automatically on every stop.
+
 ## Platforms
 
 - Deployment: Jetson Orin Nano (aarch64, TensorRT 10, CUDA)
