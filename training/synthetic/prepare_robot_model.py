@@ -286,6 +286,62 @@ def _add_tex_node(
     return tex
 
 
+def _disconnect_bsdf_input(tree: bpy.types.NodeTree, bsdf: bpy.types.Node, input_name: str) -> None:
+    """Remove any existing links feeding *input_name* on the BSDF node."""
+    if input_name in bsdf.inputs:
+        for link in list(bsdf.inputs[input_name].links):
+            tree.links.remove(link)
+
+
+def _wire_color_channel(
+    tree: bpy.types.NodeTree,
+    bsdf: bpy.types.Node,
+    texture_dir: Path,
+    suffix: str,
+    input_name: str,
+    non_color: bool = False,
+) -> bool:
+    """Wire a single-output texture (*suffix*) into *input_name*. Returns True if applied."""
+    tex_file = _find_texture_file(texture_dir, suffix)
+    if not tex_file:
+        return False
+    _disconnect_bsdf_input(tree, bsdf, input_name)
+    tex = _add_tex_node(tree, tex_file, non_color=non_color)
+    tree.links.new(tex.outputs["Color"], bsdf.inputs[input_name])
+    return True
+
+
+def _wire_normal_channel(tree: bpy.types.NodeTree, bsdf: bpy.types.Node, texture_dir: Path) -> bool:
+    """Wire a normal map through a Normal Map node into the BSDF. Returns True if applied."""
+    normal_file = _find_texture_file(texture_dir, "NormalGL") or _find_texture_file(
+        texture_dir, "Normal"
+    )
+    if not normal_file:
+        return False
+    _disconnect_bsdf_input(tree, bsdf, "Normal")
+    tex = _add_tex_node(tree, normal_file, non_color=True)
+    normal_map = tree.nodes.new("ShaderNodeNormalMap")
+    tree.links.new(tex.outputs["Color"], normal_map.inputs["Color"])
+    tree.links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+    return True
+
+
+def _wire_displacement_channel(tree: bpy.types.NodeTree, texture_dir: Path) -> bool:
+    """Wire a displacement map into the material output. Returns True if applied."""
+    disp_file = _find_texture_file(texture_dir, "Displacement")
+    if not disp_file:
+        return False
+    tex = _add_tex_node(tree, disp_file, non_color=True)
+    disp_node = tree.nodes.new("ShaderNodeDisplacement")
+    tree.links.new(tex.outputs["Color"], disp_node.inputs["Height"])
+    mat_output = next((n for n in tree.nodes if n.type == "OUTPUT_MATERIAL"), None)
+    if mat_output and "Displacement" in mat_output.inputs:
+        for link in list(mat_output.inputs["Displacement"].links):
+            tree.links.remove(link)
+        tree.links.new(disp_node.outputs["Displacement"], mat_output.inputs["Displacement"])
+    return True
+
+
 def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
     """Load PBR image textures from *texture_dir* and wire them into the material.
 
@@ -301,55 +357,17 @@ def _apply_pbr_textures(bpy_mat: bpy.types.Material, texture_dir: Path) -> None:
         print(f"  Warning: No Principled BSDF in {bpy_mat.name}, skipping textures")
         return
 
-    def _disconnect(input_name: str) -> None:
-        if input_name in bsdf.inputs:
-            for link in list(bsdf.inputs[input_name].links):
-                tree.links.remove(link)
-
     applied_channels: list[str] = []
 
-    color_file = _find_texture_file(texture_dir, "Color")
-    if color_file:
-        _disconnect("Base Color")
-        tex = _add_tex_node(tree, color_file)
-        tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    if _wire_color_channel(tree, bsdf, texture_dir, "Color", "Base Color"):
         applied_channels.append("Color")
-
-    rough_file = _find_texture_file(texture_dir, "Roughness")
-    if rough_file:
-        _disconnect("Roughness")
-        tex = _add_tex_node(tree, rough_file, non_color=True)
-        tree.links.new(tex.outputs["Color"], bsdf.inputs["Roughness"])
+    if _wire_color_channel(tree, bsdf, texture_dir, "Roughness", "Roughness", non_color=True):
         applied_channels.append("Roughness")
-
-    metal_file = _find_texture_file(texture_dir, "Metalness")
-    if metal_file:
-        _disconnect("Metallic")
-        tex = _add_tex_node(tree, metal_file, non_color=True)
-        tree.links.new(tex.outputs["Color"], bsdf.inputs["Metallic"])
+    if _wire_color_channel(tree, bsdf, texture_dir, "Metalness", "Metallic", non_color=True):
         applied_channels.append("Metalness")
-
-    normal_file = _find_texture_file(texture_dir, "NormalGL") or _find_texture_file(
-        texture_dir, "Normal"
-    )
-    if normal_file:
-        _disconnect("Normal")
-        tex = _add_tex_node(tree, normal_file, non_color=True)
-        normal_map = tree.nodes.new("ShaderNodeNormalMap")
-        tree.links.new(tex.outputs["Color"], normal_map.inputs["Color"])
-        tree.links.new(normal_map.outputs["Normal"], bsdf.inputs["Normal"])
+    if _wire_normal_channel(tree, bsdf, texture_dir):
         applied_channels.append("Normal")
-
-    disp_file = _find_texture_file(texture_dir, "Displacement")
-    if disp_file:
-        tex = _add_tex_node(tree, disp_file, non_color=True)
-        disp_node = tree.nodes.new("ShaderNodeDisplacement")
-        tree.links.new(tex.outputs["Color"], disp_node.inputs["Height"])
-        mat_output = next((n for n in tree.nodes if n.type == "OUTPUT_MATERIAL"), None)
-        if mat_output and "Displacement" in mat_output.inputs:
-            for link in list(mat_output.inputs["Displacement"].links):
-                tree.links.remove(link)
-            tree.links.new(disp_node.outputs["Displacement"], mat_output.inputs["Displacement"])
+    if _wire_displacement_channel(tree, texture_dir):
         applied_channels.append("Displacement")
 
     if not applied_channels:
@@ -407,6 +425,120 @@ def _material_has_image_textures(mat: bpy.types.Material) -> bool:
     )
 
 
+def _set_pbr_scalar_values(
+    bproc_mat: bproc.types.Material, bpy_mat: bpy.types.Material, mat_cfg: dict
+) -> None:
+    """Apply scalar metallic/roughness values from config to the material."""
+    bproc_mat.set_principled_shader_value("Metallic", mat_cfg.get("metallic", 0.0))
+    bproc_mat.set_principled_shader_value("Roughness", mat_cfg.get("roughness", 0.5))
+    print(
+        f"  {bpy_mat.name} -> PBR values "
+        f"(metallic={mat_cfg.get('metallic')}, "
+        f"roughness={mat_cfg.get('roughness')})"
+    )
+
+
+def _apply_cc_material_to_slot(
+    mesh_obj: bpy.types.Object,
+    bproc_mat: bproc.types.Material,
+    bpy_mat: bpy.types.Material,
+    slot_idx: int,
+    cc_name: str,
+    mat_cfg: dict,
+    cc_textures_dir: str | None,
+    cc_materials_cache: dict[str, bproc.types.Material],
+) -> None:
+    """Assign a loaded CC material (or a sensible fallback) to one material slot."""
+    cc_mat = _find_cc_material(cc_name, cc_materials_cache)
+    if cc_mat is None:
+        print(
+            f"  Warning: cc_texture '{cc_name}' not loaded for "
+            f"{bpy_mat.name}; falling back to PBR scalar values."
+        )
+        _set_pbr_scalar_values(bproc_mat, bpy_mat, mat_cfg)
+        return
+
+    assigned_mat = cc_mat.blender_obj
+    if _material_has_image_textures(assigned_mat):
+        mesh_obj.data.materials[slot_idx] = assigned_mat
+        print(f"  {bpy_mat.name} -> CC texture '{cc_name}'")
+        return
+
+    # Some loaded CC entries can still be effectively flat in
+    # specific Blender/asset combinations. Fall back to wiring
+    # maps directly from the texture directory on the current
+    # slot material.
+    cc_dir = resolve_path(Path(cc_textures_dir)) / cc_name if cc_textures_dir else None
+    if cc_dir and cc_dir.is_dir():
+        _apply_pbr_textures(bpy_mat, cc_dir)
+        print(
+            f"  {bpy_mat.name} -> CC fallback maps from '{cc_dir.name}/' "
+            "(assigned CC material had no image nodes)"
+        )
+    else:
+        print(
+            f"  Warning: CC material '{cc_name}' on {bpy_mat.name} "
+            "has no image texture nodes and no fallback directory was found."
+        )
+
+
+def _apply_material_to_slot(
+    mesh_obj: bpy.types.Object,
+    bproc_mat: bproc.types.Material,
+    slot_idx: int,
+    color_mapping: list[dict],
+    materials_config: dict[str, dict],
+    cc_textures_dir: str | None,
+    cc_materials_cache: dict[str, bproc.types.Material],
+) -> None:
+    """Resolve and apply the configured PBR material for a single material slot."""
+    bpy_mat = bproc_mat.blender_obj
+    color = get_material_base_color(bpy_mat)
+    if color is None:
+        return
+    mat_type, match_dist, used_fallback = match_material_type(color, color_mapping)
+    if mat_type is None:
+        print(
+            f"  Warning: No mapping for color {color} on {bpy_mat.name} "
+            f"(nearest distance={match_dist:.2f})"
+        )
+        return
+    if used_fallback:
+        print(
+            f"  Note: Fallback mapped color {color} on {bpy_mat.name} "
+            f"to '{mat_type}' (distance={match_dist:.2f}). "
+            "Consider adding an explicit [[robots.color_mapping]] entry."
+        )
+    mat_cfg = materials_config.get(mat_type)
+    if mat_cfg is None:
+        print(f"  Warning: No material config for type '{mat_type}'")
+        return
+
+    tex_dir = mat_cfg.get("texture_dir")
+    cc_name = mat_cfg.get("cc_texture")
+
+    if tex_dir:
+        td = resolve_path(Path(tex_dir))
+        if td.is_dir():
+            _apply_pbr_textures(bpy_mat, td)
+            print(f"  {bpy_mat.name} -> PBR textures from '{td.name}/'")
+        else:
+            print(f"  Warning: texture_dir not found: {td}")
+    elif cc_name:
+        _apply_cc_material_to_slot(
+            mesh_obj,
+            bproc_mat,
+            bpy_mat,
+            slot_idx,
+            cc_name,
+            mat_cfg,
+            cc_textures_dir,
+            cc_materials_cache,
+        )
+    else:
+        _set_pbr_scalar_values(bproc_mat, bpy_mat, mat_cfg)
+
+
 def apply_pbr_materials(
     meshes: list[bpy.types.Object],
     color_mapping: list[dict],
@@ -424,87 +556,15 @@ def apply_pbr_materials(
     for mesh_obj in meshes:
         bproc_mesh = bproc.types.MeshObject(mesh_obj)
         for slot_idx, bproc_mat in enumerate(bproc_mesh.get_materials()):
-            bpy_mat = bproc_mat.blender_obj
-            color = get_material_base_color(bpy_mat)
-            if color is None:
-                continue
-            mat_type, match_dist, used_fallback = match_material_type(color, color_mapping)
-            if mat_type is None:
-                print(
-                    f"  Warning: No mapping for color {color} on {bpy_mat.name} "
-                    f"(nearest distance={match_dist:.2f})"
-                )
-                continue
-            if used_fallback:
-                print(
-                    f"  Note: Fallback mapped color {color} on {bpy_mat.name} "
-                    f"to '{mat_type}' (distance={match_dist:.2f}). "
-                    "Consider adding an explicit [[robots.color_mapping]] entry."
-                )
-            mat_cfg = materials_config.get(mat_type)
-            if mat_cfg is None:
-                print(f"  Warning: No material config for type '{mat_type}'")
-                continue
-
-            tex_dir = mat_cfg.get("texture_dir")
-            cc_name = mat_cfg.get("cc_texture")
-
-            if tex_dir:
-                td = resolve_path(Path(tex_dir))
-                if td.is_dir():
-                    _apply_pbr_textures(bpy_mat, td)
-                    print(f"  {bpy_mat.name} -> PBR textures from '{td.name}/'")
-                else:
-                    print(f"  Warning: texture_dir not found: {td}")
-            elif cc_name:
-                cc_mat = _find_cc_material(cc_name, cc_materials_cache)
-                if cc_mat is not None:
-                    assigned_mat = cc_mat.blender_obj
-                    if _material_has_image_textures(assigned_mat):
-                        mesh_obj.data.materials[slot_idx] = assigned_mat
-                        print(f"  {bpy_mat.name} -> CC texture '{cc_name}'")
-                        continue
-
-                    # Some loaded CC entries can still be effectively flat in
-                    # specific Blender/asset combinations. Fall back to wiring
-                    # maps directly from the texture directory on the current
-                    # slot material.
-                    cc_dir = (
-                        resolve_path(Path(cc_textures_dir)) / cc_name if cc_textures_dir else None
-                    )
-                    if cc_dir and cc_dir.is_dir():
-                        _apply_pbr_textures(bpy_mat, cc_dir)
-                        print(
-                            f"  {bpy_mat.name} -> CC fallback maps from '{cc_dir.name}/' "
-                            "(assigned CC material had no image nodes)"
-                        )
-                    else:
-                        print(
-                            f"  Warning: CC material '{cc_name}' on {bpy_mat.name} "
-                            "has no image texture nodes and no fallback directory was found."
-                        )
-                else:
-                    print(
-                        f"  Warning: cc_texture '{cc_name}' not loaded for "
-                        f"{bpy_mat.name}; falling back to PBR scalar values."
-                    )
-                    bproc_mat.set_principled_shader_value("Metallic", mat_cfg.get("metallic", 0.0))
-                    bproc_mat.set_principled_shader_value(
-                        "Roughness", mat_cfg.get("roughness", 0.5)
-                    )
-                    print(
-                        f"  {bpy_mat.name} -> PBR values "
-                        f"(metallic={mat_cfg.get('metallic')}, "
-                        f"roughness={mat_cfg.get('roughness')})"
-                    )
-            else:
-                bproc_mat.set_principled_shader_value("Metallic", mat_cfg.get("metallic", 0.0))
-                bproc_mat.set_principled_shader_value("Roughness", mat_cfg.get("roughness", 0.5))
-                print(
-                    f"  {bpy_mat.name} -> PBR values "
-                    f"(metallic={mat_cfg.get('metallic')}, "
-                    f"roughness={mat_cfg.get('roughness')})"
-                )
+            _apply_material_to_slot(
+                mesh_obj,
+                bproc_mat,
+                slot_idx,
+                color_mapping,
+                materials_config,
+                cc_textures_dir,
+                cc_materials_cache,
+            )
 
 
 def cleanup_meshes(meshes: list[bpy.types.Object]) -> None:

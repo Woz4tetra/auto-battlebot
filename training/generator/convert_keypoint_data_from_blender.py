@@ -147,6 +147,75 @@ def get_image_paths(config: dict, data_dir: Path) -> list[tuple[Path, Path]]:
     return matched_pairs
 
 
+def build_keypoint_annotations(
+    keypoint_blobs: list[Blob],
+    width: int,
+    height: int,
+    keypoint_colors_map: dict[int, ColorRgbUint8],
+    color_tolerance: float,
+) -> dict[int, list[KeypointAnnotation]]:
+    keypoint_annotations: dict[int, list[KeypointAnnotation]] = {}
+    for blob in keypoint_blobs:
+        annotation = make_keypoint_annotation(
+            blob, width, height, keypoint_colors_map, color_tolerance
+        )
+        if annotation:
+            keypoint_annotations.setdefault(annotation[0], []).append(annotation[1:])
+    for keypoint_label_annotations in keypoint_annotations.values():
+        keypoint_label_annotations.sort(key=lambda val: val[0])
+    return keypoint_annotations
+
+
+def build_bounding_box_annotations(
+    mask_blobs: list[Blob],
+    width: int,
+    height: int,
+    label_colors_map: dict[int, dict[int, ColorRgbUint8]],
+    color_tolerance: float,
+) -> list[BoundingBoxAnnotation]:
+    bounding_box_annotations: list[BoundingBoxAnnotation] = []
+    for blob in mask_blobs:
+        annotation = make_bounding_box_annotation(
+            blob, width, height, label_colors_map, color_tolerance
+        )
+        if annotation:
+            bounding_box_annotations.append(annotation)
+    return bounding_box_annotations
+
+
+def build_yolo_lines(
+    bounding_box_annotations: list[BoundingBoxAnnotation],
+    keypoint_annotations: dict[int, list[KeypointAnnotation]],
+    keypoint_colors_map: dict[int, ColorRgbUint8],
+) -> list[str]:
+    yolo_lines = []
+    visibility = 2
+    for bbox_anno in bounding_box_annotations:
+        if not bbox_anno:
+            raise ValueError("Failed to find bounding box")
+        class_id, x_center, y_center, box_w, box_h = bbox_anno
+        if class_id not in keypoint_annotations:
+            raise ValueError(f"Bounding box has no corresponding class ID ({class_id})")
+        keypoint_label_annotations = keypoint_annotations[class_id]
+
+        expected_keypoints_num = len(keypoint_colors_map[class_id])
+        keypoints_found_num = len(keypoint_label_annotations)
+        if expected_keypoints_num != keypoints_found_num:
+            raise ValueError(
+                f"Found {keypoints_found_num} instead of"
+                f" {expected_keypoints_num} keypoints for class ID {class_id}"
+            )
+
+        yolo_base_annotation = f"{class_id} {x_center:.6f} {y_center:.6f} {box_w:.6f} {box_h:.6f}"
+        yolo_keypoint_annotations = []
+        for key_anno in keypoint_label_annotations:
+            keypoint_id, key_x, key_y = key_anno
+            yolo_keypoint_annotations.append(f"{key_x:.6f} {key_y:.6f} {visibility}")
+        yolo_annotation = " ".join([yolo_base_annotation] + yolo_keypoint_annotations)
+        yolo_lines.append(yolo_annotation)
+    return yolo_lines
+
+
 def convert_render_pair_to_yolo(
     mask_path: Path,
     keypoints_path: Path,
@@ -172,51 +241,15 @@ def convert_render_pair_to_yolo(
         )
         height, width = mask_img.shape[:2]
 
-        keypoint_annotations: dict[int, list[KeypointAnnotation]] = {}
-        for blob in keypoint_blobs:
-            annotation = make_keypoint_annotation(
-                blob, width, height, keypoint_colors_map, color_tolerance
-            )
-            if annotation:
-                keypoint_annotations.setdefault(annotation[0], []).append(annotation[1:])
-        for keypoint_label_annotations in keypoint_annotations.values():
-            keypoint_label_annotations.sort(key=lambda val: val[0])
-
-        bounding_box_annotations: list[BoundingBoxAnnotation] = []
-        for blob in mask_blobs:
-            annotation = make_bounding_box_annotation(
-                blob, width, height, label_colors_map, color_tolerance
-            )
-            if annotation:
-                bounding_box_annotations.append(annotation)
-
-        yolo_lines = []
-        visibility = 2
-        for bbox_anno in bounding_box_annotations:
-            if not bbox_anno:
-                raise ValueError("Failed to find bounding box")
-            class_id, x_center, y_center, box_w, box_h = bbox_anno
-            if class_id not in keypoint_annotations:
-                raise ValueError(f"Bounding box has no corresponding class ID ({class_id})")
-            keypoint_label_annotations = keypoint_annotations[class_id]
-
-            expected_keypoints_num = len(keypoint_colors_map[class_id])
-            keypoints_found_num = len(keypoint_label_annotations)
-            if expected_keypoints_num != keypoints_found_num:
-                raise ValueError(
-                    f"Found {keypoints_found_num} instead of"
-                    f" {expected_keypoints_num} keypoints for class ID {class_id}"
-                )
-
-            yolo_base_annotation = (
-                f"{class_id} {x_center:.6f} {y_center:.6f} {box_w:.6f} {box_h:.6f}"
-            )
-            yolo_keypoint_annotations = []
-            for key_anno in keypoint_label_annotations:
-                keypoint_id, key_x, key_y = key_anno
-                yolo_keypoint_annotations.append(f"{key_x:.6f} {key_y:.6f} {visibility}")
-            yolo_annotation = " ".join([yolo_base_annotation] + yolo_keypoint_annotations)
-            yolo_lines.append(yolo_annotation)
+        keypoint_annotations = build_keypoint_annotations(
+            keypoint_blobs, width, height, keypoint_colors_map, color_tolerance
+        )
+        bounding_box_annotations = build_bounding_box_annotations(
+            mask_blobs, width, height, label_colors_map, color_tolerance
+        )
+        yolo_lines = build_yolo_lines(
+            bounding_box_annotations, keypoint_annotations, keypoint_colors_map
+        )
 
         # Write YOLO label file
         label_path = output_dir / (mask_path.stem + ".txt")

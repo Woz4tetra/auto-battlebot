@@ -22,6 +22,7 @@ import ast
 import multiprocessing as mp
 import shutil
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import tomllib
@@ -235,6 +236,46 @@ def process_label_file(label_path_str: str) -> dict[str, object]:
     return result
 
 
+def _parse_yaml_inline_names(value: str) -> list[str] | None:
+    """Parse the inline `names: ["a", "b"]` form, returning None if not a list."""
+    try:
+        parsed = ast.literal_eval(value)
+    except (ValueError, SyntaxError):
+        parsed = None
+    if isinstance(parsed, list):
+        return [str(v) for v in parsed]
+    return None
+
+
+def _parse_yaml_names_block(block_lines: list[str], base_indent: int) -> list[str] | None:
+    """Parse the indented block forms of YOLO `names` (dash list or index map)."""
+    list_names: list[str] = []
+    indexed_names: dict[int, str] = {}
+
+    for block_line in block_lines:
+        if not block_line.strip():
+            continue
+        indent = len(block_line) - len(block_line.lstrip())
+        if indent <= base_indent:
+            break
+
+        s = block_line.strip()
+        if s.startswith("- "):
+            list_names.append(s[2:].strip().strip("\"'"))
+            continue
+
+        key, sep, raw_val = s.partition(":")
+        if sep and key.strip().isdigit():
+            indexed_names[int(key.strip())] = raw_val.strip().strip("\"'")
+
+    if list_names:
+        return list_names
+    if indexed_names:
+        max_idx = max(indexed_names)
+        return [indexed_names.get(i, f"class_{i}") for i in range(max_idx + 1)]
+    return None
+
+
 def parse_yaml_names_list(data_yaml_path: Path) -> list[str] | None:
     """Best-effort parse of YOLO `names` from data.yaml/data.yml."""
     try:
@@ -247,15 +288,12 @@ def parse_yaml_names_list(data_yaml_path: Path) -> list[str] | None:
         if not stripped.startswith("names:"):
             continue
 
+        # Common YOLO form: names: ["a", "b"] or names: [a, b]
         value = stripped.partition(":")[2].strip()
         if value:
-            # Common YOLO form: names: ["a", "b"] or names: [a, b]
-            try:
-                parsed = ast.literal_eval(value)
-            except (ValueError, SyntaxError):
-                parsed = None
-            if isinstance(parsed, list):
-                return [str(v) for v in parsed]
+            inline_names = _parse_yaml_inline_names(value)
+            if inline_names is not None:
+                return inline_names
 
         # Block forms:
         # names:
@@ -266,30 +304,9 @@ def parse_yaml_names_list(data_yaml_path: Path) -> list[str] | None:
         #   0: class_a
         #   1: class_b
         base_indent = len(line) - len(line.lstrip())
-        list_names: list[str] = []
-        indexed_names: dict[int, str] = {}
-
-        for block_line in lines[idx + 1 :]:
-            if not block_line.strip():
-                continue
-            indent = len(block_line) - len(block_line.lstrip())
-            if indent <= base_indent:
-                break
-
-            s = block_line.strip()
-            if s.startswith("- "):
-                list_names.append(s[2:].strip().strip("\"'"))
-                continue
-
-            key, sep, raw_val = s.partition(":")
-            if sep and key.strip().isdigit():
-                indexed_names[int(key.strip())] = raw_val.strip().strip("\"'")
-
-        if list_names:
-            return list_names
-        if indexed_names:
-            max_idx = max(indexed_names)
-            return [indexed_names.get(i, f"class_{i}") for i in range(max_idx + 1)]
+        block_names = _parse_yaml_names_block(lines[idx + 1 :], base_indent)
+        if block_names is not None:
+            return block_names
 
     return None
 
@@ -355,7 +372,21 @@ def write_data_yml(dataset_root: Path, names: list[str], splits: set[str]) -> Pa
     return out_path
 
 
-def main() -> None:
+@dataclass
+class _RunStats:
+    """Accumulated counters and class/split sets gathered from worker results."""
+
+    unmapped_classes_seen: set[int] = field(default_factory=set)
+    written_count: int = 0
+    image_copy_count: int = 0
+    missing_paired_image_count: int = 0
+    missing_paired_image_examples: list[str] = field(default_factory=list)
+    skipped_malformed_total: int = 0
+    remapped_output_classes: set[int] = field(default_factory=set)
+    observed_splits: set[str] = field(default_factory=set)
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Remap class IDs in YOLO label files")
     parser.add_argument(
         "config",
@@ -391,12 +422,10 @@ def main() -> None:
         default=0,
         help="Worker processes (default: CPU count)",
     )
-    args = parser.parse_args()
+    return parser
 
-    config_path = Path(args.config)
-    dataset_dir = Path(args.dataset)
-    output_dir = Path(args.output) if args.output else None
 
+def _validate_paths(config_path: Path, dataset_dir: Path) -> None:
     if not config_path.exists():
         print(f"Error: config file not found: {config_path}", file=sys.stderr)
         sys.exit(1)
@@ -404,27 +433,40 @@ def main() -> None:
         print(f"Error: dataset directory not found: {dataset_dir}", file=sys.stderr)
         sys.exit(1)
 
-    label_map = load_config(config_path)
-    source_yaml = find_dataset_yaml(dataset_dir)
-    source_names = parse_yaml_names_list(source_yaml) if source_yaml else None
-    print(f"Label map: {label_map}")
-    if source_yaml:
-        print(f"Source dataset yaml: {source_yaml}")
 
-    label_files, labels_root = find_label_files(dataset_dir)
-    if not label_files:
-        print(f"No .txt label files found in {dataset_dir}", file=sys.stderr)
-        sys.exit(1)
-    print(f"Found {len(label_files)} label files")
+def _consume_results(progress_iter: tqdm, stats: _RunStats, dry_run: bool) -> None:
+    for result in progress_iter:
+        stats.skipped_malformed_total += int(result["malformed_count"])
+        stats.unmapped_classes_seen.update(result["unmapped_classes"])
 
-    unmapped_classes_seen: set[int] = set()
-    written_count = 0
-    image_copy_count = 0
-    missing_paired_image_count = 0
-    missing_paired_image_examples: list[str] = []
-    skipped_malformed_total = 0
-    remapped_output_classes: set[int] = set()
-    observed_splits: set[str] = set()
+        if dry_run and result["has_valid_labels"]:
+            label_name = Path(str(result["label_path"])).name
+            print(f"  {label_name}: {result['dry_run_action']}")
+
+        if bool(result["written"]):
+            stats.written_count += 1
+            stats.remapped_output_classes.update(result["classes_after"])
+            split_name = result["split_name"]
+            if split_name:
+                stats.observed_splits.add(str(split_name))
+
+        if bool(result["image_copied"]):
+            stats.image_copy_count += 1
+        elif result["missing_image_for_label"] is not None:
+            stats.missing_paired_image_count += 1
+            if len(stats.missing_paired_image_examples) < 5:
+                stats.missing_paired_image_examples.append(str(result["missing_image_for_label"]))
+
+
+def _run_remap(
+    label_files: list[Path],
+    labels_root: Path,
+    dataset_dir: Path,
+    output_dir: Path | None,
+    label_map: dict[int, int],
+    args: argparse.Namespace,
+) -> _RunStats:
+    stats = _RunStats()
 
     jobs = args.jobs if args.jobs > 0 else (mp.cpu_count() or 1)
     jobs = max(1, jobs)
@@ -457,90 +499,100 @@ def main() -> None:
         ) as pool:
             results_iter = pool.imap_unordered(process_label_file, worker_inputs, chunksize=64)
             progress_iter = tqdm(results_iter, total=len(worker_inputs), desc="Remapping labels")
-
-            for result in progress_iter:
-                skipped_malformed_total += int(result["malformed_count"])
-                unmapped_classes_seen.update(result["unmapped_classes"])
-
-                if args.dry_run and result["has_valid_labels"]:
-                    label_name = Path(str(result["label_path"])).name
-                    print(f"  {label_name}: {result['dry_run_action']}")
-
-                if bool(result["written"]):
-                    written_count += 1
-                    remapped_output_classes.update(result["classes_after"])
-                    split_name = result["split_name"]
-                    if split_name:
-                        observed_splits.add(str(split_name))
-
-                if bool(result["image_copied"]):
-                    image_copy_count += 1
-                elif result["missing_image_for_label"] is not None:
-                    missing_paired_image_count += 1
-                    if len(missing_paired_image_examples) < 5:
-                        missing_paired_image_examples.append(str(result["missing_image_for_label"]))
+            _consume_results(progress_iter, stats, args.dry_run)
 
         progress_iter.close()
 
     if jobs == 1:
-        for result in progress_iter:
-            skipped_malformed_total += int(result["malformed_count"])
-            unmapped_classes_seen.update(result["unmapped_classes"])
+        _consume_results(progress_iter, stats, args.dry_run)
 
-            if args.dry_run and result["has_valid_labels"]:
-                label_name = Path(str(result["label_path"])).name
-                print(f"  {label_name}: {result['dry_run_action']}")
+    return stats
 
-            if bool(result["written"]):
-                written_count += 1
-                remapped_output_classes.update(result["classes_after"])
-                split_name = result["split_name"]
-                if split_name:
-                    observed_splits.add(str(split_name))
 
-            if bool(result["image_copied"]):
-                image_copy_count += 1
-            elif result["missing_image_for_label"] is not None:
-                missing_paired_image_count += 1
-                if len(missing_paired_image_examples) < 5:
-                    missing_paired_image_examples.append(str(result["missing_image_for_label"]))
+def _print_unmapped_warning(
+    unmapped_classes_seen: set[int], source_names: list[str] | None
+) -> None:
+    if source_names:
+        unmapped_labels_with_names = []
+        for cls_id in sorted(unmapped_classes_seen):
+            if 0 <= cls_id < len(source_names):
+                unmapped_labels_with_names.append(f"{cls_id} ({source_names[cls_id]})")
+            else:
+                unmapped_labels_with_names.append(str(cls_id))
+        print(
+            "Warning: source classes not present in label_map (left unchanged): "
+            + ", ".join(unmapped_labels_with_names)
+        )
+    else:
+        print(
+            "Warning: source classes not present in label_map (left unchanged): "
+            + ", ".join(str(v) for v in sorted(unmapped_classes_seen))
+        )
 
-    if skipped_malformed_total:
-        print(f"Skipped {skipped_malformed_total} malformed label lines")
-    if unmapped_classes_seen:
-        if source_names:
-            unmapped_labels_with_names = []
-            for cls_id in sorted(unmapped_classes_seen):
-                if 0 <= cls_id < len(source_names):
-                    unmapped_labels_with_names.append(f"{cls_id} ({source_names[cls_id]})")
-                else:
-                    unmapped_labels_with_names.append(str(cls_id))
-            print(
-                "Warning: source classes not present in label_map (left unchanged): "
-                + ", ".join(unmapped_labels_with_names)
-            )
-        else:
-            print(
-                "Warning: source classes not present in label_map (left unchanged): "
-                + ", ".join(str(v) for v in sorted(unmapped_classes_seen))
-            )
-    if not args.dry_run:
-        target = output_dir if output_dir else dataset_dir
-        output_names = build_output_names(label_map, remapped_output_classes, source_names)
-        data_yml_path = write_data_yml(target, output_names, observed_splits)
-        print(f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}")
+
+def _print_skip_and_unmapped(stats: _RunStats, source_names: list[str] | None) -> None:
+    if stats.skipped_malformed_total:
+        print(f"Skipped {stats.skipped_malformed_total} malformed label lines")
+    if stats.unmapped_classes_seen:
+        _print_unmapped_warning(stats.unmapped_classes_seen, source_names)
+
+
+def _finalize_output(
+    target: Path,
+    dry_run: bool,
+    stats: _RunStats,
+    label_map: dict[int, int],
+    source_names: list[str] | None,
+) -> None:
+    output_names = build_output_names(label_map, stats.remapped_output_classes, source_names)
+    if not dry_run:
+        data_yml_path = write_data_yml(target, output_names, stats.observed_splits)
+        print(
+            f"Done. Wrote {stats.written_count} label files "
+            f"and {stats.image_copy_count} images to {target}"
+        )
         print(f"Wrote data.yml -> {data_yml_path}")
-        if missing_paired_image_count:
-            print(f"Could not find paired images for {missing_paired_image_count} label files")
-            for sample in missing_paired_image_examples:
+        if stats.missing_paired_image_count:
+            print(
+                f"Could not find paired images for {stats.missing_paired_image_count} label files"
+            )
+            for sample in stats.missing_paired_image_examples:
                 print(f"  missing image for label: {sample}")
     else:
-        target = output_dir if output_dir else dataset_dir
-        output_names = build_output_names(label_map, remapped_output_classes, source_names)
         print(
             f"Dry run: would write {target / 'data.yml'}"
             f" with nc={len(output_names)} and names={output_names}"
         )
+
+
+def main() -> None:
+    args = _build_arg_parser().parse_args()
+
+    config_path = Path(args.config)
+    dataset_dir = Path(args.dataset)
+    output_dir = Path(args.output) if args.output else None
+
+    _validate_paths(config_path, dataset_dir)
+
+    label_map = load_config(config_path)
+    source_yaml = find_dataset_yaml(dataset_dir)
+    source_names = parse_yaml_names_list(source_yaml) if source_yaml else None
+    print(f"Label map: {label_map}")
+    if source_yaml:
+        print(f"Source dataset yaml: {source_yaml}")
+
+    label_files, labels_root = find_label_files(dataset_dir)
+    if not label_files:
+        print(f"No .txt label files found in {dataset_dir}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Found {len(label_files)} label files")
+
+    stats = _run_remap(label_files, labels_root, dataset_dir, output_dir, label_map, args)
+
+    _print_skip_and_unmapped(stats, source_names)
+
+    target = output_dir if output_dir else dataset_dir
+    _finalize_output(target, args.dry_run, stats, label_map, source_names)
 
 
 if __name__ == "__main__":

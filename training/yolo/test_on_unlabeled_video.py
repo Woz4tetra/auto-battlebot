@@ -37,7 +37,7 @@ def annotate_frame(model, frame, inference_kwargs: dict):
     return normalize_annotated_frame(annotated_frame)
 
 
-def main() -> None:
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Test a trained YOLO model on a video or directory of images"
     )
@@ -98,83 +98,95 @@ def main() -> None:
         action="store_true",
         help="Don't save output files",
     )
-    args = parser.parse_args()
+    return parser
 
-    # Load the model
-    print(f"Loading model from {args.model}...")
-    model = YOLO(args.model)
-    model_task = getattr(model, "task", "detect")
-    print(f"Model task: {model_task}")
-    input_path = Path(args.input_path)
-    if not input_path.exists():
-        print(f"Error: Input path '{input_path}' not found")
+
+def process_image_directory(args, model, model_task: str, inference_kwargs: dict, input_path: Path):
+    image_paths = sorted(
+        p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+    )
+    if not image_paths:
+        print(f"Error: No images found in directory '{input_path}'")
         return
 
-    inference_kwargs = build_inference_kwargs(args, model_task)
+    output_dir = None
+    if not args.no_save:
+        output_dir = (
+            Path(args.output) if args.output else input_path.parent / f"{input_path.name}_annotated"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Saving annotated images to {output_dir}")
+
     frame_count = 0
     start_time = time.time()
-
-    if input_path.is_dir():
-        image_paths = sorted(
-            p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
-        )
-        if not image_paths:
-            print(f"Error: No images found in directory '{input_path}'")
-            return
-
-        output_dir = None
-        if not args.no_save:
-            output_dir = (
-                Path(args.output)
-                if args.output
-                else input_path.parent / f"{input_path.name}_annotated"
-            )
-            output_dir.mkdir(parents=True, exist_ok=True)
-            print(f"Saving annotated images to {output_dir}")
-
-        try:
-            with tqdm(total=len(image_paths), desc="Processing images", unit="image") as pbar:
-                for image_path in image_paths:
-                    frame = cv2.imread(str(image_path))
-                    if frame is None:
-                        print(f"Warning: Could not read image '{image_path}', skipping")
-                        pbar.update(1)
-                        continue
-
-                    frame_count += 1
-                    annotated_frame = annotate_frame(model, frame, inference_kwargs)
-
-                    if output_dir is not None:
-                        out_path = output_dir / image_path.name
-                        cv2.imwrite(str(out_path), annotated_frame)
-
-                    if args.show:
-                        cv2.imshow(f"YOLO {model_task.capitalize()} Results", annotated_frame)
-                        if cv2.waitKey(1) & 0xFF == ord("q"):
-                            print("Interrupted by user")
-                            break
-
-                    elapsed_time = time.time() - start_time
-                    current_fps = frame_count / elapsed_time if elapsed_time > 0 else 0
-                    pbar.set_postfix({"FPS": f"{current_fps:.2f}"})
+    try:
+        with tqdm(total=len(image_paths), desc="Processing images", unit="image") as pbar:
+            for image_path in image_paths:
+                frame = cv2.imread(str(image_path))
+                if frame is None:
+                    print(f"Warning: Could not read image '{image_path}', skipping")
                     pbar.update(1)
-        finally:
+                    continue
+
+                frame_count += 1
+                annotated_frame = annotate_frame(model, frame, inference_kwargs)
+
+                if output_dir is not None:
+                    out_path = output_dir / image_path.name
+                    cv2.imwrite(str(out_path), annotated_frame)
+
+                if args.show:
+                    cv2.imshow(f"YOLO {model_task.capitalize()} Results", annotated_frame)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        print("Interrupted by user")
+                        break
+
+                elapsed_time = time.time() - start_time
+                current_fps = frame_count / elapsed_time if elapsed_time > 0 else 0
+                pbar.set_postfix({"FPS": f"{current_fps:.2f}"})
+                pbar.update(1)
+    finally:
+        if args.show:
+            cv2.destroyAllWindows()
+
+    elapsed_time = time.time() - start_time
+    avg_fps = frame_count / elapsed_time if elapsed_time > 0 else 0
+    print(f"\nProcessing complete! Processed {frame_count} images in {elapsed_time:.2f}s")
+    print(f"Average FPS: {avg_fps:.2f}")
+    if output_dir is not None:
+        print(f"Output saved to: {output_dir}")
+
+
+def run_video_loop(
+    args, model, model_task: str, inference_kwargs: dict, cap, writer, total_frames, start_time
+):
+    frame_count = 0
+    with tqdm(total=total_frames, desc="Processing video", unit="frame") as pbar:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame_count += 1
+            annotated_frame = annotate_frame(model, frame, inference_kwargs)
+
+            if writer is not None:
+                writer.write(annotated_frame)
+
             if args.show:
-                cv2.destroyAllWindows()
+                cv2.imshow(f"YOLO {model_task.capitalize()} Results", annotated_frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    print("Interrupted by user")
+                    break
 
-        elapsed_time = time.time() - start_time
-        avg_fps = frame_count / elapsed_time if elapsed_time > 0 else 0
-        print(f"\nProcessing complete! Processed {frame_count} images in {elapsed_time:.2f}s")
-        print(f"Average FPS: {avg_fps:.2f}")
-        if output_dir is not None:
-            print(f"Output saved to: {output_dir}")
-        return
+            elapsed_time = time.time() - start_time
+            current_fps = frame_count / elapsed_time if elapsed_time > 0 else 0
+            pbar.set_postfix({"FPS": f"{current_fps:.2f}"})
+            pbar.update(1)
+    return frame_count
 
-    if not input_path.is_file():
-        print(f"Error: Input path '{input_path}' is not a file or directory")
-        return
 
-    # Video path flow
+def process_video(args, model, model_task: str, inference_kwargs: dict, input_path: Path):
     output_path = (
         Path(args.output) if args.output else input_path.parent / f"{input_path.stem}_annotated.mp4"
     )
@@ -200,29 +212,12 @@ def main() -> None:
         writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
         print(f"Saving output to {output_path}")
 
+    frame_count = 0
+    start_time = time.time()
     try:
-        with tqdm(total=total_frames, desc="Processing video", unit="frame") as pbar:
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-
-                frame_count += 1
-                annotated_frame = annotate_frame(model, frame, inference_kwargs)
-
-                if writer is not None:
-                    writer.write(annotated_frame)
-
-                if args.show:
-                    cv2.imshow(f"YOLO {model_task.capitalize()} Results", annotated_frame)
-                    if cv2.waitKey(1) & 0xFF == ord("q"):
-                        print("Interrupted by user")
-                        break
-
-                elapsed_time = time.time() - start_time
-                current_fps = frame_count / elapsed_time if elapsed_time > 0 else 0
-                pbar.set_postfix({"FPS": f"{current_fps:.2f}"})
-                pbar.update(1)
+        frame_count = run_video_loop(
+            args, model, model_task, inference_kwargs, cap, writer, total_frames, start_time
+        )
     finally:
         cap.release()
         if writer is not None:
@@ -236,6 +231,33 @@ def main() -> None:
     print(f"Average FPS: {avg_fps:.2f}")
     if not args.no_save:
         print(f"Output saved to: {output_path}")
+
+
+def main() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args()
+
+    # Load the model
+    print(f"Loading model from {args.model}...")
+    model = YOLO(args.model)
+    model_task = getattr(model, "task", "detect")
+    print(f"Model task: {model_task}")
+    input_path = Path(args.input_path)
+    if not input_path.exists():
+        print(f"Error: Input path '{input_path}' not found")
+        return
+
+    inference_kwargs = build_inference_kwargs(args, model_task)
+
+    if input_path.is_dir():
+        process_image_directory(args, model, model_task, inference_kwargs, input_path)
+        return
+
+    if not input_path.is_file():
+        print(f"Error: Input path '{input_path}' is not a file or directory")
+        return
+
+    process_video(args, model, model_task, inference_kwargs, input_path)
 
 
 if __name__ == "__main__":

@@ -209,7 +209,8 @@ def safe_stem(dataset_root: Path, img_path: Path) -> str:
     return f"{dataset_root.name}__{img_path.stem}"
 
 
-def main():
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(description="Merge multiple YOLO datasets")
     parser.add_argument(
         "--search-dir",
@@ -240,6 +241,122 @@ def main():
         default=0,
         help="Worker processes for pair processing (default: CPU count)",
     )
+    return parser
+
+
+def load_datasets_info(dataset_roots: list[Path]) -> list[dict]:
+    """Load class metadata for each dataset root, skipping ones without a names field."""
+    datasets_info = []
+    for root in dataset_roots:
+        meta = load_dataset_yaml(root)
+        names = extract_names(meta)
+        if not names:
+            print(f"  [SKIP] {root.name}: no 'names' field in data yaml")
+            continue
+        datasets_info.append(
+            {
+                "root": root,
+                "names": names,
+                "nc": len(names),
+                "kpt_shape": meta.get("kpt_shape"),
+            }
+        )
+        print(f"  {root.name}: {len(names)} classes, kpt_shape={meta.get('kpt_shape')}")
+    print()
+    return datasets_info
+
+
+def build_dataset_tasks(
+    info: dict,
+    merged_name_to_id: dict[str, int],
+    out_images: Path,
+    out_labels: Path,
+    include_unvalidated: bool,
+) -> tuple[list[dict], int, int]:
+    """Build process tasks for one dataset. Returns (tasks, ds_fail, collisions)."""
+    root = info["root"]
+    names = info["names"]
+
+    # Build class ID remap for this dataset
+    old_id_to_new = {i: merged_name_to_id[name] for i, name in enumerate(names)}
+
+    validation_state = load_validation_state(root)
+    if validation_state is None:
+        print(f"  WARNING: {root.name}: no validation_state.json found — skipping all images")
+    pairs = find_image_label_pairs(root)
+
+    ds_fail = 0
+    candidate_pairs: list[tuple[Path, Path]] = []
+
+    for img_path, label_path in pairs:
+        # Filter by validation state
+        if not is_image_passing(img_path, root, validation_state, include_unvalidated):
+            ds_fail += 1
+            continue
+        candidate_pairs.append((img_path, label_path))
+
+    collisions = 0
+    stem_counts: dict[str, int] = {}
+    tasks: list[dict] = []
+    for img_path, label_path in candidate_pairs:
+        base_stem = safe_stem(root, img_path)
+        count = stem_counts.get(base_stem, 0)
+        stem_counts[base_stem] = count + 1
+        stem = base_stem if count == 0 else f"{base_stem}_{count}"
+        if count > 0:
+            collisions += 1
+
+        out_img = out_images / (stem + img_path.suffix)
+        out_lbl = out_labels / (stem + ".txt")
+        tasks.append(
+            {
+                "img_path": str(img_path),
+                "label_path": str(label_path),
+                "out_img": str(out_img),
+                "out_lbl": str(out_lbl),
+                "old_id_to_new": old_id_to_new,
+            }
+        )
+    return tasks, ds_fail, collisions
+
+
+def run_pair_tasks(tasks: list[dict], jobs: int, desc: str) -> tuple[int, int]:
+    """Run process_pair_task over tasks. Returns (copied, skipped_no_label)."""
+    ds_copied = 0
+    ds_no_label = 0
+    if jobs == 1:
+        results_iter = map(process_pair_task, tasks)
+        progress_iter = tqdm(
+            results_iter,
+            total=len(tasks),
+            desc=desc,
+            leave=False,
+        )
+        for copied, skipped_no_label in progress_iter:
+            if copied:
+                ds_copied += 1
+            if skipped_no_label:
+                ds_no_label += 1
+    else:
+        with mp.Pool(processes=jobs) as pool:
+            results_iter = pool.imap_unordered(process_pair_task, tasks, chunksize=64)
+            progress_iter = tqdm(
+                results_iter,
+                total=len(tasks),
+                desc=desc,
+                leave=False,
+            )
+            for copied, skipped_no_label in progress_iter:
+                if copied:
+                    ds_copied += 1
+                if skipped_no_label:
+                    ds_no_label += 1
+            progress_iter.close()
+    return ds_copied, ds_no_label
+
+
+def main():
+    parser = build_arg_parser()
     args = parser.parse_args()
 
     include_unvalidated = not args.exclude_unvalidated
@@ -260,24 +377,7 @@ def main():
         return
 
     # ── 2. Load metadata from each dataset ───────────────────────────────────
-    datasets_info = []
-    for root in dataset_roots:
-        meta = load_dataset_yaml(root)
-        names = extract_names(meta)
-        if not names:
-            print(f"  [SKIP] {root.name}: no 'names' field in data yaml")
-            continue
-        datasets_info.append(
-            {
-                "root": root,
-                "names": names,
-                "nc": len(names),
-                "kpt_shape": meta.get("kpt_shape"),
-            }
-        )
-        print(f"  {root.name}: {len(names)} classes, kpt_shape={meta.get('kpt_shape')}")
-
-    print()
+    datasets_info = load_datasets_info(dataset_roots)
 
     # ── 3. Build merged class list ────────────────────────────────────────────
     merged_names = build_merged_class_list(datasets_info)
@@ -304,78 +404,13 @@ def main():
 
     for info in datasets_info:
         root = info["root"]
-        names = info["names"]
 
-        # Build class ID remap for this dataset
-        old_id_to_new = {i: merged_name_to_id[name] for i, name in enumerate(names)}
+        tasks, ds_fail, collisions = build_dataset_tasks(
+            info, merged_name_to_id, out_images, out_labels, include_unvalidated
+        )
+        collision_count += collisions
 
-        validation_state = load_validation_state(root)
-        if validation_state is None:
-            print(f"  WARNING: {root.name}: no validation_state.json found — skipping all images")
-        pairs = find_image_label_pairs(root)
-
-        ds_fail = 0
-        candidate_pairs: list[tuple[Path, Path]] = []
-
-        for img_path, label_path in pairs:
-            # Filter by validation state
-            if not is_image_passing(img_path, root, validation_state, include_unvalidated):
-                ds_fail += 1
-                continue
-            candidate_pairs.append((img_path, label_path))
-
-        stem_counts: dict[str, int] = {}
-        tasks: list[dict] = []
-        for img_path, label_path in candidate_pairs:
-            base_stem = safe_stem(root, img_path)
-            count = stem_counts.get(base_stem, 0)
-            stem_counts[base_stem] = count + 1
-            stem = base_stem if count == 0 else f"{base_stem}_{count}"
-            if count > 0:
-                collision_count += 1
-
-            out_img = out_images / (stem + img_path.suffix)
-            out_lbl = out_labels / (stem + ".txt")
-            tasks.append(
-                {
-                    "img_path": str(img_path),
-                    "label_path": str(label_path),
-                    "out_img": str(out_img),
-                    "out_lbl": str(out_lbl),
-                    "old_id_to_new": old_id_to_new,
-                }
-            )
-
-        ds_copied = 0
-        ds_no_label = 0
-        if jobs == 1:
-            results_iter = map(process_pair_task, tasks)
-            progress_iter = tqdm(
-                results_iter,
-                total=len(tasks),
-                desc=f"Merging {root.name}",
-                leave=False,
-            )
-            for copied, skipped_no_label in progress_iter:
-                if copied:
-                    ds_copied += 1
-                if skipped_no_label:
-                    ds_no_label += 1
-        else:
-            with mp.Pool(processes=jobs) as pool:
-                results_iter = pool.imap_unordered(process_pair_task, tasks, chunksize=64)
-                progress_iter = tqdm(
-                    results_iter,
-                    total=len(tasks),
-                    desc=f"Merging {root.name}",
-                    leave=False,
-                )
-                for copied, skipped_no_label in progress_iter:
-                    if copied:
-                        ds_copied += 1
-                    if skipped_no_label:
-                        ds_no_label += 1
-                progress_iter.close()
+        ds_copied, ds_no_label = run_pair_tasks(tasks, jobs, f"Merging {root.name}")
 
         total_skipped_no_label += ds_no_label
         print(

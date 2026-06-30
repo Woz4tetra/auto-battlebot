@@ -129,6 +129,75 @@ def nms(
     return np.array(keep, dtype=np.int64)
 
 
+def _orient_predictions(
+    prediction: np.ndarray, num_predictions: int, num_features: int
+) -> np.ndarray:
+    """Return predictions as (num_predictions, num_features), transposing if needed."""
+    if prediction.shape[0] == num_predictions and prediction.shape[1] == num_features:
+        return prediction
+    return prediction.T
+
+
+def _activate_class_scores(raw_class: np.ndarray) -> np.ndarray:
+    """Sigmoid-activate class scores only if raw logits are detected (values outside [0,1])."""
+    raw_min, raw_max = float(np.min(raw_class)), float(np.max(raw_class))
+    if raw_min >= 0.0 and raw_max <= 1.0:
+        return raw_class
+    return sigmoid(raw_class.astype(np.float64)).astype(np.float32)
+
+
+def _activate_keypoint_visibility(kp_data: np.ndarray) -> None:
+    """In-place sigmoid of the keypoint visibility column if raw logits are detected."""
+    kp_vis = kp_data[:, 2::3]
+    kp_vis_min, kp_vis_max = np.min(kp_vis), np.max(kp_vis)
+    if not (kp_vis_min >= 0.0 and kp_vis_max <= 1.0):
+        kp_data[:, 2::3] = sigmoid(kp_vis.astype(np.float64)).astype(np.float32)
+
+
+def _per_class_nms(
+    boxes_xywh: np.ndarray,
+    scores: np.ndarray,
+    cls_ids: np.ndarray,
+    num_classes: int,
+    iou_thres: float,
+) -> np.ndarray:
+    """Per-class NMS (match C++ behavior). Returns kept indices into the filtered arrays."""
+    all_keep: list[int] = []
+    for c in range(num_classes):
+        c_mask = cls_ids == c
+        if not np.any(c_mask):
+            continue
+        c_indices = np.where(c_mask)[0]
+        c_boxes = boxes_xywh[c_indices]
+        c_scores = scores[c_indices]
+        c_keep = nms(c_boxes, c_scores, iou_thres)
+        all_keep.extend(c_indices[c_keep].tolist())
+    return np.array(all_keep)
+
+
+def _build_detections(
+    keep_indices: np.ndarray,
+    boxes_xywh: np.ndarray,
+    scores: np.ndarray,
+    cls_ids: np.ndarray,
+    kp_data: np.ndarray,
+    num_keypoints: int,
+) -> list[tuple[np.ndarray, float, int, np.ndarray]]:
+    """Assemble the (xyxy, conf, class_id, keypoints) tuples for the kept indices."""
+    out = []
+    for i in keep_indices:
+        x1, y1, x2, y2 = boxes_xywh[i]
+        out.append(
+            (
+                np.array([x1, y1, x2, y2]),
+                float(scores[i]),
+                int(cls_ids[i]),
+                kp_data[i].reshape(num_keypoints, 3),
+            )
+        )
+    return out
+
+
 def non_max_suppression(
     prediction: np.ndarray,
     num_features: int,
@@ -152,16 +221,9 @@ def non_max_suppression(
     num_classes = num_features - 4 - num_keypoint_vals
     if num_classes <= 0 or num_predictions <= 0:
         return []
-    if prediction.shape[0] == num_predictions and prediction.shape[1] == num_features:
-        transposed = prediction
-    else:
-        transposed = prediction.T
+    transposed = _orient_predictions(prediction, num_predictions, num_features)
     raw_class = transposed[:, 4 : 4 + num_classes].astype(np.float32)
-    raw_min, raw_max = float(np.min(raw_class)), float(np.max(raw_class))
-    if raw_min >= 0.0 and raw_max <= 1.0:
-        class_scores = raw_class
-    else:
-        class_scores = sigmoid(raw_class.astype(np.float64)).astype(np.float32)
+    class_scores = _activate_class_scores(raw_class)
     max_scores = np.max(class_scores, axis=1)
     best_cls = np.argmax(class_scores, axis=1)
     mask = max_scores >= conf_thres
@@ -176,37 +238,12 @@ def non_max_suppression(
     scores = max_scores[mask]
     cls_ids = best_cls[mask]
     kp_data = transposed[mask, 4 + num_classes : 4 + num_classes + num_keypoint_vals].copy()
-    kp_vis = kp_data[:, 2::3]
-    kp_vis_min, kp_vis_max = np.min(kp_vis), np.max(kp_vis)
-    if not (kp_vis_min >= 0.0 and kp_vis_max <= 1.0):
-        kp_data[:, 2::3] = sigmoid(kp_vis.astype(np.float64)).astype(np.float32)
+    _activate_keypoint_visibility(kp_data)
     if not bbox_xyxy:
         xywh2xyxy(boxes_xywh, half_wh=bbox_half_wh)
-    # Per-class NMS (match C++ behavior)
-    all_keep: list[int] = []
-    for c in range(num_classes):
-        c_mask = cls_ids == c
-        if not np.any(c_mask):
-            continue
-        c_indices = np.where(c_mask)[0]
-        c_boxes = boxes_xywh[c_indices]
-        c_scores = scores[c_indices]
-        c_keep = nms(c_boxes, c_scores, iou_thres)
-        all_keep.extend(c_indices[c_keep].tolist())
-    all_keep = np.array(all_keep)
+    all_keep = _per_class_nms(boxes_xywh, scores, cls_ids, num_classes, iou_thres)
     all_keep = all_keep[np.argsort(-scores[all_keep])[:max_det]]
-    out = []
-    for i in all_keep:
-        x1, y1, x2, y2 = boxes_xywh[i]
-        out.append(
-            (
-                np.array([x1, y1, x2, y2]),
-                float(scores[i]),
-                int(cls_ids[i]),
-                kp_data[i].reshape(num_keypoints, 3),
-            )
-        )
-    return out
+    return _build_detections(all_keep, boxes_xywh, scores, cls_ids, kp_data, num_keypoints)
 
 
 def parse_end2end_detections(
@@ -335,7 +372,8 @@ def load_engine(engine_path: str):
     return engine, context
 
 
-def main() -> None:
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Construct the command line argument parser."""
     parser = argparse.ArgumentParser(
         description="Run YOLO pose inference on video using a TensorRT engine"
     )
@@ -409,18 +447,11 @@ def main() -> None:
         action="store_true",
         help="Do not save output video",
     )
-    args = parser.parse_args()
+    return parser
 
-    video_path = Path(args.video)
-    engine_path = Path(args.engine)
-    if not video_path.exists():
-        raise FileNotFoundError(f"Video not found: {video_path}")
-    if not engine_path.exists():
-        raise FileNotFoundError(f"Engine not found: {engine_path}")
 
-    print("Loading engine...")
-    engine, context = load_engine(str(engine_path))
-
+def select_io_tensor_names(engine) -> tuple[str, str]:
+    """Return (input_name, output_name) for an engine with exactly one of each."""
     input_name = None
     output_name = None
     for i in range(engine.num_io_tensors):
@@ -431,9 +462,11 @@ def main() -> None:
             output_name = name
     if input_name is None or output_name is None:
         raise RuntimeError("Engine must have exactly one input and one output")
+    return input_name, output_name
 
-    input_shape = context.get_tensor_shape(input_name)
-    output_shape = context.get_tensor_shape(output_name)
+
+def resolve_input_dims(input_shape, args: argparse.Namespace) -> tuple[int, int]:
+    """Validate the engine input shape and return (input_h, input_w)."""
     if len(input_shape) != 4 or input_shape[0] != 1 or input_shape[1] != 3:
         raise RuntimeError(f"Expected input shape [1, 3, H, W], got {list(input_shape)}")
     input_h, input_w = int(input_shape[2]), int(input_shape[3])
@@ -441,8 +474,31 @@ def main() -> None:
         raise RuntimeError(
             f"Engine has fixed input shape {input_h}x{input_w}; --imgsz must match or be 0"
         )
+    return input_h, input_w
 
-    dim1, dim2 = int(output_shape[1]), int(output_shape[2])
+
+def _infer_raw_head_dims(num_features: int, args: argparse.Namespace) -> tuple[int, int]:
+    """Infer (num_classes, num_keypoints) for a raw pre-NMS head, honoring CLI overrides."""
+    num_classes = 1 if args.num_classes <= 0 else args.num_classes
+    remainder = num_features - 4 - num_classes
+    if remainder > 0 and remainder % 3 == 0:
+        num_keypoints = remainder // 3
+    else:
+        num_keypoints = max(0, (num_features - 4 - 1) // 3)
+    if args.num_keypoints > 0:
+        num_keypoints = args.num_keypoints
+    if args.num_classes > 0:
+        num_classes = args.num_classes
+    return num_classes, num_keypoints
+
+
+def resolve_model_layout(
+    dim1: int, dim2: int, args: argparse.Namespace
+) -> tuple[bool, int, int, int, int]:
+    """Determine the output layout from the engine output dims.
+
+    Returns (is_end2end, num_predictions, num_features, num_classes, num_keypoints).
+    """
     # End-to-end (post-NMS) models output [1, max_det, features] where max_det > features
     # but max_det is small (e.g. 300).  Raw pre-NMS models output [1, features, anchors]
     # where anchors >> features (e.g. 8400 vs 12).  The reliable distinguisher is that
@@ -459,23 +515,14 @@ def main() -> None:
         num_keypoints = max(0, (num_features - 6)) // 3
         num_classes = -1  # not used for end2end path
     elif num_classes <= 0 or num_keypoints <= 0:
-        num_classes = 1 if args.num_classes <= 0 else args.num_classes
-        remainder = num_features - 4 - num_classes
-        if remainder > 0 and remainder % 3 == 0:
-            num_keypoints = remainder // 3
-        else:
-            num_keypoints = max(0, (num_features - 4 - 1) // 3)
-        if args.num_keypoints > 0:
-            num_keypoints = args.num_keypoints
-        if args.num_classes > 0:
-            num_classes = args.num_classes
-    fmt = "end2end post-NMS" if is_end2end else "raw pre-NMS"
-    print(
-        f"Input shape: [1, 3, {input_h}, {input_w}], output: [1, {dim1}, {dim2}] ({fmt}), "
-        f"num_keypoints={num_keypoints}"
-        + (f", num_classes={num_classes}" if not is_end2end else "")
-    )
+        num_classes, num_keypoints = _infer_raw_head_dims(num_features, args)
+    return is_end2end, num_predictions, num_features, num_classes, num_keypoints
 
+
+def allocate_io_buffers(
+    context, input_name: str, output_name: str, input_h: int, input_w: int, output_shape
+):
+    """Allocate device buffers, bind tensor addresses, return (d_input, d_output, stream)."""
     input_nbytes = 1 * 3 * input_h * input_w * 4
     output_nbytes = int(np.prod([1, output_shape[1], output_shape[2]])) * 4
     d_input = cuda.mem_alloc(input_nbytes)
@@ -483,7 +530,11 @@ def main() -> None:
     context.set_tensor_address(input_name, int(d_input))
     context.set_tensor_address(output_name, int(d_output))
     stream = cuda.Stream()
+    return d_input, d_output, stream
 
+
+def open_video(video_path: Path) -> tuple[cv2.VideoCapture, int, int, int, int]:
+    """Open the video and return (cap, width, height, fps, total_frames)."""
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video: {video_path}")
@@ -491,18 +542,79 @@ def main() -> None:
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
-    print(f"Video: {width}x{height} @ {fps} FPS, {total_frames} frames")
+    return cap, width, height, fps, total_frames
 
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        output_path = video_path.parent / f"{video_path.stem}_trt_annotated.mp4"
-    writer = None
-    if not args.no_save:
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-        print(f"Saving to {output_path}")
 
+def run_engine(context, d_input, d_output, output_shape, stream, blob: np.ndarray) -> np.ndarray:
+    """Run one forward pass and return the prediction as (output_shape[1], output_shape[2])."""
+    blob = np.ascontiguousarray(blob.astype(np.float32))
+    cuda.memcpy_htod_async(d_input, blob, stream)
+    context.execute_async_v3(stream_handle=stream.handle)
+    out_host = np.empty((1, int(output_shape[1]), int(output_shape[2])), dtype=np.float32)
+    cuda.memcpy_dtoh_async(out_host, d_output, stream)
+    stream.synchronize()
+    return out_host[0]
+
+
+def decode_detections(
+    prediction: np.ndarray,
+    is_end2end: bool,
+    num_predictions: int,
+    num_features: int,
+    num_keypoints: int,
+    args: argparse.Namespace,
+) -> list[tuple[np.ndarray, float, int, np.ndarray]]:
+    """Decode a raw prediction tensor into detections, picking the head-appropriate path."""
+    if is_end2end:
+        return parse_end2end_detections(
+            prediction,
+            num_predictions,
+            num_features,
+            args.conf,
+        )
+    return non_max_suppression(
+        prediction,
+        num_features,
+        num_predictions,
+        num_keypoints,
+        args.conf,
+        args.iou,
+        bbox_half_wh=args.bbox_half_wh,
+        swap_wh=args.swap_wh,
+        bbox_xyxy=args.bbox_xyxy,
+    )
+
+
+def _write_and_show(annotated: np.ndarray, writer, args: argparse.Namespace) -> bool:
+    """Write the annotated frame and optionally display it. Returns True to stop processing."""
+    if writer is not None:
+        writer.write(annotated)
+    if args.show:
+        cv2.imshow("TensorRT YOLO", annotated)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            print("Interrupted by user")
+            return True
+    return False
+
+
+def process_video(
+    cap: cv2.VideoCapture,
+    writer,
+    context,
+    d_input,
+    d_output,
+    output_shape,
+    stream,
+    input_h: int,
+    input_w: int,
+    total_frames: int,
+    is_end2end: bool,
+    num_predictions: int,
+    num_features: int,
+    num_keypoints: int,
+    args: argparse.Namespace,
+) -> tuple[int, float]:
+    """Run inference over every frame, draw, and write/show. Returns (frame_count, elapsed)."""
     start_time = time.time()
     frame_count = 0
     try:
@@ -517,32 +629,15 @@ def main() -> None:
                 break
             orig_h, orig_w = frame.shape[0], frame.shape[1]
             blob, scale, pad_left, pad_top = preprocess_frame(frame, input_h, input_w)
-            blob = np.ascontiguousarray(blob.astype(np.float32))
-            cuda.memcpy_htod_async(d_input, blob, stream)
-            context.execute_async_v3(stream_handle=stream.handle)
-            out_host = np.empty((1, int(output_shape[1]), int(output_shape[2])), dtype=np.float32)
-            cuda.memcpy_dtoh_async(out_host, d_output, stream)
-            stream.synchronize()
-            prediction = out_host[0]
-            if is_end2end:
-                detections = parse_end2end_detections(
-                    prediction,
-                    num_predictions,
-                    num_features,
-                    args.conf,
-                )
-            else:
-                detections = non_max_suppression(
-                    prediction,
-                    num_features,
-                    num_predictions,
-                    num_keypoints,
-                    args.conf,
-                    args.iou,
-                    bbox_half_wh=args.bbox_half_wh,
-                    swap_wh=args.swap_wh,
-                    bbox_xyxy=args.bbox_xyxy,
-                )
+            prediction = run_engine(context, d_input, d_output, output_shape, stream, blob)
+            detections = decode_detections(
+                prediction,
+                is_end2end,
+                num_predictions,
+                num_features,
+                num_keypoints,
+                args,
+            )
             detections = scale_detections_to_frame(
                 detections,
                 orig_h,
@@ -554,13 +649,8 @@ def main() -> None:
                 input_h=input_h,
             )
             annotated = draw_detections(frame, detections, class_names=None)
-            if writer is not None:
-                writer.write(annotated)
-            if args.show:
-                cv2.imshow("TensorRT YOLO", annotated)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    print("Interrupted by user")
-                    break
+            if _write_and_show(annotated, writer, args):
+                break
             frame_count += 1
             elapsed = time.time() - start_time
             pbar.set_postfix({"FPS": f"{frame_count / elapsed:.1f}" if elapsed > 0 else "0"})
@@ -574,6 +664,74 @@ def main() -> None:
             cv2.destroyAllWindows()
 
     elapsed = time.time() - start_time
+    return frame_count, elapsed
+
+
+def main() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args()
+
+    video_path = Path(args.video)
+    engine_path = Path(args.engine)
+    if not video_path.exists():
+        raise FileNotFoundError(f"Video not found: {video_path}")
+    if not engine_path.exists():
+        raise FileNotFoundError(f"Engine not found: {engine_path}")
+
+    print("Loading engine...")
+    engine, context = load_engine(str(engine_path))
+
+    input_name, output_name = select_io_tensor_names(engine)
+    input_shape = context.get_tensor_shape(input_name)
+    output_shape = context.get_tensor_shape(output_name)
+    input_h, input_w = resolve_input_dims(input_shape, args)
+
+    dim1, dim2 = int(output_shape[1]), int(output_shape[2])
+    is_end2end, num_predictions, num_features, num_classes, num_keypoints = resolve_model_layout(
+        dim1, dim2, args
+    )
+    fmt = "end2end post-NMS" if is_end2end else "raw pre-NMS"
+    print(
+        f"Input shape: [1, 3, {input_h}, {input_w}], output: [1, {dim1}, {dim2}] ({fmt}), "
+        f"num_keypoints={num_keypoints}"
+        + (f", num_classes={num_classes}" if not is_end2end else "")
+    )
+
+    d_input, d_output, stream = allocate_io_buffers(
+        context, input_name, output_name, input_h, input_w, output_shape
+    )
+
+    cap, width, height, fps, total_frames = open_video(video_path)
+    print(f"Video: {width}x{height} @ {fps} FPS, {total_frames} frames")
+
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        output_path = video_path.parent / f"{video_path.stem}_trt_annotated.mp4"
+    writer = None
+    if not args.no_save:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+        print(f"Saving to {output_path}")
+
+    frame_count, elapsed = process_video(
+        cap,
+        writer,
+        context,
+        d_input,
+        d_output,
+        output_shape,
+        stream,
+        input_h,
+        input_w,
+        total_frames,
+        is_end2end,
+        num_predictions,
+        num_features,
+        num_keypoints,
+        args,
+    )
+
     avg_fps = frame_count / elapsed if elapsed > 0 else 0
     print(f"Processed {frame_count} frames in {elapsed:.2f}s, avg FPS: {avg_fps:.2f}")
     if not args.no_save:

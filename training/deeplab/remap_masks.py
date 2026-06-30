@@ -60,6 +60,114 @@ def find_mask_files(dataset_dir: Path) -> list[Path]:
     return masks
 
 
+def validate_paths(config_path: Path, dataset_dir: Path) -> None:
+    if not config_path.exists():
+        print(f"Error: config file not found: {config_path}", file=sys.stderr)
+        sys.exit(1)
+    if not dataset_dir.is_dir():
+        print(f"Error: dataset directory not found: {dataset_dir}", file=sys.stderr)
+        sys.exit(1)
+
+
+def print_dry_run_action(
+    mask_path: Path,
+    channel: np.ndarray,
+    dest: Path,
+    unique_before: np.ndarray,
+    should_delete: bool,
+    label_map: dict[int, int],
+    default_label: int,
+) -> None:
+    if should_delete:
+        action = "DELETE"
+    else:
+        remapped = remap_mask(channel, label_map, default_label)
+        unique_after = np.unique(remapped)
+        action = f"{unique_before.tolist()} -> {unique_after.tolist()} => {dest}"
+    print(f"  {mask_path.name}: {action}")
+
+
+def delete_pair(mask_path: Path) -> None:
+    mask_path.unlink()
+    img_path = mask_path.parent / mask_path.name.replace("_mask.png", ".jpg")
+    if img_path.exists():
+        img_path.unlink()
+
+
+def write_remapped_mask(
+    mask: np.ndarray,
+    channel: np.ndarray,
+    dest: Path,
+    label_map: dict[int, int],
+    default_label: int,
+) -> None:
+    remapped = remap_mask(channel, label_map, default_label)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    if mask.ndim == 3:
+        out = np.zeros_like(mask)
+        out[:, :, 0] = remapped
+        out[:, :, 1] = remapped
+        out[:, :, 2] = remapped
+    else:
+        out = remapped
+
+    cv2.imwrite(str(dest), out)
+
+
+def copy_source_image(mask_path: Path, dest: Path) -> None:
+    img_name = mask_path.name.replace("_mask.png", ".jpg")
+    img_path = mask_path.parent / img_name
+    if img_path.exists():
+        img_dest = dest.parent / img_name
+        shutil.copy2(img_path, img_dest)
+
+
+def process_single_mask(
+    mask_path: Path,
+    dataset_dir: Path,
+    output_dir: Path | None,
+    label_map: dict[int, int],
+    default_label: int,
+    delete_labels: set[int],
+    args: argparse.Namespace,
+) -> str:
+    """Process one mask file. Returns 'deleted', 'written', or 'skipped'."""
+    mask = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
+    if mask is None:
+        print(f"  WARNING: could not read {mask_path}, skipping")
+        return "skipped"
+
+    channel = mask[:, :, 0] if mask.ndim == 3 else mask
+    unique_before = np.unique(channel)
+
+    should_delete = delete_labels and bool(set(unique_before.tolist()) & delete_labels)
+
+    if output_dir is not None:
+        rel = mask_path.relative_to(dataset_dir)
+        dest = output_dir / rel
+    else:
+        dest = mask_path
+
+    if args.dry_run:
+        print_dry_run_action(
+            mask_path, channel, dest, unique_before, should_delete, label_map, default_label
+        )
+        return "skipped"
+
+    if should_delete:
+        if output_dir is None:
+            delete_pair(mask_path)
+        return "deleted"
+
+    write_remapped_mask(mask, channel, dest, label_map, default_label)
+
+    if args.copy_images and output_dir is not None:
+        copy_source_image(mask_path, dest)
+
+    return "written"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Remap label indices in segmentation mask PNGs")
     parser.add_argument(
@@ -95,12 +203,7 @@ def main() -> None:
     dataset_dir = Path(args.dataset)
     output_dir = Path(args.output) if args.output else None
 
-    if not config_path.exists():
-        print(f"Error: config file not found: {config_path}", file=sys.stderr)
-        sys.exit(1)
-    if not dataset_dir.is_dir():
-        print(f"Error: dataset directory not found: {dataset_dir}", file=sys.stderr)
-        sys.exit(1)
+    validate_paths(config_path, dataset_dir)
 
     label_map, default_label, delete_labels = load_config(config_path)
     print(f"Label map: {label_map}")
@@ -118,61 +221,13 @@ def main() -> None:
     written_count = 0
 
     for mask_path in tqdm(mask_files, desc="Remapping masks", disable=args.dry_run):
-        mask = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
-        if mask is None:
-            print(f"  WARNING: could not read {mask_path}, skipping")
-            continue
-
-        channel = mask[:, :, 0] if mask.ndim == 3 else mask
-        unique_before = np.unique(channel)
-
-        should_delete = delete_labels and bool(set(unique_before.tolist()) & delete_labels)
-
-        if output_dir is not None:
-            rel = mask_path.relative_to(dataset_dir)
-            dest = output_dir / rel
-        else:
-            dest = mask_path
-
-        if args.dry_run:
-            if should_delete:
-                action = "DELETE"
-            else:
-                remapped = remap_mask(channel, label_map, default_label)
-                unique_after = np.unique(remapped)
-                action = f"{unique_before.tolist()} -> {unique_after.tolist()} => {dest}"
-            print(f"  {mask_path.name}: {action}")
-            continue
-
-        if should_delete:
+        result = process_single_mask(
+            mask_path, dataset_dir, output_dir, label_map, default_label, delete_labels, args
+        )
+        if result == "deleted":
             deleted_count += 1
-            if output_dir is None:
-                mask_path.unlink()
-                img_path = mask_path.parent / mask_path.name.replace("_mask.png", ".jpg")
-                if img_path.exists():
-                    img_path.unlink()
-            continue
-
-        remapped = remap_mask(channel, label_map, default_label)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-
-        if mask.ndim == 3:
-            out = np.zeros_like(mask)
-            out[:, :, 0] = remapped
-            out[:, :, 1] = remapped
-            out[:, :, 2] = remapped
-        else:
-            out = remapped
-
-        cv2.imwrite(str(dest), out)
-        written_count += 1
-
-        if args.copy_images and output_dir is not None:
-            img_name = mask_path.name.replace("_mask.png", ".jpg")
-            img_path = mask_path.parent / img_name
-            if img_path.exists():
-                img_dest = dest.parent / img_name
-                shutil.copy2(img_path, img_dest)
+        elif result == "written":
+            written_count += 1
 
     if not args.dry_run:
         target = output_dir if output_dir else dataset_dir

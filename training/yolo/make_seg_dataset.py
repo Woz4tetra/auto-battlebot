@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import shutil
 from collections import defaultdict
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -269,6 +270,16 @@ def parse_yolo_seg_rows(
     return rows
 
 
+def _polygons_from_geometry_collection(collection: GeometryCollection) -> list[Polygon]:
+    polys: list[Polygon] = []
+    for geom in collection.geoms:
+        if isinstance(geom, Polygon) and not geom.is_empty:
+            polys.append(geom)
+        elif isinstance(geom, MultiPolygon):
+            polys.extend([p for p in geom.geoms if not p.is_empty])
+    return polys
+
+
 def as_valid_polygons(points: list[tuple[float, float]]) -> list[Polygon]:
     try:
         polygon = Polygon(points)
@@ -289,13 +300,7 @@ def as_valid_polygons(points: list[tuple[float, float]]) -> list[Polygon]:
     if isinstance(polygon, MultiPolygon):
         return [p for p in polygon.geoms if not p.is_empty]
     if isinstance(polygon, GeometryCollection):
-        polys: list[Polygon] = []
-        for geom in polygon.geoms:
-            if isinstance(geom, Polygon) and not geom.is_empty:
-                polys.append(geom)
-            elif isinstance(geom, MultiPolygon):
-                polys.extend([p for p in geom.geoms if not p.is_empty])
-        return polys
+        return _polygons_from_geometry_collection(polygon)
 
     return []
 
@@ -359,20 +364,10 @@ def robust_difference(floor_geom: object, obstacle_geom: object) -> object:
         return robust_unary_union(result_pieces)
 
 
-def decompose_polygon_without_holes(
-    polygon: Polygon,
-    min_area: float,
-) -> list[Polygon]:
-    """Convert polygons-with-holes into hole-free pieces using narrow slit cuts."""
-    if polygon.is_empty:
-        return []
-    if not polygon.interiors:
-        return [polygon] if polygon.area >= min_area else []
-
+def _build_hole_cut_buffers(polygon: Polygon, epsilon: float) -> list[Polygon]:
     # Build tiny cuts from each hole to the exterior boundary. Removing those
     # slits turns holey polygons into regular polygons without fan triangulation.
     cutters = []
-    epsilon = 1e-4
     for ring in polygon.interiors:
         try:
             hole_poly = Polygon(ring)
@@ -388,15 +383,10 @@ def decompose_polygon_without_holes(
             cutters.append(cut_line.buffer(epsilon, cap_style=2))
         except GEOSException:
             continue
+    return cutters
 
-    if not cutters:
-        return [polygon] if polygon.area >= min_area else []
 
-    try:
-        split_geom = polygon.difference(unary_union(cutters))
-    except GEOSException:
-        return []
-
+def _collect_split_pieces(split_geom: object, min_area: float) -> list[Polygon]:
     pieces: list[Polygon] = []
     for piece in explode_to_polygons(split_geom):
         if piece.is_empty:
@@ -409,6 +399,30 @@ def decompose_polygon_without_holes(
             continue
         pieces.append(piece)
     return pieces
+
+
+def decompose_polygon_without_holes(
+    polygon: Polygon,
+    min_area: float,
+) -> list[Polygon]:
+    """Convert polygons-with-holes into hole-free pieces using narrow slit cuts."""
+    if polygon.is_empty:
+        return []
+    if not polygon.interiors:
+        return [polygon] if polygon.area >= min_area else []
+
+    epsilon = 1e-4
+    cutters = _build_hole_cut_buffers(polygon, epsilon)
+
+    if not cutters:
+        return [polygon] if polygon.area >= min_area else []
+
+    try:
+        split_geom = polygon.difference(unary_union(cutters))
+    except GEOSException:
+        return []
+
+    return _collect_split_pieces(split_geom, min_area)
 
 
 def normalize_result_polygons(result: object, min_area: float) -> list[Polygon]:
@@ -492,65 +506,113 @@ def row_points_to_yolo_line(class_id: int, points: list[tuple[float, float]]) ->
     return " ".join([str(class_id), *values])
 
 
-def build_floor_rows(
-    rows: list[tuple[int, list[tuple[float, float]]]],
-    floor_class_id: int,
-    min_area: float,
-    max_polygons: int,
-    mask_size: int,
-) -> list[str]:
-    floor_polys, obstacle_polys = gather_polygons(rows, floor_class_id=floor_class_id)
-    if not floor_polys or mask_size < 8 or max_polygons <= 0:
-        return []
+def _polygon_to_cv_poly(poly: Polygon, max_idx: int) -> np.ndarray | None:
+    coords = list(poly.exterior.coords)
+    if len(coords) < 4:
+        return None
+    pts: list[list[int]] = []
+    for x, y in coords[:-1]:
+        px = int(round(clamp01(float(x)) * max_idx))
+        py = int(round(clamp01(float(y)) * max_idx))
+        pts.append([px, py])
+    if len(pts) < 3:
+        return None
+    return np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)
 
-    max_idx = mask_size - 1
+
+def _points_to_cv_poly(points: list[tuple[float, float]], max_idx: int) -> np.ndarray | None:
+    if len(points) < 3:
+        return None
+    pts: list[list[int]] = []
+    for x, y in points:
+        px = int(round(clamp01(float(x)) * max_idx))
+        py = int(round(clamp01(float(y)) * max_idx))
+        pts.append([px, py])
+    if len(pts) < 3:
+        return None
+    return np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)
+
+
+def _build_floor_minus_obstacle_mask(
+    rows: list[tuple[int, list[tuple[float, float]]]],
+    floor_polys: list[Polygon],
+    obstacle_polys: list[Polygon],
+    floor_class_id: int,
+    mask_size: int,
+    max_idx: int,
+) -> np.ndarray | None:
     floor_mask = np.zeros((mask_size, mask_size), dtype=np.uint8)
     obstacle_mask = np.zeros((mask_size, mask_size), dtype=np.uint8)
 
-    def to_cv_poly(poly: Polygon) -> np.ndarray | None:
-        coords = list(poly.exterior.coords)
-        if len(coords) < 4:
-            return None
-        pts: list[list[int]] = []
-        for x, y in coords[:-1]:
-            px = int(round(clamp01(float(x)) * max_idx))
-            py = int(round(clamp01(float(y)) * max_idx))
-            pts.append([px, py])
-        if len(pts) < 3:
-            return None
-        return np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)
-
-    def to_cv_poly_points(points: list[tuple[float, float]]) -> np.ndarray | None:
-        if len(points) < 3:
-            return None
-        pts: list[list[int]] = []
-        for x, y in points:
-            px = int(round(clamp01(float(x)) * max_idx))
-            py = int(round(clamp01(float(y)) * max_idx))
-            pts.append([px, py])
-        if len(pts) < 3:
-            return None
-        return np.asarray(pts, dtype=np.int32).reshape(-1, 1, 2)
-
-    floor_cv = [arr for p in floor_polys if (arr := to_cv_poly(p)) is not None]
+    floor_cv = [arr for p in floor_polys if (arr := _polygon_to_cv_poly(p, max_idx)) is not None]
     if not floor_cv:
-        return []
+        return None
     cv2.fillPoly(floor_mask, floor_cv, 255)
 
     # Subtract all non-floor rows as obstacles. We include both repaired shapely
     # polygons and raw rows to avoid dropping invalid robot polygons.
-    obstacle_cv = [arr for p in obstacle_polys if (arr := to_cv_poly(p)) is not None]
+    obstacle_cv = [
+        arr for p in obstacle_polys if (arr := _polygon_to_cv_poly(p, max_idx)) is not None
+    ]
     for class_id, points in rows:
         if class_id == floor_class_id:
             continue
-        arr = to_cv_poly_points(points)
+        arr = _points_to_cv_poly(points, max_idx)
         if arr is not None:
             obstacle_cv.append(arr)
     if obstacle_cv:
         cv2.fillPoly(obstacle_mask, obstacle_cv, 255)
 
-    mask = cv2.bitwise_and(floor_mask, cv2.bitwise_not(obstacle_mask))
+    return cv2.bitwise_and(floor_mask, cv2.bitwise_not(obstacle_mask))
 
+
+def _contour_to_ring(contour: np.ndarray, max_idx: int) -> list[tuple[float, float]]:
+    return [(float(pt[0][0]) / float(max_idx), float(pt[0][1]) / float(max_idx)) for pt in contour]
+
+
+def _collect_contour_holes(
+    contours: Any,
+    hierarchy_data: Any,
+    parent_idx: int,
+    max_idx: int,
+) -> list[list[tuple[float, float]]]:
+    holes: list[list[tuple[float, float]]] = []
+    child_idx = hierarchy_data[parent_idx][2]
+    while child_idx != -1:
+        child = contours[child_idx]
+        if len(child) >= 3:
+            hole = _contour_to_ring(child, max_idx)
+            if len(hole) >= 3:
+                holes.append(hole)
+        child_idx = hierarchy_data[child_idx][0]
+    return holes
+
+
+def _pieces_from_contour(
+    exterior: list[tuple[float, float]],
+    holes: list[list[tuple[float, float]]],
+    min_area: float,
+) -> list[Polygon]:
+    try:
+        outer_poly = Polygon(exterior, holes)
+    except Exception:
+        return []
+    if not outer_poly.is_valid:
+        outer_poly = outer_poly.buffer(0)
+    if outer_poly.is_empty:
+        return []
+
+    pieces: list[Polygon] = []
+    for poly in explode_to_polygons(outer_poly):
+        if poly.is_empty:
+            continue
+        if poly.area < min_area:
+            continue
+        pieces.extend(decompose_polygon_without_holes(poly, min_area=min_area))
+    return pieces
+
+
+def _pieces_from_mask(mask: np.ndarray, max_idx: int, min_area: float) -> list[Polygon]:
     contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     if not contours or hierarchy is None:
         return []
@@ -566,41 +628,34 @@ def build_floor_rows(
         if len(contour) < 3:
             continue
 
-        exterior = [
-            (float(pt[0][0]) / float(max_idx), float(pt[0][1]) / float(max_idx)) for pt in contour
-        ]
+        exterior = _contour_to_ring(contour, max_idx)
         if len(exterior) < 3:
             continue
 
-        holes: list[list[tuple[float, float]]] = []
-        child_idx = hierarchy_data[idx][2]
-        while child_idx != -1:
-            child = contours[child_idx]
-            if len(child) >= 3:
-                hole = [
-                    (float(pt[0][0]) / float(max_idx), float(pt[0][1]) / float(max_idx))
-                    for pt in child
-                ]
-                if len(hole) >= 3:
-                    holes.append(hole)
-            child_idx = hierarchy_data[child_idx][0]
+        holes = _collect_contour_holes(contours, hierarchy_data, idx, max_idx)
+        pieces.extend(_pieces_from_contour(exterior, holes, min_area))
+    return pieces
 
-        try:
-            outer_poly = Polygon(exterior, holes)
-        except Exception:
-            continue
-        if not outer_poly.is_valid:
-            outer_poly = outer_poly.buffer(0)
-        if outer_poly.is_empty:
-            continue
 
-        for poly in explode_to_polygons(outer_poly):
-            if poly.is_empty:
-                continue
-            if poly.area < min_area:
-                continue
-            pieces.extend(decompose_polygon_without_holes(poly, min_area=min_area))
+def build_floor_rows(
+    rows: list[tuple[int, list[tuple[float, float]]]],
+    floor_class_id: int,
+    min_area: float,
+    max_polygons: int,
+    mask_size: int,
+) -> list[str]:
+    floor_polys, obstacle_polys = gather_polygons(rows, floor_class_id=floor_class_id)
+    if not floor_polys or mask_size < 8 or max_polygons <= 0:
+        return []
 
+    max_idx = mask_size - 1
+    mask = _build_floor_minus_obstacle_mask(
+        rows, floor_polys, obstacle_polys, floor_class_id, mask_size, max_idx
+    )
+    if mask is None:
+        return []
+
+    pieces = _pieces_from_mask(mask, max_idx, min_area)
     if not pieces:
         return []
 
@@ -685,12 +740,66 @@ def write_output_yaml(output_dir: Path, names: list[str]) -> None:
     (output_dir / "data.yaml").write_text("\n".join(yaml_lines) + "\n", encoding="utf-8")
 
 
-def main() -> None:
-    args = parse_args()
-    try:
-        config = load_runtime_config(args.config)
-    except (OSError, ValueError) as exc:
-        raise SystemExit(f"Failed to load config: {exc}") from exc
+@dataclass
+class Options:
+    mode: str
+    input_dir: Path
+    output_dir: Path
+    overwrite: bool
+    copy_empty: bool
+    min_area: float
+    max_polygons: int
+    mask_size: int
+    output_names: list[str]
+    floor_class_name: str
+    alias_to_output_name: dict[str, str]
+    output_name_to_id: dict[str, int]
+    remaining_to_group: str | None
+
+
+@dataclass
+class RunStats:
+    collision_count: int = 0
+    datasets_used: int = 0
+    datasets_skipped: int = 0
+    total_pairs: int = 0
+    scanned_images: int = 0
+    parse_skips: int = 0
+    wrote_labels: int = 0
+    empty_results: int = 0
+    copied_images: int = 0
+    skipped_existing: int = 0
+    dropped_unmapped_total: int = 0
+    per_class_rows_written: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+
+
+def _resolve_floor_only_options(
+    args: argparse.Namespace, config: dict[str, Any], modes_cfg: dict[str, Any]
+) -> tuple[list[str], str]:
+    floor_cfg = modes_cfg.get("floor_only", {})
+    if not isinstance(floor_cfg, dict):
+        raise SystemExit("Config field 'modes.floor_only' must be a mapping/object")
+    floor_class_name = choose_arg_or_config(
+        args.floor_class_name,
+        floor_cfg.get("floor_class_name", config.get("floor_class_name")),
+        "floor",
+    )
+    output_names = [str(floor_cfg.get("output_class_name", "floor"))]
+    return output_names, floor_class_name
+
+
+def _resolve_merged_options(
+    modes_cfg: dict[str, Any],
+) -> tuple[list[str], dict[str, str], dict[str, int], str | None]:
+    merged_cfg = modes_cfg.get("merged_classes", {})
+    if not isinstance(merged_cfg, dict):
+        raise SystemExit("Config field 'modes.merged_classes' must be a mapping/object")
+    output_names, alias_to_output_name, remaining_to_group = parse_merged_class_rules(merged_cfg)
+    output_name_to_id = {name: idx for idx, name in enumerate(output_names)}
+    return output_names, alias_to_output_name, output_name_to_id, remaining_to_group
+
+
+def resolve_options(args: argparse.Namespace, config: dict[str, Any]) -> Options:
     mode = choose_arg_or_config(args.mode, config.get("mode"), "floor_only")
     if mode not in {"floor_only", "merged_classes"}:
         raise SystemExit(f"Unsupported mode '{mode}'. Expected floor_only or merged_classes")
@@ -700,195 +809,258 @@ def main() -> None:
     if input_dir_raw is None or output_dir_raw is None:
         raise SystemExit("Both input_dir and output_dir must be set via CLI or config file")
 
-    input_dir = Path(input_dir_raw)
-    output_dir = Path(output_dir_raw)
     overwrite = bool(choose_arg_or_config(args.overwrite, config.get("overwrite"), False))
     copy_empty = bool(choose_arg_or_config(args.copy_empty, config.get("copy_empty"), False))
     min_area = float(choose_arg_or_config(args.min_area, config.get("min_area"), 1e-5))
     max_polygons = int(choose_arg_or_config(args.max_polygons, config.get("max_polygons"), 5))
     mask_size = int(choose_arg_or_config(args.mask_size, config.get("mask_size"), 2048))
-    output_names: list[str]
-    alias_to_output_name: dict[str, str] = {}
-    output_name_to_id: dict[str, int] = {}
-    remaining_to_group: str | None = None
+
     modes_cfg = config_get(config, "modes", {})
     if not isinstance(modes_cfg, dict):
         raise SystemExit("Config field 'modes' must be a mapping/object")
 
-    if mode == "floor_only":
-        floor_cfg = modes_cfg.get("floor_only", {})
-        if not isinstance(floor_cfg, dict):
-            raise SystemExit("Config field 'modes.floor_only' must be a mapping/object")
-        floor_class_name = choose_arg_or_config(
-            args.floor_class_name,
-            floor_cfg.get("floor_class_name", config.get("floor_class_name")),
-            "floor",
-        )
-        output_names = [str(floor_cfg.get("output_class_name", "floor"))]
-    else:
-        merged_cfg = modes_cfg.get("merged_classes", {})
-        if not isinstance(merged_cfg, dict):
-            raise SystemExit("Config field 'modes.merged_classes' must be a mapping/object")
-        output_names, alias_to_output_name, remaining_to_group = parse_merged_class_rules(
-            merged_cfg
-        )
-        output_name_to_id = {name: idx for idx, name in enumerate(output_names)}
+    floor_class_name = ""
+    alias_to_output_name: dict[str, str] = {}
+    output_name_to_id: dict[str, int] = {}
+    remaining_to_group: str | None = None
 
-    out_images, out_labels = prepare_output(output_dir, overwrite)
-    dataset_roots = find_yolo_datasets(input_dir)
+    if mode == "floor_only":
+        output_names, floor_class_name = _resolve_floor_only_options(args, config, modes_cfg)
+    else:
+        output_names, alias_to_output_name, output_name_to_id, remaining_to_group = (
+            _resolve_merged_options(modes_cfg)
+        )
+
+    return Options(
+        mode=mode,
+        input_dir=Path(input_dir_raw),
+        output_dir=Path(output_dir_raw),
+        overwrite=overwrite,
+        copy_empty=copy_empty,
+        min_area=min_area,
+        max_polygons=max_polygons,
+        mask_size=mask_size,
+        output_names=output_names,
+        floor_class_name=floor_class_name,
+        alias_to_output_name=alias_to_output_name,
+        output_name_to_id=output_name_to_id,
+        remaining_to_group=remaining_to_group,
+    )
+
+
+def prepare_dataset_context(dataset_root: Path, opts: Options) -> tuple[int, dict[int, int]]:
+    dataset_yaml = load_dataset_yaml(dataset_root)
+    dataset_names = normalize_names(dataset_yaml.get("names", []))
+    floor_class_id = -1
+    id_remap: dict[int, int] = {}
+    if opts.mode == "floor_only":
+        floor_class_id = find_floor_class_id(dataset_yaml, opts.floor_class_name)
+    else:
+        if not dataset_names:
+            raise ValueError("Dataset YAML does not contain a usable 'names' field")
+        id_remap, diagnostics = build_class_id_remap(
+            dataset_names=dataset_names,
+            output_name_to_id=opts.output_name_to_id,
+            alias_to_output_name=opts.alias_to_output_name,
+            remaining_to_group=opts.remaining_to_group,
+        )
+        unmapped = diagnostics["unmapped_names"]
+        if unmapped:
+            print(
+                f"[WARN] {dataset_root}: unmapped dataset classes skipped: {sorted(set(unmapped))}"
+            )
+    return floor_class_id, id_remap
+
+
+def _tally_rows_per_class(
+    out_rows: list[str], output_names: list[str], per_class_rows_written: dict[str, int]
+) -> None:
+    for line in out_rows:
+        parts = line.split(maxsplit=1)
+        if not parts:
+            continue
+        try:
+            class_id = int(parts[0])
+        except ValueError:
+            continue
+        if 0 <= class_id < len(output_names):
+            per_class_rows_written[output_names[class_id]] += 1
+
+
+def _build_rows_for_pair(
+    label_path: Path,
+    floor_class_id: int,
+    id_remap: dict[int, int],
+    opts: Options,
+    stats: RunStats,
+) -> list[str] | None:
+    rows = parse_yolo_seg_rows(label_path)
+    if not rows:
+        stats.parse_skips += 1
+        return None
+
+    if opts.mode == "floor_only":
+        return build_floor_rows(
+            rows,
+            floor_class_id=floor_class_id,
+            min_area=opts.min_area,
+            max_polygons=opts.max_polygons,
+            mask_size=opts.mask_size,
+        )
+
+    out_rows, dropped_unmapped = build_merged_rows(rows, id_remap=id_remap)
+    stats.dropped_unmapped_total += dropped_unmapped
+    return out_rows
+
+
+def process_image_pair(
+    img_path: Path,
+    label_path: Path,
+    dataset_root: Path,
+    images_dir: Path,
+    floor_class_id: int,
+    id_remap: dict[int, int],
+    opts: Options,
+    out_images: Path,
+    out_labels: Path,
+    stats: RunStats,
+) -> None:
+    stats.scanned_images += 1
+
+    stem = flat_stem(dataset_root, images_dir, img_path)
+    out_img = out_images / f"{stem}{img_path.suffix.lower()}"
+    out_lbl = out_labels / f"{stem}.txt"
+    if not opts.overwrite and (out_img.exists() or out_lbl.exists()):
+        stats.skipped_existing += 1
+        return
+
+    out_rows = _build_rows_for_pair(label_path, floor_class_id, id_remap, opts, stats)
+    if out_rows is None:
+        return
+
+    if not out_rows:
+        stats.empty_results += 1
+        if not opts.copy_empty:
+            return
+
+    if out_img.exists() or out_lbl.exists():
+        stats.collision_count += 1
+        stem = f"{stem}_{stats.collision_count}"
+        out_img = out_images / f"{stem}{img_path.suffix.lower()}"
+        out_lbl = out_labels / f"{stem}.txt"
+
+    shutil.copy2(img_path, out_img)
+    stats.copied_images += 1
+
+    if out_rows:
+        out_lbl.write_text("\n".join(out_rows) + "\n", encoding="utf-8")
+        stats.wrote_labels += 1
+        _tally_rows_per_class(out_rows, opts.output_names, stats.per_class_rows_written)
+    else:
+        out_lbl.write_text("", encoding="utf-8")
+
+
+def process_dataset(
+    dataset_root: Path,
+    opts: Options,
+    out_images: Path,
+    out_labels: Path,
+    stats: RunStats,
+) -> None:
+    try:
+        floor_class_id, id_remap = prepare_dataset_context(dataset_root, opts)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"[SKIP] {dataset_root}: {exc}")
+        stats.datasets_skipped += 1
+        return
+
+    pairs = iter_image_label_pairs(dataset_root)
+    if not pairs:
+        print(f"[SKIP] {dataset_root}: no image/label pairs")
+        stats.datasets_skipped += 1
+        return
+
+    stats.datasets_used += 1
+    stats.total_pairs += len(pairs)
+    if opts.mode == "floor_only":
+        print(f"[DATASET] {dataset_root} (pairs={len(pairs)}, floor_id={floor_class_id})")
+    else:
+        print(f"[DATASET] {dataset_root} (pairs={len(pairs)})")
+
+    images_dir = dataset_root / "images"
+    for img_path, label_path in pairs:
+        process_image_pair(
+            img_path,
+            label_path,
+            dataset_root,
+            images_dir,
+            floor_class_id,
+            id_remap,
+            opts,
+            out_images,
+            out_labels,
+            stats,
+        )
+
+
+def print_summary(opts: Options, stats: RunStats) -> None:
+    print(f"Input search dir:   {opts.input_dir}")
+    print(f"Output dataset:     {opts.output_dir}")
+    print(f"Output classes:     {opts.output_names}")
+    if opts.mode == "floor_only":
+        print(f"Floor class name:   '{opts.floor_class_name}'")
+    print(f"Datasets used:      {stats.datasets_used}")
+    print(f"Datasets skipped:   {stats.datasets_skipped}")
+    print(f"Image/label pairs:  {stats.total_pairs}")
+    print(f"Scanned images:     {stats.scanned_images}")
+    print(f"Parse skips:        {stats.parse_skips}")
+    print(f"Skipped existing:   {stats.skipped_existing}")
+    print(f"Empty output result: {stats.empty_results}")
+    print(f"Copied images:      {stats.copied_images}")
+    print(f"Wrote label files:  {stats.wrote_labels}")
+    if opts.mode == "merged_classes":
+        print(f"Dropped unmapped rows: {stats.dropped_unmapped_total}")
+    if stats.per_class_rows_written:
+        print("Rows written per class:")
+        for class_name in opts.output_names:
+            print(f"  {class_name}: {stats.per_class_rows_written[class_name]}")
+    if stats.collision_count:
+        print(f"Resolved collisions: {stats.collision_count}")
+    print(f"Wrote data.yaml -> {opts.output_dir / 'data.yaml'}")
+    print("Done.")
+
+
+def main() -> None:
+    args = parse_args()
+    try:
+        config = load_runtime_config(args.config)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"Failed to load config: {exc}") from exc
+
+    opts = resolve_options(args, config)
+
+    out_images, out_labels = prepare_output(opts.output_dir, opts.overwrite)
+    dataset_roots = find_yolo_datasets(opts.input_dir)
     if not dataset_roots:
         raise SystemExit(
-            f"No YOLO datasets found under {input_dir}. "
+            f"No YOLO datasets found under {opts.input_dir}. "
             "Expected dataset roots with data.yaml + images/ + labels/."
         )
-    print(f"Found {len(dataset_roots)} dataset(s) under: {input_dir}")
-    print(f"Mode: {mode}")
+    print(f"Found {len(dataset_roots)} dataset(s) under: {opts.input_dir}")
+    print(f"Mode: {opts.mode}")
 
-    collision_count = 0
-    datasets_used = 0
-    datasets_skipped = 0
-    total_pairs = 0
-    scanned_images = 0
-    parse_skips = 0
-    wrote_labels = 0
-    empty_results = 0
-    copied_images = 0
-    skipped_existing = 0
-    dropped_unmapped_total = 0
-    per_class_rows_written: dict[str, int] = defaultdict(int)
-
+    stats = RunStats()
     for dataset_root in dataset_roots:
-        try:
-            dataset_yaml = load_dataset_yaml(dataset_root)
-            dataset_names = normalize_names(dataset_yaml.get("names", []))
-            floor_class_id = -1
-            id_remap: dict[int, int] = {}
-            if mode == "floor_only":
-                floor_class_id = find_floor_class_id(dataset_yaml, floor_class_name)
-            else:
-                if not dataset_names:
-                    raise ValueError("Dataset YAML does not contain a usable 'names' field")
-                id_remap, diagnostics = build_class_id_remap(
-                    dataset_names=dataset_names,
-                    output_name_to_id=output_name_to_id,
-                    alias_to_output_name=alias_to_output_name,
-                    remaining_to_group=remaining_to_group,
-                )
-                unmapped = diagnostics["unmapped_names"]
-                if unmapped:
-                    print(
-                        f"[WARN] {dataset_root}: unmapped dataset classes skipped:"
-                        f" {sorted(set(unmapped))}"
-                    )
-        except (FileNotFoundError, ValueError) as exc:
-            print(f"[SKIP] {dataset_root}: {exc}")
-            datasets_skipped += 1
-            continue
+        process_dataset(dataset_root, opts, out_images, out_labels, stats)
 
-        pairs = iter_image_label_pairs(dataset_root)
-        if not pairs:
-            print(f"[SKIP] {dataset_root}: no image/label pairs")
-            datasets_skipped += 1
-            continue
-
-        datasets_used += 1
-        total_pairs += len(pairs)
-        if mode == "floor_only":
-            print(f"[DATASET] {dataset_root} (pairs={len(pairs)}, floor_id={floor_class_id})")
-        else:
-            print(f"[DATASET] {dataset_root} (pairs={len(pairs)})")
-
-        images_dir = dataset_root / "images"
-        for img_path, label_path in pairs:
-            scanned_images += 1
-
-            stem = flat_stem(dataset_root, images_dir, img_path)
-            out_img = out_images / f"{stem}{img_path.suffix.lower()}"
-            out_lbl = out_labels / f"{stem}.txt"
-            if not overwrite and (out_img.exists() or out_lbl.exists()):
-                skipped_existing += 1
-                continue
-
-            rows = parse_yolo_seg_rows(label_path)
-            if not rows:
-                parse_skips += 1
-                continue
-
-            out_rows: list[str] = []
-            if mode == "floor_only":
-                out_rows = build_floor_rows(
-                    rows,
-                    floor_class_id=floor_class_id,
-                    min_area=min_area,
-                    max_polygons=max_polygons,
-                    mask_size=mask_size,
-                )
-            else:
-                out_rows, dropped_unmapped = build_merged_rows(rows, id_remap=id_remap)
-                dropped_unmapped_total += dropped_unmapped
-
-            if not out_rows:
-                empty_results += 1
-                if not copy_empty:
-                    continue
-
-            if out_img.exists() or out_lbl.exists():
-                collision_count += 1
-                stem = f"{stem}_{collision_count}"
-                out_img = out_images / f"{stem}{img_path.suffix.lower()}"
-                out_lbl = out_labels / f"{stem}.txt"
-
-            shutil.copy2(img_path, out_img)
-            copied_images += 1
-
-            if out_rows:
-                out_lbl.write_text("\n".join(out_rows) + "\n", encoding="utf-8")
-                wrote_labels += 1
-                for line in out_rows:
-                    parts = line.split(maxsplit=1)
-                    if not parts:
-                        continue
-                    try:
-                        class_id = int(parts[0])
-                    except ValueError:
-                        continue
-                    if 0 <= class_id < len(output_names):
-                        per_class_rows_written[output_names[class_id]] += 1
-            else:
-                out_lbl.write_text("", encoding="utf-8")
-
-    if datasets_used == 0:
+    if stats.datasets_used == 0:
         raise SystemExit(
             "No usable datasets were processed. "
             "Verify nested datasets contain floor class names and image/label pairs."
         )
 
-    write_output_yaml(output_dir, output_names)
-
-    print(f"Input search dir:   {input_dir}")
-    print(f"Output dataset:     {output_dir}")
-    print(f"Output classes:     {output_names}")
-    if mode == "floor_only":
-        print(f"Floor class name:   '{floor_class_name}'")
-    print(f"Datasets used:      {datasets_used}")
-    print(f"Datasets skipped:   {datasets_skipped}")
-    print(f"Image/label pairs:  {total_pairs}")
-    print(f"Scanned images:     {scanned_images}")
-    print(f"Parse skips:        {parse_skips}")
-    print(f"Skipped existing:   {skipped_existing}")
-    print(f"Empty output result: {empty_results}")
-    print(f"Copied images:      {copied_images}")
-    print(f"Wrote label files:  {wrote_labels}")
-    if mode == "merged_classes":
-        print(f"Dropped unmapped rows: {dropped_unmapped_total}")
-    if per_class_rows_written:
-        print("Rows written per class:")
-        for class_name in output_names:
-            print(f"  {class_name}: {per_class_rows_written[class_name]}")
-    if collision_count:
-        print(f"Resolved collisions: {collision_count}")
-    print(f"Wrote data.yaml -> {output_dir / 'data.yaml'}")
-    print("Done.")
+    write_output_yaml(opts.output_dir, opts.output_names)
+    print_summary(opts, stats)
 
 
 if __name__ == "__main__":

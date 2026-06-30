@@ -27,7 +27,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import IO, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -108,6 +108,86 @@ def resolve_svo_path(referenced: Path, search_dirs: List[Path]) -> Optional[Path
     return None
 
 
+def _stash_existing_sidecar(default_out: Path) -> Optional[Path]:
+    """Rename any pre-existing sidecar MCAP out of the way; return its stash path.
+
+    The tool defaults to writing <svo_stem>.mcap next to the SVO. Moving an
+    existing sidecar lets us unambiguously claim the freshly-produced file.
+    """
+    if not default_out.exists():
+        return None
+    stash_path = default_out.with_suffix(".mcap.combine_stash")
+    default_out.rename(stash_path)
+    return stash_path
+
+
+def _restore_stashed_sidecar(stash_path: Optional[Path], default_out: Path) -> None:
+    """Restore the user's original sidecar file if we stashed it."""
+    if stash_path is None or not stash_path.exists():
+        return
+    if default_out.exists():
+        # Should not happen (we just moved it), but be defensive.
+        stash_path.unlink()
+    else:
+        stash_path.rename(default_out)
+
+
+def _stream_export_progress(stdout: IO[str], svo_path: Path, captured: List[str]) -> None:
+    """Mirror ZED_SVO_Editor frame progress to a tqdm bar, capturing all output."""
+    bar: Optional[tqdm] = None
+    try:
+        for raw_line in stdout:
+            line = raw_line.rstrip()
+            captured.append(line)
+            match = EXPORT_FRAME_REGEX.search(line)
+            if match is None:
+                continue
+            current = int(match.group(1)) + 1  # frames done (1-indexed)
+            total = int(match.group(2))
+            if bar is None:
+                bar = tqdm(
+                    total=total,
+                    desc=f"Export {svo_path.name}",
+                    unit="frame",
+                    leave=False,
+                    dynamic_ncols=True,
+                )
+            if total != bar.total:
+                bar.total = total
+                bar.refresh()
+            delta = current - bar.n
+            if delta > 0:
+                bar.update(delta)
+    finally:
+        if bar is not None:
+            bar.close()
+
+
+def _run_export(svo_path: Path, editor_bin: str) -> Tuple[int, List[str]]:
+    """Run ZED_SVO_Editor, accepting its prompts, and return (returncode, output)."""
+    captured: List[str] = []
+    proc = subprocess.Popen(
+        [editor_bin, "-export-to-mcap", str(svo_path)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    try:
+        assert proc.stdin is not None and proc.stdout is not None
+        proc.stdin.write("\n\n")
+        proc.stdin.flush()
+        proc.stdin.close()
+        _stream_export_progress(proc.stdout, svo_path, captured)
+        returncode = proc.wait()
+    except BaseException:
+        proc.kill()
+        proc.wait()
+        raise
+    return returncode, captured
+
+
 def convert_svo_to_mcap(svo_path: Path, intermediate_path: Path, editor_bin: str) -> Path:
     """Run ZED_SVO_Editor -export-to-mcap and move output to intermediate_path.
 
@@ -116,64 +196,12 @@ def convert_svo_to_mcap(svo_path: Path, intermediate_path: Path, editor_bin: str
     we just feed two newlines on stdin to accept them. The default output
     location is next to the SVO file.
     """
-    # The tool defaults to writing <svo_stem>.mcap next to the SVO. We rename
-    # any pre-existing sidecar out of the way so we can unambiguously claim
-    # the freshly-produced file.
     default_out = svo_path.with_suffix(".mcap")
-    stash_path: Optional[Path] = None
-    if default_out.exists():
-        stash_path = default_out.with_suffix(".mcap.combine_stash")
-        default_out.rename(stash_path)
+    stash_path = _stash_existing_sidecar(default_out)
 
     logger.info("Converting %s -> %s", svo_path, intermediate_path)
     try:
-        captured: List[str] = []
-        proc = subprocess.Popen(
-            [editor_bin, "-export-to-mcap", str(svo_path)],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        try:
-            assert proc.stdin is not None and proc.stdout is not None
-            proc.stdin.write("\n\n")
-            proc.stdin.flush()
-            proc.stdin.close()
-
-            bar: Optional[tqdm] = None
-            try:
-                for raw_line in proc.stdout:
-                    line = raw_line.rstrip()
-                    captured.append(line)
-                    match = EXPORT_FRAME_REGEX.search(line)
-                    if match is None:
-                        continue
-                    current = int(match.group(1)) + 1  # frames done (1-indexed)
-                    total = int(match.group(2))
-                    if bar is None:
-                        bar = tqdm(
-                            total=total,
-                            desc=f"Export {svo_path.name}",
-                            unit="frame",
-                            leave=False,
-                            dynamic_ncols=True,
-                        )
-                    if total != bar.total:
-                        bar.total = total
-                        bar.refresh()
-                    delta = current - bar.n
-                    if delta > 0:
-                        bar.update(delta)
-            finally:
-                if bar is not None:
-                    bar.close()
-            returncode = proc.wait()
-        except BaseException:
-            proc.kill()
-            proc.wait()
-            raise
+        returncode, captured = _run_export(svo_path, editor_bin)
 
         if returncode != 0:
             for line in captured:
@@ -190,13 +218,7 @@ def convert_svo_to_mcap(svo_path: Path, intermediate_path: Path, editor_bin: str
             intermediate_path.unlink()
         shutil.move(str(default_out), str(intermediate_path))
     finally:
-        if stash_path is not None and stash_path.exists():
-            # Restore the user's original sidecar file if we stashed it.
-            if default_out.exists():
-                # Should not happen (we just moved it), but be defensive.
-                stash_path.unlink()
-            else:
-                stash_path.rename(default_out)
+        _restore_stashed_sidecar(stash_path, default_out)
     return intermediate_path
 
 
@@ -303,18 +325,18 @@ def read_first_header_frame_id(mcap_path: Path, topic: str) -> Optional[str]:
     (uint32 seq + time stamp + string frame_id). All ROS1 messages whose
     schemas start with `Header header` have this layout.
     """
-    HEADER_FIXED_BYTES = 12  # 4 (seq) + 4 (sec) + 4 (nsec)
+    header_fixed_bytes = 12  # 4 (seq) + 4 (sec) + 4 (nsec)
     with open(mcap_path, "rb") as f:
         reader = make_reader(f)
         for _schema, _channel, message in reader.iter_messages(topics=[topic]):
             data = message.data
-            if len(data) < HEADER_FIXED_BYTES + 4:
+            if len(data) < header_fixed_bytes + 4:
                 return None
-            (length,) = struct.unpack_from("<I", data, HEADER_FIXED_BYTES)
-            end = HEADER_FIXED_BYTES + 4 + length
+            (length,) = struct.unpack_from("<I", data, header_fixed_bytes)
+            end = header_fixed_bytes + 4 + length
             if length == 0 or end > len(data):
                 return None
-            return data[HEADER_FIXED_BYTES + 4 : end].decode("utf-8", errors="replace")
+            return data[header_fixed_bytes + 4 : end].decode("utf-8", errors="replace")
     return None
 
 
@@ -404,18 +426,8 @@ def _summary_message_count(mcap_path: Path) -> int:
     return 0
 
 
-def merge_mcaps(
-    original_path: Path,
-    svo_mcap_path: Path,
-    output_path: Path,
-    time_range_ns: Tuple[int, int],
-    profile: str,
-) -> None:
-    """Stream-merge `original` (sliced) and `svo_mcap` into `output_path`."""
-    start_ns, end_ns = time_range_ns
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    camera_frame_id = read_first_header_frame_id(original_path, CAMERA_INFO_TOPIC)
+def _log_frame_id_resolution(camera_frame_id: Optional[str], original_path: Path) -> None:
+    """Log whether a camera frame_id was found for /camera/image."""
     if camera_frame_id is not None:
         logger.info(
             "Using camera frame_id %r from %s for /camera/image",
@@ -429,7 +441,9 @@ def merge_mcaps(
             original_path,
         )
 
-    retimer = HeaderStampRetimer(read_header_stamp_samples(original_path))
+
+def _log_retimer_stats(retimer: HeaderStampRetimer, original_path: Path) -> None:
+    """Log retiming statistics derived from the original MCAP's header stamps."""
     if retimer:
         avg_offset_ns, max_abs_offset_ns = retimer.offset_stats_ns
         logger.info(
@@ -446,6 +460,57 @@ def merge_mcaps(
             CAMERA_INFO_TOPIC,
             original_path,
         )
+
+
+def _load_retimed_originals(
+    original_path: Path,
+    retimer: HeaderStampRetimer,
+    start_ns: int,
+    end_ns: int,
+) -> List[Tuple[int, int, object, object, object]]:
+    """Load original messages, retime their log_times, and filter to [start, end].
+
+    We over-fetch by max_abs_offset so we don't drop messages whose retimed time
+    lands inside the window, then re-sort before the merge.
+    """
+    if retimer:
+        margin_ns = retimer.offset_stats_ns[1]
+    else:
+        margin_ns = 0
+    fetch_start = max(0, start_ns - margin_ns)
+    fetch_end = end_ns + margin_ns
+
+    original_buffer: List[Tuple[int, int, object, object, object]] = []
+    with open(original_path, "rb") as f:
+        reader = make_reader(f)
+        for schema, channel, message in reader.iter_messages(
+            start_time=fetch_start,
+            end_time=fetch_end,
+            log_time_order=True,
+        ):
+            new_log_time = retimer.retime(message.log_time)
+            if start_ns <= new_log_time <= end_ns:
+                original_buffer.append((new_log_time, 0, schema, channel, message))
+    original_buffer.sort(key=lambda x: (x[0], x[1]))
+    return original_buffer
+
+
+def merge_mcaps(
+    original_path: Path,
+    svo_mcap_path: Path,
+    output_path: Path,
+    time_range_ns: Tuple[int, int],
+    profile: str,
+) -> None:
+    """Stream-merge `original` (sliced) and `svo_mcap` into `output_path`."""
+    start_ns, end_ns = time_range_ns
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    camera_frame_id = read_first_header_frame_id(original_path, CAMERA_INFO_TOPIC)
+    _log_frame_id_resolution(camera_frame_id, original_path)
+
+    retimer = HeaderStampRetimer(read_header_stamp_samples(original_path))
+    _log_retimer_stats(retimer, original_path)
 
     # Total is an upper bound: the original count is pre-time-slice, so the
     # bar may finish slightly before 100% on recordings that extend past the
@@ -503,27 +568,8 @@ def merge_mcaps(
 
         # When retiming, we have to load the original messages, shift their
         # log_times to camera-frame time, filter to the SVO range, and re-sort
-        # before the merge. We over-fetch by max_abs_offset so we don't drop
-        # messages whose retimed time lands inside the window.
-        if retimer:
-            margin_ns = retimer.offset_stats_ns[1]
-        else:
-            margin_ns = 0
-        fetch_start = max(0, start_ns - margin_ns)
-        fetch_end = end_ns + margin_ns
-
-        original_buffer: List[Tuple[int, int, object, object, object]] = []
-        with open(original_path, "rb") as f:
-            reader = make_reader(f)
-            for schema, channel, message in reader.iter_messages(
-                start_time=fetch_start,
-                end_time=fetch_end,
-                log_time_order=True,
-            ):
-                new_log_time = retimer.retime(message.log_time)
-                if start_ns <= new_log_time <= end_ns:
-                    original_buffer.append((new_log_time, 0, schema, channel, message))
-        original_buffer.sort(key=lambda x: (x[0], x[1]))
+        # before the merge.
+        original_buffer = _load_retimed_originals(original_path, retimer, start_ns, end_ns)
 
         original_iter = iter(original_buffer)
         svo_iter = _iter_with_source(svo_mcap_path, 1)

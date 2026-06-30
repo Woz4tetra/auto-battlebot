@@ -61,6 +61,97 @@ def overlay_mask(
     return cv2.addWeighted(overlay, alpha, frame, 1.0 - alpha, 0)
 
 
+def validate_inputs(model_path: Path, video_path: Path) -> None:
+    if not model_path.exists():
+        print(f"Error: model file not found: {model_path}", file=sys.stderr)
+        sys.exit(1)
+    if not video_path.exists():
+        print(f"Error: video file not found: {video_path}", file=sys.stderr)
+        sys.exit(1)
+
+
+def resolve_device(device_arg: str) -> torch.device:
+    if device_arg:
+        return torch.device(device_arg)
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def open_video(video_path: Path) -> cv2.VideoCapture:
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        print(f"Error: could not open video: {video_path}", file=sys.stderr)
+        sys.exit(1)
+    return cap
+
+
+def release_resources(cap: cv2.VideoCapture, writer: cv2.VideoWriter | None, show: bool) -> None:
+    cap.release()
+    if writer is not None:
+        writer.release()
+    if show:
+        cv2.destroyAllWindows()
+
+
+def process_video(
+    cap: cv2.VideoCapture,
+    model: torch.nn.Module,
+    transform: torch.nn.Module,
+    device: torch.device,
+    image_size: int,
+    pad_size: int,
+    writer: cv2.VideoWriter | None,
+    args: argparse.Namespace,
+    total_frames: int,
+    start_time: float,
+) -> int:
+    frame_count = 0
+    frame_idx = 0
+    skip = args.skip
+    try:
+        with tqdm(total=total_frames, desc="Processing video", unit="frame") as pbar:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                frame_idx += 1
+                pbar.update(1)
+
+                if skip > 0 and (frame_idx - 1) % (skip + 1) != 0:
+                    continue
+
+                frame_count += 1
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                mask = predict_mask(
+                    model,
+                    frame_rgb,
+                    transform,
+                    device,
+                    image_size,
+                    pad_size,
+                )
+                annotated = overlay_mask(frame, mask, OVERLAY_COLOR, args.alpha)
+
+                if writer is not None:
+                    writer.write(annotated)
+
+                if args.show:
+                    cv2.imshow("DeepLab Segmentation", annotated)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        print("Interrupted by user")
+                        break
+
+                elapsed = time.time() - start_time
+                current_fps = frame_count / elapsed if elapsed > 0 else 0
+                pbar.set_postfix({"FPS": f"{current_fps:.2f}"})
+
+    finally:
+        release_resources(cap, writer, args.show)
+
+    return frame_count
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Test a trained DeepLab segmentation model on video"
@@ -115,17 +206,9 @@ def main() -> None:
     model_path = Path(args.model)
     video_path = Path(args.video)
 
-    if not model_path.exists():
-        print(f"Error: model file not found: {model_path}", file=sys.stderr)
-        sys.exit(1)
-    if not video_path.exists():
-        print(f"Error: video file not found: {video_path}", file=sys.stderr)
-        sys.exit(1)
+    validate_inputs(model_path, video_path)
 
-    if args.device:
-        device = torch.device(args.device)
-    else:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = resolve_device(args.device)
 
     print(f"Loading model from {model_path} (device={device})...")
     model, model_cfg = load_model(model_path, device)
@@ -136,10 +219,7 @@ def main() -> None:
     )
     transform = common_transforms(pad_size=model_cfg.pad_size)
 
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        print(f"Error: could not open video: {video_path}", file=sys.stderr)
-        sys.exit(1)
+    cap = open_video(video_path)
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -158,55 +238,19 @@ def main() -> None:
         writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
         print(f"Saving output to {output_path}")
 
-    frame_count = 0
-    frame_idx = 0
-    skip = args.skip
     start_time = time.time()
-    try:
-        with tqdm(total=total_frames, desc="Processing video", unit="frame") as pbar:
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-
-                frame_idx += 1
-                pbar.update(1)
-
-                if skip > 0 and (frame_idx - 1) % (skip + 1) != 0:
-                    continue
-
-                frame_count += 1
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-                mask = predict_mask(
-                    model,
-                    frame_rgb,
-                    transform,
-                    device,
-                    model_cfg.image_size,
-                    model_cfg.pad_size,
-                )
-                annotated = overlay_mask(frame, mask, OVERLAY_COLOR, args.alpha)
-
-                if writer is not None:
-                    writer.write(annotated)
-
-                if args.show:
-                    cv2.imshow("DeepLab Segmentation", annotated)
-                    if cv2.waitKey(1) & 0xFF == ord("q"):
-                        print("Interrupted by user")
-                        break
-
-                elapsed = time.time() - start_time
-                current_fps = frame_count / elapsed if elapsed > 0 else 0
-                pbar.set_postfix({"FPS": f"{current_fps:.2f}"})
-
-    finally:
-        cap.release()
-        if writer is not None:
-            writer.release()
-        if args.show:
-            cv2.destroyAllWindows()
+    frame_count = process_video(
+        cap,
+        model,
+        transform,
+        device,
+        model_cfg.image_size,
+        model_cfg.pad_size,
+        writer,
+        args,
+        total_frames,
+        start_time,
+    )
 
     elapsed = time.time() - start_time
     avg_fps = frame_count / elapsed if elapsed > 0 else 0

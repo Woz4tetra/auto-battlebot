@@ -25,7 +25,7 @@ from PIL import Image
 from torch.nn import functional
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics import MeanMetric
-from torchvision.transforms import functional as TF
+from torchvision.transforms import functional as tv_functional
 from tqdm import tqdm
 
 matplotlib.use("agg")
@@ -103,21 +103,21 @@ class SegDataset(Dataset):
     @staticmethod
     def _augment(image: Image.Image, mask: Image.Image) -> tuple[Image.Image, Image.Image]:
         # Photometric (image only)
-        image = TF.adjust_brightness(image, pyrandom.uniform(0.7, 1.3))
-        image = TF.adjust_contrast(image, pyrandom.uniform(0.7, 1.3))
-        image = TF.adjust_saturation(image, pyrandom.uniform(0.7, 1.3))
-        image = TF.adjust_hue(image, pyrandom.uniform(-0.05, 0.05))
+        image = tv_functional.adjust_brightness(image, pyrandom.uniform(0.7, 1.3))
+        image = tv_functional.adjust_contrast(image, pyrandom.uniform(0.7, 1.3))
+        image = tv_functional.adjust_saturation(image, pyrandom.uniform(0.7, 1.3))
+        image = tv_functional.adjust_hue(image, pyrandom.uniform(-0.05, 0.05))
         if pyrandom.random() < 0.3:
-            image = TF.gaussian_blur(image, kernel_size=5)
+            image = tv_functional.gaussian_blur(image, kernel_size=5)
 
         # Geometric (image + mask together)
         if pyrandom.random() < 0.5:
-            image = TF.hflip(image)
-            mask = TF.hflip(mask)
+            image = tv_functional.hflip(image)
+            mask = tv_functional.hflip(mask)
 
         if pyrandom.random() < 0.5:
-            image = TF.vflip(image)
-            mask = TF.vflip(mask)
+            image = tv_functional.vflip(image)
+            mask = tv_functional.vflip(mask)
 
         return image, mask
 

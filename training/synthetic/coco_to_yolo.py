@@ -20,6 +20,63 @@ from collections import defaultdict
 from pathlib import Path
 
 
+def _build_category_mapping(data: dict, keep_categories: list[str]) -> dict[int, int]:
+    """Map COCO category ids to new class ids for the kept categories only."""
+    keep_set = set(keep_categories)
+    old_id_to_new = {}
+    for cat in data["categories"]:
+        if cat["name"] in keep_set:
+            old_id_to_new[cat["id"]] = keep_categories.index(cat["name"])
+
+    if not old_id_to_new:
+        raise ValueError(
+            f"None of the requested categories {keep_categories} were found in the dataset. "
+            f"Available: {[c['name'] for c in data['categories']]}"
+        )
+    return old_id_to_new
+
+
+def _annotation_to_label_line(
+    ann: dict,
+    img_w: float,
+    img_h: float,
+    new_class_id: int,
+    keep_categories: list[str],
+    num_keypoints: int,
+) -> str:
+    """Convert one COCO annotation into a single YOLO label line."""
+    # COCO bbox: [x_min, y_min, width, height]
+    bx, by, bw, bh = (float(v) for v in ann["bbox"])
+    cx = (bx + bw / 2) / img_w
+    cy = (by + bh / 2) / img_h
+    nw = bw / img_w
+    nh = bh / img_h
+
+    parts = [new_class_id, cx, cy, nw, nh]
+
+    # Keypoints: [x1, y1, v1, x2, y2, v2, ...]
+    kps = ann.get("keypoints", [])
+    expected_kp_values = num_keypoints * 3
+    if kps:
+        # Pad or truncate to the expected length
+        if len(kps) < expected_kp_values:
+            kps = list(kps) + [0.0] * (expected_kp_values - len(kps))
+        else:
+            kps = kps[:expected_kp_values]
+
+        # Swap keypoint 0 and keypoint 1 for mr_stabs_mk2 only
+        if num_keypoints >= 2 and keep_categories[new_class_id] == "mr_stabs_mk2":
+            kps[0:3], kps[3:6] = list(kps[3:6]), list(kps[0:3])
+
+        for i in range(0, expected_kp_values, 3):
+            kx = float(kps[i]) / img_w
+            ky = float(kps[i + 1]) / img_h
+            kv = int(kps[i + 2])
+            parts += [kx, ky, kv]
+
+    return " ".join(f"{v:.6f}" if isinstance(v, float) else str(v) for v in parts)
+
+
 def convert_split(
     ann_path: Path,
     images_src_dir: Path,
@@ -32,17 +89,7 @@ def convert_split(
         data = json.load(f)
 
     # Build category name -> new class id mapping (only kept categories)
-    keep_set = set(keep_categories)
-    old_id_to_new = {}
-    for cat in data["categories"]:
-        if cat["name"] in keep_set:
-            old_id_to_new[cat["id"]] = keep_categories.index(cat["name"])
-
-    if not old_id_to_new:
-        raise ValueError(
-            f"None of the requested categories {keep_categories} were found in the dataset. "
-            f"Available: {[c['name'] for c in data['categories']]}"
-        )
+    old_id_to_new = _build_category_mapping(data, keep_categories)
 
     # Build image_id -> image info
     images_by_id = {img["id"]: img for img in data["images"]}
@@ -74,38 +121,10 @@ def convert_split(
         label_lines = []
         for ann in anns:
             new_class_id = old_id_to_new[ann["category_id"]]
-
-            # COCO bbox: [x_min, y_min, width, height]
-            bx, by, bw, bh = (float(v) for v in ann["bbox"])
-            cx = (bx + bw / 2) / img_w
-            cy = (by + bh / 2) / img_h
-            nw = bw / img_w
-            nh = bh / img_h
-
-            parts = [new_class_id, cx, cy, nw, nh]
-
-            # Keypoints: [x1, y1, v1, x2, y2, v2, ...]
-            kps = ann.get("keypoints", [])
-            expected_kp_values = num_keypoints * 3
-            if kps:
-                # Pad or truncate to the expected length
-                if len(kps) < expected_kp_values:
-                    kps = list(kps) + [0.0] * (expected_kp_values - len(kps))
-                else:
-                    kps = kps[:expected_kp_values]
-
-                # Swap keypoint 0 and keypoint 1 for mr_stabs_mk2 only
-                if num_keypoints >= 2 and keep_categories[new_class_id] == "mr_stabs_mk2":
-                    kps[0:3], kps[3:6] = list(kps[3:6]), list(kps[0:3])
-
-                for i in range(0, expected_kp_values, 3):
-                    kx = float(kps[i]) / img_w
-                    ky = float(kps[i + 1]) / img_h
-                    kv = int(kps[i + 2])
-                    parts += [kx, ky, kv]
-
             label_lines.append(
-                " ".join(f"{v:.6f}" if isinstance(v, float) else str(v) for v in parts)
+                _annotation_to_label_line(
+                    ann, img_w, img_h, new_class_id, keep_categories, num_keypoints
+                )
             )
 
         if not label_lines:
@@ -129,6 +148,33 @@ def convert_split(
         print(f"  Skipped (image not found): {skipped_images}")
 
     return processed_images
+
+
+def _discover_split_paths(input_dir: Path) -> dict[str, tuple[Path, Path]]:
+    """Find available dataset splits and their (annotation, images) source paths."""
+    splits = ["train", "valid", "test"]
+    found_splits = []
+    for split in splits:
+        ann_path = input_dir / split / "_annotations.coco.json"
+        if ann_path.exists():
+            found_splits.append(split)
+
+    if not found_splits:
+        # Try root-level annotations
+        ann_path = input_dir / "_annotations.coco.json"
+        if ann_path.exists():
+            found_splits = ["train"]
+        else:
+            raise FileNotFoundError(f"No annotation files found under {input_dir}")
+
+    split_paths = {}
+    for split in found_splits:
+        ann = input_dir / split / "_annotations.coco.json"
+        if ann.exists():
+            split_paths[split] = (ann, input_dir / split)
+        else:
+            split_paths[split] = (input_dir / "_annotations.coco.json", input_dir)
+    return split_paths
 
 
 def main():
@@ -167,28 +213,7 @@ def main():
     print(f"Keypoints:  {args.num_keypoints}")
     print()
 
-    splits = ["train", "valid", "test"]
-    found_splits = []
-    for split in splits:
-        ann_path = input_dir / split / "_annotations.coco.json"
-        if ann_path.exists():
-            found_splits.append(split)
-
-    if not found_splits:
-        # Try root-level annotations
-        ann_path = input_dir / "_annotations.coco.json"
-        if ann_path.exists():
-            found_splits = ["train"]
-        else:
-            raise FileNotFoundError(f"No annotation files found under {input_dir}")
-
-    split_paths = {}
-    for split in found_splits:
-        ann = input_dir / split / "_annotations.coco.json"
-        if ann.exists():
-            split_paths[split] = (ann, input_dir / split)
-        else:
-            split_paths[split] = (input_dir / "_annotations.coco.json", input_dir)
+    split_paths = _discover_split_paths(input_dir)
 
     yaml_splits = {}
     for split, (ann_path, images_src_dir) in split_paths.items():

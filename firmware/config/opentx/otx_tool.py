@@ -94,7 +94,7 @@ MLTPX_FROM_STR = {
     "*=": MLTPX_MUL,
     ":=": MLTPX_REP,
 }
-# MixData.carryTrim: 0 == trim applied (TRIM_ON), 1 == trim off (TRIM_OFF)
+# MixData.carry_trim: 0 == trim applied (TRIM_ON), 1 == trim off (TRIM_OFF)
 TRIM_ON, TRIM_OFF = 0, 1
 
 # --- MIXSRC source numbering (X9D+ 2019), used only for human-readable names -
@@ -136,14 +136,8 @@ def src_name(v: int) -> str:
     return f"src{v}"
 
 
-def src_value(token) -> int:
-    """Parse a source given as a number or a name (TR1, I4, Ele, SA, S1)."""
-    if isinstance(token, int):
-        return token
-    t = str(token).strip()
-    if t.lstrip("-").isdigit():
-        return int(t)
-    up = t.upper()
+def _src_from_prefix(up: str):
+    """Parse a prefixed source name (TR1, I4, L2, SA). Returns None if no match."""
     if up.startswith("TR"):
         return MIXSRC_FIRST_TRAINER + int(up[2:]) - 1
     if up.startswith("I") and up[1:].isdigit():
@@ -152,13 +146,34 @@ def src_value(token) -> int:
         return MIXSRC_FIRST_LOGICAL_SWITCH + int(up[1:]) - 1
     if up.startswith("S") and len(up) == 2 and up[1] in SWITCH_LETTERS:
         return MIXSRC_FIRST_SWITCH + SWITCH_LETTERS.index(up[1])
+    return None
+
+
+def _src_from_table(up: str):
+    """Parse a stick or pot name (Ele, S1). Returns None if no match."""
     for i, n in enumerate(STICK_NAMES):
         if up == n.upper():
             return MIXSRC_FIRST_STICK + i
     for i, n in enumerate(POT_NAMES):
         if up == n.upper():
             return MIXSRC_FIRST_POT + i
-    raise ValueError(f"cannot parse source {token!r}")
+    return None
+
+
+def src_value(token) -> int:
+    """Parse a source given as a number or a name (TR1, I4, Ele, SA, S1)."""
+    if isinstance(token, int):
+        return token
+    t = str(token).strip()
+    if t.lstrip("-").isdigit():
+        return int(t)
+    up = t.upper()
+    v = _src_from_prefix(up)
+    if v is None:
+        v = _src_from_table(up)
+    if v is None:
+        raise ValueError(f"cannot parse source {token!r}")
+    return v
 
 
 # --- packed little-endian bitfield codec -----------------------------------
@@ -192,24 +207,24 @@ def _encode_bits(fields, specs) -> bytes:
 
 MIX_SPECS = [
     ("weight", 11, True),
-    ("destCh", 5, False),
-    ("srcRaw", 10, False),
-    ("carryTrim", 1, False),
-    ("mixWarn", 2, False),
+    ("dest_ch", 5, False),
+    ("src_raw", 10, False),
+    ("carry_trim", 1, False),
+    ("mix_warn", 2, False),
     ("mltpx", 2, False),
     ("spare", 1, False),
     ("offset", 14, True),
     ("swtch", 9, True),
-    ("flightModes", 9, False),
+    ("flight_modes", 9, False),
 ]
 EXP_SPECS = [
     ("mode", 2, False),
     ("scale", 14, False),
-    ("srcRaw", 10, False),
-    ("trimSource", 6, True),
+    ("src_raw", 10, False),
+    ("trim_source", 6, True),
     ("chn", 5, False),
     ("swtch", 9, True),
-    ("flightModes", 9, False),
+    ("flight_modes", 9, False),
     ("weight", 8, True),
     ("spare", 1, True),
 ]
@@ -226,11 +241,13 @@ def _s8(v):  # signed byte helper
 # ends the stream (the rest of the struct is zeros). The compressor reproduces
 # the radio's exact output (verified byte-for-byte on a real SD model).
 
+
 def rlc_decompress(data: bytes, out_len: int) -> bytes:
     out = bytearray()
     i, n = 0, len(data)
     while len(out) < out_len and i < n:
-        c = data[i]; i += 1
+        c = data[i]
+        i += 1
         if c == 0:
             break
         if c & 0x80:
@@ -239,7 +256,8 @@ def rlc_decompress(data: bytes, out_len: int) -> bytes:
             lit, zer = 0, c & 0x3F
         else:
             lit, zer = c, 0
-        litb = data[i:i + lit]; i += lit
+        litb = data[i : i + lit]
+        i += lit
         out += b"\x00" * zer
         out += litb
     out += b"\x00" * (out_len - len(out))
@@ -256,8 +274,9 @@ def rlc_compress(data: bytes) -> bytes:
         if data[i] == 0:
             z = 0
             while i < end and data[i] == 0 and z < 0x3F:
-                z += 1; i += 1
-            if z < 8 and i < end:          # small run before a literal: defer
+                z += 1
+                i += 1
+            if z < 8 and i < end:  # small run before a literal: defer
                 pend = z
             else:
                 out.append(z | 0x40)
@@ -265,7 +284,8 @@ def rlc_compress(data: bytes) -> bytes:
             cap = 0x0F if pend else 0x3F
             lit = bytearray()
             while i < end and data[i] != 0 and len(lit) < cap:
-                lit.append(data[i]); i += 1
+                lit.append(data[i])
+                i += 1
             out.append((0x80 | (pend << 4) | len(lit)) if pend else len(lit))
             out += lit
             pend = 0
@@ -275,21 +295,21 @@ def rlc_compress(data: bytes) -> bytes:
 @dataclass
 class Mix:
     weight: int = 0
-    destCh: int = 0
-    srcRaw: int = 0
-    carryTrim: int = 0
-    mixWarn: int = 0
+    dest_ch: int = 0
+    src_raw: int = 0
+    carry_trim: int = 0
+    mix_warn: int = 0
     mltpx: int = 0
     spare: int = 0
     offset: int = 0
     swtch: int = 0
-    flightModes: int = 0
-    curveType: int = 0
-    curveValue: int = 0
-    delayUp: int = 0
-    delayDown: int = 0
-    speedUp: int = 0
-    speedDown: int = 0
+    flight_modes: int = 0
+    curve_type: int = 0
+    curve_value: int = 0
+    delay_up: int = 0
+    delay_down: int = 0
+    speed_up: int = 0
+    speed_down: int = 0
     name: bytes = b"\x00" * 6
 
     @classmethod
@@ -297,12 +317,12 @@ class Mix:
         f = _decode_bits(b[:8], MIX_SPECS)
         return cls(
             **f,
-            curveType=b[8],
-            curveValue=_s8(b[9]),
-            delayUp=b[10],
-            delayDown=b[11],
-            speedUp=b[12],
-            speedDown=b[13],
+            curve_type=b[8],
+            curve_value=_s8(b[9]),
+            delay_up=b[10],
+            delay_down=b[11],
+            speed_up=b[12],
+            speed_down=b[13],
             name=bytes(b[14:20]),
         )
 
@@ -310,12 +330,12 @@ class Mix:
         head = _encode_bits(self.__dict__, MIX_SPECS)
         tail = bytes(
             [
-                self.curveType,
-                self.curveValue & 0xFF,
-                self.delayUp,
-                self.delayDown,
-                self.speedUp,
-                self.speedDown,
+                self.curve_type,
+                self.curve_value & 0xFF,
+                self.delay_up,
+                self.delay_down,
+                self.speed_up,
+                self.speed_down,
             ]
         )
         nm = (self.name + b"\x00" * 6)[:6]
@@ -324,19 +344,19 @@ class Mix:
         return out
 
     def empty(self) -> bool:
-        return self.srcRaw == 0 and self.destCh == 0 and self.weight == 0
+        return self.src_raw == 0 and self.dest_ch == 0 and self.weight == 0
 
     def describe(self) -> str:
         sw = f" sw={self.swtch}" if self.swtch else ""
         cv = (
-            f" expo/diff({self.curveType},{self.curveValue})"
-            if self.curveType or self.curveValue
+            f" expo/diff({self.curve_type},{self.curve_value})"
+            if self.curve_type or self.curve_value
             else ""
         )
-        trim = "" if self.carryTrim == TRIM_ON else " trimOFF"
+        trim = "" if self.carry_trim == TRIM_ON else " trimOFF"
         return (
-            f"CH{self.destCh + 1} {MLTPX_NAMES.get(self.mltpx, '?')} "
-            f"{src_name(self.srcRaw)} w={self.weight}{sw} off={self.offset}{cv}{trim}"
+            f"CH{self.dest_ch + 1} {MLTPX_NAMES.get(self.mltpx, '?')} "
+            f"{src_name(self.src_raw)} w={self.weight}{sw} off={self.offset}{cv}{trim}"
         )
 
 
@@ -344,47 +364,47 @@ class Mix:
 class Expo:
     mode: int = 0
     scale: int = 0
-    srcRaw: int = 0
-    trimSource: int = 0
+    src_raw: int = 0
+    trim_source: int = 0
     chn: int = 0
     swtch: int = 0
-    flightModes: int = 0
+    flight_modes: int = 0
     weight: int = 0
     spare: int = 0
     name: bytes = b"\x00" * 6
     offset: int = 0
-    curveType: int = 0
-    curveValue: int = 0
+    curve_type: int = 0
+    curve_value: int = 0
 
     @classmethod
     def from_bytes(cls, b: bytes) -> "Expo":
         f = _decode_bits(b[:8], EXP_SPECS)
         return cls(
-            **f, name=bytes(b[8:14]), offset=_s8(b[14]), curveType=b[15], curveValue=_s8(b[16])
+            **f, name=bytes(b[8:14]), offset=_s8(b[14]), curve_type=b[15], curve_value=_s8(b[16])
         )
 
     def to_bytes(self) -> bytes:
         head = _encode_bits(self.__dict__, EXP_SPECS)
         nm = (self.name + b"\x00" * 6)[:6]
-        tail = bytes([self.offset & 0xFF, self.curveType, self.curveValue & 0xFF])
+        tail = bytes([self.offset & 0xFF, self.curve_type, self.curve_value & 0xFF])
         out = head + nm + tail
         assert len(out) == EXP_SZ
         return out
 
     def empty(self) -> bool:
-        return self.srcRaw == 0 and self.chn == 0 and self.weight == 0
+        return self.src_raw == 0 and self.chn == 0 and self.weight == 0
 
     def describe(self) -> str:
         sw = f" sw={self.swtch}" if self.swtch else ""
-        if self.curveType == CURVE_REF_EXPO:
-            cv = f" expo={self.curveValue}%"
-        elif self.curveType == CURVE_REF_DIFF and self.curveValue:
-            cv = f" diff={self.curveValue}%"
-        elif self.curveType or self.curveValue:
-            cv = f" curve({self.curveType},{self.curveValue})"
+        if self.curve_type == CURVE_REF_EXPO:
+            cv = f" expo={self.curve_value}%"
+        elif self.curve_type == CURVE_REF_DIFF and self.curve_value:
+            cv = f" diff={self.curve_value}%"
+        elif self.curve_type or self.curve_value:
+            cv = f" curve({self.curve_type},{self.curve_value})"
         else:
             cv = " linear"
-        return f"I{self.chn + 1} <- {src_name(self.srcRaw)} w={self.weight}{cv}{sw}"
+        return f"I{self.chn + 1} <- {src_name(self.src_raw)} w={self.weight}{cv}{sw}"
 
 
 class Model:
@@ -438,9 +458,9 @@ class Model:
         """Set EXPO curve on every input line for input `chn` (0-based). Returns count."""
         n = 0
         for e in self.expos:
-            if e.srcRaw != 0 and e.chn == chn:
-                e.curveType = CURVE_REF_EXPO
-                e.curveValue = value
+            if e.src_raw != 0 and e.chn == chn:
+                e.curve_type = CURVE_REF_EXPO
+                e.curve_value = value
                 n += 1
         if n == 0:
             raise ValueError(f"no input lines found for I{chn + 1}")
@@ -451,8 +471,8 @@ class Model:
         `old_src` is given, only lines currently using it are changed. Returns count."""
         n = 0
         for m in self.mixes:
-            if not m.empty() and m.destCh == ch and (old_src is None or m.srcRaw == old_src):
-                m.srcRaw = new_src
+            if not m.empty() and m.dest_ch == ch and (old_src is None or m.src_raw == old_src):
+                m.src_raw = new_src
                 n += 1
         if n == 0:
             raise ValueError(f"no matching mix line on CH{ch + 1}")
@@ -480,16 +500,16 @@ class Model:
             raise ValueError("mix table full")
         last = -1
         for i in range(self._mix_count()):
-            if self.mixes[i].destCh == ch:
+            if self.mixes[i].dest_ch == ch:
                 last = i
         idx = last + 1 if last >= 0 else self._mix_count()
         m = Mix(
             weight=weight,
-            destCh=ch,
-            srcRaw=src,
+            dest_ch=ch,
+            src_raw=src,
             mltpx=mltpx,
             swtch=switch,
-            carryTrim=(TRIM_OFF if trim_off else TRIM_ON),
+            carry_trim=(TRIM_OFF if trim_off else TRIM_ON),
         )
         self.mixes.insert(idx, m)
         self.mixes = self.mixes[:MIX_N]

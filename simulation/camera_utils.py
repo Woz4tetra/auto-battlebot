@@ -42,13 +42,13 @@ def camera_view_matrix(
     right /= right_norm
     up = np.cross(right, forward)
 
-    R: npt.NDArray[np.float64] = np.eye(4, dtype=np.float64)
-    R[0, :3] = right
-    R[1, :3] = -up
-    R[2, :3] = forward
-    t = -R[:3, :3] @ cam_pos_arr
-    R[:3, 3] = t
-    return R
+    rotation: npt.NDArray[np.float64] = np.eye(4, dtype=np.float64)
+    rotation[0, :3] = right
+    rotation[1, :3] = -up
+    rotation[2, :3] = forward
+    t = -rotation[:3, :3] @ cam_pos_arr
+    rotation[:3, 3] = t
+    return rotation
 
 
 def project_panorama(
@@ -81,7 +81,7 @@ def project_panorama(
     up = np.cross(right, forward)
 
     # camera-to-world rotation: columns are right, up, forward
-    R_c2w = np.column_stack([right, up, forward])  # (3, 3)
+    rotation_c2w = np.column_stack([right, up, forward])  # (3, 3)
 
     fx, fy, cx, cy = fov_to_intrinsics(fov_deg, width, height)
 
@@ -93,7 +93,7 @@ def project_panorama(
     dirs_cam /= np.linalg.norm(dirs_cam, axis=-1, keepdims=True)
 
     # Transform to world space
-    dirs_world: npt.NDArray[np.float64] = dirs_cam @ R_c2w.T  # (H, W, 3)
+    dirs_world: npt.NDArray[np.float64] = dirs_cam @ rotation_c2w.T  # (H, W, 3)
 
     # World-space direction -> equirectangular UV
     dx = dirs_world[..., 0]

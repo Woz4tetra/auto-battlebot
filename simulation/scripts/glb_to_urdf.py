@@ -48,12 +48,12 @@ def _rot_x(angle_deg: float) -> np.ndarray:
     return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
 
 
-def _rotate_inertia(I: np.ndarray, R: np.ndarray) -> np.ndarray:
-    return R @ I @ R.T
+def _rotate_inertia(inertia: np.ndarray, rotation: np.ndarray) -> np.ndarray:
+    return rotation @ inertia @ rotation.T
 
 
-def _inertia_g_mm2_to_kg_m2(I: np.ndarray) -> np.ndarray:
-    return I * 1e-9
+def _inertia_g_mm2_to_kg_m2(inertia: np.ndarray) -> np.ndarray:
+    return inertia * 1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ def _add_inertial(
     parent: Element,
     mass: float,
     com: list[float],
-    I: np.ndarray,
+    inertia: np.ndarray,
 ) -> None:
     inertial = SubElement(parent, "inertial")
     SubElement(inertial, "origin", xyz=_xyz(com), rpy="0 0 0")
@@ -176,12 +176,12 @@ def _add_inertial(
         inertial,
         "inertia",
         **{
-            "ixx": _fmt(I[0, 0]),
-            "ixy": _fmt(I[0, 1]),
-            "ixz": _fmt(I[0, 2]),
-            "iyy": _fmt(I[1, 1]),
-            "iyz": _fmt(I[1, 2]),
-            "izz": _fmt(I[2, 2]),
+            "ixx": _fmt(inertia[0, 0]),
+            "ixy": _fmt(inertia[0, 1]),
+            "ixz": _fmt(inertia[0, 2]),
+            "iyy": _fmt(inertia[1, 1]),
+            "iyz": _fmt(inertia[1, 2]),
+            "izz": _fmt(inertia[2, 2]),
         },
     )
 
@@ -214,13 +214,13 @@ def _add_wheel_link(
     link_name: str,
     mass: float,
     com: list[float],
-    I: np.ndarray,
+    inertia: np.ndarray,
     wheel_radius: float,
     wheel_width: float,
     visual_mesh: str | None,
 ) -> None:
     link = SubElement(robot, "link", name=link_name)
-    _add_inertial(link, mass, com, I)
+    _add_inertial(link, mass, com, inertia)
     if visual_mesh:
         _add_visual(link, visual_mesh)
     _add_collision_cylinder(link, wheel_radius, wheel_width)
@@ -298,6 +298,135 @@ def _pretty_xml(root: Element) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _load_scene(source_path: Path, robot_name: str) -> trimesh.Scene:
+    """Load the source model and normalize it to a trimesh.Scene."""
+    print(f"Loading {source_path}...")
+    scene = trimesh.load(str(source_path))
+    if isinstance(scene, trimesh.Scene):
+        return scene
+    if isinstance(scene, trimesh.Trimesh):
+        s = trimesh.Scene()
+        s.add_geometry(scene, geom_name=robot_name)
+        return s
+    print("Error: could not load as Scene or Trimesh", file=sys.stderr)
+    sys.exit(1)
+
+
+def _build_chassis_meshes(
+    scene: trimesh.Scene,
+    wheel_patterns: list[str],
+    delete_patterns: list[str],
+    mesh_dir: Path,
+) -> np.ndarray:
+    """Export chassis visual + convex-hull collision meshes; return chassis vertices."""
+    print("Extracting chassis mesh...")
+    chassis_mesh = _extract_chassis(scene, wheel_patterns, delete_patterns)
+    if chassis_mesh is None:
+        print("Error: no chassis geometry found", file=sys.stderr)
+        sys.exit(1)
+
+    chassis_obj = mesh_dir / "chassis.obj"
+    n_faces = _export_obj(chassis_mesh, chassis_obj)
+    print(f"  Saved {chassis_obj} ({n_faces:,} faces)")
+
+    # Convex hull for collision (physics engines need convex geometry)
+    all_verts = np.vstack([g.vertices for g in chassis_mesh.geometry.values()])
+    chassis_hull = trimesh.convex.convex_hull(trimesh.Trimesh(vertices=all_verts))
+    collision_obj = mesh_dir / "chassis_collision.obj"
+    _export_obj(chassis_hull, collision_obj)
+    print(f"  Saved {collision_obj} ({len(chassis_hull.faces):,} faces, convex hull)")
+    return all_verts
+
+
+def _extract_wheel_visual(
+    scene: trimesh.Scene,
+    wheel_patterns: list[str],
+    add_cylinder: bool,
+    half_track: float,
+    mesh_dir: Path,
+    wheel_width_cfg: float,
+) -> tuple[str | None, float]:
+    """Export a wheel visual mesh if patterns allow; return (visual_path, wheel_width)."""
+    if not wheel_patterns or add_cylinder:
+        print("No wheel extraction patterns; wheels will be cylinders only.")
+        return None, wheel_width_cfg
+
+    print("Extracting wheel mesh...")
+    left_y = half_track
+    wheel_mesh = _extract_one_wheel(scene, wheel_patterns, left_y)
+    if wheel_mesh is None:
+        right_y = -half_track
+        wheel_mesh = _extract_one_wheel(scene, wheel_patterns, right_y)
+    if wheel_mesh is None:
+        print("Warning: could not extract wheel mesh; using cylinder only")
+        return None, wheel_width_cfg
+
+    wheel_obj = mesh_dir / "wheel.obj"
+    wn_faces = _export_obj(wheel_mesh, wheel_obj)
+    print(f"  Saved {wheel_obj} ({wn_faces:,} faces)")
+
+    # Derive wheel width from mesh extents along Y
+    wheel_width_cfg = wheel_mesh.extents[1]
+    print(f"  Wheel width from mesh: {wheel_width_cfg:.4f} m")
+    return "meshes/wheel.obj", wheel_width_cfg
+
+
+def _compute_inertias(chassis_cfg: dict, wheels_cfg: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Return (chassis_inertia, wheel_inertia) in kg m^2 with rotations applied."""
+    # Chassis
+    chassis_inertia_raw = _parse_inertia(chassis_cfg["inertia"])
+    chassis_inertia = _inertia_g_mm2_to_kg_m2(chassis_inertia_raw)
+    chassis_rot_deg = chassis_cfg.get("inertia_rotation_deg", 0.0)
+    if chassis_rot_deg != 0.0:
+        rotation = _rot_z(chassis_rot_deg)
+        chassis_inertia = _rotate_inertia(chassis_inertia, rotation)
+
+    # Wheels - rotate so Z (spin axis) maps to Y (URDF joint axis)
+    wheel_inertia_raw = _parse_inertia(wheels_cfg["inertia"])
+    wheel_inertia = _inertia_g_mm2_to_kg_m2(wheel_inertia_raw)
+    wheel_inertia = _rotate_inertia(wheel_inertia, _rot_x(90.0))
+
+    print(f"\nChassis inertia (kg m^2):\n{chassis_inertia}")
+    print(f"Wheel inertia (kg m^2):\n{wheel_inertia}")
+    return chassis_inertia, wheel_inertia
+
+
+def _wheel_definitions(
+    layout: str, half_track: float, half_wheelbase: float
+) -> list[tuple[str, str, list[float]]]:
+    """Return (link_name, joint_name, origin_xyz) for each wheel in *layout*."""
+    if layout == "differential":
+        return [
+            ("left_wheel", "left_wheel_joint", [0.0, half_track, 0.0]),
+            ("right_wheel", "right_wheel_joint", [0.0, -half_track, 0.0]),
+        ]
+    if layout == "skid_steer":
+        return [
+            (
+                "front_left_wheel",
+                "front_left_wheel_joint",
+                [half_wheelbase, half_track, 0.0],
+            ),
+            (
+                "front_right_wheel",
+                "front_right_wheel_joint",
+                [half_wheelbase, -half_track, 0.0],
+            ),
+            (
+                "rear_left_wheel",
+                "rear_left_wheel_joint",
+                [-half_wheelbase, half_track, 0.0],
+            ),
+            (
+                "rear_right_wheel",
+                "rear_right_wheel_joint",
+                [-half_wheelbase, -half_track, 0.0],
+            ),
+        ]
+    print(f"Error: unknown layout '{layout}'", file=sys.stderr)
+    sys.exit(1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config", type=Path, help="Robot TOML config file")
@@ -338,131 +467,40 @@ def main() -> None:
     half_wheelbase = wheelbase / 2.0
 
     # -- load source model ---------------------------------------------------
-    print(f"Loading {source_path}...")
-    scene = trimesh.load(str(source_path))
-    if not isinstance(scene, trimesh.Scene):
-        if isinstance(scene, trimesh.Trimesh):
-            s = trimesh.Scene()
-            s.add_geometry(scene, geom_name=robot_name)
-            scene = s
-        else:
-            print("Error: could not load as Scene or Trimesh", file=sys.stderr)
-            sys.exit(1)
+    scene = _load_scene(source_path, robot_name)
 
-    # -- chassis mesh --------------------------------------------------------
-    print("Extracting chassis mesh...")
-    chassis_mesh = _extract_chassis(scene, wheel_patterns, delete_patterns)
-    if chassis_mesh is None:
-        print("Error: no chassis geometry found", file=sys.stderr)
-        sys.exit(1)
-
-    chassis_obj = mesh_dir / "chassis.obj"
-    n_faces = _export_obj(chassis_mesh, chassis_obj)
-    print(f"  Saved {chassis_obj} ({n_faces:,} faces)")
-
-    # Convex hull for collision (physics engines need convex geometry)
-    all_verts = np.vstack([g.vertices for g in chassis_mesh.geometry.values()])
-    chassis_hull = trimesh.convex.convex_hull(trimesh.Trimesh(vertices=all_verts))
-    collision_obj = mesh_dir / "chassis_collision.obj"
-    _export_obj(chassis_hull, collision_obj)
-    print(f"  Saved {collision_obj} ({len(chassis_hull.faces):,} faces, convex hull)")
-
-    # -- wheel mesh(es) ------------------------------------------------------
-    wheel_visual_path: str | None = None
-
-    if wheel_patterns and not add_cylinder:
-        print("Extracting wheel mesh...")
-        left_y = half_track
-        wheel_mesh = _extract_one_wheel(scene, wheel_patterns, left_y)
-        if wheel_mesh is None:
-            right_y = -half_track
-            wheel_mesh = _extract_one_wheel(scene, wheel_patterns, right_y)
-        if wheel_mesh is None:
-            print("Warning: could not extract wheel mesh; using cylinder only")
-        else:
-            wheel_obj = mesh_dir / "wheel.obj"
-            wn_faces = _export_obj(wheel_mesh, wheel_obj)
-            wheel_visual_path = "meshes/wheel.obj"
-            print(f"  Saved {wheel_obj} ({wn_faces:,} faces)")
-
-            # Derive wheel width from mesh extents along Y
-            wheel_width_cfg = wheel_mesh.extents[1]
-            print(f"  Wheel width from mesh: {wheel_width_cfg:.4f} m")
-    else:
-        print("No wheel extraction patterns; wheels will be cylinders only.")
+    # -- chassis + wheel meshes ----------------------------------------------
+    all_verts = _build_chassis_meshes(scene, wheel_patterns, delete_patterns, mesh_dir)
+    wheel_visual_path, wheel_width_cfg = _extract_wheel_visual(
+        scene, wheel_patterns, add_cylinder, half_track, mesh_dir, wheel_width_cfg
+    )
 
     # -- compute inertia tensors ---------------------------------------------
-    # Chassis
-    chassis_I_raw = _parse_inertia(chassis_cfg["inertia"])
-    chassis_I = _inertia_g_mm2_to_kg_m2(chassis_I_raw)
-    chassis_rot_deg = chassis_cfg.get("inertia_rotation_deg", 0.0)
-    if chassis_rot_deg != 0.0:
-        R = _rot_z(chassis_rot_deg)
-        chassis_I = _rotate_inertia(chassis_I, R)
+    chassis_inertia, wheel_inertia = _compute_inertias(chassis_cfg, wheels_cfg)
     chassis_com = chassis_cfg["com"]
     chassis_mass = chassis_cfg["mass"]
-
-    # Wheels - rotate so Z (spin axis) maps to Y (URDF joint axis)
-    wheel_I_raw = _parse_inertia(wheels_cfg["inertia"])
-    wheel_I = _inertia_g_mm2_to_kg_m2(wheel_I_raw)
-    wheel_I = _rotate_inertia(wheel_I, _rot_x(90.0))
     wheel_com = wheels_cfg.get("com_offset", [0.0, 0.0, 0.0])
     wheel_mass = wheels_cfg["mass"]
-
-    print(f"\nChassis inertia (kg m^2):\n{chassis_I}")
-    print(f"Wheel inertia (kg m^2):\n{wheel_I}")
 
     # For differential drive, center COM over wheel axis so the robot
     # balances on its wheels without needing caster supports (which create
     # unacceptable sliding friction drag in Genesis).
-    if layout == "differential":
-        if chassis_com[0] != 0.0:
-            print(f"  Centering COM over wheel axis: ({chassis_com[0]:.4f}, 0, 0) -> (0, 0, 0)")
-            chassis_com = [0.0, chassis_com[1], chassis_com[2]]
+    if layout == "differential" and chassis_com[0] != 0.0:
+        print(f"  Centering COM over wheel axis: ({chassis_com[0]:.4f}, 0, 0) -> (0, 0, 0)")
+        chassis_com = [0.0, chassis_com[1], chassis_com[2]]
 
     # -- build URDF ----------------------------------------------------------
     robot = Element("robot", name=robot_name)
 
     # Base link (no collision mesh - stabilizer casters + wheels only)
     base = SubElement(robot, "link", name="base_link")
-    _add_inertial(base, chassis_mass, chassis_com, chassis_I)
+    _add_inertial(base, chassis_mass, chassis_com, chassis_inertia)
     _add_visual(base, "meshes/chassis.obj")
 
     if layout == "differential":
         _add_pitch_stabilizers(robot, "base_link", all_verts, wheel_radius)
 
-    # Wheel definitions
-    if layout == "differential":
-        wheel_defs = [
-            ("left_wheel", "left_wheel_joint", [0.0, half_track, 0.0]),
-            ("right_wheel", "right_wheel_joint", [0.0, -half_track, 0.0]),
-        ]
-    elif layout == "skid_steer":
-        wheel_defs = [
-            (
-                "front_left_wheel",
-                "front_left_wheel_joint",
-                [half_wheelbase, half_track, 0.0],
-            ),
-            (
-                "front_right_wheel",
-                "front_right_wheel_joint",
-                [half_wheelbase, -half_track, 0.0],
-            ),
-            (
-                "rear_left_wheel",
-                "rear_left_wheel_joint",
-                [-half_wheelbase, half_track, 0.0],
-            ),
-            (
-                "rear_right_wheel",
-                "rear_right_wheel_joint",
-                [-half_wheelbase, -half_track, 0.0],
-            ),
-        ]
-    else:
-        print(f"Error: unknown layout '{layout}'", file=sys.stderr)
-        sys.exit(1)
+    wheel_defs = _wheel_definitions(layout, half_track, half_wheelbase)
 
     for link_name, joint_name, origin in wheel_defs:
         _add_wheel_link(
@@ -470,7 +508,7 @@ def main() -> None:
             link_name,
             wheel_mass,
             wheel_com,
-            wheel_I,
+            wheel_inertia,
             wheel_radius,
             wheel_width_cfg,
             wheel_visual_path,

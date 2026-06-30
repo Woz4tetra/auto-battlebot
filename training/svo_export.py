@@ -45,121 +45,134 @@ def export_avi_to_mp4(input_avi: str, output_mp4: str) -> None:
     os.system(command)
 
 
+def write_svo_frames(
+    zed: sl.Camera,
+    video_writer: cv2.VideoWriter,
+    channel: int,
+    width: int,
+    height: int,
+    nb_frames: int,
+) -> None:
+    # Prepare side by side image container equivalent to CV_8UC4
+    svo_image_rgba = np.zeros((height, width, 4), dtype=np.uint8)
+
+    # Prepare single image containers
+    image = sl.Mat()
+
+    rt_param = sl.RuntimeParameters()
+    pbar = tqdm.tqdm(total=nb_frames)
+
+    while True:
+        err = zed.grab(rt_param)
+        if err == sl.ERROR_CODE.SUCCESS:
+            # Retrieve SVO images
+            if channel == 0:
+                zed.retrieve_image(image, sl.VIEW.LEFT)
+            elif channel == 1:
+                zed.retrieve_image(image, sl.VIEW.RIGHT)
+            elif channel == 2:
+                zed.retrieve_image(image, sl.VIEW.DEPTH)
+
+            # Copy the left image to the left side of SBS image
+            svo_image_rgba[0:height, 0:width, :] = image.get_data()
+
+            # Convert SVO image from RGBA to RGB
+            ocv_image_rgb = cv2.cvtColor(svo_image_rgba, cv2.COLOR_RGBA2RGB)
+
+            # Write the RGB image in the video
+            video_writer.write(ocv_image_rgb)
+
+            pbar.update(1)
+
+        if err == sl.ERROR_CODE.END_OF_SVOFILE_REACHED:
+            sys.stdout.write("\nSVO end has been reached. Exiting now.\n")
+            break
+    pbar.close()
+
+
+def convert_svo_file(svo_file: str, opt: argparse.Namespace) -> None:
+    channel = opt.channel
+
+    if not opt.output:
+        output = os.path.splitext(svo_file)[0] + ".avi"
+    else:
+        output = opt.output
+
+    if not os.path.exists(svo_file):
+        print("Input SVO file does not exist.\n")
+        exit()
+
+    # Specify SVO path parameter
+    init_params = sl.InitParameters()
+    if channel == 2:
+        init_params.depth_mode = sl.DEPTH_MODE.NEURAL_PLUS  # Compute depth for depth channel export
+    else:
+        init_params.depth_mode = sl.DEPTH_MODE.NONE  # No depth computation needed
+    init_params.set_from_svo_file(svo_file)
+    init_params.svo_real_time_mode = False  # Don't convert in realtime
+    init_params.coordinate_units = (
+        sl.UNIT.MILLIMETER
+    )  # Use milliliter units (for depth measurements)
+
+    # Create ZED objects
+    zed = sl.Camera()
+
+    # Open the SVO file specified as a parameter
+    err = zed.open(init_params)
+    if err != sl.ERROR_CODE.SUCCESS:
+        sys.stdout.write(repr(err))
+        zed.close()
+        exit()
+
+    # Get image size
+    image_size = zed.get_camera_information().camera_configuration.resolution
+    width = image_size.width
+    height = image_size.height
+
+    fps = zed.get_camera_information().camera_configuration.fps
+    print(f"SVO frame rate: {fps:.2f} FPS")
+
+    # Create video writer with MPEG-4 part 2 codec
+    video_writer = cv2.VideoWriter(
+        output,
+        cv2.VideoWriter_fourcc("M", "4", "S", "2"),  # type: ignore
+        min(fps, 100),
+        (width, height),
+    )
+    if not video_writer.isOpened():
+        print(
+            "OpenCV video writer cannot be opened."
+            " Please check the .avi file path and write permissions."
+        )
+        zed.close()
+        exit()
+
+    # Start SVO conversion to AVI/SEQUENCE
+    print("Converting SVO... Use Ctrl-C to interrupt conversion.\n")
+
+    nb_frames = zed.get_svo_number_of_frames()
+    write_svo_frames(zed, video_writer, channel, width, height, nb_frames)
+
+    # Close the video writer
+    video_writer.release()
+
+    zed.close()
+
+    # Export to MP4
+    if not opt.skip_mp4:
+        output_mp4 = os.path.splitext(output)[0] + ".mp4"
+        print(f"\nExporting AVI to MP4: {output_mp4}\n")
+        export_avi_to_mp4(output, output_mp4)
+    else:
+        print("Skipping MP4 export.")
+
+
 def main(opt: argparse.Namespace) -> None:
     # Get input parameters
     svo_files = opt.svo_files
-    channel = opt.channel
 
     for svo_file in svo_files:
-        if not opt.output:
-            output = os.path.splitext(svo_file)[0] + ".avi"
-        else:
-            output = opt.output
-
-        if not os.path.exists(svo_file):
-            print("Input SVO file does not exist.\n")
-            exit()
-
-        # Specify SVO path parameter
-        init_params = sl.InitParameters()
-        if channel == 2:
-            init_params.depth_mode = (
-                sl.DEPTH_MODE.NEURAL_PLUS
-            )  # Compute depth for depth channel export
-        else:
-            init_params.depth_mode = sl.DEPTH_MODE.NONE  # No depth computation needed
-        init_params.set_from_svo_file(svo_file)
-        init_params.svo_real_time_mode = False  # Don't convert in realtime
-        init_params.coordinate_units = (
-            sl.UNIT.MILLIMETER
-        )  # Use milliliter units (for depth measurements)
-
-        # Create ZED objects
-        zed = sl.Camera()
-
-        # Open the SVO file specified as a parameter
-        err = zed.open(init_params)
-        if err != sl.ERROR_CODE.SUCCESS:
-            sys.stdout.write(repr(err))
-            zed.close()
-            exit()
-
-        # Get image size
-        image_size = zed.get_camera_information().camera_configuration.resolution
-        width = image_size.width
-        height = image_size.height
-
-        # Prepare side by side image container equivalent to CV_8UC4
-        svo_image_rgba = np.zeros((height, width, 4), dtype=np.uint8)
-
-        # Prepare single image containers
-        image = sl.Mat()
-
-        fps = zed.get_camera_information().camera_configuration.fps
-        print(f"SVO frame rate: {fps:.2f} FPS")
-
-        # Create video writer with MPEG-4 part 2 codec
-        video_writer = cv2.VideoWriter(
-            output,
-            cv2.VideoWriter_fourcc("M", "4", "S", "2"),  # type: ignore
-            min(fps, 100),
-            (width, height),
-        )
-        if not video_writer.isOpened():
-            print(
-                "OpenCV video writer cannot be opened."
-                " Please check the .avi file path and write permissions."
-            )
-            zed.close()
-            exit()
-
-        rt_param = sl.RuntimeParameters()
-
-        # Start SVO conversion to AVI/SEQUENCE
-        print("Converting SVO... Use Ctrl-C to interrupt conversion.\n")
-
-        nb_frames = zed.get_svo_number_of_frames()
-        pbar = tqdm.tqdm(total=nb_frames)
-
-        while True:
-            err = zed.grab(rt_param)
-            if err == sl.ERROR_CODE.SUCCESS:
-                # Retrieve SVO images
-                if channel == 0:
-                    zed.retrieve_image(image, sl.VIEW.LEFT)
-                elif channel == 1:
-                    zed.retrieve_image(image, sl.VIEW.RIGHT)
-                elif channel == 2:
-                    zed.retrieve_image(image, sl.VIEW.DEPTH)
-
-                # Copy the left image to the left side of SBS image
-                svo_image_rgba[0:height, 0:width, :] = image.get_data()
-
-                # Convert SVO image from RGBA to RGB
-                ocv_image_rgb = cv2.cvtColor(svo_image_rgba, cv2.COLOR_RGBA2RGB)
-
-                # Write the RGB image in the video
-                video_writer.write(ocv_image_rgb)
-
-                pbar.update(1)
-
-            if err == sl.ERROR_CODE.END_OF_SVOFILE_REACHED:
-                sys.stdout.write("\nSVO end has been reached. Exiting now.\n")
-                break
-        pbar.close()
-
-        # Close the video writer
-        video_writer.release()
-
-        zed.close()
-
-        # Export to MP4
-        if not opt.skip_mp4:
-            output_mp4 = os.path.splitext(output)[0] + ".mp4"
-            print(f"\nExporting AVI to MP4: {output_mp4}\n")
-            export_avi_to_mp4(output, output_mp4)
-        else:
-            print("Skipping MP4 export.")
+        convert_svo_file(svo_file, opt)
 
 
 if __name__ == "__main__":

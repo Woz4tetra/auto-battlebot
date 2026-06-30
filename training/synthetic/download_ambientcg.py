@@ -164,6 +164,30 @@ def list_random_assets(count: int, seed: int) -> list[str]:
     return rng.sample(unique_ids, count)
 
 
+def _handle_list_random(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Print a random set of asset IDs and the command to download them."""
+    print(f"Fetching ambientCG materials and sampling {args.list_random} at random...")
+    try:
+        sampled = list_random_assets(args.list_random, seed=args.seed)
+    except Exception as e:
+        parser.error(f"Failed to query ambientCG API: {e}")
+
+    if not sampled:
+        print("No texture assets were returned by ambientCG API.")
+        return
+
+    print("\nRandom texture asset IDs:")
+    for asset in sampled:
+        print(f"  {asset}")
+
+    joined_assets = " ".join(sampled)
+    print("\nDownload these with:")
+    print(
+        f"python download_ambientcg.py {args.output_dir} {joined_assets} "
+        f"--resolution {args.resolution}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -208,26 +232,7 @@ def main() -> None:
 
     # List mode: print a random set of assets without downloading.
     if args.list_random > 0:
-        print(f"Fetching ambientCG materials and sampling {args.list_random} at random...")
-        try:
-            sampled = list_random_assets(args.list_random, seed=args.seed)
-        except Exception as e:
-            parser.error(f"Failed to query ambientCG API: {e}")
-
-        if not sampled:
-            print("No texture assets were returned by ambientCG API.")
-            return
-
-        print("\nRandom texture asset IDs:")
-        for asset in sampled:
-            print(f"  {asset}")
-
-        joined_assets = " ".join(sampled)
-        print("\nDownload these with:")
-        print(
-            f"python download_ambientcg.py {args.output_dir} {joined_assets} "
-            f"--resolution {args.resolution}"
-        )
+        _handle_list_random(args, parser)
         return
 
     inputs: list[str] = list(args.assets)

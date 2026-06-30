@@ -6,9 +6,19 @@ Print the total size, average message size, and KB/s of each topic in an MCAP fi
 import argparse
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 
 from mcap.reader import make_reader
+
+
+@dataclass
+class TopicStats:
+    topic_bytes: dict[str, int]
+    topic_counts: dict[str, int]
+    topic_type: dict[str, str]
+    topic_min_ns: dict[str, int]
+    topic_max_ns: dict[str, int]
 
 
 def human_readable(size_bytes: int) -> str:
@@ -19,7 +29,7 @@ def human_readable(size_bytes: int) -> str:
     return f"{size_bytes:.1f} TB"
 
 
-def analyze(path: Path) -> None:
+def _collect_topic_stats(path: Path) -> TopicStats:
     topic_bytes: dict[str, int] = defaultdict(int)
     topic_counts: dict[str, int] = defaultdict(int)
     topic_type: dict[str, str] = {}
@@ -60,20 +70,42 @@ def analyze(path: Path) -> None:
                 topic_type[topic] = schema.name
             topic_counts[topic]  # touch to ensure key exists
 
-    if not topic_bytes:
-        print("No messages found.")
-        return
+    return TopicStats(topic_bytes, topic_counts, topic_type, topic_min_ns, topic_max_ns)
 
-    total_bytes = sum(topic_bytes.values())
-    total_msgs = sum(topic_counts.values())
+
+def _print_topic_rows(
+    sorted_topics: list[tuple[str, int]],
+    stats: TopicStats,
+    total_bytes: int,
+    col_topic: int,
+) -> None:
+    for topic, size in sorted_topics:
+        msg_type = stats.topic_type.get(topic, "unknown")
+        count = stats.topic_counts.get(topic, 0)
+        avg = size / count if count else 0
+        pct = 100.0 * size / total_bytes if total_bytes else 0
+
+        duration_s = (stats.topic_max_ns.get(topic, 0) - stats.topic_min_ns.get(topic, 0)) / 1e9
+        kbps = (size / 1024) / duration_s if duration_s > 0 else 0
+
+        print(
+            f"{topic:<{col_topic}}  {msg_type:<45}  {count:>10,}"
+            f"  {human_readable(size):>10}  {human_readable(int(avg)):>10}"
+            f"  {kbps:>7.1f}  {pct:>7.1f}%"
+        )
+
+
+def _print_topic_report(path: Path, stats: TopicStats) -> None:
+    total_bytes = sum(stats.topic_bytes.values())
+    total_msgs = sum(stats.topic_counts.values())
 
     # Overall file time span (across all topics)
-    all_min = min(topic_min_ns.values()) if topic_min_ns else 0
-    all_max = max(topic_max_ns.values()) if topic_max_ns else 0
+    all_min = min(stats.topic_min_ns.values()) if stats.topic_min_ns else 0
+    all_max = max(stats.topic_max_ns.values()) if stats.topic_max_ns else 0
     total_duration_s = (all_max - all_min) / 1e9
 
     # Sort by size descending
-    sorted_topics = sorted(topic_bytes.items(), key=lambda x: x[1], reverse=True)
+    sorted_topics = sorted(stats.topic_bytes.items(), key=lambda x: x[1], reverse=True)
 
     col_topic = max(len(t) for t, _ in sorted_topics)
     col_topic = max(col_topic, 5)
@@ -89,20 +121,7 @@ def analyze(path: Path) -> None:
     print(header)
     print("-" * len(header))
 
-    for topic, size in sorted_topics:
-        msg_type = topic_type.get(topic, "unknown")
-        count = topic_counts.get(topic, 0)
-        avg = size / count if count else 0
-        pct = 100.0 * size / total_bytes if total_bytes else 0
-
-        duration_s = (topic_max_ns.get(topic, 0) - topic_min_ns.get(topic, 0)) / 1e9
-        kbps = (size / 1024) / duration_s if duration_s > 0 else 0
-
-        print(
-            f"{topic:<{col_topic}}  {msg_type:<45}  {count:>10,}"
-            f"  {human_readable(size):>10}  {human_readable(int(avg)):>10}"
-            f"  {kbps:>7.1f}  {pct:>7.1f}%"
-        )
+    _print_topic_rows(sorted_topics, stats, total_bytes, col_topic)
 
     total_avg = int(total_bytes / total_msgs) if total_msgs else 0
     total_kbps = (total_bytes / 1024) / total_duration_s if total_duration_s > 0 else 0
@@ -113,6 +132,16 @@ def analyze(path: Path) -> None:
         f"  {total_kbps:>7.1f}  {'100.0%':>8}"
     )
     print()
+
+
+def analyze(path: Path) -> None:
+    stats = _collect_topic_stats(path)
+
+    if not stats.topic_bytes:
+        print("No messages found.")
+        return
+
+    _print_topic_report(path, stats)
 
 
 def main() -> None:

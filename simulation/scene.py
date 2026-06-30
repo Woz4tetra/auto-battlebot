@@ -9,7 +9,7 @@ import cv2
 import genesis as gs
 import numpy as np
 import numpy.typing as npt
-from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Rotation
 
 if TYPE_CHECKING:
     from genesis.engine.entities.rigid_entity import RigidEntity
@@ -40,8 +40,8 @@ def robot_quat(model_euler_deg: list[float], yaw_rad: float) -> list[float]:
 
     Returns (w, x, y, z) for Genesis's set_quat().
     """
-    base = R.from_euler("XYZ", model_euler_deg, degrees=True)
-    yaw = R.from_euler("Z", yaw_rad)
+    base = Rotation.from_euler("XYZ", model_euler_deg, degrees=True)
+    yaw = Rotation.from_euler("Z", yaw_rad)
     combined = yaw * base
     x, y, z, w = combined.as_quat()
     return [w, x, y, z]

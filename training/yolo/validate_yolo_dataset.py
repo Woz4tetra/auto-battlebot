@@ -14,7 +14,7 @@ import tkinter as tk
 from collections import OrderedDict
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import yaml
 from natsort import natsorted
@@ -545,6 +545,72 @@ class YOLODatasetValidator:
         )
         return f"#{color_rgb[0]:02x}{color_rgb[1]:02x}{color_rgb[2]:02x}"
 
+    @staticmethod
+    def _parse_detect_pose_row(class_id: int, values: List[float]) -> Optional[Dict]:
+        """Parse a standard YOLO detect/pose row into a bbox annotation.
+
+        Row layout: class cx cy w h [kpt_x kpt_y kpt_v]...
+        Returns None when the row is not a valid detect/pose row so the caller
+        can fall back to seg parsing.
+        """
+        if len(values) < 4:
+            return None
+
+        kp_values = values[4:]
+        if len(kp_values) % 3 != 0:
+            return None
+
+        parsed_keypoints = []
+        for i in range(0, len(kp_values), 3):
+            v_raw = kp_values[i + 2]
+            v_int = int(round(v_raw))
+            if abs(v_raw - v_int) > 1e-6 or v_int not in (0, 1, 2):
+                return None
+            parsed_keypoints.append({"x": kp_values[i], "y": kp_values[i + 1], "v": v_int})
+
+        return {
+            "type": "bbox",
+            "class_id": class_id,
+            "center_x": values[0],
+            "center_y": values[1],
+            "width": values[2],
+            "height": values[3],
+            "keypoints": parsed_keypoints,
+        }
+
+    @staticmethod
+    def _parse_seg_row(class_id: int, values: List[float]) -> Optional[Dict]:
+        """Parse a YOLO-seg polygon row into a seg annotation.
+
+        Row layout: class x1 y1 x2 y2 ... xn yn
+        Returns None when the row does not form a valid polygon.
+        """
+        if len(values) < 6 or len(values) % 2 != 0:
+            return None
+
+        polygon = []
+        for i in range(0, len(values), 2):
+            polygon.append({"x": values[i], "y": values[i + 1]})
+
+        if len(polygon) < 3:
+            return None
+
+        xs = [p["x"] for p in polygon]
+        ys = [p["y"] for p in polygon]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+
+        return {
+            "type": "seg",
+            "class_id": class_id,
+            "center_x": (min_x + max_x) / 2.0,
+            "center_y": (min_y + max_y) / 2.0,
+            "width": max_x - min_x,
+            "height": max_y - min_y,
+            "polygon": polygon,
+            "keypoints": [],
+        }
+
     def parse_yolo_annotation(self, label_path: Path) -> List[Dict]:
         """Parse YOLO annotation file for bbox/pose and yolo-seg polygon rows."""
         annotations = []
@@ -560,66 +626,16 @@ class YOLODatasetValidator:
                 except ValueError:
                     continue
 
-                # Parse standard YOLO detect/pose rows first:
-                # class cx cy w h [kpt_x kpt_y kpt_v]...
-                if len(values) >= 4:
-                    kp_values = values[4:]
-                    if len(kp_values) % 3 == 0:
-                        parsed_keypoints = []
-                        keypoints_valid = True
-                        for i in range(0, len(kp_values), 3):
-                            v_raw = kp_values[i + 2]
-                            v_int = int(round(v_raw))
-                            if abs(v_raw - v_int) > 1e-6 or v_int not in (0, 1, 2):
-                                keypoints_valid = False
-                                break
-                            parsed_keypoints.append(
-                                {"x": kp_values[i], "y": kp_values[i + 1], "v": v_int}
-                            )
-
-                        if keypoints_valid:
-                            annotations.append(
-                                {
-                                    "type": "bbox",
-                                    "class_id": class_id,
-                                    "center_x": values[0],
-                                    "center_y": values[1],
-                                    "width": values[2],
-                                    "height": values[3],
-                                    "keypoints": parsed_keypoints,
-                                }
-                            )
-                            continue
-
-                # Parse YOLO-seg rows:
-                # class x1 y1 x2 y2 ... xn yn
-                if len(values) < 6 or len(values) % 2 != 0:
+                # Parse standard YOLO detect/pose rows first.
+                bbox = self._parse_detect_pose_row(class_id, values)
+                if bbox is not None:
+                    annotations.append(bbox)
                     continue
 
-                polygon = []
-                for i in range(0, len(values), 2):
-                    polygon.append({"x": values[i], "y": values[i + 1]})
-
-                if len(polygon) < 3:
-                    continue
-
-                xs = [p["x"] for p in polygon]
-                ys = [p["y"] for p in polygon]
-                min_x, max_x = min(xs), max(xs)
-                min_y, max_y = min(ys), max(ys)
-
-                annotations.append(
-                    {
-                        "type": "seg",
-                        "class_id": class_id,
-                        "center_x": (min_x + max_x) / 2.0,
-                        "center_y": (min_y + max_y) / 2.0,
-                        "width": max_x - min_x,
-                        "height": max_y - min_y,
-                        "polygon": polygon,
-                        "keypoints": [],
-                    }
-                )
+                # Fall back to YOLO-seg polygon rows.
+                seg = self._parse_seg_row(class_id, values)
+                if seg is not None:
+                    annotations.append(seg)
         return annotations
 
     def draw_image_with_annotations(self, img_path: Path, label_path: Path) -> Image.Image:

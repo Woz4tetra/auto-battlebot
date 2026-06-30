@@ -188,6 +188,172 @@ def write_mask(arr: np.ndarray, dest: Path) -> None:
     cv2.imwrite(str(dest), arr)
 
 
+def load_datasets_info(dataset_roots: list[Path], global_classes: dict) -> list[dict]:
+    """Load per-dataset metadata (names/colors) and print a one-line summary each."""
+    datasets_info = []
+    for root in dataset_roots:
+        meta = load_dataset_yaml(root) or global_classes
+        names = meta.get("names", [])
+        colors = meta.get("colors", [])
+        colors = list(colors) + [None] * max(0, len(names) - len(colors))
+        datasets_info.append(
+            {
+                "root": root,
+                "names": names,
+                "colors": colors,
+                "has_classes": bool(names),
+            }
+        )
+        class_str = f"{len(names)} classes" if names else "no class info"
+        print(f"  {root.name}: {class_str}")
+    return datasets_info
+
+
+def build_merged_classes(
+    datasets_info: list[dict],
+) -> tuple[list[str], list[str], dict[str, int]]:
+    """Build the merged (names, colors, name->id) mapping and print the result."""
+    have_class_info = any(d["has_classes"] for d in datasets_info)
+    merged_names: list[str] = []
+    merged_colors: list[str] = []
+    merged_name_to_id: dict[str, int] = {}
+
+    if have_class_info:
+        info_with_classes = [d for d in datasets_info if d["has_classes"]]
+        merged_names, merged_colors = build_merged_class_list(info_with_classes)
+        merged_name_to_id = {name: i for i, name in enumerate(merged_names)}
+        print(f"Merged class list ({len(merged_names)} classes):")
+        for i, (name, color) in enumerate(zip(merged_names, merged_colors)):
+            print(f"  {i:3d}  {name}  ({color})")
+    else:
+        print("No class info found — masks will be copied without remapping.")
+    print()
+    return merged_names, merged_colors, merged_name_to_id
+
+
+def build_old_id_to_new(
+    names: list[str], merged_name_to_id: dict[str, int]
+) -> dict[int, int] | None:
+    """Map each dataset-local class id to its merged class id, or None if no remap needed."""
+    if not (names and merged_name_to_id):
+        return None
+    return {i: merged_name_to_id[name] for i, name in enumerate(names)}
+
+
+def write_image_and_mask(
+    img_path: Path,
+    mask_path: Path,
+    out_img: Path,
+    out_mask: Path,
+    old_id_to_new: dict[int, int] | None,
+) -> bool:
+    """Copy the image and write the (optionally remapped) mask. Returns False if mask unreadable."""
+    if old_id_to_new is not None:
+        mask_arr = read_mask_channel(mask_path)
+        if mask_arr is None:
+            print(f"  WARNING: could not read mask {mask_path}, skipping")
+            return False
+        write_mask(remap_mask(mask_arr, old_id_to_new), out_mask)
+    else:
+        shutil.copy2(mask_path, out_mask)
+
+    shutil.copy2(img_path, out_img)
+    return True
+
+
+def process_datasets(
+    datasets_info: list[dict],
+    out_split: Path,
+    merged_name_to_id: dict[str, int],
+    include_unvalidated: bool,
+) -> tuple[int, int, int, int]:
+    """Copy passing image/mask pairs from every dataset into the output split.
+
+    Returns (total_copied, total_skipped_fail, total_skipped_bad_mask, collision_count).
+    """
+    total_copied = 0
+    total_skipped_fail = 0
+    total_skipped_bad_mask = 0
+    collision_count = 0
+
+    for info in datasets_info:
+        root = info["root"]
+        old_id_to_new = build_old_id_to_new(info["names"], merged_name_to_id)
+
+        validation_state = load_validation_state(root)
+        if validation_state is None:
+            print(f"  WARNING: {root.name}: no validation_state.json — skipping all images")
+
+        pairs = find_image_mask_pairs(root)
+        ds_copied = 0
+        ds_fail = 0
+
+        for img_path, mask_path in pairs:
+            if not is_image_passing(img_path, root, validation_state, include_unvalidated):
+                ds_fail += 1
+                continue
+
+            stem = safe_stem(root, img_path)
+            out_img = out_split / (stem + img_path.suffix)
+            out_mask = out_split / (stem + "_mask.png")
+
+            if out_img.exists():
+                collision_count += 1
+                stem = f"{stem}_{collision_count}"
+                out_img = out_split / (stem + img_path.suffix)
+                out_mask = out_split / (stem + "_mask.png")
+
+            if not write_image_and_mask(img_path, mask_path, out_img, out_mask, old_id_to_new):
+                total_skipped_bad_mask += 1
+                continue
+
+            ds_copied += 1
+
+        print(f"  {root.name}: copied {ds_copied}, skipped (fail/no state) {ds_fail}")
+        total_copied += ds_copied
+        total_skipped_fail += ds_fail
+
+    return total_copied, total_skipped_fail, total_skipped_bad_mask, collision_count
+
+
+def write_data_yaml(
+    output_dir: Path,
+    merged_names: list[str],
+    merged_colors: list[str],
+    global_classes: dict,
+) -> None:
+    """Write the merged data.yaml if any class info is available."""
+    if not (merged_names or global_classes):
+        return
+    names_out = merged_names or global_classes.get("names", [])
+    colors_out = merged_colors or global_classes.get("colors", [])
+    yaml_data = {
+        "nc": len(names_out),
+        "names": names_out,
+        "colors": colors_out,
+    }
+    yaml_path = output_dir / "data.yaml"
+    with open(yaml_path, "w") as f:
+        yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
+    print(f"Wrote data.yaml -> {yaml_path}")
+
+
+def print_summary(
+    total_copied: int,
+    total_skipped_fail: int,
+    total_skipped_bad_mask: int,
+    collision_count: int,
+) -> None:
+    """Print the final merge totals."""
+    print(f"\nTotal copied:              {total_copied}")
+    print(f"Total skipped (fail):      {total_skipped_fail}")
+    if total_skipped_bad_mask:
+        print(f"Total skipped (bad mask):  {total_skipped_bad_mask}")
+    if collision_count:
+        print(f"Filename collisions resolved: {collision_count}")
+    print("Done.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Merge multiple segmask datasets")
     parser.add_argument(
@@ -242,119 +408,21 @@ def main():
         return
 
     # ── 2. Load metadata from each dataset ───────────────────────────────────
-    datasets_info = []
-    for root in dataset_roots:
-        meta = load_dataset_yaml(root) or global_classes
-        names = meta.get("names", [])
-        colors = meta.get("colors", [])
-        colors = list(colors) + [None] * max(0, len(names) - len(colors))
-        datasets_info.append(
-            {
-                "root": root,
-                "names": names,
-                "colors": colors,
-                "has_classes": bool(names),
-            }
-        )
-        class_str = f"{len(names)} classes" if names else "no class info"
-        print(f"  {root.name}: {class_str}")
-
+    datasets_info = load_datasets_info(dataset_roots, global_classes)
     print()
 
     # ── 3. Build merged class list (only if any dataset has class info) ───────
-    have_class_info = any(d["has_classes"] for d in datasets_info)
-    merged_names: list[str] = []
-    merged_colors: list[str] = []
-    merged_name_to_id: dict[str, int] = {}
-
-    if have_class_info:
-        info_with_classes = [d for d in datasets_info if d["has_classes"]]
-        merged_names, merged_colors = build_merged_class_list(info_with_classes)
-        merged_name_to_id = {name: i for i, name in enumerate(merged_names)}
-        print(f"Merged class list ({len(merged_names)} classes):")
-        for i, (name, color) in enumerate(zip(merged_names, merged_colors)):
-            print(f"  {i:3d}  {name}  ({color})")
-    else:
-        print("No class info found — masks will be copied without remapping.")
-    print()
+    merged_names, merged_colors, merged_name_to_id = build_merged_classes(datasets_info)
 
     # ── 4. Process each dataset ───────────────────────────────────────────────
-    total_copied = 0
-    total_skipped_fail = 0
-    total_skipped_bad_mask = 0
-    collision_count = 0
-
-    for info in datasets_info:
-        root = info["root"]
-        names = info["names"]
-
-        old_id_to_new: dict[int, int] | None = (
-            {i: merged_name_to_id[name] for i, name in enumerate(names)}
-            if (names and merged_name_to_id)
-            else None
-        )
-
-        validation_state = load_validation_state(root)
-        if validation_state is None:
-            print(f"  WARNING: {root.name}: no validation_state.json — skipping all images")
-
-        pairs = find_image_mask_pairs(root)
-        ds_copied = 0
-        ds_fail = 0
-
-        for img_path, mask_path in pairs:
-            if not is_image_passing(img_path, root, validation_state, include_unvalidated):
-                ds_fail += 1
-                continue
-
-            stem = safe_stem(root, img_path)
-            out_img = out_split / (stem + img_path.suffix)
-            out_mask = out_split / (stem + "_mask.png")
-
-            if out_img.exists():
-                collision_count += 1
-                stem = f"{stem}_{collision_count}"
-                out_img = out_split / (stem + img_path.suffix)
-                out_mask = out_split / (stem + "_mask.png")
-
-            if old_id_to_new is not None:
-                mask_arr = read_mask_channel(mask_path)
-                if mask_arr is None:
-                    print(f"  WARNING: could not read mask {mask_path}, skipping")
-                    total_skipped_bad_mask += 1
-                    continue
-                write_mask(remap_mask(mask_arr, old_id_to_new), out_mask)
-            else:
-                shutil.copy2(mask_path, out_mask)
-
-            shutil.copy2(img_path, out_img)
-            ds_copied += 1
-
-        print(f"  {root.name}: copied {ds_copied}, skipped (fail/no state) {ds_fail}")
-        total_copied += ds_copied
-        total_skipped_fail += ds_fail
+    total_copied, total_skipped_fail, total_skipped_bad_mask, collision_count = process_datasets(
+        datasets_info, out_split, merged_name_to_id, include_unvalidated
+    )
 
     # ── 5. Write data.yaml if we have class info ──────────────────────────────
-    if merged_names or global_classes:
-        names_out = merged_names or global_classes.get("names", [])
-        colors_out = merged_colors or global_classes.get("colors", [])
-        yaml_data = {
-            "nc": len(names_out),
-            "names": names_out,
-            "colors": colors_out,
-        }
-        yaml_path = args.output_dir / "data.yaml"
-        with open(yaml_path, "w") as f:
-            yaml.dump(yaml_data, f, default_flow_style=False, sort_keys=False)
-        print(f"Wrote data.yaml -> {yaml_path}")
+    write_data_yaml(args.output_dir, merged_names, merged_colors, global_classes)
 
-    print(f"\nTotal copied:              {total_copied}")
-    print(f"Total skipped (fail):      {total_skipped_fail}")
-    if total_skipped_bad_mask:
-        print(f"Total skipped (bad mask):  {total_skipped_bad_mask}")
-    if collision_count:
-        print(f"Filename collisions resolved: {collision_count}")
-    print("Done.")
+    print_summary(total_copied, total_skipped_fail, total_skipped_bad_mask, collision_count)
 
 
 if __name__ == "__main__":

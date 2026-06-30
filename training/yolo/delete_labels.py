@@ -12,6 +12,8 @@ import argparse
 import multiprocessing as mp
 import shutil
 import sys
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from tqdm import tqdm
@@ -193,7 +195,19 @@ def copy_dataset_yaml_if_present(dataset_dir: Path, output_dir: Path) -> Path | 
     return None
 
 
-def main() -> None:
+@dataclass
+class RemovalStats:
+    written_count: int = 0
+    image_copy_count: int = 0
+    missing_paired_image_count: int = 0
+    missing_paired_image_examples: list[str] = field(default_factory=list)
+    skipped_malformed_total: int = 0
+    removed_annotations_total: int = 0
+    files_with_removals: int = 0
+    hit_labels: set[int] = field(default_factory=set)
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Remove class IDs from YOLO label files")
     parser.add_argument("dataset", type=str, help="Path to dataset directory")
     parser.add_argument(
@@ -226,6 +240,81 @@ def main() -> None:
         default=0,
         help="Worker processes (default: CPU count)",
     )
+    return parser
+
+
+def accumulate_result(stats: RemovalStats, result: dict[str, object], dry_run: bool) -> None:
+    stats.skipped_malformed_total += int(result["malformed_count"])
+    stats.removed_annotations_total += int(result["removed_count"])
+    stats.hit_labels.update(result["hit_labels"])
+    if int(result["removed_count"]) > 0:
+        stats.files_with_removals += 1
+
+    if dry_run and result["has_valid_labels"]:
+        label_name = Path(str(result["label_path"])).name
+        print(f"  {label_name}: {result['dry_run_action']}")
+
+    if bool(result["written"]):
+        stats.written_count += 1
+
+    if bool(result["image_copied"]):
+        stats.image_copy_count += 1
+    elif result["missing_image_for_label"] is not None:
+        stats.missing_paired_image_count += 1
+        if len(stats.missing_paired_image_examples) < 5:
+            stats.missing_paired_image_examples.append(str(result["missing_image_for_label"]))
+
+
+def consume_results(
+    progress_iter: Iterable[dict[str, object]], stats: RemovalStats, dry_run: bool
+) -> None:
+    for result in progress_iter:
+        accumulate_result(stats, result, dry_run)
+
+
+def print_summary(
+    stats: RemovalStats,
+    dry_run: bool,
+    dataset_dir: Path,
+    output_dir: Path | None,
+    labels_to_remove: set[int],
+) -> None:
+    if stats.skipped_malformed_total:
+        print(f"Skipped {stats.skipped_malformed_total} malformed label lines")
+
+    missing_labels = sorted(labels_to_remove - stats.hit_labels)
+    if missing_labels:
+        print(
+            "Warning: requested label IDs not found in parsed annotations: "
+            + ", ".join(str(v) for v in missing_labels)
+        )
+
+    if not dry_run:
+        target = output_dir if output_dir else dataset_dir
+        print(
+            f"Done. Wrote {stats.written_count} label files"
+            f" and {stats.image_copy_count} images to {target}"
+        )
+        print(
+            f"Removed {stats.removed_annotations_total} label annotations"
+            f" across {stats.files_with_removals} files"
+        )
+        if output_dir is not None:
+            copied_yaml = copy_dataset_yaml_if_present(dataset_dir, output_dir)
+            if copied_yaml:
+                print(f"Copied dataset yaml -> {copied_yaml}")
+        if stats.missing_paired_image_count:
+            print(
+                f"Could not find paired images for {stats.missing_paired_image_count} label files"
+            )
+            for sample in stats.missing_paired_image_examples:
+                print(f"  missing image for label: {sample}")
+    else:
+        print("Dry run complete.")
+
+
+def main() -> None:
+    parser = build_arg_parser()
     args = parser.parse_args()
 
     dataset_dir = Path(args.dataset)
@@ -246,14 +335,7 @@ def main() -> None:
         sys.exit(1)
     print(f"Found {len(label_files)} label files")
 
-    written_count = 0
-    image_copy_count = 0
-    missing_paired_image_count = 0
-    missing_paired_image_examples: list[str] = []
-    skipped_malformed_total = 0
-    removed_annotations_total = 0
-    files_with_removals = 0
-    hit_labels: set[int] = set()
+    stats = RemovalStats()
 
     jobs = args.jobs if args.jobs > 0 else (mp.cpu_count() or 1)
     jobs = max(1, jobs)
@@ -287,78 +369,14 @@ def main() -> None:
             results_iter = pool.imap_unordered(process_label_file, worker_inputs, chunksize=64)
             progress_iter = tqdm(results_iter, total=len(worker_inputs), desc="Removing labels")
 
-            for result in progress_iter:
-                skipped_malformed_total += int(result["malformed_count"])
-                removed_annotations_total += int(result["removed_count"])
-                hit_labels.update(result["hit_labels"])
-                if int(result["removed_count"]) > 0:
-                    files_with_removals += 1
-
-                if args.dry_run and result["has_valid_labels"]:
-                    label_name = Path(str(result["label_path"])).name
-                    print(f"  {label_name}: {result['dry_run_action']}")
-
-                if bool(result["written"]):
-                    written_count += 1
-
-                if bool(result["image_copied"]):
-                    image_copy_count += 1
-                elif result["missing_image_for_label"] is not None:
-                    missing_paired_image_count += 1
-                    if len(missing_paired_image_examples) < 5:
-                        missing_paired_image_examples.append(str(result["missing_image_for_label"]))
+            consume_results(progress_iter, stats, args.dry_run)
 
         progress_iter.close()
 
     if jobs == 1:
-        for result in progress_iter:
-            skipped_malformed_total += int(result["malformed_count"])
-            removed_annotations_total += int(result["removed_count"])
-            hit_labels.update(result["hit_labels"])
-            if int(result["removed_count"]) > 0:
-                files_with_removals += 1
+        consume_results(progress_iter, stats, args.dry_run)
 
-            if args.dry_run and result["has_valid_labels"]:
-                label_name = Path(str(result["label_path"])).name
-                print(f"  {label_name}: {result['dry_run_action']}")
-
-            if bool(result["written"]):
-                written_count += 1
-
-            if bool(result["image_copied"]):
-                image_copy_count += 1
-            elif result["missing_image_for_label"] is not None:
-                missing_paired_image_count += 1
-                if len(missing_paired_image_examples) < 5:
-                    missing_paired_image_examples.append(str(result["missing_image_for_label"]))
-
-    if skipped_malformed_total:
-        print(f"Skipped {skipped_malformed_total} malformed label lines")
-
-    missing_labels = sorted(labels_to_remove - hit_labels)
-    if missing_labels:
-        print(
-            "Warning: requested label IDs not found in parsed annotations: "
-            + ", ".join(str(v) for v in missing_labels)
-        )
-
-    if not args.dry_run:
-        target = output_dir if output_dir else dataset_dir
-        print(f"Done. Wrote {written_count} label files and {image_copy_count} images to {target}")
-        print(
-            f"Removed {removed_annotations_total} label annotations"
-            f" across {files_with_removals} files"
-        )
-        if output_dir is not None:
-            copied_yaml = copy_dataset_yaml_if_present(dataset_dir, output_dir)
-            if copied_yaml:
-                print(f"Copied dataset yaml -> {copied_yaml}")
-        if missing_paired_image_count:
-            print(f"Could not find paired images for {missing_paired_image_count} label files")
-            for sample in missing_paired_image_examples:
-                print(f"  missing image for label: {sample}")
-    else:
-        print("Dry run complete.")
+    print_summary(stats, args.dry_run, dataset_dir, output_dir, labels_to_remove)
 
 
 if __name__ == "__main__":

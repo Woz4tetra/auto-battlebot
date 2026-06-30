@@ -13,6 +13,30 @@ import sys
 from pathlib import Path
 
 
+def _try_record(data: bytes, lpos: int, length: int):
+    """Decode one length-prefixed record at lpos. Returns (slen, sstart, send, text) or None."""
+    if lpos + 4 > length:
+        return None
+    slen = struct.unpack_from("<I", data, lpos)[0]
+    if slen < 1 or slen > 100:
+        return None
+    sstart = lpos + 4
+    send = sstart + slen
+    if send > length:
+        return None
+    chunk = data[sstart:send]
+    printable = sum(1 for b in chunk if 32 <= b < 127)
+    nulls = chunk.count(0)
+    if printable + nulls < len(chunk) * 0.85:
+        return None
+    if printable < 1:
+        return None
+    text = chunk.decode("latin-1").rstrip("\x00").strip()
+    if len(text) < 1:
+        return None
+    return (slen, sstart, send, text)
+
+
 def extract_strings(data: bytes) -> list[dict]:
     """Extract length-prefixed text records from xlg binary data.
 
@@ -30,28 +54,9 @@ def extract_strings(data: bytes) -> list[dict]:
 
         best = None
         for skip in (1, 3, 4):
-            lpos = pos + skip
-            if lpos + 4 > length:
-                continue
-            slen = struct.unpack_from("<I", data, lpos)[0]
-            if slen < 1 or slen > 100:
-                continue
-            sstart = lpos + 4
-            send = sstart + slen
-            if send > length:
-                continue
-            chunk = data[sstart:send]
-            printable = sum(1 for b in chunk if 32 <= b < 127)
-            nulls = chunk.count(0)
-            if printable + nulls < len(chunk) * 0.85:
-                continue
-            if printable < 1:
-                continue
-            text = chunk.decode("latin-1").rstrip("\x00").strip()
-            if len(text) < 1:
-                continue
-            best = (slen, sstart, send, text)
-            break
+            best = _try_record(data, pos + skip, length)
+            if best:
+                break
 
         if best:
             slen, sstart, send, text = best
@@ -75,6 +80,65 @@ KV_LABELS = {
 }
 
 
+def _frame_record(text, offset, cumulative_ms):
+    """Return a frame record if text is a hex frame line, else None."""
+    if text.startswith("24 4D") or text.startswith("2F ") or text.startswith("2E "):
+        return {
+            "type": "frame",
+            "hex": text,
+            "offset": offset,
+            "time_ms": cumulative_ms,
+        }
+    return None
+
+
+def _kv_record(text, entries, i, n, cumulative_ms):
+    """Return a field record if text matches a known KV label and has a value, else None."""
+    for kl in KV_LABELS:
+        if text == kl.rstrip() or text.startswith(kl):
+            if i + 1 < n:
+                return {
+                    "type": "field",
+                    "label": text.rstrip(": "),
+                    "value": entries[i + 1]["text"],
+                    "offset": entries[i]["offset"],
+                    "time_ms": cumulative_ms,
+                }
+            return None
+    return None
+
+
+def _timing_record(entries, i, n, cumulative_ms, offset):
+    """Parse a 'Time elapsed (ms)' pair. Returns (record, updated cumulative_ms)."""
+    try:
+        cumulative_ms += int(entries[i + 1]["text"])
+    except ValueError:
+        pass
+    record = {
+        "type": "timing",
+        "elapsed_ms": entries[i + 1]["text"] if i + 1 < n else "?",
+        "cumulative_ms": cumulative_ms,
+        "offset": offset,
+    }
+    return record, cumulative_ms
+
+
+def _colon_field(text, entries, i, n, cumulative_ms, offset):
+    """Return a field record for a 'label:' + short value pair, else None."""
+    if not (text.endswith(":") and i + 1 < n):
+        return None
+    nxt = entries[i + 1]["text"]
+    if len(nxt) >= 60:
+        return None
+    return {
+        "type": "field",
+        "label": text.rstrip(":").strip(),
+        "value": nxt,
+        "offset": offset,
+        "time_ms": cumulative_ms,
+    }
+
+
 def group_entries(entries: list[dict]) -> list[dict]:
     """Coalesce adjacent label+value entries into structured records.
 
@@ -89,15 +153,9 @@ def group_entries(entries: list[dict]) -> list[dict]:
         text = entries[i]["text"]
         offset = entries[i]["offset"]
 
-        if text.startswith("24 4D") or text.startswith("2F ") or text.startswith("2E "):
-            output.append(
-                {
-                    "type": "frame",
-                    "hex": text,
-                    "offset": offset,
-                    "time_ms": cumulative_ms,
-                }
-            )
+        frame = _frame_record(text, offset, cumulative_ms)
+        if frame is not None:
+            output.append(frame)
             i += 1
             continue
 
@@ -105,56 +163,23 @@ def group_entries(entries: list[dict]) -> list[dict]:
             i += 1
             continue
 
-        matched_kv = False
-        for kl in KV_LABELS:
-            if text == kl.rstrip() or text.startswith(kl):
-                if i + 1 < n:
-                    output.append(
-                        {
-                            "type": "field",
-                            "label": text.rstrip(": "),
-                            "value": entries[i + 1]["text"],
-                            "offset": offset,
-                            "time_ms": cumulative_ms,
-                        }
-                    )
-                    i += 2
-                    matched_kv = True
-                break
-        if matched_kv:
-            continue
-
-        if text == "Time elapsed (ms):" and i + 1 < n:
-            try:
-                elapsed = int(entries[i + 1]["text"])
-                cumulative_ms += elapsed
-            except ValueError:
-                pass
-            output.append(
-                {
-                    "type": "timing",
-                    "elapsed_ms": entries[i + 1]["text"] if i + 1 < n else "?",
-                    "cumulative_ms": cumulative_ms,
-                    "offset": offset,
-                }
-            )
+        kv = _kv_record(text, entries, i, n, cumulative_ms)
+        if kv is not None:
+            output.append(kv)
             i += 2
             continue
 
-        if text.endswith(":") and i + 1 < n:
-            nxt = entries[i + 1]["text"]
-            if len(nxt) < 60:
-                output.append(
-                    {
-                        "type": "field",
-                        "label": text.rstrip(":").strip(),
-                        "value": nxt,
-                        "offset": offset,
-                        "time_ms": cumulative_ms,
-                    }
-                )
-                i += 2
-                continue
+        if text == "Time elapsed (ms):" and i + 1 < n:
+            record, cumulative_ms = _timing_record(entries, i, n, cumulative_ms, offset)
+            output.append(record)
+            i += 2
+            continue
+
+        field = _colon_field(text, entries, i, n, cumulative_ms, offset)
+        if field is not None:
+            output.append(field)
+            i += 2
+            continue
 
         output.append({"type": "text", "text": text, "offset": offset, "time_ms": cumulative_ms})
         i += 1
