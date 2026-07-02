@@ -8,7 +8,6 @@ Dependencies: mcap, matplotlib, pandas, numpy
 from __future__ import annotations
 
 import argparse
-import struct
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -18,79 +17,15 @@ import numpy as np
 import pandas as pd
 from mcap.reader import make_reader
 
+# Canonical decoder lives in the shared package (install with `pip install -e .`).
+# Keep the underscored alias: sibling scripts import it from here.
+from auto_battlebot.mcap_io import decode_diagnostic_array as _decode_diagnostic_array
+
 
 PURSUIT_NAV_HW_ID = "pursuit_nav"
 RUNNER_HW_ID = "runner"
 SIM_CAMERA_HW_ID = "sim_camera"
 DIAGNOSTICS_TOPIC = "/diagnostics"
-
-
-# ---------------------------------------------------------------------------
-# ROS1 binary deserialization for diagnostic_msgs/DiagnosticArray
-# ---------------------------------------------------------------------------
-# Wire format (all little-endian):
-#   Header:  uint32 seq, uint32 stamp_secs, uint32 stamp_nsecs, string frame_id
-#   status:  uint32 count, then each DiagnosticStatus:
-#     int8 level, string name, string message, string hardware_id,
-#     values: uint32 count, then each KeyValue: string key, string value
-#   string = uint32 length + raw bytes (no null terminator)
-# ---------------------------------------------------------------------------
-
-
-def _read_string(data: bytes, offset: int) -> tuple[str, int]:
-    (length,) = struct.unpack_from("<I", data, offset)
-    offset += 4
-    s = data[offset : offset + length].decode("utf-8", errors="replace")
-    return s, offset + length
-
-
-def _read_uint32(data: bytes, offset: int) -> tuple[int, int]:
-    (v,) = struct.unpack_from("<I", data, offset)
-    return v, offset + 4
-
-
-def _read_int8(data: bytes, offset: int) -> tuple[int, int]:
-    (v,) = struct.unpack_from("<b", data, offset)
-    return v, offset + 1
-
-
-def _decode_diagnostic_array(data: bytes) -> list[dict]:
-    """Decode a diagnostic_msgs/DiagnosticArray from raw ROS1 bytes.
-    Returns a list of dicts, one per DiagnosticStatus."""
-    off = 0
-
-    # Header: seq, stamp.secs, stamp.nsecs, frame_id
-    _seq, off = _read_uint32(data, off)
-    _secs, off = _read_uint32(data, off)
-    _nsecs, off = _read_uint32(data, off)
-    _frame_id, off = _read_string(data, off)
-
-    # status array
-    status_count, off = _read_uint32(data, off)
-    statuses = []
-    for _ in range(status_count):
-        level, off = _read_int8(data, off)
-        name, off = _read_string(data, off)
-        message, off = _read_string(data, off)
-        hardware_id, off = _read_string(data, off)
-
-        values_count, off = _read_uint32(data, off)
-        values: dict[str, str] = {}
-        for _ in range(values_count):
-            key, off = _read_string(data, off)
-            value, off = _read_string(data, off)
-            values[key] = value
-
-        statuses.append(
-            {
-                "level": level,
-                "name": name,
-                "message": message,
-                "hardware_id": hardware_id,
-                "values": values,
-            }
-        )
-    return statuses
 
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,10 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
     FunctionTimer timer(diagnostics_logger_, "update", 1000.0);
     KeypointsStamped result;
     result.header = image.header;
+    last_detections_ = DetectionsStamped{};
+    last_detections_.header = image.header;
+    last_detections_.image_width = image.image.cols;
+    last_detections_.image_height = image.image.rows;
     if (!initialized_) {
         diagnostics_logger_->error({}, "Model not initialized");
         return result;
@@ -131,6 +135,23 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
                 {{"raw_class", enum_to_string_lower(raw_label)},
                  {"category", enum_to_string_lower(classify_category(raw_label))},
                  {"confidence", static_cast<double>(det.confidence)}});
+
+            // Keep the raw box (original-image pixels) so offline eval tools can score
+            // the detector itself, independent of the blob/keypoint collapse below.
+            int box_x1 = 0;
+            int box_y1 = 0;
+            int box_x2 = 0;
+            int box_y2 = 0;
+            map_detection_box_to_original(det, original_size, input_size, box_x1, box_y1, box_x2,
+                                          box_y2);
+            last_detections_.detections.push_back(Detection2D{static_cast<double>(box_x1),
+                                                              static_cast<double>(box_y1),
+                                                              static_cast<double>(box_x2),
+                                                              static_cast<double>(box_y2),
+                                                              static_cast<double>(det.confidence),
+                                                              det.class_id,
+                                                              raw_label,
+                                                              {}});
         }
 
         cv::Mat instance_mask = decode_mapped_instance_mask(det, output_buffers, output_infos,

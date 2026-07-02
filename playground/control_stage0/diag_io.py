@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Loaders for Stage 0 control metrics.
 
-Reuses the diagnostic_msgs/DiagnosticArray byte decoder from
-``analyze_nav_diagnostics`` (sibling script) and adds extraction of the extra
+Reuses the diagnostic_msgs/DiagnosticArray byte decoder from the shared
+``auto_battlebot.mcap_io`` package and adds extraction of the extra
 subsections and topics Stage 0 needs:
 
 - runner/navigation/using_previous_robots  (reliability / dropout proxy)
@@ -20,7 +20,6 @@ Dependencies: mcap, mcap_ros1, numpy, pandas
 
 from __future__ import annotations
 
-import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -29,12 +28,8 @@ import pandas as pd
 from mcap.reader import make_reader
 from mcap_ros1.reader import read_ros1_messages
 
-# Reuse the hand-rolled DiagnosticArray decoder from the sibling script rather
-# than reimplementing the ROS1 wire format.
-_PLAYGROUND_DIR = Path(__file__).resolve().parent.parent
-if str(_PLAYGROUND_DIR) not in sys.path:
-    sys.path.insert(0, str(_PLAYGROUND_DIR))
-from analyze_nav_diagnostics import _decode_diagnostic_array  # noqa: E402
+# Canonical decoder lives in the shared package (install with `pip install -e .`).
+from auto_battlebot.mcap_io import decode_diagnostic_array as _decode_diagnostic_array
 
 DIAGNOSTICS_TOPIC = "/diagnostics"
 ROBOT_MARKERS_TOPIC = "/robot_markers"

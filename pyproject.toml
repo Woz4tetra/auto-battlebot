@@ -12,6 +12,7 @@ dependencies = [
     "scipy",
     "minigencpp @ git+https://github.com/Woz4tetra/minigencpp.git",
     "tqdm>=4.60.0",
+    "types-tqdm",
     "tomli; python_version < '3.11'",
     "tomli_w",
     "dacite",
@@ -20,6 +21,7 @@ dependencies = [
     "livelossplot",
     "ipython",
     "torchmetrics",
+    "pycocotools",  # torchmetrics MeanAveragePrecision backend (training/model_eval)
     "segmentation-models-pytorch",
     "opencv-python>=4.5.0",
     "pyyaml>=6.0",
@@ -47,7 +49,7 @@ py-modules = []
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = []
+include = ["auto_battlebot*"]
 
 # --- tooling (style + typing rules; mirrors Pickle-Robot conventions) ---------
 # The playground/ directory is intentionally excluded: it holds throwaway analysis

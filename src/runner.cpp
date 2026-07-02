@@ -418,6 +418,8 @@ bool Runner::tick() {
         publisher_->publish_camera_data(camera_data);
         publisher_->publish_field_description(field_description, *initial_field_description_);
         publisher_->publish_robots(robots);
+        publisher_->publish_blob_detections(robot_mask_model_->last_detections());
+        publisher_->publish_keypoint_detections(keypoint_model_->last_detections());
     }
 
     // Resolve once so target selection and navigation operate on the same robot set within a

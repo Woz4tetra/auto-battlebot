@@ -46,6 +46,8 @@ std::shared_ptr<RosPublisher> make_ros_publisher(miniros::NodeHandle &nh,
         TypedPublisher<visualization_msgs::MarkerArray>::advertise(nh, "/field_markers", 10, true),
         TypedPublisher<visualization_msgs::MarkerArray>::advertise(nh, "/robot_markers", 10, true),
         TypedPublisher<visualization_msgs::MarkerArray>::advertise(nh, "/nav_markers", 10, true),
+        TypedPublisher<std_msgs::String>::advertise(nh, "/blob_detections", 10),
+        TypedPublisher<std_msgs::String>::advertise(nh, "/keypoint_detections", 10),
         std::move(mcap_recorder));
 }
 

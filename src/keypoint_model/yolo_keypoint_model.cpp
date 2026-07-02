@@ -45,6 +45,11 @@ bool YoloKeypointModel::initialize() {
 KeypointsStamped YoloKeypointModel::update(RgbImage image) {
     FunctionTimer timer(diagnostics_logger_, "update", 1000.0);
 
+    last_detections_ = DetectionsStamped{};
+    last_detections_.header = image.header;
+    last_detections_.image_width = image.image.cols;
+    last_detections_.image_height = image.image.rows;
+
     if (!initialized_) {
         diagnostics_logger_->error({}, "Model not initialized");
         return KeypointsStamped{};
@@ -333,6 +338,36 @@ void YoloKeypointModel::scale_boxes(std::vector<DetectionRow> &detections,
     }
 }
 
+void YoloKeypointModel::record_raw_detections(const std::vector<DetectionRow> &keep,
+                                              cv::Size original_image_size,
+                                              cv::Size input_image_size) {
+    std::vector<DetectionRow> scaled = keep;
+    scale_boxes(scaled, original_image_size, input_image_size);
+    for (const auto &row : scaled) {
+        if (row.size() < 6) continue;
+        const int class_id = static_cast<int>(row[5]);
+        if (class_id < 0 || class_id >= static_cast<int>(label_indices_.size())) continue;
+        Detection2D detection{static_cast<double>(row[0]),
+                              static_cast<double>(row[1]),
+                              static_cast<double>(row[2]),
+                              static_cast<double>(row[3]),
+                              static_cast<double>(row[4]),
+                              class_id,
+                              label_indices_[static_cast<size_t>(class_id)],
+                              {}};
+        // Keypoints are still in input-image coordinates (scale_boxes only maps the box).
+        for (size_t kp_idx = 6; kp_idx + 2 < row.size(); kp_idx += 3) {
+            const Keypoint scaled_kp = scale_keypoint(
+                Keypoint{Label::EMPTY, KeypointLabel::EMPTY, static_cast<double>(row[kp_idx]),
+                         static_cast<double>(row[kp_idx + 1])},
+                original_image_size, input_image_size);
+            detection.keypoints.push_back(
+                DetectionKeypoint{scaled_kp.x, scaled_kp.y, static_cast<double>(row[kp_idx + 2])});
+        }
+        last_detections_.detections.push_back(std::move(detection));
+    }
+}
+
 bool YoloKeypointModel::resolve_output_layout(const float *output, int &num_features,
                                               int &num_predictions,
                                               std::vector<float> &transposed_buf,
@@ -438,6 +473,7 @@ KeypointsStamped YoloKeypointModel::postprocess_output(const float *output, cons
     std::vector<DetectionRow> keep =
         non_max_suppression(prediction_ptr, num_features, num_predictions, num_keypoints,
                             threshold_, iou_threshold_, 300);
+    record_raw_detections(keep, original_image_size, input_image_size);
 
     const int num_detections = static_cast<int>(keep.size());
 

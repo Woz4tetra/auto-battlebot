@@ -2,6 +2,7 @@
 
 #include <sensor_msgs/CameraInfo.hxx>
 #include <sensor_msgs/CompressedImage.hxx>
+#include <std_msgs/String.hxx>
 #include <tf2_msgs/TFMessage.hxx>
 #include <visualization_msgs/MarkerArray.hxx>
 
@@ -21,6 +22,8 @@ class RosPublisher : public PublisherInterface {
                  TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher,
                  TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher,
                  TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher,
+                 TypedPublisher<std_msgs::String> blob_detections_publisher,
+                 TypedPublisher<std_msgs::String> keypoint_detections_publisher,
                  std::shared_ptr<McapRecorder> mcap_recorder  // optional, may be null
     );
     void publish_camera_data(const CameraData &data) override;
@@ -30,6 +33,8 @@ class RosPublisher : public PublisherInterface {
         const FieldDescription &field_description,
         const FieldDescriptionWithInlierPoints &initial_field_description) override;
     void publish_robots(const RobotDescriptionsStamped &robots) override;
+    void publish_blob_detections(const DetectionsStamped &detections) override;
+    void publish_keypoint_detections(const DetectionsStamped &detections) override;
     void publish_navigation(const NavigationVisualization &nav) override;
 
    private:
@@ -41,8 +46,14 @@ class RosPublisher : public PublisherInterface {
     TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher_;
     TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher_;
     TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher_;
+    TypedPublisher<std_msgs::String> blob_detections_publisher_;
+    TypedPublisher<std_msgs::String> keypoint_detections_publisher_;
 
     std::shared_ptr<McapRecorder> mcap_recorder_;
+
+    // Shared impl for the /blob_detections and /keypoint_detections topics.
+    void publish_detections_on(const TypedPublisher<std_msgs::String> &publisher,
+                               const std::string &topic, const DetectionsStamped &detections);
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 };
 }  // namespace auto_battlebot

@@ -3,6 +3,7 @@
 // Convenience header that includes all data structure types
 #include "data_structures/camera.hpp"
 #include "data_structures/command_feedback.hpp"
+#include "data_structures/detection.hpp"
 #include "data_structures/field.hpp"
 #include "data_structures/header.hpp"
 #include "data_structures/image.hpp"

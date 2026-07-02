@@ -17,6 +17,7 @@ class YoloSegRobotBlobModel : public RobotBlobModelInterface {
 
     bool initialize() override;
     KeypointsStamped update(RgbImage image) override;
+    DetectionsStamped last_detections() const override { return last_detections_; }
 
    private:
     struct Detection {
@@ -46,6 +47,7 @@ class YoloSegRobotBlobModel : public RobotBlobModelInterface {
 
     TrtEngine engine_;
     bool initialized_ = false;
+    DetectionsStamped last_detections_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
     void preprocess_image(const cv::Mat &image, cv::Size input_size, std::vector<float> &buffer);

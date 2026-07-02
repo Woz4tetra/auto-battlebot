@@ -4,6 +4,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
 #include "ros/ros_message_adapters/ros_camera_info.hpp"
+#include "ros/ros_message_adapters/ros_detections.hpp"
 #include "ros/ros_message_adapters/ros_image.hpp"
 #include "ros/ros_message_adapters/ros_marker.hpp"
 #include "ros/ros_message_adapters/ros_tf2.hpp"
@@ -18,6 +19,8 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
                            TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher,
                            TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher,
                            TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher,
+                           TypedPublisher<std_msgs::String> blob_detections_publisher,
+                           TypedPublisher<std_msgs::String> keypoint_detections_publisher,
                            std::shared_ptr<McapRecorder> mcap_recorder)
     : rgb_image_publisher_(std::move(rgb_image_publisher)),
       camera_info_publisher_(std::move(camera_info_publisher)),
@@ -27,6 +30,8 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
       field_marker_publisher_(std::move(field_marker_publisher)),
       robot_marker_publisher_(std::move(robot_marker_publisher)),
       nav_marker_publisher_(std::move(nav_marker_publisher)),
+      blob_detections_publisher_(std::move(blob_detections_publisher)),
+      keypoint_detections_publisher_(std::move(keypoint_detections_publisher)),
       mcap_recorder_(std::move(mcap_recorder)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("ros_publisher")) {}
 
@@ -139,6 +144,35 @@ void RosPublisher::publish_robots(const RobotDescriptionsStamped &robots) {
         markers.markers = ros_adapters::to_ros_robot_markers(robots);
         robot_marker_publisher_.publish(markers);
         if (mcap_recorder_) mcap_recorder_->write("/robot_markers", markers);
+    }
+}
+
+void RosPublisher::publish_blob_detections(const DetectionsStamped &detections) {
+    FunctionTimer timer(diagnostics_logger_, "publish_blob_detections");
+    publish_detections_on(blob_detections_publisher_, "/blob_detections", detections);
+}
+
+void RosPublisher::publish_keypoint_detections(const DetectionsStamped &detections) {
+    FunctionTimer timer(diagnostics_logger_, "publish_keypoint_detections");
+    publish_detections_on(keypoint_detections_publisher_, "/keypoint_detections", detections);
+}
+
+void RosPublisher::publish_detections_on(const TypedPublisher<std_msgs::String> &publisher,
+                                         const std::string &topic,
+                                         const DetectionsStamped &detections) {
+    // A default-constructed header means the model never populated detections
+    // (e.g. noop model); skip so recordings don't fill with stamp-zero messages.
+    if (detections.header.frame_id == FrameId::EMPTY) {
+        return;
+    }
+    if (publisher) {
+        std_msgs::String msg = ros_adapters::to_ros_detections(detections);
+        publisher.publish(msg);
+        if (mcap_recorder_) {
+            // Record with the frame stamp so runs of the same SVO align frame-exactly.
+            const auto stamp_ns = static_cast<uint64_t>(detections.header.stamp * 1e9);
+            mcap_recorder_->write(topic, msg, stamp_ns);
+        }
     }
 }
 

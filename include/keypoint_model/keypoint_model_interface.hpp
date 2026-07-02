@@ -8,6 +8,9 @@ class KeypointModelInterface {
     virtual ~KeypointModelInterface() = default;
     virtual bool initialize() = 0;
     virtual KeypointsStamped update(RgbImage image) = 0;
+    // Raw detections (boxes + model keypoints) from the most recent update() call, in
+    // original-image pixels. Default is empty for models that don't expose them.
+    virtual DetectionsStamped last_detections() const { return {}; }
 };
 
 }  // namespace auto_battlebot

@@ -31,6 +31,7 @@ class YoloKeypointModel : public KeypointModelInterface {
 
     bool initialize() override;
     KeypointsStamped update(RgbImage image) override;
+    DetectionsStamped last_detections() const override { return last_detections_; }
 
    protected:
     std::string model_path_;
@@ -44,7 +45,13 @@ class YoloKeypointModel : public KeypointModelInterface {
 
     TrtEngine engine_;
     bool initialized_;
+    DetectionsStamped last_detections_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
+
+    // Convert NMS-filtered detection rows to Detection2D (original-image pixels, with
+    // model keypoints) and store them in last_detections_ for offline evaluation.
+    void record_raw_detections(const std::vector<DetectionRow> &keep, cv::Size original_image_size,
+                               cv::Size input_image_size);
 
     // Helper methods
     float generate_scale(cv::Mat &image, const std::vector<int> &target_size);

@@ -6,10 +6,18 @@ extends = "main"
 [rgbd_camera]
 camera_fps = 60
 
+# svo_file_path = "data/svo/1729981242.4295187.svo2"
+
+# svo_file_path = "data/svo/2026-03-27T21-48-29.svo2"
+# svo_start_frame = 4100
+
+# svo_file_path = "data/svo/mini_bot_2024-10-26T13-29-41.svo2"
+# position_tracking = false
+
 # svo_file_path = "data/svo/tests/2026-04-20T18-02-50.svo2"
 # svo_file_path = "data/svo/tests/2026-04-19T17-01-18.svo2"
 # svo_file_path = "data/svo/tests/2026-04-26T20-21-45.svo2"
-svo_file_path = "data/svo/tests/2026-04-26T20-22-08.svo2"
+# svo_file_path = "data/svo/tests/2026-04-26T20-22-08.svo2"
 
 # svo_file_path = "data/svo/tests/2026-05-01T09-35-26.svo2"
 # svo_file_path = "data/svo/tests/2026-05-01T09-40-36.svo2"
@@ -26,13 +34,17 @@ svo_file_path = "data/svo/tests/2026-04-26T20-22-08.svo2"
 # svo_file_path = "data/svo/2026-05-02T11-45-08.svo2"
 # svo_start_frame = 13000
 
-# svo_file_path = "data/svo/1729981242.4295187.svo2"
+# svo_file_path = "data/svo/2026-05-02T14-12-27.svo2"
+# svo_start_frame = 1540
 
-# svo_file_path = "data/svo/2026-03-27T21-48-29.svo2"
-# svo_start_frame = 4100
+# svo_file_path = "data/svo/2026-05-02T15-35-04.svo2"
 
-# svo_file_path = "data/svo/mini_bot_2024-10-26T13-29-41.svo2"
-# position_tracking = false
+# svo_file_path = "data/svo/2026-05-02T16-18-07.svo2"
+# svo_start_frame = 3148
+
+svo_file_path = "data/svo/2026-05-02T17-26-14.svo2"
+svo_start_frame = 6400
+
 svo_real_time_mode = true
 
 # Same DeepLabMaskModel as main, x86 engine.

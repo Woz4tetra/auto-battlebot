@@ -1,0 +1,21 @@
+# Label taxonomy for score.py.
+#
+# archetypes: maps a fine (instance-level) label to its NHRL archetype for the
+# "archetype" scoring level. Unlisted labels map to themselves. Label GT at the finest
+# granularity (per robot instance); this file collapses it for coarser comparisons.
+#
+# exclude: labels removed from both GT and predictions before scoring. Add our own
+# robots here to score opponent detection only.
+
+archetypes:
+  # example: per-instance label -> archetype
+  # lynx: horizontal_spinner
+  # shrapnel: horizontal_spinner
+  # deathroll: vertical_spinner
+  opponent: opponent
+  house_bot: house_bot
+
+exclude: []
+# exclude:
+#   - mr_stabs_mk2
+#   - mrs_buff_mk3
