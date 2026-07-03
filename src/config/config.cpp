@@ -38,10 +38,12 @@ void merge_into(toml::table &base, const toml::table &overlay) {
 }
 
 // Resolve an `extends` target to a concrete path via a single deterministic join against the
-// declaring file's directory (never a recursive/name-based search), appending `.toml` if needed.
-std::filesystem::path resolve_extends(const std::filesystem::path &declaring_file,
+// config root directory (never a recursive/name-based search), appending `.toml` if needed.
+// Extends values are always written relative to the config root, so a base like `_desktop` or
+// `playback/_playback` resolves the same way regardless of which subdirectory declares it.
+std::filesystem::path resolve_extends(const std::filesystem::path &config_root,
                                       const std::string &value) {
-    std::filesystem::path resolved = declaring_file.parent_path() / value;
+    std::filesystem::path resolved = config_root / value;
     if (resolved.extension() != ".toml") {
         resolved += ".toml";
     }
@@ -49,8 +51,10 @@ std::filesystem::path resolve_extends(const std::filesystem::path &declaring_fil
 }
 
 // Parse `path` and, if it declares `extends`, recursively load+merge its base config underneath it.
+// `config_root` is the directory that `extends` values are resolved against.
 // `chain` holds the canonical paths currently being resolved, for cycle detection.
 toml::table load_and_merge_config(const std::filesystem::path &path,
+                                  const std::filesystem::path &config_root,
                                   std::vector<std::filesystem::path> &chain) {
     std::error_code ec;
     std::filesystem::path canonical = std::filesystem::weakly_canonical(path, ec);
@@ -73,13 +77,13 @@ toml::table load_and_merge_config(const std::filesystem::path &path,
     toml::table data = toml::parse_file(path.string());
 
     if (auto extends = data["extends"].value<std::string>()) {
-        std::filesystem::path base_path = resolve_extends(path, *extends);
+        std::filesystem::path base_path = resolve_extends(config_root, *extends);
         if (!std::filesystem::exists(base_path)) {
             throw ConfigValidationError("Config '" + path.filename().string() + "' extends base '" +
                                         *extends + "' which was not found at " +
                                         base_path.string());
         }
-        toml::table merged = load_and_merge_config(base_path, chain);
+        toml::table merged = load_and_merge_config(base_path, config_root, chain);
         merge_into(merged, data);
         merged.erase("extends");
         chain.pop_back();
@@ -125,12 +129,14 @@ std::filesystem::path normalize_config_path(const std::string &config_path) {
     return path;
 }
 
-ClassConfiguration load_classes_from_config(const std::filesystem::path &path) {
+ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
+                                            const std::filesystem::path &config_root) {
     ClassConfiguration config;
 
     try {
+        std::filesystem::path root = config_root.empty() ? get_config_dir() : config_root;
         std::vector<std::filesystem::path> chain;
-        auto toml_data = load_and_merge_config(path, chain);
+        auto toml_data = load_and_merge_config(path, root, chain);
 
         std::vector<std::string> parsed_sections;
 

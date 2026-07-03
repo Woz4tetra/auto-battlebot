@@ -401,7 +401,7 @@ int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<Detec
                                                          cv::Size original_image_size,
                                                          cv::Size input_image_size,
                                                          KeypointsStamped &result) {
-    const int num_classes = static_cast<int>(label_map_.size());
+    const int num_classes = static_cast<int>(label_indices_.size());
     const int keypoint_start_idx = 6;
     int valid_detections = 0;
 
@@ -413,11 +413,11 @@ int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<Detec
         valid_detections++;
 
         const int class_id = static_cast<int>(row[5]);
-        if (class_id >= num_classes) {
+        if (class_id < 0 || class_id >= num_classes) {
             diagnostics_logger_->warning({}, "Invalid class ID: " + std::to_string(class_id));
             continue;
         }
-        const Label object_label = label_indices_[class_id];
+        const Label object_label = label_indices_[static_cast<size_t>(class_id)];
 
         DiagnosticsData diag_data;
         diag_data["confidence"] = confidence;

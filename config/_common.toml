@@ -25,6 +25,7 @@ type = "YoloSegRobotBlobModel"
 
 [keypoint_model]
 type = "YoloKeypointModel"
+label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
 
 [[keypoint_model.label_map]]
 label = "MR_STABS_MK2"

@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/auto_battlebot",
-            "args": ["-c", "./config/playback.toml"],
+            "args": ["-c", "./config/playback/mrs_buff_mk3_playback.toml"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
@@ -54,6 +54,5 @@
                 }
             ]
         }
-
     ]
 }

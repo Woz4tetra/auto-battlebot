@@ -56,7 +56,10 @@ struct ClassConfiguration {
     std::unique_ptr<ClockConfiguration> clock;
 };
 
-// Configuration loading functions
-ClassConfiguration load_classes_from_config(const std::filesystem::path &path = {});
+// Configuration loading functions.
+// `extends` values inside configs are resolved relative to `config_root`; when empty it defaults
+// to get_config_dir(). Tests pass an explicit root so they can stay hermetic.
+ClassConfiguration load_classes_from_config(const std::filesystem::path &path = {},
+                                            const std::filesystem::path &config_root = {});
 std::filesystem::path normalize_config_path(const std::string &config_path);
 }  // namespace auto_battlebot

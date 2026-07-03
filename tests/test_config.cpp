@@ -41,8 +41,8 @@ class ConfigTest : public ::testing::Test {
         file.close();
     }
 
-    // Write a named config file in temp_dir and return its path. Used for inheritance tests where
-    // an `extends` target must resolve relative to the declaring file's directory.
+    // Write a named config file in temp_dir and return its path. Used for inheritance tests, which
+    // pass temp_dir as the config root so `extends` targets resolve against it.
     std::filesystem::path write_named_config(const std::string &name, const std::string &content) {
         std::filesystem::path path = temp_dir / name;
         std::ofstream file(path);
@@ -595,7 +595,7 @@ extends = "base"
 camera_fps = 90
 )");
 
-    auto config = load_classes_from_config(child.string());
+    auto config = load_classes_from_config(child.string(), temp_dir);
 
     // Overridden scalar wins.
     auto *zed = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
@@ -620,7 +620,7 @@ extends = "base"
 type = "NoopRgbdCamera"
 )");
 
-    auto config = load_classes_from_config(child.string());
+    auto config = load_classes_from_config(child.string(), temp_dir);
 
     auto *noop = dynamic_cast<NoopRgbdCameraConfiguration *>(config.camera.get());
     ASSERT_NE(noop, nullptr);
@@ -636,7 +636,7 @@ extends = "does_not_exist"
     EXPECT_THROW(
         {
             try {
-                load_classes_from_config(child.string());
+                load_classes_from_config(child.string(), temp_dir);
             } catch (const ConfigValidationError &e) {
                 std::string msg = e.what();
                 EXPECT_NE(msg.find("does_not_exist"), std::string::npos) << msg;
@@ -654,7 +654,7 @@ TEST_F(ConfigTest, ExtendsCycleThrows) {
     EXPECT_THROW(
         {
             try {
-                load_classes_from_config(b.string());
+                load_classes_from_config(b.string(), temp_dir);
             } catch (const ConfigValidationError &e) {
                 std::string msg = e.what();
                 EXPECT_NE(msg.find("Circular"), std::string::npos) << msg;
@@ -680,7 +680,7 @@ extends = "mid"
 type = "NoopTransmitter"
 )");
 
-    auto config = load_classes_from_config(leaf.string());
+    auto config = load_classes_from_config(leaf.string(), temp_dir);
 
     auto *zed = dynamic_cast<ZedRgbdCameraConfiguration *>(config.camera.get());
     ASSERT_NE(zed, nullptr);
