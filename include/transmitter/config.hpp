@@ -54,8 +54,13 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     /** Input magnitude (%) below which output is forced to zero. */
     double zero_deadzone_percent = 0.0;
     double wheel_track_width = 1.0;
-    double max_motor_rpm = 1500.0;
+    double max_motor_rpm = 1500.0;  // Max output shaft RPM
     double wheel_diameter = 0.05;
+    /** Max output-shaft angular acceleration (RPM/s). Slew-limits the linear command so the wheel
+     *  surface acceleration stays below the slip/flip threshold. Derivation from the measured
+     *  8.5 m/s^2 limit: dRPM/dt = a * 60 / (pi * wheel_diameter) = 8.5 * 60 / (pi * 0.05)
+     *  ~= 3247 RPM/s. 0 = disabled (no acceleration limit). */
+    double max_motor_rpm_per_sec = 3247.0;
 
     /** Combined output budget: |linear| + |angular| <= limit.
      *  Angular takes priority; linear fills remaining headroom.
@@ -84,6 +89,8 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
         wheel_track_width = parser.get_optional_double("wheel_track_width", wheel_track_width);
         max_motor_rpm = parser.get_optional_double("max_motor_rpm", max_motor_rpm);
         wheel_diameter = parser.get_optional_double("wheel_diameter", wheel_diameter);
+        max_motor_rpm_per_sec =
+            parser.get_optional_double("max_motor_rpm_per_sec", max_motor_rpm_per_sec);
         velocity_saturation_limit =
             parser.get_optional_double("velocity_saturation_limit", velocity_saturation_limit);
     }

@@ -1,4 +1,4 @@
-"""Fit the full Mrs Buff MK3 drivetrain plant from a calibration session.
+"""Fit the full tank drivetrain plant from a calibration session.
 
 Input is one CSV from analyze_apriltag_mcap.py run on an apriltag_track.py --drive recording. That single
 file carries both halves the fit needs, recorded in one process on one absolute CLOCK_MONOTONIC clock (no
@@ -383,7 +383,7 @@ def print_report(p: dict[str, float]) -> None:
         v = p[key]
         return "n/a" if (isinstance(v, float) and math.isnan(v)) else f"{v:.3f}{unit}"
 
-    print("\n=== Mrs Buff MK3 plant fit ===")
+    print("\n=== Robot plant fit ===")
     print(
         f"  linear deadzone   fwd {f('linear_deadzone_fwd')}  rev {f('linear_deadzone_rev')}  (cmd frac)"
     )
@@ -466,8 +466,8 @@ def main() -> None:
     s = load_session(args.session_csv)
     params = fit_all(s)
     print_report(params)
-    if args.plot:
-        plot_session(s, args.plot)
+    plot_path = args.session_csv.with_suffix('.png') if not args.plot else args.plot
+    plot_session(s, plot_path)
 
 
 if __name__ == "__main__":

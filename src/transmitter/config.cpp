@@ -43,7 +43,7 @@ std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfigur
             config_cast<PlaybackTransmitterConfiguration>(config));
     } else if (config.type == "OpenTxTransmitter") {
         return std::make_shared<OpenTxTransmitter>(
-            config_cast<OpenTxTransmitterConfiguration>(config));
+            config_cast<OpenTxTransmitterConfiguration>(config), std::move(clock));
     } else if (config.type == "SimTransmitter") {
         return std::make_shared<SimTransmitter>(config_cast<SimTransmitterConfiguration>(config),
                                                 std::move(clock));

@@ -16,6 +16,7 @@ max_linear_x = 0.25         # 0 = no limit
 [transmitter]
 wheel_track_width = 0.131
 max_motor_rpm = 1500            # RPM
+max_motor_rpm_per_sec = 3247    # RPM/s; caps linear accel at 8.5 m/s^2 (slip/flip limit). 0 = off
 lifted_deadzone_percent = 0
 zero_deadzone_percent = 2
 reverse_angular_channel = true

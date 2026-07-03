@@ -9,6 +9,7 @@
 #include "crsf/crsf_parser.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "serial/serial_port.hpp"
+#include "time/clock_interface.hpp"
 #include "transmitter/config.hpp"
 #include "transmitter/differential_drive_processor.hpp"
 #include "transmitter/transmitter_interface.hpp"
@@ -17,7 +18,8 @@ namespace auto_battlebot {
 
 class OpenTxTransmitter : public TransmitterInterface {
    public:
-    explicit OpenTxTransmitter(const OpenTxTransmitterConfiguration& config);
+    OpenTxTransmitter(const OpenTxTransmitterConfiguration& config,
+                      std::shared_ptr<ClockInterface> clock);
 
     /** Find and open the serial port, then enable telemetry and channel streaming. */
     bool initialize() override;
@@ -41,7 +43,15 @@ class OpenTxTransmitter : public TransmitterInterface {
    private:
     OpenTxTransmitterConfiguration config_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
+    std::shared_ptr<ClockInterface> clock_;
     DifferentialDriveProcessor processor_;
+
+    // Linear-command slew limiter. Caps the normalized linear command rate so wheel-surface
+    // acceleration stays below the slip/flip threshold (see config_.max_motor_rpm_per_sec).
+    // Expressed in normalized units/second: max_motor_rpm_per_sec / max_motor_rpm. 0 = disabled.
+    double max_linear_rate_per_sec_ = 0.0;
+    double prev_linear_command_ = 0.0;
+    std::optional<double> last_send_time_;
     SerialPort serial_;
     CrsfParser crsf_parser_;
     ChannelsParser channels_parser_;
@@ -55,6 +65,11 @@ class OpenTxTransmitter : public TransmitterInterface {
     bool reconnect_if_needed();
     void process_channel_updates(const std::vector<uint8_t>& bytes);
     void write_trainer_channels(int linear_value, int angular_value);
+
+    /** Slew-limit the normalized linear command so wheel-surface acceleration stays under the
+     *  configured RPM/s cap. Uses the logical clock for dt and passes the command through
+     *  unchanged when the limiter is disabled or on the first tick after (re)enabling. */
+    double limit_linear_acceleration(double linear_command);
 
     void handle_packet(const CrsfLinkStatistics& pkt);
     void handle_packet(const CrsfBattery& pkt);

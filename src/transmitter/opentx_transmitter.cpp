@@ -12,9 +12,11 @@ constexpr int kChannelMax = 1000;  // raw RC channel range [-1000, 1000]
 constexpr int kTrainerMax = 500;   // OpenTX trainer output range [-500, 500]
 }  // namespace
 
-OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& config)
+OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& config,
+                                     std::shared_ptr<ClockInterface> clock)
     : config_(config),
       logger_(DiagnosticsLogger::get_logger("opentx_transmitter")),
+      clock_(std::move(clock)),
       processor_(
           {
               .velocity_saturation_limit = config.velocity_saturation_limit,
@@ -23,7 +25,14 @@ OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& confi
               .reverse_linear = config.reverse_linear_channel,
               .reverse_angular = config.reverse_angular_channel,
           },
-          logger_) {}
+          logger_) {
+    // The command reaching send() is normalized ([-1, 1] == +/-max_motor_rpm), so an RPM/s limit
+    // becomes a normalized rate limit by dividing out max_motor_rpm. wheel_diameter is not needed
+    // here; it only enters the RPM/s default derived from the m/s^2 slip threshold.
+    if (config_.max_motor_rpm_per_sec > 0.0 && config_.max_motor_rpm > 0.0) {
+        max_linear_rate_per_sec_ = config_.max_motor_rpm_per_sec / config_.max_motor_rpm;
+    }
+}
 
 bool OpenTxTransmitter::initialize() {
     auto device = find_opentx_device();
@@ -90,11 +99,19 @@ CommandFeedback OpenTxTransmitter::update() {
 // remain functional even when autonomy is disabled.
 void OpenTxTransmitter::enable() { enabled_ = true; }
 
-void OpenTxTransmitter::disable() { enabled_ = false; }
+void OpenTxTransmitter::disable() {
+    enabled_ = false;
+    // Drop slew-limiter state so re-enabling ramps up from a standstill rather than resuming from
+    // whatever command was last sent before autonomy was cut.
+    prev_linear_command_ = 0.0;
+    last_send_time_.reset();
+}
 
 void OpenTxTransmitter::send(VelocityCommand command) {
     reconnect_if_needed();
     if (!serial_.is_open() || !enabled_) return;
+
+    command.linear_x = limit_linear_acceleration(command.linear_x);
 
     // Differential control mode: linear_channel carries forward velocity, angular_channel
     // carries yaw rate. The OpenTX-side mixer combines them into per-wheel motor outputs.
@@ -108,6 +125,34 @@ void OpenTxTransmitter::send(VelocityCommand command) {
                             {"angular_channel_val", angular_value}});
 
     write_trainer_channels(linear_value, angular_value);
+}
+
+double OpenTxTransmitter::limit_linear_acceleration(double linear_command) {
+    if (max_linear_rate_per_sec_ <= 0.0) return linear_command;
+
+    const double now = clock_->now();
+    if (!last_send_time_) {
+        // First tick after (re)enable: no dt yet, so establish the baseline and pass through.
+        last_send_time_ = now;
+        prev_linear_command_ = linear_command;
+        return linear_command;
+    }
+
+    const double dt = now - *last_send_time_;
+    last_send_time_ = now;
+    if (dt <= 0.0) return linear_command;  // Non-advancing clock: nothing to rate-limit against.
+
+    const double max_delta = max_linear_rate_per_sec_ * dt;
+    const double limited = std::clamp(linear_command, prev_linear_command_ - max_delta,
+                                      prev_linear_command_ + max_delta);
+    if (limited != linear_command) {
+        logger_->debug("accel_limited", {{"requested", linear_command},
+                                         {"limited", limited},
+                                         {"prev", prev_linear_command_},
+                                         {"dt", dt}});
+    }
+    prev_linear_command_ = limited;
+    return limited;
 }
 
 void OpenTxTransmitter::write_trainer_channels(int linear_value, int angular_value) {

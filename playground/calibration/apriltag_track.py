@@ -627,7 +627,7 @@ def main() -> None:
     parser.add_argument(
         "--yaw-offset-deg",
         type=float,
-        default=0.0,
+        default=-90.0,
         help="tag +x (TL->TR edge) direction relative to robot forward",
     )
     # Floor reference grid (an AprilTag GridBoard placed flat on the floor for the one-time frame lock).
@@ -682,6 +682,13 @@ def main() -> None:
         "--rate", type=float, default=50.0, help="--drive command send rate in Hz (default 50)"
     )
     parser.add_argument(
+        "--robot",
+        choices=sorted(dp.ROBOTS),
+        default=None,
+        help="--drive/--dry-run: robot whose drivetrain specs (dp.ROBOTS) size the excitation so it "
+        "stays in the camera view. Required with --drive or a drive --dry-run.",
+    )
+    parser.add_argument(
         "--no-reverse-angular",
         action="store_true",
         help="--drive: disable the reverse_angular convention (default matches main.toml)",
@@ -694,19 +701,41 @@ def main() -> None:
     args = parser.parse_args()
     preview = not args.no_preview
 
+    if (args.drive or args.dry_run) and args.robot is None:
+        raise SystemExit(
+            "--drive and --dry-run need --robot NAME (one of: "
+            + ", ".join(sorted(dp.ROBOTS))
+            + ")."
+        )
+
     # --dry-run just inspects the deterministic protocol; do it before opening any camera or radio.
     if args.dry_run:
-        protocol = dp.build_protocol()
+        assert args.robot is not None  # guaranteed by the check above
+        specs = dp.ROBOTS[args.robot]
+        protocol = dp.build_protocol(specs)
+        print(
+            f"robot {args.robot}: v_max={specs.v_max:.2f} m/s  omega_max={specs.omega_max:.2f} rad/s  "
+            f"view={specs.view_size_m:.2f} m"
+        )
         elapsed = 0.0
+        n_checkpoints = 0
         for s in protocol:
+            if s.checkpoint:
+                n_checkpoints += 1
+                next_phase = s.label.split(":", 1)[-1]
+                print(
+                    f"  {elapsed:6.2f}s  --- CHECKPOINT: reposition robot, Enter to continue "
+                    f"-> {next_phase} ---"
+                )
+                continue
             print(
                 f"  {elapsed:6.2f}s  +{s.duration:4.2f}s  lin={s.linear:+.2f} ang={s.angular:+.2f}  "
                 f"{s.label}"
             )
             elapsed += s.duration
         print(
-            f"\nTotal: {dp.protocol_duration(protocol):.1f}s, {len(protocol)} segments. "
-            "(dry run, no hardware touched)"
+            f"\nActive drive time: {dp.protocol_duration(protocol):.1f}s, {len(protocol)} segments, "
+            f"{n_checkpoints} checkpoints. (dry run, no hardware touched)"
         )
         return
 
@@ -790,10 +819,14 @@ def main() -> None:
                 "check the cable."
             )
         link = dp.TrainerLink(tx_port, reverse_angular=not args.no_reverse_angular)
-        protocol = dp.build_protocol()
+        assert args.robot is not None  # guaranteed by the check near the top of main()
+        specs = dp.ROBOTS[args.robot]
+        protocol = dp.build_protocol(specs)
+        n_checkpoints = sum(1 for s in protocol if s.checkpoint)
         print(
             f"transmitter: DRIVE mode on {tx_port} -> {amcap.TOPIC_COMMAND} "
-            f"({dp.protocol_duration(protocol):.1f}s protocol @ {args.rate:.0f} Hz)"
+            f"({dp.protocol_duration(protocol):.1f}s active @ {args.rate:.0f} Hz, robot {args.robot}, "
+            f"{n_checkpoints} checkpoints)"
         )
         print(
             "SAFETY: guard plates ON, clear bounded space, driver sticks CENTERED (trainer adds sticks)."
@@ -920,6 +953,31 @@ def main() -> None:
                     sample = reader.latest()
                     if sample is not None:
                         writer.write_channels(t, sample.t, sample.channels)
+
+            # Checkpoint: the robot is stopped and waiting for the operator to reposition it. Cancel the
+            # hard-timeout alarm (this human-in-the-loop wait must not trip it), prompt on the terminal,
+            # then re-arm and resume. input() blocks the loop, which is fine: nothing is moving.
+            if driver is not None and driver.pause_event.is_set():
+                next_phase = driver.pause_label.split(":", 1)[-1]
+                translation = next_phase.startswith(("lin_", "steer_brake", "latency"))
+                where = (
+                    "the near edge, facing across the view"
+                    if translation
+                    else "the center of the view"
+                )
+                signal.alarm(0)
+                print(
+                    f"\nCHECKPOINT -> {next_phase}: place the robot at {where} "
+                    "(guard plates on, sticks centered), then press Enter to continue (Ctrl-C aborts).",
+                    flush=True,
+                )
+                try:
+                    input()
+                except (KeyboardInterrupt, EOFError):
+                    stop_event.set()
+                    break
+                signal.alarm(int(dp.protocol_duration(protocol)) + 5)
+                driver.resume_event.set()
 
             # --drive stops recording when the protocol finishes (or a stop was requested mid-run).
             stop = driver is not None and (driver.finished.is_set() or stop_event.is_set())
