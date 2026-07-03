@@ -1,10 +1,12 @@
 #include <miniros/ros.h>
 #include <spdlog/spdlog.h>
+#include <toml++/toml.h>
 
 #include <CLI/CLI.hpp>
 #include <csignal>
 #include <diagnostic_msgs/DiagnosticArray.hxx>
 #include <filesystem>
+#include <iostream>
 #include <memory>
 #include <vector>
 
@@ -38,6 +40,9 @@ int main(int argc, char** argv) {
     std::string config_path_string = "";
     app.add_option("-c,--config", config_path_string,
                    "Path to config profile (e.g. config/playback.toml or config/playback)");
+    bool print_config = false;
+    app.add_flag("--print-config", print_config,
+                 "Print the resolved config values (extends chain merged) and exit");
 
     try {
         app.parse(argc, argv);
@@ -68,6 +73,21 @@ int main(int argc, char** argv) {
         active_profile = (!ec && !rel.empty()) ? rel.replace_extension().generic_string()
                                                : config_path.stem().string();
     }
+    if (print_config) {
+        try {
+            toml::table merged = load_merged_config(config_path);
+            std::cout << "# Resolved config for profile '" << active_profile << "'\n";
+            std::cout << "# Source: " << config_path.string() << "\n";
+            std::cout << "# Note: shows values set by the config and its extends bases; defaults\n";
+            std::cout << "#       applied in code for omitted optional fields are not shown.\n\n";
+            std::cout << merged << "\n";
+        } catch (const std::exception& e) {
+            spdlog::error("Failed to load config '{}': {}", config_path.string(), e.what());
+            return 1;
+        }
+        return 0;
+    }
+
     ClassConfiguration class_config = load_classes_from_config(config_path);
 
     auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, active_profile);

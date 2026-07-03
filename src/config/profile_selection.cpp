@@ -1,7 +1,9 @@
 #include "config/profile_selection.hpp"
 
+#include <pwd.h>
 #include <spdlog/spdlog.h>
 #include <toml++/toml.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -17,19 +19,38 @@ constexpr const char *kProfilesFileName = "profiles.toml";
 constexpr const char *kDefaultProfileFileName = "default_profile";
 constexpr const char *kDefaultSelectionFile = "$HOME/.local/state/auto_battlebot/selected_profile";
 
-// Expand a leading "$HOME" or "~" against the HOME environment variable. Leaves other paths as-is.
+// Resolve the current user's home directory: $HOME if set, otherwise the passwd entry for the
+// current uid. Returns empty only if both are unavailable (should never happen on a real system).
+std::filesystem::path resolve_home() {
+    const char *home = std::getenv("HOME");
+    if (home != nullptr && *home != '\0') {
+        return std::filesystem::path(home);
+    }
+    const struct passwd *pw = getpwuid(getuid());
+    if (pw != nullptr && pw->pw_dir != nullptr && *pw->pw_dir != '\0') {
+        return std::filesystem::path(pw->pw_dir);
+    }
+    return {};
+}
+
+// Expand a leading "$HOME" or "~" against the current user's home directory. Leaves other paths
+// as-is. Throws if a home-relative path cannot be resolved, rather than silently returning the
+// unexpanded literal as a relative path: under systemd with a stripped environment that literal
+// would be written under the working directory (inside the repo) and wiped by the next deploy.
 std::filesystem::path expand_home(const std::string &raw) {
     const bool tilde = !raw.empty() && raw.front() == '~';
     const bool home_var = raw.rfind("$HOME", 0) == 0;
-    if (tilde || home_var) {
-        const char *home = std::getenv("HOME");
-        if (home != nullptr && *home != '\0') {
-            std::string suffix = raw.substr(tilde ? 1 : 5);
-            if (!suffix.empty() && suffix.front() == '/') suffix.erase(0, 1);
-            return std::filesystem::path(home) / suffix;
-        }
+    if (!tilde && !home_var) {
+        return std::filesystem::path(raw);
     }
-    return std::filesystem::path(raw);
+    const std::filesystem::path home = resolve_home();
+    if (home.empty()) {
+        throw ConfigValidationError("Cannot expand '" + raw +
+                                    "': HOME is unset and the current user has no passwd home dir");
+    }
+    std::string suffix = raw.substr(tilde ? 1 : 5);
+    if (!suffix.empty() && suffix.front() == '/') suffix.erase(0, 1);
+    return home / suffix;
 }
 
 std::string trim(const std::string &s) {

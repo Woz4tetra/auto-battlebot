@@ -129,14 +129,19 @@ std::filesystem::path normalize_config_path(const std::string &config_path) {
     return path;
 }
 
+toml::table load_merged_config(const std::filesystem::path &path,
+                               const std::filesystem::path &config_root) {
+    std::filesystem::path root = config_root.empty() ? get_config_dir() : config_root;
+    std::vector<std::filesystem::path> chain;
+    return load_and_merge_config(path, root, chain);
+}
+
 ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
                                             const std::filesystem::path &config_root) {
     ClassConfiguration config;
 
     try {
-        std::filesystem::path root = config_root.empty() ? get_config_dir() : config_root;
-        std::vector<std::filesystem::path> chain;
-        auto toml_data = load_and_merge_config(path, root, chain);
+        auto toml_data = load_merged_config(path, config_root);
 
         std::vector<std::string> parsed_sections;
 

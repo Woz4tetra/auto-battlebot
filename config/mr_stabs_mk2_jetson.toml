@@ -9,9 +9,9 @@ their_robot_labels = ["OPPONENT", "MRS_BUFF_MK3"]
 
 [navigation]
 type = "PursuitNavigation"
-angular_kp = 0.2
-angular_kd = 0.01
-max_linear_x = 0.2         # 0 = no limit
+angular_kp = 0.06
+angular_kd = 0.005
+max_linear_x = 0.25         # 0 = no limit
 
 [transmitter]
 wheel_track_width = 0.131

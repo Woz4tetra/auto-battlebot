@@ -19,6 +19,10 @@ SupplementaryGroups=dialout
 SyslogIdentifier=auto_battlebot
 StandardOutput=journal
 StandardError=journal
+# HOME must be set: the profile selection is persisted to $HOME/.local/state/... and an unset
+# HOME would resolve it relative to WorkingDirectory (inside the repo), where the next deploy
+# wipes it.
+Environment="HOME=/home/__USER__"
 Environment="XDG_RUNTIME_DIR=/run/user/%U"
 Environment="DISPLAY=:0"
 
