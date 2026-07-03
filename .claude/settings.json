@@ -6,11 +6,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./scripts/check_python_lint"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/check_python_lint"
           },
           {
             "type": "command",
-            "command": "./scripts/check_cpp_format"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/check_cpp_format"
           }
         ]
       }
