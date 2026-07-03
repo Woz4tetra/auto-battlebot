@@ -1,7 +1,7 @@
 # x86_64 SVO replay profile for desktop development and regression testing. Identical to main.toml
 # except for the x86 engines, the SVO source, the playback transmitter, and dev UI/mcap/health
 # toggles, so it extends main and declares only those deltas.
-extends = "main"
+extends = "_desktop"
 
 [rgbd_camera]
 camera_fps = 60
@@ -47,17 +47,6 @@ svo_start_frame = 6400
 
 svo_real_time_mode = true
 
-# Same DeepLabMaskModel as main, x86 engine.
-[field_model]
-model_path = "data/models/field_deeplabv3p_r50_2026-04-29_x86_64_sm89.engine"
-
-# Same YoloSeg type + label config inherited from main, x86 engine.
-[robot_mask_model]
-model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-27_x86_64_sm89.engine"
-
-[keypoint_model]
-model_path = "data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm89.engine"
-
 # Type change -> replaces main's OpenTxTransmitter wholesale.
 [transmitter]
 type = "PlaybackTransmitter"
@@ -65,14 +54,5 @@ init_delay_seconds = 0.4
 lifted_deadzone_percent = 10
 zero_deadzone_percent = 2
 
-[ui]
-enable = true
-fullscreen = false
-battery_source = "None"
-
 [mcap]
 enable = false
-ignored_topics = []
-
-[health]
-tegrastats_enable = false # merges over main's [health]; enable/x86_tools/sample_period inherited

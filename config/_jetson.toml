@@ -1,6 +1,6 @@
 # Jetson hardware profile (aarch64 TensorRT engines). Inherits the shared perception/filter stack
 # from common.toml and overrides the hardware-specific bits.
-extends = "common"
+extends = "_common"
 
 [field_model]
 type = "DeepLabMaskModel"
@@ -16,17 +16,14 @@ label_indices = [
   "MR_STABS_MK2",
   "MRS_BUFF_MK3",
 ]
-their_robot_labels = ["OPPONENT", "MR_STABS_MK2"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
 confidence_threshold = 0.6
 debug_visualization = false
 
 [keypoint_model]
+type = "YoloKeypointModel"
 model_path = "data/models/yolo26n-pose_our_robots_2026-05-01_aarch64_sm87.engine"
-
-[robot_filter]
-field_bounds_margin_meters = 0.5 # override common.toml's 0.2
 
 [navigation]
 type = "PursuitNavigation"
@@ -58,10 +55,6 @@ battery_source = "Waveshare UPS"
 
 [mcap]
 enable = true
-ignored_topics = ["/camera/image"]
 
 [health]
-enable = true
 tegrastats_enable = true
-x86_tools_enable = true
-sample_period_ms = 500

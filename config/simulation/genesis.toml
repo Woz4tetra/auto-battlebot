@@ -2,7 +2,11 @@
 # the navigation tuning and transmitter startup delay specific to the Genesis sim (kept out of the
 # shared simulation base so they don't leak into the headless kinematic sim).
 # Run via scripts/run_simulation.sh.
-extends = "simulation"
+extends = "_simulation"
+
+[robot_filter.label_mapping]
+"MR_STABS_MK2" = ["THEIR_ROBOT_1"]
+"MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
 
 [navigation]
 type = "PursuitNavigation"

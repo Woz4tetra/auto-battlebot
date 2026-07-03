@@ -2,7 +2,7 @@
 # recording on (images excluded: the GT dataset already has them), UI off, SVO replayed as
 # fast as possible. Swap [robot_mask_model] model_path and label config per candidate, run
 # the same SVO as the GT labeling run, then score with training/model_eval/score.py.
-extends = "playback"
+extends = "playback/_playback"
 
 [rgbd_camera]
 svo_real_time_mode = false

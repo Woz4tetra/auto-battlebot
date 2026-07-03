@@ -1,4 +1,4 @@
-# Shared base for all profiles. Not run directly: every profile sets `extends = "common"`
+# Shared base for all profiles. Not run directly: every profile sets `extends = "_common"`
 # (directly or transitively) and overrides only its deltas. `model_path` is profile-specific
 # (architecture/date), so it lives in the profiles rather than here.
 #
@@ -17,11 +17,14 @@ type = "PointCloudFieldFilter"
 local_visualize_debug = false
 distance_threshold = 0.05
 
+[field_model]
+type = "DeepLabMaskModel"
+
+[robot_mask_model]
+type = "YoloSegRobotBlobModel"
+
 [keypoint_model]
 type = "YoloKeypointModel"
-label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
-debug_visualization = false
-threshold = 0.5
 
 [[keypoint_model.label_map]]
 label = "MR_STABS_MK2"
@@ -44,16 +47,16 @@ type = "RobotFrontBackSimpleFilter"
 default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
-  "MR_STABS_MK2_FRONT",
-  "MRS_BUFF_MK3_FRONT",
-  "HOUSE_BOT_FRONT",
-  "OPPONENT_FRONT",
+    "MR_STABS_MK2_FRONT",
+    "MRS_BUFF_MK3_FRONT",
+    "HOUSE_BOT_FRONT",
+    "OPPONENT_FRONT",
 ]
 back_keypoints = [
-  "MR_STABS_MK2_BACK",
-  "MRS_BUFF_MK3_BACK",
-  "HOUSE_BOT_BACK",
-  "OPPONENT_BACK",
+    "MR_STABS_MK2_BACK",
+    "MRS_BUFF_MK3_BACK",
+    "HOUSE_BOT_BACK",
+    "OPPONENT_BACK",
 ]
 
 robot_blob_min_length_meters = 0.08
@@ -62,11 +65,9 @@ robot_blob_min_confidence = 0.4
 robot_blob_max_candidates = 8
 blob_overwrite_min_distance_meters = 0.20
 blob_overwrite_size_scale = 0.5
-field_bounds_margin_meters = 0.2
+field_bounds_margin_meters = 0.5
 
 [robot_filter.label_mapping]
-"MR_STABS_MK2" = ["THEIR_ROBOT_1"]
-"MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
@@ -80,3 +81,13 @@ type = "RosPublisher"
 max_loop_rate = 30.0
 default_opponent_count = 1
 autonomy_enabled_by_default = true
+
+[mcap]
+enable = false
+ignored_topics = ["/camera/image"]
+
+[health]
+enable = true
+tegrastats_enable = false
+x86_tools_enable = true  # auto detects if system is x86
+sample_period_ms = 500

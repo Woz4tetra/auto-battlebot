@@ -3,7 +3,7 @@
 # so both arms process identical frames deterministically. Pair with the PlaybackTransmitter fix
 # that streams command feedback continuously; without it the filter's motion prediction never fires
 # in playback. See playground/control_stage0/prediction_eval.py.
-extends = "playback"
+extends = "playback/_playback"
 
 [rgbd_camera]
 # Auto-driving recording: OUR_ROBOT_1 is driven closed-loop and prominent, so the command-based

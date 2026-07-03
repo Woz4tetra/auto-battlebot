@@ -5,7 +5,7 @@
 #
 # Extends simulation: every perception section below changes `type`, which replaces the inherited
 # section wholesale (dropping model paths, label maps, keypoint lists, etc.).
-extends = "simulation"
+extends = "_simulation"
 
 [field_model]
 type = "FixedMaskModel"
@@ -25,6 +25,10 @@ type = "NoopKeypointModel"
 
 [robot_filter]
 type = "GroundTruthRobotFilter"
+
+[robot_filter.label_mapping]
+"MR_STABS_MK2" = ["THEIR_ROBOT_1"]
+"MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
 
 # Match the real robot's tuning (main.toml) so the sim exercises the controller the robot runs.
 # simulation.toml no longer defines navigation, so the type is declared here.

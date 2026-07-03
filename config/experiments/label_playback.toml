@@ -3,7 +3,7 @@
 # as possible. Message stamps come from the SVO frame stamp, so the exported labels align
 # frame-exactly with any candidate run of the same SVO.
 # Pair with training/model_eval/export_labels.py and edit_labels.py.
-extends = "playback"
+extends = "playback/_playback"
 
 [rgbd_camera]
 svo_real_time_mode = false

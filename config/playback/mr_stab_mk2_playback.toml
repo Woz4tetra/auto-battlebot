@@ -1,0 +1,8 @@
+extends = "playback/_playback"
+
+[robot_filter.label_mapping]
+"MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
+"MR_STABS_MK2" = ["OUR_ROBOT_1"]
+
+[robot_mask_model]
+their_robot_labels = ["OPPONENT", "MRS_BUFF_MK3"]
