@@ -5,7 +5,7 @@
 #
 # Extends simulation: every perception section below changes `type`, which replaces the inherited
 # section wholesale (dropping model paths, label maps, keypoint lists, etc.).
-extends = "_simulation"
+extends = "simulation/_simulation"
 
 [field_model]
 type = "FixedMaskModel"
