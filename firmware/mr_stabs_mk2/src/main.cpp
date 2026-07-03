@@ -237,8 +237,8 @@ void loop() {
     prev_loop_us = now_us;
     float dt = loop_us / 1000000.0f;
 
+    ArduinoOTA.handle();
     if (is_loading_firmware) {
-        ArduinoOTA.handle();
         return;
     }
 
@@ -283,8 +283,6 @@ void loop() {
         diag_server.update(&diag);
         return;
     }
-
-    ArduinoOTA.handle();
 
     // Failsafe: if the radio frame has not changed for COMMAND_TIMEOUT, treat the link as stale
     if (!compare_radio_data(radio_data, prev_radio_data)) {
