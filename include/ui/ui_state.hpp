@@ -61,6 +61,11 @@ class UIState {
     /** static_cast<int>(UISystemAction) values; consumed by Runner. */
     std::atomic<int> system_action_requested{static_cast<int>(UISystemAction::NONE)};
 
+    /** Profile the user picked in the switcher; consumed once by Runner to persist the selection.
+     */
+    void set_requested_profile(const std::string &profile);
+    std::optional<std::string> take_requested_profile();
+
     // --- Status from Runner (written by Runner, read by UI) ---
     void set_system_status(const SystemStatus &s);
     void get_system_status(SystemStatus &out) const;
@@ -112,6 +117,18 @@ class UIState {
     void set_battery_options(const BatteryOptions &options);
     BatteryOptions get_battery_options() const;
 
+    /** Profiles the UI switcher offers and the currently active one. Set before starting UI
+     * thread. */
+    void set_available_profiles(const std::vector<std::string> &profiles);
+    std::vector<std::string> get_available_profiles() const;
+    void set_current_profile(const std::string &profile);
+    std::string get_current_profile() const;
+
+    /** Human-readable notice set by Runner after a profile switch is persisted (e.g. "reboot to
+     * apply"); UI shows it in a dialog. */
+    void set_profile_notice(const std::string &notice);
+    std::string get_profile_notice() const;
+
     /** Rolling average window size for loop_rate_hz (number of samples). Set before starting UI
      * thread. */
     void set_rate_avg_window(int window);
@@ -151,6 +168,10 @@ class UIState {
     double max_loop_rate_hz_ = 300.0;
     double rate_fail_threshold_ = 0.5;
     double rate_fail_duration_sec_ = 2.0;
+    std::optional<std::string> requested_profile_;
+    std::vector<std::string> available_profiles_;
+    std::string current_profile_;
+    std::string profile_notice_;
 };
 
 }  // namespace auto_battlebot

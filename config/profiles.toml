@@ -1,0 +1,13 @@
+# Standalone config for the UI profile switcher. NOT part of the `extends` chain and never
+# passed to `-c`; it is read directly at startup to decide which profiles the UI offers.
+[profiles]
+# Regex tested against each config's path relative to config/, without the .toml extension
+# (e.g. "mrs_buff_mk3_jetson", "playback/mrs_buff_mk3_playback"). Only matching profiles appear
+# in the switcher, so keep this specific enough to exclude bases (_common, _jetson, ...) and this
+# file itself. The leading [^_] excludes the underscore-prefixed base files, which would otherwise
+# match (e.g. "_jetson" matches ".*_jetson$").
+pattern = "[^_].*_jetson$"
+
+# Where the current selection persists. Deliberately outside the repo so a source upload or
+# `cmake --install` never clobbers it. A leading $HOME (or ~) is expanded.
+selection_file = "$HOME/.local/state/auto_battlebot/selected_profile"

@@ -232,4 +232,46 @@ double UIState::get_rate_fail_duration_sec() const {
     std::lock_guard<std::mutex> lock(status_mutex_);
     return rate_fail_duration_sec_;
 }
+
+void UIState::set_requested_profile(const std::string &profile) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    requested_profile_ = profile;
+}
+
+std::optional<std::string> UIState::take_requested_profile() {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    std::optional<std::string> out = requested_profile_;
+    requested_profile_.reset();
+    return out;
+}
+
+void UIState::set_available_profiles(const std::vector<std::string> &profiles) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    available_profiles_ = profiles;
+}
+
+std::vector<std::string> UIState::get_available_profiles() const {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    return available_profiles_;
+}
+
+void UIState::set_current_profile(const std::string &profile) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    current_profile_ = profile;
+}
+
+std::string UIState::get_current_profile() const {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    return current_profile_;
+}
+
+void UIState::set_profile_notice(const std::string &notice) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    profile_notice_ = notice;
+}
+
+std::string UIState::get_profile_notice() const {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    return profile_notice_;
+}
 }  // namespace auto_battlebot

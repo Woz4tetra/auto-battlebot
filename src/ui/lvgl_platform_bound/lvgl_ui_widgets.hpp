@@ -78,6 +78,7 @@ struct UIWidgets {
     lv_obj_t *status_tile = nullptr; /* whole tile colored by status */
     lv_obj_t *status_label = nullptr;
     lv_obj_t *status_detail = nullptr;
+    lv_obj_t *profile_readout = nullptr; /* active config profile, top bar (set in update_home) */
     lv_obj_t *opp_tiles[3] = {};
     lv_obj_t *opp_label = nullptr;
     lv_obj_t *manual_target_label = nullptr;
@@ -102,6 +103,12 @@ struct UIWidgets {
     lv_obj_t *confirm_overlay = nullptr;
     lv_obj_t *confirm_message = nullptr;
     UISystemAction pending_confirm_action = UISystemAction::NONE;
+
+    lv_obj_t *profile_dropdown = nullptr;
+    std::vector<std::string> profile_options; /* dropdown index -> profile id */
+    lv_obj_t *notice_overlay = nullptr;
+    lv_obj_t *notice_message = nullptr;
+    std::string last_profile_notice; /* last notice shown, to detect fresh ones */
 
     HealthRow health[8];
     int health_count = 0;

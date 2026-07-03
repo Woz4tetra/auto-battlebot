@@ -8,7 +8,9 @@ Type=simple
 #   systemctl edit auto_battlebot.service  and set ExecStart=
 # Uses same layout as scripts/build_and_install.sh (default prefix ~/.local)
 ExecStartPre=/home/__USER__/auto-battlebot/scripts/run_ros_connector.sh
-ExecStart=/home/__USER__/.local/bin/auto_battlebot -c /home/__USER__/.local/share/auto_battlebot/config/main.toml
+# No -c: the active profile is resolved from the UI selection (persisted outside the repo),
+# falling back to config/default_profile. See config/profiles.toml.
+ExecStart=/home/__USER__/.local/bin/auto_battlebot
 WorkingDirectory=/home/__USER__/auto-battlebot
 Restart=always
 RestartSec=30

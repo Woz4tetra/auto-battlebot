@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 
 #include "data_structures/target_selection.hpp"
 #include "ui/ui_state.hpp"
@@ -15,6 +16,7 @@ enum class UiCommandType {
     TOGGLE_RECORDING,
     REQUEST_SYSTEM_ACTION,
     SET_MANUAL_TARGET,
+    SELECT_PROFILE,
     REQUEST_QUIT,
 };
 
@@ -24,6 +26,7 @@ struct UiCommand {
     bool autonomy_enabled = false;
     UISystemAction system_action = UISystemAction::NONE;
     std::optional<TargetSelection> manual_target;
+    std::string profile_name;
 };
 
 class UiController {
@@ -37,6 +40,7 @@ class UiController {
     void toggle_recording() const;
     void request_system_action(UISystemAction action) const;
     void set_manual_target(const std::optional<TargetSelection> &target) const;
+    void select_profile(const std::string &profile_name) const;
     void request_quit() const;
 
    private:

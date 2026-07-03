@@ -97,6 +97,20 @@ void system_confirm_no_cb(lv_event_t *e) {
     lv_obj_add_flag(w->confirm_overlay, LV_OBJ_FLAG_HIDDEN);
 }
 
+void profile_cb(lv_event_t *e) {
+    auto *w = static_cast<UIWidgets *>(lv_event_get_user_data(e));
+    if (!w || !w->profile_dropdown || !w->controller) return;
+    uint32_t idx = lv_dropdown_get_selected(w->profile_dropdown);
+    if (idx >= w->profile_options.size()) return;
+    // Persisting and the reboot notice are handled by the Runner draining this request.
+    w->controller->select_profile(w->profile_options[idx]);
+}
+
+void notice_ok_cb(lv_event_t *e) {
+    auto *w = static_cast<UIWidgets *>(lv_event_get_user_data(e));
+    if (w && w->notice_overlay) lv_obj_add_flag(w->notice_overlay, LV_OBJ_FLAG_HIDDEN);
+}
+
 void style_transparent(lv_obj_t *obj) {
     lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(obj, 0, 0);
@@ -575,6 +589,51 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
     lv_obj_set_style_pad_gap(tab, 8, 0);
     lv_obj_clear_flag(tab, LV_OBJ_FLAG_SCROLLABLE);
 
+    // --- Profiles section: pick the config profile to run on next boot. ---
+    lv_obj_t *profiles_header = lv_label_create(tab);
+    lv_label_set_text(profiles_header, "Profile");
+    lv_obj_set_style_text_font(profiles_header, &lv_font_montserrat_20, 0);
+
+    lv_obj_t *dropdown = lv_dropdown_create(tab);
+    w.profile_dropdown = dropdown;
+    lv_obj_set_width(dropdown, LV_PCT(100));
+    lv_obj_set_height(dropdown, 72);
+    lv_obj_set_style_text_font(dropdown, &lv_font_montserrat_24, 0);
+
+    // Enlarge the open list rows so each option is an easy touch target.
+    lv_obj_t *dropdown_list = lv_dropdown_get_list(dropdown);
+    if (dropdown_list != nullptr) {
+        lv_obj_set_style_text_font(dropdown_list, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_line_space(dropdown_list, 24, 0);
+        lv_obj_set_style_pad_hor(dropdown_list, 16, 0);
+    }
+
+    w.profile_options = ui_state ? ui_state->get_available_profiles() : std::vector<std::string>{};
+    std::string options_str;
+    for (size_t i = 0; i < w.profile_options.size(); ++i) {
+        if (i > 0) options_str += "\n";
+        options_str += w.profile_options[i];
+    }
+    if (w.profile_options.empty()) {
+        options_str = "(no profiles)";
+        lv_obj_add_state(dropdown, LV_STATE_DISABLED);
+    }
+    lv_dropdown_set_options(dropdown, options_str.c_str());
+
+    const std::string current_profile = ui_state ? ui_state->get_current_profile() : std::string{};
+    for (size_t i = 0; i < w.profile_options.size(); ++i) {
+        if (w.profile_options[i] == current_profile) {
+            lv_dropdown_set_selected(dropdown, static_cast<uint32_t>(i));
+            break;
+        }
+    }
+    lv_obj_add_event_cb(dropdown, profile_cb, LV_EVENT_VALUE_CHANGED, &w);
+
+    // --- Controls section: recording toggle and host power actions. ---
+    lv_obj_t *controls_header = lv_label_create(tab);
+    lv_label_set_text(controls_header, "Controls");
+    lv_obj_set_style_text_font(controls_header, &lv_font_montserrat_20, 0);
+
     lv_obj_t *recording_tile = lv_obj_create(tab);
     w.recording_tile = recording_tile;
     lv_obj_set_width(recording_tile, LV_PCT(100));
@@ -704,6 +763,41 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
     lv_obj_t *confirm_lbl = lv_label_create(confirm_btn);
     lv_label_set_text(confirm_lbl, "Confirm");
     lv_obj_center(confirm_lbl);
+
+    // Reboot notice: shown after a profile is selected and persisted (single OK button).
+    lv_obj_t *notice = lv_obj_create(lv_layer_top());
+    w.notice_overlay = notice;
+    lv_obj_set_size(notice, LV_PCT(100), LV_PCT(100));
+    lv_obj_clear_flag(notice, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(notice, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(notice, LV_OPA_50, 0);
+    lv_obj_set_style_border_width(notice, 0, 0);
+    lv_obj_add_flag(notice, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *notice_panel = lv_obj_create(notice);
+    lv_obj_set_size(notice_panel, 360, 180);
+    lv_obj_center(notice_panel);
+    lv_obj_clear_flag(notice_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(notice_panel, TILE_RADIUS, 0);
+    lv_obj_set_style_pad_all(notice_panel, TILE_PAD, 0);
+    lv_obj_set_style_pad_gap(notice_panel, 12, 0);
+    lv_obj_set_flex_flow(notice_panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(notice_panel, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+
+    w.notice_message = lv_label_create(notice_panel);
+    lv_label_set_text(w.notice_message, "");
+    lv_obj_set_style_text_font(w.notice_message, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_align(w.notice_message, LV_TEXT_ALIGN_CENTER, 0);
+
+    lv_obj_t *ok_btn = lv_btn_create(notice_panel);
+    lv_obj_set_width(ok_btn, LV_PCT(60));
+    lv_obj_set_height(ok_btn, 48);
+    lv_obj_set_style_bg_color(ok_btn, lv_color_hex(0x1E88E5), 0);
+    lv_obj_add_event_cb(ok_btn, notice_ok_cb, LV_EVENT_CLICKED, &w);
+    lv_obj_t *ok_lbl = lv_label_create(ok_btn);
+    lv_label_set_text(ok_lbl, "OK");
+    lv_obj_center(ok_lbl);
 }
 
 /* ------------------------------------------------------------------ */
@@ -712,6 +806,12 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
 
 void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
     if (!us) return;
+
+    if (w.profile_readout) {
+        const std::string profile = us->get_current_profile();
+        lv_label_set_text(w.profile_readout,
+                          ("Profile: " + (profile.empty() ? "--" : profile)).c_str());
+    }
 
     SystemStatus st;
     us->get_system_status(st);
@@ -792,6 +892,14 @@ void update_system(UIWidgets &w, std::shared_ptr<UIState> us) {
         lv_label_set_text(w.recording_detail, vm.recording_detail_text.c_str());
         lv_obj_set_style_text_color(w.recording_detail,
                                     lv_color_hex(vm.recording_detail_text_color), 0);
+    }
+
+    // Pop the reboot notice when the Runner reports a freshly persisted profile selection.
+    const std::string notice = us->get_profile_notice();
+    if (!notice.empty() && notice != w.last_profile_notice) {
+        w.last_profile_notice = notice;
+        if (w.notice_message) lv_label_set_text(w.notice_message, notice.c_str());
+        if (w.notice_overlay) lv_obj_clear_flag(w.notice_overlay, LV_OBJ_FLAG_HIDDEN);
     }
 }
 

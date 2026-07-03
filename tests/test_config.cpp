@@ -5,6 +5,7 @@
 
 #include "config/config.hpp"
 #include "config/config_parser.hpp"
+#include "config/profile_selection.hpp"
 #include "field_filter/config.hpp"
 #include "keypoint_model/config.hpp"
 #include "mask_model/config.hpp"
@@ -1001,6 +1002,135 @@ type = "UnknownPublisher"
             }
         },
         std::invalid_argument);
+}
+
+// Profile selection: regex filtering and selection/default resolution, all hermetic in a temp dir.
+class ProfileSelectionTest : public ::testing::Test {
+   protected:
+    std::filesystem::path config_dir;
+
+    void SetUp() override {
+        config_dir = std::filesystem::temp_directory_path() / "auto_battlebot_profile_test";
+        std::filesystem::remove_all(config_dir);
+        std::filesystem::create_directories(config_dir / "playback");
+    }
+
+    void TearDown() override {
+        if (std::filesystem::exists(config_dir)) {
+            std::filesystem::remove_all(config_dir);
+        }
+    }
+
+    void write_file(const std::filesystem::path &rel, const std::string &content) {
+        std::filesystem::path path = config_dir / rel;
+        std::filesystem::create_directories(path.parent_path());
+        std::ofstream file(path);
+        file << content;
+    }
+
+    // A minimal set of profile files plus base/aux files that a jetson regex should exclude.
+    void write_profiles() {
+        write_file("_common.toml", "");
+        write_file("_jetson.toml", "");
+        write_file("mrs_buff_mk3_jetson.toml", "");
+        write_file("mr_stab_mk2_jetson.toml", "");
+        write_file("mrs_buff_mk3_desktop.toml", "");
+        write_file("playback/mrs_buff_mk3_playback.toml", "");
+    }
+};
+
+TEST_F(ProfileSelectionTest, ListAvailableProfilesFiltersByRegex) {
+    write_profiles();
+    // The leading [^_] excludes the _jetson base, which ".*_jetson$" would otherwise match.
+    auto profiles = list_available_profiles(config_dir, "[^_].*_jetson$");
+    ASSERT_EQ(profiles.size(), 2u);
+    // Sorted, path-relative ids without the .toml extension.
+    EXPECT_EQ(profiles[0], "mr_stab_mk2_jetson");
+    EXPECT_EQ(profiles[1], "mrs_buff_mk3_jetson");
+}
+
+TEST_F(ProfileSelectionTest, ListAvailableProfilesMatchesSubdirPaths) {
+    write_profiles();
+    auto profiles = list_available_profiles(config_dir, ".*playback$");
+    ASSERT_EQ(profiles.size(), 1u);
+    EXPECT_EQ(profiles[0], "playback/mrs_buff_mk3_playback");
+}
+
+TEST_F(ProfileSelectionTest, EmptyPatternMatchesNothing) {
+    write_profiles();
+    EXPECT_TRUE(list_available_profiles(config_dir, "").empty());
+}
+
+TEST_F(ProfileSelectionTest, SelectionRoundTrip) {
+    ProfileSelectorConfig selector;
+    selector.selection_file = config_dir / "state" / "selected_profile";
+    EXPECT_FALSE(read_selection_file(selector).has_value());
+
+    write_selection_file(selector, "mrs_buff_mk3_jetson");
+    auto selected = read_selection_file(selector);
+    ASSERT_TRUE(selected.has_value());
+    EXPECT_EQ(*selected, "mrs_buff_mk3_jetson");
+}
+
+TEST_F(ProfileSelectionTest, ResolveUsesValidSelection) {
+    write_profiles();
+    write_file("default_profile", "mr_stab_mk2_jetson\n");
+    ProfileSelectorConfig selector;
+    selector.pattern = ".*_jetson$";
+    selector.selection_file = config_dir / "state" / "selected_profile";
+    write_selection_file(selector, "mrs_buff_mk3_jetson");
+
+    EXPECT_EQ(resolve_active_profile(config_dir, selector), "mrs_buff_mk3_jetson");
+}
+
+TEST_F(ProfileSelectionTest, ResolveFallsBackWhenNoSelection) {
+    write_profiles();
+    write_file("default_profile", "mr_stab_mk2_jetson\n");
+    ProfileSelectorConfig selector;
+    selector.pattern = ".*_jetson$";
+    selector.selection_file = config_dir / "state" / "selected_profile";  // never written
+
+    EXPECT_EQ(resolve_active_profile(config_dir, selector), "mr_stab_mk2_jetson");
+}
+
+TEST_F(ProfileSelectionTest, ResolveFallsBackWhenSelectionNoLongerAvailable) {
+    write_profiles();
+    write_file("default_profile", "mr_stab_mk2_jetson\n");
+    ProfileSelectorConfig selector;
+    selector.pattern = ".*_jetson$";
+    selector.selection_file = config_dir / "state" / "selected_profile";
+    // A desktop profile no longer matches the jetson regex -> fall back to default.
+    write_selection_file(selector, "mrs_buff_mk3_desktop");
+
+    EXPECT_EQ(resolve_active_profile(config_dir, selector), "mr_stab_mk2_jetson");
+}
+
+TEST_F(ProfileSelectionTest, ResolveThrowsWhenDefaultInvalid) {
+    write_profiles();
+    write_file("default_profile", "does_not_exist\n");
+    ProfileSelectorConfig selector;
+    selector.pattern = ".*_jetson$";
+    selector.selection_file = config_dir / "state" / "selected_profile";
+
+    EXPECT_THROW(resolve_active_profile(config_dir, selector), ConfigValidationError);
+}
+
+TEST_F(ProfileSelectionTest, LoadSelectorParsesPatternAndSelectionFile) {
+    write_file("profiles.toml", R"(
+[profiles]
+pattern = ".*_jetson$"
+selection_file = "/tmp/auto_battlebot_profile_test_sel"
+)");
+    ProfileSelectorConfig selector = load_profile_selector(config_dir);
+    EXPECT_EQ(selector.pattern, ".*_jetson$");
+    EXPECT_EQ(selector.selection_file,
+              std::filesystem::path("/tmp/auto_battlebot_profile_test_sel"));
+}
+
+TEST_F(ProfileSelectionTest, LoadSelectorMissingFileDegradesGracefully) {
+    ProfileSelectorConfig selector = load_profile_selector(config_dir);  // no profiles.toml
+    EXPECT_TRUE(selector.pattern.empty());
+    EXPECT_FALSE(selector.selection_file.empty());  // default path
 }
 
 }  // namespace auto_battlebot

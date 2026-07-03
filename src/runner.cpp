@@ -20,7 +20,8 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<NavigationInterface> navigation,
                std::shared_ptr<TransmitterInterface> transmitter,
                std::shared_ptr<PublisherInterface> publisher,
-               SystemActionCallback system_action_callback, std::shared_ptr<UIState> ui_state,
+               SystemActionCallback system_action_callback,
+               ProfileSelectCallback profile_select_callback, std::shared_ptr<UIState> ui_state,
                std::shared_ptr<McapRecorder> mcap_recorder, std::shared_ptr<ClockInterface> clock)
     : runner_config_(runner_config),
       camera_(camera),
@@ -37,6 +38,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       mcap_recorder_(std::move(mcap_recorder)),
       clock_(std::move(clock)),
       system_action_callback_(std::move(system_action_callback)),
+      profile_select_callback_(std::move(profile_select_callback)),
       runtime_opponent_count_(runner_config_.default_opponent_count),
       robot_filter_reinit_pending_(false),
       previous_selected_target_(TargetSelection{}),
@@ -132,6 +134,18 @@ bool Runner::handle_system_action_request() {
     return true;
 }
 
+void Runner::handle_profile_switch_request() {
+    auto requested_profile = ui_state_->take_requested_profile();
+    if (!requested_profile) return;
+
+    spdlog::info("Runner received profile switch request: {}", *requested_profile);
+    if (profile_select_callback_) {
+        profile_select_callback_(*requested_profile);
+    }
+    // The new profile only takes effect on the next launch; tell the user to reboot.
+    ui_state_->set_profile_notice("Selected " + *requested_profile + ". Reboot to apply.");
+}
+
 void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const {
     if (!ui_state_) return;
     if (!camera_data.rgb.image.data || camera_data.rgb.image.empty()) return;
@@ -153,6 +167,7 @@ bool Runner::handle_ui_requests(bool &should_reinit_field) {
     handle_opponent_count_request();
     handle_autonomy_toggle_request();
     handle_recording_toggle_request();
+    handle_profile_switch_request();
     return handle_system_action_request();
 }
 

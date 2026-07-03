@@ -27,6 +27,9 @@ void UiController::dispatch(const UiCommand &command) const {
         case UiCommandType::SET_MANUAL_TARGET:
             ui_state_->set_manual_target(command.manual_target);
             break;
+        case UiCommandType::SELECT_PROFILE:
+            ui_state_->set_requested_profile(command.profile_name);
+            break;
         case UiCommandType::REQUEST_QUIT:
             ui_state_->quit_requested.store(true);
             break;
@@ -73,6 +76,13 @@ void UiController::set_manual_target(const std::optional<TargetSelection> &targe
     UiCommand command{};
     command.type = UiCommandType::SET_MANUAL_TARGET;
     command.manual_target = target;
+    dispatch(command);
+}
+
+void UiController::select_profile(const std::string &profile_name) const {
+    UiCommand command{};
+    command.type = UiCommandType::SELECT_PROFILE;
+    command.profile_name = profile_name;
     dispatch(command);
 }
 

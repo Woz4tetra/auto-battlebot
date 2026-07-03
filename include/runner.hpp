@@ -5,6 +5,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -35,6 +36,7 @@ namespace auto_battlebot {
 class Runner {
    public:
     using SystemActionCallback = std::function<void(UISystemAction)>;
+    using ProfileSelectCallback = std::function<void(const std::string &)>;
 
     Runner(const RunnerConfiguration &runner_config, std::shared_ptr<RgbdCameraInterface> camera,
            std::shared_ptr<HealthLogger> health_logger,
@@ -47,7 +49,9 @@ class Runner {
            std::shared_ptr<NavigationInterface> navigation,
            std::shared_ptr<TransmitterInterface> transmitter,
            std::shared_ptr<PublisherInterface> publisher,
-           SystemActionCallback system_action_callback, std::shared_ptr<UIState> ui_state = nullptr,
+           SystemActionCallback system_action_callback,
+           ProfileSelectCallback profile_select_callback = nullptr,
+           std::shared_ptr<UIState> ui_state = nullptr,
            std::shared_ptr<McapRecorder> mcap_recorder = nullptr,
            std::shared_ptr<ClockInterface> clock = nullptr);
 
@@ -72,6 +76,7 @@ class Runner {
     std::shared_ptr<McapRecorder> mcap_recorder_;
     std::shared_ptr<ClockInterface> clock_;
     SystemActionCallback system_action_callback_;
+    ProfileSelectCallback profile_select_callback_;
 
     int runtime_opponent_count_;
     bool robot_filter_reinit_pending_;
@@ -91,6 +96,7 @@ class Runner {
     void handle_autonomy_toggle_request();
     void handle_recording_toggle_request() const;
     bool handle_system_action_request();
+    void handle_profile_switch_request();
     bool handle_ui_requests(bool &should_reinit_field);
     bool recover_camera_after_failure();
     void set_ui_debug_image_from_camera(const CameraData &camera_data) const;

@@ -254,6 +254,13 @@ void build_top_bar(lv_obj_t *parent, UIWidgets &w) {
     lv_obj_set_style_bg_color(bar, lv_color_hex(0x111111), 0);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* Active config profile, top-left (text set from UIState in update_home). */
+    w.profile_readout = lv_label_create(bar);
+    lv_label_set_text(w.profile_readout, "--");
+    lv_obj_set_style_text_font(w.profile_readout, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(w.profile_readout, lv_color_hex(0xB0B0B0), 0);
+    lv_obj_align(w.profile_readout, LV_ALIGN_LEFT_MID, 0, 0);
+
     w.clock_label = lv_label_create(bar);
     lv_label_set_text(w.clock_label, "--:--:--");
     lv_obj_set_style_text_font(w.clock_label, &lv_font_montserrat_20, 0);

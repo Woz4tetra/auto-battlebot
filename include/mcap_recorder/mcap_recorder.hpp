@@ -20,7 +20,9 @@ namespace auto_battlebot {
 
 class McapRecorder {
    public:
-    explicit McapRecorder(const std::string& config_name);
+    // `active_profile` is the resolved config profile id; it is embedded in the recording
+    // filename and written into the file as an `active_profile` metadata record.
+    explicit McapRecorder(const std::string& active_profile);
     ~McapRecorder();
 
     McapRecorder(const McapRecorder&) = delete;
@@ -107,9 +109,10 @@ class McapRecorder {
         return channel.id;
     }
 
-    static std::filesystem::path make_file_path(const std::string& config_name);
+    static std::filesystem::path make_file_path(const std::string& active_profile);
 
     mcap::McapWriter writer_;
+    std::string active_profile_;
     std::filesystem::path file_path_;
     bool writer_open_{false};
     bool enabled_{false};
@@ -120,6 +123,6 @@ class McapRecorder {
 };
 
 std::shared_ptr<McapRecorder> make_mcap_recorder(const McapRecorderConfig& config,
-                                                 const std::filesystem::path& config_path);
+                                                 const std::string& active_profile);
 
 }  // namespace auto_battlebot

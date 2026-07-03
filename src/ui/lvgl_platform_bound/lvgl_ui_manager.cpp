@@ -6,7 +6,9 @@
 
 namespace auto_battlebot {
 
-UIManager::UIManager(const UiConfiguration& config, double max_loop_rate)
+UIManager::UIManager(const UiConfiguration& config, double max_loop_rate,
+                     const std::vector<std::string>& available_profiles,
+                     const std::string& current_profile)
     : ui_state_(std::make_shared<UIState>()) {
     ui_state_->set_window_size(config.width, config.height);
     ui_state_->set_fullscreen(config.fullscreen);
@@ -16,6 +18,8 @@ UIManager::UIManager(const UiConfiguration& config, double max_loop_rate)
     ui_state_->set_max_loop_rate(max_loop_rate);
     ui_state_->set_rate_fail_threshold(config.rate_fail_threshold);
     ui_state_->set_rate_fail_duration_sec(config.rate_fail_duration_sec);
+    ui_state_->set_available_profiles(available_profiles);
+    ui_state_->set_current_profile(current_profile);
     diagnostics_backend_ = std::make_shared<UIDiagnosticsBackend>(ui_state_);
 }
 

@@ -1,7 +1,9 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "quittable.hpp"
@@ -16,7 +18,9 @@ struct UiConfiguration;
  *  registered, then call start() when ready to show the window. */
 class UIManager : public Quittable {
    public:
-    UIManager(const UiConfiguration& config, double max_loop_rate);
+    UIManager(const UiConfiguration& config, double max_loop_rate,
+              const std::vector<std::string>& available_profiles = {},
+              const std::string& current_profile = "");
 
     UIManager(const UIManager&) = delete;
     UIManager& operator=(const UIManager&) = delete;

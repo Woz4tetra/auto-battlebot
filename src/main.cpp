@@ -9,8 +9,10 @@
 #include <vector>
 
 #include "config/config.hpp"
+#include "config/profile_selection.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/ros_diagnostics_backend.hpp"
+#include "directories.hpp"
 #include "health/health_logger.hpp"
 #include "logging/logging.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
@@ -43,10 +45,32 @@ int main(int argc, char** argv) {
         return app.exit(e);
     }
 
-    std::filesystem::path config_path = normalize_config_path(config_path_string);
+    ProfileSelectorConfig profile_selector = load_profile_selector(get_config_dir());
+    std::vector<std::string> available_profiles =
+        list_available_profiles(get_config_dir(), profile_selector.pattern);
+
+    std::filesystem::path config_path;
+    std::string active_profile;
+    if (config_path_string.empty()) {
+        // Service launch: use the profile the operator selected in the UI, falling back to the
+        // repo default. An explicit -c (dev/playback/sim) bypasses the selector entirely.
+        try {
+            active_profile = resolve_active_profile(get_config_dir(), profile_selector);
+        } catch (const std::exception& e) {
+            spdlog::error("Could not resolve a config profile: {}", e.what());
+            return 1;
+        }
+        config_path = get_config_dir() / (active_profile + ".toml");
+    } else {
+        config_path = normalize_config_path(config_path_string);
+        std::error_code ec;
+        std::filesystem::path rel = std::filesystem::relative(config_path, get_config_dir(), ec);
+        active_profile = (!ec && !rel.empty()) ? rel.replace_extension().generic_string()
+                                               : config_path.stem().string();
+    }
     ClassConfiguration class_config = load_classes_from_config(config_path);
 
-    auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, config_path);
+    auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, active_profile);
     setup_logging(mcap_recorder);
     std::map<std::string, std::string> remappings;
     miniros::init(remappings, "auto_battlebot");
@@ -58,7 +82,8 @@ int main(int argc, char** argv) {
 
     if (class_config.ui && class_config.ui->enable) {
         ui_manager =
-            std::make_unique<UIManager>(*class_config.ui, class_config.runner.max_loop_rate);
+            std::make_unique<UIManager>(*class_config.ui, class_config.runner.max_loop_rate,
+                                        available_profiles, active_profile);
         backends.push_back(ui_manager->diagnostics_backend());
     }
 
@@ -84,10 +109,14 @@ int main(int argc, char** argv) {
     auto transmitter = make_transmitter(*class_config.transmitter, clock);
     auto health_logger = std::make_shared<HealthLogger>(class_config.health);
 
-    Runner runner(class_config.runner, camera, health_logger, field_model, robot_mask_model,
-                  field_filter, keypoint_model, robot_filter, target_selector, navigation,
-                  transmitter, publisher, handle_system_action,
-                  ui_manager ? ui_manager->ui_state() : nullptr, mcap_recorder, clock);
+    Runner runner(
+        class_config.runner, camera, health_logger, field_model, robot_mask_model, field_filter,
+        keypoint_model, robot_filter, target_selector, navigation, transmitter, publisher,
+        handle_system_action,
+        [profile_selector](const std::string& name) {
+            write_selection_file(profile_selector, name);
+        },
+        ui_manager ? ui_manager->ui_state() : nullptr, mcap_recorder, clock);
 
     runner.initialize();
 
