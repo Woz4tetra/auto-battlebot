@@ -294,10 +294,14 @@ else()
     )
 endif()
 
-# Copy config directory to build directory
-file(GLOB_RECURSE CONFIG_FILES ${CMAKE_SOURCE_DIR}/config/*.toml)
+# Copy config directory to build directory.
+# Runs every build (custom targets are always out of date). Do not add a
+# file(GLOB) + DEPENDS here: the glob is captured at configure time, so renaming
+# or deleting a config leaves a stale path in the dependency list and the build
+# fails with "No rule to make target 'config/<old_name>.toml'". Removing the
+# destination first also drops orphaned copies of renamed/deleted configs.
 add_custom_target(copy_config_files ALL
-    DEPENDS ${CONFIG_FILES}
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/config
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/config
     ${CMAKE_BINARY_DIR}/config
