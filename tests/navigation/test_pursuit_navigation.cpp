@@ -118,8 +118,8 @@ TEST_F(PursuitNavigationTest, DerivativeTermUsesLogicalClockDt) {
     PursuitNavigationConfiguration config = make_default_config();
     config.angular_kp = 0.0;  // isolate the derivative term
     config.angular_kd = 0.1;
-    config.angle_threshold = M_PI;  // never gate on heading error
-    config.max_angular_z = 0.0;     // no output clamp
+    config.angle_threshold = M_PI;     // never gate on heading error
+    config.max_angular_command = 0.0;  // no output clamp
     config.enable_hysteresis = false;
     auto clock = std::make_shared<ManualClock>();
     PursuitNavigation nav(config, clock);

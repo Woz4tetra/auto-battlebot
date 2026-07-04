@@ -174,7 +174,7 @@ One scalar per scenario, plus the diagnostics behind it:
   1. **Turn hysteresis lock.** `apply_hysteresis` re-committed the turn sign on every flip, so at a ~180 deg
      overshoot (goal directly behind) it chattered left-right under latency and never completed the turn.
      Now it commits once and holds until the error drops below the release threshold.
-  2. **Angular command cap** (`max_angular_z`). At the calibrated 61.5 rad/s a committed turn rotates ~116
+  2. **Angular command cap** (`max_angular_command`). At the calibrated 61.5 rad/s a committed turn rotates ~116
      deg per 30 Hz tick and overshoots the heading into walls. Capping the command (0.25 -> ~15 rad/s
      effective) keeps the turn stable.
   3. **Coast-aware brake** (`brake_distance`, new config, default 0 = ram). Within `brake_distance` of the
@@ -185,7 +185,7 @@ One scalar per scenario, plus the diagnostics behind it:
   Result on `goto_stop.toml` (calibrated plant, 5.6 m/s / 61.5 rad/s kept): terminal position error dropped
   from 0.55-1.84 m to 0.04-0.22 m, terminal velocity to 0, wall contacts from 64-89 to 0-1. The robot now
   drives in, overshoots ~0.26 m, turns and returns, and stops on the goal, the real behavior, converged.
-  These params live in the `goto_stop` scenario overrides for now; promote `max_angular_z` and
+  These params live in the `goto_stop` scenario overrides for now; promote `max_angular_command` and
   `brake_distance` to `main.toml` for the real robot's stop missions. Feedforward/deadzone-lift and the
   motion-profile tracker are still open (Stage 3).
 - **Stage 3: precise tracker.** Implement option 2 (motion profile + feedforward + PID). Compare against

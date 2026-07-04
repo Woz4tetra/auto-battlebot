@@ -26,8 +26,8 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       wall_reverse_distance_(config.wall_reverse_distance),
       wall_reverse_min_speed_(config.wall_reverse_min_speed),
       wall_heading_threshold_(config.wall_heading_threshold),
-      max_linear_x_(config.max_linear_x),
-      max_angular_z_(config.max_angular_z),
+      max_linear_command_(config.max_linear_command),
+      max_angular_command_(config.max_angular_command),
       angular_kp_(config.angular_kp),
       angular_kd_(config.angular_kd),
       angle_threshold_(config.angle_threshold),
@@ -130,11 +130,11 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     cmd.linear_x = compute_linear_velocity(angle_error, distance, cmd.angular_z);
     apply_wall_reverse(our_pose, field, cmd);
 
-    if (max_linear_x_ > 0.0) {
-        cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_x_, max_linear_x_);
+    if (max_linear_command_ > 0.0) {
+        cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_command_, max_linear_command_);
     }
-    if (max_angular_z_ > 0.0) {
-        cmd.angular_z = std::clamp(cmd.angular_z, -max_angular_z_, max_angular_z_);
+    if (max_angular_command_ > 0.0) {
+        cmd.angular_z = std::clamp(cmd.angular_z, -max_angular_command_, max_angular_command_);
     }
 
     logger_->debug("pursuit",
@@ -228,8 +228,8 @@ double PursuitNavigation::compute_linear_velocity(double angle_error, double dis
     // the legacy form but clamp it so a large angular command can never flip linear into reverse
     // thrust.
     double steer_brake;
-    if (max_angular_z_ > 0.0) {
-        steer_brake = 1.0 - 0.5 * std::min(1.0, std::abs(angular_z) / max_angular_z_);
+    if (max_angular_command_ > 0.0) {
+        steer_brake = 1.0 - 0.5 * std::min(1.0, std::abs(angular_z) / max_angular_command_);
     } else {
         steer_brake = std::max(0.0, 1.0 - 0.5 * std::abs(angular_z));
     }

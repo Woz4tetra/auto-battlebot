@@ -20,7 +20,7 @@ Caveats:
    adds noise, which biases the AR coefficient `a` slightly low (tau slightly short). Treat the fit
    as a calibrated starting point, not ground truth.
  - The kinematic plant clips |command| to 1. linear_x stays within that, but angular_z can exceed
-   it on the real robot, so set max_angular_z in the nav config (or widen the plant clip) for the
+   it on the real robot, so set max_angular_command in the nav config (or widen the plant clip) for the
    fit to apply faithfully at large angular commands.
 
 Run:

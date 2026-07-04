@@ -5,7 +5,7 @@
 #
 # Control fixes exercised here (Stage 2), needed because the calibrated plant is aggressive
 # (5.6 m/s, 61.5 rad/s):
-#   - navigation.max_angular_z: caps the angular command so a committed turn does not overshoot the
+#   - navigation.max_angular_command: caps the angular command so a committed turn does not overshoot the
 #     heading in the 30 Hz + latency loop (0.25 * 61.5 rad/s ~= 15 rad/s effective).
 #   - navigation.brake_distance: coast-aware deceleration into the goal so the robot does not blast
 #     through the stop zone at full speed and coast past (~ the 0.78 m stopping lead).
@@ -21,7 +21,7 @@ name = "stop_short"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.stop_distance" = 0.15
-"navigation.max_angular_z" = 0.25
+"navigation.max_angular_command" = 0.25
 "navigation.brake_distance" = 0.8
 
 [[runs]]
@@ -31,7 +31,7 @@ name = "stop_center"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.stop_distance" = 0.15
-"navigation.max_angular_z" = 0.25
+"navigation.max_angular_command" = 0.25
 "navigation.brake_distance" = 0.8
 
 [[runs]]
@@ -41,7 +41,7 @@ name = "stop_far_diag"
 opponents = [{ behavior = "static", start_pos = [0.8, 0.8] }]
 [runs.cpp]
 "navigation.stop_distance" = 0.15
-"navigation.max_angular_z" = 0.25
+"navigation.max_angular_command" = 0.25
 "navigation.brake_distance" = 0.8
 
 [[runs]]
@@ -51,7 +51,7 @@ name = "stop_center_sd05"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.stop_distance" = 0.05
-"navigation.max_angular_z" = 0.25
+"navigation.max_angular_command" = 0.25
 "navigation.brake_distance" = 0.8
 
 [[runs]]
@@ -61,5 +61,5 @@ name = "stop_center_sd30"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.stop_distance" = 0.30
-"navigation.max_angular_z" = 0.25
+"navigation.max_angular_command" = 0.25
 "navigation.brake_distance" = 0.8

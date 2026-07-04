@@ -96,8 +96,8 @@ velocity_ramp_near_distance = 0.5
 velocity_ramp_min_scale = 0.35
 wall_reverse_distance = 0.25      # set > 0 to reverse when within this distance of any wall
 wall_heading_threshold = 1.047    # ~60 deg; heading must point toward wall to trigger reversal
-max_linear_x = 0.75               # 0 = no limit
-max_angular_z = 0.0               # 0 = no limit
+max_linear_command = 0.75         # 0 = no limit
+max_angular_command = 0.0         # 0 = no limit
 
 [publisher]
 type = "RosPublisher"

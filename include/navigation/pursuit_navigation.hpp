@@ -109,8 +109,8 @@ class PursuitNavigation : public NavigationInterface {
     double wall_reverse_distance_;
     double wall_reverse_min_speed_;
     double wall_heading_threshold_;
-    double max_linear_x_;
-    double max_angular_z_;
+    double max_linear_command_;
+    double max_angular_command_;
     double angular_kp_;
     double angular_kd_;
     double angle_threshold_;

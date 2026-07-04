@@ -71,11 +71,13 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     /** Enable hysteresis to prevent dithering when target is behind */
     bool enable_hysteresis = true;
 
-    /** Maximum magnitude for linear_x output (m/s). 0 = no limit. */
-    double max_linear_x = 0.0;
+    /** Cap on the magnitude of the normalized forward (linear_x) command (0..1, a fraction of full
+     * drive; the plant/transmitter scales it by max_linear_speed). 0 = no limit. */
+    double max_linear_command = 0.0;
 
-    /** Maximum magnitude for angular_z output (rad/s). 0 = no limit. */
-    double max_angular_z = 0.0;
+    /** Cap on the magnitude of the normalized turn (angular_z) command (0..1, a fraction of full
+     * turn; the plant/transmitter scales it by max_angular_speed). 0 = no limit. */
+    double max_angular_command = 0.0;
 
     PursuitNavigationConfiguration() { type = "PursuitNavigation"; }
 
@@ -95,8 +97,8 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(lookahead_time)
         PARSE_FIELD_DOUBLE(boundary_margin)
         PARSE_FIELD_BOOL(enable_hysteresis)
-        PARSE_FIELD_DOUBLE(max_linear_x)
-        PARSE_FIELD_DOUBLE(max_angular_z)
+        PARSE_FIELD_DOUBLE(max_linear_command)
+        PARSE_FIELD_DOUBLE(max_angular_command)
     )
     // clang-format on
 };

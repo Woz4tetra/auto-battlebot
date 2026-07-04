@@ -1,4 +1,4 @@
-name,our_robot.start_pos,opponents,navigation.stop_distance,navigation.max_angular_z,navigation.brake_distance,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,wall_contacts,impact_speed_mps,terminal_pos_err_m,terminal_vel_mps,overshoot_m,t_to_goal_s
+name,our_robot.start_pos,opponents,navigation.stop_distance,navigation.max_angular_command,navigation.brake_distance,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,wall_contacts,impact_speed_mps,terminal_pos_err_m,terminal_vel_mps,overshoot_m,t_to_goal_s
 stop_short,"[-0.5, -0.5]","[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,0.25,0.8,True,900,0.047,True,0.27,2.0,102.7,0.0,0,3.52,0.102,0.0,0.264,0.27
 stop_center,"[-0.9, -0.9]","[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,0.25,0.8,True,900,0.022,True,0.4,2.4,99.7,0.0,0,4.19,0.101,0.0,0.262,0.43
 stop_far_diag,"[-0.9, -0.9]","[{'behavior': 'static', 'start_pos': [0.8, 0.8]}]",0.15,0.25,0.8,True,900,0.019,True,0.83,3.9,100.5,0.2,1,4.09,0.116,0.0,0.266,0.87
