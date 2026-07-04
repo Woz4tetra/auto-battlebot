@@ -158,10 +158,14 @@ double PursuitNavigation::apply_hysteresis(double angle_error) {
     constexpr double commit_threshold = M_PI * 0.75;  // 135 deg
     constexpr double release_threshold = M_PI * 0.5;  // 90 deg
 
-    if (std::abs(angle_error) > commit_threshold) {
-        const int sign = (angle_error > 0) ? 1 : -1;
-        if (committed_turn_sign_ == 0 || committed_turn_sign_ != sign) {
-            committed_turn_sign_ = sign;
+    // Commit to a turn direction on a large error, then HOLD it until the error falls below the release
+    // threshold. The previous code re-committed whenever the error's sign changed, which chattered near
+    // 180 deg: there the shortest-turn sign flips on tiny perturbations (and the actuation latency keeps
+    // it flipping), so the robot jittered left-right and never completed the turn instead of committing to
+    // one direction and rotating through. Only commit when not already committed.
+    if (committed_turn_sign_ == 0) {
+        if (std::abs(angle_error) > commit_threshold) {
+            committed_turn_sign_ = (angle_error > 0) ? 1 : -1;
         }
     } else if (std::abs(angle_error) < release_threshold) {
         committed_turn_sign_ = 0;
