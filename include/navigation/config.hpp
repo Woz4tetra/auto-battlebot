@@ -35,10 +35,10 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     /** Speed scale applied at distances >= velocity_ramp_far_distance (0..1, fraction of max). */
     double velocity_ramp_min_scale = 0.5;
 
-    /** Coast-aware brake: within this distance (m) of the target, the commanded speed ramps linearly
-     * down to zero so the robot decelerates into the goal instead of driving in at full speed and
-     * coasting past it. Should cover the stopping lead (latency travel + coast distance). 0 disables
-     * (ram behavior: full speed into contact). */
+    /** Coast-aware brake: within this distance (m) of the target, the commanded speed ramps
+     * linearly down to zero so the robot decelerates into the goal instead of driving in at full
+     * speed and coasting past it. Should cover the stopping lead (latency travel + coast distance).
+     * 0 disables (ram behavior: full speed into contact). */
     double brake_distance = 0.0;
 
     /** Distance from any field wall at which linear_x is reversed to back away (m).

@@ -159,11 +159,12 @@ double PursuitNavigation::apply_hysteresis(double angle_error) {
     constexpr double commit_threshold = M_PI * 0.75;  // 135 deg
     constexpr double release_threshold = M_PI * 0.5;  // 90 deg
 
-    // Commit to a turn direction on a large error, then HOLD it until the error falls below the release
-    // threshold. The previous code re-committed whenever the error's sign changed, which chattered near
-    // 180 deg: there the shortest-turn sign flips on tiny perturbations (and the actuation latency keeps
-    // it flipping), so the robot jittered left-right and never completed the turn instead of committing to
-    // one direction and rotating through. Only commit when not already committed.
+    // Commit to a turn direction on a large error, then HOLD it until the error falls below the
+    // release threshold. The previous code re-committed whenever the error's sign changed, which
+    // chattered near 180 deg: there the shortest-turn sign flips on tiny perturbations (and the
+    // actuation latency keeps it flipping), so the robot jittered left-right and never completed
+    // the turn instead of committing to one direction and rotating through. Only commit when not
+    // already committed.
     if (committed_turn_sign_ == 0) {
         if (std::abs(angle_error) > commit_threshold) {
             committed_turn_sign_ = (angle_error > 0) ? 1 : -1;
@@ -213,9 +214,10 @@ double PursuitNavigation::compute_linear_velocity(double angle_error, double dis
         }
     }
 
-    // Coast-aware brake: within brake_distance of the target, ramp the commanded speed linearly to zero
-    // so the robot decelerates into the goal instead of driving in at full speed and coasting past it.
-    // brake_distance should cover the stopping lead (latency travel + coast). 0 disables (ram behavior).
+    // Coast-aware brake: within brake_distance of the target, ramp the commanded speed linearly to
+    // zero so the robot decelerates into the goal instead of driving in at full speed and coasting
+    // past it. brake_distance should cover the stopping lead (latency travel + coast). 0 disables
+    // (ram behavior).
     if (brake_distance_ > 0.0 && distance < brake_distance_) {
         speed_scale *= distance / brake_distance_;
     }
