@@ -1,0 +1,7 @@
+extends = "/home/ben/auto-battlebot/config/simulation/headless_sim"
+
+[navigation]
+type = "MotionProfileNavigation"
+terminal_velocity = 0.0
+stop_distance = 0.0
+max_angular_command = 0.25

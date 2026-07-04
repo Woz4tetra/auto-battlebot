@@ -5,6 +5,7 @@
 
 #include "config/config_parser.hpp"
 #include "navigation/fixed_velocity_navigation.hpp"
+#include "navigation/motion_profile_navigation.hpp"
 #include "navigation/noop_navigation.hpp"
 #include "navigation/pursuit_navigation.hpp"
 
@@ -12,6 +13,8 @@ namespace auto_battlebot {
 // Automatic registration of config types
 REGISTER_CONFIG(NavigationConfiguration, NoopNavigationConfiguration, "NoopNavigation")
 REGISTER_CONFIG(NavigationConfiguration, PursuitNavigationConfiguration, "PursuitNavigation")
+REGISTER_CONFIG(NavigationConfiguration, MotionProfileNavigationConfiguration,
+                "MotionProfileNavigation")
 REGISTER_CONFIG(NavigationConfiguration, FixedVelocityNavigationConfiguration,
                 "FixedVelocityNavigation")
 
@@ -40,6 +43,10 @@ std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfigurati
     if (config.type == "PursuitNavigation") {
         const auto &pursuit_config = dynamic_cast<const PursuitNavigationConfiguration &>(config);
         return std::make_shared<PursuitNavigation>(pursuit_config, std::move(clock));
+    }
+    if (config.type == "MotionProfileNavigation") {
+        const auto &mp_config = dynamic_cast<const MotionProfileNavigationConfiguration &>(config);
+        return std::make_shared<MotionProfileNavigation>(mp_config, std::move(clock));
     }
     if (config.type == "FixedVelocityNavigation") {
         const auto &fv_config = dynamic_cast<const FixedVelocityNavigationConfiguration &>(config);

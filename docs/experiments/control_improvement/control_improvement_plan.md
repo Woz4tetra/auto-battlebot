@@ -188,9 +188,14 @@ One scalar per scenario, plus the diagnostics behind it:
   These params live in the `goto_stop` scenario overrides for now; promote `max_angular_command` and
   `brake_distance` to `main.toml` for the real robot's stop missions. Feedforward/deadzone-lift and the
   motion-profile tracker are still open (Stage 3).
-- **Stage 3: precise tracker.** Implement option 2 (motion profile + feedforward + PID). Compare against
-  the baseline on all three scenarios. Expect this to be the one that meets the precision + optimal-time
-  goal.
+- **Stage 3 (done): precise tracker** (`stage3_sim_report.md`). Implemented option 2 as a new
+  `MotionProfileNavigation` control law (distance-to-go coast-aware brake from the measured plant,
+  inverse-plant feedforward with active braking, speed PID, latency lead). Validated in sim on all
+  three scenarios vs the Stage 2 baseline. On the zero-velocity stop it wins on every metric: terminal
+  error 0.03 to 0.11 m (vs 0.10 to 0.12), overshoot 0.01 to 0.05 m (vs a consistent 0.26), zero
+  terminal velocity, zero wall contacts. `v_term = 0` stops exactly on the goal from the profile alone.
+  Ram carries a controlled contact speed that rises with the command (low-speed contact is runway
+  limited in the 2.4 m arena). The moving-target proxy tracks a fast circle 13% tighter than baseline.
 - **Stage 4: real-robot validation.** Run the zero-velocity stop on Mr Stabs Mk2. Measure the sim-to-real
   gap. If the gap is large, the low-confidence taus are the first suspect: re-record the plant with the tag
   kept in frame, refit, and re-tune. Do not skip this: the zero-velocity stop on the real robot is the

@@ -38,6 +38,11 @@ TF_TOPIC = "/tf"
 TF_STATIC_TOPIC = "/tf_static"
 
 PURSUIT_NAV_HW_ID = "pursuit_nav"
+MOTION_PROFILE_NAV_HW_ID = "motion_profile_nav"
+# Navigation implementations log the same tick schema (our_x, target_x, distance, angle_error_deg,
+# facing_target, linear_x, angular_z, ...) under their own hardware_id. Only one nav runs per fight,
+# so any of these ids is "the navigation stage" for a given recording.
+NAV_HW_IDS = frozenset({PURSUIT_NAV_HW_ID, MOTION_PROFILE_NAV_HW_ID})
 RUNNER_HW_ID = "runner"
 TRANSMITTER_HW_ID = "opentx_transmitter"
 
@@ -127,7 +132,7 @@ def load_diagnostics(path: Path) -> pd.DataFrame:
                 hw = status["hardware_id"]
                 name = status["name"]
                 kv = status["values"]
-                if hw == PURSUIT_NAV_HW_ID:
+                if hw in NAV_HW_IDS:
                     rows[ts].update(kv)
                 elif hw == RUNNER_HW_ID:
                     if name == "pipeline":

@@ -1,0 +1,55 @@
+# Stage 3 scenario 2 (moving-target proxy): chase an opponent on a circle, baseline
+# (PursuitNavigation) vs tracker (MotionProfileNavigation). True fixed-path cross-track tracking
+# needs a reference-trajectory generator + Ramsete (Stage 5); here the steady-state distance to the
+# moving opponent is the cross-track proxy.
+#
+# The tracker chases at a nonzero terminal velocity (1.5 m/s, above the opponent speed) so its
+# distance-to-go profile does not brake to a stop on the moving target and stall.
+#
+# Compare in results.csv: track_err_mean_m, track_err_rms_m (steady-state distance over the tail
+# half), min_dist_m, mean_abs_ang_deg, wall_contacts.
+# Run: python playground/control_stage0/sim_sweep.py --sweep playground/control_stage0/sweeps/stage3_track.toml --out playground/control_stage0/sweep_out/stage3_track
+
+sim_config = "simulation/kinematic_sim_mr_stabs_mk2.toml"
+
+# --- circle_slow: opponent circles at 0.8 m/s, radius 0.6 ---
+[[runs]]
+name = "circle_slow_baseline"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+opponents = [{ behavior = "circle", radius = 0.6, speed = 0.8 }]
+[runs.cpp]
+"navigation.stop_distance" = 0.15
+"navigation.max_angular_command" = 0.25
+
+[[runs]]
+name = "circle_slow_tracker"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+opponents = [{ behavior = "circle", radius = 0.6, speed = 0.8 }]
+[runs.cpp]
+"navigation.type" = "MotionProfileNavigation"
+"navigation.terminal_velocity" = 1.5
+"navigation.stop_distance" = 0.15
+"navigation.max_angular_command" = 0.25
+
+# --- circle_fast: opponent circles at 1.5 m/s, radius 0.6 ---
+[[runs]]
+name = "circle_fast_baseline"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+opponents = [{ behavior = "circle", radius = 0.6, speed = 1.5 }]
+[runs.cpp]
+"navigation.stop_distance" = 0.15
+"navigation.max_angular_command" = 0.25
+
+[[runs]]
+name = "circle_fast_tracker"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+opponents = [{ behavior = "circle", radius = 0.6, speed = 1.5 }]
+[runs.cpp]
+"navigation.type" = "MotionProfileNavigation"
+"navigation.terminal_velocity" = 1.5
+"navigation.stop_distance" = 0.15
+"navigation.max_angular_command" = 0.25

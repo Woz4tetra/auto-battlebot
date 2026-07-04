@@ -250,6 +250,14 @@ def score_run(
             result["overshoot_m"] = round(max(0.0, float(progress.max()) - d_sg), 3)
         within = distance.index[distance < goal_tolerance]
         result["t_to_goal_s"] = round(int(within[0]) * dt, 2) if len(within) else None
+
+    # Tracking-proxy metrics: for a moving target the steady-state distance to it is a cross-track
+    # proxy (Stage 3 scenario 2). Measured over the tail half of the run to skip the initial
+    # approach transient.
+    if _opponent_moves(df) and distance is not None and n >= 4:
+        tail_dist = distance.iloc[n // 2 :]
+        result["track_err_mean_m"] = round(float(tail_dist.mean()), 3)
+        result["track_err_rms_m"] = round(float(np.sqrt(float((tail_dist**2).mean()))), 3)
     return result
 
 
