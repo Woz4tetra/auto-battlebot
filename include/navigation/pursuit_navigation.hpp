@@ -105,6 +105,7 @@ class PursuitNavigation : public NavigationInterface {
     double velocity_ramp_far_distance_;
     double velocity_ramp_near_distance_;
     double velocity_ramp_min_scale_;
+    double brake_distance_;
     double wall_reverse_distance_;
     double wall_reverse_min_speed_;
     double wall_heading_threshold_;

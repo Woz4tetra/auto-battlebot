@@ -22,6 +22,7 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       velocity_ramp_far_distance_(config.velocity_ramp_far_distance),
       velocity_ramp_near_distance_(config.velocity_ramp_near_distance),
       velocity_ramp_min_scale_(config.velocity_ramp_min_scale),
+      brake_distance_(config.brake_distance),
       wall_reverse_distance_(config.wall_reverse_distance),
       wall_reverse_min_speed_(config.wall_reverse_min_speed),
       wall_heading_threshold_(config.wall_heading_threshold),
@@ -210,6 +211,13 @@ double PursuitNavigation::compute_linear_velocity(double angle_error, double dis
                              (velocity_ramp_far_distance_ - velocity_ramp_near_distance_);
             speed_scale = 1.0 - t * (1.0 - velocity_ramp_min_scale_);
         }
+    }
+
+    // Coast-aware brake: within brake_distance of the target, ramp the commanded speed linearly to zero
+    // so the robot decelerates into the goal instead of driving in at full speed and coasting past it.
+    // brake_distance should cover the stopping lead (latency travel + coast). 0 disables (ram behavior).
+    if (brake_distance_ > 0.0 && distance < brake_distance_) {
+        speed_scale *= distance / brake_distance_;
     }
 
     const double turn_scale = 1.0 - (std::abs(angle_error) / angle_threshold_) * 0.5;

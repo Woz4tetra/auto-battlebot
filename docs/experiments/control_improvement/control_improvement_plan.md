@@ -169,9 +169,25 @@ One scalar per scenario, plus the diagnostics behind it:
   **Baseline (current `PursuitNavigation` on the calibrated plant): it cannot stop on the goal.** It reaches
   within ~6 cm but arrives at ~5 m/s and overshoots 0.4-1.5 m, ending 0.55-1.84 m from the goal, still
   moving in 4 of 5 runs, and bouncing off walls in the overshoot. This is the number Stage 2 must beat.
-- **Stage 2 (next): baseline control law.** Implement option 1 (pursuit + feedforward + coast-aware brake)
-  on top of the existing `PursuitNavigation`. The Stage 1b baseline shows why: the controller drives at full
-  speed to the goal with no brake lead, so it coasts ~0.5 m past. Validate the zero-velocity stop in sim.
+- **Stage 2 (in progress): baseline control law.** Three fixes to `PursuitNavigation`, validated on the
+  zero-velocity stop in sim:
+  1. **Turn hysteresis lock.** `apply_hysteresis` re-committed the turn sign on every flip, so at a ~180 deg
+     overshoot (goal directly behind) it chattered left-right under latency and never completed the turn.
+     Now it commits once and holds until the error drops below the release threshold.
+  2. **Angular command cap** (`max_angular_z`). At the calibrated 61.5 rad/s a committed turn rotates ~116
+     deg per 30 Hz tick and overshoots the heading into walls. Capping the command (0.25 -> ~15 rad/s
+     effective) keeps the turn stable.
+  3. **Coast-aware brake** (`brake_distance`, new config, default 0 = ram). Within `brake_distance` of the
+     target the commanded speed ramps to zero, so the robot decelerates into the goal instead of blasting
+     through the stop zone at 5.6 m/s and coasting past. The existing velocity ramp did the opposite (full
+     speed when close, for ramming).
+
+  Result on `goto_stop.toml` (calibrated plant, 5.6 m/s / 61.5 rad/s kept): terminal position error dropped
+  from 0.55-1.84 m to 0.04-0.22 m, terminal velocity to 0, wall contacts from 64-89 to 0-1. The robot now
+  drives in, overshoots ~0.26 m, turns and returns, and stops on the goal, the real behavior, converged.
+  These params live in the `goto_stop` scenario overrides for now; promote `max_angular_z` and
+  `brake_distance` to `main.toml` for the real robot's stop missions. Feedforward/deadzone-lift and the
+  motion-profile tracker are still open (Stage 3).
 - **Stage 3: precise tracker.** Implement option 2 (motion profile + feedforward + PID). Compare against
   the baseline on all three scenarios. Expect this to be the one that meets the precision + optimal-time
   goal.

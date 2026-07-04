@@ -1,21 +1,19 @@
-# "Go to X and stop" missions for MR STABS MK2 (Stage 1b of the control improvement plan).
+# "Go to X and stop" missions for MR STABS MK2 (Stage 1b/2 of the control improvement plan).
 #
 # Drive from a start pose to a fixed goal and stop on it with zero terminal velocity. The goal is a
-# static opponent; navigation.stop_distance makes PursuitNavigation cut the command near it. This is the
-# diagnostic that proves the robot can control its trajectory, and it exercises the calibrated coast
-# (tau_linear_decel) that causes overrun.
+# static opponent; navigation.stop_distance makes PursuitNavigation cut the command near it.
+#
+# Control fixes exercised here (Stage 2), needed because the calibrated plant is aggressive
+# (5.6 m/s, 61.5 rad/s):
+#   - navigation.max_angular_z: caps the angular command so a committed turn does not overshoot the
+#     heading in the 30 Hz + latency loop (0.25 * 61.5 rad/s ~= 15 rad/s effective).
+#   - navigation.brake_distance: coast-aware deceleration into the goal so the robot does not blast
+#     through the stop zone at full speed and coast past (~ the 0.78 m stopping lead).
 #
 # Metrics in results.csv: terminal_pos_err_m, terminal_vel_mps, overshoot_m, t_to_goal_s, wall_contacts.
-#
-# Run:
-#   source scripts/activate_python.sh
-#   python playground/control_stage0/sim_sweep.py \
-#       --sweep playground/control_stage0/sweeps/goto_stop.toml \
-#       --out playground/control_stage0/sweep_out/goto_stop
 
 sim_config = "simulation/kinematic_sim_mr_stabs_mk2.toml"
 
-# Baseline: short, medium, and long diagonal moves to a centered goal, stop_distance 0.15 m.
 [[runs]]
 name = "stop_short"
 [runs.sim]
@@ -23,6 +21,8 @@ name = "stop_short"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.stop_distance" = 0.15
+"navigation.max_angular_z" = 0.25
+"navigation.brake_distance" = 0.8
 
 [[runs]]
 name = "stop_center"
@@ -31,6 +31,8 @@ name = "stop_center"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.stop_distance" = 0.15
+"navigation.max_angular_z" = 0.25
+"navigation.brake_distance" = 0.8
 
 [[runs]]
 name = "stop_far_diag"
@@ -39,8 +41,9 @@ name = "stop_far_diag"
 opponents = [{ behavior = "static", start_pos = [0.8, 0.8] }]
 [runs.cpp]
 "navigation.stop_distance" = 0.15
+"navigation.max_angular_z" = 0.25
+"navigation.brake_distance" = 0.8
 
-# stop_distance sweep on the medium move: shows how the stop point trades against overrun.
 [[runs]]
 name = "stop_center_sd05"
 [runs.sim]
@@ -48,6 +51,8 @@ name = "stop_center_sd05"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.stop_distance" = 0.05
+"navigation.max_angular_z" = 0.25
+"navigation.brake_distance" = 0.8
 
 [[runs]]
 name = "stop_center_sd30"
@@ -56,3 +61,5 @@ name = "stop_center_sd30"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.stop_distance" = 0.30
+"navigation.max_angular_z" = 0.25
+"navigation.brake_distance" = 0.8

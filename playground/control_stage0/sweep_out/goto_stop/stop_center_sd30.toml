@@ -2,3 +2,5 @@ extends = "/home/ben/auto-battlebot/config/simulation/headless_sim"
 
 [navigation]
 stop_distance = 0.3
+max_angular_z = 0.25
+brake_distance = 0.8
