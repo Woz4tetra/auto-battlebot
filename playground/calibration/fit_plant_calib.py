@@ -210,17 +210,25 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(starts.tolist(), (stops + 1).tolist()))
 
 
-def _rise_tau(mv: np.ndarray, vss: float, dt: float, eps: float) -> float:
-    """First-order rise time constant via log-linear fit of ln(Vss - |v|) over the 15-85% band.
+def _rise_tau(mv: np.ndarray, vss: float, dt: float, eps: float, gap: np.ndarray) -> float:
+    """First-order rise time constant from the contiguous leading rise: slope of ln(Vss - |v|) vs t.
 
-    Parametric (fits the whole curve), so it is far less biased than an AR(1) coefficient under both
-    measurement noise and the pre-differentiation smoothing.
+    The log-linear fit is correct for a first-order rise, but it must see only the rise. Selecting the
+    15-90% amplitude band over the whole hold also catches late steady-state samples where noise dips back
+    into the band. One such point at large t has a small (Vss - |v|), which flattens the slope and inflates
+    tau by 10x or more: a genuine ~55 ms rise gets reported as 1.1 s. Restricting the fit to the first
+    contiguous in-band run fixes that. Gapped samples (tag out of frame, so velocity is interpolation, not
+    measurement) are dropped, so a dropout mid-rise cannot corrupt the fit either.
     """
-    tt = np.arange(len(mv)) * dt
-    sel = (mv > 0.15 * vss) & (mv < 0.85 * vss) & ((vss - mv) > 0.5 * eps)
-    if sel.sum() < 4:
+    inband = (mv > 0.15 * vss) & (mv < 0.9 * vss) & ((vss - mv) > 0.5 * eps) & ~gap
+    runs = _runs(inband)
+    if not runs:
         return float("nan")
-    slope = float(np.polyfit(tt[sel], np.log(vss - mv[sel]), 1)[0])
+    a0, b0 = runs[0]  # the leading rise; ignore later re-entries from steady-state noise
+    sel = np.arange(a0, b0)
+    if len(sel) < 3:
+        return float("nan")
+    slope = float(np.polyfit(sel * dt, np.log(vss - mv[sel]), 1)[0])
     return -1.0 / slope if slope < 0 else float("nan")
 
 
@@ -231,10 +239,11 @@ class DriveSeg:
     sign: float  # command sign (+1 fwd/left, -1 rev/right)
     amp: float  # raw |command| held over the segment
     ceff: float  # effective command after the deadzone is removed
-    vss: float  # steady-state |velocity| (median over the last 40%)
+    vss: float  # steady-state |velocity| (median over the last 40%, in-frame samples only)
     tau: float  # first-order rise time constant (nan if it could not be fit)
     t: np.ndarray  # segment-relative time (s)
     mv: np.ndarray  # |velocity| over the segment
+    gap: np.ndarray  # per-sample tag-dropout mask over the segment
 
 
 def _drive_segments(
@@ -262,11 +271,16 @@ def _drive_segments(
         if ceff <= 1e-3:
             continue
         mv = np.abs(vel[a:b])
-        vss = float(np.median(mv[int(0.6 * n) :]))
+        seg_gap = s.gap[a:b]
+        # Steady-state speed from in-frame samples only; interpolated steady samples would bias vss (and,
+        # through it, both the gain and the rise-tau fit).
+        steady = mv[int(0.6 * n) :]
+        steady_in = steady[~seg_gap[int(0.6 * n) :]]
+        vss = float(np.median(steady_in)) if len(steady_in) >= 2 else float(np.median(steady))
         if vss <= max(3 * eps, 1e-3):
             continue
-        tau = _rise_tau(mv, vss, s.dt, eps)
-        segs.append(DriveSeg(sign, amp, ceff, vss, tau, np.arange(n) * s.dt, mv))
+        tau = _rise_tau(mv, vss, s.dt, eps, seg_gap)
+        segs.append(DriveSeg(sign, amp, ceff, vss, tau, np.arange(n) * s.dt, mv, seg_gap))
     return segs
 
 
@@ -321,6 +335,8 @@ def _decay_segments(
         while k < n and mv[k] > max(3 * eps, 0.1 * mv[0]):
             k += 1
         if k < 4:
+            continue
+        if s.gap[a : a + k].any():  # the coasting portion must be measured, not interpolated
             continue
         tt = np.arange(k) * s.dt
         slope = float(np.polyfit(tt, np.log(mv[:k]), 1)[0])
@@ -695,7 +711,8 @@ def _panel_rise(ax, segs, tau, unit):  # type: ignore[no-untyped-def]
         if math.isnan(seg.tau) or seg.vss <= 0:
             continue
         color = "C0" if seg.sign > 0 else "C1"
-        ax.plot(seg.t, seg.mv / seg.vss, color=color, lw=0.7, alpha=0.5)
+        y = np.where(seg.gap, np.nan, seg.mv / seg.vss)  # break the line across dropouts
+        ax.plot(seg.t, y, color=color, lw=0.7, alpha=0.5)
         tmax = max(tmax, float(seg.t[-1]))
         drawn += 1
     if drawn == 0:

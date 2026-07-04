@@ -1,6 +1,8 @@
-# Config for the fast headless kinematic sim (simulation/kinematic_sim_server.py).
-# Plant params (max speeds, tau) should be fitted to recordings via
-# playground/control_stage0/fit_plant.py. Keep [arena] in sync with config/headless_sim.toml.
+# Generic default config for the fast headless kinematic sim (simulation/kinematic_sim_server.py).
+# Per-robot calibrated configs live alongside: kinematic_sim_mr_stabs_mk2.toml (calibrated) and
+# kinematic_sim_mrs_buff_mk3.toml. Select one in a sweep via the top-level `sim_config` key, or pass
+# --sim-config to sim_sweep.py. The plant below is an uncalibrated placeholder.
+# Keep [arena] in sync with config/simulation/headless_sim.toml.
 
 [server]
 host = "127.0.0.1"

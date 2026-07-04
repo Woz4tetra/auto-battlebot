@@ -15,13 +15,18 @@ far the strongest latency signal.
 max_linear_speed_fwd = 5.60    # medium confidence
 max_linear_speed_rev = 4.84    # low-medium confidence
 max_angular_speed    = 61.5    # medium confidence
-tau_linear_accel     = 0.05    # OVERRIDE: fit returned 1.116 s, which the data contradicts (see below)
-tau_linear_decel     = 0.10    # low-medium confidence (fit 0.078 s from one coast tail)
-tau_angular_accel    = 0.10    # OVERRIDE: fit returned 2.229 s, unresolved at this frame rate
+tau_linear_accel     = 0.058   # low confidence (one clean rise; fit corrected, see below)
+tau_linear_decel     = 0.078   # low confidence (one clean coast tail)
+tau_angular_accel    = 0.066   # low confidence (one clean rise)
 
 # simulation/kinematic_sim.toml [latency]
 command_ms = 60                # from the pooled onset stack, high confidence
 ```
+
+The time constants are now measured correctly (`fit_plant_calib.py` was fixed, see "Time-constant fit
+fix" below), but each rests on a single clean segment because the robot leaves frame under linear motion.
+They are all ~40-80 ms, the same order as the transport lag, which is physically sensible for a small
+combat drivetrain. Re-record to firm them up.
 
 ```toml
 # config/main.toml [transmitter]
@@ -90,9 +95,9 @@ Reading the panels top to bottom:
 4. **Steady-state gain.** Steady-state speed vs effective command (deadzone removed), one point per held
    segment. The fit slope is the max speed. Note the linear fit extrapolates from only two clusters near
    command 0.2-0.5 out to 1.0, so max linear speed is an extrapolation.
-5. **Rise time constant.** Normalized rise curves per segment with the first-order model at the fitted tau.
-   **This panel exposes a bad fit:** the measured curves settle in ~0.1s, but the model at
-   `tau_accel = 1.116 s` barely reaches half by 0.8s. The rise fit is unreliable here (see caveats).
+5. **Rise time constant.** Normalized rise curves per segment (dropouts break the line) with the
+   first-order model at the fitted `tau_accel = 0.058 s`. The model now tracks the measured rise, which
+   settles in ~0.1s. This panel is what originally exposed the fit bug (see "Time-constant fit fix").
 6. **Coast decay.** Zero-command tails on a log axis; a straight line is a first-order decay at `tau_decel`.
 7. **Actuation-lag onset stack** (full width, bottom). Faint gray = individual per-onset acceleration
    windows. Bold blue = their average. The average rises off the gray pre-edge baseline band and peaks at
@@ -112,9 +117,9 @@ Companion figures: [run 170958](assets/fit_diagnostics_170958.png),
 | max linear speed fwd (m/s) | nan | 5.79 | 5.60 | 5.6 | medium |
 | max linear speed rev (m/s) | nan | nan | 4.84 | 4.84 | low-medium |
 | max angular speed (rad/s) | 65.9 | nan | 61.5 | 61 | medium |
-| tau linear accel (s) | nan | nan | 1.116 | ~0.05 | low (fit wrong) |
-| tau linear decel (s) | 0.198 | nan | 0.078 | 0.08-0.20 | low-medium |
-| tau angular accel (s) | 0.650 | nan | 2.229 | unresolved | low |
+| tau linear accel (s) | nan | nan | 0.058 | 0.058 | low (one clean rise) |
+| tau linear decel (s) | nan | nan | 0.078 | 0.078 | low (one clean coast) |
+| tau angular accel (s) | 0.038 | nan | 0.066 | 0.05-0.07 | low (one clean rise/run) |
 | steer-brake coeff | nan | nan | nan | unmeasured | none |
 | actuation lag (ms) | 39 | 61 | 59 | 60 | high (from 175805) |
 
@@ -149,14 +154,28 @@ Result:
 
 The high-confidence run (`175805`, snr 9.4) gives **59ms**. Use `command_ms = 60`.
 
+## Time-constant fit fix
+
+The first pass reported `tau_linear_accel = 1.116 s` and `tau_angular_accel = 2.229 s`, which the rise
+panel visibly contradicted (the robot settles in ~0.1s). Two bugs, both now fixed in `fit_plant_calib.py`:
+
+- **Fit window.** `_rise_tau` selected the 15-85% amplitude band over the *entire* hold. For a fast rise
+  that is ~4 samples, the band correctly caught the rising samples but then also caught a late
+  steady-state sample where noise dipped back into the band. One point at large t with a small residual
+  flattens the log-linear slope and inflates tau 10-20x. Fix: fit only the first contiguous in-band run
+  (the leading rise), ignoring later re-entries.
+- **Dropouts.** Rise and coast samples that fall in a tag dropout are interpolation, not measurement. Fix:
+  drop gapped samples from the rise fit, require the coast portion to be in-frame, and take the
+  steady-state speed from in-frame samples only.
+
+After the fix, `tau_linear_accel = 0.058 s`, `tau_linear_decel = 0.078 s`, `tau_angular_accel = 0.066 s`
+(all from run 175805). Max speeds, deadzones, and latency are unchanged.
+
 ## Reliability caveats
 
-- **`tau_linear_accel` is wrong.** The fit returns 1.116s, but the rise panel shows the robot reaches
-  steady state in ~0.1s, implying tau ≈ 0.03-0.05s. The rise fit (`ln(Vss-|v|)` over the 15-85% band) is
-  unstable when the true rise is faster than the 0.08s pre-differentiation smoothing window and the tag
-  keeps dropping out. Do not use 1.116s. Override to ~0.05s until re-measured.
-- **`tau_angular_accel` is unresolved.** 0.65s vs 2.229s across runs, same rise-fit fragility. Treat as
-  unknown.
+- **Time constants rest on one segment each.** The fix is correct, but the robot leaves frame under linear
+  motion, so only one clean linear rise and one clean coast tail survive in the best run. The values are
+  physically sensible (~40-80 ms) but need a cleaner re-record to trust for tuning.
 - **`steer_brake_coeff` was never measured.** It needs the steer-brake grid held with `cmd_lin > 0.5` while
   visible, and that combination never survived the dropouts. n/a in all three runs.
 - **Max speeds are extrapolations.** Both come from a handful of mid-range segments extended to full
@@ -173,8 +192,8 @@ The single fix that unblocks everything is keeping the tag in frame during linea
    for >70% visibility in the linear phases, matching what rotation already achieves.
 2. **Soften the latency battery** so it stops flipping the robot. The pooled-onset estimator already makes a
    dedicated battery unnecessary, but gentler steps would still add clean onsets instead of dropouts.
-3. **Re-fit the taus** once linear visibility is good. The accel/decel time constants are the parameters the
-   current data cannot support, and they matter most for the coast/overshoot behavior the control plan is
-   trying to fix.
+3. **Re-fit the taus** once linear visibility is good. The estimator is fixed, but each time constant still
+   rests on a single clean segment. More in-frame rises and coast tails would firm up the accel/decel
+   constants, which matter most for the coast/overshoot behavior the control plan is trying to fix.
 4. **Feed the trusted numbers into the sim now.** Latency (60ms), deadzone (≤0.04), and max speeds are good
    enough to start Stage 1 of the control improvement plan; refine the taus after re-recording.

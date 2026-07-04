@@ -24,11 +24,10 @@ size_y = 2.4
 type = "NoopKeypointModel"
 
 [robot_filter]
+# GroundTruthRobotFilter maps sim ground-truth poses by order (GT[0] -> OUR_ROBOT_1, GT[1..] -> THEIRS),
+# so it takes no label_mapping. A different filter type here replaces the inherited _common block
+# wholesale (merge drops the base section when `type` differs), which is why no keypoint fields are needed.
 type = "GroundTruthRobotFilter"
-
-[robot_filter.label_mapping]
-"MR_STABS_MK2" = ["THEIR_ROBOT_1"]
-"MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
 
 # Match the real robot's tuning (main.toml) so the sim exercises the controller the robot runs.
 # simulation.toml no longer defines navigation, so the type is declared here.

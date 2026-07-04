@@ -45,7 +45,7 @@ BINARY = REPO_ROOT / "build" / "auto_battlebot"
 MASTER = REPO_ROOT / "build" / "bin" / "miniroscore"
 SERVER = REPO_ROOT / "simulation" / "kinematic_sim_server.py"
 RECORDINGS = REPO_ROOT / "data" / "recordings"
-BASE_CPP_CONFIG = REPO_ROOT / "config" / "headless_sim"  # no extension; overlays `extends` this
+BASE_CPP_CONFIG = REPO_ROOT / "config" / "simulation" / "headless_sim"  # overlays `extends` this
 BASE_SIM_CONFIG = REPO_ROOT / "simulation" / "kinematic_sim.toml"
 MASTER_PORT = 11311
 SIM_PORT = 14882
@@ -82,9 +82,9 @@ def _load_toml(path: Path) -> dict[str, Any]:
         return tomllib.load(f)
 
 
-def write_sim_config(run: Run, out_dir: Path) -> Path:
+def write_sim_config(run: Run, out_dir: Path, base_sim_config: Path) -> Path:
     """Deep-merge the run's sim overrides onto the base kinematic config; write a temp TOML."""
-    data = _load_toml(BASE_SIM_CONFIG)
+    data = _load_toml(base_sim_config)
     for dotted_key, value in run.sim.items():
         _deep_set(data, dotted_key, value)
     path = out_dir / f"{run.name}.sim.toml"
@@ -178,12 +178,15 @@ def run_once(
 
 
 def latest_mcap(run_name: str, after: float) -> Path | None:
-    candidates = [
-        p
-        for p in RECORDINGS.glob(f"auto_battlebot_{run_name}_*.mcap")
-        if p.stat().st_mtime >= after
-    ]
-    return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
+    """Newest recording written after `after`. The recorder names files by the (sanitized) config path,
+    which for a sweep overlay is a mangled slug, not the run name, so match on `run_name` appearing before
+    the timestamp when possible and otherwise fall back to the newest recording (runs are sequential)."""
+    fresh = [p for p in RECORDINGS.glob("auto_battlebot_*.mcap") if p.stat().st_mtime >= after]
+    if not fresh:
+        return None
+    named = [p for p in fresh if run_name in p.name]
+    pool = named or fresh
+    return max(pool, key=lambda p: p.stat().st_mtime)
 
 
 def score_run(
@@ -192,6 +195,7 @@ def score_run(
     dt: float,
     contact_dist: float,
     wall_margin: float,
+    goal_tolerance: float,
 ) -> dict[str, Any]:
     """Control-quality metrics for a sim run. Times are sim-seconds (tick index x dt)."""
     n = len(df)
@@ -214,7 +218,10 @@ def score_run(
         wall_dist = pd.concat([half_x - df["our_x"].abs(), half_y - df["our_y"].abs()], axis=1).min(
             axis=1
         )
-        result["nearwall_pct"] = round(100.0 * (wall_dist < wall_margin).mean(), 1)
+        near = wall_dist < wall_margin
+        result["nearwall_pct"] = round(100.0 * near.mean(), 1)
+        # Wall-contact episodes = rising edges of the near-wall mask (not per-tick fraction).
+        result["wall_contacts"] = int((near.astype(int).diff() == 1).sum())
 
     # Approximate impact speed: our-pose displacement per dt at the first contact tick.
     if distance is not None and result.get("reached") and {"our_x", "our_y"}.issubset(df.columns):
@@ -223,6 +230,26 @@ def score_run(
             dx = df["our_x"].iloc[i] - df["our_x"].iloc[i - 1]
             dy = df["our_y"].iloc[i] - df["our_y"].iloc[i - 1]
             result["impact_speed_mps"] = round(float((dx**2 + dy**2) ** 0.5) / dt, 2)
+
+    # Stop-mission metrics: a static target is a "go to X and stop" goal. Terminal velocity is derived
+    # from pose deltas (the sim sends no velocity), averaged over the last few ticks to reject noise.
+    static_goal = not _opponent_moves(df) and {"our_x", "our_y", "target_x", "target_y"}.issubset(
+        df.columns
+    )
+    if static_goal and distance is not None and n >= 2:
+        tail = min(5, n - 1)
+        result["terminal_pos_err_m"] = round(float(distance.iloc[-tail:].mean()), 3)
+        speed = np.sqrt(df["our_x"].diff() ** 2 + df["our_y"].diff() ** 2) / dt
+        result["terminal_vel_mps"] = round(float(speed.iloc[-tail:].mean()), 3)
+        gx, gy = float(df["target_x"].median()), float(df["target_y"].median())
+        sx, sy = float(df["our_x"].iloc[0]), float(df["our_y"].iloc[0])
+        d_sg = float(np.hypot(gx - sx, gy - sy))
+        if d_sg > 1e-6:
+            # Overshoot: max travel past the goal along the start->goal axis.
+            progress = (df["our_x"] - sx) * (gx - sx) / d_sg + (df["our_y"] - sy) * (gy - sy) / d_sg
+            result["overshoot_m"] = round(max(0.0, float(progress.max()) - d_sg), 3)
+        within = distance.index[distance < goal_tolerance]
+        result["t_to_goal_s"] = round(int(within[0]) * dt, 2) if len(within) else None
     return result
 
 
@@ -266,9 +293,15 @@ def plot_run(
     contact_dist: float,
     title: str,
     out_path: Path,
+    goal_tolerance: float,
 ) -> None:
-    """Per-run physical view: top-down path (time-coloured) plus distance, heading, speed."""
+    """Per-run physical view: top-down path (time-coloured) plus distance, heading, speed.
+
+    When the target is static the run is a "go to X and stop" mission, so the goal-tolerance ring, the
+    goal-distance panel, and the terminal speed are drawn to show whether the robot stopped on the goal.
+    """
     t = np.arange(len(df)) * dt
+    static_goal = not _opponent_moves(df) and {"target_x", "target_y"}.issubset(df.columns)
     fig, axes = plt.subplots(2, 2, figsize=(13, 9))
     fig.suptitle(title, fontsize=13)
 
@@ -277,7 +310,12 @@ def plot_run(
         sc = ax.scatter(df["our_x"], df["our_y"], c=t, s=6, cmap="viridis")
         fig.colorbar(sc, ax=ax, label="sim time (s)")
         ax.plot(df["our_x"].iloc[0], df["our_y"].iloc[0], "ko", ms=9, label="our start")
-        _plot_opponent(ax, df)
+        _plot_opponent(ax, df, label="goal" if static_goal else "opponent")
+        if static_goal:
+            gx, gy = df["target_x"].median(), df["target_y"].median()
+            ax.add_patch(
+                plt.Circle((gx, gy), goal_tolerance, fill=False, ec="crimson", ls=":", lw=1.2)
+            )
         _draw_arena(ax, field_size)
         ax.set_aspect("equal")
         ax.legend(loc="upper left", fontsize=8)
@@ -288,9 +326,12 @@ def plot_run(
     ax = axes[0, 1]
     if "distance" in df.columns:
         ax.plot(t, df["distance"], lw=0.9)
-        ax.axhline(contact_dist, color="red", ls="--", lw=1, label=f"contact {contact_dist:.2f} m")
+        if static_goal:
+            ax.axhline(goal_tolerance, color="crimson", ls=":", lw=1, label=f"goal tol {goal_tolerance:.2f} m")
+        else:
+            ax.axhline(contact_dist, color="red", ls="--", lw=1, label=f"contact {contact_dist:.2f} m")
         ax.legend()
-    ax.set_title("distance to opponent")
+    ax.set_title("distance to goal" if static_goal else "distance to opponent")
     ax.set_xlabel("sim time (s)")
     ax.set_ylabel("m")
 
@@ -306,6 +347,10 @@ def plot_run(
     if {"our_x", "our_y"}.issubset(df.columns):
         speed = np.sqrt(df["our_x"].diff() ** 2 + df["our_y"].diff() ** 2) / dt
         ax.plot(t, speed, lw=0.9, color="darkorange")
+        if static_goal and len(df) >= 2:
+            v_term = float(speed.iloc[-min(5, len(df) - 1) :].mean())
+            ax.axhline(v_term, color="crimson", ls=":", lw=1, label=f"terminal {v_term:.2f} m/s")
+            ax.legend()
     ax.set_title("actual speed (from pose deltas)")
     ax.set_xlabel("sim time (s)")
     ax.set_ylabel("m/s")
@@ -356,8 +401,15 @@ def default_runs() -> list[Run]:
     return [Run(name=f"lat{ms}", sim={"latency.command_ms": float(ms)}) for ms in (0, 30, 60, 90)]
 
 
-def load_sweep(path: Path) -> list[Run]:
+def load_sweep(path: Path) -> tuple[Path | None, list[Run]]:
+    """Parse a sweep TOML. Returns (base sim-config override or None, runs).
+
+    A top-level `sim_config` key selects the per-robot kinematic config (path relative to the repo
+    root), e.g. `sim_config = "simulation/kinematic_sim_mr_stabs_mk2.toml"`. Omit it to use the default.
+    """
     raw = _load_toml(path)
+    sim_config_key = raw.get("sim_config")
+    sim_config = (REPO_ROOT / str(sim_config_key)) if sim_config_key else None
     runs = []
     for entry in raw.get("runs", []):
         runs.append(
@@ -365,7 +417,7 @@ def load_sweep(path: Path) -> list[Run]:
         )
     if not runs:
         raise ValueError(f"no [[runs]] found in {path}")
-    return runs
+    return sim_config, runs
 
 
 # ---------------------------------------------------------------------------
@@ -384,12 +436,33 @@ def main() -> None:
     ap.add_argument("--timeout", type=float, default=180.0, help="per-run binary timeout (s)")
     ap.add_argument("--contact-distance", type=float, default=0.15)
     ap.add_argument("--wall-contact-margin", type=float, default=0.13)
+    ap.add_argument(
+        "--sim-config",
+        type=Path,
+        default=None,
+        help="base kinematic sim TOML; overrides the sweep's sim_config and the default",
+    )
+    ap.add_argument(
+        "--goal-tolerance",
+        type=float,
+        default=0.10,
+        help="stop-mission goal radius (m); terminal error and time-to-goal are measured against it",
+    )
     args = ap.parse_args()
 
     if not BINARY.exists():
         sys.exit(f"binary not found: {BINARY} (run ./scripts/build.sh)")
 
-    runs = load_sweep(args.sweep) if args.sweep else default_runs()
+    if args.sweep:
+        sweep_sim_config, runs = load_sweep(args.sweep)
+    else:
+        sweep_sim_config, runs = None, default_runs()
+    base_sim_config = args.sim_config or sweep_sim_config or BASE_SIM_CONFIG
+    if not base_sim_config.is_absolute():
+        base_sim_config = REPO_ROOT / base_sim_config
+    if not base_sim_config.exists():
+        sys.exit(f"sim config not found: {base_sim_config}")
+    print(f"base sim config: {base_sim_config}")
     out_dir = (REPO_ROOT / args.out) if not args.out.is_absolute() else args.out
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -400,7 +473,7 @@ def main() -> None:
     try:
         for run in runs:
             print(f"=== run: {run.name}  sim={run.sim or '-'}  cpp={run.cpp or '-'} ===")
-            sim_config = write_sim_config(run, out_dir)
+            sim_config = write_sim_config(run, out_dir, base_sim_config)
             cpp_overlay = write_cpp_overlay(run, out_dir)
             dt = float(_load_toml(sim_config).get("sim", {}).get("dt", 1.0 / 30.0))
 
@@ -414,11 +487,24 @@ def main() -> None:
                 df = diag_io.load_diagnostics(mcap)
                 field_size = diag_io.load_field_size(mcap)
                 row.update(
-                    score_run(df, field_size, dt, args.contact_distance, args.wall_contact_margin)
+                    score_run(
+                        df,
+                        field_size,
+                        dt,
+                        args.contact_distance,
+                        args.wall_contact_margin,
+                        args.goal_tolerance,
+                    )
                 )
                 title = f"{run.name}  (sim={run.sim or '-'}, cpp={run.cpp or '-'})"
                 plot_run(
-                    df, field_size, dt, args.contact_distance, title, out_dir / f"{run.name}.png"
+                    df,
+                    field_size,
+                    dt,
+                    args.contact_distance,
+                    title,
+                    out_dir / f"{run.name}.png",
+                    args.goal_tolerance,
                 )
                 trajectories.append((run.name, df))
                 print(f"  wrote {out_dir / (run.name + '.png')}")
