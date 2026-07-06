@@ -131,6 +131,14 @@ double OpenTxTransmitter::limit_linear_acceleration(double linear_command) {
     if (max_linear_rate_per_sec_ <= 0.0) return linear_command;
 
     const double now = clock_->now();
+
+    // Only compute slew rate when auto switch is active
+    if (get_channel_value(config_.trainer_enable_channel) < 0) {
+        prev_linear_command_ = 0.0;
+        last_send_time_ = now;
+        return linear_command;
+    }
+
     if (!last_send_time_) {
         // First tick after (re)enable: no dt yet, so establish the baseline and pass through.
         last_send_time_ = now;

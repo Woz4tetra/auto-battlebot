@@ -155,7 +155,7 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
 
     /** Rate limit (m/s^2) on how fast the reference speed may rise, for a clean launch and a
      * bounded feedforward derivative. Braking (falling reference) is never rate-limited. */
-    double accel_limit = 30.0;
+    double accel_limit = 8.5;
 
     // --- Trajectory ---
 

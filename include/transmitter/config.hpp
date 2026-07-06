@@ -47,6 +47,11 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     int init_button_threshold = 500;  // channel value above which = button pressed
     int linear_channel = 0;
     int angular_channel = 1;
+    /** RC channel carrying the trainer enable switch (SG). Autonomous motion only reaches the
+     *  wheels while this switch is engaged, at which point the channel reads negative. The linear
+     *  acceleration limiter is held at standstill until then. Requires SG to be mapped to this
+     *  output channel in the OpenTX model (mr_stabs_mk2.etx); it is not broadcast by default. */
+    int trainer_enable_channel = 7;
     bool reverse_linear_channel = false;
     bool reverse_angular_channel = false;
     /** Minimum non-zero output magnitude (%) after zero deadzone is exceeded. */
@@ -78,6 +83,8 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
             static_cast<int>(parser.get_optional_int("linear_channel", linear_channel));
         angular_channel =
             static_cast<int>(parser.get_optional_int("angular_channel", angular_channel));
+        trainer_enable_channel = static_cast<int>(
+            parser.get_optional_int("trainer_enable_channel", trainer_enable_channel));
         reverse_linear_channel =
             parser.get_optional_bool("reverse_linear_channel", reverse_linear_channel);
         reverse_angular_channel =

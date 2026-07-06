@@ -68,7 +68,10 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     /** Slew-limit the normalized linear command so wheel-surface acceleration stays under the
      *  configured RPM/s cap. Uses the logical clock for dt and passes the command through
-     *  unchanged when the limiter is disabled or on the first tick after (re)enabling. */
+     *  unchanged when the limiter is disabled or on the first tick after (re)enabling. The limit
+     *  only applies while the trainer enable channel (config_.trainer_enable_channel) reads
+     *  negative; until then the baseline is held at standstill so motion ramps from zero once the
+     *  trainer switch engages. */
     double limit_linear_acceleration(double linear_command);
 
     void handle_packet(const CrsfLinkStatistics& pkt);
