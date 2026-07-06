@@ -18,7 +18,8 @@ Controls:
     Delete or x                delete selected box
     a/d or left/right          previous / next image (auto-saves)
     space                      mark reviewed + jump to next unreviewed
-    +/-/0(numpad), ctrl+wheel  zoom in / out / reset
+    n                          jump to next unreviewed (without marking)
+    +/- or ctrl+wheel          zoom in / out at the cursor; 0 (numpad) resets to fit
     ctrl+s                     save
 """
 
@@ -104,6 +105,20 @@ def parse_label_file(label_path: Path, img_w: int, img_h: int) -> tuple[list[Box
     return boxes, preserved
 
 
+def _find_data_yaml(dataset_path: Path) -> Path | None:
+    """The dataset's data.yaml, or one from an immediate subdataset when dataset_path is a
+    parent holding per-recording subdirs (opening the parent labels them all in one pass)."""
+    direct = dataset_path / "data.yaml"
+    if direct.exists():
+        return direct
+    if dataset_path.is_dir():
+        for child in sorted(dataset_path.iterdir()):
+            candidate = child / "data.yaml"
+            if candidate.exists():
+                return candidate
+    return None
+
+
 def load_class_info(dataset_path: Path) -> tuple[list[str], list[str]]:
     """Read names and colors from the dataset's data.yaml."""
     fallback_colors = [
@@ -118,8 +133,8 @@ def load_class_info(dataset_path: Path) -> tuple[list[str], list[str]]:
         "#008000",
         "#FFC0CB",
     ]
-    data_yaml = dataset_path / "data.yaml"
-    if not data_yaml.exists():
+    data_yaml = _find_data_yaml(dataset_path)
+    if data_yaml is None:
         return [], fallback_colors
     data = yaml.safe_load(data_yaml.read_text()) or {}
     names = list(data.get("names", []))
@@ -129,21 +144,47 @@ def load_class_info(dataset_path: Path) -> tuple[list[str], list[str]]:
     return names, colors or fallback_colors
 
 
+def load_kpt_count(dataset_path: Path) -> int:
+    """Keypoints per box from data.yaml kpt_shape (0 if absent).
+
+    Lets a freshly drawn box get keypoints even when the dataset has no pose boxes yet,
+    which is the case when labeling a pose dataset from scratch."""
+    data_yaml = _find_data_yaml(dataset_path)
+    if data_yaml is None:
+        return 0
+    data = yaml.safe_load(data_yaml.read_text()) or {}
+    shape = data.get("kpt_shape")
+    if isinstance(shape, (list, tuple)) and shape:
+        return int(shape[0])
+    return 0
+
+
+def _label_path_for(img_path: Path) -> Path:
+    """Label file for an image: swap the nearest images/ path component for labels/.
+
+    Works for a single dataset (dataset/images/x.png -> dataset/labels/x.txt) and for a
+    parent of subdatasets (parent/rec/images/x.png -> parent/rec/labels/x.txt), so labels
+    always land in the labels/ dir score.py reads, not next to the image."""
+    parts = img_path.parts
+    for i in range(len(parts) - 1, -1, -1):
+        if parts[i] == "images":
+            return Path(*parts[:i], "labels", *parts[i + 1 :]).with_suffix(".txt")
+    return img_path.with_suffix(".txt")
+
+
 def find_image_label_pairs(dataset_path: Path) -> list[tuple[Path, Path]]:
-    """Pair images/<stem>.<ext> with labels/<stem>.txt, creating label paths as needed."""
+    """Pair each image with its labels/<stem>.txt, creating label paths as needed.
+
+    Searches recursively, so pointing at a parent of per-recording subdatasets labels them
+    all in one session."""
     image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
     images_dir = dataset_path / "images"
-    labels_dir = dataset_path / "labels"
     search_dir = images_dir if images_dir.is_dir() else dataset_path
     pairs = []
     for img_path in natsorted(
         p for p in search_dir.rglob("*") if p.suffix.lower() in image_extensions
     ):
-        if images_dir.is_dir():
-            label_path = labels_dir / img_path.relative_to(images_dir).with_suffix(".txt")
-        else:
-            label_path = img_path.with_suffix(".txt")
-        pairs.append((img_path, label_path))
+        pairs.append((img_path, _label_path_for(img_path)))
     return pairs
 
 
@@ -154,6 +195,7 @@ class LabelEditor:
         if not self.pairs:
             raise SystemExit(f"No images found under {dataset_path}")
         self.class_names, self.class_colors = load_class_info(dataset_path)
+        self.default_kpt_count = load_kpt_count(dataset_path)
         self.state_file = dataset_path / ".edit_state.json"
         self.reviewed: set[str] = set()
         self._load_state()
@@ -178,6 +220,9 @@ class LabelEditor:
         self.canvas_image_id: int | None = None
         self.status_var = tk.StringVar()
         self._build_ui()
+        first_unreviewed = self._next_unreviewed_index(0)  # resume where labeling left off
+        if first_unreviewed is not None:
+            self.index = first_unreviewed
         self._load_current()
 
     # ------------------------------------------------------------------ state
@@ -237,7 +282,10 @@ class LabelEditor:
         ttk.Button(nav, text="Reviewed + next (space)", command=self.mark_reviewed_next).pack(
             fill=tk.X, pady=4
         )
-        ttk.Button(nav, text="Save (ctrl+s)", command=self.save).pack(fill=tk.X)
+        ttk.Button(nav, text="Next unreviewed (n)", command=self.jump_next_unreviewed).pack(
+            fill=tk.X
+        )
+        ttk.Button(nav, text="Save (ctrl+s)", command=self.save).pack(fill=tk.X, pady=4)
         ttk.Button(nav, text="Delete box (x)", command=self.delete_selected).pack(fill=tk.X, pady=4)
 
         ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN).pack(
@@ -252,17 +300,18 @@ class LabelEditor:
         self.root.bind("<Left>", lambda _e: self.prev_image())
         self.root.bind("<Right>", lambda _e: self.next_image())
         self.root.bind("<space>", lambda _e: self.mark_reviewed_next())
+        self.root.bind("n", lambda _e: self.jump_next_unreviewed())
         self.root.bind("x", lambda _e: self.delete_selected())
         self.root.bind("<Delete>", lambda _e: self.delete_selected())
         self.root.bind("<Control-s>", lambda _e: self.save())
         for digit in range(10):
             self.root.bind(str(digit), self._on_digit)
-        self.root.bind("<plus>", lambda _e: self._set_zoom(self.zoom * 1.25))
-        self.root.bind("<equal>", lambda _e: self._set_zoom(self.zoom * 1.25))
-        self.root.bind("<minus>", lambda _e: self._set_zoom(self.zoom / 1.25))
+        self.root.bind("<plus>", lambda _e: self._zoom_by(1.25))
+        self.root.bind("<equal>", lambda _e: self._zoom_by(1.25))
+        self.root.bind("<minus>", lambda _e: self._zoom_by(1 / 1.25))
         self.root.bind("<KP_0>", lambda _e: self._set_zoom(1.0))
-        self.root.bind("<Control-Button-4>", lambda _e: self._set_zoom(self.zoom * 1.1))
-        self.root.bind("<Control-Button-5>", lambda _e: self._set_zoom(self.zoom / 1.1))
+        self.root.bind("<Control-Button-4>", lambda e: self._zoom_at(self.zoom * 1.1, e.x, e.y))
+        self.root.bind("<Control-Button-5>", lambda e: self._zoom_at(self.zoom / 1.1, e.x, e.y))
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _color(self, class_id: int) -> str:
@@ -281,7 +330,10 @@ class LabelEditor:
         self.boxes, self.preserved = parse_label_file(label_path, *self.image.size)
         self.selected = None
         self.dirty = False
+        self.zoom = 1.0  # reset to fit when moving to a new image
         self._render()
+        self.canvas.xview_moveto(0.0)
+        self.canvas.yview_moveto(0.0)
 
     def save(self) -> None:
         img_path, label_path = self.pairs[self.index]
@@ -317,18 +369,35 @@ class LabelEditor:
             self.index += 1
             self._load_current()
 
+    def _next_unreviewed_index(self, start_offset: int) -> int | None:
+        """Index of the next unreviewed image, scanning from self.index + start_offset and
+        wrapping. start_offset=0 includes the current image; 1 skips it."""
+        n = len(self.pairs)
+        for offset in range(start_offset, start_offset + n):
+            i = (self.index + offset) % n
+            if str(self.pairs[i][0].relative_to(self.dataset_path)) not in self.reviewed:
+                return i
+        return None
+
+    def jump_next_unreviewed(self) -> None:
+        self._autosave()
+        target = self._next_unreviewed_index(1)
+        if target is None:
+            self._update_status("All images reviewed")
+            return
+        self.index = target
+        self._load_current()
+
     def mark_reviewed_next(self) -> None:
         self._autosave()
         self.reviewed.add(self._image_key())
         self._save_state()
-        for offset in range(1, len(self.pairs) + 1):
-            i = (self.index + offset) % len(self.pairs)
-            key = str(self.pairs[i][0].relative_to(self.dataset_path))
-            if key not in self.reviewed:
-                self.index = i
-                self._load_current()
-                return
-        self._update_status("All images reviewed")
+        target = self._next_unreviewed_index(1)
+        if target is None:
+            self._update_status("All images reviewed")
+            return
+        self.index = target
+        self._load_current()
 
     # ------------------------------------------------------------------ zoom + transforms
 
@@ -344,6 +413,36 @@ class LabelEditor:
     def _set_zoom(self, zoom: float) -> None:
         self.zoom = max(0.25, min(8.0, zoom))
         self._render()
+
+    def _zoom_at(self, zoom: float, cx: float, cy: float) -> None:
+        """Zoom so the image point under canvas widget coords (cx, cy) stays put."""
+        if self.image is None:
+            return
+        s_old = self._scale()
+        ix = self.canvas.canvasx(cx) / s_old
+        iy = self.canvas.canvasy(cy) / s_old
+        self.zoom = max(0.25, min(8.0, zoom))
+        self._render()
+        s_new = self._scale()
+        w = max(1, int(self.image.width * s_new))
+        h = max(1, int(self.image.height * s_new))
+        self.canvas.xview_moveto(max(0.0, min(1.0, (ix * s_new - cx) / w)))
+        self.canvas.yview_moveto(max(0.0, min(1.0, (iy * s_new - cy) / h)))
+
+    def _pointer_on_canvas(self) -> tuple[float, float]:
+        """Mouse position in canvas widget coords, or the canvas center if off-canvas."""
+        px = self.canvas.winfo_pointerx() - self.canvas.winfo_rootx()
+        py = self.canvas.winfo_pointery() - self.canvas.winfo_rooty()
+        cw = self.canvas.winfo_width()
+        ch = self.canvas.winfo_height()
+        if 0 <= px <= cw and 0 <= py <= ch:
+            return float(px), float(py)
+        return cw / 2, ch / 2
+
+    def _zoom_by(self, factor: float) -> None:
+        """Keyboard zoom, centered on the mouse (or the canvas center if off-canvas)."""
+        cx, cy = self._pointer_on_canvas()
+        self._zoom_at(self.zoom * factor, cx, cy)
 
     def _to_image(self, cx: float, cy: float) -> tuple[float, float]:
         s = self._scale()
@@ -445,6 +544,8 @@ class LabelEditor:
         """Pose datasets: give a freshly drawn box the same keypoint count as its peers,
         spread along the box's vertical midline, ready to drag into place."""
         count = max((len(b.keypoints) for b in self.boxes if b is not box), default=0)
+        if count == 0:  # no pose peers yet (e.g. labeling from scratch): use the schema
+            count = self.default_kpt_count
         if count == 0 or box.keypoints:
             return
         cx = (box.x1 + box.x2) / 2
