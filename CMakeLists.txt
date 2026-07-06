@@ -153,7 +153,7 @@ link_directories(${ZED_LIBRARY_DIR})
 link_directories(${CUDA_LIBRARY_DIRS})
 
 # Create shared library with core auto_battlebot functionality
-file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES
+file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES CONFIGURE_DEPENDS
     "src/*.cpp"
     "src/**/*.cpp"
 )
@@ -338,7 +338,7 @@ install(DIRECTORY config/ DESTINATION share/auto_battlebot/config
 if(BUILD_TESTING)
     enable_testing()
 
-    file(GLOB_RECURSE AUTO_BATTLEBOT_TEST_SOURCES
+    file(GLOB_RECURSE AUTO_BATTLEBOT_TEST_SOURCES CONFIGURE_DEPENDS
         "tests/*.cpp"
         "tests/**/*.cpp"
     )
