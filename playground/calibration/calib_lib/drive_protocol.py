@@ -26,6 +26,7 @@ from __future__ import annotations
 import math
 import threading
 import time
+from collections.abc import Collection
 from dataclasses import dataclass
 
 # Matches kChannelMax / kTrainerMax in opentx_transmitter.cpp.
@@ -40,6 +41,22 @@ SAFETY_FRACTION = 0.5  # fraction of view_size a translation phase may cross bef
 N_ROT = 3.0  # rotations a sustained/step spin is allowed to complete
 TWITCH_ANGLE = 0.5  # rad a sync twitch rotates, regardless of robot (keeps the pulse crisp)
 SLEW_DT = 0.05  # sub-step (s) used to approximate a slew-limited command ramp
+
+# Selectable excitation phases, in run order, for build_protocol(phases=...) and --phases. A subset
+# run still gets the in-place sync twitches at both ends: they cost no travel, and the fitter needs
+# them to cross-correlate the command log against the AprilTag capture. Everything else is opt-in.
+# lin_step alone yields both the accel (rise) and decel/coast (drop-to-zero) time constants.
+PHASES: tuple[str, ...] = (
+    "idle",
+    "lin_deadzone",
+    "lin_step",
+    "ang_deadzone",
+    "ang_step",
+    "lin_max",
+    "ang_max",
+    "steer_brake",
+    "latency",
+)
 
 
 @dataclass
@@ -130,14 +147,24 @@ class CommandSample:
     label: str
 
 
-def build_protocol(specs: DriveSpecs) -> list[Segment]:
+def build_protocol(specs: DriveSpecs, phases: Collection[str] | None = None) -> list[Segment]:
     """The excitation sequence (see docs/experiments/control_improvement and the calibration plan).
 
     Moving-segment durations are sized from `specs` so a full-speed maneuver stays inside the camera
     view (linear) or completes a bounded number of turns (angular), and a checkpoint (operator
     repositions the robot, Enter to continue) sits between phases that would otherwise drift the robot
     out of frame. Pure and deterministic so it can be inspected with --dry-run without hardware.
+
+    `phases` (names from PHASES) restricts the run to a subset for focused re-tuning, e.g. just
+    "lin_step" to iterate on accel/decel tau without driving the full battery. None runs everything.
+    The sync twitches always bracket the output regardless of the filter. Each phase starts and ends
+    at rest, so dropping phases never changes the ones that remain.
     """
+    selected = None if phases is None else frozenset(phases)
+
+    def want(name: str) -> bool:
+        return selected is None or name in selected
+
     v_max = specs.v_max
     omega_max = specs.omega_max
     max_accel = specs.max_accel  # forward command/s slew limit (None = step instantly)
@@ -189,70 +216,85 @@ def build_protocol(specs: DriveSpecs) -> list[Segment]:
 
     # 1. Idle baseline: drift + ground-truth noise floor. Follows the in-place twitch, robot still
     #    centred, so no checkpoint before it.
-    hold(3.0, 0.0, 0.0, "idle")
+    if want("idle"):
+        hold(3.0, 0.0, 0.0, "idle")
 
     # 2. Linear deadzone staircase: creep the command up until the wheels break static friction. Each
     #    direction marches the robot the same way, so recentre before each and bound the *cumulative*
     #    crawl across the seven steps to one travel budget.
-    step_budget = travel_budget / 7.0
-    for sign, tag in ((1.0, "fwd"), (-1.0, "rev")):
-        checkpoint(f"lin_deadzone_{tag}")
-        for frac in (0.04, 0.08, 0.12, 0.16, 0.20, 0.24, 0.28):
-            hold(capped(0.8, frac, v_max, step_budget), sign * frac, 0.0, f"lin_deadzone_{tag}")
-        hold(1.0, 0.0, 0.0, f"lin_deadzone_{tag}")
+    if want("lin_deadzone"):
+        step_budget = travel_budget / 7.0
+        for sign, tag in ((1.0, "fwd"), (-1.0, "rev")):
+            checkpoint(f"lin_deadzone_{tag}")
+            for frac in (0.04, 0.08, 0.12, 0.16, 0.20, 0.24, 0.28):
+                hold(capped(0.8, frac, v_max, step_budget), sign * frac, 0.0, f"lin_deadzone_{tag}")
+            hold(1.0, 0.0, 0.0, f"lin_deadzone_{tag}")
 
-    # 3. Linear steps: rise to steady state, then step to zero to capture coast (decel) tau. Fwd/rev
-    #    alternate, so each drive segment gets the full travel budget. The rise is slew-limited (when
-    #    max_accel is set) so a torque-happy bot does not wheelie; the drop to zero always steps so the
-    #    natural coast is measured.
-    checkpoint("lin_step")
-    for amp in (0.25, 0.5, 0.75, 1.0):
-        for sign in (1.0, -1.0):
-            drive_to(sign * amp, capped(1.2, amp, v_max, travel_budget), "lin_step")
-            drive_to(0.0, 1.2, "lin_step")
+    # 3. Linear steps: rise to steady state, then step to zero to capture coast (decel) tau. The
+    #    rise is slew-limited (when max_accel is set) so a torque-happy bot does not wheelie; the
+    #    drop to zero always steps so the natural coast is measured. Each step's post-drop coast is
+    #    uncounted travel (that IS the decel tau), so at high amp the robot ends near the edge:
+    #    checkpoint before EVERY step for the operator to recentre, giving each drive its full view.
+    if want("lin_step"):
+        for amp in (0.25, 0.5, 0.75, 1.0):
+            for sign in (1.0, -1.0):
+                checkpoint("lin_step")
+                drive_to(sign * amp, capped(1.2, amp, v_max, travel_budget), "lin_step")
+                drive_to(0.0, 1.2, "lin_step")
 
     # 4. Angular deadzone staircase + yaw steps, both directions. Spin-in-place stays centred, so one
     #    checkpoint before the whole angular block (no recentre between left and right) and the limit
     #    is rotations, not view.
-    checkpoint("ang_deadzone")
-    for sign, tag in ((1.0, "left"), (-1.0, "right")):
-        for frac in (0.04, 0.08, 0.12, 0.16, 0.20, 0.24, 0.28):
-            hold(capped(0.8, frac, omega_max, rot_budget), 0.0, sign * frac, f"ang_deadzone_{tag}")
-        hold(0.8, 0.0, 0.0, f"ang_deadzone_{tag}")
-    checkpoint("ang_step")
-    for amp in (0.25, 0.5, 0.75, 1.0):
-        for sign in (1.0, -1.0):
-            hold(capped(1.0, amp, omega_max, rot_budget), 0.0, sign * amp, "ang_step")
-            hold(1.0, 0.0, 0.0, "ang_step")
+    if want("ang_deadzone"):
+        checkpoint("ang_deadzone")
+        for sign, tag in ((1.0, "left"), (-1.0, "right")):
+            for frac in (0.04, 0.08, 0.12, 0.16, 0.20, 0.24, 0.28):
+                hold(
+                    capped(0.8, frac, omega_max, rot_budget),
+                    0.0,
+                    sign * frac,
+                    f"ang_deadzone_{tag}",
+                )
+            hold(0.8, 0.0, 0.0, f"ang_deadzone_{tag}")
+    if want("ang_step"):
+        checkpoint("ang_step")
+        for amp in (0.25, 0.5, 0.75, 1.0):
+            for sign in (1.0, -1.0):
+                hold(capped(1.0, amp, omega_max, rot_budget), 0.0, sign * amp, "ang_step")
+                hold(1.0, 0.0, 0.0, "ang_step")
 
     # 5. Sustained max speed: slew up to full command (no launch wheelie when max_accel is set), then
     #    hold for the steady-state gain. The slew sub-steps are labeled "slew" so they stay out of the
     #    fitter's lin_max/lin_step max-speed slice; only the steady hold carries the lin_max label.
-    checkpoint("lin_max")
-    drive_to(1.0, capped(1.0, 1.0, v_max, travel_budget), "lin_max")
-    drive_to(0.0, 1.5, "lin_max")
-    checkpoint("ang_max")
-    hold(capped(2.0, 1.0, omega_max, rot_budget), 0.0, 1.0, "ang_max")
-    hold(1.5, 0.0, 0.0, "ang_max")
+    if want("lin_max"):
+        checkpoint("lin_max")
+        drive_to(1.0, capped(1.0, 1.0, v_max, travel_budget), "lin_max")
+        drive_to(0.0, 1.5, "lin_max")
+    if want("ang_max"):
+        checkpoint("ang_max")
+        hold(capped(2.0, 1.0, omega_max, rot_budget), 0.0, 1.0, "ang_max")
+        hold(1.5, 0.0, 0.0, "ang_max")
 
     # 6. Steer-brake grid: forward speed loss as a function of |yaw command|. Each 0.7 forward pulse
     #    drives across the view, so checkpoint before EVERY pulse for the operator to recentre; each
     #    pulse then gets the full travel budget. The forward rise is slew-limited (when max_accel is
     #    set); the yaw is applied on the steady hold.
-    for ang in (0.0, 0.25, 0.5, 0.75):
-        checkpoint(f"steer_brake ang={ang:g}")
-        drive_to(0.7, capped(1.5, 0.7, v_max, travel_budget), "steer_brake", ang=ang)
-        drive_to(0.0, 0.8, "steer_brake")
+    if want("steer_brake"):
+        for ang in (0.0, 0.25, 0.5, 0.75):
+            checkpoint(f"steer_brake ang={ang:g}")
+            drive_to(0.7, capped(1.5, 0.7, v_max, travel_budget), "steer_brake", ang=ang)
+            drive_to(0.0, 0.8, "steer_brake")
 
     # 7. Latency battery: many sharp +/- steps for actuation-lag cross-correlation. Sharp edges are the
     #    point, so these are NOT slew-limited; instead a flip-prone bot (max_accel set) uses a small
     #    amplitude that is still crisp but stays under the wheelie threshold (0.35 still flipped).
-    checkpoint("latency")
-    lat_amp = 0.2 if max_accel is not None else 0.8
-    lat = capped(0.3, lat_amp, v_max, travel_budget)
-    for _ in range(8):
-        hold(lat, lat_amp, 0.0, "latency")
-        hold(lat, -lat_amp, 0.0, "latency")
+    if want("latency"):
+        checkpoint("latency")
+        lat_amp = 0.2 if max_accel is not None else 0.8
+        lat = capped(0.3, lat_amp, v_max, travel_budget)
+        for _ in range(8):
+            hold(lat, lat_amp, 0.0, "latency")
+            hold(lat, -lat_amp, 0.0, "latency")
 
     # 8. Sync twitch (end).
     checkpoint("sync_end")

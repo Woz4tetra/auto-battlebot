@@ -55,7 +55,9 @@ def make_detector() -> cv2.aruco.ArucoDetector:
     return aruco.ArucoDetector(dictionary, p)
 
 
-def auto_gamma(frame: np.ndarray, target_mean: float = 120.0, min_mean: float = 110.0) -> np.ndarray:
+def auto_gamma(
+    frame: np.ndarray, target_mean: float = 120.0, min_mean: float = 110.0
+) -> np.ndarray:
     """Brighten an underexposed frame via a gamma curve that lifts its mean toward target_mean.
 
     Arena lighting is often dim and the camera underexposes: a raw frame at mean ~52/255 detects 0 tags
@@ -75,11 +77,27 @@ def auto_gamma(frame: np.ndarray, target_mean: float = 120.0, min_mean: float = 
     return cv2.LUT(frame, lut)
 
 
-def detect_markers(detector: cv2.aruco.ArucoDetector, frame: np.ndarray):
-    """Auto-brighten then detect. Returns (display_frame, corners, ids) where display_frame is what was
-    actually fed to the detector, so a preview can draw markers on the same pixels it detected."""
+def detect_markers(detector: cv2.aruco.ArucoDetector, frame: np.ndarray, scale: float = 1.0):
+    """Auto-brighten then detect. Returns (display_frame, corners, ids) where display_frame is the
+    original-resolution gamma frame, so a preview draws markers on the same pixels it detected.
+
+    `scale` > 1 upsamples the (gamma-corrected) frame before detection, which recovers small markers
+    sitting near the pixels-on-target limit: the robot tag is only ~40 px at 1080p and its detection
+    flickers on/off during fast motion. Upsampling 2x lifts the borderline reads over the line
+    (measured ~+6 pts on the moving frames of a real run). The offline analyzer uses scale=2 for the
+    robot tag; the live preview leaves it at 1 for speed. Corners are divided back by `scale` before
+    returning, so PnP solves in the true original-image pixel frame regardless of scale, and the
+    subpixel refinement done at the higher resolution actually sharpens the corners.
+    """
     disp = auto_gamma(frame)
-    corners, ids, _ = detector.detectMarkers(disp)
+    img = (
+        disp
+        if scale == 1.0
+        else cv2.resize(disp, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    )
+    corners, ids, _ = detector.detectMarkers(img)
+    if scale != 1.0 and corners:
+        corners = tuple(c / scale for c in corners)
     return disp, corners, ids
 
 
@@ -139,7 +157,9 @@ def solve_floor_extrinsic(
         )
     ok, rvec, tvec = cv2.solvePnP(np.vstack(obj_all), np.vstack(img_all), k, d)
     if not ok:
-        raise SystemExit("Floor board PnP failed; check intrinsics and the --floor-marker-size (m).")
+        raise SystemExit(
+            "Floor board PnP failed; check intrinsics and the --floor-marker-size (m)."
+        )
     r, _ = cv2.Rodrigues(rvec)
     print(f"floor frame locked from {used} frames, {len(np.vstack(obj_all))} marker corners")
     return r, tvec.reshape(3)

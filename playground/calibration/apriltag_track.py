@@ -689,6 +689,16 @@ def main() -> None:
         "stays in the camera view. Required with --drive or a drive --dry-run.",
     )
     parser.add_argument(
+        "--phases",
+        nargs="+",
+        choices=dp.PHASES,
+        default=None,
+        metavar="PHASE",
+        help="--drive/--dry-run: run only these excitation phases (default: all). The sync "
+        "twitches always bracket the run. Use 'lin_step' alone to focus on accel/decel tau. "
+        "Choices: " + ", ".join(dp.PHASES),
+    )
+    parser.add_argument(
         "--no-reverse-angular",
         action="store_true",
         help="--drive: disable the reverse_angular convention (default matches main.toml)",
@@ -712,7 +722,7 @@ def main() -> None:
     if args.dry_run:
         assert args.robot is not None  # guaranteed by the check above
         specs = dp.ROBOTS[args.robot]
-        protocol = dp.build_protocol(specs)
+        protocol = dp.build_protocol(specs, phases=args.phases)
         print(
             f"robot {args.robot}: v_max={specs.v_max:.2f} m/s  omega_max={specs.omega_max:.2f} rad/s  "
             f"view={specs.view_size_m:.2f} m"
@@ -821,7 +831,7 @@ def main() -> None:
         link = dp.TrainerLink(tx_port, reverse_angular=not args.no_reverse_angular)
         assert args.robot is not None  # guaranteed by the check near the top of main()
         specs = dp.ROBOTS[args.robot]
-        protocol = dp.build_protocol(specs)
+        protocol = dp.build_protocol(specs, phases=args.phases)
         n_checkpoints = sum(1 for s in protocol if s.checkpoint)
         print(
             f"transmitter: DRIVE mode on {tx_port} -> {amcap.TOPIC_COMMAND} "

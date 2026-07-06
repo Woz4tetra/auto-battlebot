@@ -41,6 +41,10 @@ from calib_lib import apriltag_mcap as amcap
 # Sentinel for --overlay-mcap given with no argument: write next to the recording.
 OVERLAY_DEFAULT = object()
 
+# Upsample factor for robot-tag detection. The tag is ~40 px at 1080p and drops out during fast
+# motion; detecting on a 2x image recovers borderline frames (the floor board is large, solved 1x).
+ROBOT_DETECT_SCALE = 2.0
+
 
 def solve_floor(metadata: dict, path: Path, detector, k: np.ndarray, d: np.ndarray):
     """Re-solve the floor extrinsic (R_fc, t_fc) from the recorded /floor/image lock burst."""
@@ -85,7 +89,7 @@ def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
 
     rows: list[dict] = []
     for t, frame in amcap.iter_images(path, amcap.TOPIC_CAMERA_IMAGE):
-        _, corners, ids = ad.detect_markers(detector, frame)
+        _, corners, ids = ad.detect_markers(detector, frame, scale=ROBOT_DETECT_SCALE)
         pose = None
         if ids is not None and tag_id in ids.flatten():
             idx = int(np.where(ids.flatten() == tag_id)[0][0])

@@ -15,8 +15,8 @@ far the strongest latency signal.
 max_linear_speed_fwd = 5.60    # medium confidence
 max_linear_speed_rev = 4.84    # low-medium confidence
 max_angular_speed    = 61.5    # medium confidence
-tau_linear_accel     = 0.058   # low confidence (one clean rise; fit corrected, see below)
-tau_linear_decel     = 0.078   # low confidence (one clean coast tail)
+tau_linear_accel     = 0.058   # low confidence; 2026-07-05 re-record corroborates ~0.057 (1 reverse rise), see below
+tau_linear_decel     = 0.078   # low confidence (one coast tail); 2026-07-05 coasts corroborate (~0.079)
 tau_angular_accel    = 0.066   # low confidence (one clean rise)
 
 # simulation/kinematic_sim.toml [latency]
@@ -36,6 +36,59 @@ lifted_deadzone_percent = 4    # deadzone is at or below the smallest tested ste
 The single number I trust most is **actuation latency ~60ms**. It matches the project's assumed 60ms
 end-to-end budget. Everything else is limited by poor tag visibility and should be re-recorded before
 being used for aggressive control tuning.
+
+## 2026-07-05 focused re-records: accel tau still not cleanly measurable
+
+Two focused re-records on 2026-07-05 targeted the linear time constants only, using the new
+`apriltag_track.py --drive --phases lin_step` subset with a checkpoint before every step so the operator
+recentres the robot between drives (the FOV work in `drive_protocol.py`). Detection was also improved:
+the robot tag is only ~40 px at 1080p and dropped out under fast motion, so `analyze_apriltag_mcap.py`
+now upsamples 2x before detecting it (`ROBOT_DETECT_SCALE`, corners mapped back so PnP is unaffected),
+lifting per-frame detection from 50% to 58% (`092449`) and 63% to 68% (`092854`). Even so, neither run
+yields a clean linear accel tau, and the reason is structural, not detection.
+
+| Run | change | detection (1x->2x) | fittable rises | tau_linear_accel | decel coast tails |
+|-----|--------|-------------------:|----------------|-----------------:|-------------------|
+| `092449` | first focused run | 50% -> 58% | 1 of 2 (reverse \|cmd\| 0.25) | 0.057 s (single) | 3: 0.061, 0.209, 0.318 s |
+| `092854` | + onboard-IMU angular PID | 63% -> 68% | 0 of 2 | n/a | 4: 0.050-0.099 s (med 0.077) |
+
+- **The first run's 0.248 s "accel tau" was a detection artifact.** With the old sparse detection, the
+  reverse 0.25 rise fit to 0.248 s: velocity interpolated across dropped frames looks like a slow rise.
+  At 2x detection that same segment fits to **0.057 s**, back in line with the 2026-07-03 `0.058 s`. So
+  the earlier "slow accel" was undersampling, not the plant, which is exactly why more detections
+  mattered here.
+- **The forward rise is slew-limited out of the fit.** Mr Stabs Mk2 is torque-happy, so `build_protocol`
+  slew-limits every forward command increase (`max_accel = 2.16`) and labels the ramp `slew`, which the
+  fitter deliberately excludes. For a 0.25 step that ramp is ~0.1 s, comparable to the plant's own rise,
+  so the `lin_step` hold begins after the robot has already spun up. Both forward 0.25 holds start at
+  ~1.0x steady-state speed: no accel transient is left to fit (nan). On this drivetrain, a slew-limited
+  `lin_step` cannot expose the natural accel tau at all.
+- **Reverse never reaches speed and does not reproduce.** The robot spins uncontrollably driving in
+  reverse; the fit agrees, reverse steady speed (1.08-1.21 m/s) sits below forward (1.31-1.33), and the
+  reverse rise fits only in `092449` (0.057 s), not in `092854` (nan). The onboard-IMU angular PID in
+  `092854` barely changed the yaw (mean |yaw rate| ~2.3 rad/s, matching that it "didn't fare much
+  better"). So the one accel-tau number rests on a single reverse segment from the direction that spins.
+- **Only the smallest step stays in frame.** The 0.5/0.75/1.0 steps still leave the view even with
+  per-step recentering, so every fit rests on the 0.25 step. Better detection did not change this: the
+  bottleneck is FOV and heading, not tag detection.
+
+Side finding, opposite to the drive-session read: the **coast (decel) tails fit** because the drop to
+zero steps instantly (it is not slew-limited). Run `092854` gives four tails (median 0.077 s),
+corroborating the 2026-07-03 `tau_linear_decel = 0.078 s`; `092449`'s three tails are noisier
+(0.061-0.318 s). On this data the decel is the better-measured linear tau.
+
+To actually pin the linear accel tau, the heading hold has to work first: until the robot tracks a
+straight command without spinning, neither its forward speed nor its accel is measurable in either
+direction. Once it drives straight, the excitation or the fit still has to change to see the rise on a
+slew-limited bot: measure the plant response *during* the slew ramp (commanded ramp vs velocity ramp)
+instead of excluding it, run a small non-slew-limited step sized to stay in frame, or take acceleration
+from the onboard IMU. The 2026-07-05 rise that did fit (0.057 s) matches the 2026-07-03 `0.058 s`, so
+`tau_linear_accel` stays at that low-confidence value, now corroborated by two runs but still one
+segment.
+
+Diagnostic figures (only the rise and coast panels carry data; the deadzone, angular, and latency panels
+are blank on these lin_step-only runs): [092449](assets/fit_diagnostics_092449.png),
+[092854](assets/fit_diagnostics_092854.png).
 
 ## The runs
 
