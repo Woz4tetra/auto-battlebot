@@ -15,6 +15,10 @@ Example TOML config:
     2 = 0
 
 Source classes not listed in `label_map` are left unchanged.
+
+This tool only rewrites IDs; it cannot delete annotations or classes. To remove whole
+classes (drop their annotation lines and renumber the survivors to a contiguous range),
+use edit_yolo_classes.py instead.
 """
 
 import argparse
