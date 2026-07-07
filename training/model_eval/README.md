@@ -1,37 +1,38 @@
 # model_eval
 
-Offline detector evaluation against SVO recordings, without hand-labeling every frame.
-The playback stack pre-labels frames; you correct the mistakes once; the corrected labels
-score any number of candidate models.
+Offline detector evaluation: hand-corrected YOLO ground truth scores any number of
+candidate TensorRT engines. `score.py` runs each engine directly on the GT images with
+the same preprocessing and NMS as the C++ pipeline, so no playback run or hardware is
+needed to grade a model.
 
-Alignment is deterministic: message stamps come from the SVO frame stamp, so every run of
-the same SVO produces the same per-frame stamps. Raw detections are recorded as JSON on
-two topics:
+Two ways to build ground truth:
 
-- `/blob_detections`: robot blob model (YOLO-seg) boxes: box, confidence, class, label
-- `/keypoint_detections`: keypoint model (YOLO-pose) boxes plus front/back keypoints
+- `make_eval_dataset.py`: sample raw frames from fight MCAP recordings and label from
+  scratch. This is how `training/data/nhrl_keypoints_eval_test` was built.
+- `export_labels.py`: pre-label frames with the detections a `label_playback` run
+  recorded (`/blob_detections`, `/keypoint_detections`), then correct the mistakes.
+  Cheaper labeling when the current models are mostly right.
 
-`export_labels.py` writes both models' datasets from one recording (side by side, sharing
-images). `edit_labels.py` and `score.py` each operate on one subdataset; `score.py --topic`
-must match the subdataset you point it at.
+Either way, `edit_labels.py` is the editor, and only frames you mark reviewed count as
+ground truth when scoring.
 
 ## Workflow
 
-1. Record the labeling run (keeps `/camera/image`, `/blob_detections`, `/keypoint_detections`):
+1. Build a dataset to label. From scratch:
 
 ```bash
-./scripts/build_and_run.sh -c config/label_playback.toml
-# edit svo_file_path in config/playback.toml (or override in label_playback.toml) per video
+python training/model_eval/make_eval_dataset.py data/recordings/<fight>.mcap
 ```
 
-2. Export YOLO pre-labels. Pass one or more recordings (or a glob); each is written under
-   `--output-dir` (default `training/data/model_eval`) automatically:
+   Or pre-labeled from a labeling run (keeps `/camera/image` and detection topics):
 
 ```bash
-python training/model_eval/export_labels.py data/recordings/*.mcap
+./scripts/build_and_run.sh -c config/experiments/label_playback.toml
+python training/model_eval/export_labels.py data/recordings/<labeling_run>.mcap
 ```
 
-Each recording produces one directory with shared images and a subdataset per model:
+Each recording produces one directory with shared images and (for pre-labels) a
+subdataset per model:
 
 ```
 training/data/model_eval/<recording>/
@@ -40,45 +41,52 @@ training/data/model_eval/<recording>/
     keypoint/ images -> ../images, labels/ (class cx cy w h kx ky v ...), data.yaml
 ```
 
-Restrict to one model with `--topics blob` or `--topics keypoint`.
-
-3. Correct the pre-labels (move/resize/add/delete/reclass boxes, drag keypoints).
-   Point the editor at a subdataset (`blob` or `keypoint`):
+2. Correct or create the labels (move/resize/add/delete/reclass boxes, drag keypoints),
+   and mark frames reviewed as you go:
 
 ```bash
-python training/model_eval/edit_labels.py training/data/model_eval/<recording>/keypoint
+python training/model_eval/edit_labels.py training/data/nhrl_keypoints_eval_test
 ```
 
-Label at the finest granularity you care about (per robot instance). Edit the subdataset's
-`data.yaml` to add class names the pre-labeler did not know.
+Label at the finest granularity you care about (per robot instance). Edit `data.yaml` to
+add class names the pre-labeler did not know.
 
-4. Record each candidate model on the same SVO (no images, smaller files):
+3. Score. The GT argument is a dataset dir or a root of subdatasets; `--labels` maps
+   engine class indices to GT label names (the C++ `label_indices` config, lowercased):
 
 ```bash
-# set [robot_mask_model] model_path + label_indices in config/eval_candidate.toml
-./scripts/build_and_run.sh -c config/eval_candidate.toml
+# blob model (YOLO-seg)
+python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+    --candidate deployed=data/models/yolo26n-seg_nhrl_robots_2026-04-27_x86_64_sm89.engine \
+    --labels opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3 \
+    --conf 0.6 --taxonomy training/model_eval/taxonomy.yaml
+
+# keypoint model (YOLO-pose), scored on our-robot boxes only
+python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+    --candidate deployed=data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm89.engine \
+    --labels mr_stabs_mk2,mrs_buff_mk3 \
+    --conf 0.5 --taxonomy training/model_eval/taxonomy_keypoint.yaml
 ```
 
-5. Score:
+Repeat `--candidate name=engine` to compare models; with two or more, a paired bootstrap
+reports which metric deltas against the baseline (first candidate, or `--baseline NAME`)
+are significant.
 
-```bash
-python training/model_eval/score.py training/data/model_eval/<recording>/blob \
-    --candidate generic=data/recordings/<run_a>.mcap \
-    --candidate per_robot=data/recordings/<run_b>.mcap \
-    --taxonomy training/model_eval/taxonomy.yaml    # --topic keypoint for the pose model
-```
-
-The GT directory is the subdataset (`blob` or `keypoint`); `score.py --topic` must match it.
+Match the C++ config when grading a deployed model: `--conf` is `confidence_threshold`
+(blob deployed at 0.6, keypoint default 0.5), `--nms-iou` is `iou_threshold` (0.45
+default in both).
 
 ## Output
 
 - `summary.csv` + stdout table: mAP@.5, mAP@[.5:.95], precision/recall/F1,
   localization recall, wrong-class rate. One row per candidate per level.
-  With pose GT: `kp_err_px` (mean keypoint pixel error) and `kp_pck@0.1` (fraction
-  of keypoints within 10% of the GT box's longer side), over IoU-matched boxes.
+  When the engine carries keypoints: `kp_err_px` (mean keypoint pixel error),
+  `kp_pck@0.1` (fraction of keypoints within 10% of the GT box's longer side), and
+  heading error/accuracy from the front->back keypoint vector, over IoU-matched boxes.
 - `headline.png`: agnostic recall ("found the robot") vs archetype/instance mAP
   ("named it right") per candidate. The gap is the cost of splitting `OPPONENT`.
 - `confusion_<candidate>_<level>.png`: right-box-wrong-class matrix at the IoU threshold.
+- `significance.csv` (two or more candidates): paired-bootstrap deltas and verdicts.
 
 ## Levels
 
@@ -86,16 +94,23 @@ The GT directory is the subdataset (`blob` or `keypoint`); `score.py --topic` mu
 - `archetype`: labels map through `taxonomy.yaml` (`archetypes:`).
 - `instance`: labels as-is.
 
-GT is built once per SVO and reused for every candidate. Detections in the MCAP are
-already thresholded by the C++ `confidence_threshold`; use `--conf` to re-threshold higher.
-
 ## Notes
 
-- Detection boxes and keypoints are in original-image pixels; the JSON carries image
-  width/height, so candidate runs do not need images recorded.
+- Reviewed-frame filtering: if `.edit_state.json` exists at the GT dir you pass, only
+  frames listed in its `reviewed` array are scored. Without it, every label file counts.
+- `taxonomy_keypoint.yaml` excludes everything but our robots, since the pose model only
+  detects them. The default `taxonomy.yaml` excludes `object` (no deployed model has an
+  object class).
 - The editor edits detect and pose rows; anything else (seg polygons) is preserved verbatim.
 - New boxes drawn in a pose dataset inherit the keypoint count from existing boxes,
   centered in the box, ready to drag into place.
-- Each subdataset's `images/` is a symlink to the recording's shared `images/`, so blob
-  and keypoint labels reference one copy of the frames. Downstream tools follow the symlink.
-- Editor state (reviewed frames) lives in the subdataset's `.edit_state.json`.
+- In `export_labels.py` output, each subdataset's `images/` is a symlink to the
+  recording's shared `images/`. Downstream tools follow the symlink.
+- Scores land in `<gt>/scores` by default; override with `--output`.
+- `compare_cpp_python.py` scores recorded C++ playback detections (MCAPs) side by side
+  with direct Python inference on the same frames, plus a linear fit between the two
+  paths' matched detections. Caution: desktop playback frames are affine-warped ~2-3%
+  vs live Jetson frames (ZED rectification difference), so playback detections carry a
+  systematic offset against live-labeled GT. See
+  `docs/experiments/perception_performance/baseline_2026-07-07.md`.
+- Related: perception reliability over a full fight uses `perception_reliability.py`.

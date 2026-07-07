@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Score candidate detector runs against a corrected YOLO ground-truth dataset.
+"""Score candidate TensorRT detector engines against a YOLO ground-truth dataset.
 
-Compares each candidate MCAP's detections (from a config/eval_candidate.toml run of the
-same SVO as the GT labeling run) against the corrected labels, at three label levels:
+Each candidate engine runs inference directly on the GT images (no playback, no stamp
+alignment), matching the C++ pipeline's preprocessing and NMS. Predictions are compared
+against the labels at three label levels:
 
     agnostic   every label collapses to "robot": pure localization (did it find the robot)
     archetype  labels map through taxonomy.yaml: NHRL archetype naming
@@ -11,11 +12,15 @@ same SVO as the GT labeling run) against the corrected labels, at three label le
 The gap between agnostic recall and class-aware mAP is the cost of splitting the
 OPPONENT category. Outputs a summary table (stdout + summary.csv) and plots.
 
---topic blob (default) scores /blob_detections; --topic keypoint scores
-/keypoint_detections and, when the GT dataset has pose rows, adds keypoint metrics
-over IoU-matched boxes: mean pixel error, PCK@0.1 of the GT box's longer side, and
-heading error (angle of the front->back keypoint vector, mean degrees and accuracy
-within 10 degrees).
+The GT argument is either a single dataset dir (data.yaml + images/ + labels/) or a root
+containing such subdatasets (e.g. training/data/nhrl_keypoints_eval_test). If an
+edit_labels.py .edit_state.json is present, only frames marked reviewed are scored.
+
+--labels maps engine class indices to GT label names, in class order (mirrors the C++
+label_indices config). When the engine head carries keypoints (YOLO-pose), keypoint
+metrics are added over IoU-matched boxes: mean pixel error, PCK@0.1 of the GT box's
+longer side, and heading error (angle of the front->back keypoint vector, mean degrees
+and accuracy within 10 degrees).
 
 With two or more candidates, a paired bootstrap reports whether each candidate differs
 significantly from the baseline (the first candidate, or --baseline NAME). Because every
@@ -25,10 +30,10 @@ mAP is dataset-level and left as a point estimate; the detection questions are c
 the recall / precision / localization tests, which are frame-decomposable.
 
 Usage:
-    python training/model_eval/score.py data/eval/<svo_name> \
-        --candidate generic=data/recordings/<run_a>.mcap \
-        --candidate per_robot=data/recordings/<run_b>.mcap \
-        [--topic blob|keypoint] [--taxonomy training/model_eval/taxonomy.yaml] \
+    python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+        --candidate deployed=data/models/<model>_x86_64_sm89.engine \
+        --labels opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3 \
+        [--taxonomy training/model_eval/taxonomy.yaml] [--conf 0.5] [--nms-iou 0.45] \
         [--iou 0.5] [--baseline NAME] [--bootstrap 1000] [--seed 0] [--alpha 0.05] \
         [--output <dir>]
 """
@@ -36,12 +41,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -49,18 +56,10 @@ import torch
 import yaml
 from torchmetrics.detection import MeanAveragePrecision
 
-from auto_battlebot.mcap_io import (
-    BLOB_DETECTIONS_TOPIC,
-    KEYPOINT_DETECTIONS_TOPIC,
-    Detections,
-    match_stamps,
-    read_detections,
-)
+from auto_battlebot.trt_yolo import TrtYoloModel
 
 LEVELS = ("agnostic", "archetype", "instance")
 AGNOSTIC_LABEL = "robot"
-STAMP_TOLERANCE_NS = 1_000_000
-TOPICS = {"blob": BLOB_DETECTIONS_TOPIC, "keypoint": KEYPOINT_DETECTIONS_TOPIC}
 PCK_FRACTION = 0.1
 
 # Heading is the front->back keypoint vector. Assumes keypoint order [front, back]
@@ -124,20 +123,59 @@ class Taxonomy:
 GtFrame = tuple[np.ndarray, list[str], list[np.ndarray]]
 
 
-def load_gt(dataset: Path) -> tuple[dict[int, GtFrame], list[str]]:
-    """Read corrected YOLO labels; returns {stamp_ns: (boxes, labels, keypoints)} and names."""
-    data = yaml.safe_load((dataset / "data.yaml").read_text())
-    names: list[str] = list(data["names"])
+def _dataset_dirs(root: Path) -> list[Path]:
+    """The dataset dir itself, or its subdataset children (dirs with a data.yaml)."""
+    if (root / "data.yaml").exists():
+        return [root]
+    subs = sorted(d for d in root.iterdir() if d.is_dir() and (d / "data.yaml").exists())
+    if not subs:
+        raise SystemExit(f"No data.yaml found in {root} or its subdirectories")
+    return subs
+
+
+def _reviewed_stems(root: Path) -> set[str] | None:
+    """Frame stems marked reviewed in edit_labels.py state, or None when untracked.
+
+    The state file lives at the dir edit_labels.py was pointed at (the given root either
+    way). Entries are image paths relative to that dir; stems (stamp_ns) are unique."""
+    state_path = root / ".edit_state.json"
+    if not state_path.exists():
+        return None
+    reviewed = json.loads(state_path.read_text()).get("reviewed", [])
+    return {Path(rel).stem for rel in reviewed}
+
+
+def load_gt(root: Path) -> tuple[dict[int, GtFrame], list[str], dict[int, Path]]:
+    """Read YOLO labels from a dataset dir or a root of subdatasets.
+
+    When an .edit_state.json exists, only frames marked reviewed count as ground truth.
+    Returns ({stamp_ns: (boxes, labels, keypoints)}, names, {stamp_ns: image path})."""
+    reviewed = _reviewed_stems(root)
+    names: list[str] = []
     frames: dict[int, GtFrame] = {}
-    for label_path in sorted((dataset / "labels").glob("*.txt")):
-        image_path = _find_image(dataset / "images", label_path.stem)
-        if image_path is None:
-            continue
-        width, height = _image_size(image_path)
-        frames[int(label_path.stem)] = _parse_rows(label_path, names, width, height)
+    images: dict[int, Path] = {}
+    for dataset in _dataset_dirs(root):
+        data = yaml.safe_load((dataset / "data.yaml").read_text())
+        dataset_names = list(data["names"])
+        # Subdatasets may trail off early (a recording without some class), but class
+        # indices must agree.
+        if dataset_names[: len(names)] != names[: len(dataset_names)]:
+            raise SystemExit(f"Class names in {dataset} conflict with sibling datasets")
+        if len(dataset_names) > len(names):
+            names = dataset_names
+        for label_path in sorted((dataset / "labels").glob("*.txt")):
+            if reviewed is not None and label_path.stem not in reviewed:
+                continue
+            image_path = _find_image(dataset / "images", label_path.stem)
+            if image_path is None:
+                continue
+            width, height = _image_size(image_path)
+            stamp = int(label_path.stem)
+            frames[stamp] = _parse_rows(label_path, dataset_names, width, height)
+            images[stamp] = image_path
     if not frames:
-        raise SystemExit(f"No labels found under {dataset}/labels")
-    return frames, names
+        raise SystemExit(f"No scoreable labels found under {root}")
+    return frames, names, images
 
 
 def _find_image(images_dir: Path, stem: str) -> Path | None:
@@ -184,41 +222,36 @@ def _parse_rows(label_path: Path, names: list[str], width: int, height: int) -> 
     return np.asarray(boxes, dtype=np.float64).reshape(-1, 4), labels, keypoints
 
 
-def align_frames(
+def infer_frames(
     gt_frames: dict[int, GtFrame],
-    candidate: list[Detections],
+    images: dict[int, Path],
+    model: TrtYoloModel,
+    class_labels: list[str],
     taxonomy: Taxonomy,
-    min_confidence: float,
 ) -> list[Frame]:
-    """Pair each GT frame with the candidate's detections for the same SVO frame."""
-    by_stamp = {d.stamp_ns: d for d in candidate}
-    matches = match_stamps(sorted(gt_frames), sorted(by_stamp), STAMP_TOLERANCE_NS)
-    missing = len(gt_frames) - len(matches)
-    if missing:
-        print(f"Warning: {missing}/{len(gt_frames)} GT frames have no candidate detections")
-
+    """Run the candidate engine on every GT frame's image and pair the results."""
     frames = []
     for gt_stamp, (gt_boxes, gt_labels, gt_keypoints) in gt_frames.items():
-        dets = by_stamp.get(matches.get(gt_stamp, -1))
-        keep = [d for d in (dets.detections if dets else []) if d.confidence >= min_confidence]
-        keep = [d for d in keep if d.label not in taxonomy.exclude]
+        image = cv2.imread(str(images[gt_stamp]))
+        if image is None:
+            raise SystemExit(f"Failed to read image {images[gt_stamp]}")
+        detections = model.infer(image)
+        labeled = [
+            (xyxy, conf, class_labels[cls_id], kps)
+            for xyxy, conf, cls_id, kps in detections
+            if cls_id < len(class_labels)
+        ]
+        keep = [d for d in labeled if d[2] not in taxonomy.exclude]
         gt_keep = [i for i, lbl in enumerate(gt_labels) if lbl not in taxonomy.exclude]
         frames.append(
             Frame(
                 gt_boxes=gt_boxes[gt_keep],
                 gt_labels=[gt_labels[i] for i in gt_keep],
                 gt_keypoints=[gt_keypoints[i] for i in gt_keep],
-                pred_boxes=np.asarray(
-                    [[d.x1, d.y1, d.x2, d.y2] for d in keep], dtype=np.float64
-                ).reshape(-1, 4),
-                pred_labels=[d.label for d in keep],
-                pred_scores=np.asarray([d.confidence for d in keep], dtype=np.float64),
-                pred_keypoints=[
-                    np.asarray(
-                        [[kp.x, kp.y, kp.confidence] for kp in d.keypoints], dtype=np.float64
-                    ).reshape(-1, 3)
-                    for d in keep
-                ],
+                pred_boxes=np.asarray([d[0] for d in keep], dtype=np.float64).reshape(-1, 4),
+                pred_labels=[d[2] for d in keep],
+                pred_scores=np.asarray([d[1] for d in keep], dtype=np.float64),
+                pred_keypoints=[np.asarray(d[3], dtype=np.float64).reshape(-1, 3) for d in keep],
             )
         )
     return frames
@@ -523,7 +556,7 @@ def _metric_samples(stats: dict, metric: str, level: str, idx: np.ndarray) -> np
 
 
 def run_significance(
-    stats_by_candidate: dict[str, dict], baseline: str, topic: str, args: argparse.Namespace
+    stats_by_candidate: dict[str, dict], baseline: str, args: argparse.Namespace
 ) -> pd.DataFrame:
     """Paired-bootstrap each candidate against the baseline on the same resampled frames.
 
@@ -536,9 +569,9 @@ def run_significance(
     lo_pct, hi_pct = 100 * args.alpha / 2, 100 * (1 - args.alpha / 2)
 
     plan = [(m, level) for level in LEVELS for m in DETECTION_METRICS]
-    if topic == "keypoint":
-        available = keypoint_metrics_from_stats(stats_by_candidate[baseline]["kp"])
-        plan += [(m, "-") for m in KEYPOINT_METRICS if m in available]
+    # Keypoint metrics exist when the baseline engine carries keypoints and boxes matched.
+    available = keypoint_metrics_from_stats(stats_by_candidate[baseline]["kp"])
+    plan += [(m, "-") for m in KEYPOINT_METRICS if m in available]
 
     rows = []
     base = stats_by_candidate[baseline]
@@ -591,16 +624,24 @@ def parse_candidates(entries: list[str]) -> dict[str, Path]:
 
 def score_candidate(
     name: str,
-    mcap_path: Path,
+    engine_path: Path,
     gt_frames: dict,
+    images: dict[int, Path],
+    class_labels: list[str],
     taxonomy: Taxonomy,
     args: argparse.Namespace,
 ) -> tuple[list[dict], dict]:
     """Return (summary rows, per-frame stats). Stats feed the paired bootstrap."""
-    detections = read_detections(mcap_path, TOPICS[args.topic])
-    if not detections:
-        raise SystemExit(f"No {TOPICS[args.topic]} messages in {mcap_path}")
-    frames = align_frames(gt_frames, detections, taxonomy, args.conf)
+    if not engine_path.exists():
+        raise SystemExit(f"Engine not found: {engine_path}")
+    model = TrtYoloModel(
+        str(engine_path),
+        conf_threshold=args.conf,
+        nms_iou_threshold=args.nms_iou,
+        num_classes=len(class_labels),
+    )
+    print(f"  {model.describe()}")
+    frames = infer_frames(gt_frames, images, model, class_labels, taxonomy)
     kp_stats = keypoint_per_frame(frames, args.iou)
     keypoint_metrics = keypoint_metrics_from_stats(kp_stats)
     pr_counts: dict[str, dict[str, np.ndarray]] = {}
@@ -623,23 +664,29 @@ def score_candidate(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", maxsplit=1)[0])
-    parser.add_argument("gt", type=Path, help="corrected GT dataset dir (from edit_labels.py)")
+    parser.add_argument(
+        "gt", type=Path, help="GT dataset dir, or a root of subdatasets (from edit_labels.py)"
+    )
     parser.add_argument(
         "--candidate",
         action="append",
         required=True,
-        metavar="NAME=MCAP",
-        help="candidate run, repeatable (bare path uses the file stem as name)",
+        metavar="NAME=ENGINE",
+        help="candidate TensorRT engine, repeatable (bare path uses the file stem as name)",
     )
     parser.add_argument(
-        "--topic",
-        choices=sorted(TOPICS),
-        default="blob",
-        help="which model's detections to score (default: blob)",
+        "--labels",
+        required=True,
+        help="comma-separated GT label per engine class index (the C++ label_indices map)",
     )
     parser.add_argument("--taxonomy", type=Path, help="label -> archetype mapping yaml")
     parser.add_argument("--iou", type=float, default=0.5, help="IoU match threshold")
-    parser.add_argument("--conf", type=float, default=0.0, help="min confidence (0 = as recorded)")
+    parser.add_argument(
+        "--conf", type=float, default=0.5, help="inference confidence threshold (default: 0.5)"
+    )
+    parser.add_argument(
+        "--nms-iou", type=float, default=0.45, help="inference NMS IoU threshold (default: 0.45)"
+    )
     parser.add_argument(
         "--baseline",
         help="candidate name to compare the others against (default: first --candidate)",
@@ -659,15 +706,22 @@ def main() -> None:
     args.output = args.output or (args.gt / "scores")
     args.output.mkdir(parents=True, exist_ok=True)
 
-    gt_frames, names = load_gt(args.gt)
+    gt_frames, names, images = load_gt(args.gt)
     taxonomy = Taxonomy(args.taxonomy)
     print(f"GT: {len(gt_frames)} frames, classes: {names}")
 
+    class_labels = [label.strip() for label in args.labels.split(",")]
+    unknown = sorted(set(class_labels) - set(names) - set(taxonomy.exclude))
+    if unknown:
+        print(f"Warning: --labels {unknown} not in GT classes; they can only score as FP")
+
     rows = []
     stats_by_candidate: dict[str, dict] = {}
-    for name, mcap_path in parse_candidates(args.candidate).items():
-        print(f"Scoring {name}: {mcap_path}")
-        candidate_rows, stats = score_candidate(name, mcap_path, gt_frames, taxonomy, args)
+    for name, engine_path in parse_candidates(args.candidate).items():
+        print(f"Scoring {name}: {engine_path}")
+        candidate_rows, stats = score_candidate(
+            name, engine_path, gt_frames, images, class_labels, taxonomy, args
+        )
         rows.extend(candidate_rows)
         stats_by_candidate[name] = stats
 
@@ -693,7 +747,7 @@ def main() -> None:
     if args.baseline and args.baseline not in stats_by_candidate:
         raise SystemExit(f"--baseline {args.baseline!r} is not one of {list(stats_by_candidate)}")
     if len(stats_by_candidate) >= 2 and args.bootstrap > 0:
-        significance = run_significance(stats_by_candidate, baseline, args.topic, args)
+        significance = run_significance(stats_by_candidate, baseline, args)
         conf_pct = round(100 * (1 - args.alpha))
         print(
             f"\nPaired bootstrap vs baseline '{baseline}' "

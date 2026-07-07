@@ -12,44 +12,44 @@ Two independent evaluation flows. Pick by what the user is measuring. If unclear
 
 ## Mode A: detector / keypoint accuracy (`training/model_eval/`)
 
-Scores a candidate YOLO-seg (blob) or YOLO-pose (keypoint) model against corrected
-ground-truth labels built once from an SVO. Full docs: `training/model_eval/README.md`.
+`score.py` runs candidate TensorRT engines directly on ground-truth images (same
+preprocessing and NMS as the C++ pipeline). No playback run, no hardware, seconds per
+model. Full docs: `training/model_eval/README.md`.
 
 Activate the project venv first: `source scripts/activate_python.sh`.
 
-1. **Record the labeling run** (keeps `/camera/image`, `/blob_detections`,
-   `/keypoint_detections`). Set the SVO in the config, then:
-   ```bash
-   ./scripts/build_and_run.sh -c config/experiments/label_playback.toml
-   ```
+```bash
+# blob model (YOLO-seg); --labels is the C++ label_indices map, lowercased
+python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+    --candidate deployed=data/models/yolo26n-seg_nhrl_robots_2026-04-27_x86_64_sm89.engine \
+    --labels opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3 \
+    --conf 0.6 --taxonomy training/model_eval/taxonomy.yaml
 
-2. **Export YOLO pre-labels** (one dir per recording, shared images + a subdataset per model):
-   ```bash
-   python training/model_eval/export_labels.py data/recordings/*.mcap
-   # restrict with --topics blob   or   --topics keypoint
-   ```
+# keypoint model (YOLO-pose): our-robot GT only, keypoint metrics added automatically
+python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+    --candidate deployed=data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm89.engine \
+    --labels mr_stabs_mk2,mrs_buff_mk3 \
+    --conf 0.5 --taxonomy training/model_eval/taxonomy_keypoint.yaml
+```
 
-3. **Correct the pre-labels** in the in-repo editor (point at the `blob` or `keypoint`
-   subdataset):
-   ```bash
-   python training/model_eval/edit_labels.py training/data/model_eval/<recording>/keypoint
-   ```
+- GT arg is a dataset dir or a root of subdatasets. If `.edit_state.json` exists there,
+  only reviewed frames are scored (this handles the in-progress test dataset correctly).
+- Repeat `--candidate name=engine` to compare models; two or more triggers the paired
+  bootstrap significance table against the baseline (first candidate, or `--baseline`).
+- Match the C++ config when grading deployed models: blob `--conf 0.6`, keypoint
+  `--conf 0.5`, `--nms-iou 0.45` (default).
+- Outputs `summary.csv`, `headline.png`, `confusion_*.png`, `significance.csv` to
+  `<gt>/scores` (override with `--output`). Levels: `agnostic` (localize), `archetype`
+  (via taxonomy), `instance` (labels as-is).
 
-4. **Record each candidate** on the same SVO (no images, small files). Set
-   `[robot_mask_model] model_path` + `label_indices` in the config, then:
-   ```bash
-   ./scripts/build_and_run.sh -c config/experiments/eval_candidate.toml
-   ```
+**Test dataset** (`training/data/nhrl_keypoints_eval_test/`): built with
+`make_eval_dataset.py` from the May fight recordings, labeled from scratch in
+`edit_labels.py` (one subdataset per recording). To build GT for new recordings, see the
+README workflow (make_eval_dataset.py or export_labels.py pre-labels + edit_labels.py).
 
-5. **Score** (GT dir is the subdataset; `--topic` must match it):
-   ```bash
-   python training/model_eval/score.py training/data/model_eval/<recording>/blob \
-       --candidate generic=data/recordings/<run_a>.mcap \
-       --candidate per_robot=data/recordings/<run_b>.mcap \
-       --taxonomy training/model_eval/taxonomy.yaml
-   ```
-   Outputs `summary.csv`, `headline.png`, `confusion_*.png`. Levels: `agnostic` (localize),
-   `archetype` (via taxonomy), `instance` (labels as-is).
+Baseline numbers: `docs/experiments/perception_performance/baseline_2026-07-07.md`.
+Playback-recorded MCAP scoring was removed 2026-07-07; direct inference scores slightly
+higher than the old playback numbers (the C++ stack context is not measured).
 
 Related: perception reliability over a fight uses
 `training/model_eval/perception_reliability.py`.

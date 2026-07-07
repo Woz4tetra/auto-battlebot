@@ -15,7 +15,7 @@ archetypes:
   opponent: opponent
   house_bot: house_bot
 
-exclude: []
-# exclude:
-#   - mr_stabs_mk2
-#   - mrs_buff_mk3
+# object is GT-only (debris); no deployed model has an object class. Add our own robots
+# here to score opponent detection only.
+exclude:
+  - object
