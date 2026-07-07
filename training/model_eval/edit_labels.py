@@ -9,11 +9,17 @@ are editable; any other rows (seg) are preserved verbatim.
 Usage:
     python training/model_eval/edit_labels.py data/eval/<svo_name>
 
+Editing is click-move-click (no dragging needed): one click grabs a handle, move
+the mouse to position it, and a second click drops it. A press-move-release drag
+still finishes in one gesture, so both styles work.
+
 Controls:
-    left-drag on empty space   draw a new box (current class; inherits keypoint
-                               count from existing pose boxes, centered)
-    click on a box             select; drag body to move, corners to resize
-    drag a keypoint circle     move that keypoint
+    click empty space          start a new box (current class; inherits keypoint
+                               count from existing pose boxes, centered); move to
+                               size it, click to place
+    click a box body           pick it up; move to reposition, click to drop
+    click a corner handle      grab it; move to resize, click to release
+    click a keypoint circle    pick it up; move to reposition, click to drop
     1-9, 0                     set class of selected box / current draw class
     Delete or x                delete selected box
     a/d or left/right          previous / next image (auto-saves)
@@ -38,6 +44,7 @@ from PIL import Image, ImageTk
 
 HANDLE_PX = 8
 MIN_BOX_PX = 4
+DRAG_THRESHOLD_PX = 4  # press-to-release travel above this counts as a drag, not a click
 
 
 @dataclass
@@ -208,10 +215,13 @@ class LabelEditor:
         self.current_class = 0
         self.dirty = False
         self.zoom = 1.0
-        # Drag state: (mode, box index or None, grab dx/dy or anchor)
-        self.drag_mode: str | None = None
+        # Click-move-click editing state. active_mode is the currently grabbed
+        # handle ('body' | 'corner:<which>' | 'kp:<k>') or None when nothing is
+        # held. A grab persists across mouse-up until the next click drops it.
+        self.active_mode: str | None = None
         self.drag_anchor = (0.0, 0.0)
         self.drawing_new = False
+        self.press_xy = (0.0, 0.0)  # canvas coords of the last press, for click-vs-drag
 
         self.root = tk.Tk()
         self.root.title(f"Label Editor - {dataset_path.name}")
@@ -293,7 +303,8 @@ class LabelEditor:
         )
 
         self.canvas.bind("<ButtonPress-1>", self._on_press)
-        self.canvas.bind("<B1-Motion>", self._on_drag)
+        self.canvas.bind("<Motion>", self._on_move)
+        self.canvas.bind("<B1-Motion>", self._on_move)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
         self.root.bind("a", lambda _e: self.prev_image())
         self.root.bind("d", lambda _e: self.next_image())
@@ -329,6 +340,8 @@ class LabelEditor:
         self.image = Image.open(img_path)
         self.boxes, self.preserved = parse_label_file(label_path, *self.image.size)
         self.selected = None
+        self.active_mode = None
+        self.drawing_new = False
         self.dirty = False
         self.zoom = 1.0  # reset to fit when moving to a new image
         self._render()
@@ -474,32 +487,39 @@ class LabelEditor:
         return best[1] if best else None
 
     def _on_press(self, event: tk.Event) -> None:
+        """A click grabs a handle when nothing is held, or drops it when one is."""
+        self.press_xy = (event.x, event.y)
+        if self.active_mode is not None:
+            # Something is already grabbed: this click drops it in place.
+            self._commit_active()
+            return
         ix, iy = self._to_image(event.x, event.y)
         hit = self._hit_test(ix, iy)
         if hit is None:
-            # Start drawing a new box.
+            # Start a new box; it grows with the mouse until the next click.
             self.boxes.append(Box(self.current_class, ix, iy, ix, iy))
             self.selected = len(self.boxes) - 1
-            self.drag_mode = "corner:se"
+            self.active_mode = "corner:se"
             self.drag_anchor = (ix, iy)
             self.drawing_new = True
         else:
-            self.drag_mode, self.selected = hit
+            self.active_mode, self.selected = hit
             box = self.boxes[self.selected]
             self.drag_anchor = (ix - box.x1, iy - box.y1)
             self.drawing_new = False
         self._render()
 
-    def _on_drag(self, event: tk.Event) -> None:
-        if self.drag_mode is None or self.selected is None:
+    def _on_move(self, event: tk.Event) -> None:
+        """Position the grabbed handle to follow the mouse (button up or down)."""
+        if self.active_mode is None or self.selected is None:
             return
         ix, iy = self._to_image(event.x, event.y)
         box = self.boxes[self.selected]
-        if self.drag_mode.startswith("kp:"):
-            kp = box.keypoints[int(self.drag_mode.split(":")[1])]
+        if self.active_mode.startswith("kp:"):
+            kp = box.keypoints[int(self.active_mode.split(":")[1])]
             kp[0] = ix
             kp[1] = iy
-        elif self.drag_mode == "body":
+        elif self.active_mode == "body":
             w = box.x2 - box.x1
             h = box.y2 - box.y1
             dx = ix - self.drag_anchor[0] - box.x1
@@ -512,7 +532,7 @@ class LabelEditor:
                 kp[0] += dx
                 kp[1] += dy
         else:
-            which = self.drag_mode.split(":")[1]
+            which = self.active_mode.split(":")[1]
             if "n" in which:
                 box.y1 = iy
             if "s" in which:
@@ -524,8 +544,22 @@ class LabelEditor:
         self.dirty = True
         self._render()
 
-    def _on_release(self, _event: tk.Event) -> None:
-        if self.selected is not None:
+    def _on_release(self, event: tk.Event) -> None:
+        """End the interaction if this was a drag; a stationary click keeps the
+        grab so the mouse can be moved freely before the next click drops it."""
+        if self.active_mode is None:
+            return
+        moved = (
+            abs(event.x - self.press_xy[0]) > DRAG_THRESHOLD_PX
+            or abs(event.y - self.press_xy[1]) > DRAG_THRESHOLD_PX
+        )
+        if moved:
+            self._commit_active()
+
+    def _commit_active(self) -> None:
+        """Release the grabbed handle: normalize the box, drop a degenerate new
+        box, and seed keypoints on a freshly drawn one."""
+        if self.active_mode is not None and self.selected is not None:
             box = self.boxes[self.selected]
             # Normalize corners and discard degenerate click-drawn boxes.
             box.x1, box.x2 = sorted((box.x1, box.x2))
@@ -536,7 +570,7 @@ class LabelEditor:
                     self.selected = None
             elif self.drawing_new:
                 self._init_new_box_keypoints(box)
-        self.drag_mode = None
+        self.active_mode = None
         self.drawing_new = False
         self._render()
 
@@ -578,6 +612,8 @@ class LabelEditor:
         if self.selected is not None:
             self.boxes.pop(self.selected)
             self.selected = None
+            self.active_mode = None
+            self.drawing_new = False
             self.dirty = True
             self._render()
 
