@@ -18,6 +18,7 @@ dependencies = [
   "dacite",
   "ruff",
   "mypy",
+  "pytest",                                                       # training/synthetic/tests (synthgen pure modules)
   "livelossplot",
   "ipython",
   "torchmetrics",
