@@ -1,0 +1,427 @@
+# Robot -> archetype mapping for the per-archetype blob dataset (2026-07-09).
+# archetypes: horizontal_spinner | vertical_spinner | control | hammersaw ;
+# our robots (mr_stabs_mk2, mrs_buff_mk3), house_bot kept distinct; object/debris (flight controllers) DROPPED from training.
+# Sources: NHRL wiki weapon field unless noted. Edit any line, then remap+retrain.
+mapping:
+  0-0:
+    archetype: horizontal_spinner
+    confidence: user
+    instances: 921
+    evidence: your call
+  0-0 Part 2:
+    archetype: horizontal_spinner
+    confidence: user
+    instances: 324
+    evidence: your call
+  AJ:
+    archetype: vertical_spinner
+    confidence: user
+    instances: 645
+    evidence: your call
+  Above Average:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1237
+    evidence: wiki weapon Vertical Spinner
+  Anubis:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1325
+    evidence: wiki Vertical Spinner
+  Baby Dead Bod:
+    archetype: horizontal_spinner
+    confidence: user
+    instances: 385
+    evidence: your call
+  Bad Luck:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 1239
+    evidence: wiki Undercutter
+  Beater Bot Blue Exhibition 1:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 781
+    evidence: archetype stated in label
+  Beater Bot Purple Exhibition 2:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 414
+    evidence: archetype stated in label
+  Beater Bot Purple Exhibition 3:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 415
+    evidence: archetype stated in label
+  Bee-Roll:
+    archetype: vertical_spinner
+    confidence: medium
+    instances: 944
+    evidence: wiki full-body drum spinner
+  Blindside:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1256
+    evidence: wiki Eggbeater
+  Blindside Part 2:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1168
+    evidence: 'inherits base ''Blindside'': wiki Eggbeater'
+  Blink:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1239
+    evidence: wiki Single Disk vertical
+  Blunder:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1490
+    evidence: wiki beater bar / eggbeater
+  Caldera:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 1604
+    evidence: wiki Horizontal Spinner
+  Caldera 12:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 319
+    evidence: 'inherits base ''Caldera'': wiki Horizontal Spinner'
+  Cavaco:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 264
+    evidence: wiki Vertical Spinner
+  Chainsaw Kitty:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1168
+    evidence: wiki vertical spinner (asymmetric blade, not a saw)
+  Chinchilla:
+    archetype: horizontal_spinner
+    confidence: user
+    instances: 1282
+    evidence: your call
+  Clockwork Princess Chelsea:
+    archetype: control
+    confidence: low
+    instances: 1018
+    evidence: wiki Drill Lance (piercing, no spinner) - ambiguous
+  Clyde:
+    archetype: control
+    confidence: high
+    instances: 3615
+    evidence: wiki flamethrower + forks, no spinner
+  ColdSnap:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 675
+    evidence: wiki Undercutter
+  Cole:
+    archetype: hammersaw
+    confidence: user
+    instances: 301
+    evidence: your call
+  Colossus:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 2348
+    evidence: wiki Vertical Bar Spinner
+  Drumder Child:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 530
+    evidence: archetype stated in label
+  Drumder Child Part 2:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 504
+    evidence: 'inherits base ''Drumder Child'': archetype stated in label'
+  Elytra:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 164
+    evidence: wiki Vertical Spinner
+  Event Horizon:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 1385
+    evidence: wiki S7 Ring spinner
+  Flash Freeze:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 559
+    evidence: wiki Horizontal Spinner
+  Flight Controller 1:
+    archetype: drop
+    confidence: user
+    instances: 135
+    evidence: your call
+  Flight Controller 2:
+    archetype: drop
+    confidence: user
+    instances: 111
+    evidence: your call
+  Gold Coin:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 985
+    evidence: wiki Vertical Disk Spinner
+  Gordon:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 909
+    evidence: wiki Horizontal Spinner
+  Horizontal Spinner Red Exhibition 1:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 255
+    evidence: archetype stated in label
+  House Bot:
+    archetype: house_bot
+    confidence: FIXED
+    instances: 24992
+    evidence: kept as its own class
+  House Bot Orange Halloween:
+    archetype: house_bot
+    confidence: FIXED
+    instances: 1717
+    evidence: kept as its own class
+  House Bot White Halloween:
+    archetype: house_bot
+    confidence: FIXED
+    instances: 1508
+    evidence: kept as its own class
+  Iron Warrior:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 174
+    evidence: wiki Vertical Disk Spinner
+  Jelly Baby:
+    archetype: control
+    confidence: high
+    instances: 1663
+    evidence: wiki rear-hinge lifter
+  Juggernaut:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 572
+    evidence: wiki Vertical Spinner
+  Juggernaut Part 2:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 604
+    evidence: 'inherits base ''Juggernaut'': wiki Vertical Spinner'
+  Junkernaut:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 320
+    evidence: wiki Vertical Spinner
+  Kilico:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 595
+    evidence: wiki thwacking undercutter horizontal
+  Lifeline:
+    archetype: hammersaw
+    confidence: user
+    instances: 550
+    evidence: your call
+  Lifter MCB:
+    archetype: control
+    confidence: high
+    instances: 1244
+    evidence: archetype stated in label
+  Little Man:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 473
+    evidence: wiki Vertical Spinner
+  Lord Humongous:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1258
+    evidence: wiki Vertical Disk Spinner
+  Mako:
+    archetype: hammersaw
+    confidence: user
+    instances: 2342
+    evidence: your call
+  Mako Part 2:
+    archetype: hammersaw
+    confidence: user
+    instances: 2261
+    evidence: 'inherits base ''Mako'': your call'
+  Melon Baller:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 1143
+    evidence: wiki Horizontal Spinner
+  Mini Touro:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 986
+    evidence: wiki Drum spinner
+  Money Shot:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1016
+    evidence: wiki Vertical Spinner
+  Moon Cake:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 1451
+    evidence: wiki Ringspinner
+  Mothership:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1219
+    evidence: wiki Vertical Eggbeater Spinner
+  Mr Stabs MK2:
+    archetype: mr_stabs_mk2
+    confidence: FIXED
+    instances: 3563
+    evidence: kept as its own class
+  Mrs Buff MK2:
+    archetype: mrs_buff_mk3
+    confidence: FIXED
+    instances: 2327
+    evidence: kept as its own class
+  Neether:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 513
+    evidence: wiki Meltybrain full-body horizontal
+  Noob Toob Green Exhibition 1:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 777
+    evidence: wiki Noob Tube full-body drum
+  OJ:
+    archetype: control
+    confidence: user
+    instances: 391
+    evidence: your call
+  Painwin:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1026
+    evidence: wiki Vertical Disk Spinner
+  Pinevictus:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 2208
+    evidence: wiki eggbeater
+  Pretty Fly:
+    archetype: control
+    confidence: medium
+    instances: 826
+    evidence: wiki Flywheel Flipper (no spinner contact weapon)
+  Redshift:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 586
+    evidence: wiki Vertical Spinner
+  Rhino:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 594
+    evidence: wiki Vertical Disk
+  Rorschach:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1511
+    evidence: wiki Vertical Spinner
+  See-Saw:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 1182
+    evidence: wiki Vertical Disk Spinner
+  Snowdrift:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 1018
+    evidence: wiki Horizontal Spinner
+  Sphinx:
+    archetype: vertical_spinner
+    confidence: medium
+    instances: 1297
+    evidence: 'brettzone photo: horizontal-axle drum (vertical spinner)'
+  Stab Rave:
+    archetype: vertical_spinner
+    confidence: user
+    instances: 1351
+    evidence: your call
+  Supreme Ruler:
+    archetype: control
+    confidence: high
+    instances: 585
+    evidence: wiki cam lifter / powered forks
+  Thats a Little Less TPU:
+    archetype: control
+    confidence: medium
+    instances: 665
+    evidence: 'brettzone photo: clusterbot TPU forks, no spinner'
+  Thats a Little Less TPU Part 2:
+    archetype: control
+    confidence: medium
+    instances: 639
+    evidence: 'inherits base ''Thats a Little Less TPU'': brettzone photo: clusterbot
+      TPU forks, no spinner'
+  The Power Of Friendship!:
+    archetype: control
+    confidence: medium
+    instances: 1214
+    evidence: wiki Twin Drills clusterbot, no spinner
+  The Power Of Friendship! Part 2:
+    archetype: control
+    confidence: medium
+    instances: 1268
+    evidence: 'inherits base ''The Power Of Friendship!'': wiki Twin Drills clusterbot,
+      no spinner'
+  The Throngler:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 1166
+    evidence: wiki thagomizer horizontal spinner
+  The Throngler Part 2:
+    archetype: horizontal_spinner
+    confidence: high
+    instances: 1154
+    evidence: 'inherits base ''The Throngler'': wiki thagomizer horizontal spinner'
+  The Wall Pt2:
+    archetype: control
+    confidence: high
+    instances: 1339
+    evidence: archetype stated in label
+  Vertical Spinner Unknown 1:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 583
+    evidence: archetype stated in label
+  Verticalizer:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 464
+    evidence: archetype stated in label
+  Wedge Omni Stab Rave:
+    archetype: control
+    confidence: high
+    instances: 1282
+    evidence: archetype stated in label
+  Wedge Pretty Fly:
+    archetype: control
+    confidence: high
+    instances: 199
+    evidence: archetype stated in label
+  power on:
+    archetype: vertical_spinner
+    confidence: high
+    instances: 276
+    evidence: wiki 4340 beater bar / eggbeater
+  usawgi:
+    archetype: hammersaw
+    confidence: user
+    instances: 1517
+    evidence: your call
