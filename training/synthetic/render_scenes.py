@@ -3,6 +3,7 @@ import blenderproc as bproc  # isort: skip  # must be first import for blenderpr
 import argparse
 import csv
 import gc
+import json
 import math
 import os
 import random
@@ -32,6 +33,11 @@ DISTRACTOR_CATEGORY_ID = 2
 SEG_FLOOR_CLASS_ID = 1
 SEG_OBJECT_CLASS_ID = 2
 SEG_ROBOT_CLASS_ID = 3
+
+# Generic YOLO class + instance-id base for CAD (NHRL robot) distractors that
+# carry keypoint sidecars; only used in keypoints_bbox annotation mode.
+NHRL_ROBOT_CLASS_NAME = "nhrl_robot"
+NHRL_DISTRACTOR_INSTANCE_ID_BASE = 1000
 
 MODEL_EXTENSIONS = {".glb", ".gltf", ".obj", ".ply"}
 
@@ -118,6 +124,27 @@ def model_to_blender_local(vec: list[float] | np.ndarray) -> np.ndarray:
     """
     x, y, z = [float(v) for v in vec]
     return np.array([x, -z, y], dtype=float)
+
+
+def load_sidecar_keypoints(model_path: Path) -> tuple[np.ndarray, np.ndarray] | None:
+    """Load front/back keypoints from a distractor model's JSON sidecar.
+
+    Returns the keypoints in Blender local axes (converted from the sidecar's
+    GLTF-native frame via ``model_to_blender_local``), or ``None`` when the
+    sidecar is missing or its keypoints are null (degenerate mesh).
+    """
+    sidecar = model_path.with_suffix(".json")
+    if not sidecar.exists():
+        return None
+    try:
+        with sidecar.open() as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    kp = data.get("keypoints")
+    if not kp or kp.get("front") is None or kp.get("back") is None:
+        return None
+    return model_to_blender_local(kp["front"]), model_to_blender_local(kp["back"])
 
 
 # ---------------------------------------------------------------------------
@@ -747,12 +774,20 @@ def _wire_vertex_colors(obj: bpy.types.Object) -> None:
         tree.links.new(vcol.outputs["Color"], bsdf.inputs["Base Color"])
 
 
-def load_distractor(file_path: Path, category_id: int, source_kind: str) -> DistractorGroup | None:
+def load_distractor(
+    file_path: Path,
+    category_id: int,
+    source_kind: str,
+    instance_id: int = 0,
+    keypoints: tuple[np.ndarray, np.ndarray] | None = None,
+) -> DistractorGroup | None:
     """Load a single distractor model under a parent empty.
 
     Returns ``(parent, meshes, native_size)`` or *None* on failure.  The
     parent empty controls transform for the whole group so sub-parts keep
-    their relative positions.
+    their relative positions.  When *keypoints* is given (CAD distractors in
+    keypoint mode), the front/back positions and *instance_id* are stored on
+    the parent so annotations can be extracted later.
     """
     try:
         suffix = file_path.suffix.lower()
@@ -777,6 +812,10 @@ def load_distractor(file_path: Path, category_id: int, source_kind: str) -> Dist
 
         parent = bpy.data.objects.new(f"dist_{file_path.stem}", None)
         parent["distractor_source_kind"] = source_kind
+        parent["kp_instance_id"] = instance_id
+        if keypoints is not None:
+            parent["kp_front"] = [float(v) for v in keypoints[0]]
+            parent["kp_back"] = [float(v) for v in keypoints[1]]
         bpy.context.scene.collection.objects.link(parent)
         bpy.context.view_layer.update()
 
@@ -800,7 +839,7 @@ def load_distractor(file_path: Path, category_id: int, source_kind: str) -> Dist
         for obj in imported:
             mesh = bproc.types.MeshObject(obj)
             mesh.set_cp("category_id", category_id)
-            mesh.set_cp("robot_instance_id", 0)
+            mesh.set_cp("robot_instance_id", instance_id)
             mesh.set_cp("is_distractor", 1)
             meshes.append(mesh)
 
@@ -829,6 +868,8 @@ def _try_load_distractor_file(
     pool_vram_mb: float,
     vram_budget_mb: float | None,
     vram_estimates_mb: dict[Path, float] | None,
+    allocate_instance_id: Callable[[], int] | None = None,
+    load_keypoints: bool = False,
 ) -> tuple[DistractorGroup, float] | None:
     """Load one distractor file within the VRAM budget. Returns (group, est_mb) or None."""
     f_resolved = resolve_path(f)
@@ -848,7 +889,13 @@ def _try_load_distractor_file(
         return None
 
     class_id = assign_class_id(f, source_kind)
-    group = load_distractor(f, class_id, source_kind)
+    keypoints = None
+    instance_id = 0
+    if load_keypoints and source_kind == "cad":
+        keypoints = load_sidecar_keypoints(f)
+        if keypoints is not None and allocate_instance_id is not None:
+            instance_id = allocate_instance_id()
+    group = load_distractor(f, class_id, source_kind, instance_id, keypoints)
     if not group:
         return None
 
@@ -880,6 +927,8 @@ def load_distractor_pool(
     assign_class_id: Callable[[Path, str], int],
     vram_budget_mb: float | None = None,
     vram_estimates_mb: dict[Path, float] | None = None,
+    allocate_instance_id: Callable[[], int] | None = None,
+    load_keypoints: bool = False,
 ) -> list[DistractorGroup]:
     """Load a weighted-random pool of distractor models.
 
@@ -905,7 +954,14 @@ def load_distractor_pool(
             if loaded >= budget:
                 break
             result = _try_load_distractor_file(
-                f, source_kind, assign_class_id, pool_vram_mb, vram_budget_mb, vram_estimates_mb
+                f,
+                source_kind,
+                assign_class_id,
+                pool_vram_mb,
+                vram_budget_mb,
+                vram_estimates_mb,
+                allocate_instance_id,
+                load_keypoints,
             )
             if result is None:
                 continue
@@ -953,32 +1009,42 @@ def place_distractor(
     group: DistractorGroup,
     arena_radius: float,
     scale_range: list[float],
-    robot_size: float,
+    base_size: float,
     air_probability: float = 0.15,
     air_height_range: list[float] | None = None,
+    robot_like: bool = False,
 ) -> None:
     """Place a distractor at a random position within the arena.
 
-    ``scale_range`` is interpreted as multiples of the robot's largest
-    dimension, so [0.5, 3.0] means the distractor will be between half
-    and three times the robot's size regardless of its native dimensions.
-    The parent empty is used for transform so sub-parts keep their
+    ``scale_range`` is interpreted as multiples of ``base_size`` (the fixed 3 lb
+    weight-class reference dimension), so [0.5, 2.0] means the distractor will be
+    between half and twice the 3 lb base size regardless of its native
+    dimensions.  The parent empty is used for transform so sub-parts keep their
     relative arrangement.
 
-    Rotation is fully randomised on all three axes.  With probability
-    ``air_probability`` the object floats above the ground; otherwise it
-    sits on the ground plane.
+    With probability ``air_probability`` the object floats above the ground
+    with a fully random tumbling orientation.  Otherwise it sits on the
+    ground: generic objects keep a fully random orientation, while
+    ``robot_like`` (CAD robot) distractors sit flat with a random yaw and a
+    50%% chance of being inverted, mirroring the target robots' ground poses.
     """
     parent, meshes, native_size = group
-    desired_size = robot_size * random.uniform(scale_range[0], scale_range[1])
+    desired_size = base_size * random.uniform(scale_range[0], scale_range[1])
     s = desired_size / native_size
-
     parent.scale = (s, s, s)
-    rot = (
-        random.uniform(0, 2 * math.pi),
-        random.uniform(0, 2 * math.pi),
-        random.uniform(0, 2 * math.pi),
-    )
+
+    airborne = random.random() < air_probability
+    if robot_like and not airborne:
+        # Grounded robot pose: flat on the field, random yaw, 50% inverted.
+        # GLB import is Z-up, so identity roll/pitch sits the model upright.
+        roll = math.pi if random.random() < 0.5 else 0.0
+        rot = (roll, 0.0, random.uniform(0, 2 * math.pi))
+    else:
+        rot = (
+            random.uniform(0, 2 * math.pi),
+            random.uniform(0, 2 * math.pi),
+            random.uniform(0, 2 * math.pi),
+        )
     parent.rotation_euler = mathutils.Euler(rot)
     parent.location = mathutils.Vector((0, 0, 0))
     bpy.context.view_layer.update()
@@ -989,7 +1055,6 @@ def place_distractor(
         all_pts.extend(obj.matrix_world @ mathutils.Vector(c) for c in obj.bound_box)
     ground_z = -min(p.z for p in all_pts)
 
-    airborne = random.random() < air_probability
     if airborne:
         hr = air_height_range or [0.02, 0.15]
         z = ground_z + random.uniform(hr[0], hr[1])
@@ -1467,6 +1532,7 @@ class _DistractorClassIdAssigner:
     def __init__(self, is_segmentation_mode: bool, next_seg_class_id: int) -> None:
         self.is_segmentation_mode = is_segmentation_mode
         self.next_seg_class_id = next_seg_class_id
+        self._next_instance_id = NHRL_DISTRACTOR_INSTANCE_ID_BASE
 
     def __call__(self, model_path: Path, source_kind: str) -> int:
         if not self.is_segmentation_mode:
@@ -1479,6 +1545,18 @@ class _DistractorClassIdAssigner:
         else:
             self.next_seg_class_id += 1
             return self.next_seg_class_id
+
+    def allocate_keypoint_instance_id(self) -> int:
+        """Unique robot_instance_id for a keypoint-annotated CAD distractor.
+
+        Returns 0 in segmentation mode (instance ids are managed there by the
+        segmentation pass, and distractor keypoints are not emitted).
+        """
+        if self.is_segmentation_mode:
+            return 0
+        instance_id = self._next_instance_id
+        self._next_instance_id += 1
+        return instance_id
 
 
 def _resolve_output_dirs(config: dict) -> tuple[Path, Path, Path, Path]:
@@ -1575,7 +1653,11 @@ def _hide_all_robots(robots: list[RobotInstance]) -> None:
 
 
 def _write_keypoint_data_yml(
-    robot_configs: list[dict], data_yml_path: Path, dataset_root: Path, annotation_mode: str
+    robot_configs: list[dict],
+    data_yml_path: Path,
+    dataset_root: Path,
+    annotation_mode: str,
+    nhrl_class_id: int | None = None,
 ) -> None:
     """Write data.yml for keypoint mode using class ids from the robot configs."""
     keypoint_label_names: dict[int, str] = {}
@@ -1584,6 +1666,8 @@ def _write_keypoint_data_yml(
         keypoint_label_names.setdefault(
             class_id, str(rcfg.get("name", Path(rcfg["model_path"]).stem))
         )
+    if nhrl_class_id is not None:
+        keypoint_label_names[nhrl_class_id] = NHRL_ROBOT_CLASS_NAME
     write_data_yml(
         data_yml_path,
         dataset_root,
@@ -1689,7 +1773,10 @@ class RenderContext:
     dist_shuffle_interval: int
     dist_vram_budget_mb: float | None
     dist_vram_estimates: dict[Path, float]
-    assign_class_id: Callable[[Path, str], int]
+    assign_class_id: _DistractorClassIdAssigner
+    # YOLO class id for keypoint-annotated CAD distractors; None disables them
+    # (segmentation mode, or no CAD distractor source configured).
+    nhrl_class_id: int | None
 
     def refresh_distractor_pool(self, old_pool: list[DistractorGroup]) -> list[DistractorGroup]:
         """Unload old distractors and load a fresh random pool."""
@@ -1702,6 +1789,8 @@ class RenderContext:
             assign_class_id=self.assign_class_id,
             vram_budget_mb=self.dist_vram_budget_mb,
             vram_estimates_mb=self.dist_vram_estimates,
+            allocate_instance_id=self.assign_class_id.allocate_keypoint_instance_id,
+            load_keypoints=self.nhrl_class_id is not None,
         )
         print(f"  {len(pool)} distractors in pool")
         if self.dist_min_per_scene > len(pool):
@@ -1819,21 +1908,33 @@ def _place_scene_distractors(
     dist_cfg: dict,
     rand_cfg: dict,
     arena_radius: float,
-    max_robot_size: float,
 ) -> list[DistractorGroup]:
     """Select and place a random subset of distractors for one scene."""
     num_dist = random.randint(dist_min_per_scene, len(distractor_pool))
     active_distractors = random.sample(distractor_pool, num_dist) if num_dist > 0 else []
     for group in distractor_pool:
         hide_distractor(group)
+    default_air_prob = rand_cfg.get("air_probability", 0.15)
+    default_air_range = rand_cfg.get("air_height_range", [0.02, 0.15])
+    # Distractor robots are all treated as the 3 lb weight class; scale off this
+    # fixed base rather than whichever robot happens to be in the scene.
+    base_size = float(dist_cfg.get("base_dimension_m", 0.25))
     for group in active_distractors:
+        is_robot_like = group[0].get("distractor_source_kind") == "cad"
+        if is_robot_like:
+            air_prob = dist_cfg.get("robot_air_probability", default_air_prob)
+            air_range = dist_cfg.get("robot_air_height_range", default_air_range)
+        else:
+            air_prob = default_air_prob
+            air_range = default_air_range
         place_distractor(
             group,
             arena_radius,
             dist_cfg.get("scale_range", [0.5, 3.0]),
-            max_robot_size,
-            air_probability=rand_cfg.get("air_probability", 0.15),
-            air_height_range=rand_cfg.get("air_height_range", [0.02, 0.15]),
+            base_size,
+            air_probability=air_prob,
+            air_height_range=air_range,
+            robot_like=is_robot_like,
         )
     return active_distractors
 
@@ -1922,18 +2023,22 @@ def _render_clean_inst_seg_maps(
 
 def _compute_blur_category_ids(
     scene_robots: list[RobotInstance], active_distractors: list[DistractorGroup]
-) -> set[int]:
-    """Collect category ids eligible for motion blur from robots and distractors."""
-    blur_category_ids: set[int] = set()
+) -> tuple[set[int], set[int]]:
+    """Collect blur-eligible category ids, split into (robot, distractor)."""
+    robot_ids: set[int] = set()
     for robot in scene_robots:
         if robot.meshes:
-            blur_category_ids.add(int(robot.meshes[0].blender_obj.get("category_id", -1)))
+            robot_ids.add(int(robot.meshes[0].blender_obj.get("category_id", -1)))
+    distractor_ids: set[int] = set()
     for group in active_distractors:
         meshes = group[1]
         if meshes:
-            blur_category_ids.add(int(meshes[0].blender_obj.get("category_id", -1)))
-    blur_category_ids.discard(-1)
-    return blur_category_ids
+            distractor_ids.add(int(meshes[0].blender_obj.get("category_id", -1)))
+    robot_ids.discard(-1)
+    distractor_ids.discard(-1)
+    # A category shared with a robot follows the robot blur probability.
+    distractor_ids -= robot_ids
+    return robot_ids, distractor_ids
 
 
 def _extract_seg_frame_annotations(
@@ -2050,6 +2155,53 @@ def _build_robot_keypoint_annotation(
     return (robot.class_id, bbox, keypoints_2d)
 
 
+def _build_distractor_keypoint_annotations(
+    active_distractors: list[DistractorGroup],
+    inst_seg: np.ndarray | None,
+    depth_map: np.ndarray,
+    img_w: int,
+    img_h: int,
+    nhrl_class_id: int,
+) -> list[YoloAnnotation]:
+    """Keypoint+bbox annotations for CAD distractors carrying keypoint sidecars.
+
+    Distractors never trigger a frame discard: the clean segmentation pass
+    hides them, so there is no unobstructed reference to gate visibility on.
+    Only the (occluded) instance bbox size and per-keypoint depth checks apply.
+    """
+    annotations: list[YoloAnnotation] = []
+    if inst_seg is None:
+        return annotations
+    for parent, _meshes, _native in active_distractors:
+        instance_id = int(parent.get("kp_instance_id", 0))
+        if instance_id < NHRL_DISTRACTOR_INSTANCE_ID_BASE:
+            continue
+        kp_front = parent.get("kp_front")
+        kp_back = parent.get("kp_back")
+        if kp_front is None or kp_back is None:
+            continue
+
+        bbox = bbox_from_category_segmap(inst_seg, instance_id, img_w, img_h)
+        if bbox is None:
+            continue
+        _cx, _cy, bw, bh = bbox
+        if int(bw * img_w) < 32 or int(bh * img_h) < 32:
+            continue
+
+        world_mat = np.array(parent.matrix_world)
+        keypoints_2d: list[tuple[float, float, int]] = []
+        for kp_local in (kp_front, kp_back):
+            proj = project_keypoint_to_2d(np.array(kp_local, dtype=float), world_mat)
+            if proj is None:
+                keypoints_2d.append((0.0, 0.0, 0))
+                continue
+            x_n, y_n, depth = proj
+            vis = check_keypoint_visibility(x_n, y_n, depth, depth_map, img_w, img_h)
+            keypoints_2d.append((x_n, y_n, vis))
+        annotations.append((nhrl_class_id, bbox, keypoints_2d))
+    return annotations
+
+
 def _extract_keypoint_frame_annotations(
     scene_robots: list[RobotInstance],
     cat_seg: np.ndarray,
@@ -2059,6 +2211,8 @@ def _extract_keypoint_frame_annotations(
     img_w: int,
     img_h: int,
     min_vis: float,
+    active_distractors: list[DistractorGroup],
+    nhrl_class_id: int | None,
 ) -> list[YoloAnnotation] | None:
     """Build keypoint+bbox annotations for one frame, or None if it should be skipped."""
     rendered_robot_ids: set[int] = set()
@@ -2085,6 +2239,13 @@ def _extract_keypoint_frame_annotations(
         # rendered segmentation is missing from YOLO annotations.
         return None
 
+    if nhrl_class_id is not None:
+        keypoint_annotations.extend(
+            _build_distractor_keypoint_annotations(
+                active_distractors, inst_seg, depth_map, img_w, img_h, nhrl_class_id
+            )
+        )
+
     if not keypoint_annotations:
         return None
     return keypoint_annotations
@@ -2101,21 +2262,33 @@ def _print_first_frame_debug(
 
 
 def _apply_frame_motion_blur(
-    color_img: np.ndarray, cat_seg: np.ndarray, blur_category_ids: set[int], rand_cfg: dict
+    color_img: np.ndarray,
+    cat_seg: np.ndarray,
+    blur_category_ids: tuple[set[int], set[int]],
+    rand_cfg: dict,
+    dist_cfg: dict,
 ) -> np.ndarray:
-    """Apply per-category motion blur to a rendered frame and return the result."""
-    blur_prob = rand_cfg.get("motion_blur_probability", 0.0)
+    """Apply per-category motion blur to a rendered frame and return the result.
+
+    ``blur_category_ids`` is ``(robot_ids, distractor_ids)``; robots use the
+    ``[randomization]`` motion-blur probability and distractors use the
+    ``[distractors]`` one (falling back to the robot probability).
+    """
+    robot_ids, distractor_ids = blur_category_ids
+    robot_prob = rand_cfg.get("motion_blur_probability", 0.0)
+    dist_prob = dist_cfg.get("motion_blur_probability", robot_prob)
     blur_range = rand_cfg.get("motion_blur_strength_range", [5, 25])
     blur_lo, blur_hi = int(blur_range[0]), int(blur_range[1])
-    for blur_cid in sorted(blur_category_ids):
-        if random.random() < blur_prob:
-            color_img = apply_object_motion_blur(
-                color_img,
-                cat_seg,
-                blur_cid,
-                random.randint(blur_lo, blur_hi),
-                random.uniform(0, 2 * math.pi),
-            )
+    for ids, prob in ((robot_ids, robot_prob), (distractor_ids, dist_prob)):
+        for blur_cid in sorted(ids):
+            if random.random() < prob:
+                color_img = apply_object_motion_blur(
+                    color_img,
+                    cat_seg,
+                    blur_cid,
+                    random.randint(blur_lo, blur_hi),
+                    random.uniform(0, 2 * math.pi),
+                )
     return color_img
 
 
@@ -2134,8 +2307,11 @@ def _save_scene_frames(
     seg_robot_class_ids: dict[int, int],
     scene_robots: list[RobotInstance],
     min_vis: float,
-    blur_category_ids: set[int],
+    blur_category_ids: tuple[set[int], set[int]],
     rand_cfg: dict,
+    dist_cfg: dict,
+    active_distractors: list[DistractorGroup],
+    nhrl_class_id: int | None,
     output_label_dir: Path,
     output_image_dir: Path,
     start_global_idx: int,
@@ -2164,14 +2340,25 @@ def _save_scene_frames(
             seg_annotations = seg_result
         else:
             kp_result = _extract_keypoint_frame_annotations(
-                scene_robots, cat_seg, inst_seg, clean_inst_seg, depth_map, img_w, img_h, min_vis
+                scene_robots,
+                cat_seg,
+                inst_seg,
+                clean_inst_seg,
+                depth_map,
+                img_w,
+                img_h,
+                min_vis,
+                active_distractors,
+                nhrl_class_id,
             )
             if kp_result is None:
                 continue
             keypoint_annotations = kp_result
 
         # -- Motion blur (applied to all robot pixels jointly) --
-        color_img = _apply_frame_motion_blur(color_img, cat_seg, blur_category_ids, rand_cfg)
+        color_img = _apply_frame_motion_blur(
+            color_img, cat_seg, blur_category_ids, rand_cfg, dist_cfg
+        )
 
         frame_name = f"{global_idx:06d}"
         if is_segmentation_mode:
@@ -2250,15 +2437,13 @@ def _render_scene(
         distractor_pool = ctx.refresh_distractor_pool(distractor_pool)
         images_since_shuffle = 0
 
-    # -- Distractor placement (scale relative to largest robot in scene) --
-    max_robot_size = max(r.size for r in scene_robots)
+    # -- Distractor placement (scaled to the fixed 3 lb weight-class base) --
     active_distractors = _place_scene_distractors(
         distractor_pool,
         ctx.dist_min_per_scene,
         ctx.dist_cfg,
         ctx.rand_cfg,
         arena_radius,
-        max_robot_size,
     )
 
     # -- Light randomization --
@@ -2326,6 +2511,9 @@ def _render_scene(
         min_vis,
         blur_category_ids,
         ctx.rand_cfg,
+        ctx.dist_cfg,
+        active_distractors,
+        ctx.nhrl_class_id,
         ctx.output_label_dir,
         ctx.output_image_dir,
         global_idx,
@@ -2364,6 +2552,17 @@ def main() -> None:
     )
     assign_distractor_class_id = _DistractorClassIdAssigner(is_segmentation_mode, next_seg_class_id)
 
+    # CAD (NHRL robot) distractors get keypoint annotations under a single
+    # generic class, but only in keypoint mode and only when a CAD distractor
+    # source is configured.
+    has_cad_source = any(
+        str(s.get("kind", "")).lower() == "cad"
+        for s in config.get("distractors", {}).get("sources", [])
+    )
+    nhrl_class_id: int | None = None
+    if not is_segmentation_mode and has_cad_source:
+        nhrl_class_id = max((int(rc["class_id"]) for rc in robot_configs), default=-1) + 1
+
     output_image_dir, output_label_dir, dataset_root, data_yml_path = _resolve_output_dirs(config)
     args.start_index = _resolve_start_index(args.start_index, output_image_dir)
 
@@ -2392,7 +2591,9 @@ def main() -> None:
     _hide_all_robots(robots)
 
     if not is_segmentation_mode:
-        _write_keypoint_data_yml(robot_configs, data_yml_path, dataset_root, annotation_mode)
+        _write_keypoint_data_yml(
+            robot_configs, data_yml_path, dataset_root, annotation_mode, nhrl_class_id
+        )
 
     # ------- Load distractors -------
 
@@ -2481,6 +2682,7 @@ def main() -> None:
         dist_vram_budget_mb=dist_vram_budget_mb,
         dist_vram_estimates=dist_vram_estimates,
         assign_class_id=assign_distractor_class_id,
+        nhrl_class_id=nhrl_class_id,
     )
 
     distractor_pool = ctx.refresh_distractor_pool([])

@@ -25,7 +25,7 @@ COPY . /workspace/training/synthetic
 RUN pip install --default-timeout=120 --retries=20 --no-build-isolation -e /workspace/training/synthetic
 RUN pip install --default-timeout=120 --retries=20 gitpython scikit-learn pyyaml scikit-image trimesh
 
-# Ensure Blender is downloaded and available in the image.
+# Download Blender into the image (this first `blenderproc` call fetches it).
 RUN blenderproc pip install --default-timeout=120 --retries=20 opencv-contrib-python==4.10.0.82
 
 # Preinstall Blender runtime packages that BlenderProc otherwise installs on first run.
@@ -54,6 +54,15 @@ RUN /root/blender/blender-4.2.1-linux-x64/4.2/python/bin/python3.11 -m pip insta
     trimesh==4.4.0 \
     "pyglet<2" \
     pyrender==0.1.45
+
+# Bake a complete BlenderProc package cache so runtime `blenderproc run` skips the
+# per-run pip re-check. `blenderproc pip install` above uses
+# install_default_packages=False, so the cache it wrote omits BlenderProc's default
+# runtime packages and every run re-pip-checks them. Deleting that stale cache and
+# running `blenderproc run` once (install_default_packages=True) records the full
+# set into custom-python-packages/installed_packages_cache_v2.json, baked in here.
+RUN rm -f /root/blender/blender-4.2.1-linux-x64/custom-python-packages/installed_packages_cache_v2.json \
+    && blenderproc run docker/warmup.py
 
 COPY docker/entrypoint.sh /usr/local/bin/synthetic-entrypoint
 RUN chmod +x /usr/local/bin/synthetic-entrypoint

@@ -24,9 +24,27 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import yaml
 from tqdm import tqdm
 
 from auto_battlebot.trt_yolo import DetectionTuple, TrtYoloModel
+
+
+def load_class_names(spec: str) -> list[str] | None:
+    """Resolve class names from a data.yaml/yml path or a comma-separated list.
+
+    Used to label boxes with real class names (e.g. per-robot names) instead of class_N.
+    """
+    if not spec:
+        return None
+    path = Path(spec)
+    if path.exists():
+        meta = yaml.safe_load(path.read_text())
+        raw = meta.get("names", []) if isinstance(meta, dict) else []
+        if isinstance(raw, dict):
+            raw = [raw[k] for k in sorted(raw, key=int)]
+        return [str(v) for v in raw]
+    return [s.strip() for s in spec.split(",")]
 
 
 def draw_detections(
@@ -138,6 +156,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not save output video",
     )
+    parser.add_argument(
+        "--names",
+        default="",
+        type=str,
+        help="Label boxes with class names: path to a data.yaml/yml or a comma-separated list",
+    )
+    parser.add_argument(
+        "--max-frames",
+        default=0,
+        type=int,
+        help="Stop after this many frames (default: 0 = whole video)",
+    )
     return parser
 
 
@@ -173,10 +203,14 @@ def process_video(
     model: TrtYoloModel,
     total_frames: int,
     args: argparse.Namespace,
+    class_names: list[str] | None,
 ) -> tuple[int, float]:
     """Run inference over every frame, draw, and write/show. Returns (frame_count, elapsed)."""
     start_time = time.time()
     frame_count = 0
+    limit = args.max_frames if args.max_frames > 0 else None
+    if limit is not None and (total_frames <= 0 or limit < total_frames):
+        total_frames = limit
     try:
         pbar = tqdm(
             total=total_frames if total_frames > 0 else None,
@@ -188,13 +222,15 @@ def process_video(
             if not ret:
                 break
             detections = model.infer(frame)
-            annotated = draw_detections(frame, detections, class_names=None)
+            annotated = draw_detections(frame, detections, class_names=class_names)
             if _write_and_show(annotated, writer, args):
                 break
             frame_count += 1
             elapsed = time.time() - start_time
             pbar.set_postfix({"FPS": f"{frame_count / elapsed:.1f}" if elapsed > 0 else "0"})
             pbar.update(1)
+            if limit is not None and frame_count >= limit:
+                break
         pbar.close()
     finally:
         cap.release()
@@ -252,7 +288,11 @@ def main() -> None:
         writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
         print(f"Saving to {output_path}")
 
-    frame_count, elapsed = process_video(cap, writer, model, total_frames, args)
+    class_names = load_class_names(args.names)
+    if class_names is not None:
+        print(f"Labeling boxes with {len(class_names)} class names from --names")
+
+    frame_count, elapsed = process_video(cap, writer, model, total_frames, args, class_names)
 
     avg_fps = frame_count / elapsed if elapsed > 0 else 0
     print(f"Processed {frame_count} frames in {elapsed:.2f}s, avg FPS: {avg_fps:.2f}")

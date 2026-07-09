@@ -322,11 +322,26 @@ max_per_scene = 5
 vram_budget_mb = 3500
 # Precomputed per-model VRAM estimates used for pre-import budget checks.
 vram_audit_csv = "training/data/distractor_models/distractor_gpu_audit.csv"
-# Scale range as multiples of the robot's largest dimension.
-# [0.5, 3.0] means distractors will be 0.5x to 3x the robot's size.
+# Reference largest dimension (meters) that distractor robots are scaled to.
+# All distractor robots are treated as 3 lb (beetleweight) regardless of their
+# real weight class, so this is the 3 lb base size. Decoupled from the robots
+# actually in the scene (previously keyed off the largest robot present).
+base_dimension_m = 0.25
+# Scale range as multiples of base_dimension_m.
+# [0.5, 2.0] means distractors will be 0.5x to 2x the 3 lb base size.
 scale_range = [0.5, 2.0]
 # Re-roll the distractor pool every N images (0 to keep the same pool all run).
 shuffle_interval = 100
+
+# Pose randomization for CAD (kind = "cad") robot distractors. Grounded robots
+# sit flat on the field with a random yaw and a 50% chance of being inverted;
+# airborne ones tumble with a fully random orientation. Objaverse distractors
+# keep the global [randomization] air settings instead.
+robot_air_probability = 0.3
+robot_air_height_range = [0.02, 1.0]
+# Per-frame motion-blur probability for distractor categories (defaults to the
+# [randomization] motion_blur_probability when omitted).
+motion_blur_probability = 0.3
 
 [[distractors.sources]]
 path = "../data/distractor_models/objaverse"

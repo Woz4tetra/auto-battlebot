@@ -102,6 +102,96 @@ python download_objaverse.py ../data/distractor_models/objaverse --max-models 10
 
 You can also place additional `.glb`, `.gltf`, `.obj`, or `.ply` files in custom distractor directories and add them under `[[distractors.sources]]` in `config.toml`.
 
+#### NHRL robot distractors (Meshy.ai)
+
+Generate a large pool of real NHRL robots as CAD distractors from BrettZone
+thumbnails. These run in the project venv (`python`), except the preview which
+runs under `blenderproc run`. The pipeline is split into steps so each stage can
+be inspected before the next; all state lives in the output directory and every
+step is resumable. Run from `training/synthetic/`.
+
+1. Fetch the roster and cache thumbnails (no Meshy credits spent):
+
+   ```bash
+   python download_nhrl_bots.py ../data/distractor_models/robots --limit 300
+   ```
+
+   Prints the ranked selection and which thumbnails resolved. Bots are ranked by
+   total fights across all weight classes; bracket/bye placeholders are dropped.
+
+2. Review thumbnails and reject the ones unfit for image-to-3D (busy
+   backgrounds, multiple bots, side-on or tiny shots, logos). No Meshy credits
+   are spent here. Rejections are recorded as a `rejected` flag in the state
+   file, which both this step and step 1 honor, so a rejected bot is never
+   re-downloaded or meshed. Run on the **host** in a root project venv (needs
+   `opencv` + `numpy`; it needs a GUI display):
+
+   ```bash
+   ../../venv/bin/python review_nhrl_thumbnails.py ../data/distractor_models/robots
+   ```
+
+   `a` accepts, `r` rejects (moves the PNG to `rejected_thumbnails/`), `n`/`p`
+   navigate, `u` clears a decision. You can also bulk-reject a list triaged
+   elsewhere (tokens may be bare names, `<name>.png`, or `trash:///` URIs):
+
+   ```bash
+   ../../venv/bin/python review_nhrl_thumbnails.py ../data/distractor_models/robots \
+     --reject-file rejected.txt
+   ```
+
+3. Generate meshes via Meshy image-to-3D. Requires `MESHY_API_KEY`. Start with a
+   pilot to check quality and credit burn, then run the full batch (resumable):
+
+   ```bash
+   python generate_nhrl_meshes.py ../data/distractor_models/robots --dry-run    # preview submissions
+   MESHY_API_KEY=... python generate_nhrl_meshes.py ../data/distractor_models/robots --limit 10
+   MESHY_API_KEY=... python generate_nhrl_meshes.py ../data/distractor_models/robots --limit 300
+   ```
+
+   GLBs land as `nhrl_<name>.glb` and rows are appended to
+   `distractor_gpu_audit.csv`. Re-running never resubmits in-flight tasks.
+
+4. Compute front/back keypoints and render top-down previews. This runs under
+   BlenderProc so each robot is rendered with its real materials (an
+   orthographic top-down PNG in `topdown/`). It writes a `<stem>.json` sidecar
+   with the keypoints plus a `topdown` block (image path, model->pixel affine,
+   footprint hull, `y_ground`, default axis) that the review step uses to overlay
+   an aligned centerline. The footprint's principal axis gives a centered
+   orientation line; which end is "front" is left arbitrary here and confirmed in
+   the next step. Runs in the container (mounts the repo, so outputs land on the
+   host):
+
+   ```bash
+   docker/run_synthetic.sh --gpu auto-battlebot-synthetic \
+     blenderproc run compute_nhrl_keypoints.py -- ../data/distractor_models/robots
+   ```
+
+5. Confirm front/back direction. The mesh alone can't tell which end is the
+   robot's front (thrust/weapon direction), so this shows the top-down render
+   from step 4 and lets you **drag to draw the centerline** (front = the end you
+   drag toward). The centerline stays through the model's center at any angle,
+   and front/back snap to the silhouette's extremes along it. `f` flips, `a`
+   accepts. Confirmed sidecars are marked `reviewed: true` and are never
+   clobbered by a later `compute` run (even with `--overwrite`).
+
+   Run on the **host** in a root project venv (needs `opencv` + `numpy`; it loads
+   only the sidecar PNG + JSON, no mesh). It needs a GUI display, so it will not
+   run inside the synthetic Docker image or under `blenderproc`:
+
+   ```bash
+   ../../venv/bin/python review_nhrl_keypoints.py ../data/distractor_models/robots
+   ```
+
+6. Optional: `preview_nhrl_keypoints.py` still renders blenderproc 6-view grids
+   (red = front, blue = back) if you want to double-check the confirmed keypoints
+   from all sides before the full render.
+
+In `keypoints_bbox` annotation mode, these distractors are annotated under a
+generic `nhrl_robot` class with front/back keypoints, sit flat on the field with
+robot-like pose randomization, and get their own motion-blur probability. Tune
+`robot_air_probability`, `robot_air_height_range`, and `motion_blur_probability`
+under `[distractors]` in `config.toml`.
+
 ### 6. Generate synthetic images
 
 ```bash
