@@ -8,8 +8,8 @@ host = "127.0.0.1"
 port = 14882
 
 [sim]
-dt = 0.0333          # ~30 Hz sim time (matches the real controller rate)
-max_ticks = 900      # 30 s
+dt = 0.0333     # ~30 Hz sim time (matches the real controller rate)
+max_ticks = 900 # 30 s
 seed = 0
 
 [arena]
@@ -36,14 +36,14 @@ radius = 0.11
 # each) but physically sensible. max_linear_speed is the full-throttle value the robot achieves.
 # NOTE: max_angular_speed may be inflated by yaw-keypoint flips in the calibration; revisit if turns
 # look unrealistically fast in sim.
-max_linear_speed = 5.6            # symmetric fallback (unused once _fwd/_rev are set)
+max_linear_speed = 5.6      # symmetric fallback (unused once _fwd/_rev are set)
 max_angular_speed = 61.5
-tau_linear = 0.058                # fallback
-tau_angular = 0.066               # fallback
+tau_linear = 0.058          # fallback
+tau_angular = 0.066         # fallback
 max_linear_speed_fwd = 5.6
 max_linear_speed_rev = 4.84
 tau_linear_accel = 0.058
-tau_linear_decel = 0.078          # coast: the term that drives stopping overrun
+tau_linear_decel = 0.078    # coast: the term that drives stopping overrun
 tau_angular_accel = 0.066
 
 [perception]

@@ -4,40 +4,40 @@ version = "0.1.0"
 description = "Auto Battlebot Project"
 requires-python = ">=3.10"
 dependencies = [
-    "ultralytics",
-    "numpy>=1.26.0,<2.0.0; platform_machine == \"aarch64\"",
-    "numpy>=2.0.0,<3.0.0; platform_machine != \"aarch64\"",
-    "smbus2; platform_machine == \"aarch64\"",
-    "matplotlib",
-    "scipy",
-    "minigencpp @ git+https://github.com/Woz4tetra/minigencpp.git",
-    "tqdm>=4.60.0",
-    "types-tqdm",
-    "tomli; python_version < '3.11'",
-    "tomli_w",
-    "dacite",
-    "ruff",
-    "mypy",
-    "livelossplot",
-    "ipython",
-    "torchmetrics",
-    "pycocotools",  # torchmetrics MeanAveragePrecision backend (training/model_eval)
-    "segmentation-models-pytorch",
-    "opencv-python>=4.5.0",
-    "pyyaml>=6.0",
-    "pandas",
-    "onnxscript",
-    "natsort",
-    "gdown",
-    "mcap",
-    "trimesh",
-    "shapely",
-    "pyserial",  # playground/calibration: drives the OpenTX trainer link for drivetrain characterization
-    "Pillow",  # playground/calibration: print-accurate AprilTag PDF export (make_print_tags.py)
-    # x86 only: often unavailable or different on Jetson (aarch64)
-    "pycuda; platform_machine == \"x86_64\"",
-    "torch>=2.0.0; platform_machine == \"x86_64\"",
-    "tensorrt==10.14.1.48.post1; platform_machine == \"x86_64\"",
+  "ultralytics",
+  "numpy>=1.26.0,<2.0.0; platform_machine == \"aarch64\"",
+  "numpy>=2.0.0,<3.0.0; platform_machine != \"aarch64\"",
+  "smbus2; platform_machine == \"aarch64\"",
+  "matplotlib",
+  "scipy",
+  "minigencpp @ git+https://github.com/Woz4tetra/minigencpp.git",
+  "tqdm>=4.60.0",
+  "types-tqdm",
+  "tomli; python_version < '3.11'",
+  "tomli_w",
+  "dacite",
+  "ruff",
+  "mypy",
+  "livelossplot",
+  "ipython",
+  "torchmetrics",
+  "pycocotools",                                                  # torchmetrics MeanAveragePrecision backend (training/model_eval)
+  "segmentation-models-pytorch",
+  "opencv-python>=4.5.0",
+  "pyyaml>=6.0",
+  "pandas",
+  "onnxscript",
+  "natsort",
+  "gdown",
+  "mcap",
+  "trimesh",
+  "shapely",
+  "pyserial",                                                     # playground/calibration: drives the OpenTX trainer link for drivetrain characterization
+  "Pillow",                                                       # playground/calibration: print-accurate AprilTag PDF export (make_print_tags.py)
+  # x86 only: often unavailable or different on Jetson (aarch64)
+  "pycuda; platform_machine == \"x86_64\"",
+  "torch>=2.0.0; platform_machine == \"x86_64\"",
+  "tensorrt==10.14.1.48.post1; platform_machine == \"x86_64\"",
 ]
 
 [build-system]
@@ -60,23 +60,23 @@ line-length = 100
 target-version = "py310"
 fix = true
 exclude = [
-    ".git",
-    "*venv*",
-    "__pycache__",
-    "build",
-    "build-test",
-    "dist",
-    "data",
-    "playground",
+  ".git",
+  "*venv*",
+  "__pycache__",
+  "build",
+  "build-test",
+  "dist",
+  "data",
+  "playground",
 ]
 lint.select = ["C9", "E", "F", "N", "Q", "W", "I", "INP"]
 lint.ignore = [
-    "E402", # module level import not at top of file
-    "Q003", # avoidable-escaped-quote
+  "E402", # module level import not at top of file
+  "Q003", # avoidable-escaped-quote
 ]
 lint.unfixable = [
-    "F401", # unused imports
-    "F841", # unused variables
+  "F401", # unused imports
+  "F841", # unused variables
 ]
 
 [tool.ruff.lint.per-file-ignores]

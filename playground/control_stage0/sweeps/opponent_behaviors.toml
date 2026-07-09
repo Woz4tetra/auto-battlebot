@@ -12,7 +12,12 @@ opponents = [{ behavior = "static", start_pos = [0.5, 0.5] }]
 name = "straight"
 [runs.sim]
 "latency.command_ms" = 60.0
-opponents = [{ behavior = "straight", start_pos = [-0.8, 0.6], heading_deg = 0.0, speed = 1.0 }]
+opponents = [
+  { behavior = "straight", start_pos = [
+    -0.8,
+    0.6,
+  ], heading_deg = 0.0, speed = 1.0 },
+]
 
 [[runs]]
 name = "circle"

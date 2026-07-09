@@ -6,22 +6,42 @@
 name = "head000"
 [runs.sim]
 "latency.command_ms" = 60.0
-opponents = [{ behavior = "straight", start_pos = [-0.9, 0.0], heading_deg = 0.0, speed = 1.2 }]
+opponents = [
+  { behavior = "straight", start_pos = [
+    -0.9,
+    0.0,
+  ], heading_deg = 0.0, speed = 1.2 },
+]
 
 [[runs]]
 name = "head090"
 [runs.sim]
 "latency.command_ms" = 60.0
-opponents = [{ behavior = "straight", start_pos = [0.0, -0.9], heading_deg = 90.0, speed = 1.2 }]
+opponents = [
+  { behavior = "straight", start_pos = [
+    0.0,
+    -0.9,
+  ], heading_deg = 90.0, speed = 1.2 },
+]
 
 [[runs]]
 name = "head135"
 [runs.sim]
 "latency.command_ms" = 60.0
-opponents = [{ behavior = "straight", start_pos = [0.9, -0.9], heading_deg = 135.0, speed = 1.2 }]
+opponents = [
+  { behavior = "straight", start_pos = [
+    0.9,
+    -0.9,
+  ], heading_deg = 135.0, speed = 1.2 },
+]
 
 [[runs]]
 name = "head225"
 [runs.sim]
 "latency.command_ms" = 60.0
-opponents = [{ behavior = "straight", start_pos = [0.9, 0.9], heading_deg = 225.0, speed = 1.2 }]
+opponents = [
+  { behavior = "straight", start_pos = [
+    0.9,
+    0.9,
+  ], heading_deg = 225.0, speed = 1.2 },
+]
