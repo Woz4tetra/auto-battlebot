@@ -1235,10 +1235,19 @@ def check_keypoint_visibility(
     img_w: int,
     img_h: int,
     tolerance: float = 0.05,
+    ignore_occlusion: bool = False,
 ) -> int:
-    """Determine keypoint visibility: 0=out-of-frame, 1=occluded, 2=visible."""
+    """Determine keypoint visibility: 0=out-of-frame, 1=occluded, 2=visible.
+
+    When *ignore_occlusion* is set, any in-frame keypoint is reported as visible
+    (flag 2) without the depth test, so keypoints are annotated straight through
+    occluding objects.
+    """
     if not (0 <= x_norm <= 1 and 0 <= y_norm <= 1):
         return 0
+
+    if ignore_occlusion:
+        return 2
 
     px = min(int(x_norm * img_w), img_w - 1)
     py = min(int(y_norm * img_h), img_h - 1)
@@ -1777,6 +1786,10 @@ class RenderContext:
     # YOLO class id for keypoint-annotated CAD distractors; None disables them
     # (segmentation mode, or no CAD distractor source configured).
     nhrl_class_id: int | None
+    # When True, annotate robots/keypoints straight through occluders: skip the
+    # distractor-clearing pass, the clean visibility-fraction render, and the
+    # per-keypoint depth occlusion test.
+    ignore_obstructions: bool
 
     def refresh_distractor_pool(self, old_pool: list[DistractorGroup]) -> list[DistractorGroup]:
         """Unload old distractors and load a fresh random pool."""
@@ -1957,6 +1970,52 @@ def _randomize_lights(lights: list[bproc.types.Light], rand_cfg: dict) -> None:
             light.set_energy(0)
 
 
+def _scene_bounding_radius(scene_robots: list[RobotInstance], centroid: list[float]) -> float:
+    """World-space radius of the sphere around *centroid* enclosing all robot meshes."""
+    center = mathutils.Vector(centroid)
+    max_r2 = 0.0
+    for robot in scene_robots:
+        for mesh in robot.meshes:
+            obj = mesh.blender_obj
+            for corner in obj.bound_box:
+                world_corner = obj.matrix_world @ mathutils.Vector(corner)
+                max_r2 = max(max_r2, (world_corner - center).length_squared)
+    return math.sqrt(max_r2)
+
+
+def _camera_min_fov() -> float:
+    """Smaller of the horizontal/vertical camera field of view, in radians."""
+    scene = bpy.context.scene
+    sensor_fov = float(scene.camera.data.angle)  # FOV along the longer image dimension
+    w = int(scene.render.resolution_x)
+    h = int(scene.render.resolution_y)
+    if w <= 0 or h <= 0:
+        return sensor_fov
+    short, long = (h, w) if w >= h else (w, h)
+    narrow_fov = 2.0 * math.atan(math.tan(sensor_fov / 2.0) * short / long)
+    return min(sensor_fov, narrow_fov)
+
+
+def _min_distance_for_frame_fraction(
+    radius: float, min_fov: float, max_frame_fraction: float
+) -> float:
+    """Closest camera distance that keeps a *radius* sphere within *max_frame_fraction*.
+
+    Limits the projected silhouette of the robots' bounding sphere to
+    *max_frame_fraction* of the narrower image dimension so a robot can never
+    completely fill the frame, regardless of its size or the camera height.
+    """
+    if radius <= 0.0 or min_fov <= 0.0 or max_frame_fraction <= 0.0:
+        return 0.0
+    # On the image plane a point at angle theta lands at tan(theta)/tan(fov/2) of
+    # the half-frame. Solving tan(theta) = max_frame_fraction * tan(fov/2) for the
+    # sphere silhouette (sin(theta) = radius/distance) gives this closed form.
+    k = max_frame_fraction * math.tan(min_fov / 2.0)
+    if k <= 0.0:
+        return 0.0
+    return radius * math.sqrt(1.0 + k * k) / k
+
+
 def _setup_scene_cameras(
     scene_robots: list[RobotInstance],
     cam_cfg: dict,
@@ -1964,21 +2023,36 @@ def _setup_scene_cameras(
     remaining: int,
     active_distractors: list[DistractorGroup],
     robot_positions: list[list[float]],
+    ignore_obstructions: bool = False,
 ) -> tuple[list, int]:
     """Sample camera poses looking at the robot centroid and clear blocking distractors."""
     centroid = [sum(p[i] for p in robot_positions) / len(robot_positions) for i in range(3)]
     cam_count = min(images_per_scene, remaining)
+
+    # Push the camera back far enough that the robots' bounding sphere can never
+    # dominate the frame (near-full-frame robots produce confusing annotations).
+    min_dist = float(cam_cfg.get("min_distance", 0.3))
+    max_dist = float(cam_cfg.get("max_distance", 1.5))
+    max_frame_fraction = float(cam_cfg.get("max_frame_fraction", 0.9))
+    radius = _scene_bounding_radius(scene_robots, centroid)
+    safe_min_dist = _min_distance_for_frame_fraction(radius, _camera_min_fov(), max_frame_fraction)
+    min_dist = max(min_dist, safe_min_dist)
+    max_dist = max(max_dist, min_dist)
+
     cam_poses = []
     for _ in range(cam_count):
         pose = sample_camera_pose(
             look_at=centroid,
-            min_dist=cam_cfg.get("min_distance", 0.3),
-            max_dist=cam_cfg.get("max_distance", 1.5),
+            min_dist=min_dist,
+            max_dist=max_dist,
             height_range=cam_cfg.get("height_range", [0.1, 0.8]),
             noise=cam_cfg.get("look_at_noise", 0.05),
             robot_center=centroid,
         )
         cam_poses.append(pose)
+
+    if ignore_obstructions:
+        return cam_poses, cam_count
 
     all_keypoints_world: list[mathutils.Vector] = []
     for robot in scene_robots:
@@ -2088,8 +2162,11 @@ def _robot_bbox_visible(
     w_px: int,
     h_px: int,
     min_vis: float,
+    ignore_obstructions: bool = False,
 ) -> bool:
     """True if the robot's visible pixel fraction meets the minimum visibility threshold."""
+    if ignore_obstructions:
+        return True
     if inst_seg is not None and clean_inst_seg is not None:
         visible_px = int(np.sum(inst_seg.squeeze() == seg_id))
         unobstructed_px = int(np.sum(clean_inst_seg.squeeze() == seg_id))
@@ -2103,7 +2180,11 @@ def _robot_bbox_visible(
 
 
 def _project_robot_keypoints(
-    robot: RobotInstance, depth_map: np.ndarray, img_w: int, img_h: int
+    robot: RobotInstance,
+    depth_map: np.ndarray,
+    img_w: int,
+    img_h: int,
+    ignore_occlusion: bool = False,
 ) -> list[tuple[float, float, int]]:
     """Project a robot's front/back keypoints to image space with visibility flags."""
     robot_world_mat = np.array(robot.parent.matrix_world)
@@ -2114,7 +2195,9 @@ def _project_robot_keypoints(
             keypoints_2d.append((0.0, 0.0, 0))
             continue
         x_n, y_n, depth = proj
-        vis = check_keypoint_visibility(x_n, y_n, depth, depth_map, img_w, img_h)
+        vis = check_keypoint_visibility(
+            x_n, y_n, depth, depth_map, img_w, img_h, ignore_occlusion=ignore_occlusion
+        )
         keypoints_2d.append((x_n, y_n, vis))
     return keypoints_2d
 
@@ -2128,6 +2211,7 @@ def _build_robot_keypoint_annotation(
     img_w: int,
     img_h: int,
     min_vis: float,
+    ignore_obstructions: bool = False,
 ) -> YoloAnnotation | None:
     """Build the keypoint annotation for a single robot, or None to skip it."""
     if inst_seg is not None:
@@ -2148,10 +2232,14 @@ def _build_robot_keypoint_annotation(
     if w_px < min_bbox_dim or h_px < min_bbox_dim:
         return None
 
-    if not _robot_bbox_visible(seg_for_bbox, seg_id, inst_seg, clean_inst_seg, w_px, h_px, min_vis):
+    if not _robot_bbox_visible(
+        seg_for_bbox, seg_id, inst_seg, clean_inst_seg, w_px, h_px, min_vis, ignore_obstructions
+    ):
         return None
 
-    keypoints_2d = _project_robot_keypoints(robot, depth_map, img_w, img_h)
+    keypoints_2d = _project_robot_keypoints(
+        robot, depth_map, img_w, img_h, ignore_occlusion=ignore_obstructions
+    )
     return (robot.class_id, bbox, keypoints_2d)
 
 
@@ -2162,6 +2250,7 @@ def _build_distractor_keypoint_annotations(
     img_w: int,
     img_h: int,
     nhrl_class_id: int,
+    ignore_occlusion: bool = False,
 ) -> list[YoloAnnotation]:
     """Keypoint+bbox annotations for CAD distractors carrying keypoint sidecars.
 
@@ -2196,7 +2285,9 @@ def _build_distractor_keypoint_annotations(
                 keypoints_2d.append((0.0, 0.0, 0))
                 continue
             x_n, y_n, depth = proj
-            vis = check_keypoint_visibility(x_n, y_n, depth, depth_map, img_w, img_h)
+            vis = check_keypoint_visibility(
+                x_n, y_n, depth, depth_map, img_w, img_h, ignore_occlusion=ignore_occlusion
+            )
             keypoints_2d.append((x_n, y_n, vis))
         annotations.append((nhrl_class_id, bbox, keypoints_2d))
     return annotations
@@ -2213,6 +2304,7 @@ def _extract_keypoint_frame_annotations(
     min_vis: float,
     active_distractors: list[DistractorGroup],
     nhrl_class_id: int | None,
+    ignore_obstructions: bool = False,
 ) -> list[YoloAnnotation] | None:
     """Build keypoint+bbox annotations for one frame, or None if it should be skipped."""
     rendered_robot_ids: set[int] = set()
@@ -2226,7 +2318,15 @@ def _extract_keypoint_frame_annotations(
     annotated_robot_ids: set[int] = set()
     for robot in scene_robots:
         annotation = _build_robot_keypoint_annotation(
-            robot, cat_seg, inst_seg, clean_inst_seg, depth_map, img_w, img_h, min_vis
+            robot,
+            cat_seg,
+            inst_seg,
+            clean_inst_seg,
+            depth_map,
+            img_w,
+            img_h,
+            min_vis,
+            ignore_obstructions,
         )
         if annotation is None:
             continue
@@ -2242,7 +2342,13 @@ def _extract_keypoint_frame_annotations(
     if nhrl_class_id is not None:
         keypoint_annotations.extend(
             _build_distractor_keypoint_annotations(
-                active_distractors, inst_seg, depth_map, img_w, img_h, nhrl_class_id
+                active_distractors,
+                inst_seg,
+                depth_map,
+                img_w,
+                img_h,
+                nhrl_class_id,
+                ignore_occlusion=ignore_obstructions,
             )
         )
 
@@ -2315,6 +2421,7 @@ def _save_scene_frames(
     output_label_dir: Path,
     output_image_dir: Path,
     start_global_idx: int,
+    ignore_obstructions: bool = False,
 ) -> int:
     """Extract annotations, apply motion blur, and write images+labels. Returns count written."""
     global_idx = start_global_idx
@@ -2350,6 +2457,7 @@ def _save_scene_frames(
                 min_vis,
                 active_distractors,
                 nhrl_class_id,
+                ignore_obstructions,
             )
             if kp_result is None:
                 continue
@@ -2466,6 +2574,7 @@ def _render_scene(
         remaining,
         active_distractors,
         robot_positions,
+        ctx.ignore_obstructions,
     )
     for pose in cam_poses:
         bproc.camera.add_camera_pose(pose)
@@ -2484,7 +2593,12 @@ def _render_scene(
 
     # True occlusion metric: visible robot pixels (with distractors) divided
     # by unobstructed robot pixels from a second pass with distractors hidden.
-    clean_inst_seg_maps = _render_clean_inst_seg_maps(inst_seg_maps, active_distractors)
+    # Skipped entirely when obstructions are ignored (the gate is bypassed).
+    clean_inst_seg_maps = (
+        None
+        if ctx.ignore_obstructions
+        else _render_clean_inst_seg_maps(inst_seg_maps, active_distractors)
+    )
 
     if cat_seg_maps is None:
         if scene_idx == 0:
@@ -2517,6 +2631,7 @@ def _render_scene(
         ctx.output_label_dir,
         ctx.output_image_dir,
         global_idx,
+        ctx.ignore_obstructions,
     )
     new_global_idx = global_idx + written
 
@@ -2543,6 +2658,7 @@ def main() -> None:
     num_images = args.num_images or config["output"]["num_images"]
     img_w = config["output"].get("image_width", 1280)
     img_h = config["output"].get("image_height", 720)
+    ignore_obstructions = bool(config["output"].get("ignore_obstructions", False))
     images_per_scene = config["output"].get("images_per_scene", 5)
     max_scenes = math.ceil(num_images / images_per_scene) * 3
 
@@ -2683,6 +2799,7 @@ def main() -> None:
         dist_vram_estimates=dist_vram_estimates,
         assign_class_id=assign_distractor_class_id,
         nhrl_class_id=nhrl_class_id,
+        ignore_obstructions=ignore_obstructions,
     )
 
     distractor_pool = ctx.refresh_distractor_pool([])
