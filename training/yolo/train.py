@@ -62,12 +62,36 @@ def main() -> None:
         type=int,
         help="Overwrite number of epochs",
     )
+    parser.add_argument(
+        "-d",
+        "--devices",
+        nargs="+",
+        default=[0, 1, 2],
+        type=int,
+        help="List of indexed GPUs to use for training",
+    )
+    parser.add_argument(
+        "-w",
+        "--workers",
+        default=12,
+        type=int,
+        help="Number of worker threads",
+    )
     args = parser.parse_args()
 
     dataset = args.dataset
     models = args.models
     epochs = args.epochs
     checkpoint_path = args.checkpoint
+    devices = tuple(args.devices)
+    workers = args.workers
+
+    if len(devices) == 0:
+        devices_filtered = None
+    elif len(devices) == 1:
+        devices_filtered = devices[0]
+    else:
+        devices_filtered = devices
 
     # One timestamp per script run so all models in this session share the same date.
     session_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -121,13 +145,13 @@ def main() -> None:
         model = YOLO(checkpoint_path if checkpoint_path else model_key)
 
         # Training in a new folder per session (date + time so same-day runs don't overwrite).
-        run_name = f"auto_battlebots_keypoints_{session_date}_{model_key}"
+        run_name = f"auto_battlebots_{session_date}_{model_key}"
         model.train(
             data=dataset,
             name=run_name,
             project="../projects",
-            device=(0, 1, 2),
-            workers=12,
+            device=devices_filtered,
+            workers=workers,
             cache="disk",
             **hyper_params,
             **settings,
