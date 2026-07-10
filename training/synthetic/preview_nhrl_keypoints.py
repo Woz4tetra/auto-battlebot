@@ -88,9 +88,7 @@ def render_grid(
     xs = [p.x for p in all_pts]
     ys = [p.y for p in all_pts]
     zs = [p.z for p in all_pts]
-    center = np.array(
-        [(min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, (min(zs) + max(zs)) / 2]
-    )
+    center = np.array([(min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, (min(zs) + max(zs)) / 2])
     extent = max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs), 1e-6)
     radius = extent * 2.0
 

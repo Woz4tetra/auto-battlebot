@@ -28,7 +28,7 @@ NHRL_DISTRACTOR_INSTANCE_ID_BASE = 1000
 MODEL_EXTENSIONS = {".glb", ".gltf", ".obj", ".ply"}
 
 # Minimum bbox edge (pixels) for a robot or distractor keypoint annotation.
-MIN_KEYPOINT_BBOX_DIM_PX = 32
+MIN_KEYPOINT_BBOX_DIM_PX = 5
 
 # A robot that fails its annotation gate but shows at least this many visible
 # pixels is "prominent": leaving it unlabeled would create a false negative in

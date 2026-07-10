@@ -1,3 +1,5 @@
+import blenderproc as bproc  # noqa: F401  # isort: skip  # must be first import for blenderproc run
+
 """Render synthetic YOLO training scenes with BlenderProc.
 
 Usage (unchanged):
@@ -8,7 +10,6 @@ All the actual work lives in the ``synthgen`` package next to this script; this
 entry point only parses arguments and hands off to ``synthgen.pipeline.run``.
 """
 
-import blenderproc as bproc  # noqa: F401  # isort: skip  # must be first import for blenderproc run
 
 import argparse
 import os
