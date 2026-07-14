@@ -115,14 +115,16 @@ def parse_label_file(label_path: Path, img_w: int, img_h: int) -> tuple[list[Box
 def _find_data_yaml(dataset_path: Path) -> Path | None:
     """The dataset's data.yaml, or one from an immediate subdataset when dataset_path is a
     parent holding per-recording subdirs (opening the parent labels them all in one pass)."""
-    direct = dataset_path / "data.yaml"
-    if direct.exists():
-        return direct
-    if dataset_path.is_dir():
-        for child in sorted(dataset_path.iterdir()):
-            candidate = child / "data.yaml"
-            if candidate.exists():
-                return candidate
+    candidate_names = ["data.yaml", "data.yml"]
+    for name in candidate_names:
+        direct = dataset_path / name
+        if direct.exists():
+            return direct
+        if dataset_path.is_dir():
+            for child in sorted(dataset_path.iterdir()):
+                candidate = child / name
+                if candidate.exists():
+                    return candidate
     return None
 
 
