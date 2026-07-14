@@ -204,7 +204,29 @@ Options:
 --num-images 5000       Override image count from config
 --render-samples 128    Path-tracing samples per pixel
 --start-index 10000     Resume from a specific frame index
+--seed 42               Seed Python/numpy RNGs for reproducible debugging runs
+-v / --verbose          Debug logging (per-robot skip detail, asset decisions)
+-q / --quiet            Warnings and the run summary only
 ```
+
+Every dropped frame is logged with a machine-readable reason
+(`DROPPED KP_PROMINENT_ROBOT_UNLABELED — robot 2 ...`), and the run ends with a
+summary of images written vs requested plus drop counts by reason. If a run
+ends short of the requested image count, a warning explains why.
+
+`render_scenes.py` is a thin entry point; the implementation lives in the
+`synthgen/` package next to it. Pure logic (config parsing, annotation math,
+gating policy, YOLO writers) is separated from Blender-dependent code and is
+unit-tested — run the tests from the repo root without Blender or Docker:
+
+```bash
+venv/bin/pytest training/synthetic/tests
+```
+
+Note: the Docker image `COPY`s this directory at build time, but
+`docker/run_synthetic.sh` bind-mounts the live repo over it, so `synthgen/`
+changes take effect without a rebuild. Rebuild only if you run the image
+without the mount.
 
 ### 7. Assemble the dataset
 
@@ -240,7 +262,9 @@ python train.py path/to/data.yaml yolo11n-pose
 | `download_polyhaven_hdris.py` | `python` | Download random HDRIs from Poly Haven |
 | `download_objaverse.py` | `python` | Download distractor models from Objaverse |
 | `download_ambientcg.py` | `python` | Download PBR textures from ambientCG |
-| `render_scenes.py` | `blenderproc run` | Main rendering pipeline |
+| `render_scenes.py` | `blenderproc run` | Main rendering pipeline (entry point for `synthgen/`) |
+| `synthgen/` | imported | Rendering pipeline implementation (pure + Blender-side modules) |
+| `tests/` | `pytest` | Unit tests for the pure `synthgen` modules (no Blender needed) |
 | `coco_to_yolo.py` | `python` | Convert COCO-style labels to YOLO format |
 
 ## Directory Structure

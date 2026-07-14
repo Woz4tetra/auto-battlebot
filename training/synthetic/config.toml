@@ -3,8 +3,8 @@ image_dir = "../data/synthetic/images"
 label_dir = "../data/synthetic/labels"
 # "keypoints_bbox" (default): YOLO pose labels with bbox + keypoints.
 # "segmentation_bbox": YOLO segmentation polygons (bbox implied by polygons).
-# annotation_mode = "keypoints_bbox"
-annotation_mode = "segmentation_bbox"
+annotation_mode = "keypoints_bbox"
+# annotation_mode = "segmentation_bbox"
 num_images = 20000
 image_width = 1280
 image_height = 720
@@ -14,7 +14,14 @@ images_per_scene = 10
 # Minimum visible fraction of robot pixels after occlusion.
 # Computed as: visible instance pixels (with distractors) divided by
 # unobstructed instance pixels from a distractor-free segmentation pass.
+# Ignored when ignore_obstructions = true.
 min_robot_visibility = 0.10
+# Annotate robots and keypoints straight through occluding objects. When true,
+# skip the distractor-clearing pass, the clean visibility-fraction render, and
+# the per-keypoint depth occlusion test; every in-frame keypoint is marked
+# visible (flag 2) and no frame is dropped for being occluded. Use this when the
+# obstruction checks are discarding too many otherwise-usable frames.
+ignore_obstructions = false
 # Force periodic Blender data cleanup during long renders to avoid memory growth.
 # Set to 0 to disable.
 memory_cleanup_interval = 1000
@@ -343,10 +350,10 @@ robot_air_height_range = [0.02, 1.0]
 # [randomization] motion_blur_probability when omitted).
 motion_blur_probability = 0.3
 
-[[distractors.sources]]
-path = "../data/distractor_models/objaverse"
-weight = 0.5
-kind = "objaverse"
+# [[distractors.sources]]
+# path = "../data/distractor_models/objaverse"
+# weight = 0.5
+# kind = "objaverse"
 
 [[distractors.sources]]
 path = "../data/distractor_models/robots"
@@ -867,6 +874,11 @@ max_distance = 6.0
 height_range = [0.1, 4.0]
 # Gaussian noise added to the camera look-at target (meters)
 look_at_noise = 0.4
+# Largest fraction of the narrower image dimension the robots' bounding sphere
+# may fill. The camera is pushed back past min_distance whenever needed so a
+# robot can never completely dominate the frame (which yields confusing,
+# near-full-frame annotations). Range 0-1; lower = robots kept smaller.
+max_frame_fraction = 0.85
 
 [scene]
 # Randomized range for the ground plane half-extent (meters).

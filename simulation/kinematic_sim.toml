@@ -9,7 +9,7 @@ host = "127.0.0.1"
 port = 14882
 
 [sim]
-dt = 0.0333          # seconds per tick (~30 Hz sim time)
+dt = 0.0333     # seconds per tick (~30 Hz sim time)
 max_ticks = 900
 seed = 0
 
@@ -50,7 +50,7 @@ enabled = false
 keypoint_height = 0.06
 
 [[opponents]]
-behavior = "static"   # static | straight | circle | random_walk | replay
+behavior = "static"    # static | straight | circle | random_walk | replay
 start_pos = [0.5, 0.5]
 speed = 1.0
 heading_deg = 180.0

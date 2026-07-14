@@ -19,22 +19,11 @@ observation_ms = 0.0
 res_width = 16
 res_height = 16
 fov = 70.0
-pos = [
-    0.0,
-    -1.5,
-    0.6,
-]
-lookat = [
-    0.0,
-    0.0,
-    0.0,
-]
+pos = [0.0, -1.5, 0.6]
+lookat = [0.0, 0.0, 0.0]
 
 [our_robot]
-start_pos = [
-    -0.6,
-    -0.6,
-]
+start_pos = [-0.6, -0.6]
 start_yaw_deg = 45.0
 max_linear_speed = 2.0
 max_angular_speed = 6.0
@@ -53,9 +42,6 @@ keypoint_height = 0.06
 
 [[opponents]]
 behavior = "straight"
-start_pos = [
-    -0.9,
-    0.0,
-]
+start_pos = [-0.9, 0.0]
 heading_deg = 0.0
 speed = 1.2

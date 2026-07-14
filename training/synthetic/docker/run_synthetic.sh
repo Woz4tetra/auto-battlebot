@@ -64,8 +64,13 @@ if [ -t 0 ] && [ -t 1 ]; then
   docker_tty_args=(-it)
 fi
 
+# Run as the host user so files created in the mounted repo are not owned by root.
+# The entrypoint reads these and drops privileges.
+docker_id_args=(-e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)")
+
 run_cmd=(
   docker run "${docker_gpu_args[@]}" --rm "${docker_tty_args[@]}"
+  "${docker_id_args[@]}"
   -v "${repo_root}:/workspace"
   -v "${hf_cache_host}:/opt/hf"
   -w /workspace/training/synthetic
@@ -95,6 +100,7 @@ if [ $gpu_probe_exit -ne 0 ]; then
   [ -n "${gpu_probe_output:-}" ] && echo "$gpu_probe_output" >&2
   echo "Tip: install/configure NVIDIA Container Toolkit for GPU runs." >&2
   docker run --rm "${docker_tty_args[@]}" \
+    "${docker_id_args[@]}" \
     -v "${repo_root}:/workspace" \
     -v "${hf_cache_host}:/opt/hf" \
     -w /workspace/training/synthetic \

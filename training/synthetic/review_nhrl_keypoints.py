@@ -277,9 +277,7 @@ def main() -> None:
         raise SystemExit(f"No reviewable models matched {args.models} in {models_dir}")
 
     # Resume on the first model that has not been reviewed or rejected yet.
-    start_index = next(
-        (i for i, m in enumerate(models) if not m.reviewed and not m.rejected), 0
-    )
+    start_index = next((i for i, m in enumerate(models) if not m.reviewed and not m.rejected), 0)
 
     print(
         f"Reviewing {len(models)} models (starting at #{start_index + 1}). "

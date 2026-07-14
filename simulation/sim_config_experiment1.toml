@@ -40,7 +40,7 @@ intensity = 3.0
 model_path = "./assets/robots/mr_stabs_mk2/robot.urdf"
 scale = 1.0
 start_pos = [-0.5, 0.0, 0.025]
-start_rotation = 90.0               # facing +y, target is at +x => 90 deg offset
+start_rotation = 90.0                                  # facing +y, target is at +x => 90 deg offset
 max_linear_speed = 2.0
 max_angular_speed = 6.0
 model_euler = [0.0, 0.0, 0.0]
@@ -58,7 +58,7 @@ right_wheel_joints = ["right_wheel_joint"]
 model_path = "./assets/robots/mrs_buff_mk2.glb"
 scale = 1.0
 start_pos = [0.5, 0.0, 0.03]
-start_rotation = 180.0              # yaw in degrees at spawn
+start_rotation = 180.0                          # yaw in degrees at spawn
 behavior = "static"
-speed = 0.3                         # m/s for moving behaviors
+speed = 0.3                                     # m/s for moving behaviors
 model_euler = [0.0, 0.0, 0.0]
