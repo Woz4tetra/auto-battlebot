@@ -2,6 +2,11 @@ import argparse
 import os
 from datetime import datetime
 
+# Training is headless. Force a non-interactive matplotlib backend before ultralytics
+# imports matplotlib: an inherited (e.g. SSH-forwarded) DISPLAY otherwise makes it pick
+# TkAgg, which ultralytics fails to restore after plotting metrics and crashes the run.
+os.environ["MPLBACKEND"] = "Agg"
+
 from ultralytics import YOLO
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
