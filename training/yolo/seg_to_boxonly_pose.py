@@ -41,9 +41,11 @@ def find_paired_image(label_path: Path) -> Path | None:
     parts = label_path.parts
     if "labels" in parts:
         idx = len(parts) - 1 - parts[::-1].index("labels")  # nearest 'labels' segment
-        base = Path(*parts[:idx]) / "images" / Path(*parts[idx + 1 :]).with_suffix("")
+        stem = Path(*parts[idx + 1 :]).name
+        stem = stem[: -len(".txt")] if stem.endswith(".txt") else stem
+        base_dir = Path(*parts[:idx]) / "images" / Path(*parts[idx + 1 : -1])
         for ext in IMAGE_EXTENSIONS:
-            candidate = base.with_suffix(ext)
+            candidate = base_dir / (stem + ext)  # append ext; names contain dots, so no with_suffix
             if candidate.is_file():
                 return candidate
     for ext in IMAGE_EXTENSIONS:
