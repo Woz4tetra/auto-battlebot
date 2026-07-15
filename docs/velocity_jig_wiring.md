@@ -31,12 +31,12 @@ logging and IMU reads never contend for a bus.
 | Feather pin | GPIO | Wire to | Function |
 |---|---|---|---|
 | **IMU - ISM330DHCX (SPI1)** | | | |
-| SCK | 14 | IMU **SCK** | SPI clock |
-| MO | 15 | IMU **SDA** (SDI) | MOSI |
+| SCK | 14 | IMU **SCL** | SPI clock (SCL pad = SCK in SPI) |
+| MO | 15 | IMU **SDA** | MOSI (SDA pad = SDI in SPI) |
 | MI | 8 | IMU **DO** (bottom) | MISO |
 | D10 | 10 | IMU **CS** (bottom) | chip select, low = SPI |
-| D12 | 12 | IMU **INT1** | data-ready interrupt |
-| 3V | - | IMU **Vin** | power |
+| D12 | 12 | IMU **I1** | INT1 data-ready |
+| 3V | - | IMU **VIN** | power |
 | GND | - | IMU **GND** | ground |
 | **OLED FeatherWing (I2C1, stacked)** | | | |
 | SDA | 2 | OLED SDA | I2C data |
@@ -106,10 +106,15 @@ interrupts).
 
 1. **SPI mode drops STEMMA QT for the IMU.** Solder the six IMU wires to the
    breakout header; the Qwiic port is I2C only.
-2. **Stack the OLED with a Doubler/Tripler or stacking headers** so GPIO14/15/8,
+2. **IMU silk uses I2C names.** There is no `SCK` pad. On the primary (bottom)
+   row, in SPI mode `SCL`=SCK, `SDA`=MOSI/SDI, `DO`=MISO, `CS`=chip select,
+   `I1`/`I2`=INT1/INT2. Leave the entire AUX top row (`SCX SDX CS DO GND`)
+   unconnected; it is a secondary bus for chaining another sensor, not an
+   alternate way to reach the IMU.
+3. **Stack the OLED with a Doubler/Tripler or stacking headers** so GPIO14/15/8,
    D10, D12, and A0/A1 stay reachable. A bare stack buries them.
-3. **Encoder power:** on battery the Feather provides only 3.3V (3V pin) and
+4. **Encoder power:** on battery the Feather provides only 3.3V (3V pin) and
    ~3.7V (BAT). There is no 5V rail unless USB is connected. If the encoder needs
    5V, run it off USB or add a boost converter. Wire to 3V only if it accepts 3.3V.
-4. **No I2C address conflict:** the IMU is off I2C entirely; the OLED owns the bus
+5. **No I2C address conflict:** the IMU is off I2C entirely; the OLED owns the bus
    at `0x3C`.
