@@ -1,6 +1,4 @@
-# config_meshy_grade.toml  (Exp 1: grade Meshy fidelity)
-# config_old_recipe.toml + 4 named opponents (clyde/sphinx/wreckcreation/ironwarrior) from Meshy GLBs
-# (flat_ground=true, Z-up). CAD distractors OFF (objaverse clutter on). Output -> ../data/meshy_grade.
+# config_meshy_grade.toml (Exp 1)  scale matches opponents to mrs_buff (~0.25m)
 # config_old_recipe.toml
 #
 # Reproduces the OLD synthetic keypoint set's characteristics (the `synthetic_keypoints__`
@@ -261,7 +259,7 @@ material = "mrs_buff_mk3_bottom_sticker"
 name = "clyde"
 model_path = "../data/distractor_models/robots/nhrl_clyde.glb"
 class_id = 2
-scale = 1.0
+scale = 1.0                 # native GLB ~1.9m; 0.133 -> ~0.25m (matches mrs_buff). clyde native 0.287 already ok
 weight = 1.0
 flat_ground = true              # Meshy GLB is Z-up -> sit flat (skip the CAD +/-90 pitch)
 color_mapping = []              # empty -> render the GLB's baked Meshy texture (key required)
@@ -274,7 +272,7 @@ back = [-0.000128, 0.0, -0.110999]
 name = "sphinx"
 model_path = "../data/distractor_models/robots/nhrl_sphinx.glb"
 class_id = 3
-scale = 1.0
+scale = 0.133                 # native GLB ~1.9m; 0.133 -> ~0.25m (matches mrs_buff). clyde native 0.287 already ok
 weight = 1.0
 flat_ground = true              # Meshy GLB is Z-up -> sit flat (skip the CAD +/-90 pitch)
 color_mapping = []              # empty -> render the GLB's baked Meshy texture (key required)
@@ -287,7 +285,7 @@ back = [-0.951889, -0.423514, 0.001466]
 name = "wreckcreation"
 model_path = "../data/distractor_models/robots/nhrl_wreckcreation.glb"
 class_id = 4
-scale = 1.0
+scale = 0.133                 # native GLB ~1.9m; 0.133 -> ~0.25m (matches mrs_buff). clyde native 0.287 already ok
 weight = 1.0
 flat_ground = true              # Meshy GLB is Z-up -> sit flat (skip the CAD +/-90 pitch)
 color_mapping = []              # empty -> render the GLB's baked Meshy texture (key required)
@@ -300,7 +298,7 @@ back = [-0.933432, -0.428939, -0.012747]
 name = "ironwarrior"
 model_path = "../data/distractor_models/robots/nhrl_ironwarrior.glb"
 class_id = 5
-scale = 1.0
+scale = 0.133                 # native GLB ~1.9m; 0.133 -> ~0.25m (matches mrs_buff). clyde native 0.287 already ok
 weight = 1.0
 flat_ground = true              # Meshy GLB is Z-up -> sit flat (skip the CAD +/-90 pitch)
 color_mapping = []              # empty -> render the GLB's baked Meshy texture (key required)

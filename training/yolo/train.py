@@ -82,6 +82,13 @@ def main() -> None:
         type=int,
         help="Number of worker threads",
     )
+    parser.add_argument(
+        "--cache",
+        default="disk",
+        choices=["ram", "disk", "false"],
+        help="Image cache: 'ram' avoids per-epoch disk IO if the resized cache fits in RAM. "
+        "'disk' (default) reads full-res .npy each epoch, starving GPUs if it exceeds RAM.",
+    )
     args = parser.parse_args()
 
     dataset = args.dataset
@@ -90,6 +97,7 @@ def main() -> None:
     checkpoint_path = args.checkpoint
     devices = tuple(args.devices)
     workers = args.workers
+    cache = False if args.cache == "false" else args.cache
 
     if len(devices) == 0:
         devices_filtered = None
@@ -157,7 +165,7 @@ def main() -> None:
             project="../projects",
             device=devices_filtered,
             workers=workers,
-            cache="disk",
+            cache=cache,
             **hyper_params,
             **settings,
         )

@@ -127,7 +127,10 @@ def import_gltf_as_robot(
         mat = saved_world[obj.name]
         obj.parent = parent
         obj.matrix_parent_inverse = mathutils.Matrix.Identity(4)
-        obj.matrix_world = mat
+        # Set the mesh pose RELATIVE to the (possibly scaled) parent, not as an absolute
+        # world matrix. Assigning matrix_world here would re-pin the mesh to its unscaled
+        # world pose and silently cancel parent.scale, so `scale` had no effect.
+        obj.matrix_local = mat
 
     bpy.context.view_layer.update()
 
