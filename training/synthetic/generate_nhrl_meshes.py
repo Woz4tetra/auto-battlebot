@@ -255,6 +255,14 @@ def main() -> None:
         "--audit-csv", type=Path, default=Path(_DEFAULT_AUDIT_CSV), help="VRAM audit CSV path"
     )
     parser.add_argument("--skip-audit-update", action="store_true", help="Skip audit CSV update")
+    parser.add_argument(
+        "--only",
+        nargs="*",
+        default=None,
+        metavar="CLEAN_NAME",
+        help="Restrict generation to these clean_names (e.g. sphinx ironwarrior wreckcreation). "
+        "Guards against spending credits on the rest of the not-done worklist.",
+    )
     args = parser.parse_args()
 
     output_dir = nc.resolve_cli_path(args.output_dir)
@@ -267,6 +275,13 @@ def main() -> None:
         raise SystemExit(f"No state file at {state_path}. Run download_nhrl_bots.py first.")
 
     worklist = [cn for cn, e in state.items() if _usable(e)]
+    if args.only is not None:
+        only = set(args.only)
+        found = [cn for cn in worklist if cn in only]
+        missing = only - set(found)
+        if missing:
+            print(f"WARNING: --only names not usable/in-state, skipped: {sorted(missing)}")
+        worklist = found
     done = [cn for cn in worklist if state[cn].get("status") == nc.STATUS_DONE]
     print(f"State: {len(worklist)} usable bots, {len(done)} already done, target {args.limit}")
 

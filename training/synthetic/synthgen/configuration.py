@@ -101,6 +101,9 @@ class RobotConfig:
     weight: float = 1.0
     ground_roll_upright: float = 0.0
     ground_roll_inverted: float = 0.0
+    # True for Z-up GLBs (e.g. Meshy models): sit flat at identity pitch, like distractor CAD
+    # robots, instead of the +/-90 deg pitch the OnShape .gltf (Y-up) robots need.
+    flat_ground: bool = False
 
 
 @dataclass(frozen=True)
@@ -325,6 +328,7 @@ def _parse_robot(section: dict[str, Any], index: int) -> RobotConfig:
         ground_roll_inverted=_as_float(
             section.get("ground_roll_inverted", 0.0), f"{context}.ground_roll_inverted"
         ),
+        flat_ground=bool(section.get("flat_ground", False)),
     )
 
 

@@ -276,6 +276,11 @@ def pose_single_robot(
         ground_z = compute_ground_z(robot.meshes, robot.parent, robot_rot)
         air_range = rand_cfg.air_height_range
         robot_z = ground_z + random.uniform(air_range[0], air_range[1])
+    elif rcfg.flat_ground:
+        # Z-up GLB (e.g. Meshy): sits flat at identity pitch; X-rotate pi for the 50% inverted case.
+        flip = math.pi if random.random() < 0.5 else 0.0
+        robot_rot = (flip, 0.0, random.uniform(0, 2 * math.pi))
+        robot_z = compute_ground_z(robot.meshes, robot.parent, robot_rot)
     else:
         if random.random() < 0.5:
             pitch_deg = -90.0

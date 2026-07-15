@@ -1,9 +1,7 @@
 # Taxonomy for scoring the keypoint (YOLO-pose) model, which only detects our robots.
-# Excludes every other GT class so recall is measured against our-robot boxes only.
 
 archetypes: {}
 
 exclude:
-  - opponent
   - house_bot
   - object

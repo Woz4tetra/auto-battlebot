@@ -254,12 +254,25 @@ def main() -> None:
     if not engine_path.exists():
         raise FileNotFoundError(f"Engine not found: {engine_path}")
 
+    class_names = load_class_names(args.names)
+    if class_names is not None:
+        print(f"Labeling boxes with {len(class_names)} class names from --names")
+
+    # Determine the class count before building the model. An explicit --num-classes wins;
+    # otherwise fall back to the number of names from --names. A raw multi-class pose head
+    # ([1, 4 + nc + 3*nk, anchors]) cannot be split correctly without it: the layout
+    # inference would guess a single class, misread the extra class scores as keypoint
+    # coordinates, and drop nearly every detection.
+    resolved_num_classes = (
+        args.num_classes if args.num_classes > 0 else (len(class_names) if class_names else 0)
+    )
+
     print("Loading engine...")
     model = TrtYoloModel(
         str(engine_path),
         conf_threshold=args.conf,
         nms_iou_threshold=args.iou,
-        num_classes=args.num_classes,
+        num_classes=resolved_num_classes,
         # CLI 0 means "infer from the engine layout"; the library sentinel for that is -1
         # (0 there means "no keypoints", used for seg engines).
         num_keypoints=args.num_keypoints if args.num_keypoints > 0 else -1,
@@ -287,10 +300,6 @@ def main() -> None:
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
         print(f"Saving to {output_path}")
-
-    class_names = load_class_names(args.names)
-    if class_names is not None:
-        print(f"Labeling boxes with {len(class_names)} class names from --names")
 
     frame_count, elapsed = process_video(cap, writer, model, total_frames, args, class_names)
 

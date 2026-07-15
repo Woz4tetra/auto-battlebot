@@ -1,0 +1,994 @@
+# config_meshy_grade.toml  (Exp 1: grade Meshy fidelity)
+# config_old_recipe.toml + 4 named opponents (clyde/sphinx/wreckcreation/ironwarrior) from Meshy GLBs
+# (flat_ground=true, Z-up). CAD distractors OFF (objaverse clutter on). Output -> ../data/meshy_grade.
+# config_old_recipe.toml
+#
+# Reproduces the OLD synthetic keypoint set's characteristics (the `synthetic_keypoints__`
+# images in training/data/our_robot_keypoints that the deployed yolo26n-pose_our_robots
+# baseline trained on), expressed for the new synthgen pipeline. The old training/generator/
+# was post-processing only (no render params), so these values are adapted from the MEASURED
+# old dataset, not ported code. Measured old -> new deltas that this config corrects:
+#   robots/image  1.3 (max 2)   vs new 3.5 (max 7)   -> max_robots_per_scene 2
+#   keypoints     63% visible   vs new 58% occluded  -> min_robot_visibility 0.35 + fewer distractors
+#   bbox area     median 0.0086 vs new 0.0048        -> camera max_distance 4.0, arena_radius <= 2.0
+#   distractors   non-robot props (bottle, etc.)     vs new opponent robots -> objaverse on, cad off
+#   ground        always present                     vs new 10% none        -> ground_visibility 1.0
+# num_images 35000 matches the old synthetic count (override with --num-images).
+# The [[robots]] blocks, materials, keypoint coords, and ground_textures are unchanged from
+# config.toml so robot appearance and keypoints stay identical.
+
+[output]
+image_dir = "../data/meshy_grade/images"
+label_dir = "../data/meshy_grade/labels"
+# "keypoints_bbox" (default): YOLO pose labels with bbox + keypoints.
+# "segmentation_bbox": YOLO segmentation polygons (bbox implied by polygons).
+annotation_mode = "keypoints_bbox"
+# annotation_mode = "segmentation_bbox"
+num_images = 35000
+image_width = 1280
+image_height = 720
+# Number of camera viewpoints to render per scene arrangement.
+# Higher values = faster generation but less object placement diversity.
+images_per_scene = 10
+# Minimum visible fraction of robot pixels after occlusion.
+# Computed as: visible instance pixels (with distractors) divided by
+# unobstructed instance pixels from a distractor-free segmentation pass.
+# Ignored when ignore_obstructions = true.
+min_robot_visibility = 0.35
+# Annotate robots and keypoints straight through occluding objects. When true,
+# skip the distractor-clearing pass, the clean visibility-fraction render, and
+# the per-keypoint depth occlusion test; every in-frame keypoint is marked
+# visible (flag 2) and no frame is dropped for being occluded. Use this when the
+# obstruction checks are discarding too many otherwise-usable frames.
+ignore_obstructions = false
+# Force periodic Blender data cleanup during long renders to avoid memory growth.
+# Set to 0 to disable.
+memory_cleanup_interval = 1000
+
+# Each [[robots]] entry defines a robot model that can appear in scenes.
+# Per scene, 1..max_robots_per_scene robots are selected using weighted
+# sampling without replacement.  See [scene].max_robots_per_scene.
+[[robots]]
+name = "MR_STABS_MK2"
+model_path = "../data/models/MR STABS MK2.gltf"
+class_id = 0
+# Scale factor applied to the imported model (1.0 = no scaling).
+# Adjust if the OnShape export units don't match Blender's meters.
+scale = 1.0
+# Relative probability of this robot being chosen for a scene.
+weight = 0.5
+# Ground orientation roll (Y-rotation, degrees) used when grounded.
+# Pitch is fixed at +/-90 deg and yaw is always randomized.
+ground_roll_upright = 9.587585
+ground_roll_inverted = 9.587585
+
+# 3D keypoint positions in model-local space (meters).
+# Measure these from the CAD model origin in OnShape.
+[robots.keypoints]
+front = [0.1115, 0.0, -0.00313]
+back = [-0.0206, 0.0, -0.00394205]
+
+# Map OnShape part colors (RGB 0-255) to material types.
+# Run `blenderproc run prepare_robot_model.py config.toml --inspect`
+# to list all colors present in the GLTF for filling this out.
+[[robots.color_mapping]]
+color = [128, 128, 128]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [0, 0, 0]
+tolerance = 1
+material = "steel"
+
+[[robots.color_mapping]]
+color = [255, 32, 65]
+tolerance = 1
+material = "red_tpu"
+
+[[robots.color_mapping]]
+color = [165, 165, 165]
+tolerance = 1
+material = "foam"
+
+[[robots.color_mapping]]
+color = [102, 102, 102]
+tolerance = 1
+material = "foam"
+
+[[robots.color_mapping]]
+color = [232, 232, 232]
+tolerance = 1
+material = "paper"
+
+
+[[robots]]
+name = "MRS_BUFF_MK3"
+model_path = "../data/models/MRS BUFF MK3.glb"
+class_id = 1
+scale = 1.0
+weight = 2.0
+ground_roll_upright = 0.0
+ground_roll_inverted = -30.0
+
+[robots.keypoints]
+front = [0.0, 0.0, -0.05014]
+back = [-0.1528, 0.0, -0.05014]
+
+
+[[robots.color_mapping]]
+color = [41, 123, 203]
+tolerance = 1
+material = "blue_tpu"
+
+[[robots.color_mapping]]
+color = [59, 97, 180]
+tolerance = 1
+material = "blue_tpu"
+
+[[robots.color_mapping]]
+color = [1, 0, 203]
+tolerance = 1
+material = "blue_tpu"
+# material = "tin_foil" # front guard with tin foil
+
+[[robots.color_mapping]]
+color = [250, 182, 1]
+tolerance = 1
+material = "yellow_plastic"
+# material = "tin_foil" # weapon guard with tin foil
+
+[[robots.color_mapping]]
+color = [255, 193, 14]
+tolerance = 1
+material = "yellow_plastic"
+# material = "tin_foil" # weapon guard with tin foil
+
+[[robots.color_mapping]]
+color = [253, 62, 4]
+tolerance = 1
+material = "red_tpu"
+
+[[robots.color_mapping]]
+color = [239, 34, 27]
+tolerance = 1
+material = "red_tpu"
+# material = "tin_foil" # front guard with tin foil
+
+
+[[robots.color_mapping]]
+color = [40, 40, 40]
+tolerance = 1
+material = "steel"
+
+[[robots.color_mapping]]
+color = [165, 165, 165]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [230, 230, 230]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [232, 232, 232]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [179, 174, 159]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [179, 179, 179]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [128, 128, 128]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [157, 207, 237]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [230, 224, 207]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [102, 102, 102]
+tolerance = 1
+material = "steel"
+
+[[robots.color_mapping]]
+color = [240, 223, 173]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [244, 229, 167]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [251, 212, 169]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [178, 178, 178]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [247, 224, 153]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [191, 191, 191]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [211, 212, 213]
+tolerance = 1
+material = "aluminum"
+
+[[robots.color_mapping]]
+color = [77, 77, 77]
+tolerance = 1
+material = "steel"
+
+[[robots.color_mapping]]
+color = [87, 198, 189]
+tolerance = 1
+material = "mrs_buff_mk3_top_sticker"
+
+[[robots.color_mapping]]
+color = [195, 139, 205]
+tolerance = 1
+material = "mrs_buff_mk3_bottom_sticker"
+
+
+[[robots]]
+name = "clyde"
+model_path = "../data/distractor_models/robots/nhrl_clyde.glb"
+class_id = 2
+scale = 1.0
+weight = 1.0
+flat_ground = true              # Meshy GLB is Z-up -> sit flat (skip the CAD +/-90 pitch)
+color_mapping = []              # empty -> render the GLB's baked Meshy texture (key required)
+
+[robots.keypoints]              # copied verbatim (reviewed) from nhrl_clyde.json
+front = [-0.000128, 0.0, 0.110771]
+back = [-0.000128, 0.0, -0.110999]
+
+[[robots]]
+name = "sphinx"
+model_path = "../data/distractor_models/robots/nhrl_sphinx.glb"
+class_id = 3
+scale = 1.0
+weight = 1.0
+flat_ground = true              # Meshy GLB is Z-up -> sit flat (skip the CAD +/-90 pitch)
+color_mapping = []              # empty -> render the GLB's baked Meshy texture (key required)
+
+[robots.keypoints]              # copied verbatim (reviewed) from nhrl_sphinx.json
+front = [0.94902, -0.423514, -0.002351]
+back = [-0.951889, -0.423514, 0.001466]
+
+[[robots]]
+name = "wreckcreation"
+model_path = "../data/distractor_models/robots/nhrl_wreckcreation.glb"
+class_id = 4
+scale = 1.0
+weight = 1.0
+flat_ground = true              # Meshy GLB is Z-up -> sit flat (skip the CAD +/-90 pitch)
+color_mapping = []              # empty -> render the GLB's baked Meshy texture (key required)
+
+[robots.keypoints]              # copied verbatim (reviewed) from nhrl_wreckcreation.json
+front = [0.927875, -0.428939, 0.010423]
+back = [-0.933432, -0.428939, -0.012747]
+
+[[robots]]
+name = "ironwarrior"
+model_path = "../data/distractor_models/robots/nhrl_ironwarrior.glb"
+class_id = 5
+scale = 1.0
+weight = 1.0
+flat_ground = true              # Meshy GLB is Z-up -> sit flat (skip the CAD +/-90 pitch)
+color_mapping = []              # empty -> render the GLB's baked Meshy texture (key required)
+
+[robots.keypoints]              # copied verbatim (reviewed) from nhrl_ironwarrior.json
+front = [-0.009584, -0.434783, -0.781228]
+back = [0.00771, -0.434783, 0.783846]
+
+# To add another robot, duplicate the block above:
+# [[robots]]
+# name = "OPPONENT BOT"
+# model_path = "../data/models/opponent.gltf"
+# class_id = 0
+# scale = 1.0
+# weight = 1.0
+# ground_roll_upright = 0.0
+# ground_roll_inverted = 0.0
+#
+# [robots.keypoints]
+# front = [0.08, 0.0, 0.0]
+# back = [-0.05, 0.0, 0.0]
+#
+# [[robots.color_mapping]]
+# color = [200, 200, 200]
+# tolerance = 25
+# material = "aluminum"
+
+# PBR properties per material type (shared across all robots).
+# cc_texture names refer to ambientCG / CC0 Textures asset IDs (tiling).
+# texture_dir points to a directory of PBR images (Color, Roughness, etc.)
+# that are applied using the model's UV mapping instead of tiling.
+
+
+[materials.aluminum]
+metallic = 1.0
+roughness = 0.3
+cc_texture = "Metal012"
+
+[materials.steel]
+metallic = 1.0
+roughness = 0.4
+cc_texture = "Metal030"
+
+[materials.red_tpu]
+metallic = 0.1
+roughness = 0.1
+cc_texture = "Plastic007"
+
+[materials.blue_tpu]
+metallic = 0.1
+roughness = 0.1
+cc_texture = "Plastic007_blue"
+
+[materials.yellow_plastic]
+metallic = 0.1
+roughness = 0.1
+cc_texture = "Plastic007_yellow"
+
+[materials.foam]
+metallic = 0.0
+roughness = 0.85
+cc_texture = "Rubber001"
+
+[materials.paper]
+metallic = 0.0
+roughness = 0.9
+cc_texture = "Paper001"
+
+[materials.tin_foil]
+metallic = 1.0
+roughness = 0.1
+cc_texture = "Foil002" # gold foil
+# cc_texture = "Foil003"  # silver foil
+
+[materials.housebot]
+# UV-mapped PBR textures loaded from a directory (Color, Roughness, Metalness,
+# NormalGL, Displacement).  Unlike cc_texture, this preserves the model's UV
+# layout instead of tiling with generated coordinates.
+texture_dir = "../data/cc_textures/HouseBot"
+
+[materials.mrs_buff_mk3_top_sticker]
+texture_dir = "../data/cc_textures/mrs_buff_mk3_top_sticker"
+
+[materials.mrs_buff_mk3_bottom_sticker]
+texture_dir = "../data/cc_textures/mrs_buff_mk3_bottom_sticker"
+
+[distractors]
+# Each source has a path and a weight controlling how often its models are
+# picked when filling the pool.  Weights are relative (they don't need to
+# sum to 1).  A source with weight 3.0 is three times as likely to
+# contribute a model as one with weight 1.0.
+min_per_scene = 0
+# Also controls how many distractor models are loaded into memory at once.
+max_per_scene = 2
+# Optional approximate VRAM budget (MB) across the whole loaded distractor pool.
+# Set to 0 or remove to disable budget enforcement.
+vram_budget_mb = 3500
+# Precomputed per-model VRAM estimates used for pre-import budget checks.
+vram_audit_csv = "training/data/distractor_models/distractor_gpu_audit.csv"
+# Reference largest dimension (meters) that distractor robots are scaled to.
+# All distractor robots are treated as 3 lb (beetleweight) regardless of their
+# real weight class, so this is the 3 lb base size. Decoupled from the robots
+# actually in the scene (previously keyed off the largest robot present).
+base_dimension_m = 0.25
+# Scale range as multiples of base_dimension_m.
+# [0.5, 2.0] means distractors will be 0.5x to 2x the 3 lb base size.
+scale_range = [0.5, 2.0]
+# Re-roll the distractor pool every N images (0 to keep the same pool all run).
+shuffle_interval = 100
+
+# Pose randomization for CAD (kind = "cad") robot distractors. Grounded robots
+# sit flat on the field with a random yaw and a 50% chance of being inverted;
+# airborne ones tumble with a fully random orientation. Objaverse distractors
+# keep the global [randomization] air settings instead.
+robot_air_probability = 0.25
+robot_air_height_range = [0.02, 1.0]
+# Per-frame motion-blur probability for distractor categories (defaults to the
+# [randomization] motion_blur_probability when omitted).
+motion_blur_probability = 0.15
+
+[[distractors.sources]]
+path = "../data/distractor_models/objaverse"
+weight = 1.0
+kind = "objaverse"
+
+# Opponent robots as distractors -> auto-creates the nhrl_robot (class 2) label.
+# Commented out to reproduce the old 2-class (our-robots-only) recipe the baseline
+# trained on. For a 3-class set with opponents as a MINORITY (the all_robot_keypoints
+# goal, not the old behavior), uncomment with a low weight, e.g. 0.5:
+# [[distractors.sources]]
+# path = "../data/distractor_models/robots"
+# weight = 0.5
+# kind = "cad"
+
+[environment]
+hdri_dir = "../data/hdris"
+cc_textures_dir = "../data/cc_textures"
+# Extra ambientCG assets used for ground plane randomization.
+# `download_ambientcg.py --from-config` downloads these alongside the robot materials.
+ground_textures = [
+    "Road013C",
+    "ChristmasTreeOrnament003",
+    "Bamboo002A",
+    "Snow009C",
+    "Gravel038",
+    "Granite001A",
+    "Facade018C",
+    "Concrete035",
+    "Snow005",
+    "Chainmail003",
+    "Rocks004",
+    "Snow009A",
+    "Wood027",
+    "PavingStones092",
+    "Bricks099",
+    "Planks020",
+    "Metal057A",
+    "Bark012",
+    "Bark008",
+    "Carpet001",
+    "Facade010",
+    "Fingerprints001",
+    "PavingStones010",
+    "Planks030C",
+    "Bark001",
+    "PavingStones123",
+    "Fabric057",
+    "SheetMetal002",
+    "Rock015",
+    "Rope002",
+    "WoodFloor071",
+    "Metal055B",
+    "Facade014",
+    "Moss003",
+    "Planks017",
+    "Ground002",
+    "Tiles059",
+    "Wallpaper002B",
+    "Asphalt011",
+    "SurfaceImperfections014",
+    "Tiles052",
+    "CorrugatedSteel007C",
+    "RoofingTiles014B",
+    "Metal057B",
+    "Ivory002B",
+    "WoodFloor052",
+    "CorrugatedSteel003",
+    "Facade003",
+    "TactilePaving003",
+    "Ice001",
+    "WoodSiding004",
+    "Cardboard003",
+    "Marble023",
+    "Carpet008",
+    "Leather031",
+    "Tiles132D",
+    "Leaf003",
+    "Planks032",
+    "Gravel017",
+    "Tiles054",
+    "Bricks020",
+    "Sign025",
+    "Onyx006",
+    "PavingStones074",
+    "Concrete005",
+    "Wood085A",
+    "Marble020",
+    "Bricks082C",
+    "PavingStones106",
+    "Ground033",
+    "Tiles100",
+    "Road003",
+    "Plastic011",
+    "Wood013",
+    "Travertine008",
+    "Leather034A",
+    "Pipe001",
+    "Fabric043",
+    "Rust001",
+    "Bricks073B",
+    "Bricks025",
+    "Rock039",
+    "Fence003",
+    "Terrazzo010",
+    "Ground025",
+    "Bricks084",
+    "Tiles136D",
+    "WoodFloor065B",
+    "TreeEnd004",
+    "Carpet016",
+    "WoodFloor035",
+    "WoodFloor042",
+    "Net004B",
+    "Road011A",
+    "Tiles110",
+    "Leather035D",
+    "DiamondPlate004",
+    "Marble003",
+    "Leather023",
+    "Fabric079",
+    "Rock054",
+    "Gravel022",
+    "Rope003",
+    "Rocks018",
+    "Rock012",
+    "Bricks075B",
+    "Planks038",
+    "Road010C",
+    "DiamondPlate009",
+    "PavingStones069",
+    "Sign024",
+    "WoodSiding008",
+    "DiamondPlate005A",
+    "Onyx012",
+    "Marble022",
+    "Gravel028",
+    "Road014A",
+    "RoofingTiles002",
+    "PavingStones115B",
+    "Facade012",
+    "Rocks021",
+    "Ground091",
+    "Tiles128A",
+    "Tatami006",
+    "Terrazzo016",
+    "Bricks046",
+    "Fence006",
+    "Tiles085",
+    "WoodFloor067B",
+    "Tiles050",
+    "Ground075",
+    "Metal040",
+    "Gravel024",
+    "Bricks067",
+    "Fabric081B",
+    "PavingStones133",
+    "Wicker010A",
+    "Sign001",
+    "Ground073",
+    "Fabric082B",
+    "Rock027",
+    "Pathway002",
+    "Metal029",
+    "Wood011",
+    "Rock001",
+    "Onyx005",
+    "Concrete041B",
+    "Gravel018",
+    "WoodSiding006",
+    "Granite003A",
+    "Snow014",
+    "WoodFloor062",
+    "PavingStones079",
+    "Gravel014",
+    "SolarPanel003",
+    "Planks008",
+    "Metal061B",
+    "Planks006",
+    "Metal036",
+    "Leather034B",
+    "Wood072",
+    "Concrete033",
+    "PavingStones019",
+    "PaintedWood008C",
+    "Candy003",
+    "SurfaceImperfections007",
+    "Bricks028",
+    "Travertine007",
+    "Chipboard007",
+    "Cork002",
+    "Road001",
+    "CorrugatedSteel008A",
+    "Tiles024",
+    "Rocks012",
+    "WoodFloor068",
+    "Planks026A",
+    "Bricks062",
+    "Metal007",
+    "Marble026",
+    "Planks025C",
+    "PaintedBricks003",
+    "PavingStones059",
+    "Granite007B",
+    "PavingStones109",
+    "Travertine006",
+    "Asphalt020S",
+    "Wood018",
+    "Sign007",
+    "ChristmasTreeOrnament009",
+    "Rocks015",
+    "PavingStones075",
+    "Styrofoam002",
+    "Wood086",
+    "Terrazzo001",
+    "Road014C",
+    "WoodFloor043",
+    "WoodSiding012",
+    "Ground034",
+    "MetalPlates008",
+    "CorrugatedSteel006C",
+    "OfficeCeiling001",
+    "Asphalt004",
+    "Sign009",
+    "Sign004",
+    "Gravel015",
+    "PavingStones001",
+    "SurfaceImperfections020",
+    "Fabric015",
+    "PavingStones015",
+    "Chip007",
+    "Plastic018B",
+    "Ground044",
+    "Tiles125",
+    "Road013B",
+    "Wicker002",
+    "Wood083B",
+    "WoodFloor061",
+    "Wood022",
+    "Marble010",
+    "TactilePaving001",
+    "DiamondPlate001",
+    "PavingStones080",
+    "Terrazzo019S",
+    "PavingStones062",
+    "AcousticFoam002",
+    "Planks027C",
+    "Ground090",
+    "PaintedWood004",
+    "Asphalt027C",
+    "ChristmasTreeOrnament004",
+    "Leather034D",
+    "Tiles105",
+    "WoodFloor028",
+    "Ground059",
+    "Foil002",
+    "Bricks050",
+    "Footsteps002",
+    "Wood056",
+    "WoodFloor020",
+    "Bricks096",
+    "Smear003",
+    "PaintedPlaster017",
+    "Tiles073",
+    "Bricks073A",
+    "SurfaceImperfections017",
+    "PavingStones066",
+    "Tatami001",
+    "Concrete007",
+    "Concrete012",
+    "Rock036",
+    "PaintedMetal013",
+    "PavingStones101",
+    "DiamondPlate006A",
+    "Wood044",
+    "PavingStones056",
+    "Planks035B",
+    "Metal057C",
+    "Fabric081C",
+    "Travertine014",
+    "SurfaceImperfections006",
+    "WoodFloor026",
+    "RoofingTiles005",
+    "Fabric061",
+    "Scratches001",
+    "Ground067",
+    "Wood033",
+    "Rock057",
+    "WoodFloor059",
+    "Marble009",
+    "MetalPlates015A",
+    "PavingStones035",
+    "Net002B",
+    "Clay001",
+    "Granite004A",
+    "Facade019C",
+    "Bricks063",
+    "Ice004",
+    "Asphalt029A",
+    "Planks015",
+    "PavingStones110",
+    "Fence007B",
+    "Planks016",
+    "WoodFloor055",
+    "Asphalt012",
+    "Bricks075A",
+    "Rust008",
+    "Road008A",
+    "Bricks052",
+    "Fence005",
+    "Bricks070",
+    "Bark011",
+    "Ground095C",
+    "Tiles109",
+    "PavingStones028",
+    "Foam002",
+    "Ground003",
+    "Rock052",
+    "PaintedPlaster016",
+    "Facade001",
+    "Tiles132B",
+    "Concrete020",
+    "Sign012",
+    "PavingStones141",
+    "PaymentCard002",
+    "PaintedMetal008",
+    "Footsteps006",
+    "Tiles008",
+    "Tiles089",
+    "Tiles055",
+    "Metal046A",
+    "Fabric039",
+    "Carpet003",
+    "WoodFloor034",
+    "Rock034",
+    "Metal063",
+    "Leather021",
+    "Metal058A",
+    "Metal049B",
+    "PaintedBricks001",
+    "Wood081",
+    "Bricks042",
+    "Rock061",
+    "Rock023",
+    "Rock008",
+    "Carpet011",
+    "Bricks056",
+    "Metal041C",
+    "Sign022",
+    "Ivory001B",
+    "Tiles041",
+    "Chipboard006",
+    "Granite005A",
+    "Fabric042",
+    "Tiles083",
+    "WoodFloor024",
+    "Moss002",
+    "Concrete037",
+    "Wood017",
+    "Fabric025",
+    "Tiles098",
+    "Onyx013",
+    "Granite006A",
+    "Bricks080B",
+    "MetalWalkway005",
+    "PavingStones103",
+    "Carpet010",
+    "Bricks035",
+    "Rock020",
+    "PavingStones083",
+    "Asphalt024C",
+    "WoodFloor066B",
+    "SurfaceImperfections003",
+    "Fingerprints009",
+    "DiamondPlate006C",
+    "Metal045B",
+    "Tiles096",
+    "PaintedPlaster007",
+    "Fabric083",
+    "Wood060",
+    "Tiles106",
+    "DiamondPlate005D",
+    "Marble021",
+    "Asphalt002",
+    "Metal018",
+    "Gravel019",
+    "Tiles007",
+    "Tiles009",
+    "OfficeCeiling003",
+    "Ground017",
+    "WoodFloor032",
+    "RoofingTiles013C",
+    "Smear001",
+    "Tiles006",
+    "PavingStones114",
+    "Rock040",
+    "Sign002",
+    "PaintedPlaster018",
+    "CorrugatedSteel002",
+    "Fabric038",
+    "Ground040",
+    "Facade008",
+    "Bricks051",
+    "Pizza001",
+    "Snow003",
+    "PavingStones086",
+    "Tiles068",
+    "Sponge001",
+    "Ground071",
+    "Bricks049",
+    "Bricks034",
+    "Planks007",
+    "PaintedMetal016",
+    "PavingStones005",
+    "PavingStones063",
+    "CorrugatedSteel006B",
+    "Bricks048",
+    "PavingStones016",
+    "Bricks085",
+    "Fabric030",
+    "Bricks072",
+    "Planks025A",
+    "Bricks071",
+    "Rocks001",
+    "Fingerprints006",
+    "Metal042B",
+    "ChristmasTreeOrnament020",
+    "PavingStones138",
+    "Granite002B",
+    "Pipe004",
+    "Planks024C",
+    "Bricks013",
+    "Plastic012B",
+    "Bricks088",
+    "Metal055A",
+    "Rock031",
+    "Wood034",
+    "PavingStones129",
+    "PavingStones046",
+    "Ground076",
+    "Gravel010",
+    "Fabric068",
+    "Rock053",
+    "WoodFloor060",
+    "Ground072",
+    "Foam003",
+    "Tiles029",
+    "Wood049",
+    "Concrete018",
+    "Tiles127",
+    "Rock006",
+    "Ground047",
+    "Onyx002",
+    "Wood068",
+    "Styrofoam004",
+    "Bricks076B",
+    "Asphalt017",
+    "Onyx004",
+    "Plastic014B",
+    "PavingStones126A",
+    "Carpet014",
+    "Bricks077",
+    "PavingStones077",
+    "Fabric082C",
+    "PavingStones012",
+    "TactilePaving006",
+    "Concrete021",
+    "Leather010",
+    "Terrazzo019L",
+    "GlazedTerracotta003",
+    "Marble001",
+    "Ground016",
+    "Wicker009A",
+    "Tiles124",
+    "PavingStones088",
+    "Rubber003",
+    "Ground050",
+    "Plaster004",
+    "Rock024",
+    "Wood010",
+    "Asphalt014",
+    "Rock049",
+    "PavingStones111",
+    "Ground046",
+    "Rock042S",
+    "Chip002",
+    "Concrete025",
+    "WoodFloor029",
+    "ChristmasTreeOrnament011",
+    "Chipboard002",
+    "Snow010B",
+    "Wood008",
+    "WoodFloor041",
+    "Gravel033",
+    "Ground010",
+    "Planks033B",
+    "Fabric081A",
+    "Shells001",
+    "Leaf001",
+    "Fabric066",
+    "Rocks025",
+    "Road010A",
+    "Gravel016",
+    "PavingStones011",
+    "WoodFloor013",
+    "Wood009",
+    "Bricks036",
+    "WoodFloor036",
+    "Road010B",
+    "Tiles077",
+    "Gravel041",
+    "Bricks022",
+    "Asphalt005",
+    "Ground100",
+    "Concrete017",
+    "Road012A",
+    "Gravel012",
+    "TreeEnd001",
+    "MetalWalkway002",
+    "PavingStones105",
+    "Rust004",
+]
+
+[camera]
+min_distance = 0.3
+max_distance = 4.0
+height_range = [0.1, 4.0]
+# Gaussian noise added to the camera look-at target (meters)
+look_at_noise = 0.4
+# Largest fraction of the narrower image dimension the robots' bounding sphere
+# may fill. The camera is pushed back past min_distance whenever needed so a
+# robot can never completely dominate the frame (which yields confusing,
+# near-full-frame annotations). Range 0-1; lower = robots kept smaller.
+max_frame_fraction = 0.85
+
+[scene]
+# Randomized range for the ground plane half-extent (meters).
+ground_size_range = [0.5, 10.0]
+# Randomized range for the radius within which objects are placed (meters).
+arena_radius_range = [0.5, 2.0]
+# Fraction of scenes that include a visible ground plane (0.0–1.0).
+# The remainder show only the HDRI background behind the robots.
+ground_visibility = 1.0
+# Maximum number of robots rendered simultaneously per scene (1 = always one).
+# Each scene randomly picks between 1 and this value, weighted by each robot's
+# `weight` field.  Clamped to the number of [[robots]] entries.
+max_robots_per_scene = 2
+
+[randomization]
+roughness_jitter = 0.5
+hue_jitter_degrees = 10
+light_count_range = [1, 3]
+light_intensity_range = [10, 2000]
+light_color_temp_range = [3500, 6500]
+
+# Probability the robot is airborne with a fully random tumbling orientation.
+# The remainder of images place the robot on the ground in a ground_pitch pose.
+air_probability = 0.25
+# Height range (meters) above ground when airborne
+air_height_range = [0.02, 1.0]
+
+# Ground orientation: pitch (X-rotation) is fixed at +90° for right-side-up
+# and -90° for upside-down.  Roll (Y-rotation, degrees) is configurable per
+# orientation to compensate for the model not sitting perfectly flat after
+# the GLTF axis conversion, configured per `[[robots]]` entry.
+# Yaw (Z-rotation) is always fully random.
+
+# Directional motion blur applied to robot and distractor objects.
+# Probability that a frame receives motion blur (0.0–1.0).
+motion_blur_probability = 0.15
+# Blur kernel size range in pixels (randomly chosen per frame).
+motion_blur_strength_range = [5, 15]
