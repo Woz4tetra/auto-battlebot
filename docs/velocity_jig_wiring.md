@@ -51,21 +51,18 @@ logging and IMU reads never contend for a bus.
 | A1 | 27 | Encoder **B** | quad B, or single-ch + PWM count |
 | 3V | - | Encoder **Vcc** | see power note |
 | GND | - | Encoder **GND** | ground |
-| **Battery level sense (optional)** | | | |
-| A3 | 29 | divider mid-point | reads BAT/2 (ADC3) |
-| - | - | BAT -> 100k -> A3 -> 100k -> GND | 100k:100k divider |
 
 ## Power
 
 Chain: LiPo -> PID 3064 switch cable -> Feather JST. The switch cuts battery
-power only. USB overrides and charges the cell when plugged in.
+power only. USB overrides and charges the cell when plugged in. Charge status
+comes from the onboard charge LED (passthrough to the enclosure); the firmware
+does not track battery or charge state.
 
 ## Spare GPIOs
 
-`D11 (11)` - `D13 (13, LED)` - `TX/RX (0/1)` - `A2 (28)` - `D24/D25 (24/25 if present)`.
-
-A3 (29) is used for battery level sense (see the table above); charging status is
-read from the RP2040 USB controller (VBUS), no wiring needed.
+`D11 (11)` - `D13 (13, LED)` - `TX/RX (0/1)` - `A2 (28)` - `A3 (29)` -
+`D24/D25 (24/25 if present)`.
 
 ## Off-limits
 
