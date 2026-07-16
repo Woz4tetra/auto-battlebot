@@ -25,8 +25,7 @@ CMakeCache.txt
 CMakeFiles/
 Makefile
 cmake_install.cmake
-*.cmake
-!CMakeLists.txt
+CTestTestfile.cmake
 *.a
 *.o
 *.so
