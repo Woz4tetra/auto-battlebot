@@ -29,12 +29,26 @@
 
 #include "config.h"
 
+// --- Debug bring-up instrumentation (set -DVJIG_DEBUG=1 in platformio.ini) ---
+#ifndef VJIG_DEBUG
+#define VJIG_DEBUG 0
+#endif
+#if VJIG_DEBUG
+#define DBG(x) Serial.print(x)
+#define DBGLN(x) Serial.println(x)
+#define DBGFLUSH() Serial.flush()
+#else
+#define DBG(x) ((void)0)
+#define DBGLN(x) ((void)0)
+#define DBGFLUSH() ((void)0)
+#endif
+
 // ---------------------------------------------------------------------------
 // Globals
 // ---------------------------------------------------------------------------
 
 static Adafruit_ISM330DHCX g_imu;
-static Adafruit_SH1107 g_display(64, 128, &Wire1);
+static Adafruit_SH1107 g_display(64, 128, &Wire);
 static SdFs g_sd;
 static FsFile g_file;
 
@@ -94,6 +108,18 @@ static void imuWriteReg(uint8_t reg, uint8_t val) {
     digitalWrite(PIN_IMU_CS, HIGH);
     SPI1.endTransaction();
 }
+
+#if VJIG_DEBUG
+static uint8_t imuReadReg(uint8_t reg) {
+    SPI1.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
+    digitalWrite(PIN_IMU_CS, LOW);
+    SPI1.transfer(0x80 | reg);  // read: MSB set
+    uint8_t v = SPI1.transfer(0x00);
+    digitalWrite(PIN_IMU_CS, HIGH);
+    SPI1.endTransaction();
+    return v;
+}
+#endif
 
 // Burst-read gyro (0x22..0x27) then accel (0x28..0x2D), little-endian int16.
 static inline void imuReadRaw(int16_t* g, int16_t* a) {
@@ -260,11 +286,17 @@ static void fatal(const char* msg) {
     Serial.print("FATAL: ");
     Serial.println(msg);
     pinMode(PIN_STATUS_LED, OUTPUT);
+    uint32_t last = 0;
     for (;;) {
         digitalWrite(PIN_STATUS_LED, HIGH);
         delay(120);
         digitalWrite(PIN_STATUS_LED, LOW);
         delay(120);
+        if (millis() - last >= 1000) {  // re-emit so a late-attached monitor sees it
+            last = millis();
+            Serial.print("FATAL: ");
+            Serial.println(msg);
+        }
     }
 }
 
@@ -374,6 +406,46 @@ static bool justPressed(Btn& b) {
 }
 
 // ---------------------------------------------------------------------------
+// Debug helpers (compiled out when VJIG_DEBUG == 0)
+// ---------------------------------------------------------------------------
+
+// Pump the USB stack and wait (bounded) for the serial monitor to attach. This
+// is the key fix: delay() services USB, so the CDC port enumerates here even if
+// a later init call hangs. Blinks the LED while waiting.
+static void dbgWaitForHost(uint32_t timeout_ms) {
+#if VJIG_DEBUG
+    uint32_t t0 = millis();
+    while (!Serial && (millis() - t0) < timeout_ms) {
+        digitalWrite(PIN_STATUS_LED, (millis() / 100) & 1);
+        delay(10);
+    }
+    digitalWrite(PIN_STATUS_LED, LOW);
+#else
+    (void)timeout_ms;
+#endif
+}
+
+// Scan an I2C bus and print every responding address.
+static void dbgI2CScan(TwoWire& w) {
+#if VJIG_DEBUG
+    Serial.print("[dbg] I2C scan:");
+    Serial.flush();
+    uint8_t found = 0;
+    for (uint8_t a = 1; a < 127; a++) {
+        w.beginTransmission(a);
+        if (w.endTransmission() == 0) {
+            Serial.print(" 0x");
+            Serial.print(a, HEX);
+            found++;
+        }
+    }
+    Serial.println(found ? "" : " (none found)");
+#else
+    (void)w;
+#endif
+}
+
+// ---------------------------------------------------------------------------
 // Setup / loop
 // ---------------------------------------------------------------------------
 
@@ -381,9 +453,22 @@ static void imuInit() {
     SPI1.setSCK(PIN_IMU_SCK);
     SPI1.setTX(PIN_IMU_MOSI);
     SPI1.setRX(PIN_IMU_MISO);
+    SPI1.begin();
+    pinMode(PIN_IMU_CS, OUTPUT);
+    digitalWrite(PIN_IMU_CS, HIGH);
+#if VJIG_DEBUG
+    uint8_t who = imuReadReg(0x0F);  // WHO_AM_I, expect 0x6B
+    Serial.print("[dbg] IMU WHO_AM_I=0x");
+    Serial.print(who, HEX);
+    Serial.println(who == 0x6B ? " (ISM330DHCX ok)" : " (want 0x6B; check SPI1 wiring/CS)");
+    Serial.flush();
+#endif
+    DBG("[dbg] imu.begin_SPI... ");
+    DBGFLUSH();
     if (!g_imu.begin_SPI(PIN_IMU_CS, &SPI1)) {
-        fatal("IMU not found");
+        fatal("IMU begin_SPI failed");
     }
+    DBGLN("OK");
     g_imu.setAccelRange(IMU_ACCEL_RANGE);
     g_imu.setGyroRange(IMU_GYRO_RANGE);
     g_imu.setAccelDataRate(IMU_ODR);
@@ -397,10 +482,13 @@ static void sdInit() {
     SPI.setSCK(PIN_SD_SCK);
     SPI.setTX(PIN_SD_MOSI);
     SPI.setRX(PIN_SD_MISO);
+    DBG("[dbg] sd.begin (SPI0 GP18/19/20 CS23)... ");
+    DBGFLUSH();
     // Dedicated SPI: the card owns SPI0, so SdFat keeps CS optimizations.
     if (!g_sd.begin(SdSpiConfig(PIN_SD_CS, DEDICATED_SPI, SD_SCK_MHZ(SD_SCK_MHZ_VAL), &SPI))) {
         fatal("SD init failed");
     }
+    DBGLN("OK");
 }
 
 static void encoderInit() {
@@ -415,27 +503,82 @@ static void encoderInit() {
 
 void setup() {
     Serial.begin(115200);
+    pinMode(PIN_STATUS_LED, OUTPUT);
+    digitalWrite(PIN_STATUS_LED, LOW);
+
+    // Pump USB and wait (bounded) for the monitor before touching hardware, so
+    // the serial port always enumerates even if a later init call hangs.
+    dbgWaitForHost(8000);
+    DBGLN("");
+    DBGLN("=== velocity jig bring-up ===");
 
     pinMode(PIN_BTN_A, INPUT_PULLUP);
     pinMode(PIN_BTN_B, INPUT_PULLUP);
     pinMode(PIN_BTN_C, INPUT_PULLUP);
-    pinMode(PIN_STATUS_LED, OUTPUT);
-    digitalWrite(PIN_STATUS_LED, LOW);
 
-    // OLED on I2C1 (GP2/GP3).
-    Wire1.setSDA(PIN_I2C_SDA);
-    Wire1.setSCL(PIN_I2C_SCL);
-    Wire1.begin();
-    if (!g_display.begin(OLED_ADDR, true)) {
-        // No display: fall back to blinking, since fatal() needs the display.
-        pinMode(PIN_STATUS_LED, OUTPUT);
-        for (;;) {
-            digitalWrite(PIN_STATUS_LED, HIGH);
-            delay(500);
-            digitalWrite(PIN_STATUS_LED, LOW);
-            delay(500);
+    // OLED on I2C1 (GP2/GP3). First a non-blocking bus-idle check: with internal
+    // pull-ups both lines should read high when idle. A line stuck low means it
+    // is held down (short, bad connection, or a device holding the bus), which is
+    // exactly what hangs the first I2C transaction. Report instead of hanging.
+    pinMode(PIN_I2C_SDA, INPUT_PULLUP);
+    pinMode(PIN_I2C_SCL, INPUT_PULLUP);
+    delay(5);
+    int idleSda = digitalRead(PIN_I2C_SDA);
+    int idleScl = digitalRead(PIN_I2C_SCL);
+    DBG("[dbg] I2C idle SDA=");
+    DBG(idleSda);
+    DBG(" SCL=");
+    DBGLN(idleScl);
+    if (!idleSda || !idleScl) {
+        for (uint32_t last = 0;;) {
+            digitalWrite(PIN_STATUS_LED, (millis() / 300) & 1);
+            if (millis() - last >= 1000) {
+                last = millis();
+                Serial.print("FATAL: I2C1 line stuck low (SDA=");
+                Serial.print(idleSda);
+                Serial.print(" SCL=");
+                Serial.print(idleScl);
+                Serial.println("). Check GP2/GP3 wiring, OLED seating, pull-ups.");
+            }
+            delay(10);
         }
     }
+
+    DBGLN("[dbg] configuring Wire (GP2 SDA / GP3 SCL)");
+    DBGFLUSH();
+    Wire.setSDA(PIN_I2C_SDA);
+    DBGLN("[dbg]   setSDA ok");
+    DBGFLUSH();
+    Wire.setSCL(PIN_I2C_SCL);
+    DBGLN("[dbg]   setSCL ok");
+    DBGFLUSH();
+    Wire.setClock(100000);
+    DBGLN("[dbg]   setClock ok");
+    DBGFLUSH();
+    Wire.begin();
+    DBGLN("[dbg]   begin ok");
+    DBGFLUSH();
+    Wire.setTimeout(50, true);  // bound I2C so a bad bus reports instead of hanging
+    DBGLN("[dbg]   setTimeout ok");
+    DBGFLUSH();
+    dbgI2CScan(Wire);
+
+    DBG("[dbg] display.begin(0x3C)... ");
+    DBGFLUSH();
+    if (!g_display.begin(OLED_ADDR, true)) {
+        DBGLN("FAIL");
+        // The display is what fatal() draws on, so report over serial + LED only.
+        uint32_t last = 0;
+        for (;;) {
+            digitalWrite(PIN_STATUS_LED, (millis() / 300) & 1);
+            if (millis() - last >= 1000) {
+                last = millis();
+                Serial.println("FATAL: OLED not found on I2C1 @0x3C (check GP2/GP3 wiring)");
+            }
+            delay(10);
+        }
+    }
+    DBGLN("OK");
     g_display.setRotation(1);
     g_display.clearDisplay();
     g_display.display();
@@ -444,6 +587,7 @@ void setup() {
     sdInit();
     encoderInit();  // encoder tracks continuously, independent of recording
 
+    DBGLN("[dbg] ready -> menu");
     drawMenu(false);
 }
 
