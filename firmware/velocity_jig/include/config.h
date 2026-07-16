@@ -35,13 +35,6 @@ static constexpr uint8_t PIN_ENC_B = 27;
 // already defines that as a macro.
 static constexpr uint8_t PIN_STATUS_LED = 13;
 
-// Battery level sense. The Adalogger has no onboard battery divider, so wire the
-// BAT pin through a 100k:100k divider to A3:  BAT -> 100k -> A3(GP29) -> 100k -> GND.
-// (Charging/USB status is read from the RP2040 USB controller, no wiring needed.)
-static constexpr uint8_t PIN_VBAT_SENSE = 29;  // A3 / GP29 (ADC3)
-static constexpr float VBAT_DIVIDER = 2.0f;    // (R1+R2)/R2 for equal resistors
-static constexpr float ADC_VREF = 3.3f;
-
 // ---- Rates and ranges ----
 
 // Logging sample rate. A hardware timer polls the IMU + encoder at this rate

@@ -27,7 +27,6 @@
 #include <Adafruit_SH110X.h>
 #include "pico/time.h"
 #include "pico/bootrom.h"
-#include "hardware/structs/usb.h"  // VBUS-detect for charging status
 
 #include "config.h"
 #include "splash_anim.h"
@@ -247,57 +246,6 @@ static void drainAll() {
 // OLED
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Battery / charge status
-// ---------------------------------------------------------------------------
-
-static float readBatteryVolts() {
-    return analogRead(PIN_VBAT_SENSE) * (ADC_VREF / 4095.0f) * VBAT_DIVIDER;
-}
-
-// LiPo voltage -> approximate state of charge (rest voltage; rough but fine here).
-static int batteryPercent(float v) {
-    static const float vv[] = {3.30f, 3.60f, 3.70f, 3.75f, 3.80f, 3.85f,
-                               3.90f, 3.95f, 4.00f, 4.10f, 4.20f};
-    static const int pp[] = {0, 10, 20, 30, 45, 55, 65, 75, 80, 90, 100};
-    const int n = 11;
-    if (v <= vv[0]) return 0;
-    if (v >= vv[n - 1]) return 100;
-    for (int i = 1; i < n; i++) {
-        if (v < vv[i]) {
-            float t = (v - vv[i - 1]) / (vv[i] - vv[i - 1]);
-            return (int)(pp[i - 1] + t * (pp[i] - pp[i - 1]) + 0.5f);
-        }
-    }
-    return 100;
-}
-
-// USB power present (the board charges whenever USB is connected).
-static bool usbConnected() {
-    return (usb_hw->sie_status & USB_SIE_STATUS_VBUS_DETECTED_BITS) != 0;
-}
-
-// A small battery glyph for the (white) menu title bar; drawn in black. Shows a
-// charging bolt on USB, otherwise a fill bar proportional to charge.
-static void drawBatteryIndicator() {
-    const int x = 104, y = 2, w = 20, h = 9;
-    const uint16_t fg = SH110X_BLACK;
-    g_display.drawRect(x, y, w, h, fg);
-    g_display.fillRect(x + w, y + 3, 2, 3, fg);  // terminal nub
-    if (usbConnected()) {
-        g_display.fillTriangle(x + 11, y + 1, x + 6, y + 5, x + 10, y + 5, fg);
-        g_display.fillTriangle(x + 10, y + 4, x + 14, y + 4, x + 9, y + 8, fg);
-    } else {
-        int fw = ((w - 4) * batteryPercent(readBatteryVolts())) / 100;
-        if (fw > 0) g_display.fillRect(x + 2, y + 2, fw, h - 4, fg);
-    }
-}
-
-// Current battery bucket, for deciding when the idle menu needs a redraw.
-static int batteryBucket() {
-    return usbConnected() ? -1 : batteryPercent(readBatteryVolts()) / 10;
-}
-
 // Animated BW Bots splash, then a short hold on the finished logo.
 static void drawSplash() {
     for (uint8_t i = 0; i < SPLASH_FRAMES; i++) {
@@ -314,12 +262,11 @@ static void drawMenu(bool withSummary) {
     g_display.clearDisplay();
     g_display.setTextSize(1);
 
-    // Title bar (inverted) with a battery glyph on the right.
+    // Title bar (inverted).
     g_display.fillRect(0, 0, 128, 13, SH110X_WHITE);
     g_display.setTextColor(SH110X_BLACK);
     g_display.setCursor(4, 3);
     g_display.print("VELOCITY JIG");
-    drawBatteryIndicator();
     g_display.setTextColor(SH110X_WHITE);
 
     // Start option: record-dot icon.
@@ -727,7 +674,6 @@ void setup() {
     // 921600 is nominal only: this is native USB CDC, so the baud is ignored and
     // transfers run at USB Full Speed regardless. Kept in sync with the host.
     Serial.begin(921600);
-    analogReadResolution(12);  // 0..4095 for the battery divider
     pinMode(PIN_STATUS_LED, OUTPUT);
     digitalWrite(PIN_STATUS_LED, LOW);
 
@@ -828,18 +774,6 @@ void loop() {
             startRecording();
         } else if (serialReadLine()) {
             handleCommand();
-        } else {
-            // Refresh the idle menu only when the battery glyph would change.
-            static uint32_t t = 0;
-            static int lastBucket = -2;
-            if (millis() - t > 2000) {
-                t = millis();
-                int b = batteryBucket();
-                if (b != lastBucket) {
-                    lastBucket = b;
-                    drawMenu(g_menuSummary);
-                }
-            }
         }
     }
 }
