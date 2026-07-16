@@ -2,7 +2,7 @@
 """Regenerate the BW-bots splash animation at high resolution from the logo SVG.
 
 The original 160x128 bwbots_splash.gif was authored at low resolution. This script
-rebuilds the same animation from the vector logo (scripts/assets/bwbots_logo.svg) at
+rebuilds the same animation from the vector logo (logo/bwbots_logo.svg) at
 the robot UI's screen size (1024x600 by default, full-screen on the Jetson LCD):
 
   frame 0      black
@@ -38,8 +38,8 @@ the output. On canvases wider than 5:4 the slide-in frames legitimately differ
 Requires: inkscape on PATH. Run inside the project venv (numpy, Pillow).
 
 Usage:
-    scripts/gen_splash_animation.py                    # 1024x600 (robot LCD)
-    scripts/gen_splash_animation.py --size 480x384 --fps-mult 1 --no-verify
+    logo/gen_splash_animation.py                    # 1024x600 (robot LCD)
+    logo/gen_splash_animation.py --size 480x384 --fps-mult 1 --no-verify
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-ASSETS_DIR = SCRIPT_DIR / "assets"
+ASSETS_DIR = SCRIPT_DIR  # assets live next to this script in logo/
 
 # Reference GIF geometry (the motion table is normalized against these).
 REF_SIZE = (160, 128)
@@ -201,8 +201,9 @@ def render_frame(
     radius_ss: int,
     sprites: HalfDiscSprites,
     pill_ss: Image.Image,
+    background: tuple[int, int, int, int] = (0, 0, 0, 255),
 ) -> Image.Image:
-    frame = Image.new("RGBA", canvas_ss, (0, 0, 0, 255))
+    frame = Image.new("RGBA", canvas_ss, background)
     cx, cy = canvas_ss[0] // 2, canvas_ss[1] // 2
     half = sprites.size // 2
 

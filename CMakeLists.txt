@@ -193,9 +193,9 @@ function(embed_brand_asset symbol input)
 endfunction()
 
 embed_brand_asset(bwbots_splash_gif
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/assets/bwbots_splash_1024x600.gif)
+    ${CMAKE_CURRENT_SOURCE_DIR}/logo/bwbots_splash_1024x600.gif)
 embed_brand_asset(bwbots_logo_png
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/assets/bwbots_logo_h24.png)
+    ${CMAKE_CURRENT_SOURCE_DIR}/logo/bwbots_logo_dark_h24.png)
 
 target_include_directories(auto_battlebot_ui PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

@@ -5,9 +5,9 @@
 #include <cstddef>
 #include <cstdint>
 
-// Embedded at build time by cmake/bin2c.cmake from scripts/assets/ (see the
+// Embedded at build time by cmake/bin2c.cmake from logo/ (see the
 // embed_brand_asset() calls in CMakeLists.txt). Regenerate the source assets with
-// scripts/gen_splash_animation.py and scripts/gen_logo_icon.py.
+// logo/gen_splash_animation.py and logo/gen_logo_icon.py.
 extern const uint8_t bwbots_splash_gif[];
 extern const size_t bwbots_splash_gif_size;
 extern const uint8_t bwbots_logo_png[];
@@ -16,12 +16,15 @@ extern const size_t bwbots_logo_png_size;
 namespace auto_battlebot::ui_internal {
 namespace {
 
-// Splash timeline. The GIF runs 53 frames at 25 ms plus a 500 ms hold on the
-// assembled logo (~1.83 s total) and would then loop; it is paused during the
-// hold window so the final logo stays up through the fade.
-constexpr uint32_t kGifPauseMs = 1550;
-constexpr uint32_t kFadeStartMs = 1850;
+// Splash timeline. The GIF plays once (53 frames at 25 ms plus a 500 ms hold on
+// the assembled logo baked into the last frame's delay); LVGL fires
+// LV_EVENT_READY when the animation completes, which starts the fade to the UI.
+// The failsafe deletes the overlay if the gif never completes (e.g. decode
+// error), so a splash problem can never block the app.
 constexpr uint32_t kFadeMs = 350;
+constexpr uint32_t kFailsafeMs = 8000;
+
+lv_timer_t *g_failsafe_timer = nullptr;
 
 const lv_image_dsc_t *raw_image_dsc(lv_image_dsc_t &dsc, const uint8_t *data, size_t size) {
     dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
@@ -31,20 +34,32 @@ const lv_image_dsc_t *raw_image_dsc(lv_image_dsc_t &dsc, const uint8_t *data, si
     return &dsc;
 }
 
-void pause_gif_cb(lv_timer_t *timer) {
-    lv_gif_pause(static_cast<lv_obj_t *>(lv_timer_get_user_data(timer)));
-}
-
-void fade_out_cb(lv_timer_t *timer) {
-    lv_obj_fade_out(static_cast<lv_obj_t *>(lv_timer_get_user_data(timer)), kFadeMs, 0);
-}
-
 void delete_overlay_cb(lv_timer_t *timer) {
     lv_obj_delete(static_cast<lv_obj_t *>(lv_timer_get_user_data(timer)));
 }
 
-void one_shot_timer(lv_timer_cb_t callback, uint32_t period_ms, void *user_data) {
-    lv_timer_set_repeat_count(lv_timer_create(callback, period_ms, user_data), 1);
+// LV_EVENT_READY from the gif: the animation (including the final hold) finished
+// and the last frame stays displayed. Fade the overlay out and delete it.
+void splash_done_cb(lv_event_t *e) {
+    lv_obj_t *gif = static_cast<lv_obj_t *>(lv_event_get_target(e));
+    lv_obj_t *overlay = static_cast<lv_obj_t *>(lv_event_get_user_data(e));
+    // Style opa does not propagate to children, so fade the gif alongside the overlay.
+    lv_obj_fade_out(overlay, kFadeMs, 0);
+    lv_obj_fade_out(gif, kFadeMs, 0);
+    lv_timer_t *timer = lv_timer_create(delete_overlay_cb, kFadeMs + 50, overlay);
+    lv_timer_set_repeat_count(timer, 1);
+}
+
+void failsafe_cb(lv_timer_t *timer) {
+    g_failsafe_timer = nullptr;
+    lv_obj_delete(static_cast<lv_obj_t *>(lv_timer_get_user_data(timer)));
+}
+
+void overlay_deleted_cb(lv_event_t *) {
+    if (g_failsafe_timer != nullptr) {
+        lv_timer_delete(g_failsafe_timer);
+        g_failsafe_timer = nullptr;
+    }
 }
 
 }  // namespace
@@ -62,13 +77,13 @@ void show_splash_overlay() {
     static lv_image_dsc_t gif_dsc;
     lv_obj_t *gif = lv_gif_create(overlay);
     lv_gif_set_src(gif, raw_image_dsc(gif_dsc, bwbots_splash_gif, bwbots_splash_gif_size));
+    lv_gif_set_loop_count(gif, 1);
     lv_obj_center(gif);
 
-    one_shot_timer(pause_gif_cb, kGifPauseMs, gif);
-    one_shot_timer(fade_out_cb, kFadeStartMs, overlay);
-    // Style opa does not propagate to children, so fade the gif alongside the overlay.
-    one_shot_timer(fade_out_cb, kFadeStartMs, gif);
-    one_shot_timer(delete_overlay_cb, kFadeStartMs + kFadeMs + 50, overlay);
+    lv_obj_add_event_cb(gif, splash_done_cb, LV_EVENT_READY, overlay);
+    g_failsafe_timer = lv_timer_create(failsafe_cb, kFailsafeMs, overlay);
+    lv_timer_set_repeat_count(g_failsafe_timer, 1);
+    lv_obj_add_event_cb(overlay, overlay_deleted_cb, LV_EVENT_DELETE, nullptr);
 }
 
 const lv_image_dsc_t *bwbots_logo_icon() {

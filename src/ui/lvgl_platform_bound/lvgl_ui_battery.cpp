@@ -1,7 +1,5 @@
 #include "lvgl_platform_bound/lvgl_ui_battery.hpp"
 
-#include "lvgl_platform_bound/lvgl_ui_branding.hpp"
-
 #include <fcntl.h>
 #include <linux/i2c-dev.h>
 #include <spdlog/spdlog.h>
@@ -16,6 +14,7 @@
 #include <string>
 
 #include "battery_soc_estimator.hpp"
+#include "lvgl_platform_bound/lvgl_ui_branding.hpp"
 
 namespace auto_battlebot::ui_internal {
 namespace {
@@ -256,26 +255,18 @@ void build_top_bar(lv_obj_t *parent, UIWidgets &w) {
     lv_obj_set_style_bg_color(bar, lv_color_hex(0x111111), 0);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* BW-bots logo, far left, on a white chip (the logo's black half would vanish
-     * against the dark bar). */
-    lv_obj_t *logo_chip = lv_obj_create(bar);
-    lv_obj_set_size(logo_chip, 44, 30);
-    lv_obj_set_style_bg_color(logo_chip, lv_color_white(), 0);
-    lv_obj_set_style_radius(logo_chip, 8, 0);
-    lv_obj_set_style_border_width(logo_chip, 0, 0);
-    lv_obj_set_style_pad_all(logo_chip, 0, 0);
-    lv_obj_clear_flag(logo_chip, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(logo_chip, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_t *logo = lv_image_create(logo_chip);
+    /* BW-bots logo, far left. Dark-background variant (black half drawn as a white
+     * outline, matching the splash) with a transparent background. */
+    lv_obj_t *logo = lv_image_create(bar);
     lv_image_set_src(logo, bwbots_logo_icon());
-    lv_obj_center(logo);
+    lv_obj_align(logo, LV_ALIGN_LEFT_MID, 0, 0);
 
     /* Active config profile, right of the logo (text set from UIState in update_home). */
     w.profile_readout = lv_label_create(bar);
     lv_label_set_text(w.profile_readout, "--");
     lv_obj_set_style_text_font(w.profile_readout, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(w.profile_readout, lv_color_hex(0xB0B0B0), 0);
-    lv_obj_align(w.profile_readout, LV_ALIGN_LEFT_MID, 52, 0);
+    lv_obj_align(w.profile_readout, LV_ALIGN_LEFT_MID, 40, 0);
 
     w.clock_label = lv_label_create(bar);
     lv_label_set_text(w.clock_label, "--:--:--");
