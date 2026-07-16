@@ -167,6 +167,16 @@ bool UIState::get_fullscreen() const {
     return fullscreen_;
 }
 
+void UIState::set_splash(bool splash) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    splash_ = splash;
+}
+
+bool UIState::get_splash() const {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    return splash_;
+}
+
 void UIState::set_battery_source(const std::string &battery_source) {
     std::lock_guard<std::mutex> lock(status_mutex_);
     battery_source_ = battery_source;

@@ -112,6 +112,9 @@ class UIState {
 
     void set_fullscreen(bool fullscreen);
     bool get_fullscreen() const;
+    /** Play the splash animation on UI startup. Set before starting UI thread. */
+    void set_splash(bool splash);
+    bool get_splash() const;
     void set_battery_source(const std::string &battery_source);
     std::string get_battery_source() const;
     void set_battery_options(const BatteryOptions &options);
@@ -162,6 +165,7 @@ class UIState {
     int window_width_ = 1024;
     int window_height_ = 600;
     bool fullscreen_ = true;
+    bool splash_ = true;
     std::string battery_source_ = "Waveshare UPS";
     BatteryOptions battery_options_;
     int rate_avg_window_ = 10;

@@ -51,6 +51,9 @@ logging and IMU reads never contend for a bus.
 | A1 | 27 | Encoder **B** | quad B, or single-ch + PWM count |
 | 3V | - | Encoder **Vcc** | see power note |
 | GND | - | Encoder **GND** | ground |
+| **Battery level sense (optional)** | | | |
+| A3 | 29 | divider mid-point | reads BAT/2 (ADC3) |
+| - | - | BAT -> 100k -> A3 -> 100k -> GND | 100k:100k divider |
 
 ## Power
 
@@ -59,9 +62,10 @@ power only. USB overrides and charges the cell when plugged in.
 
 ## Spare GPIOs
 
-`D11 (11)` - `D13 (13, LED)` - `TX/RX (0/1)` - `A2/A3 (28/29)` - `D24/D25 (24/25 if present)`.
+`D11 (11)` - `D13 (13, LED)` - `TX/RX (0/1)` - `A2 (28)` - `D24/D25 (24/25 if present)`.
 
-A2/A3 is a second consecutive pair, so a second quadrature encoder is possible.
+A3 (29) is used for battery level sense (see the table above); charging status is
+read from the RP2040 USB controller (VBUS), no wiring needed.
 
 ## Off-limits
 

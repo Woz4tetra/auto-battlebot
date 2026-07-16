@@ -35,11 +35,22 @@ static constexpr uint8_t PIN_ENC_B = 27;
 // already defines that as a macro.
 static constexpr uint8_t PIN_STATUS_LED = 13;
 
+// Battery level sense. The Adalogger has no onboard battery divider, so wire the
+// BAT pin through a 100k:100k divider to A3:  BAT -> 100k -> A3(GP29) -> 100k -> GND.
+// (Charging/USB status is read from the RP2040 USB controller, no wiring needed.)
+static constexpr uint8_t PIN_VBAT_SENSE = 29;  // A3 / GP29 (ADC3)
+static constexpr float VBAT_DIVIDER = 2.0f;    // (R1+R2)/R2 for equal resistors
+static constexpr float ADC_VREF = 3.3f;
+
 // ---- Rates and ranges ----
 
-// IMU output data rate. INT1 data-ready drives every capture, so each logged
-// row lands exactly at the ODR with no aliasing. The encoder count is sampled
-// on the same interrupt. 1.66 kHz is a good default over SPI; raise if needed.
+// Logging sample rate. A hardware timer polls the IMU + encoder at this rate
+// (no dependency on the IMU INT1 wire). The IMU runs faster internally, so each
+// poll returns a fresh, BDU-coherent sample. 1 kHz is plenty for velocity.
+static constexpr uint32_t SAMPLE_RATE_HZ = 1000;
+
+// IMU output data rate (the sensor's internal rate; kept above SAMPLE_RATE_HZ so
+// every poll has fresh data). 1.66 kHz is a good default over SPI.
 #define IMU_ODR LSM6DS_RATE_1_66K_HZ
 static constexpr uint32_t IMU_ODR_HZ = 1660;
 
@@ -56,8 +67,10 @@ static constexpr float GYRO_DPS_PER_LSB = 0.070f;    // 70 mdps/LSB at +/-2000dp
 
 // ---- SD and buffering ----
 
-// SD SPI clock. 16 MHz is safe; many cards run 24+.
-static constexpr uint32_t SD_SCK_MHZ_VAL = 16;
+// SD SPI clock. This bounds the SD-read side of downloads. 24 MHz is a good
+// balance; drop to 16 if a card is flaky. (USB Full Speed ~1 MB/s is the real
+// download ceiling, not the serial baud, which USB CDC ignores.)
+static constexpr uint32_t SD_SCK_MHZ_VAL = 24;
 
 // Contiguous preallocation per file. Preallocating avoids FAT-growth latency
 // spikes mid-run (a key part of gap-free logging). Truncated to actual size on

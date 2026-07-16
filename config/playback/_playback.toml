@@ -56,3 +56,7 @@ zero_deadzone_percent = 2
 
 [mcap]
 enable = false
+
+[ui]
+# Skip the startup splash animation during replay iteration.
+splash = false

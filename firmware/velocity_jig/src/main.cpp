@@ -26,8 +26,11 @@
 #include <Adafruit_ISM330DHCX.h>
 #include <Adafruit_SH110X.h>
 #include "pico/time.h"
+#include "pico/bootrom.h"
+#include "hardware/structs/usb.h"  // VBUS-detect for charging status
 
 #include "config.h"
+#include "splash_anim.h"
 
 // --- Debug bring-up instrumentation (set -DVJIG_DEBUG=1 in platformio.ini) ---
 #ifndef VJIG_DEBUG
@@ -71,10 +74,14 @@ static volatile uint32_t g_produced = 0;  // samples captured this run
 
 static bool g_recording = false;
 static char g_curName[24] = {0};
+static bool g_menuSummary = false;  // show last-run stats on the menu footer
 
 // Encoder quadrature state, maintained continuously by edge interrupts.
 static volatile int32_t g_encCount = 0;
 static volatile uint8_t g_encState = 0;
+
+// Fixed-rate capture timer (the recording producer).
+static repeating_timer_t g_sampleTimer;
 
 // SD write staging buffer.
 static char g_wbuf[WBUF_SIZE];
@@ -151,14 +158,16 @@ static void encISR() {
     g_encState = s;
 }
 
-// Fires on IMU data-ready. Captures the IMU sample and the current encoder
-// count together, then queues one row.
-static void imuISR() {
+// Fixed-rate capture (hardware timer). Reads the IMU and latches the encoder
+// count together, then queues one row. Timer-driven, so it does not depend on
+// the IMU INT1 wire being connected.
+static bool sampleTimerCb(repeating_timer_t*) {
     Sample s;
     s.t_us = time_us_64();
     s.count = g_encCount;
     imuReadRaw(s.g, s.a);
     ringPush(s);
+    return true;  // keep firing
 }
 
 // ---------------------------------------------------------------------------
@@ -238,39 +247,122 @@ static void drainAll() {
 // OLED
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Battery / charge status
+// ---------------------------------------------------------------------------
+
+static float readBatteryVolts() {
+    return analogRead(PIN_VBAT_SENSE) * (ADC_VREF / 4095.0f) * VBAT_DIVIDER;
+}
+
+// LiPo voltage -> approximate state of charge (rest voltage; rough but fine here).
+static int batteryPercent(float v) {
+    static const float vv[] = {3.30f, 3.60f, 3.70f, 3.75f, 3.80f, 3.85f,
+                               3.90f, 3.95f, 4.00f, 4.10f, 4.20f};
+    static const int pp[] = {0, 10, 20, 30, 45, 55, 65, 75, 80, 90, 100};
+    const int n = 11;
+    if (v <= vv[0]) return 0;
+    if (v >= vv[n - 1]) return 100;
+    for (int i = 1; i < n; i++) {
+        if (v < vv[i]) {
+            float t = (v - vv[i - 1]) / (vv[i] - vv[i - 1]);
+            return (int)(pp[i - 1] + t * (pp[i] - pp[i - 1]) + 0.5f);
+        }
+    }
+    return 100;
+}
+
+// USB power present (the board charges whenever USB is connected).
+static bool usbConnected() {
+    return (usb_hw->sie_status & USB_SIE_STATUS_VBUS_DETECTED_BITS) != 0;
+}
+
+// A small battery glyph for the (white) menu title bar; drawn in black. Shows a
+// charging bolt on USB, otherwise a fill bar proportional to charge.
+static void drawBatteryIndicator() {
+    const int x = 104, y = 2, w = 20, h = 9;
+    const uint16_t fg = SH110X_BLACK;
+    g_display.drawRect(x, y, w, h, fg);
+    g_display.fillRect(x + w, y + 3, 2, 3, fg);  // terminal nub
+    if (usbConnected()) {
+        g_display.fillTriangle(x + 11, y + 1, x + 6, y + 5, x + 10, y + 5, fg);
+        g_display.fillTriangle(x + 10, y + 4, x + 14, y + 4, x + 9, y + 8, fg);
+    } else {
+        int fw = ((w - 4) * batteryPercent(readBatteryVolts())) / 100;
+        if (fw > 0) g_display.fillRect(x + 2, y + 2, fw, h - 4, fg);
+    }
+}
+
+// Current battery bucket, for deciding when the idle menu needs a redraw.
+static int batteryBucket() {
+    return usbConnected() ? -1 : batteryPercent(readBatteryVolts()) / 10;
+}
+
+// Animated BW Bots splash, then a short hold on the finished logo.
+static void drawSplash() {
+    for (uint8_t i = 0; i < SPLASH_FRAMES; i++) {
+        g_display.clearDisplay();
+        g_display.drawBitmap((128 - SPLASH_W) / 2, (64 - SPLASH_H) / 2,
+                             SPLASH_DATA[i], SPLASH_W, SPLASH_H, SH110X_WHITE);
+        g_display.display();
+        delay(35);
+    }
+    delay(700);
+}
+
 static void drawMenu(bool withSummary) {
     g_display.clearDisplay();
     g_display.setTextSize(1);
+
+    // Title bar (inverted) with a battery glyph on the right.
+    g_display.fillRect(0, 0, 128, 13, SH110X_WHITE);
+    g_display.setTextColor(SH110X_BLACK);
+    g_display.setCursor(4, 3);
+    g_display.print("VELOCITY JIG");
+    drawBatteryIndicator();
     g_display.setTextColor(SH110X_WHITE);
-    g_display.setCursor(0, 0);
-    g_display.println("VELOCITY JIG");
-    g_display.println();
-    g_display.println("A: START REC");
-    g_display.println("B: STOP");
+
+    // Start option: record-dot icon.
+    g_display.fillCircle(9, 24, 4, SH110X_WHITE);
+    g_display.setCursor(20, 21);
+    g_display.print("A  Start rec");
+    // Stop option: stop-square icon.
+    g_display.fillRect(5, 34, 8, 8, SH110X_WHITE);
+    g_display.setCursor(20, 35);
+    g_display.print("B  Stop");
+
+    g_display.drawFastHLine(0, 49, 128, SH110X_WHITE);
+    g_display.setCursor(2, 54);
     if (withSummary && g_curName[0]) {
-        g_display.println();
-        g_display.print("last ");
-        g_display.println(g_curName);
-        g_display.print("n=");
-        g_display.println(g_produced);
+        g_display.print(g_curName);
+        g_display.print(" n=");
+        g_display.print(g_produced);
         if (g_overflow) {
-            g_display.print("DROPPED=");
-            g_display.println(g_overflow);
+            g_display.setCursor(104, 54);
+            g_display.print("DROP");
         }
+    } else {
+        g_display.print("USB console ready");
     }
     g_display.display();
 }
 
 static void drawRecording(const char* name) {
     g_display.clearDisplay();
-    g_display.setTextSize(1);
+    g_display.drawRect(0, 0, 128, 64, SH110X_WHITE);
     g_display.setTextColor(SH110X_WHITE);
-    g_display.setCursor(0, 0);
-    g_display.println("RECORDING");
-    g_display.println("enc + imu");
-    g_display.println(name);
-    g_display.println();
-    g_display.println("B: STOP");
+
+    g_display.fillCircle(14, 16, 6, SH110X_WHITE);  // REC dot
+    g_display.setTextSize(2);
+    g_display.setCursor(30, 9);
+    g_display.print("REC");
+    g_display.setTextSize(1);
+
+    g_display.drawFastHLine(6, 30, 116, SH110X_WHITE);
+    g_display.setCursor(8, 37);
+    g_display.print(name);
+    g_display.setCursor(8, 50);
+    g_display.print("B = stop");
     g_display.display();
 }
 
@@ -318,8 +410,8 @@ static void writeHeader() {
     wputStr("# columns: t_us,count,gx,gy,gz,ax,ay,az  (raw int16 imu)\n");
     wputStr("# encoder: quadrature x4 (constant column if unplugged)\n");
     snprintf(line, sizeof(line),
-             "# odr_hz=%lu gyro_dps_per_lsb=%s accel_g_per_lsb=%s\n",
-             (unsigned long)IMU_ODR_HZ, GYRO_DPS_PER_LSB_STR, ACCEL_G_PER_LSB_STR);
+             "# sample_rate_hz=%lu gyro_dps_per_lsb=%s accel_g_per_lsb=%s\n",
+             (unsigned long)SAMPLE_RATE_HZ, GYRO_DPS_PER_LSB_STR, ACCEL_G_PER_LSB_STR);
     wputStr(line);
 }
 
@@ -354,18 +446,21 @@ static void startRecording() {
     writeHeader();
 
     g_recording = true;
-    attachInterrupt(PIN_IMU_INT1, imuISR, RISING);  // start capture
-    drawRecording(name);                            // last screen update until STOP
+    // Capture on a fixed-rate timer (negative period = strict period from start).
+    add_repeating_timer_us(-(int64_t)(1000000UL / SAMPLE_RATE_HZ), sampleTimerCb,
+                           nullptr, &g_sampleTimer);
+    drawRecording(name);  // last screen update until STOP
     Serial.print("recording ");
     Serial.println(name);
 }
 
 static void stopRecording() {
-    detachInterrupt(PIN_IMU_INT1);  // stop capture first
+    cancel_repeating_timer(&g_sampleTimer);  // stop capture first
     g_recording = false;
 
     drainAll();
     wflush();
+    g_file.truncate();  // drop the unused preallocated tail (else file stays 32 MB)
     g_file.sync();
     g_file.close();
 
@@ -374,6 +469,7 @@ static void stopRecording() {
     Serial.print(" dropped=");
     Serial.println(g_overflow);
 
+    g_menuSummary = true;
     drawMenu(true);
 }
 
@@ -403,6 +499,132 @@ static bool justPressed(Btn& b) {
         if (raw) return true;
     }
     return false;
+}
+
+// ---------------------------------------------------------------------------
+// USB serial console (idle only): LIST / GET / DEL / STREAM
+//
+// A host-side TUI (scripts/console) drives this. It runs only from the idle
+// branch of loop(), so it never touches the SD card or the capture path while
+// recording. During recording, commands are answered with "BUSY".
+// ---------------------------------------------------------------------------
+
+static char g_cmd[64];
+static uint8_t g_cmdLen = 0;
+
+// Non-blocking line reader. Returns true when a full line sits in g_cmd.
+static bool serialReadLine() {
+    while (Serial.available()) {
+        char c = (char)Serial.read();
+        if (c == '\r') continue;
+        if (c == '\n') {
+            g_cmd[g_cmdLen] = 0;
+            g_cmdLen = 0;
+            return true;
+        }
+        if (g_cmdLen < sizeof(g_cmd) - 1) g_cmd[g_cmdLen++] = c;
+    }
+    return false;
+}
+
+static void cmdList() {
+    FsFile dir, file;
+    char name[40];
+    if (!dir.open("/", O_RDONLY)) {
+        Serial.println("END");
+        return;
+    }
+    while (file.openNext(&dir, O_RDONLY)) {
+        if (!file.isDir()) {
+            file.getName(name, sizeof(name));
+            Serial.print("F ");
+            Serial.print(name);
+            Serial.print(' ');
+            Serial.println((uint32_t)file.size());
+        }
+        file.close();
+    }
+    dir.close();
+    Serial.println("END");
+}
+
+static void cmdGet(const char* name) {
+    FsFile f;
+    if (!f.open(name, O_RDONLY)) {
+        Serial.println("ERR no file");
+        return;
+    }
+    Serial.print("SIZE ");
+    Serial.println((uint32_t)f.size());
+    uint8_t buf[2048];
+    int n;
+    while ((n = f.read(buf, sizeof(buf))) > 0) {
+        Serial.write(buf, (size_t)n);
+    }
+    f.close();
+    Serial.print("\nEND\n");
+}
+
+static void cmdDel(const char* name) {
+    Serial.println(g_sd.remove(name) ? "OK" : "ERR");
+}
+
+static void cmdStream() {
+    Serial.println("STREAM");
+    for (;;) {
+        if (Serial.available()) {  // any input stops the stream
+            while (Serial.available()) Serial.read();
+            break;
+        }
+        if (justPressed(g_btnA)) {  // physical start-record exits the stream
+            Serial.println("END");
+            startRecording();
+            return;
+        }
+        Sample s;
+        s.t_us = time_us_64();
+        s.count = g_encCount;
+        imuReadRaw(s.g, s.a);
+        Serial.print("S ");
+        Serial.print(s.t_us);
+        Serial.print(',');
+        Serial.print(s.count);
+        for (int i = 0; i < 3; i++) {
+            Serial.print(',');
+            Serial.print(s.g[i]);
+        }
+        for (int i = 0; i < 3; i++) {
+            Serial.print(',');
+            Serial.print(s.a[i]);
+        }
+        Serial.println();
+        uint32_t t = millis();  // ~10 Hz, staying responsive to input/button
+        while (millis() - t < 100) {
+            if (Serial.available()) break;
+            delay(2);
+        }
+    }
+    Serial.println("END");
+}
+
+static void handleCommand() {
+    char* c = g_cmd;
+    if (!strncmp(c, "LIST", 4)) {
+        cmdList();
+    } else if (!strncmp(c, "GET ", 4)) {
+        cmdGet(c + 4);
+    } else if (!strncmp(c, "DEL ", 4)) {
+        cmdDel(c + 4);
+    } else if (!strncmp(c, "STREAM", 6)) {
+        cmdStream();
+    } else if (!strncmp(c, "BOOTSEL", 7)) {
+        Serial.println("REBOOTING to bootloader");
+        Serial.flush();
+        delay(50);
+        reset_usb_boot(0, 0);  // reboot into the UF2 bootloader, no button needed
+    } else if (c[0]) {
+        Serial.println("ERR unknown");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -502,7 +724,10 @@ static void encoderInit() {
 }
 
 void setup() {
-    Serial.begin(115200);
+    // 921600 is nominal only: this is native USB CDC, so the baud is ignored and
+    // transfers run at USB Full Speed regardless. Kept in sync with the host.
+    Serial.begin(921600);
+    analogReadResolution(12);  // 0..4095 for the battery divider
     pinMode(PIN_STATUS_LED, OUTPUT);
     digitalWrite(PIN_STATUS_LED, LOW);
 
@@ -552,7 +777,7 @@ void setup() {
     Wire.setSCL(PIN_I2C_SCL);
     DBGLN("[dbg]   setSCL ok");
     DBGFLUSH();
-    Wire.setClock(100000);
+    Wire.setClock(400000);  // fast OLED refresh (splash animation + UI)
     DBGLN("[dbg]   setClock ok");
     DBGFLUSH();
     Wire.begin();
@@ -582,6 +807,7 @@ void setup() {
     g_display.setRotation(1);
     g_display.clearDisplay();
     g_display.display();
+    drawSplash();  // animated BW Bots logo
 
     imuInit();
     sdInit();
@@ -595,7 +821,25 @@ void loop() {
     if (g_recording) {
         drainToSD();
         if (justPressed(g_btnB)) stopRecording();
+        // Answer the console with BUSY without touching the SD or capture path.
+        if (serialReadLine()) Serial.println("BUSY");
     } else {
-        if (justPressed(g_btnA)) startRecording();
+        if (justPressed(g_btnA)) {
+            startRecording();
+        } else if (serialReadLine()) {
+            handleCommand();
+        } else {
+            // Refresh the idle menu only when the battery glyph would change.
+            static uint32_t t = 0;
+            static int lastBucket = -2;
+            if (millis() - t > 2000) {
+                t = millis();
+                int b = batteryBucket();
+                if (b != lastBucket) {
+                    lastBucket = b;
+                    drawMenu(g_menuSummary);
+                }
+            }
+        }
     }
 }

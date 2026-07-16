@@ -176,6 +176,27 @@ add_library(auto_battlebot_ui STATIC
     ${AUTO_BATTLEBOT_UI_SOURCES}
 )
 
+# Brand assets (splash animation, top-bar logo) are embedded as C arrays at build
+# time so the binary has no runtime file dependencies. Symbols are declared in
+# src/ui/lvgl_platform_bound/lvgl_ui_branding.cpp.
+function(embed_brand_asset symbol input)
+    set(generated ${CMAKE_CURRENT_BINARY_DIR}/generated/brand_assets/${symbol}.cpp)
+    add_custom_command(
+        OUTPUT ${generated}
+        COMMAND ${CMAKE_COMMAND}
+            -DINPUT=${input} -DOUTPUT=${generated} -DSYMBOL=${symbol}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bin2c.cmake
+        DEPENDS ${input} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/bin2c.cmake
+        COMMENT "Embedding brand asset ${symbol}"
+    )
+    target_sources(auto_battlebot_ui PRIVATE ${generated})
+endfunction()
+
+embed_brand_asset(bwbots_splash_gif
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/assets/bwbots_splash_1024x600.gif)
+embed_brand_asset(bwbots_logo_png
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/assets/bwbots_logo_h24.png)
+
 target_include_directories(auto_battlebot_ui PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ui

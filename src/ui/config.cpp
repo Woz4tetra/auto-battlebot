@@ -6,6 +6,7 @@ namespace auto_battlebot {
 void UiConfiguration::parse_fields(ConfigParser &parser) {
     enable = parser.get_optional_bool("enable", enable);
     fullscreen = parser.get_optional_bool("fullscreen", fullscreen);
+    splash = parser.get_optional_bool("splash", splash);
     width = parser.get_optional_int("width", width);
     height = parser.get_optional_int("height", height);
     rate_avg_window = parser.get_optional_int("rate_avg_window", rate_avg_window);

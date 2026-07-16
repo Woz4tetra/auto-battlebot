@@ -19,6 +19,8 @@ struct UiConfiguration {
 
     bool enable = false;
     bool fullscreen = true;
+    /** Play the BW-bots splash animation when the UI starts. */
+    bool splash = true;
     int width = 1024;
     int height = 600;
     /** Number of samples for rolling average of loop_rate_hz (1 = no averaging). */

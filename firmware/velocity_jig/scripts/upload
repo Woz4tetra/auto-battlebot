@@ -1,4 +1,61 @@
 #!/bin/bash
-BASE_DIR=$(realpath "$(dirname $0)")
-cd ${BASE_DIR}/..
-platformio run --target upload
+# Button-free flash. Reboots the jig into the UF2 bootloader over USB (1200-baud
+# touch), then copies the firmware image onto the RPI-RP2 drive. No need to reach
+# the physical BOOTSEL button buried under the OLED.
+set -u
+BASE_DIR=$(realpath "$(dirname "$0")")
+PROJ="${BASE_DIR}/.."
+PY="${BASE_DIR}/../../../venv/bin/python"
+UF2="${PROJ}/.pio/build/adalogger/firmware.uf2"
+
+find_mnt() {
+    local m
+    m=$(findmnt -rno TARGET -S LABEL=RPI-RP2 2>/dev/null | head -1)
+    [ -z "$m" ] && [ -d "/media/${USER}/RPI-RP2" ] && m="/media/${USER}/RPI-RP2"
+    echo "$m"
+}
+
+echo "Building..."
+(cd "$PROJ" && platformio run) || exit 1
+
+mnt=$(find_mnt)
+if [ -z "$mnt" ]; then
+    port=""
+    for p in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyACM2; do
+        [ -e "$p" ] && port="$p" && break
+    done
+    if [ -z "$port" ]; then
+        echo "No serial port and not in BOOTSEL. Plug in the jig, or (first time"
+        echo "only) hold BOOTSEL + tap RESET once, then re-run."
+        exit 1
+    fi
+    echo "Rebooting ${port} into BOOTSEL (1200-baud touch)..."
+    "$PY" - "$port" <<'PYEOF'
+import sys
+import time
+
+import serial
+
+try:
+    s = serial.Serial(sys.argv[1], 1200)
+    s.setDTR(False)
+    time.sleep(0.1)
+    s.close()
+except Exception as e:
+    print("  touch note:", e)
+PYEOF
+    echo "Waiting for RPI-RP2..."
+    for _ in $(seq 1 40); do
+        mnt=$(find_mnt)
+        [ -n "$mnt" ] && break
+        sleep 0.25
+    done
+fi
+
+if [ -z "$mnt" ]; then
+    echo "BOOTSEL drive did not appear. Try holding BOOTSEL + tap RESET once."
+    exit 1
+fi
+
+echo "Flashing ${UF2} -> ${mnt}"
+cp "$UF2" "${mnt}/" && sync && echo "done - board will reboot into the sketch."

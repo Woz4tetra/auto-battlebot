@@ -12,6 +12,7 @@ UIManager::UIManager(const UiConfiguration& config, double max_loop_rate,
     : ui_state_(std::make_shared<UIState>()) {
     ui_state_->set_window_size(config.width, config.height);
     ui_state_->set_fullscreen(config.fullscreen);
+    ui_state_->set_splash(config.splash);
     ui_state_->set_battery_source(config.battery_source);
     ui_state_->set_battery_options(config.battery);
     ui_state_->set_rate_avg_window(config.rate_avg_window);

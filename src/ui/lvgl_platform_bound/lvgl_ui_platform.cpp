@@ -10,6 +10,7 @@
 #include <string>
 
 #include "lvgl_platform_bound/lvgl_ui_battery.hpp"
+#include "lvgl_platform_bound/lvgl_ui_branding.hpp"
 #include "lvgl_platform_bound/lvgl_ui_composition.hpp"
 #include "ui/ui_runner.hpp"
 #include "ui/ui_state.hpp"
@@ -82,6 +83,7 @@ void run_ui_thread(std::stop_token stop, std::shared_ptr<UIState> ui_state) {
         ui_internal::make_battery_source(battery_source, ui_state->get_battery_options());
     services.debug_overlay_renderer = ui_internal::make_debug_overlay_renderer();
     ui_internal::build_ui_content(root, widgets, ui_state, frame_state);
+    if (ui_state->get_splash()) ui_internal::show_splash_overlay();
 
     bool running = true;
     const int delay_ms = 5;

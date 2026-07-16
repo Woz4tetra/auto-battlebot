@@ -1,0 +1,6 @@
+# Temporary: playback with the startup splash enabled, for visually testing the
+# splash overlay on the dev machine. Safe to delete.
+extends = "playback/_playback"
+
+[ui]
+splash = true
