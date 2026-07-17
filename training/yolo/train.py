@@ -39,6 +39,13 @@ def main() -> None:
             "epochs": 500,
             "imgsz": 640,
         },
+        # Detect head; settings match yolo26n-seg so the only variable in a seg-vs-bbox
+        # box-quality comparison is the head type, not batch/epochs/imgsz.
+        "yolo26n": {
+            "batch": 32,
+            "epochs": 500,
+            "imgsz": 640,
+        },
     }
 
     parser = argparse.ArgumentParser()
