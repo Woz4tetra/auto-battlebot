@@ -7,6 +7,7 @@ Reads the scale factors and sample rate from the file header, converts the raw
 int16 IMU columns to dps / g, prints summary stats, and saves a 3-panel plot
 (gyro, accel, encoder count) next to the input file.
 """
+
 import argparse
 import os
 import re
@@ -21,9 +22,11 @@ def parse_header(path):
         for line in f:
             if not line.startswith("#"):
                 break
-            for key, cast in (("gyro_dps_per_lsb", float),
-                              ("accel_g_per_lsb", float),
-                              ("sample_rate_hz", int)):
+            for key, cast in (
+                ("gyro_dps_per_lsb", float),
+                ("accel_g_per_lsb", float),
+                ("sample_rate_hz", int),
+            ):
                 m = re.search(key + r"=([\d.]+)", line)
                 if m:
                     val = cast(m.group(1))
@@ -55,13 +58,13 @@ def main():
 
     t_us = data[:, 0]
     count = data[:, 1]
-    gyro = data[:, 2:5] * gyro_scale     # dps
-    accel = data[:, 5:8] * accel_scale   # g
-    t = (t_us - t_us[0]) / 1e6           # seconds
+    gyro = data[:, 2:5] * gyro_scale  # dps
+    accel = data[:, 5:8] * accel_scale  # g
+    t = (t_us - t_us[0]) / 1e6  # seconds
 
     n = len(t)
     dur = t[-1]
-    dt = np.diff(t_us) / 1e6             # seconds
+    dt = np.diff(t_us) / 1e6  # seconds
     rate = 1.0 / dt.mean() if dt.mean() > 0 else 0.0
     gmag = np.linalg.norm(gyro, axis=1)
     amag = np.linalg.norm(accel, axis=1)
@@ -76,8 +79,10 @@ def main():
     gap = "   <- GAP" if dt.max() > 3 * dt.mean() else ""
     print("dt mean/max  : %.3f / %.3f ms%s" % (dt.mean() * 1e3, dt.max() * 1e3, gap))
     const = "   (constant - encoder likely unplugged)" if np.ptp(count) == 0 else ""
-    print("encoder count: start %.0f  end %.0f  delta %.0f  range [%.0f, %.0f]%s"
-          % (count[0], count[-1], count[-1] - count[0], count.min(), count.max(), const))
+    print(
+        "encoder count: start %.0f  end %.0f  delta %.0f  range [%.0f, %.0f]%s"
+        % (count[0], count[-1], count[-1] - count[0], count.min(), count.max(), const)
+    )
 
     print("\n  axis      mean      std      min      max   (gyro, dps)")
     for i, ax in enumerate("xyz"):
@@ -90,6 +95,7 @@ def main():
     print("  (|a| at rest should be ~1.0 g)")
 
     import matplotlib
+
     if not args.show:
         matplotlib.use("Agg")
     import matplotlib.pyplot as plt

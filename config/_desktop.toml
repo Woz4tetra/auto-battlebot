@@ -7,8 +7,8 @@ type = "DeepLabMaskModel"
 model_path = "data/models/field_deeplabv3p_r50_2026-04-29_x86_64_sm89.engine"
 
 [robot_mask_model]
-type = "YoloSegRobotBlobModel"
-model_path = "data/models/yolo26n-seg_nhrl_robots_2026-04-27_x86_64_sm89.engine"
+type = "YoloBboxRobotBlobModel"
+model_path = "data/models/yolo26n_nhrl_robots_bbox_2026-07-16_x86_64_sm89.engine"
 label_indices = [
   "OPPONENT",
   "OPPONENT",

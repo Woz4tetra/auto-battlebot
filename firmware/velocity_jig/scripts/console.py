@@ -5,6 +5,7 @@ Talks to the firmware's idle-only console, so nothing here can run while the jig
 is recording (commands sent during a recording return BUSY). Run via the
 `console` wrapper, or: venv/bin/python console.py [-p PORT] [-o OUTDIR]
 """
+
 import argparse
 import glob
 import os
@@ -111,8 +112,10 @@ def do_stream(ser):
         print("  device is recording")
         return
     print("  streaming ~10 Hz. Press Enter to stop.")
-    print("  %-15s %-7s %8s %8s %8s %7s %7s %7s"
-          % ("t_us", "count", "gx_dps", "gy_dps", "gz_dps", "ax_g", "ay_g", "az_g"))
+    print(
+        "  %-15s %-7s %8s %8s %8s %7s %7s %7s"
+        % ("t_us", "count", "gx_dps", "gy_dps", "gz_dps", "ax_g", "ay_g", "az_g")
+    )
     try:
         while True:
             r, _, _ = select.select([ser.fileno(), sys.stdin], [], [], 0.5)
@@ -130,8 +133,10 @@ def do_stream(ser):
                         t, c = int(v[0]), int(v[1])
                         g = [int(x) * GYRO_DPS_PER_LSB for x in v[2:5]]
                         a = [int(x) * ACCEL_G_PER_LSB for x in v[5:8]]
-                        print("  %-15d %-7d %8.2f %8.2f %8.2f %7.3f %7.3f %7.3f"
-                              % (t, c, g[0], g[1], g[2], a[0], a[1], a[2]))
+                        print(
+                            "  %-15d %-7d %8.2f %8.2f %8.2f %7.3f %7.3f %7.3f"
+                            % (t, c, g[0], g[1], g[2], a[0], a[1], a[2])
+                        )
                     except (ValueError, IndexError):
                         pass
     except KeyboardInterrupt:

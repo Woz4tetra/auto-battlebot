@@ -5,6 +5,7 @@
 
 #include "config/config_cast.hpp"
 #include "robot_blob_model/noop_robot_blob_model.hpp"
+#include "robot_blob_model/yolo_bbox_robot_blob_model.hpp"
 #include "robot_blob_model/yolo_seg_robot_blob_model.hpp"
 
 namespace auto_battlebot {
@@ -46,9 +47,31 @@ void YoloSegRobotBlobModelConfiguration::parse_fields(ConfigParser &parser) {
     parser.validate_no_extra_fields();
 }
 
+void YoloBboxRobotBlobModelConfiguration::parse_fields(ConfigParser &parser) {
+    model_path = parser.get_required_string("model_path");
+    confidence_threshold = parser.get_optional_double("confidence_threshold", confidence_threshold);
+    iou_threshold = parser.get_optional_double("iou_threshold", iou_threshold);
+    letterbox_padding = parser.get_optional_double("letterbox_padding", letterbox_padding);
+    image_size = parser.get_optional_int("image_size", image_size);
+    max_detections = parser.get_optional_int("max_detections", max_detections);
+    debug_visualization = parser.get_optional_bool("debug_visualization", debug_visualization);
+    label_indices = parse_label_list(parser, "label_indices");
+    their_robot_labels = parse_label_list(parser, "their_robot_labels");
+    neutral_robot_labels = parse_label_list(parser, "neutral_robot_labels");
+    field_labels = parse_label_list(parser, "field_labels");
+    if (label_indices.empty()) {
+        throw ConfigValidationError(
+            "Field 'label_indices' must not be empty in section "
+            "[robot_mask_model]");
+    }
+    parser.validate_no_extra_fields();
+}
+
 REGISTER_CONFIG(RobotBlobModelConfiguration, NoopRobotBlobModelConfiguration, "NoopRobotBlobModel")
 REGISTER_CONFIG(RobotBlobModelConfiguration, YoloSegRobotBlobModelConfiguration,
                 "YoloSegRobotBlobModel")
+REGISTER_CONFIG(RobotBlobModelConfiguration, YoloBboxRobotBlobModelConfiguration,
+                "YoloBboxRobotBlobModel")
 
 std::unique_ptr<RobotBlobModelConfiguration> parse_robot_blob_model_config(ConfigParser &parser) {
     return ConfigFactory<RobotBlobModelConfiguration>::instance().create_and_parse(parser);
@@ -74,6 +97,9 @@ std::shared_ptr<RobotBlobModelInterface> make_robot_blob_model(
     } else if (config.type == "YoloSegRobotBlobModel") {
         return std::make_shared<YoloSegRobotBlobModel>(
             config_cast<YoloSegRobotBlobModelConfiguration>(config));
+    } else if (config.type == "YoloBboxRobotBlobModel") {
+        return std::make_shared<YoloBboxRobotBlobModel>(
+            config_cast<YoloBboxRobotBlobModelConfiguration>(config));
     }
     throw std::invalid_argument("Failed to load RobotBlobModel of type " + config.type);
 }

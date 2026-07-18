@@ -21,7 +21,7 @@ distance_threshold = 0.05
 type = "DeepLabMaskModel"
 
 [robot_mask_model]
-type = "YoloSegRobotBlobModel"
+type = "YoloBboxRobotBlobModel"
 
 [keypoint_model]
 type = "YoloKeypointModel"

@@ -43,6 +43,24 @@ struct YoloSegRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
     void parse_fields(ConfigParser &parser) override;
 };
 
+struct YoloBboxRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
+    std::string model_path;
+    float confidence_threshold = 0.5f;
+    float iou_threshold = 0.45f;
+    float letterbox_padding = 0.1f;
+    int image_size = 640;
+    int max_detections = 32;
+    bool debug_visualization = false;
+    std::vector<Label> label_indices;
+    std::vector<Label> their_robot_labels;
+    std::vector<Label> neutral_robot_labels;
+    std::vector<Label> field_labels;
+
+    YoloBboxRobotBlobModelConfiguration() { type = "YoloBboxRobotBlobModel"; }
+
+    void parse_fields(ConfigParser &parser) override;
+};
+
 std::shared_ptr<RobotBlobModelInterface> make_robot_blob_model(
     const RobotBlobModelConfiguration &config);
 std::unique_ptr<RobotBlobModelConfiguration> parse_robot_blob_model_config(ConfigParser &parser);
