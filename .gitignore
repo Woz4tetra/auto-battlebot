@@ -61,6 +61,9 @@ Thumbs.db
 /data
 /secrets
 
+# Version stamp written by scripts/deploy_to_jetson.sh
+/.build_version
+
 # /replay skill scratch overlay (throwaway, never committed)
 config/_replay_scratch.toml
 

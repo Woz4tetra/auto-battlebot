@@ -51,6 +51,17 @@ done
 
 REMOTE_DEST="${JETSON_USER}@${JETSON_HOST}:${JETSON_PATH}"
 
+# ── Version stamp ─────────────────────────────────────────────────────────────
+# The Jetson has no git repo (.git is excluded below), so stamp the git version
+# into a file that the build reads as a fallback. Same semantics as
+# cmake/git_version.cmake: short hash, "-dirty" for tracked modifications.
+GIT_VERSION="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+if [ -n "$(git -C "$PROJECT_ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+    GIT_VERSION="${GIT_VERSION}-dirty"
+fi
+echo "Stamping build version: ${GIT_VERSION}"
+echo "$GIT_VERSION" > "$PROJECT_ROOT/.build_version"
+
 RSYNC_OPTS=(
     --archive
     --verbose
@@ -64,7 +75,10 @@ RSYNC_OPTS=(
 # gitignored paths. /data is excluded by the root .gitignore, so --delete
 # will not touch it on the remote. .git/ is excluded explicitly.
 echo "Syncing code to ${REMOTE_DEST}..."
+# --include for .build_version is ordered before the gitignore merge so the
+# stamped version file transfers even though it is gitignored (first match wins).
 rsync "${RSYNC_OPTS[@]}" \
+    --include='/.build_version' \
     --filter=':- .gitignore' \
     --exclude='.git/' \
     "$PROJECT_ROOT/" \

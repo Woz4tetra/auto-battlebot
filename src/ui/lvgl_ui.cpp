@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "data_structures/target_selection.hpp"
+#include "git_version.hpp"
 #include "lvgl_platform_bound/lvgl_ui_battery.hpp"
 #include "lvgl_platform_bound/lvgl_ui_composition.hpp"
 #include "lvgl_platform_bound/lvgl_ui_presenter.hpp"
@@ -713,6 +714,12 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
         lv_obj_set_style_text_font(subtitle, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_align(subtitle, LV_TEXT_ALIGN_CENTER, 0);
     }
+
+    // --- Build version footer: git commit the binary was built from. ---
+    lv_obj_t *version_label = lv_label_create(tab);
+    lv_label_set_text(version_label, "Build: " AUTO_BATTLEBOT_GIT_VERSION);
+    lv_obj_set_style_text_font(version_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(version_label, lv_color_hex(0x9E9E9E), 0);
 
     lv_obj_t *overlay = lv_obj_create(lv_layer_top());
     w.confirm_overlay = overlay;
