@@ -48,7 +48,7 @@ class TestRealConfig:
         assert cfg.output.image_height == 720
         assert cfg.output.images_per_scene == 10
         assert cfg.output.min_robot_visibility == pytest.approx(0.10)
-        assert cfg.output.ignore_obstructions is True
+        assert cfg.output.ignore_obstructions is False
         assert cfg.output.memory_cleanup_interval == 1000
         assert cfg.output.annotation_mode == "keypoints_bbox"
         assert cfg.output.is_segmentation_mode is False

@@ -60,7 +60,13 @@ class TestRobotGate:
     def test_tiny_robot_skipped_but_frame_kept(self) -> None:
         # A small distant robot: below the bbox minimum and below prominence.
         verdict = evaluate_robot_gate(
-            make_stats(visible_px=300, bbox_w_px=20, bbox_h_px=25), 0.10, False
+            make_stats(
+                visible_px=PROMINENT_UNLABELED_ROBOT_MIN_PX - 1,
+                bbox_w_px=MIN_KEYPOINT_BBOX_DIM_PX - 1,
+                bbox_h_px=MIN_KEYPOINT_BBOX_DIM_PX,
+            ),
+            0.10,
+            False,
         )
         assert verdict.annotate is False
         assert verdict.skip_reason is RobotSkipReason.BBOX_TOO_SMALL
@@ -75,9 +81,13 @@ class TestRobotGate:
         assert evaluate_robot_gate(below, 0.10, False).skip_reason is RobotSkipReason.BBOX_TOO_SMALL
 
     def test_prominent_skipped_robot_is_fatal(self) -> None:
-        # Wide but short bbox: fails the 32px minimum yet plenty visible.
+        # Short-edge bbox: fails the min-edge check yet is plenty visible.
         verdict = evaluate_robot_gate(
-            make_stats(visible_px=PROMINENT_UNLABELED_ROBOT_MIN_PX, bbox_w_px=200, bbox_h_px=30),
+            make_stats(
+                visible_px=PROMINENT_UNLABELED_ROBOT_MIN_PX,
+                bbox_w_px=200,
+                bbox_h_px=MIN_KEYPOINT_BBOX_DIM_PX - 1,
+            ),
             0.10,
             False,
         )
@@ -95,9 +105,14 @@ class TestRobotGate:
         assert below.frame_fatal is False
 
     def test_low_visibility_skip(self) -> None:
-        verdict = evaluate_robot_gate(make_stats(visible_px=400, unobstructed_px=5000), 0.10, False)
+        # Below the visibility threshold but below prominence: skip, keep the frame.
+        verdict = evaluate_robot_gate(
+            make_stats(visible_px=PROMINENT_UNLABELED_ROBOT_MIN_PX - 1, unobstructed_px=5000),
+            0.10,
+            False,
+        )
         assert verdict.skip_reason is RobotSkipReason.LOW_VISIBILITY
-        assert verdict.frame_fatal is False  # 400px is below prominence
+        assert verdict.frame_fatal is False  # below prominence
 
     def test_low_visibility_prominent_is_fatal(self) -> None:
         # Heavily occluded but still large on screen: labeling through the
@@ -132,7 +147,13 @@ class TestRobotGate:
 
     def test_ignore_obstructions_still_enforces_bbox_size(self) -> None:
         verdict = evaluate_robot_gate(
-            make_stats(bbox_w_px=10, bbox_h_px=10, visible_px=90), 0.10, True
+            make_stats(
+                bbox_w_px=MIN_KEYPOINT_BBOX_DIM_PX - 1,
+                bbox_h_px=MIN_KEYPOINT_BBOX_DIM_PX - 1,
+                visible_px=90,
+            ),
+            0.10,
+            True,
         )
         assert verdict.skip_reason is RobotSkipReason.BBOX_TOO_SMALL
 
@@ -150,7 +171,9 @@ class TestKeypointFrameDecision:
 
     def test_drop_on_fatal_verdict(self) -> None:
         fatal = evaluate_robot_gate(
-            make_stats(visible_px=5000, bbox_w_px=200, bbox_h_px=30), 0.10, False
+            make_stats(visible_px=5000, bbox_w_px=200, bbox_h_px=MIN_KEYPOINT_BBOX_DIM_PX - 1),
+            0.10,
+            False,
         )
         assert fatal.frame_fatal
         healthy = evaluate_robot_gate(make_stats(instance_id=2), 0.10, False)
@@ -161,7 +184,13 @@ class TestKeypointFrameDecision:
 
     def test_tiny_skip_keeps_frame(self) -> None:
         tiny = evaluate_robot_gate(
-            make_stats(visible_px=100, bbox_w_px=12, bbox_h_px=12), 0.10, False
+            make_stats(
+                visible_px=PROMINENT_UNLABELED_ROBOT_MIN_PX - 1,
+                bbox_w_px=MIN_KEYPOINT_BBOX_DIM_PX - 1,
+                bbox_h_px=MIN_KEYPOINT_BBOX_DIM_PX - 1,
+            ),
+            0.10,
+            False,
         )
         healthy = evaluate_robot_gate(make_stats(instance_id=2), 0.10, False)
         decision = decide_keypoint_frame([tiny, healthy], annotation_count=1)

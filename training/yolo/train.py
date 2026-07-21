@@ -42,7 +42,7 @@ def main() -> None:
         # Detect head; settings match yolo26n-seg so the only variable in a seg-vs-bbox
         # box-quality comparison is the head type, not batch/epochs/imgsz.
         "yolo26n": {
-            "batch": 32,
+            "batch": 128,
             "epochs": 500,
             "imgsz": 640,
         },
