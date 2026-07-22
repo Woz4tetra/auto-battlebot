@@ -40,16 +40,16 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
+import diag_io  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import diag_io  # noqa: E402
 
 DT_MIN, DT_MAX = 0.025, 0.08  # accept ~12-40 Hz steps
 TELEPORT_M = 0.12  # reject pose jumps > this between frames (~3 m/s; perception spike/track switch)
 SMOOTH_WINDOW = 3  # light pose smoothing (~120 ms); larger over-attenuates velocity vs tau ~0.1 s
-CHANNEL_MAX = 1000.0  # opentx raw channel range [-1000, 1000] (kChannelMax in opentx_transmitter.cpp)
+CHANNEL_MAX = (
+    1000.0  # opentx raw channel range [-1000, 1000] (kChannelMax in opentx_transmitter.cpp)
+)
 # Only fit the gain above the ESC deadzone; near-zero commands move ~0 m/s and would bias
 # the through-origin slope toward zero (most gentle driving sits inside the deadzone).
 GAIN_MIN_CMD = 0.2
@@ -314,12 +314,18 @@ def main() -> None:
     ang = fit_axis(segments, dt, angular=True)
 
     print(f"segments: {len(segments)}  | median dt: {dt * 1000:.1f} ms  | samples ~{lin.n}")
-    print("LINEAR :  max_linear_speed = %.3f m/s    tau_linear = %.3f s   (lag %d fr, R2 %.2f)"
-          % (lin.max_speed, lin.tau, lin.lag_frames, lin.r2))
-    print("ANGULAR:  max_angular_speed = %.3f rad/s  tau_angular = %.3f s  (lag %d fr, R2 %.2f)"
-          % (ang.max_speed, ang.tau, ang.lag_frames, ang.r2))
-    print(f"actuation lag: ~{ang.lag_frames * dt * 1000:.0f} ms (angular), "
-          f"{lin.lag_frames * dt * 1000:.0f} ms (linear)")
+    print(
+        "LINEAR :  max_linear_speed = %.3f m/s    tau_linear = %.3f s   (lag %d fr, R2 %.2f)"
+        % (lin.max_speed, lin.tau, lin.lag_frames, lin.r2)
+    )
+    print(
+        "ANGULAR:  max_angular_speed = %.3f rad/s  tau_angular = %.3f s  (lag %d fr, R2 %.2f)"
+        % (ang.max_speed, ang.tau, ang.lag_frames, ang.r2)
+    )
+    print(
+        f"actuation lag: ~{ang.lag_frames * dt * 1000:.0f} ms (angular), "
+        f"{lin.lag_frames * dt * 1000:.0f} ms (linear)"
+    )
 
     params = {
         "max_linear_speed": lin.max_speed,
@@ -339,10 +345,14 @@ def main() -> None:
 
     print(f"\nreplay fidelity on longest segment ({len(longest.t)} frames):")
     for horizon_s in (0.5, 1.0, 2.0):
-        print(f"  re-anchored every {horizon_s:.1f}s: position RMSE = "
-              f"{horizon_rmse(round(horizon_s / dt)) * 100:.1f} cm")
-    print(f"  pure open-loop (drift-dominated, not a fidelity metric): "
-          f"{horizon_rmse(None) * 100:.0f} cm")
+        print(
+            f"  re-anchored every {horizon_s:.1f}s: position RMSE = "
+            f"{horizon_rmse(round(horizon_s / dt)) * 100:.1f} cm"
+        )
+    print(
+        f"  pure open-loop (drift-dominated, not a fidelity metric): "
+        f"{horizon_rmse(None) * 100:.0f} cm"
+    )
 
     print("\nPaste into simulation/kinematic_sim.toml [our_robot]:")
     for key in ("max_linear_speed", "max_angular_speed", "tau_linear", "tau_angular"):

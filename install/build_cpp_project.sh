@@ -36,7 +36,14 @@ build_cpp_project() {
     # Running cmake unconditionally regenerates internal files (compiler_depend.make,
     # Makefile2, etc.) on every invocation, causing spurious "Built target" output
     # and slow cmake overhead even when nothing has changed.
-    if [ ! -f "CMakeCache.txt" ]; then
+    #
+    # Guard on the generated Makefile, not CMakeCache.txt: cmake writes the cache
+    # early in the configure step but only emits the Makefile once generation
+    # completes. If a prior configure was interrupted, the cache exists without a
+    # Makefile; guarding on the cache would skip configure and fail at `make` with
+    # "No targets specified and no makefile found". Guarding on the Makefile
+    # correctly re-runs cmake to finish an interrupted configure.
+    if [ ! -f "Makefile" ]; then
         echo "Running cmake with BUILD_TESTING=${BUILD_TESTING_FLAG} and BUILD_TYPE=${BUILD_TYPE}..."
         cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_TESTING="${BUILD_TESTING_FLAG}" -DBUILD_DEBUG="${BUILD_TESTING_FLAG}"
     fi

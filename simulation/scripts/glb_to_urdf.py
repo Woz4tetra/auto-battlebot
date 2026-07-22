@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 from xml.dom.minidom import parseString
 from xml.etree.ElementTree import Element, SubElement, tostring
 
@@ -23,7 +25,7 @@ import trimesh
 try:
     import tomllib
 except ModuleNotFoundError:
-    import tomli as tomllib  # type: ignore[no-redef]
+    import tomli as tomllib
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +51,8 @@ def _rot_x(angle_deg: float) -> np.ndarray:
 
 
 def _rotate_inertia(inertia: np.ndarray, rotation: np.ndarray) -> np.ndarray:
-    return rotation @ inertia @ rotation.T
+    rotated: np.ndarray = rotation @ inertia @ rotation.T
+    return rotated
 
 
 def _inertia_g_mm2_to_kg_m2(inertia: np.ndarray) -> np.ndarray:
@@ -85,7 +88,7 @@ def _matches(name: str, patterns: list[str]) -> bool:
 
 def _collect_meshes(
     scene: trimesh.Scene,
-    predicate,
+    predicate: Callable[[str], bool],
 ) -> list[trimesh.Trimesh]:
     """Return world-space copies of geometry nodes that satisfy *predicate*."""
     parts: list[trimesh.Trimesh] = []
@@ -97,7 +100,7 @@ def _collect_meshes(
         if not isinstance(geom, trimesh.Trimesh):
             continue
         m = geom.copy()
-        m.apply_transform(transform)
+        m.apply_transform(cast(np.ndarray, transform))
         parts.append(m)
     return parts
 
@@ -114,7 +117,7 @@ def _extract_one_wheel(
         if not _matches(name, patterns):
             return False
         transform, _ = scene.graph[name]
-        return abs(transform[1, 3] - target_y) < tol
+        return bool(abs(cast(np.ndarray, transform)[1, 3] - target_y) < tol)
 
     parts = _collect_meshes(scene, pred)
     if not parts:
@@ -142,7 +145,7 @@ def _extract_chassis(
         if not isinstance(geom, trimesh.Trimesh):
             continue
         m = geom.copy()
-        m.apply_transform(transform)
+        m.apply_transform(cast(np.ndarray, transform))
         result.add_geometry(m, geom_name=f"chassis_{idx}")
         idx += 1
     if idx == 0:
@@ -175,7 +178,7 @@ def _add_inertial(
     SubElement(
         inertial,
         "inertia",
-        **{
+        {
             "ixx": _fmt(inertia[0, 0]),
             "ixy": _fmt(inertia[0, 1]),
             "ixz": _fmt(inertia[0, 2]),

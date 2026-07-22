@@ -37,14 +37,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from mcap_ros1.reader import read_ros1_messages  # noqa: E402
-
 from diag_io import (  # noqa: E402
     ROBOT_MARKERS_TOPIC,
     _log_time_ns,
     frame_name,
     load_diagnostics,
 )
+from mcap_ros1.reader import read_ros1_messages  # noqa: E402
 
 PRESENT_COL = "perc/our_present_live"
 USING_PREV_COL = "nav/using_previous_robots"

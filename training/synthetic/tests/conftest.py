@@ -1,6 +1,6 @@
-"""Pytest setup: make the synthgen package importable without installation."""
+"""Pytest setup for the synthgen tests.
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+synthgen and nhrl_common are importable because scripts/setup_python.sh adds
+training/synthetic to the venv's import path (auto_battlebot.pth in
+site-packages), so no sys.path manipulation is needed here.
+"""

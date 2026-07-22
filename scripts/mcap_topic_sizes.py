@@ -22,11 +22,12 @@ class TopicStats:
 
 
 def human_readable(size_bytes: int) -> str:
+    size = float(size_bytes)
     for unit in ("B", "KB", "MB", "GB"):
-        if size_bytes < 1024:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} TB"
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
 
 def _collect_topic_stats(path: Path) -> TopicStats:
@@ -48,9 +49,11 @@ def _collect_topic_stats(path: Path) -> TopicStats:
             for channel in channels.values():
                 schema = schemas.get(channel.schema_id)
                 topic_type[channel.topic] = schema.name if schema else "unknown"
-            for channel_id, count in summary.statistics.channel_message_counts.items():
-                ch = channels[channel_id]
-                topic_counts[ch.topic] += count
+            stats = summary.statistics
+            if stats is not None:
+                for channel_id, count in stats.channel_message_counts.items():
+                    ch = channels[channel_id]
+                    topic_counts[ch.topic] += count
 
         # Iterate messages to accumulate byte sizes and time spans
         f.seek(0)

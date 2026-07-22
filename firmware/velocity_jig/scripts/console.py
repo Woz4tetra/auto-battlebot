@@ -105,6 +105,37 @@ def do_del(ser, name):
     print("  " + (read_line(ser, 3.0) or "no response"))
 
 
+def format_sample(line):
+    """Format an 'S ...' stream sample for display, or None if it isn't one."""
+    if not line.startswith("S "):
+        return None
+    try:
+        v = line[2:].split(",")
+        t, c = int(v[0]), int(v[1])
+        g = [int(x) * GYRO_DPS_PER_LSB for x in v[2:5]]
+        a = [int(x) * ACCEL_G_PER_LSB for x in v[5:8]]
+    except (ValueError, IndexError):
+        return None
+    return "  %-15d %-7d %8.2f %8.2f %8.2f %7.3f %7.3f %7.3f" % (
+        t,
+        c,
+        g[0],
+        g[1],
+        g[2],
+        a[0],
+        a[1],
+        a[2],
+    )
+
+
+def drain_until_end(ser, timeout=1.0):
+    """Consume lines until 'END' or timeout, after a stream is stopped."""
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        if read_line(ser, 0.3) == "END":
+            break
+
+
 def do_stream(ser):
     send(ser, "STREAM")
     ack = read_line(ser, 2.0)
@@ -124,27 +155,12 @@ def do_stream(ser):
                 ser.write(b"\n")  # tell the firmware to stop
                 break
             if ser.fileno() in r:
-                line = read_line(ser, 0.5)
-                if not line or line == "END":
-                    continue
-                if line.startswith("S "):
-                    try:
-                        v = line[2:].split(",")
-                        t, c = int(v[0]), int(v[1])
-                        g = [int(x) * GYRO_DPS_PER_LSB for x in v[2:5]]
-                        a = [int(x) * ACCEL_G_PER_LSB for x in v[5:8]]
-                        print(
-                            "  %-15d %-7d %8.2f %8.2f %8.2f %7.3f %7.3f %7.3f"
-                            % (t, c, g[0], g[1], g[2], a[0], a[1], a[2])
-                        )
-                    except (ValueError, IndexError):
-                        pass
+                out = format_sample(read_line(ser, 0.5))
+                if out is not None:
+                    print(out)
     except KeyboardInterrupt:
         ser.write(b"\n")
-    t0 = time.time()  # drain until END
-    while time.time() - t0 < 1.0:
-        if read_line(ser, 0.3) == "END":
-            break
+    drain_until_end(ser)
 
 
 def parse_index(cmd, files):
@@ -158,6 +174,70 @@ def parse_index(cmd, files):
     return idx
 
 
+def cmd_list(ser):
+    files = do_list(ser) or []
+    for i, (n, sz) in enumerate(files):
+        print("  %d: %-16s %10d B" % (i, n, sz))
+    if not files:
+        print("  (no files)")
+    return files
+
+
+def cmd_download(ser, cmd, files, outdir):
+    files = files or do_list(ser) or []
+    idx = parse_index(cmd, files)
+    if idx is not None:
+        do_get(ser, files[idx][0], outdir)
+    return files
+
+
+def cmd_all(ser, outdir):
+    files = do_list(ser) or []
+    for n, _ in files:
+        do_get(ser, n, outdir)
+    return files
+
+
+def cmd_delete(ser, cmd, files):
+    files = files or do_list(ser) or []
+    idx = parse_index(cmd, files)
+    if idx is not None:
+        do_del(ser, files[idx][0])
+        files = do_list(ser) or []
+    return files
+
+
+def dispatch(ser, cmd, files, outdir):
+    """Run one console command. Returns (files, keep_going)."""
+    op = cmd[0].lower()
+    if op == "q":
+        return files, False
+    if op == "l":
+        files = cmd_list(ser)
+    elif op == "d":
+        files = cmd_download(ser, cmd, files, outdir)
+    elif op == "a":
+        files = cmd_all(ser, outdir)
+    elif op == "x":
+        files = cmd_delete(ser, cmd, files)
+    elif op == "s":
+        do_stream(ser)
+    else:
+        print("  ?")
+    return files, True
+
+
+def open_serial(port):
+    try:
+        ser = serial.Serial(port, BAUD, timeout=0.2)
+    except serial.SerialException as e:
+        print("Could not open %s: %s" % (port, e))
+        sys.exit(1)
+    time.sleep(0.3)
+    ser.reset_input_buffer()
+    return ser
+
+
 def main():
     ap = argparse.ArgumentParser(description="velocity jig USB console")
     ap.add_argument("-p", "--port", help="serial port (default: first /dev/ttyACM*)")
@@ -168,13 +248,7 @@ def main():
     if not port:
         print("No serial port found. Is the jig plugged in and not in BOOTSEL?")
         sys.exit(1)
-    try:
-        ser = serial.Serial(port, BAUD, timeout=0.2)
-    except serial.SerialException as e:
-        print("Could not open %s: %s" % (port, e))
-        sys.exit(1)
-    time.sleep(0.3)
-    ser.reset_input_buffer()
+    ser = open_serial(port)
     print("velocity jig console on %s  (downloads -> %s/)" % (port, args.outdir))
 
     files = []
@@ -186,35 +260,9 @@ def main():
             break
         if not raw:
             continue
-        cmd = raw.split()
-        op = cmd[0].lower()
-        if op == "q":
+        files, keep_going = dispatch(ser, raw.split(), files, args.outdir)
+        if not keep_going:
             break
-        elif op == "l":
-            files = do_list(ser) or []
-            for i, (n, sz) in enumerate(files):
-                print("  %d: %-16s %10d B" % (i, n, sz))
-            if not files:
-                print("  (no files)")
-        elif op == "d":
-            files = files or do_list(ser) or []
-            idx = parse_index(cmd, files)
-            if idx is not None:
-                do_get(ser, files[idx][0], args.outdir)
-        elif op == "a":
-            files = do_list(ser) or []
-            for n, _ in files:
-                do_get(ser, n, args.outdir)
-        elif op == "x":
-            files = files or do_list(ser) or []
-            idx = parse_index(cmd, files)
-            if idx is not None:
-                do_del(ser, files[idx][0])
-                files = do_list(ser) or []
-        elif op == "s":
-            do_stream(ser)
-        else:
-            print("  ?")
     ser.close()
 
 

@@ -22,11 +22,9 @@ import argparse
 import sys
 from pathlib import Path
 
+import gen_splash_animation as splash
 import numpy as np
 from PIL import Image
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import gen_splash_animation as splash  # noqa: E402
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SUPERSAMPLE = 4

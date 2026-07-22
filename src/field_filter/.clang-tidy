@@ -1,0 +1,9 @@
+# Scoped clang-tidy overrides for src/field_filter/.
+#
+# point_cloud_field_filter.cpp constructs pcl::SampleConsensusModelPlane, whose
+# PCL constructor calls the virtual setInputCloud() internally. The clang static
+# analyzer's opt-in VirtualCall check flags this, but the diagnostic's location
+# is inside the PCL header (third-party code we cannot change) rather than our
+# call site, so a // NOLINT comment cannot suppress it. Disable just this one
+# check here; all other checks inherit clang-tidy's defaults.
+Checks: '-clang-analyzer-optin.cplusplus.VirtualCall'

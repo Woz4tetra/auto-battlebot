@@ -1,4 +1,15 @@
 {
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "clangd-lsp@claude-plugins-official": true
+  },
   "hooks": {
     "Stop": [
       {
@@ -6,11 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/check_python_lint"
-          },
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/check_cpp_format"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/check_and_fix --dry-run --quick"
           }
         ]
       }

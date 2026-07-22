@@ -88,7 +88,7 @@ heavy filled box — the "unobtrusive" requirement.
 ```bash
 ./scripts/build.sh
 git diff --name-only HEAD | grep '\.cpp$' | xargs -r clang-tidy -p build-test/
-./scripts/apply_formatting
+./scripts/check_and_fix
 ```
 
 This is a small, contained change — one draw block in one function.

@@ -2,8 +2,9 @@ import blenderproc as bproc  # noqa: F401  # isort: skip  # must be first import
 
 """Render synthetic YOLO training scenes with BlenderProc.
 
-Usage (unchanged):
-    blenderproc run render_scenes.py -- config.toml [--num-images N]
+Usage (run from training/synthetic/ so synthgen is importable; the docker
+wrapper training/synthetic/docker/run_synthetic.sh sets PYTHONPATH for you):
+    PYTHONPATH="$PWD" blenderproc run render_scenes.py -- config.toml [--num-images N]
         [--render-samples N] [--start-index N] [--seed N] [-v | -q]
 
 All the actual work lives in the ``synthgen`` package next to this script; this
@@ -12,19 +13,17 @@ entry point only parses arguments and hands off to ``synthgen.pipeline.run``.
 
 
 import argparse
-import os
 import random
 import sys
 from pathlib import Path
 
 import numpy as np
 
-# Sibling-package import: blenderproc re-executes this script from a temp dir,
-# so the script's own directory must be put on sys.path explicitly (same
-# pattern as compute_nhrl_keypoints.py).
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from synthgen import logsetup  # noqa: E402
+# synthgen is imported by its top-level package name. blenderproc re-executes
+# this script from a temp dir with its own Python (not the venv), so it must be
+# launched with PYTHONPATH including training/synthetic (set by the docker
+# wrapper; see the module docstring for manual runs).
+from synthgen import logsetup
 
 
 def _parse_render_args() -> argparse.Namespace:

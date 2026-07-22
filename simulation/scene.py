@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import cv2
 import genesis as gs
@@ -174,7 +174,9 @@ def build_scene(cfg: SimConfig, config_dir: Path) -> SceneHandles:
     panorama_bg: npt.NDArray[np.uint8] | None = None
     if arena.panorama is not None:
         pano_path = str(Path(__file__).resolve().parent / "assets" / "panoramas" / arena.panorama)
-        pano_img: npt.NDArray[np.uint8] | None = cv2.imread(pano_path)
+        # cv2.imread's stub type is broader (integer|floating) than the actual
+        # uint8 image (or None on failure) it returns for a normal file load.
+        pano_img = cast("npt.NDArray[np.uint8] | None", cv2.imread(pano_path))
         if pano_img is None:
             print(f"Warning: could not load panorama '{pano_path}', skipping")
         else:

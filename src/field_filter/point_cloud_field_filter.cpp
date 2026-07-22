@@ -319,12 +319,17 @@ Eigen::Matrix4d PointCloudFieldFilter::transform_from_plane(
 
     // Suppress false positive warning from GCC about uninitialized memory in Eigen's FromTwoVectors
     // The warning occurs in Eigen's internal SVD computation but the memory is actually properly
-    // initialized
+    // initialized. -Wmaybe-uninitialized is a GCC-only warning group; guard the pragma so clang
+    // (and clang-tidy) does not report it as an unknown warning option.
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
     // Use Eigen's Quaternion to compute rotation from up to normal
     Eigen::Quaterniond rotation = Eigen::Quaterniond::FromTwoVectors(up, normal);
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
+#endif
 
     // Set rotation part of transform
     transform.block<3, 3>(0, 0) = rotation.toRotationMatrix();

@@ -26,7 +26,8 @@ Use playback mode for development and regression testing.
 Run before committing:
 
 ```bash
-./scripts/apply_formatting
+./scripts/check_and_fix          # apply formatters, then run all lint/type checks
+./scripts/check_and_fix --quick  # skip the slow checks (clang-tidy, mypy)
 ```
 
 - C++: Google style, 4-space indent, 100-char line limit (`.clang-format`)
@@ -69,14 +70,16 @@ Tests use GoogleTest in `tests/`. Build with `build-test/` (debug + `BUILD_TESTI
 Before reporting a feature complete, run:
 
 ```bash
-# Python type checking
-venv/bin/mypy scripts/ simulation/ training/
-
-# C++ static analysis on modified files (build-test/ must exist first)
-git diff --name-only HEAD | grep '\.cpp$' | xargs -r clang-tidy -p build-test/
+# Formatting, C++/Python lint, and Python type checking, all in one pass.
+# Needs build/ to exist first (scripts/build.sh) for the clang-tidy step.
+./scripts/check_and_fix
 ```
 
-Hooks run `ruff check` and `clang-format --dry-run` automatically on every stop.
+This applies formatters, then runs `clang-tidy` (C++ lint over `src/`), `ruff check`
+(Python lint), and `mypy` (types; scope set by `mypy.ini`). Use `--dry-run` to check
+without modifying files and `--quick` to skip the slow checks.
+
+Hooks run `./scripts/check_and_fix --dry-run --quick` automatically on every stop.
 
 ## Platforms
 

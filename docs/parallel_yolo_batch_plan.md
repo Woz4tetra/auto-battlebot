@@ -141,7 +141,7 @@ latency report quantify the win.
 ```bash
 ./scripts/build_and_test.sh --gtest_filter=ParallelModelBatch.*
 git diff --name-only HEAD | grep '\.cpp$' | xargs -r clang-tidy -p build-test/
-./scripts/apply_formatting
+./scripts/check_and_fix
 ```
 
 ## Open questions / follow-ups

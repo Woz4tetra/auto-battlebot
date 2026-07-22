@@ -60,6 +60,12 @@ pip install -U pip
 pip install -e .
 ```
 
+> **Note:** The `blenderproc run …` scripts import sibling modules (`synthgen`,
+> `nhrl_common`) by top-level name. BlenderProc uses Blender's own Python, not
+> the project venv, so run them from `training/synthetic/` with
+> `PYTHONPATH="$PWD"` (e.g. `PYTHONPATH="$PWD" blenderproc run render_scenes.py -- config.toml`).
+> The `docker/run_synthetic.sh` wrapper sets `PYTHONPATH` automatically.
+
 ## Quick Start
 
 ### 1. Export your robot from OnShape

@@ -131,7 +131,7 @@ type = "FixedMaskModel"   # or whatever satisfies the runner guard
 ```bash
 ./scripts/build_and_test.sh --gtest_filter=FreeRoamFieldFilter.*
 git diff --name-only HEAD | grep '\.cpp$' | xargs -r clang-tidy -p build-test/
-./scripts/apply_formatting
+./scripts/check_and_fix
 ```
 
 ## Open questions

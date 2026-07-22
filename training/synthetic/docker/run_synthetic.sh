@@ -68,9 +68,16 @@ fi
 # The entrypoint reads these and drops privileges.
 docker_id_args=(-e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)")
 
+# blenderproc runs Blender's own Python (not the project venv), so the synthetic
+# scripts' sibling modules (synthgen, nhrl_common) are made importable via
+# PYTHONPATH here instead of an in-script sys.path hack. Matches the container
+# working directory (-w below).
+docker_env_args=(-e PYTHONPATH=/workspace/training/synthetic)
+
 run_cmd=(
   docker run "${docker_gpu_args[@]}" --rm "${docker_tty_args[@]}"
   "${docker_id_args[@]}"
+  "${docker_env_args[@]}"
   -v "${repo_root}:/workspace"
   -v "${hf_cache_host}:/opt/hf"
   -w /workspace/training/synthetic
@@ -101,6 +108,7 @@ if [ $gpu_probe_exit -ne 0 ]; then
   echo "Tip: install/configure NVIDIA Container Toolkit for GPU runs." >&2
   docker run --rm "${docker_tty_args[@]}" \
     "${docker_id_args[@]}" \
+    "${docker_env_args[@]}" \
     -v "${repo_root}:/workspace" \
     -v "${hf_cache_host}:/opt/hf" \
     -w /workspace/training/synthetic \

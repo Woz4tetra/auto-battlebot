@@ -6,7 +6,7 @@ import math
 import socket
 import struct
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import genesis as gs
@@ -203,7 +203,7 @@ class SimRunner:
                 where=self._bg_mask[:, :, np.newaxis],
             )
 
-    def _get_entity_yaw(self, entity) -> float:
+    def _get_entity_yaw(self, entity: Any) -> float:
         """Extract yaw (Z-axis rotation) from a Genesis entity's quaternion."""
         quat = entity.get_quat().cpu().numpy().squeeze()  # (w, x, y, z)
         w, x, y, z = float(quat[0]), float(quat[1]), float(quat[2]), float(quat[3])

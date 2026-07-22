@@ -31,14 +31,12 @@ from typing import Any
 import matplotlib
 
 matplotlib.use("Agg")  # headless: render plots to files
+import diag_io  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import tomli_w  # noqa: E402
 import tomllib  # noqa: E402
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import diag_io  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BINARY = REPO_ROOT / "build" / "auto_battlebot"
@@ -335,9 +333,17 @@ def plot_run(
     if "distance" in df.columns:
         ax.plot(t, df["distance"], lw=0.9)
         if static_goal:
-            ax.axhline(goal_tolerance, color="crimson", ls=":", lw=1, label=f"goal tol {goal_tolerance:.2f} m")
+            ax.axhline(
+                goal_tolerance,
+                color="crimson",
+                ls=":",
+                lw=1,
+                label=f"goal tol {goal_tolerance:.2f} m",
+            )
         else:
-            ax.axhline(contact_dist, color="red", ls="--", lw=1, label=f"contact {contact_dist:.2f} m")
+            ax.axhline(
+                contact_dist, color="red", ls="--", lw=1, label=f"contact {contact_dist:.2f} m"
+            )
         ax.legend()
     ax.set_title("distance to goal" if static_goal else "distance to opponent")
     ax.set_xlabel("sim time (s)")

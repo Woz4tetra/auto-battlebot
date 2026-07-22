@@ -17,10 +17,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
-from tqdm import tqdm
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 from load_deeplabv3 import common_transforms, load_model
+from tqdm import tqdm
 
 FLOOR_CLASS = 1
 OVERLAY_COLOR = (0, 255, 0)

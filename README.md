@@ -177,10 +177,10 @@ To run unit tests:
 
 ## Code Style
 
-There is no strict style guide yet. Running the formatter script applies baseline corrections:
+There is no strict style guide yet. Running the check-and-fix script applies baseline corrections:
 
 ```bash
-./scripts/apply_formatting
+./scripts/check_and_fix
 ```
 
 #### Footnotes

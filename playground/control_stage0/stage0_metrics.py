@@ -27,17 +27,13 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")  # headless: render plots to files, no display
+import diag_io  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import diag_io  # noqa: E402
-
 # Reuse the sibling analyzer's contact metric.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from analyze_nav_diagnostics import compute_time_to_target  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -102,9 +98,7 @@ def auto_window(df: pd.DataFrame) -> pd.DataFrame:
     return df.iloc[first : last + 1].reset_index(drop=True)
 
 
-def merge_sources(
-    diag: pd.DataFrame, tracks: pd.DataFrame, cam: pd.DataFrame
-) -> pd.DataFrame:
+def merge_sources(diag: pd.DataFrame, tracks: pd.DataFrame, cam: pd.DataFrame) -> pd.DataFrame:
     diag = diag.sort_values("timestamp_ns").reset_index(drop=True)
     tol = int(60e6)  # 60 ms
     if not tracks.empty:
@@ -132,9 +126,7 @@ def merge_sources(
 
 
 def report_latency(df: pd.DataFrame) -> None:
-    print(
-        "LATENCY (perception + compute only; excludes Crossfire ~20ms and ESC/mechanical tail)"
-    )
+    print("LATENCY (perception + compute only; excludes Crossfire ~20ms and ESC/mechanical tail)")
     if "pipeline/latency_ms" in df.columns:
         s = _stats(df["pipeline/latency_ms"])
         print(
@@ -145,9 +137,7 @@ def report_latency(df: pd.DataFrame) -> None:
     ):
         name = col[len("stage/") : -len("/elapsed_ms")]
         s = _stats(df[col])
-        print(
-            f"  {name:24s} p50 {s['p50']:6.1f}  p95 {s['p95']:6.1f}  max {s['max']:6.1f}  ms"
-        )
+        print(f"  {name:24s} p50 {s['p50']:6.1f}  p95 {s['p95']:6.1f}  max {s['max']:6.1f}  ms")
     print()
 
 
@@ -176,9 +166,7 @@ def report_reliability(df: pd.DataFrame, duration_s: float) -> None:
         if prim is not None:
             nonempty = prim.fillna("").astype(str)
             switches = (
-                (nonempty != nonempty.shift(1))
-                & (nonempty != "")
-                & (nonempty.shift(1) != "")
+                (nonempty != nonempty.shift(1)) & (nonempty != "") & (nonempty.shift(1) != "")
             ).sum()
             rate = switches / duration_s if duration_s else 0.0
             print(
@@ -193,18 +181,14 @@ def report_aim(df: pd.DataFrame) -> None:
     n = len(df)
     if "facing_target" in df.columns:
         facing = df["facing_target"].fillna(0) > 0.5
-        print(
-            f"  facing target (drive-enabled): {_pct(int(facing.sum()), n):5.1f}% of frames"
-        )
+        print(f"  facing target (drive-enabled): {_pct(int(facing.sum()), n):5.1f}% of frames")
     if "angle_error_deg" in df.columns:
         s = _stats(df["angle_error_deg"].abs())
         print(f"  |angle error|  median {s['p50']:5.1f}  p95 {s['p95']:5.1f}  deg")
     print()
 
 
-def report_overshoot(
-    df: pd.DataFrame, field_size, wall_margin: float, contact_dist: float
-) -> None:
+def report_overshoot(df: pd.DataFrame, field_size, wall_margin: float, contact_dist: float) -> None:
     print("OVERSHOOT / WALL CONTACT")
     if field_size is None or "our_x" not in df.columns:
         print("  field size or our pose unavailable; skipped\n")
@@ -226,9 +210,7 @@ def report_overshoot(
         ttc = compute_time_to_target(df, threshold_m=contact_dist)
         reached = df["distance"] < contact_dist
         ttc_str = (
-            f"first contact at {ttc:.1f} s into window"
-            if ttc is not None
-            else "never reached"
+            f"first contact at {ttc:.1f} s into window" if ttc is not None else "never reached"
         )
         print(
             f"  target distance: median {df['distance'].median():.2f} m; "
@@ -242,9 +224,7 @@ def report_overshoot(
 def report_projection_error(
     df: pd.DataFrame, field_size, keypoint_height: float, wall_margin: float
 ) -> None:
-    print(
-        f"FLAT-PLANE PROJECTION ERROR (assumed keypoint height {keypoint_height * 100:.0f} cm)"
-    )
+    print(f"FLAT-PLANE PROJECTION ERROR (assumed keypoint height {keypoint_height * 100:.0f} cm)")
     if "cam_x" not in df.columns or "our_x" not in df.columns:
         print("  camera pose or our pose unavailable; skipped\n")
         return
@@ -299,13 +279,9 @@ def augment(win: pd.DataFrame, field_size, keypoint_height: float) -> pd.DataFra
     win = win.copy()
     if field_size is not None and "our_x" in win.columns:
         half_x, half_y = field_size[0] / 2.0, field_size[1] / 2.0
-        win["wall_dist"] = np.minimum(
-            half_x - win["our_x"].abs(), half_y - win["our_y"].abs()
-        )
+        win["wall_dist"] = np.minimum(half_x - win["our_x"].abs(), half_y - win["our_y"].abs())
     if "cam_x" in win.columns and "our_x" in win.columns:
-        horiz = np.sqrt(
-            (win["our_x"] - win["cam_x"]) ** 2 + (win["our_y"] - win["cam_y"]) ** 2
-        )
+        horiz = np.sqrt((win["our_x"] - win["cam_x"]) ** 2 + (win["our_y"] - win["cam_y"]) ** 2)
         win["proj_err"] = (keypoint_height / win["cam_z"]) * horiz
     return win
 
@@ -332,15 +308,11 @@ def plot_fight_detail(win: pd.DataFrame, field_size, label: str, out: Path) -> N
     # (a) Trajectory coloured by distance to nearest wall.
     ax = axes[0, 0]
     if "our_x" in win.columns and "wall_dist" in win.columns:
-        sc = ax.scatter(
-            win["our_x"], win["our_y"], c=win["wall_dist"], s=4, cmap="viridis"
-        )
+        sc = ax.scatter(win["our_x"], win["our_y"], c=win["wall_dist"], s=4, cmap="viridis")
         fig.colorbar(sc, ax=ax, label="distance to wall (m)")
         if field_size is not None:
             hx, hy = field_size[0] / 2.0, field_size[1] / 2.0
-            ax.add_patch(
-                plt.Rectangle((-hx, -hy), 2 * hx, 2 * hy, fill=False, ec="red", lw=1.5)
-            )
+            ax.add_patch(plt.Rectangle((-hx, -hy), 2 * hx, 2 * hy, fill=False, ec="red", lw=1.5))
         ax.set_aspect("equal")
     ax.set_title("Our trajectory (field frame)")
     ax.set_xlabel("x (m)")
@@ -451,15 +423,11 @@ def analyze(path: Path, args) -> dict:
     report_reliability(win, duration)
     report_aim(win)
     report_overshoot(win, field_size, args.wall_contact_margin, args.contact_distance)
-    report_projection_error(
-        win, field_size, args.keypoint_height, args.wall_contact_margin
-    )
+    report_projection_error(win, field_size, args.keypoint_height, args.wall_contact_margin)
 
     win = augment(win, field_size, args.keypoint_height)
     # Short label: the fight time-of-day from the filename.
-    label = path.stem.replace("auto_battlebot_main_2026-05-02_", "").replace(
-        "_repaired", ""
-    )
+    label = path.stem.replace("auto_battlebot_main_2026-05-02_", "").replace("_repaired", "")
     summary = build_summary(win, label, args.wall_contact_margin)
 
     if args.csv:

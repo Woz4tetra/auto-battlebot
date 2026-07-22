@@ -13,24 +13,26 @@ import blenderproc as bproc  # isort: skip  # must be first import for blenderpr
 #     so review_nhrl_keypoints.py can overlay a draggable centerline that lines
 #     up exactly with the render, without loading the mesh itself.
 #
-# Usage (under BlenderProc, e.g. inside the synthetic Docker image):
+# Usage (under BlenderProc; run from training/synthetic/ so nhrl_common is
+# importable — the docker wrapper run_synthetic.sh sets PYTHONPATH; for a manual
+# run prefix the command with PYTHONPATH="$PWD"):
 #     blenderproc run compute_nhrl_keypoints.py -- ../data/distractor_models/robots
 #     blenderproc run compute_nhrl_keypoints.py -- ../data/distractor_models/robots --overwrite
 
 import argparse
-import os
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import bpy
 import cv2
 import mathutils
+import nhrl_common as nc
 import numpy as np
 from bpy_extras.object_utils import world_to_camera_view
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import nhrl_common as nc  # noqa: E402  - must follow the sys.path insert above
+# nhrl_common is imported by top-level name. blenderproc runs this script under
+# its own Python (not the venv), so it must be launched with PYTHONPATH
+# including training/synthetic (set by the docker wrapper; see the docstring).
 
 
 def _clear_scene() -> None:

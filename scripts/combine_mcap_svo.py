@@ -27,7 +27,7 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
-from typing import IO, List, Optional, Tuple
+from typing import IO, Any, Iterator, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -252,7 +252,7 @@ def _iter_with_source(
     *,
     start_time: Optional[int] = None,
     end_time: Optional[int] = None,
-):
+) -> Iterator[Tuple[int, int, Any, Any, Any]]:
     """Yield (log_time, source_idx, schema, channel, message) for heapq.merge."""
     with open(mcap_path, "rb") as f:
         reader = make_reader(f)
@@ -539,7 +539,7 @@ def merge_mcaps(
             schema_id=left_image_schema_id,
         )
 
-        def get_writer_channel_id(source_idx, schema, channel):
+        def get_writer_channel_id(source_idx: int, schema: Any, channel: Any) -> int:
             cmap = channel_remap[source_idx]
             if channel.id in cmap:
                 return cmap[channel.id]

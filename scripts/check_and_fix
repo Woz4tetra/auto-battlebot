@@ -1,0 +1,182 @@
+#!/bin/bash
+# check_and_fix: format the tree and run every lint / type check in one pass.
+#
+# This is the single entry point for formatting and static checks. It replaces
+# the former apply_formatting / check_cpp_format / check_cpp_lint /
+# check_python_lint scripts.
+#
+# Steps (in order):
+#   1. clang-format   C/C++ under src/ include/ tests/   (apply, or --dry-run check)
+#   2. taplo          TOML under config/                  (apply, or --dry-run check)
+#   3. ruff format    Python under scripts/ etc.          (apply, or --dry-run check)
+#   4. ruff check     Python lint                         (report)
+#   5. clang-tidy     C/C++ lint over src/  [slow]        (report; needs build/)
+#   6. mypy           Python type check (scope from mypy.ini)  [slow]
+#
+# Options:
+#   --dry-run   Do not modify files: check formatting instead of applying it,
+#               so the run is a pure pass/fail gate (use in CI / hooks).
+#   --quick     Skip the slow checks (clang-tidy and mypy) for fast iteration.
+#   -h, --help  Show this help.
+#
+# Every step runs even if an earlier one fails; the script exits non-zero if any
+# check failed.
+
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BUILD_DIR="$PROJECT_ROOT/build"
+
+DRY_RUN=false
+QUICK=false
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        --quick) QUICK=true ;;
+        -h | --help)
+            # Print only the leading comment block (skip shebang, stop at first
+            # non-comment line).
+            awk 'NR==1 {next} /^#/ {sub(/^# ?/, ""); print; next} {exit}' "$0"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $arg (try --help)" >&2
+            exit 2
+            ;;
+    esac
+done
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# Put the project venv on PATH so ruff / mypy resolve.
+VENV_BIN="$PROJECT_ROOT/venv/bin"
+if [ -d "$VENV_BIN" ]; then
+    export PATH="$VENV_BIN:$PATH"
+fi
+
+FAILED=()
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+# mode-label: "check" under --dry-run, else "apply", for formatter headers.
+mode_label() { [ "$DRY_RUN" = true ] && echo "check" || echo "apply"; }
+
+header() { echo -e "${YELLOW}==> $1${NC}"; }
+
+record() { # $1 label, $2 exit-code
+    if [ "$2" -eq 0 ]; then
+        echo -e "${GREEN}    ✓ $1${NC}"
+    else
+        echo -e "${RED}    ✗ $1${NC}"
+        FAILED+=("$1")
+    fi
+}
+
+missing() { echo -e "${DIM}    - $1 (skipped: $2 not found)${NC}"; }
+
+skipped_quick() { echo -e "${DIM}    - $1 (skipped: --quick)${NC}"; }
+
+# Null-delimited list of C/C++ sources.
+cpp_files() {
+    find "$PROJECT_ROOT/src" "$PROJECT_ROOT/include" "$PROJECT_ROOT/tests" \
+        \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.c' \) -print0
+}
+
+# Python dirs for ruff format / ruff check (mypy uses mypy.ini scope instead).
+PY_FMT_DIRS=(
+    "$PROJECT_ROOT/scripts"
+    "$PROJECT_ROOT/simulation"
+    "$PROJECT_ROOT/training"
+    "$PROJECT_ROOT/firmware"
+)
+
+# ---- 1. clang-format ----
+header "clang-format ($(mode_label))"
+if have clang-format; then
+    if [ "$DRY_RUN" = true ]; then
+        cpp_files | xargs -0 -r clang-format --dry-run --Werror
+    else
+        cpp_files | xargs -0 -r clang-format -i
+    fi
+    record "clang-format" $?
+else
+    missing "clang-format" "clang-format"
+fi
+
+# ---- 2. taplo (TOML) ----
+header "taplo ($(mode_label))"
+if have taplo; then
+    if [ "$DRY_RUN" = true ]; then
+        find "$PROJECT_ROOT/config" -name '*.toml' -print0 | xargs -0 -r taplo format --check
+    else
+        find "$PROJECT_ROOT/config" -name '*.toml' -print0 | xargs -0 -r taplo format
+    fi
+    record "taplo" $?
+else
+    missing "taplo" "taplo"
+fi
+
+# ---- 3. ruff format ----
+# ruff excludes venv/.venv by default, so passing directories is safe.
+header "ruff format ($(mode_label))"
+if have ruff; then
+    if [ "$DRY_RUN" = true ]; then
+        ruff format --check "${PY_FMT_DIRS[@]}"
+    else
+        ruff format "${PY_FMT_DIRS[@]}"
+    fi
+    record "ruff format" $?
+else
+    missing "ruff format" "ruff"
+fi
+
+# ---- 4. ruff check (Python lint) ----
+header "ruff check"
+if have ruff; then
+    ruff check "${PY_FMT_DIRS[@]}"
+    record "ruff check" $?
+else
+    missing "ruff check" "ruff"
+fi
+
+# ---- 5. clang-tidy (C/C++ lint) — slow ----
+header "clang-tidy"
+if [ "$QUICK" = true ]; then
+    skipped_quick "clang-tidy"
+elif ! have run-clang-tidy; then
+    missing "clang-tidy" "run-clang-tidy"
+elif [ ! -f "$BUILD_DIR/compile_commands.json" ]; then
+    echo -e "${RED}    ✗ clang-tidy (no build/compile_commands.json — run scripts/build.sh)${NC}"
+    FAILED+=("clang-tidy")
+else
+    run-clang-tidy -p "$BUILD_DIR" "^${PROJECT_ROOT}/src/"
+    record "clang-tidy" $?
+fi
+
+# ---- 6. mypy (Python types) — slow ----
+# Run bare from the project root so mypy.ini drives the scope (files= and
+# mypy_path). Passing directories here would override that config and break
+# local-module resolution.
+header "mypy"
+if [ "$QUICK" = true ]; then
+    skipped_quick "mypy"
+elif have mypy; then
+    (cd "$PROJECT_ROOT" && mypy)
+    record "mypy" $?
+else
+    missing "mypy" "mypy"
+fi
+
+echo "========================================"
+if [ ${#FAILED[@]} -eq 0 ]; then
+    echo -e "${GREEN}All checks passed.${NC}"
+    exit 0
+else
+    echo -e "${RED}Failed: ${FAILED[*]}${NC}"
+    exit 1
+fi

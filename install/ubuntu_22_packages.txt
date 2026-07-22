@@ -5,6 +5,14 @@
 libopencv-dev
 libnvinfer-dev
 
+# clang-tidy (installed via base_packages.txt) auto-selects the newest GCC
+# toolchain it finds under /usr/lib/gcc. On 22.04, gcc-12 is commonly pulled in
+# as a transitive dep, so clang picks it and looks for libstdc++ headers under
+# /usr/include/c++/12. Without libstdc++-12-dev those headers are absent and
+# every file fails lint with "'array' file not found". Install it so the
+# toolchain clang selects always has matching C++ standard-library headers.
+libstdc++-12-dev
+
 python3.11@ppa:deadsnakes/ppa
 python3.11-venv
 python3.11-dev
