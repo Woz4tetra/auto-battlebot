@@ -423,9 +423,12 @@ bool Runner::tick() {
                 our_live = 1;
             }
         }
-        diagnostics_logger_->debug("perception", {{"their_count_total", their_total},
-                                                  {"their_count_live", their_live},
-                                                  {"our_present_live", our_live}});
+        const int our_blob_no_keypoint = robot_filter_->last_our_blob_present_no_keypoint() ? 1 : 0;
+        diagnostics_logger_->debug("perception",
+                                   {{"their_count_total", their_total},
+                                    {"their_count_live", their_live},
+                                    {"our_present_live", our_live},
+                                    {"our_blob_present_no_keypoint", our_blob_no_keypoint}});
     }
 
     {

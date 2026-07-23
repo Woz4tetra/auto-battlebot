@@ -33,6 +33,11 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
                                     CameraInfo camera_info, KeypointsStamped robot_blob_keypoints,
                                     CommandFeedback command_feedback) override;
 
+    /** See RobotFilterInterface::last_our_blob_present_no_keypoint. */
+    bool last_our_blob_present_no_keypoint() const override {
+        return our_blob_present_no_keypoint_;
+    }
+
    private:
     std::unordered_map<Label, RobotConfig> robot_configs_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
@@ -52,6 +57,13 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     RobotKeypointTracker robot_keypoint_tracker_;
     FrameIdAssigner frame_id_assigner_;
     RobotTemporalMotionFilter temporal_motion_filter_;
+
+    /** Leak-opportunity flag for the most recent update(); see the interface accessor. */
+    bool our_blob_present_no_keypoint_ = false;
+    /** Last emitted OUR_ROBOT_1 pose (measured or predicted), the held-pose anchor for the flag. */
+    bool has_last_our_position_ = false;
+    Position last_our_position_{};
+    double last_our_size_x_ = 0.0;
 
     /**
      * Converts front/back keypoint detections into field-frame RobotDescriptions.
@@ -82,6 +94,19 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     bool is_blob_suppressed_by_keypoint(
         const RobotKeypointDetection &blob,
         const std::vector<RobotDescription> &keypoint_measurements) const;
+
+    /**
+     * Returns true if this is a keypoint-override leak-opportunity tick: our robot has a held pose
+     * from a recent frame (has_last_our_position_), no OUR_ROBOT_1 keypoint measurement exists this
+     * frame, and at least one surviving blob falls within the suppression radius of the held pose.
+     * That blob would otherwise be emitted as an opponent at our robot's location.
+     */
+    bool detect_our_blob_leak_opportunity(
+        const std::vector<RobotKeypointDetection> &surviving_blobs,
+        const std::vector<RobotDescription> &keypoint_measurements) const;
+
+    /** Refreshes the held OUR_ROBOT_1 pose anchor from this frame's emitted descriptions. */
+    void update_our_position_anchor(const std::vector<RobotDescription> &descriptions);
 
     /**
      * Returns the free FrameIds available to assign for this label. If the label's own FrameIds

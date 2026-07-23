@@ -72,6 +72,42 @@ void append_keypoint_pair(KeypointsStamped &keypoints, Label label, KeypointLabe
     back.confidence = confidence;
     keypoints.keypoints.push_back(back);
 }
+
+KeypointsStamped make_our_keypoints(double stamp, double front_x, double back_x, double y) {
+    KeypointsStamped keypoints;
+    keypoints.header.frame_id = FrameId::CAMERA;
+    keypoints.header.stamp = stamp;
+    append_keypoint_pair(keypoints, Label::MRS_BUFF_MK3, KeypointLabel::MRS_BUFF_MK3_FRONT,
+                         KeypointLabel::MRS_BUFF_MK3_BACK, 1, front_x, back_x, y, 0.9);
+    return keypoints;
+}
+
+KeypointsStamped make_opponent_blob(double stamp, double front_x, double back_x, double y) {
+    KeypointsStamped blob;
+    blob.header.frame_id = FrameId::CAMERA;
+    blob.header.stamp = stamp;
+    append_keypoint_pair(blob, Label::OPPONENT, KeypointLabel::OPPONENT_FRONT,
+                         KeypointLabel::OPPONENT_BACK, 1, front_x, back_x, y, 0.8);
+    return blob;
+}
+
+// Config where MRS_BUFF_MK3 keypoints are our robot (OUR_ROBOT_1) and OPPONENT slots are theirs.
+RobotFrontBackSimpleFilterConfiguration make_our_robot_config() {
+    RobotFrontBackSimpleFilterConfiguration config;
+    config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK3_FRONT};
+    config.back_keypoints = {KeypointLabel::OPPONENT_BACK, KeypointLabel::MRS_BUFF_MK3_BACK};
+    config.label_to_frame_ids = {{Label::MRS_BUFF_MK3, {FrameId::OUR_ROBOT_1}}};
+    config.default_frame_id = FrameId::OUR_ROBOT_1;
+    config.max_jump_distance = 1.0;
+    config.max_consecutive_jump_rejects = 1;
+    config.blob_overwrite_min_distance_meters = 0.3;
+    config.blob_overwrite_size_scale = 0.5;
+    config.robot_keypoint_tracker_config.min_length_meters = 0.05;
+    config.robot_keypoint_tracker_config.max_length_meters = 2.0;
+    config.robot_keypoint_tracker_config.min_confidence = 0.2;
+    config.robot_keypoint_tracker_config.max_candidates = 8;
+    return config;
+}
 }  // namespace
 
 TEST(RobotFrontBackSimpleFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) {
@@ -238,5 +274,75 @@ TEST(RobotFrontBackSimpleFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlo
     // Remaining OPPONENT blob lands in THEIR_ROBOT_1, label unchanged.
     EXPECT_EQ(opponent_meas->label, Label::OPPONENT);
     EXPECT_EQ(opponent_meas->group, Group::THEIRS);
+}
+
+// Leak-opportunity flag (Tier 0 of docs/robot_filter_decay_plan.md): after our robot has been
+// tracked, a frame where its keypoint drops out but a blob coincides with its held pose is the
+// exact tick the identity decay would fix. The filter must flag it.
+TEST(RobotFrontBackSimpleFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
+    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+    RobotFrontBackSimpleFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    const KeypointsStamped no_blob;
+    const CommandFeedback command_feedback;
+
+    // Frame 1: our robot measured by keypoints, no blob. Establishes the held pose; not a leak.
+    const auto first = filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field,
+                                     camera_info, no_blob, command_feedback);
+    ASSERT_EQ(first.descriptions.size(), 1u);
+    ASSERT_EQ(first.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
+    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+
+    // Frame 2: our keypoint drops out; a blob sits where our robot was. This is a leak-opportunity.
+    const KeypointsStamped no_keypoints;
+    const auto second =
+        filter.update(no_keypoints, field, camera_info,
+                      make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
+    EXPECT_TRUE(filter.last_our_blob_present_no_keypoint());
+    (void)second;
+}
+
+// A blob far from our robot's held pose is a genuine opponent, not a leak.
+TEST(RobotFrontBackSimpleFilterTest, NoLeakFlagWhenBlobFarFromHeldPose) {
+    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+    RobotFrontBackSimpleFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    const KeypointsStamped no_blob;
+    const CommandFeedback command_feedback;
+
+    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+                  command_feedback);
+
+    // Keypoint miss, but the blob is well away from the held pose (far in image y).
+    const KeypointsStamped no_keypoints;
+    filter.update(no_keypoints, field, camera_info, make_opponent_blob(1.1, 300.0, 340.0, 380.0),
+                  command_feedback);
+    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+}
+
+// When our keypoint is present the blob is suppressed / double-counts, so it is never a leak.
+TEST(RobotFrontBackSimpleFilterTest, NoLeakFlagWhenOurKeypointPresent) {
+    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+    RobotFrontBackSimpleFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    const KeypointsStamped no_blob;
+    const CommandFeedback command_feedback;
+
+    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+                  command_feedback);
+
+    // Our keypoint is present again this frame alongside a coincident blob: not a leak-opportunity.
+    filter.update(make_our_keypoints(1.1, 300.0, 340.0, 220.0), field, camera_info,
+                  make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
+    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
 }
 }  // namespace auto_battlebot

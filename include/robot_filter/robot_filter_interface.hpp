@@ -11,6 +11,14 @@ class RobotFilterInterface {
                                             CameraInfo camera_info,
                                             KeypointsStamped robot_blob_keypoints,
                                             CommandFeedback command_feedback) = 0;
+
+    /**
+     * True if, on the most recent update(), our robot's keypoint was missing this frame yet a blob
+     * detection coincided with our robot's held pose -- the exact "leak-opportunity" tick the
+     * keypoint-override identity decay would fix (docs/robot_filter_decay_plan.md, Tier 0). Filters
+     * that do not track this return false.
+     */
+    virtual bool last_our_blob_present_no_keypoint() const { return false; }
 };
 
 }  // namespace auto_battlebot

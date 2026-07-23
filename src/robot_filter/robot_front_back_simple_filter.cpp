@@ -107,6 +107,9 @@ bool RobotFrontBackSimpleFilter::initialize(int opponent_count) {
     robot_configs_.clear();
     frame_id_assigner_.reset();
     temporal_motion_filter_.reset();
+    our_blob_present_no_keypoint_ = false;
+    has_last_our_position_ = false;
+    last_our_size_x_ = 0.0;
     for (const auto &[label, frame_ids] : label_to_frame_ids_) {
         robot_configs_[label] = RobotConfig{label, infer_group_from_frame_ids(frame_ids)};
     }
@@ -126,6 +129,8 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
     const Eigen::Matrix4d tf_fieldcenter_from_camera =
         field.tf_camera_from_fieldcenter.tf.inverse();
 
+    our_blob_present_no_keypoint_ = false;
+
     auto all_measurements = convert_keypoints_to_measurements(keypoints, field, camera_info,
                                                               tf_fieldcenter_from_camera);
     erase_out_of_field(all_measurements, field, field_bounds_margin_meters_);
@@ -141,6 +146,10 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
     result.descriptions = temporal_motion_filter_.update_with_prediction(
         all_measurements, command_feedback, result.header.stamp, frame_id_assigner_, field,
         field_bounds_margin_meters_);
+
+    // Anchor the held OUR_ROBOT_1 pose from this frame's output (measured or predicted) so the next
+    // frame's leak-opportunity check has a reference even when our keypoint drops out.
+    update_our_position_anchor(result.descriptions);
 
     diagnostics_logger_->debug(
         {{"num_input_keypoints", static_cast<int>(keypoints.keypoints.size())},
@@ -174,6 +183,47 @@ bool RobotFrontBackSimpleFilter::is_blob_suppressed_by_keypoint(
                                blob.description.pose.position, keypoint_measurement.pose.position);
                            return dist <= overwrite_radius;
                        });
+}
+
+bool RobotFrontBackSimpleFilter::detect_our_blob_leak_opportunity(
+    const std::vector<RobotKeypointDetection> &surviving_blobs,
+    const std::vector<RobotDescription> &keypoint_measurements) const {
+    // Needs a recent held pose for our robot; without one there is nothing to leak against.
+    if (!has_last_our_position_) return false;
+
+    // Only a tick where our robot's keypoint is missing can leak (otherwise the blob is suppressed
+    // by, or double-counts, the real keypoint measurement).
+    const bool our_keypoint_present =
+        std::any_of(keypoint_measurements.begin(), keypoint_measurements.end(),
+                    [](const RobotDescription &measurement) {
+                        return measurement.frame_id == FrameId::OUR_ROBOT_1;
+                    });
+    if (our_keypoint_present) return false;
+
+    // Any surviving blob within the (same-shaped) suppression radius of the held pose would leak.
+    // The held size stands in for the absent keypoint's size in the adaptive radius.
+    return std::any_of(
+        surviving_blobs.begin(), surviving_blobs.end(), [this](const RobotKeypointDetection &blob) {
+            const double radius =
+                std::max(blob_overwrite_min_distance_meters_,
+                         blob_overwrite_size_scale_ * (blob.description.size.x + last_our_size_x_));
+            return position_distance(blob.description.pose.position, last_our_position_) <= radius;
+        });
+}
+
+void RobotFrontBackSimpleFilter::update_our_position_anchor(
+    const std::vector<RobotDescription> &descriptions) {
+    for (const auto &description : descriptions) {
+        if (description.frame_id == FrameId::OUR_ROBOT_1) {
+            has_last_our_position_ = true;
+            last_our_position_ = description.pose.position;
+            last_our_size_x_ = description.size.x;
+            return;
+        }
+    }
+    // Our robot is no longer tracked (measured or predicted); drop the stale anchor so we do not
+    // flag leaks against a position our robot has genuinely left.
+    has_last_our_position_ = false;
 }
 
 std::vector<FrameId> RobotFrontBackSimpleFilter::get_assignment_frame_ids(
@@ -225,6 +275,11 @@ void RobotFrontBackSimpleFilter::merge_blob_detections(
                            return is_blob_suppressed_by_keypoint(blob, keypoint_measurements);
                        }),
         blob_detections.end());
+
+    // A surviving blob near our held pose while our keypoint is missing is a leak-opportunity: it
+    // would be assigned an opponent FrameId at our robot's location (Tier 0 metric).
+    our_blob_present_no_keypoint_ =
+        detect_our_blob_leak_opportunity(blob_detections, keypoint_measurements);
 
     diagnostics_logger_->debug(
         {{"num_blob_candidates_before_overwrite", blob_candidates_before_overwrite},
