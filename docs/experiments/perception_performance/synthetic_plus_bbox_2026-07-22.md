@@ -1,146 +1,157 @@
 # Synthetic + real bbox opponent detector, 2026-07-22
 
-Analysis date: 2026-07-22. Question: does adding the available synthetic opponent diversity to the real
-bbox training set improve opponent detection, without regressing our robots? Answer on the real
-held-out val split: **yes, modestly and where it matters** — the main opponent class gains ~2 pp recall
-and a little AP, our robots hold or improve slightly, at the cost of a small tight-IoU dip on house_bot.
-The independent-eval grade (unseen fights) remains a dev-box follow-up.
+Analysis date: 2026-07-22 (val split); **independent eval added 2026-07-23**. Question: does adding the
+available synthetic opponent diversity to the real bbox training set improve opponent detection without
+regressing our robots? **Definitive answer (independent eval of unseen fights): no.** Adding the
+synthetic gives **no statistically significant change** on the held-out eval — all 12 paired-bootstrap
+tests are `ns` — and the point estimates trend **slightly negative** on opponents. The apparent gain seen
+on the same-corpus val split **did not generalize**. Recommendation: **do not adopt `mix_all`; keep the
+real-only detector.**
 
-Plan: `synthetic_plus_bbox_plan.md`. This is the results writeup.
+Plan: `synthetic_plus_bbox_plan.md`.
 
 ## Summary
 
-- **Opponent recall improves.** The dominant opponent class `robot` gains **recall 0.877 → 0.896
-  (+0.0195)** on 9,191 val instances (~180 more opponents found), with mAP50 +0.002. The smaller generic
-  `object` blob class gains mAP50 +0.015 and mAP50-95 +0.010. Synthetic diversity helped exactly the
-  class the experiment targeted.
-- **Our robots are not hurt** (target selection safe). `mrs_buff_mk3` mAP50-95 0.789 → 0.794, precision
-  0.965 → 0.982; `mr_stabs_mk2` recall +0.009, mAP50-95 +0.012.
-- **One small cost:** `house_bot` mAP50-95 0.913 → 0.892 (−0.021) — a tight-IoU localization dip (its
-  mAP50 is unchanged at ~0.988), not a detection loss. house_bot is not target-selection-critical.
-- **Aggregate is net positive but small:** all-class recall 0.831 → 0.838, mAP50 0.873 → 0.879,
-  mAP50-95 0.7085 → 0.7092.
-- **Trade shape:** synthetic buys opponent recall (+2 pp) and a hair of opponent AP for a −0.011 dip in
-  `robot` precision (a few more false boxes from the domain gap) and the house_bot tight-IoU dip. For an
-  opponent detector whose weak spot is *finding* opponents, that is the right direction.
+- **Independent eval is a wash, trending negative** (score.py, 372 reviewed frames of real mrs_buff
+  fights, conf 0.5, paired bootstrap 1000×, Δ = mix_all − real_bbox):
+  - **Agnostic recall** ("can it find the robot") 0.742 → 0.729, **Δ −0.013, CI [−0.036, +0.010], ns.**
+  - Agnostic precision −0.006 (ns), F1 −0.010 (ns). Archetype recall −0.019 (ns).
+  - **Opponent AP50-95** 0.305 → 0.272 (**−0.033**, point estimate — per-class AP is not bootstrapped).
+  - Every significance-tested metric's CI includes 0 → **no reliable difference either way.**
+- **Only our own robot improved:** `mrs_buff_mk3` AP50-95 0.452 → 0.478 (+0.026, directional). `house_bot`
+  fell 0.704 → 0.646 (−0.058, directional).
+- **The val split told the opposite story** — and was misleading. On the same-corpus real val (5,454
+  frames), `mix_all` showed opponent `robot` recall **+0.0195**. That gain **did not transfer** to unseen
+  fights; on the independent eval the opponent point estimates flip negative. Same-corpus held-out data
+  over-credited the synthetic.
 
-Verdict: at a **0.36× synthetic dose** the available synthetic diversity gives a real, if modest, lift to
-opponent detection on real held-out frames with no cost to our robots. Encouraging enough to justify the
-independent-eval grade and, if that holds, an oversampled higher-dose arm. Not yet a deploy decision.
+Verdict: at a **0.36× synthetic dose** the available synthetic diversity **does not improve** the
+opponent detector on the eval that matters (unseen fights), and slightly hurts opponent point estimates.
+This is the plan's **"Neutral / keep real-only"** outcome. A negative result — and a methodology lesson:
+the same-corpus val A/B was not a safe proxy for generalization.
 
 ## Setup
 
 - **Head/regime held constant.** Both models are `yolo26n` detect, 500 epochs, batch 128, imgsz 640, DDP
-  across 3 A6000s, identical Ultralytics 8.4.9 settings (`close_mosaic=10`, linear LR, `lrf=0.01`). The
-  only variable is the training mix.
-- **`real_bbox` (baseline):** the existing `nhrl_robots_bbox` 500-epoch model, **reused not retrained**
-  (`runs/projects/auto_battlebots_2026-07-16_20-50-57_yolo26n/weights/best.pt`, staged as
-  `data/models/yolo26n_nhrl_robots_bbox_2026-07-16.pt`). 5 classes `[object, robot, house_bot,
+  across 3 A6000s, identical Ultralytics 8.4.9 settings (`close_mosaic=10`, linear LR, `lrf=0.01`). Only
+  the training mix differs.
+- **`real_bbox` (baseline):** existing `nhrl_robots_bbox` 500-epoch model, **reused not retrained**
+  (`data/models/yolo26n_nhrl_robots_bbox_2026-07-16.pt`). 5 classes `[object, robot, house_bot,
   mr_stabs_mk2, mrs_buff_mk3]`, train 49,086.
 - **`mix_all`:** real bbox train + **all** converted synthetic, train 67,533 (49,086 real + 18,447
-  synth), **val kept real-only** (the real `nhrl_robots_bbox` val, unchanged) so the val curve is
-  apples-to-apples with the reused baseline. Trained on `training/data/mix_all`, 500 epochs, 19.9 h.
-  best.pt staged as `data/models/yolo26n_mix_all_2026-07-22.pt`.
-- **Synthetic source (no rendering).** The existing synthetic keypoint set
-  `training/data/all_robot_keypoints` (BlenderProc `synthgen`, ~97% synthetic) converted to bbox by
-  `training/yolo/pose_to_bbox.py`: keypoint columns dropped, classes remapped into the bbox vocabulary
-  (`nhrl_robot` → generic `robot`; `mr_stabs_mk2`→3, `mrs_buff_mk3`→4), images hardlinked, `.npy` cache
-  skipped. Output `training/data/synth_bbox_from_keypoints`, 20,497 frames, **0 integrity errors**.
-- **Dose.** Real train already holds **99,655** opponent boxes (`object` 15,568 + `robot` 84,087); the
-  synthetic set adds **36,108** opponent (`robot`) boxes = a **0.36× dose**. The plan's 1×/3× arms are not
-  reachable from this data without duplicating frames, so this is the single achievable `mix_all` arm.
+  synth), val kept real-only. `data/models/yolo26n_mix_all_2026-07-22.pt`, 500 epochs, 19.9 h.
+- **Synthetic source (no rendering).** `training/data/all_robot_keypoints` (BlenderProc `synthgen`, ~97%
+  synthetic) converted to bbox by `training/yolo/pose_to_bbox.py` (keypoints dropped, classes remapped:
+  `nhrl_robot` → generic `robot`, our robots → 3/4), output `training/data/synth_bbox_from_keypoints`.
+- **Dose.** Real train holds 99,655 opponent boxes; synthetic adds 36,108 (`robot`) = a **0.36× dose**.
+  1×/3× is not reachable from the local synthetic without duplicating frames, so this is the single
+  achievable `mix_all` arm.
+- **Two evals.** *Independent* (`nhrl_keypoints_eval_test`, 372 hand-reviewed frames of unseen real
+  fights, integer stamp_ns names, scored by `score.py` on sm86 TensorRT engines built on megamind) — the
+  honest generalization test, uploaded to megamind 2026-07-23. *Same-corpus val* (`nhrl_robots_bbox/val`,
+  5,454 frames of the same recordings as training, scored by `model.val()`) — a weaker proxy.
 
-### Why this is a val-split comparison, not `score.py`
+## Result: independent eval (definitive)
 
-The independent hand-labeled eval `nhrl_keypoints_eval_test` (where the reference points 0.084 / 0.21 /
-0.675 were measured) is **not on megamind**, and `score.py` is purpose-built for the MCAP-derived eval
-sets (it reads `data.yaml` and does `int(label_path.stem)` to align GT to a playback by SVO stamp) so it
-cannot score a training dataset whose frames are named `..._frame_004090`. The achievable on-megamind
-real comparison is therefore **Ultralytics `model.val()` on the real held-out val split** (5,454 real
-frames, identical for both models, neither trained on it, `mix_all` kept val real-only). It is
-same-corpus-as-training (different frames of the same fights), so it answers *"does synthetic help on
-real held-out frames"* — real and valid, weaker than generalization to unseen fights.
+`score.py`, `--labels "opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3"` (engine's `object`+`robot`
+generic blobs → GT `opponent`), `taxonomy.yaml`, conf 0.5. Paired bootstrap, 1000 resamples, Δ = mix_all
+− real_bbox.
 
-## Result: real val split (5,454 frames)
+Agnostic level (all robots → one blob; the load-bearing "did it find a robot" metric):
 
-`model.val()`, `conf=0.001 iou=0.6 imgsz=640`, identical for both. Δ = mix_all − real_bbox. Val instance
-counts in parentheses.
+| metric | real_bbox | mix_all | Δ | 95% CI | verdict |
+|---|---|---|---|---|---|
+| recall | 0.742 | 0.729 | −0.013 | [−0.036, +0.010] | **ns** |
+| localization_recall | 0.742 | 0.729 | −0.013 | [−0.036, +0.010] | **ns** |
+| precision | 0.962 | 0.957 | −0.006 | [−0.022, +0.011] | **ns** |
+| f1 | 0.838 | 0.827 | −0.010 | [−0.027, +0.007] | **ns** |
 
-| class (val instances) | metric | real_bbox | mix_all | Δ |
+Archetype level (per-class AP; point estimates, **not** bootstrapped):
+
+| class | real_bbox | mix_all | Δ | note |
 |---|---|---|---|---|
-| **robot** (9,191) — main opponent | recall | 0.8769 | **0.8964** | **+0.0195** |
-| | precision | 0.9300 | 0.9186 | −0.0114 |
-| | mAP50 | 0.9293 | 0.9316 | +0.0023 |
-| | mAP50-95 | 0.7127 | 0.7105 | −0.0022 |
-| **object** (1,714) — generic blob | mAP50 | 0.5486 | 0.5639 | +0.0153 |
-| | mAP50-95 | 0.3931 | 0.4027 | +0.0096 |
-| | precision | 0.8556 | 0.8789 | +0.0233 |
-| | recall | 0.4568 | 0.4597 | +0.0029 |
-| **mrs_buff_mk3** (1,983) — our robot | mAP50-95 | 0.7892 | 0.7943 | +0.0051 |
-| | precision | 0.9646 | 0.9823 | +0.0177 |
-| | recall | 0.9239 | 0.9231 | −0.0008 |
-| **mr_stabs_mk2** (1,451) — our robot | recall | 0.9276 | 0.9366 | +0.0090 |
-| | mAP50-95 | 0.7343 | 0.7463 | +0.0120 |
-| **house_bot** (2,804) | mAP50 | 0.9869 | 0.9884 | +0.0015 |
-| | mAP50-95 | 0.9130 | 0.8921 | −0.0209 |
-| **ALL** | recall | 0.8311 | 0.8377 | +0.0066 |
-| | mAP50 | 0.8732 | 0.8785 | +0.0053 |
-| | mAP50-95 | 0.7085 | 0.7092 | +0.0007 |
+| **opponent** AP50-95 | 0.305 | 0.272 | **−0.033** | opponent detection down |
+| mrs_buff_mk3 (our robot) AP50-95 | 0.452 | 0.478 | +0.026 | our robot up |
+| house_bot AP50-95 | 0.704 | 0.646 | −0.058 | down |
+| mr_stabs_mk2 AP50-95 | N/A | N/A | — | no GT instances (both) |
+| archetype recall | 0.657 | 0.638 | −0.019 | ns (bootstrapped) |
+| wrong_class_rate | 0.114 | 0.124 | +0.010 | slightly worse |
 
-## Interpretation
+**Reading:** every significance-tested delta is `ns` — `mix_all` and `real_bbox` are statistically
+indistinguishable on unseen fights. Where the point estimates do move, they move *against* the synthetic
+on opponents (agnostic recall −0.013, opponent AP −0.033) and *for* it only on our own robot (+0.026,
+the synthetic mrs_buff CAD renders). Net: no opponent-detection benefit, a small non-significant cost.
 
-- **The lift lands on opponents.** `robot` is the class the synthetic `nhrl_robot` boxes fed, and it is
-  the class that moved most: +2 pp recall on 9,191 instances (~180 more opponents localized) for −1 pp
-  precision — the model finds more opponents and fires a few more false boxes, netting a small mAP50 gain.
-  This is the diversity effect the experiment predicted: the real set has many opponent boxes but few
-  distinct opponents; synthetic adds pose/shape/lighting variety that generalizes to more of the val
+## Result: same-corpus val split (the misleading proxy)
+
+`model.val()` on `nhrl_robots_bbox/val` (5,454 real frames, same recordings as training), conf 0.001.
+This is what was measured before the independent eval arrived:
+
+| class | metric | real_bbox | mix_all | Δ |
+|---|---|---|---|---|
+| **robot** (9,191 inst) | recall | 0.877 | 0.896 | **+0.0195** |
+| object (1,714) | mAP50-95 | 0.393 | 0.403 | +0.010 |
+| mrs_buff_mk3 (1,983) | mAP50-95 | 0.789 | 0.794 | +0.005 |
+| mr_stabs_mk2 (1,451) | mAP50-95 | 0.734 | 0.746 | +0.012 |
+| house_bot (2,804) | mAP50-95 | 0.913 | 0.892 | −0.021 |
+
+On same-corpus val, `mix_all` looked like a modest opponent-recall win. **It was not real.** The
+independent eval (different fights) shows the opponent gain does not exist out-of-corpus — it reverses to
+a −0.013 recall / −0.033 AP point estimate. The one consistent signal across both evals is `mrs_buff_mk3`
+up (the synthetic includes exact-CAD renders of our own robot), and `house_bot` down.
+
+## Interpretation — why the two evals disagree
+
+- **Val and eval are drawn from different fights.** The `nhrl_robots_bbox` val split is other frames of
+  the *same* recordings the model trained on; the opponents, arenas, and lighting are in-distribution. The
+  independent eval is *different* fights. A gain that appears only on same-corpus data and vanishes (or
+  reverses) on unseen data is the signature of a change that fit the training distribution rather than
+  adding transferable signal.
+- **The synthetic opponents are generic, not the eval's opponents.** The `nhrl_robot` synthetic is generic
+  CAD/`synthgen` geometry, not the specific robots in the eval fights (`meshy_grade` already showed named
+  synthetic transfer is per-opponent and fragile). Diluting 99,655 real opponent boxes with 36,108 generic
+  synthetic ones apparently shifted the model slightly toward synthetic-opponent appearance, which does not
+  match — and marginally costs recall on — real unseen opponents.
+- **Our own robot is the exception, in both evals.** The synthetic carries exact-CAD `mrs_buff_mk3`
+  renders, and `mrs_buff` AP rises on val (+0.005) and eval (+0.026). Synthetic-to-real transfer works when
+  the mesh is exact (consistent with `meshy_grade`'s sphinx-at-ceiling finding); it does not for generic
   opponents.
-- **No cost to our robots.** Both our-robot classes hold or improve. That matters more than the aggregate:
-  a mix that bought opponents by degrading `mrs_buff` would be non-deployable (aim assist needs our
-  robot), and it did not.
-- **house_bot tight-IoU dip is the one regression**, and a benign one: mAP50 is flat (~0.988), only the
-  high-IoU mAP50-95 fell (−0.021). Navigation uses box centers, not pixel-tight boxes, and house_bot is
-  not a target-selection driver.
-- **Same tail behavior as every long run.** `mix_all`'s val box-loss bottomed at **e432** then flattened
-  while train loss kept dropping (overfitting onset), and `close_mosaic` at e491 traded a sliver of recall
-  for precision in the last 10 epochs — the effect documented separately. best.pt is fitness-selected, so
-  the tail dip does not bias this comparison; both models take their own best.pt under identical settings.
 
 ## Caveats
 
-- **0.36× dose, one arm.** This tests whether the *available* synthetic helps at all, not the dose curve.
-  A higher-dose arm needs either more rendered synthetic or frame oversampling (pure reweight). The
-  positive result here is what justifies spending that compute next.
-- **Same-corpus val, not independent fights.** The val frames are different frames of the same recordings
-  the training data is drawn from. The gains are real held-out gains but do not prove generalization to
-  *unseen* opponents/fights. That is the independent-eval question.
-- **Point estimates, not bootstrapped.** `model.val()` gives no significance test. The `robot` recall
-  gain is large-sample (9,191 instances) and likely real; the sub-0.01 aggregate deltas are directional.
-  The paired bootstrap (via `score.py`) only comes with the independent eval.
-- **No agnostic-recall / opponent-AP-vs-reference-points number here.** Those are `score.py` metrics under
-  the `object,robot → opponent` collapse; this writeup reports Ultralytics per-class box metrics instead.
-  Do not cross-compare these absolute numbers against the 0.084 / 0.21 / 0.675 reference points — different
-  scorer, different eval.
+- **Different operating points across the two evals.** Val used `model.val()` at conf 0.001 (mAP-oriented);
+  the independent eval used `score.py` at conf 0.5 (the deployed threshold). The cross-eval comparison is
+  qualitative (does the gain survive out-of-corpus), not a like-for-like metric diff. Within each eval the
+  A/B is apples-to-apples.
+- **Per-class AP is not bootstrapped.** Opponent/our-robot/house_bot AP deltas are point estimates on
+  small per-class samples (`mr_stabs_mk2` has no GT instances here). Only the agnostic/archetype aggregate
+  recall/precision/F1 carry significance verdicts — and those are all `ns`.
+- **One dose, one seed.** A 0.36× dose, single training run. The result rules out a *large* benefit at this
+  dose; it does not prove a higher dose or a different synthetic (exact-mesh opponents, more variety)
+  couldn't help. But the direction here does not motivate spending that compute on generic synthetic.
+- **score.py bug fixed to produce this run.** The headline-plot stage used `df.query("... level == @level")`
+  inside a list comprehension, which fails pandas frame inspection on this pandas version
+  (`UndefinedVariableError: level`). Replaced with boolean-mask indexing (`training/model_eval/score.py`).
+  Scoring/summary/significance are unaffected by the fix; it only unblocked plotting.
 
-## Follow-up: independent-eval grade (dev box)
+## Decision & follow-up
 
-The definitive test — agnostic recall, opponent AP, paired bootstrap against `nhrl_keypoints_eval_test`
-with the plan's reference points — runs on the dev box (where that eval set lives):
-
-1. Copy `data/models/yolo26n_{nhrl_robots_bbox_2026-07-16,mix_all_2026-07-22}.pt` to the dev box.
-2. Build `_x86_64_sm89` engines there (`convert_to_onnx.py` → `convert_to_tensorrt.py`).
-3. Run the paired `score.py` from the plan (§5, `--labels "object,robot,house_bot,mr_stabs_mk2,
-   mrs_buff_mk3"`, `--baseline real_bbox`) against `nhrl_keypoints_eval_test`.
-
-If agnostic recall rises with precision/F1 held, the val result generalizes to unseen fights and an
-oversampled higher-dose arm is worth training.
+- **Do not adopt `mix_all`.** No significant opponent gain on unseen fights; keep the real-only
+  `nhrl_robots_bbox` detector deployed.
+- **If synthetic is revisited for opponents**, use *exact-mesh* opponents (the only transfer that worked,
+  per our-robot and `meshy_grade` sphinx), not generic `synthgen` geometry, and grade on the independent
+  eval from the start — the same-corpus val is not a safe proxy.
+- **Our-robot lift is the one reusable signal**: exact-CAD synthetic reliably helps the class it depicts.
+  Relevant to the keypoint/our-robot model, not this opponent detector.
 
 ## Artifacts
 
 - Converter: `training/yolo/pose_to_bbox.py`
 - Synthetic bbox set: `training/data/synth_bbox_from_keypoints` (from `all_robot_keypoints`, unmodified)
 - Pooled dataset: `training/data/mix_all` (real train + all synthetic; val real-only)
-- Models: `data/models/yolo26n_mix_all_2026-07-22.pt`,
-  `data/models/yolo26n_nhrl_robots_bbox_2026-07-16.pt` (baseline, reused)
-- Training run: `runs/projects/auto_battlebots_2026-07-22_02-40-51_yolo26n` (500 epochs, 19.9 h, batch 128)
-- Val comparison: `runs/valcmp_real_bbox`, `runs/valcmp_mix_all`
+- Models: `data/models/yolo26n_mix_all_2026-07-22.{pt,onnx,_x86_64_sm86.engine}`,
+  `data/models/yolo26n_nhrl_robots_bbox_2026-07-16.{pt,onnx,_x86_64_sm86.engine}` (baseline, reused)
+- Training run: `runs/projects/auto_battlebots_2026-07-22_02-40-51_yolo26n` (500 epochs, 19.9 h)
+- Independent-eval scores: `training/data/nhrl_keypoints_eval_test/scores_synth_plus_bbox/`
+  (`summary.csv`, `significance.csv`, `headline.png`, `confusion_*.png`)
+- Same-corpus val comparison: `runs/valcmp_real_bbox`, `runs/valcmp_mix_all`

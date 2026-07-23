@@ -1,16 +1,17 @@
 # Synthetic + real bbox opponent detector — experiment plan
 
-Status: **executed 2026-07-22** (on-megamind portion). Follows the pipeline in `experiment_runbook.md`.
-This document is the design; the results are written up in **`synthetic_plus_bbox_2026-07-22.md`**.
+Status: **executed & graded 2026-07-23.** Follows the pipeline in `experiment_runbook.md`. This document
+is the design; the results are written up in **`synthetic_plus_bbox_2026-07-22.md`**.
 
-> **Outcome (real held-out val, 5,454 frames).** The single achievable `mix_all` arm (0.36× synthetic
-> dose) **helped opponent detection where it matters, at no cost to our robots**: main opponent `robot`
-> recall **0.877 → 0.896 (+2 pp, ~180 more opponents found)**, generic `object` mAP50-95 +0.010; our
-> robots held/improved (`mrs_buff_mk3` mAP50-95 +0.005, `mr_stabs_mk2` +0.012); one benign regression
-> (`house_bot` tight-IoU mAP50-95 −0.021, mAP50 flat). Net aggregate +: recall +0.007, mAP50 +0.005.
-> A modest but real, correctly-directed lift. **Next steps** (below): (1) the dev-box independent-eval
-> grade to test generalization to *unseen* fights; (2) if it holds, an oversampled higher-dose arm —
-> now justified because the 0.36× dose already moved the needle. See §Next steps.
+> **Outcome — DO NOT ADOPT (definitive, independent eval).** On the independent eval of *unseen* fights
+> (`nhrl_keypoints_eval_test`, 372 frames, paired bootstrap), the `mix_all` arm (0.36× synthetic dose) is
+> **statistically indistinguishable from the real-only baseline — all 12 tests `ns`** — and trends
+> **slightly negative** on opponents: agnostic recall 0.742 → 0.729 (Δ −0.013, CI [−0.036, +0.010]),
+> opponent AP50-95 0.305 → 0.272 (−0.033, point est). Only our own robot improved (`mrs_buff_mk3` AP
+> +0.026 — exact-CAD synthetic transfers). **The same-corpus val split was misleading**: it showed
+> opponent recall +0.0195, which **did not generalize** — the gain reversed on unseen fights. Verdict:
+> the plan's **"Neutral / keep real-only"** branch. Lesson: same-corpus val is not a safe proxy for
+> generalization; grade on the independent eval. See §Next steps.
 
 ## Question
 
@@ -41,10 +42,12 @@ AP** (better generalization to opponents outside the real set); a heavy syntheti
 and may cost precision** as the synthetic domain gap injects false boxes. The interesting output is the
 shape of that curve, not a single number.
 
-> **Result vs hypothesis.** Direction confirmed at the achievable 0.36× dose: opponent recall rose
-> (+2 pp) and opponent AP held/rose, with the predicted small precision cost on `robot` (−0.011) — the
-> domain-gap false-box effect, but minor and outweighed by the recall gain. The *saturation* half of the
-> hypothesis is untested (no higher-dose arm was reachable from the local synthetic; see the dose box).
+> **Result vs hypothesis — not confirmed.** The hypothesis (synthetic diversity lifts opponent recall)
+> held only on the *same-corpus* val (+0.0195) and **failed on the independent eval**: opponent recall and
+> AP trended negative (both `ns` / point-est), so at 0.36× dose generic synthetic did **not** add
+> transferable opponent signal. The predicted domain-gap cost showed up as the direction of the eval
+> deltas. The *saturation* half is untested (no higher-dose arm reachable), and the result does not
+> motivate building one from generic synthetic.
 
 ## Design — one variable, paired scoring
 
@@ -74,10 +77,9 @@ synthetic data):
 > synthetic diversity move the needle at all. This kept the experiment to **one** ~500-epoch training run
 > (the baseline is reused, not retrained).
 >
-> **It did move the needle** (Outcome, above), so the conditional next arm is now on: a higher-dose arm
-> (render more synthetic, or oversample these frames) to find where the diversity-vs-domain-gap curve
-> turns over. Frame oversampling is pure reweight, not new diversity, so rendering more varied synthetic
-> is the stronger option — but oversampling is the cheap first probe.
+> **It did not move the needle on the independent eval** (Outcome, above). So the conditional higher-dose
+> arm is **not** pursued for *generic* synthetic — more of a non-transferring signal won't help. If
+> revisited, use exact-mesh opponents (the only transfer that worked) and grade on the independent eval.
 
 **Pooling refinement (val stays real-only).** Rather than pool-then-resplit (which would leak easy
 synthetic frames into val and make the val curve non-comparable to the reused baseline), `mix_all`
@@ -216,12 +218,18 @@ real-only baseline. Build `_x86_64_sm89` engines on the dev box (per the runbook
 
 ```bash
 venv/bin/python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
-  --candidate real_bbox=data/models/yolo26n_nhrl_robots_bbox_2026-07-16_x86_64_sm89.engine \
-  --candidate mix_all=data/models/yolo26n_mix_all_2026-07-22_x86_64_sm89.engine \
-  --labels "object,robot,house_bot,mr_stabs_mk2,mrs_buff_mk3" \
+  --candidate real_bbox=data/models/yolo26n_nhrl_robots_bbox_2026-07-16_x86_64_sm86.engine \
+  --candidate mix_all=data/models/yolo26n_mix_all_2026-07-22_x86_64_sm86.engine \
+  --labels "opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3" \
   --taxonomy training/model_eval/taxonomy.yaml --conf 0.5 --baseline real_bbox \
   --output training/data/nhrl_keypoints_eval_test/scores_synth_plus_bbox
 ```
+
+> **`--labels` is the canonical mapping, not identity.** The eval GT's opponent class is named
+> `opponent`; the engine's two generic blob classes (`object`, `robot`) both map to it, so the label list
+> is `opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3` (same mapping the seg-vs-bbox writeup used).
+> Its length (5) equals the engine class count. Engines are `_x86_64_sm86` because scoring runs on
+> megamind (the eval set was uploaded there 2026-07-23); build sm86, not sm89.
 
 > **Two constraints forced a different scorer on megamind.**
 > 1. The independent, hand-labeled `nhrl_keypoints_eval_test` (where the reference points 0.084 / 0.21 /
@@ -285,45 +293,40 @@ the aggregate val metrics on this same real val, as a cross-check.
 - Eval set: `nhrl_keypoints_eval_test`, ~372 reviewed frames of real mrs_buff fights (only frames marked
   reviewed in `.edit_state.json` are scored); GT labels every opponent as a single generic `opponent`.
 
-## Success criteria — and how the result scored against them
+## Success criteria — how the result scored (independent eval, definitive)
 
-The original criteria assumed the `score.py` bootstrap (agnostic recall CI). On megamind only
-`model.val()` point estimates were available, so the verdicts below are **directional, not
-significance-tested**; the CI-based verdict is the dev-box follow-up.
+Scored on `nhrl_keypoints_eval_test` with the paired `score.py` bootstrap (conf 0.5, 1000 resamples).
 
-Primary — *opponent-finding without hurting our robots*:
-- **Win** = opponent recall up, our-robot metrics held, no large precision collapse. **→ Met
-  (directional).** `robot` recall +0.0195 (9,191 val instances), `object`/our-robot metrics up, `robot`
-  precision −0.011 (small, not a collapse).
-- The `score.py` CI verdict (does the recall gain exclude 0; is precision/F1 held) is **pending** the
-  dev-box run.
+Primary — *agnostic-level significance vs `real_bbox`*:
+- **Win** (recall up, CI excludes 0, precision/F1 held): **not met.** Agnostic recall Δ −0.013,
+  CI [−0.036, +0.010] — includes 0.
+- **Neutral** (recall CI includes 0): **→ this is the outcome.** All four agnostic tests (recall,
+  precision, f1, localization_recall) are `ns`. Synthetic neither reliably helps nor hurts — **keep
+  real-only for simplicity.**
+- **Loss** (significant precision/F1 or recall drop): not met either — the negative trend is not
+  significant.
 
-Secondary — *opponent AP trend & regression guard*:
-- **Opponent AP:** `object` mAP50-95 +0.010, mAP50 +0.015; `robot` mAP50 +0.002. Directionally up. The
-  diversity-vs-saturation *curve* is untested (single dose).
-- **Regression guard:** `mrs_buff_mk3` mAP50-95 +0.005 and `mr_stabs_mk2` +0.012 — **passes** (our robots
-  not sacrificed). `house_bot` mAP50-95 −0.021 is the one dip, but tight-IoU only (mAP50 flat) and
-  house_bot is not target-selection-critical — **acceptable.**
+Secondary — *opponent AP & regression guard* (point estimates, not bootstrapped):
+- **Opponent AP50-95** 0.305 → 0.272 (**−0.033**): down, the wrong direction — the experiment's target
+  metric did not improve.
+- **Regression guard:** our robots not sacrificed (`mrs_buff_mk3` AP +0.026); `house_bot` −0.058 down.
 
-Net: a directional **Win** at 0.36× dose. Not yet a deploy decision — gated on the dev-box independent
-eval below.
+Net: **Neutral → keep real-only.** The same-corpus val "Win" did not survive the independent eval.
 
 ## Next steps
 
-Ordered; the result made these concrete.
+The independent eval resolved the core question (no generic-synthetic benefit), so the follow-ups narrow:
 
-1. **Dev-box independent-eval grade (highest priority).** Copy
-   `data/models/yolo26n_{nhrl_robots_bbox_2026-07-16,mix_all_2026-07-22}.pt` to the dev box, build
-   `_x86_64_sm89` engines, run the paired `score.py` in §5 against `nhrl_keypoints_eval_test`. This tests
-   generalization to *unseen* fights and gives the CI verdict the val A/B can't. **Decision gate:** if
-   agnostic recall rises with precision/F1 held, promote; if it's a wash on the independent eval, the val
-   gain was same-corpus only.
-2. **Higher-dose arm (if step 1 holds).** Build `mix_2x`/`mix_3x` (§2 box) and retrain to find where the
-   diversity-vs-domain-gap curve turns over. Prefer newly-rendered synthetic over frame oversampling
-   (oversampling is reweight, not new diversity). Score all doses in one paired `score.py` run.
-3. **Recall-oriented checkpoint/schedule tweak (optional).** Since opponent *recall* is the target and the
-   `close_mosaic=10` tail trades recall for precision, a follow-up could select the best-recall checkpoint
-   or lengthen `close_mosaic` — but do this as its own controlled change, not folded into the dose sweep.
+1. **Independent-eval grade — DONE (2026-07-23).** Ran on megamind after the eval set was uploaded there:
+   sm86 engines + paired `score.py` (§5). Result: all `ns`, keep real-only (Outcome/Success criteria).
+   This *was* the decision gate; the val gain did not survive it.
+2. **Do NOT build a higher-dose arm from generic synthetic.** More of a non-transferring signal won't
+   help. Shelved.
+3. **If synthetic is worth another attempt for opponents:** use **exact-mesh** opponents (the only transfer
+   that worked — our-robot mrs_buff improved on both evals, matching `meshy_grade`'s sphinx-at-ceiling),
+   not generic `synthgen` geometry, and grade on the independent eval from the start.
+4. **Reusable finding for the keypoint model:** exact-CAD synthetic reliably lifts the class it depicts
+   (mrs_buff AP +0.026 on the eval). Relevant to our-robot keypoint training, not this opponent detector.
 
 ## Risks / caveats
 

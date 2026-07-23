@@ -478,7 +478,8 @@ def plot_headline(summary: pd.DataFrame, output: Path) -> None:
         ]
     ):
         values = [
-            summary.query("candidate == @c and level == @level")[metric].iloc[0] for c in candidates
+            summary[(summary["candidate"] == c) & (summary["level"] == level)][metric].iloc[0]
+            for c in candidates
         ]
         ax.bar(x + (offset - 1) * 0.25, values, width=0.25, label=label)
     ax.set_xticks(x)
