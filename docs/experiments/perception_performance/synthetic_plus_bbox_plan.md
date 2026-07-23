@@ -1,8 +1,16 @@
 # Synthetic + real bbox opponent detector — experiment plan
 
-Status: **planned**. Follows the pipeline in `experiment_runbook.md` (collect → prepare megamind →
-train → export → score). This document is the design; the writeup goes in
-`synthetic_plus_bbox_<date>.md` once scored.
+Status: **executed 2026-07-22** (on-megamind portion). Follows the pipeline in `experiment_runbook.md`.
+This document is the design; the results are written up in **`synthetic_plus_bbox_2026-07-22.md`**.
+
+> **Outcome (real held-out val, 5,454 frames).** The single achievable `mix_all` arm (0.36× synthetic
+> dose) **helped opponent detection where it matters, at no cost to our robots**: main opponent `robot`
+> recall **0.877 → 0.896 (+2 pp, ~180 more opponents found)**, generic `object` mAP50-95 +0.010; our
+> robots held/improved (`mrs_buff_mk3` mAP50-95 +0.005, `mr_stabs_mk2` +0.012); one benign regression
+> (`house_bot` tight-IoU mAP50-95 −0.021, mAP50 flat). Net aggregate +: recall +0.007, mAP50 +0.005.
+> A modest but real, correctly-directed lift. **Next steps** (below): (1) the dev-box independent-eval
+> grade to test generalization to *unseen* fights; (2) if it holds, an oversampled higher-dose arm —
+> now justified because the 0.36× dose already moved the needle. See §Next steps.
 
 ## Question
 
@@ -33,6 +41,11 @@ AP** (better generalization to opponents outside the real set); a heavy syntheti
 and may cost precision** as the synthetic domain gap injects false boxes. The interesting output is the
 shape of that curve, not a single number.
 
+> **Result vs hypothesis.** Direction confirmed at the achievable 0.36× dose: opponent recall rose
+> (+2 pp) and opponent AP held/rose, with the predicted small precision cost on `robot` (−0.011) — the
+> domain-gap false-box effect, but minor and outweighed by the recall gain. The *saturation* half of the
+> hypothesis is untested (no higher-dose arm was reachable from the local synthetic; see the dose box).
+
 ## Design — one variable, paired scoring
 
 Everything is held identical to the seg-vs-bbox winner except the training mix:
@@ -58,9 +71,13 @@ synthetic data):
 > converted synthetic set has only **36,108** opponent (`robot`) boxes in train. So even adding *all* of
 > it is a **0.36× dose**, not 1×; 3× is impossible without duplicating synthetic frames (pure reweight,
 > no new diversity). The honest, achievable test is therefore a single `mix_all` arm — does the available
-> synthetic diversity move the needle at all. If it clearly helps, an oversampled higher-dose arm becomes
-> worth the compute; if it doesn't, higher dose of the same frames won't save it. This keeps the
-> experiment to **one** ~500-epoch training run (the baseline is reused, not retrained).
+> synthetic diversity move the needle at all. This kept the experiment to **one** ~500-epoch training run
+> (the baseline is reused, not retrained).
+>
+> **It did move the needle** (Outcome, above), so the conditional next arm is now on: a higher-dose arm
+> (render more synthetic, or oversample these frames) to find where the diversity-vs-domain-gap curve
+> turns over. Frame oversampling is pure reweight, not new diversity, so rendering more varied synthetic
+> is the stronger option — but oversampling is the cheap first probe.
 
 **Pooling refinement (val stays real-only).** Rather than pool-then-resplit (which would leak easy
 synthetic frames into val and make the val curve non-comparable to the reused baseline), `mix_all`
@@ -68,10 +85,14 @@ synthetic frames into val and make the val curve non-comparable to the reused ba
 then identical across baseline and `mix_all`, so the val mAP curve is a clean apples-to-apples plateau
 signal. The verdict still comes from the external real eval, not val.
 
-Both arms share the identical 5-class order, so **score them in one `score.py` run** — the paired
-bootstrap cancels per-frame difficulty variance and resolves real differences on a few hundred frames.
-Latency is identical across arms (same head, same class count, same output tensor `[1, 9, 8400]`), so no
-latency measurement is needed — state that in the writeup rather than re-running trtexec.
+Both arms share the identical 5-class order (a prerequisite for a paired `score.py` run on the dev-box
+follow-up). Latency is identical across arms (same head, same class count, same output tensor
+`[1, 9, 8400]`), so no latency measurement is needed.
+
+> **What was actually scored (2026-07-22).** `score.py` + the independent eval were unavailable on
+> megamind (§5 box), so the on-megamind comparison used Ultralytics `model.val()` on the real held-out
+> val split — a per-class point-estimate A/B, not the paired bootstrap. The bootstrap grade moves to the
+> dev-box follow-up (§Next steps).
 
 ## 1. Convert the existing synthetic keypoints → a new bbox dataset
 
@@ -111,41 +132,27 @@ Expect: only the 5 vocab classes present (with `object`/`house_bot` at zero), ev
 boxes (no stray keypoint columns), no malformed rows. Sanity-check the class histogram — the bulk should
 be class 1 (remapped `nhrl_robot`, ~36k in train).
 
-## 2. Pool into each arm (Recipe C)
+## 2. Pool `mix_all` (Recipe C — synthetic into train only)
 
-Hardlink (`os.link`, instant) the real `nhrl_robots_bbox` pairs plus a subset of the converted
-`synth_bbox_from_keypoints` pairs into one flat `images/`+`labels/` with source-prefixed filenames. Do
-**not** use `merge_yolo_datasets.py` (needs per-input `validation_state.json`, flat-only, drops metadata).
+**Built (2026-07-22): `training/data/mix_all`.** Hardlink (`os.link`, instant) into train:
+- all real `nhrl_robots_bbox/train` pairs (prefix `real__`, 49,086),
+- all converted `synth_bbox_from_keypoints/train` pairs (prefix `synth__`, 18,447).
 
-- `mix_1x`: link all real + a synthetic subset sized so synthetic opponent (`robot`) boxes ≈ real
-  opponent boxes.
-- `mix_3x`: link all real + a synthetic subset ≈ 3× real opponent boxes.
-- `synth_only_opp` (optional): link real *non-opponent* pairs + all synthetic opponent pairs.
+Val = real `nhrl_robots_bbox/val` only (prefix `real__`, 5,454) — **synthetic never enters val**, so the
+val A/B stays comparable to the reused baseline. Do **not** re-split; do **not** use
+`merge_yolo_datasets.py` (needs per-input `validation_state.json`, flat-only, drops metadata). Source
+filenames don't collide, but the prefixes make provenance obvious. `.npy` caches are not linked (training
+rebuilds them). This was scripted in a one-off pooling helper.
 
-The converted synthetic set has ~36k opponent boxes in train — ample for 1× and likely 3×. Count opponent
-boxes on both sides (real `object`+`robot` rows vs synthetic `robot` rows) to size each subset — do not
-eyeball it. Sample synthetic *frames* (whole image/label pairs), not individual boxes, to keep labels
-intact.
+Result: train 67,533 (135,763 opponent boxes = 99,655 real + 36,108 synth), val 5,454.
+`validate_yolo_integrity --strict`: **0 errors** (1 background-negative frame, expected).
 
-Split, author `data.yml`, validate (per runbook §1):
+`data.yml` is the **detect** form (5 classes, no `kpt_shape` / `flip_idx`), names/colors copied from
+`nhrl_robots_bbox`.
 
-```bash
-venv/bin/python training/yolo/split_yolo_dataset.py \
-  training/data/<arm>/images training/data/<arm>/labels training/data/<arm> -t 0.9 -v 0.1
-venv/bin/python training/yolo/validate_yolo_integrity.py training/data/<arm> --strict
-```
-
-`data.yml` is the **detect** form (no `kpt_shape` / `flip_idx`):
-
-```yaml
-path: /home/ben/auto-battlebot/training/data/<arm>   # location ON megamind
-train: train/images
-val:   val/images
-test:  test/images
-nc: 5
-names: [object, robot, house_bot, mr_stabs_mk2, mrs_buff_mk3]
-colors: [ "#...", "#...", "#...", "#...", "#..." ]
-```
+> **For the higher-dose follow-up arm** (§Next steps): build `mix_2x`/`mix_3x` the same way but oversample
+> the synthetic frames (link each synthetic pair 2–3× under distinct prefixes) or add newly-rendered
+> synthetic, sizing by counted opponent-box ratio. Keep val real-only, same as here.
 
 ## 3. Train
 
@@ -168,7 +175,12 @@ across the 3 GPUs (as `yolo26n_nhrl_robots_bbox_2026-07-16`). Monitor `runs/proj
 the scoring pass (heavy inference IO) while a training arm is still going** — it evicts the training's
 page cache and spikes epoch time ~30×. Score after the training arms finish, or on an idle GPU.
 
-## 4. Export engines (on megamind — x86_64 **sm86**)
+## 4. Export engines — **skipped on megamind** (only needed for the dev-box follow-up)
+
+The on-megamind comparison used `model.val()`, which runs directly on the `.pt`, so **no engine was
+built here**. Engines are needed only for the dev-box `score.py` follow-up, where they must be
+`_x86_64_sm89` (built on the dev box), not sm86. The recipe below is retained for that follow-up / for a
+future megamind-scored run; ignore the sm86 tag when building on the dev box.
 
 `best.pt` is already under `runs/projects/<run>/weights/` locally — no gvfs copy:
 
@@ -195,25 +207,23 @@ venv/bin/python training/yolo/convert_to_tensorrt.py \
 > build **sm89** instead (per the runbook), and the deployment engine for the Jetson is **aarch64_sm87**,
 > built on the Jetson — never used for scoring.
 
-## 5. Score (one paired run)
+## 5. Score
 
-All arms have the identical 5-class order, so a single run gives paired-bootstrap significance vs the
-real-only baseline:
+**On megamind (done):** Ultralytics `model.val()` on the real held-out val split — see the block below
+and the writeup. **Independent-eval paired `score.py` (not run here — dev-box follow-up):** both models
+share the identical 5-class order, so a single dev-box run gives paired-bootstrap significance vs the
+real-only baseline. Build `_x86_64_sm89` engines on the dev box (per the runbook), then:
 
 ```bash
 venv/bin/python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
-  --candidate real_bbox=data/models/yolo26n_nhrl_robots_bbox_2026-07-16_x86_64_sm86.engine \
-  --candidate mix_1x=data/models/yolo26n_mix_1x_<date>_x86_64_sm86.engine \
-  --candidate mix_3x=data/models/yolo26n_mix_3x_<date>_x86_64_sm86.engine \
+  --candidate real_bbox=data/models/yolo26n_nhrl_robots_bbox_2026-07-16_x86_64_sm89.engine \
+  --candidate mix_all=data/models/yolo26n_mix_all_2026-07-22_x86_64_sm89.engine \
   --labels "object,robot,house_bot,mr_stabs_mk2,mrs_buff_mk3" \
   --taxonomy training/model_eval/taxonomy.yaml --conf 0.5 --baseline real_bbox \
   --output training/data/nhrl_keypoints_eval_test/scores_synth_plus_bbox
 ```
 
-All engines here are `_x86_64_sm86` because this run scores on megamind — including the rebuilt baseline
-(§4). Do not mix an sm89 engine into this run; it will fail to load.
-
-> **Two constraints force a different scorer on megamind.**
+> **Two constraints forced a different scorer on megamind.**
 > 1. The independent, hand-labeled `nhrl_keypoints_eval_test` (where the reference points 0.084 / 0.21 /
 >    0.675 were measured) is **not on megamind** — a hand-reviewed artifact that lives on the dev box and
 >    cannot be regenerated here.
@@ -241,8 +251,8 @@ On-megamind real comparison (both `.pt`, identical real val split):
 venv/bin/python - <<'PY'
 from ultralytics import YOLO
 for name, pt in [
-    ("real_bbox", "runs/projects/auto_battlebots_2026-07-16_20-50-57_yolo26n/weights/best.pt"),
-    ("mix_all",   "runs/projects/<mix_all_run>/weights/best.pt"),
+    ("real_bbox", "data/models/yolo26n_nhrl_robots_bbox_2026-07-16.pt"),
+    ("mix_all",   "data/models/yolo26n_mix_all_2026-07-22.pt"),
 ]:
     print("====", name)
     YOLO(pt).val(data="training/data/nhrl_robots_bbox/data.yml", split="val",
@@ -275,27 +285,51 @@ the aggregate val metrics on this same real val, as a cross-check.
 - Eval set: `nhrl_keypoints_eval_test`, ~372 reviewed frames of real mrs_buff fights (only frames marked
   reviewed in `.edit_state.json` are scored); GT labels every opponent as a single generic `opponent`.
 
-## Success criteria
+## Success criteria — and how the result scored against them
 
-Primary (significance-tested, agnostic level, paired vs `real_bbox`):
-- **Win:** a mix arm raises **agnostic recall** with a CI excluding 0, and **does not** significantly
-  drop precision/F1. That is synthetic adding genuine opponent-finding ability.
-- **Neutral:** recall CI includes 0 — synthetic neither helps nor hurts the detector the pipeline reads;
-  keep real-only for simplicity.
-- **Loss:** precision/F1 drops significantly (synthetic domain gap injecting false boxes), or recall
-  drops — reject that mix ratio.
+The original criteria assumed the `score.py` bootstrap (agnostic recall CI). On megamind only
+`model.val()` point estimates were available, so the verdicts below are **directional, not
+significance-tested**; the CI-based verdict is the dev-box follow-up.
 
-Secondary (directional, archetype level):
-- **`ap50_95/opponent`** trend across `real_bbox → mix_1x → mix_3x`: rising then flat/falling is the
-  expected diversity-then-saturation curve. Reference points: floor 0.084 (synthetic-only), current
-  real-only bbox ≈ 0.30 in-run.
-- **Regression guard:** `ap50_95/house_bot` and `ap50_95/mrs_buff_mk3` must not fall materially — a mix
-  that lifts opponents by wrecking our-robot boxes is not deployable (target selection needs our robot).
+Primary — *opponent-finding without hurting our robots*:
+- **Win** = opponent recall up, our-robot metrics held, no large precision collapse. **→ Met
+  (directional).** `robot` recall +0.0195 (9,191 val instances), `object`/our-robot metrics up, `robot`
+  precision −0.011 (small, not a collapse).
+- The `score.py` CI verdict (does the recall gain exclude 0; is precision/F1 held) is **pending** the
+  dev-box run.
+
+Secondary — *opponent AP trend & regression guard*:
+- **Opponent AP:** `object` mAP50-95 +0.010, mAP50 +0.015; `robot` mAP50 +0.002. Directionally up. The
+  diversity-vs-saturation *curve* is untested (single dose).
+- **Regression guard:** `mrs_buff_mk3` mAP50-95 +0.005 and `mr_stabs_mk2` +0.012 — **passes** (our robots
+  not sacrificed). `house_bot` mAP50-95 −0.021 is the one dip, but tight-IoU only (mAP50 flat) and
+  house_bot is not target-selection-critical — **acceptable.**
+
+Net: a directional **Win** at 0.36× dose. Not yet a deploy decision — gated on the dev-box independent
+eval below.
+
+## Next steps
+
+Ordered; the result made these concrete.
+
+1. **Dev-box independent-eval grade (highest priority).** Copy
+   `data/models/yolo26n_{nhrl_robots_bbox_2026-07-16,mix_all_2026-07-22}.pt` to the dev box, build
+   `_x86_64_sm89` engines, run the paired `score.py` in §5 against `nhrl_keypoints_eval_test`. This tests
+   generalization to *unseen* fights and gives the CI verdict the val A/B can't. **Decision gate:** if
+   agnostic recall rises with precision/F1 held, promote; if it's a wash on the independent eval, the val
+   gain was same-corpus only.
+2. **Higher-dose arm (if step 1 holds).** Build `mix_2x`/`mix_3x` (§2 box) and retrain to find where the
+   diversity-vs-domain-gap curve turns over. Prefer newly-rendered synthetic over frame oversampling
+   (oversampling is reweight, not new diversity). Score all doses in one paired `score.py` run.
+3. **Recall-oriented checkpoint/schedule tweak (optional).** Since opponent *recall* is the target and the
+   `close_mosaic=10` tail trades recall for precision, a follow-up could select the best-recall checkpoint
+   or lengthen `close_mosaic` — but do this as its own controlled change, not folded into the dose sweep.
 
 ## Risks / caveats
 
 - **Domain gap is the whole risk.** Synthetic-only opponents floor at 0.084 alone; pooled they may still
-  drag precision. That is exactly what the precision/F1 significance test is for.
+  drag precision. On the val A/B this showed up as the small `robot` precision dip (−0.011); the
+  `score.py` precision/F1 CI on the independent eval is the real test.
 - **Class-balance confound.** Adding synthetic opponent boxes shifts the opponent:our-robot ratio, which
   by itself can move confidence calibration at conf 0.5 (see the `all_robots_pose` demotion effect).
   The converted synthetic set already carries our-robot boxes (remapped classes 3/4), so keep them in
@@ -313,13 +347,17 @@ Secondary (directional, archetype level):
 - **Same-run discipline.** Any absolute AP is only comparable *within one score.py run under one
   `--labels` mapping*. Do not cross-compare these numbers against other reports' opponent AP.
 
-## Artifacts / locations
+## Artifacts / locations (produced 2026-07-22)
 
-- Synthetic source (unmodified): `training/data/all_robot_keypoints` (existing synthetic keypoints)
-- Converted synthetic bbox set: `training/data/synth_bbox_from_keypoints` (new; label-only conversion)
-- Pooled datasets: `training/data/{mix_1x,mix_3x,synth_only_opp}` (all local on megamind this run)
-- Models: `data/models/yolo26n_<arm>_<date>.{pt,onnx,engine}` (engine `_x86_64_sm86`, this run)
-- Baseline engine (rebuilt for sm86): `data/models/yolo26n_nhrl_robots_bbox_2026-07-16_x86_64_sm86.engine`
-- Scores: `training/data/nhrl_keypoints_eval_test/scores_synth_plus_bbox/{summary.csv,
-  significance.csv, headline.png, confusion_*.png}`
-- Writeup: `docs/experiments/perception_performance/synthetic_plus_bbox_<date>.md`
+- Converter: `training/yolo/pose_to_bbox.py`
+- Synthetic source (unmodified): `training/data/all_robot_keypoints`
+- Converted synthetic bbox set: `training/data/synth_bbox_from_keypoints` (label-only conversion)
+- Pooled dataset: `training/data/mix_all` (real train + all synthetic; val real-only)
+- Models (staged `.pt`): `data/models/yolo26n_mix_all_2026-07-22.pt`,
+  `data/models/yolo26n_nhrl_robots_bbox_2026-07-16.pt` (baseline, reused). No engines built on megamind
+  (§4); the dev-box follow-up builds `_x86_64_sm89`.
+- Training run: `runs/projects/auto_battlebots_2026-07-22_02-40-51_yolo26n` (500 epochs, 19.9 h, batch 128)
+- Val comparison: `runs/valcmp_real_bbox`, `runs/valcmp_mix_all`
+- Writeup: `docs/experiments/perception_performance/synthetic_plus_bbox_2026-07-22.md`
+- **Pending (dev box):** `training/data/nhrl_keypoints_eval_test/scores_synth_plus_bbox/` (independent-eval
+  paired `score.py`)
