@@ -169,6 +169,84 @@ backgrounds, real motion statistics, correct negative space) rather than the opp
 more than more opponent shapes. Neither is worth pursuing for a deployed opponent detector, since NHRL
 never gives faithful meshes of upcoming opponents — but both are testable if synthetic is revisited.
 
+## Interpretability probes: context or appearance? (empirical confirmation)
+
+The reasoning above is a claim about *what the model keys on*. Four probes test it directly on the
+independent-eval frames, comparing both models. Script:
+`training/model_eval/interpret_context_vs_appearance.py`; figures + `metrics.json` under
+`scores_synth_plus_bbox/interpretability/`. The probes confirm the claim, most decisively the cut-paste
+test.
+
+### Cut-paste context swap (decisive)
+
+Opponent-score at the box (max opponent-class prob among head anchors inside it), same target box, only
+the pixels around/inside it changed:
+
+| condition | real_bbox | mix_all | isolates |
+|---|---|---|---|
+| original frame | 0.474 | 0.467 | full scene |
+| **same crop on real arena bg** | **0.474** | **0.467** | appearance + context |
+| **same crop on neutral gray** | **0.238** | **0.324** | appearance only |
+| robot removed (blurred), arena kept | 0.033 | 0.018 | context only |
+
+**This is the headline evidence.** Pasting the *identical* opponent pixels back onto a real arena
+background restores the score **exactly** to the original (0.474 → 0.474); stripping the arena to neutral
+gray — same robot pixels — **halves** it (→ 0.238). Meanwhile removing the robot but keeping the arena
+gives ≈0 (0.033). So the model detects an opponent as **object-in-arena-context**: neither the robot's
+own appearance alone (half score) nor the context alone (≈zero) suffices — context contributes ~50 % of
+the score for a fixed set of robot pixels. Note `mix_all` leans slightly *more* on appearance
+(gray-bg 0.324 vs 0.238) — the synthetic nudged it toward the robot pixels, and since that appearance is
+off-distribution, the nudge was net-negative on real opponents (consistent with the eval regression).
+
+### RISE occlusion-saliency
+
+Area-normalized saliency concentration (1.0 = uniform / no preference for that region):
+
+| region | real_bbox | mix_all |
+|---|---|---|
+| inside box | 1.28 | 1.26 |
+| context ring (2× box) | 1.23 | 1.21 |
+| background | 0.99 | 1.00 |
+
+The box is only weakly favored (1.28×), and the **immediate context ring is almost equally salient
+(1.23×)** — a pure appearance detector would show the box concentration far above the ring. Evidence for
+the opponent is spread across the robot *and* its surroundings. (n = 77 / 74 detected boxes explained.)
+
+### Grad-CAM (corroboration)
+
+Gradient saliency at the P3 neck layer (layer 16), inside-box concentration: real_bbox **2.01**, mix_all
+**1.52** (ring < 1.0 for both). Gradient attribution localizes on the robot somewhat more than RISE
+(~2×), but still only modestly, and `mix_all`'s evidence is *less* focused on the robot than the
+baseline's. CAM methods are coarse, so this is corroboration of "modest, not dominant, appearance
+focus," not a standalone proof. (n = 34 / 31.)
+
+### Feature-space domain gap
+
+Backbone embeddings (deepest neck feature, GAP) for real-opponent vs synthetic-opponent vs background
+crops (191 / 200 / 200):
+
+| metric | real_bbox | mix_all |
+|---|---|---|
+| real-vs-synth opponent linear-probe acc (5-fold) | **0.969** | **0.954** |
+| real↔synth opponent centroid cos-dist | 0.012 | 0.008 |
+| real↔background centroid cos-dist | 0.052 | 0.074 |
+
+A linear probe separates real from synthetic opponents at **~96 %** — they occupy near-disjoint regions
+of feature space despite both being "opponents." Training on the synthetic (`mix_all`) barely closes the
+gap (0.969 → 0.954): even the model that trained on it still tells synthetic from real opponents almost
+perfectly. This is the mechanistic confirmation of "the synthetic is a persistent off-distribution mode
+that doesn't merge into the real-opponent distribution" — so it can't add real-opponent coverage.
+
+### What the probes establish
+
+- **Context is a first-class cue, not a tie-breaker** — it carries ~half the opponent score (cut-paste)
+  and is nearly as salient as the robot itself (RISE). The detector recognizes "opponent" as an
+  object-in-arena gestalt, exactly as the theory predicted.
+- **The synthetic stays off-distribution** (96 % separable) — confirming why generic synthetic opponents
+  add no transferable signal and slightly hurt.
+- **`mix_all` shifted marginally toward appearance-reliance** (cut-paste gray-bg, Grad-CAM), and that
+  shift is *toward* the off-distribution synthetic mode — a coherent mechanism for the eval regression.
+
 ## Caveats
 
 - **Different operating points across the two evals.** Val used `model.val()` at conf 0.001 (mAP-oriented);
@@ -181,6 +259,12 @@ never gives faithful meshes of upcoming opponents — but both are testable if s
 - **One dose, one seed.** A 0.36× dose, single training run. The result rules out a *large* benefit at this
   dose; it does not prove a higher dose or a different synthetic (exact-mesh opponents, more variety)
   couldn't help. But the direction here does not motivate spending that compute on generic synthetic.
+- **Interpretability-probe caveats.** The neutral-gray paste is out-of-distribution at its boundary (no
+  shadow/contact), so `crop_on_gray` slightly *under*-states appearance-only detection; the arena-swap
+  condition (which fully restores the score) is the cleaner control and points the same way. Grad-CAM/CAM
+  saliency is coarse and known to be unreliable alone — treated here as corroboration of RISE + cut-paste,
+  not standalone proof. Probe targets use the raw one2one head scores (not post-NMS), and the score is a
+  max-anchor-in-box readout, not the deployed detection pipeline.
 - **score.py bug fixed to produce this run.** The headline-plot stage used `df.query("... level == @level")`
   inside a list comprehension, which fails pandas frame inspection on this pandas version
   (`UndefinedVariableError: level`). Replaced with boolean-mask indexing (`training/model_eval/score.py`).
@@ -206,4 +290,6 @@ never gives faithful meshes of upcoming opponents — but both are testable if s
 - Training run: `runs/projects/auto_battlebots_2026-07-22_02-40-51_yolo26n` (500 epochs, 19.9 h)
 - Independent-eval scores: `training/data/nhrl_keypoints_eval_test/scores_synth_plus_bbox/`
   (`summary.csv`, `significance.csv`, `headline.png`, `confusion_*.png`)
+- Interpretability: `training/model_eval/interpret_context_vs_appearance.py` →
+  `scores_synth_plus_bbox/interpretability/` (`metrics.json`, `rise_*.png`, `gradcam_*.png`, `embed_*.png`)
 - Same-corpus val comparison: `runs/valcmp_real_bbox`, `runs/valcmp_mix_all`
