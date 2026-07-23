@@ -14,6 +14,8 @@ source "$PROJECT_ROOT/install/install_docker_ubuntu.sh"
 source "$PROJECT_ROOT/install/install_ros_connector.sh"
 source "$PROJECT_ROOT/install/install_mcap_cli.sh"
 source "$PROJECT_ROOT/install/install_taplo.sh"
+source "$PROJECT_ROOT/install/install_python_environment.sh"
+source "$PROJECT_ROOT/install/install_platformio.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
 
 # Run checks and installation
@@ -26,4 +28,6 @@ install_docker_ubuntu
 install_ros_connector
 install_mcap_cli
 install_taplo
+install_python_environment -n
+install_platformio
 build_cpp_project "$@"

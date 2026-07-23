@@ -11,6 +11,7 @@ source "$PROJECT_ROOT/install/check_jetson_orin_nano.sh"
 source "$PROJECT_ROOT/install/install_packages.sh"
 source "$PROJECT_ROOT/install/install_opencv_jetson.sh"
 source "$PROJECT_ROOT/install/install_pytorch_jetson.sh"
+source "$PROJECT_ROOT/install/install_python_environment.sh"
 source "$PROJECT_ROOT/install/install_ros_connector.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
 source "$PROJECT_ROOT/install/install_mcap_cli.sh"
@@ -27,6 +28,8 @@ check_jetson_orin_nano
 install_packages "$PROJECT_ROOT/install/jetson_packages.txt"
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
 install_opencv_jetson
+# Python venv (creates venv/, installs deps; also pulls Jetson PyTorch wheel)
+install_python_environment -n
 # PyTorch for Jetson (NVIDIA wheel into project venv)
 install_pytorch_jetson
 install_ros_connector
