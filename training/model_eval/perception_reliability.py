@@ -14,7 +14,10 @@ are real time even under free-run playback.
 Metrics:
   - opponent validity: % of ticks with a live (non-stale) opponent (their_count_live > 0)
   - our-robot validity: % of ticks with a live OUR_ROBOT_1 (our_present_live > 0)
-  - dropout gaps: run-lengths of consecutive ticks with no live opponent, in frames and milliseconds
+  - opponent dropout gaps: run-lengths of consecutive ticks with no live opponent (frames + ms)
+  - our-robot dropout gaps: run-lengths of consecutive ticks with no live OUR_ROBOT_1 (frames + ms).
+    These bound the keypoint-override decay `hold_window` in docs/robot_filter_decay_plan.md
+    (Tier 0): if our-robot gaps are short, holding the "ours" identity across them is cheap.
   - track churn: jump_reject events per second (the FrameId assigner refusing a far reassignment)
 
 Not yet measured: true track-ID-switch rate. The diagnostics carry opponent counts, not per-slot
@@ -35,6 +38,7 @@ import argparse
 import csv
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -106,10 +110,12 @@ class Gaps:
     ms: np.ndarray  # gap duration in milliseconds (first-missing to recovery)
 
 
-def opponent_gaps(frames: list[Frame]) -> Gaps:
-    """Dropout gaps: maximal runs with no live opponent, in frames and real milliseconds."""
+def _gaps(frames: list[Frame], live: np.ndarray) -> Gaps:
+    """Dropout gaps: maximal runs where `live` is False, in frames and real milliseconds.
+
+    `live` is a per-frame boolean mask aligned to `frames` (True = the track was live this tick).
+    """
     t = np.array([f.t for f in frames])
-    live = np.array([f.their_live > 0 for f in frames])
     n = len(frames)
     lens: list[int] = []
     durs: list[float] = []
@@ -118,6 +124,41 @@ def opponent_gaps(frames: list[Frame]) -> Gaps:
         end_t = t[b] if b < n else t[-1]  # recovery time, or end of recording
         durs.append((end_t - t[a]) * 1e3)
     return Gaps(count=len(lens), frames=np.array(lens), ms=np.array(durs))
+
+
+def opponent_gaps(frames: list[Frame]) -> Gaps:
+    """Dropout gaps: maximal runs with no live opponent, in frames and real milliseconds."""
+    return _gaps(frames, np.array([f.their_live > 0 for f in frames]))
+
+
+def our_robot_gaps(frames: list[Frame]) -> Gaps:
+    """Dropout gaps: maximal runs with no live OUR_ROBOT_1, in frames and real milliseconds.
+
+    These are the our-robot keypoint-dropout gaps Tier 0 of the robot-filter decay plan bounds: the
+    proposed `hold_window` should cover the typical gap (~p90) so the "ours" identity survives it.
+    """
+    return _gaps(frames, np.array([f.our_live > 0 for f in frames]))
+
+
+def _print_gap_block(label: str, gaps: Gaps, time_without_pct: float | None = None) -> None:
+    """Print a dropout-gap summary for one track (opponent or our-robot).
+
+    `time_without_pct` (% of ticks with no live track) is printed when given; it is omitted for a
+    pooled block across recordings, where a single live fraction is not meaningful.
+    """
+    if gaps.count:
+        print(
+            f"  {label} dropout gaps: {gaps.count}   frames [median {np.median(gaps.frames):.0f}, "
+            f"p90 {np.percentile(gaps.frames, 90):.0f}, max {int(gaps.frames.max())}]"
+        )
+        print(
+            f"      {' ' * len(label)}          duration [median {np.median(gaps.ms):.0f} ms, "
+            f"p90 {np.percentile(gaps.ms, 90):.0f} ms, max {gaps.ms.max():.0f} ms]"
+        )
+        if time_without_pct is not None:
+            print(f"  time without a live {label}: {time_without_pct:.1f}%")
+    else:
+        print(f"  no {label} dropouts: a live {label} was present every frame")
 
 
 def print_summary(name: str, rel: Reliability) -> None:
@@ -140,19 +181,8 @@ def print_summary(name: str, rel: Reliability) -> None:
         f"opponent present (incl. coasting): {present:.1f}%"
     )
 
-    gaps = opponent_gaps(frames)
-    if gaps.count:
-        print(
-            f"  dropout gaps: {gaps.count}   frames [median {np.median(gaps.frames):.0f}, "
-            f"p90 {np.percentile(gaps.frames, 90):.0f}, max {int(gaps.frames.max())}]"
-        )
-        print(
-            f"                duration [median {np.median(gaps.ms):.0f} ms, "
-            f"p90 {np.percentile(gaps.ms, 90):.0f} ms, max {gaps.ms.max():.0f} ms]"
-        )
-        print(f"  time without a live opponent: {100.0 * (1.0 - live.mean()):.1f}%")
-    else:
-        print("  no dropouts: a live opponent was present every frame")
+    _print_gap_block("opponent", opponent_gaps(frames), 100.0 * (1.0 - live.mean()))
+    _print_gap_block("our-robot", our_robot_gaps(frames), 100.0 * (1.0 - our.mean()))
 
     print(
         f"  track churn: {rel.jump_rejects} jump_reject events "
@@ -171,6 +201,17 @@ def write_csv(path: Path, frames: list[Frame]) -> None:
     print(f"wrote {path}")
 
 
+def write_gap_csv(path: Path, gaps: Gaps) -> None:
+    """Per-gap rows (frame length + ms duration) for a single track's dropout gaps."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["gap_frames", "gap_ms"])
+        for n_frames, ms in zip(gaps.frames.tolist(), gaps.ms.tolist()):
+            writer.writerow([int(n_frames), f"{ms:.1f}"])
+    print(f"wrote {path}")
+
+
 def save_plot(path: Path, rel: Reliability) -> None:
     try:
         import matplotlib
@@ -186,35 +227,45 @@ def save_plot(path: Path, rel: Reliability) -> None:
     t = np.array([f.t for f in frames]) - frames[0].t
     live = np.array([f.their_live > 0 for f in frames])
     our = np.array([f.our_live > 0 for f in frames])
-    gaps = opponent_gaps(frames)
+    opp_gaps = opponent_gaps(frames)
+    our_gaps = our_robot_gaps(frames)
 
-    fig, ax = plt.subplots(2, 1, figsize=(12, 6))
+    def _hist(axis: Any, gaps: Gaps, color: str, title: str) -> None:
+        if gaps.count:
+            axis.hist(gaps.ms, bins=30, color=color, alpha=0.8)
+            axis.axvline(
+                float(np.median(gaps.ms)),
+                color="k",
+                ls="--",
+                lw=1,
+                label=(
+                    f"median {np.median(gaps.ms):.0f} ms, p90 {np.percentile(gaps.ms, 90):.0f} ms"
+                ),
+            )
+            axis.legend(fontsize=8)
+        axis.set_xlabel("dropout gap duration (ms)")
+        axis.set_ylabel("count")
+        axis.set_title(title)
+
+    fig, ax = plt.subplots(3, 1, figsize=(12, 9))
     ax[0].fill_between(
         t, 0, live.astype(float), step="pre", color="C0", alpha=0.5, label="opponent live"
     )
     ax[0].plot(t, our.astype(float) * 0.5, color="C1", lw=0.8, label="our-robot live (x0.5)")
     for a, b in _false_runs(live):
         end = t[b] if b < len(t) else t[-1]
-        ax[0].axvspan(t[a], end, color="red", alpha=0.12, lw=0)
+        ax[0].axvspan(t[a], end, color="red", alpha=0.10, lw=0)
+    for a, b in _false_runs(our):
+        end = t[b] if b < len(t) else t[-1]
+        ax[0].axvspan(t[a], end, color="C1", alpha=0.12, lw=0)
     ax[0].set_ylim(-0.05, 1.1)
     ax[0].set_xlabel("time (s)")
     ax[0].set_ylabel("track live")
-    ax[0].set_title("opponent track availability (red = dropout)")
+    ax[0].set_title("track availability (red = opponent dropout, orange = our-robot dropout)")
     ax[0].legend(fontsize=8, loc="upper right")
 
-    if gaps.count:
-        ax[1].hist(gaps.ms, bins=30, color="C3", alpha=0.8)
-        ax[1].axvline(
-            float(np.median(gaps.ms)),
-            color="k",
-            ls="--",
-            lw=1,
-            label=f"median {np.median(gaps.ms):.0f} ms",
-        )
-        ax[1].legend(fontsize=8)
-    ax[1].set_xlabel("dropout gap duration (ms)")
-    ax[1].set_ylabel("count")
-    ax[1].set_title("how long the opponent track is lost at a time")
+    _hist(ax[1], opp_gaps, "C3", "how long the opponent track is lost at a time")
+    _hist(ax[2], our_gaps, "C1", "how long OUR_ROBOT_1 is lost (bounds decay hold_window)")
 
     fig.tight_layout()
     fig.savefig(path, dpi=110)
@@ -235,15 +286,42 @@ def main() -> None:
     parser.add_argument(
         "--plot", type=Path, default=None, help="timeline + gap histogram (first recording)"
     )
+    parser.add_argument(
+        "--our-gap-csv",
+        type=Path,
+        default=None,
+        help="per-gap our-robot dropout rows (frames, ms), pooled across all recordings",
+    )
     args = parser.parse_args()
 
+    pooled_our_frames: list[int] = []
+    pooled_our_ms: list[float] = []
     for i, path in enumerate(args.mcap):
         rel = read_reliability(path)
         print_summary(path.name, rel)
+        g = our_robot_gaps(rel.frames)
+        pooled_our_frames.extend(g.frames.tolist())
+        pooled_our_ms.extend(g.ms.tolist())
         if i == 0 and args.csv:
             write_csv(args.csv, rel.frames)
         if i == 0 and args.plot:
             save_plot(args.plot, rel)
+
+    if len(args.mcap) > 1 and pooled_our_ms:
+        pooled = Gaps(
+            count=len(pooled_our_frames),
+            frames=np.array(pooled_our_frames),
+            ms=np.array(pooled_our_ms),
+        )
+        print(f"\npooled across {len(args.mcap)} recordings:")
+        _print_gap_block("our-robot", pooled)
+    if args.our_gap_csv:
+        pooled = Gaps(
+            count=len(pooled_our_frames),
+            frames=np.array(pooled_our_frames),
+            ms=np.array(pooled_our_ms),
+        )
+        write_gap_csv(args.our_gap_csv, pooled)
 
 
 if __name__ == "__main__":
