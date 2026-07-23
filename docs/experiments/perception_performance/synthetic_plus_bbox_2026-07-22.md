@@ -117,6 +117,58 @@ up (the synthetic includes exact-CAD renders of our own robot), and `house_bot` 
   the mesh is exact (consistent with `meshy_grade`'s sphinx-at-ceiling finding); it does not for generic
   opponents.
 
+## Reasoning / theory: why synthetic doesn't generalize "what an NHRL opponent looks like"
+
+Synthetic data generalizes an **instance** (a specific object you can render exactly), not an **open
+category** (a class whose real members you don't have and can't render faithfully). "An NHRL opponent" is
+the second kind, and that is the whole problem. The chain of reasoning:
+
+### The central point: the detector learns *context*, not opponent appearance
+
+> **An NHRL opponent has no canonical appearance, so the model cannot and does not learn "opponent = this
+> shape/texture." It learns "opponent" from _contextual and relational_ cues that generalize across the
+> open set: a compact, fast-moving object on the arena floor, inside the cage, that is _not_ our robot and
+> _not_ the house bot. It detects opponents largely by scene context and negative space, not by the
+> opponent's own looks.**
+
+This is the load-bearing insight, and it explains the whole result:
+
+- **Synthetic teaches the wrong feature.** Rendering opponent *appearance* (geometry + texture) adds
+  variety along an axis the model barely uses to generalize opponents. More synthetic opponent looks →
+  little gain on the cue that actually does the work (context / "not-us, not-house-bot, on the floor,
+  moving").
+- **Worse, synthetic gets the *context* wrong.** The renderer's arena, lighting, floor reflections, lack
+  of real motion blur, and different negative-space distribution mean the synthetic frames corrupt exactly
+  the contextual signal the detector relies on. So the marginal effect is neutral-to-negative — which is
+  what the eval shows (agnostic recall −0.013, opponent AP −0.033, all `ns`).
+- **This is why abundant real data already suffices for opponents.** The context cue is cheap to learn from
+  the 99,655 real opponent boxes and generalizes across robot types; it does not need more *appearance*
+  variety, which is the only thing synthetic can add.
+
+### Why the category is unrenderable in the first place
+
+- **Open, custom, rebuilt set.** "Opponent" is hundreds of custom robots — spinners, wedges, hammers,
+  drums, control bots — each with different geometry, materials, paint, and damage, and frequently rebuilt
+  between events. There is no single shape to render, and the next opponent is unknown and unbuilt.
+- **The synthetic is a proxy, not samples from the real distribution.** `nhrl_robot` is generic
+  CAD/`synthgen` geometry, not the actual robots faced. Training on it nudges the model toward a
+  synthetic-opponent mode real opponents don't occupy — a domain gap on top of the wrong-feature problem.
+
+### Why our own robot is the exception
+
+For `mrs_buff_mk3` the task is **instance** recognition: one fixed object with exact CAD. There,
+*appearance is* a reliable discriminative cue, so learning it from exact renders helps — and it did, on
+both evals (+0.005 val, +0.026 eval), matching `meshy_grade`'s sphinx-at-ceiling result (transfer works
+precisely when the mesh *is* the real robot). Synthetic wins instance tasks and loses open-category ones.
+
+### Falsifiable prediction
+
+If the barrier is "generic appearance, wrong context," then (a) exact-mesh renders of the *specific*
+opponents faced should transfer (as sphinx did), and (b) synthetic that fixed the *context* (real arena
+backgrounds, real motion statistics, correct negative space) rather than the opponent geometry would help
+more than more opponent shapes. Neither is worth pursuing for a deployed opponent detector, since NHRL
+never gives faithful meshes of upcoming opponents — but both are testable if synthetic is revisited.
+
 ## Caveats
 
 - **Different operating points across the two evals.** Val used `model.val()` at conf 0.001 (mAP-oriented);
