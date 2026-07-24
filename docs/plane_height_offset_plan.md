@@ -124,7 +124,7 @@ injection and real correction use the same number.
 ./scripts/build_and_test.sh --gtest_filter=TransformUtils.*   # new unit tests
 venv/bin/mypy scripts/ simulation/ training/                  # unchanged, sanity
 git diff --name-only HEAD | grep '\.cpp$' | xargs -r clang-tidy -p build-test/
-./scripts/check_and_fix
+./scripts/lint
 ```
 
 ## Notes / decisions to confirm
