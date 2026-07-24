@@ -36,6 +36,7 @@ FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
     for (const Keypoint &keypoint : keypoints.keypoints) {
         Eigen::Vector3d projected_keypoint;
         if (!project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info,
+                                         config_.keypoint_heights.height_for(keypoint.label),
                                          projected_keypoint)) {
             continue;
         }

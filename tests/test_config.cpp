@@ -1133,4 +1133,59 @@ TEST_F(ProfileSelectionTest, LoadSelectorMissingFileDegradesGracefully) {
     EXPECT_FALSE(selector.selection_file.empty());  // default path
 }
 
+TEST_F(ConfigTest, RobotFilterKeypointHeightsParsePerLabelWithDefault) {
+    write_config_file(R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "RobotFrontBackSimpleFilter"
+default_frame_id = "OUR_ROBOT_1"
+front_keypoints = ["OPPONENT_FRONT"]
+back_keypoints = ["OPPONENT_BACK"]
+keypoint_height_meters = 0.05
+
+[robot_filter.keypoint_height_meters_per_label]
+OPPONENT = 0.09
+
+[robot_filter.label_mapping]
+"OPPONENT" = ["THEIR_ROBOT_1"]
+
+[target_selector]
+type = "NoopTarget"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+)");
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *filter_config =
+        dynamic_cast<RobotFrontBackSimpleFilterConfiguration *>(config.robot_filter.get());
+    ASSERT_NE(filter_config, nullptr);
+
+    const KeypointHeights &heights = filter_config->robot_keypoint_tracker_config.keypoint_heights;
+    EXPECT_DOUBLE_EQ(heights.default_meters, 0.05);
+    EXPECT_DOUBLE_EQ(heights.height_for(Label::OPPONENT), 0.09);
+    // Labels without a per-label entry fall back to the default.
+    EXPECT_DOUBLE_EQ(heights.height_for(Label::HOUSE_BOT), 0.05);
+}
+
 }  // namespace auto_battlebot

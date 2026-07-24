@@ -88,6 +88,7 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
     FrontBackKeypointConverterConfig converter_config;
     converter_config.front_keypoints = config.front_keypoints;
     converter_config.back_keypoints = config.back_keypoints;
+    converter_config.keypoint_heights = config.robot_keypoint_tracker_config.keypoint_heights;
     keypoint_converter_ = std::make_unique<FrontBackKeypointConverter>(converter_config);
 }
 

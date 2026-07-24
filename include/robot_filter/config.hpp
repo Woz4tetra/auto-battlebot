@@ -77,8 +77,33 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
             "robot_blob_max_length_meters", robot_keypoint_tracker_config.max_length_meters);
         robot_keypoint_tracker_config.min_confidence = parser.get_optional_double(
             "robot_blob_min_confidence", robot_keypoint_tracker_config.min_confidence);
+        robot_keypoint_tracker_config.keypoint_heights.default_meters = parser.get_optional_double(
+            "keypoint_height_meters",
+            robot_keypoint_tracker_config.keypoint_heights.default_meters);
+        parse_keypoint_heights_per_label(parser, "keypoint_height_meters_per_label");
         robot_keypoint_tracker_config.max_candidates = static_cast<int>(parser.get_optional_int(
             "robot_blob_max_candidates", robot_keypoint_tracker_config.max_candidates));
+    }
+
+    void parse_keypoint_heights_per_label(ConfigParser &parser, const std::string &field_name) {
+        const toml::table *table_ptr = parser.get_table(field_name);
+        if (!table_ptr) {
+            return;  // Optional; labels fall back to keypoint_height_meters.
+        }
+
+        for (const auto &[key, value] : *table_ptr) {
+            std::string label_str(key.str());
+            auto label_opt = magic_enum::enum_cast<Label>(label_str);
+            if (!label_opt.has_value()) {
+                throw ConfigValidationError("Invalid Label: " + label_str);
+            }
+            auto height = value.template value<double>();
+            if (!height.has_value()) {
+                throw ConfigValidationError("Value for '" + label_str + "' must be a number");
+            }
+            robot_keypoint_tracker_config.keypoint_heights.per_label_meters[label_opt.value()] =
+                *height;
+        }
     }
 
     void parse_label_to_frame_id(ConfigParser &parser, const std::string &field_name) {

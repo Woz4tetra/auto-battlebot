@@ -172,6 +172,37 @@ bool project_keypoint_onto_plane(const Keypoint &keypoint, const Eigen::Vector3d
                                  Eigen::Vector3d &out_point);
 
 /**
+ * @brief Project a keypoint pixel onto a plane, then compensate for the physical keypoint
+ *        sitting `keypoint_height` above the plane by shifting the result inward toward the
+ *        camera nadir.
+ * @param keypoint Input keypoint with pixel coordinates
+ * @param plane_center Any point on the plane in camera frame
+ * @param plane_normal Plane normal in camera frame
+ * @param camera_info Camera intrinsics
+ * @param keypoint_height Height of the physical keypoint above the plane in meters
+ * @param out_point Corrected on-plane point in camera frame
+ * @return True when projection succeeds
+ */
+bool project_keypoint_onto_plane(const Keypoint &keypoint, const Eigen::Vector3d &plane_center,
+                                 const Eigen::Vector3d &plane_normal, const CameraInfo &camera_info,
+                                 double keypoint_height, Eigen::Vector3d &out_point);
+
+/**
+ * @brief Shift an on-plane projected point inward toward the camera nadir to compensate for the
+ *        keypoint sitting `keypoint_height` above the plane. Returns the input unchanged when the
+ *        geometry is degenerate (camera at or below keypoint height).
+ * @param plane_point On-plane point from ray/plane intersection, in camera frame
+ * @param plane_center Any point on the plane in camera frame
+ * @param plane_normal Unit plane normal in camera frame
+ * @param keypoint_height Height of the physical keypoint above the plane in meters
+ * @return Corrected on-plane point in camera frame
+ */
+Eigen::Vector3d correct_plane_height_offset(const Eigen::Vector3d &plane_point,
+                                            const Eigen::Vector3d &plane_center,
+                                            const Eigen::Vector3d &plane_normal,
+                                            double keypoint_height);
+
+/**
  * @brief Transform a 3D point by a homogeneous 4x4 transform.
  */
 Eigen::Vector3d transform_point(const Eigen::Matrix4d &tf, const Eigen::Vector3d &point);

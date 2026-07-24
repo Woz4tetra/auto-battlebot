@@ -10,6 +10,7 @@
 #include "data_structures/keypoint.hpp"
 #include "data_structures/transform.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
+#include "robot_filter/keypoint_heights.hpp"
 
 namespace auto_battlebot {
 struct FrontBackAssignment {
@@ -20,6 +21,7 @@ struct FrontBackAssignment {
 struct FrontBackKeypointConverterConfig {
     std::vector<KeypointLabel> front_keypoints;
     std::vector<KeypointLabel> back_keypoints;
+    KeypointHeights keypoint_heights;
 };
 
 /**

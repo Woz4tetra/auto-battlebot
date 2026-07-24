@@ -1,5 +1,6 @@
 #include "transform_utils.hpp"
 
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 
@@ -252,6 +253,39 @@ bool project_keypoint_onto_plane(const Keypoint &keypoint, const Eigen::Vector3d
         return false;
     }
     return intersect_camera_ray_with_plane(ray, plane_center, plane_normal, out_point);
+}
+
+bool project_keypoint_onto_plane(const Keypoint &keypoint, const Eigen::Vector3d &plane_center,
+                                 const Eigen::Vector3d &plane_normal, const CameraInfo &camera_info,
+                                 double keypoint_height, Eigen::Vector3d &out_point) {
+    if (!project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info,
+                                     out_point)) {
+        return false;
+    }
+    out_point = correct_plane_height_offset(out_point, plane_center, plane_normal, keypoint_height);
+    return true;
+}
+
+Eigen::Vector3d correct_plane_height_offset(const Eigen::Vector3d &plane_point,
+                                            const Eigen::Vector3d &plane_center,
+                                            const Eigen::Vector3d &plane_normal,
+                                            double keypoint_height) {
+    constexpr double EPSILON = 1e-6;
+    if (keypoint_height <= 0.0) {
+        return plane_point;
+    }
+    // Camera sits at the origin in camera frame. Its height above the plane is the distance from
+    // the origin to the plane along the normal; the nadir is the foot of that perpendicular.
+    const double signed_plane_offset = plane_normal.dot(plane_center);
+    const double camera_height = std::abs(signed_plane_offset);
+    if (camera_height <= EPSILON || camera_height <= keypoint_height) {
+        return plane_point;
+    }
+    const Eigen::Vector3d nadir = signed_plane_offset * plane_normal;
+    // Similar triangles: the physical keypoint at keypoint_height projects onto the plane at
+    // plane_point; the true ground point sits inward by the ratio of heights.
+    const double scale = (camera_height - keypoint_height) / camera_height;
+    return nadir + (plane_point - nadir) * scale;
 }
 
 Eigen::Vector3d transform_point(const Eigen::Matrix4d &tf, const Eigen::Vector3d &point) {
