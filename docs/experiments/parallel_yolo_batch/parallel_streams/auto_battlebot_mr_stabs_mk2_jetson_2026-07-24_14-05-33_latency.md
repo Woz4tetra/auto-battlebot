@@ -1,5 +1,7 @@
 # Latency report: auto_battlebot_mr_stabs_mk2_jetson_2026-07-24_14-05-33
 
+Context: desktop x86 replay of an NHRL May SVO (mrs_buff_mk3_playback base, prescribed svo_start_frame, real-time mode, max_loop_rate = 30). ParallelModelBatch plus per-engine CUDA streams and pinned async IO in TrtEngine. Phase 3 of the desktop A/B in ../comparison.md.
+
 - Source: `/home/ben/Desktop/auto_battlebot_mr_stabs_mk2_jetson_2026-07-24_14-05-33.mcap`
 - Generated: 2026-07-24 14:11 by `scripts/mcap_latency_report.py`
 - Duration: 121.5 s

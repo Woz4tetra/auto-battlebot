@@ -1,5 +1,7 @@
 # Latency report: auto_battlebot_mr_stabs_mk2_jetson_2026-07-24_15-19-40
 
+Context: live Jetson, mr_stabs_mk2, 720p30. parallel_models = false, max_loop_rate raised to 60. Before the publish_camera_data guard/reorder. Sequential side of the loop-rate A/B; loop-rate raise removed the phase-drift staleness (e2e 99.9 -> 83.0 ms vs the 13-48 run).
+
 - Source: `/home/ben/Desktop/auto_battlebot_mr_stabs_mk2_jetson_2026-07-24_15-19-40.mcap`
 - Generated: 2026-07-24 15:22 by `scripts/mcap_latency_report.py`
 - Duration: 62.8 s

@@ -1,5 +1,7 @@
 # Latency report: auto_battlebot_mr_stabs_mk2_jetson_2026-07-24_13-50-38_repaired
 
+Context: live Jetson, mr_stabs_mk2, 720p30. parallel_models = true (ParallelModelBatch + per-engine CUDA streams), max_loop_rate = 30. Recorded before the publish_camera_data guard/reorder. Parallel side of the first Jetson A/B; mcap footer repaired.
+
 - Source: `/home/ben/Desktop/auto_battlebot_mr_stabs_mk2_jetson_2026-07-24_13-50-38_repaired.mcap`
 - Generated: 2026-07-24 14:34 by `scripts/mcap_latency_report.py`
 - Duration: 73.0 s

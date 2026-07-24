@@ -1,5 +1,7 @@
 # Latency report: auto_battlebot_mr_stabs_mk2_jetson_2026-07-24_13-48-01_repaired
 
+Context: live Jetson, mr_stabs_mk2, 720p30. parallel_models = false (sequential model calls), max_loop_rate = 30. TrtEngine already has per-engine CUDA streams. Recorded before the publish_camera_data guard/reorder. Sequential side of the first Jetson A/B; mcap footer repaired.
+
 - Source: `/home/ben/Desktop/auto_battlebot_mr_stabs_mk2_jetson_2026-07-24_13-48-01_repaired.mcap`
 - Generated: 2026-07-24 14:34 by `scripts/mcap_latency_report.py`
 - Duration: 60.1 s

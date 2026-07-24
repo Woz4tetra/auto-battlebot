@@ -1,5 +1,7 @@
 # Latency report: auto_battlebot_mr_stabs_mk2_jetson_2026-07-24_15-18-13
 
+Context: live Jetson, mr_stabs_mk2, 720p30. parallel_models = true, max_loop_rate raised to 60 so the loop frame-locks to the 30 fps camera. Before the publish_camera_data guard/reorder. Parallel side of the loop-rate A/B.
+
 - Source: `/home/ben/Desktop/auto_battlebot_mr_stabs_mk2_jetson_2026-07-24_15-18-13.mcap`
 - Generated: 2026-07-24 15:22 by `scripts/mcap_latency_report.py`
 - Duration: 61.6 s

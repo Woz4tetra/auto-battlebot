@@ -95,8 +95,8 @@ and tick period settled at 33.1 ms = the 30 fps frame period in both modes.
 
 | Run | perception section (ms) | tick mean (ms) | e2e mean (ms) | e2e p95 (ms) |
 | --- | ---: | ---: | ---: | ---: |
-| 15-19-40 seq (report in `baseline_latency/`) | 18.82 (9.30 + 9.52) | 33.12 | 83.0 | 104.9 |
-| 15-18-13 par (report in `parallel_streams/`) | 12.86 | 33.17 | 75.2 | 82.3 |
+| 15-19-40 seq (report in `jetson/`) | 18.82 (9.30 + 9.52) | 33.12 | 83.0 | 104.9 |
+| 15-18-13 par (report in `jetson/`) | 12.86 | 33.17 | 75.2 | 82.3 |
 
 - Sequential improved the most: 99.9 -> 83.0 ms mean, p95 119.9 -> 104.9. Raising the
   cap removed the phase-drift staleness that hit sequential mode hardest.
