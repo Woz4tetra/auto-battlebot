@@ -8,6 +8,10 @@ Type=simple
 #   systemctl edit auto_battlebot.service  and set ExecStart=
 # Uses same layout as scripts/build_and_install.sh (default prefix ~/.local)
 ExecStartPre=/home/__USER__/auto-battlebot/scripts/run_ros_connector.sh
+# Kiosk setup (screen blanking off, GNOME on-screen keyboard off). "-" prefix:
+# ignore failures on early-boot attempts when X/dbus is not up yet; the main
+# process fails then too and Restart= retries the whole unit.
+ExecStartPre=-/home/__USER__/auto-battlebot/service/enable_kiosk.sh
 # No -c: the active profile is resolved from the UI selection (persisted outside the repo),
 # falling back to config/default_profile. See config/profiles.toml.
 ExecStart=/home/__USER__/.local/bin/auto_battlebot
