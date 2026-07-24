@@ -22,19 +22,21 @@ void clip_to_field_bounds(auto_battlebot::Position &position,
 namespace auto_battlebot {
 void RobotTemporalMotionFilter::reset() {
     last_timestamp_per_frame_id_.clear();
+    last_measured_timestamp_per_frame_id_.clear();
     last_description_per_frame_id_.clear();
 }
 
 std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
     std::vector<RobotDescription> inputs, const CommandFeedback &command_feedback, double timestamp,
     FrameIdAssigner &frame_id_assigner, const FieldDescription &field,
-    double field_bounds_margin_meters) {
+    double field_bounds_margin_meters, double our_robot_hold_window_s) {
     std::set<FrameId> measured_frame_ids;
 
     for (const auto &input : inputs) {
         if (input.frame_id == FrameId::EMPTY) continue;
         measured_frame_ids.insert(input.frame_id);
         last_description_per_frame_id_[input.frame_id] = input;
+        last_measured_timestamp_per_frame_id_[input.frame_id] = timestamp;
     }
 
     for (auto &[frame_id, desc] : last_description_per_frame_id_) {
@@ -64,6 +66,30 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
         desc.pose = pose2d_to_pose(predicted_pose);
         clip_to_field_bounds(desc.pose.position, field, field_bounds_margin_meters);
         frame_id_assigner.set_last_position(frame_id, desc.pose.position);
+    }
+
+    // Stale-identity decay: drop an our-robot track once its last keypoint confirmation is older
+    // than the hold window, instead of predicting it forward forever. Scoped to Group::OURS -- the
+    // decay exists to stop our robot leaking as a held ghost after a genuine departure/keypoint
+    // loss; opponents keep their hold-last-pose behavior. A window <= 0 disables the decay.
+    if (our_robot_hold_window_s > 0.0) {
+        for (auto it = last_description_per_frame_id_.begin();
+             it != last_description_per_frame_id_.end();) {
+            const FrameId frame_id = it->first;
+            const bool is_ours = it->second.group == Group::OURS;
+            const bool measured_this_frame = measured_frame_ids.count(frame_id) != 0;
+            const auto ts_it = last_measured_timestamp_per_frame_id_.find(frame_id);
+            const bool expired = is_ours && !measured_this_frame &&
+                                 ts_it != last_measured_timestamp_per_frame_id_.end() &&
+                                 (timestamp - ts_it->second) > our_robot_hold_window_s;
+            if (expired) {
+                last_timestamp_per_frame_id_.erase(frame_id);
+                last_measured_timestamp_per_frame_id_.erase(frame_id);
+                it = last_description_per_frame_id_.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 
     std::vector<RobotDescription> outputs;

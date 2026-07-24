@@ -54,6 +54,8 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     double blob_overwrite_size_scale_;
     /** Extra margin added to field half extents before out-of-bounds rejection. */
     double field_bounds_margin_meters_;
+    /** Seconds an unmeasured our-robot track is held before the decay drops it (<= 0 disables). */
+    double our_robot_hold_window_s_;
     RobotKeypointTracker robot_keypoint_tracker_;
     FrameIdAssigner frame_id_assigner_;
     RobotTemporalMotionFilter temporal_motion_filter_;

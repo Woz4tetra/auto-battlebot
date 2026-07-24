@@ -73,6 +73,15 @@ void append_keypoint_pair(KeypointsStamped &keypoints, Label label, KeypointLabe
     keypoints.keypoints.push_back(back);
 }
 
+// Empty keypoint frame carrying a timestamp, so a keypoint-dropout frame still advances the
+// filter clock (the output stamp is taken from keypoints.header.stamp).
+KeypointsStamped make_empty_keypoints(double stamp) {
+    KeypointsStamped keypoints;
+    keypoints.header.frame_id = FrameId::CAMERA;
+    keypoints.header.stamp = stamp;
+    return keypoints;
+}
+
 KeypointsStamped make_our_keypoints(double stamp, double front_x, double back_x, double y) {
     KeypointsStamped keypoints;
     keypoints.header.frame_id = FrameId::CAMERA;
@@ -276,7 +285,7 @@ TEST(RobotFrontBackSimpleFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlo
     EXPECT_EQ(opponent_meas->group, Group::THEIRS);
 }
 
-// Leak-opportunity flag (Tier 0 of docs/robot_filter_decay_plan.md): after our robot has been
+// Leak-opportunity flag (see docs/robot_filter_decay_plan.md): after our robot has been
 // tracked, a frame where its keypoint drops out but a blob coincides with its held pose is the
 // exact tick the identity decay would fix. The filter must flag it.
 TEST(RobotFrontBackSimpleFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
@@ -344,5 +353,63 @@ TEST(RobotFrontBackSimpleFilterTest, NoLeakFlagWhenOurKeypointPresent) {
     filter.update(make_our_keypoints(1.1, 300.0, 340.0, 220.0), field, camera_info,
                   make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
     EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+}
+
+// Stale-identity decay (docs/robot_filter_decay_plan.md): an our-robot track whose keypoints drop
+// out is held (predicted forward, is_stale) only up to our_robot_hold_window_s. Within the window
+// it is still emitted; once the window elapses without a fresh keypoint it is dropped entirely,
+// rather than lingering as a ghost after our robot has genuinely departed.
+TEST(RobotFrontBackSimpleFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
+    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+    config.our_robot_hold_window_s = 0.15;
+    RobotFrontBackSimpleFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    const KeypointsStamped no_blob;
+    const CommandFeedback command_feedback;
+
+    // Frame 1: our robot measured by keypoints -> OUR_ROBOT_1 tracked.
+    const auto first = filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field,
+                                     camera_info, no_blob, command_feedback);
+    ASSERT_EQ(first.descriptions.size(), 1u);
+    ASSERT_EQ(first.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
+    EXPECT_FALSE(first.descriptions[0].is_stale);
+
+    // Frame 2: keypoint miss 0.10 s later (within the 0.15 s window) -> still held, flagged stale.
+    const auto within =
+        filter.update(make_empty_keypoints(1.10), field, camera_info, no_blob, command_feedback);
+    ASSERT_EQ(within.descriptions.size(), 1u);
+    EXPECT_EQ(within.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
+    EXPECT_TRUE(within.descriptions[0].is_stale);
+
+    // Frame 3: still no keypoint, now 0.20 s past the last confirmation (> window) -> dropped.
+    const auto expired =
+        filter.update(make_empty_keypoints(1.20), field, camera_info, no_blob, command_feedback);
+    EXPECT_TRUE(expired.descriptions.empty());
+}
+
+// A window <= 0 disables the decay: the our-robot track is held indefinitely (legacy behavior).
+TEST(RobotFrontBackSimpleFilterTest, HoldsStaleOurRobotWhenDecayDisabled) {
+    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+    config.our_robot_hold_window_s = 0.0;
+    RobotFrontBackSimpleFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    const KeypointsStamped no_blob;
+    const CommandFeedback command_feedback;
+
+    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+                  command_feedback);
+
+    // A full second later with no keypoints: still held (stale), never dropped.
+    const auto held =
+        filter.update(make_empty_keypoints(2.0), field, camera_info, no_blob, command_feedback);
+    ASSERT_EQ(held.descriptions.size(), 1u);
+    EXPECT_EQ(held.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
+    EXPECT_TRUE(held.descriptions[0].is_stale);
 }
 }  // namespace auto_battlebot

@@ -67,6 +67,9 @@ robot_blob_max_candidates = 8
 blob_overwrite_min_distance_meters = 0.20
 blob_overwrite_size_scale = 0.5
 field_bounds_margin_meters = 0.5
+# Drop a stale (unmeasured) our-robot track after this long without a keypoint confirmation,
+# instead of predicting it forward indefinitely. Set <= 0 to hold forever (legacy behavior).
+our_robot_hold_window_s = 0.15
 
 [robot_filter.label_mapping]
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]

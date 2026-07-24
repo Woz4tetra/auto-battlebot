@@ -82,6 +82,7 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
       blob_overwrite_min_distance_meters_(config.blob_overwrite_min_distance_meters),
       blob_overwrite_size_scale_(config.blob_overwrite_size_scale),
       field_bounds_margin_meters_(config.field_bounds_margin_meters),
+      our_robot_hold_window_s_(config.our_robot_hold_window_s),
       robot_keypoint_tracker_(config.robot_keypoint_tracker_config),
       frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects) {
     FrontBackKeypointConverterConfig converter_config;
@@ -145,7 +146,7 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
     const int num_measurements_before_temporal = static_cast<int>(all_measurements.size());
     result.descriptions = temporal_motion_filter_.update_with_prediction(
         all_measurements, command_feedback, result.header.stamp, frame_id_assigner_, field,
-        field_bounds_margin_meters_);
+        field_bounds_margin_meters_, our_robot_hold_window_s_);
 
     // Anchor the held OUR_ROBOT_1 pose from this frame's output (measured or predicted) so the next
     // frame's leak-opportunity check has a reference even when our keypoint drops out.
@@ -277,7 +278,7 @@ void RobotFrontBackSimpleFilter::merge_blob_detections(
         blob_detections.end());
 
     // A surviving blob near our held pose while our keypoint is missing is a leak-opportunity: it
-    // would be assigned an opponent FrameId at our robot's location (Tier 0 metric).
+    // would be assigned an opponent FrameId at our robot's location.
     our_blob_present_no_keypoint_ =
         detect_our_blob_leak_opportunity(blob_detections, keypoint_measurements);
 

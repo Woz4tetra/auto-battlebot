@@ -39,6 +39,13 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
     double blob_overwrite_min_distance_meters = 0.20;
     double blob_overwrite_size_scale = 0.5;
     double field_bounds_margin_meters = 0.2;
+    /**
+     * How long (seconds) an unmeasured our-robot track is held before it is dropped from the
+     * output. After this window without a keypoint confirmation the stale "ours" detection is
+     * decayed away instead of being predicted forward indefinitely. A value <= 0 disables the
+     * decay (legacy behavior: hold forever).
+     */
+    double our_robot_hold_window_s = 0.15;
     RobotKeypointTrackerConfig robot_keypoint_tracker_config;
 
     RobotFrontBackSimpleFilterConfiguration() { type = "RobotFrontBackSimpleFilter"; }
@@ -57,6 +64,8 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
             parser.get_optional_double("blob_overwrite_size_scale", blob_overwrite_size_scale);
         field_bounds_margin_meters =
             parser.get_optional_double("field_bounds_margin_meters", field_bounds_margin_meters);
+        our_robot_hold_window_s =
+            parser.get_optional_double("our_robot_hold_window_s", our_robot_hold_window_s);
         parse_robot_keypoint_tracker_config(parser);
         parser.validate_no_extra_fields();
     }
