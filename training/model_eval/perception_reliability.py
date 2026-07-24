@@ -16,8 +16,8 @@ Metrics:
   - our-robot validity: % of ticks with a live OUR_ROBOT_1 (our_present_live > 0)
   - opponent dropout gaps: run-lengths of consecutive ticks with no live opponent (frames + ms)
   - our-robot dropout gaps: run-lengths of consecutive ticks with no live OUR_ROBOT_1 (frames + ms).
-    These bound the keypoint-override decay `hold_window` in docs/robot_filter_decay_plan.md
-    (Tier 0): if our-robot gaps are short, holding the "ours" identity across them is cheap.
+    These bound the keypoint-override decay `hold_window` in docs/robot_filter_decay_plan.md:
+    if our-robot gaps are short, holding the "ours" identity across them is cheap.
   - track churn: jump_reject events per second (the FrameId assigner refusing a far reassignment)
 
 Not yet measured: true track-ID-switch rate. The diagnostics carry opponent counts, not per-slot
@@ -55,12 +55,14 @@ class Frame:
     their_total: int  # THEIRS descriptions present (live + coasting)
     their_live: int  # THEIRS descriptions that are not stale this frame
     our_live: int  # 1 if OUR_ROBOT_1 present and not stale
+    our_blob_no_keypoint: int  # 1 if our keypoint missed AND a blob coincided with our held pose
 
 
 @dataclass
 class Reliability:
     frames: list[Frame]
     jump_rejects: int  # FrameId-assigner far-reassignment rejections over the run
+    has_leak_signal: bool  # whether the recording carries our_blob_present_no_keypoint (new build)
 
 
 def read_reliability(path: Path) -> Reliability:
@@ -71,6 +73,7 @@ def read_reliability(path: Path) -> Reliability:
     """
     frames: list[Frame] = []
     jump_rejects = 0
+    has_leak_signal = False
     for _topic, log_ns, data in iter_messages(path, [DIAGNOSTICS_TOPIC]):
         perc: dict[str, str] | None = None
         for status in decode_diagnostic_array(data):
@@ -80,16 +83,19 @@ def read_reliability(path: Path) -> Reliability:
                 jump_rejects += 1
         if perc is None:
             continue
+        if "our_blob_present_no_keypoint" in perc:
+            has_leak_signal = True
         frames.append(
             Frame(
                 t=log_ns * 1e-9,
                 their_total=int(perc.get("their_count_total", 0)),
                 their_live=int(perc.get("their_count_live", 0)),
                 our_live=int(perc.get("our_present_live", 0)),
+                our_blob_no_keypoint=int(perc.get("our_blob_present_no_keypoint", 0)),
             )
         )
     frames.sort(key=lambda f: f.t)
-    return Reliability(frames=frames, jump_rejects=jump_rejects)
+    return Reliability(frames=frames, jump_rejects=jump_rejects, has_leak_signal=has_leak_signal)
 
 
 def _false_runs(flags: np.ndarray) -> list[tuple[int, int]]:
@@ -134,8 +140,8 @@ def opponent_gaps(frames: list[Frame]) -> Gaps:
 def our_robot_gaps(frames: list[Frame]) -> Gaps:
     """Dropout gaps: maximal runs with no live OUR_ROBOT_1, in frames and real milliseconds.
 
-    These are the our-robot keypoint-dropout gaps Tier 0 of the robot-filter decay plan bounds: the
-    proposed `hold_window` should cover the typical gap (~p90) so the "ours" identity survives it.
+    These are the our-robot keypoint-dropout gaps the robot-filter decay plan bounds: the proposed
+    `hold_window` should cover the typical gap (~p90) so the "ours" identity survives it.
     """
     return _gaps(frames, np.array([f.our_live > 0 for f in frames]))
 
@@ -183,6 +189,23 @@ def print_summary(name: str, rel: Reliability) -> None:
 
     _print_gap_block("opponent", opponent_gaps(frames), 100.0 * (1.0 - live.mean()))
     _print_gap_block("our-robot", our_robot_gaps(frames), 100.0 * (1.0 - our.mean()))
+
+    if rel.has_leak_signal:
+        leak = np.array([f.our_blob_no_keypoint > 0 for f in frames])
+        n_leak = int(leak.sum())
+        n_dropout = int((~our).sum())
+        of_dropout = (
+            f", {100.0 * n_leak / n_dropout:.1f}% of our-robot dropout ticks" if n_dropout else ""
+        )
+        print(
+            f"  leak-opportunity ticks: {n_leak} "
+            f"({100.0 * leak.mean():.1f}% of ticks, {n_leak / span:.2f}/s{of_dropout}) "
+            "[our keypoint missed + coincident blob -> would leak as opponent]"
+        )
+    else:
+        print(
+            "  leak-opportunity: n/a (recording predates the our_blob_present_no_keypoint signal)"
+        )
 
     print(
         f"  track churn: {rel.jump_rejects} jump_reject events "
@@ -296,12 +319,23 @@ def main() -> None:
 
     pooled_our_frames: list[int] = []
     pooled_our_ms: list[float] = []
+    pooled_ticks = 0
+    pooled_span = 0.0
+    pooled_leak_ticks = 0
+    pooled_dropout_ticks = 0
+    pooled_has_leak = False
     for i, path in enumerate(args.mcap):
         rel = read_reliability(path)
         print_summary(path.name, rel)
         g = our_robot_gaps(rel.frames)
         pooled_our_frames.extend(g.frames.tolist())
         pooled_our_ms.extend(g.ms.tolist())
+        if len(rel.frames) >= 2:
+            pooled_ticks += len(rel.frames)
+            pooled_span += rel.frames[-1].t - rel.frames[0].t
+            pooled_leak_ticks += sum(f.our_blob_no_keypoint > 0 for f in rel.frames)
+            pooled_dropout_ticks += sum(f.our_live == 0 for f in rel.frames)
+            pooled_has_leak = pooled_has_leak or rel.has_leak_signal
         if i == 0 and args.csv:
             write_csv(args.csv, rel.frames)
         if i == 0 and args.plot:
@@ -315,6 +349,17 @@ def main() -> None:
         )
         print(f"\npooled across {len(args.mcap)} recordings:")
         _print_gap_block("our-robot", pooled)
+        if pooled_has_leak and pooled_span > 0:
+            of_dropout = (
+                f", {100.0 * pooled_leak_ticks / pooled_dropout_ticks:.1f}% of dropout ticks"
+                if pooled_dropout_ticks
+                else ""
+            )
+            print(
+                f"  leak-opportunity ticks: {pooled_leak_ticks} "
+                f"({100.0 * pooled_leak_ticks / pooled_ticks:.1f}% of ticks, "
+                f"{pooled_leak_ticks / pooled_span:.2f}/s{of_dropout})"
+            )
     if args.our_gap_csv:
         pooled = Gaps(
             count=len(pooled_our_frames),
