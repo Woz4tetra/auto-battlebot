@@ -67,12 +67,6 @@ back_keypoints = [
   "OPPONENT_BACK",
 ]
 
-# Tracked keypoints sit this far above the field plane. The projection correction shifts
-# on-plane points inward toward the camera nadir to remove the resulting radial bias.
-# Set 0.0 to disable (sim injects its own via simulation/kinematic_sim.toml keypoint_height).
-# Labels without an entry in keypoint_height_meters_per_label use this default.
-keypoint_height_meters = 0.02
-
 robot_blob_min_length_meters = 0.08
 robot_blob_max_length_meters = 0.7
 robot_blob_min_confidence = 0.4
@@ -84,9 +78,17 @@ field_bounds_margin_meters = 0.5
 # instead of predicting it forward indefinitely. Set <= 0 to hold forever (legacy behavior).
 our_robot_hold_window_s = 0.15
 
+# Tracked keypoints sit this far above the field plane by default.
+keypoint_height_meters = 0.03
+
 # Per-label keypoint height overrides; labels not listed use keypoint_height_meters.
-# Example: HOUSE_BOT = 0.04
 [robot_filter.keypoint_height_meters_per_label]
+HOUSE_BOT = 0.12
+MR_STABS_MK1 = 0.0
+MR_STABS_MK2 = 0.0
+MRS_BUFF_MK1 = 0.0
+MRS_BUFF_MK2 = 0.0
+MRS_BUFF_MK3 = 0.0
 
 [robot_filter.label_mapping]
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
