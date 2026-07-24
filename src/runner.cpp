@@ -247,7 +247,7 @@ void Runner::initialize_field(const CameraData &camera_data) {
     spdlog::info("Initializing field");
     field_filter_->reset(camera_data.tf_visodom_from_camera);
     MaskStamped field_mask = field_model_->update(camera_data.rgb);
-    publisher_->publish_field_mask(field_mask, camera_data.rgb);
+    publisher_->publish_field_mask(field_mask, camera_data.rgb, camera_data.camera_info);
 
     if (field_mask.mask.mask.empty()) {
         spdlog::error("Field model returned an empty mask; skipping field initialization.");
