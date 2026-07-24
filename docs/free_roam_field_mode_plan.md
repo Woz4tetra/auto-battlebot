@@ -1,146 +1,157 @@
-# Plan: "Free roam" field mode (find any plane at the center, no segmentation model)
+# Plan: "Free roam" field mode (fit any plane, no segmentation model)
 
 ## Goal
 
-Add a field-filter mode that finds a ground plane from the depth around the center of
-the view, **without** running the semantic segmentation model. This lets the system
-operate off-arena / anywhere ("free roam") where the DeepLab field mask would fail or
-isn't wanted.
+Let the system find and track a ground plane anywhere ("free roam") without running the
+DeepLab segmentation model. The camera points at a flat surface; the system fits that
+plane. The fitted rectangle's size does not matter in this mode, it only needs to cover
+the flat plane in view.
 
-## Current behavior
+## Key insight
 
-The field is produced by two cooperating subsystems:
+`PointCloudFieldFilter` uses the field mask for exactly one thing: selecting which depth
+pixels feed the point cloud (`src/field_filter/point_cloud_field_filter.cpp:25-28`).
+RANSAC (`fit_plane_ransac`, :226) already finds the dominant plane among whatever points
+it receives. So there is no need for a new field filter, a plane-helper refactor, or a
+runner change. Swap the mask source instead: add a mask model that selects
+plane-covering pixels with cheap classical heuristics, and keep `PointCloudFieldFilter`
+byte-for-byte unchanged.
 
-- **`field_model`** (`MaskModelInterface`, `include/mask_model/mask_model_interface.hpp`)
-  — segmentation. Active impl `DeepLabMaskModel` (`config/_common.toml:20-21`) produces
-  the field mask.
-- **`field_filter`** (`FieldFilterInterface`,
-  `include/field_filter/field_filter_interface.hpp`) — fits/tracks the plane.
+This supersedes the earlier `FreeRoamFieldFilter` approach, which duplicated the
+RANSAC-to-transform pipeline and required extracting shared helpers out of
+`PointCloudFieldFilter`.
 
-Flow in `Runner::initialize_field` (`src/runner.cpp:246-262`):
+## Why not the existing FixedMaskModel
 
-```cpp
-field_filter_->reset(camera_data.tf_visodom_from_camera);          // 248
-MaskStamped field_mask = field_model_->update(camera_data.rgb);    // 249  segmentation runs
-publisher_->publish_field_mask(field_mask, camera_data.rgb);       // 250
-if (field_mask.mask.mask.empty()) { ... return; }                  // 252  early-out guard
-initial_field_description_ = field_filter_->compute_field(camera_data, field_mask);  // 257
-```
-
-`PointCloudFieldFilter::compute_field` (`src/field_filter/point_cloud_field_filter.cpp:20-115`)
-uses the mask only to choose which depth pixels feed the point cloud:
-
-1. `find_largest_contour_mask(field_mask...)` (:25)
-2. `mask_depth_image(depth, largest_contour_mask)` — NaN out non-field pixels (:26)
-3. `create_point_cloud_from_depth(masked_depth, intrinsics)` (:27)
-
-Then RANSAC (`fit_plane_ransac`, :226-266) → normal/center → `transform_from_plane`
-(:310-336) → min-area rectangle for size/yaw → emits
-`tf_camera_from_fieldcenter` (:72), the key downstream output.
-
-The mask's **only** role is pixel selection. Everything after step 3 is reusable.
+`FixedMaskModel` returns a 2x2 ones mask (`include/mask_model/fixed_mask_model.hpp:23`).
+That satisfies the runner's empty-mask guard for the headless sim (paired with
+`FixedFieldFilter`), but `PointCloudFieldFilter::mask_depth_image` does
+`masked_depth.setTo(NaN, mask == 0)` (:178), which requires the mask to match the depth
+image size. The new model must emit a mask at full image resolution.
 
 ## Approach
 
-Add a new `FreeRoamFieldFilter` implementation that replaces mask-based pixel selection
-(steps 1-2) with a **center ROI selector**, and reuses the existing RANSAC → transform
-→ rectangle pipeline. Pair it with a non-segmentation `field_model` so DeepLab never
-runs.
+### 1. New mask model: `FreeRoamMaskModel`
 
-### 1. New field filter implementation
+`include/mask_model/free_roam_mask_model.hpp` + `src/mask_model/free_roam_mask_model.cpp`
+(needs a `.cpp` for the OpenCV work; run `cmake -S . -B build` after adding it, the
+source glob is not CONFIGURE_DEPENDS).
 
-Create `include/field_filter/free_roam_field_filter.hpp` +
-`src/field_filter/free_roam_field_filter.cpp` (sources are auto-globbed —
-`CMakeLists.txt:156-158` — so no CMake edit needed).
+Two composable pixel selectors, ANDed together to form the mask:
 
-- Implement `FieldFilterInterface`. `compute_field(camera_data, field_mask)` ignores
-  `field_mask` (`[[maybe_unused]]`, mirroring `FixedFieldFilter`/`NoopFieldFilter`).
-- Select depth pixels in a window/radius around the principal point `(cx, cy)` (from
-  `CameraInfo`, `include/data_structures/camera.hpp:12-18`) or `(width/2, height/2)`.
-  Implement `select_center_roi_depth(depth, intrinsics, roi_params)` as the replacement
-  for `mask_depth_image` — NaN out everything outside the ROI. Reuse
-  `create_point_cloud_from_depth` unchanged.
-- Reuse `fit_plane_ransac`, `plane_normal_from_coefficients`, `plane_center_from_inliers`,
-  `transform_from_plane`, and the min-area-rectangle helpers. To avoid duplication,
-  factor those out of `PointCloudFieldFilter` into a shared helper header
-  (e.g. `plane_fit_utils.hpp`) or a shared base class, and have both filters call them.
-- Emit the same outputs: `header.frame_id = FrameId::CAMERA_WORLD`,
-  `child_frame_id = FrameId::FIELD`, `tf_camera_from_fieldcenter`, `size`, inliers.
-  The non-EMPTY `frame_id` is the "plane found" signal the runner checks
-  (`runner.cpp:258`).
-- `track_field` can reuse `PointCloudFieldFilter`'s approach (compose stored
-  `tf_visodom_from_cameraworld_` with the live camera transform, :117-135), or re-fit
-  per tick if continuous free-roam re-detection is desired. Start with the compose
-  approach for parity.
+**Center ROI** (spatial gate)
+- Fill a centered rectangle covering `roi_fraction` of width and height with 255.
+- `roi_fraction = 1.0` disables the spatial gate (full frame).
 
-### 2. Config
+**Seeded color match** (`color_filter = true`)
+- Sample a small center patch (`seed_patch_fraction` of the frame, ~10%) and take its
+  per-channel median as the reference color. The camera is pointed at the plane, so the
+  center patch is field material by contract. Median, not mean, so a robot or debris
+  overlapping the patch does not skew the seed.
+- Convert the frame to CIE Lab and threshold per channel against the seed:
+  `|L - seed_L| <= tolerance_l`, `|a - seed_a| <= tolerance_ab`,
+  `|b - seed_b| <= tolerance_ab`. Lab separates lightness from chroma, which is what
+  makes a loose-but-useful threshold possible: shadows and lighting gradients mostly
+  move L, so `tolerance_l` is set very loose (default 60 of 255) while `tolerance_ab`
+  stays moderately loose (default 25). This also behaves on gray/neutral field material
+  where HSV hue is undefined.
+- Seeding happens on every `update()` call, so each field-init attempt adapts to
+  current lighting. No stored state.
+- Morphological close (fixed 5x5 kernel) to fill speckle holes. No config knob;
+  downstream `find_largest_contour_mask` already discards disconnected islands, and
+  RANSAC rejects any outlier pixels that survive, so the mask only needs to be roughly
+  right. That is the justification for loose thresholds throughout.
 
-- Add `FreeRoamFieldFilterConfiguration` to `include/field_filter/config.hpp` with a
-  `PARSE_CONFIG_FIELDS` block: ROI params (`roi_radius_pixels` or
-  `roi_width`/`roi_height`), plus the RANSAC params reused from
-  `PointCloudFieldFilterConfiguration` (`distance_threshold`, `ransac_max_iterations`,
-  `ransac_probability`, `depth_units_per_meter`).
-- Add `REGISTER_CONFIG(FieldFilterConfiguration, FreeRoamFieldFilterConfiguration,
-  "FreeRoamFieldFilter")` in `src/field_filter/config.cpp` (alongside :14-17) and a
-  `make_field_filter` branch (:35).
+Recommended pairing: `color_filter = true` with `roi_fraction = 1.0`. The color match
+then extends the mask across the entire visible plane surface, not just a center crop,
+which is better RANSAC coverage. The ROI gate is the fallback for pathological color
+conditions (heavy glare, field color matching background walls).
 
-### 3. Bypass the segmentation model in the runner
+Everything downstream works untouched: `find_largest_contour_mask` picks the biggest
+connected color-matched region, `mask_depth_image` sees a size-matched mask, the
+runner's `field_mask.mask.mask.empty()` guard (`src/runner.cpp:252`) passes, and
+`track_field` keeps composing off visual odometry as it does today.
 
-The runner unconditionally calls `field_model_->update` and returns early if the mask
-is empty (`runner.cpp:249-255`). Two options:
+### 2. Config registration
 
-- **Preferred:** pair `FreeRoamFieldFilter` with `[field_model] type = "FixedMaskModel"`,
-  which returns a non-empty mask so the `field_mask.mask.mask.empty()` guard passes,
-  while doing no real segmentation. No runner change; DeepLab never loads. Confirm
-  `FixedMaskModel` returns a non-empty mask.
-- **Alternative:** add a small guard in `initialize_field` to skip
-  `field_model_->update` (and the empty-mask early-out) when the field filter declares
-  it doesn't need a mask (e.g. a `needs_field_mask()` method on the interface,
-  defaulting true). Cleaner separation but touches the interface and the runner.
+- Add `FreeRoamMaskModelConfiguration` to `include/mask_model/config.hpp`:
+  - `roi_fraction` (double, default 1.0, validate 0 < x <= 1)
+  - `color_filter` (bool, default true)
+  - `seed_patch_fraction` (double, default 0.1)
+  - `tolerance_l` (double, default 60.0)
+  - `tolerance_ab` (double, default 25.0)
+  - `debug_visualization` (bool, default false): show seed patch, color mask, final
+    mask, mirroring `YoloSegMaskModel`'s debug option. Useful when tuning tolerances.
+- Register in `src/mask_model/config.cpp`: `REGISTER_CONFIG(MaskModelConfiguration,
+  FreeRoamMaskModelConfiguration, "FreeRoamMaskModel")` alongside :60-63, plus a
+  `make_mask_model` branch (:93) and the header include.
 
-Pick the preferred option first; fall back to the interface change only if a
-non-segmentation mask model isn't viable.
+### 3. Config wiring
 
-### 4. Config wiring
-
-Add a config (e.g. `config/free_roam.toml` or a profile) with:
+Add a free-roam overlay in the existing extends chain that overrides only the field
+model:
 
 ```toml
-[field_filter]
-type = "FreeRoamFieldFilter"
-roi_radius_pixels = 120
-distance_threshold = 0.05
-
 [field_model]
-type = "FixedMaskModel"   # or whatever satisfies the runner guard
+type = "FreeRoamMaskModel"
+roi_fraction = 1.0
+color_filter = true
+tolerance_l = 60.0
+tolerance_ab = 25.0
+
+# [field_filter] stays PointCloudFieldFilter with its existing RANSAC params
 ```
+
+DeepLab never loads. No other section changes.
+
+## Accepted tradeoffs
+
+- The min-area rectangle traces the color-matched footprint on the plane, so `size` and
+  yaw are arbitrary, not a real field boundary. Accepted: size does not matter in this
+  mode. Downstream consumers of field size (target selector, robot filter, nav, UI)
+  will see that footprint; confirm in playback that none of them misbehave on it.
+- If the center seed patch lands on a non-field surface, the color match follows the
+  wrong material. That is the mode's contract: point the camera at the surface you
+  want.
+- Color match can bleed onto same-colored non-plane surfaces (a gray wall behind a gray
+  floor). RANSAC handles this: those pixels become plane outliers and are dropped. Only
+  a same-colored surface with more area than the true plane can steal the fit, and the
+  ROI gate covers that case.
+- `compute_field` runs once at field initialization, not per tick, so the color pass
+  and larger point cloud have no steady-state latency cost.
 
 ## Testing
 
-- Unit test the center-ROI selector: synthetic depth image, verify only pixels within
-  the ROI survive and out-of-ROI pixels become NaN.
-- Unit test that a synthetic tilted plane in the ROI produces the expected
-  `tf_camera_from_fieldcenter` normal/center (reuse patterns from any existing
-  `PointCloudFieldFilter` tests in `tests/`).
-- Playback regression: `./scripts/build_and_run.sh -c config/free_roam.toml` on an SVO,
-  confirm a plane is found and tracked with DeepLab disabled, and that end-to-end
-  projection downstream still works.
+Unit tests for `FreeRoamMaskModel` on synthetic images:
+
+- ROI only (`color_filter = false`): mask matches input size, 255 inside the centered
+  ROI, 0 outside, label FIELD, `roi_fraction = 1.0` fills the frame.
+- Color match: uniform-color frame with a distinctly colored blob off-center; blob is
+  excluded, field color included.
+- Lighting robustness: same frame with a horizontal brightness ramp (simulated lighting
+  gradient); loose `tolerance_l` keeps the whole ramp included.
+- Seed robustness: distinct-colored blob overlapping part of the seed patch; median
+  seed still matches the field color.
+- ROI AND color: pixel must pass both gates.
+
+No `PointCloudFieldFilter` test changes; it is untouched.
+
+Playback regression: run an SVO with the free-roam overlay, confirm a plane is found
+and tracked with DeepLab disabled and downstream projection still works.
 
 ## Validation
 
 ```bash
-./scripts/build_and_test.sh --gtest_filter=FreeRoamFieldFilter.*
-git diff --name-only HEAD | grep '\.cpp$' | xargs -r clang-tidy -p build-test/
-./scripts/check_and_fix
+./scripts/build_and_test.sh --gtest_filter=FreeRoamMaskModel*
+./scripts/lint
 ```
 
 ## Open questions
 
-- ROI shape: circular radius vs. rectangular window around `(cx, cy)`. Radius is
-  simplest and orientation-free — recommend starting there.
-- Whether free-roam should continuously re-fit each tick (true "roaming") or fit once
-  and track like the arena mode. Recommend fit-once + track for latency parity; add a
-  `refit_period` option later if drift is a problem.
-- Refactor scope: extracting the shared plane-fit helpers out of `PointCloudFieldFilter`
-  is the cleanest path but touches an existing file — confirm that's acceptable vs.
-  duplicating a small amount of fit code.
+- Tolerance defaults (60 L, 25 ab) are guesses. Tune with `debug_visualization` on a
+  real free-roam recording under varied lighting.
+- Whether specular glare on the field (bright saturated highlights) blows past even a
+  loose `tolerance_l`. If it does, the highlight region drops out of the mask, RANSAC
+  still fits the rest of the plane, so likely harmless. Verify in playback.
+- Fit-once + track (current behavior) is kept. If free-roam drifts because visual
+  odometry degrades off-arena, add periodic re-fit later.

@@ -8,6 +8,7 @@
 #include "config/config_parser.hpp"
 #include "mask_model/deeplab_mask_model.hpp"
 #include "mask_model/fixed_mask_model.hpp"
+#include "mask_model/free_roam_mask_model.hpp"
 #include "mask_model/noop_mask_model.hpp"
 #include "mask_model/yolo_seg_mask_model.hpp"
 
@@ -28,6 +29,24 @@ std::vector<Label> parse_label_list(ConfigParser &parser, const std::string &fie
     return labels;
 }
 }  // namespace
+
+void FreeRoamMaskModelConfiguration::parse_fields(ConfigParser &parser) {
+    roi_fraction = parser.get_optional_double("roi_fraction", roi_fraction);
+    if (roi_fraction <= 0.0 || roi_fraction > 1.0) {
+        throw ConfigValidationError(
+            "Field 'roi_fraction' must be in (0, 1] in section [field_model]");
+    }
+    color_filter = parser.get_optional_bool("color_filter", color_filter);
+    seed_patch_fraction = parser.get_optional_double("seed_patch_fraction", seed_patch_fraction);
+    if (seed_patch_fraction <= 0.0 || seed_patch_fraction > 1.0) {
+        throw ConfigValidationError(
+            "Field 'seed_patch_fraction' must be in (0, 1] in section [field_model]");
+    }
+    tolerance_l = parser.get_optional_double("tolerance_l", tolerance_l);
+    tolerance_ab = parser.get_optional_double("tolerance_ab", tolerance_ab);
+    debug_visualization = parser.get_optional_bool("debug_visualization", debug_visualization);
+    parser.validate_no_extra_fields();
+}
 
 void YoloSegMaskModelConfiguration::parse_fields(ConfigParser &parser) {
     model_path = parser.get_required_string("model_path");
@@ -59,6 +78,7 @@ void YoloSegMaskModelConfiguration::parse_fields(ConfigParser &parser) {
 // Automatic registration of config types
 REGISTER_CONFIG(MaskModelConfiguration, NoopMaskModelConfiguration, "NoopMaskModel")
 REGISTER_CONFIG(MaskModelConfiguration, FixedMaskModelConfiguration, "FixedMaskModel")
+REGISTER_CONFIG(MaskModelConfiguration, FreeRoamMaskModelConfiguration, "FreeRoamMaskModel")
 REGISTER_CONFIG(MaskModelConfiguration, DeepLabMaskModelConfiguration, "DeepLabMaskModel")
 REGISTER_CONFIG(MaskModelConfiguration, YoloSegMaskModelConfiguration, "YoloSegMaskModel")
 
@@ -96,6 +116,9 @@ std::shared_ptr<MaskModelInterface> make_mask_model(const MaskModelConfiguration
         return std::make_shared<NoopMaskModel>();
     } else if (config.type == "FixedMaskModel") {
         return std::make_shared<FixedMaskModel>();
+    } else if (config.type == "FreeRoamMaskModel") {
+        return std::make_shared<FreeRoamMaskModel>(
+            config_cast<FreeRoamMaskModelConfiguration>(config));
     } else if (config.type == "DeepLabMaskModel") {
         return std::make_shared<DeepLabMaskModel>(
             config_cast<DeepLabMaskModelConfiguration>(config));
