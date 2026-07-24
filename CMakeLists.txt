@@ -362,6 +362,9 @@ install(TARGETS auto_battlebot auto_battlebot_lib
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
 )
+# The binary reads this at startup from its own directory (see read_build_version
+# in src/ui/lvgl_ui.cpp), so it must land next to the installed executable.
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/git_version.txt DESTINATION bin)
 # Install config (used when running from system-wide install)
 install(DIRECTORY config/ DESTINATION share/auto_battlebot/config
     USE_SOURCE_PERMISSIONS

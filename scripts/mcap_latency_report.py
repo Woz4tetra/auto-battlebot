@@ -57,6 +57,41 @@ class LatencySamples:
 FIELD_INIT_STAGE = "runner.field_filter.track_field"
 
 
+def _window_after_field_init(
+    path: Path,
+    stage_t_ns: dict[str, list[int]],
+    stage_ms: dict[str, list[float]],
+    rate_t_ns: list[int],
+    rate_hz: list[float],
+    first_ns: int,
+) -> tuple[int, list[float], str]:
+    """Trim samples to those at or after the first field-init sample, in place.
+
+    Returns (t0, trimmed rate_hz, window note). Exits if the field never initialized.
+    """
+    if not stage_t_ns.get(FIELD_INIT_STAGE):
+        print(
+            f"--after-field-init: no {FIELD_INIT_STAGE} samples in {path}; "
+            "the field was never initialized",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    t0 = stage_t_ns[FIELD_INIT_STAGE][0]
+    for stage in list(stage_t_ns):
+        kept = [
+            (t, ms) for t, ms in zip(stage_t_ns[stage], stage_ms[stage], strict=True) if t >= t0
+        ]
+        if kept:
+            stage_t_ns[stage] = [t for t, _ in kept]
+            stage_ms[stage] = [ms for _, ms in kept]
+        else:
+            del stage_t_ns[stage]
+            del stage_ms[stage]
+    rate_hz = [r for t, r in zip(rate_t_ns, rate_hz, strict=True) if t >= t0]
+    window_note = f"Window: after field init ({(t0 - first_ns) / 1e9:.1f} s into the recording)"
+    return t0, rate_hz, window_note
+
+
 def extract_latency_samples(path: Path, after_field_init: bool = False) -> LatencySamples:
     """Collect elapsed_ms per stage, pipeline latency, and loop rate from an MCAP file."""
     stage_t_ns: dict[str, list[int]] = defaultdict(list)
@@ -93,26 +128,9 @@ def extract_latency_samples(path: Path, after_field_init: bool = False) -> Laten
     t0 = first_ns
     window_note = None
     if after_field_init:
-        if not stage_t_ns.get(FIELD_INIT_STAGE):
-            print(
-                f"--after-field-init: no {FIELD_INIT_STAGE} samples in {path}; "
-                "the field was never initialized",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        t0 = stage_t_ns[FIELD_INIT_STAGE][0]
-        for stage in list(stage_t_ns):
-            kept = [
-                (t, ms) for t, ms in zip(stage_t_ns[stage], stage_ms[stage], strict=True) if t >= t0
-            ]
-            if kept:
-                stage_t_ns[stage] = [t for t, _ in kept]
-                stage_ms[stage] = [ms for _, ms in kept]
-            else:
-                del stage_t_ns[stage]
-                del stage_ms[stage]
-        rate_hz = [r for t, r in zip(rate_t_ns, rate_hz, strict=True) if t >= t0]
-        window_note = f"Window: after field init ({(t0 - first_ns) / 1e9:.1f} s into the recording)"
+        t0, rate_hz, window_note = _window_after_field_init(
+            path, stage_t_ns, stage_ms, rate_t_ns, rate_hz, first_ns
+        )
 
     stage_t_s = {stage: [(t - t0) / 1e9 for t in t_list] for stage, t_list in stage_t_ns.items()}
     return LatencySamples(
