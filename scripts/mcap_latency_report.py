@@ -50,13 +50,19 @@ class LatencySamples:
     stage_ms: dict[str, list[float]]
     rate_hz: list[float]
     duration_s: float
+    window_note: str | None = None
 
 
-def extract_latency_samples(path: Path) -> LatencySamples:
+# First stage of the initialized tick path; its first sample marks successful field init.
+FIELD_INIT_STAGE = "runner.field_filter.track_field"
+
+
+def extract_latency_samples(path: Path, after_field_init: bool = False) -> LatencySamples:
     """Collect elapsed_ms per stage, pipeline latency, and loop rate from an MCAP file."""
     stage_t_ns: dict[str, list[int]] = defaultdict(list)
     stage_ms: dict[str, list[float]] = defaultdict(list)
     rate_hz: list[float] = []
+    rate_t_ns: list[int] = []
     first_ns: int | None = None
     last_ns: int | None = None
 
@@ -78,6 +84,7 @@ def extract_latency_samples(path: Path) -> LatencySamples:
                 stage_ms[PIPELINE_STAGE].append(float(values["latency_ms"]))
             elif hw_id == RUNNER_HW_ID and "rate" in values:
                 rate_hz.append(float(values["rate"]))
+                rate_t_ns.append(t_ns)
 
     if first_ns is None or last_ns is None or not stage_ms:
         print(f"No timing diagnostics found on {DIAGNOSTICS_TOPIC} in {path}", file=sys.stderr)

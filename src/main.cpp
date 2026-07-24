@@ -18,6 +18,7 @@
 #include "health/health_logger.hpp"
 #include "logging/logging.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
+#include "perception_batch/parallel_model_batch.hpp"
 #include "quittable.hpp"
 #include "runner.hpp"
 #include "ui/system_actions.hpp"
@@ -122,6 +123,7 @@ int main(int argc, char** argv) {
     auto robot_mask_model = make_robot_blob_model(*class_config.robot_mask_model);
     auto field_filter = make_field_filter(*class_config.field_filter);
     auto keypoint_model = make_keypoint_model(*class_config.keypoint_model);
+    auto perception_batch = std::make_shared<ParallelModelBatch>(keypoint_model, robot_mask_model);
     auto clock = make_clock(*class_config.clock);
     auto robot_filter = make_robot_filter(*class_config.robot_filter, clock);
     auto target_selector = make_target_selector(*class_config.target_selector);
@@ -131,8 +133,8 @@ int main(int argc, char** argv) {
 
     Runner runner(
         class_config.runner, camera, health_logger, field_model, robot_mask_model, field_filter,
-        keypoint_model, robot_filter, target_selector, navigation, transmitter, publisher,
-        handle_system_action,
+        keypoint_model, perception_batch, robot_filter, target_selector, navigation, transmitter,
+        publisher, handle_system_action,
         [profile_selector](const std::string& name) {
             write_selection_file(profile_selector, name);
         },

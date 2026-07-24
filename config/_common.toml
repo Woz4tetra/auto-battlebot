@@ -119,6 +119,8 @@ type = "RosPublisher"
 max_loop_rate = 30.0
 default_opponent_count = 1
 autonomy_enabled_by_default = true
+# Run the keypoint and robot blob models on parallel worker threads. false = sequential.
+parallel_models = true
 
 [mcap]
 enable = false

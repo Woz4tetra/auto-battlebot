@@ -20,6 +20,7 @@ void load_runner_from_toml(toml::table const &toml_data, std::vector<std::string
     }
     out.autonomy_enabled_by_default =
         parser.get_optional_bool("autonomy_enabled_by_default", out.autonomy_enabled_by_default);
+    out.parallel_models = parser.get_optional_bool("parallel_models", out.parallel_models);
     parser.validate_no_extra_fields();
     parsed_sections.push_back("runner");
 }

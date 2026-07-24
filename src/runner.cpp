@@ -15,6 +15,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
                std::shared_ptr<FieldFilterInterface> field_filter,
                std::shared_ptr<KeypointModelInterface> keypoint_model,
+               std::shared_ptr<ParallelModelBatch> perception_batch,
                std::shared_ptr<RobotFilterInterface> robot_filter,
                std::shared_ptr<TargetSelectorInterface> target_selector,
                std::shared_ptr<NavigationInterface> navigation,
@@ -29,6 +30,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       robot_mask_model_(robot_mask_model),
       field_filter_(field_filter),
       keypoint_model_(keypoint_model),
+      perception_batch_(std::move(perception_batch)),
       robot_filter_(robot_filter),
       target_selector_(target_selector),
       navigation_(navigation),
@@ -390,15 +392,29 @@ bool Runner::tick() {
     }
 
     KeypointsStamped keypoints;
-    {
-        FunctionTimer timer(diagnostics_logger_, "keypoint_model.update");
-        keypoints = keypoint_model_->update(camera_data.rgb);
-    }
-
     KeypointsStamped robot_blob_keypoints;
-    {
-        FunctionTimer timer(diagnostics_logger_, "robot_mask_model.update");
-        robot_blob_keypoints = robot_mask_model_->update(camera_data.rgb);
+    if (runner_config_.parallel_models) {
+        FunctionTimer timer(diagnostics_logger_, "perception_batch.update");
+        BatchResult batch = perception_batch_->update(camera_data.rgb);
+        keypoints = std::move(batch.keypoints);
+        robot_blob_keypoints = std::move(batch.robot_blob_keypoints);
+        // Per-model wall times are measured inside the workers and re-emitted here under
+        // the sequential-era labels so latency reports stay comparable across versions.
+        DiagnosticsData keypoint_timing;
+        keypoint_timing["elapsed_ms"] = batch.keypoint_model_elapsed_ms;
+        diagnostics_logger_->info("keypoint_model.update", keypoint_timing, "");
+        DiagnosticsData robot_blob_timing;
+        robot_blob_timing["elapsed_ms"] = batch.robot_blob_model_elapsed_ms;
+        diagnostics_logger_->info("robot_mask_model.update", robot_blob_timing, "");
+    } else {
+        {
+            FunctionTimer timer(diagnostics_logger_, "keypoint_model.update");
+            keypoints = keypoint_model_->update(camera_data.rgb);
+        }
+        {
+            FunctionTimer timer(diagnostics_logger_, "robot_mask_model.update");
+            robot_blob_keypoints = robot_mask_model_->update(camera_data.rgb);
+        }
     }
 
     RobotDescriptionsStamped robots;

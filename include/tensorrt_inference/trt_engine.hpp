@@ -63,6 +63,12 @@ class TrtEngine {
     bool execute_multi(const float* host_input, const std::vector<float*>& host_outputs);
 
    private:
+    // Per-engine CUDA stream (created non-blocking) so two engines running on different
+    // threads overlap on the GPU instead of serializing on the default stream. Host IO
+    // goes through pinned staging buffers so the copies are truly async on that stream.
+    void* stream_{nullptr};
+    void* h_input_pinned_{nullptr};
+    std::vector<void*> h_outputs_pinned_;
     void* d_input_{nullptr};
     void* d_output_{nullptr};
     std::vector<void*> d_outputs_;

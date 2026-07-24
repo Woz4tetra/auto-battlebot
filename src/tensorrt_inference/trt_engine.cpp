@@ -12,7 +12,6 @@
 namespace auto_battlebot {
 namespace {
 constexpr double kExecuteWarnMs = 120.0;
-constexpr double kMemcpyWarnMs = 80.0;
 // Minimal TensorRT logger (only log errors/warnings via spdlog).
 class TrtLogger : public nvinfer1::ILogger {
    public:
@@ -45,6 +44,19 @@ std::vector<int64_t> dimsToVector(const nvinfer1::Dims& dims) {
 }  // namespace
 
 TrtEngine::~TrtEngine() {
+    // execute() synchronizes the stream before returning, so no work is in flight here.
+    if (stream_) {
+        cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+        stream_ = nullptr;
+    }
+    if (h_input_pinned_) {
+        cudaFreeHost(h_input_pinned_);
+        h_input_pinned_ = nullptr;
+    }
+    for (void* ptr : h_outputs_pinned_) {
+        if (ptr) cudaFreeHost(ptr);
+    }
+    h_outputs_pinned_.clear();
     if (d_input_) {
         cudaFree(d_input_);
         d_input_ = nullptr;
@@ -272,6 +284,64 @@ bool TrtEngine::load(const std::string& engine_path) {
     output_shape_ = first_output_shape;
     output_num_elements_ = first_output_vol;
 
+    // Final step: per-engine non-blocking stream plus pinned staging buffers. Created
+    // last so every earlier error path stays untouched; on failure the destructor-style
+    // cleanup below releases everything allocated so far.
+    auto cleanup_all = [this]() {
+        if (stream_) {
+            cudaStreamDestroy(static_cast<cudaStream_t>(stream_));
+            stream_ = nullptr;
+        }
+        if (h_input_pinned_) {
+            cudaFreeHost(h_input_pinned_);
+            h_input_pinned_ = nullptr;
+        }
+        for (void* ptr : h_outputs_pinned_) {
+            if (ptr) cudaFreeHost(ptr);
+        }
+        h_outputs_pinned_.clear();
+        cudaFree(d_input_);
+        d_input_ = nullptr;
+        for (void* ptr : d_outputs_) {
+            if (ptr) cudaFree(ptr);
+        }
+        d_outputs_.clear();
+        d_output_ = nullptr;
+        delete static_cast<nvinfer1::IExecutionContext*>(context_);
+        delete static_cast<nvinfer1::ICudaEngine*>(engine_);
+        delete static_cast<nvinfer1::IRuntime*>(runtime_);
+        context_ = nullptr;
+        engine_ = nullptr;
+        runtime_ = nullptr;
+    };
+
+    cudaStream_t stream = nullptr;
+    err = cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+    if (err != cudaSuccess) {
+        spdlog::error("TrtEngine: cudaStreamCreateWithFlags failed: {}", cudaGetErrorString(err));
+        cleanup_all();
+        return false;
+    }
+    stream_ = stream;
+
+    err = cudaMallocHost(&h_input_pinned_, getInputSizeBytes());
+    if (err != cudaSuccess) {
+        spdlog::error("TrtEngine: cudaMallocHost input failed: {}", cudaGetErrorString(err));
+        cleanup_all();
+        return false;
+    }
+    for (const OutputTensorInfo& info : output_infos_) {
+        void* pinned = nullptr;
+        err = cudaMallocHost(&pinned, static_cast<size_t>(info.num_elements) * sizeof(float));
+        if (err != cudaSuccess) {
+            spdlog::error("TrtEngine: cudaMallocHost output '{}' failed: {}", info.name,
+                          cudaGetErrorString(err));
+            cleanup_all();
+            return false;
+        }
+        h_outputs_pinned_.push_back(pinned);
+    }
+
     {
         std::string in_shape_str, out_shape_str;
         for (size_t i = 0; i < input_shape_.size(); ++i)
@@ -291,47 +361,49 @@ std::vector<int64_t> TrtEngine::getInputShape() const { return input_shape_; }
 std::vector<int64_t> TrtEngine::getOutputShape() const { return output_shape_; }
 
 bool TrtEngine::execute(const float* host_input, float* host_output) {
-    if (!context_ || !d_input_ || !d_output_) return false;
+    if (!context_ || !d_input_ || !d_output_ || !stream_) return false;
 
     const auto exec_start = std::chrono::steady_clock::now();
-    const auto h2d_start = exec_start;
-    cudaError_t err = cudaMemcpy(d_input_, host_input, getInputSizeBytes(), cudaMemcpyHostToDevice);
-    const double h2d_ms =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - h2d_start)
-            .count();
-    if (err != cudaSuccess) {
-        spdlog::error("TrtEngine: cudaMemcpy H2D failed: {}", cudaGetErrorString(err));
-        return false;
-    }
-
+    auto stream = static_cast<cudaStream_t>(stream_);
     auto* ctx = static_cast<nvinfer1::IExecutionContext*>(context_);
-    const auto enqueue_start = std::chrono::steady_clock::now();
-    if (!ctx->enqueueV3(nullptr)) {
-        spdlog::error("TrtEngine: executeV2 failed");
-        return false;
-    }
-    const double enqueue_ms =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - enqueue_start)
-            .count();
 
-    const auto d2h_start = std::chrono::steady_clock::now();
-    err = cudaMemcpy(host_output, d_output_, getOutputSizeBytes(), cudaMemcpyDeviceToHost);
-    const double d2h_ms =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - d2h_start)
-            .count();
+    // Stage through pinned memory so both copies are async on this engine's stream; the
+    // single synchronize at the end is the only blocking point.
+    std::memcpy(h_input_pinned_, host_input, getInputSizeBytes());
+    cudaError_t err = cudaMemcpyAsync(d_input_, h_input_pinned_, getInputSizeBytes(),
+                                      cudaMemcpyHostToDevice, stream);
     if (err != cudaSuccess) {
-        spdlog::error("TrtEngine: cudaMemcpy D2H failed: {}", cudaGetErrorString(err));
+        spdlog::error("TrtEngine: cudaMemcpyAsync H2D failed: {}", cudaGetErrorString(err));
         return false;
     }
+    if (!ctx->enqueueV3(stream)) {
+        spdlog::error("TrtEngine: enqueueV3 failed");
+        return false;
+    }
+    err = cudaMemcpyAsync(h_outputs_pinned_[0], d_output_, getOutputSizeBytes(),
+                          cudaMemcpyDeviceToHost, stream);
+    if (err != cudaSuccess) {
+        spdlog::error("TrtEngine: cudaMemcpyAsync D2H failed: {}", cudaGetErrorString(err));
+        return false;
+    }
+
+    const auto sync_start = std::chrono::steady_clock::now();
+    err = cudaStreamSynchronize(stream);
+    if (err != cudaSuccess) {
+        spdlog::error("TrtEngine: cudaStreamSynchronize failed: {}", cudaGetErrorString(err));
+        return false;
+    }
+    const double sync_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sync_start)
+            .count();
+    std::memcpy(host_output, h_outputs_pinned_[0], getOutputSizeBytes());
 
     const double total_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - exec_start)
             .count();
-    if (total_ms > kExecuteWarnMs || h2d_ms > kMemcpyWarnMs || d2h_ms > kMemcpyWarnMs) {
-        spdlog::warn(
-            "TrtEngine::execute slow path total_ms={:.2f} h2d_ms={:.2f} enqueue_ms={:.2f} "
-            "d2h_ms={:.2f}",
-            total_ms, h2d_ms, enqueue_ms, d2h_ms);
+    if (total_ms > kExecuteWarnMs) {
+        spdlog::warn("TrtEngine::execute slow path total_ms={:.2f} sync_ms={:.2f}", total_ms,
+                     sync_ms);
     }
 
     return true;
@@ -345,51 +417,56 @@ bool TrtEngine::execute_multi(const float* host_input, const std::vector<float*>
         return false;
     }
 
+    if (!stream_) return false;
+
     const auto exec_start = std::chrono::steady_clock::now();
-    const auto h2d_start = exec_start;
-    cudaError_t err = cudaMemcpy(d_input_, host_input, getInputSizeBytes(), cudaMemcpyHostToDevice);
-    const double h2d_ms =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - h2d_start)
-            .count();
+    auto stream = static_cast<cudaStream_t>(stream_);
+    auto* ctx = static_cast<nvinfer1::IExecutionContext*>(context_);
+
+    // Stage through pinned memory so all copies are async on this engine's stream; the
+    // single synchronize below is the only blocking point.
+    std::memcpy(h_input_pinned_, host_input, getInputSizeBytes());
+    cudaError_t err = cudaMemcpyAsync(d_input_, h_input_pinned_, getInputSizeBytes(),
+                                      cudaMemcpyHostToDevice, stream);
     if (err != cudaSuccess) {
-        spdlog::error("TrtEngine: cudaMemcpy H2D failed: {}", cudaGetErrorString(err));
+        spdlog::error("TrtEngine: cudaMemcpyAsync H2D failed: {}", cudaGetErrorString(err));
         return false;
     }
-
-    auto* ctx = static_cast<nvinfer1::IExecutionContext*>(context_);
-    const auto enqueue_start = std::chrono::steady_clock::now();
-    if (!ctx->enqueueV3(nullptr)) {
+    if (!ctx->enqueueV3(stream)) {
         spdlog::error("TrtEngine: execute_multi enqueueV3 failed");
         return false;
     }
-    const double enqueue_ms =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - enqueue_start)
-            .count();
-
-    double d2h_total_ms = 0.0;
     for (size_t i = 0; i < d_outputs_.size(); ++i) {
         const size_t bytes = static_cast<size_t>(output_infos_[i].num_elements) * sizeof(float);
-        const auto d2h_start = std::chrono::steady_clock::now();
-        err = cudaMemcpy(host_outputs[i], d_outputs_[i], bytes, cudaMemcpyDeviceToHost);
-        const double d2h_ms =
-            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - d2h_start)
-                .count();
-        d2h_total_ms += d2h_ms;
+        err = cudaMemcpyAsync(h_outputs_pinned_[i], d_outputs_[i], bytes, cudaMemcpyDeviceToHost,
+                              stream);
         if (err != cudaSuccess) {
-            spdlog::error("TrtEngine: cudaMemcpy D2H failed for output {}: {}",
+            spdlog::error("TrtEngine: cudaMemcpyAsync D2H failed for output {}: {}",
                           output_infos_[i].name, cudaGetErrorString(err));
             return false;
         }
     }
 
+    const auto sync_start = std::chrono::steady_clock::now();
+    err = cudaStreamSynchronize(stream);
+    if (err != cudaSuccess) {
+        spdlog::error("TrtEngine: cudaStreamSynchronize failed: {}", cudaGetErrorString(err));
+        return false;
+    }
+    const double sync_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sync_start)
+            .count();
+    for (size_t i = 0; i < d_outputs_.size(); ++i) {
+        const size_t bytes = static_cast<size_t>(output_infos_[i].num_elements) * sizeof(float);
+        std::memcpy(host_outputs[i], h_outputs_pinned_[i], bytes);
+    }
+
     const double total_ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - exec_start)
             .count();
-    if (total_ms > kExecuteWarnMs || h2d_ms > kMemcpyWarnMs || d2h_total_ms > kMemcpyWarnMs) {
-        spdlog::warn(
-            "TrtEngine::execute_multi slow path total_ms={:.2f} h2d_ms={:.2f} "
-            "enqueue_ms={:.2f} d2h_total_ms={:.2f} outputs={}",
-            total_ms, h2d_ms, enqueue_ms, d2h_total_ms, d_outputs_.size());
+    if (total_ms > kExecuteWarnMs) {
+        spdlog::warn("TrtEngine::execute_multi slow path total_ms={:.2f} sync_ms={:.2f} outputs={}",
+                     total_ms, sync_ms, d_outputs_.size());
     }
     return true;
 }
