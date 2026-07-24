@@ -103,9 +103,7 @@ def extract_latency_samples(path: Path, after_field_init: bool = False) -> Laten
         t0 = stage_t_ns[FIELD_INIT_STAGE][0]
         for stage in list(stage_t_ns):
             kept = [
-                (t, ms)
-                for t, ms in zip(stage_t_ns[stage], stage_ms[stage], strict=True)
-                if t >= t0
+                (t, ms) for t, ms in zip(stage_t_ns[stage], stage_ms[stage], strict=True) if t >= t0
             ]
             if kept:
                 stage_t_ns[stage] = [t for t, _ in kept]
@@ -114,9 +112,7 @@ def extract_latency_samples(path: Path, after_field_init: bool = False) -> Laten
                 del stage_t_ns[stage]
                 del stage_ms[stage]
         rate_hz = [r for t, r in zip(rate_t_ns, rate_hz, strict=True) if t >= t0]
-        window_note = (
-            f"Window: after field init ({(t0 - first_ns) / 1e9:.1f} s into the recording)"
-        )
+        window_note = f"Window: after field init ({(t0 - first_ns) / 1e9:.1f} s into the recording)"
 
     stage_t_s = {stage: [(t - t0) / 1e9 for t in t_list] for stage, t_list in stage_t_ns.items()}
     return LatencySamples(
