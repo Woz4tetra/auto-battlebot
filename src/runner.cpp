@@ -447,15 +447,6 @@ bool Runner::tick() {
                                     {"our_blob_present_no_keypoint", our_blob_no_keypoint}});
     }
 
-    {
-        FunctionTimer timer(diagnostics_logger_, "publishers");
-        publisher_->publish_camera_data(camera_data);
-        publisher_->publish_field_description(field_description, *initial_field_description_);
-        publisher_->publish_robots(robots);
-        publisher_->publish_blob_detections(robot_mask_model_->last_detections());
-        publisher_->publish_keypoint_detections(keypoint_model_->last_detections());
-    }
-
     // Resolve once so target selection and navigation operate on the same robot set within a
     // tick. Substitutes the previous critical snapshot when this frame is missing OUR or THEIRS.
     auto cached_robots = robot_descriptions_cache_.resolve(robots);
@@ -477,7 +468,17 @@ bool Runner::tick() {
         diagnostics_logger_->debug("pipeline", {{"latency_ms", pipeline_latency_ms}});
     }
 
-    publisher_->publish_navigation(navigation_->get_last_visualization());
+    // All publishing runs after the command send so none of it (notably the ~10 ms image
+    // compression on Jetson) sits on the control critical path.
+    {
+        FunctionTimer timer(diagnostics_logger_, "publishers");
+        publisher_->publish_camera_data(camera_data);
+        publisher_->publish_field_description(field_description, *initial_field_description_);
+        publisher_->publish_robots(robots);
+        publisher_->publish_blob_detections(robot_mask_model_->last_detections());
+        publisher_->publish_keypoint_detections(keypoint_model_->last_detections());
+        publisher_->publish_navigation(navigation_->get_last_visualization());
+    }
 
     publish_system_status(true, loop_rate_hz);
     if (ui_state_) {

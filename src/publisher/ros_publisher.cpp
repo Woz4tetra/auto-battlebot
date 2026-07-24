@@ -40,11 +40,16 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
 void RosPublisher::publish_camera_data(const CameraData &data) {
     FunctionTimer timer(diagnostics_logger_, "publish_camera_data");
 
-    // Publish RGB image
+    // Publish RGB image. Compression is ~10 ms on the Jetson, so skip it entirely unless
+    // someone is subscribed or the mcap actually records the topic.
     if (rgb_image_publisher_) {
-        auto rgb_msg = ros_adapters::to_ros_image_compressed(data.rgb);
-        rgb_image_publisher_.publish(rgb_msg);
-        if (mcap_recorder_) mcap_recorder_->write("/camera/image", rgb_msg);
+        const bool has_subscriber = rgb_image_publisher_.num_subscribers() > 0;
+        const bool mcap_records = mcap_recorder_ && mcap_recorder_->records_topic("/camera/image");
+        if (has_subscriber || mcap_records) {
+            auto rgb_msg = ros_adapters::to_ros_image_compressed(data.rgb);
+            rgb_image_publisher_.publish(rgb_msg);
+            if (mcap_recorder_) mcap_recorder_->write("/camera/image", rgb_msg);
+        }
     }
 
     // Publish camera info

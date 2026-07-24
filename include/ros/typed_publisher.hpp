@@ -25,6 +25,7 @@ class TypedPublisher {
     bool is_valid() const { return pub_.isValid(); }
     explicit operator bool() const { return is_valid(); }
     std::string topic() const { return pub_.getTopic(); }
+    uint32_t num_subscribers() const { return pub_.getNumSubscribers(); }
 
    private:
     miniros::Publisher pub_;
