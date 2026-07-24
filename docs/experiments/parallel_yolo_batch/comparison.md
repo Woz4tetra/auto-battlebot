@@ -87,6 +87,26 @@ identical May vs today, and per-model times did not regress (keypoint 11.5 ms to
 11.4 ms in May). The parallel win on the Jetson is therefore mostly about getting the
 tick under the frame period, not just the raw 3 ms of tick time.
 
+### max_loop_rate = 60 follow-up (2026-07-24 15:18 / 15:19)
+
+Both runs below use `max_loop_rate = 60`, so the loop frame-locks to the camera: the
+pacing moved from the sleep into `camera.get` (its wait grew to 9.4 ms in parallel mode)
+and tick period settled at 33.1 ms = the 30 fps frame period in both modes.
+
+| Run | perception section (ms) | tick mean (ms) | e2e mean (ms) | e2e p95 (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| 15-19-40 seq (report in `baseline_latency/`) | 18.82 (9.30 + 9.52) | 33.12 | 83.0 | 104.9 |
+| 15-18-13 par (report in `parallel_streams/`) | 12.86 | 33.17 | 75.2 | 82.3 |
+
+- Sequential improved the most: 99.9 -> 83.0 ms mean, p95 119.9 -> 104.9. Raising the
+  cap removed the phase-drift staleness that hit sequential mode hardest.
+- Parallel was already keeping up at the 30 Hz cap, so its mean barely moved
+  (75.4 -> 75.2 ms); p95 tightened slightly (82.8 -> 82.3).
+- The remaining seq-vs-par gap (~8 ms) is the perception-section difference on the
+  critical path, as expected.
+- Next-largest reducible items are unchanged: ~34 ms capture-to-delivery age and the
+  ~10 ms `publish_camera_data` that runs between perception and the command send.
+
 ## Comparison to the May Jetson baselines
 
 The reports in `docs/experiments/baseline_latency/` are live Jetson runs from the May
@@ -111,6 +131,9 @@ of 42.5 ms per tick, so even a partial overlap there is worth several millisecon
    time.
 2. Treat 88 ms (not 54 ms) as the May-equivalent end-to-end baseline going forward;
    pre-June numbers used retrieve-time stamps and hid the ~34 ms grab block.
-3. To cut further: shrink the ~34 ms capture-to-delivery path (grab at higher fps or
-   overlap retrieve/convert with the tick), or reduce tick headroom below the period so
-   camera-loop phase drift cannot push frames stale.
+3. Done 2026-07-24: `max_loop_rate = 60` frame-locks the loop and removed the phase
+   drift (sequential e2e 99.9 -> 83.0 ms; parallel unchanged as it already kept up).
+4. To cut further, in order of return: move `publish_camera_data` (~10 ms) after the
+   command send, shrink the ~34 ms capture-to-delivery path (60 fps capture at 720p or
+   GPU color conversion), and merge the two YOLOs into one multi-head engine to remove
+   GPU contention in the ~13 ms parallel batch.
