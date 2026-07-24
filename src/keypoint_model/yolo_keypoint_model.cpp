@@ -63,18 +63,25 @@ KeypointsStamped YoloKeypointModel::update(RgbImage image) {
     const cv::Size original_image_size(image.image.cols, image.image.rows);
 
     std::vector<float> input_buffer;
-    preprocess_image(image.image, input_image_size, input_buffer);
+    {
+        FunctionTimer stage_timer(diagnostics_logger_, "preprocess");
+        preprocess_image(image.image, input_image_size, input_buffer);
+    }
     if (static_cast<int64_t>(input_buffer.size()) != engine_.getInputNumElements()) {
         diagnostics_logger_->error({}, "YOLO input buffer size mismatch");
         return KeypointsStamped{};
     }
 
     std::vector<float> output_buffer(static_cast<size_t>(engine_.getOutputNumElements()));
-    if (!engine_.execute(input_buffer.data(), output_buffer.data())) {
-        diagnostics_logger_->error({}, "YOLO inference failed");
-        return KeypointsStamped{};
+    {
+        FunctionTimer stage_timer(diagnostics_logger_, "inference");
+        if (!engine_.execute(input_buffer.data(), output_buffer.data())) {
+            diagnostics_logger_->error({}, "YOLO inference failed");
+            return KeypointsStamped{};
+        }
     }
 
+    FunctionTimer stage_timer(diagnostics_logger_, "postprocess");
     return postprocess_output(output_buffer.data(), image.header, original_image_size,
                               input_image_size, image.image);
 }

@@ -75,7 +75,10 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
     const cv::Size original_size(image.image.cols, image.image.rows);
 
     std::vector<float> input_buffer;
-    preprocess_image(image.image, input_size, input_buffer);
+    {
+        FunctionTimer stage_timer(diagnostics_logger_, "preprocess");
+        preprocess_image(image.image, input_size, input_buffer);
+    }
     if (static_cast<int64_t>(input_buffer.size()) != engine_.getInputNumElements()) {
         diagnostics_logger_->error({}, "YOLO-seg input buffer size mismatch");
         return result;
@@ -97,11 +100,15 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
     output_ptrs.reserve(output_buffers.size());
     for (auto &buffer : output_buffers) output_ptrs.push_back(buffer.data());
 
-    if (!engine_.execute_multi(input_buffer.data(), output_ptrs)) {
-        diagnostics_logger_->error({}, "YOLO-seg inference failed");
-        return result;
+    {
+        FunctionTimer stage_timer(diagnostics_logger_, "inference");
+        if (!engine_.execute_multi(input_buffer.data(), output_ptrs)) {
+            diagnostics_logger_->error({}, "YOLO-seg inference failed");
+            return result;
+        }
     }
 
+    FunctionTimer stage_timer(diagnostics_logger_, "postprocess");
     size_t det_idx = std::numeric_limits<size_t>::max();
     size_t proto_idx = std::numeric_limits<size_t>::max();
     int proto_channels = 0;

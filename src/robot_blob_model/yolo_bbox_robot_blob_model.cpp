@@ -71,7 +71,10 @@ KeypointsStamped YoloBboxRobotBlobModel::update(RgbImage image) {
     const cv::Size original_size(image.image.cols, image.image.rows);
 
     std::vector<float> input_buffer;
-    preprocess_image(image.image, input_size, input_buffer);
+    {
+        FunctionTimer stage_timer(diagnostics_logger_, "preprocess");
+        preprocess_image(image.image, input_size, input_buffer);
+    }
     if (static_cast<int64_t>(input_buffer.size()) != engine_.getInputNumElements()) {
         diagnostics_logger_->error({}, "YOLO-bbox input buffer size mismatch");
         return result;
@@ -79,11 +82,15 @@ KeypointsStamped YoloBboxRobotBlobModel::update(RgbImage image) {
 
     const std::vector<int64_t> out_shape = engine_.getOutputShape();
     std::vector<float> output_buffer(static_cast<size_t>(engine_.getOutputNumElements()), 0.0f);
-    if (!engine_.execute(input_buffer.data(), output_buffer.data())) {
-        diagnostics_logger_->error({}, "YOLO-bbox inference failed");
-        return result;
+    {
+        FunctionTimer stage_timer(diagnostics_logger_, "inference");
+        if (!engine_.execute(input_buffer.data(), output_buffer.data())) {
+            diagnostics_logger_->error({}, "YOLO-bbox inference failed");
+            return result;
+        }
     }
 
+    FunctionTimer stage_timer(diagnostics_logger_, "postprocess");
     auto detections = decode_detections(output_buffer, out_shape);
     detections = non_max_suppression(detections);
     if (static_cast<int>(detections.size()) > max_detections_) {
