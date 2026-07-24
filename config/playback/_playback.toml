@@ -4,7 +4,7 @@
 extends = "_desktop"
 
 [rgbd_camera]
-camera_fps = 60
+# camera FPS setting is ignored for SVOs
 
 # svo_file_path = "data/svo/1729981242.4295187.svo2"
 

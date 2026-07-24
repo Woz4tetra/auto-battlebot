@@ -50,7 +50,44 @@ Per-model means under each phase:
   models still stretch vs running alone (shared GPU compute), but copies and kernels now
   interleave across streams and the TensorRT default-stream warning is gone.
 
-## Comparison to the Jetson baselines
+## Jetson A/B (live, mr_stabs_mk2, 2026-07-24)
+
+Recordings on the Desktop, reports in `jetson/` (generated with `--after-field-init` so
+the pre-init idle period does not dilute the stats).
+
+| Run | perception section (ms) | tick mean (ms) | e2e mean (ms) | e2e p95 (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| 13-48-01 seq | 22.48 (11.49 + 10.99) | 34.46 | 99.9 | 119.9 |
+| 14-08-00 seq | 20.24 (10.75 + 9.49) | 32.23 | 92.6 | 110.3 |
+| 13-50-38 par | 13.37 | 31.40 | 76.2 | 86.8 |
+| 14-05-33 par | 12.98 | 31.43 | 75.4 | 82.8 |
+
+Parallel saves ~8 ms of perception per tick and ~20 ms of end-to-end latency.
+
+### Why sequential looks worse than the May baseline (54.3 ms e2e)
+
+Both of today's modes read far above May. Two causes, neither is a perception
+regression:
+
+1. Measurement change, ~34 ms: commit `a3925db` (2026-06-19, "integrate clock
+   interface") moved frame stamps from `TIME_REFERENCE::CURRENT` (retrieve time) to
+   `TIME_REFERENCE::IMAGE` (true capture instant). The ~33.6 ms the grab call blocks per
+   frame is now inside `pipeline.latency`; in May it was invisible. May's 54.3 ms is
+   roughly 88 ms in today's metric.
+2. Frame-period knife edge, rest of the gap: the camera delivers at 30 fps (33.3 ms
+   period; capture thread healthy and identical in all runs, 33.4 ms grabs, no drops).
+   Sequential tick is 34.5 ms, just over the period, so the loop misses frame boundaries
+   and processes frames up to a full period stale. The 10 s window means drift
+   81 -> 107 ms as loop and camera phase beat against each other. Parallel tick is
+   31.4 ms, just under the period, so the loop consumes every frame fresh: latency is
+   stable at 74-79 ms.
+
+Supporting checks: capture thread stats (`capture_ms_avg`, `frames_since_last`) are
+identical May vs today, and per-model times did not regress (keypoint 11.5 ms today vs
+11.4 ms in May). The parallel win on the Jetson is therefore mostly about getting the
+tick under the frame period, not just the raw 3 ms of tick time.
+
+## Comparison to the May Jetson baselines
 
 The reports in `docs/experiments/baseline_latency/` are live Jetson runs from the May
 event (tick mean 42.5 ms, keypoint 11.4 ms, seg blob 19.0 ms sequential). They are not
@@ -69,8 +106,11 @@ of 42.5 ms per tick, so even a partial overlap there is worth several millisecon
 
 ## Next steps
 
-1. Rerun this A/B on the Jetson, where the perception share of the tick (71%) makes the
-   expected win several times larger.
-2. If the Jetson still shows heavy compute contention, evaluate running the two engines
-   at different priorities (`cudaStreamCreateWithPriority`) or merging the two models
-   into one engine.
+1. Keep `parallel_models = true` on the Jetson: it holds the tick under the 33.3 ms
+   frame period, which is worth ~20 ms of end-to-end latency, not just the 3 ms of tick
+   time.
+2. Treat 88 ms (not 54 ms) as the May-equivalent end-to-end baseline going forward;
+   pre-June numbers used retrieve-time stamps and hid the ~34 ms grab block.
+3. To cut further: shrink the ~34 ms capture-to-delivery path (grab at higher fps or
+   overlap retrieve/convert with the tick), or reduce tick headroom below the period so
+   camera-loop phase drift cannot push frames stale.
