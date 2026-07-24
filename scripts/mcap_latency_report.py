@@ -91,12 +91,40 @@ def extract_latency_samples(path: Path, after_field_init: bool = False) -> Laten
         sys.exit(1)
 
     t0 = first_ns
+    window_note = None
+    if after_field_init:
+        if not stage_t_ns.get(FIELD_INIT_STAGE):
+            print(
+                f"--after-field-init: no {FIELD_INIT_STAGE} samples in {path}; "
+                "the field was never initialized",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        t0 = stage_t_ns[FIELD_INIT_STAGE][0]
+        for stage in list(stage_t_ns):
+            kept = [
+                (t, ms)
+                for t, ms in zip(stage_t_ns[stage], stage_ms[stage], strict=True)
+                if t >= t0
+            ]
+            if kept:
+                stage_t_ns[stage] = [t for t, _ in kept]
+                stage_ms[stage] = [ms for _, ms in kept]
+            else:
+                del stage_t_ns[stage]
+                del stage_ms[stage]
+        rate_hz = [r for t, r in zip(rate_t_ns, rate_hz, strict=True) if t >= t0]
+        window_note = (
+            f"Window: after field init ({(t0 - first_ns) / 1e9:.1f} s into the recording)"
+        )
+
     stage_t_s = {stage: [(t - t0) / 1e9 for t in t_list] for stage, t_list in stage_t_ns.items()}
     return LatencySamples(
         stage_t_s=stage_t_s,
         stage_ms=dict(stage_ms),
         rate_hz=rate_hz,
         duration_s=(last_ns - t0) / 1e9,
+        window_note=window_note,
     )
 
 
@@ -170,6 +198,8 @@ def _table_rows(stats: list[StageStats]) -> list[tuple[str, str, str, str, str, 
 
 def _summary_lines(samples: LatencySamples, stats: list[StageStats]) -> list[str]:
     lines = [f"Duration: {samples.duration_s:.1f} s"]
+    if samples.window_note:
+        lines.append(samples.window_note)
     if samples.rate_hz:
         lines.append(f"Loop rate: {np.mean(samples.rate_hz):.1f} Hz mean")
 
@@ -345,6 +375,12 @@ def main() -> None:
         default=None,
         help="Comma-separated substrings; only report stages matching one of them",
     )
+    parser.add_argument(
+        "--after-field-init",
+        action="store_true",
+        help="Only include samples after the first successful field initialization "
+        f"(first {FIELD_INIT_STAGE} sample)",
+    )
     args = parser.parse_args()
 
     if not args.file.exists():
@@ -352,7 +388,7 @@ def main() -> None:
         sys.exit(1)
 
     print(f"Reading {args.file} ...")
-    samples = extract_latency_samples(args.file)
+    samples = extract_latency_samples(args.file, after_field_init=args.after_field_init)
 
     stage_filter = args.stages.split(",") if args.stages else None
     stats = aggregate(samples, stage_filter)
