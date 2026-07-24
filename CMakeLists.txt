@@ -202,19 +202,18 @@ target_include_directories(auto_battlebot_ui PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
 )
 
-# Git version header, regenerated every build so the -dirty flag stays accurate.
-# The header value is consumed by the System tab in src/ui/lvgl_ui.cpp.
-set(GIT_VERSION_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/version)
+# Git version stamp, regenerated every build so the -dirty flag stays accurate.
+# Written next to the binary and read at startup by the System tab in
+# src/ui/lvgl_ui.cpp, so a new commit never recompiles or relinks anything.
 add_custom_target(generate_git_version
     COMMAND ${CMAKE_COMMAND}
         -DGIT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
-        -DGIT_OUTPUT=${GIT_VERSION_DIR}/git_version.hpp
+        -DGIT_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/git_version.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/git_version.cmake
-    BYPRODUCTS ${GIT_VERSION_DIR}/git_version.hpp
-    COMMENT "Generating git version header"
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/git_version.txt
+    COMMENT "Generating git version stamp"
 )
 add_dependencies(auto_battlebot_ui generate_git_version)
-target_include_directories(auto_battlebot_ui PRIVATE ${GIT_VERSION_DIR})
 
 target_link_libraries(auto_battlebot_ui PUBLIC
     lvgl::lvgl
