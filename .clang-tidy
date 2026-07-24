@@ -1,0 +1,9 @@
+# Default checks, minus one analyzer false positive.
+#
+# optin.core.EnumCastOutOfRange fires on toml++'s closed flag enums
+# (TOML_MAKE_FLAGS bitwise operators in build/_deps headers). Clang 18's
+# analyzer does not honor the flag_enum attribute for this check (fixed in
+# clang 19), and analyzer diagnostics bypass the header filter, so the
+# third-party warnings leak into our lint output. Nothing in our code is
+# fixable. Re-evaluate after upgrading to clang-tidy >= 19.
+Checks: 'clang-diagnostic-*,clang-analyzer-*,-clang-analyzer-optin.core.EnumCastOutOfRange'
