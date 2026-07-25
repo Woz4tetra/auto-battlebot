@@ -150,7 +150,7 @@ Two small enablers make the whole plan affordable; both are Ultralytics-native a
    count — is what buys accuracy.
 
 Levers 1–2 are ~5-line additions to `train.py`'s arg parsing + the `settings`/`train()` call; lever 3 is
-the new pooling helper below. Add them, run `./scripts/check_and_fix`, and confirm (a) a 2-epoch
+the new pooling helper below. Add them, run `./scripts/lint`, and confirm (a) a 2-epoch
 `--save-period 1 --fraction 0.1` smoke run emits the extra checkpoints and (b) a `--synth-fraction 0.25
 --synth-order sequential` pooled build contains the full real set plus exactly 25% of the synthetic
 frames, before committing compute.

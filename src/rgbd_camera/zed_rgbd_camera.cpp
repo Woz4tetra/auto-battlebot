@@ -303,6 +303,7 @@ void ZedRgbdCamera::reset_runtime_state() {
     frame_counter_ = 0;
     depth_frame_counter_ = 0;
     last_returned_frame_counter_ = 0;
+    playback_stamp_offset_initialized_ = false;
     grab_health_.reset();
     prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST;
     reset_capture_timing_stats();
@@ -421,6 +422,19 @@ bool ZedRgbdCamera::capture_frame() {
     // it is the original recording time, which lets a ManualClock drive deterministic replay.
     sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE);
     double stamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
+    if (is_playback_input_) {
+        // Rebase SVO stamps onto the current wall clock so replay recordings (and the
+        // mcap start time) begin now, not at the original recording time. The offset is
+        // fixed at the first frame, preserving inter-frame deltas.
+        if (!playback_stamp_offset_initialized_) {
+            const double now_s =
+                std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch())
+                    .count();
+            playback_stamp_offset_s_ = now_s - stamp;
+            playback_stamp_offset_initialized_ = true;
+        }
+        stamp += playback_stamp_offset_s_;
+    }
 
     latest_data_.tf_visodom_from_camera.header.stamp = stamp;
     latest_data_.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;

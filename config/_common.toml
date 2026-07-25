@@ -17,6 +17,13 @@ type = "PointCloudFieldFilter"
 local_visualize_debug = false
 distance_threshold = 0.05
 
+# [field_model]
+# type = "FreeRoamMaskModel"
+# roi_fraction = 1.0
+# color_filter = true
+# tolerance_l = 60.0
+# tolerance_ab = 25.0
+
 [field_model]
 type = "DeepLabMaskModel"
 
@@ -71,6 +78,18 @@ field_bounds_margin_meters = 0.5
 # instead of predicting it forward indefinitely. Set <= 0 to hold forever (legacy behavior).
 our_robot_hold_window_s = 0.15
 
+# Tracked keypoints sit this far above the field plane by default.
+keypoint_height_meters = 0.03
+
+# Per-label keypoint height overrides; labels not listed use keypoint_height_meters.
+[robot_filter.keypoint_height_meters_per_label]
+HOUSE_BOT = 0.12
+MR_STABS_MK1 = 0.0
+MR_STABS_MK2 = 0.0
+MRS_BUFF_MK1 = 0.0
+MRS_BUFF_MK2 = 0.0
+MRS_BUFF_MK3 = 0.0
+
 [robot_filter.label_mapping]
 "HOUSE_BOT" = ["NEUTRAL_ROBOT_1"]
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
@@ -106,9 +125,11 @@ max_angular_command = 0.0         # 0 = no limit
 type = "RosPublisher"
 
 [runner]
-max_loop_rate = 30.0
+max_loop_rate = 60.0               # set to double of camera FPS
 default_opponent_count = 1
 autonomy_enabled_by_default = true
+# Run the keypoint and robot blob models on parallel worker threads. false = sequential.
+parallel_models = true
 
 [mcap]
 enable = false

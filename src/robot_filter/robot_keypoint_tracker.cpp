@@ -69,8 +69,11 @@ std::vector<RobotKeypointCandidate> RobotKeypointTracker::extract_candidates(
 
         Eigen::Vector3d point_a;
         Eigen::Vector3d point_b;
-        if (!project_keypoint_onto_plane(kp_a, plane_center, plane_normal, camera_info, point_a) ||
-            !project_keypoint_onto_plane(kp_b, plane_center, plane_normal, camera_info, point_b)) {
+        const double keypoint_height = config_.keypoint_heights.height_for(group_key.first);
+        if (!project_keypoint_onto_plane(kp_a, plane_center, plane_normal, camera_info,
+                                         keypoint_height, point_a) ||
+            !project_keypoint_onto_plane(kp_b, plane_center, plane_normal, camera_info,
+                                         keypoint_height, point_b)) {
             continue;
         }
 

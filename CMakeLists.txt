@@ -127,7 +127,7 @@ if(NOT SDL2_FOUND)
 else()
     set(SDL2_TARGET SDL2::SDL2)
 endif()
-find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui dnn)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common sample_consensus)
 
@@ -202,19 +202,18 @@ target_include_directories(auto_battlebot_ui PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
 )
 
-# Git version header, regenerated every build so the -dirty flag stays accurate.
-# The header value is consumed by the System tab in src/ui/lvgl_ui.cpp.
-set(GIT_VERSION_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/version)
+# Git version stamp, regenerated every build so the -dirty flag stays accurate.
+# Written next to the binary and read at startup by the System tab in
+# src/ui/lvgl_ui.cpp, so a new commit never recompiles or relinks anything.
 add_custom_target(generate_git_version
     COMMAND ${CMAKE_COMMAND}
         -DGIT_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
-        -DGIT_OUTPUT=${GIT_VERSION_DIR}/git_version.hpp
+        -DGIT_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/git_version.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/git_version.cmake
-    BYPRODUCTS ${GIT_VERSION_DIR}/git_version.hpp
-    COMMENT "Generating git version header"
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/git_version.txt
+    COMMENT "Generating git version stamp"
 )
 add_dependencies(auto_battlebot_ui generate_git_version)
-target_include_directories(auto_battlebot_ui PRIVATE ${GIT_VERSION_DIR})
 
 target_link_libraries(auto_battlebot_ui PUBLIC
     lvgl::lvgl
@@ -363,6 +362,9 @@ install(TARGETS auto_battlebot auto_battlebot_lib
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
 )
+# The binary reads this at startup from its own directory (see read_build_version
+# in src/ui/lvgl_ui.cpp), so it must land next to the installed executable.
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/git_version.txt DESTINATION bin)
 # Install config (used when running from system-wide install)
 install(DIRECTORY config/ DESTINATION share/auto_battlebot/config
     USE_SOURCE_PERMISSIONS

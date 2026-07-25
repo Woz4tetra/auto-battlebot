@@ -1,5 +1,5 @@
 #!/bin/bash
-# check_and_fix: format the tree and run every lint / type check in one pass.
+# lint: format the tree and run every lint / type check in one pass.
 #
 # This is the single entry point for formatting and static checks. It replaces
 # the former apply_formatting / check_cpp_format / check_cpp_lint /

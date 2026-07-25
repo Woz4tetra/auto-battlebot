@@ -5,6 +5,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <opencv2/imgproc.hpp>
 #include <optional>
@@ -12,7 +14,6 @@
 #include <vector>
 
 #include "data_structures/target_selection.hpp"
-#include "git_version.hpp"
 #include "lvgl_platform_bound/lvgl_ui_battery.hpp"
 #include "lvgl_platform_bound/lvgl_ui_composition.hpp"
 #include "lvgl_platform_bound/lvgl_ui_presenter.hpp"
@@ -32,6 +33,20 @@ using ui_internal::SystemActionTileData;
 using ui_internal::TILE_PAD;
 using ui_internal::TILE_RADIUS;
 using ui_internal::UIWidgets;
+
+// Reads the build version stamped next to the executable by the
+// generate_git_version target (see cmake/git_version.cmake). Kept out of the
+// binary so a new commit only rewrites the text file instead of forcing a
+// recompile and relink.
+std::string read_build_version() {
+    std::error_code ec;
+    std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (ec) return "unknown";
+    std::ifstream file(exe.parent_path() / "git_version.txt");
+    std::string version;
+    if (!file || !std::getline(file, version) || version.empty()) return "unknown";
+    return version;
+}
 
 void reinit_cb(lv_event_t *e) {
     auto *w = static_cast<UIWidgets *>(lv_event_get_user_data(e));
@@ -717,7 +732,7 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
 
     // --- Build version footer: git commit the binary was built from. ---
     lv_obj_t *version_label = lv_label_create(tab);
-    lv_label_set_text(version_label, "Build: " AUTO_BATTLEBOT_GIT_VERSION);
+    lv_label_set_text(version_label, ("Build: " + read_build_version()).c_str());
     lv_obj_set_style_text_font(version_label, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(version_label, lv_color_hex(0x9E9E9E), 0);
 

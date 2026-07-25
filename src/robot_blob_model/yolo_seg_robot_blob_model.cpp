@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
+#include <opencv2/dnn.hpp>
 
 #include "enum_to_string_lower.hpp"
 
@@ -75,7 +77,10 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
     const cv::Size original_size(image.image.cols, image.image.rows);
 
     std::vector<float> input_buffer;
-    preprocess_image(image.image, input_size, input_buffer);
+    {
+        FunctionTimer stage_timer(diagnostics_logger_, "preprocess");
+        preprocess_image(image.image, input_size, input_buffer);
+    }
     if (static_cast<int64_t>(input_buffer.size()) != engine_.getInputNumElements()) {
         diagnostics_logger_->error({}, "YOLO-seg input buffer size mismatch");
         return result;
@@ -97,11 +102,15 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
     output_ptrs.reserve(output_buffers.size());
     for (auto &buffer : output_buffers) output_ptrs.push_back(buffer.data());
 
-    if (!engine_.execute_multi(input_buffer.data(), output_ptrs)) {
-        diagnostics_logger_->error({}, "YOLO-seg inference failed");
-        return result;
+    {
+        FunctionTimer stage_timer(diagnostics_logger_, "inference");
+        if (!engine_.execute_multi(input_buffer.data(), output_ptrs)) {
+            diagnostics_logger_->error({}, "YOLO-seg inference failed");
+            return result;
+        }
     }
 
+    FunctionTimer stage_timer(diagnostics_logger_, "postprocess");
     size_t det_idx = std::numeric_limits<size_t>::max();
     size_t proto_idx = std::numeric_limits<size_t>::max();
     int proto_channels = 0;
@@ -292,33 +301,22 @@ void YoloSegRobotBlobModel::render_keypoints_debug(cv::Mat &debug_vis,
 
 void YoloSegRobotBlobModel::preprocess_image(const cv::Mat &image, cv::Size input_size,
                                              std::vector<float> &buffer) {
-    cv::Mat processed_image;
-    if (image.channels() == 3) {
-        cv::cvtColor(image, processed_image, cv::COLOR_BGR2RGB);
-    } else if (image.channels() == 4) {
-        cv::cvtColor(image, processed_image, cv::COLOR_BGRA2RGB);
+    cv::Mat bgr_image;
+    if (image.channels() == 4) {
+        cv::cvtColor(image, bgr_image, cv::COLOR_BGRA2BGR);
     } else {
-        processed_image = image;
+        bgr_image = image;
     }
 
     cv::Mat resized;
-    letterbox(processed_image, resized, {input_size.height, input_size.width});
+    letterbox(bgr_image, resized, {input_size.height, input_size.width});
 
-    cv::Mat float_image;
-    resized.convertTo(float_image, CV_32F, 1.0 / 255.0);
-    if (!float_image.isContinuous()) float_image = float_image.clone();
-
-    const int H = float_image.rows;
-    const int W = float_image.cols;
-    buffer.resize(static_cast<size_t>(3 * H * W));
-    float *ptr = buffer.data();
-    for (int c = 0; c < 3; ++c) {
-        for (int y = 0; y < H; ++y) {
-            for (int x = 0; x < W; ++x) {
-                ptr[c * H * W + y * W + x] = float_image.at<cv::Vec3f>(y, x)[c];
-            }
-        }
-    }
+    // blobFromImage does the 1/255 normalize, BGR->RGB swap, and CHW pack in vectorized
+    // code; the scalar per-pixel pack this replaces dominated preprocess time.
+    cv::Mat blob = cv::dnn::blobFromImage(resized, 1.0 / 255.0, cv::Size(), cv::Scalar(),
+                                          /*swapRB=*/true, /*crop=*/false, CV_32F);
+    buffer.resize(blob.total());
+    std::memcpy(buffer.data(), blob.ptr<float>(), blob.total() * sizeof(float));
 }
 
 float YoloSegRobotBlobModel::generate_scale(cv::Mat &image, const std::vector<int> &target_size) {

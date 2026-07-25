@@ -50,6 +50,8 @@ void run_ui_thread(std::stop_token stop, std::shared_ptr<UIState> ui_state) {
             SDL_Window *sdl_win = *static_cast<SDL_Window **>(driver_data);
             if (sdl_win) SDL_SetWindowFullscreen(sdl_win, SDL_WINDOW_FULLSCREEN_DESKTOP);
         }
+        // Fullscreen means kiosk (Jetson touchscreen): the desktop cursor is noise there.
+        SDL_ShowCursor(SDL_DISABLE);
     }
 
     lv_indev_t *mouse = lv_sdl_mouse_create();

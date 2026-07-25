@@ -1,7 +1,8 @@
-# Generates a header defining AUTO_BATTLEBOT_GIT_VERSION with the short commit
-# hash, suffixed with "-dirty" when the working tree has uncommitted changes to
-# tracked files. Run via `cmake -P` from a custom target so it re-evaluates on
-# every build and the dirty flag stays accurate.
+# Writes the short commit hash to a text file next to the binary, suffixed with
+# "-dirty" when the working tree has uncommitted changes to tracked files. Run
+# via `cmake -P` from a custom target so it re-evaluates on every build and the
+# dirty flag stays accurate. The binary reads the file at startup, so nothing
+# recompiles or relinks when the hash changes.
 #
 # On machines with a git repo (dev hosts) the version comes from git directly.
 # On machines without one (the Jetson, where deploy_to_jetson.sh excludes .git)
@@ -9,7 +10,7 @@
 #
 # Inputs (passed with -D):
 #   GIT_SOURCE_DIR - repository working directory
-#   GIT_OUTPUT     - path of the header to write
+#   GIT_OUTPUT     - path of the text file to write
 
 find_package(Git QUIET)
 
@@ -53,9 +54,9 @@ if(_git_version STREQUAL "")
     set(_git_version "unknown")
 endif()
 
-set(_content "#pragma once\n#define AUTO_BATTLEBOT_GIT_VERSION \"${_git_version}\"\n")
+set(_content "${_git_version}\n")
 
-# Only rewrite when the value changed, so unrelated rebuilds are not triggered.
+# Only rewrite when the value changed, so the file's mtime stays meaningful.
 set(_existing "")
 if(EXISTS ${GIT_OUTPUT})
     file(READ ${GIT_OUTPUT} _existing)

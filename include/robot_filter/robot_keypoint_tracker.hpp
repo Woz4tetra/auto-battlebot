@@ -8,6 +8,7 @@
 #include "data_structures/field.hpp"
 #include "data_structures/keypoint.hpp"
 #include "data_structures/robot.hpp"
+#include "robot_filter/keypoint_heights.hpp"
 
 namespace auto_battlebot {
 struct RobotKeypointTrackerConfig {
@@ -15,6 +16,7 @@ struct RobotKeypointTrackerConfig {
     double max_length_meters = 1.0;
     double min_confidence = 0.3;
     int max_candidates = 6;
+    KeypointHeights keypoint_heights;
 };
 
 struct RobotKeypointCandidate {

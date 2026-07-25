@@ -34,6 +34,12 @@ class McapRecorder {
     }
     bool set_enabled(bool enabled);
     bool is_enabled() const;
+    // True when a write() for this topic would actually be recorded. Lets producers skip
+    // expensive serialization for topics nobody records.
+    bool records_topic(const std::string& topic) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return writer_open_ && enabled_ && ignored_topics_.count(topic) == 0;
+    }
     void close();
 
     // Write a ROS message to the MCAP file using current time

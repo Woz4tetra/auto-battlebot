@@ -41,6 +41,15 @@ class HealthLogger {
     uint64_t heartbeat_ticks_ = 0;
     double max_tick_ms_ = 0.0;
 
+    // Jetson power telemetry: INA3221 VDD_IN rail + soctherm over-current event counters.
+    // Paths are discovered once by hwmon name (indices shift across boots); empty = unavailable.
+    bool power_hwmon_scanned_ = false;
+    std::string vdd_in_voltage_path_;
+    std::string vdd_in_current_path_;
+    std::string soctherm_oc_dir_;
+    long long last_oc_event_counts_[3] = {0, 0, 0};
+    bool has_last_oc_event_counts_ = false;
+
     void perform_sampling();
     void emit_heartbeat_if_due(std::chrono::steady_clock::time_point now);
 
@@ -52,9 +61,13 @@ class HealthLogger {
     static bool parse_double(const std::string& value, double& out);
     static bool parse_int(const std::string& value, int& out);
 
+    static bool read_sysfs_line(const std::string& path, std::string& out);
+
     bool start_tegrastats_stream();
     void stop_tegrastats_stream();
     bool collect_tegrastats();
+    void scan_power_hwmon();
+    bool collect_jetson_power();
     void collect_compute_mode();
     bool collect_x86_health();
     bool collect_nvidia_smi();

@@ -45,6 +45,19 @@ struct DeepLabMaskModelConfiguration : public MaskModelConfiguration {
     // clang-format on
 };
 
+struct FreeRoamMaskModelConfiguration : public MaskModelConfiguration {
+    double roi_fraction = 1.0;
+    bool color_filter = true;
+    double seed_patch_fraction = 0.1;
+    double tolerance_l = 60.0;
+    double tolerance_ab = 25.0;
+    bool debug_visualization = false;
+
+    FreeRoamMaskModelConfiguration() { type = "FreeRoamMaskModel"; }
+
+    void parse_fields(ConfigParser &parser) override;
+};
+
 struct YoloSegMaskModelConfiguration : public MaskModelConfiguration {
     std::string model_path;
     std::vector<Label> label_indices;

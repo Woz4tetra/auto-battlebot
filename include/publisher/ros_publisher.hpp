@@ -17,6 +17,7 @@ class RosPublisher : public PublisherInterface {
     RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_image_publisher,
                  TypedPublisher<sensor_msgs::CameraInfo> camera_info_publisher,
                  TypedPublisher<sensor_msgs::CompressedImage> field_mask_publisher,
+                 TypedPublisher<sensor_msgs::CameraInfo> field_mask_camera_info_publisher,
                  TypedPublisher<tf2_msgs::TFMessage> tf_publisher,
                  TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher,
                  TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher,
@@ -27,7 +28,8 @@ class RosPublisher : public PublisherInterface {
                  std::shared_ptr<McapRecorder> mcap_recorder  // optional, may be null
     );
     void publish_camera_data(const CameraData &data) override;
-    void publish_field_mask(const MaskStamped &field_mask, const RgbImage &image) override;
+    void publish_field_mask(const MaskStamped &field_mask, const RgbImage &image,
+                            const CameraInfo &camera_info) override;
     void publish_initial_field_description(const FieldDescriptionWithInlierPoints &field) override;
     void publish_field_description(
         const FieldDescription &field_description,
@@ -41,6 +43,7 @@ class RosPublisher : public PublisherInterface {
     TypedPublisher<sensor_msgs::CompressedImage> rgb_image_publisher_;
     TypedPublisher<sensor_msgs::CameraInfo> camera_info_publisher_;
     TypedPublisher<sensor_msgs::CompressedImage> field_mask_publisher_;
+    TypedPublisher<sensor_msgs::CameraInfo> field_mask_camera_info_publisher_;
     TypedPublisher<tf2_msgs::TFMessage> tf_publisher_;
     TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher_;
     TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher_;

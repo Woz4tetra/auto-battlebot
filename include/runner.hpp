@@ -21,6 +21,7 @@
 #include "mask_model/mask_model_interface.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "navigation/navigation_interface.hpp"
+#include "perception_batch/parallel_model_batch.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "robot_blob_model/robot_blob_model_interface.hpp"
@@ -44,6 +45,7 @@ class Runner {
            std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
            std::shared_ptr<FieldFilterInterface> field_filter,
            std::shared_ptr<KeypointModelInterface> keypoint_model,
+           std::shared_ptr<ParallelModelBatch> perception_batch,
            std::shared_ptr<RobotFilterInterface> robot_filter,
            std::shared_ptr<TargetSelectorInterface> target_selector,
            std::shared_ptr<NavigationInterface> navigation,
@@ -67,6 +69,8 @@ class Runner {
     std::shared_ptr<RobotBlobModelInterface> robot_mask_model_;
     std::shared_ptr<FieldFilterInterface> field_filter_;
     std::shared_ptr<KeypointModelInterface> keypoint_model_;
+    // Runs keypoint_model_ and robot_mask_model_ in parallel each tick.
+    std::shared_ptr<ParallelModelBatch> perception_batch_;
     std::shared_ptr<RobotFilterInterface> robot_filter_;
     std::shared_ptr<TargetSelectorInterface> target_selector_;
     std::shared_ptr<NavigationInterface> navigation_;

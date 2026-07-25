@@ -105,6 +105,9 @@ void HealthLogger::perform_sampling() {
         any_logged = collect_x86_health() || any_logged;
     }
 
+    // Self-detects availability (Jetson-only hwmon nodes); no-op on x86.
+    any_logged = collect_jetson_power() || any_logged;
+
     DiagnosticsData status;
     status["enable"] = config_.enable ? 1 : 0;
     status["tegrastats_enable"] = config_.tegrastats_enable ? 1 : 0;
@@ -485,6 +488,119 @@ bool HealthLogger::collect_tegrastats() {
                      collect_elapsed_ms, lines_read);
     }
     logger_->debug("tegrastats", data);
+    return true;
+}
+
+bool HealthLogger::read_sysfs_line(const std::string& path, std::string& out) {
+    std::ifstream in(path);
+    if (!in.is_open()) {
+        return false;
+    }
+    std::getline(in, out);
+    out = trim(out);
+    return !out.empty();
+}
+
+void HealthLogger::scan_power_hwmon() {
+    power_hwmon_scanned_ = true;
+    const std::filesystem::path hwmon_root("/sys/class/hwmon");
+    if (!std::filesystem::exists(hwmon_root) || !std::filesystem::is_directory(hwmon_root)) {
+        return;
+    }
+    for (const auto& entry : std::filesystem::directory_iterator(hwmon_root)) {
+        std::string name;
+        if (!read_sysfs_line((entry.path() / "name").string(), name)) {
+            continue;
+        }
+        if (name == "ina3221") {
+            // Find the channel labeled VDD_IN (module input rail); the channel number is
+            // board-specific.
+            for (int channel = 1; channel <= 7; ++channel) {
+                const std::string prefix = "in" + std::to_string(channel);
+                std::string label;
+                if (!read_sysfs_line((entry.path() / (prefix + "_label")).string(), label) ||
+                    label != "VDD_IN") {
+                    continue;
+                }
+                vdd_in_voltage_path_ = (entry.path() / (prefix + "_input")).string();
+                vdd_in_current_path_ =
+                    (entry.path() / ("curr" + std::to_string(channel) + "_input")).string();
+                break;
+            }
+        } else if (name == "soctherm_oc") {
+            soctherm_oc_dir_ = entry.path().string();
+        }
+    }
+}
+
+bool HealthLogger::collect_jetson_power() {
+    if (!power_hwmon_scanned_) {
+        scan_power_hwmon();
+    }
+    if (vdd_in_voltage_path_.empty() && soctherm_oc_dir_.empty()) {
+        return false;
+    }
+
+    DiagnosticsData data;
+    bool any = false;
+
+    std::string raw;
+    double vdd_in_mv = 0.0;
+    double vdd_in_ma = 0.0;
+    bool have_voltage = false;
+    bool have_current = false;
+    if (!vdd_in_voltage_path_.empty() && read_sysfs_line(vdd_in_voltage_path_, raw) &&
+        parse_double(raw, vdd_in_mv)) {
+        data["vdd_in_mv"] = vdd_in_mv;
+        have_voltage = true;
+        any = true;
+    }
+    if (!vdd_in_current_path_.empty() && read_sysfs_line(vdd_in_current_path_, raw) &&
+        parse_double(raw, vdd_in_ma)) {
+        data["vdd_in_ma"] = vdd_in_ma;
+        have_current = true;
+        any = true;
+    }
+    if (have_voltage && have_current) {
+        data["vdd_in_mw"] = vdd_in_mv * vdd_in_ma / 1000.0;
+    }
+
+    if (!soctherm_oc_dir_.empty()) {
+        // OC1 = under-voltage, OC2 = VDD_IN average power over limit, OC3 = VDD_IN instant
+        // power over peak. Each event throttles clocks, so a nonzero delta means the supply
+        // hit a hardware limit since the last sample. The INA3221 samples too slowly to see
+        // these transients; the latched counters are the only reliable signal.
+        bool have_all_counts = true;
+        long long counts[3] = {0, 0, 0};
+        for (int i = 0; i < 3; ++i) {
+            const std::string path =
+                soctherm_oc_dir_ + "/oc" + std::to_string(i + 1) + "_event_cnt";
+            double value = 0.0;
+            if (!read_sysfs_line(path, raw) || !parse_double(raw, value)) {
+                have_all_counts = false;
+                break;
+            }
+            counts[i] = static_cast<long long>(value);
+        }
+        if (have_all_counts) {
+            for (int i = 0; i < 3; ++i) {
+                const std::string key = "oc" + std::to_string(i + 1);
+                data[key + "_event_cnt"] = static_cast<double>(counts[i]);
+                if (has_last_oc_event_counts_) {
+                    data[key + "_events_delta"] =
+                        static_cast<double>(counts[i] - last_oc_event_counts_[i]);
+                }
+                last_oc_event_counts_[i] = counts[i];
+            }
+            has_last_oc_event_counts_ = true;
+            any = true;
+        }
+    }
+
+    if (!any) {
+        return false;
+    }
+    logger_->debug("jetson_power", data);
     return true;
 }
 

@@ -14,6 +14,7 @@ namespace auto_battlebot {
 RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_image_publisher,
                            TypedPublisher<sensor_msgs::CameraInfo> camera_info_publisher,
                            TypedPublisher<sensor_msgs::CompressedImage> field_mask_publisher,
+                           TypedPublisher<sensor_msgs::CameraInfo> field_mask_camera_info_publisher,
                            TypedPublisher<tf2_msgs::TFMessage> tf_publisher,
                            TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher,
                            TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher,
@@ -25,6 +26,7 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
     : rgb_image_publisher_(std::move(rgb_image_publisher)),
       camera_info_publisher_(std::move(camera_info_publisher)),
       field_mask_publisher_(std::move(field_mask_publisher)),
+      field_mask_camera_info_publisher_(std::move(field_mask_camera_info_publisher)),
       tf_publisher_(std::move(tf_publisher)),
       static_tf_publisher_(std::move(static_tf_publisher)),
       field_marker_publisher_(std::move(field_marker_publisher)),
@@ -38,11 +40,16 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
 void RosPublisher::publish_camera_data(const CameraData &data) {
     FunctionTimer timer(diagnostics_logger_, "publish_camera_data");
 
-    // Publish RGB image
+    // Publish RGB image. Compression is ~10 ms on the Jetson, so skip it entirely unless
+    // someone is subscribed or the mcap actually records the topic.
     if (rgb_image_publisher_) {
-        auto rgb_msg = ros_adapters::to_ros_image_compressed(data.rgb);
-        rgb_image_publisher_.publish(rgb_msg);
-        if (mcap_recorder_) mcap_recorder_->write("/camera/image", rgb_msg);
+        const bool has_subscriber = rgb_image_publisher_.num_subscribers() > 0;
+        const bool mcap_records = mcap_recorder_ && mcap_recorder_->records_topic("/camera/image");
+        if (has_subscriber || mcap_records) {
+            auto rgb_msg = ros_adapters::to_ros_image_compressed(data.rgb);
+            rgb_image_publisher_.publish(rgb_msg);
+            if (mcap_recorder_) mcap_recorder_->write("/camera/image", rgb_msg);
+        }
     }
 
     // Publish camera info
@@ -61,7 +68,8 @@ void RosPublisher::publish_camera_data(const CameraData &data) {
     }
 }
 
-void RosPublisher::publish_field_mask(const MaskStamped &field_mask, const RgbImage &image) {
+void RosPublisher::publish_field_mask(const MaskStamped &field_mask, const RgbImage &image,
+                                      const CameraInfo &camera_info) {
     FunctionTimer timer(diagnostics_logger_, "publish_field_mask");
 
     if (!field_mask_publisher_) {
@@ -80,13 +88,27 @@ void RosPublisher::publish_field_mask(const MaskStamped &field_mask, const RgbIm
         overlay = colorized_mask;
     }
 
+    // The mask image is captured once at field init and stays on screen while the camera keeps
+    // moving. Stamp it and its camera info in CAMERA_WORLD (the camera pose at field init, held
+    // in the TF tree by publish_field_description) so image panels project 3D markers through
+    // the frozen pose instead of the live CAMERA frame.
     RgbImage mask_as_image;
     mask_as_image.header = field_mask.header;
+    mask_as_image.header.frame_id = FrameId::CAMERA_WORLD;
     mask_as_image.image = overlay;
 
     auto mask_msg = ros_adapters::to_ros_image_compressed(mask_as_image);
     field_mask_publisher_.publish(mask_msg);
     if (mcap_recorder_) mcap_recorder_->write("/field_mask", mask_msg);
+
+    if (field_mask_camera_info_publisher_) {
+        CameraInfo field_mask_camera_info = camera_info;
+        field_mask_camera_info.header.stamp = field_mask.header.stamp;
+        field_mask_camera_info.header.frame_id = FrameId::CAMERA_WORLD;
+        auto info_msg = ros_adapters::to_ros_camera_info(field_mask_camera_info);
+        field_mask_camera_info_publisher_.publish(info_msg);
+        if (mcap_recorder_) mcap_recorder_->write("/field_mask/camera_info", info_msg);
+    }
 }
 
 void RosPublisher::publish_initial_field_description(

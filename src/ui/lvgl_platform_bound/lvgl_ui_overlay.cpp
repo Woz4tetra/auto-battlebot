@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <magic_enum.hpp>
 #include <opencv2/imgproc.hpp>
+#include <string>
 
 #include "data_structures/pose.hpp"
 #include "enums/label.hpp"
@@ -67,6 +69,14 @@ void draw_robot_pose_arrows(cv::Mat &image, const RobotDescriptionsStamped &robo
             continue;
         }
         cv::arrowedLine(image, start_px, end_px, to_cv_bgr(robot.group), 2, cv::LINE_AA, 0, 0.25);
+
+        if (robot.frame_id == FrameId::EMPTY) continue;
+        const std::string frame_label(magic_enum::enum_name(robot.frame_id));
+        const cv::Point label_org(start_px.x + 8, start_px.y - 8);
+        cv::putText(image, frame_label, label_org + cv::Point(1, 1), cv::FONT_HERSHEY_SIMPLEX, 0.5,
+                    cv::Scalar(0, 0, 0), 2, cv::LINE_AA);
+        cv::putText(image, frame_label, label_org, cv::FONT_HERSHEY_SIMPLEX, 0.5,
+                    cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
     }
 }
 

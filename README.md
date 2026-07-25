@@ -180,7 +180,7 @@ To run unit tests:
 There is no strict style guide yet. Running the check-and-fix script applies baseline corrections:
 
 ```bash
-./scripts/check_and_fix
+./scripts/lint
 ```
 
 #### Footnotes

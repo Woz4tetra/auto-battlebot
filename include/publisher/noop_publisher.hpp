@@ -7,12 +7,13 @@ class NoopPublisher : public PublisherInterface {
    public:
     void publish_camera_data([[maybe_unused]] const CameraData &data) override {}
     void publish_field_mask([[maybe_unused]] const MaskStamped &field_mask,
-                            [[maybe_unused]] const RgbImage &image) override {}
+                            [[maybe_unused]] const RgbImage &image,
+                            [[maybe_unused]] const CameraInfo &camera_info) override {}
     void publish_initial_field_description(
         [[maybe_unused]] const FieldDescriptionWithInlierPoints &field) override {}
     void publish_field_description([[maybe_unused]] const FieldDescription &field_description,
                                    [[maybe_unused]] const FieldDescriptionWithInlierPoints
-                                       &initial_field_description) override{};
+                                       &initial_field_description) override {};
     void publish_robots([[maybe_unused]] const RobotDescriptionsStamped &robots) override {}
     void publish_blob_detections([[maybe_unused]] const DetectionsStamped &detections) override {}
     void publish_keypoint_detections(

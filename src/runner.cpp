@@ -15,6 +15,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
                std::shared_ptr<FieldFilterInterface> field_filter,
                std::shared_ptr<KeypointModelInterface> keypoint_model,
+               std::shared_ptr<ParallelModelBatch> perception_batch,
                std::shared_ptr<RobotFilterInterface> robot_filter,
                std::shared_ptr<TargetSelectorInterface> target_selector,
                std::shared_ptr<NavigationInterface> navigation,
@@ -29,6 +30,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       robot_mask_model_(robot_mask_model),
       field_filter_(field_filter),
       keypoint_model_(keypoint_model),
+      perception_batch_(std::move(perception_batch)),
       robot_filter_(robot_filter),
       target_selector_(target_selector),
       navigation_(navigation),
@@ -247,7 +249,7 @@ void Runner::initialize_field(const CameraData &camera_data) {
     spdlog::info("Initializing field");
     field_filter_->reset(camera_data.tf_visodom_from_camera);
     MaskStamped field_mask = field_model_->update(camera_data.rgb);
-    publisher_->publish_field_mask(field_mask, camera_data.rgb);
+    publisher_->publish_field_mask(field_mask, camera_data.rgb, camera_data.camera_info);
 
     if (field_mask.mask.mask.empty()) {
         spdlog::error("Field model returned an empty mask; skipping field initialization.");
@@ -390,15 +392,29 @@ bool Runner::tick() {
     }
 
     KeypointsStamped keypoints;
-    {
-        FunctionTimer timer(diagnostics_logger_, "keypoint_model.update");
-        keypoints = keypoint_model_->update(camera_data.rgb);
-    }
-
     KeypointsStamped robot_blob_keypoints;
-    {
-        FunctionTimer timer(diagnostics_logger_, "robot_mask_model.update");
-        robot_blob_keypoints = robot_mask_model_->update(camera_data.rgb);
+    if (runner_config_.parallel_models) {
+        FunctionTimer timer(diagnostics_logger_, "perception_batch.update");
+        BatchResult batch = perception_batch_->update(camera_data.rgb);
+        keypoints = std::move(batch.keypoints);
+        robot_blob_keypoints = std::move(batch.robot_blob_keypoints);
+        // Per-model wall times are measured inside the workers and re-emitted here under
+        // the sequential-era labels so latency reports stay comparable across versions.
+        DiagnosticsData keypoint_timing;
+        keypoint_timing["elapsed_ms"] = batch.keypoint_model_elapsed_ms;
+        diagnostics_logger_->info("keypoint_model.update", keypoint_timing, "");
+        DiagnosticsData robot_blob_timing;
+        robot_blob_timing["elapsed_ms"] = batch.robot_blob_model_elapsed_ms;
+        diagnostics_logger_->info("robot_mask_model.update", robot_blob_timing, "");
+    } else {
+        {
+            FunctionTimer timer(diagnostics_logger_, "keypoint_model.update");
+            keypoints = keypoint_model_->update(camera_data.rgb);
+        }
+        {
+            FunctionTimer timer(diagnostics_logger_, "robot_mask_model.update");
+            robot_blob_keypoints = robot_mask_model_->update(camera_data.rgb);
+        }
     }
 
     RobotDescriptionsStamped robots;
@@ -431,15 +447,6 @@ bool Runner::tick() {
                                     {"our_blob_present_no_keypoint", our_blob_no_keypoint}});
     }
 
-    {
-        FunctionTimer timer(diagnostics_logger_, "publishers");
-        publisher_->publish_camera_data(camera_data);
-        publisher_->publish_field_description(field_description, *initial_field_description_);
-        publisher_->publish_robots(robots);
-        publisher_->publish_blob_detections(robot_mask_model_->last_detections());
-        publisher_->publish_keypoint_detections(keypoint_model_->last_detections());
-    }
-
     // Resolve once so target selection and navigation operate on the same robot set within a
     // tick. Substitutes the previous critical snapshot when this frame is missing OUR or THEIRS.
     auto cached_robots = robot_descriptions_cache_.resolve(robots);
@@ -461,7 +468,17 @@ bool Runner::tick() {
         diagnostics_logger_->debug("pipeline", {{"latency_ms", pipeline_latency_ms}});
     }
 
-    publisher_->publish_navigation(navigation_->get_last_visualization());
+    // All publishing runs after the command send so none of it (notably the ~10 ms image
+    // compression on Jetson) sits on the control critical path.
+    {
+        FunctionTimer timer(diagnostics_logger_, "publishers");
+        publisher_->publish_camera_data(camera_data);
+        publisher_->publish_field_description(field_description, *initial_field_description_);
+        publisher_->publish_robots(robots);
+        publisher_->publish_blob_detections(robot_mask_model_->last_detections());
+        publisher_->publish_keypoint_detections(keypoint_model_->last_detections());
+        publisher_->publish_navigation(navigation_->get_last_visualization());
+    }
 
     publish_system_status(true, loop_rate_hz);
     if (ui_state_) {
