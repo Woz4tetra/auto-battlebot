@@ -127,7 +127,7 @@ if(NOT SDL2_FOUND)
 else()
     set(SDL2_TARGET SDL2::SDL2)
 endif()
-find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui dnn)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common sample_consensus)
 

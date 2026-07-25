@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <opencv2/dnn.hpp>
 
 namespace auto_battlebot {
 YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config)
@@ -88,36 +89,22 @@ KeypointsStamped YoloKeypointModel::update(RgbImage image) {
 
 void YoloKeypointModel::preprocess_image(const cv::Mat &image, cv::Size input_image_size,
                                          std::vector<float> &buffer) {
-    cv::Mat processed_image;
-    if (image.channels() == 3) {
-        cv::cvtColor(image, processed_image, cv::COLOR_BGR2RGB);
-    } else if (image.channels() == 4) {
-        cv::cvtColor(image, processed_image, cv::COLOR_BGRA2RGB);
+    cv::Mat bgr_image;
+    if (image.channels() == 4) {
+        cv::cvtColor(image, bgr_image, cv::COLOR_BGRA2BGR);
     } else {
-        processed_image = image;
+        bgr_image = image;
     }
 
     cv::Mat resized;
-    letterbox(processed_image, resized, {input_image_size.height, input_image_size.width});
+    letterbox(bgr_image, resized, {input_image_size.height, input_image_size.width});
 
-    cv::Mat float_image;
-    resized.convertTo(float_image, CV_32F, 1.0 / 255.0);
-    if (!float_image.isContinuous()) {
-        float_image = float_image.clone();
-    }
-
-    const int H = float_image.rows;
-    const int W = float_image.cols;
-    const int64_t num_elements = 1 * 3 * H * W;
-    buffer.resize(static_cast<size_t>(num_elements));
-    float *ptr = buffer.data();
-    for (int c = 0; c < 3; c++) {
-        for (int y = 0; y < H; y++) {
-            for (int x = 0; x < W; x++) {
-                ptr[c * H * W + y * W + x] = float_image.at<cv::Vec3f>(y, x)[c];
-            }
-        }
-    }
+    // blobFromImage does the 1/255 normalize, BGR->RGB swap, and CHW pack in vectorized
+    // code; the scalar per-pixel pack this replaces dominated preprocess time.
+    cv::Mat blob = cv::dnn::blobFromImage(resized, 1.0 / 255.0, cv::Size(), cv::Scalar(),
+                                          /*swapRB=*/true, /*crop=*/false, CV_32F);
+    buffer.resize(blob.total());
+    std::memcpy(buffer.data(), blob.ptr<float>(), blob.total() * sizeof(float));
 }
 
 float YoloKeypointModel::generate_scale(cv::Mat &image, const std::vector<int> &target_size) {
