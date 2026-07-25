@@ -9,6 +9,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Source helper functions
 source "$PROJECT_ROOT/install/check_jetson_orin_nano.sh"
 source "$PROJECT_ROOT/install/install_packages.sh"
+source "$PROJECT_ROOT/install/install_llvm_toolchain.sh"
 source "$PROJECT_ROOT/install/install_opencv_jetson.sh"
 source "$PROJECT_ROOT/install/install_pytorch_jetson.sh"
 source "$PROJECT_ROOT/install/install_python_environment.sh"
@@ -27,6 +28,7 @@ check_jetson_orin_nano
 # Step 0: Install TensorRT runtime (before CMake)
 install_packages "$PROJECT_ROOT/install/jetson_packages.txt"
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
+install_llvm_toolchain "$PROJECT_ROOT"
 install_opencv_jetson
 # Python venv (creates venv/, installs deps; also pulls Jetson PyTorch wheel)
 install_python_environment -n

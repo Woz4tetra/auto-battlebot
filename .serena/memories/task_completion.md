@@ -10,7 +10,8 @@ Before reporting a feature complete:
 - Build test target: `./scripts/build_and_test.sh` (build-test/ must exist for the checks
   below).
 - Static analysis on modified files:
-  `git diff --name-only HEAD | grep '\.cpp$' | xargs -r clang-tidy -p build-test/`
+  `git diff --name-only HEAD | grep '\.cpp$' | xargs -r clang-tidy-18 -p build-test/`
+  Use the versioned binary — the clang toolchain is pinned to `.llvm-version`.
 - clang-format --dry-run runs automatically via the Stop hook.
 
 ## Regression

@@ -63,6 +63,44 @@ FAILED=()
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# ---- pinned LLVM tooling ----
+# clang-format's output is version-dependent (14 writes `override{}`, 18 writes
+# `override {}`), so an unpinned binary rewrites the tree differently on every
+# machine. Resolve the version in .llvm-version; install it with
+# scripts/install_llvm_toolchain.sh.
+LLVM_VERSION=$(tr -d '[:space:]' < "$PROJECT_ROOT/.llvm-version" 2>/dev/null || true)
+
+# Echo the pinned binary for an LLVM tool: the versioned name if present, else
+# the unversioned one only when it already reports the pinned version.
+llvm_tool() {
+    local name="$1"
+    [ -n "$LLVM_VERSION" ] || return 1
+    if have "$name-$LLVM_VERSION"; then
+        echo "$name-$LLVM_VERSION"
+        return 0
+    fi
+    if have "$name" && "$name" --version 2>/dev/null | grep -q "version $LLVM_VERSION\."; then
+        echo "$name"
+        return 0
+    fi
+    return 1
+}
+
+CLANG_FORMAT=$(llvm_tool clang-format || true)
+CLANG_TIDY=$(llvm_tool clang-tidy || true)
+
+# run-clang-tidy is a driver script, not a compiler; it has no --version, so
+# take the versioned copy when it exists and pin the worker binary explicitly.
+if have "run-clang-tidy-$LLVM_VERSION"; then
+    RUN_CLANG_TIDY="run-clang-tidy-$LLVM_VERSION"
+elif have run-clang-tidy; then
+    RUN_CLANG_TIDY="run-clang-tidy"
+else
+    RUN_CLANG_TIDY=""
+fi
+
+LLVM_HINT="run scripts/install_llvm_toolchain.sh"
+
 # mode-label: "check" under --dry-run, else "apply", for formatter headers.
 mode_label() { [ "$DRY_RUN" = true ] && echo "check" || echo "apply"; }
 
@@ -97,15 +135,15 @@ PY_FMT_DIRS=(
 
 # ---- 1. clang-format ----
 header "clang-format ($(mode_label))"
-if have clang-format; then
+if [ -n "$CLANG_FORMAT" ]; then
     if [ "$DRY_RUN" = true ]; then
-        cpp_files | xargs -0 -r clang-format --dry-run --Werror
+        cpp_files | xargs -0 -r "$CLANG_FORMAT" --dry-run --Werror
     else
-        cpp_files | xargs -0 -r clang-format -i
+        cpp_files | xargs -0 -r "$CLANG_FORMAT" -i
     fi
     record "clang-format" $?
 else
-    missing "clang-format" "clang-format"
+    missing "clang-format" "clang-format-$LLVM_VERSION ($LLVM_HINT)"
 fi
 
 # ---- 2. taplo (TOML) ----
@@ -148,13 +186,14 @@ fi
 header "clang-tidy"
 if [ "$QUICK" = true ]; then
     skipped_quick "clang-tidy"
-elif ! have run-clang-tidy; then
-    missing "clang-tidy" "run-clang-tidy"
+elif [ -z "$RUN_CLANG_TIDY" ] || [ -z "$CLANG_TIDY" ]; then
+    missing "clang-tidy" "clang-tidy-$LLVM_VERSION ($LLVM_HINT)"
 elif [ ! -f "$BUILD_DIR/compile_commands.json" ]; then
     echo -e "${RED}    ✗ clang-tidy (no build/compile_commands.json — run scripts/build.sh)${NC}"
     FAILED+=("clang-tidy")
 else
-    run-clang-tidy -p "$BUILD_DIR" "^${PROJECT_ROOT}/src/"
+    "$RUN_CLANG_TIDY" -p "$BUILD_DIR" -clang-tidy-binary "$CLANG_TIDY" \
+        "^${PROJECT_ROOT}/src/"
     record "clang-tidy" $?
 fi
 

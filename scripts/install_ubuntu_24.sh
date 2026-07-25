@@ -9,6 +9,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # Source helper functions
 source "$PROJECT_ROOT/install/check_os_ubuntu_24.sh"
 source "$PROJECT_ROOT/install/install_packages.sh"
+source "$PROJECT_ROOT/install/install_llvm_toolchain.sh"
 source "$PROJECT_ROOT/install/install_tensorrt_runtime_ubuntu.sh"
 source "$PROJECT_ROOT/install/install_docker_ubuntu.sh"
 source "$PROJECT_ROOT/install/install_ros_connector.sh"
@@ -24,6 +25,7 @@ check_os_ubuntu_24
 install_tensorrt_runtime_ubuntu
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
 install_packages "$PROJECT_ROOT/install/ubuntu_24_packages.txt"
+install_llvm_toolchain "$PROJECT_ROOT"
 install_docker_ubuntu
 install_ros_connector
 install_mcap_cli

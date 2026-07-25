@@ -19,7 +19,8 @@ wget
 libpcl-dev
 libffi-dev
 valgrind
-clang-tidy
-clangd
-clang-format
 ripgrep
+
+# clang-format, clang-tidy and clangd are NOT listed here. The unversioned
+# packages differ per release and format the tree inconsistently, so they are
+# pinned to .llvm-version by install/install_llvm_toolchain.sh instead.
