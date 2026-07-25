@@ -1,6 +1,6 @@
 # Latency report: auto_battlebot_mr_stabs_mk2_jetson_2026-07-25_01-07-16
 
-Using cv::dnn::blobFromImage to preprocess image for yolo instead of iterating over the whole image with for loops.
+Using cv::dnn::blobFromImage to preprocess image for yolo instead of iterating over the whole image with for loops and `.at<Vec3f>`.
 
 - Source: `/home/ben/Desktop/auto_battlebot_mr_stabs_mk2_jetson_2026-07-25_01-07-16.mcap`
 - Generated: 2026-07-25 01:09 by `scripts/mcap_latency_report.py`
