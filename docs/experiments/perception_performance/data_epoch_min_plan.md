@@ -1,425 +1,488 @@
-# Minimum data + epochs to match baseline (warm-start checkpoints) — experiment plan
+# Warm-start vs cold retrain on unseen scenes — experiment plan
 
-Status: **planned**. Follows the pipeline in `experiment_runbook.md` (collect → prepare megamind →
-train → export → score). This document is the design; each phase's writeup goes in
-`data_epoch_min_<phase>_<date>.md` once scored.
+Status: **planned** (rewritten 2026-07-25, supersedes the "minimum data + epochs" framing). Follows the
+pipeline in `experiment_runbook.md` (collect → prepare megamind → train → export → score). Each phase's
+writeup goes in `data_epoch_min_<phase>_<date>.md` once scored.
+
+## Why this plan was rewritten
+
+The previous plan asked "what is the smallest (real images, synthetic images, epochs) that reaches
+parity, and can a reusable warm-start checkpoint get there cheaply?" Phase A ran and produced two
+usable results (an epoch floor, a corpus floor) and one non-result: **the warm-start experiment was
+circular.** Both warm bases were fine-tuned on the corpus they were already trained on, so
+`E_warm = 0` was true by construction. See `data_epoch_min_phaseA_2026-07-24.md` §Exp 2.
+
+The 2026-07-24 writeup concluded that the useful warm-start question needed footage "that does not
+exist in this dataset." That is false. `nhrl_robots_bbox` contains **56 distinct real recordings**, so
+holding out whole recordings supplies genuinely unseen data at zero collection cost.
+
+A second correction forced by the same audit: **the substrate is not real-only.** 34.6 % of
+`nhrl_robots_bbox/train` is synthetic renders (16997 of 49086 frames), including a 100 %-synthetic
+`object` class and 16111 synthetic generic-opponent boxes. Every "real-only", "real substrate", and
+"real-image floor" statement in the previous plan was wrong, and the 2026-07-23 decision to delete the
+synthetic axis from Phase A rested on that error.
 
 ## Question
 
-Every retrain today is a from-scratch ~500-epoch run on the full dataset. Most of that is probably
-wasted. Three coupled levers set the cost of a retrain:
+**When new footage arrives, is it cheaper to retrain cold on everything, or to warm-start from the
+checkpoint trained on the old footage?**
 
-- **real image count** — scarce, low-diversity, expensive to label
-- **synthetic image count** — unlimited but domain-gapped
-- **epochs** — 500 by default, but box and pose plateau at different (earlier) epochs
+Stated as a decision the next retrain actually faces: you have a deployed detector trained on the
+fights you had, and you have just captured a batch of new fights. Two options — throw both corpora at
+a fresh COCO-initialized run, or fine-tune the deployed checkpoint. The deliverable is a **cost-to-
+parity comparison in GPU-hours**, not epochs, plus a retention verdict (does warm-starting forget the
+old fights?).
 
-**What is the smallest (real images, synthetic images, epochs) that still scores at parity with the
-current baseline model — and can a single reusable warm-start checkpoint let every future training
-reach that parity in a fraction of the epochs and data?**
+The design that answers it: split the real recordings by **scene**, treat one half as "old" (what the
+deployed model saw) and the other as "new" (footage it has never seen), and compare training paths to
+the same final corpus.
 
-The deliverable is not one number but three things: (1) a Pareto frontier of images-to-parity and
-epochs-to-parity, (2) a committed, documented **base checkpoint** to fine-tune all future models from,
-and (3) a one-line minimal recipe ("from `C*`, fine-tune `E` epochs on `N` real images → parity").
+## Definitions
 
-## Scope — three phases, one methodology
+- **Scene** — one source recording, identified by the filename stem before `_yolo_seg__frame_NNNNNN`
+  (e.g. `nhrl_seg_remap__clyde-colossus-Cage-5-Overhead-High-2026-03-07_21-08-19.654_720p`). Frames
+  within a scene are consecutive video frames of the same fight and are near-duplicates of each other;
+  frames across scenes are independent. **All splitting in this plan is at scene granularity.** Any
+  frame-level split leaks.
+- **OLD / NEW** — the two scene groups. OLD is what the warm base trained on; NEW is the "just
+  captured" footage.
+- **Parity** — non-inferiority vs the deployed baseline, defined in §Baselines below.
 
-The same four sub-experiments run per detector family (Phases A, B). The methodology (§Method) is
-identical; only the baseline, dataset, `--labels`, and parity metric change. **Phase C** (added
-2026-07-25) is a model-scale sweep that reuses Phase A's cheap recipe — see its own section.
+## The canonical real-only substrate — `nhrl_robots_indiv`
 
-> **Execution status (2026-07-25).** Phase A is running to completion. **Phase B is on hold** pending the
-> user's assessment of Phase A results, and when it does run it runs in a **cut-down** form — only the
-> informative diagonal of the real×synth grid (small-real+abundant-synth and large-real+no-synth) plus the
-> Exp 3B sequential-vs-random scene-variation probe, **not** the full grid — enough to trace the
-> substitution frontier. Phase C also waits on the Phase A assessment.
+**No dataset on megamind is a real-only *bbox* dataset today.** Every 5-class bbox/seg tree has
+synthetic pooled into it. The audit of `training/data/`:
 
-| | Phase A — bbox opponent detector | Phase B — keypoint pose model |
-|---|---|---|
-| baseline model | `yolo26n_nhrl_robots_bbox_2026-07-16.pt` (detect, 500 ep) | `yolo26n-pose_our_robots_2026-05-01.pt` (pose, 500 ep) |
-| model key | `yolo26n` (batch 128) | `yolo26n-pose` (batch 96) |
-| real substrate | `nhrl_robots_bbox` (train 49086 / val 5454, real) | real our-robot keypoint frames in `all_robot_keypoints` (~3% of it) |
-| synthetic source | — **removed** (bbox trains real-only; see 2026-07-23) | synthetic renders in `all_robot_keypoints` (~97%) |
-| `--labels` | `object,robot,house_bot,mr_stabs_mk2,mrs_buff_mk3` | `mr_stabs_mk2,mrs_buff_mk3` |
-| taxonomy | `taxonomy.yaml` | `taxonomy_keypoint.yaml` |
-| primary parity metric | agnostic **recall** (+ precision/F1 guard) | our-robot **recall** + **heading acc @10°** |
-| secondary | opponent AP50-95 (directional) | `kp_err_px`, PCK@0.1, heading error |
+| dataset | frames (train/val) | synthetic | labels | verdict |
+|---|---|---|---|---|
+| **`nhrl_robots_indiv`** | 32170 / 3574 (35745 total) | **0** | 84-class instance **segmentation** | ✅ **canonical real source** |
+| `nhrl_seg/nhrl_robots` | 49086 / 5454 | 16997 / 1925 (34.6 %) | 5-class segmentation | ❌ contaminated |
+| `nhrl_robots_bbox` | 49086 / 5454 | 16997 / 1925 (34.6 %) | 5-class bbox | ❌ contaminated |
+| `synth_bbox_from_keypoints` | 18447 / 2049 | 17995 / 2004 (97.5 %) | 5-class bbox | synthetic source |
 
-> **Update (2026-07-23): the synthetic axis differs by phase, and Phase A's is already settled.**
-> `synthetic_plus_bbox_2026-07-22.md` graded generic synthetic opponents on *this same independent eval*
-> and found **no benefit** — all 12 paired-bootstrap tests `ns`, opponent point estimates trend negative
-> (agnostic recall −0.013, opponent AP −0.033). Opponent is an *open category* the detector recognizes by
-> scene context ("compact fast object on the floor, not us, not the house bot"), not by appearance, so
-> adding synthetic opponent *appearance* cannot buy down real opponent data. **Phase A therefore drops the
-> synthetic-substitution question — it is answered (no) — and studies only the real-image floor and the
-> epoch floor.** The one synthetic signal that *did* transfer, on both val and eval, is **exact-CAD renders
-> of our own robot** (`mrs_buff_mk3` AP +0.026 eval): synthetic works for the *instance* it depicts, not
-> the open opponent class. That is exactly Phase B's regime.
+**`nhrl_robots_indiv` is the dataset all future bbox training must derive from.** It is the real-only
+ancestor of the whole chain — 35745 frames across the **56 recordings**, zero synthetic, labelled at
+per-robot-instance granularity (84 classes: `Clyde`, `Colossus`, `Mako`, `House Bot`, `Mr Stabs MK2`,
+`Mrs Buff MK2`, …). The current pipeline is:
 
-Phase B is therefore the load-bearing half. `all_robot_keypoints` is already ~97% synthetic exact-CAD
-our-robot renders, so the real question is *how little real our-robot data is needed on top of abundant
-exact-CAD synthetic to hold recall and heading accuracy* — the substitution the 2026-07-22 result predicts
-should work (instance transfer), unlike Phase A's open-category opponents. Run Phase A first (cheaper —
-settles the epoch and real-count floors and the warm-start method), then Phase B (where synthetic×real
-substitution is live and worth a grid).
+```
+nhrl_robots_indiv  --remap_labels.py (remap_config_seg.toml)-->  5-class real seg
+                   --+ synthetic renders (remap_config_synthetic.toml)-->  nhrl_seg/nhrl_robots
+                   --seg_to_bbox.py-->  nhrl_robots_bbox        # ← synthetic enters here
+```
 
-**Run Phase A end to end before starting Phase B** — the methodology refinements you discover in A
-(equivalence margin vs bootstrap width, how many checkpoints are worth scoring) carry into B.
+The synthetic merge is the *second* step. Dropping it yields a clean real-only bbox dataset from the
+same source, with no relabelling and no data collection.
+
+### Step 1a — `nhrl_robots_bbox_real` — **BUILT 2026-07-25**
+
+```
+seg_to_bbox.py   nhrl_robots_indiv -o nhrl_robots_bbox_real          # 84-class polygons -> boxes
+remap_labels.py  remap_config_indiv_to_bbox.toml nhrl_robots_bbox_real   # 84-class -> 5-class, in place
+pose_to_bbox.py  <real subset of our_robot_keypoints> --class-map 0:3,1:4 # + real our-robot boxes
+```
+
+**Result: 36107 frames, 109970 boxes, zero synthetic.** `validate_yolo_integrity.py --strict` →
+**0 errors, 0 warnings, exit 0.**
+
+| split | frames | `object` | `robot` | `house_bot` | `mr_stabs_mk2` | `mrs_buff_mk3` |
+|---|---|---|---|---|---|---|
+| train | 32498 | 228 | 69785 | 25417 | 3288 | 328 |
+| val | 3608 | 18 | 7688 | 2799 | 382 | 34 |
+| test | 1 | 0 | 2 | 1 | 0 | 0 |
+
+Images are **hardlinked** to `nhrl_robots_indiv` / `our_robot_keypoints` (500/500 sampled have
+`nlink ≥ 2`), so the tree costs ~146 MB of labels, not 13 GB of pixels.
+
+**Five decisions baked into the build:**
+
+1. **`remap_config_seg.toml` was stale and is not used.** It carries 111 index entries for a source
+   that now has 84 classes, mapping `44-47 → house_bot`, `69 → mr_stabs_mk2`, `70 → mrs_buff_mk3`,
+   while in the current `nhrl_robots_indiv/data.yml` those names sit at **35-37**, **55**, and **56**.
+   Applying it as-is silently mis-labels. Replaced by **`training/yolo/remap_config_indiv_to_bbox.toml`**,
+   generated by *name* lookup (all 84 sources mapped explicitly: 2 → `object`, 3 → `house_bot`,
+   1 → `mr_stabs_mk2`, 78 → `robot`). Regenerate by name if the class order ever changes; never
+   hand-edit indices.
+2. **`Flight Controller 1`/`2` → `object`, not `robot`.** These two source classes (135 + 111 = 246
+   boxes, both confined to the single `mini_bot_2024-10-26T16-41-23` scene) are not competitors.
+   Routing them to `object` — which `taxonomy.yaml` excludes from scoring — keeps them out of both the
+   opponent GT and the false-positive count, rather than teaching the detector that they are opponents.
+   The other odd-sounding source names *were* checked against the pixels and are genuine competitors:
+   `power on` (276 boxes) and `usawgi` (1517) stay in `robot`.
+3. **`Mrs Buff MK2` → `robot` (opponent), not `mrs_buff_mk3`.** The NHRL footage shows a different
+   robot than our deployed Mrs Buff MK3, so folding it into our own-robot class — as the superseded
+   config did, contributing 2088 boxes to the Phase A substrate — mislabels an opponent as us. Its
+   2327 boxes are now opponents.
+4. **Real `mrs_buff_mk3` supervision comes from `our_robot_keypoints` instead.** Its real (non-synth)
+   component — **362 frames** from three April recordings (`2026-04-19T17-01-18`,
+   `2026-04-19T18-42-50`, `2026-04-20T18-02-50`) — was pose→bbox converted (`--class-map 0:3,1:4`) and
+   merged with an `our_robot_kp__` filename prefix, adding **362 `mrs_buff_mk3` + 108 `mr_stabs_mk2`**
+   boxes. These scenes are disjoint from the `main_2026-05-*` eval recordings.
+5. **127 empty label files are kept as genuine background frames.** All 127 are empty in the source
+   too (zero were emptied by degenerate-polygon dropping), so they are true negatives — useful for
+   precision, which Phase A identified as the metric that degrades first. The historical
+   `nhrl_robots_bbox` pipeline discarded them.
+
+**Conversion loss is negligible:** 22 of 109992 source polygons (0.02 %) were degenerate and dropped.
+Class totals reconcile exactly — `house_bot` 28217 = the full `House Bot*` source count;
+`mr_stabs_mk2` 3670 = 3563 source + 108 keypoint − 1 degenerate.
+
+**Two consequences to carry into Step 1b:**
+
+- **`object` carries only 246 boxes, all from one scene.** That is enough to define the class but not
+  to train a reliable debris head, so treat class 0 as a *scoring exclusion channel* rather than a
+  detection target. Score with `--labels "object,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3"` — the
+  corrected mapping this plan already requires — so `taxonomy.yaml`'s `exclude: [object]` fires on both
+  GT and predictions.
+- **Real `mrs_buff_mk3` is now 362 boxes across 3 scenes, down from 2088.** That is the honest count:
+  the previous 2088 were a *different robot*. Our-robot supervision in real footage is far scarcer than
+  Phase A's numbers implied, which strengthens the case for Phase B's synthetic-substitution study. It
+  also means the our-robot classes cannot be meaningfully stratified across scene groups — with 3
+  `mrs_buff_mk3` scenes and the `mr_stabs_mk2` concentration already noted below, expect and report
+  imbalance rather than designing around it.
+- **`split_by_scene.py` must handle two filename schemes.** NHRL frames key on
+  `…_yolo_seg__frame_NNNNNN`; merged keypoint frames key on
+  `our_robot_kp__<name>__<timestamp>-NNNNNN_jpg.rf.<hash>`. Match both, and fail on anything that
+  matches neither.
+
+**Not merged, deliberately:** `all_robot_keypoints` also holds a 497-frame real component, but it comes
+from `2026-05-01T14-17-26` — the same day as the `main_2026-05-01` eval recording. It is probably a
+different session, but "probably" is not good enough for a verdict set. Confirm it is a distinct
+recording before adding it.
+
+## Corpus as trained in Phase A, for reference (megamind, 2026-07-25)
+
+| | frames | real | synthetic |
+|---|---|---|---|
+| `nhrl_robots_bbox/train` | 49086 | 32089 | 16997 (34.6 %) |
+| `nhrl_robots_bbox/val` | 5454 | 3529 | 1925 (35.3 %) |
+
+Real boxes by class (train): `robot` 67976, `house_bot` 25413, `mr_stabs_mk2` 3213, `mrs_buff_mk3`
+2088, `object` **0**. Synthetic boxes: `object` 15568, `robot` 16111, `mrs_buff_mk3` 15620,
+`mr_stabs_mk2` 9502, `house_bot` 0.
+
+Real scene structure: **56 recordings, 35618 real frames** (train+val combined), 9 to 1453 frames per
+scene (median 575).
+
+**The binding constraint on splitting:** only **12 of 56 scenes contain our own robots**, and one scene
+(`nhrl_seg_remap__2026-03-27T21-48-29`, 1363 frames) alone holds ~42 % of real `mr_stabs_mk2` and ~65 %
+of real `mrs_buff_mk3` boxes. A scene split balanced on frame count will *not* be balanced on our-robot
+supervision — and this carries over unchanged to `nhrl_robots_bbox_real`, which inherits the same
+56 scenes. Stratify explicitly (§Step 1b) and report the residual imbalance.
+
+**Current train/val is a frame-level random split** — the same 56 recordings appear in both. Val frames
+are neighbouring frames of train fights. Rebuilding val at scene granularity is part of Step 1b, not
+optional.
 
 ## Baselines and parity definition
 
-"Same results as baseline" is a **non-inferiority** claim, not equality, and must be measured paired.
-In *every* scoring run, include the baseline engine as `--baseline` alongside the candidates so parity
-is a paired-bootstrap delta under identical frames/thresholds — never compare a candidate against a
-remembered number from another run (different `--labels`, different day; see the seg-vs-bbox caveat).
+"Same results as baseline" is a **non-inferiority** claim and must be measured paired. In *every*
+scoring run, include the baseline engine as `--baseline` alongside the candidates so parity is a
+paired-bootstrap delta under identical frames/thresholds — never compare against a remembered number
+from another run.
 
-Reference baseline numbers on `nhrl_keypoints_eval_test` (direct-inference eval, for anchoring only —
-re-measured live each run):
+- **Baseline:** `yolo26n_nhrl_robots_bbox_2026-07-16.pt` (detect, 500 ep, batch 128).
+- **Verdict set:** `nhrl_keypoints_eval_test` (372 reviewed frames, `main_2026-05-*` recordings —
+  scene-disjoint from every training recording). Paired bootstrap 1000×, conf 0.5.
+- **Reference numbers** (re-measured live each run): agnostic recall **0.742**, precision **0.962**,
+  F1 **0.838**, opponent AP50-95 0.305, agnostic mAP50-95 0.504.
 
-- **Phase A** (`synthetic_plus_bbox_2026-07-22`, independent eval of the `real_bbox` baseline; consistent
-  with `seg_vs_bbox_2026-07-18`): agnostic recall **0.742**, precision **0.962**, F1 **0.838**, opponent
-  AP50-95 **0.305**, agnostic mAP50-95 0.504. Baseline `.pt`: `yolo26n_nhrl_robots_bbox_2026-07-16`.
-- **Phase B** (`baseline_2026-07-07` addendum, keypoint): agnostic recall **0.852**, precision 0.939,
-  mAP50 0.844, `kp_err` **9.6 px**, PCK@0.1 0.729, heading error **7.6°**, heading acc @10° **0.814**.
+**Parity gate.** A candidate reaches parity when, at the agnostic level vs the baseline:
 
-**Parity / equivalence margin.** A candidate reaches parity when, at the agnostic level vs the
-baseline:
+- recall delta CI **lower bound ≥ −δ**, and
+- precision and F1 are **not significantly worse**.
 
-- primary recall delta CI **lower bound ≥ −δ**, and
-- precision and F1 are **not significantly worse** (their delta CIs may include 0 or be positive).
+**δ = 0.04**, already derived and confirmed: the prior paired run's agnostic-recall delta CI half-width
+was 0.0227, so δ = max(0.04, 1.5 × 0.0227) = 0.04. Do not re-derive.
 
-Set **δ = 0.04** initially. The floor on δ is the bootstrap's own resolution: on ~372 reviewed
-frames the *measured* agnostic-recall delta CI was **[−0.036, +0.010]** (half-width ~0.023) in
-`synthetic_plus_bbox_2026-07-22`, so an equivalence margin tighter than ~0.023 is unfalsifiable and 0.04
-gives headroom. **Confirm the CI half-width for this baseline in §Method step 0 and set δ to
-max(0.04, 1.5 × CI half-width).** Phase B adds a second gate: heading acc @10° delta CI lower bound
-≥ −0.03 (the signal navigation actually consumes; recall alone can hold while heading rots, as the
-opponent-diluted combined model showed at 38.5°).
+**Fix the `--labels` mapping before anything else.** `taxonomy.yaml` carries `exclude: [object]`, but
+`score.py:244-245` applies exclusion to the **mapped** label. Phase A passed
+`--labels "opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3"`, renaming engine class 0 (`object`)
+to `opponent`, so GT debris was excluded while *predicted* debris was scored as an opponent detection.
+Switch to `--labels "object,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3"` so the exclusion fires on
+both sides. This shifts absolute numbers, so **re-anchor the baseline under the fixed mapping in
+Step 0** and use only re-anchored numbers thereafter.
 
-Record for each arm the *minimal* setting that clears parity — that point, not the best absolute score,
-is the experiment's output.
+## Method
 
-## Method — the four sub-experiments (per phase)
+### Step 0 — re-anchor, and audit before you train
 
-Ordered so each cheap result shrinks the compute of the next. Later, more numerous arms run in the
-reduced regime discovered earlier.
+1. **Corpus audit (mandatory, ~30 s).** Count frames and boxes by source and class for any dataset
+   before training on it. Phase A skipped this and spent 14.6 h training on a substrate it had
+   mis-described. Print the table into the writeup.
+2. **Re-anchor the baseline** under the corrected `--labels` (above): one baseline-only `score.py` run
+   on the sm86 engine. Record recall/precision/F1/mAP and the recall CI half-width. Confirm δ still
+   holds at 0.04; if the half-width grew, re-derive δ = max(0.04, 1.5 × half-width).
+3. **Report both mappings once** so this experiment's numbers can be reconciled with Phase A's.
 
-### Step 0 — instrument, and measure the parity noise floor
+Instrumentation from Phase A is already wired and validated: `--save-period`, `--fraction`, `--seed` in
+`train.py`; `--save-period`/`--fraction` in `fine_tune_train.py`; `training/yolo/pool_datasets.py`.
 
-> **Instrumentation DONE (2026-07-23).** All three levers are wired and smoke-validated on megamind:
-> `--save-period`/`--fraction` passthrough in `train.py` **and** `fine_tune_train.py`, and the new
-> `training/yolo/pool_datasets.py` (Recipe C). A 2-epoch `--save-period 1 --fraction 0.05` `yolo26n` run
-> emitted `weights/epoch0.pt`+`epoch1.pt` with val held at the full split; `pool_datasets.py
-> --synth-fraction 0.25 --synth-order sequential` produced full-real + exactly 25%-synth, hardlinked,
-> and the pooled tree passed `split_yolo_dataset.py` → `validate_yolo_integrity.py --strict` (0 errors).
-> `--synth-order random` is seeded/deterministic and genuinely reorders selection.
->
-> **Noise floor DONE (2026-07-23), Phase A: δ = 0.04.** The prior paired run's agnostic-recall delta CI
-> is [−0.0355, +0.00997] → half-width 0.0227, so δ = max(0.04, 1.5 × 0.0227) = max(0.04, 0.034) = **0.04**
-> (the default holds). A fresh baseline-only `score.py` on the sm86 engine reproduced the reference
-> exactly on megamind (agnostic recall **0.742**, precision 0.962, F1 0.838, mAP50-95 0.504; engine is
-> 5-class, `output [1,9,8400]`, `--labels "opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3"`,
-> `taxonomy.yaml`, conf 0.5) → the scoring pipeline is validated on the training box. Exp 1–4 are the
-> compute campaign.
+### Step 1b — the scene split — **BUILT 2026-07-25**
 
-Two small enablers make the whole plan affordable; both are Ultralytics-native and currently unwired:
+```
+split_by_scene.py --src training/data/nhrl_robots_bbox_real \
+                  --out training/data/scenesplit_2026-07-25 \
+                  --mode temporal --cutoff 2025-11 --holdout-frac 0.2 \
+                  --stratify-class robot,house_bot
+```
 
-1. **`save_period`** — `model.train(..., save_period=N)` writes `weights/epoch{0,N,2N,...}.pt` in
-   addition to `last.pt`/`best.pt`. This turns **one** long training run into an epoch-vs-metric
-   curve: export and score a handful of the periodic checkpoints instead of launching one run per
-   epoch count. Wire it through `train.py` as `--save-period N` (default 0 = current behavior).
-2. **`fraction`** — `model.train(..., fraction=f)` trains on the first `f` of the (shuffled) train
-   split, val untouched. This is the cheap real-data lever for the real-only sweeps (no dataset
-   rebuild). Wire it as `--fraction f` (default 1.0). *Caveat:* `fraction` subsamples one dataset; it
-   **cannot** set a real:synthetic ratio, and it cannot hold real fixed while varying synthetic — that
-   is lever 3. Use `fraction` only where the training set is single-source.
-3. **`--synth-fraction f` + `--synth-order {sequential,random}`** (Phase B only) — a dataset-build lever
-   that holds the **real** image set fixed and pools in only a fraction `f` of the synthetic our-robot
-   renders, selected either in **image-numbered order** (`sequential`) or by **random** sampling.
-   Ultralytics' `fraction` cannot do this — it subsamples one merged dataset and cannot tell real from
-   synthetic — so this is wired into the Recipe C pooling step (hardlink only the selected synthetic
-   frames; real frames always fully included), **not** `train.py`. Recipe C is currently a *manual*
-   `os.link` hardlink procedure (`experiment_runbook.md` §Recipe C; `merge_yolo_datasets.py` is explicitly
-   unusable here — it needs a per-input `validation_state.json`, ingests only flat datasets, and drops
-   `flip_idx`), so this lever lands as a **new small pooling helper** (e.g.
-   `training/yolo/pool_datasets.py`) that hardlinks the full real set plus the `--synth-fraction`/
-   `--synth-order`-selected synthetic frames into one flat `images/`+`labels/`, then feeds the existing
-   `split_yolo_dataset.py` → `validate_yolo_integrity.py --strict` steps. Sequential-vs-random at matched `f`
-   is exactly the "how much synthetic *scene variation* do I need" probe (Exp 3B): `sequential` renders
-   are scene-correlated (consecutive frames of the same render sequence), `random` spreads coverage
-   across scenes, so a gap between the two accuracy-vs-`f` curves means variation — not raw synthetic
-   count — is what buys accuracy.
+**Split on recording date, not stratified — a deliberate change from this plan's first draft.** A
+stratified split makes OLD and NEW the *same distribution*, and then there is nothing unique for a
+new-data-only fine-tune to forget: retention and acquisition measure the same thing and the forgetting
+probe is vacuous. Real new footage arrives from a *later event* and genuinely differs in cage,
+lighting, and robot roster. Scene names carry dates (explicit `YYYY-MM-DD`, NHRL tournament tags like
+`nhrl_apr25_`, or unix epoch stems), so all 59 scenes date cleanly across **2024-06 → 2026-04** and a
+temporal cut at **2025-11** lands near 50/50. Class balance is then whatever the calendar gives; it is
+**reported, not corrected**. `--mode stratified` remains available for a same-distribution control.
 
-Levers 1–2 are ~5-line additions to `train.py`'s arg parsing + the `settings`/`train()` call; lever 3 is
-the new pooling helper below. Add them, run `./scripts/lint`, and confirm (a) a 2-epoch
-`--save-period 1 --fraction 0.1` smoke run emits the extra checkpoints and (b) a `--synth-fraction 0.25
---synth-order sequential` pooled build contains the full real set plus exactly 25% of the synthetic
-frames, before committing compute.
+**Result: 59 scenes, 36107 frames, four groups, zero scene overlap** (verified pairwise on scene-key
+sets across all six group pairs; every label paired with an image; 36107/36107 frames accounted for).
 
-**Helper to write — `training/yolo/pool_datasets.py`** (Recipe C has no committed script; it is a manual
-`os.link` procedure today). Small, deterministic, hardlink-based:
+| group | scenes | frames | share | `object` | `robot` | `house_bot` | `mr_stabs_mk2` | `mrs_buff_mk3` |
+|---|---|---|---|---|---|---|---|---|
+| `old` | 20 | 14464 | 40.1 % | 246 | 34166 | 13607 | 502 | **0** |
+| `new` | 21 | 14207 | 39.3 % | 0 | 28600 | 8920 | 2173 | 252 |
+| `hold_old` | 8 | 3893 | 10.8 % | 0 | 7993 | 3346 | 460 | 0 |
+| `hold_new` | 10 | 3543 | 9.8 % | 0 | 6716 | 2344 | 535 | 110 |
 
-- **CLI:** `pool_datasets.py --real <dir> --synth <dir> --out <dir> --synth-fraction f
-  --synth-order {sequential,random} [--seed S]`. `--real`/`--synth` each point at an
-  `images/`+`labels/` source (or a flat dir where the label is a stem-matched sidecar).
-- **Selection:** always hardlink **every** real pair. From synth, keep `round(f · N_synth)` frames —
-  `sequential` = sort by filename then take the first `f` (filenames carry a `…T17-01-18-000050…`
-  timestamp+frame index, so filename order **is** render-sequence order → scene-correlated); `random` =
-  seeded `random.sample` (require `--seed`, print it, so an arm is reproducible and comparable across the
-  sequential/random pair).
-- **Hardlink `os.link`, image + its stem-matched `.txt` label together.** Labels are YOLO `.txt` for
-  both bbox and pose; the `.npy` / `labels.cache` files sitting next to images are ultralytics
-  `cache="disk"` artifacts (derived), so **skip** them — training regenerates the cache. Source-prefix
-  output filenames (`real__…`, `synth__…`) so the two corpora never collide, matching the runbook's
-  Recipe C convention.
-- **Output** is one flat `images/`+`labels/` ready to hand to `split_yolo_dataset.py` →
-  `validate_yolo_integrity.py --strict`. **Pool into the train split only:** to honor "val real-only and
-  identical across arms," carve a fixed real-only val split **once** and reuse it, or run
-  `split_yolo_dataset.py` on the real set alone for val and add synthetic to train only — never let
-  synthetic frames land in val.
-- **Print** the counts it linked (`real N_r, synth N_s (f=…, order=…, seed=…)`) so the smoke check above
-  is a one-line verification and every arm's provenance is in its log.
+Roles: `old` = what the "deployed" base trains on; `new` = footage it has never seen; `hold_old` /
+`hold_new` = scene-disjoint probes of each half, for the **retention** and **acquisition** diagnostics.
+Ultralytics `val` for every arm = `hold_old ∪ hold_new`, identical across arms, for live
+plateau-watching only. Verdicts always come from `nhrl_keypoints_eval_test`.
 
-Then measure the **noise floor**: score the baseline engine against itself via a second
-bootstrap-resampled scoring of the same GT (or simply read the CI half-widths from a baseline-only
-`score.py` run). This sets δ (above). Do this once per phase.
+Emitted alongside the groups: **`old.yml`, `new.yml`, `old+new.yml`** (train on those groups, validate
+on both holdouts) and **`split_manifest.json`** (per-group scene lists, periods, and class counts).
+Images are hardlinked, so the tree costs label bytes only.
 
-### Exp 1 — epoch floor, cold start
+**The imbalances the calendar imposed — read these before interpreting any arm:**
 
-*How few epochs does a from-scratch (COCO-pretrained) run need to reach parity on the full real data?*
+- **`old` has zero real `mrs_buff_mk3`.** All three our-robot keypoint scenes are 2026-04, the newest
+  data in the corpus. `C_old` therefore cannot detect our own robot from real footage at all, and
+  `hold_old` cannot probe it either. This is faithful to reality — our robot *is* newer than most of
+  the footage — but it means our-robot performance is an **acquisition-only** signal in this
+  experiment, never a retention one.
+- **`mr_stabs_mk2` is 13.7 % old / 59.2 % new.** Same direction, less extreme.
+- **`object` is 100 % in `old`.** The two `Flight Controller` classes live in a single 2024-10 mini-bot
+  scene. Since `taxonomy.yaml` excludes `object` from scoring this does not affect verdicts, but a
+  model trained on `new` alone has never seen the class.
+- **`robot` and `house_bot` came out close to target** (44.1/36.9/10.3/8.7 and 48.2/31.6/11.9/8.3
+  against a 40/40/10/10 goal) — the stratified holdout carve inside each half did its job on the two
+  classes that carry the agnostic metric.
 
-- **Recon (1 run).** Launch the standard full-data run (`train.py <data.yml> <model> --save-period 50`),
-  full 500 epochs, but emit checkpoints every 50 epochs. Watch `results.csv`
-  (`metrics/mAP50-95(B)` for A, `metrics/mAP50-95(P)` for B) live and note where val plateaus.
-- **Score the ladder.** Export + score `epoch{50,100,150,200,300,500}.pt` (subset around the val
-  plateau) against the baseline in one paired run per epoch value is wasteful — instead score them as
-  separate candidates in a **single** `score.py` invocation (they share class order): the run reports
-  each candidate's paired delta vs baseline. The smallest epoch whose recall clears the δ gate is the
-  **cold-start epoch floor, long-schedule estimate** `E_cold^500`.
-- **Confirm (2 runs) — the LR-schedule caveat.** Ultralytics anneals LR cosine over the *total* epoch
-  budget, so `epoch150.pt` from a 500-epoch run is **not** what a dedicated 150-epoch run produces
-  (the latter fully anneals; the former is mid-decay, LR still high). The ladder gives an *upper
-  bound* on epochs and brackets the region. Confirm by launching **dedicated** runs at
-  `E ∈ {E_cold^500, ~0.6·E_cold^500}` (e.g. `-e 150`, `-e 100`) — these anneal correctly and usually
-  reach parity *at or below* the ladder estimate. The confirmed value is `E_cold`.
+**Reconcile GT class names** before scoring the holdouts: `nhrl_robots_bbox_real` names class 1 `robot`
+while the eval GT names it `opponent`. Remap the holdout labels (`edit_yolo_classes.py`) or add a
+`taxonomy.yaml` archetype entry so holdout and eval scoring share one vocabulary.
 
-Output: `E_cold` (cold-start epochs-to-parity, full data).
+Pooling synthetic (for the follow-on only) stays in `pool_datasets.py`, sourced from
+`synth_bbox_from_keypoints` — never by reaching back into the contaminated `nhrl_robots_bbox`.
 
-### Exp 2 — warm-start base checkpoint (the crux)
+### Step 2 — Arm 0: build the warm base, and check the experiment is not degenerate
 
-*Does starting from a domain checkpoint instead of COCO cut epochs-to-parity and data-to-parity?*
+Cold from COCO on `old.yml` (real-only, 14464 frames), standard 500-epoch schedule,
+`--save-period 25`. Export and score a ladder of ~6 early checkpoints paired vs baseline.
 
-Warm bases to build/choose, all fine-tuned with `fine_tune_train.py` (lr0 0.001, warmup_bias_lr 0.01 —
-already the warm-start recipe). **The candidate set differs by phase, because bbox trains on no synthetic
-(2026-07-23):**
+- The best early checkpoint becomes **`C_old`**, the warm base, committed to
+  `data/models/yolo26n_scenesplit_old_<date>.pt` with its recipe.
+- **Degeneracy check — this gates everything downstream.** If `C_old` already clears the parity gate,
+  then NEW footage adds nothing measurable and the warm-vs-cold comparison collapses the same way
+  Phase A's did. **Do not proceed to Step 3.** Instead make the split more lopsided (OLD 25 % / NEW
+  55 %) and rebuild, or report "half the scenes already saturate this eval set" as the result — which
+  would itself be a significant finding about eval-set headroom.
+- Record the **deficit**: `C_old`'s recall/precision/F1 delta vs baseline. This is the gap the NEW data
+  has to close, and the yardstick for whether either arm in Step 3 succeeded.
 
-- **`C_synth`** *(Phase B only)* — pretrain `yolo26n-pose` on the **abundant exact-CAD synthetic**
-  our-robot corpus only (unlimited, no real-label cost), to convergence. This is the intended *reusable*
-  base for the keypoint model: synthetic is free, so a synthetic-pretrained checkpoint costs nothing to
-  regenerate and encodes robot-shape/pose priors. **Not a Phase A candidate** — the opponent detector
-  trains real-only, and the 2026-07-23 result shows synthetic-opponent appearance is
-  wrong-feature/wrong-context (it cost `mix_all` −0.033 opponent AP), so there is no synthetic bbox base
-  to build.
-- **`C_real`** *(Phase A warm candidate)* — an early checkpoint from the real-only cold-start run
-  (Exp 1), reused as a warm base for the real-only data-floor sweep. This is Phase A's only non-baseline
-  warm option now that synthetic is off the table; "warm-start buys nothing over COCO cold-start" is a
-  live and acceptable outcome, in which case Phase A simply stays cold-start.
-- **`C_base`** *(both phases, ceiling anchor)* — the existing baseline `.pt` itself. Fine-tuning from it
-  trivially starts at parity, so it does **not** answer "reach parity cheaply" for a
-  reproduce-the-baseline task; it *does* bound how fast any warm start can converge and is the right base
-  when the goal is *adapting* the baseline to new data (new robot/event). Report it as the ceiling, not
-  the recommendation.
+Phase A's expectation-setting: a random-frame 50 % corpus held recall (+0.036) but lost precision
+(−0.054). A scene-wise, *temporally earlier* 40 % is strictly harder still — fewer distinct fights,
+less context diversity, and an 18-month-older roster — so a real deficit is likely. Confirm it, do
+not assume it.
 
-For each phase's candidates, run the `fine_tune_train.py` convergence curve with `--save-period 50` on the
-full real data and score the ladder exactly as Exp 1. Produce **epochs-to-parity** for cold (`E_cold`,
-from Exp 1) vs the phase's warm base (`E_warm`): warm-from-`C_synth` for Phase B, warm-from-`C_real` for
-Phase A. The hypothesis: `E_warm ≪ E_cold` (tens vs hundreds) — strongest for Phase B (instance transfer),
-weakest and possibly null for Phase A.
+Expect `C_old` to score near zero on `mrs_buff_mk3`: `old` contains no real footage of our own robot
+(§Step 1b). The eval set has 389 `mrs_buff_mk3` boxes, so this will drag the agnostic recall of every
+`old`-only arm. Read the deficit at the agnostic level *and* per class before concluding the base is
+weak overall — a base that is fine on opponents and blind to us is a different problem from a base
+that is uniformly weak.
 
-Output: recommended reusable base checkpoint `C*` (expected `C_synth` for Phase B; `C_real` or "none, stay
-cold-start" for Phase A), committed to `data/models/<model>_warmbase_<date>.pt` with its recipe, and
-`E_warm`.
+### Step 3 — the four arms
 
-### Exp 3 — data floor (run in the cheap regime from Exp 2)
+All arms train **real-only** on the `scenesplit_2026-07-25` groups and end on the **same final
+corpus** (`old ∪ new`), except Arm C, whose whole point is that it does not. Same `val`, same eval, same conf,
+same `--labels`. Holding synthetic out of every arm removes it as a confound entirely — it is measured
+separately in the follow-on.
 
-*Holding epochs at the cheap warm regime, how little training data still clears parity?* Val fixed to the
-**real held-out** split throughout (identical across arms → comparable curves; **verdict always from the
-external eval, never val** — see the val-misled-us caveat below). Each arm: warm-start from `C*`,
-`E_warm` epochs, export, score paired vs baseline. The design differs by phase because the 2026-07-23
-result settled Phase A's synthetic axis:
+| arm | init | trains on | question it answers |
+|---|---|---|---|
+| **A — cold-all** | COCO | `old+new.yml` | today's practice: full retrain from scratch |
+| **B — warm-all** | `C_old` | `old+new.yml` | is warm-starting cheaper to the same endpoint? |
+| **C — warm-new** | `C_old` | `new.yml` only | the operationally cheap path — and the forgetting probe |
+| **C′ — warm-new+replay** | `C_old` | `new` + 10 % of `old` | *conditional:* only if C shows forgetting |
 
-**Phase A — real-only 1-D sweep (no synthetic).** The synthetic-substitution question is answered (no),
-so do **not** re-run a real×synthetic grid for the opponent detector. Sweep the single real axis via
-`--fraction`: `{12.5%, 25%, 50%, 100%}` of the real train split. Smallest fraction clearing parity is the
-**real-image floor**. No synthetic arm is run for the opponent detector — the substitution question is
-settled (no), and bbox trains real-only.
+- Arms A and B: standard 500-epoch schedule, `--save-period 25`, score a ~6-checkpoint early ladder.
+  Arm B uses `fine_tune_train.py` (`lr0 0.001`, `warmup_bias_lr 0.01`).
+- Arm C: `fine_tune_train.py`, `-e 100 --save-period 10` (it has far less data; the ladder needs to be
+  finer at the low-epoch end).
+- **LR confound, state it explicitly.** Warm arms run `lr0 0.001` and cold arms `lr0 0.01`, so a raw
+  epoch comparison conflates initialization with schedule. Run **Arm B at both `lr0 0.001` and
+  `lr0 0.01`** to bound it. If the two agree, the confound is immaterial and one can be dropped from
+  future work.
 
-**Phase B — real×synthetic 2-D grid (the live substitution study).** This is where synthetic is expected
-to substitute for scarce real. Grid:
+### Step 4 — what to measure
 
-- **real axis** (real our-robot keypoint frames, sampled whole-frame): `{12.5%, 25%, 50%, 100%}` of the
-  available real our-robot set.
-- **synthetic axis** (exact-CAD our-robot renders from `all_robot_keypoints`, pooled via Recipe C):
-  `{0, 1×, abundant}`, sized by **real-frame count** — sample whole frames, not boxes.
+**Verdict (external eval, paired):** every arm's ladder scored in one `score.py` run per arm,
+`--baseline` = the deployed baseline. Report each arm's *best early checkpoint* under the full gate
+(recall CI lb ≥ −0.04, precision and F1 not significantly worse) — Phase A established that the
+external-eval optimum is an early under-annealed checkpoint and the tail overfits, so **endpoints are
+not the arm's score.**
 
-Run the informative diagonal first (small-real + abundant-synthetic, and large-real + no-synthetic); fill
-in only where the frontier is ambiguous. The load-bearing Phase B question: **does abundant exact-CAD
-synthetic let a much smaller `N_real` still hold recall *and* heading acc @10°** (heading is the gate that
-a synthetic-only pose can silently fail — see risks).
+**Cost, in GPU-hours, not epochs.** The headline comparison is *wall-clock to the first checkpoint that
+clears the gate*, plus total hours if no checkpoint clears. Epochs are not comparable across arms —
+Arm C's epochs are cheaper (less data) and warm arms may clear on epoch 5. Log per-epoch wall-clock and
+report hours-to-parity for each arm. Anchor: the Phase A full 500-epoch run on 49086 images took
+**14.6 h** on 3× A6000.
 
-> **Cut-down Phase B (decided 2026-07-25).** When Phase B runs, run **only** this diagonal (the two
-> corners above) plus Exp 3B below — do **not** fill the interior grid cells. That is enough to trace the
-> substitution frontier and answer the load-bearing question cheaply; interior cells are added later only
-> if a specific corner is ambiguous.
+**Retention and acquisition (the diagnostic pair):** score every arm's chosen checkpoint on `HOLD_OLD`
+and `HOLD_NEW` separately.
 
-**Exp 3B — synthetic scene-variation probe (sequential vs random).** Hold real fixed at a chosen `N_real`
-(keep the real image count the same across every arm) and use the `--synth-fraction`/`--synth-order` lever
-to sweep synthetic fraction `f ∈ {0.1, 0.25, 0.5, 1.0}` **twice**: once `--synth-order sequential`
-(image-numbered, scene-correlated) and once `--synth-order random` (scene-spread). Two accuracy-vs-`f`
-curves; the gap between them is the answer to *how much synthetic scene variation I need*. If `random`
-clears parity at a much smaller `f` than `sequential`, scene **variation** (not raw synthetic count) is the
-binding resource — future synthetic generation should prioritize diverse scenes over volume; if the two
-curves coincide, count is what matters and cheap sequential renders suffice.
+- Arm C holding on `HOLD_NEW` but dropping on `HOLD_OLD` **is** catastrophic forgetting — that is the
+  finding, and it triggers Arm C′.
+- An arm gaining on `HOLD_NEW` without gaining on the external eval means it fit the new fights rather
+  than learning transferable signal. Phase A saw exactly this failure mode on val; the holdouts make it
+  visible instead of invisible.
 
-Output: Phase A real-image floor `N_real*`; Phase B images-to-parity Pareto frontier `(N_real, N_synth)`
-plus the scene-variation verdict (sequential vs random `f`-to-parity at fixed `N_real`).
+**Also record** per-arm precision separately from recall throughout. Phase A's one clear data-scaling
+signal was that precision, not recall, is what degrades first — and precision is the safety-side metric
+for aim-assist.
 
-### Exp 4 — combined minimal recipe (one confirmation run)
+### Step 5 — the answer
 
-Take the corner of the frontier: warm-start from `C*`, the smallest `(N_real, N_synth)` from Exp 3, and
-re-confirm the epoch floor *at that data size* (small data may need a few more or fewer epochs than
-`E_warm`, which was measured at full data). One end-to-end run at the proposed minimal recipe, scored
-paired vs baseline, is the headline result: "this recipe matches the 500-epoch full-data baseline."
+One table: arm × (best-checkpoint recall/precision/F1 Δ vs baseline, hours-to-parity, HOLD_OLD Δ,
+HOLD_NEW Δ). The recommendation is a sentence of the form *"when new footage arrives, do X; it reaches
+baseline parity in N hours versus M hours for a cold retrain."*
 
-Output: the one-line recipe + its scored parity verdict.
+Possible outcomes, all publishable:
 
-## Phase C — model-scale sweep at the Phase A minimal recipe
+- **Warm wins** (`B` or `C` clears the gate in materially fewer GPU-hours than `A`) → adopt
+  warm-starting; commit `C_old`'s successor as the standing base and document the recipe.
+- **Warm ties** → stay cold-start; it is simpler and has no base-checkpoint provenance to manage.
+- **Warm-all ties but warm-new wins** → the useful result: skip re-staging the full corpus, fine-tune
+  on new footage only (subject to the retention check).
+- **Warm forgets** (`C` drops on `HOLD_OLD`) → quantify the replay fraction that fixes it (Arm C′).
 
-> Added 2026-07-25. Runs **after Phase A is assessed** (Phase B is on hold pending that review). Phase C
-> reuses Phase A's *cheap recipe* as a fixed budget and sweeps backbone capacity.
+## Follow-on — synthetic attribution (optional, secondary)
 
-**Question.** Phase A finds the minimal `(epochs E*, real fraction N_real*)` that reaches parity for the
-**nano** bbox detector. Phase C asks the orthogonal question: **holding that cheap training budget fixed,
-how do detection and pose quality — and Jetson latency — scale with backbone size (n → s → l → x)?** The
-deliverable is an **accuracy × latency frontier** at the cheap regime, and a recommended deployable scale
-per head that maximizes accuracy within the **<60 ms end-to-end** budget.
+Phase A's Exp 3 concluded "the extra real data past ~50 % buys precision." That claim was **withdrawn**:
+`--fraction` cut real and synthetic together, so the precision loss is unattributed. Now that the
+primary arms are real-only on `nhrl_robots_bbox_real`, the axes are cleanly separated and two extra
+arms settle it, using the Step 3 recipe on `OLD ∪ NEW`:
 
-**Scope — both families, four scales each.**
+- **real + synthetic** — pool `synth_bbox_from_keypoints` in via `pool_datasets.py` and compare against
+  the real-only Arm A. This is the presence/absence test that `synthetic_plus_bbox_2026-07-22` was read
+  as having run but did not (it added synthetic *on top of* an already-35 %-synthetic substrate, so it
+  measured a marginal dose).
+- **synthetic-only** — builds the `C_synth` base that Phase A recorded as impossible. If it has
+  standalone value, it is the *reusable* base worth committing (synthetic is free to regenerate and
+  carries no eval leakage, unlike a base derived from real fights).
 
-- **bbox/detect:** `yolo26{n,s,l,x}` on `nhrl_robots_bbox` (real-only, per Phase A).
-- **pose:** `yolo26{n,s,l,x}-pose` on the keypoint substrate. (Phase C needs only the *recipe* from
-  Phase A/B, not Phase B's synthetic-substitution study; it can run independently of Phase B.)
+Competing hypothesis worth testing directly: precision failures are false-positive opponents, and
+100 % of the `object` head plus 19 % of the generic-`robot` boxes are synthetic — so **losing synthetic
+supervision is at least as plausible a cause of the precision collapse as losing real.**
 
-**Fixed recipe (from Phase A Exp 4):** cold-start, `--fraction N_real*`, early-stopped at `E*` (the
-confirmed minimal schedule — not a fresh full-anneal short run; see Exp 1's LR-schedule finding),
-`--save-period` ladder, one arm per scale. Score every scale **paired vs the deployed nano baseline and
-against each other** on `nhrl_keypoints_eval_test`, same `--labels`/taxonomy/conf as its family.
+Run this only after Step 5 lands. It is a separate question and should not delay the warm-start answer.
 
-**Metrics.** Family parity metrics (agnostic recall + precision/F1; pose adds heading acc @10°) **plus
-measured Jetson latency per scale** — latency is the binding deployment constraint (the whole system
-targets <60 ms end-to-end), so report accuracy *against* latency, never accuracy alone. Build each scale's
-`aarch64_sm87` engine on the Jetson for the latency pass (runbook §4); score accuracy on the sm86/sm89
-desktop engine.
+## Phases B and C — on hold, and they inherit the corrections
 
-**Load-bearing caveat — the cheap recipe is nano-tuned.** `E*`/`N_real*` were found to saturate *nano*
-capacity. Larger backbones may be **under-trained** at that budget (more capacity wants more data/epochs),
-so a flat or inverted accuracy-vs-size curve at the cheap regime is a real, interpretable result — it says
-"the cheap regime saturates nano; bigger models need a bigger budget to pay off," **not** "bigger is
-worthless." Disambiguate by running the largest scale at *both* the cheap budget and a fuller budget; if
-the fuller budget lifts it clearly, the recipe is nano-specific and Phase C's frontier must be read as
-"cheap-budget accuracy," not "model-capacity ceiling."
-
-**Prerequisites.** Add `yolo26{s,l,x}` and `yolo26{s,x}-pose` entries to `train.py`'s `configs` dict with
-VRAM-scaled batch sizes (l/x on 3× A6000 will need smaller batches); a Jetson latency-measurement pass.
-
-**Output.** Per-head accuracy × latency frontier across n/s/l/x at the Phase A cheap regime; the
-recommended deployable scale within the 60 ms budget; and whether the cheap recipe transfers across
-capacity or is nano-specific.
+- **Phase B (keypoint pose model, `yolo26n-pose`).** On hold pending this experiment's result. When it
+  runs it must (a) audit its substrate first, (b) split `all_robot_keypoints` by scene, (c) rebuild val
+  scene-disjoint. Its load-bearing question is unchanged — *how little real our-robot data is needed on
+  top of abundant exact-CAD synthetic to hold recall and heading accuracy* — and it adds a mandatory
+  second gate: **heading acc @10° delta CI lower bound ≥ −0.03**. Recall can hold while heading rots.
+  Reference numbers: agnostic recall 0.852, precision 0.939, `kp_err` 9.6 px, PCK@0.1 0.729, heading
+  error 7.6°, heading acc @10° 0.814 (`baseline_2026-07-07` addendum).
+- **Phase C (model-scale sweep, `yolo26{n,s,l,x}`).** On hold. Its premise was "fix the Phase A cheap
+  recipe as a budget and sweep backbone size." That recipe survives (early-stop the long schedule at
+  ~ep100) but is **substrate-specific** — validated on the 65/35 mixed corpus, not a real-only one. If
+  the follow-on above changes the corpus, re-measure the recipe before spending Phase C compute.
+  Latency is the binding constraint: report accuracy *against* measured Jetson latency, never accuracy
+  alone, against the <60 ms end-to-end budget. Prerequisite: `yolo26{s,l,x}` entries in `train.py`'s
+  `configs` with VRAM-scaled batch sizes.
 
 ## Execution notes (per `experiment_runbook.md`)
 
-- **Where it runs:** training on megamind (3× A6000). `nhrl_keypoints_eval_test` was **uploaded to
-  megamind on 2026-07-23** (`synthetic_plus_bbox_2026-07-22`), so the full train→export→score loop can now
-  run **locally on megamind** with **`_x86_64_sm86`** engines (megamind's arch) — no dev-box round-trip.
-  Score on the dev box instead only if you specifically want `_x86_64_sm89`. Engines are arch-specific;
-  build to match the box you score on, and never score desktop-playback detections against live-labeled GT
-  (rectification warp, see `baseline_2026-07-07`).
-- **Reference compute anchor:** a full 500-epoch `yolo26n` detect run on ~67.5k images took **19.9 h** on
-  the 3× A6000s (`synthetic_plus_bbox_2026-07-22`). That is the cost this experiment is trying to cut, and
-  the yardstick for how much the epoch/data/warm-start floors actually save.
-- **Do not run scoring/inference IO on megamind while a training arm is live** — it evicts the page
-  cache and spikes epoch time ~30×. Score after arms finish or on an idle GPU.
-- **Export per scored checkpoint** is `convert_to_onnx.py` → `convert_to_tensorrt.py --workspace 1`
-  (`yolo26n` ~1 GiB). Scoring many ladder checkpoints means many exports — score a sensible subset
-  (6–8 per curve), not every `save_period` dump.
-- **Datasets:** real subsampling via `--fraction` needs no rebuild (Phase A, and Phase B's real axis);
-  Phase B mixed-dose and scene-variation arms via Recipe C hardlink pooling (real always full; synthetic
-  selected by `--synth-fraction`/`--synth-order`) + `split_yolo_dataset.py`,
-  `validate_yolo_integrity.py --strict`. **Bbox (Phase A) trains real-only — no synthetic pooling.** Keep
-  val real-only and identical across arms. Do **not** overwrite `all_robot_keypoints` or
-  `nhrl_robots_bbox`.
+- **Where it runs:** training and scoring both on megamind (3× A6000, sm86). `nhrl_keypoints_eval_test`
+  is local, so the full train→export→score loop runs here with `_x86_64_sm86` engines. Engines are
+  arch-specific; build to match the box you score on. Never score desktop-playback detections against
+  live-labeled GT (rectification warp, see `baseline_2026-07-07`).
+- **Do not run scoring/inference IO while a training arm is live** — it evicts the page cache and spikes
+  epoch time ~30×. Score after arms finish or on an idle GPU.
+- **Export per scored checkpoint:** `convert_to_onnx.py` → `convert_to_tensorrt.py --workspace 1`
+  (`yolo26n` ~1 GiB). Score a sensible subset (6–8 checkpoints per curve), not every `save_period` dump.
+- **Do not modify** `nhrl_robots_indiv`, `nhrl_robots_bbox`, or `all_robot_keypoints` in place.
+  `nhrl_robots_indiv` is the only real-only source in the tree and has no upstream to rebuild from —
+  treat it as read-only. `split_by_scene.py` hardlinks into new trees under
+  `training/data/scenesplit_<date>/`.
+- **Train bbox models on `nhrl_robots_bbox_real` from here on.** `nhrl_robots_bbox` is retained only to
+  reproduce Phase A and the deployed baseline; it is 34.6 % synthetic and must not be used for new work
+  without saying so explicitly in the writeup.
 - **score.py discipline:** `--labels` length must equal the engine class count (check the printed
-  `num_keypoints=N num_classes=M` line); candidates in one run must share class order; always pass
-  `--baseline <baseline_name>` and `--conf` matching the deployed config (blob 0.6 / keypoint 0.5).
-
-## Success criteria
-
-- **Primary deliverable met** if Exp 4's minimal recipe scores at parity (recall δ-gate + precision/F1
-  not-worse; Phase B also heading-acc gate) against the baseline in a paired run — i.e. a documented
-  training regime materially cheaper than 500-epoch-full-data reproduces the baseline.
-- **Warm-start value quantified** if Exp 2 shows `E_warm` with CI clearly below `E_cold` (the
-  epochs-to-parity reduction from the reusable checkpoint) — the direct answer to "can I start all
-  training from a checkpoint and reach the same result in minimal epochs."
-- **Data floor quantified** — Phase A: a defensible smallest real fraction `N_real*` clearing parity for
-  the opponent detector. Phase B: an `(N_real, N_synth)` frontier plus the substitution answer — does
-  abundant exact-CAD synthetic let a smaller `N_real` still clear both the recall and heading gates
-  (expected yes, per the 2026-07-23 instance-transfer result), and by how much.
-- **Neutral / negative results are results:** if `E_warm ≈ E_cold`, the checkpoint buys nothing and
-  future retrains should stay cold-start (simpler); if no reduced regime clears δ, report the cheapest
-  that comes closest and the gap.
+  `num_keypoints=N num_classes=M`); candidates in one run must share class order; always pass
+  `--baseline` and `--conf` matching the deployed config (blob 0.6 / keypoint 0.5).
 
 ## Risks / caveats
 
-- **LR-schedule ≠ epoch-prefix.** The `save_period` ladder from one long run is a *bracketing upper
-  bound*, not the answer — cosine LR is stretched over the total budget. Every reported epoch floor
-  must be a **dedicated-schedule** confirmation run (Exp 1/2 confirm step), not a mid-run checkpoint.
-- **Warm-from-baseline is circular.** `C_base` trivially matches at epoch 0; it measures adaptation
-  speed, not cheap reproduction. The recommended reusable base is `C_synth` (free to regenerate,
-  encodes no eval leakage). State this explicitly in the writeup.
-- **Eval set is small (~372 frames)** → wide parity CIs. δ must exceed the bootstrap CI half-width
-  (Step 0); do not claim parity inside the noise. Per-class AP (opponent) is directional only, not
-  bootstrapped — read as trend.
-- **Augmentation × short schedules.** Heavy aug (mosaic 0.4, `close_mosaic` last epochs, mixup,
-  copy_paste) is tuned for long runs; at very low epochs it can *slow* convergence. Hold aug fixed for
-  the primary sweep (one variable), but flag it as the obvious next lever if the epoch floor is
-  disappointingly high.
-- **Same-corpus val is a proven-unsafe proxy — grade on the independent eval from the start.** In
-  `synthetic_plus_bbox_2026-07-22` the real val split showed a +0.0195 opponent-recall "win" that
-  **reversed** to −0.013 on unseen fights: a change that fit the training distribution, not transferable
-  signal. Every parity verdict here comes from `nhrl_keypoints_eval_test`. Use val only for live
-  plateau-watching during a run, never to declare an arm at parity.
-- **Tiny-real overfitting.** At 12.5% real the val curve may look fine while the external eval drops
-  (memorized fights) — the same-corpus trap above, in its most acute form. Verdict is always the external
-  eval.
-- **Phase B heading is the load-bearing signal, not recall.** A synthetic-heavy low-real arm can hold
-  detection recall while heading accuracy collapses (front/back keypoint from mostly-synthetic poses).
-  The heading-acc @10° gate is mandatory in Phase B, not optional. Note the 2026-07-23 result is
-  *encouraging* here: exact-CAD our-robot renders transfer (unlike generic opponents), so synthetic
-  substitution is expected to hold heading better in Phase B than the opponent analogy would suggest —
-  but confirm it, do not assume it.
+- **Degeneracy is the main risk, again.** If `C_old` already clears parity, this experiment answers
+  nothing — same failure as Phase A Exp 2, one level up. Step 2's gate exists to catch it *before* the
+  expensive arms run. Do not skip it.
+- **"New scenes" are a proxy for "new event."** Held-out recordings from the same corpus share cage,
+  lighting, and camera rig with the training half. This understates the difficulty of genuinely new
+  footage, so a warm-start win here is an **upper bound** on warm-start value. State it in the writeup.
+- **Our-robot supervision could not be balanced across halves, and the temporal split made it
+  absolute.** All three real `mrs_buff_mk3` scenes are 2026-04, so `old` and `hold_old` contain none at
+  all (§Step 1b). Our-robot performance is therefore an acquisition-only signal here. The split
+  stratifies `robot` and `house_bot` — the classes that carry the agnostic gate — and reports the rest.
+- **Eval set is small (~372 frames)** → wide parity CIs. δ must exceed the bootstrap CI half-width. Do
+  not claim parity inside the noise. Per-class AP is directional only, not bootstrapped.
+- **Run-to-run variance is ~0.05 recall** (Phase A: two 500-epoch runs differed by 0.048), and
+  checkpoint selection within one run spans 0.765→0.694. Treat any single arm within ~0.05 of another as
+  indistinguishable, and prefer differences in *hours-to-parity*, which are much larger than the noise.
+- **LR-schedule ≠ epoch-prefix.** Ultralytics anneals LR linearly over the run's *total* budget, so
+  `epoch150` of a 500-epoch run is not what a dedicated 150-epoch run produces. Phase A found the
+  under-annealed early checkpoint generalizes **better**. Never substitute a dedicated short run for an
+  early checkpoint without measuring both.
+- **Same-corpus val is proven unsafe.** Phase A's val rose monotonically while the external eval fell —
+  two mechanisms: shared scenes and 35 % synthetic content. The scene-disjoint real-only val in Step 1b
+  fixes both, but the verdict still comes from `nhrl_keypoints_eval_test`, never val.
 - **Same-run comparability.** Absolute AP is comparable only within one `score.py` run under one
-  `--labels` mapping. Never cross-compare arm AP against other reports.
+  `--labels` mapping. The `--labels` fix in Step 0 means **this plan's absolute numbers are not
+  comparable to Phase A's** — only to each other and to the re-anchored baseline.
+
+## Success criteria
+
+- **Primary met** if Step 5 yields a scored, paired comparison of hours-to-parity between cold retrain
+  and warm start on genuinely unseen scenes — whichever direction it goes.
+- **Retention quantified** — whether warm-starting on new footage alone degrades performance on the old
+  distribution, and if so, the replay fraction that prevents it.
+- **Degenerate outcome is a result** — if `C_old` already clears parity, report "half the recordings
+  saturate this eval set," which says the eval set lacks headroom and should be expanded before further
+  data experiments.
+- **Neutral results are results** — if warm ties cold, future retrains stay cold-start for simplicity,
+  and that is a documented decision rather than an assumption.
 
 ## Artifacts / locations
 
-- Instrumentation: `--save-period` / `--fraction` passthrough in `training/yolo/train.py`
-  (and `fine_tune_train.py` for `--save-period`); `--synth-fraction` / `--synth-order` in a new Recipe C
-  pooling helper (e.g. `training/yolo/pool_datasets.py`; Recipe C has no committed script today — it is a
-  manual `os.link` procedure per `experiment_runbook.md`), Phase B only.
-- Warm base checkpoint: `data/models/<model>_warmbase_<date>.{pt,onnx,engine}` (the reusable `C*`).
-- Sweep models: `data/models/<model>_<arm>_<date>.{pt,onnx,engine}` (engine `_x86_64_sm86` if scoring on
-  megamind — the default now that the eval set is there; `_x86_64_sm89` if scoring on the dev box).
-- Pooled datasets: `training/data/<arm>/` (Recipe C, val real-only). Real substrates unmodified.
-- Scores: `training/data/nhrl_keypoints_eval_test/scores_data_epoch_min_<phase>/{summary.csv,
-  significance.csv, headline.png, confusion_*.png}`.
-- Writeups: `docs/experiments/perception_performance/data_epoch_min_<phase>_<date>.md` (Phase A first,
-  then Phase B).
+- Instrumentation: `--save-period` / `--fraction` / `--seed` in `training/yolo/train.py` and
+  `fine_tune_train.py` (done, Phase A); **new** `training/yolo/split_by_scene.py` (built);
+  `training/yolo/pool_datasets.py` (done, Phase A); **regenerated** `remap_config_seg.toml` (the
+  committed one is index-stale, §Step 1a).
+- **Canonical real-only bbox dataset: `training/data/nhrl_robots_bbox_real/`** — derived from
+  `nhrl_robots_indiv` per §Step 1a. This is the substrate all future bbox training uses.
+  `nhrl_robots_bbox` (34.6 % synthetic) is superseded for training and kept only for reproducing the
+  deployed baseline.
+- Scene-split datasets: **`training/data/scenesplit_2026-07-25/{old,new,hold_old,hold_new}/`** plus
+  `old.yml` / `new.yml` / `old+new.yml` and `split_manifest.json` (hardlinked; sources unmodified).
+- Warm base: `data/models/yolo26n_scenesplit_old_<date>.{pt,onnx,engine}` (`C_old`).
+- Arm models: `data/models/yolo26n_scenesplit_<arm>_<date>.{pt,onnx,engine}` (`_x86_64_sm86`).
+- Scores: `training/data/nhrl_keypoints_eval_test/scores_scenesplit_<arm>/{summary.csv,
+  significance.csv, headline.png, confusion_*.png}`; holdout scores alongside.
+- Writeup: `docs/experiments/perception_performance/scenesplit_warmstart_<date>.md`.
+- Superseded: `data_epoch_min_phaseA_2026-07-24.md` (Exp 1 results stand; Exp 2 invalid, Exp 3
+  re-scoped to a corpus floor).

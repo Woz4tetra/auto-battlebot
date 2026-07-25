@@ -1,11 +1,121 @@
 # Data + epoch minimization — Phase A (bbox opponent detector), 2026-07-24
 
+> **Corrected 2026-07-25.** The substrate was audited on megamind and is **not real-only** — 34.6 % of
+> `nhrl_robots_bbox/train` is synthetic renders. This invalidates Exp 2 outright and re-scopes Exp 3/4.
+> See §Correction. Exp 1's measurements survive; their *labels* do not.
+
 Executing `data_epoch_min_plan.md` Phase A on megamind (3× A6000, sm86). Baseline
-`yolo26n_nhrl_robots_bbox_2026-07-16` (500 ep, real-only). Substrate `nhrl_robots_bbox`
-(train 49086 / val 5454, real). Verdicts on the independent eval `nhrl_keypoints_eval_test`
-(372 reviewed frames), paired bootstrap 1000×, `--labels "opponent,opponent,house_bot,
-mr_stabs_mk2,mrs_buff_mk3"`, `taxonomy.yaml`, conf 0.5. Primary parity metric: agnostic recall,
-δ-gate = recall Δ CI lower bound ≥ −δ with precision/F1 not-significantly-worse.
+`yolo26n_nhrl_robots_bbox_2026-07-16` (500 ep). Substrate `nhrl_robots_bbox`
+(train 49086 / val 5454 — **mixed real + synthetic, see §Corpus composition**). Verdicts on the
+independent eval `nhrl_keypoints_eval_test` (372 reviewed frames), paired bootstrap 1000×,
+`--labels "opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3"`, `taxonomy.yaml`, conf 0.5.
+Primary parity metric: agnostic recall, δ-gate = recall Δ CI lower bound ≥ −δ with precision/F1
+not-significantly-worse.
+
+## Correction (2026-07-25) — the substrate is not real-only
+
+Phase A was designed and written up on the premise, inherited from `synthetic_plus_bbox_2026-07-22`
+(2026-07-23 update), that **the bbox detector trains real-only**. A direct audit of
+`training/data/nhrl_robots_bbox` on megamind shows that premise is false. What this does and does not
+change:
+
+**Still valid — every measurement in Exp 1.** All arms were scored paired, in the same `score.py`
+runs, against the same baseline engine, on the same frames and thresholds. The substrate error is
+*common to every arm including the baseline*, so the deltas, CIs, and verdicts stand. The epoch
+findings (early checkpoints beat late ones; ep500 regresses; dedicated short runs underperform) are
+real.
+
+**Invalid — Exp 2 in full**, for two independent reasons:
+
+1. **Same-corpus circularity.** Both warm bases (`C_base` = the deployed baseline `.pt`; `C_real` =
+   ep50 of the Exp 1 cold run) were fine-tuned on the *same corpus they were trained on*. `E_warm = 0`
+   is then true by construction, not by measurement — there is no information in the fine-tuning data
+   that the base has not already seen. The plan predicted exactly this for `C_base`
+   (`data_epoch_min_plan.md` §Risks, "warm-from-baseline is circular"); it applies equally to `C_real`.
+   **"Warm-start buys nothing, stay cold-start" is a property of the experiment's design, not a result
+   about warm-starting, and must not be carried forward as guidance.**
+2. **The stated reason `C_synth` could not exist is false.** Exp 2 recorded `C_synth` as
+   "❌ does not exist — Phase A trains real-only … there is no synthetic bbox corpus to pretrain on."
+   There is: 16997 synthetic frames carrying 56801 boxes sit inside the substrate already. A
+   synthetic-pretrained bbox base was buildable the whole time.
+
+**Re-scoped — Exp 3 and Exp 4.** `--fraction` subsamples the *merged, shuffled* train split, so it cut
+real and synthetic together in roughly fixed 65/35 proportion. Exp 3 therefore measured a **corpus
+floor, not a real-image floor**, and cannot attribute the precision collapse at fraction 0.5 to either
+component. `N_real* = 1.0` is restated as `N_corpus* = 1.0`. See §Exp 3.
+
+**Also affected, not re-run here.** `synthetic_plus_bbox_2026-07-22` graded "adding synthetic" on top of
+a substrate that was already 35 % synthetic. Its null result is a **marginal-dose** finding ("more
+synthetic on top of existing synthetic adds nothing"), not the presence/absence finding
+("synthetic opponents do not help") that the 2026-07-23 update read it as — and that reading is what
+removed the synthetic axis from this plan. Flagged for that report's owner; not corrected here.
+
+## Corpus composition (audited 2026-07-25, megamind)
+
+`nhrl_robots_bbox`, boxes by source. Real frames are `nhrl_seg_remap__*`; synthetic are
+`synthetic__*` (CAD renders of our robots on rendered floors).
+
+| split | frames | real frames | synthetic frames | synthetic share |
+|---|---|---|---|---|
+| train | 49086 | 32089 | 16997 | **34.6 %** |
+| val | 5454 | 3529 | 1925 | **35.3 %** |
+
+Boxes by class and source (train):
+
+| class | real | synthetic | synthetic share |
+|---|---|---|---|
+| `object` (debris) | **0** | **15568** | **100 %** |
+| `robot` (generic opponent) | 67976 | 16111 | 19.2 % |
+| `house_bot` | 25413 | 0 | 0 % |
+| `mr_stabs_mk2` | 3213 | 9502 | **74.7 %** |
+| `mrs_buff_mk3` | 2088 | 15620 | **88.2 %** |
+
+**There is no real-only bbox dataset on megamind.** `nhrl_seg/nhrl_robots` (the segmentation source of
+`nhrl_robots_bbox`) carries the identical 16997/1925 synthetic split, and `synth_bbox_from_keypoints` is
+97.5 % synthetic. The only real-only substrate in `training/data/` is **`nhrl_robots_indiv`** — 35745
+frames across the same 56 recordings, zero synthetic, but labelled as **84-class instance
+segmentation**, not bboxes. It is the ancestor of the whole chain; synthetic enters one step
+downstream, at the `nhrl_seg` merge. A clean real-only bbox dataset (`nhrl_robots_bbox_real`) is
+therefore derivable from it with no relabelling and no collection — see `data_epoch_min_plan.md`
+§Step 1a, which designates it the substrate for all future bbox training.
+
+Three consequences worth stating plainly:
+
+- **`object` is a synthetic-only class.** The detector's class 0 was learned entirely from renders; no
+  real frame carries an `object` label.
+- **Synthetic already supplies generic opponents.** 16111 synthetic `robot` boxes contradict the
+  "bbox trains real-only, so synthetic opponent appearance is out of scope" premise.
+- **Our own robots are mostly synthetic.** The instance classes the aim-assist actually consumes are
+  75–88 % rendered.
+
+### Val is a doubly-broken proxy
+
+Exp 1 observed val rising monotonically while the external eval fell past ~ep300, and attributed it to
+the same-corpus trap. The audit shows *two* mechanisms, both worse than assumed:
+
+1. **Val shares every recording with train.** 56 distinct real recordings appear in train; the *same
+   56* appear in val. The split is frame-level random, so val frames are neighbouring frames of the
+   same fights — near-duplicates, not held-out scenes.
+2. **Val is 35 % synthetic.** Roughly a third of the val metric measures synthetic-domain performance,
+   which the external eval does not contain at all.
+
+Val was never measuring generalization. Exp 1's "grade on the external eval only" conclusion is
+correct and now has a mechanism.
+
+### Scoring caveat — `object` predictions are not excluded
+
+`taxonomy.yaml` carries `exclude: [object]`, intended to drop debris from scoring. `score.py:244-245`
+applies that exclusion to the **mapped** label, i.e. after `--labels` renames engine classes. Phase A
+passed `--labels "opponent,opponent,…"`, renaming engine class 0 (`object`) to `opponent`, so:
+
+- **GT** debris is excluded (eval GT literally names it `object` — 8 boxes across the eval set), but
+- **predicted** debris is scored as an opponent detection.
+
+The asymmetry inflates the false-positive opponent count for every model with a class-0 head. It
+applies identically to the baseline and every candidate, so **paired deltas are unaffected**; absolute
+precision and recall are biased and should not be compared against reports using a different
+`--labels`. Fixing it means passing `--labels "object,opponent,…"` so the taxonomy exclusion fires on
+both sides.
 
 ## Terms used in this report
 
@@ -71,10 +181,14 @@ fully-annealed short runs (~0.69 for dedicated 50-epoch runs) — which is why t
 - **δ = 0.04.** Prior paired run's agnostic-recall delta CI half-width 0.0227 → max(0.04, 1.5×0.0227)
   = 0.04. Baseline reproduced exactly on the sm86 engine (recall 0.742, precision 0.962, F1 0.838,
   mAP50-95 0.504).
+- **Not done, and it should have been: a corpus audit.** The instrumentation step validated the
+  *levers* but never checked what the substrate contained. Counting frames and boxes by source is a
+  30-second check that would have caught the real-only error before 14.6 h of training. It is now a
+  mandatory step in the reworked plan.
 
 ## Exp 1 — cold-start epoch floor
 
-### Ladder: one 500-epoch run, checkpoints every 50 (COCO-pretrained, full real data)
+### Ladder: one 500-epoch run, checkpoints every 50 (COCO-pretrained, full substrate)
 
 500 epochs in **14.6 h**. Scored `epoch{50,100,150,200,300,400,500=last.pt}` vs baseline. Agnostic
 recall on the external eval:
@@ -91,8 +205,9 @@ recall on the external eval:
 
 Every checkpoint from ep50–400 clears parity; **ep500 (full run) regresses below it** (recall
 0.694, F1 worse). Meanwhile same-corpus val (`results.csv metrics/mAP50-95(B)`) rose monotonically to
-its max at ep400–500 (~0.707) — **val and external eval move in opposite directions past ~ep300**, the
-val-trap the plan warned of, confirmed live.
+its max at ep400–500 (~0.707) — **val and external eval move in opposite directions past ~ep300**.
+The plan called this the "val trap"; §Corpus composition gives it two concrete mechanisms (val shares
+all 56 recordings with train, *and* val is 35 % synthetic).
 
 ### Confirm: dedicated fully-annealed short runs do NOT reach parity
 
@@ -128,125 +243,134 @@ parity *at or below* the ladder estimate, but full annealing to a sharp minimum 
   Grade warm-start and data-floor arms on early-stopped checkpoints, and treat any single full-anneal
   point within ~0.05 of baseline as indistinguishable.
 
+**Scope note (2026-07-25):** these conclusions describe training on the *mixed* substrate. Whether the
+early-checkpoint advantage and the ep500 regression persist on a real-only corpus is untested — the
+synthetic third may itself be driving the late-epoch overfit. The reworked plan measures this.
+
 Artifacts: engines `runs/epoch_min_exports/phaseA_cold/`, scores
 `nhrl_keypoints_eval_test/scores_data_epoch_min_phaseA_exp1{,_confirm,_seeds}`.
 
-## Exp 2 — warm-start base checkpoint
+## Exp 2 — warm-start base checkpoint — **INVALID, superseded**
 
-**Question.** Does starting from an existing domain checkpoint instead of COCO reach parity in fewer
-epochs than cold-start — i.e. is `E_warm ≪ E_cold`? If so, future retrains should warm-start.
+**Question as posed.** Does starting from an existing domain checkpoint instead of COCO reach parity in
+fewer epochs than cold-start — i.e. is `E_warm ≪ E_cold`?
 
-**Candidate bases.** The plan lists three; only two exist for Phase A.
+**Why the answer obtained is not an answer.** Both bases were fine-tuned on the corpus they were
+already trained on:
 
-| base | what it is | available? |
-|---|---|---|
-| `C_base` | the deployed baseline `.pt` (`yolo26n_nhrl_robots_bbox_2026-07-16`) | ✅ used |
-| `C_real` | an early checkpoint of the Exp 1 cold run (here `epoch50`) | ✅ used (already scored) |
-| `C_synth` | a synthetic-pretrained checkpoint | ❌ **does not exist** — Phase A trains real-only (2026-07-23: synthetic opponent appearance is wrong-feature/wrong-context), so there is no synthetic bbox corpus to pretrain on |
+| base | what it is | fine-tuned on | information gain |
+|---|---|---|---|
+| `C_base` | the deployed baseline `.pt` | full `nhrl_robots_bbox` | **none** — trained on this exact corpus |
+| `C_real` | ep50 of the Exp 1 cold run | full `nhrl_robots_bbox` | **none** — same corpus |
+| `C_synth` | synthetic-pretrained checkpoint | — | recorded "does not exist"; **it was buildable** (16997 synthetic frames in-substrate) |
 
-**Method.** Two measurements:
-
-1. **Epoch 0 (the starting point).** Score each base *before any fine-tuning*, paired vs baseline — this
-   is what "warm start" begins from. Both numbers already exist: `C_base` **is** the baseline, and
-   `C_real` = `cold_e050` was scored in the Exp 1 ladder.
-2. **Fine-tune ladder.** Warm-start from `C_base` with `fine_tune_train.py`'s low-LR recipe
-   (`lr0 0.001`, `warmup_bias_lr 0.01`, full transfer: **708/708 items**, vs 606/708 for COCO cold-start),
-   full real data, `-e 50 --save-period 10`; export + score `epoch{10,20,30,40,50}` paired vs baseline.
-   Required adding a `yolo26n` detect entry to `fine_tune_train.py`'s `configs` (batch 128, matching
-   `train.py` so the arm is comparable to the cold runs).
-
-### Result 1 — both warm bases are already at parity at epoch 0
+Measured epoch-0 scores, retained for the record:
 
 | base | agnostic recall | Δ vs baseline | verdict |
 |---|---|---|---|
-| `C_base` (baseline itself) | 0.742 | 0.000 by construction | — at parity |
-| `C_real` (= `cold_e050`) | **0.765** | **+0.023** [+0.002, +0.047] | `better` |
+| `C_base` | 0.742 | 0.000 by construction | at parity |
+| `C_real` (= `cold_e050`) | 0.765 | +0.023 [+0.002, +0.047] | `better` |
 
-**`E_warm` = 0 epochs for both.** Neither base needs *any* fine-tuning to clear the δ-gate; they start at
-or above it. This is a measurement, not an assumption — and it is the circularity the plan predicted for
-`C_base` ("fine-tuning from it trivially starts at parity… report it as the ceiling, not the
-recommendation"), now shown to hold for `C_real` as well.
+`E_warm = 0` follows tautologically: both bases already encode the entire fine-tuning set, so they
+start at or above the gate. **This measures nothing about warm-starting.** The fine-tune ladder from
+`C_base` (`-e 50 --save-period 10`) was never scored and is abandoned rather than completed — a ladder
+from a base that is already the target cannot become informative.
 
-### Result 2 — fine-tune ladder from `C_base`
+**What the experiment should have asked.** Warm-starting is worth measuring only when the fine-tuning
+data contains something the base has not seen. The 2026-07-24 writeup claimed that needs footage
+"that does not exist in this dataset." It does not: the substrate holds **56 distinct real recordings**,
+so held-out *scenes* supply genuinely unseen data without collecting anything new. The reworked
+experiment in `data_epoch_min_plan.md` splits by scene and asks the operationally real question —
+**given new footage, is it cheaper to retrain cold on everything, or to warm-start from the checkpoint
+trained on the old footage?**
 
-_(running: `-e 50 --save-period 10`, ladder scored paired vs baseline — table below when scored)_
+**What survives.** One design decision from this section is correct and carries forward: the data floor
+must be measured **cold**, because a base that already trained on the full corpus would make a
+reduced-data arm measure "small data *plus a checkpoint that saw everything*," which is useless to
+anyone starting fresh.
 
-### What this does and does not answer
+## Exp 3 — corpus data floor (cold-start, `--fraction` sweep)
 
-- **Answered:** for *reproducing the baseline on the same data*, warm-starting saves nothing, because
-  `E_warm = 0` is trivially true — the bases already are the target. Warm start cannot be "cheaper than
-  cold" in any meaningful sense here; the comparison is degenerate.
-- **Deliberately out of scope:** whether warm-starting speeds up *adaptation to **new** data* (a new
-  event, a new opponent robot). That is the genuinely useful warm-start question, but it needs footage
-  that does not exist in this dataset, so it cannot be measured in Phase A. Flagged as future work.
-- **Scoping consequence for Exp 3 (not a result — a design decision).** The data floor must be measured
-  **cold**, not warm. A base that already trained on all 49086 real images has that information in its
-  weights, so fine-tuning it on 12.5% of the data would not measure "6136 images suffice" but "6136
-  images *plus a checkpoint that saw 49086* suffice" — useless to anyone starting fresh. Exp 3 therefore
-  sweeps `--fraction` from COCO.
+> **Re-scoped 2026-07-25.** Titled "real-image data floor" when written. `--fraction` subsamples the
+> merged shuffled train split, so every arm cut real *and* synthetic together at the substrate's ~65/35
+> ratio. This is a **corpus** floor. No arm here isolates the real axis, and the plan's real×synthetic
+> question remains unmeasured for bbox.
 
-**Decision:** Phase A stays **cold-start, early-stopped** (the Exp 1 recipe). `C_base` is reported as the
-ceiling anchor only. This matches the plan's anticipated "possibly none, stay cold-start for Phase A".
-
-## Exp 3 — real-image data floor (cold-start, `--fraction` sweep)
-
-Cold-start (COCO), real-only, `--fraction {0.125, 0.25, 0.5}` of the 49086-image train split (1.0 = the
-Exp 1 full run), val fixed to the full real held-out split. Schedule: `epochs=250 --save-period 25` (the
+Cold-start (COCO), `--fraction {0.125, 0.25, 0.5}` of the 49086-image train split (1.0 = the
+Exp 1 full run), val fixed to the full held-out split. Schedule: `epochs=250 --save-period 25` (the
 standard early-stop recipe; score the epoch ladder, take the best early checkpoint per fraction, since
 Exp 1 showed the external-eval peak is early and the tail overfits). Verdict from the external eval,
-δ-gate = 0.04. Smallest fraction whose best early checkpoint clears is the **real-image floor** `N_real*`.
+δ-gate = 0.04.
 
-Three cold runs (`epochs=250 --save-period 25`, `--fraction {0.5,0.25,0.125}`), best early checkpoint per
-fraction scored vs baseline (full gate: recall CI lb ≥ −0.04 **and** precision/F1 not sig. worse):
-
-| fraction | images | best early | recall (Δ, CI) | precision Δ | F1 Δ | full parity |
+| fraction | images (real + synth) | best early | recall (Δ, CI) | precision Δ | F1 Δ | full parity |
 |---|---|---|---|---|---|---|
-| 1.0 (Exp 1) | 49086 | ep50–150 | +0.023 … −0.011, clears | ns | ns | ✅ |
-| **0.5** | 24543 | ep100 (0.778) | **+0.036** [+0.010,+0.061] | **−0.054** [−0.077,−0.034] worse | +0.000 ns | ❌ precision |
-| 0.25 | 12272 | ep150 (0.712) | −0.030 [−0.057,−0.002] | −0.053 worse | −0.039 worse | ❌ |
-| 0.125 | 6136 | ep150 (0.460) | −0.282 worse | worse | worse | ❌ |
+| 1.0 (Exp 1) | 49086 (32089 + 16997) | ep50–150 | +0.023 … −0.011, clears | ns | ns | ✅ |
+| **0.5** | 24543 (≈16k + ≈8.5k) | ep100 (0.778) | **+0.036** [+0.010,+0.061] | **−0.054** [−0.077,−0.034] worse | +0.000 ns | ❌ precision |
+| 0.25 | 12272 (≈8k + ≈4.3k) | ep150 (0.712) | −0.030 [−0.057,−0.002] | −0.053 worse | −0.039 worse | ❌ |
+| 0.125 | 6136 (≈4k + ≈2.1k) | ep150 (0.460) | −0.282 worse | worse | worse | ❌ |
 
-Key result: **recall is robust to halving the data** (fraction 0.5 ep100 *beats* baseline on recall +0.036
-and ties on F1), **but precision needs the full real set** — at 0.5, precision falls 0.962 → 0.91
-(significant), and no single 0.5 checkpoint holds both recall and precision at once (the late 0.5 checkpoint
-recovers precision to −0.003 ns but recall collapses to 0.391 — severe overfit on half data). Below 0.5,
-everything falls apart (0.25 fails all three gates; 0.125 catastrophic, recall 0.27–0.47). The extra real
-data past ~50% buys **precision** (sharpening the not-us / not-house-bot boundary), not recall — exactly
-what "opponent is an open, context-recognized category" predicts.
+Key result: **recall is robust to halving the corpus** (fraction 0.5 ep100 *beats* baseline on recall
++0.036 and ties on F1), **but precision needs the full corpus** — at 0.5, precision falls 0.962 → 0.91
+(significant), and no single 0.5 checkpoint holds both recall and precision at once (the late 0.5
+checkpoint recovers precision to −0.003 ns but recall collapses to 0.391 — severe overfit on half data).
+Below 0.5, everything falls apart (0.25 fails all three gates; 0.125 catastrophic, recall 0.27–0.47).
+
+**The attribution is now open.** The original writeup concluded "the extra *real* data past ~50 % buys
+precision, exactly what 'opponent is an open, context-recognized category' predicts." That reading is
+unsupported: the arms removed real and synthetic in lockstep, so the precision loss could come from
+either, or from the ratio shift as absolute counts shrink. Note the competing hypothesis the audit
+raises — precision failures are false-positive opponents, and 100 % of the `object` (debris) head and
+19 % of the generic-`robot` boxes are synthetic, so **losing synthetic supervision is at least as
+plausible a cause as losing real**. Untangling them requires separate real and synthetic axes, which is
+now in the plan.
 
 Also note the **overfit cliff scales with data scarcity**: at fraction 0.5 the ep250 endpoint recall
 collapses to 0.391 (from 0.778 at ep100); early-stopping is not optional at reduced data, it is essential.
 
-**Output: `N_real* = 1.0`** (full 49086 real) for the strict recall+precision gate. **F1-parity floor =
-0.5** (24.5k) if a precision-for-recall trade is acceptable (it is not, for aim-assist: precision = not
-shooting at the wrong object). So Phase A's real data does **not** compress without losing precision.
+**Output: `N_corpus* = 1.0`** (full 49086 mixed frames) for the strict recall+precision gate.
+**F1-parity floor = 0.5** (24.5k) if a precision-for-recall trade is acceptable (it is not, for
+aim-assist: precision = not shooting at the wrong object). The claim "Phase A's *real* data does not
+compress" is **withdrawn** — it was never measured.
 
-## Exp 4 — combined minimal recipe (resolved by Exp 1 ladder + Exp 3; no new run needed)
+## Exp 4 — combined minimal recipe
 
-The data floor (Exp 3) leaves **no reduced-data corner** to confirm — full real data is required for
-precision. So Exp 4's "frontier corner" collapses onto full data, and the only remaining lever is epochs,
-which the Exp 1 ladder already measured on full data. The `epoch100` checkpoint of the standard
-500-epoch schedule (full data) clears **all three** gates paired vs baseline:
+The corpus floor (Exp 3) leaves no reduced-data corner, so Exp 4's frontier corner collapses onto full
+data and the only remaining lever is epochs, which the Exp 1 ladder already measured. The `epoch100`
+checkpoint of the standard 500-epoch schedule clears **all three** gates paired vs baseline:
 
 - recall Δ −0.013 CI[−0.035,+0.010] ns · precision Δ −0.007 CI[−0.023,+0.009] ns · F1 Δ −0.011
   CI[−0.027,+0.006] ns. (ep50 is stronger still: recall Δ +0.023.)
 
-**Minimal Phase A recipe (confirmed):** *cold-start (COCO), full real `nhrl_robots_bbox`, the standard
-500-epoch schedule, early-stopped/checkpointed at ~ep100 (as low as ep50).* This matches the
-500-epoch full-data baseline on recall, precision, and F1 at **~1/5 the epochs (~5× compute cut, ~3 h vs
-14.6 h)** and avoids the ep500 overfit regression.
+**Minimal Phase A recipe (as measured):** *cold-start (COCO), the full `nhrl_robots_bbox` substrate as
+it exists today (65 % real / 35 % synthetic), the standard 500-epoch schedule, early-stopped at ~ep100
+(as low as ep50).* This matches the 500-epoch baseline on recall, precision, and F1 at **~1/5 the
+epochs (~5× compute cut, ~3 h vs 14.6 h)** and avoids the ep500 overfit regression.
 
 **Explicitly not** "train a dedicated 100-epoch run" — Exp 1's confirm step showed a fully-annealed short
-run underperforms (recall ~0.69). The recipe is *early-stop the long schedule*, whose early checkpoints are
-under-annealed and generalize best. Data cannot be reduced (Exp 3). One caveat carries: parity here is a
-single run's checkpoint and run-to-run variance is ~0.05, so the robust claim is "early-stopping at
-ep50–150 reaches baseline parity to within run noise while cutting ~70–80 % of compute"; a second
-full-schedule run's ep100 would tighten the reproducibility claim (optional follow-up).
+run underperforms (recall ~0.69). The recipe is *early-stop the long schedule*, whose early checkpoints
+are under-annealed and generalize best.
 
-## Phase A summary (one line)
+Two caveats carry:
 
-**From COCO, full real data, standard 500-ep schedule early-stopped at ~ep100 → matches the 500-ep
-baseline (recall/precision/F1) at ~5× less compute. Real data does not compress (precision needs the full
-set); the epoch budget compresses ~5×; the default 500-ep full run mildly overfits the external eval.**
+- Parity here is a single run's checkpoint and run-to-run variance is ~0.05, so the robust claim is
+  "early-stopping at ep50–150 reaches baseline parity to within run noise while cutting ~70–80 % of
+  compute."
+- The recipe is **substrate-specific**. It is validated on the mixed corpus, not on a real-only one.
+  Anyone rebuilding the dataset with a different real/synthetic mix must re-measure the epoch floor.
 
+## Phase A summary
 
+**What holds.** From COCO, on the full `nhrl_robots_bbox` substrate, the standard 500-epoch schedule
+early-stopped at ~ep100 matches the 500-epoch baseline (recall/precision/F1) at ~5× less compute. The
+default 500-epoch full run mildly overfits the external eval. The corpus does not compress below 100 %
+without losing precision. Same-corpus val is unusable as a verdict signal.
+
+**What does not.** Phase A did **not** measure warm-start value (the experiment was circular), did
+**not** measure a real-image floor (the sweep cut real and synthetic together), and was **not**
+real-only training (34.6 % of the train split is synthetic renders, including a 100 %-synthetic
+`object` class and 16111 synthetic generic-opponent boxes).
+
+**Next.** `data_epoch_min_plan.md` is reworked around the scene-split warm-start experiment: build a
+real-only bbox substrate (`nhrl_robots_bbox_real`, derived from `nhrl_robots_indiv`), hold out whole
+recordings so "new data" is genuinely unseen, and train every arm real-only so the synthetic axis is
+measured separately instead of being silently baked in.
