@@ -7,6 +7,63 @@ Executing `data_epoch_min_plan.md` Phase A on megamind (3× A6000, sm86). Baseli
 mr_stabs_mk2,mrs_buff_mk3"`, `taxonomy.yaml`, conf 0.5. Primary parity metric: agnostic recall,
 δ-gate = recall Δ CI lower bound ≥ −δ with precision/F1 not-significantly-worse.
 
+## Terms used in this report
+
+**recall** — of all robots actually present in the ground truth, the fraction the model found.
+Misses hurt recall. *"Did it see the robot?"*
+
+**precision** — of all the detections the model emitted, the fraction that were real robots. False
+positives hurt precision. *"When it called something a robot, was it right?"* For aim-assist this is
+the safety-side metric: low precision means shooting at the wrong object.
+
+**F1** — the harmonic mean of precision and recall, `2·(P·R)/(P+R)`: a single blended score that only
+stays high when *both* are high. It is a summary, not a substitute — a model can hold F1 while trading
+precision away for recall (fraction 0.5 in Exp 3 does exactly this), which is why the parity gate checks
+recall and precision separately rather than trusting F1 alone.
+
+**Δ (delta)** — candidate metric minus baseline metric, measured **paired** (both models scored on the
+same frames, same thresholds, in the same `score.py` run). Positive = candidate better.
+
+**CI** — 95% confidence interval on Δ, from a 1000-resample paired bootstrap over the 372 eval frames.
+It expresses how much of Δ is real signal versus resampling noise on a small eval set.
+
+**ns / better / worse** — the verdict column in `significance.csv`, decided purely by where the CI sits:
+
+| verdict | CI vs zero | meaning |
+|---|---|---|
+| `better` | entirely above 0 | candidate significantly beats baseline |
+| **`ns`** | **straddles 0** | **"not significant"** — difference indistinguishable from noise |
+| `worse` | entirely below 0 | candidate significantly loses |
+
+Because this is a **non-inferiority** study (goal: show a cheap recipe is *no worse*, not better), `ns`
+is a **pass**, not a disappointment.
+
+**δ (delta-gate, = 0.04 here)** — the equivalence margin: the largest recall drop still callable
+"parity." `ns` alone is weak evidence, since a very wide CI is "not significant" merely because the eval
+set is small. So the recall gate additionally demands the **CI lower bound ≥ −δ**: the result must be
+both statistically indistinguishable *and* tight enough to rule out a real loss bigger than 4 points.
+δ is floored by the bootstrap's own resolution — see Step 0 for how 0.04 was derived.
+
+**agnostic** — the scoring level where every robot class collapses to one blob, i.e. "is there a robot
+here at all," ignoring which robot. (`archetype`/`instance` are the finer per-class levels.)
+
+**annealing** — gradually decaying the learning rate as training proceeds, so the model takes large,
+exploratory steps early and progressively finer ones later, settling into a minimum. These runs use
+Ultralytics' default `cos_lr=False`, i.e. **linear** decay from `lr0` to `lr0 × lrf` (here 0.01 → 0.0001)
+— `lf(x) = (1 − x/epochs)·(1 − lrf) + lrf` (`trainer.py`) — **stretched across the run's *total* epoch
+budget**, so the schedule's shape depends on the epoch count you asked for, not on absolute epoch number.
+
+- **fully annealed** — the run reached the end of its own schedule; LR has bottomed out and the weights
+  have settled into a sharp minimum.
+- **under-annealed** — a mid-run checkpoint; LR is still high and the weights are still moving.
+
+This distinction is the crux of Exp 1. `epoch150` of a 500-epoch run is **not** the same model a
+dedicated 150-epoch run produces: the former is only 30% through its decay (under-annealed, LR still
+high), while the latter fully anneals within its own 150-epoch budget. Exp 1 found the under-annealed
+early checkpoints generalize **better** on unseen fights (recall 0.765 at ep50 of the long schedule) than
+fully-annealed short runs (~0.69 for dedicated 50-epoch runs) — which is why the recommended recipe is
+"early-stop the long schedule," not "train a short one."
+
 ## Step 0 — instrumentation + noise floor
 
 - Wired `--save-period`, `--fraction`, `--seed` into `train.py` (and `--save-period`/`--fraction`
@@ -39,7 +96,7 @@ val-trap the plan warned of, confirmed live.
 
 ### Confirm: dedicated fully-annealed short runs do NOT reach parity
 
-Dedicated cold-start runs at `-e 50` (×3 seeds) and `-e 30`, each fully cosine-annealed over its own
+Dedicated cold-start runs at `-e 50` (×3 seeds) and `-e 30`, each fully annealed over its own
 budget:
 
 | run | eval recall | Δ vs base | recall 95% CI | δ-gate |
@@ -53,15 +110,15 @@ The three e50 seeds cluster tightly (mean **0.690**, std **0.016**) — **seed v
 fully-annealed 50-epoch run reliably lands ~0.05 below baseline. This is the LR-schedule caveat biting
 in the *opposite* direction the plan anticipated: the plan expected a dedicated short run to reach
 parity *at or below* the ladder estimate, but full annealing to a sharp minimum by ep50 generalizes
-**worse** than the under-annealed ep50 checkpoint of a 500-epoch cosine schedule (0.765).
+**worse** than the under-annealed ep50 checkpoint of a 500-epoch schedule (0.765).
 
 ### Exp 1 conclusion
 
 - **The epoch floor is not reached by shortening the schedule.** A dedicated fully-annealed run needs
   well more than 50 epochs; at 50 it reliably underperforms (~0.69).
 - **The cheap path to parity is early-stopping the standard long schedule.** ep100–150 checkpoints of
-  the 500-epoch cosine run clear δ (Δ −0.013 / −0.011, ns); ep500 overfits. So the minimal cold-start
-  recipe is *run the standard (long-cosine) schedule but stop at ~150 epochs* → **~70% compute cut at
+  the 500-epoch run clear δ (Δ −0.013 / −0.011, ns); ep500 overfits. So the minimal cold-start
+  recipe is *run the standard (long) schedule but stop at ~150 epochs* → **~70% compute cut at
   parity** (150/500), with the added benefit of avoiding the ep500 overfit regression.
 - **E_cold (operational) ≈ 150 epochs, early-stopped from the standard schedule.** A crisp "dedicated
   E-epoch run" floor below 500 does not exist for full annealing on this data.
@@ -136,7 +193,7 @@ which the Exp 1 ladder already measured on full data. The `epoch100` checkpoint 
   CI[−0.027,+0.006] ns. (ep50 is stronger still: recall Δ +0.023.)
 
 **Minimal Phase A recipe (confirmed):** *cold-start (COCO), full real `nhrl_robots_bbox`, the standard
-500-epoch cosine schedule, early-stopped/checkpointed at ~ep100 (as low as ep50).* This matches the
+500-epoch schedule, early-stopped/checkpointed at ~ep100 (as low as ep50).* This matches the
 500-epoch full-data baseline on recall, precision, and F1 at **~1/5 the epochs (~5× compute cut, ~3 h vs
 14.6 h)** and avoids the ep500 overfit regression.
 
