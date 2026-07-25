@@ -21,10 +21,17 @@ The deliverable is not one number but three things: (1) a Pareto frontier of ima
 epochs-to-parity, (2) a committed, documented **base checkpoint** to fine-tune all future models from,
 and (3) a one-line minimal recipe ("from `C*`, fine-tune `E` epochs on `N` real images → parity").
 
-## Scope — two phases, one methodology
+## Scope — three phases, one methodology
 
-The same four sub-experiments run twice, once per detector family. The methodology (§Method) is
-identical; only the baseline, dataset, `--labels`, and parity metric change.
+The same four sub-experiments run per detector family (Phases A, B). The methodology (§Method) is
+identical; only the baseline, dataset, `--labels`, and parity metric change. **Phase C** (added
+2026-07-25) is a model-scale sweep that reuses Phase A's cheap recipe — see its own section.
+
+> **Execution status (2026-07-25).** Phase A is running to completion. **Phase B is on hold** pending the
+> user's assessment of Phase A results, and when it does run it runs in a **cut-down** form — only the
+> informative diagonal of the real×synth grid (small-real+abundant-synth and large-real+no-synth) plus the
+> Exp 3B sequential-vs-random scene-variation probe, **not** the full grid — enough to trace the
+> substitution frontier. Phase C also waits on the Phase A assessment.
 
 | | Phase A — bbox opponent detector | Phase B — keypoint pose model |
 |---|---|---|
@@ -98,6 +105,22 @@ reduced regime discovered earlier.
 
 ### Step 0 — instrument, and measure the parity noise floor
 
+> **Instrumentation DONE (2026-07-23).** All three levers are wired and smoke-validated on megamind:
+> `--save-period`/`--fraction` passthrough in `train.py` **and** `fine_tune_train.py`, and the new
+> `training/yolo/pool_datasets.py` (Recipe C). A 2-epoch `--save-period 1 --fraction 0.05` `yolo26n` run
+> emitted `weights/epoch0.pt`+`epoch1.pt` with val held at the full split; `pool_datasets.py
+> --synth-fraction 0.25 --synth-order sequential` produced full-real + exactly 25%-synth, hardlinked,
+> and the pooled tree passed `split_yolo_dataset.py` → `validate_yolo_integrity.py --strict` (0 errors).
+> `--synth-order random` is seeded/deterministic and genuinely reorders selection.
+>
+> **Noise floor DONE (2026-07-23), Phase A: δ = 0.04.** The prior paired run's agnostic-recall delta CI
+> is [−0.0355, +0.00997] → half-width 0.0227, so δ = max(0.04, 1.5 × 0.0227) = max(0.04, 0.034) = **0.04**
+> (the default holds). A fresh baseline-only `score.py` on the sm86 engine reproduced the reference
+> exactly on megamind (agnostic recall **0.742**, precision 0.962, F1 0.838, mAP50-95 0.504; engine is
+> 5-class, `output [1,9,8400]`, `--labels "opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3"`,
+> `taxonomy.yaml`, conf 0.5) → the scoring pipeline is validated on the training box. Exp 1–4 are the
+> compute campaign.
+
 Two small enablers make the whole plan affordable; both are Ultralytics-native and currently unwired:
 
 1. **`save_period`** — `model.train(..., save_period=N)` writes `weights/epoch{0,N,2N,...}.pt` in
@@ -143,10 +166,11 @@ frames, before committing compute.
   timestamp+frame index, so filename order **is** render-sequence order → scene-correlated); `random` =
   seeded `random.sample` (require `--seed`, print it, so an arm is reproducible and comparable across the
   sequential/random pair).
-- **Hardlink `os.link`, both members of each pair together** — the image and its stem-matched label
-  sidecar, whatever the extension (YOLO `.txt` for bbox; keypoint sidecars such as `.npy` for pose — do
-  not assume `.txt`). Source-prefix output filenames (`real__…`, `synth__…`) so the two corpora never
-  collide, matching the runbook's Recipe C convention.
+- **Hardlink `os.link`, image + its stem-matched `.txt` label together.** Labels are YOLO `.txt` for
+  both bbox and pose; the `.npy` / `labels.cache` files sitting next to images are ultralytics
+  `cache="disk"` artifacts (derived), so **skip** them — training regenerates the cache. Source-prefix
+  output filenames (`real__…`, `synth__…`) so the two corpora never collide, matching the runbook's
+  Recipe C convention.
 - **Output** is one flat `images/`+`labels/` ready to hand to `split_yolo_dataset.py` →
   `validate_yolo_integrity.py --strict`. **Pool into the train split only:** to honor "val real-only and
   identical across arms," carve a fixed real-only val split **once** and reuse it, or run
@@ -242,6 +266,11 @@ in only where the frontier is ambiguous. The load-bearing Phase B question: **do
 synthetic let a much smaller `N_real` still hold recall *and* heading acc @10°** (heading is the gate that
 a synthetic-only pose can silently fail — see risks).
 
+> **Cut-down Phase B (decided 2026-07-25).** When Phase B runs, run **only** this diagonal (the two
+> corners above) plus Exp 3B below — do **not** fill the interior grid cells. That is enough to trace the
+> substitution frontier and answer the load-bearing question cheaply; interior cells are added later only
+> if a specific corner is ambiguous.
+
 **Exp 3B — synthetic scene-variation probe (sequential vs random).** Hold real fixed at a chosen `N_real`
 (keep the real image count the same across every arm) and use the `--synth-fraction`/`--synth-order` lever
 to sweep synthetic fraction `f ∈ {0.1, 0.25, 0.5, 1.0}` **twice**: once `--synth-order sequential`
@@ -262,6 +291,49 @@ re-confirm the epoch floor *at that data size* (small data may need a few more o
 paired vs baseline, is the headline result: "this recipe matches the 500-epoch full-data baseline."
 
 Output: the one-line recipe + its scored parity verdict.
+
+## Phase C — model-scale sweep at the Phase A minimal recipe
+
+> Added 2026-07-25. Runs **after Phase A is assessed** (Phase B is on hold pending that review). Phase C
+> reuses Phase A's *cheap recipe* as a fixed budget and sweeps backbone capacity.
+
+**Question.** Phase A finds the minimal `(epochs E*, real fraction N_real*)` that reaches parity for the
+**nano** bbox detector. Phase C asks the orthogonal question: **holding that cheap training budget fixed,
+how do detection and pose quality — and Jetson latency — scale with backbone size (n → s → l → x)?** The
+deliverable is an **accuracy × latency frontier** at the cheap regime, and a recommended deployable scale
+per head that maximizes accuracy within the **<60 ms end-to-end** budget.
+
+**Scope — both families, four scales each.**
+
+- **bbox/detect:** `yolo26{n,s,l,x}` on `nhrl_robots_bbox` (real-only, per Phase A).
+- **pose:** `yolo26{n,s,l,x}-pose` on the keypoint substrate. (Phase C needs only the *recipe* from
+  Phase A/B, not Phase B's synthetic-substitution study; it can run independently of Phase B.)
+
+**Fixed recipe (from Phase A Exp 4):** cold-start, `--fraction N_real*`, early-stopped at `E*` (the
+confirmed minimal schedule — not a fresh full-anneal short run; see Exp 1's LR-schedule finding),
+`--save-period` ladder, one arm per scale. Score every scale **paired vs the deployed nano baseline and
+against each other** on `nhrl_keypoints_eval_test`, same `--labels`/taxonomy/conf as its family.
+
+**Metrics.** Family parity metrics (agnostic recall + precision/F1; pose adds heading acc @10°) **plus
+measured Jetson latency per scale** — latency is the binding deployment constraint (the whole system
+targets <60 ms end-to-end), so report accuracy *against* latency, never accuracy alone. Build each scale's
+`aarch64_sm87` engine on the Jetson for the latency pass (runbook §4); score accuracy on the sm86/sm89
+desktop engine.
+
+**Load-bearing caveat — the cheap recipe is nano-tuned.** `E*`/`N_real*` were found to saturate *nano*
+capacity. Larger backbones may be **under-trained** at that budget (more capacity wants more data/epochs),
+so a flat or inverted accuracy-vs-size curve at the cheap regime is a real, interpretable result — it says
+"the cheap regime saturates nano; bigger models need a bigger budget to pay off," **not** "bigger is
+worthless." Disambiguate by running the largest scale at *both* the cheap budget and a fuller budget; if
+the fuller budget lifts it clearly, the recipe is nano-specific and Phase C's frontier must be read as
+"cheap-budget accuracy," not "model-capacity ceiling."
+
+**Prerequisites.** Add `yolo26{s,l,x}` and `yolo26{s,x}-pose` entries to `train.py`'s `configs` dict with
+VRAM-scaled batch sizes (l/x on 3× A6000 will need smaller batches); a Jetson latency-measurement pass.
+
+**Output.** Per-head accuracy × latency frontier across n/s/l/x at the Phase A cheap regime; the
+recommended deployable scale within the 60 ms budget; and whether the cheap recipe transfers across
+capacity or is nano-specific.
 
 ## Execution notes (per `experiment_runbook.md`)
 

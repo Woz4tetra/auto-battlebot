@@ -96,6 +96,29 @@ def main() -> None:
         help="Image cache: 'ram' avoids per-epoch disk IO if the resized cache fits in RAM. "
         "'disk' (default) reads full-res .npy each epoch, starving GPUs if it exceeds RAM.",
     )
+    parser.add_argument(
+        "--save-period",
+        default=0,
+        type=int,
+        help="Save a checkpoint every N epochs (weights/epoch{0,N,2N,...}.pt) in addition to "
+        "last.pt/best.pt. Default 0 disables periodic saving (current behavior). Turns one long "
+        "run into an epoch-vs-metric ladder for the data_epoch_min experiment.",
+    )
+    parser.add_argument(
+        "--fraction",
+        default=1.0,
+        type=float,
+        help="Train on the first FRACTION of the (shuffled) train split; val untouched. Default "
+        "1.0 uses all data. Cheap single-source real-data lever for the data-floor sweeps. Note: "
+        "this subsamples one dataset and cannot set a real:synthetic ratio (use pool_datasets.py).",
+    )
+    parser.add_argument(
+        "--seed",
+        default=0,
+        type=int,
+        help="Training RNG seed (default 0 = Ultralytics default). Vary it to measure run-to-run "
+        "variance, which data_epoch_min Exp 1 found (~0.05 recall) can exceed the parity margin.",
+    )
     args = parser.parse_args()
 
     dataset = args.dataset
@@ -105,6 +128,9 @@ def main() -> None:
     devices = tuple(args.devices)
     workers = args.workers
     cache = False if args.cache == "false" else args.cache
+    save_period = args.save_period
+    fraction = args.fraction
+    seed = args.seed
 
     if len(devices) == 0:
         devices_filtered = None
@@ -173,6 +199,9 @@ def main() -> None:
             device=devices_filtered,
             workers=workers,
             cache=cache,
+            save_period=save_period,
+            fraction=fraction,
+            seed=seed,
             **hyper_params,
             **settings,
         )

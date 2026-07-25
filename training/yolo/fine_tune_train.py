@@ -65,6 +65,22 @@ def main() -> None:
         type=str,
         help="Comma-separated GPU device IDs (default: 0,1,2)",
     )
+    parser.add_argument(
+        "--save-period",
+        default=0,
+        type=int,
+        help="Save a checkpoint every N epochs (weights/epoch{0,N,2N,...}.pt) in addition to "
+        "last.pt/best.pt. Default 0 disables periodic saving. Produces the warm-start "
+        "epochs-to-parity ladder for the data_epoch_min experiment.",
+    )
+    parser.add_argument(
+        "--fraction",
+        default=1.0,
+        type=float,
+        help="Fine-tune on the first FRACTION of the (shuffled) train split; val untouched. "
+        "Default 1.0 uses all data. Single-source real-data lever for the warm-regime data-floor "
+        "sweep (Exp 3, Phase A).",
+    )
     args = parser.parse_args()
 
     dataset = args.dataset
@@ -73,6 +89,8 @@ def main() -> None:
     checkpoint_path = args.checkpoint
     lr0 = args.lr0
     devices = tuple(int(d) for d in args.devices.split(","))
+    save_period = args.save_period
+    fraction = args.fraction
 
     session_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -125,6 +143,8 @@ def main() -> None:
             project="../projects",
             device=devices,
             workers=24,
+            save_period=save_period,
+            fraction=fraction,
             **hyper_params,
             **settings,
         )
