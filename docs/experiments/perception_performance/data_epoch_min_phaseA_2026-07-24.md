@@ -131,23 +131,62 @@ parity *at or below* the ladder estimate, but full annealing to a sharp minimum 
 Artifacts: engines `runs/epoch_min_exports/phaseA_cold/`, scores
 `nhrl_keypoints_eval_test/scores_data_epoch_min_phaseA_exp1{,_confirm,_seeds}`.
 
-## Exp 2 — warm-start base checkpoint: not the Phase A lever (concluded, no new training)
+## Exp 2 — warm-start base checkpoint
 
-Both Phase A warm-base candidates already saw **100% of the real `nhrl_robots_bbox` training data**:
-`C_base` is the baseline itself, and `C_real` is an early checkpoint of the Exp 1 cold run. Consequences:
+**Question.** Does starting from an existing domain checkpoint instead of COCO reach parity in fewer
+epochs than cold-start — i.e. is `E_warm ≪ E_cold`? If so, future retrains should warm-start.
 
-- **Circular for cheap reproduction.** Fine-tuning from either trivially starts at/above parity (they
-  already are the target), so E_warm is ~0 by construction — it measures adaptation speed, not a floor.
-- **Invalid for the data floor.** A base that already memorized the full real set cannot reveal how
-  little real data suffices — the knowledge is already in the weights. The data-floor sweep (Exp 3) must
-  therefore run **cold** (from COCO) with `--fraction`, not warm.
-- **No `C_synth`.** Phase A trains real-only (2026-07-23 result: synthetic opponent appearance is
-  wrong-feature/wrong-context), so there is no synthetic-pretrained base to build.
+**Candidate bases.** The plan lists three; only two exist for Phase A.
 
-**Decision:** Phase A stays **cold-start, early-stopped** (the Exp 1 recipe). Warm-start-from-`C_base`
-remains the right tool for the *separate* "adapt the deployed baseline to a new event/robot" task (out of
-scope here) and is the ceiling anchor only. `E_warm` is not reported for Phase A. This matches the plan's
-anticipated "possibly none, stay cold-start for Phase A" outcome.
+| base | what it is | available? |
+|---|---|---|
+| `C_base` | the deployed baseline `.pt` (`yolo26n_nhrl_robots_bbox_2026-07-16`) | ✅ used |
+| `C_real` | an early checkpoint of the Exp 1 cold run (here `epoch50`) | ✅ used (already scored) |
+| `C_synth` | a synthetic-pretrained checkpoint | ❌ **does not exist** — Phase A trains real-only (2026-07-23: synthetic opponent appearance is wrong-feature/wrong-context), so there is no synthetic bbox corpus to pretrain on |
+
+**Method.** Two measurements:
+
+1. **Epoch 0 (the starting point).** Score each base *before any fine-tuning*, paired vs baseline — this
+   is what "warm start" begins from. Both numbers already exist: `C_base` **is** the baseline, and
+   `C_real` = `cold_e050` was scored in the Exp 1 ladder.
+2. **Fine-tune ladder.** Warm-start from `C_base` with `fine_tune_train.py`'s low-LR recipe
+   (`lr0 0.001`, `warmup_bias_lr 0.01`, full transfer: **708/708 items**, vs 606/708 for COCO cold-start),
+   full real data, `-e 50 --save-period 10`; export + score `epoch{10,20,30,40,50}` paired vs baseline.
+   Required adding a `yolo26n` detect entry to `fine_tune_train.py`'s `configs` (batch 128, matching
+   `train.py` so the arm is comparable to the cold runs).
+
+### Result 1 — both warm bases are already at parity at epoch 0
+
+| base | agnostic recall | Δ vs baseline | verdict |
+|---|---|---|---|
+| `C_base` (baseline itself) | 0.742 | 0.000 by construction | — at parity |
+| `C_real` (= `cold_e050`) | **0.765** | **+0.023** [+0.002, +0.047] | `better` |
+
+**`E_warm` = 0 epochs for both.** Neither base needs *any* fine-tuning to clear the δ-gate; they start at
+or above it. This is a measurement, not an assumption — and it is the circularity the plan predicted for
+`C_base` ("fine-tuning from it trivially starts at parity… report it as the ceiling, not the
+recommendation"), now shown to hold for `C_real` as well.
+
+### Result 2 — fine-tune ladder from `C_base`
+
+_(running: `-e 50 --save-period 10`, ladder scored paired vs baseline — table below when scored)_
+
+### What this does and does not answer
+
+- **Answered:** for *reproducing the baseline on the same data*, warm-starting saves nothing, because
+  `E_warm = 0` is trivially true — the bases already are the target. Warm start cannot be "cheaper than
+  cold" in any meaningful sense here; the comparison is degenerate.
+- **Deliberately out of scope:** whether warm-starting speeds up *adaptation to **new** data* (a new
+  event, a new opponent robot). That is the genuinely useful warm-start question, but it needs footage
+  that does not exist in this dataset, so it cannot be measured in Phase A. Flagged as future work.
+- **Scoping consequence for Exp 3 (not a result — a design decision).** The data floor must be measured
+  **cold**, not warm. A base that already trained on all 49086 real images has that information in its
+  weights, so fine-tuning it on 12.5% of the data would not measure "6136 images suffice" but "6136
+  images *plus a checkpoint that saw 49086* suffice" — useless to anyone starting fresh. Exp 3 therefore
+  sweeps `--fraction` from COCO.
+
+**Decision:** Phase A stays **cold-start, early-stopped** (the Exp 1 recipe). `C_base` is reported as the
+ceiling anchor only. This matches the plan's anticipated "possibly none, stay cold-start for Phase A".
 
 ## Exp 3 — real-image data floor (cold-start, `--fraction` sweep)
 

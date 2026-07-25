@@ -21,6 +21,13 @@ def main() -> None:
             "epochs": 150,
             "imgsz": 640,
         },
+        # Detect head; batch matches train.py's yolo26n so a warm-start arm is comparable to the
+        # cold-start runs it is graded against (data_epoch_min Exp 2).
+        "yolo26n": {
+            "batch": 128,
+            "epochs": 50,
+            "imgsz": 640,
+        },
     }
 
     parser = argparse.ArgumentParser(
