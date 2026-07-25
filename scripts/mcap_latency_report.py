@@ -53,7 +53,8 @@ class LatencySamples:
     window_note: str | None = None
 
 
-# First stage of the initialized tick path; its first sample marks successful field init.
+# First stage of the initialized tick path. Its first sample is published by the tick that
+# ran the field initialization itself, so the window starts strictly after that tick.
 FIELD_INIT_STAGE = "runner.field_filter.track_field"
 
 
@@ -65,8 +66,10 @@ def _window_after_field_init(
     rate_hz: list[float],
     first_ns: int,
 ) -> tuple[int, list[float], str]:
-    """Trim samples to those at or after the first field-init sample, in place.
+    """Trim samples to those strictly after the first field-init sample, in place.
 
+    The first field-init sample belongs to the tick that ran the field computation, so its
+    own timings (inflated by that computation) are excluded along with everything before it.
     Returns (t0, trimmed rate_hz, window note). Exits if the field never initialized.
     """
     if not stage_t_ns.get(FIELD_INIT_STAGE):
@@ -78,16 +81,14 @@ def _window_after_field_init(
         sys.exit(1)
     t0 = stage_t_ns[FIELD_INIT_STAGE][0]
     for stage in list(stage_t_ns):
-        kept = [
-            (t, ms) for t, ms in zip(stage_t_ns[stage], stage_ms[stage], strict=True) if t >= t0
-        ]
+        kept = [(t, ms) for t, ms in zip(stage_t_ns[stage], stage_ms[stage], strict=True) if t > t0]
         if kept:
             stage_t_ns[stage] = [t for t, _ in kept]
             stage_ms[stage] = [ms for _, ms in kept]
         else:
             del stage_t_ns[stage]
             del stage_ms[stage]
-    rate_hz = [r for t, r in zip(rate_t_ns, rate_hz, strict=True) if t >= t0]
+    rate_hz = [r for t, r in zip(rate_t_ns, rate_hz, strict=True) if t > t0]
     window_note = f"Window: after field init ({(t0 - first_ns) / 1e9:.1f} s into the recording)"
     return t0, rate_hz, window_note
 
