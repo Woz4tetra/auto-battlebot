@@ -67,7 +67,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # clang-format's output is version-dependent (14 writes `override{}`, 18 writes
 # `override {}`), so an unpinned binary rewrites the tree differently on every
 # machine. Resolve the version in .llvm-version; install it with
-# scripts/install_llvm_toolchain.sh.
+# install/install_llvm_toolchain.sh.
 LLVM_VERSION=$(tr -d '[:space:]' < "$PROJECT_ROOT/.llvm-version" 2>/dev/null || true)
 
 # Echo the pinned binary for an LLVM tool: the versioned name if present, else
@@ -99,7 +99,7 @@ else
     RUN_CLANG_TIDY=""
 fi
 
-LLVM_HINT="run scripts/install_llvm_toolchain.sh"
+LLVM_HINT="run install/install_llvm_toolchain.sh"
 
 # mode-label: "check" under --dry-run, else "apply", for formatter headers.
 mode_label() { [ "$DRY_RUN" = true ] && echo "check" || echo "apply"; }

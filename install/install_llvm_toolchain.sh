@@ -13,18 +13,24 @@
 # apt.llvm.org is added for them (it publishes amd64 and arm64, covering both
 # the dev boxes and the Jetson).
 install_llvm_toolchain() {
-    local project_root="${1:?project root required}"
-    local version_file="$project_root/.llvm-version"
+    local project_root
+    project_root=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
 
+    local version_file="$project_root/.llvm-version"
     if [ ! -f "$version_file" ]; then
         echo "Error: $version_file not found"
-        exit 1
+        return 1
     fi
 
     local version
     version=$(tr -d '[:space:]' < "$version_file")
 
-    local packages=("clang-format-$version" "clang-tidy-$version" "clangd-$version")
+    if command -v "clang-format-$version" &>/dev/null \
+        && command -v "clang-tidy-$version" &>/dev/null \
+        && command -v "clangd-$version" &>/dev/null; then
+        echo "LLVM $version tooling already installed: $("clang-format-$version" --version)"
+        return 0
+    fi
 
     if ! apt-cache show "clang-tidy-$version" >/dev/null 2>&1; then
         local codename
@@ -37,19 +43,13 @@ install_llvm_toolchain() {
         sudo apt update
     fi
 
-    local missing=()
-    local pkg
-    for pkg in "${packages[@]}"; do
-        if ! dpkg -s "$pkg" >/dev/null 2>&1; then
-            missing+=("$pkg")
-        fi
-    done
-
-    if [ ${#missing[@]} -eq 0 ]; then
-        echo "LLVM $version tooling already installed"
-        return
-    fi
-
-    echo "Installing LLVM $version tooling: ${missing[*]}"
-    sudo apt install -y "${missing[@]}"
+    echo "Installing LLVM $version tooling..."
+    sudo apt install -y "clang-format-$version" "clang-tidy-$version" "clangd-$version"
 }
+
+# Also runnable directly, so the toolchain can be repaired without redoing a
+# full platform install (scripts/lint points here when the pin is missing).
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    set -e
+    install_llvm_toolchain
+fi

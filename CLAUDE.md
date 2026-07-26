@@ -33,8 +33,9 @@ Run before committing:
 - C++: Google style, 4-space indent, 100-char line limit (`.clang-format`)
 - The clang toolchain is pinned to the major version in `.llvm-version` — the
   unversioned distro packages differ per release (14 on 22.04/JetPack, 18 on
-  24.04) and reformat the tree inconsistently. Install it with
-  `./scripts/install_llvm_toolchain.sh`; `scripts/lint` uses the versioned
+  24.04) and reformat the tree inconsistently. Every platform install sets it
+  up; to repair it alone run `./install/install_llvm_toolchain.sh`, and
+  `scripts/lint` uses the versioned
   binaries and skips the step if they are absent.
 - Python: `ruff`
 - TOML: `taplo`

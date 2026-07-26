@@ -25,7 +25,7 @@ check_os_ubuntu_24
 install_tensorrt_runtime_ubuntu
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
 install_packages "$PROJECT_ROOT/install/ubuntu_24_packages.txt"
-install_llvm_toolchain "$PROJECT_ROOT"
+install_llvm_toolchain
 install_docker_ubuntu
 install_ros_connector
 install_mcap_cli

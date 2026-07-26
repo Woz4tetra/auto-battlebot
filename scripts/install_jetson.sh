@@ -28,7 +28,7 @@ check_jetson_orin_nano
 # Step 0: Install TensorRT runtime (before CMake)
 install_packages "$PROJECT_ROOT/install/jetson_packages.txt"
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
-install_llvm_toolchain "$PROJECT_ROOT"
+install_llvm_toolchain
 install_opencv_jetson
 # Python venv (creates venv/, installs deps; also pulls Jetson PyTorch wheel)
 install_python_environment -n
