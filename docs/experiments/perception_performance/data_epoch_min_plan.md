@@ -1,6 +1,7 @@
-# Warm-start vs cold retrain on unseen scenes — experiment plan
+# Adding a robot category: fine-tune vs cold retrain — experiment plan
 
-Status: **planned** (rewritten 2026-07-25, supersedes the "minimum data + epochs" framing). Follows the
+Status: **planned**; Steps 1a and 1b are **built**. Rewritten 2026-07-25, superseding the "minimum data
++ epochs" framing and then the first "warm-start on unseen scenes" draft. Follows the
 pipeline in `experiment_runbook.md` (collect → prepare megamind → train → export → score). Each phase's
 writeup goes in `data_epoch_min_<phase>_<date>.md` once scored.
 
@@ -24,18 +25,23 @@ synthetic axis from Phase A rested on that error.
 
 ## Question
 
-**When new footage arrives, is it cheaper to retrain cold on everything, or to warm-start from the
-checkpoint trained on the old footage?**
+**When a new robot category appears in the data, is it cheaper to fine-tune the deployed checkpoint
+than to retrain from scratch — and does the new category arrive without costing the old ones?**
 
-Stated as a decision the next retrain actually faces: you have a deployed detector trained on the
-fights you had, and you have just captured a batch of new fights. Two options — throw both corpora at
-a fresh COCO-initialized run, or fine-tune the deployed checkpoint. The deliverable is a **cost-to-
-parity comparison in GPU-hours**, not epochs, plus a retention verdict (does warm-starting forget the
-old fights?).
+This is the retrain decision in its concrete form. You have a detector trained on the roster you had.
+A new robot — ours, `mrs_buff_mk3` — starts showing up in footage, and it is a *class the deployed
+model does not have*, not just more examples of classes it knows. Two paths:
 
-The design that answers it: split the real recordings by **scene**, treat one half as "old" (what the
-deployed model saw) and the other as "new" (footage it has never seen), and compare training paths to
-the same final corpus.
+- **fine-tune** the deployed checkpoint on the enlarged corpus, growing the head from 4 classes to 5
+- **retrain cold** from COCO on the enlarged corpus
+
+The deliverable is a comparison on three axes: **GPU-hours to reach parity**, **whether the new
+category is learned as well by each path**, and **whether the pre-existing categories regress** —
+the failure mode fine-tuning is prone to and a cold retrain is not.
+
+The scene split (§Step 1b) makes this measurable without collecting anything: it is temporal, and all
+three real `mrs_buff_mk3` scenes are 2026-04, so the `old` half contains **zero** instances of the
+class. `old` is a genuine "before the new robot existed" corpus, and `old ∪ new` is "after."
 
 ## Definitions
 
@@ -210,10 +216,16 @@ Step 0** and use only re-anchored numbers thereafter.
 1. **Corpus audit (mandatory, ~30 s).** Count frames and boxes by source and class for any dataset
    before training on it. Phase A skipped this and spent 14.6 h training on a substrate it had
    mis-described. Print the table into the writeup.
-2. **Re-anchor the baseline** under the corrected `--labels` (above): one baseline-only `score.py` run
-   on the sm86 engine. Record recall/precision/F1/mAP and the recall CI half-width. Confirm δ still
-   holds at 0.04; if the half-width grew, re-derive δ = max(0.04, 1.5 × half-width).
-3. **Report both mappings once** so this experiment's numbers can be reconciled with Phase A's.
+2. **Re-anchor the baseline under the corrected `--labels` AND under both taxonomies** (§Step 4): one
+   baseline-only `score.py` run per view on the sm86 engine. Record recall/precision/F1/mAP and the
+   recall CI half-width for each. The common-class view drops `mrs_buff_mk3` from GT, so its reference
+   numbers will *not* be the familiar 0.742 / 0.962 / 0.838 — those were measured with the class
+   included. Confirm δ still holds at 0.04 per view; if a half-width grew, re-derive
+   δ = max(0.04, 1.5 × half-width) for that view.
+3. **Report all mappings once** so this experiment's numbers can be reconciled with Phase A's.
+4. **`old_4class.yml` — written 2026-07-25.** `nc: 4`, `names` truncated after `mr_stabs_mk2`,
+   `train: old/images`, `val: hold_old/images`. Both groups were asserted to contain **zero** class-4
+   label lines before it was written, since ultralytics would not catch a stray one.
 
 Instrumentation from Phase A is already wired and validated: `--save-period`, `--fraction`, `--seed` in
 `train.py`; `--save-period`/`--fraction` in `fine_tune_train.py`; `training/yolo/pool_datasets.py`.
@@ -251,7 +263,7 @@ Roles: `old` = what the "deployed" base trains on; `new` = footage it has never 
 Ultralytics `val` for every arm = `hold_old ∪ hold_new`, identical across arms, for live
 plateau-watching only. Verdicts always come from `nhrl_keypoints_eval_test`.
 
-Emitted alongside the groups: **`old.yml`, `new.yml`, `old+new.yml`** (train on those groups, validate
+Emitted alongside the groups: **`old.yml`, `new.yml`, `old+new.yml`, `old_4class.yml`** (train on those groups, validate
 on both holdouts) and **`split_manifest.json`** (per-group scene lists, periods, and class counts).
 Images are hardlinked, so the tree costs label bytes only.
 
@@ -277,96 +289,109 @@ while the eval GT names it `opponent`. Remap the holdout labels (`edit_yolo_clas
 Pooling synthetic (for the follow-on only) stays in `pool_datasets.py`, sourced from
 `synth_bbox_from_keypoints` — never by reaching back into the contaminated `nhrl_robots_bbox`.
 
-### Step 2 — Arm 0: build the warm base, and check the experiment is not degenerate
+### Step 2 — Run 1 (`base4`): the pre-existing-roster model
 
-Cold from COCO on `old.yml` (real-only, 14464 frames), standard 500-epoch schedule,
-`--save-period 25`. Export and score a ladder of ~6 early checkpoints paired vs baseline.
+Cold from stock `yolo26n.pt` (COCO) on **`old`**, **4 classes** — `object, robot, house_bot,
+mr_stabs_mk2`, with `mrs_buff_mk3` genuinely absent from the vocabulary, not merely unpopulated.
+**150 epochs, fully annealed** over its own budget, `--save-period 25`. Val = `hold_old`.
 
-- The best early checkpoint becomes **`C_old`**, the warm base, committed to
-  `data/models/yolo26n_scenesplit_old_<date>.pt` with its recipe.
-- **Degeneracy check — this gates everything downstream.** If `C_old` already clears the parity gate,
-  then NEW footage adds nothing measurable and the warm-vs-cold comparison collapses the same way
-  Phase A's did. **Do not proceed to Step 3.** Instead make the split more lopsided (OLD 25 % / NEW
-  55 %) and rebuild, or report "half the scenes already saturate this eval set" as the result — which
-  would itself be a significant finding about eval-set headroom.
-- Record the **deficit**: `C_old`'s recall/precision/F1 delta vs baseline. This is the gap the NEW data
-  has to close, and the yardstick for whether either arm in Step 3 succeeded.
+**No relabeling is required, which is a property of the split rather than luck.** `mrs_buff_mk3` is
+the *last* class index, and `old` and `hold_old` both contain **zero** `mrs_buff_mk3` boxes. So the
+4-class dataset is the same hardlinked frames under a `data.yml` with `nc: 4` and a truncated `names`
+list — no `edit_yolo_classes.py` pass, no dropped annotations, no reindexing. Run 1's vocabulary is a
+strict prefix of run 2's, which is exactly what makes the head grow cleanly in Step 3.
 
-Phase A's expectation-setting: a random-frame 50 % corpus held recall (+0.036) but lost precision
-(−0.054). A scene-wise, *temporally earlier* 40 % is strictly harder still — fewer distinct fights,
-less context diversity, and an 18-month-older roster — so a real deficit is likely. Confirm it, do
-not assume it.
+Val is `hold_old` alone, **not** `hold_old ∪ hold_new`: `hold_new` carries 110 `mrs_buff_mk3` boxes,
+a class index this model does not have. Runs 2 and A use both holdouts.
 
-Expect `C_old` to score near zero on `mrs_buff_mk3`: `old` contains no real footage of our own robot
-(§Step 1b). The eval set has 389 `mrs_buff_mk3` boxes, so this will drag the agnostic recall of every
-`old`-only arm. Read the deficit at the agnostic level *and* per class before concluding the base is
-weak overall — a base that is fine on opponents and blind to us is a different problem from a base
-that is uniformly weak.
+Output: the best checkpoint by external eval becomes **`C_old4`**, committed to
+`data/models/yolo26n_scenesplit_old4_<date>.pt`.
 
-### Step 3 — the four arms
+> **The 150-epoch schedule is a bet this step must also settle.** Phase A did *not* find that a
+> dedicated annealed short run works — it found the opposite at every length it tested: dedicated
+> fully-annealed runs scored 0.710 (e30) and 0.707 / 0.688 / 0.675 (e50 × 3 seeds), all failing the
+> gate, while *early-stopped checkpoints of the 500-epoch schedule* reached 0.729–0.765. Its
+> `E_cold ≈ 150` was an early-stop point on a long schedule, not a dedicated 150-epoch run. A
+> dedicated 150 is genuinely **untested** — plausibly the length where annealing stops hurting, but
+> unproven. The `--save-period 25` ladder settles it for free: score ep{25,50,75,100,125,150} and
+> check whether the fully-annealed ep150 endpoint beats its own earlier checkpoints. **If the endpoint
+> is worse than an earlier one, Phase A's pattern has repeated at 150** and every run here should
+> revert to early-stopping a 500-epoch schedule. Record this verdict before running Step 3.
 
-All arms train **real-only** on the `scenesplit_2026-07-25` groups and end on the **same final
-corpus** (`old ∪ new`), except Arm C, whose whole point is that it does not. Same `val`, same eval, same conf,
-same `--labels`. Holding synthetic out of every arm removes it as a confound entirely — it is measured
-separately in the follow-on.
+### Step 3 — Run 2 (`warm5`) and Run A (`cold5`)
 
-| arm | init | trains on | question it answers |
+Both train on **`old+new`** (28671 frames, 41 scenes) with the full **5-class** vocabulary, 150
+epochs, `--save-period 25`, val = `hold_old ∪ hold_new`. They differ only in initialization.
+
+| run | init | trains on | classes | what it answers |
+|---|---|---|---|---|
+| **1 — `base4`** | COCO | `old` | 4 | the deployed model, before the new robot existed |
+| **2 — `warm5`** | `C_old4` | `old+new` | 5 | can the category be added by fine-tuning? |
+| **A — `cold5`** | COCO | `old+new` | 5 | **control** — what a full retrain achieves |
+
+- Run 2 uses `fine_tune_train.py -c <C_old4> --epochs 150 --save-period 25` (`lr0 0.001`,
+  `warmup_bias_lr 0.01`). Run A uses `train.py --epochs 150 --save-period 25` (`lr0 0.01`).
+- **Expect a partial head transfer, and record it.** `fine_tune_train.py` does `YOLO(ckpt)` then
+  `train(data=…)`; ultralytics builds the model at the *data's* `nc` and loads only shape-matching
+  parameters. Backbone, neck, and the box-regression branch transfer; the classification projection
+  changes shape (4 → 5 outputs) and is reinitialized. The printed transferred-items count is the
+  evidence that the head grew rather than the checkpoint being silently ignored — log it.
+- **The LR difference is a confound.** Warm runs at `lr0 0.001`, cold at `0.01`. Run **Run 2 at both**
+  to bound it; if the two agree, drop one from future work.
+
+### Step 4 — scoring: two views, and one hard constraint
+
+**Constraint: the 4-class engine cannot share a `score.py` invocation with the 5-class models.**
+`score.py` passes a single `--labels` list to every candidate as `num_classes`, and `trt_yolo.py`
+*trusts* that number rather than inferring it from the engine (`_infer_raw_head_dims`: "num_classes > 0
+is trusted"), so a 5-label list would misparse a 4-class output tensor. Therefore:
+
+- **Invocation A (the load-bearing one):** baseline + run 2 + run A, all 5-class, one paired bootstrap,
+  `--labels "object,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3"`. Every warm-vs-cold comparison lives
+  here and is properly paired.
+- **Invocation B:** run 1 alone, `--labels "object,opponent,house_bot,mr_stabs_mk2"`. Its numbers are
+  comparable to the others **descriptively only** — not paired. That is acceptable because run 1's job
+  is to produce `C_old4` and establish the starting deficit, neither of which needs a paired CI.
+
+Run both invocations under **two taxonomies**:
+
+| view | taxonomy `exclude` | measures | applies to |
 |---|---|---|---|
-| **A — cold-all** | COCO | `old+new.yml` | today's practice: full retrain from scratch |
-| **B — warm-all** | `C_old` | `old+new.yml` | is warm-starting cheaper to the same endpoint? |
-| **C — warm-new** | `C_old` | `new.yml` only | the operationally cheap path — and the forgetting probe |
-| **C′ — warm-new+replay** | `C_old` | `new` + 10 % of `old` | *conditional:* only if C shows forgetting |
+| **common-class** | `object`, `mrs_buff_mk3` | no-regression on the pre-existing roster | all runs + baseline |
+| **new-class** | `object`, `robot`, `house_bot`, `mr_stabs_mk2` | acquisition of the added category | runs 2 and A only |
 
-- Arms A and B: standard 500-epoch schedule, `--save-period 25`, score a ~6-checkpoint early ladder.
-  Arm B uses `fine_tune_train.py` (`lr0 0.001`, `warmup_bias_lr 0.01`).
-- Arm C: `fine_tune_train.py`, `-e 100 --save-period 10` (it has far less data; the ladder needs to be
-  finer at the low-epoch end).
-- **LR confound, state it explicitly.** Warm arms run `lr0 0.001` and cold arms `lr0 0.01`, so a raw
-  epoch comparison conflates initialization with schedule. Run **Arm B at both `lr0 0.001` and
-  `lr0 0.01`** to bound it. If the two agree, the confound is immaterial and one can be dropped from
-  future work.
+The common-class view is the only way to compare a 4-class model against 5-class ones fairly: without
+it, run 1 takes 389 automatic misses on the eval set's `mrs_buff_mk3` boxes and looks catastrophically
+worse for a reason that has nothing to do with its quality. **Re-anchor the baseline under each
+taxonomy in Step 0** — excluding `mrs_buff_mk3` changes the reference numbers away from the 0.742 /
+0.962 / 0.838 anchor, which was measured with it included.
 
-### Step 4 — what to measure
+**Also score every chosen checkpoint on `hold_old` and `hold_new` separately.** `hold_old` is the
+retention probe (zero `mrs_buff_mk3`, so it reads as a pure "did the old roster survive" signal);
+`hold_new` is acquisition. Reconcile GT class names first — the groups name class 1 `robot` while the
+eval GT names it `opponent`.
 
-**Verdict (external eval, paired):** every arm's ladder scored in one `score.py` run per arm,
-`--baseline` = the deployed baseline. Report each arm's *best early checkpoint* under the full gate
-(recall CI lb ≥ −0.04, precision and F1 not significantly worse) — Phase A established that the
-external-eval optimum is an early under-annealed checkpoint and the tail overfits, so **endpoints are
-not the arm's score.**
-
-**Cost, in GPU-hours, not epochs.** The headline comparison is *wall-clock to the first checkpoint that
-clears the gate*, plus total hours if no checkpoint clears. Epochs are not comparable across arms —
-Arm C's epochs are cheaper (less data) and warm arms may clear on epoch 5. Log per-epoch wall-clock and
-report hours-to-parity for each arm. Anchor: the Phase A full 500-epoch run on 49086 images took
-**14.6 h** on 3× A6000.
-
-**Retention and acquisition (the diagnostic pair):** score every arm's chosen checkpoint on `HOLD_OLD`
-and `HOLD_NEW` separately.
-
-- Arm C holding on `HOLD_NEW` but dropping on `HOLD_OLD` **is** catastrophic forgetting — that is the
-  finding, and it triggers Arm C′.
-- An arm gaining on `HOLD_NEW` without gaining on the external eval means it fit the new fights rather
-  than learning transferable signal. Phase A saw exactly this failure mode on val; the holdouts make it
-  visible instead of invisible.
-
-**Also record** per-arm precision separately from recall throughout. Phase A's one clear data-scaling
-signal was that precision, not recall, is what degrades first — and precision is the safety-side metric
-for aim-assist.
+**Cost in GPU-hours, not epochs.** All three runs are the same length, so what differs is wall-clock
+to the first checkpoint clearing the gate. Log per-epoch wall-clock. Anchor: Phase A's 500-epoch run on
+49086 frames took 14.6 h, so a 150-epoch run on ~28.7k frames should land near 2.5 h.
 
 ### Step 5 — the answer
 
-One table: arm × (best-checkpoint recall/precision/F1 Δ vs baseline, hours-to-parity, HOLD_OLD Δ,
-HOLD_NEW Δ). The recommendation is a sentence of the form *"when new footage arrives, do X; it reaches
-baseline parity in N hours versus M hours for a cold retrain."*
+One table: run × (common-class recall/precision/F1 Δ, `mrs_buff_mk3` AP, hours-to-first-passing-
+checkpoint, `hold_old` Δ, `hold_new` Δ). The recommendation is a sentence of the form *"to add a robot
+category, do X; it reaches parity in N hours versus M for a cold retrain, and costs the existing
+classes Y."*
 
-Possible outcomes, all publishable:
+Outcomes, all publishable:
 
-- **Warm wins** (`B` or `C` clears the gate in materially fewer GPU-hours than `A`) → adopt
-  warm-starting; commit `C_old`'s successor as the standing base and document the recipe.
-- **Warm ties** → stay cold-start; it is simpler and has no base-checkpoint provenance to manage.
-- **Warm-all ties but warm-new wins** → the useful result: skip re-staging the full corpus, fine-tune
-  on new footage only (subject to the retention check).
-- **Warm forgets** (`C` drops on `HOLD_OLD`) → quantify the replay fraction that fixes it (Arm C′).
+- **Warm wins** — run 2 matches run A on both views in materially fewer hours → adopt fine-tuning for
+  category additions, and commit `C_old4`'s successor as the standing base.
+- **Warm learns the class but regresses the old ones** — visible as common-class worse for run 2 than
+  run A, and/or a `hold_old` drop. Quantify the replay fraction that fixes it before adopting.
+- **Warm underperforms on the new class** — a reinitialized head on a converged backbone may not fit a
+  brand-new category in 150 epochs at `lr0 0.001`. Then category *additions* need cold retrains even if
+  ordinary data additions do not — a sharp, useful distinction.
+- **Tie** — stay cold-start; it is simpler and carries no checkpoint provenance.
 
 ## Follow-on — synthetic attribution (optional, secondary)
 
@@ -429,9 +454,22 @@ Run this only after Step 5 lands. It is a separate question and should not delay
 
 ## Risks / caveats
 
-- **Degeneracy is the main risk, again.** If `C_old` already clears parity, this experiment answers
-  nothing — same failure as Phase A Exp 2, one level up. Step 2's gate exists to catch it *before* the
-  expensive arms run. Do not skip it.
+- **Degeneracy is structurally impossible this time, and that is the point.** Phase A's Exp 2 died
+  because its warm base had already seen everything it was fine-tuned on. Here run 1 is a **4-class**
+  model that does not contain `mrs_buff_mk3` at all, so it cannot start at parity on the new class no
+  matter how good it is. The thing being added is guaranteed absent from the base.
+- **The 150-epoch annealed schedule is unproven, not established.** Phase A tested dedicated annealed
+  runs only at 30 and 50 epochs and both failed the gate; its `E_cold ≈ 150` was an *early-stop point
+  on a 500-epoch schedule*, a different model. Run 1's checkpoint ladder tests the assumption directly
+  (§Step 2). If the annealed endpoint loses to its own earlier checkpoints, revert every run to
+  early-stopping a long schedule before drawing conclusions about warm vs cold.
+- **A reinitialized head on a converged backbone may simply not converge at `lr0 0.001`.** Run 2 asks a
+  freshly-random class projection to learn a brand-new category while the low fine-tuning LR holds the
+  rest nearly still. If run 2 underperforms on `mrs_buff_mk3`, check the LR arm before concluding that
+  fine-tuning cannot add categories.
+- **The new class is thin: 252 training boxes across 21 scenes in `new`, 110 in `hold_new`.** Both
+  paths are learning `mrs_buff_mk3` from very little, so a small measured difference between them may
+  be noise on the new-class view specifically. Read `mrs_buff_mk3` AP as directional.
 - **"New scenes" are a proxy for "new event."** Held-out recordings from the same corpus share cage,
   lighting, and camera rig with the training half. This understates the difficulty of genuinely new
   footage, so a warm-start win here is an **upper bound** on warm-start value. State it in the writeup.
@@ -457,15 +495,17 @@ Run this only after Step 5 lands. It is a separate question and should not delay
 
 ## Success criteria
 
-- **Primary met** if Step 5 yields a scored, paired comparison of hours-to-parity between cold retrain
-  and warm start on genuinely unseen scenes — whichever direction it goes.
-- **Retention quantified** — whether warm-starting on new footage alone degrades performance on the old
-  distribution, and if so, the replay fraction that prevents it.
-- **Degenerate outcome is a result** — if `C_old` already clears parity, report "half the recordings
-  saturate this eval set," which says the eval set lacks headroom and should be expanded before further
-  data experiments.
-- **Neutral results are results** — if warm ties cold, future retrains stay cold-start for simplicity,
-  and that is a documented decision rather than an assumption.
+- **Primary met** if Step 5 yields a paired comparison of fine-tuning vs cold retraining for a
+  *category addition* — hours-to-parity, new-class acquisition, and old-class regression — whichever
+  direction it goes.
+- **Regression quantified** — whether growing the head from 4 to 5 classes on a converged checkpoint
+  costs the pre-existing categories anything, measured on both the eval set (common-class view) and
+  `hold_old`.
+- **The annealing question settled as a by-product** — run 1's `--save-period 25` ladder says whether a
+  dedicated 150-epoch annealed schedule beats its own early checkpoints, closing the gap Phase A left
+  between its tested e30/e50 failures and its untested e150.
+- **Neutral results are results** — if fine-tuning ties a cold retrain, future category additions stay
+  cold-start for simplicity, documented rather than assumed.
 
 ## Artifacts / locations
 
@@ -479,10 +519,14 @@ Run this only after Step 5 lands. It is a separate question and should not delay
   deployed baseline.
 - Scene-split datasets: **`training/data/scenesplit_2026-07-25/{old,new,hold_old,hold_new}/`** plus
   `old.yml` / `new.yml` / `old+new.yml` and `split_manifest.json` (hardlinked; sources unmodified).
-- Warm base: `data/models/yolo26n_scenesplit_old_<date>.{pt,onnx,engine}` (`C_old`).
-- Arm models: `data/models/yolo26n_scenesplit_<arm>_<date>.{pt,onnx,engine}` (`_x86_64_sm86`).
-- Scores: `training/data/nhrl_keypoints_eval_test/scores_scenesplit_<arm>/{summary.csv,
-  significance.csv, headline.png, confusion_*.png}`; holdout scores alongside.
-- Writeup: `docs/experiments/perception_performance/scenesplit_warmstart_<date>.md`.
+- Run 1 base: `data/models/yolo26n_scenesplit_old4_<date>.{pt,onnx,engine}` (`C_old4`, 4-class).
+- Run models: `data/models/yolo26n_scenesplit_{warm5,cold5}_<date>.{pt,onnx,engine}`
+  (`_x86_64_sm86`, 5-class).
+- Dataset yamls: `scenesplit_2026-07-25/{old_4class,old+new}.yml`; taxonomies
+  `taxonomy_common_class.yaml` / `taxonomy_new_class.yaml` under `training/model_eval/`.
+- Scores: `training/data/nhrl_keypoints_eval_test/scores_scenesplit_<view>/{summary.csv,
+  significance.csv, headline.png, confusion_*.png}` — one dir per taxonomy view, plus the
+  separate 4-class invocation; holdout scores alongside.
+- Writeup: `docs/experiments/perception_performance/category_addition_<date>.md`.
 - Superseded: `data_epoch_min_phaseA_2026-07-24.md` (Exp 1 results stand; Exp 2 invalid, Exp 3
   re-scoped to a corpus floor).

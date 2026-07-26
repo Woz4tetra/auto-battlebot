@@ -1,0 +1,15 @@
+# New-class scoring view for the category-addition experiment.
+#
+# Keeps ONLY mrs_buff_mk3 -- the category added in run 2 -- so acquisition is measured on its
+# own, uncontaminated by the far more numerous opponent/house_bot boxes. Applies to the 5-class
+# runs only; the 4-class run has no such head and would score a trivial zero.
+
+archetypes:
+  opponent: opponent
+  house_bot: house_bot
+
+exclude:
+  - object
+  - opponent
+  - house_bot
+  - mr_stabs_mk2

@@ -1,0 +1,722 @@
+# Adding a robot category: fine-tune vs cold retrain — 2026-07-25
+
+## What this answers, and how strongly
+
+This experiment was designed around one question and ended up touching several others. Evidence
+strength is graded explicitly so nothing here gets over-read the way `synthetic_plus_bbox`'s
+"real-only baseline" did.
+
+| open question | strength | what backs it |
+|---|---|---|
+| **Is starting from a checkpoint better than cold start?** | **strong** | runs 2 vs A — identical data, schedule, val, epochs; single variable is initialization. Paired bootstrap on the external eval. LR confound bounded by run 2b |
+| **When do I stop training YOLO?** | **moderate–strong** | the stopping rule *is* the parity gate: the earliest ladder checkpoint whose agnostic recall Δ CI lower bound ≥ −0.04 vs the deployed baseline, with precision and F1 not significantly worse. 5 independent ladders measure it directly. Held back from "strong" by one seed per run — see the δ-vs-variance caveat below |
+| **How much synthetic of our robots for the bbox model?** | **weak** | runs 3 / 3w test exactly one dose (1745 mrs_buff-only renders vs 0). Shows *whether*, not *how much* |
+| **How many real images do I need to label?** | **very weak** | run 1 (14464) vs run A (28671) differ in class count *and* time period as well as size. Not a scaling curve — see §Follow-ups |
+| How many synthetic images for the **keypoints** model? | **none** | every run here is `yolo26n` detect; the pose model was not touched |
+| How much real data for the **keypoints** model? | **none** | same |
+| **deeplab** field images / stopping point | **none** | `floor_mask_dataset` was never loaded |
+
+**The stopping rule, stated once.** The deployed baseline is sufficient for the application, so "good
+enough" means *non-inferior to the baseline*, not "as high as possible": stop at the earliest
+checkpoint where agnostic **recall** Δ has a 95% CI lower bound ≥ **−0.04** and **precision** and **F1**
+are not significantly worse, all measured paired against the baseline on `nhrl_keypoints_eval_test`.
+Every ladder in this report is read that way, and the reported answer per run is the *earliest*
+clearing checkpoint, not the best-scoring one.
+
+> **δ = 0.04 is close to the noise it has to beat.** Phase A measured seed-to-seed spread at a fixed
+> config as std **0.016** (three 50-epoch seeds), which is comfortably inside δ — but two nominally
+> identical 500-epoch runs differed by **0.048**, which is not. So a single run's checkpoint clearing
+> the gate is weaker evidence than the CI alone suggests: the CI covers eval-set resampling noise, not
+> retraining noise. Treat "earliest clearing checkpoint" as accurate to roughly ±1 ladder step, and
+> prefer a checkpoint one or two steps past the first crossing when committing a model. Confirming a
+> stopping point properly needs a second seed at that epoch — not run here.
+
+
+Executing `data_epoch_min_plan.md` on megamind (3× A6000, sm86). Substrate
+`nhrl_robots_bbox_real` (real-only, built this session), scene-split temporally into
+`scenesplit_2026-07-25`. Verdicts on the independent eval `nhrl_keypoints_eval_test`
+(372 reviewed frames), paired bootstrap 1000×, conf 0.5.
+
+**Question.** A new robot category — our own `mrs_buff_mk3` — appears in footage that the deployed
+detector's vocabulary does not contain. Is it cheaper to grow the deployed checkpoint's head from 4
+classes to 5 by fine-tuning, or to retrain cold from COCO? And does the new category arrive without
+costing the categories already there?
+
+---
+
+## Why this experiment replaced the previous one
+
+`data_epoch_min_phaseA_2026-07-24.md` attempted a warm-start experiment and produced a non-result: both
+warm bases were fine-tuned on the corpus they had already been trained on, so "warm start reaches
+parity in 0 epochs" was true by construction. The audit that followed found two further problems, both
+corrected here:
+
+1. **The substrate was not real-only.** 34.6 % of `nhrl_robots_bbox` is synthetic renders, including a
+   100 %-synthetic `object` class. Every "real-image floor" statement in Phase A was measuring a mixed
+   corpus.
+2. **`Mrs Buff MK2` in the NHRL footage was labelled as our robot.** It is a different machine; 2088
+   boxes of an opponent were training the detector to call it us.
+
+## Corpus construction
+
+**`nhrl_robots_bbox_real`** — derived from `nhrl_robots_indiv`, the only real-only dataset on megamind
+(84-class instance segmentation, zero synthetic), via
+`seg_to_bbox.py` → `remap_labels.py` → merge of the real component of `our_robot_keypoints`.
+
+- **36107 frames, 109970 boxes, zero synthetic.** `validate_yolo_integrity.py --strict`: 0 errors,
+  0 warnings.
+- `remap_config_seg.toml` was **index-stale** (111 entries for an 84-class source; it pointed at
+  indices 44-47/69/70 where the names now sit at 35-37/55/56) and would have silently mis-labelled.
+  Replaced by `remap_config_indiv_to_bbox.toml`, generated by *name* lookup.
+- `Mrs Buff MK2` → `robot` (opponent). `Flight Controller 1`/`2` → `object` (excluded at scoring).
+  `power on` and `usawgi` were checked against the pixels and are genuine competitors → `robot`.
+- Real `mrs_buff_mk3` supervision comes from `our_robot_keypoints`: 362 frames from three April 2026
+  recordings, pose→bbox converted, adding 362 `mrs_buff_mk3` + 108 `mr_stabs_mk2` boxes.
+
+| split | frames | `object` | `robot` | `house_bot` | `mr_stabs_mk2` | `mrs_buff_mk3` |
+|---|---|---|---|---|---|---|
+| train | 32498 | 228 | 69785 | 25417 | 3288 | 328 |
+| val | 3608 | 18 | 7688 | 2799 | 382 | 34 |
+
+## The scene split
+
+`split_by_scene.py --mode temporal --cutoff 2025-11 --holdout-frac 0.2 --stratify-class robot,house_bot`
+
+Split on **recording date**, not stratified. A stratified split makes `old` and `new` the same
+distribution, and then there is nothing unique for a new-data-only fine-tune to forget — the retention
+probe measures nothing. Real new footage arrives from a later event. All 59 scenes date cleanly from
+their names (explicit dates, NHRL tournament tags, or unix epoch stems) across 2024-06 → 2026-04.
+
+| group | scenes | frames | share | `object` | `robot` | `house_bot` | `mr_stabs_mk2` | `mrs_buff_mk3` |
+|---|---|---|---|---|---|---|---|---|
+| `old` | 20 | 14464 | 40.1 % | 246 | 34166 | 13607 | 502 | **0** |
+| `new` | 21 | 14207 | 39.3 % | 0 | 28600 | 8920 | 2173 | 252 |
+| `hold_old` | 8 | 3893 | 10.8 % | 0 | 7993 | 3346 | 460 | 0 |
+| `hold_new` | 10 | 3543 | 9.8 % | 0 | 6716 | 2344 | 535 | 110 |
+
+Zero scene overlap across all six group pairs, verified on scene-key sets.
+
+**The temporal cut gave the experiment its subject for free.** All three real `mrs_buff_mk3` scenes are
+2026-04, so `old` contains **zero** instances of the class. `old` is a genuine "before this robot
+existed" corpus and `old ∪ new` is "after" — no relabeling, no collection. It also means our-robot
+performance is an **acquisition-only** signal here: `hold_old` has no `mrs_buff_mk3` either, so
+retention of that class cannot be measured (there is nothing to retain).
+
+`mrs_buff_mk3` being the **last** class index makes the vocabulary growth purely additive: run 1's
+4-class head is a strict prefix of run 2's 5-class head, so no reindexing and no dropped annotations
+were needed. The 4-class dataset is the same hardlinked frames under a `data.yml` with `nc: 4`.
+
+## Runs
+
+| run | init | trains on | classes | lr0 | wall-clock |
+|---|---|---|---|---|---|
+| **1 — `base4`** | COCO `yolo26n.pt` | `old` (14464) | 4 | 0.01 | 1.38 h |
+| **2 — `warm5`** | `C_old4` | `old+new` (28671) | 5 | 0.001 | 2.72 h |
+| **A — `cold5`** | COCO `yolo26n.pt` | `old+new` (28671) | 5 | 0.01 | 2.73 h |
+| **3 — `cold5+synth`** | COCO `yolo26n.pt` | `old+new+synth` (30416) | 5 | 0.01 | ~2.8 h |
+| **3w — `warm5+synth`** | `C_old4` | `old+new+synth` (30416) | 5 | 0.001 | ~2.8 h |
+| **2b — `warm5 lr0.01`** | `C_old4` | `old+new` (28671) | 5 | **0.01** | ~2.7 h |
+
+All 150 epochs, fully annealed over their own budget, `--save-period 25`. Val for runs 2/A/3/3w/2b is
+`hold_old ∪ hold_new`; run 1 uses `hold_old` alone (it has no `mrs_buff_mk3` head).
+
+**The synthetic pool** (`synth_buff`, runs 3 and 3w): **1745 frames, 1745 boxes, every one
+`mrs_buff_mk3` and nothing else.** Selected from `synth_bbox_from_keypoints` because its vocabulary
+includes `nhrl_robot`, so "only class 4 labelled" provably means no other robot is present. The larger
+`our_robot_keypoints` batch (18579 apparently-clean frames) was **rejected**: sampling its images shows
+other robots plainly visible but *unlabelled*, because that dataset's 2-class vocabulary cannot express
+opponents. Training on it would teach false negatives on every unlabelled machine.
+
+Why this arm exists: the deployed baseline scores 0.677 recall on `mrs_buff_mk3`, and it did not learn
+that from real data — its corpus held **15620 synthetic CAD renders** of our robot plus 2088 boxes of
+`Mrs Buff MK2`, a *different* machine mislabelled as ours. Building the real-only substrate removed
+both, leaving 252 real training boxes from 2 recordings. Runs 3/3w test whether exact-CAD renders
+restore what that removal cost.
+
+## Scoring method
+
+**Baseline re-anchored under each view** (the corrected `--labels "object,opponent,…"` fires
+`taxonomy.yaml`'s `exclude: [object]` on predictions as well as GT, which Phase A's
+`"opponent,opponent,…"` mapping did not):
+
+| view | baseline recall | precision | F1 | mAP50-95 |
+|---|---|---|---|---|
+| common-class (`object` + `mrs_buff_mk3` excluded) | **0.681** | 0.871 | 0.764 | 0.456 |
+| new-class (`mrs_buff_mk3` only) | **0.677** | 0.900 | 0.773 | 0.452 |
+
+These are *not* Phase A's 0.742 / 0.962 / 0.838 — those were measured with `object` scored as an
+opponent and `mrs_buff_mk3` included. Only the numbers in this report are comparable to each other.
+
+**Two invocations, because a 4-class engine cannot share one with the 5-class models.** `score.py`
+passes a single `--labels` list to every candidate as `num_classes`, and `trt_yolo.py`'s
+`_infer_raw_head_dims` *trusts* that number rather than reading it off the engine, so a 5-label list
+would misparse a 4-class output tensor. Run 1 is therefore scored alone and compared descriptively;
+baseline + run 2 + run A share one properly paired bootstrap.
+
+**Two taxonomy views.** Common-class (`exclude: object, mrs_buff_mk3`) is the no-regression check and
+the only fair way to compare a 4-class model against 5-class ones — without it run 1 takes 389
+automatic misses on the eval set's `mrs_buff_mk3` boxes. New-class (`mrs_buff_mk3` only) measures
+acquisition.
+
+---
+
+## Results — external eval, agnostic, paired vs the deployed baseline
+
+Baseline: recall **0.742**, precision **0.962**, F1 **0.838**, mAP50-95 **0.504**.
+Gate: recall Δ CI lower bound ≥ −0.04, precision and F1 not significantly worse.
+
+| run | ckpt | recall Δ [95% CI] | precision Δ | F1 Δ | gate |
+|---|---|---|---|---|---|
+| **2 warm5** | **ep75** | **+0.085 [+0.062, +0.109]** | +0.002 ns | +0.052 | ✅ |
+| 2 warm5 | ep100 | +0.072 [+0.048, +0.094] | +0.007 ns | +0.047 | ✅ |
+| 2 warm5 | ep125 | +0.016 [−0.008, +0.039] ns | +0.015 better | +0.016 ns | ✅ |
+| 2 warm5 | ep150 | −0.056 [−0.083, −0.030] | +0.023 better | −0.029 worse | ❌ |
+| A cold5 | ep75 | +0.100 [+0.075, +0.127] | **−0.027 worse** | +0.049 | ❌ |
+| **A cold5** | **ep100** | **+0.092 [+0.068, +0.117]** | −0.006 ns | +0.053 | ✅ |
+| A cold5 | ep125 | +0.028 [+0.003, +0.055] | +0.008 ns | +0.021 | ✅ |
+| A cold5 | ep150 | −0.088 [−0.116, −0.059] | +0.022 better | −0.052 worse | ❌ |
+| **3 cold5+synth** | **ep75** | **+0.065 [+0.043, +0.089]** | −0.013 ns | +0.035 | ✅ |
+| 3 cold5+synth | ep150 | −0.154 [−0.182, −0.125] | +0.022 better | −0.102 worse | ❌ |
+| **3w warm5+synth** | **ep75** | **+0.061 [+0.037, +0.085]** | −0.003 ns | +0.037 | ✅ |
+| 3w warm5+synth | ep150 | −0.059 [−0.088, −0.033] | +0.020 better | −0.033 worse | ❌ |
+| 2b warm5 lr0.01 | ep100 | +0.071 [+0.047, +0.094] | +0.007 ns | +0.046 | ✅ |
+| 2b warm5 lr0.01 | ep150 | −0.056 [−0.083, −0.030] | +0.023 better | −0.029 worse | ❌ |
+
+**Every arm's fully-annealed ep150 fails the gate.** Not marginally — recall drops 0.056–0.154 while
+precision climbs to ~0.98. The models converge to something extremely conservative: they stop emitting
+detections rather than getting them wrong.
+
+## Results — new-class view (`mrs_buff_mk3` only)
+
+Baseline: recall **0.677**, precision 0.900, mAP50-95 0.452.
+
+| run | recall | precision | mAP50-95 |
+|---|---|---|---|
+| 2 warm5 (all ckpts) | **0.000** | 0.000 | 0.000 |
+| A cold5 (all ckpts) | **0.000** | 0.000 | 0.000 |
+| 2b warm5 lr0.01 (all ckpts) | **0.000** | 0.000 | 0.000 |
+| 3 cold5+synth ep125 | 0.078 | 0.966 | 0.060 |
+| 3w warm5+synth ep150 | 0.056 | 1.000 | 0.048 |
+
+**Without synthetic renders, every arm scores exactly zero — it never emits `mrs_buff_mk3` in the cage
+at all.** This is not "poor performance," it is total absence, and it is corroborated at the instance
+level: wrong-class rate **0.35–0.39** against the baseline's **0.114**, with agnostic recall of 0.83.
+The models *find* our robot and call it an opponent, exactly as the 4-class run 1 did. Adding 252 real
+boxes from two garage-rig recordings taught the detector nothing transferable about our robot in an
+arena.
+
+## Results — retention and acquisition (holdout groups)
+
+Agnostic, best checkpoint per arm. **The baseline's numbers here are in-sample and must be ignored**:
+`hold_old`/`hold_new` are scenes from `nhrl_robots_indiv`, which is the real ancestor of the baseline's
+own training corpus. They are genuinely held out only for this experiment's runs.
+
+| run | `hold_old` R / P / F1 | `hold_new` R / P / F1 |
+|---|---|---|
+| 2 warm5 | 0.802 / 0.922 / 0.858 | 0.685 / 0.839 / 0.754 |
+| A cold5 | 0.793 / 0.946 / 0.863 | **0.724 / 0.867 / 0.789** |
+| 3 cold5+synth | 0.788 / 0.918 / 0.848 | 0.721 / 0.863 / 0.786 |
+| 3w warm5+synth | **0.803 / 0.953 / 0.871** | 0.708 / 0.846 / 0.771 |
+| _baseline (in-sample)_ | _0.912 / 0.992 / 0.950_ | _0.906 / 0.976 / 0.940_ |
+
+**No catastrophic forgetting anywhere** — expected, since every arm trained on `old ∪ new`. Warm start
+is marginally stronger on the old distribution and marginally weaker on the new one. `hold_new` is
+harder than `hold_old` for every arm (0.69–0.72 vs 0.79–0.80), consistent with the temporal split: the
+newer footage really is different, which is what makes the split worth having.
+
+---
+
+## Answers to the open questions
+
+### When do I stop training YOLO? — **strong**
+
+**Stop at ep75–100 of 150. Never run the schedule to completion.**
+
+Every one of the four fully-annealed ep150 checkpoints fails the parity gate, three of them badly.
+The earliest passing checkpoint is **ep75** for warm5, cold5+synth and warm5+synth, and **ep100** for
+cold5 (its ep75 clears recall but loses precision significantly, −0.027). Since your requirement is
+non-inferiority rather than maximum score, ep75–100 is the answer, and the back half of the schedule is
+not just wasted compute — it actively destroys recall.
+
+This is a much stronger version of Phase A's finding and it **contradicts the premise the runs were
+launched on**. A dedicated, properly-annealed 150-epoch run does *not* land at its own best point; it
+lands well past it. Run 1 hinted at this weakly (ep100 beat ep150 by 0.025 F1 on 14.5k frames); at
+28.7k frames the effect is 3–6× larger.
+
+Caveat that keeps this from "very strong": one seed per arm. The consistency across five independent
+arms is what carries it — all five degrade the same way — but δ = 0.04 is smaller than the 0.048
+cross-run spread Phase A measured, so treat the *exact* crossing epoch as ±1 ladder step.
+
+### Is starting from a checkpoint better than cold start? — **strong**
+
+**Quality: a tie. Speed: warm start reaches the gate one ladder step sooner, but only if you already
+own the checkpoint.**
+
+| | earliest passing ckpt | recall Δ | F1 Δ | training to that ckpt |
+|---|---|---|---|---|
+| warm5 | ep75 | +0.085 | +0.052 | **1.36 h** |
+| cold5 | ep100 | +0.092 | +0.053 | 1.82 h |
+
+The two are statistically indistinguishable on quality — cold5 has slightly higher recall, warm5
+slightly higher precision, F1 within 0.001. Warm start gets there in **25 % less time**, and that is
+the whole benefit.
+
+**But the accounting matters.** Producing `C_old4` cost 1.38 h. Counted end to end, cold start is
+cheaper (1.82 h vs 2.74 h). Warm start wins only in the situation it actually models — you already have
+a deployed checkpoint and new footage has arrived, which is the real one.
+
+**The LR confound is nil**, which is a clean side result: `warm5lr01_ep100` (recall Δ +0.071, precision
++0.007) is indistinguishable from `warm5_ep100` (+0.072, +0.007). Fine-tuning at `lr0` 0.01 and 0.001
+give the same model. That 2.7 h arm can be skipped in future work.
+
+### How much synthetic data of our robots do I need to mix in? — **weak, but directionally clear**
+
+**1745 renders is nowhere near enough, and it costs you elsewhere.**
+
+Without synthetic: `mrs_buff_mk3` recall is **0.000**. With 1745 exact-CAD renders: **0.036–0.078**, at
+95–100 % precision. Non-zero, and the precision says the few detections it makes are right — but
+against the baseline's 0.677 it is roughly a **9× shortfall**.
+
+The cost is real: adding those renders reduced agnostic recall by 0.024 (warm) to 0.035 (cold) and F1
+by ~0.015, consistent with `synthetic_plus_bbox`'s finding that synthetic dilutes the context cue the
+opponent detector relies on.
+
+The dose comparison is the useful part. The baseline had **15620** synthetic `mrs_buff_mk3` boxes —
+9× more — *plus* 2088 boxes of `Mrs Buff MK2` from real cage footage. The second of those may matter
+more than the first: MK2 is real, in-arena, and visually close to MK3, so the baseline may have learned
+our-robot-in-a-cage largely from real footage of its predecessor. This experiment cannot separate those
+two, which is why this stays **weak**. A dose curve is the follow-up.
+
+### How many real images do I need to label? — **very weak, but a striking data point**
+
+Not answerable as posed — see §Follow-ups. But worth recording: **every arm trained on 28671 real
+frames beat the deployed 49086-frame baseline on agnostic recall by +0.06 to +0.10 and on F1 by +0.03
+to +0.05**, with precision statistically unchanged. Fewer, cleaner, correctly-labelled real images
+outperformed more mixed ones.
+
+Confounded by schedule, split and class vocabulary all differing, so it cannot be read as a
+data-scaling result — but it is evidence that corpus *hygiene* bought more than corpus *size* here.
+
+### The questions this experiment cannot touch
+
+Keypoints model (synthetic volume, real volume) and deeplab (field images, stopping point) are
+untouched — every run here is `yolo26n` detect, and `floor_mask_dataset` was never loaded.
+
+---
+
+## Commands
+
+Every command run for this experiment, in order. All run from the repo root on megamind with the
+project venv active:
+
+```bash
+source scripts/activate_python.sh
+```
+
+Steps marked **(inline)** were run as ad-hoc `python3 - <<'EOF'` snippets rather than committed
+scripts. They are reproduced verbatim so the pipeline is re-runnable end to end; if this experiment is
+repeated they should be promoted to a helper script.
+
+### 1. Audit the substrate before trusting it
+
+The check Phase A skipped, which is how 34.6 % synthetic went unnoticed through a 14.6 h training run.
+
+```bash
+python3 - <<'EOF'          # (inline)
+import os, collections, yaml
+base = 'training/data/nhrl_robots_bbox'
+names = yaml.safe_load(open(f'{base}/data.yml'))['names']
+for split in ['train', 'val']:
+    cnt = {'real': collections.Counter(), 'synth': collections.Counter()}
+    imgs = {'real': 0, 'synth': 0}
+    for f in os.listdir(f'{base}/{split}/labels'):
+        if not f.endswith('.txt'):
+            continue
+        k = 'synth' if f.startswith('synthetic__') else 'real'
+        imgs[k] += 1
+        for line in open(f'{base}/{split}/labels/{f}'):
+            if line.strip():
+                cnt[k][int(line.split()[0])] += 1
+    print(split, imgs, {n: (cnt['real'][i], cnt['synth'][i]) for i, n in enumerate(names)})
+EOF
+```
+
+### 2. Build the real-only bbox substrate
+
+```bash
+# 2a. Regenerate the class map BY NAME (the committed remap_config_seg.toml is index-stale)
+python3 - <<'EOF'          # (inline) -> training/yolo/remap_config_indiv_to_bbox.toml
+import yaml
+names = yaml.safe_load(open('training/data/nhrl_robots_indiv/data.yml'))['names']
+def target(n):
+    if n.startswith('Flight Controller'): return 0, 'object'
+    if n.startswith('House Bot'):         return 2, 'house_bot'
+    if n == 'Mr Stabs MK2':               return 3, 'mr_stabs_mk2'
+    return 1, 'robot'                     # includes 'Mrs Buff MK2' -> opponent
+lines = ['[label_map]']
+for i, n in enumerate(names):
+    t, tn = target(n)
+    lines.append(f'{i} = {t}  # {n} -> {tn}')
+open('training/yolo/remap_config_indiv_to_bbox.toml', 'w').write('\n'.join(lines) + '\n')
+EOF
+
+# 2b. Polygons -> boxes (hardlinks images, preserves the 84 class ids and the split structure)
+python3 training/yolo/seg_to_bbox.py training/data/nhrl_robots_indiv \
+    -o training/data/nhrl_robots_bbox_real
+
+# 2c. 84 classes -> the 5-class vocabulary, in place
+python3 training/yolo/remap_labels.py training/yolo/remap_config_indiv_to_bbox.toml \
+    training/data/nhrl_robots_bbox_real
+
+# 2d. Canonical data.yml (remap_labels writes one, but with the wrong split paths and names)
+python3 - <<'EOF'          # (inline)
+import yaml
+from pathlib import Path
+out = Path('training/data/nhrl_robots_bbox_real')
+src = yaml.safe_load(Path('training/data/nhrl_robots_bbox/data.yml').read_text())
+(out / 'data.yml').write_text(yaml.safe_dump(
+    {'path': str(out.resolve()), 'train': 'train/images', 'val': 'val/images',
+     'test': 'test/images', 'nc': 5, 'names': list(src['names']),
+     'colors': list(src['colors'])}, sort_keys=False))
+EOF
+```
+
+### 3. Merge the real our-robot keypoint frames
+
+```bash
+# 3a. Hardlink out the real (non-synthetic) component of our_robot_keypoints
+python3 - <<'EOF'          # (inline)
+import os, shutil, yaml
+from pathlib import Path
+src, tmp = Path('training/data/our_robot_keypoints'), Path('training/data/.tmp_kp_real')
+if tmp.exists(): shutil.rmtree(tmp)
+n = 0
+for s in ['train', 'val', 'test']:
+    li, ll = src / s / 'images', src / s / 'labels'
+    if not li.is_dir(): continue
+    (tmp / s / 'images').mkdir(parents=True, exist_ok=True)
+    (tmp / s / 'labels').mkdir(parents=True, exist_ok=True)
+    for e in os.scandir(li):
+        if e.name.startswith(('synth', 'synthetic')) or not e.name.endswith('.jpg'): continue
+        lbl = ll / (e.name[:-4] + '.txt')
+        if not lbl.is_file(): continue
+        os.link(e.path, tmp / s / 'images' / e.name)
+        os.link(lbl, tmp / s / 'labels' / lbl.name); n += 1
+y = yaml.safe_load((src / 'data.yml').read_text()); y['path'] = str(tmp.resolve())
+for k in ('train', 'val', 'test'): y[k] = f'{k}/images'
+(tmp / 'data.yml').write_text(yaml.safe_dump(y, sort_keys=False))
+print(f'real keypoint frames: {n}')      # -> 362
+EOF
+
+# 3b. Pose -> bbox, remapping into the target vocabulary (0->mr_stabs_mk2, 1->mrs_buff_mk3)
+python3 training/yolo/pose_to_bbox.py training/data/.tmp_kp_real \
+    -o training/data/.tmp_kp_bbox --class-map 0:3,1:4 \
+    --names-from training/data/nhrl_robots_bbox_real/data.yml
+
+# 3c. Hardlink the converted frames in under an our_robot_kp__ prefix
+python3 - <<'EOF'          # (inline)
+import os
+from pathlib import Path
+kp, dst = Path('training/data/.tmp_kp_bbox'), Path('training/data/nhrl_robots_bbox_real')
+for s in ['train', 'val']:
+    for kind, ext in (('images', '.jpg'), ('labels', '.txt')):
+        d = kp / s / kind
+        if not d.is_dir(): continue
+        for e in os.scandir(d):
+            if not e.name.endswith(ext): continue
+            t = dst / s / kind / ('our_robot_kp__' + e.name)
+            if t.exists(): t.unlink()
+            os.link(e.path, t)
+EOF
+
+rm -rf training/data/.tmp_kp_real training/data/.tmp_kp_bbox
+
+# 3d. Validate
+python3 training/yolo/validate_yolo_integrity.py training/data/nhrl_robots_bbox_real --strict
+```
+
+### 4. Scene split
+
+```bash
+python3 training/yolo/split_by_scene.py \
+    --src training/data/nhrl_robots_bbox_real \
+    --out training/data/scenesplit_2026-07-25 \
+    --mode temporal --cutoff 2025-11 --holdout-frac 0.2 \
+    --stratify-class robot,house_bot
+# emits old/ new/ hold_old/ hold_new/, old.yml, new.yml, old+new.yml, split_manifest.json
+# --dry-run first to preview the assignment without linking
+
+# 4-class dataset yaml for run 1, after asserting neither group carries a class-4 label
+python3 - <<'EOF'          # (inline)
+import os, yaml
+from pathlib import Path
+root = Path('training/data/scenesplit_2026-07-25')
+base = yaml.safe_load((root / 'old+new.yml').read_text())
+for g in ('old', 'hold_old'):
+    bad = [e.name for e in os.scandir(root / g / 'labels')
+           if e.name.endswith('.txt')
+           and any(l.split() and int(l.split()[0]) == 4 for l in open(e.path))]
+    assert not bad, f'{g} contains class 4: {bad[:3]}'
+(root / 'old_4class.yml').write_text(yaml.safe_dump(
+    {'path': str(root.resolve()), 'train': ['old/images'], 'val': ['hold_old/images'],
+     'nc': 4, 'names': base['names'][:4], 'colors': base['colors'][:4]}, sort_keys=False))
+EOF
+```
+
+### 5. Re-anchor the baseline under both scoring views
+
+Taxonomies `training/model_eval/taxonomy_common_class.yaml` and `taxonomy_new_class.yaml` are
+committed; see §Scoring method for what each excludes.
+
+```bash
+for view in common_class new_class; do
+  python3 training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+      --candidate baseline=data/models/yolo26n_nhrl_robots_bbox_2026-07-16_x86_64_sm86.engine \
+      --labels "object,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3" \
+      --taxonomy training/model_eval/taxonomy_$view.yaml --conf 0.5 \
+      --output training/data/nhrl_keypoints_eval_test/scores_anchor_$view
+done
+```
+
+### 6. Training runs
+
+Run from `training/yolo/` because `train.py` writes to a project path relative to its own cwd.
+
+```bash
+cd training/yolo
+
+# Run 1 -- base4: cold from COCO, 4-class, on `old`
+python3 train.py ../data/scenesplit_2026-07-25/old_4class.yml yolo26n \
+    -e 150 --save-period 25 -d 0 1 2
+```
+
+```bash
+# Run 2 -- warm5: fine-tune C_old4, head grows 4 -> 5 classes, on `old+new`
+python3 fine_tune_train.py ../data/scenesplit_2026-07-25/old+new.yml yolo26n \
+    -c <C_old4>.pt -e 150 --save-period 25 --lr0 0.001 --devices 0,1,2
+
+# Run A -- cold5: the control, cold from COCO, 5-class, same corpus
+python3 train.py ../data/scenesplit_2026-07-25/old+new.yml yolo26n \
+    -e 150 --save-period 25 -d 0 1 2
+
+# Run 2b -- warm5 at the cold-start LR, to bound the lr0 confound
+python3 fine_tune_train.py ../data/scenesplit_2026-07-25/old+new.yml yolo26n \
+    -c <C_old4>.pt -e 150 --save-period 25 --lr0 0.01 --devices 0,1,2
+
+cd ..  # back to repo root
+```
+
+### 7. Export each run's checkpoint ladder
+
+**Do not export while a training run is live.** A TensorRT build launched during training did not
+finish in 10 minutes and was killed; the runbook's page-cache warning applies to engine builds, not
+just to scoring. All exports here ran after training exited.
+
+```bash
+# for each run dir D, tag T:
+for ep in 25 50 75 100 125 last; do
+  SRC="$D/weights/epoch${ep}.pt"; [ "$ep" = last ] && SRC="$D/weights/last.pt"
+  cp -f "$SRC" "engines/${T}_ep${ep}.pt"
+  python3 training/yolo/convert_to_onnx.py "engines/${T}_ep${ep}.pt"
+  python3 training/yolo/convert_to_tensorrt.py "engines/${T}_ep${ep}.onnx" --workspace 1
+done
+```
+
+### 8. Scoring
+
+```bash
+# Run 1 (4-class) -- must be its own invocation: score.py passes one --labels list to every
+# candidate as num_classes, and trt_yolo.py trusts it rather than reading the engine.
+python3 training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+    --candidate base4_ep25=engines/base4_ep25_x86_64_sm86.engine \
+    ... (one --candidate per ladder point) \
+    --labels "object,opponent,house_bot,mr_stabs_mk2" \
+    --taxonomy training/model_eval/taxonomy.yaml --conf 0.5 --baseline base4_ep25 \
+    --output training/data/nhrl_keypoints_eval_test/scores_run1_full
+
+# Baseline anchor under the full taxonomy (5 labels, 5-class engine)
+python3 training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+    --candidate baseline=data/models/yolo26n_nhrl_robots_bbox_2026-07-16_x86_64_sm86.engine \
+    --labels "object,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3" \
+    --taxonomy training/model_eval/taxonomy.yaml --conf 0.5 \
+    --output training/data/nhrl_keypoints_eval_test/scores_anchor_full
+```
+
+```bash
+# All 5-class runs score together, paired, against the baseline
+python3 training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+    --candidate baseline=data/models/yolo26n_nhrl_robots_bbox_2026-07-16_x86_64_sm86.engine \
+    --candidate warm5_ep75=engines/warm5_ep75_x86_64_sm86.engine \
+    ... (18 candidates total) \
+    --labels "object,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3" \
+    --taxonomy training/model_eval/taxonomy.yaml --conf 0.5 --baseline baseline \
+    --output training/data/nhrl_keypoints_eval_test/scores_final_full
+# repeat with --taxonomy taxonomy_new_class.yaml -> scores_final_new_class
+```
+
+### 9. Holdout scoring (retention / acquisition)
+
+`score.py` requires integer `stamp_ns` filenames, which the scene groups do not have, so score against
+numeric-stemmed hardlink shims:
+
+```bash
+python3 - <<'EOF'          # (inline) -> hold_{old,new}_scoreable/
+import os, json, shutil, yaml
+from pathlib import Path
+root = Path('training/data/scenesplit_2026-07-25')
+for g in ('hold_old', 'hold_new'):
+    dst = root / f'{g}_scoreable'
+    if dst.exists(): shutil.rmtree(dst)
+    (dst / 'images').mkdir(parents=True); (dst / 'labels').mkdir(parents=True)
+    m = {}
+    for i, e in enumerate(sorted(os.scandir(root / g / 'images'), key=lambda x: x.name)):
+        if not e.name.endswith('.jpg'): continue
+        stamp = str(1000000000000000000 + i)
+        lbl = root / g / 'labels' / (e.name[:-4] + '.txt')
+        if not lbl.is_file(): continue
+        os.link(e.path, dst / 'images' / f'{stamp}.jpg')
+        os.link(lbl,     dst / 'labels' / f'{stamp}.txt')
+        m[stamp] = e.name
+    # class 1 named `opponent` so the GT vocabulary matches the eval set's
+    (dst / 'data.yaml').write_text(yaml.safe_dump(
+        {'path': str(dst.resolve()), 'train': 'images', 'val': 'images', 'test': 'images',
+         'nc': 5, 'names': ['object','opponent','house_bot','mr_stabs_mk2','mrs_buff_mk3']},
+        sort_keys=False))
+    (dst / 'stamp_map.json').write_text(json.dumps(m))
+EOF
+
+for g in hold_old hold_new; do
+  python3 training/model_eval/score.py training/data/scenesplit_2026-07-25/${g}_scoreable \
+      --candidate warm5=engines/warm5_ep75_x86_64_sm86.engine \
+      --candidate cold5=engines/cold5_ep100_x86_64_sm86.engine \
+      --candidate cold5synth=engines/cold5synth_ep75_x86_64_sm86.engine \
+      --candidate warm5synth=engines/warm5synth_ep75_x86_64_sm86.engine \
+      --labels "object,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3" \
+      --taxonomy training/model_eval/taxonomy.yaml --conf 0.5 --bootstrap 0 --baseline cold5 \
+      --output training/data/nhrl_keypoints_eval_test/scores_holdout_$g
+done
+```
+
+### 10. Reclaim disk
+
+Ultralytics `cache="disk"` wrote 297 GB of `.npy` next to 24 GB of unique images and filled the NVMe to
+97 %. The caches are derived; deleting them costs only re-caching time.
+
+```bash
+python3 training/yolo/clear_image_cache.py --dry-run          # 7-day floor, skips in-use datasets
+python3 training/yolo/clear_image_cache.py --older-than 0     # everything not currently training
+```
+
+## Follow-ups
+
+- **Real-data floor (closes "how many real images do I need to label?")** — `--fraction {0.25, 0.5,
+  0.75}` cold 5-class on `old+new.yml`, single axis, scene-disjoint val. This is Phase A's Exp 3 done
+  on a clean corpus. 3 arms ≈ 5 h at the ep75–100 stopping point.
+- **Synthetic dose curve (closes "how much synthetic of our robots?")** — 25 % and 50 % of the 1745
+  renders, giving a 4-point curve with runs A and 3 as endpoints. 2 arms ≈ 3 h.
+- **Separate the two things the baseline had** — the 2088 real `Mrs Buff MK2` cage boxes vs the 15620
+  synthetic renders. An arm that re-adds MK2-as-`mrs_buff_mk3` would say whether real in-arena footage
+  of a predecessor robot is what actually carried the baseline's 0.677.
+- **Render in-cage backgrounds.** The existing renders place our robot on wood, brick, tile and marble —
+  never an arena. Given the detector keys on context (`synthetic_plus_bbox` cut-paste: context carries
+  ~50 % of the score), context-correct renders are the targeted fix, not more robot poses.
+- **Fix the render labelling gap.** `our_robot_keypoints` holds 34946 renders that are unusable here
+  because opponents appear unlabelled in them. Emitting the opponent class would recover that corpus.
+- **Second seed at the chosen stopping epoch**, since δ = 0.04 is tighter than the measured 0.048
+  cross-run spread.
+
+---
+
+## Run 1 (`base4`) — the pre-existing-roster model
+
+**150 epochs in 83 min** on 3× A6000 (14464 frames, batch 128, ~33 s/epoch). Ladder saved at
+ep{0,25,50,75,100,125} plus `last.pt` (= fully annealed ep150) and `best.pt`.
+
+Ultralytics confirmed the 4-class build: `Overriding model.yaml nc=80 with nc=4`,
+`YOLO26n summary: 260 layers, 2,505,360 parameters, 5.8 GFLOPs`.
+
+### Val curve — and a side result about val itself
+
+| epoch | val mAP50-95 | val recall | val precision |
+|---|---|---|---|
+| 25 | 0.4844 | 0.7502 | 0.8232 |
+| 50 | 0.5460 | 0.7167 | 0.8310 |
+| 75 | 0.5796 | 0.7726 | 0.8319 |
+| 100 | 0.6027 | 0.7727 | 0.8678 |
+| 125 | 0.6016 | 0.7793 | 0.9036 |
+| 150 | 0.6050 | 0.7933 | 0.9063 |
+
+Peak ep103 (0.6131); ep150 = 0.6050, i.e. a plateau, not a collapse.
+
+**This val is scene-disjoint** (`hold_old`, whole recordings never seen in training) — unlike Phase A's,
+which shared all 56 recordings with its train split and was therefore measuring near-duplicate frames.
+
+### Correction: the common-class view was invalid, and the run exposed it
+
+The planned **common-class view** (exclude `object` + `mrs_buff_mk3` from GT, so a 4-class and a 5-class
+model can be compared on their shared roster) produced precision of 0.49–0.57 for run 1 against the
+baseline's 0.871. That gap was too large to be real, and it was not:
+
+**Excluding `mrs_buff_mk3` from GT does not stop a 4-class model from detecting our robot — it just
+relabels those correct detections as false positives.** The model has no `mrs_buff_mk3` head, so it
+calls our robot `opponent`; `score.py`'s exclusion drops the *GT* box but keeps the *prediction*, which
+then matches nothing. The 5-class models are unaffected, because their `mrs_buff_mk3` predictions are
+excluded too. The view is systematically biased against exactly the model it was designed to make
+comparable.
+
+Re-scoring the identical engines under the **full taxonomy** (only `object` excluded) confirms it:
+
+| checkpoint | common-class precision | full-taxonomy precision |
+|---|---|---|
+| `base4_ep25` | 0.490 | **0.776** |
+| `base4_ep100` | 0.573 | **0.887** |
+| `base4_eplast` | 0.538 | **0.835** |
+
+**The full taxonomy at the agnostic level is the fair comparison** and is used for all verdicts below.
+Agnostic collapses every class to "a robot is here," so a 4-class model that finds our robot and calls
+it an opponent is scored as having found it — which is the truth. The naming failure shows up at the
+*instance* level instead, where it belongs. The common-class view is abandoned; the new-class view
+(`mrs_buff_mk3` only) is retained and correctly reads 0.000 for run 1, which has no such head.
+
+A second, smaller correction: the `--labels` asymmetry flagged in the Phase A rework (class 0 mapped to
+`opponent` bypassed `taxonomy.yaml`'s `exclude: [object]` on the prediction side) is real but has
+**no measurable effect** on this baseline. Re-scored with the corrected `object,opponent,…` mapping it
+returns agnostic recall 0.742 / precision 0.962 / F1 0.838 / mAP50-95 0.504 — identical to Phase A's
+reference. The deployed model simply emits almost no class-0 detections above conf 0.5.
+
+### Run 1 ladder — external eval, full taxonomy
+
+Baseline anchor: agnostic recall **0.742**, precision **0.962**, F1 **0.838**, mAP50-95 **0.504**.
+
+| checkpoint | agnostic recall | precision | F1 | mAP50-95 | instance recall | wrong-class rate |
+|---|---|---|---|---|---|---|
+| ep25 | 0.673 | 0.776 | 0.721 | 0.346 | 0.406 | 0.397 |
+| ep50 | 0.726 | 0.860 | 0.788 | 0.451 | 0.453 | 0.376 |
+| ep75 | 0.745 | 0.869 | 0.802 | 0.455 | 0.479 | 0.357 |
+| **ep100** | **0.780** | **0.887** | **0.830** | **0.488** | **0.496** | 0.364 |
+| ep125 | 0.769 | 0.822 | 0.795 | 0.479 | 0.490 | 0.362 |
+| ep150 (`last`, fully annealed) | 0.777 | 0.835 | 0.805 | 0.485 | 0.494 | 0.364 |
+| — baseline (5-class, full corpus) | 0.742 | 0.962 | 0.838 | 0.504 | 0.657 | 0.114 |
+
+**`C_old4` = `epoch100.pt`**, the best checkpoint by external eval, used as the warm base for runs 2
+and 2b.
+
+Three readings:
+
+1. **The annealed endpoint is not the best checkpoint — ep100 is.** Phase A's pattern reproduces, but
+   far more weakly: ep150 loses 0.025 F1 to ep100, almost entirely on precision (0.835 vs 0.887), where
+   Phase A's 500-epoch endpoint lost 0.048 recall outright. A dedicated 150-epoch annealed schedule is
+   therefore *serviceable* — it lands within noise of its own best checkpoint — but checkpointing still
+   pays. Grading every run on its ladder rather than its endpoint remains the right procedure, and runs
+   2/A/2b are all laddered accordingly. (A paired ep100-vs-ep150 CI is run with the final scoring pass;
+   the gap may not be significant.)
+2. **Trained on 40 % of the corpus with a 4-class head, run 1 nearly matches the deployed baseline at
+   the agnostic level** — recall 0.780 vs 0.742 (higher), precision 0.887 vs 0.962 (lower), F1 0.830 vs
+   0.838. Finding robots is not what the extra data and the extra class buy.
+3. **The deficit is naming, and it is large.** Instance recall 0.496 vs the baseline's 0.657, with a
+   **wrong-class rate of 0.364 vs 0.114** — run 1 misnames more than a third of what it detects, because
+   the eval set's 389 `mrs_buff_mk3` boxes are a category it does not have. New-class view: **0.000**
+   recall, by construction. This is the gap runs 2 and A have to close, and it confirms the experiment
+   is not degenerate.
+
+
