@@ -29,12 +29,12 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import tomllib
 import yaml
-from seg_to_bbox import polygon_to_bbox
+from seg_to_bbox import top_contours_bbox
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
 DROP = "__drop__"
@@ -88,11 +88,15 @@ def convert_rows(
 ) -> list[str]:
     """Remap and optionally box-ify one label file's rows. Dropped classes vanish.
 
-    ``min_side`` drops boxes whose smaller side is below that fraction of the image. Segmentation
-    masks occasionally shatter into dozens of disconnected slivers for a single robot, and a
-    per-polygon box conversion turns each sliver into its own detection target.
+    With ``to_bbox`` this emits **one box per source class**, from that class's largest connected
+    contours (``seg_to_bbox.top_contours_bbox``). Grouping by *source* class is what makes this
+    correct: the archived vocabulary is per-robot-instance, so one box per source class is one box
+    per robot -- even though several of those classes collapse into the same target afterwards.
+
+    ``min_side`` drops boxes whose smaller side is below that fraction of the image.
     """
     out: list[str] = []
+    by_class: dict[int, list[list[float]]] = defaultdict(list)
     for raw in text.splitlines():
         parts = raw.split()
         if not parts:
@@ -108,12 +112,15 @@ def convert_rows(
         if not to_bbox or len(coords) == 4:
             out.append(" ".join([str(dst), *(f"{c:.6f}" for c in coords)]))
             continue
-        box = polygon_to_bbox(coords)
+        by_class[src_cls].append(coords)
+
+    for src_cls in sorted(by_class):
+        box = top_contours_bbox(by_class[src_cls])
         if box is None:
             continue
         if min_side and min(box[2], box[3]) < min_side:
             continue
-        out.append(f"{dst} " + " ".join(f"{v:.6f}" for v in box))
+        out.append(f"{index_map[src_cls]} " + " ".join(f"{v:.6f}" for v in box))
     return out
 
 
@@ -160,6 +167,9 @@ def convert_scene(
             missing += 1
             continue
         rows = convert_rows(label.read_text(), index_map, args.to_bbox, args.min_box_side)
+        if args.drop_empty and not rows:
+            rejected += 1
+            continue
         frames += 1
         for row in rows:
             counts[targets[int(row.split()[0])]] += 1
@@ -194,6 +204,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Drop boxes whose smaller side is below this fraction of the image (e.g. 0.0125 = "
         "8px at 640). Suppresses slivers from shattered segmentation masks.",
+    )
+    parser.add_argument(
+        "--drop-empty",
+        action="store_true",
+        help="Drop frames that end up with no annotations. They are valid background negatives and "
+        "help precision, but they are also unreviewable by eye, so drop them when the corpus is "
+        "headed for manual validation.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Report only, write nothing")
     return parser

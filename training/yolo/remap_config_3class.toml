@@ -1,0 +1,26 @@
+# Per-scene name-based remap: archived nhrl_seg_indiv_labeled -> 3-class Option B vocabulary.
+#
+# Used with remap_labels_by_name.py, NOT remap_labels.py: the 56 scenes do not share a vocabulary
+# (50 declare 105 classes, 6 declare 111, and indices are shifted), so an index map is unusable.
+#
+# Our robots are folded into `robot` on purpose -- under Option B the bbox model detects competitor
+# robots and the keypoint model owns instance identity. `Mrs Buff MK2` is a different machine from
+# our deployed MK3 and was mislabelled as ours in the previous lineage; here it is simply a robot.
+
+target_names = ["object", "robot", "house_bot"]
+default = "robot"          # every competitor robot name falls through to here
+
+[map]
+# Field segmentation -- belongs to the deeplab task, 88,823 polygons, not a robot.
+"Floor" = "__drop__"
+"Floor letter word" = "__drop__"
+
+# House bot and its seasonal liveries: neutral, never a target, kept separate.
+"House Bot" = "house_bot"
+"House Bot Orange Halloween" = "house_bot"
+"House Bot White Halloween" = "house_bot"
+"House Bot Flash Halloween" = "house_bot"
+
+# Not competitors: excluded from scoring via taxonomy.yaml.
+"Flight Controller 1" = "object"
+"Flight Controller 2" = "object"
