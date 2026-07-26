@@ -45,7 +45,7 @@ On desktop, the bounding box is 18% faster than the segmentation model.
 
 docs/experiments/perception_performance/seg_vs_bbox_2026-07-18.md
 
-# When do I stop training YOLO? (what metric threshold do I need to satisfy metrics requirements?)
+# When do I stop training YOLO? (what metric threshold do I need to satisfy baseline metrics requirements?)
 
 # How many synthetic images do I need to generate for our keypoints model?
 
