@@ -39,14 +39,30 @@ Two items still worth doing before deploying a merged model, neither blocking tr
    is the residual risk `our_robot_hold_window_s` has to absorb, and it is the number that decides
    whether the merge is safe in a match, not the detector metrics below.
 
-## Step 1 — rebuild the dataset from archived sources
+## Step 1 — rebuild the dataset from the archived indiv source
 
-Sourcing from the archive rather than `nhrl_robots_indiv` to guarantee provenance. Both sources
-audited 2026-07-26 and confirmed **zero synthetic content**.
+**Single source: `/media/storage/auto-battlebots-archive/nhrl_seg_indiv_labeled`.** Sourced from the
+archive rather than `nhrl_robots_indiv` to guarantee provenance; audited 2026-07-26 and confirmed
+**zero synthetic content**.
 
-### Source A — `/media/storage/auto-battlebots-archive/nhrl_seg_indiv_labeled`
+56 per-scene segmentation datasets, **36,012 frames, 199,119 polygons**.
 
-56 per-scene segmentation datasets, **36,012 frames, 199,119 polygons**, no synthetic anywhere.
+After the Option B name-based remap:
+
+| target | polygons | from |
+|---|---|---|
+| `object` (0) | **246** | `Flight Controller 1` (135), `Flight Controller 2` (111) |
+| `robot` (1) | **81,732** | all competitors, incl. `Mrs Buff MK2` (2,327) and `Mr Stabs MK2` (3,563) |
+| `house_bot` (2) | **28,318** | `House Bot` (25,093) + Orange (1,717) + White (1,508) Halloween |
+| _dropped_ | _88,823_ | `Floor` |
+| **kept** | **110,296** | |
+
+> **No keypoint data is merged in.** Deliberate, and safe under Option B: the bbox model no longer
+> needs to identify our robot, so real MK3 footage is not required for it. The corpus still contains
+> 2,327 boxes of `Mrs Buff MK2` — a visually similar predecessor — plus 3,563 of `Mr Stabs MK2`, all as
+> generic `robot`. `category_addition_2026-07-25` showed a model with **zero** `mrs_buff_mk3`
+> supervision still reached **0.780 agnostic recall** on the eval: it detects our robot fine, it just
+> could not name it. Naming is the keypoint model's job now.
 
 **Three things make this harder than remapping `nhrl_robots_indiv`, and all three will silently corrupt
 the dataset if missed:**
@@ -87,36 +103,11 @@ Target rules (Option B):
 | `Flight Controller 1`, `Flight Controller 2` | `object` (0) |
 | everything else, **including `Mrs Buff MK2`, `Mr Stabs MK2`, `Stab Rave`, `power on`, `usawgi`** | `robot` (1) |
 
-### Source B — `training/data/mrs_buff_mk3_keypoints/*.zip`
-
-Two archives, **497 real frames / 605 boxes total**, no synthetic:
-
-| zip | frames | classes | note |
-|---|---|---|---|
-| `mrs-buff-mk3-keypoints.zip` | 362 | `[mr_stabs_mk2, mrs_buff_mk3]` | 108 + 362 boxes |
-| `mrs-buff-mk3-keypoints-part-2.zip` | 135 | `['auto-battlebots', mrs_buff_mk3]` | 135 boxes; **class 0 is a Roboflow workspace name, declared but unused** |
-
-Labels are pose format (11 fields = box + 2 keypoints); convert with `pose_to_bbox.py`. Index 1 is
-`mrs_buff_mk3` in both, but index 0 differs, so map by name here too. Under Option B both our robots
-fold into `robot`, so both classes in both zips → class 1.
-
-> **Open question, flagged rather than decided.** Under Option B these 497 frames no longer carry the
-> thing they were added for. Their purpose in `category_addition` was our-robot *identity*, which the
-> keypoint model now owns. What remains is 497 frames (1.4 % of the corpus) of a robot on a plywood
-> test rig in a garage — a setting matching neither the training footage (NHRL overhead cage) nor the
-> eval (robot camera in a cage). They may add useful robot-appearance variety or may just add
-> off-domain background.
->
-> **Build them as their own group** (`kp/`) rather than folding them into `old`/`new`, so
-> `old+new_3class.yml` and `old+new+kp_3class.yml` differ by a config line. That makes the ablation one
-> optional arm instead of a rebuild.
-
 ### Build sequence
 
 ```
 remap_labels_by_name.py  (per-scene, name-based)  -> 3-class real seg
 seg_to_bbox.py                                    -> 3-class real bbox
-pose_to_bbox.py  (keypoint zips, --class-map 0:1,1:1) -> kp/ group
 split_by_scene.py --mode temporal --cutoff 2025-11 --holdout-frac 0.2 \
                   --stratify-class robot,house_bot
 validate_yolo_integrity.py --strict
@@ -124,10 +115,13 @@ validate_yolo_integrity.py --strict
 
 **Assertions before training** — each has already caught a real defect once:
 
-- no label file contains a class id > 2
-- total polygons after dropping `Floor` ≈ 110,296 (±the 605 keypoint boxes)
-- `house_bot` total is **28,217** — the class that was real-only in every prior lineage and reconciled
-  exactly through the last rebuild, so it is the check that the remap did not shift
+- no label file contains a class id > 2, and **zero frames named `synthetic*`**
+- **36,012 frames**, **110,296 polygons** kept after dropping `Floor`
+- **`house_bot` = 28,318.** This is the load-bearing check that the name-based remap landed correctly,
+  because `house_bot` is the one class that is real-only, well-populated, and untouched by the merge.
+  Note it is **not** the 28,217 seen in `nhrl_robots_indiv` — the archive carries 267 more frames, so a
+  mismatch against the old number is expected and 28,318 is the correct target.
+- `robot` = 81,732, `object` = 246
 - zero scene overlap across the four split groups
 
 ## Step 2 — arms
@@ -136,18 +130,29 @@ validate_yolo_integrity.py --strict
 derived from `nhrl_robots_bbox_real`; the new split comes from a different source with different frame
 counts. Both arms below must therefore be trained fresh on the new data.
 
-| arm | vocab | trains on | purpose |
+**The control is 4-class, not 5.** With the labels corrected, `mrs_buff_mk3` has **zero** boxes in this
+corpus — the archive contains no MK3 class, and the 2,327 boxes that used to populate it were
+`Mrs Buff MK2` mislabelled. A 5-class arm would therefore carry a permanently empty head, which is not
+a control but a degenerate model. The only reproducible non-merged vocabulary is 4-class, keeping the
+one our-robot class that has real data:
+
+| arm | vocab | classes | purpose |
 |---|---|---|---|
-| **`cold5_new`** | 5-class | new split, `old+new` | control — current vocabulary on the new corpus |
-| **`cold3`** | 3-class | new split, `old+new` | treatment — our robots merged into `robot` |
-| _`cold3_kp`_ | 3-class | + `kp/` group | _optional_, answers the flagged question above |
+| **`cold4`** | 4-class | `object`, `robot`, `house_bot`, `mr_stabs_mk2` (3,563) | control — our-robot class retained where data exists |
+| **`cold3`** | 3-class | `object`, `robot`, `house_bot` | treatment — all our robots merged into `robot` |
 
 Cold from COCO, 150 epochs, `--save-period 25`, val `hold_old ∪ hold_new`, current `train.py` defaults
 (`lrf` 0.1, `flipud` 0.0 as of `a4ff7dc`). ~2.8 h each.
 
-`cold5_new` vs `cold3` isolates the vocabulary merge with everything else held fixed. **Comparison
-against the old `cold5` is confounded by the dataset rebuild and is indicative only** — the `train.py`
-default change cannot be cleanly measured here, and should not be claimed from this experiment.
+**What this comparison can and cannot show.** The eval set has **zero `mr_stabs_mk2` GT instances**, so
+this does not test whether that class is detected well. What it does test is the softmax-dilution
+question directly: does carrying a 4.3 %-representation our-robot head *cost* the generic `robot` class
+anything? That is the mechanism `indiv_blob` and `7class` blamed, and it is measurable here on
+agnostic recall/precision.
+
+**Comparison against `category_addition_2026-07-25`'s arms is confounded** by the dataset rebuild and is
+indicative only. The `train.py` default change (`a4ff7dc`) cannot be cleanly measured here and should
+not be claimed from this experiment.
 
 ## Step 3 — scoring
 
@@ -165,7 +170,7 @@ archetypes:
   opponent: opponent
   house_bot: house_bot
   mr_stabs_mk2: opponent     # our robots are competitor robots at this level
-  mrs_buff_mk3: opponent
+  mrs_buff_mk3: opponent     # eval GT still carries this; maps to the merged target
 exclude:
   - object
 ```
@@ -193,7 +198,7 @@ Also score both arms on `hold_old_scoreable` / `hold_new_scoreable` (numeric-ste
 
 ## Success criteria
 
-- **Merge adopted** if `cold3` is non-inferior to `cold5_new` on agnostic recall and precision **and**
+- **Merge adopted** if `cold3` is non-inferior to `cold4` on agnostic recall and precision **and**
   improves merged-taxonomy wrong-class rate.
 - **Merge rejected** if agnostic recall or precision degrades significantly. Simplification is not
   worth a detection regression.
@@ -205,8 +210,12 @@ Also score both arms on `hold_old_scoreable` / `hold_new_scoreable` (numeric-ste
 - **Safety is the real risk, not metrics.** Step 0's playback confirms the pipeline *functions*; it
   does not establish how often the keypoint model misses our robot. Get that number (Step 0.2) before
   deploying, and make the `group_for_label` fallback `NEUTRAL` first.
-- **`mr_stabs_mk2` cannot be measured.** The eval set has zero `mr_stabs_mk2` GT instances, so its
-  merge rests on the architectural argument alone. Do not claim it was tested.
+- **`mr_stabs_mk2` detection cannot be measured.** The eval set has zero `mr_stabs_mk2` GT instances.
+  The arms measure whether keeping that class *costs* the generic `robot` class, not whether the class
+  itself works. Do not claim the latter was tested.
+- **`mrs_buff_mk3` is entirely absent from this corpus** once MK2 is labelled correctly. Nothing here
+  speaks to how well our current robot is detected — only that a model without any MK3 supervision
+  still reached 0.780 agnostic recall in the previous experiment.
 - **Per-scene vocabularies are the biggest build hazard.** 50 scenes at 105 classes and 6 at 111, with
   shifted indices. An index-based remap will look like it worked and produce a silently mislabelled
   corpus — exactly how `remap_config_seg.toml` went stale and how `Mrs Buff MK2` came to be labelled as
@@ -225,10 +234,10 @@ Also score both arms on `hold_old_scoreable` / `hold_new_scoreable` (numeric-ste
 
 ## Artifacts / locations
 
-- Sources: `/media/storage/auto-battlebots-archive/nhrl_seg_indiv_labeled` (56 scenes, real),
-  `training/data/mrs_buff_mk3_keypoints/*.zip` (497 frames, real)
+- Source: `/media/storage/auto-battlebots-archive/nhrl_seg_indiv_labeled` (56 scenes, 36,012 frames,
+  real-only). No keypoint data is used.
 - New helper: `training/yolo/remap_labels_by_name.py`
-- Dataset: `training/data/nhrl_robots_bbox_3class/` → `training/data/scenesplit_3class_<date>/{old,new,hold_old,hold_new,kp}/`
+- Dataset: `training/data/nhrl_robots_bbox_3class/` → `training/data/scenesplit_3class_<date>/{old,new,hold_old,hold_new}/`
 - Taxonomy: `training/model_eval/taxonomy_merged.yaml`
 - Models: `data/models/yolo26n_merged3_<date>.{pt,onnx,_x86_64_sm86.engine}`
 - Scores: `training/data/nhrl_keypoints_eval_test/scores_merged3_{agnostic,merged}/`
