@@ -119,6 +119,54 @@ def main() -> None:
         help="Training RNG seed (default 0 = Ultralytics default). Vary it to measure run-to-run "
         "variance, which data_epoch_min Exp 1 found (~0.05 recall) can exceed the parity margin.",
     )
+    parser.add_argument(
+        "--lrf",
+        default=0.1,
+        type=float,
+        help="Final LR as a fraction of lr0 (final = lr0 * lrf). Default 0.1, raised from "
+        "Ultralytics' 0.01: category_addition_2026-07-25 found every fully-annealed 150-epoch "
+        "endpoint failed the parity gate while ep75-100 cleared it, so a less-annealed endpoint "
+        "is what generalizes on the robot-camera eval.",
+    )
+    parser.add_argument(
+        "--cos-lr",
+        action="store_true",
+        help="Cosine LR decay instead of linear. Untested on this data; use to A/B the schedule "
+        "shape against the default linear decay.",
+    )
+    parser.add_argument(
+        "--close-mosaic",
+        default=10,
+        type=int,
+        help="Disable mosaic for the final N epochs (0 = never disable). Ultralytics' default 10 "
+        "overlaps the steepest part of the late external-eval decline; pass 0 to test whether it "
+        "contributes.",
+    )
+    parser.add_argument(
+        "--patience",
+        default=100,
+        type=int,
+        help="Early-stop patience on val fitness. Only meaningful once val represents the "
+        "deployment camera: training data is NHRL overhead cage footage while the eval is the "
+        "robot's own ZED, so val fitness keeps improving while eval recall collapses and this "
+        "never fires. See category_addition_2026-07-25.",
+    )
+    parser.add_argument(
+        "--degrees",
+        default=180.0,
+        type=float,
+        help="Rotation augmentation, +/- degrees. 180 suits overhead cage footage where robot "
+        "orientation is arbitrary; the robot camera sees a far narrower range, so lowering this "
+        "is a live (untested) hypothesis for improving transfer.",
+    )
+    parser.add_argument(
+        "--flipud",
+        default=0.0,
+        type=float,
+        help="Vertical-flip probability. Default 0.0, lowered from 0.5: the deployment ZED has a "
+        "fixed up-vector and never sees the arena inverted, so those batches train on an "
+        "orientation that cannot occur at inference.",
+    )
     args = parser.parse_args()
 
     dataset = args.dataset
@@ -144,7 +192,10 @@ def main() -> None:
 
     hyper_params = dict(
         lr0=0.01,  # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
-        lrf=0.01,  # (float) final learning rate (lr0 * lrf)
+        lrf=args.lrf,  # (float) final learning rate (lr0 * lrf); see --lrf
+        cos_lr=args.cos_lr,  # (bool) cosine LR schedule instead of linear
+        close_mosaic=args.close_mosaic,  # (int) disable mosaic for the last N epochs
+        patience=args.patience,  # (int) early-stop patience on val fitness
         momentum=0.937,  # (float) SGD momentum/Adam beta1
         weight_decay=0.0005,  # (float) optimizer weight decay 5e-4
         warmup_epochs=3.0,  # (float) warmup epochs (fractions ok)
@@ -160,26 +211,22 @@ def main() -> None:
         hsv_h=0.015,  # (float) image HSV-Hue augmentation (fraction)
         hsv_s=0.7,  # (float) image HSV-Saturation augmentation (fraction)
         hsv_v=0.4,  # (float) image HSV-Value augmentation (fraction)
-        degrees=180.0,  # (float) image rotation (+/- deg)
+        degrees=args.degrees,  # (float) image rotation (+/- deg); see --degrees
         translate=0.5,  # (float) image translation (+/- fraction)
         scale=0.5,  # (float) image scale (+/- gain)
         shear=10.0,  # (float) image shear (+/- deg)
+        flipud=args.flipud,  # (float) image flip up-down (probability); see --flipud
         perspective=0.001,  # (float) image perspective (+/- fraction), range 0-0.001
-        flipud=0.5,  # (float) image flip up-down (probability)
         fliplr=0.5,  # (float) image flip left-right (probability)
         bgr=0.0,  # (float) image channel BGR (probability)
         mosaic=0.4,  # (float) image mosaic (probability)
         mixup=0.1,  # (float) image mixup (probability)
         copy_paste=0.2,  # (float) segment copy-paste (probability)
         copy_paste_mode="flip",  # (str) the method to do copy_paste augmentation (flip, mixup)
-        # (str) auto augmentation policy for classification (randaugment, autoaugment, augmix)
-        auto_augment="randaugment",
-        # (float) probability of random erasing during classification training (0-0.9),
-        # 0 means no erasing, must be less than 1.0.
-        erasing=0.4,
-        # (float) image crop fraction for classification (0.1-1), 1.0 means no crop,
-        # must be greater than 0.
-        crop_fraction=0.2,
+        # `auto_augment`, `erasing` and `crop_fraction` are deliberately absent: Ultralytics only
+        # reads them in ClassificationDataset / classify_transforms (data/dataset.py:753), so they
+        # are inert for detect and pose and were only making this config look more tuned than it
+        # was. `crop_fraction` is additionally deprecated upstream.
     )
 
     for model_key in models:
