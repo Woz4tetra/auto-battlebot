@@ -1,0 +1,29 @@
+# Per-scene name-based remap: archived nhrl_seg_indiv_labeled -> 2-class Option B vocabulary.
+#
+# Used with remap_labels_by_name.py, NOT remap_labels.py: the 56 scenes do not share a vocabulary
+# (50 declare 105 classes, 6 declare 111, and indices are shifted between them), so a single index
+# map is unusable and would silently mislabel the corpus.
+#
+# `robot` means "anything in the field that is not the house bot" -- every competitor, our own
+# machines, and the two Flight Controller objects. Instance identity is the keypoint model's job.
+#
+# `object` is deliberately not a class. It held 246 boxes from a single 2024 mini-bot scene: far too
+# few to learn, and the distinction it encoded is not one the detector is asked to make.
+
+target_names = ["robot", "house_bot"]
+default = "robot"          # every competitor robot name falls through to here
+
+[map]
+# Field segmentation -- belongs to the deeplab task, 88,823 polygons, not a robot.
+"Floor" = "__drop__"
+"Floor letter word" = "__drop__"
+
+# House bot and its seasonal liveries: neutral, never a target, the only class kept separate.
+"House Bot" = "house_bot"
+"House Bot Orange Halloween" = "house_bot"
+"House Bot White Halloween" = "house_bot"
+"House Bot Flash Halloween" = "house_bot"
+
+# Formerly the `object` class; now folded into robot with everything else in the field.
+"Flight Controller 1" = "robot"
+"Flight Controller 2" = "robot"

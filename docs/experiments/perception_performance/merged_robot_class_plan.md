@@ -47,15 +47,29 @@ archive rather than `nhrl_robots_indiv` to guarantee provenance; audited 2026-07
 
 56 per-scene segmentation datasets, **36,012 frames, 199,119 polygons**.
 
-After the Option B name-based remap:
+After the Option B name-based remap — **two classes, not three**:
 
-| target | polygons | from |
+**BUILT 2026-07-26** — `training/data/nhrl_robots_bbox_2class`, **35,750 frames, 107,615 boxes**,
+`validate_yolo_integrity.py --strict`: 0 errors, 0 warnings. Images are real copies (2,000 sampled:
+`nlink` 1, no symlinks), so the tree is standalone and survives the source being archived.
+
+| target | boxes | from |
 |---|---|---|
-| `object` (0) | **246** | `Flight Controller 1` (135), `Flight Controller 2` (111) |
-| `robot` (1) | **81,732** | all competitors, incl. `Mrs Buff MK2` (2,327) and `Mr Stabs MK2` (3,563) |
-| `house_bot` (2) | **28,318** | `House Bot` (25,093) + Orange (1,717) + White (1,508) Halloween |
-| _dropped_ | _88,823_ | `Floor` |
-| **kept** | **110,296** | |
+| `robot` (0) | **79,585** | every competitor, our own machines (`Mrs Buff MK2`, `Mr Stabs MK2`), and the two `Flight Controller` objects |
+| `house_bot` (1) | **28,030** | `House Bot` + Orange/White Halloween liveries |
+| _dropped_ | _88,823_ | `Floor` (field segmentation, belongs to deeplab) |
+
+> **`object` is gone as a class, deliberately.** It held **246 boxes from a single 2024 mini-bot
+> scene** — 0.2 % of annotations, far too few to learn, and the same class-imbalance failure
+> `indiv_blob` and `7class` documented. More to the point, the distinction it encoded is not one the
+> detector is asked to make.
+>
+> **`robot` now means "anything in the field that is not the house bot."** That is the honest
+> description of what this head does and what the downstream consumer needs: the filter wants to know
+> where the things in the arena are, the keypoint model says which one is ours, and `house_bot` stays
+> separate only because it is neutral and must never be targeted. Naming the class for what it
+> actually is beats carrying two heads that encode distinctions the model cannot make and the
+> pipeline does not use.
 
 > **No keypoint data is merged in.** Deliberate, and safe under Option B: the bbox model no longer
 > needs to identify our robot, so real MK3 footage is not required for it. The corpus still contains
@@ -64,8 +78,8 @@ After the Option B name-based remap:
 > supervision still reached **0.780 agnostic recall** on the eval: it detects our robot fine, it just
 > could not name it. Naming is the keypoint model's job now.
 
-**Three things make this harder than remapping `nhrl_robots_indiv`, and all three will silently corrupt
-the dataset if missed:**
+**Five things make this harder than remapping `nhrl_robots_indiv`. All five silently corrupt the
+dataset if missed, and two of them were only caught by spot-checking frames after the first build:**
 
 1. **The scenes do not share a class vocabulary.** There are **two** distinct `data.yml` class lists —
    105 names (50 scenes) and 111 names (6 scenes) — and the indices *do not line up*:
@@ -89,6 +103,23 @@ the dataset if missed:**
    relabelled MK2. Under Option B this stops mattering: MK2 is a competitor robot and maps to `robot`
    like everything else.
 
+4. **Each scene carries a human review verdict that must be honored.** `validation_state.json`
+   (written by `validate_yolo_dataset.py`) marks **1,680 frames `fail`** across the 56 scenes. The
+   first build ignored it and pulled in every one of them. `--require-pass` keeps only `pass` frames;
+   262 of the failed frames had labels and are now excluded, leaving exactly the 35,750 that passed.
+
+5. **Segmentation masks shatter, and a per-polygon box conversion turns each sliver into a target.**
+   Spot-checking the highest-box-count frames found one with **277 separate `Snowdrift` polygons** —
+   a single robot whose mask fragmented — rendering as ~270 tiny boxes strewn across the crowd and
+   venue while the actual robots sat unboxed. The frame is marked `pass` because the *segmentation*
+   overlay looks correct; only the box conversion is wrong. `--min-box-side 0.0125` (8 px at 640)
+   suppresses the slivers.
+
+   **This affects `seg_to_bbox.py` generally**, and therefore every bbox dataset in the previous
+   lineage including `nhrl_robots_bbox_real` and the `category_addition_2026-07-25` arms. The scale
+   was small there — 18 frames of 36,012 held >10 boxes, 0.7 % of all boxes — so it does not
+   invalidate those results, but it is a standing defect in that converter worth fixing.
+
 **New helper required: `training/yolo/remap_labels_by_name.py`.** Reads each scene's `data.yml`, maps
 source class *names* to the target vocabulary, drops unmapped classes, and writes one merged dataset.
 Must fail loudly on any name it has no rule for, rather than defaulting — that is how `Floor` would
@@ -98,16 +129,18 @@ Target rules (Option B):
 
 | source names | target |
 |---|---|
-| `Floor`, `Floor letter word` | **dropped** |
-| `House Bot*` (all Halloween variants) | `house_bot` (2) |
-| `Flight Controller 1`, `Flight Controller 2` | `object` (0) |
-| everything else, **including `Mrs Buff MK2`, `Mr Stabs MK2`, `Stab Rave`, `power on`, `usawgi`** | `robot` (1) |
+| `Floor`, `Floor letter word` | **dropped** (88,823 polygons of field segmentation) |
+| `House Bot*` (all Halloween variants) | `house_bot` (1) |
+| everything else — **all 103 competitor names, plus `Mrs Buff MK2`, `Mr Stabs MK2`, `Flight Controller 1/2`** | `robot` (0) |
+
+All 103 defaulted names were reviewed and are competitor robots; the tool prints every name that hits
+the default so a new non-robot class appearing upstream is visible rather than silently folded in.
 
 ### Build sequence
 
 ```
-remap_labels_by_name.py  (per-scene, name-based)  -> 3-class real seg
-seg_to_bbox.py                                    -> 3-class real bbox
+remap_labels_by_name.py --to-bbox --require-pass --min-box-side 0.0125
+    -> training/data/nhrl_robots_bbox_2class  (standalone: no hardlinks, no symlinks)
 split_by_scene.py --mode temporal --cutoff 2025-11 --holdout-frac 0.2 \
                   --stratify-class robot,house_bot
 validate_yolo_integrity.py --strict
@@ -115,20 +148,20 @@ validate_yolo_integrity.py --strict
 
 **Assertions before training** — each has already caught a real defect once:
 
-- no label file contains a class id > 2, and **zero frames named `synthetic*`**
-- **36,012 frames**, **110,296 polygons** kept after dropping `Floor`
-- **`house_bot` = 28,318.** This is the load-bearing check that the name-based remap landed correctly,
-  because `house_bot` is the one class that is real-only, well-populated, and untouched by the merge.
-  Note it is **not** the 28,217 seen in `nhrl_robots_indiv` — the archive carries 267 more frames, so a
-  mismatch against the old number is expected and 28,318 is the correct target.
-- `robot` = 81,732, `object` = 246
-- zero scene overlap across the four split groups
+- no label file contains a class id > 1, and **zero frames named `synthetic*`**
+- **35,750 frames** — exactly the `pass` count in `validation_state.json`
+- **`robot` = 79,585, `house_bot` = 28,030, total 107,615**
+- images are real copies: sampled `nlink == 1`, no symlinks
+- zero scene overlap across the four split groups (after `split_by_scene.py`)
+
+Counts differ from the unfiltered build (36,012 frames / 110,273 boxes) by exactly the review-failed
+frames and the sub-8px slivers. If a rebuild reports 36,012, one of the two filters was not applied.
 
 ## Step 2 — arms
 
-**The rebuild invalidates the existing `cold5` as a control.** It trained on `scenesplit_2026-07-25`,
-derived from `nhrl_robots_bbox_real`; the new split comes from a different source with different frame
-counts. Both arms below must therefore be trained fresh on the new data.
+**The rebuild invalidates every prior arm as a control.** They trained on `scenesplit_2026-07-25`,
+derived from `nhrl_robots_bbox_real`; the new corpus comes from a different source with a different
+vocabulary. Both arms below are trained fresh on the new data.
 
 **The control is 4-class, not 5.** With the labels corrected, `mrs_buff_mk3` has **zero** boxes in this
 corpus — the archive contains no MK3 class, and the 2,327 boxes that used to populate it were
@@ -138,8 +171,8 @@ one our-robot class that has real data:
 
 | arm | vocab | classes | purpose |
 |---|---|---|---|
-| **`cold4`** | 4-class | `object`, `robot`, `house_bot`, `mr_stabs_mk2` (3,563) | control — our-robot class retained where data exists |
-| **`cold3`** | 3-class | `object`, `robot`, `house_bot` | treatment — all our robots merged into `robot` |
+| **`cold3`** | 3-class | `robot`, `house_bot`, `mr_stabs_mk2` (3,563) | control — our-robot class retained where data exists |
+| **`cold2`** | 2-class | `robot`, `house_bot` | treatment — everything but the house bot is `robot` |
 
 Cold from COCO, 150 epochs, `--save-period 25`, val `hold_old ∪ hold_new`, current `train.py` defaults
 (`lrf` 0.1, `flipud` 0.0 as of `a4ff7dc`). ~2.8 h each.
@@ -156,11 +189,11 @@ not be claimed from this experiment.
 
 ## Step 3 — scoring
 
-**A 3-class engine cannot share a `score.py` invocation with 5-class ones.** `score.py` passes one
+**A 2-class engine cannot share a `score.py` invocation with a 3-class one.** `score.py` passes one
 `--labels` list to every candidate as `num_classes` and `trt_yolo.py`'s `_infer_raw_head_dims` trusts
-it rather than reading the engine. Score `cold3` separately with `--labels "object,opponent,house_bot"`.
+it rather than reading the engine. Score `cold2` separately with `--labels "opponent,house_bot"`.
 
-**A merged taxonomy is required or the comparison is rigged.** A 3-class model calling our robot
+**A merged taxonomy is required or the comparison is rigged.** A 2-class model calling our robot
 `opponent` is correct under its own vocabulary but reads as a wrong-class error under `taxonomy.yaml`.
 This is the same trap as the common-class view abandoned in `category_addition_2026-07-25`. Add
 `training/model_eval/taxonomy_merged.yaml`:
@@ -172,13 +205,13 @@ archetypes:
   mr_stabs_mk2: opponent     # our robots are competitor robots at this level
   mrs_buff_mk3: opponent     # eval GT still carries this; maps to the merged target
 exclude:
-  - object
+  - object          # eval GT still declares it; no model here predicts it
 ```
 
 | view | taxonomy | measures |
 |---|---|---|
 | agnostic | `taxonomy.yaml` | "did it find the robots" — vocabulary-neutral, the primary gate |
-| merged instance | `taxonomy_merged.yaml` | naming quality on the vocabulary `cold3` actually targets |
+| merged instance | `taxonomy_merged.yaml` | naming quality on the vocabulary `cold2` actually targets |
 
 **Gate:** earliest ladder checkpoint whose agnostic recall Δ CI lower bound ≥ −0.04 with precision and
 F1 not significantly worse, paired vs the deployed baseline on `nhrl_keypoints_eval_test`. Baseline
@@ -198,7 +231,7 @@ Also score both arms on `hold_old_scoreable` / `hold_new_scoreable` (numeric-ste
 
 ## Success criteria
 
-- **Merge adopted** if `cold3` is non-inferior to `cold4` on agnostic recall and precision **and**
+- **Merge adopted** if `cold2` is non-inferior to `cold3` on agnostic recall and precision **and**
   improves merged-taxonomy wrong-class rate.
 - **Merge rejected** if agnostic recall or precision degrades significantly. Simplification is not
   worth a detection regression.
@@ -236,11 +269,11 @@ Also score both arms on `hold_old_scoreable` / `hold_new_scoreable` (numeric-ste
 
 - Source: `/media/storage/auto-battlebots-archive/nhrl_seg_indiv_labeled` (56 scenes, 36,012 frames,
   real-only). No keypoint data is used.
-- New helper: `training/yolo/remap_labels_by_name.py`
-- Dataset: `training/data/nhrl_robots_bbox_3class/` → `training/data/scenesplit_3class_<date>/{old,new,hold_old,hold_new}/`
+- New helper: `training/yolo/remap_labels_by_name.py` + `remap_config_2class.toml`
+- Dataset: `training/data/nhrl_robots_bbox_2class/` (standalone copies, no links) → `training/data/scenesplit_3class_<date>/{old,new,hold_old,hold_new}/`
 - Taxonomy: `training/model_eval/taxonomy_merged.yaml`
 - Models: `data/models/yolo26n_merged3_<date>.{pt,onnx,_x86_64_sm86.engine}`
 - Scores: `training/data/nhrl_keypoints_eval_test/scores_merged3_{agnostic,merged}/`
 - Pipeline change: `include/robot_filter/label_group_utils.hpp` (fallback → `NEUTRAL`),
-  `config/_desktop.toml` / `_jetson.toml` (`label_indices` → `["OBJECT","OPPONENT","HOUSE_BOT"]`)
+  `config/_desktop.toml` / `_jetson.toml` (`label_indices` → `["OPPONENT","HOUSE_BOT"]`)
 - Writeup: `docs/experiments/perception_performance/merged_robot_class_<date>.md`
