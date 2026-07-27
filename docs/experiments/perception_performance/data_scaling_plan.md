@@ -1,6 +1,6 @@
 # How much labelled data do I need — scenes vs frames
 
-Status: **planned, awaiting approval** (2026-07-27). Dataset built and validated; no training started.
+Status: **ready to run** (2026-07-27). Dataset validated, splits built and verified; no training started.
 
 ## Question
 
@@ -51,25 +51,39 @@ previous data-floor result unusable.
 So both sampling modes hit the **same frame count**; only the number of scenes those frames come from
 differs.
 
-### Held-out val — fixed across every arm
+### Held-out val — **BUILT**, fixed across every arm
 
-9 scenes, **4,732 frames (15.0 %)**, `house_bot` share 14.9 % — scene-disjoint from all training, and
-identical for all 5 arms so the val curves are comparable. Carved once, never resampled.
+9 scenes, **4,732 frames (15.0 %)** — scene-disjoint from all training and identical for all 5 arms,
+so the val curves are directly comparable. Carved once by `make_scaling_splits.py`, never resampled.
 
 **Training pool (the 100 % base): 47 scenes, 26,733 frames.**
 
 ### Arms
 
-| arm | sampling | scenes | frames |
-|---|---|---|---|
-| **base-100** | all | 47 | 26,733 |
-| **scene-75** | whole scenes | 35 | 20,621 |
-| **scene-50** | whole scenes | 25 | 14,352 |
-| **rand-75** | random frames | 47 | 20,049 |
-| **rand-50** | random frames | 47 | 13,366 |
+**BUILT** — `training/data/datascale_2026-07-27/`, realised counts:
 
-Scene arms take whole scenes at random until the frame target is reached, so realised counts land
-within ~3 % of the random arms rather than exactly on them. Report the realised number, do not round.
+| arm | sampling | scenes | frames | % of pool |
+|---|---|---|---|---|
+| **base100** | all | 47 | 26,733 | 100.0 % |
+| **scene75** | whole scenes | 37 | 21,159 | 79.1 % |
+| **scene50** | whole scenes | 24 | 13,670 | 51.1 % |
+| **rand75** | random frames | 47 | 20,049 | 75.0 % |
+| **rand50** | random frames | 47 | 13,366 | 50.0 % |
+
+Scene arms add whole scenes until the frame target is met, so they overshoot slightly — scene75 is
+5.5 % larger than rand75, scene50 2.3 % larger than rand50. **That overshoot favours the scene arms**,
+so a scene-arm *win* needs discounting by roughly that margin while a scene-arm *loss* is if anything
+understated.
+
+**Arms are nested and verified as such:** `scene50 ⊂ scene75 ⊂ base100`, `rand50 ⊂ rand75 ⊂ base100`,
+built as prefixes of one fixed shuffle. Each step only adds data, so a drop cannot be blamed on which
+scenes were drawn. `make_scaling_splits.py` asserts the subset relations and the val disjointness
+before writing, and the build is deterministic (verified by rebuilding and comparing checksums).
+
+Arms are **image-list `.txt` files**, not copied frames: ultralytics accepts a list of image paths for
+`train`/`val`, so the five arms cost kilobytes, share one `cache="disk"` `.npy` set next to the source
+images, and cannot drift out of sync with the dataset. Verified loading — `rand50.txt` yields 13,366
+frames.
 
 **5 arms, cold start from COCO, 100 epochs, `--save-period 25`, current `train.py` defaults**
 (`lr0` 0.01, `lrf` 0.1, `degrees` 45, `flipud` 0.0, `close_mosaic` 0, batch 128, imgsz 640).
@@ -153,10 +167,15 @@ below that, X."*
 - Taxonomy: `training/model_eval/taxonomy_merged.yaml` (to be written)
 - Writeup: `docs/experiments/perception_performance/data_scaling_<date>.md`
 
-## Open question for you
+## Commands
 
-**Should the scene arms be nested?** Scene-50 ⊂ scene-75 ⊂ base makes the curve a clean monotone
-series — each step only *adds* data, so a drop is unambiguous and cannot be blamed on which scenes
-were drawn. Independent draws instead give separate samples of "what 50 % looks like", which is more
-honest about draw-to-draw variance but noisier across only three points. Nested is the default unless
-you say otherwise; the same choice applies to the random arms.
+```bash
+# splits (already built)
+python3 training/yolo/make_scaling_splits.py \
+    --src training/data/nhrl_robots_bbox_2class \
+    --out training/data/datascale_2026-07-27
+
+# one arm, from training/yolo/
+python3 train.py ../data/datascale_2026-07-27/<arm>.yml yolo26n \
+    -e 100 --save-period 25 -d 0 1 2
+```
