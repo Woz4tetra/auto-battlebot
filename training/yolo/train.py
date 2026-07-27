@@ -136,7 +136,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--close-mosaic",
-        default=10,
+        default=0,
         type=int,
         help="Disable mosaic for the final N epochs (0 = never disable). Ultralytics' default 10 "
         "overlaps the steepest part of the late external-eval decline; pass 0 to test whether it "
@@ -153,11 +153,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--degrees",
-        default=180.0,
+        default=45.0,
         type=float,
-        help="Rotation augmentation, +/- degrees. 180 suits overhead cage footage where robot "
-        "orientation is arbitrary; the robot camera sees a far narrower range, so lowering this "
-        "is a live (untested) hypothesis for improving transfer.",
+        help="Rotation augmentation, +/- degrees.",
     )
     parser.add_argument(
         "--flipud",

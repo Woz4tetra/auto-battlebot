@@ -45,17 +45,50 @@ On desktop, the bounding box is 18% faster than the segmentation model.
 
 docs/experiments/perception_performance/seg_vs_bbox_2026-07-18.md
 
+# Should "our robots" be separate labels in the opponents model?
+
+Mrs Buff MK2 was mistakenly mapped to Mrs Buff MK3. This actually strengthened detection for the bounding box and segmentation model
+since MK2 is visually similar to MK3. This raises a question of whether it's worth putting our robots as separate categories for a model
+that generalizes an NHRL robot in a cage. It also eliminates the risk of this model mislabeling an opponent as Mrs Buff MK3 which is a
+worse side effect than labeling as opponent.
+
+I think it's worth pursuing training an "any robot in the cage model" and separating "specific robots with CAD" to the keypoints model.
+The house bot is an exception since there's plenty of real data of this robot.
+
+It's now a question of whether downstream filtering can avoid getting confused.
+
+docs/experiments/perception_performance/category_addition_2026-07-25.md
+
 # When do I stop training YOLO? (what metric threshold do I need to satisfy baseline metrics requirements?)
+
+~150 epochs seems to be enough. At this point, recall and precision are within the noise of baseline with unseeded runs.
+
+docs/experiments/perception_performance/category_addition_2026-07-25.md
+
+# What's a good number for mAP?
+
+In my case, 0.5 is good. The objects I'm working with are small wrt the image size. So this score will never get super high.
 
 # How many synthetic images do I need to generate for our keypoints model?
 
 # For our keypoints model, how much real data do I need?
 
-# How many real images do I need to label?
+# How many images do I need to label for an individual robot?
+
+# How many images do I need to label for a generalized NHRL robot?
 
 # For the bounding box opponent model, how much synthetic data of our robots do I need to mix in?
 
+docs/experiments/perception_performance/category_addition_2026-07-25.md
+
+This experiment doesn't give a number but synthetic is definitely needed if Mrs Buff MK3 is to remain a category in the bounding box model.
+The number of real images I've labeled for Mrs Buff MK3 is not sufficient.
+
 # Is starting from a checkpoint better than cold start?
+
+Yes, slightly. It saves ~25 epochs/45 min.
+
+docs/experiments/perception_performance/category_addition_2026-07-25.md
 
 # How many field images for deeplab do I need for each field type?
 
