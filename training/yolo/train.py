@@ -1,15 +1,52 @@
 import argparse
 import os
 from datetime import datetime
+from pathlib import Path
 
 # Training is headless. Force a non-interactive matplotlib backend before ultralytics
 # imports matplotlib: an inherited (e.g. SSH-forwarded) DISPLAY otherwise makes it pick
 # TkAgg, which ultralytics fails to restore after plotting metrics and crashes the run.
 os.environ["MPLBACKEND"] = "Agg"
 
+import yaml
+from clear_image_cache import sweep
 from ultralytics import YOLO
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_ROOT = Path(BASE_DIR).resolve().parents[0] / "data"
+CACHE_MAX_AGE_DAYS = 7.0
+
+
+def reclaim_stale_caches(dataset_yaml: str, max_age_days: float) -> None:
+    """Delete ultralytics disk caches unused for ``max_age_days``, before training starts.
+
+    ``cache="disk"`` writes one ``.npy`` per image and never prunes them: on megamind a single
+    corpus grew to 196 GB of cache against 12 GB of images, and a stale set from an abandoned
+    dataset can fill the NVMe and stall an unrelated run. Deleting is safe -- ultralytics rebuilds
+    what it needs -- so the only cost of being wrong is re-caching time.
+
+    The dataset about to be trained on is protected explicitly. ``busy_datasets`` skips this process
+    and its ancestors (so that a shell mentioning a path does not pin it), which means it cannot see
+    that *we* are the ones about to use this data.
+
+    Never fatal: a failure here must not take down a multi-hour training run.
+    """
+    protect: set[Path] = set()
+    try:
+        meta = yaml.safe_load(Path(dataset_yaml).read_text())
+        if isinstance(meta, dict) and meta.get("path"):
+            protect.add(Path(str(meta["path"])).resolve())
+    except (OSError, yaml.YAMLError):
+        pass
+    protect.add(Path(dataset_yaml).resolve().parent)
+
+    try:
+        freed, removed = sweep(DATA_ROOT, max_age_days, protect=protect)
+    except Exception as exc:  # noqa: BLE001 - never block training on cache cleanup
+        print(f"cache cleanup skipped: {exc}")
+        return
+    if removed:
+        print(f"reclaimed {freed / 1e9:.1f} GB of stale image cache ({removed} files)")
 
 
 def main() -> None:
@@ -158,6 +195,19 @@ def main() -> None:
         help="Rotation augmentation, +/- degrees.",
     )
     parser.add_argument(
+        "--cache-max-age",
+        default=CACHE_MAX_AGE_DAYS,
+        type=float,
+        metavar="DAYS",
+        help=f"Before training, delete ultralytics disk caches unused for this many days "
+        f"(default: {CACHE_MAX_AGE_DAYS:g}). The dataset being trained on is always spared.",
+    )
+    parser.add_argument(
+        "--no-clear-cache",
+        action="store_true",
+        help="Skip the pre-training cache sweep entirely.",
+    )
+    parser.add_argument(
         "--flipud",
         default=0.0,
         type=float,
@@ -184,6 +234,9 @@ def main() -> None:
         devices_filtered = devices[0]
     else:
         devices_filtered = devices
+
+    if not args.no_clear_cache:
+        reclaim_stale_caches(dataset, args.cache_max_age)
 
     # One timestamp per script run so all models in this session share the same date.
     session_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

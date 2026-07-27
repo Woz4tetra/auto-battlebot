@@ -259,6 +259,35 @@ def validate(args: argparse.Namespace) -> bool:
     return use_atime
 
 
+def sweep(
+    root: Path, older_than: float, *, use_atime: bool = True, protect: set[Path] | None = None
+) -> tuple[int, int]:
+    """Delete stale caches under ``root``. Returns (bytes freed, files removed).
+
+    The importable entry point, used by ``train.py`` to reclaim disk before a run. ``protect`` names
+    datasets to spare regardless of age: ``busy_datasets`` skips this process and its ancestors, so
+    a caller about to train on a dataset must name it explicitly or risk deleting its own cache
+    (harmless -- it regenerates -- but a slow way to start a run).
+    """
+    groups = collect(root, use_atime)
+    if not groups:
+        return 0, 0
+    protect = protect or set()
+    busy = busy_datasets([g.dataset for g in groups]) | protect
+    delete, _ = classify(groups, older_than, busy)
+
+    bytes_freed = files_removed = 0
+    for group in delete:
+        for npy in group.files:
+            try:
+                npy.unlink()
+                files_removed += 1
+            except OSError:
+                continue
+        bytes_freed += group.nbytes
+    return bytes_freed, files_removed
+
+
 def main() -> None:
     """Delete stale ultralytics image caches."""
     args = build_arg_parser().parse_args()
