@@ -77,6 +77,23 @@ In my case, 0.5 is good. The objects I'm working with are small wrt the image si
 
 # How many images do I need to label for a generalized NHRL robot?
 
+Comparing to a baseline of ~26000 images, the floor is between 50% and 75%. The drop from 100% to 75% wasn't significant.
+Based on context, this means the data I have doesn't have enough variation.
+The data is drawn from 47 scenes. Randomly sampling was within the noise of 100%. 75% of scenes
+saw a noticeable drop in performance. This tells me I need more scene variation.
+
+What had a much bigger impact was data hygiene. Scrubbing through the dataset, I noticed lots of
+errors. The conversion from segmentation to bounding box revealed there were lots of small polygons that broke the conversion.
+Also synthetic data leaked into earlier experiments which has demonstrated to make the generalized
+robot model degrade. After removing these bad images, the baseline 100% model in this experiment
+exceeded the original baseline's performance on the test set.
+
+Going forward, validate all new images even ones that were validated in segmentation and go through
+bounding box conversion. Consider the bounding box conversion a source of error.
+Grab 25% fewer frames per scene. They extend training time and don't add much value.
+
+docs/experiments/perception_performance/data_scaling_2026-07-27.md
+
 # For the bounding box opponent model, how much synthetic data of our robots do I need to mix in?
 
 docs/experiments/perception_performance/category_addition_2026-07-25.md
