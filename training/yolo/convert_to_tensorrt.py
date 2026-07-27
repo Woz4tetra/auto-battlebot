@@ -42,7 +42,11 @@ import torch
 # only ~3x, because each concurrent builder pays the full tactic search independently -- and three
 # cold searches cost far more than one cold search plus N warm ones. Sequential also keeps the
 # cache warm in memory between models within a single invocation.
-DEFAULT_TIMING_CACHE = Path.home() / ".cache" / "auto_battlebot" / "trt_timing.cache"
+# Repo-local so the cache travels with the checkout and is obviously disposable; `.cache/` is
+# already gitignored. Not in $HOME, where it would silently outlive the project and be easy to
+# forget when a TensorRT or driver upgrade invalidates it.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_TIMING_CACHE = REPO_ROOT / ".cache" / "tensorrt" / "timing.cache"
 
 
 def _has_lean_runtime() -> bool:
