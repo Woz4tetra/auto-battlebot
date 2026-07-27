@@ -16,9 +16,10 @@ Plan: `data_scaling_plan.md`.
 3. **Scene diversity beats frame count, and the gap widens as data shrinks.** At matched frame
    counts, random sampling (all 47 scenes) beats whole-scene sampling — decisively at 50 %, where
    random passes and scene-sampled fails outright.
-4. **Accuracy has saturated by ~20 k frames.** `rand75` (20,049 frames) matches or beats `base100`
-   (26,733) on every metric including mAP50-95 (0.584 vs 0.570). The last 25 % of labelling bought
-   nothing measurable.
+4. **Accuracy has saturated by ~20 k frames.** `rand75` (20,049 frames) is **statistically
+   indistinguishable** from `base100` (26,733) — every paired metric `ns`. The last 25 % of labelling
+   bought nothing measurable. Note the direction: the extra data does not *help*, which is not the
+   same as removing it *helping*. See §Which model to deploy.
 
 ## Setup
 
@@ -68,10 +69,13 @@ that are not robots.
 |---|---|---|---|---|---|
 | baseline | 49,086 (mixed) | 0.742 | **0.962** | 0.838 | 0.504 |
 | base100 (ep75) | 26,733 | 0.882 | 0.923 | 0.902 | 0.570 |
-| **rand75** (ep100) | 20,049 | **0.884** | 0.926 | **0.904** | **0.584** |
-| scene75 (ep100) | 21,159 | 0.864 | 0.948 | 0.904 | 0.567 |
+| rand75 (ep100) | 20,049 | 0.884 | 0.926 | 0.904 | 0.584 |
+| scene75 (ep100) | 21,159 | 0.864 | **0.948** | 0.904 | 0.567 |
 | rand50 (ep100) | 13,366 | 0.867 | 0.900 | 0.883 | 0.556 |
 | scene50 (ep100) | 13,670 | 0.832 | 0.826 | 0.829 | 0.523 |
+
+**Read this table with the paired tests below, not by eye.** `rand75` tops it on recall and mAP50-95,
+but those margins over `base100` are inside noise; ranking arms by raw score here is misleading.
 
 ## Answers
 
@@ -140,6 +144,46 @@ The one place the baseline still wins is precision (0.962 vs 0.923). It is a mor
 it fires less and is right more often when it does. Whether that trade is right depends on whether a
 missed opponent or a false target costs more in a match.
 
+## Which model to deploy
+
+The arms above are each scored against the *deployed baseline*. Scoring them against **each other**
+changes the reading. Paired vs `base100_ep75`:
+
+| arm | recall Δ | precision Δ | F1 Δ |
+|---|---|---|---|
+| `rand75_eplast` | +0.002 **ns** | +0.002 **ns** | +0.002 **ns** |
+| `rand75_ep75` | −0.002 **ns** | −0.004 **ns** | −0.003 **ns** |
+| `base100_eplast` | −0.017 worse | +0.018 better | −0.000 ns |
+| `scene75_eplast` | −0.019 worse | **+0.024 better** | +0.001 ns |
+
+**`rand75` is not better than `base100` — it is indistinguishable from it.** Every metric `ns`. The
+0.884-vs-0.882 recall and 0.584-vs-0.570 mAP50-95 in the table above are within noise.
+
+**Deploy from `base100`, not `rand75`.** The arms are nested, so `rand75` is a strict subset of
+`base100`: choosing it means discarding 6,684 already-labelled, already-validated frames for no
+measurable gain. The `rand75` result governs **future labelling budget** — stop around 20 k frames of
+this footage — not which corpus to train on today.
+
+**The real deployment choice is precision vs recall, not dataset size.**
+
+| model | recall | precision |
+|---|---|---|
+| `base100_ep75` | **0.882** | 0.923 |
+| `scene75_eplast` | 0.864 | **0.948** |
+| deployed baseline | 0.742 | **0.962** |
+
+`scene75_eplast` trades 0.019 recall for 0.024 precision against `base100_ep75` — both **significant**,
+not noise. It sits closer to the deployed baseline's conservative behaviour while still gaining 0.12
+recall over it.
+
+That is a decision this experiment cannot make: **does a missed opponent or a false target cost more
+in a match?** The deployed model is heavily precision-biased (0.962). If that reflects a deliberate
+choice rather than an accident of its training corpus, `scene75_eplast` preserves it better.
+
+One option not tested: once the recipe is fixed the 9 held-out val scenes no longer need reserving, so
+a final model could train on all 31,465 frames. Given the saturation above 20 k it should not move the
+numbers, but it costs one ~2 h run and leaves no labelled data unused.
+
 ## Risks / caveats
 
 - **One seed per arm.** δ = 0.04 is tighter than the 0.048 cross-run spread measured between two
@@ -160,8 +204,10 @@ missed opponent or a false target costs more in a match.
 
 ## Recommendation
 
-- **Deploy a model from this corpus.** `rand75` ep100 or `base100` ep75 — both beat the deployed
-  baseline by ~0.14 recall at comparable precision.
+- **Deploy from `base100`** — `ep75` for maximum recall (0.882), or `scene75_eplast` if the deployed
+  model's precision bias (0.962) is deliberate and worth preserving (0.948 at 0.864 recall). Do **not**
+  pick `rand75`: it is a subset of `base100` and statistically identical to it, so it only discards
+  labelled data.
 - **Stop labelling around 20 k frames** of this footage. The curve is flat above it.
 - **Spend the next labelling budget on new fights, not more frames from existing ones.** That is where
   the scene-vs-random gap points.
