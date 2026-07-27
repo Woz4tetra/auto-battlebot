@@ -216,9 +216,27 @@ numbers, but it costs one ~2 h run and leaves no labelled data unused.
 
 ## Artifacts
 
-- Corpus: `training/data/nhrl_robots_bbox_2class/` (validated; rejects in `validation_backup/`)
-- Splits: `training/data/datascale_2026-07-27/{val,base100,scene75,rand75,scene50,rand50}.{txt,yml}`
-  + `manifest.json`
-- Runs: `runs/projects/auto_battlebots_2026-07-27_{00-49-19,02-29-01,03-47-11,05-02-05,05-54-28}_yolo26n`
-- Scores: `training/data/nhrl_keypoints_eval_test/scores_datascale{,_anchor}/`
-- Taxonomy: `training/model_eval/taxonomy_merged.yaml`
+**Canonical corpus — base all future training on this:**
+`training/data/nhrl_robots_bbox_2class/` — 31,465 frames with the scene-disjoint val split baked in
+(train 47 scenes / 26,733 frames, val 9 scenes / 4,732). `--strict` clean, zero synthetic. See its
+`README.md` for provenance, filters, and known defects.
+
+```bash
+python3 train.py ../data/nhrl_robots_bbox_2class/data.yml yolo26n -e 100 --save-period 25
+```
+
+**Archived to `/media/storage/auto-battlebots-archive/experiments_2026-07/`:**
+
+| | |
+|---|---|
+| `runs/` | all training runs, 4.2 GB (file counts verified before local deletion) |
+| `datascale_2026-07-27/` | the five arm lists + `manifest.json` recording every scene assignment |
+| `validation_rejects/` | the 4,146 manually-rejected frames, 1.6 GB |
+| `validation_state*.json` | the manual review verdicts |
+
+**Still local:** scores at `training/data/nhrl_keypoints_eval_test/scores_datascale{,_anchor}/`,
+taxonomy at `training/model_eval/taxonomy_merged.yaml`.
+
+The arm `.txt` lists in the archive point at the **pre-split** layout (`train/images/…` for every
+frame). Scene assignments survive in `manifest.json`, so the arms are reconstructible, but the lists
+themselves will not resolve against the current train/val layout.
