@@ -1,0 +1,17 @@
+# Scoring view for 2-class models (`robot`, `house_bot`).
+#
+# The eval GT still declares mr_stabs_mk2 and mrs_buff_mk3 as separate classes, but a 2-class model
+# has no such heads and predicts `opponent` for both. Mapping our robots to `opponent` in GT makes
+# the target vocabulary match what the model can actually emit; without it every correct detection
+# of our own robot is scored as a wrong class.
+#
+# `object` stays excluded: it is GT-only debris that no model here predicts.
+
+archetypes:
+  opponent: opponent
+  house_bot: house_bot
+  mr_stabs_mk2: opponent
+  mrs_buff_mk3: opponent
+
+exclude:
+  - object
