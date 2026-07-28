@@ -1,0 +1,52 @@
+# Scene -> field-type corrections, applied on top of the filename parser.
+#
+# The parser in field_labels.py reads the arena off the filename, which is all the
+# provenance the corpus has. That is a first approximation, and the Phase-0 spot-check
+# (contact sheets of ~30 frames per field, spread across that field's scenes) found
+# three places where it groups physically different arenas together, or splits one
+# arena across several labels. Those are corrected here rather than in the parser,
+# because they are observations about specific recordings, not rules about names.
+#
+# Every entry below was checked by eye against the recording's own frames. Anything not
+# listed keeps whatever the parser inferred.
+#
+# Deliberately NOT corrected:
+#   - the three NHRL broadcast scenes still under `unclassified`
+#     (12lb-3-smeezus..., 30lb-1-waddles..., 3lb-48-silentspring...). They are plainly
+#     NHRL cages, but nothing identifies *which* cage, and guessing one would fold them
+#     into a cage's score under false pretenses. They stay unclassified and, by
+#     score_masks.py's default --exclude-field, out of the macro-average.
+#   - `mini_bot`, which spans at least three distinct rigs (a home floor in 2024-02, an
+#     event cage in 2024-03 and 2024-10-26, the workshop table in 2024-10-06/20).
+#     Splitting it would change what the corpus's second-largest non-cage bucket means
+#     and it is not a probe, so it is left intact and flagged instead.
+#   - `cage6`, whose 13 scenes span jun24..dec25 across four camera mounts and are all
+#     visibly the same floor. No repaint, so no split.
+
+[scenes]
+
+# Our own ZED recordings at an event: a real cage, camera outside the wall. These are
+# the most deployment-relevant frames in the corpus after zed2023.
+"2025-11-15_12-28-23" = "own_arena"
+"2025-11-15_15-17-49" = "own_arena"
+"2025-11-15_15-57-25" = "own_arena"
+
+# An office/workshop room floor -- desks, chairs, backpacks, cables, AprilTags, and no
+# cage anywhere in frame. The "field" label here means "the floor of this room", which
+# is a different task from arena-floor segmentation. Left inside `own_recent` these
+# 1,284 frames would drag that field's IoU down and could make it the worst field,
+# gating deployment on footage the robot will never see.
+"2026-03-15T11-33-23" = "own_room_floor"
+"2026-03-15T11-35-29" = "own_room_floor"
+"2026-03-21T10-29-53" = "own_room_floor"
+"2026-03-21T10-34-19" = "own_room_floor"
+"2026-03-21T21-56-04" = "own_room_floor"
+"2026-03-21T22-39-08" = "own_room_floor"
+
+# One home-built practice table, black-rimmed, in a stone-walled workshop. The parser
+# scattered it across three labels because the four recordings are named three different
+# ways -- one own-recording timestamp and three bare epoch stamps. It is one field.
+"2026-03-27T21-48-29" = "own_practice_table"
+"1721496096-1926672" = "own_practice_table"
+"1721512481-7671976" = "own_practice_table"
+"1721512571-5297124" = "own_practice_table"
