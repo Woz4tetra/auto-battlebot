@@ -78,6 +78,13 @@ field_bounds_margin_meters = 0.5
 # instead of predicting it forward indefinitely. Set <= 0 to hold forever (legacy behavior).
 our_robot_hold_window_s = 0.15
 
+# While the keypoint model is not detecting our robot, discard blob detections within this
+# radius of our last held pose. The blob model cannot tell our robot from an opponent, so an
+# unsuppressed blob here gets emitted as an opponent sitting on top of us. The window outlives
+# our_robot_hold_window_s deliberately: the track decays before a typical dropout ends.
+our_keypoint_dropout_blob_radius_meters = 0.4
+our_keypoint_dropout_blob_window_s = 1.0
+
 # Tracked keypoints sit this far above the field plane by default.
 keypoint_height_meters = 0.03
 

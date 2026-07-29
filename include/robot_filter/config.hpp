@@ -46,6 +46,19 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
      * decay (legacy behavior: hold forever).
      */
     double our_robot_hold_window_s = 0.15;
+    /**
+     * Radius (meters) around our robot's last held pose in which blob detections are discarded
+     * while the keypoint model is not detecting our robot. The blob model cannot identify our
+     * robot, so without this an undetected own robot is emitted as an opponent at our own
+     * position. A value <= 0 disables the suppression.
+     */
+    double our_keypoint_dropout_blob_radius_meters = 0.4;
+    /**
+     * How long (seconds) after our robot's last keypoint-confirmed frame the suppression radius
+     * stays active. Outlives our_robot_hold_window_s on purpose: the track decays sooner than a
+     * typical keypoint dropout ends. A value <= 0 disables the suppression.
+     */
+    double our_keypoint_dropout_blob_window_s = 1.0;
     RobotKeypointTrackerConfig robot_keypoint_tracker_config;
 
     RobotFrontBackSimpleFilterConfiguration() { type = "RobotFrontBackSimpleFilter"; }
@@ -66,6 +79,10 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
             parser.get_optional_double("field_bounds_margin_meters", field_bounds_margin_meters);
         our_robot_hold_window_s =
             parser.get_optional_double("our_robot_hold_window_s", our_robot_hold_window_s);
+        our_keypoint_dropout_blob_radius_meters = parser.get_optional_double(
+            "our_keypoint_dropout_blob_radius_meters", our_keypoint_dropout_blob_radius_meters);
+        our_keypoint_dropout_blob_window_s = parser.get_optional_double(
+            "our_keypoint_dropout_blob_window_s", our_keypoint_dropout_blob_window_s);
         parse_robot_keypoint_tracker_config(parser);
         parser.validate_no_extra_fields();
     }

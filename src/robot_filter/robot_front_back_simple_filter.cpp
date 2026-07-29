@@ -83,6 +83,8 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
       blob_overwrite_size_scale_(config.blob_overwrite_size_scale),
       field_bounds_margin_meters_(config.field_bounds_margin_meters),
       our_robot_hold_window_s_(config.our_robot_hold_window_s),
+      our_keypoint_dropout_blob_radius_meters_(config.our_keypoint_dropout_blob_radius_meters),
+      our_keypoint_dropout_blob_window_s_(config.our_keypoint_dropout_blob_window_s),
       robot_keypoint_tracker_(config.robot_keypoint_tracker_config),
       frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects) {
     FrontBackKeypointConverterConfig converter_config;
@@ -112,6 +114,7 @@ bool RobotFrontBackSimpleFilter::initialize(int opponent_count) {
     our_blob_present_no_keypoint_ = false;
     has_last_our_position_ = false;
     last_our_size_x_ = 0.0;
+    last_our_position_stamp_ = 0.0;
     for (const auto &[label, frame_ids] : label_to_frame_ids_) {
         robot_configs_[label] = RobotConfig{label, infer_group_from_frame_ids(frame_ids)};
     }
@@ -141,7 +144,7 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
 
     if (!robot_blob_keypoints.keypoints.empty() && field.child_frame_id != FrameId::EMPTY) {
         merge_blob_detections(robot_blob_keypoints, keypoint_measurements, field, camera_info,
-                              tf_fieldcenter_from_camera, all_measurements);
+                              tf_fieldcenter_from_camera, result.header.stamp, all_measurements);
     }
 
     const int num_measurements_before_temporal = static_cast<int>(all_measurements.size());
@@ -150,8 +153,8 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
         field_bounds_margin_meters_, our_robot_hold_window_s_);
 
     // Anchor the held OUR_ROBOT_1 pose from this frame's output (measured or predicted) so the next
-    // frame's leak-opportunity check has a reference even when our keypoint drops out.
-    update_our_position_anchor(result.descriptions);
+    // frame's blob suppression has a reference even when our keypoint drops out.
+    update_our_position_anchor(result.descriptions, result.header.stamp);
 
     diagnostics_logger_->debug(
         {{"num_input_keypoints", static_cast<int>(keypoints.keypoints.size())},
@@ -187,45 +190,56 @@ bool RobotFrontBackSimpleFilter::is_blob_suppressed_by_keypoint(
                        });
 }
 
-bool RobotFrontBackSimpleFilter::detect_our_blob_leak_opportunity(
-    const std::vector<RobotKeypointDetection> &surviving_blobs,
-    const std::vector<RobotDescription> &keypoint_measurements) const {
-    // Needs a recent held pose for our robot; without one there is nothing to leak against.
+bool RobotFrontBackSimpleFilter::is_our_anchor_fresh(double stamp) const {
     if (!has_last_our_position_) return false;
+    if (our_keypoint_dropout_blob_window_s_ <= 0.0) return false;
+    const double age = stamp - last_our_position_stamp_;
+    return age >= 0.0 && age <= our_keypoint_dropout_blob_window_s_;
+}
 
-    // Only a tick where our robot's keypoint is missing can leak (otherwise the blob is suppressed
-    // by, or double-counts, the real keypoint measurement).
+int RobotFrontBackSimpleFilter::suppress_blobs_near_our_anchor(
+    double stamp, const std::vector<RobotDescription> &keypoint_measurements,
+    std::vector<RobotKeypointDetection> &blobs) const {
+    if (our_keypoint_dropout_blob_radius_meters_ <= 0.0) return 0;
+    // Needs a recent held pose for our robot; without one there is nothing to suppress against.
+    if (!is_our_anchor_fresh(stamp)) return 0;
+
+    // Only a tick where our robot's keypoint is missing can leak. When the keypoint is present,
+    // is_blob_suppressed_by_keypoint has already handled any blob sitting on top of it.
     const bool our_keypoint_present =
         std::any_of(keypoint_measurements.begin(), keypoint_measurements.end(),
                     [](const RobotDescription &measurement) {
                         return measurement.frame_id == FrameId::OUR_ROBOT_1;
                     });
-    if (our_keypoint_present) return false;
+    if (our_keypoint_present) return 0;
 
-    // Any surviving blob within the (same-shaped) suppression radius of the held pose would leak.
-    // The held size stands in for the absent keypoint's size in the adaptive radius.
-    return std::any_of(
-        surviving_blobs.begin(), surviving_blobs.end(), [this](const RobotKeypointDetection &blob) {
-            const double radius =
-                std::max(blob_overwrite_min_distance_meters_,
-                         blob_overwrite_size_scale_ * (blob.description.size.x + last_our_size_x_));
-            return position_distance(blob.description.pose.position, last_our_position_) <= radius;
+    // The blob model has no class for our robot, so a blob here would be assigned an opponent
+    // FrameId at our own position. Drop it rather than let target selection steer into us.
+    const auto removed_begin =
+        std::remove_if(blobs.begin(), blobs.end(), [this](const RobotKeypointDetection &blob) {
+            return position_distance(blob.description.pose.position, last_our_position_) <=
+                   our_keypoint_dropout_blob_radius_meters_;
         });
+    const int num_removed = static_cast<int>(std::distance(removed_begin, blobs.end()));
+    blobs.erase(removed_begin, blobs.end());
+    return num_removed;
 }
 
 void RobotFrontBackSimpleFilter::update_our_position_anchor(
-    const std::vector<RobotDescription> &descriptions) {
+    const std::vector<RobotDescription> &descriptions, double stamp) {
     for (const auto &description : descriptions) {
         if (description.frame_id == FrameId::OUR_ROBOT_1) {
             has_last_our_position_ = true;
             last_our_position_ = description.pose.position;
             last_our_size_x_ = description.size.x;
+            last_our_position_stamp_ = stamp;
             return;
         }
     }
-    // Our robot is no longer tracked (measured or predicted); drop the stale anchor so we do not
-    // flag leaks against a position our robot has genuinely left.
-    has_last_our_position_ = false;
+    // Our robot is no longer tracked, but the anchor is kept on purpose: our_robot_hold_window_s_
+    // drops the track well before a typical keypoint dropout ends, and suppression still needs a
+    // position to work from. is_our_anchor_fresh() ages it out instead, freezing the zone at the
+    // last held pose rather than clearing it here.
 }
 
 std::vector<FrameId> RobotFrontBackSimpleFilter::get_assignment_frame_ids(
@@ -255,7 +269,7 @@ std::vector<FrameId> RobotFrontBackSimpleFilter::get_assignment_frame_ids(
 void RobotFrontBackSimpleFilter::merge_blob_detections(
     const KeypointsStamped &robot_blob_keypoints,
     const std::vector<RobotDescription> &keypoint_measurements, const FieldDescription &field,
-    const CameraInfo &camera_info, const Eigen::Matrix4d &tf_fieldcenter_from_camera,
+    const CameraInfo &camera_info, const Eigen::Matrix4d &tf_fieldcenter_from_camera, double stamp,
     std::vector<RobotDescription> &all_measurements) {
     auto blob_detections =
         robot_keypoint_tracker_.detect_with_confidence(robot_blob_keypoints, field, camera_info);
@@ -278,16 +292,19 @@ void RobotFrontBackSimpleFilter::merge_blob_detections(
                        }),
         blob_detections.end());
 
-    // A surviving blob near our held pose while our keypoint is missing is a leak-opportunity: it
-    // would be assigned an opponent FrameId at our robot's location.
-    our_blob_present_no_keypoint_ =
-        detect_our_blob_leak_opportunity(blob_detections, keypoint_measurements);
+    // Our robot is invisible to the blob model, so while its keypoints are missing any blob on
+    // our held pose is almost certainly us. Drop those before FrameId assignment can hand them
+    // an opponent slot at our own position.
+    const int num_blobs_suppressed_near_us =
+        suppress_blobs_near_our_anchor(stamp, keypoint_measurements, blob_detections);
+    our_blob_present_no_keypoint_ = num_blobs_suppressed_near_us > 0;
 
     diagnostics_logger_->debug(
         {{"num_blob_candidates_before_overwrite", blob_candidates_before_overwrite},
          {"num_blob_candidates_after_overwrite", static_cast<int>(blob_detections.size())},
          {"num_blob_candidates_suppressed",
-          blob_candidates_before_overwrite - static_cast<int>(blob_detections.size())}});
+          blob_candidates_before_overwrite - static_cast<int>(blob_detections.size())},
+         {"num_blob_candidates_suppressed_near_us", num_blobs_suppressed_near_us}});
 
     std::map<Label, std::vector<MeasurementWithConfidence>> grouped_blob_measurements;
     for (auto &blob_detection : blob_detections) {

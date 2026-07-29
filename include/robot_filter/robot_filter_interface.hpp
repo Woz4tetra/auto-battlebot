@@ -14,9 +14,9 @@ class RobotFilterInterface {
 
     /**
      * True if, on the most recent update(), our robot's keypoint was missing this frame yet a blob
-     * detection coincided with our robot's held pose -- the exact "leak-opportunity" tick the
-     * keypoint-override identity decay would fix (see docs/robot_filter_decay_plan.md). Filters
-     * that do not track this return false.
+     * detection coincided with our robot's held pose, and was therefore discarded rather than
+     * assigned an opponent FrameId at our own position. Counts the ticks where the suppression
+     * actually did work. Filters that do not track this return false.
      */
     virtual bool last_our_blob_present_no_keypoint() const { return false; }
 };

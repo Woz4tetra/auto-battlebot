@@ -56,16 +56,28 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     double field_bounds_margin_meters_;
     /** Seconds an unmeasured our-robot track is held before the decay drops it (<= 0 disables). */
     double our_robot_hold_window_s_;
+    /** Radius around the held our-robot pose in which blobs are dropped during a keypoint miss. */
+    double our_keypoint_dropout_blob_radius_meters_;
+    /** Seconds the dropout suppression radius stays active after the last keypoint-confirmed
+     * frame. */
+    double our_keypoint_dropout_blob_window_s_;
     RobotKeypointTracker robot_keypoint_tracker_;
     FrameIdAssigner frame_id_assigner_;
     RobotTemporalMotionFilter temporal_motion_filter_;
 
-    /** Leak-opportunity flag for the most recent update(); see the interface accessor. */
+    /** Set when the most recent update() suppressed a blob near our held pose; see the interface
+     * accessor. */
     bool our_blob_present_no_keypoint_ = false;
-    /** Last emitted OUR_ROBOT_1 pose (measured or predicted), the held-pose anchor for the flag. */
+    /**
+     * Last emitted OUR_ROBOT_1 pose (measured or predicted) with the stamp of the frame that
+     * produced it. The anchor deliberately outlives the track: our_robot_hold_window_s_ drops the
+     * track sooner than the suppression window needs the position, so staleness is decided by the
+     * stamp (is_our_anchor_fresh) rather than by the track still existing.
+     */
     bool has_last_our_position_ = false;
     Position last_our_position_{};
     double last_our_size_x_ = 0.0;
+    double last_our_position_stamp_ = 0.0;
 
     /**
      * Converts front/back keypoint detections into field-frame RobotDescriptions.
@@ -98,17 +110,23 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
         const std::vector<RobotDescription> &keypoint_measurements) const;
 
     /**
-     * Returns true if this is a keypoint-override leak-opportunity tick: our robot has a held pose
-     * from a recent frame (has_last_our_position_), no OUR_ROBOT_1 keypoint measurement exists this
-     * frame, and at least one surviving blob falls within the suppression radius of the held pose.
-     * That blob would otherwise be emitted as an opponent at our robot's location.
+     * Drops blobs that fall within our_keypoint_dropout_blob_radius_meters_ of our robot's held
+     * pose while no OUR_ROBOT_1 keypoint measurement exists this frame. The blob model has no
+     * class for our robot, so such a blob would otherwise be assigned an opponent FrameId at our
+     * own location and steered into. Does nothing when our keypoint is present (the existing
+     * is_blob_suppressed_by_keypoint rule covers that case) or when the anchor is stale.
+     * Returns the number of blobs removed.
      */
-    bool detect_our_blob_leak_opportunity(
-        const std::vector<RobotKeypointDetection> &surviving_blobs,
-        const std::vector<RobotDescription> &keypoint_measurements) const;
+    int suppress_blobs_near_our_anchor(double stamp,
+                                       const std::vector<RobotDescription> &keypoint_measurements,
+                                       std::vector<RobotKeypointDetection> &blobs) const;
+
+    /** Returns true if the held our-robot anchor is set and young enough to suppress against. */
+    bool is_our_anchor_fresh(double stamp) const;
 
     /** Refreshes the held OUR_ROBOT_1 pose anchor from this frame's emitted descriptions. */
-    void update_our_position_anchor(const std::vector<RobotDescription> &descriptions);
+    void update_our_position_anchor(const std::vector<RobotDescription> &descriptions,
+                                    double stamp);
 
     /**
      * Returns the free FrameIds available to assign for this label. If the label's own FrameIds
@@ -128,7 +146,7 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     void merge_blob_detections(const KeypointsStamped &robot_blob_keypoints,
                                const std::vector<RobotDescription> &keypoint_measurements,
                                const FieldDescription &field, const CameraInfo &camera_info,
-                               const Eigen::Matrix4d &tf_fieldcenter_from_camera,
+                               const Eigen::Matrix4d &tf_fieldcenter_from_camera, double stamp,
                                std::vector<RobotDescription> &all_measurements);
 };
 

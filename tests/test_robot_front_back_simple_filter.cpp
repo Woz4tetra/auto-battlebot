@@ -306,9 +306,9 @@ TEST(RobotFrontBackSimpleFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
     EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
 
     // Frame 2: our keypoint drops out; a blob sits where our robot was. This is a leak-opportunity.
-    const KeypointsStamped no_keypoints;
+    // The frame stamp must come from the keypoints, which drive the filter's clock.
     const auto second =
-        filter.update(no_keypoints, field, camera_info,
+        filter.update(make_empty_keypoints(1.1), field, camera_info,
                       make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
     EXPECT_TRUE(filter.last_our_blob_present_no_keypoint());
     (void)second;
@@ -411,5 +411,112 @@ TEST(RobotFrontBackSimpleFilterTest, HoldsStaleOurRobotWhenDecayDisabled) {
     ASSERT_EQ(held.descriptions.size(), 1u);
     EXPECT_EQ(held.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
     EXPECT_TRUE(held.descriptions[0].is_stale);
+}
+
+namespace {
+/** Returns the description carrying `frame_id`, or nullptr when it is absent. */
+const RobotDescription *find_frame_id(const RobotDescriptionsStamped &result, FrameId frame_id) {
+    for (const auto &description : result.descriptions) {
+        if (description.frame_id == frame_id) return &description;
+    }
+    return nullptr;
+}
+}  // namespace
+
+// The blob model has no class for our robot, so during a keypoint dropout a blob sitting on our
+// own position would be assigned an opponent FrameId and targeted. It must be discarded instead.
+TEST(RobotFrontBackSimpleFilterTest, SuppressesBlobOnOurHeldPoseDuringKeypointDropout) {
+    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+    RobotFrontBackSimpleFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    const KeypointsStamped no_blob;
+    const CommandFeedback command_feedback;
+
+    // Frame 1: keypoints see our robot, establishing the held pose.
+    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+                  command_feedback);
+
+    // Frame 2: our keypoints drop out; a blob lands on the same spot.
+    const auto result =
+        filter.update(make_empty_keypoints(1.1), field, camera_info,
+                      make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
+
+    EXPECT_TRUE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_EQ(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
+}
+
+// The suppression is time-bounded: once the window elapses the anchor is no longer trusted, so a
+// genuine opponent parked where we were last seen becomes targetable again.
+TEST(RobotFrontBackSimpleFilterTest, EmitsBlobOnOurHeldPoseAfterWindowExpires) {
+    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+    config.our_keypoint_dropout_blob_window_s = 0.4;
+    RobotFrontBackSimpleFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    const KeypointsStamped no_blob;
+    const CommandFeedback command_feedback;
+
+    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+                  command_feedback);
+
+    // Well past the window, and past our_robot_hold_window_s so the anchor is frozen, not tracked.
+    const auto result =
+        filter.update(make_empty_keypoints(2.0), field, camera_info,
+                      make_opponent_blob(2.0, 300.0, 340.0, 220.0), command_feedback);
+
+    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
+}
+
+// Suppression is confined to the configured radius: a real opponent elsewhere on the field is
+// still tracked normally while our keypoints are missing.
+TEST(RobotFrontBackSimpleFilterTest, KeepsBlobOutsideRadiusDuringKeypointDropout) {
+    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+    RobotFrontBackSimpleFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    const KeypointsStamped no_blob;
+    const CommandFeedback command_feedback;
+
+    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+                  command_feedback);
+
+    // Same dropout, but the blob is ~0.96 m away in the field frame, well outside the radius.
+    const auto result =
+        filter.update(make_empty_keypoints(1.1), field, camera_info,
+                      make_opponent_blob(1.1, 300.0, 340.0, 380.0), command_feedback);
+
+    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
+}
+
+// A zero radius turns the feature off, restoring the pre-suppression behaviour.
+TEST(RobotFrontBackSimpleFilterTest, ZeroRadiusDisablesDropoutSuppression) {
+    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+    config.our_keypoint_dropout_blob_radius_meters = 0.0;
+    RobotFrontBackSimpleFilter filter(config);
+    ASSERT_TRUE(filter.initialize(1));
+
+    const CameraInfo camera_info = make_camera_info();
+    const FieldDescription field = make_field();
+    const KeypointsStamped no_blob;
+    const CommandFeedback command_feedback;
+
+    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+                  command_feedback);
+
+    const auto result =
+        filter.update(make_empty_keypoints(1.1), field, camera_info,
+                      make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
+
+    EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
+    EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
 }
 }  // namespace auto_battlebot
