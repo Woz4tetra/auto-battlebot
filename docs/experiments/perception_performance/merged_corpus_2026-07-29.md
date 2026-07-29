@@ -168,7 +168,10 @@ precision, the recap footage is genuinely harmful and should be dropped or down-
   significance.csv, headline.png, confusion_*.png}`
 - Run: `runs/projects/auto_battlebots_2026-07-29_02-36-15_yolo26n/` (weights `epoch{25,50,75}.pt`,
   `last.pt`, `best.pt`)
-- Engines: `merged_{ep25,ep50,ep75,eplast}_x86_64_sm86.engine` (scratch; rebuild from the run weights)
+- Models: `data/models/yolo26n_nhrl_robots_bbox_2class_2026-07-29_{ep25,ep50,ep75,eplast}` as `.pt`,
+  `.onnx`, and `_x86_64_sm86.engine`. The `.pt` files are byte-identical to the run's
+  `epoch{25,50,75}.pt` / `last.pt`; `eplast` is epoch 100. The engines are sm86 (A6000) — rebuild
+  `aarch64_sm87` **on the Jetson** for deployment.
 - `base100` weights + engines preserved at
   `/media/storage/auto-battlebots-archive/experiments_2026-07/datascale_weights/`
 - Corpus split of record: `training/data/nhrl_robots_bbox_2class/split_manifest.json`; pre-merge file
