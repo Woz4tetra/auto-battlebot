@@ -10,8 +10,8 @@
 
 namespace auto_battlebot::ui_internal {
 
-void draw_robot_pose_arrows(cv::Mat &image, const RobotDescriptionsStamped &robots,
-                            const FieldDescription &field, const CameraInfo &camera_info);
+void draw_robot_markers(cv::Mat &image, const RobotDescriptionsStamped &robots,
+                        const FieldDescription &field, const CameraInfo &camera_info);
 void draw_field_border(cv::Mat &image, const FieldDescription &field,
                        const CameraInfo &camera_info);
 void draw_target_path_overlay(cv::Mat &image, const std::optional<NavigationPathSegment> &path,

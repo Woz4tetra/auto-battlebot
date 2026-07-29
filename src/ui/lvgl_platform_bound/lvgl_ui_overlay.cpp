@@ -16,6 +16,12 @@
 namespace auto_battlebot::ui_internal {
 namespace {
 
+constexpr int MARKER_THICKNESS = 2;
+constexpr int MARKER_BORDER_THICKNESS = 2;
+constexpr int MIN_DOT_RADIUS_PX = 2;
+constexpr int MAX_DOT_RADIUS_PX = 20;
+const cv::Scalar MARKER_BORDER_COLOR(255, 255, 255);
+
 cv::Scalar to_cv_bgr(Group group) {
     ColorRGBf color = get_color_for_index(group);
     return cv::Scalar(color.b * 255.0f, color.g * 255.0f, color.r * 255.0f);
@@ -50,25 +56,55 @@ bool project_field_point_to_pixel(const FieldDescription &field, const CameraInf
     return true;
 }
 
+/* Bordered arrow: a thicker border arrow underneath, the group-colored arrow on top. */
+void draw_bordered_arrow(cv::Mat &image, const cv::Point &start_px, const cv::Point &end_px,
+                         const cv::Scalar &color) {
+    cv::arrowedLine(image, start_px, end_px, MARKER_BORDER_COLOR,
+                    MARKER_THICKNESS + 2 * MARKER_BORDER_THICKNESS, cv::LINE_AA, 0, 0.25);
+    cv::arrowedLine(image, start_px, end_px, color, MARKER_THICKNESS, cv::LINE_AA, 0, 0.25);
+}
+
+/* Hollow bordered dot sized from the robot footprint, clamped so it stays legible at any range. */
+void draw_bordered_dot(cv::Mat &image, const cv::Point &center_px, int radius_px,
+                       const cv::Scalar &color) {
+    cv::circle(image, center_px, radius_px, MARKER_BORDER_COLOR,
+               MARKER_THICKNESS + 2 * MARKER_BORDER_THICKNESS, cv::LINE_AA);
+    cv::circle(image, center_px, radius_px, color, MARKER_THICKNESS, cv::LINE_AA);
+}
+
 }  // namespace
 
-void draw_robot_pose_arrows(cv::Mat &image, const RobotDescriptionsStamped &robots,
-                            const FieldDescription &field, const CameraInfo &camera_info) {
+void draw_robot_markers(cv::Mat &image, const RobotDescriptionsStamped &robots,
+                        const FieldDescription &field, const CameraInfo &camera_info) {
     for (const auto &robot : robots.descriptions) {
         Pose2D pose2d = pose_to_pose2d(robot.pose);
-        const double arrow_len_m = std::max(robot.size.x * 1.5, 0.1);
         const double z = robot.pose.position.z + 0.01;
 
         cv::Point start_px;
-        cv::Point end_px;
         if (!project_field_point_to_pixel(field, camera_info, pose2d.x, pose2d.y, z, start_px))
             continue;
-        if (!project_field_point_to_pixel(
-                field, camera_info, pose2d.x + arrow_len_m * std::cos(pose2d.yaw),
-                pose2d.y + arrow_len_m * std::sin(pose2d.yaw), z, end_px)) {
-            continue;
+
+        if (robot.group == Group::OURS) {
+            const double arrow_len_m = std::max(robot.size.x * 1.5, 0.1);
+            cv::Point end_px;
+            if (!project_field_point_to_pixel(
+                    field, camera_info, pose2d.x + arrow_len_m * std::cos(pose2d.yaw),
+                    pose2d.y + arrow_len_m * std::sin(pose2d.yaw), z, end_px)) {
+                continue;
+            }
+            draw_bordered_arrow(image, start_px, end_px, to_cv_bgr(robot.group));
+        } else {
+            const double radius_m = std::max(std::min(robot.size.x, robot.size.y) * 0.25, 0.025);
+            cv::Point edge_px;
+            if (!project_field_point_to_pixel(field, camera_info, pose2d.x + radius_m, pose2d.y, z,
+                                              edge_px)) {
+                continue;
+            }
+            const int radius_px =
+                std::clamp(static_cast<int>(std::lround(cv::norm(edge_px - start_px))),
+                           MIN_DOT_RADIUS_PX, MAX_DOT_RADIUS_PX);
+            draw_bordered_dot(image, start_px, radius_px, to_cv_bgr(robot.group));
         }
-        cv::arrowedLine(image, start_px, end_px, to_cv_bgr(robot.group), 2, cv::LINE_AA, 0, 0.25);
 
         if (robot.frame_id == FrameId::EMPTY) continue;
         const std::string frame_label(magic_enum::enum_name(robot.frame_id));
@@ -136,7 +172,7 @@ class OpenCvDebugOverlayRenderer : public IDebugOverlayRenderer {
                 const std::optional<NavigationPathSegment> &path, const FieldDescription &field,
                 const CameraInfo &camera_info) override {
         draw_field_border(image, field, camera_info);
-        draw_robot_pose_arrows(image, robots, field, camera_info);
+        draw_robot_markers(image, robots, field, camera_info);
         draw_target_path_overlay(image, path, field, camera_info);
     }
 };
