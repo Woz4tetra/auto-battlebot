@@ -27,6 +27,17 @@ import torch
 from load_deeplabv3 import SegModelWrapper, build_model
 from model_config import config_path_for, load_model_config
 
+# TensorRT's tactic timings are keyed by layer shape and type, so they are reusable across builds
+# of the same architecture with different weights. Persisting them turns each build after the first
+# from a kernel-autotuning search into little more than weight serialisation.
+#
+# Repo-local so the cache travels with the checkout and is obviously disposable; `.cache/` is
+# already gitignored. Not in $HOME, where it would silently outlive the project and be easy to
+# forget when a TensorRT or driver upgrade invalidates it. Shared with the YOLO converter: entries
+# are content-keyed, so unrelated architectures coexist in one file without colliding.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_TIMING_CACHE = REPO_ROOT / ".cache" / "tensorrt" / "timing.cache"
+
 
 def _has_lean_runtime() -> bool:
     """Check if the TensorRT lean runtime is available (needed for VERSION_COMPATIBLE)."""
@@ -55,6 +66,29 @@ def engine_path_with_platform_tag(path: Path) -> Path:
     tag = f"{arch}_sm{major}{minor}"
     suffix = path.suffix if path.suffix else ".engine"
     return path.parent / f"{path.stem}_{tag}{suffix}"
+
+
+def _load_timing_cache(config: "trt.IBuilderConfig", path: Path | None) -> None:
+    """Seed the builder with previously measured tactic timings, if any."""
+    if path is None:
+        return
+    blob = path.read_bytes() if path.is_file() else b""
+    cache = config.create_timing_cache(blob)
+    if cache is not None:
+        config.set_timing_cache(cache, ignore_mismatch=False)
+
+
+def _save_timing_cache(config: "trt.IBuilderConfig", path: Path | None) -> None:
+    """Persist tactic timings so the next build can skip the autotuning search."""
+    if path is None:
+        return
+    cache = config.get_timing_cache()
+    if cache is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Last writer wins. Concurrent builders may race here; the cache is advisory, and a lost
+    # update only costs the next build some re-timing.
+    path.write_bytes(memoryview(cache.serialize()))
 
 
 def export_onnx(
@@ -93,6 +127,7 @@ def build_tensorrt_engine(
     fp16: bool = True,
     workspace_gib: int = 2,
     logger: trt.ILogger | None = None,
+    timing_cache: Path | None = None,
 ) -> None:
     """Build a TensorRT engine from an ONNX file."""
     if logger is None:
@@ -110,6 +145,7 @@ def build_tensorrt_engine(
 
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_gib << 30)
+    _load_timing_cache(config, timing_cache)
     if fp16 and builder.platform_has_fast_fp16:
         config.set_flag(trt.BuilderFlag.FP16)
     if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE") and _has_lean_runtime():
@@ -118,6 +154,7 @@ def build_tensorrt_engine(
     serialized = builder.build_serialized_network(network, config)
     if serialized is None:
         raise RuntimeError("Failed to build TensorRT engine")
+    _save_timing_cache(config, timing_cache)
     engine_path = Path(engine_path)
     engine_path.parent.mkdir(parents=True, exist_ok=True)
     with open(engine_path, "wb") as f:
@@ -165,6 +202,19 @@ def main() -> None:
         metavar="GIB",
         help="TensorRT workspace size in GiB (default: 2)",
     )
+    parser.add_argument(
+        "--timing-cache",
+        type=str,
+        default=str(DEFAULT_TIMING_CACHE),
+        help=f"TensorRT timing cache file (default: {DEFAULT_TIMING_CACHE}). Tactic timings are "
+        "reusable across models of the same architecture, so the first build pays the autotuning "
+        "cost and the rest do not.",
+    )
+    parser.add_argument(
+        "--no-timing-cache",
+        action="store_true",
+        help="Disable the timing cache and re-run the full tactic search for every build.",
+    )
     args = parser.parse_args()
 
     if not torch.cuda.is_available():
@@ -189,6 +239,7 @@ def main() -> None:
 
     input_size = cfg.input_size
     print(f"TensorRT version: {trt.__version__}")
+    print(f"Timing cache: {'disabled' if args.no_timing_cache else args.timing_cache}")
     print(
         f"Backbone: {cfg.backbone}, decoder: {cfg.decoder}, "
         f"num_classes: {cfg.num_classes}, input_size: {input_size}"
@@ -231,6 +282,7 @@ def main() -> None:
             output_path,
             fp16=not args.no_fp16,
             workspace_gib=args.workspace,
+            timing_cache=None if args.no_timing_cache else Path(args.timing_cache),
         )
         shutil.copy2(config_path_for(model_path), config_path_for(output_path))
         print(f"Engine saved to: {output_path}")
