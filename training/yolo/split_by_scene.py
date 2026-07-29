@@ -56,12 +56,13 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
 SPLITS = ("train", "val", "test")
 GROUPS = ("old", "new", "hold_old", "hold_new")
 
-# Two filename schemes live in nhrl_robots_bbox_real. NHRL fight frames carry the
-# recording stem before the frame index; merged our-robot keypoint frames carry a
-# roboflow hash suffix instead.
+# Three filename schemes live in the bbox corpora. NHRL fight frames carry the
+# recording stem before the frame index; frames cut from event-recap video carry an
+# `_export` stem instead; merged our-robot keypoint frames carry a roboflow hash suffix.
 SCENE_PATTERNS = (
     re.compile(r"^(?P<scene>our_robot_kp__.+?)-\d{6}_jpg\.rf\.[A-Za-z0-9]+$"),
     re.compile(r"^(?P<scene>.*)_yolo_seg__frame_\d+$"),
+    re.compile(r"^(?P<scene>.*_export)__frame_\d+$"),
 )
 
 DATE_RE = re.compile(r"(20\d{2})-(\d{2})-(\d{2})")
