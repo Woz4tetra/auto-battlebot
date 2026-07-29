@@ -3,15 +3,19 @@
 YOLO Dataset Validation UI
 
 This script provides a GUI for manually validating YOLO dataset annotations.
-Users can review images with their bounding boxes and labels, marking them as
-pass or fail. The validation state is saved and can be resumed later.
+Images are shown as a page of grid thumbnails with their bounding boxes,
+polygons and keypoints drawn on. Verdicts are keyboard-driven, one image at a
+time or a whole page at once. The validation state is saved and can be resumed
+later.
 """
 
 import argparse
 import json
-import re
+import os
+import threading
 import tkinter as tk
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Dict, List, Optional, Tuple
@@ -182,6 +186,20 @@ NAMED_COLORS: Dict[str, List[int]] = {
 
 
 class YOLODatasetValidator:
+    """Contact-sheet validator: page through grid thumbnails, judge from the keyboard."""
+
+    # How many frames a page holds. The thumbnail size follows from the window
+    # size, so this control is really "how many fit on screen".
+    PAGE_STEPS = [1, 2, 4, 6, 9, 12, 16, 20, 30, 42, 56]
+    DEFAULT_PAGE = 4
+    MIN_THUMB = 80
+
+    PASS_COLOR = "#2E7D32"
+    FAIL_COLOR = "#C62828"
+    UNSET_COLOR = "#9E9E9E"
+    SELECT_COLOR = "#1565C0"
+    IDLE_COLOR = "#ECECEC"
+
     def __init__(self, dataset_path: Path, class_labels_path: Path):
         self.dataset_path = dataset_path
         self.state_file = self.dataset_path / "validation_state.json"
@@ -189,39 +207,48 @@ class YOLODatasetValidator:
 
         # Data structures
         self.image_annotation_pairs: List[Tuple[Path, Path]] = []
-        self.validation_state: Dict[str, str] = {}  # path -> 'pass'/'fail'/None
-        self.current_index = 0
+        self.validation_state: Dict[str, str] = {}  # path -> 'pass'/'fail'
         self.class_info: Dict[int, Dict] = {}  # class_id -> {name, color}
         self.show_labels = True
+
+        # Grid state
+        self.page_step = self.PAGE_STEPS.index(self.DEFAULT_PAGE)
+        self.thumb_px = 400
+        self.selected_index = 0
+        self.page_start = 0
+        self.columns = 1
+        self.rows = 1
+        self.cells: List[Dict] = []
+
+        # Thumbnails are decoded off the main thread and cached, so paging stays
+        # snappy. The PhotoImage cache is separate because those must be built on
+        # the main thread; keeping them lets a redraw skip cells whose picture has
+        # not changed.
+        self.thumb_cache: "OrderedDict[Tuple, Image.Image]" = OrderedDict()
+        self.cache_limit = 800
+        self.photo_cache: "OrderedDict[Tuple, ImageTk.PhotoImage]" = OrderedDict()
+        self.photo_limit = 200
+        self.cache_lock = threading.Lock()
+        self.executor = ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 4)))
+        self._layout_job: Optional[str] = None
+
+        # Zoom overlay
+        self.zoom_window: Optional[tk.Toplevel] = None
+        self.zoom_label: Optional[tk.Label] = None
+        self.zoom_photo: Optional[ImageTk.PhotoImage] = None
 
         # UI components
         self.root = tk.Tk()
         self.root.title("YOLO Dataset Validator")
-        self.root.geometry("1300x900")
-
-        # Image display
-        self.canvas = None
-        self.image_label = None
-        self.current_photo = None
-        self.current_canvas_image_id = None
-        self.current_annotated_image = None
-        self.zoom_factor = 1.0
-        self.min_zoom = 0.25
-        self.max_zoom = 8.0
-        self.zoom_step = 1.2
-        self.render_cache: "OrderedDict[Tuple[int, int, int], Image.Image]" = OrderedDict()
-        self.render_cache_limit = 8
-        self.pending_hq_render = None
-        self.status_icon_label = None
-        self.status_icon_label = None
+        self.root.geometry("1600x1000")
 
         # Status
         self.status_var = tk.StringVar()
-        self.frame_info_var = tk.StringVar()
+        self.page_info_var = tk.StringVar()
+        self.selection_var = tk.StringVar()
         self.show_labels_var = tk.BooleanVar(value=True)
-        self.zoom_var = tk.StringVar(value="Zoom: 100%")
 
-        # Colors for bounding boxes
+        # Fallback colors for classes with no color in the dataset yaml
         self.colors = [
             "#FF0000",
             "#00FF00",
@@ -235,15 +262,14 @@ class YOLODatasetValidator:
             "#FFC0CB",
         ]
 
-        # Feedback overlay
-        self.showing_feedback = False
-
         # Initialize
         self.load_dataset()
         self.load_class_info(self.class_labels_path)
         self.load_state()
         self.setup_ui()
         self.jump_to_next_unvalidated()
+
+    # ------------------------------------------------------------------ data
 
     def load_dataset(self):
         """Recursively find all image and annotation pairs in the dataset."""
@@ -340,165 +366,146 @@ class YOLODatasetValidator:
             self.validation_state = {}
 
     def save_state(self):
-        """Save validation state to JSON file."""
-        with open(self.state_file, "w") as f:
+        """Save validation state to the JSON file."""
+        tmp = self.state_file.with_suffix(".json.tmp")
+        with open(tmp, "w") as f:
             json.dump(self.validation_state, f, indent=2)
+        # Atomic replace so an interrupted write cannot truncate existing work
+        tmp.replace(self.state_file)
+
+    def key_for(self, index: int) -> str:
+        img_path, _ = self.image_annotation_pairs[index]
+        return str(img_path.relative_to(self.dataset_path))
+
+    def status_of(self, index: int) -> str:
+        return self.validation_state.get(self.key_for(index), "unvalidated")
+
+    # ------------------------------------------------------------------- grid
+
+    @property
+    def page_size(self) -> int:
+        return self.PAGE_STEPS[self.page_step]
 
     def setup_ui(self):
         """Create the user interface."""
-        # Main container with image on left and sidebar on right
         main_container = ttk.Frame(self.root)
         main_container.pack(fill=tk.BOTH, expand=True)
 
-        # Image display area (left side)
-        image_frame = ttk.Frame(main_container)
-        image_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.grid_frame = tk.Frame(main_container, bg="#FFFFFF")
+        self.grid_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=6, pady=6)
+        self.grid_frame.bind("<Configure>", self._on_grid_configure)
 
-        canvas_frame = ttk.Frame(image_frame)
-        canvas_frame.pack(fill=tk.BOTH, expand=True)
-
-        self.canvas = tk.Canvas(canvas_frame, background="#111111", highlightthickness=0)
-        x_scroll = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
-        y_scroll = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
-        self.canvas.configure(xscrollcommand=x_scroll.set, yscrollcommand=y_scroll.set)
-
-        self.canvas.grid(row=0, column=0, sticky="nsew")
-        y_scroll.grid(row=0, column=1, sticky="ns")
-        x_scroll.grid(row=1, column=0, sticky="ew")
-        canvas_frame.grid_rowconfigure(0, weight=1)
-        canvas_frame.grid_columnconfigure(0, weight=1)
-
-        # Pan by dragging when zoomed
-        self.canvas.bind("<ButtonPress-1>", self.on_pan_start)
-        self.canvas.bind("<B1-Motion>", self.on_pan_move)
-        self.canvas.bind("<Configure>", lambda _e: self.schedule_hq_render())
-
-        # Sidebar (right side)
         sidebar = ttk.Frame(main_container, relief=tk.RIDGE, borderwidth=2)
-        sidebar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 10), pady=10)
+        sidebar.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 8), pady=8)
 
-        # === STATUS SECTION ===
-        status_section = ttk.LabelFrame(sidebar, text="Validation Status", padding="15")
-        status_section.pack(fill=tk.X, padx=10, pady=(10, 5))
+        # === PAGE SECTION ===
+        page_section = ttk.LabelFrame(sidebar, text="Page", padding="12")
+        page_section.pack(fill=tk.X, padx=10, pady=(10, 5))
 
-        self.status_icon_label = tk.Label(
-            status_section,
-            text="○",
-            font=("Arial", 64, "bold"),
-            bg="#F5F5F5",
-            fg="#888888",
-            width=3,
-            height=1,
+        ttk.Label(page_section, textvariable=self.page_info_var, font=("Arial", 11, "bold")).pack(
+            pady=(0, 4)
         )
-        self.status_icon_label.pack(pady=10)
+        ttk.Label(
+            page_section, textvariable=self.selection_var, font=("Courier", 8), wraplength=200
+        ).pack(pady=(0, 6))
 
-        self.frame_info_label = ttk.Label(
-            status_section,
-            textvariable=self.frame_info_var,
-            font=("Arial", 11, "bold"),
-            anchor=tk.CENTER,
-            justify=tk.CENTER,
-            wraplength=180,
+        page_buttons = ttk.Frame(page_section)
+        page_buttons.pack(fill=tk.X)
+        ttk.Button(page_buttons, text="⏮", command=self.jump_to_start, width=4).pack(
+            side=tk.LEFT, padx=1, expand=True, fill=tk.X
         )
-        self.frame_info_label.pack(fill=tk.X, pady=5)
+        ttk.Button(page_buttons, text="◀ Page", command=self.previous_page, width=6).pack(
+            side=tk.LEFT, padx=1, expand=True, fill=tk.X
+        )
+        ttk.Button(page_buttons, text="Page ▶", command=self.next_page, width=6).pack(
+            side=tk.LEFT, padx=1, expand=True, fill=tk.X
+        )
+        ttk.Button(page_buttons, text="⏭", command=self.jump_to_end, width=4).pack(
+            side=tk.LEFT, padx=1, expand=True, fill=tk.X
+        )
 
-        # === VALIDATION BUTTONS SECTION ===
-        validation_section = ttk.LabelFrame(sidebar, text="Validate", padding="15")
+        ttk.Button(
+            page_section, text="⏩ Next Unvalidated (U)", command=self.jump_to_next_unvalidated
+        ).pack(fill=tk.X, pady=(6, 0))
+
+        # === VALIDATION SECTION ===
+        validation_section = ttk.LabelFrame(sidebar, text="Validate", padding="12")
         validation_section.pack(fill=tk.X, padx=10, pady=5)
 
-        pass_btn = ttk.Button(
-            validation_section,
-            text="✓ PASS\n(Y)",
-            command=lambda: self.validate("pass"),
-            width=15,
-        )
-        pass_btn.pack(fill=tk.X, pady=5)
-
-        fail_btn = ttk.Button(
-            validation_section,
-            text="✗ FAIL\n(N)",
-            command=lambda: self.validate("fail"),
-            width=15,
-        )
-        fail_btn.pack(fill=tk.X, pady=5)
-
-        # === NAVIGATION SECTION ===
-        nav_section = ttk.LabelFrame(sidebar, text="Navigation", padding="15")
-        nav_section.pack(fill=tk.X, padx=10, pady=5)
-
-        # Navigation buttons row
-        nav_buttons_frame = ttk.Frame(nav_section)
-        nav_buttons_frame.pack(fill=tk.X, pady=(0, 5))
-
-        ttk.Button(nav_buttons_frame, text="⏮", command=self.jump_to_start, width=4).pack(
-            side=tk.LEFT, padx=1, expand=True, fill=tk.X
-        )
-        ttk.Button(nav_buttons_frame, text="◀", command=self.previous_image, width=4).pack(
-            side=tk.LEFT, padx=1, expand=True, fill=tk.X
-        )
-        ttk.Button(nav_buttons_frame, text="▶", command=self.next_image, width=4).pack(
-            side=tk.LEFT, padx=1, expand=True, fill=tk.X
-        )
-        ttk.Button(nav_buttons_frame, text="⏭", command=self.jump_to_end, width=4).pack(
-            side=tk.LEFT, padx=1, expand=True, fill=tk.X
-        )
-
-        # Next unvalidated button (separate)
         ttk.Button(
-            nav_section,
-            text="⏩ Next Unvalidated (U)",
-            command=self.jump_to_next_unvalidated,
-            width=15,
-        ).pack(fill=tk.X, pady=5)
+            validation_section, text="✓ Pass selected (Y)", command=lambda: self.validate("pass")
+        ).pack(fill=tk.X, pady=2)
+        ttk.Button(
+            validation_section, text="✗ Fail selected (N)", command=lambda: self.validate("fail")
+        ).pack(fill=tk.X, pady=2)
 
-        # Jump to frame subsection
-        ttk.Separator(nav_section, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
-        ttk.Label(nav_section, text="Jump to Frame:").pack(anchor=tk.W, pady=(5, 2))
+        ttk.Separator(validation_section, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
 
-        jump_frame = ttk.Frame(nav_section)
-        jump_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(
+            validation_section,
+            text="✓✓ PASS ALL on screen (T)",
+            command=lambda: self.validate_page("pass"),
+        ).pack(fill=tk.X, pady=2)
+        ttk.Button(
+            validation_section,
+            text="✗✗ FAIL ALL on screen (B)",
+            command=lambda: self.validate_page("fail"),
+        ).pack(fill=tk.X, pady=2)
 
-        self.jump_entry = ttk.Entry(jump_frame, width=10)
-        self.jump_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
-        ttk.Button(jump_frame, text="Go", command=self.jump_to_frame, width=5).pack(side=tk.RIGHT)
+        ttk.Button(
+            validation_section, text="↺ Clear selected (C)", command=lambda: self.validate(None)
+        ).pack(fill=tk.X, pady=(8, 2))
 
         # === DISPLAY OPTIONS SECTION ===
-        options_section = ttk.LabelFrame(sidebar, text="Display Options", padding="15")
+        options_section = ttk.LabelFrame(sidebar, text="Display Options", padding="12")
         options_section.pack(fill=tk.X, padx=10, pady=5)
 
-        show_labels_check = ttk.Checkbutton(
+        ttk.Button(options_section, text="🔍 Zoom selected (Z)", command=self.open_zoom).pack(
+            fill=tk.X, pady=(0, 8)
+        )
+
+        ttk.Label(options_section, text="Images per page (+ / -):").pack(anchor=tk.W)
+        self.size_scale = ttk.Scale(
             options_section,
-            text="Show Labels",
+            from_=0,
+            to=len(self.PAGE_STEPS) - 1,
+            orient=tk.HORIZONTAL,
+            value=self.page_step,
+            command=self._on_size_change,
+        )
+        self.size_scale.pack(fill=tk.X, pady=(0, 8))
+
+        ttk.Checkbutton(
+            options_section,
+            text="Show Labels (L)",
             variable=self.show_labels_var,
             command=self.toggle_labels,
-        )
-        show_labels_check.pack(anchor=tk.W, pady=5)
+        ).pack(anchor=tk.W)
 
-        zoom_controls = ttk.Frame(options_section)
-        zoom_controls.pack(fill=tk.X, pady=5)
-        ttk.Button(zoom_controls, text="-", command=self.zoom_out, width=4).pack(side=tk.LEFT)
-        ttk.Button(zoom_controls, text="+", command=self.zoom_in, width=4).pack(
-            side=tk.LEFT, padx=4
-        )
-        ttk.Button(zoom_controls, text="Reset", command=self.reset_zoom, width=7).pack(side=tk.LEFT)
-        ttk.Label(options_section, textvariable=self.zoom_var).pack(anchor=tk.W, pady=2)
+        # === JUMP SECTION ===
+        jump_section = ttk.LabelFrame(sidebar, text="Jump to Frame", padding="12")
+        jump_section.pack(fill=tk.X, padx=10, pady=5)
+        jump_frame = ttk.Frame(jump_section)
+        jump_frame.pack(fill=tk.X)
+        self.jump_entry = ttk.Entry(jump_frame, width=10)
+        self.jump_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        ttk.Button(jump_frame, text="Go", command=self._submit_jump, width=5).pack(side=tk.RIGHT)
 
         # === KEYBOARD SHORTCUTS SECTION ===
-        shortcuts_section = ttk.LabelFrame(sidebar, text="Keyboard Shortcuts", padding="15")
+        shortcuts_section = ttk.LabelFrame(sidebar, text="Keyboard Shortcuts", padding="12")
         shortcuts_section.pack(fill=tk.X, padx=10, pady=5)
 
         shortcuts_text = (
-            "Y - Pass\n"
-            "N - Fail\n"
-            "U - Next Unvalidated\n"
-            "← - Previous\n"
-            "→ - Next\n"
-            "Space - Next Unvalidated\n"
-            "Home - Start\n"
-            "End - End\n"
-            "+/- - Zoom In/Out\n"
-            "0 - Reset Zoom\n"
-            "Ctrl+MouseWheel - Zoom"
+            "← → ↑ ↓ - Move selection\n"
+            "Y / N     - Pass / fail selected\n"
+            "T / B     - Pass / fail whole page\n"
+            "C         - Clear selected\n"
+            "Z / Enter - Zoom selected\n"
+            "+ / -     - Fewer / more per page\n"
+            "PgUp/PgDn - Previous / next page\n"
+            "U         - Next unvalidated\n"
+            "L         - Toggle labels\n"
+            "Home/End  - First / last page"
         )
         ttk.Label(
             shortcuts_section, text=shortcuts_text, font=("Courier", 9), justify=tk.LEFT
@@ -510,28 +517,161 @@ class YOLODatasetValidator:
         ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN).pack(fill=tk.X)
 
         # Keyboard bindings
-        self.root.bind("y", lambda e: self.validate("pass"))
-        self.root.bind("n", lambda e: self.validate("fail"))
-        self.root.bind("<Left>", lambda e: self.previous_image())
-        self.root.bind("a", lambda e: self.previous_image())
-        self.root.bind("<Right>", lambda e: self.next_image())
-        self.root.bind("d", lambda e: self.next_image())
-        self.root.bind("u", lambda e: self.jump_to_next_unvalidated())
-        self.root.bind("<Home>", lambda e: self.jump_to_start())
-        self.root.bind("<End>", lambda e: self.jump_to_end())
-        self.root.bind("<space>", lambda e: self.jump_to_next_unvalidated())
-        self.root.bind("<plus>", lambda e: self.zoom_in())
-        self.root.bind("<equal>", lambda e: self.zoom_in())
-        self.root.bind("<KP_Add>", lambda e: self.zoom_in())
-        self.root.bind("<minus>", lambda e: self.zoom_out())
-        self.root.bind("<KP_Subtract>", lambda e: self.zoom_out())
-        self.root.bind("0", lambda e: self.reset_zoom())
-        self.root.bind("<Control-MouseWheel>", self.on_ctrl_mousewheel)
-        self.root.bind("<Control-Button-4>", self.on_ctrl_mousewheel)
-        self.root.bind("<Control-Button-5>", self.on_ctrl_mousewheel)
+        self.bind_key("<Left>", lambda: self.move_selection(-1))
+        self.bind_key("<Right>", lambda: self.move_selection(1))
+        self.bind_key("<Up>", lambda: self.move_selection(-self.columns))
+        self.bind_key("<Down>", lambda: self.move_selection(self.columns))
+        self.bind_key("y", lambda: self.validate("pass"))
+        self.bind_key("n", lambda: self.validate("fail"))
+        self.bind_key("t", lambda: self.validate_page("pass"))
+        self.bind_key("b", lambda: self.validate_page("fail"))
+        self.bind_key("c", lambda: self.validate(None))
+        self.bind_key("z", self.open_zoom)
+        self.bind_key("<Return>", self.open_zoom)
+        self.bind_key("u", self.jump_to_next_unvalidated)
+        self.bind_key("l", lambda: self.toggle_labels(flip=True))
+        self.bind_key("<Prior>", self.previous_page)
+        self.bind_key("<Next>", self.next_page)
+        self.bind_key("<Home>", self.jump_to_start)
+        self.bind_key("<End>", self.jump_to_end)
+        self.bind_key("<plus>", lambda: self.change_thumb_size(1))
+        self.bind_key("<equal>", lambda: self.change_thumb_size(1))
+        self.bind_key("<minus>", lambda: self.change_thumb_size(-1))
 
-        # Update display
+        # Typing in the jump box must not trigger shortcuts; Enter submits it.
+        self.jump_entry.bind("<Return>", self._submit_jump)
+
+    def bind_key(self, sequence: str, action):
+        """Bind a global shortcut that stays inert while the jump box has focus."""
+
+        def handler(_event=None):
+            if self.root.focus_get() is self.jump_entry:
+                return None
+            action()
+            return "break"
+
+        self.root.bind(sequence, handler)
+
+    def _submit_jump(self, _event=None):
+        self.jump_to_frame()
+        self.root.focus_set()
+        return "break"
+
+    def _on_grid_configure(self, _event=None):
+        """Recompute the grid shape when the window resizes (debounced)."""
+        if self._layout_job is not None:
+            self.root.after_cancel(self._layout_job)
+        self._layout_job = self.root.after(120, self.relayout)
+
+    def relayout(self):
+        """Pick the grid shape that shows `page_size` frames as large as possible."""
+        self._layout_job = None
+        target = self.page_size
+        avail_w = max(self.grid_frame.winfo_width(), 320)
+        avail_h = max(self.grid_frame.winfo_height(), 240)
+
+        # Each cell is a 16:9 thumbnail plus padding and a caption strip.
+        pad_w, pad_h = 14, 34
+
+        size, columns, rows = float(self.MIN_THUMB), target, 1
+        best_score = (0.0, 0)
+        for candidate_columns in range(1, target + 1):
+            candidate_rows = -(-target // candidate_columns)  # ceil
+            width = avail_w / candidate_columns - pad_w
+            height = avail_h / candidate_rows - pad_h
+            candidate = min(width, height * 16 / 9)
+            if candidate <= 0:
+                continue
+            # Prefer the biggest thumbnail; break ties toward fewer empty slots.
+            score = (candidate, -(candidate_columns * candidate_rows - target))
+            if score > best_score:
+                best_score = score
+                size, columns, rows = candidate, candidate_columns, candidate_rows
+
+        # Quantize so a few pixels of window resize does not churn the whole grid
+        thumb_px = max(self.MIN_THUMB, int(size) // 8 * 8)
+
+        if (columns, rows) != (self.columns, self.rows):
+            self.columns, self.rows, self.thumb_px = columns, rows, thumb_px
+            self.rebuild_grid()
+        elif thumb_px != self.thumb_px:
+            self.thumb_px = thumb_px
+            self.resize_cells()
+
+        self.page_start = (self.selected_index // self.page_size) * self.page_size
         self.update_display()
+
+    def resize_cells(self):
+        """Resize existing cells in place rather than tearing the grid down."""
+        width, height = self.thumb_box()
+        for cell in self.cells:
+            cell["image"].config(width=width, height=height)
+            cell["photo_key"] = None
+
+    def rebuild_grid(self):
+        """Recreate the cell widgets after a shape change."""
+        for cell in self.cells:
+            cell["frame"].destroy()
+        self.cells = []
+
+        for row in range(self.rows):
+            self.grid_frame.rowconfigure(row, weight=1)
+        for col in range(self.columns):
+            self.grid_frame.columnconfigure(col, weight=1)
+
+        width, height = self.thumb_box()
+        for position in range(self.page_size):
+            row, col = divmod(position, self.columns)
+            frame = tk.Frame(
+                self.grid_frame,
+                bg=self.UNSET_COLOR,
+                highlightthickness=3,
+                highlightbackground=self.IDLE_COLOR,
+                highlightcolor=self.IDLE_COLOR,
+            )
+            frame.grid(row=row, column=col, padx=2, pady=2)
+            # Fixed pixel size: the label must not resize itself around whatever
+            # image it is handed, or every cell reflows as a page loads.
+            image_label = tk.Label(frame, bd=0, bg="#000000", width=width, height=height)
+            image_label.pack(padx=3, pady=(3, 0))
+            # width=1 char keeps a long filename from widening the cell
+            caption = tk.Label(
+                frame,
+                text="",
+                font=("Courier", 8),
+                bg=self.UNSET_COLOR,
+                fg="#FFFFFF",
+                anchor=tk.W,
+                width=1,
+            )
+            caption.pack(fill=tk.X, padx=3, pady=(1, 3))
+
+            cell = {
+                "frame": frame,
+                "image": image_label,
+                "caption": caption,
+                "index": None,
+                "photo_key": None,
+                "photo": None,
+                "color": None,
+                "outline": None,
+                "text": None,
+                "visible": True,
+            }
+            for widget in (frame, image_label, caption):
+                widget.bind("<Button-1>", lambda e, c=cell: self.select_cell(c))
+                widget.bind("<Double-Button-1>", lambda e, c=cell: self.select_cell(c, zoom=True))
+            self.cells.append(cell)
+
+    def select_cell(self, cell: Dict, zoom: bool = False):
+        if cell["index"] is None:
+            return
+        self.selected_index = cell["index"]
+        self.update_display()
+        if zoom:
+            self.open_zoom()
+
+    # --------------------------------------------------------------- drawing
 
     def color_name_to_hex(self, color_name: str) -> str:
         """Convert color name to hex code."""
@@ -638,23 +778,58 @@ class YOLODatasetValidator:
                     annotations.append(seg)
         return annotations
 
-    def draw_image_with_annotations(self, img_path: Path, label_path: Path) -> Image.Image:
-        """Draw parsed annotations (bbox/pose and seg polygons) on image."""
-        # Load image
-        image = Image.open(img_path).convert("RGBA")
+    def class_style(self, class_id: int) -> Tuple[str, str]:
+        """Return the (name, hex color) a class draws with."""
+        if class_id in self.class_info:
+            return (
+                self.class_info[class_id]["name"],
+                self.color_name_to_hex(self.class_info[class_id]["color"]),
+            )
+        return f"Class {class_id}", self.colors[class_id % len(self.colors)]
+
+    def compose(self, index: int, box: Tuple[int, int], detail: bool) -> Image.Image:
+        """Draw an image's annotations, decoded no larger than `box`.
+
+        Runs on worker threads, so it must not touch tkinter. Line widths, dot
+        radii and text size are derived from the rendered size, so a 200px
+        thumbnail and a full-screen zoom stay equally legible.
+        """
+        img_path, label_path = self.image_annotation_pairs[index]
+
+        image = Image.open(img_path)
+        # draft() lets libjpeg decode at a reduced DCT scale: the single biggest
+        # win for grid paging, since full 1080p decodes dominate otherwise.
+        image.draft("RGB", box)
+        image = image.convert("RGBA")
+        image.thumbnail(box, Image.Resampling.BILINEAR)
+
+        img_width, img_height = image.size
+        short_side = min(img_width, img_height)
+
         draw = ImageDraw.Draw(image)
         seg_overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
         seg_overlay_draw = ImageDraw.Draw(seg_overlay, "RGBA")
 
-        # Get image dimensions
-        img_width, img_height = image.size
-
-        # Parse annotations
         annotations = self.parse_yolo_annotation(label_path)
 
-        font = ImageFont.load_default(size=20)
+        line_width = max(1, round(short_side / 180))
+        radius = max(2, round(short_side * 0.008))
+        font_px = max(9, round(short_side / 18))
+        font = ImageFont.load_default(size=font_px)
+        # Text is unreadable on a small thumbnail and just obscures the boxes.
+        draw_text = self.show_labels and (detail or short_side >= 220)
 
-        # Draw each annotation
+        kp_colors = [
+            "#FF4444",
+            "#44FF44",
+            "#4444FF",
+            "#FFFF44",
+            "#FF44FF",
+            "#44FFFF",
+            "#FF8800",
+            "#8844FF",
+        ]
+
         for ann in annotations:
             class_id = ann["class_id"]
             cx = ann["center_x"] * img_width
@@ -662,19 +837,12 @@ class YOLODatasetValidator:
             w = ann["width"] * img_width
             h = ann["height"] * img_height
 
-            # Calculate bounding box corners
             x1 = cx - w / 2
             y1 = cy - h / 2
             x2 = cx + w / 2
             y2 = cy + h / 2
 
-            # Get class name and color from class_info if available
-            if class_id in self.class_info:
-                class_name = self.class_info[class_id]["name"]
-                color = self.color_name_to_hex(self.class_info[class_id]["color"])
-            else:
-                class_name = f"Class {class_id}"
-                color = self.colors[class_id % len(self.colors)]
+            class_name, color = self.class_style(class_id)
 
             if ann.get("type") == "seg":
                 polygon_points = [
@@ -693,312 +861,272 @@ class YOLODatasetValidator:
                     draw.line(
                         polygon_points + [polygon_points[0]],
                         fill=color,
-                        width=3,
+                        width=line_width,
                     )
             else:
-                # Always draw bounding box for detect/pose annotations
-                draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+                # Always draw the bounding box for detect/pose annotations
+                draw.rectangle([x1, y1, x2, y2], outline=color, width=line_width)
 
-            # Conditionally draw label text
-            if self.show_labels:
-                label_text = class_name
-
-                # Draw label background
-                bbox = draw.textbbox((x1, y1 - 25), label_text, font=font)
+            if draw_text:
+                text_y = max(0.0, y1 - font_px - 4)
+                bbox = draw.textbbox((x1, text_y), class_name, font=font)
                 draw.rectangle(bbox, fill=color)
-                draw.text((x1, y1 - 25), label_text, fill="white", font=font)
+                draw.text((x1, text_y), class_name, fill="white", font=font)
 
-            # Draw keypoints
-            kp_colors = [
-                "#FF4444",
-                "#44FF44",
-                "#4444FF",
-                "#FFFF44",
-                "#FF44FF",
-                "#44FFFF",
-                "#FF8800",
-                "#8844FF",
-            ]
-            r = max(4, int(min(img_width, img_height) * 0.008))
             for kp_idx, kp in enumerate(ann.get("keypoints", [])):
                 if kp["v"] == 0:
                     continue
                 kx = kp["x"] * img_width
                 ky = kp["y"] * img_height
                 kp_color = kp_colors[kp_idx % len(kp_colors)]
-                # Filled circle with dark outline
-                draw.ellipse([kx - r - 1, ky - r - 1, kx + r + 1, ky + r + 1], fill="#000000")
-                draw.ellipse([kx - r, ky - r, kx + r, ky + r], fill=kp_color)
-                if self.show_labels:
+                # Filled circle with a dark outline
+                draw.ellipse(
+                    [kx - radius - 1, ky - radius - 1, kx + radius + 1, ky + radius + 1],
+                    fill="#000000",
+                )
+                draw.ellipse(
+                    [kx - radius, ky - radius, kx + radius, ky + radius],
+                    fill=kp_color,
+                )
+                if draw_text:
                     kp_label = str(kp_idx)
-                    kp_bbox = draw.textbbox((kx + r + 2, ky - r), kp_label, font=font)
-                    draw.rectangle(
-                        kp_bbox,
-                        fill="#000000AA" if hasattr(draw, "alpha") else "#000000",
-                    )
-                    draw.text((kx + r + 2, ky - r), kp_label, fill=kp_color, font=font)
+                    anchor = (kx + radius + 2, ky - radius)
+                    draw.rectangle(draw.textbbox(anchor, kp_label, font=font), fill="#000000")
+                    draw.text(anchor, kp_label, fill=kp_color, font=font)
 
         image = Image.alpha_composite(image, seg_overlay)
         return image.convert("RGB")
 
-    def draw_feedback_overlay(self, image: Image.Image, passed: bool) -> Image.Image:
-        """Draw checkmark or X overlay on image."""
-        img_width, img_height = image.size
+    def thumb_box(self) -> Tuple[int, int]:
+        """Exact pixel size every grid thumbnail is padded to."""
+        return (self.thumb_px, max(1, round(self.thumb_px * 9 / 16)))
 
-        # Semi-transparent overlay
-        overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
-        overlay_draw = ImageDraw.Draw(overlay)
+    def thumb_key(self, index: int) -> Tuple:
+        return (index, self.thumb_box(), self.show_labels)
 
-        if passed:
-            # Green checkmark
-            color = (0, 255, 0, 180)
-            # Draw checkmark
-            cx, cy = img_width // 2, img_height // 2
-            size = min(img_width, img_height) // 4
-            points = [
-                (cx - size // 2, cy),
-                (cx - size // 6, cy + size // 2),
-                (cx + size // 2, cy - size // 2),
-            ]
-            overlay_draw.line(points, fill=color, width=20)
+    def render_thumb(self, index: int) -> Image.Image:
+        """Return a cached thumbnail for `index`, rendering it if needed.
+
+        Every thumbnail is letterboxed to the identical `thumb_box()` size. Cells
+        then never change shape when a new image lands in them, which is what made
+        the grid jump around while a page was loading.
+        """
+        box = self.thumb_box()
+        cache_key = self.thumb_key(index)
+
+        with self.cache_lock:
+            hit = self.thumb_cache.get(cache_key)
+            if hit is not None:
+                self.thumb_cache.move_to_end(cache_key)
+                return hit
+
+        fitted = self.compose(index, box, detail=False)
+        thumb = Image.new("RGB", box, (0, 0, 0))
+        thumb.paste(fitted, ((box[0] - fitted.width) // 2, (box[1] - fitted.height) // 2))
+
+        with self.cache_lock:
+            self.thumb_cache[cache_key] = thumb
+            while len(self.thumb_cache) > self.cache_limit:
+                self.thumb_cache.popitem(last=False)
+        return thumb
+
+    def photo_for(self, index: int) -> Tuple[Tuple, ImageTk.PhotoImage]:
+        """Return the cached (key, PhotoImage) pair for `index`.
+
+        Reusing the PhotoImage is what keeps arrow-key navigation quiet: moving the
+        selection only recolors borders, it does not re-upload every image to X.
+        """
+        key = self.thumb_key(index)
+        photo = self.photo_cache.get(key)
+        if photo is None:
+            photo = ImageTk.PhotoImage(self.render_thumb(index))
+            self.photo_cache[key] = photo
+            while len(self.photo_cache) > self.photo_limit:
+                self.photo_cache.popitem(last=False)
         else:
-            # Red X
-            color = (255, 0, 0, 180)
-            cx, cy = img_width // 2, img_height // 2
-            size = min(img_width, img_height) // 4
-            overlay_draw.line(
-                [(cx - size // 2, cy - size // 2), (cx + size // 2, cy + size // 2)],
-                fill=color,
-                width=20,
-            )
-            overlay_draw.line(
-                [(cx - size // 2, cy + size // 2), (cx + size // 2, cy - size // 2)],
-                fill=color,
-                width=20,
-            )
+            self.photo_cache.move_to_end(key)
+        return key, photo
 
-        # Composite
-        result = Image.alpha_composite(image.convert("RGBA"), overlay)
-        return result.convert("RGB")
+    def _cached(self, index: int) -> Optional[Image.Image]:
+        with self.cache_lock:
+            return self.thumb_cache.get(self.thumb_key(index))
+
+    def prefetch_next_page(self):
+        """Warm the cache for the following page so paging feels instant."""
+        start = self.page_start + self.page_size
+        end = min(start + self.page_size, len(self.image_annotation_pairs))
+        for index in range(start, end):
+            if self._cached(index) is None:
+                self.executor.submit(self.render_thumb, index)
+
+    # ------------------------------------------------------------ interaction
 
     def update_display(self):
-        """Update the display with current image."""
-        if not self.image_annotation_pairs:
+        """Redraw the current page of thumbnails."""
+        if not self.image_annotation_pairs or not self.cells:
             return
 
-        if self.current_index < 0:
-            self.current_index = 0
-        elif self.current_index >= len(self.image_annotation_pairs):
-            self.current_index = len(self.image_annotation_pairs) - 1
+        total = len(self.image_annotation_pairs)
+        self.selected_index = min(max(self.selected_index, 0), total - 1)
+        self.page_start = min(max(self.page_start, 0), max(0, total - 1))
 
-        img_path, label_path = self.image_annotation_pairs[self.current_index]
+        indices = [i for i in range(self.page_start, min(self.page_start + len(self.cells), total))]
 
-        # Draw image with annotations
-        self.current_annotated_image = self.draw_image_with_annotations(img_path, label_path)
-        self.render_cache.clear()
-        self.render_current_image(resample=Image.Resampling.BILINEAR, use_cache=True)
-        self.schedule_hq_render(delay_ms=20)
+        # Decode everything missing from the cache in parallel before touching tk.
+        pending = [i for i in indices if self._cached(i) is None]
+        if pending:
+            list(self.executor.map(self.render_thumb, pending))
 
-        # Update info
-        img_key = str(img_path.relative_to(self.dataset_path))
-        status = self.validation_state.get(img_key, "unvalidated")
+        for position, cell in enumerate(self.cells):
+            if position < len(indices):
+                self.paint_cell(cell, indices[position])
+            elif cell["visible"]:
+                cell["index"] = None
+                cell["visible"] = False
+                cell["frame"].grid_remove()
 
-        validated_count = sum(1 for v in self.validation_state.values() if v in ["pass", "fail"])
-        pass_count = sum(1 for v in self.validation_state.values() if v == "pass")
-        fail_count = sum(1 for v in self.validation_state.values() if v == "fail")
-
-        self.frame_info_var.set(
-            f"Frame {self.current_index + 1:,}\n/ {len(self.image_annotation_pairs):,}"
+        page_number = self.page_start // self.page_size + 1
+        page_count = (total + self.page_size - 1) // self.page_size
+        self.page_info_var.set(
+            f"Page {page_number} / {page_count}   {len(indices)} on screen "
+            f"({self.columns}×{self.rows})"
+        )
+        self.selection_var.set(
+            f"#{self.selected_index + 1} "
+            f"{self.image_annotation_pairs[self.selected_index][0].name[-30:]}"
         )
 
-        # Update status icon
-        if status == "pass":
-            self.status_icon_label.config(text="✓", fg="#00AA00", bg="#E8F5E9")
-        elif status == "fail":
-            self.status_icon_label.config(text="✗", fg="#CC0000", bg="#FFEBEE")
-        else:  # unvalidated
-            self.status_icon_label.config(text="○", fg="#888888", bg="#F5F5F5")
-
+        validated = sum(1 for v in self.validation_state.values() if v in ("pass", "fail"))
+        passed = sum(1 for v in self.validation_state.values() if v == "pass")
+        failed = sum(1 for v in self.validation_state.values() if v == "fail")
         self.status_var.set(
-            f"Dataset: {self.dataset_path.name} | "
-            f"Validated: {validated_count} | Pass: {pass_count} | Fail: {fail_count} | "
-            f"File: {img_path.name}"
+            f"Dataset: {self.dataset_path.name} | Frames: {total} | "
+            f"Validated: {validated} | Pass: {passed} | Fail: {failed}"
         )
 
-    def validate(self, result: str):
-        """Mark current image as pass or fail."""
+        self.prefetch_next_page()
+        self.refresh_zoom()
+
+    def paint_cell(self, cell: Dict, index: int):
+        """Push `index` into `cell`, touching only the widget options that changed.
+
+        Every config() call repaints, so a blind rewrite of every cell on every
+        keystroke is what the flicker was.
+        """
+        key, photo = self.photo_for(index)
+        if cell["photo_key"] != key:
+            cell["photo"] = photo  # keep a strong reference; tk does not
+            cell["photo_key"] = key
+            cell["image"].config(image=photo)
+
+        status = self.status_of(index)
+        color = {"pass": self.PASS_COLOR, "fail": self.FAIL_COLOR}.get(status, self.UNSET_COLOR)
+        glyph = {"pass": "✓", "fail": "✗"}.get(status, "○")
+        text = f"{glyph} {index + 1}  {self.image_annotation_pairs[index][0].name[-22:]}"
+        outline = self.SELECT_COLOR if index == self.selected_index else self.IDLE_COLOR
+
+        if cell["color"] != color:
+            cell["color"] = color
+            cell["frame"].config(bg=color)
+            cell["caption"].config(bg=color)
+        if cell["text"] != text:
+            cell["text"] = text
+            cell["caption"].config(text=text)
+        if cell["outline"] != outline:
+            cell["outline"] = outline
+            cell["frame"].config(highlightbackground=outline, highlightcolor=outline)
+
+        cell["index"] = index
+        if not cell["visible"]:
+            cell["visible"] = True
+            cell["frame"].grid()
+
+    def move_selection(self, delta: int):
+        total = len(self.image_annotation_pairs)
+        self.selected_index = min(max(self.selected_index + delta, 0), total - 1)
+        self.page_start = (self.selected_index // self.page_size) * self.page_size
+        self.update_display()
+
+    def validate(self, result: Optional[str]):
+        """Mark the selected image, then advance the selection."""
         if not self.image_annotation_pairs:
             return
 
-        img_path, label_path = self.image_annotation_pairs[self.current_index]
-        img_key = str(img_path.relative_to(self.dataset_path))
-
-        # Update state
-        self.validation_state[img_key] = result
+        key = self.key_for(self.selected_index)
+        if result is None:
+            self.validation_state.pop(key, None)
+        else:
+            self.validation_state[key] = result
         self.save_state()
 
-        # Show feedback
-        # self.show_feedback(result == "pass")
+        if self.selected_index < len(self.image_annotation_pairs) - 1:
+            self.move_selection(1)
+        else:
+            self.update_display()
 
-        # Auto-advance to next unvalidated
-        # self.root.after(250, self.next_image)
-        self.next_image()
+    def validate_page(self, result: str):
+        """Mark every image on screen. Stays on the page so you can fix outliers."""
+        indices = [cell["index"] for cell in self.cells if cell["index"] is not None]
+        if not indices:
+            return
+        for index in indices:
+            self.validation_state[self.key_for(index)] = result
+        self.save_state()
+        self.update_display()
 
-    def toggle_labels(self):
-        """Toggle label text visibility."""
+    def toggle_labels(self, flip: bool = False):
+        """Toggle class-name text on the annotations."""
+        if flip:
+            self.show_labels_var.set(not self.show_labels_var.get())
         self.show_labels = self.show_labels_var.get()
         self.update_display()
 
-    def show_feedback(self, passed: bool):
-        """Show checkmark or X overlay briefly."""
-        if not self.image_annotation_pairs:
+    def _on_size_change(self, value):
+        """Handle the images-per-page slider."""
+        self.set_page_step(int(round(float(value))))
+
+    def change_thumb_size(self, delta: int):
+        """`+` enlarges thumbnails, which means fewer of them per page."""
+        self.set_page_step(self.page_step - delta, sync_scale=True)
+
+    def set_page_step(self, step: int, sync_scale: bool = False):
+        step = min(max(step, 0), len(self.PAGE_STEPS) - 1)
+        if step == self.page_step:
             return
+        self.page_step = step
+        if sync_scale:
+            self.size_scale.set(step)
+        self.relayout()
 
-        img_path, label_path = self.image_annotation_pairs[self.current_index]
-
-        # Draw image with annotations and feedback
-        image = self.draw_image_with_annotations(img_path, label_path)
-        self.current_annotated_image = self.draw_feedback_overlay(image, passed)
-        self.render_cache.clear()
-        self.render_current_image(resample=Image.Resampling.BILINEAR, use_cache=True)
-        self.schedule_hq_render(delay_ms=20)
-
-    def get_resized_image(
-        self, img: Image.Image, width: int, height: int, resample: int, use_cache: bool
-    ) -> Image.Image:
-        """Resize image with a small LRU cache for repeated zoom levels."""
-        if not use_cache:
-            return img.resize((width, height), resample)
-
-        cache_key = (width, height, int(resample))
-        cached = self.render_cache.get(cache_key)
-        if cached is not None:
-            self.render_cache.move_to_end(cache_key)
-            return cached
-
-        resized = img.resize((width, height), resample)
-        self.render_cache[cache_key] = resized
-        self.render_cache.move_to_end(cache_key)
-        while len(self.render_cache) > self.render_cache_limit:
-            self.render_cache.popitem(last=False)
-        return resized
-
-    def render_current_image(self, resample=Image.Resampling.LANCZOS, use_cache=True):
-        """Render current annotated image with zoom and scrolling."""
-        if self.canvas is None or self.current_annotated_image is None:
-            return
-
-        img = self.current_annotated_image
-        img_width, img_height = img.size
-
-        canvas_width = max(1, self.canvas.winfo_width())
-        canvas_height = max(1, self.canvas.winfo_height())
-
-        # Base scale fits image to canvas at 100%; zoom scales from there.
-        fit_scale = min(canvas_width / img_width, canvas_height / img_height)
-        display_scale = fit_scale * self.zoom_factor
-        scaled_w = max(1, int(img_width * display_scale))
-        scaled_h = max(1, int(img_height * display_scale))
-        resized = self.get_resized_image(img, scaled_w, scaled_h, resample, use_cache)
-
-        self.current_photo = ImageTk.PhotoImage(resized)
-
-        if self.current_canvas_image_id is None:
-            self.current_canvas_image_id = self.canvas.create_image(
-                0, 0, anchor=tk.NW, image=self.current_photo
-            )
-        else:
-            self.canvas.itemconfig(self.current_canvas_image_id, image=self.current_photo)
-            self.canvas.coords(self.current_canvas_image_id, 0, 0)
-
-        self.canvas.configure(scrollregion=(0, 0, scaled_w, scaled_h))
-        self.zoom_var.set(f"Zoom: {int(round(self.zoom_factor * 100))}%")
-
-    def set_zoom(self, new_zoom: float):
-        """Set zoom factor and rerender."""
-        clamped = max(self.min_zoom, min(self.max_zoom, new_zoom))
-        if abs(clamped - self.zoom_factor) < 1e-9:
-            return
-        self.zoom_factor = clamped
-        # Fast preview while user is zooming repeatedly.
-        self.render_current_image(resample=Image.Resampling.BILINEAR, use_cache=True)
-        # Follow with one high-quality render after interaction settles.
-        self.schedule_hq_render()
-
-    def schedule_hq_render(self, delay_ms: int = 90):
-        """Debounce expensive high-quality rendering during zoom/resize bursts."""
-        if self.pending_hq_render is not None:
-            self.root.after_cancel(self.pending_hq_render)
-        self.pending_hq_render = self.root.after(delay_ms, self.render_hq_image)
-
-    def render_hq_image(self):
-        """Render using LANCZOS after zooming settles."""
-        self.pending_hq_render = None
-        self.render_current_image(resample=Image.Resampling.LANCZOS, use_cache=True)
-
-    def zoom_in(self):
-        self.set_zoom(self.zoom_factor * self.zoom_step)
-
-    def zoom_out(self):
-        self.set_zoom(self.zoom_factor / self.zoom_step)
-
-    def reset_zoom(self):
-        self.set_zoom(1.0)
-
-    def on_ctrl_mousewheel(self, event):
-        """Zoom with Ctrl + mouse wheel (supports Linux/Windows)."""
-        if hasattr(event, "delta") and event.delta:
-            if event.delta > 0:
-                self.zoom_in()
-            elif event.delta < 0:
-                self.zoom_out()
-        elif getattr(event, "num", None) == 4:
-            self.zoom_in()
-        elif getattr(event, "num", None) == 5:
-            self.zoom_out()
-
-    def on_pan_start(self, event):
-        """Remember drag start for canvas panning."""
-        if self.canvas is not None:
-            self.canvas.scan_mark(event.x, event.y)
-
-    def on_pan_move(self, event):
-        """Pan canvas while dragging."""
-        if self.canvas is not None:
-            self.canvas.scan_dragto(event.x, event.y, gain=1)
-
-    def next_image(self):
-        """Navigate to next image."""
-        self.current_index += 1
-        if self.current_index >= len(self.image_annotation_pairs):
-            self.current_index = len(self.image_annotation_pairs) - 1
-            messagebox.showinfo("End", "Reached end of dataset")
+    def next_page(self):
+        if self.page_start + self.page_size < len(self.image_annotation_pairs):
+            self.page_start += self.page_size
+            self.selected_index = self.page_start
         self.update_display()
 
-    def previous_image(self):
-        """Navigate to previous image."""
-        self.current_index -= 1
-        if self.current_index < 0:
-            self.current_index = 0
-            messagebox.showinfo("Start", "Already at start of dataset")
+    def previous_page(self):
+        if self.page_start > 0:
+            self.page_start = max(0, self.page_start - self.page_size)
+            self.selected_index = self.page_start
         self.update_display()
 
     def jump_to_start(self):
-        """Jump to first image."""
-        self.current_index = 0
+        self.selected_index = 0
+        self.page_start = 0
         self.update_display()
 
     def jump_to_end(self):
-        """Jump to last image."""
-        self.current_index = len(self.image_annotation_pairs) - 1
+        self.selected_index = len(self.image_annotation_pairs) - 1
+        self.page_start = (self.selected_index // self.page_size) * self.page_size
         self.update_display()
 
     def jump_to_frame(self):
-        """Jump to specific frame number."""
+        """Jump to a specific frame number."""
         try:
             frame_num = int(self.jump_entry.get())
             if 1 <= frame_num <= len(self.image_annotation_pairs):
-                self.current_index = frame_num - 1
+                self.selected_index = frame_num - 1
+                self.page_start = (self.selected_index // self.page_size) * self.page_size
                 self.update_display()
             else:
                 messagebox.showerror(
@@ -1009,34 +1137,109 @@ class YOLODatasetValidator:
             messagebox.showerror("Error", "Please enter a valid frame number")
 
     def jump_to_next_unvalidated(self):
-        """Jump to next unvalidated image."""
-        start_index = self.current_index
-
-        # Search forward from current position
-        for i in range(self.current_index, len(self.image_annotation_pairs)):
-            img_path, _ = self.image_annotation_pairs[i]
-            img_key = str(img_path.relative_to(self.dataset_path))
-            if img_key not in self.validation_state:
-                self.current_index = i
+        """Select the next image with no verdict, wrapping around."""
+        total = len(self.image_annotation_pairs)
+        order = list(range(self.selected_index, total)) + list(range(0, self.selected_index))
+        for index in order:
+            if self.key_for(index) not in self.validation_state:
+                self.selected_index = index
+                self.page_start = (index // self.page_size) * self.page_size
                 self.update_display()
                 return
 
-        # Wrap around and search from beginning
-        for i in range(0, start_index):
-            img_path, _ = self.image_annotation_pairs[i]
-            img_key = str(img_path.relative_to(self.dataset_path))
-            if img_key not in self.validation_state:
-                self.current_index = i
-                self.update_display()
-                return
-
-        # All validated
         messagebox.showinfo("Complete", "All images have been validated!")
         self.update_display()
+
+    # ------------------------------------------------------------------ zoom
+
+    def open_zoom(self):
+        """Show the selected frame full size in its own window."""
+        if self.zoom_window is not None and self.zoom_window.winfo_exists():
+            self.close_zoom()
+            return
+
+        window = tk.Toplevel(self.root)
+        window.title("Zoom")
+        self.zoom_window = window
+        self.zoom_label = tk.Label(window, bd=0, bg="#000000")
+        self.zoom_label.pack(fill=tk.BOTH, expand=True)
+
+        window.bind("<Escape>", lambda e: self.close_zoom())
+        window.bind("z", lambda e: self.close_zoom())
+        window.bind("<Return>", lambda e: self.close_zoom())
+        window.bind("y", lambda e: self.validate("pass"))
+        window.bind("n", lambda e: self.validate("fail"))
+        window.bind("c", lambda e: self.validate(None))
+        window.bind("<Left>", lambda e: self.move_selection(-1))
+        window.bind("<Right>", lambda e: self.move_selection(1))
+        window.protocol("WM_DELETE_WINDOW", self.close_zoom)
+
+        self.refresh_zoom()
+        window.focus_set()
+
+    def refresh_zoom(self):
+        """Repaint the zoom window for the current selection, if it is open."""
+        if self.zoom_window is None or not self.zoom_window.winfo_exists():
+            return
+
+        max_w = int(self.root.winfo_screenwidth() * 0.9)
+        max_h = int(self.root.winfo_screenheight() * 0.85)
+        image = self.compose(self.selected_index, (max_w, max_h), detail=True)
+
+        self.zoom_photo = ImageTk.PhotoImage(image)
+        if self.zoom_label is not None:
+            self.zoom_label.config(image=self.zoom_photo)
+
+        status = self.status_of(self.selected_index)
+        glyph = {"pass": "✓ PASS", "fail": "✗ FAIL"}.get(status, "○ unvalidated")
+        name = self.image_annotation_pairs[self.selected_index][0].name
+        self.zoom_window.title(f"[{glyph}]  #{self.selected_index + 1}  {name}")
+
+    def close_zoom(self):
+        if self.zoom_window is not None and self.zoom_window.winfo_exists():
+            self.zoom_window.destroy()
+        self.zoom_window = None
+        self.zoom_label = None
+        self.zoom_photo = None
+        self.root.focus_set()
 
     def run(self):
         """Start the UI main loop."""
         self.root.mainloop()
+        self.executor.shutdown(wait=False)
+
+
+def find_class_yaml(dataset_path: Path) -> Optional[Path]:
+    """Locate the data yaml describing the dataset's classes.
+
+    The root is checked first, then the whole tree, because a tree of per-scene exports keeps one
+    yaml inside each export rather than a single one at the top. Those per-scene yamls only agree
+    when the scenes share a vocabulary; when they do not, a single class list would mislabel
+    everything drawn from the other scenes, so say so instead of picking one silently.
+    """
+    candidates = sorted(dataset_path.glob("*.y*ml")) or sorted(dataset_path.rglob("*.y*ml"))
+    candidates = [p for p in candidates if p.suffix in (".yml", ".yaml")]
+    if not candidates:
+        return None
+
+    vocabularies = set()
+    for path in candidates:
+        try:
+            with open(path) as f:
+                names = yaml.safe_load(f).get("names")
+        except (OSError, ValueError, AttributeError, yaml.YAMLError):
+            continue
+        if names:
+            vocabularies.add(tuple(names) if isinstance(names, list) else tuple(sorted(names)))
+
+    if len(vocabularies) > 1:
+        print(
+            f"WARNING: {len(candidates)} data yamls under {dataset_path} declare "
+            f"{len(vocabularies)} different class lists. Class names and colors are read from "
+            f"{candidates[0]} and will be wrong for the scenes using another vocabulary. "
+            "Remap them to a shared vocabulary first, or pass -c explicitly."
+        )
+    return candidates[0]
 
 
 def main():
@@ -1060,20 +1263,13 @@ def main():
 
     dataset_path = Path(dataset_path_str)
 
-    classes_path_str = args.classes
-
-    if not classes_path_str:
-        classes_path = None
-        for path in dataset_path.iterdir():
-            match = re.search(r".*(ya?ml)", str(path))
-            if not match:
-                continue
-            classes_path = dataset_path / path.name
+    if args.classes:
+        classes_path = Path(args.classes)
     else:
-        classes_path = Path(classes_path_str)
+        classes_path = find_class_yaml(dataset_path)
 
     if classes_path is None:
-        raise ValueError("Failed to find YOLO data file")
+        raise ValueError(f"Failed to find a YOLO data yaml under {dataset_path}")
 
     validator = YOLODatasetValidator(dataset_path, classes_path)
     validator.run()

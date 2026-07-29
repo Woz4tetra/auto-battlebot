@@ -1,0 +1,20 @@
+# Collapse a SegmentFlow per-robot segmask export into binary floor segmentation.
+#
+# Source labels: 1-based indices into the export's classes.txt. 46 = "Floor",
+# 47 = "Floor letter word", and every other class is an individual robot
+# (competitors, house bots, exhibition bots). 0 = unlabelled.
+#
+# Target labels (for the floor model):
+#   0 = background (not field)
+#   1 = floor (field surface)
+#
+# Robots sit on the field, so their pixels are field pixels that happen to be
+# occluded. Mapping them to floor gives the unbroken field region the model
+# should predict, and matches what convex_hull_masks.py assumes downstream.
+#
+# Anything not listed maps to default_label, so every robot class collapses to
+# floor without enumerating all 151 of them.
+default_label = 1
+
+[label_map]
+0 = 0 # unlabelled -> background

@@ -22,6 +22,23 @@ def load_validation_state(state_file: Path) -> Dict[str, str]:
         return json.load(f)
 
 
+def annotation_candidates(img_path: Path) -> List[Path]:
+    """Paths that could hold `img_path`'s annotation, most specific first.
+
+    Covers both layouts the validators produce: a YOLO export's `images/` + `labels/` pair, and a
+    segmask export where the annotation is a `<stem>_mask.png` sitting beside the frame.
+    """
+    img_str = str(img_path)
+    sibling_label = Path(
+        img_str.replace("/images/", "/labels/").replace("\\images\\", "\\labels\\")
+    ).with_suffix(".txt")
+    return [
+        sibling_label,
+        img_path.with_suffix(".txt"),
+        img_path.with_name(f"{img_path.stem}_mask.png"),
+    ]
+
+
 def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
     """Recursively find all image and annotation pairs in the dataset."""
     image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
@@ -34,20 +51,14 @@ def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
 
     # Match with annotation files
     pairs = []
-    for img_path in sorted(image_files):
-        # Try to find corresponding label file
-        img_str = str(img_path)
-
-        # Check if in an 'images' directory
-        if "/images/" in img_str or "\\images\\" in img_str:
-            label_str = img_str.replace("/images/", "/labels/").replace("\\images\\", "\\labels\\")
-        else:
-            label_str = img_str
-
-        label_path = Path(label_str).with_suffix(".txt")
-
-        if label_path.exists():
-            pairs.append((img_path, label_path))
+    for img_path in sorted(set(image_files)):
+        # A mask is an annotation, not a frame to be paired in its own right.
+        if img_path.stem.endswith("_mask"):
+            continue
+        for label_path in annotation_candidates(img_path):
+            if label_path.exists():
+                pairs.append((img_path, label_path))
+                break
 
     return pairs
 

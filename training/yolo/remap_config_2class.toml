@@ -11,7 +11,7 @@
 # few to learn, and the distinction it encoded is not one the detector is asked to make.
 
 target_names = ["robot", "house_bot"]
-default = "robot"          # every competitor robot name falls through to here
+default = "robot"                     # every competitor robot name falls through to here
 
 [map]
 # Field segmentation -- belongs to the deeplab task, 88,823 polygons, not a robot.
@@ -23,6 +23,15 @@ default = "robot"          # every competitor robot name falls through to here
 "House Bot Orange Halloween" = "house_bot"
 "House Bot White Halloween" = "house_bot"
 "House Bot Flash Halloween" = "house_bot"
+
+# The exhibition machines NHRL runs against entrants. House-operated, same role as the house bot.
+# Declared by newer SegmentFlow exports; no instances labelled yet, so these are rules for the
+# corpus that is coming, not for anything currently on disk.
+"Beater Bot Blue Exhibition 1" = "house_bot"
+"Beater Bot Purple Exhibition 2" = "house_bot"
+"Beater Bot Purple Exhibition 3" = "house_bot"
+"Horizontal Spinner Red Exhibition 1" = "house_bot"
+"Noob Toob Green Exhibition 1" = "house_bot"
 
 # Formerly the `object` class; now folded into robot with everything else in the field.
 "Flight Controller 1" = "robot"

@@ -207,7 +207,11 @@ DEFAULT_CLASS_COLORS = [
 class SegmaskDatasetValidator:
     """Contact-sheet validator: page through a grid of thumbnails, judge with the keyboard."""
 
-    THUMB_STEPS = [120, 160, 200, 260, 320, 400, 500, 620]
+    # How many frames a page holds. The thumbnail size follows from this and the
+    # window size, so the scale control is really "how many fit on screen".
+    PAGE_STEPS = [1, 2, 4, 6, 9, 12, 16, 20, 30, 42, 56]
+    DEFAULT_PAGE = 9
+    MIN_THUMB = 80
 
     PASS_COLOR = "#2E7D32"
     FAIL_COLOR = "#C62828"
@@ -228,17 +232,21 @@ class SegmaskDatasetValidator:
         self.overlay_alpha = 0.45
 
         # Grid state
-        self.thumb_step = 3
+        self.page_step = self.PAGE_STEPS.index(self.DEFAULT_PAGE)
+        self.thumb_px = 260
         self.selected_index = 0
         self.page_start = 0
         self.columns = 1
         self.rows = 1
         self.cells: List[Dict] = []
-        self.photo_refs: Dict[int, ImageTk.PhotoImage] = {}
 
-        # Thumbnails are decoded off the main thread and cached, so paging stays snappy
+        # Thumbnails are decoded off the main thread and cached, so paging stays snappy.
+        # The PhotoImage cache is separate because those must be built on the main
+        # thread; keeping them lets a redraw skip cells whose picture has not changed.
         self.thumb_cache: "OrderedDict[Tuple, Image.Image]" = OrderedDict()
         self.cache_limit = 800
+        self.photo_cache: "OrderedDict[Tuple, ImageTk.PhotoImage]" = OrderedDict()
+        self.photo_limit = 200
         self.cache_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 4)))
         self._layout_job: Optional[str] = None
@@ -429,12 +437,24 @@ class SegmaskDatasetValidator:
         return result
 
     def thumb_size(self) -> int:
-        return self.THUMB_STEPS[self.thumb_step]
+        return self.thumb_px
+
+    def thumb_box(self) -> Tuple[int, int]:
+        """Exact pixel size every grid thumbnail is padded to."""
+        return (self.thumb_px, max(1, round(self.thumb_px * 9 / 16)))
+
+    def thumb_key(self, index: int) -> Tuple:
+        return (index, self.thumb_box(), round(self.overlay_alpha, 3), self.show_overlay)
 
     def render_thumb(self, index: int) -> Image.Image:
-        """Return a cached thumbnail for `index`, rendering it if needed."""
-        size = self.thumb_size()
-        cache_key = (index, size, round(self.overlay_alpha, 3), self.show_overlay)
+        """Return a cached thumbnail for `index`, rendering it if needed.
+
+        Every thumbnail is letterboxed to the identical `thumb_box()` size. Cells
+        then never change shape when a new image lands in them, which is what made
+        the grid jump around while a page was loading.
+        """
+        box = self.thumb_box()
+        cache_key = self.thumb_key(index)
 
         with self.cache_lock:
             hit = self.thumb_cache.get(cache_key)
@@ -442,7 +462,9 @@ class SegmaskDatasetValidator:
                 self.thumb_cache.move_to_end(cache_key)
                 return hit
 
-        thumb = self.compose(index, (size, size), legend=False)
+        fitted = self.compose(index, box, legend=False)
+        thumb = Image.new("RGB", box, (0, 0, 0))
+        thumb.paste(fitted, ((box[0] - fitted.width) // 2, (box[1] - fitted.height) // 2))
 
         with self.cache_lock:
             self.thumb_cache[cache_key] = thumb
@@ -450,11 +472,28 @@ class SegmaskDatasetValidator:
                 self.thumb_cache.popitem(last=False)
         return thumb
 
+    def photo_for(self, index: int) -> Tuple[Tuple, ImageTk.PhotoImage]:
+        """Return (cache key, PhotoImage) for `index`, reusing the last upload.
+
+        Reusing the PhotoImage is what keeps arrow-key navigation quiet: moving the
+        selection only recolors borders, it does not re-upload nine images to X.
+        """
+        key = self.thumb_key(index)
+        photo = self.photo_cache.get(key)
+        if photo is None:
+            photo = ImageTk.PhotoImage(self.render_thumb(index))
+            self.photo_cache[key] = photo
+            while len(self.photo_cache) > self.photo_limit:
+                self.photo_cache.popitem(last=False)
+        else:
+            self.photo_cache.move_to_end(key)
+        return key, photo
+
     # ------------------------------------------------------------------- grid
 
     @property
     def page_size(self) -> int:
-        return max(1, self.columns * self.rows)
+        return self.PAGE_STEPS[self.page_step]
 
     def setup_ui(self):
         """Create the user interface."""
@@ -534,13 +573,13 @@ class SegmaskDatasetValidator:
             fill=tk.X, pady=(0, 8)
         )
 
-        ttk.Label(options_section, text="Thumbnail size:").pack(anchor=tk.W)
+        ttk.Label(options_section, text="Images per page (+ / -):").pack(anchor=tk.W)
         self.size_scale = ttk.Scale(
             options_section,
             from_=0,
-            to=len(self.THUMB_STEPS) - 1,
+            to=len(self.PAGE_STEPS) - 1,
             orient=tk.HORIZONTAL,
-            value=self.thumb_step,
+            value=self.page_step,
             command=self._on_size_change,
         )
         self.size_scale.pack(fill=tk.X, pady=(0, 8))
@@ -582,7 +621,7 @@ class SegmaskDatasetValidator:
             "T / B     - Pass / fail whole page\n"
             "C         - Clear selected\n"
             "Z / Enter - Zoom selected\n"
-            "+ / -     - Thumbnail size\n"
+            "+ / -     - Fewer / more per page\n"
             "PgUp/PgDn - Previous / next page\n"
             "U         - Next unvalidated\n"
             "O         - Toggle overlay\n"
@@ -645,25 +684,49 @@ class SegmaskDatasetValidator:
         self._layout_job = self.root.after(120, self.relayout)
 
     def relayout(self):
-        """Size the grid to the available space and redraw."""
+        """Pick the grid shape that shows `page_size` frames as large as possible."""
         self._layout_job = None
-        size = self.thumb_size()
-        avail_w = max(self.grid_frame.winfo_width(), size)
-        avail_h = max(self.grid_frame.winfo_height(), size)
+        target = self.page_size
+        avail_w = max(self.grid_frame.winfo_width(), 320)
+        avail_h = max(self.grid_frame.winfo_height(), 240)
 
-        # Cells are laid out for 16:9 source frames plus a caption strip.
-        cell_w = size + 14
-        cell_h = int(size * 9 / 16) + 34
+        # Each cell is a 16:9 thumbnail plus padding and a caption strip.
+        pad_w, pad_h = 14, 34
 
-        columns = max(1, avail_w // cell_w)
-        rows = max(1, avail_h // cell_h)
+        size, columns, rows = float(self.MIN_THUMB), target, 1
+        best_score = (0.0, 0)
+        for candidate_columns in range(1, target + 1):
+            candidate_rows = -(-target // candidate_columns)  # ceil
+            width = avail_w / candidate_columns - pad_w
+            height = avail_h / candidate_rows - pad_h
+            candidate = min(width, height * 16 / 9)
+            if candidate <= 0:
+                continue
+            # Prefer the biggest thumbnail; break ties toward fewer empty slots.
+            score = (candidate, -(candidate_columns * candidate_rows - target))
+            if score > best_score:
+                best_score = score
+                size, columns, rows = candidate, candidate_columns, candidate_rows
+
+        # Quantize so a few pixels of window resize does not churn the whole grid
+        thumb_px = max(self.MIN_THUMB, int(size) // 8 * 8)
 
         if (columns, rows) != (self.columns, self.rows):
-            self.columns, self.rows = columns, rows
+            self.columns, self.rows, self.thumb_px = columns, rows, thumb_px
             self.rebuild_grid()
+        elif thumb_px != self.thumb_px:
+            self.thumb_px = thumb_px
+            self.resize_cells()
 
         self.page_start = (self.selected_index // self.page_size) * self.page_size
         self.update_display()
+
+    def resize_cells(self):
+        """Resize existing cells in place rather than tearing the grid down."""
+        width, height = self.thumb_box()
+        for cell in self.cells:
+            cell["image"].config(width=width, height=height)
+            cell["photo_key"] = None
 
     def rebuild_grid(self):
         """Recreate cell widgets after a shape change."""
@@ -676,7 +739,8 @@ class SegmaskDatasetValidator:
         for col in range(self.columns):
             self.grid_frame.columnconfigure(col, weight=1)
 
-        for position in range(self.columns * self.rows):
+        width, height = self.thumb_box()
+        for position in range(self.page_size):
             row, col = divmod(position, self.columns)
             frame = tk.Frame(
                 self.grid_frame,
@@ -686,14 +750,34 @@ class SegmaskDatasetValidator:
                 highlightcolor=self.IDLE_COLOR,
             )
             frame.grid(row=row, column=col, padx=2, pady=2)
-            image_label = tk.Label(frame, bd=0, bg="#000000")
+            # Fixed pixel size: the label must not resize itself around whatever
+            # image it is handed, or every cell reflows as a page loads.
+            image_label = tk.Label(frame, bd=0, bg="#000000", width=width, height=height)
             image_label.pack(padx=3, pady=(3, 0))
+            # width=1 char keeps a long filename from widening the cell
             caption = tk.Label(
-                frame, text="", font=("Courier", 8), bg=self.UNSET_COLOR, fg="#FFFFFF", anchor=tk.W
+                frame,
+                text="",
+                font=("Courier", 8),
+                bg=self.UNSET_COLOR,
+                fg="#FFFFFF",
+                anchor=tk.W,
+                width=1,
             )
             caption.pack(fill=tk.X, padx=3, pady=(1, 3))
 
-            cell = {"frame": frame, "image": image_label, "caption": caption, "index": None}
+            cell = {
+                "frame": frame,
+                "image": image_label,
+                "caption": caption,
+                "index": None,
+                "photo_key": None,
+                "photo": None,
+                "color": None,
+                "outline": None,
+                "text": None,
+                "visible": True,
+            }
             for widget in (frame, image_label, caption):
                 widget.bind("<Button-1>", lambda e, c=cell: self.select_cell(c))
                 widget.bind("<Double-Button-1>", lambda e, c=cell: self.select_cell(c, zoom=True))
@@ -725,34 +809,18 @@ class SegmaskDatasetValidator:
 
         for position, cell in enumerate(self.cells):
             if position < len(indices):
-                index = indices[position]
-                cell["index"] = index
-                photo = ImageTk.PhotoImage(self.render_thumb(index))
-                self.photo_refs[position] = photo
-                cell["image"].config(image=photo)
-
-                status = self.status_of(index)
-                color = {
-                    "pass": self.PASS_COLOR,
-                    "fail": self.FAIL_COLOR,
-                }.get(status, self.UNSET_COLOR)
-                glyph = {"pass": "✓", "fail": "✗"}.get(status, "○")
-                name = self.image_mask_pairs[index][0].name
-                cell["frame"].config(bg=color)
-                cell["caption"].config(bg=color, text=f"{glyph} {index + 1}  {name[-22:]}")
-                selected = index == self.selected_index
-                cell["frame"].config(
-                    highlightbackground=self.SELECT_COLOR if selected else self.IDLE_COLOR,
-                    highlightcolor=self.SELECT_COLOR if selected else self.IDLE_COLOR,
-                )
-                cell["frame"].grid()
-            else:
+                self.paint_cell(cell, indices[position])
+            elif cell["visible"]:
                 cell["index"] = None
+                cell["visible"] = False
                 cell["frame"].grid_remove()
 
         page_number = self.page_start // self.page_size + 1
         page_count = (total + self.page_size - 1) // self.page_size
-        self.page_info_var.set(f"Page {page_number} / {page_count}  ({self.columns}×{self.rows})")
+        self.page_info_var.set(
+            f"Page {page_number} / {page_count}   {len(indices)} on screen "
+            f"({self.columns}×{self.rows})"
+        )
         self.selection_var.set(
             f"#{self.selected_index + 1} {self.image_mask_pairs[self.selected_index][0].name[-30:]}"
         )
@@ -768,10 +836,43 @@ class SegmaskDatasetValidator:
         self.prefetch_next_page()
         self.refresh_zoom()
 
+    def paint_cell(self, cell: Dict, index: int):
+        """Push `index` into `cell`, touching only the widget options that changed.
+
+        Every config() call repaints, so a blind rewrite of all nine cells on every
+        keystroke is what the flicker was.
+        """
+        key, photo = self.photo_for(index)
+        if cell["photo_key"] != key:
+            cell["photo"] = photo  # keep a strong reference; tk does not
+            cell["photo_key"] = key
+            cell["image"].config(image=photo)
+
+        status = self.status_of(index)
+        color = {"pass": self.PASS_COLOR, "fail": self.FAIL_COLOR}.get(status, self.UNSET_COLOR)
+        glyph = {"pass": "✓", "fail": "✗"}.get(status, "○")
+        text = f"{glyph} {index + 1}  {self.image_mask_pairs[index][0].name[-22:]}"
+        outline = self.SELECT_COLOR if index == self.selected_index else self.IDLE_COLOR
+
+        if cell["color"] != color:
+            cell["color"] = color
+            cell["frame"].config(bg=color)
+            cell["caption"].config(bg=color)
+        if cell["text"] != text:
+            cell["text"] = text
+            cell["caption"].config(text=text)
+        if cell["outline"] != outline:
+            cell["outline"] = outline
+            cell["frame"].config(highlightbackground=outline, highlightcolor=outline)
+
+        cell["index"] = index
+        if not cell["visible"]:
+            cell["visible"] = True
+            cell["frame"].grid()
+
     def _cached(self, index: int) -> Optional[Image.Image]:
-        key = (index, self.thumb_size(), round(self.overlay_alpha, 3), self.show_overlay)
         with self.cache_lock:
-            return self.thumb_cache.get(key)
+            return self.thumb_cache.get(self.thumb_key(index))
 
     def prefetch_next_page(self):
         """Warm the cache for the following page so paging feels instant."""
@@ -881,18 +982,21 @@ class SegmaskDatasetValidator:
         self.update_display()
 
     def _on_size_change(self, value):
-        """Handle thumbnail size slider change."""
-        step = int(round(float(value)))
-        if step != self.thumb_step:
-            self.thumb_step = step
-            self.relayout()
+        """Handle the images-per-page slider."""
+        self.set_page_step(int(round(float(value))))
 
     def change_thumb_size(self, delta: int):
-        step = min(max(self.thumb_step + delta, 0), len(self.THUMB_STEPS) - 1)
-        if step != self.thumb_step:
-            self.thumb_step = step
+        """`+` enlarges thumbnails, which means fewer of them per page."""
+        self.set_page_step(self.page_step - delta, sync_scale=True)
+
+    def set_page_step(self, step: int, sync_scale: bool = False):
+        step = min(max(step, 0), len(self.PAGE_STEPS) - 1)
+        if step == self.page_step:
+            return
+        self.page_step = step
+        if sync_scale:
             self.size_scale.set(step)
-            self.relayout()
+        self.relayout()
 
     # ------------------------------------------------------------------ zoom
 
