@@ -4,21 +4,15 @@ extends = "_common"
 
 [field_model]
 type = "DeepLabMaskModel"
-model_path = "data/models/field_deeplabv3p_r50_2026-04-29_x86_64_sm89.engine"
+model_path = "data/models/field_deeplabv3p_r50_2026-07-29_x86_64_sm89.engine"
 
 [robot_mask_model]
 type = "YoloBboxRobotBlobModel"
-model_path = "data/models/yolo26n_nhrl_robots_bbox_2026-07-16_x86_64_sm89.engine"
-label_indices = [
-  "OPPONENT",
-  "OPPONENT",
-  "HOUSE_BOT",
-  "MR_STABS_MK2",
-  "MRS_BUFF_MK3",
-]
+model_path = "data/models/yolo26n_nhrl_robots_bbox_2class_2026-07-29_x86_64_sm89.engine"
+label_indices = ["OPPONENT", "HOUSE_BOT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
-confidence_threshold = 0.6
+confidence_threshold = 0.7
 debug_visualization = false
 
 [keypoint_model]
