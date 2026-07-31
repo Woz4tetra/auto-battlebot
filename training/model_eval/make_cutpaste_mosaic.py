@@ -7,22 +7,20 @@ sample frame, one column per condition, each tile captioned with the opponent sc
 both models give the same target box (max opponent-class probability among head
 anchors inside it) - the exact quantity the probe averages.
 
-Conditions, in the order the report's table lists them, plus one diagnostic column:
+Conditions, in the order the report's table lists them:
 
   original            the letterboxed eval frame
-  crop on own arena   the probe's `crop_on_arena`: the crop pasted back at its own
-                      coordinates on its own frame, so the image is bit-identical to
-                      the original (see NOTE below)
-  crop on other arena the context swap that column is meant to be: same crop, same
-                      coordinates, a *different* eval frame's arena underneath
+  crop on other arena the context swap: same crop, same coordinates, a *different*
+                      eval frame's arena underneath (see NOTE below)
   crop on gray        `crop_on_gray`: same crop on a neutral 114 canvas (appearance only)
   robot removed       `robot_removed`: box contents replaced by a blur of the frame
 
-NOTE: `crop_on_arena` in the probe indexes its background list with the frame's own
-index (`backgrounds[fi % len(backgrounds)]` where `backgrounds` is the same frame
-list), so it reconstructs the original image rather than swapping context. Its
-reported equality with `original` is therefore an identity, not a finding. The
-"crop on other arena" column here runs the intended swap for comparison.
+NOTE: the probe's own `crop_on_arena` condition is not shown, because it does not
+swap context. It indexes its background list with the frame's own index
+(`backgrounds[fi % len(backgrounds)]` where `backgrounds` is the same frame list), so
+the crop is pasted back at its own coordinates on its own frame and the result is
+bit-identical to the original — its reported equality with `original` is an identity,
+not a finding. "crop on other arena" here is the swap that condition was meant to be.
 
 Usage:
     PYTHONPATH=. venv/bin/python training/model_eval/make_cutpaste_mosaic.py \
@@ -42,7 +40,7 @@ import numpy as np
 import torch
 from interpret_context_vs_appearance import IMGSZ, Model, load_eval
 
-TILE_W = 360
+TILE_W = 400
 PAD = 6
 HEADER_H = 34
 CAPTION_H = 26
@@ -50,19 +48,13 @@ MIN_INDEX_GAP = 2  # frames are ordered by recording then timestamp; skip near-n
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 BOX_COLOR = (60, 220, 60)  # BGR: target box the score is read from
 
-CONDITIONS = (
-    "original",
-    "crop on own arena",
-    "crop on other arena",
-    "crop on gray",
-    "robot removed",
-)
+CONDITIONS = ("original", "crop on other arena", "crop on gray", "robot removed")
 
 
 def build_conditions(
     frames: list[dict], index: int, other_index: int
 ) -> tuple[dict[str, np.ndarray], list[float]] | None:
-    """The five condition images for one frame, built exactly as the probe builds them."""
+    """The condition images for one frame, built exactly as the probe builds them."""
     img, box = frames[index]["img"], frames[index]["boxes"][0]
     x0, y0, x1, y1 = (int(round(v)) for v in box)
     x0, y0 = max(0, x0), max(0, y0)
@@ -70,9 +62,6 @@ def build_conditions(
     if x1 - x0 < 6 or y1 - y0 < 6:
         return None
     crop = img[y0:y1, x0:x1]
-
-    own = img.copy()
-    own[y0:y1, x0:x1] = crop  # the probe's crop_on_arena: a no-op paste
 
     other = frames[other_index]["img"].copy()
     other[y0:y1, x0:x1] = crop
@@ -83,7 +72,7 @@ def build_conditions(
     removed = img.copy()
     removed[y0:y1, x0:x1] = cv2.GaussianBlur(img, (0, 0), 15)[y0:y1, x0:x1]
 
-    images = dict(zip(CONDITIONS, (img, own, other, gray, removed)))
+    images = dict(zip(CONDITIONS, (img, other, gray, removed)))
     return images, [float(x0), float(y0), float(x1), float(y1)]
 
 
@@ -115,22 +104,32 @@ def content_band(image_rgb: np.ndarray) -> tuple[int, int]:
 
 
 def draw_tile(
-    image_rgb: np.ndarray, box: list[float], band: tuple[int, int], tile_h: int, caption: str
+    image_rgb: np.ndarray,
+    box: list[float],
+    band: tuple[int, int],
+    tile_h: int,
+    caption: str,
+    outline: bool,
 ) -> np.ndarray:
-    """One condition tile: letterbox bars cropped away, target box outlined, score below."""
+    """One condition tile: letterbox bars cropped away, score below.
+
+    Only the `original` tile outlines the target box — the box is the same in every
+    condition of a row, so repeating it just covers the pasted pixels being compared.
+    """
     top, bottom = band
     cropped = image_rgb[top:bottom]
     tile = cv2.cvtColor(
         cv2.resize(cropped, (TILE_W, tile_h), interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2BGR
     )
-    sx, sy = TILE_W / IMGSZ, tile_h / (bottom - top)
-    cv2.rectangle(
-        tile,
-        (int(box[0] * sx), int((box[1] - top) * sy)),
-        (int(box[2] * sx), int((box[3] - top) * sy)),
-        BOX_COLOR,
-        2,
-    )
+    if outline:
+        sx, sy = TILE_W / IMGSZ, tile_h / (bottom - top)
+        cv2.rectangle(
+            tile,
+            (int(box[0] * sx), int((box[1] - top) * sy)),
+            (int(box[2] * sx), int((box[3] - top) * sy)),
+            BOX_COLOR,
+            2,
+        )
     panel = np.full((tile_h + CAPTION_H, TILE_W, 3), 18, np.uint8)
     panel[:tile_h] = tile
     cv2.putText(panel, caption, (4, tile_h + 18), FONT, 0.45, (235, 235, 235), 1, cv2.LINE_AA)
@@ -161,7 +160,8 @@ def build_mosaic(
         band = content_band(frames[index]["img"])
         for c, name in enumerate(CONDITIONS):
             real, mix = scores[(index, name)]
-            panel = draw_tile(images[name], box, band, tile_h, f"real {real:.3f}   mix {mix:.3f}")
+            caption = f"real {real:.3f}   mix {mix:.3f}"
+            panel = draw_tile(images[name], box, band, tile_h, caption, name == CONDITIONS[0])
             y = HEADER_H + PAD + r * (cell_h + PAD)
             x = PAD + c * (TILE_W + PAD)
             canvas[y : y + cell_h, x : x + TILE_W] = panel
