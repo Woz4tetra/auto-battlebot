@@ -10,17 +10,11 @@ anchors inside it) - the exact quantity the probe averages.
 Conditions, in the order the report's table lists them:
 
   original            the letterboxed eval frame
-  crop on other arena the context swap: same crop, same coordinates, a *different*
-                      eval frame's arena underneath (see NOTE below)
+  crop on other arena `crop_on_arena`: same crop, same coordinates, a different eval
+                      frame's arena underneath (donor picked by the probe's
+                      `donor_index`, so the tile is the image the probe scored)
   crop on gray        `crop_on_gray`: same crop on a neutral 114 canvas (appearance only)
   robot removed       `robot_removed`: box contents replaced by a blur of the frame
-
-NOTE: the probe's own `crop_on_arena` condition is not shown, because it does not
-swap context. It indexes its background list with the frame's own index
-(`backgrounds[fi % len(backgrounds)]` where `backgrounds` is the same frame list), so
-the crop is pasted back at its own coordinates on its own frame and the result is
-bit-identical to the original — its reported equality with `original` is an identity,
-not a finding. "crop on other arena" here is the swap that condition was meant to be.
 
 Usage:
     PYTHONPATH=. venv/bin/python training/model_eval/make_cutpaste_mosaic.py \
@@ -38,7 +32,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
-from interpret_context_vs_appearance import IMGSZ, Model, load_eval
+from interpret_context_vs_appearance import IMGSZ, Model, donor_index, load_eval
 
 TILE_W = 400
 PAD = 6
@@ -52,7 +46,7 @@ CONDITIONS = ("original", "crop on other arena", "crop on gray", "robot removed"
 
 
 def build_conditions(
-    frames: list[dict], index: int, other_index: int
+    frames: list[dict], index: int
 ) -> tuple[dict[str, np.ndarray], list[float]] | None:
     """The condition images for one frame, built exactly as the probe builds them."""
     img, box = frames[index]["img"], frames[index]["boxes"][0]
@@ -62,8 +56,9 @@ def build_conditions(
     if x1 - x0 < 6 or y1 - y0 < 6:
         return None
     crop = img[y0:y1, x0:x1]
+    rect = [float(x0), float(y0), float(x1), float(y1)]
 
-    other = frames[other_index]["img"].copy()
+    other = frames[donor_index(frames, index, rect)]["img"].copy()
     other[y0:y1, x0:x1] = crop
 
     gray = np.full((IMGSZ, IMGSZ, 3), 114, np.uint8)
@@ -73,7 +68,7 @@ def build_conditions(
     removed[y0:y1, x0:x1] = cv2.GaussianBlur(img, (0, 0), 15)[y0:y1, x0:x1]
 
     images = dict(zip(CONDITIONS, (img, other, gray, removed)))
-    return images, [float(x0), float(y0), float(x1), float(y1)]
+    return images, rect
 
 
 def pick_indices(frames: list[dict], eligible: list[int], count: int) -> list[int]:
@@ -154,7 +149,7 @@ def build_mosaic(
         cv2.putText(canvas, name, (x, HEADER_H - 12), FONT, 0.55, (235, 235, 235), 1, cv2.LINE_AA)
 
     for r, index in enumerate(indices):
-        built = build_conditions(frames, index, (index + len(frames) // 2) % len(frames))
+        built = build_conditions(frames, index)
         assert built is not None  # filtered in main()
         images, box = built
         band = content_band(frames[index]["img"])
@@ -174,7 +169,7 @@ def score_all(
     model = Model(model_path)
     out: dict[tuple[int, str], float] = {}
     for index in indices:
-        built = build_conditions(frames, index, (index + len(frames) // 2) % len(frames))
+        built = build_conditions(frames, index)
         assert built is not None
         images, box = built
         for name in CONDITIONS:
@@ -199,7 +194,7 @@ def main() -> None:
     frames = load_eval(args.eval, args.frames)
     print(f"loaded {len(frames)} eval frames with opponent boxes")
     # Only frames whose target box survives the probe's minimum-size gate are eligible.
-    eligible = [i for i in range(len(frames)) if build_conditions(frames, i, (i + 1) % len(frames))]
+    eligible = [i for i in range(len(frames)) if build_conditions(frames, i)]
     indices = pick_indices(frames, eligible, args.samples)
     areas = [box_area(frames[i]["boxes"][0]) for i in indices]
     print(f"{len(indices)} samples: {indices} (box areas {[round(a) for a in areas]} px^2)")

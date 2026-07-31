@@ -9,8 +9,8 @@ figures:
      (appearance) or in the surrounding context? Metric: saliency concentration inside vs a
      context ring vs background, normalized by area.
   2. Cut-paste context swap   - opponent crop on a neutral gray canvas (appearance only) vs on a
-     real arena background (appearance + context) vs original. If the score collapses without
-     arena context, the model needs context, not the robot's pixels.
+     different frame's real arena (appearance + swapped context) vs original. If the score
+     collapses without arena context, the model needs context, not the robot's pixels.
   3. Feature-space check      - are real-opponent and synthetic-opponent crops separable in
      backbone-embedding space (domain gap)? Linear-probe accuracy + centroid cosine distance,
      per model. Also whether mix_all pulls the two closer.
@@ -298,7 +298,25 @@ def _batch_box_score(model: Model, imgs: list[np.ndarray], box: list[float]) -> 
     return np.asarray(model.opp_scores(imgs)[:, inside].max(1))
 
 
-def cut_paste(model: Model, frames: list[dict], backgrounds: list[np.ndarray]) -> dict:
+def donor_index(frames: list[dict], fi: int, rect: list[float]) -> int:
+    """Index of the arena `fi`'s crop gets pasted onto: another frame, clear at `rect`.
+
+    Must not be `fi` itself - pasting a crop back at its own coordinates on its own
+    frame rebuilds the original image, which measures nothing. Donors whose own labeled
+    robots sit under the paste rect are skipped too, so the swap does not bury a second
+    robot. The search starts half the list away because frames are ordered by recording,
+    and a donor from a different fight is a stronger context swap than the next frame of
+    the same one.
+    """
+    n = len(frames)
+    for offset in range(n // 2, n // 2 + n):
+        cand = (fi + offset) % n
+        if cand != fi and all(_iou(rect, b) < 0.05 for b in frames[cand]["boxes"]):
+            return cand
+    return (fi + 1) % n
+
+
+def cut_paste(model: Model, frames: list[dict]) -> dict:
     """opponent score at the box for: original / crop-on-gray / crop-on-arena / robot-removed."""
     orig, gray_bg, arena_bg, removed = [], [], [], []
     for fi, fr in enumerate(frames):
@@ -313,7 +331,8 @@ def cut_paste(model: Model, frames: list[dict], backgrounds: list[np.ndarray]) -
         g = np.full((IMGSZ, IMGSZ, 3), 114, np.uint8)
         g[y0:y1, x0:x1] = crop
         gray_bg.append(model.box_score([g], box)[0])
-        bg = backgrounds[fi % len(backgrounds)].copy()
+        rect = [float(x0), float(y0), float(x1), float(y1)]
+        bg = frames[donor_index(frames, fi, rect)]["img"].copy()
         bg[y0:y1, x0:x1] = crop
         arena_bg.append(model.box_score([bg], box)[0])
         rem = img.copy()
@@ -502,7 +521,6 @@ def main() -> None:
     synth = synth_crops(args.synth, args.crops)
     bg = background_crops(frames, args.crops)
     print(f"crops: real_opp={len(real_crops)} synth_opp={len(synth)} background={len(bg)}")
-    backgrounds = [fr["img"] for fr in frames]
 
     results: dict = {}
     for tag, pt in (("real_bbox", args.real), ("mix_all", args.mix)):
@@ -511,7 +529,7 @@ def main() -> None:
         r = rise(model, frames, args.rise_masks, args.rise_grid)
         print("RISE:", {k: round(v, 3) for k, v in r["agg"].items()})
         save_overlays(r["examples"], args.out / f"rise_{tag}.png", f"RISE saliency - {tag}")
-        cp = cut_paste(model, frames, backgrounds)
+        cp = cut_paste(model, frames)
         print("cut-paste:", {k: round(v, 3) if isinstance(v, float) else v for k, v in cp.items()})
         fs = feature_space(model, real_crops, synth, bg)
         print("feature-space:", {k: round(v, 3) for k, v in fs.items() if k != "embeddings"})
