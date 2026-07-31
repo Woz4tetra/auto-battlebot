@@ -42,10 +42,11 @@ import numpy as np
 import torch
 from interpret_context_vs_appearance import IMGSZ, Model, load_eval
 
-TILE = 320
+TILE_W = 360
 PAD = 6
 HEADER_H = 34
 CAPTION_H = 26
+MIN_INDEX_GAP = 2  # frames are ordered by recording then timestamp; skip near-neighbors
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 BOX_COLOR = (60, 220, 60)  # BGR: target box the score is read from
 
@@ -86,28 +87,53 @@ def build_conditions(
     return images, [float(x0), float(y0), float(x1), float(y1)]
 
 
-def pick_indices(n_frames: int, count: int) -> list[int]:
-    """`count` frame indices spread evenly over the probe's frame list."""
-    if n_frames <= count:
-        return list(range(n_frames))
-    return [round(i * (n_frames - 1) / (count - 1)) for i in range(count)]
+def pick_indices(frames: list[dict], eligible: list[int], count: int) -> list[int]:
+    """The `count` eligible frames with the largest target box, kept apart in the list.
+
+    The probe averages over every frame, but a figure only reads if the robot is big
+    enough to see, so the tiles are the closest-in samples rather than a spread.
+    """
+    chosen: list[int] = []
+    for index in sorted(eligible, key=lambda i: -box_area(frames[i]["boxes"][0])):
+        if all(abs(index - c) >= MIN_INDEX_GAP for c in chosen):
+            chosen.append(index)
+        if len(chosen) == count:
+            break
+    return sorted(chosen)
 
 
-def draw_tile(image_rgb: np.ndarray, box: list[float], caption: str) -> np.ndarray:
+def box_area(box: list[float]) -> float:
+    return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
+
+
+def content_band(image_rgb: np.ndarray) -> tuple[int, int]:
+    """Rows of a letterboxed frame that hold image, not the 114 padding bars."""
+    filled = np.flatnonzero((image_rgb != 114).any(axis=(1, 2)))
+    if filled.size == 0:
+        return 0, IMGSZ
+    return int(filled[0]), int(filled[-1]) + 1
+
+
+def draw_tile(
+    image_rgb: np.ndarray, box: list[float], band: tuple[int, int], tile_h: int, caption: str
+) -> np.ndarray:
+    """One condition tile: letterbox bars cropped away, target box outlined, score below."""
+    top, bottom = band
+    cropped = image_rgb[top:bottom]
     tile = cv2.cvtColor(
-        cv2.resize(image_rgb, (TILE, TILE), interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2BGR
+        cv2.resize(cropped, (TILE_W, tile_h), interpolation=cv2.INTER_AREA), cv2.COLOR_RGB2BGR
     )
-    s = TILE / IMGSZ
+    sx, sy = TILE_W / IMGSZ, tile_h / (bottom - top)
     cv2.rectangle(
         tile,
-        (int(box[0] * s), int(box[1] * s)),
-        (int(box[2] * s), int(box[3] * s)),
+        (int(box[0] * sx), int((box[1] - top) * sy)),
+        (int(box[2] * sx), int((box[3] - top) * sy)),
         BOX_COLOR,
-        1,
+        2,
     )
-    panel = np.full((TILE + CAPTION_H, TILE, 3), 18, np.uint8)
-    panel[:TILE] = tile
-    cv2.putText(panel, caption, (4, TILE + 18), FONT, 0.45, (235, 235, 235), 1, cv2.LINE_AA)
+    panel = np.full((tile_h + CAPTION_H, TILE_W, 3), 18, np.uint8)
+    panel[:tile_h] = tile
+    cv2.putText(panel, caption, (4, tile_h + 18), FONT, 0.45, (235, 235, 235), 1, cv2.LINE_AA)
     return panel
 
 
@@ -115,26 +141,30 @@ def build_mosaic(
     frames: list[dict], indices: list[int], scores: dict[tuple[int, str], tuple[float, float]]
 ) -> np.ndarray:
     cols, rows_n = len(CONDITIONS), len(indices)
-    cell_h = TILE + CAPTION_H
-    width = cols * TILE + (cols + 1) * PAD
+    # Every eval frame letterboxes to the same band, so one tile height fits the grid.
+    top, bottom = content_band(frames[indices[0]]["img"])
+    tile_h = round(TILE_W * (bottom - top) / IMGSZ)
+    cell_h = tile_h + CAPTION_H
+    width = cols * TILE_W + (cols + 1) * PAD
     height = HEADER_H + rows_n * cell_h + (rows_n + 1) * PAD
     canvas = np.full((height, width, 3), 18, np.uint8)
 
     for c, name in enumerate(CONDITIONS):
         tw = cv2.getTextSize(name, FONT, 0.55, 1)[0][0]
-        x = PAD + c * (TILE + PAD) + max(0, (TILE - tw) // 2)
+        x = PAD + c * (TILE_W + PAD) + max(0, (TILE_W - tw) // 2)
         cv2.putText(canvas, name, (x, HEADER_H - 12), FONT, 0.55, (235, 235, 235), 1, cv2.LINE_AA)
 
     for r, index in enumerate(indices):
         built = build_conditions(frames, index, (index + len(frames) // 2) % len(frames))
         assert built is not None  # filtered in main()
         images, box = built
+        band = content_band(frames[index]["img"])
         for c, name in enumerate(CONDITIONS):
             real, mix = scores[(index, name)]
-            panel = draw_tile(images[name], box, f"real {real:.3f}   mix {mix:.3f}")
+            panel = draw_tile(images[name], box, band, tile_h, f"real {real:.3f}   mix {mix:.3f}")
             y = HEADER_H + PAD + r * (cell_h + PAD)
-            x = PAD + c * (TILE + PAD)
-            canvas[y : y + cell_h, x : x + TILE] = panel
+            x = PAD + c * (TILE_W + PAD)
+            canvas[y : y + cell_h, x : x + TILE_W] = panel
     return canvas
 
 
@@ -160,7 +190,7 @@ def main() -> None:
     ap.add_argument("--real", required=True, help="real_bbox baseline .pt")
     ap.add_argument("--mix", required=True, help="mix_all .pt")
     ap.add_argument("-o", "--output", type=Path, required=True, help="output PNG path")
-    ap.add_argument("--samples", type=int, default=9, help="frames to show (default 9)")
+    ap.add_argument("--samples", type=int, default=3, help="frames to show (default 3)")
     ap.add_argument(
         "--frames", type=int, default=60, help="eval frames loaded, matching the probe (default 60)"
     )
@@ -170,8 +200,9 @@ def main() -> None:
     print(f"loaded {len(frames)} eval frames with opponent boxes")
     # Only frames whose target box survives the probe's minimum-size gate are eligible.
     eligible = [i for i in range(len(frames)) if build_conditions(frames, i, (i + 1) % len(frames))]
-    indices = [eligible[i] for i in pick_indices(len(eligible), args.samples)]
-    print(f"{len(indices)} samples: {indices}")
+    indices = pick_indices(frames, eligible, args.samples)
+    areas = [box_area(frames[i]["boxes"][0]) for i in indices]
+    print(f"{len(indices)} samples: {indices} (box areas {[round(a) for a in areas]} px^2)")
 
     real_scores = score_all(args.real, frames, indices)
     mix_scores = score_all(args.mix, frames, indices)
