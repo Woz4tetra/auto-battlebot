@@ -177,6 +177,64 @@ independent-eval frames, comparing both models. Script:
 `scores_synth_plus_bbox/interpretability/`. The probes confirm the claim, most decisively the cut-paste
 test.
 
+### How to read the saliency probes
+
+Two of the four probes (RISE, Grad-CAM) produce a heat map rather than a score, and both are reduced to
+the same three numbers, so it is worth stating what those numbers mean before reading them.
+
+**The shared metric: concentration.** `mass_fractions()` splits the 640×640 heat map into three regions
+— *inside* (the GT box), *ring* (the box grown by half its width and height on each side, minus the box
+itself), and *background* (everything else) — then reports two things per region: `frac`, its share of
+the total heat, and `concentration`, that share divided by the region's share of the pixels.
+Concentration is the one to read:
+
+- **1.0** = the region holds exactly the heat its size entitles it to — no preference at all.
+- **2.0** = twice its fair share; **0.5** = half.
+
+The normalization is not a nicety. An opponent box is roughly 1 % of the frame, so the raw fractions are
+always lopsided — `background_frac` is 0.97 in every run simply because the background is 97 % of the
+pixels. Raw mass would say "the evidence is in the background" for any model whatsoever. Only the
+area-normalized number compares regions of wildly different size.
+
+For calibration: a detector that keyed purely on the robot's own pixels would show an inside
+concentration in the tens with ring ≈ background ≈ 1.0. Everything reported below is far short of that.
+
+**RISE** (Randomized Input Sampling for Explanation) is the black-box probe — it never looks inside the
+network, it just hides parts of the image and watches the score:
+
+1. Draw 400 random masks per frame on an 8×8 grid, each cell kept with probability 0.5, bilinearly
+   upsampled to 640 and randomly shifted — so the occluders are smooth blobs, not hard squares.
+2. Multiply the frame by each mask (hidden pixels go black) and re-score the opponent at the *same*
+   target box.
+3. Accumulate `Σ (mask × score) / (400 × 0.5)`. A pixel scores high if the detection survived whenever
+   that pixel was visible — i.e. the model needed it.
+
+Only boxes the model actually detects (score ≥ 0.15) are explained, hence n = 77 / 74 of 100 frames.
+So `inside 1.28` means: the robot's own pixels carry 28 % more evidence than an equal-area patch of
+arbitrary frame — and the ring around it carries 23 % more, nearly the same. That near-tie is the
+finding.
+
+**Grad-CAM** is the white-box probe — one backward pass, no resampling:
+
+1. Forward the unmodified frame; the target is the max opponent probability among head anchors inside
+   the GT box (the same target every probe uses).
+2. Backpropagate to neck layer 16 (P3, stride 8, an 80×80 feature grid), weight each channel of that
+   layer by its mean gradient, sum the weighted channels, and ReLU — keeping only evidence that pushed
+   the score *up*.
+3. Normalize, upsample to 640, and measure with the same three regions.
+
+n = 34 / 31 boxes (detected boxes among the first `--gradcam-k 40` frames).
+
+**Why the two disagree in degree, and which to trust.** RISE measures a causal effect at input
+resolution, but its mask cells are 640/8 = 80 px — comparable to the robot boxes themselves (~90×60 px)
+— so it cannot cleanly separate "inside the box" from "just outside it"; some of the ring's 1.23 is
+blur from the box. Blacking pixels out is also off-distribution. Grad-CAM has 8 px feature resolution
+and no occlusion artifacts, but it only linearizes the model around a single point and discards negative
+evidence, which systematically sharpens the map onto the object. Their disagreement (1.28 vs 2.01
+inside) is the expected signature of those two biases, not a contradiction. Read the direction — modest
+appearance focus, not dominant — rather than the exact multiple. Four example overlays per model are in
+`rise_*.png` and `gradcam_*.png`.
+
 ### Cut-paste context swap (decisive)
 
 Opponent-score at the box (max opponent-class prob among head anchors inside it), same target box, only
@@ -214,11 +272,20 @@ the opponent is spread across the robot *and* its surroundings. (n = 77 / 74 det
 
 ### Grad-CAM (corroboration)
 
-Gradient saliency at the P3 neck layer (layer 16), inside-box concentration: real_bbox **2.01**, mix_all
-**1.52** (ring < 1.0 for both). Gradient attribution localizes on the robot somewhat more than RISE
-(~2×), but still only modestly, and `mix_all`'s evidence is *less* focused on the robot than the
-baseline's. CAM methods are coarse, so this is corroboration of "modest, not dominant, appearance
-focus," not a standalone proof. (n = 34 / 31.)
+Gradient saliency at the P3 neck layer (layer 16), same three regions and the same concentration metric:
+
+| region | real_bbox | mix_all |
+|---|---|---|
+| inside box | **2.01** | **1.52** |
+| context ring (2× box) | 0.63 | 0.71 |
+| background | 1.00 | 1.00 |
+
+Gradient attribution localizes on the robot somewhat more than RISE (~2× its area share rather than
+1.28×), but still only modestly — and `mix_all`'s evidence is *less* focused on the robot than the
+baseline's. The ring falls below 1.0 here where RISE put it at 1.23; per the resolution argument above,
+Grad-CAM's sharper features and its ReLU pull mass onto the object, so the truth about the ring sits
+between the two probes. CAM methods are coarse, so this is corroboration of "modest, not dominant,
+appearance focus," not a standalone proof. (n = 34 / 31.)
 
 ### Feature-space domain gap
 
