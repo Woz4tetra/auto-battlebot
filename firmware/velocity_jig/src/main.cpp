@@ -5,7 +5,7 @@
 // unplug the encoder: its inputs are pulled up, so the count column stays
 // constant instead of drifting.
 //
-// OLED menu: A = start recording, B = stop.
+// OLED menu: A = start recording, B = stop, C = live diagnostics readout.
 //
 // Gap-free design:
 //   - Every sample is captured in the IMU INT1 data-ready ISR, so SD write
@@ -270,15 +270,19 @@ static void drawMenu(bool withSummary) {
     g_display.setTextColor(SH110X_WHITE);
 
     // Start option: record-dot icon.
-    g_display.fillCircle(9, 24, 4, SH110X_WHITE);
-    g_display.setCursor(20, 21);
+    g_display.fillCircle(9, 21, 4, SH110X_WHITE);
+    g_display.setCursor(20, 17);
     g_display.print("A  Start rec");
     // Stop option: stop-square icon.
-    g_display.fillRect(5, 34, 8, 8, SH110X_WHITE);
-    g_display.setCursor(20, 35);
+    g_display.fillRect(5, 28, 8, 8, SH110X_WHITE);
+    g_display.setCursor(20, 28);
     g_display.print("B  Stop");
+    // Diagnostics option: triangle icon.
+    g_display.fillTriangle(9, 39, 14, 47, 4, 47, SH110X_WHITE);
+    g_display.setCursor(20, 39);
+    g_display.print("C  Diagnostics");
 
-    g_display.drawFastHLine(0, 49, 128, SH110X_WHITE);
+    g_display.drawFastHLine(0, 50, 128, SH110X_WHITE);
     g_display.setCursor(2, 54);
     if (withSummary && g_curName[0]) {
         g_display.print(g_curName);
@@ -310,6 +314,59 @@ static void drawRecording(const char* name) {
     g_display.print(name);
     g_display.setCursor(8, 50);
     g_display.print("B = stop");
+    g_display.display();
+}
+
+// Live encoder + IMU readout, converted to physical units. Idle mode only,
+// nothing is recorded. Raw counts are scaled here (floats are fine off the
+// capture path) so a wiggle test reads directly in dps and g.
+static void drawDiagnostics() {
+    int16_t g[3], a[3];
+    imuReadRaw(g, a);
+    int32_t count = g_encCount;  // aligned 32-bit load, atomic against the ISRs
+    uint8_t encA = (uint8_t)digitalRead(PIN_ENC_A);
+    uint8_t encB = (uint8_t)digitalRead(PIN_ENC_B);
+
+    g_display.clearDisplay();
+    g_display.setTextSize(1);
+
+    // Title bar (inverted).
+    g_display.fillRect(0, 0, 128, 13, SH110X_WHITE);
+    g_display.setTextColor(SH110X_BLACK);
+    g_display.setCursor(4, 3);
+    g_display.print("DIAGNOSTICS");
+    g_display.setTextColor(SH110X_WHITE);
+
+    // Encoder: count plus the raw A/B levels, so an unplugged or miswired
+    // encoder is visible even when the count is not moving.
+    g_display.setCursor(0, 17);
+    g_display.print("ENC ");
+    g_display.print(count);
+    g_display.setCursor(86, 17);
+    g_display.print("AB ");
+    g_display.print(encA);
+    g_display.print(encB);
+
+    // IMU rows, one column per axis.
+    static const uint8_t COL[3] = {8, 48, 88};
+    g_display.setCursor(0, 30);
+    g_display.print("G");
+    for (int i = 0; i < 3; i++) {
+        g_display.setCursor(COL[i], 30);
+        g_display.print((float)g[i] * GYRO_DPS_PER_LSB, 0);  // dps, whole numbers
+    }
+    g_display.setCursor(0, 42);
+    g_display.print("A");
+    for (int i = 0; i < 3; i++) {
+        g_display.setCursor(COL[i], 42);
+        g_display.print((float)a[i] * ACCEL_G_PER_LSB, 2);  // g
+    }
+
+    g_display.drawFastHLine(0, 53, 128, SH110X_WHITE);
+    g_display.setCursor(0, 56);
+    g_display.print("xyz dps/g");
+    g_display.setCursor(78, 56);
+    g_display.print("B/C exit");
     g_display.display();
 }
 
@@ -433,6 +490,7 @@ struct Btn {
 
 static Btn g_btnA{PIN_BTN_A, false, false, 0};
 static Btn g_btnB{PIN_BTN_B, false, false, 0};
+static Btn g_btnC{PIN_BTN_C, false, false, 0};
 
 static bool justPressed(Btn& b) {
     bool raw = (digitalRead(b.pin) == LOW);
@@ -446,6 +504,32 @@ static bool justPressed(Btn& b) {
         if (raw) return true;
     }
     return false;
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics mode (idle only)
+//
+// Refreshes the live readout until B or C is pressed. Serial input also breaks
+// out, without being consumed, so the next loop() pass answers the command
+// normally instead of leaving the host console hanging.
+// ---------------------------------------------------------------------------
+
+static void runDiagnostics() {
+    Serial.println("diagnostics");
+    uint32_t last = 0;
+    for (;;) {
+        bool exitB = justPressed(g_btnB);  // no short-circuit: both need polling
+        bool exitC = justPressed(g_btnC);
+        if (exitB || exitC) break;
+        if (Serial.available()) break;
+        if (last == 0 || millis() - last >= DIAG_REFRESH_MS) {
+            last = millis();
+            drawDiagnostics();
+        }
+        delay(2);  // services USB while idling between refreshes
+    }
+    Serial.println("diagnostics end");
+    drawMenu(g_menuSummary);
 }
 
 // ---------------------------------------------------------------------------
@@ -772,6 +856,8 @@ void loop() {
     } else {
         if (justPressed(g_btnA)) {
             startRecording();
+        } else if (justPressed(g_btnC)) {
+            runDiagnostics();
         } else if (serialReadLine()) {
             handleCommand();
         }

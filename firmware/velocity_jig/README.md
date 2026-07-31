@@ -34,6 +34,7 @@ The two boards are pin-identical for this firmware, so `adafruit_feather`
 |---|---|
 | A | start recording |
 | B | stop recording, return to menu |
+| C | live encoder + IMU readout (diagnostics), B or C returns to the menu |
 
 One recording stream logs the encoder and IMU together, one row per IMU sample.
 For an **angular-only** run, physically unplug the encoder: its inputs are pulled
@@ -42,6 +43,27 @@ up, so the count column just stays constant.
 The screen shows the menu, then a static "RECORDING" screen while logging. It is
 not redrawn during a recording, so the display adds no load to the capture path.
 On stop it shows the last filename, sample count, and any dropped-sample count.
+
+## Diagnostics screen
+
+Press **C** from the menu for a live readout. Nothing is recorded and no file is
+opened, so this is safe to leave running while checking wiring:
+
+```
+ DIAGNOSTICS
+ ENC 1042            AB 10
+ G      -1     123      -4
+ A    0.02   -0.15    0.99
+ xyz dps/g       B/C exit
+```
+
+- `ENC` is the free-running quadrature count, `AB` the raw A/B pin levels. A
+  disconnected encoder shows `AB 11` (both pulled up) and a frozen count.
+- `G` is gyro in dps, `A` is accel in g, one column per axis (x, y, z). At rest
+  one accel axis reads about 1.00 and the gyro rows sit near 0.
+
+The screen refreshes at 10 Hz (`DIAG_REFRESH_MS`). B or C returns to the menu;
+any USB console command also exits and is answered normally.
 
 ## Files
 

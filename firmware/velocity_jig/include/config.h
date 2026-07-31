@@ -12,7 +12,7 @@ static constexpr uint8_t OLED_ADDR = 0x3C;
 // Buttons (active low, INPUT_PULLUP)
 static constexpr uint8_t PIN_BTN_A = 9;  // start recording
 static constexpr uint8_t PIN_BTN_B = 6;  // stop recording
-static constexpr uint8_t PIN_BTN_C = 5;  // unused
+static constexpr uint8_t PIN_BTN_C = 5;  // live diagnostics readout
 
 // SPI1 - ISM330DHCX IMU
 static constexpr uint8_t PIN_IMU_SCK = 14;
@@ -83,3 +83,8 @@ static constexpr uint32_t WBUF_SIZE = 8192;
 static constexpr uint32_t DRAIN_CAP = 1024;
 
 static constexpr uint32_t DEBOUNCE_MS = 30;
+
+// Diagnostics screen refresh period. A full 128x64 frame is 1 KB over I2C at
+// 400 kHz (~25 ms), so 100 ms keeps the buttons and USB responsive. Idle mode
+// only: the screen is never redrawn while recording.
+static constexpr uint32_t DIAG_REFRESH_MS = 100;
