@@ -1,5 +1,38 @@
 # Synthetic + real bbox opponent detector, 2026-07-22
 
+> # ⛔ INVALID — do not cite. Retracted 2026-07-31.
+>
+> **The `real_bbox` baseline was not real.** 16,997 of its 49,086 train frames (34.6 %) are BlenderProc
+> renders, carried in under the name `nhrl_robots_bbox`. Verified by counting the archived pooled
+> dataset (`/media/storage/auto-battlebots-archive/mix_all`), whose filenames record each frame's
+> source: `real__` totals exactly 49,086 (this report's real train), of which `real__synthetic__*` is
+> 16,997. Sample `real__synthetic__004436.jpg` is a render — an Objaverse speaker labeled `object`, two
+> robots, blank backdrop.
+>
+> Consequences, each fatal on its own:
+>
+> - **The contrast the experiment claims to test does not exist.** This is not real-only vs
+>   real+synthetic. It is **~1/3 synthetic (49,086 frames: 32,089 real + 16,997 rendered) vs ~1/2
+>   synthetic** (67,533 frames: 32,541 real + 34,992 rendered). `mix_all` is majority synthetic; so is
+>   the conclusion "synthetic does not help."
+> - **The dose is wrong.** The 0.36× figure is 36,108 added opponent boxes over a 99,655-box
+>   denominator that already contains **31,679 synthetic opponent boxes**. A baseline already saturated
+>   on generic renders is expected to show no gain from more of them — which is the result obtained.
+> - **The val split is 35 % synthetic** (1,925 of 5,454 frames), not "real-only" as stated in Setup. The
+>   +0.0195 opponent-recall gain reported there was measured on rendered frames.
+> - **The val split is also frame-level random**, so near-duplicates of training frames sit in val. The
+>   `nhrl_robots_bbox_2class` README documents this defect for every experiment before 2026-07-25.
+>
+> The independent-eval numbers (`nhrl_keypoints_eval_test`, 372 hand-reviewed real frames) are
+> themselves sound — that eval is real and unseen. What they cannot support is any claim about
+> *synthetic vs real*, because neither arm is what its name says.
+>
+> A separate defect in the cut-paste probe was found and fixed on 2026-07-31; that correction is kept
+> below for the record, but it is subordinate to this one.
+>
+> **Replacement:** `synthetic_arms_plan.md` — three arms built from the audited zero-synthetic
+> `nhrl_robots_bbox_2class` corpus, with provenance verified before training rather than after.
+
 Analysis date: 2026-07-22 (val split); **independent eval added 2026-07-23**. Question: does adding the
 available synthetic opponent diversity to the real bbox training set improve opponent detection without
 regressing our robots? **Definitive answer (independent eval of unseen fights): no.** Adding the

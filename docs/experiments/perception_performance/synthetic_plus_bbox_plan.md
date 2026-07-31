@@ -1,7 +1,15 @@
 # Synthetic + real bbox opponent detector — experiment plan
 
-Status: **executed & graded 2026-07-23.** Follows the pipeline in `experiment_runbook.md`. This document
-is the design; the results are written up in **`synthetic_plus_bbox_2026-07-22.md`**.
+> # ⛔ INVALID — the design's "real substrate" was 34.6 % synthetic. Retracted 2026-07-31.
+>
+> This plan fixes `training/data/nhrl_robots_bbox` as the real base in every arm; that corpus turned out
+> to hold 16,997 rendered frames out of 49,086. The arms it defines therefore do not isolate the
+> variable they claim to. Full evidence in the retraction banner of
+> `synthetic_plus_bbox_2026-07-22.md`; replacement design in **`synthetic_arms_plan.md`**.
+
+Status: **executed & graded 2026-07-23 — result retracted.** Follows the pipeline in
+`experiment_runbook.md`. This document is the design; the results are written up in
+**`synthetic_plus_bbox_2026-07-22.md`**.
 
 > **Outcome — DO NOT ADOPT (definitive, independent eval).** On the independent eval of *unseen* fights
 > (`nhrl_keypoints_eval_test`, 372 frames, paired bootstrap), the `mix_all` arm (0.36× synthetic dose) is
