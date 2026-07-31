@@ -174,8 +174,9 @@ never gives faithful meshes of upcoming opponents — but both are testable if s
 The reasoning above is a claim about *what the model keys on*. Four probes test it directly on the
 independent-eval frames, comparing both models. Script:
 `training/model_eval/interpret_context_vs_appearance.py`; figures + `metrics.json` under
-`scores_synth_plus_bbox/interpretability/`. The probes confirm the claim, most decisively the cut-paste
-test.
+`scores_synth_plus_bbox/interpretability/`, with the corrected 2026-07-31 re-run alongside in
+`interpretability_donorfix_2026-07-31/`. The probes confirm the claim — the detector does key on context
+— but the cut-paste probe, once fixed, narrows *which* context counts (see the correction note there).
 
 ### How to read the saliency probes
 
@@ -237,24 +238,53 @@ appearance focus, not dominant — rather than the exact multiple. Four example 
 
 ### Cut-paste context swap (decisive)
 
+> **Corrected 2026-07-31.** The `crop_on_arena` row below originally read 0.474 / 0.467 — identical to
+> `original` — and that identity was reported as the headline evidence. It was an aliasing bug, not a
+> measurement: the probe indexed its background list with the frame's own index, pasting each crop back
+> at its own coordinates on its own frame, so the "context swap" scored the unmodified image. Fixed by
+> `donor_index()` (`interpret_context_vs_appearance.py`), re-run on the same 100 frames and models. RISE,
+> Grad-CAM and feature-space reproduce their original values exactly; only this row moved. Numbers below
+> are the corrected run (`scores_synth_plus_bbox/interpretability_donorfix_2026-07-31/`). The conclusion
+> changes: a real arena background does **not** restore the score.
+
 Opponent-score at the box (max opponent-class prob among head anchors inside it), same target box, only
 the pixels around/inside it changed:
 
 | condition | real_bbox | mix_all | isolates |
 |---|---|---|---|
 | original frame | 0.474 | 0.467 | full scene |
-| **same crop on real arena bg** | **0.474** | **0.467** | appearance + context |
+| **same crop on a different frame's arena** | **0.281** | **0.354** | appearance + mismatched context |
 | **same crop on neutral gray** | **0.238** | **0.324** | appearance only |
 | robot removed (blurred), arena kept | 0.033 | 0.018 | context only |
 
-**This is the headline evidence.** Pasting the *identical* opponent pixels back onto a real arena
-background restores the score **exactly** to the original (0.474 → 0.474); stripping the arena to neutral
-gray — same robot pixels — **halves** it (→ 0.238). Meanwhile removing the robot but keeping the arena
-gives ≈0 (0.033). So the model detects an opponent as **object-in-arena-context**: neither the robot's
-own appearance alone (half score) nor the context alone (≈zero) suffices — context contributes ~50 % of
-the score for a fixed set of robot pixels. Note `mix_all` leans slightly *more* on appearance
-(gray-bg 0.324 vs 0.238) — the synthetic nudged it toward the robot pixels, and since that appearance is
-off-distribution, the nudge was net-negative on real opponents (consistent with the eval regression).
+Read the two ends first. Stripping the surroundings to neutral gray — same robot pixels — **halves** the
+score (0.474 → 0.238), while removing the robot and keeping the arena gives **≈0** (0.033). Neither the
+robot's appearance alone nor its surroundings alone carries a detection: the model needs both, and the
+surroundings are worth roughly half the score for a fixed set of robot pixels. That much survives the
+correction intact, and it is the basis for the context claim.
+
+The middle row is what changed, and it sharpens the claim rather than supporting it as originally
+written. Pasting the identical crop onto a *different* frame's real arena recovers almost nothing:
+0.281 against 0.238 for bare gray, which is **18 %** of the gap between gray and the original
+(`(0.281 − 0.238) / (0.474 − 0.238)`). Generic arena pixels — the same floor, the same NHRL logo, the
+same lighting, from a different moment of a different fight — are *not* a substitute for the frame the
+robot was actually in. So the cue is not "arena-ness" in the abstract; the model needs the robot
+embedded in a scene that is coherent with it. **Object-in-arena-context is better stated as
+object-in-*this*-scene.**
+
+`mix_all` still leans more on appearance than the baseline: gray retains **69 %** of its original score
+(0.324 / 0.467) versus **50 %** for `real_bbox` (0.238 / 0.474). The synthetic nudged it toward the robot
+pixels, and since that appearance is off-distribution, the nudge was net-negative on real opponents —
+consistent with the eval regression. The corrected arena row does not disturb that reading.
+
+**What the swap does not isolate.** The crop is pasted at its original coordinates into the donor frame,
+so a robot from the near floor can land where that frame shows a wall, a distant floor patch, or the
+arena edge — wrong scale and wrong perspective for its new surroundings. Donor selection skips frames
+whose own labeled robots sit under the paste rect, but does not match camera pose. The 0.281 therefore
+mixes *lost* context with *implausible placement*, and should be read as a lower bound on what a
+pose-matched swap would give. Testing that separation needs donors chosen by camera pose, which has not
+been run. Example inputs for all four conditions: `assets/cutpaste_mosaic.png`
+(`training/model_eval/make_cutpaste_mosaic.py`).
 
 ### RISE occlusion-saliency
 
@@ -306,9 +336,12 @@ that doesn't merge into the real-opponent distribution" — so it can't add real
 
 ### What the probes establish
 
-- **Context is a first-class cue, not a tie-breaker** — it carries ~half the opponent score (cut-paste)
-  and is nearly as salient as the robot itself (RISE). The detector recognizes "opponent" as an
-  object-in-arena gestalt, exactly as the theory predicted.
+- **Context is a first-class cue, not a tie-breaker** — it carries ~half the opponent score (cut-paste
+  gray) and is nearly as salient as the robot itself (RISE). The detector recognizes "opponent" as an
+  object-in-scene gestalt, as the theory predicted.
+- **But the context has to be the robot's own scene** — swapping in a different frame's arena recovers
+  only 18 % of what gray removed. The cue is scene coherence, not the presence of arena-like pixels.
+  This is stronger than the original theory, which expected any real arena background to do.
 - **The synthetic stays off-distribution** (96 % separable) — confirming why generic synthetic opponents
   add no transferable signal and slightly hurt.
 - **`mix_all` shifted marginally toward appearance-reliance** (cut-paste gray-bg, Grad-CAM), and that
@@ -327,8 +360,10 @@ that doesn't merge into the real-opponent distribution" — so it can't add real
   dose; it does not prove a higher dose or a different synthetic (exact-mesh opponents, more variety)
   couldn't help. But the direction here does not motivate spending that compute on generic synthetic.
 - **Interpretability-probe caveats.** The neutral-gray paste is out-of-distribution at its boundary (no
-  shadow/contact), so `crop_on_gray` slightly *under*-states appearance-only detection; the arena-swap
-  condition (which fully restores the score) is the cleaner control and points the same way. Grad-CAM/CAM
+  shadow/contact), so `crop_on_gray` slightly *under*-states appearance-only detection. The arena-swap
+  condition shares that seam and adds a placement confound (crop pasted at its own coordinates into a
+  frame with different geometry), so it is not the clean control it was originally claimed to be — see
+  the section for what it does and does not isolate. Grad-CAM/CAM
   saliency is coarse and known to be unreliable alone — treated here as corroboration of RISE + cut-paste,
   not standalone proof. Probe targets use the raw one2one head scores (not post-NMS), and the score is a
   max-anchor-in-box readout, not the deployed detection pipeline.
@@ -358,5 +393,10 @@ that doesn't merge into the real-opponent distribution" — so it can't add real
 - Independent-eval scores: `training/data/nhrl_keypoints_eval_test/scores_synth_plus_bbox/`
   (`summary.csv`, `significance.csv`, `headline.png`, `confusion_*.png`)
 - Interpretability: `training/model_eval/interpret_context_vs_appearance.py` →
-  `scores_synth_plus_bbox/interpretability/` (`metrics.json`, `rise_*.png`, `gradcam_*.png`, `embed_*.png`)
+  `scores_synth_plus_bbox/interpretability/` (`metrics.json`, `rise_*.png`, `gradcam_*.png`, `embed_*.png`),
+  original 2026-07-22 run with the aliased `crop_on_arena` — kept for the record
+- Corrected re-run (2026-07-31, `donor_index()` fix): `scores_synth_plus_bbox/interpretability_donorfix_2026-07-31/`
+  (`--frames 100 --crops 200 --gradcam-k 40`, both models). Needs `training/data/synth_bbox_from_keypoints`,
+  regenerable from `all_robot_keypoints` via `pose_to_bbox.py` with `--class-map 2:1,0:3,1:4`
+- Cut-paste condition figure: `assets/cutpaste_mosaic.png` ← `training/model_eval/make_cutpaste_mosaic.py`
 - Same-corpus val comparison: `runs/valcmp_real_bbox`, `runs/valcmp_mix_all`
