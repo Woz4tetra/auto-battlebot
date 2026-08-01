@@ -149,6 +149,72 @@ Whether that trade is good depends on the failure mode you care about. It bought
 means `mixed` would degrade less gracefully if an opponent appeared in an unfamiliar arena — and more so
 if an arena-shaped distractor appeared without a robot in it.
 
+### The other three probes
+
+Same run, `--frames 100 --crops 200 --gradcam-k 40` (the retracted report's sample sizes). Concentration
+= share of saliency ÷ share of pixels; 1.0 means no preference. See that report's "How to read the
+saliency probes" for the method.
+
+**Grad-CAM** (gradient saliency at neck layer 16):
+
+| arm | inside box | context ring | background | n |
+|---|---|---|---|---|
+| real_only | 7.01 | 1.93 | 0.98 | 40 |
+| mixed | 4.57 | 0.44 | 1.01 | 39 |
+| **synth_only** | **28.84** | 2.25 | 0.92 | 36 |
+
+`synth_only` at **28.8×** is the pure-appearance detector made visible — an order of magnitude above the
+others, and a direct hit on the calibration written into the method note ("a detector that keyed purely
+on the robot's own pixels would show an inside concentration in the tens"). Nothing in the earlier
+5-class work ever produced a model like this, because no arm was ever synthetic-only.
+
+**RISE** (occlusion saliency):
+
+| arm | inside box | context ring | background | n |
+|---|---|---|---|---|
+| real_only | 1.335 | 1.266 | 0.995 | 96 |
+| mixed | 1.281 | 1.221 | 0.996 | 93 |
+| synth_only | 1.205 | 1.162 | 0.997 | 93 |
+
+RISE barely separates the arms — a 0.13 spread across models whose cut-paste behaviour differs by a
+factor of four. This is the resolution limit stated in the method note doing exactly what it was
+predicted to do: 640/8 = 80 px mask cells against ~90×60 px robot boxes cannot resolve inside-box from
+just-outside-it. **RISE should not be used to rank these arms.**
+
+**Feature space** (linear probe separating real from synthetic opponent crops in backbone embeddings):
+
+| arm | probe acc (5-fold) | real↔synth centroid cos-dist |
+|---|---|---|
+| real_only | 0.944 | 0.005 |
+| synth_only | 0.918 | 0.004 |
+| **mixed** | **0.962** | 0.003 |
+
+**Training on the synthetic does not close the domain gap — it widens it.** `mixed` saw 17,995 rendered
+frames and separates real from synthetic crops *better* than the arm that never saw one (0.962 vs
+0.944). The retracted report claimed this ("the synthetic is a persistent off-distribution mode") but
+could not support it, since its baseline was already a third synthetic and the probe was really
+separating two render batches. On clean arms the claim holds, and holds more strongly than stated.
+
+### Where the probes disagree, and what to trust
+
+Grad-CAM and cut-paste agree emphatically on `synth_only` (28.8× inside, 127 % gray retention: pure
+appearance) and **contradict each other on `real_only` vs `mixed`**. Cut-paste says `mixed` is far more
+appearance-reliant (98 % vs 30 % gray retention); Grad-CAM says `mixed` is *less* box-focused (4.57 vs
+7.01), with its ring collapsing to 0.44 while `real_only`'s sits at 1.93.
+
+This is not resolved here. Two candidate explanations, neither tested: gradient saturation — `mixed` is
+the higher-confidence model, and a saturated sigmoid flattens the gradients Grad-CAM weights by, which
+would depress its CAM without any change in what the model uses; or the probes genuinely measure
+different things — cut-paste is a causal intervention (delete the context, observe the score),
+Grad-CAM is a local linearization that never removes anything.
+
+**Weight the causal probe.** Cut-paste changes the input and reads the consequence; Grad-CAM infers
+from gradients at a single point and is the probe the earlier work already flagged as "coarse and known
+to be unreliable alone." The appearance-reliance conclusion rests on cut-paste, with Grad-CAM
+corroborating only the `synth_only` extreme. Settling the `real_only`-vs-`mixed` disagreement needs a
+probe that is causal and resolution-independent — e.g. sliding an occluder at fixed size and reading
+score decay per distance from the box.
+
 ## Caveats
 
 - **One seed per arm.** Every delta here is a single training run. The `synth_only` gap is far too large
