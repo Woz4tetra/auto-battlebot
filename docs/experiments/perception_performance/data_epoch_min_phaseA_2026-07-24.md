@@ -44,6 +44,12 @@ real and synthetic together in roughly fixed 65/35 proportion. Exp 3 therefore m
 floor, not a real-image floor**, and cannot attribute the precision collapse at fraction 0.5 to either
 component. `N_real* = 1.0` is restated as `N_corpus* = 1.0`. See §Exp 3.
 
+> **Update 2026-07-31 — this correction was right, and has now been acted on.** An independent count of
+> the archived pooled dataset puts the contamination at 34.6 % (16,997 of 49,086 train frames), matching
+> the ~35 % audited here. `synthetic_plus_bbox_2026-07-22` is now formally retracted, and the
+> presence/absence test it never ran has been run on verified-clean arms:
+> `synthetic_arms_2026-07-31.md`.
+
 **Also affected, not re-run here.** `synthetic_plus_bbox_2026-07-22` graded "adding synthetic" on top of
 a substrate that was already 35 % synthetic. Its null result is a **marginal-dose** finding ("more
 synthetic on top of existing synthetic adds nothing"), not the presence/absence finding

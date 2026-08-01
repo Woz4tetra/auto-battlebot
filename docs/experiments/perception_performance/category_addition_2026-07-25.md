@@ -281,6 +281,13 @@ The cost is real: adding those renders reduced agnostic recall by 0.024 (warm) t
 by ~0.015, consistent with `synthetic_plus_bbox`'s finding that synthetic dilutes the context cue the
 opponent detector relies on.
 
+> **Corroboration withdrawn 2026-07-31.** `synthetic_plus_bbox` is retracted (its "real" baseline was
+> 34.6 % renders), so it cannot corroborate anything here. The measurements in *this* report stand on
+> their own. Note the clean re-run `synthetic_arms_2026-07-31.md` points the other way on F1: adding
+> synthetic to a verified-real corpus *raised* precision (+0.047) and F1 (+0.028) with recall flat. The
+> two are not in direct conflict — different corpus, vocabulary and dose — but "synthetic dilutes the
+> cue" is no longer a settled premise to lean on.
+
 The dose comparison is the useful part. The baseline had **15620** synthetic `mrs_buff_mk3` boxes —
 9× more — *plus* 2088 boxes of `Mrs Buff MK2` from real cage footage. The second of those may matter
 more than the first: MK2 is real, in-arena, and visually close to MK3, so the baseline may have learned
@@ -618,8 +625,11 @@ python3 training/yolo/clear_image_cache.py --older-than 0     # everything not c
   synthetic renders. An arm that re-adds MK2-as-`mrs_buff_mk3` would say whether real in-arena footage
   of a predecessor robot is what actually carried the baseline's 0.677.
 - **Render in-cage backgrounds.** The existing renders place our robot on wood, brick, tile and marble —
-  never an arena. Given the detector keys on context (`synthetic_plus_bbox` cut-paste: context carries
-  ~50 % of the score), context-correct renders are the targeted fix, not more robot poses.
+  never an arena. Given the detector keys on context (cut-paste, as corrected 2026-07-31: stripping the
+  surroundings to gray halves the score, and a *different* real arena recovers only 18 % of that — the
+  cue is scene coherence, not arena-ness), context-correct renders are the targeted fix, not more robot
+  poses. The corrected probe strengthens this recommendation: a generically "arena-like" render is not
+  enough; the scene has to be coherent with the robot in it.
 - **Fix the render labelling gap.** `our_robot_keypoints` holds 34946 renders that are unusable here
   because opponents appear unlabelled in them. Emitting the opponent class would recover that corpus.
 - **Second seed at the chosen stopping epoch**, since δ = 0.04 is tighter than the measured 0.048

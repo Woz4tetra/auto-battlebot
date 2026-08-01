@@ -22,6 +22,13 @@ The model needs to learn the context NHRL robots exist in.
 This report attempts to probe whether the model is learning robot appearance or context: docs/experiments/perception_performance/synthetic_plus_bbox_2026-07-22.md
 The answer is, a bit of both. But I can't rely on one or the other.
 
+> **Retracted 2026-07-31** — that report's "real" baseline was 34.6 % renders, so nothing in it supports
+> a synthetic-vs-real claim. The appearance-vs-context conclusion above still holds: it rests on the
+> gray-canvas and robot-removed probes, which were sound. What was wrong was the arena-restore claim
+> (an aliasing bug: the probe scored each frame against itself). Corrected, a *different* real arena
+> recovers only 18 % of what stripping context removes — the cue is scene coherence, not arena-ness.
+> Clean re-run: `synthetic_arms_2026-07-31.md`.
+
 # Don't split the opponent category by archetype
 
 Similar reason to the above section. The model is learning the context the robots exist in and not really solely on robot appears.

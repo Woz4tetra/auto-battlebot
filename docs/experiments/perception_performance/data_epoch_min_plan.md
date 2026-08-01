@@ -404,6 +404,10 @@ arms settle it, using the Step 3 recipe on `OLD ∪ NEW`:
   the real-only Arm A. This is the presence/absence test that `synthetic_plus_bbox_2026-07-22` was read
   as having run but did not (it added synthetic *on top of* an already-35 %-synthetic substrate, so it
   measured a marginal dose).
+  > **Run 2026-07-31** as its own experiment on the audited 2-class corpus — see
+  > `synthetic_arms_2026-07-31.md` (real_only / synth_only / mixed, provenance gate reproduced before
+  > training). Result: precision +0.047 and F1 +0.028 for mixed, recall flat, pre-registered
+  > recall-based adopt criterion not met. This item is covered; do not re-run it here.
 - **synthetic-only** — builds the `C_synth` base that Phase A recorded as impossible. If it has
   standalone value, it is the *reusable* base worth committing (synthetic is free to regenerate and
   carries no eval leakage, unlike a base derived from real fights).

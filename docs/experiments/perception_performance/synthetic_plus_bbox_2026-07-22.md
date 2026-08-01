@@ -30,7 +30,8 @@
 > A separate defect in the cut-paste probe was found and fixed on 2026-07-31; that correction is kept
 > below for the record, but it is subordinate to this one.
 >
-> **Replacement:** `synthetic_arms_plan.md` — three arms built from the audited zero-synthetic
+> **Replacement:** `synthetic_arms_plan.md` (design) and `synthetic_arms_2026-07-31.md` (results) —
+> three arms built from the audited zero-synthetic
 > `nhrl_robots_bbox_2class` corpus, with provenance verified before training rather than after.
 
 Analysis date: 2026-07-22 (val split); **independent eval added 2026-07-23**. Question: does adding the
