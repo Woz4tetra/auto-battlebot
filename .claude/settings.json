@@ -1,15 +1,4 @@
 {
-  "extraKnownMarketplaces": {
-    "claude-plugins-official": {
-      "source": {
-        "source": "github",
-        "repo": "anthropics/claude-plugins-official"
-      }
-    }
-  },
-  "enabledPlugins": {
-    "clangd-lsp@claude-plugins-official": true
-  },
   "permissions": {
     "allow": [
       "Bash(ruff check *)",
@@ -40,5 +29,16 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "clangd-lsp@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-plugins-official"
+      }
+    }
   }
 }
