@@ -8,10 +8,10 @@ strength is graded explicitly so nothing here gets over-read the way `synthetic_
 
 | open question | strength | what backs it |
 |---|---|---|
-| **Is starting from a checkpoint better than cold start?** | **strong** | runs 2 vs A — identical data, schedule, val, epochs; single variable is initialization. Paired bootstrap on the external eval. LR confound bounded by run 2b |
+| **Is starting from a checkpoint better than cold start?** | **strong** | R2 vs R3 — identical data, schedule, val, epochs; single variable is initialization. Paired bootstrap on the external eval. LR confound bounded by R6 |
 | **When do I stop training YOLO?** | **moderate–strong** | the stopping rule *is* the parity gate: the earliest ladder checkpoint whose agnostic recall Δ CI lower bound ≥ −0.04 vs the deployed baseline, with precision and F1 not significantly worse. 5 independent ladders measure it directly. Held back from "strong" by one seed per run — see the δ-vs-variance caveat below |
-| **How much synthetic of our robots for the bbox model?** | **weak** | runs 3 / 3w test exactly one dose (1745 mrs_buff-only renders vs 0). Shows *whether*, not *how much* |
-| **How many real images do I need to label?** | **very weak** | run 1 (14464) vs run A (28671) differ in class count *and* time period as well as size. Not a scaling curve — see §Follow-ups |
+| **How much synthetic of our robots for the bbox model?** | **weak** | R4 / R5 test exactly one dose (1745 mrs_buff-only renders vs 0). Shows *whether*, not *how much* |
+| **How many real images do I need to label?** | **very weak** | R1 (14464) vs R3 (28671) differ in class count *and* time period as well as size. Not a scaling curve — see §Follow-ups |
 | How many synthetic images for the **keypoints** model? | **none** | every run here is `yolo26n` detect; the pose model was not touched |
 | How much real data for the **keypoints** model? | **none** | same |
 | **deeplab** field images / stopping point | **none** | `floor_mask_dataset` was never loaded |
@@ -102,34 +102,39 @@ existed" corpus and `old ∪ new` is "after" — no relabeling, no collection. I
 performance is an **acquisition-only** signal here: `hold_old` has no `mrs_buff_mk3` either, so
 retention of that class cannot be measured (there is nothing to retain).
 
-`mrs_buff_mk3` being the **last** class index makes the vocabulary growth purely additive: run 1's
-4-class head is a strict prefix of run 2's 5-class head, so no reindexing and no dropped annotations
+`mrs_buff_mk3` being the **last** class index makes the vocabulary growth purely additive: R1's
+4-class head is a strict prefix of R2's 5-class head, so no reindexing and no dropped annotations
 were needed. The 4-class dataset is the same hardlinked frames under a `data.yml` with `nc: 4`.
 
 ## Runs
 
-Runs 2, A, 3, 3w and 2b all train the same 5 classes on the same corpus. Only
-two things move between them: **where the weights started** (stock COCO, or run 1's checkpoint) and
-**whether the 1745 CAD renders were mixed in**. Run 2b changes a third thing, the learning rate, purely
-to check that it is not doing the work. Run 1 is the odd one out — it is the "before" model, trained on
-the older half of the footage with no `mrs_buff_mk3` class at all.
+R2 through R6 all train the same 5 classes on the same corpus. Only two things move between them:
+**where the weights started** (stock COCO, or R1's checkpoint) and **whether the 1745 CAD renders were
+mixed in**. R6 changes a third thing, the learning rate, purely to check that it is not doing the work.
+R1 is the odd one out — it is the "before" model, trained on the older half of the footage with no
+`mrs_buff_mk3` class at all.
 
-The last column is the tag used in checkpoint and engine filenames, so the results below can be traced
-back to the artifacts on disk.
+**Those renders are the one place synthetic data enters this experiment, and it is deliberate.** The
+substrate is real-only, which is the whole point of rebuilding it — but that rebuild also deleted the
+15620 renders the deployed baseline learned our robot from. R4 and R5 add a measured dose back so that
+deletion can be priced. Read `+ renders` as "this arm is not real-only, on purpose"; every other run is.
 
-| run | started from | trained on | classes | lr0 | wall-clock | file tag |
-|---|---|---|---|---|---|---|
-| **1 — from scratch, `old` only** | COCO `yolo26n.pt` | `old` (14464 frames) | 4 | 0.01 | 1.38 h | `base4` |
-| **2 — fine-tune** | run 1's ep100 | `old+new` (28671) | 5 | 0.001 | 2.72 h | `warm5` |
-| **A — from scratch** | COCO `yolo26n.pt` | `old+new` (28671) | 5 | 0.01 | 2.73 h | `cold5` |
-| **3 — from scratch + renders** | COCO `yolo26n.pt` | `old+new` + 1745 renders (30416) | 5 | 0.01 | ~2.8 h | `cold5synth` |
-| **3w — fine-tune + renders** | run 1's ep100 | `old+new` + 1745 renders (30416) | 5 | 0.001 | ~2.8 h | `warm5synth` |
-| **2b — fine-tune, LR 0.01** | run 1's ep100 | `old+new` (28671) | 5 | **0.01** | ~2.7 h | `warm5lr01` |
+The last two columns are for tracing: `file tag` is the string in checkpoint and engine filenames on
+disk, and `plan ID` is what `data_epoch_min_plan.md` calls the same run.
 
-All 150 epochs, fully annealed over their own budget, `--save-period 25`. Val for runs 2/A/3/3w/2b is
-`hold_old ∪ hold_new`; run 1 uses `hold_old` alone (it has no `mrs_buff_mk3` head).
+| run | started from | trained on | classes | lr0 | wall-clock | file tag | plan ID |
+|---|---|---|---|---|---|---|---|
+| **R1 — from scratch, `old` only** | COCO `yolo26n.pt` | `old` (14464 frames) | 4 | 0.01 | 1.38 h | `base4` | 1 |
+| **R2 — fine-tune** | R1's ep100 | `old+new` (28671) | 5 | 0.001 | 2.72 h | `warm5` | 2 |
+| **R3 — from scratch** (control) | COCO `yolo26n.pt` | `old+new` (28671) | 5 | 0.01 | 2.73 h | `cold5` | A |
+| **R4 — from scratch + renders** | COCO `yolo26n.pt` | `old+new` + 1745 renders (30416) | 5 | 0.01 | ~2.8 h | `cold5synth` | 3 |
+| **R5 — fine-tune + renders** | R1's ep100 | `old+new` + 1745 renders (30416) | 5 | 0.001 | ~2.8 h | `warm5synth` | 3w |
+| **R6 — fine-tune, LR 0.01** | R1's ep100 | `old+new` (28671) | 5 | **0.01** | ~2.7 h | `warm5lr01` | 2b |
 
-**The synthetic pool** (`synth_buff`, runs 3 and 3w): **1745 frames, 1745 boxes, every one
+All 150 epochs, fully annealed over their own budget, `--save-period 25`. Val for R2–R6 is
+`hold_old ∪ hold_new`; R1 uses `hold_old` alone (it has no `mrs_buff_mk3` head).
+
+**The synthetic pool** (`synth_buff`, R4 and R5): **1745 frames, 1745 boxes, every one
 `mrs_buff_mk3` and nothing else.** Selected from `synth_bbox_from_keypoints` because its vocabulary
 includes `nhrl_robot`, so "only class 4 labelled" provably means no other robot is present. The larger
 `our_robot_keypoints` batch (18579 apparently-clean frames) was **rejected**: sampling its images shows
@@ -139,7 +144,7 @@ opponents. Training on it would teach false negatives on every unlabelled machin
 Why this arm exists: the deployed baseline scores 0.677 recall on `mrs_buff_mk3`, and it did not learn
 that from real data — its corpus held **15620 synthetic CAD renders** of our robot plus 2088 boxes of
 `Mrs Buff MK2`, a *different* machine mislabelled as ours. Building the real-only substrate removed
-both, leaving 252 real training boxes from 2 recordings. Runs 3/3w test whether exact-CAD renders
+both, leaving 252 real training boxes from 2 recordings. R4 and R5 test whether exact-CAD renders
 restore what that removal cost.
 
 ## Scoring method
@@ -159,11 +164,11 @@ opponent and `mrs_buff_mk3` included. Only the numbers in this report are compar
 **Two invocations, because a 4-class engine cannot share one with the 5-class models.** `score.py`
 passes a single `--labels` list to every candidate as `num_classes`, and `trt_yolo.py`'s
 `_infer_raw_head_dims` *trusts* that number rather than reading it off the engine, so a 5-label list
-would misparse a 4-class output tensor. Run 1 is therefore scored alone and compared descriptively;
-baseline + run 2 + run A share one properly paired bootstrap.
+would misparse a 4-class output tensor. R1 is therefore scored alone and compared descriptively;
+baseline + R2 + R3 share one properly paired bootstrap.
 
 **Two taxonomy views.** Common-class (`exclude: object, mrs_buff_mk3`) is the no-regression check and
-the only fair way to compare a 4-class model against 5-class ones — without it run 1 takes 389
+the only fair way to compare a 4-class model against 5-class ones — without it R1 takes 389
 automatic misses on the eval set's `mrs_buff_mk3` boxes. New-class (`mrs_buff_mk3` only) measures
 acquisition.
 
@@ -174,25 +179,26 @@ acquisition.
 Baseline: recall **0.742**, precision **0.962**, F1 **0.838**, mAP50-95 **0.504**.
 Gate: recall Δ CI lower bound ≥ −0.04, precision and F1 not significantly worse.
 
-Every row trains on `old+new` with 5 classes; the run name says what was different about it. Bold rows
-are each run's earliest checkpoint that clears the gate, which is the answer that run reports.
+Every row is a 5-class run on `old+new`; the run name says what was different about it, and `+ renders`
+means that arm also got the 1745 synthetic frames. Bold rows are each run's earliest checkpoint that
+clears the gate, which is the answer that run reports.
 
 | run | ckpt | recall Δ [95% CI] | precision Δ | F1 Δ | gate |
 |---|---|---|---|---|---|
-| **2 fine-tune** | **ep75** | **+0.085 [+0.062, +0.109]** | +0.002 ns | +0.052 | ✅ |
-| 2 fine-tune | ep100 | +0.072 [+0.048, +0.094] | +0.007 ns | +0.047 | ✅ |
-| 2 fine-tune | ep125 | +0.016 [−0.008, +0.039] ns | +0.015 better | +0.016 ns | ✅ |
-| 2 fine-tune | ep150 | −0.056 [−0.083, −0.030] | +0.023 better | −0.029 worse | ❌ |
-| A from scratch | ep75 | +0.100 [+0.075, +0.127] | **−0.027 worse** | +0.049 | ❌ |
-| **A from scratch** | **ep100** | **+0.092 [+0.068, +0.117]** | −0.006 ns | +0.053 | ✅ |
-| A from scratch | ep125 | +0.028 [+0.003, +0.055] | +0.008 ns | +0.021 | ✅ |
-| A from scratch | ep150 | −0.088 [−0.116, −0.059] | +0.022 better | −0.052 worse | ❌ |
-| **3 from scratch + renders** | **ep75** | **+0.065 [+0.043, +0.089]** | −0.013 ns | +0.035 | ✅ |
-| 3 from scratch + renders | ep150 | −0.154 [−0.182, −0.125] | +0.022 better | −0.102 worse | ❌ |
-| **3w fine-tune + renders** | **ep75** | **+0.061 [+0.037, +0.085]** | −0.003 ns | +0.037 | ✅ |
-| 3w fine-tune + renders | ep150 | −0.059 [−0.088, −0.033] | +0.020 better | −0.033 worse | ❌ |
-| 2b fine-tune, LR 0.01 | ep100 | +0.071 [+0.047, +0.094] | +0.007 ns | +0.046 | ✅ |
-| 2b fine-tune, LR 0.01 | ep150 | −0.056 [−0.083, −0.030] | +0.023 better | −0.029 worse | ❌ |
+| **R2 fine-tune** | **ep75** | **+0.085 [+0.062, +0.109]** | +0.002 ns | +0.052 | ✅ |
+| R2 fine-tune | ep100 | +0.072 [+0.048, +0.094] | +0.007 ns | +0.047 | ✅ |
+| R2 fine-tune | ep125 | +0.016 [−0.008, +0.039] ns | +0.015 better | +0.016 ns | ✅ |
+| R2 fine-tune | ep150 | −0.056 [−0.083, −0.030] | +0.023 better | −0.029 worse | ❌ |
+| R3 from scratch | ep75 | +0.100 [+0.075, +0.127] | **−0.027 worse** | +0.049 | ❌ |
+| **R3 from scratch** | **ep100** | **+0.092 [+0.068, +0.117]** | −0.006 ns | +0.053 | ✅ |
+| R3 from scratch | ep125 | +0.028 [+0.003, +0.055] | +0.008 ns | +0.021 | ✅ |
+| R3 from scratch | ep150 | −0.088 [−0.116, −0.059] | +0.022 better | −0.052 worse | ❌ |
+| **R4 from scratch + renders** | **ep75** | **+0.065 [+0.043, +0.089]** | −0.013 ns | +0.035 | ✅ |
+| R4 from scratch + renders | ep150 | −0.154 [−0.182, −0.125] | +0.022 better | −0.102 worse | ❌ |
+| **R5 fine-tune + renders** | **ep75** | **+0.061 [+0.037, +0.085]** | −0.003 ns | +0.037 | ✅ |
+| R5 fine-tune + renders | ep150 | −0.059 [−0.088, −0.033] | +0.020 better | −0.033 worse | ❌ |
+| R6 fine-tune, LR 0.01 | ep100 | +0.071 [+0.047, +0.094] | +0.007 ns | +0.046 | ✅ |
+| R6 fine-tune, LR 0.01 | ep150 | −0.056 [−0.083, −0.030] | +0.023 better | −0.029 worse | ❌ |
 
 **Every arm's fully-annealed ep150 fails the gate.** Not marginally — recall drops 0.056–0.154 while
 precision climbs to ~0.98. The models converge to something extremely conservative: they stop emitting
@@ -204,16 +210,16 @@ Baseline: recall **0.677**, precision 0.900, mAP50-95 0.452.
 
 | run | recall | precision | mAP50-95 |
 |---|---|---|---|
-| 2 fine-tune (all ckpts) | **0.000** | 0.000 | 0.000 |
-| A from scratch (all ckpts) | **0.000** | 0.000 | 0.000 |
-| 2b fine-tune, LR 0.01 (all ckpts) | **0.000** | 0.000 | 0.000 |
-| 3 from scratch + renders, ep125 | 0.078 | 0.966 | 0.060 |
-| 3w fine-tune + renders, ep150 | 0.056 | 1.000 | 0.048 |
+| R2 fine-tune (all ckpts) | **0.000** | 0.000 | 0.000 |
+| R3 from scratch (all ckpts) | **0.000** | 0.000 | 0.000 |
+| R6 fine-tune, LR 0.01 (all ckpts) | **0.000** | 0.000 | 0.000 |
+| R4 from scratch + renders, ep125 | 0.078 | 0.966 | 0.060 |
+| R5 fine-tune + renders, ep150 | 0.056 | 1.000 | 0.048 |
 
 **Without synthetic renders, every arm scores exactly zero — it never emits `mrs_buff_mk3` in the cage
 at all.** This is not "poor performance," it is total absence, and it is corroborated at the instance
 level: wrong-class rate **0.35–0.39** against the baseline's **0.114**, with agnostic recall of 0.83.
-The models *find* our robot and call it an opponent, exactly as the 4-class run 1 did. Adding 252 real
+The models *find* our robot and call it an opponent, exactly as the 4-class R1 did. Adding 252 real
 boxes from two garage-rig recordings taught the detector nothing transferable about our robot in an
 arena.
 
@@ -225,10 +231,10 @@ own training corpus. They are genuinely held out only for this experiment's runs
 
 | run | `hold_old` R / P / F1 | `hold_new` R / P / F1 |
 |---|---|---|
-| 2 fine-tune | 0.802 / 0.922 / 0.858 | 0.685 / 0.839 / 0.754 |
-| A from scratch | 0.793 / 0.946 / 0.863 | **0.724 / 0.867 / 0.789** |
-| 3 from scratch + renders | 0.788 / 0.918 / 0.848 | 0.721 / 0.863 / 0.786 |
-| 3w fine-tune + renders | **0.803 / 0.953 / 0.871** | 0.708 / 0.846 / 0.771 |
+| R2 fine-tune | 0.802 / 0.922 / 0.858 | 0.685 / 0.839 / 0.754 |
+| R3 from scratch | 0.793 / 0.946 / 0.863 | **0.724 / 0.867 / 0.789** |
+| R4 from scratch + renders | 0.788 / 0.918 / 0.848 | 0.721 / 0.863 / 0.786 |
+| R5 fine-tune + renders | **0.803 / 0.953 / 0.871** | 0.708 / 0.846 / 0.771 |
 | _baseline (in-sample)_ | _0.912 / 0.992 / 0.950_ | _0.906 / 0.976 / 0.940_ |
 
 **No catastrophic forgetting anywhere** — expected, since every arm trained on `old ∪ new`. Warm start
@@ -253,7 +259,7 @@ not just wasted compute — it actively destroys recall.
 
 This is a much stronger version of Phase A's finding and it **contradicts the premise the runs were
 launched on**. A dedicated, properly-annealed 150-epoch run does *not* land at its own best point; it
-lands well past it. Run 1 hinted at this weakly (ep100 beat ep150 by 0.025 F1 on 14.5k frames); at
+lands well past it. R1 hinted at this weakly (ep100 beat ep150 by 0.025 F1 on 14.5k frames); at
 28.7k frames the effect is 3–6× larger.
 
 Caveat that keeps this from "very strong": one seed per arm. The consistency across five independent
@@ -267,19 +273,19 @@ own the checkpoint.**
 
 | run | earliest passing ckpt | recall Δ | F1 Δ | training to that ckpt |
 |---|---|---|---|---|
-| 2 — fine-tune | ep75 | +0.085 | +0.052 | **1.36 h** |
-| A — from scratch | ep100 | +0.092 | +0.053 | 1.82 h |
+| R2 — fine-tune | ep75 | +0.085 | +0.052 | **1.36 h** |
+| R3 — from scratch | ep100 | +0.092 | +0.053 | 1.82 h |
 
 The two are statistically indistinguishable on quality — from scratch has slightly higher recall,
 fine-tune slightly higher precision, F1 within 0.001. Warm start gets there in **25 % less time**, and
 that is the whole benefit.
 
-**But the accounting matters.** Producing run 1's checkpoint cost 1.38 h. Counted end to end, cold start is
+**But the accounting matters.** Producing R1's checkpoint cost 1.38 h. Counted end to end, cold start is
 cheaper (1.82 h vs 2.74 h). Warm start wins only in the situation it actually models — you already have
 a deployed checkpoint and new footage has arrived, which is the real one.
 
-**The LR confound is nil**, which is a clean side result: fine-tuning at LR 0.01 (run 2b, ep100: recall
-Δ +0.071, precision +0.007) is indistinguishable from the same run at 0.001 (run 2, ep100: +0.072,
+**The LR confound is nil**, which is a clean side result: fine-tuning at LR 0.01 (R6, ep100: recall
+Δ +0.071, precision +0.007) is indistinguishable from the same run at 0.001 (R2, ep100: +0.072,
 +0.007). Fine-tuning at `lr0` 0.01 and 0.001
 give the same model. That 2.7 h arm can be skipped in future work.
 
@@ -467,7 +473,7 @@ python3 training/yolo/split_by_scene.py \
 # emits old/ new/ hold_old/ hold_new/, old.yml, new.yml, old+new.yml, split_manifest.json
 # --dry-run first to preview the assignment without linking
 
-# 4-class dataset yaml for run 1, after asserting neither group carries a class-4 label
+# 4-class dataset yaml for R1, after asserting neither group carries a class-4 label
 python3 - <<'EOF'          # (inline)
 import os, yaml
 from pathlib import Path
@@ -506,23 +512,23 @@ Run from `training/yolo/` because `train.py` writes to a project path relative t
 ```bash
 cd training/yolo
 
-# Run 1 -- from scratch (COCO weights), 4 classes, on `old`. Produces the fine-tune base.
+# R1 -- from scratch (COCO weights), 4 classes, on `old`. Produces the fine-tune base.
 python3 train.py ../data/scenesplit_2026-07-25/old_4class.yml yolo26n \
     -e 150 --save-period 25 -d 0 1 2
 ```
 
 ```bash
-# Run 2 -- fine-tune run 1's ep100, head grows 4 -> 5 classes, on `old+new`
+# R2 -- fine-tune R1's ep100, head grows 4 -> 5 classes, on `old+new`
 python3 fine_tune_train.py ../data/scenesplit_2026-07-25/old+new.yml yolo26n \
-    -c <run1_ep100>.pt -e 150 --save-period 25 --lr0 0.001 --devices 0,1,2
+    -c <R1_ep100>.pt -e 150 --save-period 25 --lr0 0.001 --devices 0,1,2
 
-# Run A -- the control: from scratch (COCO weights), 5 classes, same corpus as run 2
+# R3 -- the control: from scratch (COCO weights), 5 classes, same corpus as R2
 python3 train.py ../data/scenesplit_2026-07-25/old+new.yml yolo26n \
     -e 150 --save-period 25 -d 0 1 2
 
-# Run 2b -- run 2 again at the from-scratch LR, to bound the lr0 confound
+# R6 -- R2 again at the from-scratch LR, to bound the lr0 confound
 python3 fine_tune_train.py ../data/scenesplit_2026-07-25/old+new.yml yolo26n \
-    -c <run1_ep100>.pt -e 150 --save-period 25 --lr0 0.01 --devices 0,1,2
+    -c <R1_ep100>.pt -e 150 --save-period 25 --lr0 0.01 --devices 0,1,2
 
 cd ..  # back to repo root
 ```
@@ -546,7 +552,7 @@ done
 ### 8. Scoring
 
 ```bash
-# Run 1 (4-class) -- must be its own invocation: score.py passes one --labels list to every
+# R1 (4-class) -- must be its own invocation: score.py passes one --labels list to every
 # candidate as num_classes, and trt_yolo.py trusts it rather than reading the engine.
 python3 training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
     --candidate base4_ep25=engines/base4_ep25_x86_64_sm86.engine \
@@ -634,7 +640,7 @@ python3 training/yolo/clear_image_cache.py --older-than 0     # everything not c
   0.75}` cold 5-class on `old+new.yml`, single axis, scene-disjoint val. This is Phase A's Exp 3 done
   on a clean corpus. 3 arms ≈ 5 h at the ep75–100 stopping point.
 - **Synthetic dose curve (closes "how much synthetic of our robots?")** — 25 % and 50 % of the 1745
-  renders, giving a 4-point curve with runs A and 3 as endpoints. 2 arms ≈ 3 h.
+  renders, giving a 4-point curve with R3 and R4 as endpoints. 2 arms ≈ 3 h.
 - **Separate the two things the baseline had** — the 2088 real `Mrs Buff MK2` cage boxes vs the 15620
   synthetic renders. An arm that re-adds MK2-as-`mrs_buff_mk3` would say whether real in-arena footage
   of a predecessor robot is what actually carried the baseline's 0.677.
@@ -651,7 +657,7 @@ python3 training/yolo/clear_image_cache.py --older-than 0     # everything not c
 
 ---
 
-## Run 1 — from scratch on `old`, 4 classes: the pre-existing-roster model
+## R1 — from scratch on `old`, 4 classes: the pre-existing-roster model
 
 **150 epochs in 83 min** on 3× A6000 (14464 frames, batch 128, ~33 s/epoch). Ladder saved at
 ep{0,25,50,75,100,125} plus `last.pt` (= fully annealed ep150) and `best.pt`.
@@ -678,7 +684,7 @@ which shared all 56 recordings with its train split and was therefore measuring 
 ### Correction: the common-class view was invalid, and the run exposed it
 
 The planned **common-class view** (exclude `object` + `mrs_buff_mk3` from GT, so a 4-class and a 5-class
-model can be compared on their shared roster) produced precision of 0.49–0.57 for run 1 against the
+model can be compared on their shared roster) produced precision of 0.49–0.57 for R1 against the
 baseline's 0.871. That gap was too large to be real, and it was not:
 
 **Excluding `mrs_buff_mk3` from GT does not stop a 4-class model from detecting our robot — it just
@@ -700,7 +706,7 @@ Re-scoring the identical engines under the **full taxonomy** (only `object` excl
 Agnostic collapses every class to "a robot is here," so a 4-class model that finds our robot and calls
 it an opponent is scored as having found it — which is the truth. The naming failure shows up at the
 *instance* level instead, where it belongs. The common-class view is abandoned; the new-class view
-(`mrs_buff_mk3` only) is retained and correctly reads 0.000 for run 1, which has no such head.
+(`mrs_buff_mk3` only) is retained and correctly reads 0.000 for R1, which has no such head.
 
 A second, smaller correction: the `--labels` asymmetry flagged in the Phase A rework (class 0 mapped to
 `opponent` bypassed `taxonomy.yaml`'s `exclude: [object]` on the prediction side) is real but has
@@ -708,7 +714,7 @@ A second, smaller correction: the `--labels` asymmetry flagged in the Phase A re
 returns agnostic recall 0.742 / precision 0.962 / F1 0.838 / mAP50-95 0.504 — identical to Phase A's
 reference. The deployed model simply emits almost no class-0 detections above conf 0.5.
 
-### Run 1 ladder — external eval, full taxonomy
+### R1 ladder — external eval, full taxonomy
 
 Baseline anchor: agnostic recall **0.742**, precision **0.962**, F1 **0.838**, mAP50-95 **0.504**.
 
@@ -722,8 +728,8 @@ Baseline anchor: agnostic recall **0.742**, precision **0.962**, F1 **0.838**, m
 | ep150 (`last`, fully annealed) | 0.777 | 0.835 | 0.805 | 0.485 | 0.494 | 0.364 |
 | — baseline (5-class, full corpus) | 0.742 | 0.962 | 0.838 | 0.504 | 0.657 | 0.114 |
 
-**Run 1's `epoch100.pt`** is the best checkpoint by external eval, and is the checkpoint runs 2, 3w and
-2b fine-tune from.
+**R1's `epoch100.pt`** is the best checkpoint by external eval, and is the checkpoint R2, R5 and R6
+fine-tune from.
 
 Three readings:
 
@@ -731,16 +737,16 @@ Three readings:
    far more weakly: ep150 loses 0.025 F1 to ep100, almost entirely on precision (0.835 vs 0.887), where
    Phase A's 500-epoch endpoint lost 0.048 recall outright. A dedicated 150-epoch annealed schedule is
    therefore *serviceable* — it lands within noise of its own best checkpoint — but checkpointing still
-   pays. Grading every run on its ladder rather than its endpoint remains the right procedure, and runs
-   2/A/2b are all laddered accordingly. (A paired ep100-vs-ep150 CI is run with the final scoring pass;
-   the gap may not be significant.)
-2. **Trained on 40 % of the corpus with a 4-class head, run 1 nearly matches the deployed baseline at
+   pays. Grading every run on its ladder rather than its endpoint remains the right procedure, and
+   R2/R3/R6 are all laddered accordingly. (A paired ep100-vs-ep150 CI is run with the final scoring
+   pass; the gap may not be significant.)
+2. **Trained on 40 % of the corpus with a 4-class head, R1 nearly matches the deployed baseline at
    the agnostic level** — recall 0.780 vs 0.742 (higher), precision 0.887 vs 0.962 (lower), F1 0.830 vs
    0.838. Finding robots is not what the extra data and the extra class buy.
 3. **The deficit is naming, and it is large.** Instance recall 0.496 vs the baseline's 0.657, with a
-   **wrong-class rate of 0.364 vs 0.114** — run 1 misnames more than a third of what it detects, because
+   **wrong-class rate of 0.364 vs 0.114** — R1 misnames more than a third of what it detects, because
    the eval set's 389 `mrs_buff_mk3` boxes are a category it does not have. New-class view: **0.000**
-   recall, by construction. This is the gap runs 2 and A have to close, and it confirms the experiment
+   recall, by construction. This is the gap R2 and R3 have to close, and it confirms the experiment
    is not degenerate.
 
 
