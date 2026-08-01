@@ -2,9 +2,11 @@
 
 Meshy models work only if the output render is actually a close visual match to the real robot.
 It fails if the render is poor or if the builder modified the robot.
-For this reason, this method will not work for my application.
+For this reason, this method for keypoints will not work for my application.
+It did slightly improve results for bounding box detection.
 
 docs/experiments/perception_performance/meshy_grade_2026-07-16.md
+docs/experiments/perception_performance/synthetic_arms_2026-07-31.md
 
 # Keep using CAD models for synthetic data
 
@@ -17,17 +19,13 @@ docs/experiments/perception_performance/meshy_grade_2026-07-16.md
 
 The keypoints model learns the specific robot appearance independent context.
 The bounding box model is trying to generalize all NHRL robots. The synthetic data has random backgrounds and meshy AI models that don't look exactly like the real robots.
-The model needs to learn the context NHRL robots exist in.
+A bounding box model trained only on real footage ends up leaning on context.
 
-This report attempts to probe whether the model is learning robot appearance or context: docs/experiments/perception_performance/synthetic_plus_bbox_2026-07-22.md
-The answer is, a bit of both. But I can't rely on one or the other.
+This report attempts to probe whether the model is learning robot appearance or context:
+docs/experiments/perception_performance/synthetic_arms_2026-07-31.md
 
-> **Retracted 2026-07-31** — that report's "real" baseline was 34.6 % renders, so nothing in it supports
-> a synthetic-vs-real claim. The appearance-vs-context conclusion above still holds: it rests on the
-> gray-canvas and robot-removed probes, which were sound. What was wrong was the arena-restore claim
-> (an aliasing bug: the probe scored each frame against itself). Corrected, a *different* real arena
-> recovers only 18 % of what stripping context removes — the cue is scene coherence, not arena-ness.
-> Clean re-run: `synthetic_arms_2026-07-31.md`.
+Adding synthetic data does improve the model's performance slightly and cut-paste tests show the model can be less environment dependent
+with synthetic data introduced, but combining with keypoints is still not the correct strategy.
 
 # Don't split the opponent category by archetype
 
@@ -68,7 +66,7 @@ docs/experiments/perception_performance/category_addition_2026-07-25.md
 
 # When do I stop training YOLO? (what metric threshold do I need to satisfy baseline metrics requirements?)
 
-~150 epochs seems to be enough. At this point, recall and precision are within the noise of baseline with unseeded runs.
+~100 epochs seems to be enough. At this point, recall and precision are within the noise of baseline with unseeded runs.
 
 docs/experiments/perception_performance/category_addition_2026-07-25.md
 
@@ -91,9 +89,9 @@ saw a noticeable drop in performance. This tells me I need more scene variation.
 
 What had a much bigger impact was data hygiene. Scrubbing through the dataset, I noticed lots of
 errors. The conversion from segmentation to bounding box revealed there were lots of small polygons that broke the conversion.
-Also synthetic data leaked into earlier experiments which has demonstrated to make the generalized
-robot model degrade. After removing these bad images, the baseline 100% model in this experiment
-exceeded the original baseline's performance on the test set.
+Synthetic data leaked into earlier experiments. I thought this was a problem until I reran the experiment with clean bounding box and synthetic data.
+Introducing synthetic data again didn't make recall worse but it didn't significantly improve the results either.
+It improved precision but seeded reruns are needed to see if this is within the noise or not.
 
 Going forward, validate all new images even ones that were validated in segmentation and go through
 bounding box conversion. Consider the bounding box conversion a source of error.
