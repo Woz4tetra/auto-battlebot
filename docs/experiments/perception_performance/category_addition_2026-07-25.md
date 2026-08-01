@@ -108,14 +108,23 @@ were needed. The 4-class dataset is the same hardlinked frames under a `data.yml
 
 ## Runs
 
-| run | init | trains on | classes | lr0 | wall-clock |
-|---|---|---|---|---|---|
-| **1 — `base4`** | COCO `yolo26n.pt` | `old` (14464) | 4 | 0.01 | 1.38 h |
-| **2 — `warm5`** | `C_old4` | `old+new` (28671) | 5 | 0.001 | 2.72 h |
-| **A — `cold5`** | COCO `yolo26n.pt` | `old+new` (28671) | 5 | 0.01 | 2.73 h |
-| **3 — `cold5+synth`** | COCO `yolo26n.pt` | `old+new+synth` (30416) | 5 | 0.01 | ~2.8 h |
-| **3w — `warm5+synth`** | `C_old4` | `old+new+synth` (30416) | 5 | 0.001 | ~2.8 h |
-| **2b — `warm5 lr0.01`** | `C_old4` | `old+new` (28671) | 5 | **0.01** | ~2.7 h |
+Runs 2, A, 3, 3w and 2b all train the same 5 classes on the same corpus. Only
+two things move between them: **where the weights started** (stock COCO, or run 1's checkpoint) and
+**whether the 1745 CAD renders were mixed in**. Run 2b changes a third thing, the learning rate, purely
+to check that it is not doing the work. Run 1 is the odd one out — it is the "before" model, trained on
+the older half of the footage with no `mrs_buff_mk3` class at all.
+
+The last column is the tag used in checkpoint and engine filenames, so the results below can be traced
+back to the artifacts on disk.
+
+| run | started from | trained on | classes | lr0 | wall-clock | file tag |
+|---|---|---|---|---|---|---|
+| **1 — from scratch, `old` only** | COCO `yolo26n.pt` | `old` (14464 frames) | 4 | 0.01 | 1.38 h | `base4` |
+| **2 — fine-tune** | run 1's ep100 | `old+new` (28671) | 5 | 0.001 | 2.72 h | `warm5` |
+| **A — from scratch** | COCO `yolo26n.pt` | `old+new` (28671) | 5 | 0.01 | 2.73 h | `cold5` |
+| **3 — from scratch + renders** | COCO `yolo26n.pt` | `old+new` + 1745 renders (30416) | 5 | 0.01 | ~2.8 h | `cold5synth` |
+| **3w — fine-tune + renders** | run 1's ep100 | `old+new` + 1745 renders (30416) | 5 | 0.001 | ~2.8 h | `warm5synth` |
+| **2b — fine-tune, LR 0.01** | run 1's ep100 | `old+new` (28671) | 5 | **0.01** | ~2.7 h | `warm5lr01` |
 
 All 150 epochs, fully annealed over their own budget, `--save-period 25`. Val for runs 2/A/3/3w/2b is
 `hold_old ∪ hold_new`; run 1 uses `hold_old` alone (it has no `mrs_buff_mk3` head).
@@ -165,22 +174,25 @@ acquisition.
 Baseline: recall **0.742**, precision **0.962**, F1 **0.838**, mAP50-95 **0.504**.
 Gate: recall Δ CI lower bound ≥ −0.04, precision and F1 not significantly worse.
 
+Every row trains on `old+new` with 5 classes; the run name says what was different about it. Bold rows
+are each run's earliest checkpoint that clears the gate, which is the answer that run reports.
+
 | run | ckpt | recall Δ [95% CI] | precision Δ | F1 Δ | gate |
 |---|---|---|---|---|---|
-| **2 warm5** | **ep75** | **+0.085 [+0.062, +0.109]** | +0.002 ns | +0.052 | ✅ |
-| 2 warm5 | ep100 | +0.072 [+0.048, +0.094] | +0.007 ns | +0.047 | ✅ |
-| 2 warm5 | ep125 | +0.016 [−0.008, +0.039] ns | +0.015 better | +0.016 ns | ✅ |
-| 2 warm5 | ep150 | −0.056 [−0.083, −0.030] | +0.023 better | −0.029 worse | ❌ |
-| A cold5 | ep75 | +0.100 [+0.075, +0.127] | **−0.027 worse** | +0.049 | ❌ |
-| **A cold5** | **ep100** | **+0.092 [+0.068, +0.117]** | −0.006 ns | +0.053 | ✅ |
-| A cold5 | ep125 | +0.028 [+0.003, +0.055] | +0.008 ns | +0.021 | ✅ |
-| A cold5 | ep150 | −0.088 [−0.116, −0.059] | +0.022 better | −0.052 worse | ❌ |
-| **3 cold5+synth** | **ep75** | **+0.065 [+0.043, +0.089]** | −0.013 ns | +0.035 | ✅ |
-| 3 cold5+synth | ep150 | −0.154 [−0.182, −0.125] | +0.022 better | −0.102 worse | ❌ |
-| **3w warm5+synth** | **ep75** | **+0.061 [+0.037, +0.085]** | −0.003 ns | +0.037 | ✅ |
-| 3w warm5+synth | ep150 | −0.059 [−0.088, −0.033] | +0.020 better | −0.033 worse | ❌ |
-| 2b warm5 lr0.01 | ep100 | +0.071 [+0.047, +0.094] | +0.007 ns | +0.046 | ✅ |
-| 2b warm5 lr0.01 | ep150 | −0.056 [−0.083, −0.030] | +0.023 better | −0.029 worse | ❌ |
+| **2 fine-tune** | **ep75** | **+0.085 [+0.062, +0.109]** | +0.002 ns | +0.052 | ✅ |
+| 2 fine-tune | ep100 | +0.072 [+0.048, +0.094] | +0.007 ns | +0.047 | ✅ |
+| 2 fine-tune | ep125 | +0.016 [−0.008, +0.039] ns | +0.015 better | +0.016 ns | ✅ |
+| 2 fine-tune | ep150 | −0.056 [−0.083, −0.030] | +0.023 better | −0.029 worse | ❌ |
+| A from scratch | ep75 | +0.100 [+0.075, +0.127] | **−0.027 worse** | +0.049 | ❌ |
+| **A from scratch** | **ep100** | **+0.092 [+0.068, +0.117]** | −0.006 ns | +0.053 | ✅ |
+| A from scratch | ep125 | +0.028 [+0.003, +0.055] | +0.008 ns | +0.021 | ✅ |
+| A from scratch | ep150 | −0.088 [−0.116, −0.059] | +0.022 better | −0.052 worse | ❌ |
+| **3 from scratch + renders** | **ep75** | **+0.065 [+0.043, +0.089]** | −0.013 ns | +0.035 | ✅ |
+| 3 from scratch + renders | ep150 | −0.154 [−0.182, −0.125] | +0.022 better | −0.102 worse | ❌ |
+| **3w fine-tune + renders** | **ep75** | **+0.061 [+0.037, +0.085]** | −0.003 ns | +0.037 | ✅ |
+| 3w fine-tune + renders | ep150 | −0.059 [−0.088, −0.033] | +0.020 better | −0.033 worse | ❌ |
+| 2b fine-tune, LR 0.01 | ep100 | +0.071 [+0.047, +0.094] | +0.007 ns | +0.046 | ✅ |
+| 2b fine-tune, LR 0.01 | ep150 | −0.056 [−0.083, −0.030] | +0.023 better | −0.029 worse | ❌ |
 
 **Every arm's fully-annealed ep150 fails the gate.** Not marginally — recall drops 0.056–0.154 while
 precision climbs to ~0.98. The models converge to something extremely conservative: they stop emitting
@@ -192,11 +204,11 @@ Baseline: recall **0.677**, precision 0.900, mAP50-95 0.452.
 
 | run | recall | precision | mAP50-95 |
 |---|---|---|---|
-| 2 warm5 (all ckpts) | **0.000** | 0.000 | 0.000 |
-| A cold5 (all ckpts) | **0.000** | 0.000 | 0.000 |
-| 2b warm5 lr0.01 (all ckpts) | **0.000** | 0.000 | 0.000 |
-| 3 cold5+synth ep125 | 0.078 | 0.966 | 0.060 |
-| 3w warm5+synth ep150 | 0.056 | 1.000 | 0.048 |
+| 2 fine-tune (all ckpts) | **0.000** | 0.000 | 0.000 |
+| A from scratch (all ckpts) | **0.000** | 0.000 | 0.000 |
+| 2b fine-tune, LR 0.01 (all ckpts) | **0.000** | 0.000 | 0.000 |
+| 3 from scratch + renders, ep125 | 0.078 | 0.966 | 0.060 |
+| 3w fine-tune + renders, ep150 | 0.056 | 1.000 | 0.048 |
 
 **Without synthetic renders, every arm scores exactly zero — it never emits `mrs_buff_mk3` in the cage
 at all.** This is not "poor performance," it is total absence, and it is corroborated at the instance
@@ -213,10 +225,10 @@ own training corpus. They are genuinely held out only for this experiment's runs
 
 | run | `hold_old` R / P / F1 | `hold_new` R / P / F1 |
 |---|---|---|
-| 2 warm5 | 0.802 / 0.922 / 0.858 | 0.685 / 0.839 / 0.754 |
-| A cold5 | 0.793 / 0.946 / 0.863 | **0.724 / 0.867 / 0.789** |
-| 3 cold5+synth | 0.788 / 0.918 / 0.848 | 0.721 / 0.863 / 0.786 |
-| 3w warm5+synth | **0.803 / 0.953 / 0.871** | 0.708 / 0.846 / 0.771 |
+| 2 fine-tune | 0.802 / 0.922 / 0.858 | 0.685 / 0.839 / 0.754 |
+| A from scratch | 0.793 / 0.946 / 0.863 | **0.724 / 0.867 / 0.789** |
+| 3 from scratch + renders | 0.788 / 0.918 / 0.848 | 0.721 / 0.863 / 0.786 |
+| 3w fine-tune + renders | **0.803 / 0.953 / 0.871** | 0.708 / 0.846 / 0.771 |
 | _baseline (in-sample)_ | _0.912 / 0.992 / 0.950_ | _0.906 / 0.976 / 0.940_ |
 
 **No catastrophic forgetting anywhere** — expected, since every arm trained on `old ∪ new`. Warm start
@@ -233,8 +245,9 @@ newer footage really is different, which is what makes the split worth having.
 **Stop at ep75–100 of 150. Never run the schedule to completion.**
 
 Every one of the four fully-annealed ep150 checkpoints fails the parity gate, three of them badly.
-The earliest passing checkpoint is **ep75** for warm5, cold5+synth and warm5+synth, and **ep100** for
-cold5 (its ep75 clears recall but loses precision significantly, −0.027). Since your requirement is
+The earliest passing checkpoint is **ep75** for the fine-tune run and both render runs, and **ep100**
+for the from-scratch run (its ep75 clears recall but loses precision significantly, −0.027). Since your
+requirement is
 non-inferiority rather than maximum score, ep75–100 is the answer, and the back half of the schedule is
 not just wasted compute — it actively destroys recall.
 
@@ -252,21 +265,22 @@ cross-run spread Phase A measured, so treat the *exact* crossing epoch as ±1 la
 **Quality: a tie. Speed: warm start reaches the gate one ladder step sooner, but only if you already
 own the checkpoint.**
 
-| | earliest passing ckpt | recall Δ | F1 Δ | training to that ckpt |
+| run | earliest passing ckpt | recall Δ | F1 Δ | training to that ckpt |
 |---|---|---|---|---|
-| warm5 | ep75 | +0.085 | +0.052 | **1.36 h** |
-| cold5 | ep100 | +0.092 | +0.053 | 1.82 h |
+| 2 — fine-tune | ep75 | +0.085 | +0.052 | **1.36 h** |
+| A — from scratch | ep100 | +0.092 | +0.053 | 1.82 h |
 
-The two are statistically indistinguishable on quality — cold5 has slightly higher recall, warm5
-slightly higher precision, F1 within 0.001. Warm start gets there in **25 % less time**, and that is
-the whole benefit.
+The two are statistically indistinguishable on quality — from scratch has slightly higher recall,
+fine-tune slightly higher precision, F1 within 0.001. Warm start gets there in **25 % less time**, and
+that is the whole benefit.
 
-**But the accounting matters.** Producing `C_old4` cost 1.38 h. Counted end to end, cold start is
+**But the accounting matters.** Producing run 1's checkpoint cost 1.38 h. Counted end to end, cold start is
 cheaper (1.82 h vs 2.74 h). Warm start wins only in the situation it actually models — you already have
 a deployed checkpoint and new footage has arrived, which is the real one.
 
-**The LR confound is nil**, which is a clean side result: `warm5lr01_ep100` (recall Δ +0.071, precision
-+0.007) is indistinguishable from `warm5_ep100` (+0.072, +0.007). Fine-tuning at `lr0` 0.01 and 0.001
+**The LR confound is nil**, which is a clean side result: fine-tuning at LR 0.01 (run 2b, ep100: recall
+Δ +0.071, precision +0.007) is indistinguishable from the same run at 0.001 (run 2, ep100: +0.072,
++0.007). Fine-tuning at `lr0` 0.01 and 0.001
 give the same model. That 2.7 h arm can be skipped in future work.
 
 ### How much synthetic data of our robots do I need to mix in? — **weak, but directionally clear**
@@ -492,23 +506,23 @@ Run from `training/yolo/` because `train.py` writes to a project path relative t
 ```bash
 cd training/yolo
 
-# Run 1 -- base4: cold from COCO, 4-class, on `old`
+# Run 1 -- from scratch (COCO weights), 4 classes, on `old`. Produces the fine-tune base.
 python3 train.py ../data/scenesplit_2026-07-25/old_4class.yml yolo26n \
     -e 150 --save-period 25 -d 0 1 2
 ```
 
 ```bash
-# Run 2 -- warm5: fine-tune C_old4, head grows 4 -> 5 classes, on `old+new`
+# Run 2 -- fine-tune run 1's ep100, head grows 4 -> 5 classes, on `old+new`
 python3 fine_tune_train.py ../data/scenesplit_2026-07-25/old+new.yml yolo26n \
-    -c <C_old4>.pt -e 150 --save-period 25 --lr0 0.001 --devices 0,1,2
+    -c <run1_ep100>.pt -e 150 --save-period 25 --lr0 0.001 --devices 0,1,2
 
-# Run A -- cold5: the control, cold from COCO, 5-class, same corpus
+# Run A -- the control: from scratch (COCO weights), 5 classes, same corpus as run 2
 python3 train.py ../data/scenesplit_2026-07-25/old+new.yml yolo26n \
     -e 150 --save-period 25 -d 0 1 2
 
-# Run 2b -- warm5 at the cold-start LR, to bound the lr0 confound
+# Run 2b -- run 2 again at the from-scratch LR, to bound the lr0 confound
 python3 fine_tune_train.py ../data/scenesplit_2026-07-25/old+new.yml yolo26n \
-    -c <C_old4>.pt -e 150 --save-period 25 --lr0 0.01 --devices 0,1,2
+    -c <run1_ep100>.pt -e 150 --save-period 25 --lr0 0.01 --devices 0,1,2
 
 cd ..  # back to repo root
 ```
@@ -637,7 +651,7 @@ python3 training/yolo/clear_image_cache.py --older-than 0     # everything not c
 
 ---
 
-## Run 1 (`base4`) — the pre-existing-roster model
+## Run 1 — from scratch on `old`, 4 classes: the pre-existing-roster model
 
 **150 epochs in 83 min** on 3× A6000 (14464 frames, batch 128, ~33 s/epoch). Ladder saved at
 ep{0,25,50,75,100,125} plus `last.pt` (= fully annealed ep150) and `best.pt`.
@@ -708,8 +722,8 @@ Baseline anchor: agnostic recall **0.742**, precision **0.962**, F1 **0.838**, m
 | ep150 (`last`, fully annealed) | 0.777 | 0.835 | 0.805 | 0.485 | 0.494 | 0.364 |
 | — baseline (5-class, full corpus) | 0.742 | 0.962 | 0.838 | 0.504 | 0.657 | 0.114 |
 
-**`C_old4` = `epoch100.pt`**, the best checkpoint by external eval, used as the warm base for runs 2
-and 2b.
+**Run 1's `epoch100.pt`** is the best checkpoint by external eval, and is the checkpoint runs 2, 3w and
+2b fine-tune from.
 
 Three readings:
 
