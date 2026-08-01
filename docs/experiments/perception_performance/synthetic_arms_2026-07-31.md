@@ -133,6 +133,38 @@ the robot's pixels:
 robot in its real arena (127 %), which is exactly its training distribution: robots on plain floors in
 rendered rooms. Real arena context is out-of-distribution for it.
 
+**Except the aggregate hides a reversal.** Retention depends strongly on how big the robot is on screen,
+and the arms differ only where the robot is small. Ratio of means within box-area quartiles:
+
+| stratum | box area | n | real_only | mixed | synth_only |
+|---|---|---|---|---|---|
+| Q1 smallest | ≤ 923 px² | 25 | **0.12** | **1.28** | 1.32 |
+| Q2 | ≤ 1,426 px² | 25 | 0.06 | 1.18 | 1.48 |
+| Q3 | ≤ 2,712 px² | 25 | 0.29 | 0.96 | 1.45 |
+| Q4 largest | > 2,712 px² | 25 | **0.63** | **0.60** | 0.90 |
+| all | — | 100 | 0.30 | 0.98 | 1.27 |
+
+For the **largest** quarter the three arms are effectively the same (0.63 / 0.60 / 0.90) — a close robot
+is detectable from its own pixels regardless of what it trained on. The entire 30 %-vs-98 % gap lives in
+the three smaller quartiles, where `real_only` collapses to 0.06–0.29 and `mixed` does not.
+
+So the sharper claim is: **for distant robots, `real_only` is almost entirely context-driven, and adding
+synthetic gives the model the ability to detect them from their own pixels.** That is the operationally
+important case — a distant opponent is exactly what you want detected early — and it is a more useful
+result than the aggregate suggested. It also plausibly explains the precision gain, since context-only
+evidence is what produces a confident box around no robot.
+
+**Two statistical caveats on the retention number.** It is a ratio of *means*, so high-scoring frames
+dominate; computed instead as a mean of per-frame ratios it reads 1.26 (`real_only`) and 3.80 (`mixed`),
+because frames where the model barely fires on the original produce enormous ratios. Neither summary is
+robust on its own — the quartile table is the honest version. And the gray canvas is out-of-distribution
+at its seam for every arm, so absolute values are a floor, not a point estimate.
+
+Example inputs: `assets/cutpaste_mosaic.png`, four rows spanning the box-area range (757 → 4,443 px²),
+one frame per bin, restricted to frames `real_only` detects at ≥ 0.15 — a cut-paste ratio on a box no
+arm found illustrates nothing. That selection governs only what is *shown*; every number above is over
+all 100 frames.
+
 This is a coherent mechanism for the headline precision gain. An appearance-keyed detector fires less on
 context-alone evidence, and `robot_removed` stays near zero for every arm (0.03–0.07), so context alone
 never produces a detection in any of them. Trading context-reliance for appearance-reliance is exactly
