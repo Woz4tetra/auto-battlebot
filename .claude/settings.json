@@ -27,6 +27,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/no_ai_slop_check.sh",
+            "statusMessage": "Checking wording"
+          }
+        ]
+      }
     ]
   }
 }

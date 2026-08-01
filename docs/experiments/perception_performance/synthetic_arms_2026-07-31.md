@@ -3,12 +3,12 @@
 Plan: `synthetic_arms_plan.md`. Replaces the retracted `synthetic_plus_bbox_2026-07-22.md`, whose
 "real" baseline was 34.6 % renders.
 
-**Headline:** on the independent eval, adding synthetic to a verifiably-real corpus **significantly
-improves precision (+0.047, CI [0.030, 0.065]) and F1 (+0.028), at no cost to recall**, and lifts both
-per-class APs. **But the pre-registered adopt criterion was recall, and recall did not move
-significantly** — so by the letter of the plan this is "neutral," and the precision gain is an
-*unregistered* finding that needs a confirmatory run before it drives a deployment decision. Synthetic
-alone remains far behind real (agnostic F1 0.545 vs 0.879).
+**Headline:** on the independent eval, adding synthetic to a verifiably-real corpus raises precision
+(+0.047, CI [0.030, 0.065]) and F1 (+0.028) at no cost to recall, and lifts both per-class APs. But the
+pre-registered adopt criterion was recall, and recall did not move significantly. By the letter of the
+plan this is "neutral," and the precision gain is an *unregistered* finding that needs a confirmatory
+run before it drives a deployment decision. Synthetic alone remains far behind real (agnostic F1 0.545
+vs 0.879).
 
 ## Provenance gate (reproduced before training)
 
@@ -38,8 +38,8 @@ Val (same-corpus scene-disjoint, secondary — does not decide anything):
 | synth_only | 0.1428 | 94 |
 | mixed | 0.6567 | 85 |
 
-Every arm peaked before epoch 100 and none was still rising, confirming the 100-epoch budget was
-adequate (as `data_scaling_2026-07-27` predicted).
+Every arm peaked before epoch 100 and none was still rising, so the 100-epoch budget was adequate (as
+`data_scaling_2026-07-27` predicted).
 
 ## Result: independent eval (primary)
 
@@ -69,8 +69,8 @@ guard was "house_bot must not drop more than 0.02"; it rose. Wrong-class rate fe
 
 At fixed epochs `mixed` sees 1.7× the frames, so 100 epochs is 1.7× the gradient steps. This was
 flagged before results were seen, with the resolution pre-chosen: compare at matched *steps* using the
-period-25 checkpoints. `real_only`@100 = 2.59 M frame-presentations, which brackets between
-`mixed`@ep50 (2.20 M) and `mixed`@ep75 (3.29 M).
+period-25 checkpoints. `real_only`@100 = 2.59 M frame-presentations, which `mixed`@ep50 (2.20 M) and
+`mixed`@ep75 (3.29 M) bracket.
 
 | candidate | frame-presentations | precision | recall | F1 | opponent AP | house_bot AP |
 |---|---|---|---|---|---|---|
@@ -78,11 +78,11 @@ period-25 checkpoints. `real_only`@100 = 2.59 M frame-presentations, which brack
 | **mixed @ep50** | **2.20 M** | **0.941** (+0.047, better) | 0.874 (+0.011, ns) | **0.907** (+0.028, better) | 0.526 | 0.721 |
 | mixed @ep75 | 3.29 M | 0.942 (+0.048, better) | 0.864 (0.000, ns) | 0.901 (+0.022, better) | 0.522 | 0.713 |
 
-**`mixed` at ep50 uses fewer gradient steps than the baseline and still wins precision and F1** — so the
-gain is not a step-count artifact. At matched steps the recall point estimate turns slightly *positive*
-(+0.011), which is a better picture than the ep100 comparison gives.
+`mixed` at ep50 uses fewer gradient steps than the baseline and still wins precision and F1, so the gain
+is not a step-count artifact. At matched steps the recall point estimate turns slightly *positive*
+(+0.011), a better picture than the ep100 comparison gives.
 
-## Decision-rule verdict — read this before citing the headline
+## Decision-rule verdict (read this before citing the headline)
 
 The plan fixed these rules in advance:
 
@@ -93,23 +93,23 @@ The plan fixed these rules in advance:
 - The house_bot guard passes (it rose).
 - So the registered verdict is **"neutral / keep real-only,"** exactly as written.
 
-What actually moved is **precision**, which the plan did not register. Choosing recall as the sole
-adopt metric looks in hindsight like the wrong choice — precision is what a targeting stack pays for in
-false locks — but changing the criterion after seeing which metric moved is how the previous experiment
-got over-read. So: **the precision result is promising and unconfirmed.** To promote it, pre-register
+What actually moved is precision, which the plan did not register. Choosing recall as the sole adopt
+metric looks in hindsight like the wrong choice, since precision is what a targeting stack pays for in
+false locks, but changing the criterion after seeing which metric moved is how the previous experiment
+got over-read. So the precision result is promising and unconfirmed. To promote it, pre-register
 precision/F1 and re-run with a second seed; a single seed cannot separate a +0.047 effect from
 run-to-run variance.
 
 ## What synth_only establishes
 
 Generic renders alone reach agnostic F1 **0.545** against real's 0.879, and opponent AP **0.317** against
-0.494 — a fifth to two-thirds of the way, depending on metric. Its `house_bot` AP is 0.000 because the
+0.494, a fifth to two-thirds of the way depending on the metric. Its `house_bot` AP is 0.000 because the
 synthetic contains no house bot; that is by construction, not failure, and is why its val mAP is not
 comparable to the other arms'.
 
 This bounds the mechanism: the renders place robots in HDRI rooms and on carpet, and the corrected
 cut-paste probe found the detector needs a scene coherent with the robot. A model trained only on that
-transfers poorly — yet mixed in with real data it still sharpens precision, which suggests the synthetic
+transfers poorly. Yet mixed in with real data it still sharpens precision, which suggests the synthetic
 contributes negative evidence ("this shape in this context is *not* a robot") more than positive
 appearance coverage. That reading is a hypothesis, not a measurement.
 
@@ -117,9 +117,9 @@ appearance coverage. That reading is a hypothesis, not a measurement.
 
 The probe from the retracted report (`interpret_context_vs_appearance.py --probes cut_paste`, donor-fix
 applied, 100 eval frames), now run on all three clean arms. Opponent score at the GT box, `--opp-channels
-0` because `robot` is channel 0 in the 2-class head. The revealing column is **gray retention** — how
-much of the original score survives when the surroundings are replaced by a neutral canvas, leaving only
-the robot's pixels:
+0` because `robot` is channel 0 in the 2-class head. The column that matters is gray retention, how much
+of the original score survives when the surroundings are replaced by a neutral canvas, leaving only the
+robot's pixels:
 
 | arm | original | crop on other arena | crop on gray | robot removed | **gray retention** |
 |---|---|---|---|---|---|
@@ -128,13 +128,13 @@ the robot's pixels:
 | synth_only | 0.604 | 0.687 | 0.770 | 0.072 | **127 %** |
 
 **A real-only detector needs context; a synthetic-trained one does not.** Strip the arena from
-`real_only` and 70 % of its evidence goes with it. Strip it from `mixed` and essentially nothing changes
-(98 % retained). `synth_only` goes *further* — it scores a robot on blank gray **higher** than the same
-robot in its real arena (127 %), which is exactly its training distribution: robots on plain floors in
-rendered rooms. Real arena context is out-of-distribution for it.
+`real_only` and 70 % of its evidence goes with it. Strip it from `mixed` and nothing much changes (98 %
+retained). `synth_only` goes further still, scoring a robot on blank gray *higher* than the same robot
+in its real arena (127 %), which is its training distribution: robots on plain floors in rendered rooms.
+Real arena context is out-of-distribution for it.
 
-**Except the aggregate hides a reversal.** Retention depends strongly on how big the robot is on screen,
-and the arms differ only where the robot is small. Ratio of means within box-area quartiles:
+The aggregate hides a reversal. Retention depends strongly on how big the robot is on screen, and the
+arms differ only where the robot is small. Ratio of means within box-area quartiles:
 
 | stratum | box area | n | real_only | mixed | synth_only |
 |---|---|---|---|---|---|
@@ -144,41 +144,41 @@ and the arms differ only where the robot is small. Ratio of means within box-are
 | Q4 largest | > 2,712 px² | 25 | **0.63** | **0.60** | 0.90 |
 | all | — | 100 | 0.30 | 0.98 | 1.27 |
 
-For the **largest** quarter the three arms are effectively the same (0.63 / 0.60 / 0.90) — a close robot
-is detectable from its own pixels regardless of what it trained on. The entire 30 %-vs-98 % gap lives in
-the three smaller quartiles, where `real_only` collapses to 0.06–0.29 and `mixed` does not.
+For the largest quarter the three arms are close (0.63 / 0.60 / 0.90). A nearby robot is detectable from
+its own pixels regardless of what it trained on. The entire 30 %-vs-98 % gap lives in the three smaller
+quartiles, where `real_only` collapses to 0.06–0.29 and `mixed` does not.
 
-So the sharper claim is: **for distant robots, `real_only` is almost entirely context-driven, and adding
-synthetic gives the model the ability to detect them from their own pixels.** That is the operationally
-important case — a distant opponent is exactly what you want detected early — and it is a more useful
-result than the aggregate suggested. It also plausibly explains the precision gain, since context-only
-evidence is what produces a confident box around no robot.
+So the sharper claim is that for distant robots, `real_only` is almost entirely context-driven, and
+adding synthetic lets the model detect them from their own pixels. That is the operationally important
+case (a distant opponent is what you want detected early), and a more useful result than the aggregate
+suggested. It also plausibly explains the precision gain, since context-only evidence is what produces
+a confident box around no robot.
 
-**Two statistical caveats on the retention number.** It is a ratio of *means*, so high-scoring frames
+Two statistical caveats on the retention number. It is a ratio of *means*, so high-scoring frames
 dominate; computed instead as a mean of per-frame ratios it reads 1.26 (`real_only`) and 3.80 (`mixed`),
 because frames where the model barely fires on the original produce enormous ratios. Neither summary is
-robust on its own — the quartile table is the honest version. And the gray canvas is out-of-distribution
+robust on its own; the quartile table is the honest version. And the gray canvas is out-of-distribution
 at its seam for every arm, so absolute values are a floor, not a point estimate.
 
 Example inputs: `assets/cutpaste_mosaic.png`, four rows spanning the box-area range (757 → 4,443 px²),
-one frame per bin, restricted to frames `real_only` detects at ≥ 0.15 — a cut-paste ratio on a box no
-arm found illustrates nothing. That selection governs only what is *shown*; every number above is over
-all 100 frames.
+one frame per bin, restricted to frames `real_only` detects at ≥ 0.15, since a cut-paste ratio on a box
+no arm found illustrates nothing. That selection governs only what is *shown*; every number above is
+over all 100 frames.
 
 This is a coherent mechanism for the headline precision gain. An appearance-keyed detector fires less on
 context-alone evidence, and `robot_removed` stays near zero for every arm (0.03–0.07), so context alone
-never produces a detection in any of them. Trading context-reliance for appearance-reliance is exactly
-what raises precision (+0.049) while leaving recall flat.
+never produces a detection in any of them. Trading context-reliance for appearance-reliance is what
+raises precision (+0.049) while leaving recall flat.
 
-**It also explains the retracted report's intermediate reading.** Its "real" baseline retained 50 % on
-gray — between this clean `real_only`'s 30 % and its own `mix_all`'s 69 %. That is what a
-34.6 %-synthetic corpus should produce, and it is independent confirmation of the contamination from a
-direction that has nothing to do with filenames. Cross-experiment magnitudes are not directly comparable
-(5-class vs 2-class, 500 vs 100 epochs), but the ordering within each is the same: **more synthetic in
-training → more appearance-reliance.**
+It also explains the retracted report's intermediate reading. Its "real" baseline retained 50 % on gray,
+between this clean `real_only`'s 30 % and its own `mix_all`'s 69 %. That is what a 34.6 %-synthetic
+corpus should produce, and it is independent confirmation of the contamination from a direction that has
+nothing to do with filenames. Cross-experiment magnitudes are not directly comparable (5-class vs
+2-class, 500 vs 100 epochs), but the ordering within each is the same: more synthetic in training → more
+appearance-reliance.
 
 Whether that trade is good depends on the failure mode you care about. It bought precision here. It also
-means `mixed` would degrade less gracefully if an opponent appeared in an unfamiliar arena — and more so
+means `mixed` would degrade less gracefully if an opponent appeared in an unfamiliar arena, and more so
 if an arena-shaped distractor appeared without a robot in it.
 
 ### The other three probes
@@ -195,7 +195,7 @@ saliency probes" for the method.
 | mixed | 4.57 | 0.44 | 1.01 | 39 |
 | **synth_only** | **28.84** | 2.25 | 0.92 | 36 |
 
-`synth_only` at **28.8×** is the pure-appearance detector made visible — an order of magnitude above the
+`synth_only` at 28.8× is the pure-appearance detector made visible, an order of magnitude above the
 others, and a direct hit on the calibration written into the method note ("a detector that keyed purely
 on the robot's own pixels would show an inside concentration in the tens"). Nothing in the earlier
 5-class work ever produced a model like this, because no arm was ever synthetic-only.
@@ -208,10 +208,10 @@ on the robot's own pixels would show an inside concentration in the tens"). Noth
 | mixed | 1.281 | 1.221 | 0.996 | 93 |
 | synth_only | 1.205 | 1.162 | 0.997 | 93 |
 
-RISE barely separates the arms — a 0.13 spread across models whose cut-paste behaviour differs by a
-factor of four. This is the resolution limit stated in the method note doing exactly what it was
-predicted to do: 640/8 = 80 px mask cells against ~90×60 px robot boxes cannot resolve inside-box from
-just-outside-it. **RISE should not be used to rank these arms.**
+RISE barely separates the arms, a 0.13 spread across models whose cut-paste behaviour differs by a
+factor of four. This is the resolution limit the method note predicted: 640/8 = 80 px mask cells against
+~90×60 px robot boxes cannot resolve inside-box from just-outside-it. **RISE should not be used to rank
+these arms.**
 
 **Feature space** (linear probe separating real from synthetic opponent crops in backbone embeddings):
 
@@ -221,7 +221,7 @@ just-outside-it. **RISE should not be used to rank these arms.**
 | synth_only | 0.918 | 0.004 |
 | **mixed** | **0.962** | 0.003 |
 
-**Training on the synthetic does not close the domain gap — it widens it.** `mixed` saw 17,995 rendered
+**Training on the synthetic widens the domain gap rather than closing it.** `mixed` saw 17,995 rendered
 frames and separates real from synthetic crops *better* than the arm that never saw one (0.962 vs
 0.944). The retracted report claimed this ("the synthetic is a persistent off-distribution mode") but
 could not support it, since its baseline was already a third synthetic and the probe was really
@@ -229,22 +229,22 @@ separating two render batches. On clean arms the claim holds, and holds more str
 
 ### Where the probes disagree, and what to trust
 
-Grad-CAM and cut-paste agree emphatically on `synth_only` (28.8× inside, 127 % gray retention: pure
-appearance) and **contradict each other on `real_only` vs `mixed`**. Cut-paste says `mixed` is far more
+Grad-CAM and cut-paste agree emphatically on `synth_only` (28.8× inside, 127 % gray retention, both pure
+appearance) and contradict each other on `real_only` vs `mixed`. Cut-paste says `mixed` is far more
 appearance-reliant (98 % vs 30 % gray retention); Grad-CAM says `mixed` is *less* box-focused (4.57 vs
 7.01), with its ring collapsing to 0.44 while `real_only`'s sits at 1.93.
 
-This is not resolved here. Two candidate explanations, neither tested: gradient saturation — `mixed` is
+This is not resolved here. Two candidate explanations, neither tested. Gradient saturation: `mixed` is
 the higher-confidence model, and a saturated sigmoid flattens the gradients Grad-CAM weights by, which
-would depress its CAM without any change in what the model uses; or the probes genuinely measure
-different things — cut-paste is a causal intervention (delete the context, observe the score),
-Grad-CAM is a local linearization that never removes anything.
+would depress its CAM without any change in what the model uses. Or the probes measure different
+things: cut-paste is a causal intervention (delete the context, observe the score), while Grad-CAM is a
+local linearization that never removes anything.
 
 **Weight the causal probe.** Cut-paste changes the input and reads the consequence; Grad-CAM infers
 from gradients at a single point and is the probe the earlier work already flagged as "coarse and known
 to be unreliable alone." The appearance-reliance conclusion rests on cut-paste, with Grad-CAM
 corroborating only the `synth_only` extreme. Settling the `real_only`-vs-`mixed` disagreement needs a
-probe that is causal and resolution-independent — e.g. sliding an occluder at fixed size and reading
+probe that is causal and resolution-independent, e.g. sliding an occluder at fixed size and reading
 score decay per distance from the box.
 
 ## Caveats

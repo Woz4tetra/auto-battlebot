@@ -20,6 +20,7 @@ libpcl-dev
 libffi-dev
 valgrind
 ripgrep
+jq
 
 # clang-format, clang-tidy and clangd are NOT listed here. The unversioned
 # packages differ per release and format the tree inconsistently, so they are
