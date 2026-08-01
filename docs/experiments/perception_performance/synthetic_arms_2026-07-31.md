@@ -113,6 +113,42 @@ transfers poorly — yet mixed in with real data it still sharpens precision, wh
 contributes negative evidence ("this shape in this context is *not* a robot") more than positive
 appearance coverage. That reading is a hypothesis, not a measurement.
 
+## Cut-paste probe: synthetic trades context-reliance for appearance-reliance
+
+The probe from the retracted report (`interpret_context_vs_appearance.py --probes cut_paste`, donor-fix
+applied, 100 eval frames), now run on all three clean arms. Opponent score at the GT box, `--opp-channels
+0` because `robot` is channel 0 in the 2-class head. The revealing column is **gray retention** — how
+much of the original score survives when the surroundings are replaced by a neutral canvas, leaving only
+the robot's pixels:
+
+| arm | original | crop on other arena | crop on gray | robot removed | **gray retention** |
+|---|---|---|---|---|---|
+| real_only | 0.731 | 0.484 | 0.217 | 0.030 | **30 %** |
+| mixed | 0.700 | 0.515 | 0.683 | 0.040 | **98 %** |
+| synth_only | 0.604 | 0.687 | 0.770 | 0.072 | **127 %** |
+
+**A real-only detector needs context; a synthetic-trained one does not.** Strip the arena from
+`real_only` and 70 % of its evidence goes with it. Strip it from `mixed` and essentially nothing changes
+(98 % retained). `synth_only` goes *further* — it scores a robot on blank gray **higher** than the same
+robot in its real arena (127 %), which is exactly its training distribution: robots on plain floors in
+rendered rooms. Real arena context is out-of-distribution for it.
+
+This is a coherent mechanism for the headline precision gain. An appearance-keyed detector fires less on
+context-alone evidence, and `robot_removed` stays near zero for every arm (0.03–0.07), so context alone
+never produces a detection in any of them. Trading context-reliance for appearance-reliance is exactly
+what raises precision (+0.049) while leaving recall flat.
+
+**It also explains the retracted report's intermediate reading.** Its "real" baseline retained 50 % on
+gray — between this clean `real_only`'s 30 % and its own `mix_all`'s 69 %. That is what a
+34.6 %-synthetic corpus should produce, and it is independent confirmation of the contamination from a
+direction that has nothing to do with filenames. Cross-experiment magnitudes are not directly comparable
+(5-class vs 2-class, 500 vs 100 epochs), but the ordering within each is the same: **more synthetic in
+training → more appearance-reliance.**
+
+Whether that trade is good depends on the failure mode you care about. It bought precision here. It also
+means `mixed` would degrade less gracefully if an opponent appeared in an unfamiliar arena — and more so
+if an arena-shaped distractor appeared without a robot in it.
+
 ## Caveats
 
 - **One seed per arm.** Every delta here is a single training run. The `synth_only` gap is far too large

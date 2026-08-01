@@ -50,7 +50,10 @@ from sklearn.preprocessing import StandardScaler
 from ultralytics import YOLO
 
 IMGSZ = 640
-OPP_CHANNELS = (0, 1)  # engine classes object, robot -> opponent bucket
+# Head channels that mean "opponent", set from --opp-channels. Default (0, 1) is the 5-class
+# vocabulary's `object` + `robot`; a 2-class model means just (0,) -- channel 1 is house_bot there,
+# and folding it in would score "found a house bot" as "found an opponent".
+OPP_CHANNELS = (0, 1)
 STRIDES = (8, 16, 32)
 GEN = torch.Generator(device="cpu").manual_seed(0)
 RNG = np.random.default_rng(0)
@@ -402,7 +405,7 @@ def opponent_crops(frames: list[dict], k: int) -> list[np.ndarray]:
     return crops
 
 
-def synth_crops(root: Path, k: int) -> list[np.ndarray]:
+def synth_crops(root: Path, k: int, synth_class: int) -> list[np.ndarray]:
     crops: list[np.ndarray] = []
     lbls = sorted((root / "train" / "labels").glob("*.txt"))
     RNG.shuffle(lbls)
@@ -411,7 +414,7 @@ def synth_crops(root: Path, k: int) -> list[np.ndarray]:
         if not img_path.exists():
             continue
         rows = [r.split() for r in lbl.read_text().splitlines() if r.strip()]
-        opp = [r for r in rows if int(float(r[0])) == 1]  # remapped nhrl_robot -> robot(1)
+        opp = [r for r in rows if int(float(r[0])) == synth_class]
         if not opp:
             continue
         img = cv2.cvtColor(cv2.imread(str(img_path)), cv2.COLOR_BGR2RGB)
@@ -500,49 +503,122 @@ def save_embedding_scatter(feats: dict, path: Path, title: str) -> None:
 # ----------------------------- main -----------------------------
 
 
+PROBES = ("rise", "cut_paste", "feature_space", "gradcam")
+
+
+def resolve_candidates(args: argparse.Namespace) -> list[tuple[str, str]]:
+    """`--candidate NAME=PT` entries, falling back to the legacy `--real`/`--mix` pair."""
+    candidates: list[tuple[str, str]] = []
+    for spec in args.candidate or []:
+        name, _, path = spec.partition("=")
+        if not path:
+            raise SystemExit(f"--candidate expects NAME=PT, got {spec!r}")
+        candidates.append((name, path))
+    if candidates:
+        return candidates
+    if not (args.real and args.mix):
+        raise SystemExit("pass --candidate NAME=PT (repeatable), or both --real and --mix")
+    return [("real_bbox", args.real), ("mix_all", args.mix)]
+
+
+def run_probes(
+    model: Model,
+    tag: str,
+    frames: list[dict],
+    crops: tuple[list, list, list],
+    probes: list[str],
+    args: argparse.Namespace,
+) -> dict:
+    """Run the selected probes against one model; returns its metrics block."""
+    out: dict = {}
+    if "rise" in probes:
+        r = rise(model, frames, args.rise_masks, args.rise_grid)
+        print("RISE:", {k: round(v, 3) for k, v in r["agg"].items()})
+        save_overlays(r["examples"], args.out / f"rise_{tag}.png", f"RISE saliency - {tag}")
+        out["rise"] = r["agg"]
+    if "cut_paste" in probes:
+        cp = cut_paste(model, frames)
+        print("cut-paste:", {k: round(v, 3) if isinstance(v, float) else v for k, v in cp.items()})
+        out["cut_paste"] = cp
+    if "feature_space" in probes:
+        fs = feature_space(model, *crops)
+        print("feature-space:", {k: round(v, 3) for k, v in fs.items() if k != "embeddings"})
+        save_embedding_scatter(fs, args.out / f"embed_{tag}.png", f"backbone embeddings - {tag}")
+        out["feature_space"] = {k: v for k, v in fs.items() if k != "embeddings"}
+    if "gradcam" in probes:
+        gc = gradcam_probe(model, frames, args.gradcam_k)
+        print("grad-cam:", {k: round(v, 3) for k, v in gc["agg"].items()})
+        save_overlays(gc["examples"], args.out / f"gradcam_{tag}.png", f"Grad-CAM - {tag}")
+        out["gradcam"] = gc["agg"]
+    return out
+
+
 def main() -> None:
+    global OPP_CHANNELS
     ap = argparse.ArgumentParser(description="Context-vs-appearance interpretability probes")
     ap.add_argument("--eval", type=Path, required=True)
-    ap.add_argument("--real", required=True)
-    ap.add_argument("--mix", required=True)
-    ap.add_argument("--synth", type=Path, required=True)
+    ap.add_argument(
+        "--candidate",
+        action="append",
+        metavar="NAME=PT",
+        help="Model to probe, repeatable. Supersedes --real/--mix.",
+    )
+    ap.add_argument("--real", help="Legacy two-model form; equivalent to --candidate real_bbox=...")
+    ap.add_argument("--mix", help="Legacy two-model form; equivalent to --candidate mix_all=...")
+    ap.add_argument("--synth", type=Path, help="Synthetic dataset (feature_space probe only)")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--frames", type=int, default=60)
     ap.add_argument("--rise-masks", type=int, default=400)
     ap.add_argument("--rise-grid", type=int, default=8)
     ap.add_argument("--gradcam-k", type=int, default=20)
     ap.add_argument("--crops", type=int, default=150)
+    ap.add_argument(
+        "--opp-channels",
+        default="0,1",
+        help="Head channels meaning 'opponent'. 5-class: 0,1 (object+robot). 2-class: 0 (robot).",
+    )
+    ap.add_argument(
+        "--synth-class",
+        type=int,
+        default=1,
+        help="Label class id of a synthetic opponent in --synth (5-class: 1, 2-class: 0)",
+    )
+    ap.add_argument(
+        "--probes",
+        default=",".join(PROBES),
+        help=f"Comma-separated subset of: {','.join(PROBES)}",
+    )
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
+    OPP_CHANNELS = tuple(int(c) for c in args.opp_channels.split(","))
+    probes = [p.strip() for p in args.probes.split(",") if p.strip()]
+    if unknown := set(probes) - set(PROBES):
+        raise SystemExit(f"unknown probe(s): {sorted(unknown)}; choose from {list(PROBES)}")
+
+    candidates = resolve_candidates(args)
+    if "feature_space" in probes and args.synth is None:
+        raise SystemExit("the feature_space probe needs --synth; drop it from --probes or pass one")
+
     frames = load_eval(args.eval, args.frames)
     print(f"loaded {len(frames)} eval frames with opponent boxes")
-    real_crops = opponent_crops(frames, args.crops)
-    synth = synth_crops(args.synth, args.crops)
-    bg = background_crops(frames, args.crops)
-    print(f"crops: real_opp={len(real_crops)} synth_opp={len(synth)} background={len(bg)}")
+    print(f"opponent channels {OPP_CHANNELS}, probes {probes}")
+    crops: tuple[list, list, list] = ([], [], [])
+    if "feature_space" in probes:
+        crops = (
+            opponent_crops(frames, args.crops),
+            synth_crops(cast(Path, args.synth), args.crops, args.synth_class),
+            background_crops(frames, args.crops),
+        )
+        print(
+            f"crops: real_opp={len(crops[0])} synth_opp={len(crops[1])} background={len(crops[2])}"
+        )
 
     results: dict = {}
-    for tag, pt in (("real_bbox", args.real), ("mix_all", args.mix)):
+    for tag, pt in candidates:
         print(f"\n===== {tag} =====")
         model = Model(pt)
-        r = rise(model, frames, args.rise_masks, args.rise_grid)
-        print("RISE:", {k: round(v, 3) for k, v in r["agg"].items()})
-        save_overlays(r["examples"], args.out / f"rise_{tag}.png", f"RISE saliency - {tag}")
-        cp = cut_paste(model, frames)
-        print("cut-paste:", {k: round(v, 3) if isinstance(v, float) else v for k, v in cp.items()})
-        fs = feature_space(model, real_crops, synth, bg)
-        print("feature-space:", {k: round(v, 3) for k, v in fs.items() if k != "embeddings"})
-        save_embedding_scatter(fs, args.out / f"embed_{tag}.png", f"backbone embeddings - {tag}")
-        gc = gradcam_probe(model, frames, args.gradcam_k)
-        print("grad-cam:", {k: round(v, 3) for k, v in gc["agg"].items()})
-        save_overlays(gc["examples"], args.out / f"gradcam_{tag}.png", f"Grad-CAM - {tag}")
-        results[tag] = {
-            "rise": r["agg"],
-            "cut_paste": cp,
-            "feature_space": {k: v for k, v in fs.items() if k != "embeddings"},
-            "gradcam": gc["agg"],
-        }
+        results[tag] = run_probes(model, tag, frames, crops, probes, args)
         del model
         torch.cuda.empty_cache()
 
