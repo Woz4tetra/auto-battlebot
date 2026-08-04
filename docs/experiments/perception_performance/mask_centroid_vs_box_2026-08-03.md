@@ -3,28 +3,44 @@
 Question for the blog post: when the YOLO-seg blob model emits a mask and a box for the same
 robot, does the mask centroid tell the pipeline anything the box center does not? It does not.
 The centroid sits 2.75 px from its own box center at the median, 2.5 % of the robot's own
-on-screen size, and when both are graded against hand-labeled ground truth the **box center is
-the better position estimate**, by 1.38 px (95 % CI [1.08, 1.71]).
+on-screen size.
 
-The second half of the run scores the seg baseline against the deployed-track 2-class mixed bbox
-model on the same eval set. The bbox model wins on every headline metric, so nothing is lost by
-throwing the mask head away.
+Graded against the point the aim controller actually wants, the keypoint front/back midpoint, the
+two are equally wrong. Mask centroid 9.91 px median, seg box center 11.10 px, and a hand-labeled
+GT box center 9.69 px. Every box-derived position misses the aim point by roughly 9 % of the
+robot's size, and the spread between the three ways of computing it is about 1 px. **The estimator
+choice is noise; the box-center-to-aim-point gap is the error that matters, and only the keypoint
+model closes it.**
+
+The run also scores the seg baseline against the deployed-track 2-class mixed bbox model on the
+same eval set. The bbox model wins on every headline metric, so nothing is lost by throwing the
+mask head away.
 
 ## Headline
 
 1. **The centroid lands on the box center.** Median offset 2.75 px (0.025 of the box's longer
    side). 87.6 % of detections fall within 5 % of that side, 99.3 % within 10 %. The worst
    detection in 817 is 31.5 px off, 17.7 % of its box.
-2. **The centroid is not more accurate, it is slightly less.** Against the GT box center, the
-   mask centroid errs 6.66 px mean / 4.70 px median; the seg box center errs 5.28 / 3.59. Paired
-   over the 741 robots the seg model found, the centroid is **+1.376 px worse** [+1.077, +1.710].
-3. **A bbox-only model matches the seg box center.** On the 698 robots both models found, the seg
-   box center and the 2-class mixed model's box center differ by +0.315 px [−0.030, +0.682],
-   **not significant**. All three estimates put the robot in the same place.
-4. **The bbox model is the better detector anyway.** Agnostic F1 0.893 vs 0.819, recall 0.847 vs
+2. **The aim point is not the box center, and no box-based method gets there.** A perfectly
+   labeled GT box center still sits **0.088 of the robot's size (9.69 px median)** from the
+   keypoint midpoint. That is 3.5x the centroid-to-box-center offset and it is irreducible: it is
+   a property of boxes, not of detection error.
+3. **Which box-derived point you pick barely matters.** Median distance to the aim point: mask
+   centroid 0.085, GT box center 0.088, bbox-only model 0.088, seg box center 0.091. All four sit
+   inside a 0.006 band while each carries ~0.09 of error.
+4. **The ranking flips with the reference, and the flip is smaller than the error.** Against the
+   GT box center the seg box center wins by 1.38 px [1.08, 1.71]; against the keypoint midpoint the
+   mask centroid wins by 1.20 px [0.88, 1.51]. Both deltas are ~1 px out of ~10. Read this as a
+   tie, not as evidence for either.
+5. **A bbox-only model matches the seg box center.** On the 698 robots both models found they
+   differ by +0.315 px [−0.030, +0.682] against the GT box center and −0.211 px [−0.500, +0.120]
+   against the aim point, **not significant** either way.
+6. **The bbox model is the better detector anyway.** Agnostic F1 0.893 vs 0.819, recall 0.847 vs
    0.756, precision 0.944 vs 0.894, mAP50-95 0.560 vs 0.517.
 
 ![centroid offset and position error](assets/2026-08-03_mask_centroid/mask_centroid_vs_box.png)
+
+![distance to the keypoint midpoint](assets/2026-08-03_mask_centroid/keypoint_midpoint_error.png)
 
 ## Setup
 
@@ -40,6 +56,18 @@ throwing the mask head away.
 Offsets are normalized by the box's longer side, the same convention `score.py` uses for keypoint
 PCK. A typical robot box on this eval set is 122 px on its longer side (p10 59, p90 242), so 0.025
 is about 3 px.
+
+Two reference points grade the position estimates:
+
+- **GT box center**, the center of the hand-drawn label box. This is what the labels encode and
+  what IoU matching is built on.
+- **Keypoint front/back midpoint**, the middle of the chassis along the robot's heading axis. This
+  is the point the aim controller steers at.
+
+All 1026 GT boxes carry front and back keypoints at visibility 2, opponents and house bots
+included, with a median front-to-back separation of 0.53 of the box's longer side. None are
+editor-seeded stubs sitting at the box center, so the midpoint is a real second reference across
+the whole eval set rather than an our-robots-only subset.
 
 ## Result 1: the centroid sits on the box center
 
@@ -104,9 +132,60 @@ The centroid loses because a robot silhouette is not symmetric. A spinning weapo
 partly occluded chassis pulls the pixel mass off center while the box stays anchored to the
 extremes. Part of the gap is the metric: the labeler drew tight rectangles, so the box center is
 the quantity ground truth encodes, and an estimator that reports a box center starts with an
-advantage. The pipeline consumes a box center too, which is why this is the scale that matters.
+advantage. Result 3 grades the same estimates against a reference that has no such bias.
 
-## Result 3: seg baseline vs 2-class mixed bbox model
+## Result 3: distance to the keypoint midpoint, the aim point
+
+The front/back keypoint midpoint is where the aim controller wants to put the crosshair. Grading
+every estimate against it adds a fourth row, the GT box center itself, which carries zero detection
+error and shows what a box can do at best.
+
+| estimate | n | mean (px) | median (px) | mean (norm) | median (norm) | p90 (norm) |
+|---|---|---|---|---|---|---|
+| seg mask centroid | 741 | 16.09 | 9.91 | 0.108 | **0.085** | 0.209 |
+| seg box center | 741 | 17.29 | 11.10 | 0.113 | 0.091 | 0.213 |
+| bbox-only model box center | 865 | 15.85 | 9.63 | 0.108 | 0.088 | 0.204 |
+| **GT box center (the label itself)** | 1026 | 15.45 | 9.69 | 0.107 | 0.088 | 0.202 |
+
+Paired bootstrap (1000 resamples, 95 % CI), same convention as Result 2:
+
+| comparison | n | delta (px) | 95 % CI | verdict |
+|---|---|---|---|---|
+| mask centroid − seg box center | 741 | −1.201 | [−1.510, −0.879] | mask centroid better |
+| mask centroid − bbox-only model | 698 | −1.378 | [−1.856, −0.953] | mask centroid better |
+| mask centroid − GT box center | 741 | −0.932 | [−1.438, −0.423] | mask centroid better |
+| seg box center − bbox-only model | 698 | −0.211 | [−0.500, +0.120] | ns |
+| seg box center − GT box center | 741 | +0.269 | [−0.071, +0.667] | ns |
+
+Two things to take from this table, in order of size.
+
+**The floor dominates.** The GT box center is a hand-drawn label with no detection error in it, and
+it still misses the aim point by 9.69 px, 0.088 of the robot's size. Every estimator lands within
+1.7 px of that floor. Whatever you compute from a bounding box, you inherit the fact that the
+center of a rectangle around a robot is not the middle of the robot.
+
+**The centroid's win is real but small.** It beats the seg box center by 1.20 px and even beats the
+perfect GT box center by 0.93 px, both with CIs clear of zero. That is the mask doing its job: pixel
+mass tracks the chassis, while the enclosing rectangle gets stretched by a protruding weapon or arm.
+But 1 px against a 10 px error does not change any downstream decision, and the sign flips depending
+on which reference you grade against (Result 2 has the box center ahead by a similar margin). Treat
+the three box-derived estimates as tied.
+
+Per class, the floor is what varies, not the estimator:
+
+| class | n | mask centroid | seg box center | bbox model | GT box center |
+|---|---|---|---|---|---|
+| house_bot | 206 | 0.195 | 0.195 | 0.196 | 0.199 |
+| opponent | 461 | 0.076 | 0.077 | 0.086 | 0.079 |
+| mrs_buff_mk3 | 359 | 0.062 | 0.069 | 0.068 | 0.073 |
+
+Median distance to the aim point, normalized by the GT box's longer side. House bots are the outlier
+at 0.199, more than twice the other classes, and all four estimators are equally far off on them.
+The NHRL house bots are long and asymmetric, so the midpoint of their chassis sits well away from
+the center of the rectangle that encloses them. Columns are medians over each class's own matched
+subset, so rows do not have identical n across columns.
+
+## Result 4: seg baseline vs 2-class mixed bbox model
 
 Two separate `score.py` runs. `--labels` is one shared mapping for all candidates, so a 5-class and
 a 2-class engine cannot share a run, which also means no paired bootstrap between them.
@@ -138,18 +217,25 @@ wrong-class rate against the seg model's 0.153).
 
 - **The centroid analysis runs through ultralytics on the `.pt` weights, not the TensorRT engine.**
   `TrtYoloModel` discards the mask coefficients, so there is no engine path to a mask. Detection
-  counts from this path differ slightly from the engine runs in Result 3. The offsets are still
+  counts from this path differ slightly from the engine runs in Result 4. The offsets are still
   self-consistent because centroid and box come from the same forward pass.
 - **Offsets are measured only where the seg model fired.** The 285 GT robots it missed contribute
   nothing here, so this says nothing about whether a mask would help on hard detections.
+- **The keypoint midpoint is hand-labeled ground truth, not a model output.** Result 3 measures how
+  far box-derived positions sit from the aim point, not how well the deployed pose model finds it.
+  The pose model's own keypoint error is a separate measurement (`score.py`'s `kp_err_px`).
+- **The midpoint is a proxy for the chassis center, not a verified one.** It is the average of two
+  labeled points on the robot's heading axis. For a robot whose front and back keypoints are not
+  symmetric about its true center of rotation, the midpoint carries that asymmetry.
 - **35 detections are labeled `mr_stabs_mk2`, which does not appear in these fights.** They are
   misclassifications of other robots. Their mask-vs-box geometry is still valid, so they stay in
   the offset tables and are called out in the per-class row.
-- **No paired significance between the two models** for the reason above. The accuracy comparison
-  in Result 3 is two independent runs on identical frames, not a paired bootstrap.
-- **Ground truth is axis-aligned boxes.** A mask-based GT would grade the centroid differently.
-  Boxes are what the labeling tool produces and what target selection consumes, so this is the
-  relevant scale.
+- **No paired significance between the two models** in Result 4, because `--labels` is one shared
+  mapping and the engines have different class counts. That comparison is two independent runs on
+  identical frames.
+- **The two references disagree about which estimate wins,** by about a pixel in each direction.
+  The GT box center reference favors box centers by construction; the keypoint midpoint favors the
+  centroid slightly. Neither margin is large enough to act on, which is the finding.
 
 ## Reproduce
 
@@ -179,9 +265,9 @@ python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
 
 - Tool: `training/model_eval/mask_centroid_vs_box.py` (new)
 - Scores: `training/data/nhrl_keypoints_eval_test/scores_mask_centroid_2026-08-03/{centroid,seg,bbox}/`
-- Report assets: `assets/2026-08-03_mask_centroid/{mask_centroid_vs_box.png, centroid_summary.csv, summary_seg_baseline.csv, summary_bbox_2class_mixed.csv, headline_*.png}`
+- Report assets: `assets/2026-08-03_mask_centroid/{mask_centroid_vs_box.png, keypoint_midpoint_error.png, centroid_summary.csv, summary_seg_baseline.csv, summary_bbox_2class_mixed.csv, headline_*.png}`
 - Per-detection offsets: `.../centroid/centroid_offsets.csv` (817 rows)
-- Per-GT-box position errors: `.../centroid/position_errors.csv` (1026 rows)
+- Per-GT-box position errors: `.../centroid/position_errors.csv` (1026 rows, `err_<reference>_<estimator>_{px,norm}` columns for references `gtbox` and `kpmid`)
 
 ## Related
 
@@ -189,3 +275,6 @@ python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
   ~18 % faster. This report closes the remaining gap in that argument: the mask output the head
   was computing carried no position information the box did not already have.
 - `synthetic_arms_2026-07-31.md` is where the 2-class mixed model comes from.
+- `box_pose_vs_blob_2026-07-14.md` and `all_robots_pose_2026-07-14.md` cover the keypoint model that
+  produces the aim point at runtime. Result 3 is the argument for keeping it: the 0.088 gap between
+  any box center and the keypoint midpoint is what that model exists to close.

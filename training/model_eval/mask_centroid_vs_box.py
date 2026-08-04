@@ -38,7 +38,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from score import Frame, Taxonomy, load_gt, match_indices
+from score import BACK_IDX, FRONT_IDX, Frame, Taxonomy, load_gt, match_indices
 
 # Categorical slots 1-3 of the validated default palette, in fixed order.
 SERIES_COLORS = ("#2a78d6", "#eb6834", "#1baf7a")
@@ -50,6 +50,33 @@ TEXT_SECONDARY = "#52514e"
 NEAR_THRESHOLDS = (0.02, 0.05, 0.1)
 
 MASK_BINARY_THRESHOLD = 0.5
+
+# The two points an estimate can be graded against. The GT box center is what the labels
+# encode; the keypoint midpoint is what the aim controller is steering at.
+REFERENCES = {
+    "gtbox": "the GT box center",
+    "kpmid": "the keypoint front/back midpoint",
+}
+
+# Display names, in the order they appear in tables and the plot.
+ESTIMATORS = {
+    "centroid": "mask centroid",
+    "seg_boxcenter": "seg box center",
+    "bbox_model": "bbox-only model",
+    "gt_boxcenter": "GT box center",
+}
+
+COMPARISONS = (
+    ("centroid", "seg_boxcenter"),
+    ("centroid", "bbox_model"),
+    ("seg_boxcenter", "bbox_model"),
+    ("centroid", "gt_boxcenter"),
+    ("seg_boxcenter", "gt_boxcenter"),
+)
+
+# `gt_boxcenter` is the GT box center, so grading it against the `gtbox` reference is
+# identically zero. Report it only against the keypoint midpoint.
+DEGENERATE = {("gtbox", "gt_boxcenter")}
 
 
 def box_centers(boxes: np.ndarray) -> np.ndarray:
@@ -187,19 +214,35 @@ def centroid_rows(
     return rows, centroids
 
 
+def keypoint_midpoints(gt_keypoints: list[np.ndarray]) -> np.ndarray:
+    """(N, 2) front/back keypoint midpoint per GT box, NaN where either end is unlabeled.
+
+    This is the point the aim controller actually wants: the middle of the robot chassis
+    along its heading axis, which is not the same as the center of its bounding box."""
+    mids = np.full((len(gt_keypoints), 2), np.nan)
+    for i, kps in enumerate(gt_keypoints):
+        if len(kps) <= max(FRONT_IDX, BACK_IDX):
+            continue
+        if kps[FRONT_IDX, 2] <= 0 or kps[BACK_IDX, 2] <= 0:
+            continue
+        mids[i] = (kps[FRONT_IDX, :2] + kps[BACK_IDX, :2]) / 2
+    return mids
+
+
 def error_rows(
     stamp: int,
     gt_labels: list[str],
-    gt_centers: np.ndarray,
     gt_sides: np.ndarray,
+    references: dict[str, np.ndarray],
     estimates: dict[str, np.ndarray],
     pairs: dict[str, dict[int, int]],
 ) -> list[dict]:
-    """One row per GT box: distance from each estimator's position to the GT box center.
+    """One row per GT box: distance from each estimator to each reference point.
 
-    `estimates` holds an (N, 2) position array per estimator and `pairs` the matching
-    {gt index: prediction index}. An estimator that did not match a GT box, or whose
-    position is NaN, leaves its column empty for that row."""
+    `references` holds an (N, 2) target per GT box (the GT box center, the keypoint
+    midpoint), `estimates` an (N, 2) position array per estimator, and `pairs` the
+    matching {gt index: prediction index}. Emits `err_<reference>_<estimator>_px`, left
+    empty when the estimator did not match that GT box or either point is NaN."""
     rows = []
     for g in range(len(gt_labels)):
         row: dict = {
@@ -208,12 +251,17 @@ def error_rows(
             "gt_longer_side_px": gt_sides[g],
             "seg_matched": g in pairs["centroid"],
             "bbox_matched": g in pairs["bbox_model"],
+            "has_keypoints": bool(np.isfinite(references["kpmid"][g, 0])),
         }
-        for name, positions in estimates.items():
-            p = pairs[name].get(g)
-            if p is None or np.isnan(positions[p, 0]):
+        for ref_name, targets in references.items():
+            if np.isnan(targets[g, 0]):
                 continue
-            row[f"err_{name}_px"] = float(np.hypot(*(positions[p] - gt_centers[g])))
+            for name, positions in estimates.items():
+                p = pairs[name].get(g)
+                if p is None or np.isnan(positions[p, 0]):
+                    continue
+                distance = float(np.hypot(*(positions[p] - targets[g])))
+                row[f"err_{ref_name}_{name}_px"] = distance
         rows.append(row)
     return rows
 
@@ -241,7 +289,7 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     offset_rows = []
     matched_rows = []
-    for stamp, (gt_boxes_all, gt_labels_all, _) in gt_frames.items():
+    for stamp, (gt_boxes_all, gt_labels_all, gt_kps_all) in gt_frames.items():
         image = cv2.imread(str(images[stamp]))
         if image is None:
             raise SystemExit(f"Failed to read image {images[stamp]}")
@@ -250,6 +298,7 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
         gt_labels = [gt_labels_all[i] for i in gt_idx]
         gt_centers = box_centers(gt_boxes)
         gt_sides = longer_sides(gt_boxes)
+        gt_mids = keypoint_midpoints([gt_kps_all[i] for i in gt_idx])
 
         boxes, scores, labels, masks = detect(
             seg_model, image, seg_labels, taxonomy, args, want_masks=True
@@ -270,22 +319,34 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
             bbox_centers = box_centers(b_boxes)
             bbox_pairs = gt_matches(gt_boxes, gt_labels, b_boxes, b_labels, b_scores, args.iou)
 
+        # The GT box center is itself an estimator of the aim point, and the best any
+        # box-based method can do: it is the label, with no detection error in it.
+        identity = dict(enumerate(range(len(gt_boxes))))
         matched_rows.extend(
             error_rows(
                 stamp,
                 gt_labels,
-                gt_centers,
                 gt_sides,
-                {"centroid": centroids, "seg_boxcenter": centers, "bbox_model": bbox_centers},
-                {"centroid": seg_pairs, "seg_boxcenter": seg_pairs, "bbox_model": bbox_pairs},
+                {"gtbox": gt_centers, "kpmid": gt_mids},
+                {
+                    "centroid": centroids,
+                    "seg_boxcenter": centers,
+                    "bbox_model": bbox_centers,
+                    "gt_boxcenter": gt_centers,
+                },
+                {
+                    "centroid": seg_pairs,
+                    "seg_boxcenter": seg_pairs,
+                    "bbox_model": bbox_pairs,
+                    "gt_boxcenter": identity,
+                },
             )
         )
 
     offsets = pd.DataFrame(offset_rows)
     matched = pd.DataFrame(matched_rows)
-    for column in ("err_centroid_px", "err_seg_boxcenter_px", "err_bbox_model_px"):
-        if column in matched:
-            matched[column.replace("_px", "_norm")] = matched[column] / matched["gt_longer_side_px"]
+    for column in [c for c in matched.columns if c.endswith("_px") and c.startswith("err_")]:
+        matched[column.replace("_px", "_norm")] = matched[column] / matched["gt_longer_side_px"]
     return offsets, matched
 
 
@@ -329,20 +390,12 @@ def summarize(
         ("mask_fill_frac", offsets["mask_fill_frac"].to_numpy()),
     ):
         rows.append({"quantity": name, **describe(values)})
-    for column, name in (
-        ("err_centroid_norm", "gt_err_mask_centroid_norm"),
-        ("err_seg_boxcenter_norm", "gt_err_seg_boxcenter_norm"),
-        ("err_bbox_model_norm", "gt_err_bbox_model_norm"),
-    ):
-        if column in matched:
-            rows.append({"quantity": name, **describe(matched[column].to_numpy())})
-    for column, name in (
-        ("err_centroid_px", "gt_err_mask_centroid_px"),
-        ("err_seg_boxcenter_px", "gt_err_seg_boxcenter_px"),
-        ("err_bbox_model_px", "gt_err_bbox_model_px"),
-    ):
-        if column in matched:
-            rows.append({"quantity": name, **describe(matched[column].to_numpy())})
+    for suffix in ("_norm", "_px"):
+        for reference in REFERENCES:
+            for estimator in ESTIMATORS:
+                column = f"err_{reference}_{estimator}{suffix}"
+                if column in matched and (reference, estimator) not in DEGENERATE:
+                    rows.append({"quantity": column, **describe(matched[column].to_numpy())})
     summary = pd.DataFrame(rows)
 
     print("\nMask centroid vs its own box center, per seg detection:")
@@ -352,13 +405,19 @@ def summarize(
     print(summary.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
 
     conf_pct = round(100 * (1 - args.alpha))
-    comparisons = [
-        ("mask centroid", "err_centroid_px", "seg box center", "err_seg_boxcenter_px"),
-        ("mask centroid", "err_centroid_px", "bbox-only model", "err_bbox_model_px"),
-        ("seg box center", "err_seg_boxcenter_px", "bbox-only model", "err_bbox_model_px"),
-    ]
-    print(f"\nGT-center error deltas, over GT boxes both estimators matched ({conf_pct}% CI):")
-    for a_name, a_col, b_name, b_col in comparisons:
+    for reference, reference_label in REFERENCES.items():
+        print(f"\nError vs {reference_label}, paired over GT boxes both matched ({conf_pct}% CI):")
+        print_comparisons(matched, reference, args)
+    return summary
+
+
+def print_comparisons(matched: pd.DataFrame, reference: str, args: argparse.Namespace) -> None:
+    """Paired-bootstrap delta between every estimator pair, under one reference point."""
+    for a, b in COMPARISONS:
+        if (reference, a) in DEGENERATE or (reference, b) in DEGENERATE:
+            continue
+        a_col = f"err_{reference}_{a}_px"
+        b_col = f"err_{reference}_{b}_px"
         if a_col not in matched or b_col not in matched:
             continue
         pairs = matched[[a_col, b_col]].dropna()
@@ -371,14 +430,12 @@ def summarize(
             args.seed,
             args.alpha,
         )
-        verdict = (
-            "ns" if low <= 0 <= high else (f"{a_name} better" if delta < 0 else f"{b_name} better")
-        )
+        better = ESTIMATORS[a] if delta < 0 else ESTIMATORS[b]
+        verdict = "ns" if low <= 0 <= high else f"{better} better"
         print(
-            f"  {a_name} - {b_name} (n={len(pairs)}): {delta:+.3f} px "
+            f"  {ESTIMATORS[a]} - {ESTIMATORS[b]} (n={len(pairs)}): {delta:+.3f} px "
             f"[{low:+.3f}, {high:+.3f}] -> {verdict}"
         )
-    return summary
 
 
 def _ecdf(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -421,17 +478,18 @@ def plot(offsets: pd.DataFrame, matched: pd.DataFrame, output: Path) -> None:
     _style(left)
 
     series = [
-        ("mask centroid", "err_centroid_norm", SERIES_COLORS[0]),
-        ("seg box center", "err_seg_boxcenter_norm", SERIES_COLORS[1]),
-        ("bbox-only model", "err_bbox_model_norm", SERIES_COLORS[2]),
+        ("centroid", SERIES_COLORS[0]),
+        ("seg_boxcenter", SERIES_COLORS[1]),
+        ("bbox_model", SERIES_COLORS[2]),
     ]
-    for label, column, color in series:
+    for estimator, color in series:
+        column = f"err_gtbox_{estimator}_norm"
         if column not in matched:
             continue
         x, y = _ecdf(matched[column].to_numpy())
         if len(x) == 0:
             continue
-        right.plot(x, y, color=color, linewidth=2, label=label)
+        right.plot(x, y, color=color, linewidth=2, label=ESTIMATORS[estimator])
     right.set_xlim(0, 0.25)
     right.set_ylim(0, 1.02)
     right.set_xlabel("distance to ground-truth box center (fraction of GT box's longer side)")
@@ -442,6 +500,47 @@ def plot(offsets: pd.DataFrame, matched: pd.DataFrame, output: Path) -> None:
 
     fig.tight_layout()
     fig.savefig(output / "mask_centroid_vs_box.png", dpi=150)
+    plt.close(fig)
+
+
+def plot_keypoint_reference(matched: pd.DataFrame, output: Path) -> None:
+    """Distance from each position estimate to the keypoint midpoint, the true aim point.
+
+    A dot plot rather than overlaid ECDFs: four categories against one measure reads
+    better as rows, and it keeps the series count inside the validated palette's
+    all-pairs cap."""
+    estimators = [e for e in ESTIMATORS if f"err_kpmid_{e}_norm" in matched]
+    if not estimators:
+        return
+    fig, ax = plt.subplots(figsize=(9, 0.85 * len(estimators) + 2.2))
+    positions = np.arange(len(estimators))[::-1]
+    for pos, estimator in zip(positions, estimators):
+        values = matched[f"err_kpmid_{estimator}_norm"].dropna().to_numpy()
+        median = float(np.median(values))
+        p10, p90 = np.percentile(values, [10, 90])
+        ax.plot([p10, p90], [pos, pos], color=SERIES_COLORS[0], linewidth=2, alpha=0.35)
+        ax.plot([median], [pos], "o", color=SERIES_COLORS[0], markersize=10)
+        ax.annotate(
+            f"{median:.3f}  (n={len(values)})",
+            xy=(median, pos),
+            xytext=(0, 14),
+            textcoords="offset points",
+            ha="center",
+            color=TEXT_SECONDARY,
+            fontsize=9,
+        )
+    ax.set_yticks(positions, [ESTIMATORS[e] for e in estimators])
+    ax.set_ylim(-0.6, len(estimators) - 0.4)
+    ax.set_xlim(left=0)
+    ax.set_xlabel(
+        "distance to keypoint front/back midpoint (fraction of GT box's longer side)\n"
+        "dot = median, bar = p10-p90"
+    )
+    ax.set_title("Every box-based estimate misses the aim point by the same margin", loc="left")
+    _style(ax)
+    ax.grid(axis="y", visible=False)
+    fig.tight_layout()
+    fig.savefig(output / "keypoint_midpoint_error.png", dpi=150)
     plt.close(fig)
 
 
@@ -477,9 +576,10 @@ def main() -> None:
     matched.to_csv(args.output / "position_errors.csv", index=False)
     summary.to_csv(args.output / "centroid_summary.csv", index=False)
     plot(offsets, matched, args.output)
+    plot_keypoint_reference(matched, args.output)
     print(
         f"\nWrote {args.output}/{{centroid_offsets.csv, position_errors.csv, "
-        "centroid_summary.csv, mask_centroid_vs_box.png}"
+        "centroid_summary.csv, mask_centroid_vs_box.png, keypoint_midpoint_error.png}"
     )
 
 
