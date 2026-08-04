@@ -1,9 +1,10 @@
-# Don't use Meshy AI models for synthetic data
+# Don't use Meshy AI models for synthetic data if there's no real data to back it up
 
-Meshy models work only if the output render is actually a close visual match to the real robot.
-It fails if the render is poor or if the builder modified the robot.
-For this reason, this method for keypoints will not work for my application.
-It did slightly improve results for bounding box detection.
+Meshy models work only if the output render is actually a close visual match to the real robot or there's real data
+to reinforce it.
+If there's no real data, it fails if the render is poor or if the builder modified the robot.
+If I can collect massive amounts of keypoint data without labeling manually, this method will work for keypoints.
+Since I have this for bounding box data, it did slightly improve results for bounding box detection.
 
 docs/experiments/perception_performance/meshy_grade_2026-07-16.md
 docs/experiments/perception_performance/synthetic_arms_2026-07-31.md

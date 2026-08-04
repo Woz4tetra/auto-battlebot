@@ -16,6 +16,11 @@ Two ways to build ground truth:
 Either way, `edit_labels.py` is the editor, and only frames you mark reviewed count as
 ground truth when scoring.
 
+To add a new fight recording to `nhrl_keypoints_eval_test`, follow
+[docs/adding_eval_recordings.md](../../docs/adding_eval_recordings.md). It covers the full
+run, from merging the SVO through camera transforms and the push to megamind. The workflow
+below is the shorter version for labeling and scoring an existing dataset.
+
 ## Workflow
 
 1. Build a dataset to label. From scratch:
@@ -87,6 +92,48 @@ default in both).
   ("named it right") per candidate. The gap is the cost of splitting `OPPONENT`.
 - `confusion_<candidate>_<level>.png`: right-box-wrong-class matrix at the IoU threshold.
 - `significance.csv` (two or more candidates): paired-bootstrap deltas and verdicts.
+
+## Camera geometry
+
+`export_camera_transforms.py` adds camera pose and intrinsics to an eval dataset without
+touching its images or labels:
+
+```bash
+python training/model_eval/export_camera_transforms.py --dry-run   # report coverage only
+python training/model_eval/export_camera_transforms.py
+```
+
+Per sub dataset it writes `camera_info.json` (intrinsics, constant over the recording) and
+`camera_transforms/<stamp_ns>.json` (one per image, carrying `tf_field_from_camera` plus the
+two transforms it composes). Multiply a point in the camera frame by `tf_field_from_camera`
+to get it in the field frame.
+
+Check the `method` field before trusting a transform:
+
+| method | meaning | count in `nhrl_keypoints_eval_test` |
+|---|---|---|
+| `exact` | one processed frame owns this image's frame index | 445 |
+| `interpolated` | pipeline skipped the frame; slerp/lerp between neighbours | 146 |
+| `ambiguous` | two processed frames claim the index (05-01 only) | 14 |
+| `unavailable` | no field frame yet, or nothing to interpolate from | 17 |
+
+Each record also carries `field_size_m`, the extents the RANSAC plane fit measured at that
+frame's field init. Treat it as what the pipeline believed, not as arena ground truth: the
+real arena is an 8 ft (2.44 m) square, and the fit reads undersized on most frames
+(2.25 x 1.98 m on 10-06-02). Across inits it ranges 1.96-2.35 m in x and 1.43-2.24 m in y on
+that recording alone, and other recordings contain outright failed fits (0.27 x 0.15 m,
+0.56 x 3.13 m). No failed init covers a sampled image, but the estimate is noisy. The pose is
+the trustworthy part: projecting a nominal 8 ft square through `tf_field_from_camera` lands on
+the arena walls.
+
+The pipeline ran at ~25 fps against 30 fps capture, which is why a fifth of the images were
+never processed live. Frames are matched on SVO frame index, not timestamp: the SVO recorder
+and the pipeline stamp the same frame about half a frame apart, so timestamps alone only give
+a nearest-neighbour guess. Recordings made after this was found also carry
+`/camera/frame_meta` (`svo_path` + `svo_frame_index`), which makes the join direct.
+
+The 05-01 recording is the weak one. Its SVO dropped a third of its frames during recording,
+so only 38 of its 100 images resolve exactly.
 
 ## Levels
 
