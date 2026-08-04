@@ -14,7 +14,9 @@ copied into the image, so editing code never triggers a rebuild.
 `scripts/docker/` are thin wrappers that export the variables it interpolates and call
 `docker compose`. It pulls in `docker-compose.ros-connector.yml` with `include`, so
 `run_playback.sh` starts the Foxglove bridge as a `depends_on` dependency, and both
-services carry a `build:` stanza so a fresh machine builds them on first use.
+services carry a `build:` stanza so a fresh machine builds them on first use. Both files
+declare `name: auto-battlebot`; they have to agree, or the fixed `container_name`
+collides across compose projects.
 
 Running `docker compose -f docker/docker-compose.playback.yml ...` by hand fails on the
 empty `${REPO}` and `${HOST_UID}` interpolations. Go through the scripts, or source

@@ -12,6 +12,10 @@ name: auto-battlebot
 
 # Pulls in the Foxglove bridge service so `compose run playback` starts it as a
 # dependency. Path is relative to this file.
+#
+# Requires Compose v2.20+. Older versions reject this file outright with
+# "(root) Additional property include is not allowed".
+# install/install_docker_ubuntu.sh checks for it.
 include:
     - docker-compose.ros-connector.yml
 

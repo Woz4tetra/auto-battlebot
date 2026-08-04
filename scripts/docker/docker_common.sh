@@ -33,7 +33,29 @@ if [ -z "${DISPLAY}" ]; then
     echo "         Run from a graphical session, or set ui.enable = false in config." >&2
 fi
 
+# docker-compose.playback.yml uses the `include:` key, added in Compose v2.20. Older
+# versions reject the file with "(root) Additional property include is not allowed",
+# which does not hint at the cause. Fail with something actionable instead.
+require_compose_version() {
+    local min="2.20"
+    local version
+    version=$(docker compose version --short 2>/dev/null | sed 's/^v//')
+
+    if [ -z "$version" ]; then
+        echo "Error: 'docker compose' is unavailable. Run install/install_docker_ubuntu.sh." >&2
+        return 1
+    fi
+    if [ "$(printf '%s\n%s\n' "$min" "$version" | sort -V | head -1)" != "$min" ]; then
+        echo "Error: docker compose $version is too old; $min or newer is required." >&2
+        echo "       A stale plugin in /usr/local/lib/docker/cli-plugins can shadow the" >&2
+        echo "       packaged one. See install/install_docker_ubuntu.sh for the fix." >&2
+        return 1
+    fi
+    return 0
+}
+
 compose() {
+    require_compose_version || return 1
     docker compose -f "${COMPOSE_FILE}" "$@"
 }
 
