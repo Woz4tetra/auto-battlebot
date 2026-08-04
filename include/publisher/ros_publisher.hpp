@@ -25,6 +25,7 @@ class RosPublisher : public PublisherInterface {
                  TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher,
                  TypedPublisher<std_msgs::String> blob_detections_publisher,
                  TypedPublisher<std_msgs::String> keypoint_detections_publisher,
+                 TypedPublisher<std_msgs::String> frame_meta_publisher,
                  std::shared_ptr<McapRecorder> mcap_recorder  // optional, may be null
     );
     void publish_camera_data(const CameraData &data) override;
@@ -51,6 +52,7 @@ class RosPublisher : public PublisherInterface {
     TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher_;
     TypedPublisher<std_msgs::String> blob_detections_publisher_;
     TypedPublisher<std_msgs::String> keypoint_detections_publisher_;
+    TypedPublisher<std_msgs::String> frame_meta_publisher_;
 
     std::shared_ptr<McapRecorder> mcap_recorder_;
 

@@ -48,6 +48,13 @@ EXPORT_FRAME_REGEX = re.compile(r"Export frame (\d+) on (\d+)")
 # sensor_msgs/CompressedImage on TARGET_LEFT_IMAGE_TOPIC.
 SVO_SIDE_BY_SIDE_TOPIC = "side_by_side"
 TARGET_LEFT_IMAGE_TOPIC = "/camera/image"
+# One message per exported frame, alongside the image it describes, carrying where that image
+# came from. Header stamps cannot answer that on their own: TIME_REFERENCE::IMAGE, which the
+# pipeline stamps its output with, runs about half a frame ahead of the timestamp the SVO
+# stores, so matching the two only ever gives a nearest-neighbour guess. The authoritative
+# answer is /camera/frame_meta, which the pipeline itself writes with the SVO frame index
+# straight from the SDK. This topic is the export-side companion to it.
+SVO_FRAME_TOPIC = "/camera/svo_frame"
 # Topic in the original MCAP whose header.frame_id we copy onto the cropped
 # image messages so all camera-frame data lines up.
 CAMERA_INFO_TOPIC = "/camera/camera_info"
@@ -65,6 +72,9 @@ SENSOR_MSGS_COMPRESSED_IMAGE_SCHEMA = (
     b"time stamp\n"
     b"string frame_id\n"
 )
+
+# ros1msg schema for std_msgs/String, matching how the pipeline publishes JSON payloads.
+STD_MSGS_STRING_SCHEMA = b"string data\n"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SEARCH_DIRS = [
@@ -318,6 +328,27 @@ def _make_ros1_compressed_image(
     return b"".join(parts)
 
 
+def _make_ros1_string(payload: str) -> bytes:
+    """Serialize a std_msgs/String: a length-prefixed UTF-8 blob."""
+    encoded = payload.encode("utf-8")
+    return struct.pack("<I", len(encoded)) + encoded
+
+
+def _make_svo_frame_message(svo_name: str, ordinal: int, stamp_ns: int) -> bytes:
+    """Describe one exported frame: which SVO it came from, its position, and its timestamp.
+
+    `export_ordinal` counts exported frames from zero. Treat it as a position in the export, not
+    as the SVO frame index: ZED_SVO_Editor drops a few frames per file, so the two drift apart by
+    a small unknown offset. `svo_stamp_ns` is the reliable field, matching the image header stamp
+    exactly. For a true frame index, use /camera/frame_meta from the pipeline.
+    """
+    payload = json.dumps(
+        {"svo_file": svo_name, "export_ordinal": ordinal, "svo_stamp_ns": stamp_ns},
+        separators=(",", ":"),
+    )
+    return _make_ros1_string(payload)
+
+
 def read_first_header_frame_id(mcap_path: Path, topic: str) -> Optional[str]:
     """Return the std_msgs/Header.frame_id of the first message on `topic`.
 
@@ -539,6 +570,19 @@ def merge_mcaps(
             schema_id=left_image_schema_id,
         )
 
+        svo_frame_schema_id = writer.register_schema(
+            name="std_msgs/String",
+            encoding="ros1msg",
+            data=STD_MSGS_STRING_SCHEMA,
+        )
+        svo_frame_channel_id = writer.register_channel(
+            topic=SVO_FRAME_TOPIC,
+            message_encoding="ros1",
+            schema_id=svo_frame_schema_id,
+        )
+        svo_name = svo_mcap_path.stem
+        export_ordinal = 0
+
         def get_writer_channel_id(source_idx: int, schema: Any, channel: Any) -> int:
             cmap = channel_remap[source_idx]
             if channel.id in cmap:
@@ -594,6 +638,14 @@ def merge_mcaps(
                         publish_time=log_time,
                         sequence=message.sequence,
                     )
+                    writer.add_message(
+                        channel_id=svo_frame_channel_id,
+                        log_time=log_time,
+                        data=_make_svo_frame_message(svo_name, export_ordinal, log_time),
+                        publish_time=log_time,
+                        sequence=message.sequence,
+                    )
+                    export_ordinal += 1
                     merge_bar.update(1)
                     continue
 
@@ -606,6 +658,24 @@ def merge_mcaps(
                     sequence=message.sequence,
                 )
                 merge_bar.update(1)
+
+        # ZED_SVO_Editor does not emit every SVO frame: a 7177-frame file exported 7174, and a
+        # 9293-frame one exported 9290. So export_ordinal is the position within the export, not
+        # the SVO frame index, and the two differ by a small unknown amount. Timestamp gaps do
+        # not recover the difference either (that same 7177-frame file shows 5 double-length
+        # gaps implying 10 missing frames, against a true shortfall of 3), because SVO stamp
+        # jitter makes ordinary gaps round up. Record the count so the shortfall is at least
+        # visible against `ZED_SVO_Editor -inf`.
+        writer.add_metadata(
+            "svo_export",
+            {"svo_file": svo_name, "exported_frame_count": str(export_ordinal)},
+        )
+        logger.info(
+            "Exported %d SVO frames to %s (compare against `ZED_SVO_Editor -inf`; the exporter "
+            "is known to drop a few)",
+            export_ordinal,
+            SVO_FRAME_TOPIC,
+        )
 
         writer.finish()
 

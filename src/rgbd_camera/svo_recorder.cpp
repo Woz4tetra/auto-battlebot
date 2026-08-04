@@ -43,6 +43,8 @@ bool SvoRecorder::start() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         current_path_ = path;
+        // Fresh file, so the next frame grabbed is its frame 0.
+        frame_index_ = -1;
     }
     desired_.store(true);
     frames_since_size_check_ = 0;
@@ -63,6 +65,7 @@ void SvoRecorder::stop() {
         std::lock_guard<std::mutex> lock(mutex_);
         spdlog::info("SVO recording stopped: {}", current_path_.string());
         current_path_.clear();
+        frame_index_ = -1;
     }
     desired_.store(false);
 }
@@ -78,16 +81,23 @@ std::string SvoRecorder::current_path() const {
     return current_path_.string();
 }
 
-void SvoRecorder::on_frame_grabbed() {
+SvoRecorder::FrameRef SvoRecorder::on_frame_grabbed() {
     std::filesystem::path active_path;
+    FrameRef frame;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         active_path = current_path_;
+        if (desired_.load() && !active_path.empty()) {
+            // The SDK wrote this frame to the file that is open right now. Claim its index
+            // before the size check below can roll the file over.
+            frame.path = active_path.string();
+            frame.index = ++frame_index_;
+        }
     }
-    if (!desired_.load() || active_path.empty()) return;
+    if (!desired_.load() || active_path.empty()) return frame;
 
     frames_since_size_check_++;
-    if (frames_since_size_check_ < kSizeCheckIntervalFrames) return;
+    if (frames_since_size_check_ < kSizeCheckIntervalFrames) return frame;
     frames_since_size_check_ = 0;
 
     std::error_code ec;
@@ -96,6 +106,7 @@ void SvoRecorder::on_frame_grabbed() {
         stop();
         start();
     }
+    return frame;
 }
 
 std::string SvoRecorder::generate_filename() const {

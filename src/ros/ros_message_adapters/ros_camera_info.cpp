@@ -1,7 +1,23 @@
 #include "ros/ros_message_adapters/ros_camera_info.hpp"
 
+#include <cstdio>
+#include <string>
+
 namespace auto_battlebot {
 namespace ros_adapters {
+namespace {
+/// Escape the characters a filesystem path can legally contain but JSON cannot carry raw.
+std::string escape_json(const std::string &value) {
+    std::string escaped;
+    escaped.reserve(value.size() + 8);
+    for (const char character : value) {
+        if (character == '"' || character == '\\') escaped += '\\';
+        escaped += character;
+    }
+    return escaped;
+}
+}  // namespace
+
 sensor_msgs::CameraInfo to_ros_camera_info(const CameraInfo &camera_info) {
     sensor_msgs::CameraInfo ros_camera_info;
     ros_camera_info.header = to_ros_header(camera_info.header);
@@ -38,6 +54,23 @@ sensor_msgs::CameraInfo to_ros_camera_info(const CameraInfo &camera_info) {
     }
 
     return ros_camera_info;
+}
+
+std_msgs::String to_ros_frame_identity(const FrameIdentity &identity) {
+    char buffer[64];
+    std::snprintf(buffer, sizeof(buffer), "%llu",
+                  static_cast<unsigned long long>(identity.image_stamp_ns));
+
+    std_msgs::String message;
+    message.data = "{\"image_stamp_ns\":";
+    message.data += buffer;
+    std::snprintf(buffer, sizeof(buffer), "%lld", static_cast<long long>(identity.svo_frame_index));
+    message.data += ",\"svo_frame_index\":";
+    message.data += buffer;
+    message.data += ",\"svo_path\":\"";
+    message.data += escape_json(identity.svo_path);
+    message.data += "\"}";
+    return message;
 }
 
 }  // namespace ros_adapters

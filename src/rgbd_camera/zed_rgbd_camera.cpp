@@ -124,6 +124,7 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
         std::filesystem::path svo_file_path = config.svo_file_path.c_str();
         std::filesystem::path svo_file_abs_path = std::filesystem::absolute(svo_file_path);
         spdlog::info("Resolved SVO path: {}", svo_file_abs_path.string());
+        playback_svo_path_ = svo_file_abs_path.string();
 
         params_.input.setFromSVOFile(svo_file_abs_path.c_str());
         params_.svo_real_time_mode = config.svo_real_time_mode;
@@ -392,8 +393,9 @@ bool ZedRgbdCamera::capture_frame() {
     camera_connected_ = true;
     grab_health_.record(false, std::chrono::steady_clock::now());
 
-    // Roll the SVO file over if it has grown past the size cap.
-    svo_recorder_->on_frame_grabbed();
+    // Roll the SVO file over if it has grown past the size cap. The return value says where
+    // this frame landed, which is what lets a recording be joined back to its SVO frames.
+    const SvoRecorder::FrameRef svo_frame = svo_recorder_->on_frame_grabbed();
 
     // Lock mutex to modify data
     const auto lock_hold_start = std::chrono::steady_clock::now();
@@ -422,6 +424,21 @@ bool ZedRgbdCamera::capture_frame() {
     // it is the original recording time, which lets a ManualClock drive deterministic replay.
     sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE);
     double stamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
+
+    // Record which camera frame this is, independent of the stamp. TIME_REFERENCE::IMAGE runs
+    // about half a frame ahead of what the SVO recorder writes for the same grab, so a
+    // timestamp alone cannot join recorded output back to SVO frames after the fact.
+    latest_data_.frame_identity.image_stamp_ns = timestamp.getNanoseconds();
+    latest_data_.frame_identity.svo_frame_index = svo_frame.index;
+    latest_data_.frame_identity.svo_path = svo_frame.path;
+    if (is_playback_input_) {
+        // Replaying, so the frame identity comes from the file being read rather than one being
+        // written. getSVOPosition() counts frames already read, putting the one just grabbed one
+        // behind it.
+        const int svo_position = zed_.getSVOPosition();
+        latest_data_.frame_identity.svo_frame_index = svo_position > 0 ? svo_position - 1 : -1;
+        latest_data_.frame_identity.svo_path = playback_svo_path_;
+    }
     if (is_playback_input_) {
         // Rebase SVO stamps onto the current wall clock so replay recordings (and the
         // mcap start time) begin now, not at the original recording time. The offset is

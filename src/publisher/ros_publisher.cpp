@@ -22,6 +22,7 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
                            TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher,
                            TypedPublisher<std_msgs::String> blob_detections_publisher,
                            TypedPublisher<std_msgs::String> keypoint_detections_publisher,
+                           TypedPublisher<std_msgs::String> frame_meta_publisher,
                            std::shared_ptr<McapRecorder> mcap_recorder)
     : rgb_image_publisher_(std::move(rgb_image_publisher)),
       camera_info_publisher_(std::move(camera_info_publisher)),
@@ -34,6 +35,7 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
       nav_marker_publisher_(std::move(nav_marker_publisher)),
       blob_detections_publisher_(std::move(blob_detections_publisher)),
       keypoint_detections_publisher_(std::move(keypoint_detections_publisher)),
+      frame_meta_publisher_(std::move(frame_meta_publisher)),
       mcap_recorder_(std::move(mcap_recorder)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("ros_publisher")) {}
 
@@ -57,6 +59,15 @@ void RosPublisher::publish_camera_data(const CameraData &data) {
         auto camera_info_msg = ros_adapters::to_ros_camera_info(data.camera_info);
         camera_info_publisher_.publish(camera_info_msg);
         if (mcap_recorder_) mcap_recorder_->write("/camera/camera_info", camera_info_msg);
+    }
+
+    // Publish which camera frame everything above came from. Without this a recording cannot be
+    // joined back to its SVO frames: the header stamps here and the ones the SVO recorder writes
+    // differ by roughly half a frame, so timestamps only ever give a nearest-neighbour guess.
+    if (frame_meta_publisher_) {
+        auto frame_meta_msg = ros_adapters::to_ros_frame_identity(data.frame_identity);
+        frame_meta_publisher_.publish(frame_meta_msg);
+        if (mcap_recorder_) mcap_recorder_->write("/camera/frame_meta", frame_meta_msg);
     }
 
     // Publish transform

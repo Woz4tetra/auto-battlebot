@@ -125,6 +125,8 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
     bool position_tracking_enabled_;
     bool is_playback_input_;
+    /// Absolute path of the SVO being replayed, empty for a live camera.
+    std::string playback_svo_path_;
     int svo_start_frame_;
     // Offset added to SVO frame stamps so replay output starts at the current wall clock
     // instead of the original recording time. Computed once from the first grabbed frame;
