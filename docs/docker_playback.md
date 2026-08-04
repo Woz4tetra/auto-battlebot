@@ -88,9 +88,9 @@ needs network access. It looks like a hang but is not. The result is cached in t
 `data/` is gitignored and roughly 46 GB, so the container cannot supply it. On a new
 machine:
 
-- **Model engines**: `source ./scripts/activate_python.sh && python scripts/sync_models.py`.
-  This needs the Python environment from `./scripts/setup_python.sh`, which is a host
-  concern. The playback container has no Python.
+- **Model engines**: `source ./scripts/activate_python.sh && python scripts/sync_models.py`,
+  using the host environment from `./scripts/setup_python.sh`. The container can also run
+  it: `scripts/docker/shell.sh` then `python scripts/sync_models.py`, no activation needed.
 - **SVO recordings**: copy `data/svo/` from an existing machine. Point
   `svo_file_path` in `config/playback/_playback.toml` at whichever one you have.
 
@@ -102,7 +102,7 @@ The engines in `data/models` are serialized by a specific TensorRT version, and
 rebuilding from ONNX. A mismatched TensorRT fails at engine load. If you bump the pin,
 regenerate the engines to match.
 
-Pin all four packages, not just `libnvinfer-dev`. That package depends on
+Pin all seven packages, not just `libnvinfer-dev`. That package depends on
 `libnvinfer10` at the same version, but apt resolves `libnvinfer10` independently to the
 newest in the repo and then reports `held broken packages`. NVIDIA's repo carries
 roughly 28 versions at a time and rotates old ones out. List what is currently available
@@ -116,6 +116,33 @@ docker run --rm stereolabs/zed:5.1-devel-cuda13.0-ubuntu24.04 \
 The engines are also GPU-architecture specific. `_x86_64_sm89.engine` runs on Ada
 (RTX 40 series), `_x86_64_sm86.engine` on Ampere. `sync_models.py` selects by
 architecture.
+
+## Python environment
+
+The image carries a venv at `/opt/venv`, first on `PATH`, holding the dependencies from
+`pyproject.toml`. `python` and `python3` resolve to it with no activation step. Do not
+source `scripts/activate_python.sh` inside the container: that activates the
+bind-mounted `venv/`, which was built against the host's libraries.
+
+Its reason for existing is engine conversion. `python3-libnvinfer` comes from apt at the
+same `${TENSORRT_VERSION}` as `libnvinfer10`, so the Python bindings and the C++ runtime
+are one install and cannot drift:
+
+```bash
+scripts/docker/shell.sh
+python training/yolo/convert_to_tensorrt.py data/models/<model>.onnx
+python training/deeplab/convert_to_tensorrt.py data/models/<model>.pth
+```
+
+An engine built this way loads in the container's C++ runtime on any machine, which the
+host environment does not guarantee: `pyproject.toml` installs the `tensorrt` pip wheel
+there, and its build can differ from whatever `libnvinfer-dev` the host has. The wheel is
+filtered out of the container's requirements for that reason.
+
+One consequence: the timing cache at `.cache/tensorrt/timing.cache` is shared with the
+host but keyed on the TensorRT build, so alternating between host and container
+conversions logs `Timing cache header mismatch` and re-runs the tactic search. The cache
+is advisory, so this costs build time and nothing else.
 
 ## Build directory separation
 

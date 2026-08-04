@@ -6,8 +6,9 @@
 # rebuilds and the FetchContent tree in build-docker/_deps survives image changes.
 #
 # Layers are ordered most-stable-first. Rebuild triggers are limited to
-# install/base_packages.txt, install/ubuntu_24_packages.txt, .llvm-version, and the
-# version pins below.
+# install/base_packages.txt, install/ubuntu_24_packages.txt, .llvm-version,
+# pyproject.toml, and the version pins below. Editing pyproject.toml rebuilds only the
+# trailing Python layer.
 #
 # The base matches the reference desktop exactly: ZED SDK 5.1, CUDA 13.0,
 # Ubuntu 24.04. Using the Stereolabs image avoids running the interactive ZED .run
@@ -121,10 +122,69 @@ RUN mkdir -p /home/dev \
     && chmod -R a+rX /usr/local/zed \
     && chmod 1777 /usr/local/zed/resources /usr/local/zed/settings
 
+# --- Layer 6: TensorRT Python bindings ----------------------------------------------
+# training/yolo/convert_to_tensorrt.py and training/deeplab/convert_to_tensorrt.py build
+# engines that this container's C++ runtime then deserializes. An engine is tied to the
+# TensorRT version that serialized it, so the Python binding has to be the same version
+# as libnvinfer10 from layer 2, not merely close to it.
+#
+# apt, not pip, is what makes that true by construction: python3-libnvinfer depends on
+# libnvinfer10 (= exact version), so one ARG drives both sides and a mismatch cannot
+# build. The pip wheel (tensorrt==10.14.1.48.post1, what pyproject.toml installs on a
+# bare-metal x86 host) ships its own copy of the TensorRT shared libraries inside
+# site-packages, which duplicates what apt already installed and can shadow it at load
+# time. Layer 7 filters it out of the requirements for that reason.
+#
+# libnvonnxparsers10 backs trt.OnnxParser; both converters parse ONNX. libnvinfer-vc-
+# plugin10 is a hard dependency of python3-libnvinfer. Neither is installed by layer 2,
+# and both must be pinned for the same reason the layer 2 comment gives.
+#
+# Not folded into layer 2 on purpose. Editing that layer invalidates the ~60-minute apt
+# layer below it; adding TensorRT packages here leaves layers 2-5 cached.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    "libnvinfer-vc-plugin10=${TENSORRT_VERSION}" \
+    "libnvonnxparsers10=${TENSORRT_VERSION}" \
+    "python3-libnvinfer=${TENSORRT_VERSION}" \
+    && apt-mark hold \
+    libnvinfer-vc-plugin10 \
+    libnvonnxparsers10 \
+    python3-libnvinfer \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Layer 7: Python environment ----------------------------------------------------
+# pyproject.toml is the single source of truth, so the container and a bare-metal dev
+# machine resolve the same dependency set. Only pyproject.toml is copied; the repo
+# arrives as a bind mount at run time, so this is a dependency install, not `pip -e .`.
+#
+# --system-site-packages is required: it is what puts the apt tensorrt module from layer
+# 6 and the base image's numpy and pyzed on the venv's path. The tensorrt requirement is
+# filtered out of the list for the reason layer 6 gives; every other pin, including the
+# platform markers, is taken from pyproject.toml unchanged.
+#
+# The base image installed its own pip packages (numpy, pyzed, Cython, requests) mode
+# 700 root:root. The container runs as the invoking UID, which cannot read them, and
+# Python does not fail cleanly on that: it treats the unreadable numpy/ as an empty
+# namespace package, so `import torch` dies with "module 'numpy' has no attribute
+# 'ndarray'". a+rX is the same fix layer 5 applies to the ZED tree.
+COPY pyproject.toml /install/
+RUN python3 -m venv --system-site-packages /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && /opt/venv/bin/python -c "import tomllib; print('\n'.join(d for d in tomllib.load(open('/install/pyproject.toml','rb'))['project']['dependencies'] if not d.split(';')[0].strip().lower().startswith('tensorrt')))" > /install/requirements.txt \
+    && /opt/venv/bin/pip install --no-cache-dir -r /install/requirements.txt \
+    && chmod -R a+rX /opt/venv /usr/local/lib/python3.12/dist-packages
+
+# Puts the venv ahead of /usr/bin so `python` and `python3` are the project environment
+# with no activation step. scripts/activate_python.sh is not usable here: it activates
+# the bind-mounted venv/, which was built against the host's libraries, not these.
+ENV PATH=/opt/venv/bin:${PATH}
+ENV VIRTUAL_ENV=/opt/venv
+
 # Deliberately absent, and why:
 #   install_docker_ubuntu      - no docker-in-docker; ros-connector runs on the host
 #   install_ros_connector      - host-side container, reachable over --network host
-#   install_python_environment - 13 GB, training only, not used by playback
+#   install_python_environment - creates venv/ in the repo; layers 6-7 do the same job
+#                                against the pinned TensorRT instead
 #   install_platformio         - firmware toolchain
 #   build_cpp_project          - runs at container start against the bind mount
 

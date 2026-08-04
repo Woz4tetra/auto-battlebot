@@ -1,7 +1,7 @@
 # Build context for docker/playback.Dockerfile.
 #
-# The image is toolchain-only: it copies install/ package lists and .llvm-version,
-# nothing else. Source, build tree, and data are bind-mounted at runtime by
+# The image is toolchain-only: it copies install/ package lists, .llvm-version, and
+# pyproject.toml, nothing else. Source, build tree, and data are bind-mounted at runtime by
 # scripts/docker/run_playback.sh. Without the excludes below, `docker build` uploads
 # data/ (46 GB of SVOs and engines) and venv/ (13 GB of training deps) to the daemon
 # on every invocation.
