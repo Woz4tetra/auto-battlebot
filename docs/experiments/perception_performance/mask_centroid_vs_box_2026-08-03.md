@@ -38,9 +38,11 @@ mask head away.
 6. **The bbox model is the better detector anyway.** Agnostic F1 0.893 vs 0.819, recall 0.847 vs
    0.756, precision 0.944 vs 0.894, mAP50-95 0.560 vs 0.517.
 
-Twelve matched robots, ordered by how far the box center sits from the aim point, from the closest
-case in the set to the 99th percentile. The blue circle sits inside the orange square in every tile;
-the green diamond walks away.
+Twelve matched robots, ordered by how far the predicted box center sits from the aim point, from the
+closest case in the set to the 99th percentile. Solid box and filled square are the seg model's
+prediction, dashed box and hollow square the hand-drawn label. The blue circle stays inside the
+orange square in every tile, the hollow GT square rings it whenever localization is good, and the
+green diamond walks away regardless of which box you started from.
 
 ![example crops with all three position estimates](assets/2026-08-03_mask_centroid/examples_mosaic.png)
 
@@ -116,9 +118,12 @@ Per class, and by box size:
 The normalized offset is flat across box sizes. The pixel offset grows with the box because it is
 a fixed fraction of it, not because big detections are worse.
 
-## Result 2: which position estimate is closest to ground truth
+## Result 2: which position estimate is closest to the GT box
 
-Distance from each estimate to the GT box center, over class-blind IoU≥0.5 matches.
+The reference here is the hand-drawn GT box, so the "seg box center" and "bbox-only model" rows are
+each a predicted box measured against the labeled box: this table is the localization error of the
+two detectors, with the mask centroid as a third contender. Distance from each estimate to the GT
+box center, over class-blind IoU≥0.5 matches.
 
 | estimate | n matched | mean (px) | median (px) | mean (norm) | median (norm) |
 |---|---|---|---|---|---|
@@ -142,9 +147,10 @@ advantage. Result 3 grades the same estimates against a reference that has no su
 
 ## Result 3: distance to the keypoint midpoint, the aim point
 
-The front/back keypoint midpoint is where the aim controller wants to put the crosshair. Grading
-every estimate against it adds a fourth row, the GT box center itself, which carries zero detection
-error and shows what a box can do at best.
+The front/back keypoint midpoint is where the aim controller wants to put the crosshair. It is the
+only reference here that is independent of boxes, so it is the one that can rank a predicted box and
+the GT box on the same scale. That adds a fourth row, the GT box center itself, which carries zero
+detection error and shows what a box can do at best.
 
 | estimate | n | mean (px) | median (px) | mean (norm) | median (norm) | p90 (norm) |
 |---|---|---|---|---|---|---|
