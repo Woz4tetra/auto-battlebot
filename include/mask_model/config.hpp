@@ -4,6 +4,7 @@
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
+#include "engine_selector/config.hpp"
 #include "enums/deeplab_model_type.hpp"
 #include "mask_model/mask_model_interface.hpp"
 
@@ -31,7 +32,7 @@ struct FixedMaskModelConfiguration : public MaskModelConfiguration {
 };
 
 struct DeepLabMaskModelConfiguration : public MaskModelConfiguration {
-    std::string model_path;
+    EngineSelectorConfiguration engine;
     DeepLabModelType model_type = DeepLabModelType::DeepLabV3;
     Label output_label = Label::FIELD;
 
@@ -39,7 +40,7 @@ struct DeepLabMaskModelConfiguration : public MaskModelConfiguration {
 
     // clang-format off
         PARSE_CONFIG_FIELDS(
-            PARSE_FIELD_STRING_REQUIRED(model_path)
+            engine.parse(parser, "engine");
             PARSE_ENUM(model_type, DeepLabModelType)
             PARSE_ENUM(output_label, Label))
     // clang-format on
@@ -59,7 +60,7 @@ struct FreeRoamMaskModelConfiguration : public MaskModelConfiguration {
 };
 
 struct YoloSegMaskModelConfiguration : public MaskModelConfiguration {
-    std::string model_path;
+    EngineSelectorConfiguration engine;
     std::vector<Label> label_indices;
     Label output_label = Label::FIELD;
     float confidence_threshold = 0.5f;

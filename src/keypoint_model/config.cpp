@@ -35,8 +35,10 @@ std::shared_ptr<KeypointModelInterface> make_keypoint_model(
     if (config.type == "NoopKeypointModel") {
         return std::make_shared<NoopKeypointModel>();
     } else if (config.type == "YoloKeypointModel") {
+        auto &model_config = config_cast<YoloKeypointModelConfiguration>(config);
         return std::make_shared<YoloKeypointModel>(
-            config_cast<YoloKeypointModelConfiguration>(config));
+            model_config,
+            std::make_shared<EngineSelector>(model_config.engine, "YoloKeypointModel"));
     }
     throw std::invalid_argument("Failed to load KeypointModel of type " + config.type);
 }

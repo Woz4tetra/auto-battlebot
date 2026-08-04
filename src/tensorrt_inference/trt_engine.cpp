@@ -5,24 +5,104 @@
 #include <cuda_runtime.h>
 #include <spdlog/spdlog.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <fstream>
+#include <new>
 
 namespace auto_battlebot {
 namespace {
 constexpr double kExecuteWarnMs = 120.0;
+
+// Non-zero while a TrtEngine::ScopedQuietLogging guard is alive. Atomic because models
+// are constructed from the same thread today but nothing enforces that.
+std::atomic<int> g_quiet_depth{0};
+
 // Minimal TensorRT logger (only log errors/warnings via spdlog).
 class TrtLogger : public nvinfer1::ILogger {
    public:
     void log(Severity severity, nvinfer1::AsciiChar const* msg) noexcept override {
-        if (severity <= Severity::kWARNING) {
-            spdlog::error("[TensorRT] {}", msg);
+        if (severity > Severity::kWARNING) return;
+        if (g_quiet_depth.load(std::memory_order_relaxed) > 0) {
+            // Probing a candidate engine. A rejection here is an expected outcome, not a
+            // fault, so keep it out of the error stream and the mcap /rosout topic.
+            spdlog::debug("[TensorRT] {}", msg);
+            return;
         }
+        spdlog::error("[TensorRT] {}", msg);
     }
 };
 
 TrtLogger g_trt_logger;
+
+// A failed load is an expected outcome while EngineSelector probes candidates, so route
+// TrtEngine's own load diagnostics through the same switch as TensorRT's. Outside
+// probing these stay errors.
+void log_load_failure(const std::string& message) {
+    if (g_quiet_depth.load(std::memory_order_relaxed) > 0) {
+        spdlog::debug("{}", message);
+        return;
+    }
+    spdlog::error("{}", message);
+}
+
+// Feeds a file to TensorRT incrementally so deserialization can abort early.
+//
+// IStreamReaderV2 (rather than the IStreamReader deprecated in TensorRT 10.7, which
+// would trip -Werror) may hand us a device pointer as the destination, so every read is
+// staged through a host buffer and routed with cudaMemcpyDefault. Unified addressing
+// makes that correct whether the target is host or device memory.
+class FileStreamReader final : public nvinfer1::IStreamReaderV2 {
+   public:
+    explicit FileStreamReader(const std::string& path) : file_(path, std::ios::binary) {}
+
+    bool is_open() const { return file_.is_open(); }
+
+    int64_t read(void* destination, int64_t nbBytes, cudaStream_t stream) noexcept override {
+        if (nbBytes <= 0) return 0;
+        try {
+            staging_.resize(static_cast<size_t>(nbBytes));
+        } catch (const std::bad_alloc&) {
+            return -1;
+        }
+        file_.read(staging_.data(), static_cast<std::streamsize>(nbBytes));
+        const int64_t bytes_read = static_cast<int64_t>(file_.gcount());
+        if (bytes_read <= 0) return bytes_read;
+
+        if (cudaMemcpyAsync(destination, staging_.data(), static_cast<size_t>(bytes_read),
+                            cudaMemcpyDefault, stream) != cudaSuccess) {
+            return -1;
+        }
+        // staging_ is reused by the next call, so the copy has to land before returning.
+        if (cudaStreamSynchronize(stream) != cudaSuccess) return -1;
+        return bytes_read;
+    }
+
+    bool seek(int64_t offset, nvinfer1::SeekPosition where) noexcept override {
+        std::ios_base::seekdir direction = std::ios_base::beg;
+        switch (where) {
+            case nvinfer1::SeekPosition::kSET:
+                direction = std::ios_base::beg;
+                break;
+            case nvinfer1::SeekPosition::kCUR:
+                direction = std::ios_base::cur;
+                break;
+            case nvinfer1::SeekPosition::kEND:
+                direction = std::ios_base::end;
+                break;
+        }
+        // Clear first: a prior read that hit EOF leaves failbit set, which would make
+        // seekg a no-op.
+        file_.clear();
+        file_.seekg(static_cast<std::streamoff>(offset), direction);
+        return file_.good();
+    }
+
+   private:
+    std::ifstream file_;
+    std::vector<char> staging_;
+};
 
 // Compute volume (product of dimensions). Returns 0 if dims are invalid.
 int64_t volume(const nvinfer1::Dims& dims) {
@@ -83,24 +163,24 @@ TrtEngine::~TrtEngine() {
     }
 }
 
+TrtEngine::ScopedQuietLogging::ScopedQuietLogging() {
+    g_quiet_depth.fetch_add(1, std::memory_order_relaxed);
+}
+
+TrtEngine::ScopedQuietLogging::~ScopedQuietLogging() {
+    g_quiet_depth.fetch_sub(1, std::memory_order_relaxed);
+}
+
 bool TrtEngine::load(const std::string& engine_path) {
-    std::ifstream f(engine_path, std::ios::binary | std::ios::ate);
-    if (!f) {
-        spdlog::error("TrtEngine: cannot open file: {}", engine_path);
+    FileStreamReader reader(engine_path);
+    if (!reader.is_open()) {
+        log_load_failure(fmt::format("TrtEngine: cannot open file: {}", engine_path));
         return false;
     }
-    const size_t size = static_cast<size_t>(f.tellg());
-    f.seekg(0, std::ios::beg);
-    std::vector<char> blob(size);
-    if (!f.read(blob.data(), static_cast<std::streamsize>(size))) {
-        spdlog::error("TrtEngine: failed to read engine file");
-        return false;
-    }
-    f.close();
 
     nvinfer1::IRuntime* rt = nvinfer1::createInferRuntime(g_trt_logger);
     if (!rt) {
-        spdlog::error("TrtEngine: createInferRuntime failed");
+        log_load_failure("TrtEngine: createInferRuntime failed");
         return false;
     }
     runtime_ = rt;
@@ -108,9 +188,12 @@ bool TrtEngine::load(const std::string& engine_path) {
     // Allow version-compatible engines (built with VERSION_COMPATIBLE) to load.
     rt->setEngineHostCodeAllowed(true);
 
-    nvinfer1::ICudaEngine* eng = rt->deserializeCudaEngine(blob.data(), size);
+    // Streaming rather than whole-file: an engine built for another GPU architecture or
+    // TensorRT version is rejected once the header has been read, so EngineSelector can
+    // try a candidate list without paying a full read per miss.
+    nvinfer1::ICudaEngine* eng = rt->deserializeCudaEngine(reader);
     if (!eng) {
-        spdlog::error("TrtEngine: deserializeCudaEngine failed.");
+        log_load_failure("TrtEngine: deserializeCudaEngine failed.");
         delete rt;
         runtime_ = nullptr;
         engine_ = nullptr;
@@ -120,7 +203,7 @@ bool TrtEngine::load(const std::string& engine_path) {
 
     nvinfer1::IExecutionContext* ctx = eng->createExecutionContext();
     if (!ctx) {
-        spdlog::error("TrtEngine: createExecutionContext failed");
+        log_load_failure("TrtEngine: createExecutionContext failed");
         delete eng;
         delete rt;
         engine_ = nullptr;
@@ -131,7 +214,7 @@ bool TrtEngine::load(const std::string& engine_path) {
 
     const int32_t nb_io = eng->getNbIOTensors();
     if (nb_io < 2) {
-        spdlog::error("TrtEngine: expected at least 2 IO tensors, got {}", nb_io);
+        log_load_failure(fmt::format("TrtEngine: expected at least 2 IO tensors, got {}", nb_io));
         delete ctx;
         delete eng;
         delete rt;
@@ -159,7 +242,7 @@ bool TrtEngine::load(const std::string& engine_path) {
         }
     }
     if (!input_name || output_names.empty()) {
-        spdlog::error("TrtEngine: could not identify input/output tensors by mode");
+        log_load_failure("TrtEngine: could not identify input/output tensors by mode");
         delete ctx;
         delete eng;
         delete rt;

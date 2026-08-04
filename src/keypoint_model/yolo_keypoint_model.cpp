@@ -8,24 +8,25 @@
 #include <opencv2/dnn.hpp>
 
 namespace auto_battlebot {
-YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config)
-    : model_path_(config.model_path),
-      threshold_(config.threshold),
+YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config,
+                                     std::shared_ptr<EngineSelector> engine_selector)
+    : threshold_(config.threshold),
       iou_threshold_(config.iou_threshold),
       letterbox_padding_(config.letterbox_padding),
       image_size_(config.image_size),
       debug_visualization_(config.debug_visualization),
       label_map_(config.label_map),
       label_indices_(config.label_indices),
+      engine_selector_(std::move(engine_selector)),
       initialized_(false),
       diagnostics_logger_(DiagnosticsLogger::get_logger("yolo_keypoint_model")) {}
 
 bool YoloKeypointModel::initialize() {
-    spdlog::info("Loading TensorRT engine from: {}", model_path_);
-    if (!engine_.load(model_path_)) {
-        spdlog::error("Failed to load YOLO TensorRT engine: {}", model_path_);
+    const std::optional<std::string> selected = engine_selector_->select(engine_);
+    if (!selected) {
         return false;
     }
+    model_path_ = *selected;
 
     spdlog::info("Warming up model with dummy input...");
     std::vector<float> warmup_input(static_cast<size_t>(engine_.getInputNumElements()), 0.0f);

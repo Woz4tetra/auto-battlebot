@@ -27,7 +27,7 @@ std::vector<Label> parse_label_list(ConfigParser &parser, const std::string &fie
 }  // namespace
 
 void YoloSegRobotBlobModelConfiguration::parse_fields(ConfigParser &parser) {
-    model_path = parser.get_required_string("model_path");
+    engine.parse(parser, "engine");
     confidence_threshold = parser.get_optional_double("confidence_threshold", confidence_threshold);
     iou_threshold = parser.get_optional_double("iou_threshold", iou_threshold);
     mask_threshold = parser.get_optional_double("mask_threshold", mask_threshold);
@@ -48,7 +48,7 @@ void YoloSegRobotBlobModelConfiguration::parse_fields(ConfigParser &parser) {
 }
 
 void YoloBboxRobotBlobModelConfiguration::parse_fields(ConfigParser &parser) {
-    model_path = parser.get_required_string("model_path");
+    engine.parse(parser, "engine");
     confidence_threshold = parser.get_optional_double("confidence_threshold", confidence_threshold);
     iou_threshold = parser.get_optional_double("iou_threshold", iou_threshold);
     letterbox_padding = parser.get_optional_double("letterbox_padding", letterbox_padding);
@@ -95,11 +95,15 @@ std::shared_ptr<RobotBlobModelInterface> make_robot_blob_model(
     if (config.type == "NoopRobotBlobModel") {
         return std::make_shared<NoopRobotBlobModel>();
     } else if (config.type == "YoloSegRobotBlobModel") {
+        auto &model_config = config_cast<YoloSegRobotBlobModelConfiguration>(config);
         return std::make_shared<YoloSegRobotBlobModel>(
-            config_cast<YoloSegRobotBlobModelConfiguration>(config));
+            model_config,
+            std::make_shared<EngineSelector>(model_config.engine, "YoloSegRobotBlobModel"));
     } else if (config.type == "YoloBboxRobotBlobModel") {
+        auto &model_config = config_cast<YoloBboxRobotBlobModelConfiguration>(config);
         return std::make_shared<YoloBboxRobotBlobModel>(
-            config_cast<YoloBboxRobotBlobModelConfiguration>(config));
+            model_config,
+            std::make_shared<EngineSelector>(model_config.engine, "YoloBboxRobotBlobModel"));
     }
     throw std::invalid_argument("Failed to load RobotBlobModel of type " + config.type);
 }

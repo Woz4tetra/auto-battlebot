@@ -13,6 +13,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
+#include "engine_selector/engine_selector.hpp"
 #include "enums/keypoint_label.hpp"
 #include "enums/label.hpp"
 #include "keypoint_model/config.hpp"
@@ -27,7 +28,8 @@ using DetectionRow = std::vector<float>;
 
 class YoloKeypointModel : public KeypointModelInterface {
    public:
-    explicit YoloKeypointModel(YoloKeypointModelConfiguration &config);
+    YoloKeypointModel(YoloKeypointModelConfiguration &config,
+                      std::shared_ptr<EngineSelector> engine_selector);
 
     bool initialize() override;
     KeypointsStamped update(RgbImage image) override;
@@ -44,6 +46,7 @@ class YoloKeypointModel : public KeypointModelInterface {
     std::vector<Label> label_indices_;
 
     TrtEngine engine_;
+    std::shared_ptr<EngineSelector> engine_selector_;
     bool initialized_;
     DetectionsStamped last_detections_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;

@@ -5,6 +5,7 @@
 #include "config/config_parser.hpp"
 #include "config/enum_map_config.hpp"
 #include "data_structures.hpp"
+#include "engine_selector/config.hpp"
 #include "enums/keypoint_label.hpp"
 #include "enums/label.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
@@ -25,7 +26,7 @@ struct NoopKeypointModelConfiguration : public KeypointModelConfiguration {
 };
 
 struct YoloKeypointModelConfiguration : public KeypointModelConfiguration {
-    std::string model_path;
+    EngineSelectorConfiguration engine;
     float threshold = 0.50f;
     float iou_threshold = 0.45f;
     float letterbox_padding = 0.1f;
@@ -37,7 +38,7 @@ struct YoloKeypointModelConfiguration : public KeypointModelConfiguration {
     YoloKeypointModelConfiguration() { type = "YoloKeypointModel"; }
 
     void parse_fields(ConfigParser &parser) override {
-        model_path = parser.get_required_string("model_path");
+        engine.parse(parser, "engine");
         threshold = parser.get_optional_double("threshold", threshold);
         iou_threshold = parser.get_optional_double("iou_threshold", iou_threshold);
         letterbox_padding = parser.get_optional_double("letterbox_padding", letterbox_padding);

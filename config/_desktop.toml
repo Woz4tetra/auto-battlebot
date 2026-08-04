@@ -2,22 +2,45 @@
 # camera, team mapping, and code-default health, but uses x86 YoloSeg models and relaxed nav gains.
 extends = "_common"
 
+# Each model lists engine candidates instead of a single path. EngineSelector loads the
+# first one that deserializes on this machine's GPU, so a box with a different compute
+# capability needs a new engine build rather than a config edit. Candidates only ever
+# list builds of the same trained model: falling back to a different model would silently
+# change detection behavior between machines.
+
 [field_model]
 type = "DeepLabMaskModel"
-model_path = "data/models/field_deeplabv3p_r50_2026-07-29_x86_64_sm89.engine"
+
+[field_model.engine]
+# No sm86 build of this model exists yet, on this machine or megamind, so the field model
+# is the one that still fails on an RTX A6000. Build one and add it here.
+candidates = ["data/models/field_deeplabv3p_r50_2026-07-29_x86_64_sm89.engine"]
 
 [robot_mask_model]
 type = "YoloBboxRobotBlobModel"
-model_path = "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_x86_64_sm89.engine"
 label_indices = ["OPPONENT", "HOUSE_BOT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
 confidence_threshold = 0.7
 debug_visualization = false
 
+[robot_mask_model.engine]
+candidates = [
+  "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_x86_64_sm89.engine",
+  # sm86 (RTX A6000, megamind). Same trained model as the sm89 build above.
+  "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_x86_64_sm86.engine",
+]
+
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm89.engine"
+
+[keypoint_model.engine]
+candidates = [
+  "data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm89.engine",
+  "data/models/yolo26n-pose_our_robots_2026-05-01_rebuilt_x86_64_sm89.engine",
+  # sm86 (RTX A6000, megamind). Same trained model as the sm89 builds above.
+  "data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm86.engine",
+]
 
 [ui]
 enable = true

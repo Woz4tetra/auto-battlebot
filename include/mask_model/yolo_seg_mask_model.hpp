@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
+#include "engine_selector/engine_selector.hpp"
 #include "enums/label.hpp"
 #include "mask_model/config.hpp"
 #include "mask_model/mask_model_interface.hpp"
@@ -15,7 +16,8 @@
 namespace auto_battlebot {
 class YoloSegMaskModel : public MaskModelInterface {
    public:
-    explicit YoloSegMaskModel(YoloSegMaskModelConfiguration &config);
+    YoloSegMaskModel(YoloSegMaskModelConfiguration &config,
+                     std::shared_ptr<EngineSelector> engine_selector);
 
     bool initialize() override;
     MaskStamped update(RgbImage image) override;
@@ -51,6 +53,7 @@ class YoloSegMaskModel : public MaskModelInterface {
     uint8_t output_mask_value_ = 1;
 
     TrtEngine engine_;
+    std::shared_ptr<EngineSelector> engine_selector_;
     bool initialized_ = false;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 

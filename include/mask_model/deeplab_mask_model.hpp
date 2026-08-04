@@ -9,6 +9,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
+#include "engine_selector/engine_selector.hpp"
 #include "enums/deeplab_model_type.hpp"
 #include "mask_model/config.hpp"
 #include "mask_model/mask_model_interface.hpp"
@@ -18,7 +19,8 @@
 namespace auto_battlebot {
 class DeepLabMaskModel : public MaskModelInterface {
    public:
-    explicit DeepLabMaskModel(DeepLabMaskModelConfiguration &config);
+    DeepLabMaskModel(DeepLabMaskModelConfiguration &config,
+                     std::shared_ptr<EngineSelector> engine_selector);
 
     bool initialize() override;
     MaskStamped update(RgbImage image) override;
@@ -30,6 +32,7 @@ class DeepLabMaskModel : public MaskModelInterface {
     int image_size_ = 0;
     int border_padding_ = 0;
     TrtEngine engine_;
+    std::shared_ptr<EngineSelector> engine_selector_;
     bool initialized_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 

@@ -5,6 +5,7 @@
 
 #include "config/config_cast.hpp"
 #include "config/config_parser.hpp"
+#include "engine_selector/make_test_selector.hpp"
 #include "mask_model/config.hpp"
 #include "mask_model/yolo_seg_mask_model.hpp"
 
@@ -22,21 +23,21 @@ class YoloSegMaskModelTest : public ::testing::Test {
 
 TEST_F(YoloSegMaskModelTest, ConstructorDefaults) {
     YoloSegMaskModelConfiguration config;
-    config.model_path = "/fake/path/model.engine";
+    config.engine.candidates = {"/fake/path/model.engine"};
     config.label_indices = {Label::FIELD, Label::OPPONENT};
     config.output_label = Label::FIELD;
 
-    YoloSegMaskModel model(config);
+    YoloSegMaskModel model(config, make_test_selector(config));
     SUCCEED();
 }
 
 TEST_F(YoloSegMaskModelTest, UpdateWithoutInitialization) {
     YoloSegMaskModelConfiguration config;
-    config.model_path = "/fake/path/model.engine";
+    config.engine.candidates = {"/fake/path/model.engine"};
     config.label_indices = {Label::FIELD, Label::OPPONENT};
     config.output_label = Label::FIELD;
 
-    YoloSegMaskModel model(config);
+    YoloSegMaskModel model(config, make_test_selector(config));
     auto result = model.update(test_image);
 
     EXPECT_TRUE(result.mask.mask.empty());
@@ -48,8 +49,10 @@ TEST_F(YoloSegMaskModelTest, UpdateWithoutInitialization) {
 TEST(YoloSegMaskModelConfigTest, ParseConfigWithDefaults) {
     toml::table table = toml::parse(R"(
 type = "YoloSegMaskModel"
-model_path = "data/models/field_yolo.engine"
 label_indices = ["FIELD", "OPPONENT"]
+
+[engine]
+candidates = ["data/models/field_yolo.engine"]
 )");
     ConfigParser parser(table, "field_model");
     auto base_config = parse_mask_model_config(parser);
@@ -58,7 +61,8 @@ label_indices = ["FIELD", "OPPONENT"]
     EXPECT_EQ(base_config->type, "YoloSegMaskModel");
 
     const auto &config = config_cast<YoloSegMaskModelConfiguration>(*base_config);
-    EXPECT_EQ(config.model_path, "data/models/field_yolo.engine");
+    ASSERT_EQ(config.engine.candidates.size(), 1);
+    EXPECT_EQ(config.engine.candidates[0], "data/models/field_yolo.engine");
     ASSERT_EQ(config.label_indices.size(), 2);
     EXPECT_EQ(config.label_indices[0], Label::FIELD);
     EXPECT_EQ(config.label_indices[1], Label::OPPONENT);

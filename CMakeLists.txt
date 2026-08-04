@@ -391,6 +391,12 @@ if(BUILD_TESTING)
         auto_battlebot_ui
     )
 
+    # So shared test helpers can be included by module path, e.g.
+    # "engine_selector/make_test_selector.hpp".
+    target_include_directories(auto_battlebot_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    )
+
     include(GoogleTest)
     gtest_discover_tests(auto_battlebot_test)
 endif()

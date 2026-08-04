@@ -5,6 +5,7 @@
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
+#include "engine_selector/config.hpp"
 #include "enums/keypoint_label.hpp"
 #include "enums/label.hpp"
 #include "robot_blob_model/robot_blob_model_interface.hpp"
@@ -25,7 +26,7 @@ struct NoopRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
 };
 
 struct YoloSegRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
-    std::string model_path;
+    EngineSelectorConfiguration engine;
     float confidence_threshold = 0.5f;
     float iou_threshold = 0.45f;
     float mask_threshold = 0.5f;
@@ -44,7 +45,7 @@ struct YoloSegRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
 };
 
 struct YoloBboxRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
-    std::string model_path;
+    EngineSelectorConfiguration engine;
     float confidence_threshold = 0.5f;
     float iou_threshold = 0.45f;
     float letterbox_padding = 0.1f;

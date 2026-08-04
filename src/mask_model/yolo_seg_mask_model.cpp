@@ -15,9 +15,9 @@ constexpr float kMinBoxEdge = 1.0f;
 float sigmoid(float value) { return 1.0f / (1.0f + std::exp(-value)); }
 }  // namespace
 
-YoloSegMaskModel::YoloSegMaskModel(YoloSegMaskModelConfiguration &config)
-    : model_path_(config.model_path),
-      confidence_threshold_(config.confidence_threshold),
+YoloSegMaskModel::YoloSegMaskModel(YoloSegMaskModelConfiguration &config,
+                                   std::shared_ptr<EngineSelector> engine_selector)
+    : confidence_threshold_(config.confidence_threshold),
       iou_threshold_(config.iou_threshold),
       mask_threshold_(config.mask_threshold),
       letterbox_padding_(config.letterbox_padding),
@@ -26,6 +26,7 @@ YoloSegMaskModel::YoloSegMaskModel(YoloSegMaskModelConfiguration &config)
       debug_visualization_(config.debug_visualization),
       output_label_(config.output_label),
       label_indices_(config.label_indices),
+      engine_selector_(std::move(engine_selector)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("yolo_seg_mask_model")) {
     for (size_t i = 0; i < label_indices_.size(); ++i) {
         if (label_indices_[i] == output_label_) {
@@ -47,11 +48,11 @@ bool YoloSegMaskModel::initialize() {
         return false;
     }
 
-    spdlog::info("Loading YOLO-seg TensorRT engine from: {}", model_path_);
-    if (!engine_.load(model_path_)) {
-        spdlog::error("Failed to load YOLO-seg TensorRT engine: {}", model_path_);
+    const std::optional<std::string> selected = engine_selector_->select(engine_);
+    if (!selected) {
         return false;
     }
+    model_path_ = *selected;
 
     std::vector<float> warmup_input(static_cast<size_t>(engine_.getInputNumElements()), 0.0f);
     std::vector<float> warmup_output(static_cast<size_t>(engine_.getOutputNumElements()), 0.0f);

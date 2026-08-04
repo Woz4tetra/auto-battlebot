@@ -6,10 +6,11 @@
 #include <filesystem>
 
 namespace auto_battlebot {
-DeepLabMaskModel::DeepLabMaskModel(DeepLabMaskModelConfiguration& config)
-    : model_path_(config.model_path),
-      model_type_(config.model_type),
+DeepLabMaskModel::DeepLabMaskModel(DeepLabMaskModelConfiguration& config,
+                                   std::shared_ptr<EngineSelector> engine_selector)
+    : model_type_(config.model_type),
       output_label_(config.output_label),
+      engine_selector_(std::move(engine_selector)),
       initialized_(false) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("deeplab_mask_model");
 }
@@ -45,13 +46,15 @@ bool DeepLabMaskModel::load_model_config() {
 }
 
 bool DeepLabMaskModel::initialize() {
-    if (!load_model_config()) {
+    // Select before load_model_config: the sidecar .toml path is derived from the engine
+    // path, which is not known until a candidate has been chosen.
+    const std::optional<std::string> selected = engine_selector_->select(engine_);
+    if (!selected) {
         return false;
     }
+    model_path_ = *selected;
 
-    spdlog::info("Loading TensorRT engine from: {}", model_path_);
-    if (!engine_.load(model_path_)) {
-        spdlog::error("Failed to load DeepLab TensorRT engine: {}", model_path_);
+    if (!load_model_config()) {
         return false;
     }
 

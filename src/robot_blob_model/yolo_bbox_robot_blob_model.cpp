@@ -14,9 +14,9 @@ namespace {
 constexpr float kMinBoxEdge = 1.0f;
 }  // namespace
 
-YoloBboxRobotBlobModel::YoloBboxRobotBlobModel(YoloBboxRobotBlobModelConfiguration &config)
-    : model_path_(config.model_path),
-      confidence_threshold_(config.confidence_threshold),
+YoloBboxRobotBlobModel::YoloBboxRobotBlobModel(YoloBboxRobotBlobModelConfiguration &config,
+                                               std::shared_ptr<EngineSelector> engine_selector)
+    : confidence_threshold_(config.confidence_threshold),
       iou_threshold_(config.iou_threshold),
       letterbox_padding_(config.letterbox_padding),
       image_size_(config.image_size),
@@ -25,16 +25,17 @@ YoloBboxRobotBlobModel::YoloBboxRobotBlobModel(YoloBboxRobotBlobModelConfigurati
       label_indices_(config.label_indices),
       their_robot_labels_(config.their_robot_labels.begin(), config.their_robot_labels.end()),
       neutral_robot_labels_(config.neutral_robot_labels.begin(), config.neutral_robot_labels.end()),
-      field_labels_(config.field_labels.begin(), config.field_labels.end()) {
+      field_labels_(config.field_labels.begin(), config.field_labels.end()),
+      engine_selector_(std::move(engine_selector)) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("yolo_bbox_robot_blob_model");
 }
 
 bool YoloBboxRobotBlobModel::initialize() {
-    spdlog::info("Loading YOLO-bbox TensorRT engine from: {}", model_path_);
-    if (!engine_.load(model_path_)) {
-        spdlog::error("Failed to load YOLO-bbox TensorRT engine: {}", model_path_);
+    const std::optional<std::string> selected = engine_selector_->select(engine_);
+    if (!selected) {
         return false;
     }
+    model_path_ = *selected;
 
     std::vector<float> warmup_input(static_cast<size_t>(engine_.getInputNumElements()), 0.0f);
     std::vector<float> warmup_output(static_cast<size_t>(engine_.getOutputNumElements()), 0.0f);

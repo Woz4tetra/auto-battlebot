@@ -2,22 +2,37 @@
 # from common.toml and overrides the hardware-specific bits.
 extends = "_common"
 
+# Each model lists engine candidates instead of a single path. EngineSelector loads the
+# first one that deserializes on this machine's GPU. Candidates only ever list builds of
+# the same trained model: falling back to a different model would silently change
+# detection behavior between machines.
+
 [field_model]
 type = "DeepLabMaskModel"
-model_path = "data/models/field_deeplabv3p_r50_2026-07-29_aarch64_sm87.engine"
+
+[field_model.engine]
+candidates = ["data/models/field_deeplabv3p_r50_2026-07-29_aarch64_sm87.engine"]
 
 [robot_mask_model]
 type = "YoloBboxRobotBlobModel"
-model_path = "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_aarch64_sm87.engine"
 label_indices = ["OPPONENT", "HOUSE_BOT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
 confidence_threshold = 0.7
 debug_visualization = false
 
+[robot_mask_model.engine]
+candidates = [
+  "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_aarch64_sm87.engine",
+]
+
 [keypoint_model]
 type = "YoloKeypointModel"
-model_path = "data/models/yolo26n-pose_our_robots_2026-05-01_aarch64_sm87.engine"
+
+[keypoint_model.engine]
+candidates = [
+  "data/models/yolo26n-pose_our_robots_2026-05-01_aarch64_sm87.engine",
+]
 
 [ui]
 enable = true

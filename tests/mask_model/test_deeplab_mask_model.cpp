@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 
+#include "engine_selector/make_test_selector.hpp"
 #include "mask_model/deeplab_mask_model.hpp"
 
 namespace auto_battlebot {
@@ -20,9 +21,9 @@ class DeepLabMaskModelTest : public ::testing::Test {
 // Test constructor with default parameters
 TEST_F(DeepLabMaskModelTest, ConstructorDefaults) {
     DeepLabMaskModelConfiguration config;
-    config.model_path = "/fake/path/model.pt";
+    config.engine.candidates = {"/fake/path/model.pt"};
     config.model_type = DeepLabModelType::DeepLabV3;
-    DeepLabMaskModel model(config);
+    DeepLabMaskModel model(config, make_test_selector(config));
     // Should construct without throwing
     SUCCEED();
 }
@@ -30,9 +31,9 @@ TEST_F(DeepLabMaskModelTest, ConstructorDefaults) {
 // Test constructor with custom parameters
 TEST_F(DeepLabMaskModelTest, ConstructorCustomParams) {
     DeepLabMaskModelConfiguration config;
-    config.model_path = "/fake/path/model.pt";
+    config.engine.candidates = {"/fake/path/model.pt"};
     config.model_type = DeepLabModelType::DeepLabV3Plus;
-    DeepLabMaskModel model(config);
+    DeepLabMaskModel model(config, make_test_selector(config));
     // Should construct without throwing
     SUCCEED();
 }
@@ -40,9 +41,9 @@ TEST_F(DeepLabMaskModelTest, ConstructorCustomParams) {
 // Test update returns empty mask when not initialized
 TEST_F(DeepLabMaskModelTest, UpdateWithoutInitialization) {
     DeepLabMaskModelConfiguration config;
-    config.model_path = "/fake/path/model.pt";
+    config.engine.candidates = {"/fake/path/model.pt"};
     config.model_type = DeepLabModelType::DeepLabV3;
-    DeepLabMaskModel model(config);
+    DeepLabMaskModel model(config, make_test_selector(config));
 
     auto result = model.update(test_image);
 

@@ -5,6 +5,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
+#include "engine_selector/engine_selector.hpp"
 #include "robot_blob_model/config.hpp"
 #include "robot_blob_model/rectangle_keypoint_helpers.hpp"
 #include "robot_blob_model/robot_blob_model_interface.hpp"
@@ -13,7 +14,8 @@
 namespace auto_battlebot {
 class YoloSegRobotBlobModel : public RobotBlobModelInterface {
    public:
-    explicit YoloSegRobotBlobModel(YoloSegRobotBlobModelConfiguration &config);
+    YoloSegRobotBlobModel(YoloSegRobotBlobModelConfiguration &config,
+                          std::shared_ptr<EngineSelector> engine_selector);
 
     bool initialize() override;
     KeypointsStamped update(RgbImage image) override;
@@ -46,6 +48,7 @@ class YoloSegRobotBlobModel : public RobotBlobModelInterface {
     std::set<Label> field_labels_;
 
     TrtEngine engine_;
+    std::shared_ptr<EngineSelector> engine_selector_;
     bool initialized_ = false;
     DetectionsStamped last_detections_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;

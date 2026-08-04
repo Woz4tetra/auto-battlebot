@@ -19,6 +19,26 @@ class TrtEngine {
         int64_t num_elements = 0;
     };
 
+    // While an instance is alive, TensorRT's own diagnostics are logged at debug instead
+    // of error. EngineSelector holds one while probing candidates: an engine built for a
+    // different GPU is expected to be rejected there, and TensorRT reports it as
+    // "the engine plan file is not compatible with this version of TensorRT", which
+    // blames the version even when the real mismatch is compute capability. Letting that
+    // through would put the exact misleading error EngineSelector exists to replace into
+    // stdout and the mcap recording.
+    //
+    // Nesting is counted, so overlapping guards behave.
+    class ScopedQuietLogging {
+       public:
+        ScopedQuietLogging();
+        ~ScopedQuietLogging();
+
+        ScopedQuietLogging(const ScopedQuietLogging&) = delete;
+        ScopedQuietLogging& operator=(const ScopedQuietLogging&) = delete;
+        ScopedQuietLogging(ScopedQuietLogging&&) = delete;
+        ScopedQuietLogging& operator=(ScopedQuietLogging&&) = delete;
+    };
+
     TrtEngine() = default;
     ~TrtEngine();
 
@@ -28,6 +48,11 @@ class TrtEngine {
     TrtEngine& operator=(TrtEngine&&) = delete;
 
     // Load engine from a serialized .engine file. Returns true on success.
+    //
+    // Deserialization streams the file rather than buffering it, so a plan built for
+    // another GPU is rejected after the header instead of after reading the whole file.
+    // That keeps EngineSelector's probing cheap even for the 149 MB DeepLab engine.
+    // Every failure path leaves the object clean, so a caller may try another path.
     bool load(const std::string& engine_path);
 
     // Return true if an engine is loaded and ready for inference.

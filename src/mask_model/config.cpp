@@ -49,7 +49,7 @@ void FreeRoamMaskModelConfiguration::parse_fields(ConfigParser &parser) {
 }
 
 void YoloSegMaskModelConfiguration::parse_fields(ConfigParser &parser) {
-    model_path = parser.get_required_string("model_path");
+    engine.parse(parser, "engine");
     label_indices = parse_label_list(parser, "label_indices");
     if (label_indices.empty()) {
         throw ConfigValidationError(
@@ -120,11 +120,15 @@ std::shared_ptr<MaskModelInterface> make_mask_model(const MaskModelConfiguration
         return std::make_shared<FreeRoamMaskModel>(
             config_cast<FreeRoamMaskModelConfiguration>(config));
     } else if (config.type == "DeepLabMaskModel") {
+        auto &model_config = config_cast<DeepLabMaskModelConfiguration>(config);
         return std::make_shared<DeepLabMaskModel>(
-            config_cast<DeepLabMaskModelConfiguration>(config));
+            model_config,
+            std::make_shared<EngineSelector>(model_config.engine, "DeepLabMaskModel"));
     } else if (config.type == "YoloSegMaskModel") {
+        auto &model_config = config_cast<YoloSegMaskModelConfiguration>(config);
         return std::make_shared<YoloSegMaskModel>(
-            config_cast<YoloSegMaskModelConfiguration>(config));
+            model_config,
+            std::make_shared<EngineSelector>(model_config.engine, "YoloSegMaskModel"));
     }
     throw std::invalid_argument("Failed to load MaskModel of type " + config.type);
 }
