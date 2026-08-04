@@ -21,8 +21,13 @@ build_cpp_project() {
     echo "Creating build directory..."
     cd "${SCRIPT_DIR}/../"
     local BUILD_DIR
+    # AUTO_BATTLEBOT_BUILD_DIR lets a caller pick its own build tree. The docker
+    # playback container sets it to build-docker so its CMakeCache.txt, which records
+    # container compiler and dependency paths, never collides with the host build/.
     # Use different build directory when testing is enabled
-    if [ "$BUILD_TESTING_FLAG" = "ON" ]; then
+    if [ -n "${AUTO_BATTLEBOT_BUILD_DIR:-}" ]; then
+        BUILD_DIR="${AUTO_BATTLEBOT_BUILD_DIR}"
+    elif [ "$BUILD_TESTING_FLAG" = "ON" ]; then
         BUILD_DIR="build-test"
     else
         BUILD_DIR="build"

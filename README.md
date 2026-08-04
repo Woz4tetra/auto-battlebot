@@ -104,7 +104,9 @@ This section assumes CUDA and TensorRT are already installed.
 
 For Jetson-specific setup, see [docs/jetson_setup.md](docs/jetson_setup.md).
 
-Docker support may be added in the future if needed.
+To run SVO playback in a container instead, with ZED SDK, CUDA, and TensorRT already
+pinned, see [docs/docker_playback.md](docs/docker_playback.md). That path is x86 only
+and covers playback, not deployment.
 
 To install the core application, run one of:
 - `scripts/install_jetson.sh`

@@ -1,0 +1,97 @@
+# x86_64 SVO playback environment.
+#
+# Driven by scripts/docker/run_playback.sh and shell.sh, which export the REPO,
+# HOST_UID, HOST_GID, DISPLAY, and XAUTHORITY variables this file interpolates. Running
+# `docker compose -f docker/docker-compose.playback.yml ...` directly will fail on the
+# empty interpolations, so go through the scripts.
+#
+# The image is toolchain-only. Source, build tree, and data are bind-mounted, so editing
+# code never rebuilds the image. See docs/docker_playback.md.
+
+name: auto-battlebot
+
+# Pulls in the Foxglove bridge service so `compose run playback` starts it as a
+# dependency. Path is relative to this file.
+include:
+    - docker-compose.ros-connector.yml
+
+services:
+    playback:
+        image: auto-battlebot-playback:latest
+        build:
+            context: ..
+            dockerfile: docker/playback.Dockerfile
+        depends_on:
+            - auto-battlebot-ros
+
+        # Host networking keeps the Foxglove websocket and the ros-connector container
+        # reachable with no port mapping, and avoids docker-in-docker.
+        network_mode: "host"
+
+        # Shared IPC covers two things: X shared memory for the LVGL window, and the
+        # host /dev/shm size, which the default 64 MB would not satisfy.
+        ipc: "host"
+
+        # Run as the invoking user so artifacts written into the bind-mounted
+        # build-docker/ are owned by them, not root. The passwd and group mounts give
+        # that UID a name inside the container, which SDL and the ZED SDK expect.
+        user: "${HOST_UID}:${HOST_GID}"
+        working_dir: "${REPO}"
+
+        environment:
+            HOME: /home/dev
+            # install/build_cpp_project.sh reads this. Keeps the container's
+            # CMakeCache.txt, which records container compiler and dependency paths,
+            # from colliding with the host build/.
+            AUTO_BATTLEBOT_BUILD_DIR: build-docker
+            DISPLAY: "${DISPLAY}"
+            XAUTHORITY: "${XAUTHORITY}"
+
+        volumes:
+            - /etc/passwd:/etc/passwd:ro
+            - /etc/group:/etc/group:ro
+
+            # Named, not bind. Compose seeds a fresh named volume from the image
+            # directory it covers, including permissions, so these inherit what the
+            # Dockerfile set. A bind mount would hide what the image ships.
+            - auto-battlebot-home:/home/dev
+
+            # ZED_NEURAL_LIGHT (include/rgbd_camera/config.hpp) GPU-optimizes a depth
+            # model into this directory on first run. Persisting it means that cost is
+            # paid once rather than on every start.
+            - auto-battlebot-zed-resources:/usr/local/zed/resources
+
+            # Per-serial camera calibration (SNxxxxxxxx.conf). The SDK downloads it the
+            # first time it opens a given camera or SVO and fails with CALIBRATION FILE
+            # NOT AVAILABLE otherwise. Persisted so the download happens once.
+            - auto-battlebot-zed-settings:/usr/local/zed/settings
+
+            # Mounted at the host path so compile_commands.json, clangd, and stack
+            # traces resolve identically inside and outside the container.
+            - "${REPO}:${REPO}"
+
+            - /tmp/.X11-unix:/tmp/.X11-unix:ro
+            - "${XAUTHORITY}:${XAUTHORITY}:ro"
+
+        deploy:
+            resources:
+                reservations:
+                    devices:
+                        - driver: nvidia
+                          count: all
+                          capabilities: [gpu]
+
+        stdin_open: true
+        tty: true
+
+        command:
+            ["./scripts/docker/container_entrypoint.sh", "-c", "config/playback/mrs_buff_mk3_playback.toml"]
+
+volumes:
+    # Explicit names so the volumes stay stable and are not prefixed per project.
+    auto-battlebot-home:
+        name: auto-battlebot-home
+    auto-battlebot-zed-resources:
+        name: auto-battlebot-zed-resources
+    auto-battlebot-zed-settings:
+        name: auto-battlebot-zed-settings

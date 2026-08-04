@@ -21,6 +21,7 @@ htmlcov/
 # CMake and C++ build artifacts
 build/
 build-test/
+build-docker/
 CMakeCache.txt
 CMakeFiles/
 Makefile

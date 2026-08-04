@@ -1,6 +1,18 @@
+# Must match the project name in docker-compose.playback.yml. Both files declare the
+# service with a fixed container_name, so if they resolve to different compose projects
+# the second one to start fails with "container name is already in use". Without this,
+# the project name defaults to the directory, "docker".
+name: auto-battlebot
+
 services:
     auto-battlebot-ros:
         image: ros-connector:latest
+        # Without this, a machine that has never run install/install_ros_connector.sh
+        # fails here: compose cannot pull ros-connector:latest from any registry. With
+        # it, compose builds the image on first use.
+        build:
+            context: .
+            dockerfile: ros-connector.Dockerfile
         container_name: auto-battlebot-ros
         restart: "no"
         network_mode: "host"
