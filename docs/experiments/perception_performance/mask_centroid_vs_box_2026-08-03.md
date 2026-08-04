@@ -38,6 +38,12 @@ mask head away.
 6. **The bbox model is the better detector anyway.** Agnostic F1 0.893 vs 0.819, recall 0.847 vs
    0.756, precision 0.944 vs 0.894, mAP50-95 0.560 vs 0.517.
 
+Twelve matched robots, ordered by how far the box center sits from the aim point, from the closest
+case in the set to the 99th percentile. The blue circle sits inside the orange square in every tile;
+the green diamond walks away.
+
+![example crops with all three position estimates](assets/2026-08-03_mask_centroid/examples_mosaic.png)
+
 ![centroid offset and position error](assets/2026-08-03_mask_centroid/mask_centroid_vs_box.png)
 
 ![distance to the keypoint midpoint](assets/2026-08-03_mask_centroid/keypoint_midpoint_error.png)
@@ -227,6 +233,15 @@ wrong-class rate against the seg model's 0.153).
 - **The midpoint is a proxy for the chassis center, not a verified one.** It is the average of two
   labeled points on the robot's heading axis. For a robot whose front and back keypoints are not
   symmetric about its true center of rotation, the midpoint carries that asymmetry.
+- **Robots running off the frame inflate the tail, not the medians.** The labeler clips the box at
+  the image border but places keypoints at the chassis ends even when those land outside the frame,
+  so a truncated robot shows a large box-center-to-midpoint gap that is an artifact of the clipping.
+  79 of 1034 GT boxes are truncated by that test (27 % of house_bot, 2-4 % of everything else).
+  Dropping them moves the medians by under 0.005: house_bot 0.1989 to 0.1983, overall 0.0877 to
+  0.0838. The house_bot result is real geometry, not clipping. The mosaic excludes truncated robots
+  because they are misleading as illustrations even though they barely move the statistics.
+- **10 of 1034 GT boxes have their keypoint midpoint outside their own box,** by at most 0.13 of the
+  box side. That is 1 % of the set and is not what drives the 0.088 median.
 - **35 detections are labeled `mr_stabs_mk2`, which does not appear in these fights.** They are
   misclassifications of other robots. Their mask-vs-box geometry is still valid, so they stay in
   the offset tables and are called out in the per-class row.
@@ -250,6 +265,12 @@ python training/model_eval/mask_centroid_vs_box.py training/data/nhrl_keypoints_
   --bbox-labels "opponent,house_bot" \
   --taxonomy training/model_eval/taxonomy_merged.yaml --conf 0.5 --output $OUT/centroid
 
+python training/model_eval/make_centroid_mosaic.py training/data/nhrl_keypoints_eval_test \
+  --seg-weights data/models_v2/yolo26n-seg_nhrl_robots_2026-04-27.pt \
+  --seg-labels "opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3" \
+  --taxonomy training/model_eval/taxonomy_merged.yaml \
+  -o docs/experiments/perception_performance/assets/2026-08-03_mask_centroid/examples_mosaic.png
+
 python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
   --candidate seg_baseline=data/models_v2/yolo26n-seg_nhrl_robots_2026-04-27_x86_64_sm86.engine \
   --labels "opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3" \
@@ -263,9 +284,9 @@ python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
 
 ## Artifacts
 
-- Tool: `training/model_eval/mask_centroid_vs_box.py` (new)
+- Tools: `training/model_eval/mask_centroid_vs_box.py` and `training/model_eval/make_centroid_mosaic.py` (both new)
 - Scores: `training/data/nhrl_keypoints_eval_test/scores_mask_centroid_2026-08-03/{centroid,seg,bbox}/`
-- Report assets: `assets/2026-08-03_mask_centroid/{mask_centroid_vs_box.png, keypoint_midpoint_error.png, centroid_summary.csv, summary_seg_baseline.csv, summary_bbox_2class_mixed.csv, headline_*.png}`
+- Report assets: `assets/2026-08-03_mask_centroid/{examples_mosaic.png, mask_centroid_vs_box.png, keypoint_midpoint_error.png, centroid_summary.csv, summary_seg_baseline.csv, summary_bbox_2class_mixed.csv, headline_*.png}`
 - Per-detection offsets: `.../centroid/centroid_offsets.csv` (817 rows)
 - Per-GT-box position errors: `.../centroid/position_errors.csv` (1026 rows, `err_<reference>_<estimator>_{px,norm}` columns for references `gtbox` and `kpmid`)
 
