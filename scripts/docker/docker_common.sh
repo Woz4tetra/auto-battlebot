@@ -29,8 +29,13 @@ export XAUTHORITY
 
 export DISPLAY="${DISPLAY:-}"
 if [ -z "${DISPLAY}" ]; then
-    echo "warning: DISPLAY is unset, so the LVGL window cannot open." >&2
-    echo "         Run from a graphical session, or set ui.enable = false in config." >&2
+    # Not fatal. SDL_Init fails, the UI thread returns, and everything else runs
+    # normally, so this is a note rather than a problem to solve. Typical over SSH: the
+    # machine may well have an X server, but it belongs to another user's session and is
+    # not reachable from here.
+    echo "note: DISPLAY is unset, so no LVGL window will open. Playback, Foxglove, and" >&2
+    echo "      mcap recording are unaffected. Set ui.enable = false in the config to" >&2
+    echo "      silence the SDL error it logs on startup." >&2
 fi
 
 # docker-compose.playback.yml uses the `include:` key, added in Compose v2.20. Older

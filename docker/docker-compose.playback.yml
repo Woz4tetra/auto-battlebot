@@ -88,6 +88,17 @@ services:
         stdin_open: true
         tty: true
 
+        # Run tini as PID 1. Without this, PID 1 is container_entrypoint.sh, and a
+        # container's PID 1 gets no default signal actions: a process that installs no
+        # handler simply ignores the signal. The entrypoint runs scripts/build.sh before
+        # exec'ing the binary, and bash installs no SIGINT handler, so Ctrl-C during the
+        # build was silently dropped. That window is invisible on a machine with a warm
+        # build-docker/ and minutes long on one building from scratch.
+        #
+        # tini forwards signals to its child, where bash takes the default action and the
+        # binary's own SIGINT handler (src/main.cpp) still runs.
+        init: true
+
         command:
             ["./scripts/docker/container_entrypoint.sh", "-c", "config/playback/mrs_buff_mk3_playback.toml"]
 
