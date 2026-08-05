@@ -35,7 +35,11 @@ mask head away.
 5. **A bbox-only model matches the seg box center.** On the 698 robots both models found they
    differ by +0.315 px [−0.030, +0.682] against the GT box center and −0.211 px [−0.500, +0.120]
    against the aim point, **not significant** either way.
-6. **The bbox model is the better detector anyway.** Agnostic F1 0.893 vs 0.819, recall 0.847 vs
+6. **On the floor that gap is about 4 cm, and it doubles with range.** Projected through the
+   exported camera transforms, the aim point sits 37-49 mm from a box-derived position at the
+   median. Split by range it runs 31 mm at 0.86 m out to 56 mm at 2.32 m, while the *pixel* error
+   shrinks from 18.7 px to 5.7 px over the same span.
+7. **The bbox model is the better detector anyway.** Agnostic F1 0.893 vs 0.819, recall 0.847 vs
    0.756, precision 0.944 vs 0.894, mAP50-95 0.560 vs 0.517.
 
 Twelve matched robots, ordered by how far the predicted box center sits from the aim point, from the
@@ -197,7 +201,71 @@ The NHRL house bots are long and asymmetric, so the midpoint of their chassis si
 the center of the rectangle that encloses them. Columns are medians over each class's own matched
 subset, so rows do not have identical n across columns.
 
-## Result 4: seg baseline vs 2-class mixed bbox model
+## Result 4: the same error in millimetres on the arena floor
+
+Pixels do not have a fixed size on the ground, so the normalized numbers above hide the thing that
+matters for aiming. `export_camera_transforms.py` writes `tf_field_from_camera` and the intrinsics
+per eval frame, which turns any pixel into a floor position: the pixel becomes a camera ray, the ray
+is rotated into the field frame, and it is intersected with the plane the robot sits on. That is the
+projection the runtime uses in `project_keypoint_onto_plane`, and the plane height comes from the
+same `[robot_filter] keypoint_height_meters*` config the runtime reads (0 m for our robots, 0.12 m
+for house bots, 0.03 m default).
+
+Distances are computed **between floor points**, not scaled from a pixel distance. A single
+millimetres-per-pixel factor would be wrong at both ends of the arena.
+
+| estimate | n | median (mm) | mean (mm) | p90 (mm) |
+|---|---|---|---|---|
+| seg mask centroid | 692 | **37.2** | 73.5 | 206.4 |
+| seg box center | 692 | 40.6 | 75.1 | 202.8 |
+| bbox-only model box center | 802 | 47.2 | 72.9 | 183.2 |
+| GT box center (the label itself) | 955 | 49.0 | 73.8 | 183.4 |
+
+**The aim point is about 4 cm from any box-derived position at the median, and the mean is nearer
+7 cm.** For scale, the robots are roughly 20-30 cm across and the arena is 2.44 m square.
+
+Localization error is far smaller than the box-center bias. Predicted box centre to GT box centre
+runs 14.8 mm (seg) and 15.1 mm (bbox model) at the median, roughly a third of the aim-point gap.
+Detection is not what is costing accuracy here.
+
+### By range from the camera
+
+Four equal-count bands of the robot's ground range from the camera nadir. Ranges span 0.34-4.12 m,
+median 1.65 m.
+
+| band | n | median range | mask centroid | seg box center | bbox-only model | GT box center | seg box center (px) |
+|---|---|---|---|---|---|---|---|
+| 0.34-1.16 m | 239 | 0.86 m | 25.8 mm | 30.7 mm | 32.1 mm | 32.8 mm | 18.7 px |
+| 1.16-1.65 m | 239 | 1.41 m | 29.9 mm | 31.7 mm | 36.6 mm | 34.6 mm | 11.2 px |
+| 1.65-2.09 m | 238 | 1.91 m | 55.4 mm | 61.3 mm | 62.6 mm | 59.4 mm | 9.3 px |
+| 2.09-4.12 m | 239 | 2.32 m | 50.7 mm | 55.7 mm | 56.8 mm | 63.3 mm | 5.7 px |
+
+**The pixel error and the floor error move in opposite directions.** A far robot is small on screen,
+so its box-center-to-aim-point gap shrinks from 18.7 px to 5.7 px. But each of those pixels covers
+much more ground, so the same error grows from 31 mm to 56 mm on the floor. Reading the pixel column
+alone would suggest distant robots are the easy case; in the units navigation consumes they are
+roughly twice as bad.
+
+The near band is the one that matters for a hit: at 0.86 m the aim point sits ~3 cm from the box
+center, and at 2.3 m it is ~5.5 cm. The estimator ordering holds at every range, and the spread
+between estimators stays inside 7 mm in every band.
+
+### Checking the projection
+
+The floor numbers are only as good as the exported pose, so the transform is drawn back onto the
+frames. The nominal 2.44 m arena square, a 0.5 m floor grid, and 1/2/3 m range rings are projected
+through `tf_field_from_camera`, and each aim point is round-tripped pixel to floor and back.
+
+![field projection sanity check](assets/2026-08-03_mask_centroid/field_projection_check.png)
+
+The orange square lands on the cage walls across all seven recordings and the grid lies flat on the
+floor, which is the check that the pose is right. The round-trip residual is 0.000 px everywhere,
+which only proves the projection math is self-consistent; it says nothing about the pose, so the
+square is the load-bearing part of this figure. Camera height varies 0.53-0.81 m between frames
+because the camera moves during a fight, which is why the transform is per frame rather than per
+recording.
+
+## Result 5: seg baseline vs 2-class mixed bbox model
 
 Two separate `score.py` runs. `--labels` is one shared mapping for all candidates, so a 5-class and
 a 2-class engine cannot share a run, which also means no paired bootstrap between them.
@@ -229,7 +297,7 @@ wrong-class rate against the seg model's 0.153).
 
 - **The centroid analysis runs through ultralytics on the `.pt` weights, not the TensorRT engine.**
   `TrtYoloModel` discards the mask coefficients, so there is no engine path to a mask. Detection
-  counts from this path differ slightly from the engine runs in Result 4. The offsets are still
+  counts from this path differ slightly from the engine runs in Result 5. The offsets are still
   self-consistent because centroid and box come from the same forward pass.
 - **Offsets are measured only where the seg model fired.** The 285 GT robots it missed contribute
   nothing here, so this says nothing about whether a mask would help on hard detections.
@@ -251,7 +319,7 @@ wrong-class rate against the seg model's 0.153).
 - **35 detections are labeled `mr_stabs_mk2`, which does not appear in these fights.** They are
   misclassifications of other robots. Their mask-vs-box geometry is still valid, so they stay in
   the offset tables and are called out in the per-class row.
-- **No paired significance between the two models** in Result 4, because `--labels` is one shared
+- **No paired significance between the two models** in Result 5, because `--labels` is one shared
   mapping and the engines have different class counts. That comparison is two independent runs on
   identical frames.
 - **The two references disagree about which estimate wins,** by about a pixel in each direction.
@@ -270,6 +338,9 @@ python training/model_eval/mask_centroid_vs_box.py training/data/nhrl_keypoints_
   --bbox-weights data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31.pt \
   --bbox-labels "opponent,house_bot" \
   --taxonomy training/model_eval/taxonomy_merged.yaml --conf 0.5 --output $OUT/centroid
+
+python training/model_eval/make_field_projection_check.py training/data/nhrl_keypoints_eval_test \
+  -o docs/experiments/perception_performance/assets/2026-08-03_mask_centroid/field_projection_check.png
 
 python training/model_eval/make_centroid_mosaic.py training/data/nhrl_keypoints_eval_test \
   --seg-weights data/models_v2/yolo26n-seg_nhrl_robots_2026-04-27.pt \
@@ -290,9 +361,10 @@ python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
 
 ## Artifacts
 
-- Tools: `training/model_eval/mask_centroid_vs_box.py` and `training/model_eval/make_centroid_mosaic.py` (both new)
+- Tools (new): `training/model_eval/{mask_centroid_vs_box.py, make_centroid_mosaic.py, camera_geometry.py, make_field_projection_check.py}`
+- Camera geometry: `camera_info.json` + `camera_transforms/<stamp>.json` per sub dataset, written by `export_camera_transforms.py`. 955 of 1026 GT boxes have a usable (`exact` or `interpolated`) pose; the rest are `unavailable` or `ambiguous` and are dropped from the floor-unit tables.
 - Scores: `training/data/nhrl_keypoints_eval_test/scores_mask_centroid_2026-08-03/{centroid,seg,bbox}/`
-- Report assets: `assets/2026-08-03_mask_centroid/{examples_mosaic.png, mask_centroid_vs_box.png, keypoint_midpoint_error.png, centroid_summary.csv, summary_seg_baseline.csv, summary_bbox_2class_mixed.csv, headline_*.png}`
+- Report assets: `assets/2026-08-03_mask_centroid/{examples_mosaic.png, field_projection_check.png, mask_centroid_vs_box.png, keypoint_midpoint_error.png, centroid_summary.csv, range_bands.csv, summary_seg_baseline.csv, summary_bbox_2class_mixed.csv, headline_*.png}`
 - Per-detection offsets: `.../centroid/centroid_offsets.csv` (817 rows)
 - Per-GT-box position errors: `.../centroid/position_errors.csv` (1026 rows, `err_<reference>_<estimator>_{px,norm}` columns for references `gtbox` and `kpmid`)
 

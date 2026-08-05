@@ -38,6 +38,12 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from camera_geometry import (
+    ground_range_m,
+    height_for_label,
+    load_frame_geometry,
+    pixels_to_floor,
+)
 from score import BACK_IDX, FRONT_IDX, Frame, Taxonomy, load_gt, match_indices
 
 # Categorical slots 1-3 of the validated default palette, in fixed order.
@@ -236,6 +242,7 @@ def error_rows(
     references: dict[str, np.ndarray],
     estimates: dict[str, np.ndarray],
     pairs: dict[str, dict[int, int]],
+    geometry=None,
 ) -> list[dict]:
     """One row per GT box: distance from each estimator to each reference point.
 
@@ -262,8 +269,48 @@ def error_rows(
                     continue
                 distance = float(np.hypot(*(positions[p] - targets[g])))
                 row[f"err_{ref_name}_{name}_px"] = distance
+        if geometry is not None:
+            row.update(floor_errors(g, gt_labels[g], geometry, references, estimates, pairs))
         rows.append(row)
     return rows
+
+
+def floor_errors(
+    g: int,
+    gt_label: str,
+    geometry,
+    references: dict[str, np.ndarray],
+    estimates: dict[str, np.ndarray],
+    pairs: dict[str, dict[int, int]],
+) -> dict:
+    """The same errors again, but measured on the arena floor in millimetres.
+
+    Each estimate's pixel is projected onto the plane the robot sits on and the distance is
+    taken between floor points, not scaled from a pixel distance. Perspective means a pixel
+    is worth far more at the far wall than at the camera, so a single mm-per-pixel factor
+    would misstate both ends."""
+    height = height_for_label(gt_label)
+    row: dict = {}
+    projected: dict[str, np.ndarray] = {}
+    for name, positions in estimates.items():
+        p = pairs[name].get(g)
+        if p is None or np.isnan(positions[p, 0]):
+            continue
+        projected[name] = pixels_to_floor(positions[p], geometry, height)[0]
+    for ref_name, targets in references.items():
+        if np.isnan(targets[g, 0]):
+            continue
+        target_floor = pixels_to_floor(targets[g], geometry, height)[0]
+        if not np.all(np.isfinite(target_floor)):
+            continue
+        if ref_name == "kpmid":
+            row["camera_range_m"] = ground_range_m(target_floor, geometry)
+        for name, point in projected.items():
+            if not np.all(np.isfinite(point)):
+                continue
+            offset_m = float(np.linalg.norm(point[:2] - target_floor[:2]))
+            row[f"err_{ref_name}_{name}_mm"] = offset_m * 1000.0
+    return row
 
 
 def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -340,6 +387,7 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
                     "bbox_model": bbox_pairs,
                     "gt_boxcenter": identity,
                 },
+                load_frame_geometry(images[stamp]),
             )
         )
 
@@ -390,7 +438,7 @@ def summarize(
         ("mask_fill_frac", offsets["mask_fill_frac"].to_numpy()),
     ):
         rows.append({"quantity": name, **describe(values)})
-    for suffix in ("_norm", "_px"):
+    for suffix in ("_norm", "_px", "_mm"):
         for reference in REFERENCES:
             for estimator in ESTIMATORS:
                 column = f"err_{reference}_{estimator}{suffix}"
@@ -409,6 +457,41 @@ def summarize(
         print(f"\nError vs {reference_label}, paired over GT boxes both matched ({conf_pct}% CI):")
         print_comparisons(matched, reference, args)
     return summary
+
+
+def range_band_table(matched: pd.DataFrame, bands: int = 4) -> pd.DataFrame | None:
+    """Aim-point error in millimetres per estimator, split into equal-count range bands.
+
+    Bands are quantiles of the robot's ground range from the camera rather than fixed
+    distances, so each row carries the same weight instead of the far band holding a
+    handful of robots."""
+    if "camera_range_m" not in matched:
+        return None
+    usable = matched.dropna(subset=["camera_range_m"]).copy()
+    if usable.empty:
+        return None
+    usable["band"] = pd.qcut(usable["camera_range_m"], bands, duplicates="drop")
+
+    rows = []
+    for band, group in usable.groupby("band", observed=True):
+        row = {
+            "band": f"{band.left:.2f}-{band.right:.2f} m",
+            "n": len(group),
+            "range_median_m": round(float(group["camera_range_m"].median()), 3),
+        }
+        for estimator, label in ESTIMATORS.items():
+            column = f"err_kpmid_{estimator}_mm"
+            if column not in group:
+                continue
+            values = group[column].dropna()
+            if values.empty:
+                continue
+            row[f"{label} (mm)"] = round(float(values.median()), 1)
+        pixel = group["err_kpmid_seg_boxcenter_px"].dropna()
+        if not pixel.empty:
+            row["seg box center (px)"] = round(float(pixel.median()), 1)
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def print_comparisons(matched: pd.DataFrame, reference: str, args: argparse.Namespace) -> None:
@@ -560,6 +643,9 @@ def main() -> None:
     parser.add_argument("--imgsz", type=int, default=640, help="inference image size")
     parser.add_argument("--bootstrap", type=int, default=1000, help="paired-bootstrap resamples")
     parser.add_argument("--seed", type=int, default=0, help="bootstrap RNG seed")
+    parser.add_argument(
+        "--range-bands", type=int, default=4, help="equal-count camera-range bands (default: 4)"
+    )
     parser.add_argument("--alpha", type=float, default=0.05, help="significance level")
     parser.add_argument(
         "--output", type=Path, help="output dir (default: <gt>/scores_mask_centroid)"
@@ -577,10 +663,20 @@ def main() -> None:
     summary.to_csv(args.output / "centroid_summary.csv", index=False)
     plot(offsets, matched, args.output)
     plot_keypoint_reference(matched, args.output)
-    print(
-        f"\nWrote {args.output}/{{centroid_offsets.csv, position_errors.csv, "
-        "centroid_summary.csv, mask_centroid_vs_box.png, keypoint_midpoint_error.png}"
-    )
+
+    bands = range_band_table(matched, args.range_bands)
+    outputs = "centroid_summary.csv, mask_centroid_vs_box.png, keypoint_midpoint_error.png"
+    if bands is not None:
+        print(
+            f"\nAim-point error on the arena floor, by ground range from the camera "
+            f"({args.range_bands} equal-count bands, medians):"
+        )
+        print(bands.to_string(index=False))
+        bands.to_csv(args.output / "range_bands.csv", index=False)
+        outputs += ", range_bands.csv"
+    else:
+        print("\n(No camera geometry found; run export_camera_transforms.py for floor units.)")
+    print(f"\nWrote {args.output}/{{centroid_offsets.csv, position_errors.csv, {outputs}}}")
 
 
 if __name__ == "__main__":

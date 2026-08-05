@@ -1,0 +1,5 @@
+band,n,range_median_m,mask centroid (mm),seg box center (mm),bbox-only model (mm),GT box center (mm),seg box center (px)
+0.34-1.16 m,239,0.855,25.8,30.7,32.1,32.8,18.7
+1.16-1.65 m,239,1.413,29.9,31.7,36.6,34.6,11.2
+1.65-2.09 m,238,1.91,55.4,61.3,62.6,59.4,9.3
+2.09-4.12 m,239,2.324,50.7,55.7,56.8,63.3,5.7
