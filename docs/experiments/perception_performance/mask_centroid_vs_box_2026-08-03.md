@@ -250,6 +250,46 @@ The near band is the one that matters for a hit: at 0.86 m the aim point sits ~3
 center, and at 2.3 m it is ~5.5 cm. The estimator ordering holds at every range, and the spread
 between estimators stays inside 7 mm in every band.
 
+### The field geometry these numbers rest on
+
+`export_camera_transforms.py` wrote 622 per-frame records over the seven recordings. Only `exact`
+and `interpolated` poses are used here:
+
+| method | n | used |
+|---|---|---|
+| `exact` | 445 | yes |
+| `interpolated` | 146 | yes |
+| `unavailable` | 17 | no |
+| `ambiguous` | 14 | no |
+
+The camera moves during a fight, so height above the floor is a per-frame quantity: median 0.633 m,
+p10-p90 0.535-0.750 m, full range 0.414-0.874 m. Per-recording medians span 0.544-0.701 m. That
+spread is why the transform is stored per frame rather than per recording.
+
+Each record also carries `field_size_m`, the extent the RANSAC plane fit measured at that frame's
+field init. Against the 8 ft (2.4384 m) arena:
+
+| recording | n | fitted x (m) | fitted y (m) |
+|---|---|---|---|
+| 05-01 17-42-20 | 80 | 2.422 | 2.047 |
+| 05-02 10-06-02 | 22 | 2.247 | 1.984 |
+| 05-02 11-45-05 | 97 | 2.308 | 2.058 |
+| 05-02 14-12-25 | 99 | 2.298 | 2.109 |
+| 05-02 15-35-00 | 97 | 2.296 | 2.242 |
+| 05-02 16-18-05 | 98 | 2.275 | 2.189 |
+| 05-02 17-26-12 | 98 | 2.249 | 2.202 |
+| **all** | **591** | **2.298** | **2.109** |
+
+Medians; the value is constant within a recording except where the pipeline re-initialized the
+field, which is why a few recordings carry two. The fit under-reads the arena by 5.7 % in x and
+13.5 % in y, and never exceeds 2.422 x 2.242 m.
+
+**None of that touches the millimetre numbers.** The projection uses `tf_field_from_camera` and the
+intrinsics; `field_size_m` is the fit's extent estimate and is not an input. It is reported because
+it bounds how much to trust the field fit in general, and because the direction of the error is
+informative: an extent that under-reads while the plane itself is correct is what a conservative
+inlier trim looks like, not a bad plane.
+
 ### Checking the projection
 
 The floor numbers are only as good as the exported pose, so the transform is drawn back onto the
@@ -259,11 +299,13 @@ through `tf_field_from_camera`, and each aim point is round-tripped pixel to flo
 ![field projection sanity check](assets/2026-08-03_mask_centroid/field_projection_check.png)
 
 The orange square lands on the cage walls across all seven recordings and the grid lies flat on the
-floor, which is the check that the pose is right. The round-trip residual is 0.000 px everywhere,
-which only proves the projection math is self-consistent; it says nothing about the pose, so the
-square is the load-bearing part of this figure. Camera height varies 0.53-0.81 m between frames
-because the camera moves during a fight, which is why the transform is per frame rather than per
-recording.
+floor, which is the check that the pose is right. Note that this square is the *nominal* 2.4384 m,
+not the undersized fit above: drawing the full arena and having it land on the walls is the
+independent evidence that the plane is right and only the extent estimate is short.
+
+The round-trip residual is 0.000 px everywhere, which only proves the projection math is
+self-consistent; it says nothing about the pose, so the square is the load-bearing part of this
+figure.
 
 ## Result 5: seg baseline vs 2-class mixed bbox model
 
@@ -316,6 +358,15 @@ wrong-class rate against the seg model's 0.153).
   because they are misleading as illustrations even though they barely move the statistics.
 - **10 of 1034 GT boxes have their keypoint midpoint outside their own box,** by at most 0.13 of the
   box side. That is 1 % of the set and is not what drives the 0.088 median.
+- **A quarter of the poses are interpolated.** The pipeline ran at ~25 fps against 30 fps capture,
+  so 146 of 622 frames were never processed live and their pose is a slerp/lerp between neighbours.
+  They are kept because the camera moves slowly relative to the frame interval, but a floor distance
+  on one of those frames carries the interpolation error on top of everything else. Restricting to
+  `exact` would cost a quarter of the sample.
+- **The field extent fit under-reads the arena and is not used.** `field_size_m` medians 2.298 x
+  2.109 m against a 2.4384 m arena. The millimetre numbers depend only on the pose, and the
+  projection check argues the pose is sound, but anything downstream that consumes `field_size_m`
+  directly (navigation wall bounds, for one) inherits that 6-14 % shortfall.
 - **35 detections are labeled `mr_stabs_mk2`, which does not appear in these fights.** They are
   misclassifications of other robots. Their mask-vs-box geometry is still valid, so they stay in
   the offset tables and are called out in the per-class row.
