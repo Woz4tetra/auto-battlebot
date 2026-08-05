@@ -1,0 +1,17 @@
+# Same recording deltas as experiments/label_playback, but on the mrs_buff_mk3 profile so
+# the filter has a their_robot_labels mapping. The bare playback chain (_playback ->
+# _desktop -> _common) never sets it, so every OPPONENT detection stays uncategorized and
+# no their_robot track is ever published, which makes the run useless for comparing the
+# opponent model. _desktop does set neutral_robot_labels, so house_bot still tracks and the
+# gap is easy to miss.
+extends = "playback/mrs_buff_mk3_playback"
+
+[rgbd_camera]
+svo_real_time_mode = false
+
+[ui]
+enable = false
+
+[mcap]
+enable = true
+ignored_topics = []
