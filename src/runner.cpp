@@ -250,12 +250,18 @@ void Runner::initialize_field(const CameraData &camera_data) {
     spdlog::info("Initializing field");
     field_filter_->reset(camera_data.tf_visodom_from_camera);
     MaskStamped field_mask = field_model_->update(camera_data.rgb);
-    publisher_->publish_field_mask(field_mask, camera_data.rgb, camera_data.camera_info);
 
+    // Check before publishing. Publishing first put an empty /field_mask in the recording on
+    // every failed init, so a run whose field model never loaded looked like one that ran and
+    // found nothing, and the missing /tf_static read as a publisher problem instead.
     if (field_mask.mask.mask.empty()) {
-        spdlog::error("Field model returned an empty mask; skipping field initialization.");
+        spdlog::error(
+            "Field model returned an empty mask; skipping field initialization. The model "
+            "usually failed to load at startup, so check for earlier engine errors.");
         return;
     }
+
+    publisher_->publish_field_mask(field_mask, camera_data.rgb, camera_data.camera_info);
 
     initial_field_description_ = field_filter_->compute_field(camera_data, field_mask);
     if (initial_field_description_->header.frame_id == FrameId::EMPTY) {
