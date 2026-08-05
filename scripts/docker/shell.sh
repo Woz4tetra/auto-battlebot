@@ -6,16 +6,31 @@
 #
 # Any arguments are run as a command instead of an interactive shell:
 #   scripts/docker/shell.sh ./scripts/build.sh
+#
+# --no-display drops X11 forwarding, for headless machines and SSH sessions:
+#   scripts/docker/shell.sh --no-display
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Parsed before sourcing docker_common.sh, which reads AUTO_BATTLEBOT_NO_DISPLAY when it
+# decides what to do with DISPLAY.
+COMMAND_ARGS=()
+for arg in "$@"; do
+    if [ "${arg}" = "--no-display" ]; then
+        export AUTO_BATTLEBOT_NO_DISPLAY=1
+    else
+        COMMAND_ARGS+=("${arg}")
+    fi
+done
+
 source "${SCRIPT_DIR}/docker_common.sh"
 
-if [ "$#" -eq 0 ]; then
-    set -- bash
+if [ "${#COMMAND_ARGS[@]}" -eq 0 ]; then
+    COMMAND_ARGS=(bash)
 fi
 
 # --no-deps skips the Foxglove bridge; a shell rarely needs it.
 # Not exec'd: compose is a shell function from docker_common.sh, and exec needs a binary.
-compose run --rm --no-deps --build playback "$@"
+compose run --rm --no-deps --build playback "${COMMAND_ARGS[@]}"
