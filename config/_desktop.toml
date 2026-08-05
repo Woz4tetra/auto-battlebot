@@ -16,7 +16,7 @@ type = "DeepLabMaskModel"
 # is the one that still fails on an RTX A6000. Build one and add it here.
 candidates = [
   "data/models/field_deeplabv3p_r50_2026-07-29_x86_64_sm89.engine",
-  "data/models/field_deeplabv3p_r50_2026-07-29_x86_64_sm87.engine",
+  "data/models/field_deeplabv3p_r50_2026-07-29_x86_64_sm86.engine",
 ]
 
 [robot_mask_model]
