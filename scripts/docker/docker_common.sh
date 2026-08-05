@@ -12,6 +12,10 @@ export REPO
 
 COMPOSE_FILE="${REPO}/docker/docker-compose.playback.yml"
 
+# Default playback profile. Interpolated into the compose file's command and reused by
+# run_playback.sh, so the default lives in exactly one place.
+export PLAYBACK_CONFIG="${PLAYBACK_CONFIG:-config/playback/mrs_buff_mk3_playback.toml}"
+
 # Compose has no $(id -u) equivalent, so pass them in. UID is set by bash but not
 # exported, and GID is not set at all under some shells.
 HOST_UID="$(id -u)"
@@ -27,15 +31,23 @@ if [ ! -e "${XAUTHORITY}" ]; then
 fi
 export XAUTHORITY
 
-export DISPLAY="${DISPLAY:-}"
-if [ -z "${DISPLAY}" ]; then
-    # Not fatal. SDL_Init fails, the UI thread returns, and everything else runs
-    # normally, so this is a note rather than a problem to solve. Typical over SSH: the
-    # machine may well have an X server, but it belongs to another user's session and is
-    # not reachable from here.
-    echo "note: DISPLAY is unset, so no LVGL window will open. Playback, Foxglove, and" >&2
-    echo "      mcap recording are unaffected. Set ui.enable = false in the config to" >&2
-    echo "      silence the SDL error it logs on startup." >&2
+# Set by the --no-display flag in run_playback.sh and shell.sh. Blanking DISPLAY is what
+# actually stops the container reaching an X server; the socket and cookie stay mounted
+# because compose has no conditional mounts, and they are inert without DISPLAY.
+if [ -n "${AUTO_BATTLEBOT_NO_DISPLAY:-}" ]; then
+    export DISPLAY=""
+    echo "--no-display: X11 forwarding off, running headless." >&2
+else
+    export DISPLAY="${DISPLAY:-}"
+    if [ -z "${DISPLAY}" ]; then
+        # Not fatal. SDL_Init fails, the UI thread returns, and everything else runs
+        # normally, so this is a note rather than a problem to solve. Typical over SSH:
+        # the machine may well have an X server, but it belongs to another user's
+        # session and is not reachable from here.
+        echo "note: DISPLAY is unset, so no LVGL window will open. Playback, Foxglove," >&2
+        echo "      and mcap recording are unaffected. Pass --no-display to skip the" >&2
+        echo "      UI entirely and silence the SDL error logged on startup." >&2
+    fi
 fi
 
 # docker-compose.playback.yml uses the `include:` key, added in Compose v2.20. Older

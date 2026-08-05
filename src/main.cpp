@@ -44,6 +44,10 @@ int main(int argc, char** argv) {
     bool print_config = false;
     app.add_flag("--print-config", print_config,
                  "Print the resolved config values (extends chain merged) and exit");
+    bool no_ui = false;
+    app.add_flag("--no-ui", no_ui,
+                 "Run without the LVGL/SDL window regardless of ui.enable in the config. "
+                 "For headless machines and SSH sessions, where SDL cannot open a display");
 
     try {
         app.parse(argc, argv);
@@ -101,7 +105,10 @@ int main(int argc, char** argv) {
     std::unique_ptr<UIManager> ui_manager;
     std::vector<std::shared_ptr<DiagnosticsBackend>> backends;
 
-    if (class_config.ui && class_config.ui->enable) {
+    if (no_ui) {
+        spdlog::info("--no-ui: skipping the UI regardless of config.");
+    }
+    if (!no_ui && class_config.ui && class_config.ui->enable) {
         ui_manager =
             std::make_unique<UIManager>(*class_config.ui, class_config.runner.max_loop_rate,
                                         available_profiles, active_profile);

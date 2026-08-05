@@ -99,8 +99,9 @@ services:
         # binary's own SIGINT handler (src/main.cpp) still runs.
         init: true
 
-        command:
-            ["./scripts/docker/container_entrypoint.sh", "-c", "config/playback/mrs_buff_mk3_playback.toml"]
+        # PLAYBACK_CONFIG is exported by scripts/docker/docker_common.sh, which is where
+        # the default profile is defined.
+        command: ["./scripts/docker/container_entrypoint.sh", "-c", "${PLAYBACK_CONFIG}"]
 
 volumes:
     # Explicit names so the volumes stay stable and are not prefixed per project.
