@@ -182,6 +182,7 @@ bool Runner::recover_camera_after_failure() {
     spdlog::error("Failed to get camera data. Reinitializing.");
     auto is_running = [this]() {
         if (!miniros::ok()) return false;
+        if (quit_requested_.load()) return false;
         if (ui_state_ && ui_state_->quit_requested.load()) return false;
         return true;
     };
@@ -331,6 +332,12 @@ bool Runner::tick() {
     DiagnosticsData rate_data;
     rate_data["rate"] = loop_rate_hz;
     diagnostics_logger_->debug(rate_data);
+
+    if (quit_requested_.load()) {
+        spdlog::warn("Quit requested via signal; shutting down runner.");
+        stop_recordings_for_shutdown();
+        return false;
+    }
 
     if (!miniros::ok()) {
         spdlog::warn("miniros reported not ok; shutting down runner.");

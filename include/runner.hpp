@@ -2,6 +2,7 @@
 
 #include <miniros/ros.h>
 
+#include <atomic>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -23,6 +24,7 @@
 #include "navigation/navigation_interface.hpp"
 #include "perception_batch/parallel_model_batch.hpp"
 #include "publisher/publisher_interface.hpp"
+#include "quittable.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "robot_blob_model/robot_blob_model_interface.hpp"
 #include "robot_descriptions_cache.hpp"
@@ -34,7 +36,10 @@
 #include "ui/ui_state.hpp"
 
 namespace auto_battlebot {
-class Runner {
+// Quittable so SIGINT and SIGTERM can stop the run. The UI manager used to be the only
+// quittable, which meant that with ui.enable = false nothing was registered at all and
+// both signals became no-ops: the process could then only be killed with SIGKILL.
+class Runner : public Quittable {
    public:
     using SystemActionCallback = std::function<void(UISystemAction)>;
     using ProfileSelectCallback = std::function<void(const std::string &)>;
@@ -62,7 +67,13 @@ class Runner {
     int run();
     bool tick();
 
+    // Called from the SIGINT/SIGTERM handler, so it only sets a flag the loop polls.
+    void request_quit() override { quit_requested_.store(true); }
+
    private:
+    // Independent of ui_state_, which is null whenever the UI is disabled.
+    std::atomic<bool> quit_requested_{false};
+
     RunnerConfiguration runner_config_;
     std::shared_ptr<RgbdCameraInterface> camera_;
     std::shared_ptr<MaskModelInterface> field_model_;

@@ -142,6 +142,10 @@ int main(int argc, char** argv) {
 
     runner.initialize();
 
+    // The runner is registered unconditionally. Registering only the UI manager left
+    // ui.enable = false with no quittables at all, so SIGINT and SIGTERM did nothing and
+    // the process could only be stopped with SIGKILL.
+    g_quittables[g_quittables_count++] = &runner;
     if (ui_manager) g_quittables[g_quittables_count++] = ui_manager.get();
 
     std::signal(SIGINT, signal_quit);
