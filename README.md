@@ -100,8 +100,46 @@ These scripts assume you are on one of the supported hardware configurations:
 - Jetson Orin Nano
 - Ubuntu 22 or 24 (x86 + NVIDIA GPU with compute capability 8.7 or higher)
 
+These are the platforms I've tested on. This repository may work on other system configurations.
+
 This section assumes CUDA and TensorRT are already installed.
 
+## Docker install
+
+These commands ensure you have docker and docker-compose 2.20+ installed as well as the Nvidia docker runtime.
+This assumes you have the appropriate Nvidia drivers installed already.
+
+```bash
+./install/install_docker_ubuntu.sh
+sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+This script builds the docker image:
+
+```bash
+./scripts/docker/build_image.sh
+```
+
+Once this succeeds, run the playback with this script:
+
+```bash
+./scripts/docker/run_playback.sh
+```
+
+To run unit tests, run these commands:
+
+```bash
+./scripts/docker/shell.sh
+./scripts/build_and_test.sh
+```
+
+If there's an error about no engine file found, jump to this section "Creating New Engine Files."
+
+## Docker-less install
+
+I don't have a docker file for Jetson platforms.
 For Jetson-specific setup, see [docs/jetson_setup.md](docs/jetson_setup.md).
 
 To run SVO playback in a container instead, with ZED SDK, CUDA, and TensorRT already
