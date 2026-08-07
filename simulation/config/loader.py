@@ -11,8 +11,6 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
-from config.root import SimConfig
-
 T = TypeVar("T")
 
 
@@ -28,8 +26,3 @@ def load_config(path: str | Path, data_class: type[T], strict: bool = True) -> T
         data_class=data_class, data=raw, config=dacite.Config(strict=strict)
     )
     return parsed
-
-
-def load_sim_config(path: str | Path) -> SimConfig:
-    """Load a TOML config file and return a fully-typed SimConfig."""
-    return load_config(path, SimConfig, strict=False)

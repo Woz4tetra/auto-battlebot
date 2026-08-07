@@ -13,7 +13,7 @@ import numpy.typing as npt
 def fov_to_intrinsics(fov_deg: float, width: int, height: int) -> tuple[float, float, float, float]:
     """Derive (fx, fy, cx, cy) from a vertical FOV and resolution.
 
-    Genesis's camera FOV is vertical, so fy is computed from height.
+    Camera FOV is vertical, so fy is computed from height.
     fx = fy assumes square pixels.
     """
     fov_rad = math.radians(fov_deg)

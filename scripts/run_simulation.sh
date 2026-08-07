@@ -22,7 +22,7 @@ if [ ! -d "$VENV_DIR" ]; then
     exit 1
 fi
 
-SIM_CONFIG="${1:-$SIM_DIR/kinematic_sim_mrs_buff_mk3.toml}"
+SIM_CONFIG="${1:-$SIM_DIR/sim_mrs_buff_mk3.toml}"
 CPP_CONFIG="${2:-./config/simulation/kinematic_sim.toml}"
 
 # Build C++
