@@ -1,6 +1,6 @@
 # Shared simulation base (not run directly): SimRgbdCamera over a socket, x86 engines, swapped team
 # mapping, sim transmitter. Navigation tuning and transmitter startup delay are NOT defined here so
-# they don't leak into every sim profile; leaf configs (genesis.toml, headless_sim.toml) set their own.
+# they don't leak into every sim profile; leaf configs (headless_sim.toml) set their own.
 extends = "_desktop"
 
 # Type change -> replaces common's ZedRgbdCamera.
@@ -15,3 +15,7 @@ command_delay_ms = 0.0
 
 [mcap]
 enable = false
+
+[ui]
+# Skip the startup splash animation during replay iteration.
+splash = false

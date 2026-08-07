@@ -9,7 +9,7 @@
 ## Run (config selects the whole component graph)
 - `./scripts/build_and_run.sh -c config/<profile>.toml` — build + run a profile
 - `./scripts/run.sh -c config/<profile>.toml --print-config` — dump merged config and exit
-- `./scripts/run_simulation.sh` — kinematic/genesis simulation mode
+- `./scripts/run_simulation.sh` — kinematic simulation mode
 - Binary flags: only `-c/--config <path-or-profile>` and `--print-config`. No per-key CLI
   override (SVO path, model paths, etc. must be set in a config).
 
@@ -22,7 +22,7 @@ _common.toml                       # shared base, never run directly
   _desktop.toml / _jetson.toml     # platform bases (x86 dev vs Jetson aarch64)
     mr_stabs_mk2_{desktop,jetson}.toml, mrs_buff_mk3_{desktop,jetson}.toml   # live hardware
     playback/_playback.toml -> playback/<robot>_playback.toml   # SVO replay (hardware-free)
-    simulation/{_simulation,headless_sim,genesis}.toml
+    simulation/{_simulation,headless_sim}.toml
     experiments/{label_playback,eval_candidate,experiment_playback}.toml
 profiles.toml                      # standalone; UI profile switcher (excludes _-prefixed)
 ```

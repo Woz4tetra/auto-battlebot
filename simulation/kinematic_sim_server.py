@@ -300,7 +300,7 @@ class KinematicServer:
     def handle_client(self, conn: socket.socket) -> None:
         self._reset()
         cfg = self._cfg
-        while self._tick < cfg.sim.max_ticks:
+        while cfg.sim.max_ticks == 0 or self._tick < cfg.sim.max_ticks:
             data = recv_all(conn, REQUEST_SIZE)
             linear_x, _linear_y, angular_z = struct.unpack(REQUEST_FMT, data)
 

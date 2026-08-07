@@ -53,7 +53,7 @@ init_delay_seconds = 0.0
 max_loop_rate = 0.0 # free-run: pacing comes from lockstep with the sim server
 
 [mcap]
-enable = true
+enable = false
 
 # Logical time follows the sim frame stamp (sim_time), so the run is deterministic and the controller's
 # dt is correct even when the loop free-runs far faster than real time.

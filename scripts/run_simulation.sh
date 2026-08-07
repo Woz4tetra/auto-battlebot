@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Build the C++ application and launch it alongside the Genesis simulation server.
+# Build the C++ application and launch it alongside the simulation server.
 # The sim server starts first (in the background), then the C++ binary connects to it.
 # Ctrl-C kills both processes.
 #
@@ -22,17 +22,17 @@ if [ ! -d "$VENV_DIR" ]; then
     exit 1
 fi
 
-SIM_CONFIG="${1:-$SIM_DIR/sim_config.toml}"
-CPP_CONFIG="${2:-./config/genesis.toml}"
+SIM_CONFIG="${1:-$SIM_DIR/kinematic_sim_mrs_buff_mk3.toml}"
+CPP_CONFIG="${2:-./config/simulation/kinematic_sim.toml}"
 
-# --- Build C++ (while the sim server starts up in parallel) -------------------
+# Build C++
 
 "$SCRIPT_DIR/build.sh" &
 BUILD_PID=$!
 
-# --- Start Genesis sim server -------------------------------------------------
+# Start sim server
 
-"$VENV_DIR/bin/python" "$SIM_DIR/sim_server.py" "$SIM_CONFIG" &
+"$VENV_DIR/bin/python" "$SIM_DIR/kinematic_sim_server.py" "$SIM_CONFIG" &
 SIM_PID=$!
 
 # Kill both children on exit (Ctrl-C, errors, normal exit)
@@ -47,6 +47,6 @@ trap cleanup EXIT
 # Wait for build to finish before launching the C++ binary
 wait "$BUILD_PID" || { echo "Build failed"; exit 1; }
 
-# --- Run C++ application -----------------------------------------------------
+# Run C++ application
 
 "$SCRIPT_DIR/run.sh" -c "$CPP_CONFIG"
