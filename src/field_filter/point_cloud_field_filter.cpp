@@ -2,6 +2,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include "field_filter/point_cloud_field_filter_debug.hpp"
+
 namespace auto_battlebot {
 PointCloudFieldFilter::PointCloudFieldFilter(PointCloudFieldFilterConfiguration &config)
     : distance_threshold_(config.distance_threshold),
@@ -107,7 +109,18 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> PointCloudFieldFilter::compute
                                 {"angle_rad", std::to_string(rectangle_angle)}});
 
     if (local_visualize_debug_) {
-        visualize_debug_mosaic(field_mask.mask.mask, largest_contour_mask, masked_depth_image);
+        visualize_debug_mosaic(FieldFilterDebugFrame{
+            .original_mask = field_mask.mask.mask,
+            .largest_contour_mask = largest_contour_mask,
+            .masked_depth_image = masked_depth_image,
+            .intrinsics = camera_data.camera_info.intrinsics,
+            .field_cloud = field_cloud,
+            .inlier_indices = inlier_indices,
+            .flattened_cloud_2d = flattened_cloud_2d,
+            .rectangle_corners = rectangle_corners,
+            .plane_transform = plane_transform,
+            .rectangle_angle = rectangle_angle,
+        });
     }
 
     spdlog::info("compute_field complete");
@@ -612,48 +625,6 @@ double PointCloudFieldFilter::get_rectangle_angle(
     }
 
     return angle;
-}
-
-void PointCloudFieldFilter::visualize_debug_mosaic(const cv::Mat &original_mask,
-                                                   const cv::Mat &largest_contour_mask,
-                                                   const cv::Mat &masked_depth_image) const {
-    // Create debug visualization mosaic
-    cv::Mat original_mask_vis, largest_contour_vis, masked_depth_vis;
-
-    // Convert masks to 3-channel for visualization
-    cv::cvtColor(original_mask, original_mask_vis, cv::COLOR_GRAY2BGR);
-    cv::cvtColor(largest_contour_mask, largest_contour_vis, cv::COLOR_GRAY2BGR);
-
-    // Normalize masked depth for visualization
-    cv::Mat depth_normalized;
-    cv::normalize(masked_depth_image, depth_normalized, 0, 255, cv::NORM_MINMAX, CV_8U);
-    cv::applyColorMap(depth_normalized, masked_depth_vis, cv::COLORMAP_JET);
-
-    // Replace NaN visualization with black
-    for (int v = 0; v < masked_depth_image.rows; ++v) {
-        for (int u = 0; u < masked_depth_image.cols; ++u) {
-            if (std::isnan(masked_depth_image.at<float>(v, u))) {
-                masked_depth_vis.at<cv::Vec3b>(v, u) = cv::Vec3b(0, 0, 0);
-            }
-        }
-    }
-
-    // Add labels to each image
-    cv::putText(original_mask_vis, "Original Mask", cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX,
-                0.7, cv::Scalar(0, 255, 0), 2);
-    cv::putText(largest_contour_vis, "Largest Contour", cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX,
-                0.7, cv::Scalar(0, 255, 0), 2);
-    cv::putText(masked_depth_vis, "Masked Depth", cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.7,
-                cv::Scalar(0, 255, 0), 2);
-
-    // Create mosaic (1x3 layout)
-    cv::Mat mosaic;
-    cv::hconcat(std::vector<cv::Mat>{original_mask_vis, largest_contour_vis, masked_depth_vis},
-                mosaic);
-
-    cv::imshow("Field Filter Debug", mosaic);
-    cv::waitKey(-1);
-    cv::destroyAllWindows();
 }
 
 }  // namespace auto_battlebot

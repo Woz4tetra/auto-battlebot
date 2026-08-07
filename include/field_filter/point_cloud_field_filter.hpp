@@ -103,10 +103,6 @@ class PointCloudFieldFilter : public FieldFilterInterface {
 
     // Helper function to normalize angle to [-pi, pi]
     double normalize_angle(double angle) const;
-
-    // Helper function to visualize debug mosaic of pipeline stages
-    void visualize_debug_mosaic(const cv::Mat &original_mask, const cv::Mat &largest_contour_mask,
-                                const cv::Mat &masked_depth_image) const;
 };
 
 }  // namespace auto_battlebot
