@@ -533,15 +533,21 @@ static void runDiagnostics() {
 }
 
 // ---------------------------------------------------------------------------
-// USB serial console (idle only): LIST / GET / DEL / STREAM
+// USB serial console (idle only): LIST / GET / DEL / STREAM / TIME
 //
 // A host-side TUI (scripts/console) drives this. It runs only from the idle
 // branch of loop(), so it never touches the SD card or the capture path while
-// recording. During recording, commands are answered with "BUSY".
+// recording. During recording, commands are answered with "BUSY", except TIME,
+// which is answered normally because it touches neither.
 // ---------------------------------------------------------------------------
 
 static char g_cmd[64];
 static uint8_t g_cmdLen = 0;
+
+// Capture clock at the instant the terminating newline was consumed. TIME
+// reports this rather than sampling inside the handler, so dispatch overhead
+// does not land inside the host's round-trip measurement.
+static uint64_t g_cmdRxUs = 0;
 
 // Non-blocking line reader. Returns true when a full line sits in g_cmd.
 static bool serialReadLine() {
@@ -549,6 +555,7 @@ static bool serialReadLine() {
         char c = (char)Serial.read();
         if (c == '\r') continue;
         if (c == '\n') {
+            g_cmdRxUs = time_us_64();
             g_cmd[g_cmdLen] = 0;
             g_cmdLen = 0;
             return true;
@@ -600,6 +607,27 @@ static void cmdDel(const char* name) {
     Serial.println(g_sd.remove(name) ? "OK" : "ERR");
 }
 
+// Clock probe for aligning the jig's log timestamps with a host clock.
+//
+// Replies "TIME <rx_us> <tx_us>", both from the same time_us_64() base the log
+// rows use. rx_us is when the request line completed, tx_us is sampled just
+// before the reply is pushed out, so the pair brackets the jig-side processing
+// span. The host times the round trip, keeps the lowest-RTT probes, and pairs
+// the midpoint of (t_send, t_recv) with the midpoint of (rx_us, tx_us). Probing
+// before and after a recording gives offset and skew; the RP2040 crystal drifts
+// ~30 ppm, which is ~0.9 ms over a 30 s run.
+//
+// Runs during recording too. It touches neither the SD card nor the capture
+// path, and a mid-run probe measures skew over the run window instead of
+// extrapolating into it.
+static void cmdTime() {
+    Serial.print("TIME ");
+    Serial.print(g_cmdRxUs);
+    Serial.print(' ');
+    Serial.println(time_us_64());
+    Serial.flush();
+}
+
 static void cmdStream() {
     Serial.println("STREAM");
     for (;;) {
@@ -648,6 +676,8 @@ static void handleCommand() {
         cmdDel(c + 4);
     } else if (!strncmp(c, "STREAM", 6)) {
         cmdStream();
+    } else if (!strncmp(c, "TIME", 4)) {
+        cmdTime();
     } else if (!strncmp(c, "BOOTSEL", 7)) {
         Serial.println("REBOOTING to bootloader");
         Serial.flush();
@@ -851,8 +881,16 @@ void loop() {
     if (g_recording) {
         drainToSD();
         if (justPressed(g_btnB)) stopRecording();
-        // Answer the console with BUSY without touching the SD or capture path.
-        if (serialReadLine()) Serial.println("BUSY");
+        // Answer the console without touching the SD or capture path. TIME is
+        // served for real so the host can probe the clock mid-run; everything
+        // else gets BUSY.
+        if (serialReadLine()) {
+            if (!strncmp(g_cmd, "TIME", 4)) {
+                cmdTime();
+            } else {
+                Serial.println("BUSY");
+            }
+        }
     } else {
         if (justPressed(g_btnA)) {
             startRecording();

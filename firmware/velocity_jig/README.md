@@ -86,6 +86,44 @@ accel_g   = raw * accel_g_per_lsb      # 0.000244 g/LSB at +/-8 g
 `t_us` is `time_us_64()`, microseconds since boot (monotonic, 64-bit). `count` is
 the 4x quadrature position, reset to 0 at the start of each file.
 
+## Clock probe (`TIME`)
+
+`t_us` counts from RP2040 boot, so it has no relation to the clock on whatever
+host issues drive commands. `TIME` over the USB console recovers that relation:
+
+```
+> TIME
+TIME 12345678 12345702
+```
+
+Both fields are microseconds from the same `time_us_64()` base the log rows use.
+The first is when the request line completed, the second is sampled just before
+the reply goes out, so the pair brackets jig-side processing (tens of
+microseconds).
+
+Host procedure, one probe:
+
+1. Record `t_send` (`CLOCK_MONOTONIC`), write `TIME\n`, read the reply, record
+   `t_recv`.
+2. Pair the midpoint of `(t_send, t_recv)` with the midpoint of `(rx_us, tx_us)`.
+3. Keep only the lowest-decile round trips. USB Full Speed polls at 1 ms frames,
+   so most of the spread is host scheduling, and the fastest probes are the ones
+   with the most symmetric transport.
+
+Take ~200 probes before a recording and ~200 after, then fit a line through the
+surviving pairs for offset and skew. The RP2040 crystal drifts on the order of
+30 ppm, which is ~0.9 ms over a 30 s run, so skew is small but worth removing.
+
+Unlike every other console command, `TIME` is answered during recording instead
+of `BUSY`. It touches neither the SD card nor the capture path, and a mid-run
+probe measures skew across the run window rather than extrapolating into it.
+
+This matters because command-to-motion latency is ~60 ms: a constant clock
+offset and the transport delay are indistinguishable to a cross-correlation of
+commands against measured acceleration, so the offset has to be measured
+separately. See
+[`docs/experiments/kalman_filter/kalman_filter_plan.md`](../../docs/experiments/kalman_filter/kalman_filter_plan.md).
+
 ## How gaps are avoided
 
 1. **Capture runs in interrupt context.** The IMU INT1 data-ready line (GPIO12)
