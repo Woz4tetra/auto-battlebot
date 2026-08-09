@@ -1,0 +1,1254 @@
+// UI wiring and the run coach.
+//
+// The coach walks the runbook's run card one step at a time, doing everything
+// it can without being asked: clock probes, the excitation, the encoder-state
+// check, the gates. The operator presses A and B on the jig and types a pack
+// voltage. That is the whole manual burden.
+
+import { JigLink, WebSerialTransport } from './jig.js';
+import { MockJigTransport, MockTrainerTransport } from './mock.js';
+import { TrainerLink, play } from './trainer.js';
+import { calibrateStill, runTrim, detectRub } from './trim.js';
+import { predictFootprint, fitToBudget } from './excitation.js';
+import {
+    PLANT,
+    lateralExcursion,
+    mismatchForHalfWidth,
+    usableLength,
+    solveHoldTaus,
+    stepDistance,
+    encoderPasses,
+} from './plant.js';
+import {
+    EXPERIMENTS,
+    BLOCKS,
+    getExperiment,
+    getVariant,
+    encoderStateFor,
+    buildProgram,
+    ENCODER_SWAP,
+} from './experiments.js';
+import {
+    newSession,
+    newRun,
+    applyGates,
+    save,
+    load,
+    toJson,
+    toMarkdown,
+    download,
+    IMU_ODR_HZ,
+    GATE_LIMITS,
+} from './session.js';
+
+const $ = (id) => document.getElementById(id);
+
+const state = {
+    session: load() ?? newSession(),
+    jig: null,
+    link: null,
+    mockJig: null,
+    mock: new URLSearchParams(location.search).has('mock'),
+    selected: { expId: 'E0', variantId: 'main' },
+    active: null, // in-flight run
+    diagOn: false,
+    lastPackVoltage: null,
+    audio: null,
+    abort: null,
+    advance: null, // resolver for "operator pressed the button"
+    plan: null,
+};
+
+// --- console ------------------------------------------------------------
+
+function logLine(text, cls = '') {
+    const el = $('console');
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+    const span = document.createElement('span');
+    span.className = cls;
+    span.textContent = `${text}\n`;
+    el.appendChild(span);
+    while (el.childNodes.length > 500) el.removeChild(el.firstChild);
+    if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+// --- connections --------------------------------------------------------
+
+function attachJig(transport) {
+    const jig = new JigLink(transport);
+    jig.addEventListener('line', (e) => logLine(e.detail));
+    jig.addEventListener('recording', (e) => logLine(`>> recording ${e.detail.logFile}`, 'evt'));
+    jig.addEventListener('stopped', (e) =>
+        logLine(`>> stopped n=${e.detail.samples} dropped=${e.detail.dropped}`, 'evt'),
+    );
+    state.jig = jig;
+    return jig;
+}
+
+/**
+ * Abort whatever the coach is waiting on before a port goes away.
+ *
+ * A run parked on `waitEvent(jig, 'recording')` has no timeout, so closing the
+ * port under it would leave the coach waiting on a line that can never arrive.
+ * Aborting first closes the run with a reason and leaves a record of it.
+ */
+function abortForDisconnect(what) {
+    if (!state.active) return;
+    logLine(`${what} disconnected mid-run: aborting`, 'evt');
+    state.link?.disarm(`${what} disconnected`);
+    state.abort?.abort();
+    state.advance?.reject(new Aborted());
+}
+
+async function connectJig() {
+    if (state.jig?.connected) return disconnectJig();
+    try {
+        const t = state.mock ? new MockJigTransport() : new WebSerialTransport();
+        if (state.mock) state.mockJig = t;
+        attachJig(t);
+        await state.jig.connect();
+        logLine('jig connected', 'evt');
+    } catch (err) {
+        logLine(`jig connect failed: ${err.message}`);
+    }
+    renderStatus();
+}
+
+async function disconnectJig() {
+    abortForDisconnect('jig');
+    try {
+        // Order matters: the stream has to stop before the port closes, or the
+        // read loop is left pulling on a closing port. jig.disconnect() does
+        // that, but the diagnostics flag lives up here and has to follow.
+        state.diagOn = false;
+        await state.jig?.disconnect();
+        logLine('jig disconnected', 'evt');
+    } catch (err) {
+        logLine(`jig disconnect failed: ${err.message}`);
+    }
+    state.jig = null;
+    state.mockJig = null;
+    $('diagToggle').textContent = 'Start stream';
+    $('diagOut').textContent = 'Not streaming.';
+    renderStatus();
+}
+
+async function disconnectTx() {
+    abortForDisconnect('transmitter');
+    try {
+        // disconnect() disarms before it closes. Closing an armed link would
+        // leave the receiver holding the last setpoint until its own failsafe
+        // notices, which is exactly the case the watchdog exists to prevent.
+        await state.link?.disconnect();
+        logLine('transmitter disconnected', 'evt');
+    } catch (err) {
+        logLine(`transmitter disconnect failed: ${err.message}`);
+    }
+    state.link = null;
+    renderStatus();
+}
+
+async function connectTx() {
+    if (state.link?.connected) return disconnectTx();
+    try {
+        const link = new TrainerLink(state.mock ? new MockTrainerTransport() : undefined);
+        link.addEventListener('armed', () => {
+            logLine('ARMED', 'evt');
+            renderStatus();
+        });
+        link.addEventListener('disarmed', (e) => {
+            logLine(`disarmed: ${e.detail.reason}`, 'evt');
+            renderStatus();
+        });
+        if (state.mock) {
+            link.addEventListener('command', (e) =>
+                state.mockJig?.setMotion(e.detail.linear * PLANT.vSsFwd, e.detail.angular * PLANT.wSs),
+            );
+        }
+        state.link = link;
+        await link.connect();
+        logLine('transmitter connected', 'evt');
+    } catch (err) {
+        logLine(`transmitter connect failed: ${err.message}`);
+    }
+    renderStatus();
+}
+
+function renderStatus() {
+    // Both chips toggle. The tooltip says which way, because "Jig: connected"
+    // reads as a status readout and gives no hint that it is also the button
+    // that closes the port.
+    const j = $('connectJig');
+    const jOn = !!state.jig?.connected;
+    j.textContent = jOn ? 'Jig: connected' : 'Jig: disconnected';
+    j.className = `chip ${jOn ? 'ok' : 'bad'}`;
+    j.title = jOn ? 'Click to disconnect the jig' : 'Click to connect the jig';
+    const t = $('connectTx');
+    const tOn = !!state.link?.connected;
+    t.textContent = tOn ? 'TX: connected' : 'TX: disconnected';
+    t.className = `chip ${tOn ? 'ok' : 'bad'}`;
+    t.title = tOn ? 'Click to disconnect the transmitter' : 'Click to connect the transmitter';
+
+    // The console buttons need the port to themselves, so they are only live
+    // when the jig is connected and no run is in flight. Greying them out says
+    // that before the click rather than after it.
+    const why = !jOn ? 'Connect the jig first' : state.active ? 'Not available mid-run' : null;
+    for (const id of ['cmdList', 'cmdTime', 'diagToggle']) {
+        const b = $(id);
+        if (!b) continue;
+        b.disabled = !!why;
+        b.title = why ?? '';
+    }
+    const a = $('armState');
+    a.textContent = state.link?.armed ? 'ARMED' : 'Disarmed';
+    a.className = `chip ${state.link?.armed ? 'armed' : 'idle'}`;
+    $('sessionId').textContent = state.session.id + (state.mock ? '  [mock]' : '');
+    $('toggleMock').className = state.mock ? 'chip ok' : 'ghost';
+}
+
+// --- session form -------------------------------------------------------
+
+const FORM = {
+    fOperator: 'operator',
+    fRobot: 'robot',
+    fFloor: 'floorSurface',
+    fMount: 'encoderMountSetting',
+};
+
+function loadForm() {
+    const s = state.session;
+    for (const [id, key] of Object.entries(FORM)) $(id).value = s[key] ?? '';
+    $('fGuard').checked = s.guardPlatesOn;
+    $('fWeapon').checked = s.weaponDisabled;
+    $('fGyroRange').value = String(s.imu.gyroRangeDps);
+    $('fAccelRange').value = String(s.imu.accelRangeG);
+    $('fBoard').value = s.space.boardM;
+    $('fHalfWidth').value = s.space.halfWidthM;
+    $('fCourse').value = s.space.courseM;
+    $('fRateLimit').value = s.encoderRateLimit ?? PLANT.encoderRateLimit;
+    $('fNotes').value = s.notes ?? '';
+}
+
+function readForm() {
+    const s = state.session;
+    for (const [id, key] of Object.entries(FORM)) s[key] = $(id).value;
+    s.guardPlatesOn = $('fGuard').checked;
+    s.weaponDisabled = $('fWeapon').checked;
+    s.imu.gyroRangeDps = Number($('fGyroRange').value);
+    s.imu.accelRangeG = Number($('fAccelRange').value);
+    s.imu.gyroDpsPerLsb = s.imu.gyroRangeDps === 4000 ? 0.14 : 0.07;
+    s.space.boardM = Number($('fBoard').value);
+    s.space.halfWidthM = Number($('fHalfWidth').value);
+    s.space.courseM = Number($('fCourse').value);
+    s.space.usableM = usableLength(s.space.boardM);
+    s.encoderRateLimit = Number($('fRateLimit').value);
+    s.notes = $('fNotes').value;
+    save(s);
+}
+
+/**
+ * Space panel. The knee is around a 10 ft board: that is where a full-amplitude
+ * step gets five time constants of dwell, which is enough to read max speed off
+ * the plateau instead of inferring it from the fitted model.
+ */
+function renderSpace() {
+    const s = state.session;
+    const budget = s.space.usableM;
+    const rows = [];
+    const fmt = (x, n = 2) => x.toFixed(n);
+
+    rows.push(['Usable straight', `${fmt(budget)} m`]);
+    for (const taus of [3, 5]) {
+        const d = stepDistance(1.0, taus * PLANT.tauAccel);
+        const fits = d.total <= budget;
+        rows.push([
+            `Full-amplitude step, ${taus}&tau; dwell`,
+            `<span class="${fits ? '' : 'stop'}">${fmt(d.total)} m ${fits ? 'fits' : 'over'}</span>`,
+        ]);
+    }
+    const best = solveHoldTaus(budget);
+    rows.push([
+        'Longest dwell that fits at 1.0',
+        best ? `${best}&tau; (${fmt(best * PLANT.tauAccel * 1000, 0)} ms)` : '<span class="stop">none</span>',
+    ]);
+
+    const excursion = lateralExcursion(budget, 0.02, PLANT.trackWidthM);
+    const needed = mismatchForHalfWidth(budget, s.space.halfWidthM, PLANT.trackWidthM);
+    rows.push([
+        'Drift at 2% wheel mismatch',
+        `<span class="${excursion > s.space.halfWidthM ? 'stop' : ''}">${fmt(excursion)} m</span>`,
+    ]);
+    rows.push(['Mismatch that stays on the board', `${fmt(needed * 100, 2)}%`]);
+
+    const passes = encoderPasses(s.space.courseM);
+    rows.push([`E4 passes at ${fmt(s.space.courseM)} m`, `${passes} for statistics`]);
+
+    let html = '<table>';
+    for (const [k, v] of rows) html += `<tr><td>${k}</td><td>${v}</td></tr>`;
+    html += '</table>';
+
+    if (excursion > s.space.halfWidthM) {
+        html += `<p class="note flag">Width binds before length here. Drift grows as the square of run
+            length, so trim before every open-loop linear run and treat the rail as a backstop, not
+            a guide.</p>`;
+    }
+    $('spaceSummary').innerHTML = html;
+}
+
+// --- planning -----------------------------------------------------------
+
+/** Angular command that lands on the E5 rate limit. */
+function angularCap(session) {
+    const limit = session.encoderRateLimit ?? PLANT.encoderRateLimit;
+    return Math.max(0.02, Math.min(1, limit / PLANT.wSs));
+}
+
+/**
+ * Fit a run to the space available.
+ *
+ * Order matters and follows PLAN.md: shorten the dwell first, then shuttle,
+ * then scale amplitude. Amplitude is last because it costs signal-to-noise and
+ * hides any nonlinearity that only appears near full command.
+ */
+function planRun(exp, variant, session) {
+    const budget = session.space.usableM;
+    const base = {
+        budgetM: budget,
+        angularCap: angularCap(session),
+        durationS: undefined,
+        scale: 1.0,
+    };
+    if (!exp.program) return { program: null, cfg: base, footprint: null, notes: [] };
+
+    const dwellTunable = ['E8', 'E9', 'E11', 'E13', 'E20'].includes(exp.id);
+    const notes = [];
+    const attempts = [];
+    const dwells = dwellTunable ? [5, 4, 3] : [null];
+    for (const taus of dwells) {
+        for (const shuttle of [false, true]) {
+            const cfg = { ...base, shuttle };
+            if (taus) cfg.holdS = taus * PLANT.tauAccel;
+            const program = buildProgram(exp, variant, cfg);
+            const footprint = predictFootprint(program);
+            attempts.push({ cfg, program, footprint, taus, shuttle });
+            if (footprint.spanM <= budget) {
+                if (taus && taus < 5) notes.push(`Dwell shortened to ${taus} time constants to fit.`);
+                if (shuttle) notes.push('Shuttling: successive repetitions alternate direction.');
+                return { ...attempts[attempts.length - 1], cfg, program, footprint, notes };
+            }
+        }
+    }
+
+    const last = attempts[attempts.length - 1];
+    const fitted = fitToBudget(
+        (scale) => buildProgram(exp, variant, { ...last.cfg, scale }),
+        budget,
+    );
+    notes.push(`Dwell already at minimum, so amplitude scaled to ${(fitted.scale * 100).toFixed(0)}%.`);
+    notes.push('Scaled amplitude weakens the fit and can hide nonlinearity near full command.');
+    if (!fitted.fits) notes.push('Still does not fit. Shorten the program or find more floor.');
+    return {
+        cfg: { ...last.cfg, scale: fitted.scale },
+        program: fitted.program,
+        footprint: fitted.footprint,
+        notes,
+        taus: last.taus,
+        shuttle: last.shuttle,
+    };
+}
+
+function renderPlan() {
+    const exp = getExperiment(state.selected.expId);
+    const variant = getVariant(exp, state.selected.variantId);
+    const s = state.session;
+    state.plan = planRun(exp, variant, s);
+
+    $('runTitle').textContent = `${exp.id}. ${exp.name}`;
+    const enc = encoderStateFor(exp, variant);
+    $('runMeta').textContent =
+        `${variant.label} · encoder ${enc} · ~${exp.durationMin} min · produces ${exp.produces ?? 'n/a'}`;
+
+    const fp = state.plan.footprint;
+    const rows = [];
+    if (fp) {
+        const over = fp.spanM > s.space.usableM;
+        rows.push([
+            'Predicted footprint',
+            `<span class="${over ? 'stop' : ''}">${fp.spanM.toFixed(2)} m of ${s.space.usableM.toFixed(2)} m</span>`,
+        ]);
+        rows.push(['Peak speed', `${fp.peakSpeed.toFixed(2)} m/s`]);
+        if (fp.peakYawRate > 0.01) {
+            const limit = s.encoderRateLimit ?? PLANT.encoderRateLimit;
+            const scrub = enc === 'attached' && fp.peakYawRate > limit;
+            const clip = (s.imu.gyroRangeDps * Math.PI) / 180;
+            rows.push([
+                'Peak yaw rate',
+                `<span class="${scrub || fp.peakYawRate > clip ? 'stop' : ''}">${fp.peakYawRate.toFixed(1)} rad/s</span>`,
+            ]);
+            rows.push([
+                'Gyro clips at',
+                `<span class="${fp.peakYawRate > clip ? 'stop' : ''}">${clip.toFixed(1)} rad/s (${s.imu.gyroRangeDps} dps)</span>`,
+            ]);
+            if (fp.peakYawRate > clip) {
+                state.plan.notes.push(
+                    `This run saturates the gyro. Set IMU_GYRO_RANGE to 4000 dps and reflash before running it, or the samples are worthless.`,
+                );
+            }
+            if (scrub) {
+                state.plan.notes.push(
+                    `Peak yaw exceeds the E5 rate limit of ${limit} rad/s with the encoder wheel attached. The wheel scrubs sideways the whole time.`,
+                );
+            }
+        }
+        rows.push(['Program length', `${state.plan.program.durationS.toFixed(1)} s`]);
+        rows.push(['Expected samples', `~${Math.round((state.plan.program.durationS + 20) * IMU_ODR_HZ)}`]);
+        const drift = lateralExcursion(fp.spanM, 0.02, PLANT.trackWidthM);
+        if (drift > s.space.halfWidthM && fp.spanM > 0.3) {
+            rows.push(['Drift at 2% mismatch', `<span class="flag">${drift.toFixed(2)} m</span>`]);
+        }
+    } else if (exp.id === 'E4') {
+        const p = exp.planPasses(s.space.courseM);
+        rows.push(['Course', `${p.courseM.toFixed(2)} m`]);
+        rows.push(['Passes needed', `${p.minimumPasses}`]);
+        rows.push(['Recommended', `${p.recommendedPasses}`]);
+    } else {
+        rows.push(['Driving', 'not scripted']);
+    }
+
+    let html = '<table>';
+    for (const [k, v] of rows) html += `<tr><td>${k}</td><td>${v}</td></tr>`;
+    html += '</table>';
+    for (const n of state.plan.notes) html += `<p class="note flag">${n}</p>`;
+    if (exp.id === 'E4') html += `<p class="note">${exp.planPasses(s.space.courseM).note}</p>`;
+    if (exp.liveWeapon) html += '<p class="note stop">Live weapon. Highest safety bar in the runbook.</p>';
+    $('spaceReport').innerHTML = html;
+
+    const ol = $('procedureSteps');
+    ol.innerHTML = '';
+    for (const st of exp.steps) {
+        const li = document.createElement('li');
+        li.textContent = st;
+        ol.appendChild(li);
+    }
+    $('gatesPreview').innerHTML =
+        '<strong>Gates:</strong> ' + exp.gates.map((g) => `${g.name} (${g.detail})`).join(' · ');
+}
+
+// --- battery list -------------------------------------------------------
+
+function renderBattery() {
+    const host = $('experimentList');
+    host.innerHTML = '';
+    let block = null;
+    for (const exp of EXPERIMENTS) {
+        if (exp.block !== block) {
+            block = exp.block;
+            const h = document.createElement('div');
+            h.className = 'blockHead';
+            h.textContent = BLOCKS[block].title;
+            host.appendChild(h);
+        }
+        const wrap = document.createElement('div');
+        wrap.className = 'exp';
+        const name = document.createElement('div');
+        name.className = 'expName';
+        name.textContent = `${exp.id}. ${exp.name}`;
+        wrap.appendChild(name);
+
+        const vars = document.createElement('div');
+        vars.className = 'vars';
+        for (const v of exp.variants) {
+            const passes = state.session.runs.filter(
+                (r) => r.experimentId === exp.id && r.variant === v.id && r.verdict === 'pass',
+            ).length;
+            const b = document.createElement('button');
+            const sel =
+                state.selected.expId === exp.id && state.selected.variantId === v.id ? ' active' : '';
+            b.className = `varBtn${passes ? ' done' : ''}${sel}`;
+            const enc = encoderStateFor(exp, v);
+            b.innerHTML = `<span>${v.label}</span><span class="tag ${
+                enc === 'detached' ? 'det' : ''
+            }">${enc === 'either' ? '' : enc[0].toUpperCase()}${passes ? ` ✓${passes}` : ''}</span>`;
+            b.onclick = () => {
+                state.selected = { expId: exp.id, variantId: v.id };
+                $('runner').hidden = false;
+                renderBattery();
+                renderPlan();
+            };
+            vars.appendChild(b);
+        }
+        wrap.appendChild(vars);
+        host.appendChild(wrap);
+    }
+}
+
+// --- diagnostics --------------------------------------------------------
+
+const SATURATION = 32000;
+
+function renderDiag(row) {
+    const s = state.session.imu;
+    const g = row.g.map((x) => x * s.gyroDpsPerLsb);
+    const a = row.a.map((x) => x * s.accelGPerLsb);
+    const norm = Math.hypot(...a);
+    const u = norm > 0 ? a.map((x) => x / norm) : [0, 0, 0];
+    const yawDps = g[0] * u[0] + g[1] * u[1] + g[2] * u[2];
+    const sat = [...row.g, ...row.a].some((x) => Math.abs(x) > SATURATION);
+    const f = (v, n = 2) => v.toFixed(n).padStart(8);
+    $('diagOut').innerHTML = `<table>
+        <tr><td>Encoder count</td><td>${row.count}</td></tr>
+        <tr><td>Gyro (dps)</td><td>${g.map((x) => f(x, 1)).join(' ')}</td></tr>
+        <tr><td>Accel (g)</td><td>${a.map((x) => f(x, 3)).join(' ')}</td></tr>
+        <tr><td>|accel|</td><td>${norm.toFixed(3)} g</td></tr>
+        <tr><td>Gravity unit vector</td><td>${u.map((x) => f(x, 3)).join(' ')}</td></tr>
+        <tr><td>Yaw rate on gravity</td><td>${yawDps.toFixed(1)} dps</td></tr>
+        <tr><td>Saturation</td><td class="${sat ? 'stop' : ''}">${sat ? `over ${SATURATION} counts` : 'clear'}</td></tr>
+      </table>
+      <p class="note">Positive yaw is counter-clockwise viewed from above, because gravity fixes
+      which end is up and the gyro shares a right-handed triad with the accelerometer.</p>`;
+}
+
+async function toggleDiag() {
+    const btn = $('diagToggle');
+    if (state.diagOn) {
+        state.diagOn = false;
+        btn.textContent = 'Start stream';
+        await state.jig?.stopStream().catch(() => {});
+        return;
+    }
+    if (!state.jig?.connected) return logLine('diagnostics need the jig connected');
+    state.diagOn = true;
+    btn.textContent = 'Stop stream';
+    try {
+        await state.jig.startStream(renderDiag);
+    } catch (err) {
+        state.diagOn = false;
+        btn.textContent = 'Start stream';
+        $('diagOut').textContent = err.message;
+    }
+}
+
+/**
+ * Shared guard for the ad-hoc console buttons.
+ *
+ * Both preconditions are the jig's, not the tool's: a live STREAM blocks the
+ * console loop, and during a recording the jig answers BUSY to everything but
+ * TIME. Rather than let either produce a confusing timeout, stop the stream and
+ * refuse mid-run.
+ */
+async function consoleReady(what) {
+    // Refusals go to diagOut, not just the console panel. The console is at the
+    // bottom of the page, well away from the button that was clicked, so a
+    // guard that only logs there reads as a dead button.
+    const refuse = (why) => {
+        $('diagOut').innerHTML = `<p class="note stop">${what}: ${why}</p>`;
+        logLine(`${what}: ${why}`);
+        return false;
+    };
+    if (!state.jig?.connected) return refuse('connect the jig first.');
+    if (state.active) {
+        return refuse('not available mid-run. The jig answers BUSY while recording.');
+    }
+    if (state.diagOn) await toggleDiag();
+    return true;
+}
+
+/** LIST. What is on the card, and how much room is left for the afternoon. */
+async function cmdList() {
+    if (!(await consoleReady('LIST'))) return;
+    $('diagOut').textContent = 'Listing...';
+    try {
+        const files = await state.jig.list();
+        if (!files.length) {
+            $('diagOut').innerHTML = '<p class="note">No files on the card.</p>';
+            return;
+        }
+        const total = files.reduce((s, f) => s + f.size, 0);
+        const mb = (b) => (b / 1e6).toFixed(1);
+        const rows = files
+            .map((f) => `<tr><td>${f.name}</td><td>${mb(f.size)} MB</td></tr>`)
+            .join('');
+        $('diagOut').innerHTML = `<table>${rows}
+            <tr><td><b>${files.length} files</b></td><td><b>${mb(total)} MB</b></td></tr></table>`;
+        logLine(`LIST: ${files.length} files, ${mb(total)} MB`, 'evt');
+    } catch (err) {
+        $('diagOut').textContent = `LIST failed: ${err.message}`;
+    }
+}
+
+/**
+ * TIME. A short clock probe on demand.
+ *
+ * Fifty probes, not the 200 a run takes: this is the pre-flight check on
+ * whether the link is healthy enough to bother starting, and it wants to answer
+ * in under a second. The residual is the number worth reading. If it is already
+ * over the 2 ms gate here, every run of the afternoon will fail the same gate.
+ */
+async function cmdTime() {
+    if (!(await consoleReady('TIME'))) return;
+    $('diagOut').textContent = 'Probing...';
+    try {
+        const p = await state.jig.probeClock(50, (i, n) => {
+            $('diagOut').textContent = `Probing ${i}/${n}...`;
+        });
+        const bad = p.residualMs > GATE_LIMITS.clockResidualMs;
+        $('diagOut').innerHTML = `<table>
+            <tr><td>Host minus jig</td><td>${p.offsetMs.toFixed(3)} ms</td></tr>
+            <tr><td>Residual</td><td class="${bad ? 'stop' : ''}">${p.residualMs.toFixed(3)} ms</td></tr>
+            <tr><td>Kept</td><td>${p.kept} of ${p.total}</td></tr>
+            <tr><td>Median RTT</td><td>${p.rttMedianMs.toFixed(2)} ms</td></tr>
+          </table>
+          <p class="note">${
+              bad
+                  ? `Residual is over the ${GATE_LIMITS.clockResidualMs} ms gate. Every run will fail it too. Close other USB traffic and probe again.`
+                  : 'Within the gate. This is a spot check, not a logged probe.'
+          }</p>`;
+        logLine(`TIME: offset ${p.offsetMs.toFixed(3)} ms, residual ${p.residualMs.toFixed(3)} ms`, 'evt');
+    } catch (err) {
+        $('diagOut').textContent = `TIME failed: ${err.message}`;
+    }
+}
+
+// --- run list -----------------------------------------------------------
+
+/** Progress against the battery, and what is left in wall-clock minutes. */
+function renderProgress() {
+    const done = new Set(
+        state.session.runs.filter((r) => r.verdict === 'pass').map((r) => `${r.experimentId}/${r.variant}`),
+    );
+    let total = 0;
+    let left = 0;
+    let variants = 0;
+    let doneVariants = 0;
+    for (const e of EXPERIMENTS) {
+        const per = e.durationMin / e.variants.length;
+        for (const v of e.variants) {
+            variants++;
+            total += per;
+            if (done.has(`${e.id}/${v.id}`)) doneVariants++;
+            else left += per;
+        }
+    }
+    $('progress').innerHTML = `<table>
+        <tr><td>Runs complete</td><td>${doneVariants}/${variants}</td></tr>
+        <tr><td>Estimated remaining</td><td>${Math.round(left)} min of ${Math.round(total)}</td></tr>
+      </table>`;
+}
+
+
+function renderRuns() {
+    const host = $('runList');
+    host.innerHTML = '';
+    const runs = state.session.runs;
+    $('runCount').textContent = `${runs.filter((r) => r.verdict === 'pass').length}/${runs.length} pass`;
+    for (const r of [...runs].reverse()) {
+        const el = document.createElement('div');
+        el.className = `runItem ${r.verdict ?? 'incomplete'}`;
+        const failed = r.gates.filter((g) => g.pass === false);
+        const unknown = r.gates.filter((g) => g.pass === null);
+        el.innerHTML = `
+            <div class="hdr">
+              <strong>${r.experimentId} ${r.variantLabel}</strong>
+              <span class="muted">${r.logFile ?? '(no file)'}</span>
+            </div>
+            <div class="muted">${r.samples ?? '?'} samples · dropped ${r.dropped ?? '?'} · ${
+                r.packVoltage ? `${r.packVoltage} V` : 'no voltage'
+            }</div>
+            ${failed.map((g) => `<div class="gate fail">✗ ${g.name}: ${g.detail}</div>`).join('')}
+            ${unknown.map((g) => `<div class="gate unknown">? ${g.name}: ${g.detail}</div>`).join('')}
+            ${r.notes ? `<div class="gate">${r.notes}</div>` : ''}`;
+        const del = document.createElement('button');
+        del.className = 'del';
+        del.textContent = '×';
+        del.title = 'Delete this record. The log file on the SD card is not touched.';
+        del.onclick = () => deleteRun(r.id);
+        el.appendChild(del);
+        host.appendChild(el);
+    }
+}
+
+/**
+ * Everything that reads `session.runs`, redrawn.
+ *
+ * The run list is not the only view of a run. A pass also marks its variant done
+ * in the battery and moves the time estimate, so clearing runs without redrawing
+ * those leaves green buttons for runs that no longer exist.
+ */
+function renderAfterRunChange() {
+    renderRuns();
+    renderProgress();
+    if (!state.active) renderPlan();
+}
+
+/**
+ * Forget one run.
+ *
+ * The record, not the capture: the jig wrote the log to its own SD card and this
+ * only drops the row pointing at it. Reach for it when a run was botched in a way
+ * the gates cannot see, an operator error rather than bad data, and you would
+ * rather redo it than carry a discard through the sheet.
+ */
+function deleteRun(id) {
+    const r = state.session.runs.find((x) => x.id === id);
+    if (!r) return;
+    const what = `${r.experimentId} ${r.variantLabel}`.trim();
+    const file = r.logFile ? `${r.logFile} stays on the SD card.` : 'This run never named a file.';
+    if (!confirm(`Delete the record for ${what}?\n\n${file}`)) return;
+    state.session.runs = state.session.runs.filter((x) => x.id !== id);
+    save(state.session);
+    logLine(`deleted record for ${what}`, 'evt');
+    renderAfterRunChange();
+}
+
+/**
+ * Clear every run, keep the setup.
+ *
+ * Splitting this from "New session" is the whole point. After a rehearsal on the
+ * mock, or a first block run with the encoder mounted wrong, the runs are worthless
+ * but the operator, robot, board length and IMU ranges are all still correct and
+ * nobody wants to retype them under time pressure.
+ */
+function clearRuns() {
+    if (state.active) return logLine('finish or abort the run before clearing');
+    const n = state.session.runs.length;
+    if (!n) return logLine('no runs to clear');
+    if (
+        !confirm(
+            `Clear all ${n} run records?\n\n` +
+                'Setup fields and log files on the SD card are kept. ' +
+                'Export the sheet first if you want a copy.',
+        )
+    ) {
+        return;
+    }
+    state.session.runs = [];
+    save(state.session);
+    logLine(`cleared ${n} run records`, 'evt');
+    renderAfterRunChange();
+}
+
+/** Start over completely: new id, empty runs, setup fields back to defaults. */
+function resetSession() {
+    if (state.active) return logLine('finish or abort the run before starting a new session');
+    const n = state.session.runs.length;
+    if (
+        !confirm(
+            `Start a new session?\n\nThis clears ${n} run records and every setup field, ` +
+                'and issues a new session id. Export first if you want a copy.',
+        )
+    ) {
+        return;
+    }
+    state.session = newSession();
+    save(state.session);
+    loadForm();
+    readForm();
+    logLine(`new session ${state.session.id}`, 'evt');
+    renderSpace();
+    renderBattery();
+    renderAfterRunChange();
+    renderStatus();
+}
+
+// --- coach primitives ---------------------------------------------------
+
+class Aborted extends Error {}
+
+function showStep(n, total, title, detail, big = '', bigClass = '') {
+    $('stepIndex').textContent = total ? `Step ${n} of ${total}` : '';
+    $('stepTitle').textContent = title;
+    $('stepDetail').textContent = detail ?? '';
+    $('stepBig').textContent = big;
+    $('stepBig').className = `big ${bigClass}`;
+}
+
+function setButtons({ go = null, skip = false, abort = true }) {
+    $('stepGo').textContent = go ?? 'Continue';
+    $('stepGo').hidden = go === null;
+    $('stepSkip').hidden = !skip;
+    $('stepAbort').hidden = !abort;
+}
+
+/** Resolves when the operator presses the primary button. */
+function waitAdvance() {
+    return new Promise((resolve, reject) => {
+        state.advance = { resolve, reject };
+    });
+}
+
+function waitEvent(target, name) {
+    return new Promise((resolve, reject) => {
+        const onEvt = (e) => {
+            target.removeEventListener(name, onEvt);
+            resolve(e.detail);
+        };
+        target.addEventListener(name, onEvt);
+        state.abort.signal.addEventListener('abort', () => {
+            target.removeEventListener(name, onEvt);
+            reject(new Aborted());
+        });
+    });
+}
+
+/** Short tone, so the countdown can be followed without watching the screen. */
+function beep(freq = 880, ms = 90) {
+    try {
+        state.audio ??= new (window.AudioContext ?? window.webkitAudioContext)();
+        const ctx = state.audio;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = freq;
+        gain.gain.value = 0.08;
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + ms / 1000);
+    } catch {
+        /* audio is a convenience */
+    }
+}
+
+async function countdown(seconds, title, detail) {
+    const t0 = performance.now();
+    const start = t0;
+    let lastTick = null;
+    for (;;) {
+        if (state.abort.signal.aborted) throw new Aborted();
+        const left = seconds - (performance.now() - t0) / 1000;
+        if (left <= 0) break;
+        const tick = Math.ceil(left);
+        if (tick <= 3 && tick !== lastTick) beep(660, 70);
+        lastTick = tick;
+        showStep(null, null, title, detail, left.toFixed(1), left < 3 ? 'warn' : '');
+        await new Promise((r) => setTimeout(r, 100));
+    }
+    beep(1320, 160);
+    return { start, end: performance.now() };
+}
+
+// --- the run sequence ---------------------------------------------------
+
+async function startRun() {
+    readForm();
+    // The jig stops streaming on any input, so a live diagnostics stream and a
+    // clock probe cannot share the port. Diagnostics loses.
+    if (state.diagOn) await toggleDiag();
+    const exp = getExperiment(state.selected.expId);
+    const variant = getVariant(exp, state.selected.variantId);
+    const plan = state.plan;
+    const enc = encoderStateFor(exp, variant);
+    // Checked once here rather than at each use. Every experiment needs the jig
+    // for at least a clock probe, and starting without it would fail several
+    // steps in, after the operator has already held still for ten seconds.
+    if (!state.jig?.connected) return logLine('connect the jig before starting a run');
+
+    const run = newRun(exp, variant, {
+        protocol: plan.program
+            ? {
+                  name: plan.program.label,
+                  durationS: plan.program.durationS,
+                  spaceBudgetM: state.session.space.usableM,
+                  amplitudeScale: plan.cfg.scale ?? 1,
+                  holdS: plan.cfg.holdS ?? null,
+                  shuttle: !!plan.cfg.shuttle,
+                  seed: plan.program.seed ?? null,
+                  predictedDistanceM: plan.footprint?.spanM ?? null,
+                  predictedPeakMs: plan.footprint?.peakSpeed ?? null,
+              }
+            : null,
+    });
+    state.active = run;
+    state.abort = new AbortController();
+    renderStatus(); // the console buttons grey out for the duration
+
+    const steps = [];
+    const add = (fn) => steps.push(fn);
+
+    // Bench experiments produce no log file. They get a checklist walk and, for
+    // E1, the probe itself, because a probe set is the whole experiment.
+    if (exp.recorded === false) {
+        for (const [i, text] of exp.steps.entries()) {
+            add(async () => {
+                showStep(i + 1, steps.length, `${exp.id} step ${i + 1}`, text);
+                setButtons({ go: 'Done', skip: true });
+                await waitAdvance();
+            });
+        }
+        if (exp.clockOnly) {
+            add(async () => {
+                showStep(null, steps.length, 'Probe sets', 'Three sets of 200, recorded for comparison.');
+                setButtons({ go: null });
+                const sets = [];
+                for (let i = 0; i < 3; i++) {
+                    sets.push(
+                        await state.jig.probeClock(200, (k, n) =>
+                            showStep(null, steps.length, `Probe set ${i + 1} of 3`, 'Probing', `${k}/${n}`),
+                        ),
+                    );
+                }
+                run.clockPre = sets[0];
+                run.clockPost = sets[sets.length - 1];
+                run.skewPpm = JigLink.skewPpm(run.clockPre, run.clockPost);
+                for (const s of sets) {
+                    logLine(`probe: offset ${s.offsetMs.toFixed(2)} ms residual ${s.residualMs.toFixed(3)} ms`, 'evt');
+                }
+            });
+        }
+        try {
+            for (const fn of steps) {
+                if (state.abort.signal.aborted) throw new Aborted();
+                await fn();
+            }
+        } catch (err) {
+            if (!(err instanceof Aborted)) logLine(`run error: ${err.message}`);
+            run.notes = err instanceof Aborted ? 'aborted' : err.message;
+        }
+        // Nothing was recorded, so the log-file gates do not apply. The operator
+        // ticking the checklist is the gate.
+        run.gates = exp.gates.map((g) => ({ name: g.name, pass: true, detail: g.detail }));
+        run.verdict = run.notes === 'aborted' ? 'discard' : 'pass';
+        await finishRun(run, exp);
+        return;
+    }
+
+    // 1. encoder state
+    add(async () => {
+        const detail =
+            enc === 'detached'
+                ? ENCODER_SWAP.detach.join(' ')
+                : enc === 'attached'
+                  ? ENCODER_SWAP.reattach.join(' ')
+                  : 'Either state is acceptable for this experiment.';
+        showStep(1, steps.length, `Encoder ${enc}`, detail);
+        setButtons({ go: 'Confirmed' });
+        await waitAdvance();
+    });
+
+    // 2. pack voltage
+    add(async () => {
+        showStep(2, steps.length, 'Pack resting voltage', 'Measure it now, not afterward.');
+        // Carries over from the last run: on a battery of short runs it rarely
+        // changes, and E20 is the experiment that cares, where it gets retyped.
+        $('stepExtra').innerHTML = `<label>Volts <input id="packV" type="number" step="0.01"
+            placeholder="16.4" value="${state.lastPackVoltage ?? ''}"></label>`;
+        setButtons({ go: 'Recorded', skip: true });
+        await waitAdvance();
+        const v = Number($('packV')?.value);
+        run.packVoltage = Number.isFinite(v) && v > 0 ? v : null;
+        if (run.packVoltage) state.lastPackVoltage = run.packVoltage;
+        $('stepExtra').innerHTML = '';
+    });
+
+    // 3. clock probe, pre
+    add(async () => {
+        showStep(3, steps.length, 'Clock probe, pre', '200 round trips against the jig clock.');
+        setButtons({ go: null });
+        run.clockPre = await state.jig.probeClock(200, (i, n) =>
+            showStep(3, steps.length, 'Clock probe, pre', 'Probing', `${i}/${n}`),
+        );
+        logLine(
+            `clock pre: offset ${run.clockPre.offsetMs.toFixed(2)} ms residual ${run.clockPre.residualMs.toFixed(3)} ms`,
+            'evt',
+        );
+    });
+
+    // 4. optional trim, for open-loop linear runs on a narrow board
+    const needsTrim =
+        exp.driven &&
+        plan.footprint &&
+        plan.footprint.spanM > 0.5 &&
+        lateralExcursion(plan.footprint.spanM, 0.02, PLANT.trackWidthM) > state.session.space.halfWidthM;
+    if (needsTrim) {
+        add(async () => {
+            showStep(
+                4,
+                steps.length,
+                'Straight-line trim',
+                'Closed loop on the live gyro at low speed. Not recorded. The trim is logged as a commanded angular value, not a hidden offset.',
+            );
+            setButtons({ go: 'Run trim', skip: true });
+            await waitAdvance();
+            if (!state.link?.connected) throw new Error('transmitter not connected');
+            const ref = await calibrateStill(state.jig);
+            await state.link.arm(20);
+            const res = await runTrim(state.jig, state.link, ref, { signal: state.abort.signal });
+            await state.link.disarm('trim complete');
+            const rub = detectRub(res.history);
+            logLine(
+                `trim ${res.trim.toFixed(4)} (implied mismatch ${(res.impliedMismatch * 100).toFixed(2)}%), ${rub.reason}`,
+                'evt',
+            );
+            run.trim = res.trim;
+            run.trimMismatch = res.impliedMismatch;
+            showStep(
+                4,
+                steps.length,
+                'Trim complete',
+                `${res.suspicious ? 'Large trim. Check for a mechanical problem before trusting it. ' : ''}${rub.reason}`,
+                res.trim.toFixed(4),
+                res.suspicious ? 'warn' : 'ok',
+            );
+            setButtons({ go: 'Continue' });
+            await waitAdvance();
+        });
+    }
+
+    // 5. start recording
+    add(async () => {
+        showStep(null, steps.length, 'Press A on the jig', 'The tool waits for the recording line.');
+        setButtons({ go: null });
+        const evt = await waitEvent(state.jig, 'recording');
+        run.logFile = evt.logFile;
+        run.tStartHost = evt.tHost;
+    });
+
+    // 6. still hold, pre
+    if (exp.holds !== false) {
+        add(async () => {
+            setButtons({ go: null });
+            run.holdPre = await countdown(10, 'Hold still', 'Per-run gyro bias estimate. Do not skip.');
+        });
+    }
+
+    // 7. excitation
+    add(async () => {
+        if (!plan.program) {
+            const passes = exp.planPasses?.(state.session.space.courseM);
+            const detail = exp.manualPush
+                ? `Motors disarmed. Push ${passes.recommendedPasses} passes along the straightedge, mark to mark, pausing 2 s at each end. Alternate direction.`
+                : exp.steps[0];
+            showStep(null, steps.length, exp.manualPush ? 'Push the robot' : 'Perform the experiment', detail);
+            setButtons({ go: 'Done' });
+            await waitAdvance();
+            return;
+        }
+        if (plan.program.manual) {
+            showStep(null, steps.length, 'Drive', `Operator drives for ${plan.program.durationS} s.`);
+            setButtons({ go: null });
+            await countdown(plan.program.durationS, 'Drive', 'Operator drives. Sticks are the command.');
+            return;
+        }
+        showStep(
+            null,
+            steps.length,
+            'Arm and play',
+            `${plan.program.label}. Everyone clear. The SF switch is the failsafe.`,
+        );
+        setButtons({ go: 'Arm and play' });
+        await waitAdvance();
+        if (!state.link?.connected) throw new Error('transmitter not connected');
+        await state.link.arm(plan.program.durationS + 10);
+        const res = await play(state.link, plan.program, {
+            signal: state.abort.signal,
+            onProgress: (t, total, c) =>
+                showStep(
+                    null,
+                    steps.length,
+                    c.label ?? 'Playing',
+                    `lin ${c.linear.toFixed(2)}  ang ${c.angular.toFixed(2)}`,
+                    `${(total - t).toFixed(1)}`,
+                ),
+        });
+        await state.link.disarm('program complete');
+        run.commands = res.commands;
+    });
+
+    // 8. still hold, post
+    if (exp.holds !== false) {
+        add(async () => {
+            setButtons({ go: null });
+            run.holdPost = await countdown(10, 'Hold still', 'Bias drift bound for this run.');
+        });
+    }
+
+    // 9. stop recording
+    add(async () => {
+        showStep(null, steps.length, 'Press B on the jig', 'The tool waits for the stop summary.');
+        setButtons({ go: null });
+        const evt = await waitEvent(state.jig, 'stopped');
+        run.samples = evt.samples;
+        run.dropped = evt.dropped;
+        run.tStopHost = evt.tHost;
+        run.durationS = (run.tStopHost - run.tStartHost) / 1000;
+    });
+
+    // 10. encoder state check, free because startRecording() zeroed the count
+    add(async () => {
+        showStep(null, steps.length, 'Encoder check', 'Reading the count the run accumulated.');
+        setButtons({ go: null });
+        try {
+            run.encoderCountAfter = await state.jig.readEncoderCount();
+            logLine(`encoder count after run: ${run.encoderCountAfter}`, 'evt');
+        } catch (err) {
+            logLine(`encoder check failed: ${err.message}`);
+        }
+    });
+
+    // 11. clock probe, post
+    add(async () => {
+        showStep(null, steps.length, 'Clock probe, post', '200 more round trips.');
+        setButtons({ go: null });
+        run.clockPost = await state.jig.probeClock(200, (i, n) =>
+            showStep(null, steps.length, 'Clock probe, post', 'Probing', `${i}/${n}`),
+        );
+        run.skewPpm = JigLink.skewPpm(run.clockPre, run.clockPost);
+    });
+
+    // 12. hand measurements, where the experiment calls for them
+    if (exp.measures) {
+        add(async () => {
+            showStep(null, steps.length, 'Measurements', 'Tape measure values for this run.');
+            $('stepExtra').innerHTML = exp.measures
+                .map((m) => `<label>${m.label} <input data-measure="${m.key}" type="number" step="0.001"></label>`)
+                .join('');
+            setButtons({ go: 'Recorded', skip: true });
+            await waitAdvance();
+            for (const el of $('stepExtra').querySelectorAll('[data-measure]')) {
+                const v = Number(el.value);
+                if (Number.isFinite(v)) run.measures[el.dataset.measure] = v;
+            }
+            $('stepExtra').innerHTML = '';
+        });
+    }
+
+    // run it
+    try {
+        for (const fn of steps) {
+            if (state.abort.signal.aborted) throw new Aborted();
+            await fn();
+        }
+    } catch (err) {
+        await state.link?.disarm('run aborted').catch(() => {});
+        if (!(err instanceof Aborted)) logLine(`run error: ${err.message}`);
+        run.notes = (run.notes ? `${run.notes} ` : '') + (err instanceof Aborted ? 'aborted' : err.message);
+    }
+
+    applyGates(run, exp);
+    await finishRun(run, exp);
+}
+
+async function finishRun(run, exp) {
+    const failed = run.gates.filter((g) => g.pass === false);
+    const unknown = run.gates.filter((g) => g.pass === null);
+    showStep(
+        null,
+        null,
+        run.verdict === 'pass' ? 'Run passed' : run.verdict === 'discard' ? 'Discard this run' : 'Incomplete',
+        failed.length
+            ? failed.map((g) => `${g.name}: ${g.detail}`).join('  |  ')
+            : unknown.map((g) => `${g.name}: ${g.detail}`).join('  |  ') || 'All gates clear.',
+        run.logFile ?? '',
+        run.verdict === 'pass' ? 'ok' : 'warn',
+    );
+    $('stepExtra').innerHTML =
+        '<label>Notes <input id="runNotes" type="text" placeholder="anything odd"></label>' +
+        (run.verdict === 'discard'
+            ? '<label><input id="runOverride" type="checkbox"> Keep anyway (override)</label>'
+            : '');
+    setButtons({ go: 'Save run', abort: false });
+    await waitAdvance();
+    run.notes = ($('runNotes')?.value || run.notes || '').trim();
+    if ($('runOverride')?.checked) {
+        run.overridden = true;
+        run.verdict = 'pass';
+    }
+    $('stepExtra').innerHTML = '';
+
+    state.session.runs.push(run);
+    save(state.session);
+    state.active = null;
+    renderStatus();
+    renderRuns();
+    renderProgress();
+    renderBattery();
+    showStep(null, null, 'Ready', 'Pick the next run.');
+    setButtons({ go: 'Start run', abort: false });
+}
+
+// --- wiring -------------------------------------------------------------
+
+function bind() {
+    $('connectJig').onclick = connectJig;
+    $('connectTx').onclick = connectTx;
+    $('cmdList').onclick = cmdList;
+    $('cmdTime').onclick = cmdTime;
+    const stop = (reason) => {
+        state.link?.disarm(reason);
+        state.abort?.abort();
+        state.advance?.reject(new Aborted());
+    };
+    $('estop').onclick = () => stop('e-stop');
+    // Escape stops the run, not only the motors. trainer.js binds Escape too,
+    // but only while armed, and a run can be mid-countdown with nothing moving.
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') stop('escape key');
+    });
+    $('toggleMock').onclick = () => {
+        state.mock = !state.mock;
+        logLine(`mock ${state.mock ? 'on' : 'off'}: reconnect to apply`);
+        $('mockPanel').hidden = !state.mock;
+        renderStatus();
+    };
+
+    $('stepGo').onclick = () => {
+        if (state.active) state.advance?.resolve();
+        else startRun().catch((e) => logLine(`run failed: ${e.message}`));
+    };
+    $('stepSkip').onclick = () => state.advance?.resolve();
+    $('stepAbort').onclick = () => {
+        state.abort?.abort();
+        state.advance?.reject(new Aborted());
+        state.link?.disarm('operator abort');
+    };
+
+    for (const id of [
+        'fOperator', 'fRobot', 'fFloor', 'fMount', 'fGuard', 'fWeapon',
+        'fGyroRange', 'fAccelRange', 'fBoard', 'fHalfWidth', 'fCourse', 'fRateLimit', 'fNotes',
+    ]) {
+        $(id).addEventListener('change', () => {
+            readForm();
+            renderSpace();
+            if (!state.active) renderPlan();
+        });
+    }
+
+    $('exportMd').onclick = () => {
+        readForm();
+        download(`${state.session.id}-session.md`, toMarkdown(state.session));
+    };
+    $('exportJson').onclick = () => {
+        readForm();
+        download(`${state.session.id}-session.json`, toJson(state.session));
+    };
+
+    $('clearRuns').onclick = clearRuns;
+    $('newSession').onclick = resetSession;
+
+    $('diagToggle').onclick = () => toggleDiag();
+
+    $('mockA').onclick = () => state.mockJig?.pressA();
+    $('mockB').onclick = () => state.mockJig?.pressB();
+    $('mockEncoder').onchange = (e) => {
+        if (state.mockJig) state.mockJig.encoderAttached = e.target.checked;
+    };
+}
+
+function init() {
+    loadForm();
+    readForm();
+    bind();
+    renderStatus();
+    renderSpace();
+    renderBattery();
+    renderPlan();
+    renderRuns();
+    renderProgress();
+    $('mockPanel').hidden = !state.mock;
+    $('runner').hidden = false;
+    setButtons({ go: 'Start run', abort: false });
+    showStep(null, null, 'Ready', 'Connect the jig, pick a run.');
+    if (!navigator.serial && !state.mock) {
+        logLine('Web Serial unavailable. Use Chrome or Edge, served over http://localhost.');
+    }
+}
+
+init();

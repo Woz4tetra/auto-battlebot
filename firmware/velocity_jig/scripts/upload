@@ -2,7 +2,15 @@
 # Button-free flash. Reboots the jig into the UF2 bootloader over USB (1200-baud
 # touch), then copies the firmware image onto the RPI-RP2 drive. No need to reach
 # the physical BOOTSEL button buried under the OLED.
+#
+# Usage: upload [SERIAL_PORT]
+#   SERIAL_PORT defaults to the first of /dev/ttyACM0..2 that exists.
 set -u
+if [ $# -gt 1 ] || [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    echo "Usage: $(basename "$0") [SERIAL_PORT]"
+    exit 1
+fi
+PORT_ARG="${1:-}"
 BASE_DIR=$(realpath "$(dirname "$0")")
 PROJ="${BASE_DIR}/.."
 PY="${BASE_DIR}/../../../venv/bin/python"
@@ -21,9 +29,17 @@ echo "Building..."
 mnt=$(find_mnt)
 if [ -z "$mnt" ]; then
     port=""
-    for p in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyACM2; do
-        [ -e "$p" ] && port="$p" && break
-    done
+    if [ -n "$PORT_ARG" ]; then
+        if [ ! -e "$PORT_ARG" ]; then
+            echo "Serial port ${PORT_ARG} does not exist."
+            exit 1
+        fi
+        port="$PORT_ARG"
+    else
+        for p in /dev/ttyACM0 /dev/ttyACM1 /dev/ttyACM2; do
+            [ -e "$p" ] && port="$p" && break
+        done
+    fi
     if [ -z "$port" ]; then
         echo "No serial port and not in BOOTSEL. Plug in the jig, or (first time"
         echo "only) hold BOOTSEL + tap RESET once, then re-run."

@@ -4,7 +4,7 @@ Step-through procedures for every experiment feeding the Kalman filter plant mod
 [`kalman_filter_plan.md`](kalman_filter_plan.md), which explains why each number matters. This
 document is what you hold while standing at the robot.
 
-Twenty-two experiments in four blocks. Blocks 0 and 1 are bench work with no driven motion. Block 2
+Twenty-three experiments in four blocks. Blocks 0 and 1 are bench work with no driven motion. Block 2
 is the driven battery. Block 3 is validation. Run them in order; later blocks assume the calibrations
 from earlier ones.
 
@@ -33,9 +33,9 @@ everything fit afterward.
 
 ## Safety
 
-- **Weapon disabled for all 22 experiments.** Leave it installed but not spinning: its mass and
-  inertia are part of the plant we are fitting, its angular momentum is not something this model
-  covers. E22 covers the spinning case and has its own bar.
+- **Weapon disabled for the first 22 experiments, E0 through E21.** Leave it installed but not
+  spinning: its mass and inertia are part of the plant we are fitting, its angular momentum is not
+  something this model covers. E22 covers the spinning case and has its own bar.
 - **Guard plates on, always.** Their ground friction is part of the plant. Characterizing without them
   produces numbers that do not apply in a match.
 - **Human driver's sticks centered.** Trainer mode adds stick input to the scripted command. A nudged
@@ -106,8 +106,8 @@ Confirms the jig records what we think it records before anything expensive depe
 - [ ] Open the console. Confirm `LIST`, `TIME`, and `STREAM` all answer.
 - [ ] Press C for diagnostics. Confirm one accel axis reads about 1.00 g at rest and the gyro rows
       sit near zero.
-- [ ] Rotate the robot by hand about each axis and confirm the expected gyro row responds. Write down
-      which IMU axis is the yaw axis. Everything downstream depends on it.
+- [ ] Rotate the robot by hand about each axis and confirm the expected gyro row responds. This is a
+      wiring check only. Do not write the yaw axis down; derive it from gravity instead (below).
 - [ ] Check the configured ranges in `include/config.h`:
       `IMU_GYRO_RANGE` and `IMU_ACCEL_RANGE`.
 
@@ -121,7 +121,30 @@ acceleration happens.
 - [ ] Whatever the ranges, check every recording for saturation: count samples with `|raw| > 32000`
       per axis. A saturated channel biases every fit that uses it and does so silently.
 
-**Pass:** all three console commands answer, axes identified, saturation counting available.
+**The yaw axis comes from gravity, not from a note.** At rest the accelerometer measures specific
+force, so it reads +1 g on whichever axis points up. That is a signed vector: it gives both the
+vertical axis and which end of it is up. The ISM330DHCX puts the gyro and accel on one right-handed
+triad, so up plus the right-hand rule fixes positive yaw as counter-clockwise viewed from above. Every
+run card already opens and closes with a 10 s still hold, so the reference is in every log. Analysis
+takes it from there:
+
+```
+u = mean(accel over the still segment); u /= norm(u)
+yaw_rate = dot(gyro, u)
+```
+
+This survives a tilted or rotated remount, where no single gyro axis is yaw anymore, and it is
+recomputed per run so a remount cannot silently invalidate an earlier fit. Two limits: the reference
+must come from a still segment, because at 50 mm off-axis and 35 rad/s centripetal acceleration
+reaches 6.2 g and swamps gravity; and a 20 mg accel bias tilts `u` by ~20 mrad, which costs 2e-4 of
+yaw-rate scale and leaks 2% of roll and pitch rate into yaw, both negligible during a flat spin.
+
+Two sign conventions the accelerometer cannot reach, because they belong to other hardware: whether a
+positive angular command produces positive measured yaw rate (E6), and whether increasing encoder
+count means forward (E4).
+
+**Pass:** all three console commands answer, gyro responds on hand rotation about each axis,
+saturation counting available.
 
 ## E1. Clock probe verification
 
