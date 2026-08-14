@@ -30,54 +30,212 @@ export class WebSerialTransport {
         this.port = null;
         this._reader = null;
         this._onData = null;
+        this._onStatus = null;
         this._pump = null;
         this._closing = false;
+        this._baud = JIG_BAUD;
+        // The port the operator picked, kept across an unplug. The jig runs off
+        // its LiPo and USB only overrides and charges it, so pulling the cable
+        // for a driven run leaves the capture running and is a normal part of
+        // every experiment that moves the robot. Holding the chosen port is
+        // what lets the replug reopen silently instead of showing the chooser
+        // several times per run.
+        this._chosen = null;
+        this._chosenInfo = null;
+        this._wanted = false;
+        this._watching = false;
     }
 
     get connected() {
         return this.port !== null;
     }
 
-    async open(baud = JIG_BAUD) {
-        if (!navigator.serial) throw new Error('Web Serial unavailable. Use Chrome or Edge over http://localhost.');
-        this.port = await navigator.serial.requestPort(
-            this.filters.length ? { filters: this.filters } : {},
+    /** True once a port has been picked, whether or not the cable is in. */
+    get adopted() {
+        return this._chosen !== null;
+    }
+
+    onStatus(cb) {
+        this._onStatus = cb;
+    }
+
+    /** Does this authorized port look like the one we adopted? */
+    _matches(p) {
+        if (p === this._chosen) return true;
+        const a = p?.getInfo?.() ?? {};
+        const b = this._chosenInfo ?? {};
+        return (
+            a.usbVendorId != null &&
+            a.usbVendorId === b.usbVendorId &&
+            a.usbProductId === b.usbProductId
         );
-        await this.port.open({ baudRate: baud });
+    }
+
+    /**
+     * Follow the cable.
+     *
+     * Registered once per transport. Chrome fires these for authorized ports
+     * whether or not this tab opened them, so both handlers check the port
+     * against the adopted one: the jig and the transmitter are two transports
+     * watching the same event.
+     */
+    _watch() {
+        if (this._watching || !navigator.serial?.addEventListener) return;
+        this._watching = true;
+
+        navigator.serial.addEventListener('disconnect', (e) => {
+            if (!this._matches(e.target)) return;
+            this._teardown();
+            this._onStatus?.({ connected: false, reason: 'unplugged' });
+        });
+
+        navigator.serial.addEventListener('connect', async (e) => {
+            if (!this._wanted || this.port || !this._matches(e.target)) return;
+            this._chosen = e.target; // Chrome may hand back a fresh object
+            // Re-enumeration is not instant. The event can land before the CDC
+            // interface is ready to open, and the first attempt then fails on a
+            // cable that is perfectly seated, so retry briefly before reporting.
+            for (let i = 0; i < 5; i++) {
+                try {
+                    await this._openPort(this._chosen, this._baud);
+                    this._onStatus?.({ connected: true, reason: 'replugged' });
+                    return;
+                } catch (err) {
+                    if (i === 4) {
+                        this._onStatus?.({ connected: false, reason: err.message });
+                        return;
+                    }
+                    await new Promise((r) => setTimeout(r, 250));
+                }
+            }
+        });
+    }
+
+    /** Drop a port that went away. No close(): the device is already gone. */
+    _teardown() {
+        this._closing = true;
+        try {
+            this._reader?.cancel();
+        } catch {
+            /* the stream errored out with the device */
+        }
+        this.port = null;
+        this._reader = null;
+    }
+
+    async _openPort(port, baud) {
+        // Let the previous pump finish unwinding first. It holds the readable
+        // lock until it does, and on a replug Chrome hands back the same
+        // SerialPort object, so starting a second pump on top of it throws
+        // "already locked" and the reconnect fails on a cable that is
+        // perfectly seated. `_closing` is what makes the old pump stop looping.
+        this._closing = true;
+        await this._pump?.catch(() => {});
+        this._pump = null;
+        try {
+            await port.open({ baudRate: baud });
+        } catch (e) {
+            throw new Error(
+                `${e.message}. The device is claimed by something else: close other tabs ` +
+                    'with this tool open, and any serial monitor.',
+            );
+        }
+        this.port = port;
+        this._chosen = port;
+        this._chosenInfo = port.getInfo?.() ?? null;
         // Some CDC stacks hold output until DTR is asserted.
         try {
             await this.port.setSignals({ dataTerminalReady: true, requestToSend: true });
         } catch {
             /* not fatal; not every platform implements setSignals */
         }
+        this._closing = false;
         this._pump = this._read();
     }
 
+    async open(baud = JIG_BAUD) {
+        if (!navigator.serial) throw new Error('Web Serial unavailable. Use Chrome or Edge over http://localhost.');
+        this._baud = baud;
+        this._watch();
+        // The chooser is a user gesture and cannot be raised from the connect
+        // event, so anything past the first connect has to reuse the port
+        // already adopted. Deliberately not getPorts()[0]: this transport takes
+        // no filters when it is the jig, and the transmitter is authorized in
+        // the same origin, so picking the first authorized port would happily
+        // open the transmitter and call it the jig.
+        const port =
+            this._chosen ??
+            (await navigator.serial.requestPort(
+                this.filters.length ? { filters: this.filters } : {},
+            ));
+        // _openPort assigns this.port only once the port is really open.
+        // `connected` is just `port !== null`, so assigning earlier would report
+        // a live link for a port that failed to open, and the usual reason it
+        // fails to open is that another tab still holds the device.
+        await this._openPort(port, baud);
+        this._wanted = true;
+    }
+
+    /** Forget the adopted port, so the next open() asks again. */
+    release() {
+        this._wanted = false;
+        this._chosen = null;
+        this._chosenInfo = null;
+    }
+
+    /**
+     * Pump bytes out of the port until it closes.
+     *
+     * The outer loop exists for one case only: a recoverable stream error, such
+     * as a framing or parity glitch, after which Web Serial replaces
+     * `port.readable` with a fresh stream that has to be re-acquired. That case
+     * arrives as a *rejection*.
+     *
+     * A read that resolves `done` is the opposite: the stream is finished for
+     * good, and re-acquiring returns a reader that is done on its first call.
+     * Looping on that spins a core at 100% until the tab is closed, which on a
+     * laptop means thermal throttling and jitter in the 50 Hz command loop, so
+     * it corrupts the very data the afternoon is being spent to collect.
+     *
+     * `_closing` is load-bearing too. cancel() makes the pending read resolve
+     * done and the finally releases the lock, but close() has not nulled `port`
+     * yet, so without the flag the loop re-locks `readable` and port.close()
+     * rejects with the device still claimed by the tab.
+     */
     async _read() {
-        // `_closing` is load-bearing, not belt-and-braces. cancel() makes the
-        // pending read resolve done, the inner loop breaks, and the finally
-        // releases the lock. Without this flag the outer condition is still
-        // true, because close() has not nulled `port` yet, so the loop
-        // immediately re-acquires the reader and re-locks readable. port.close()
-        // then rejects with the stream locked and the device stays claimed by
-        // the tab while the UI happily reports it disconnected.
+        let errors = 0;
         while (this.port?.readable && !this._closing) {
-            this._reader = this.port.readable.getReader();
+            // Held locally as well as on `this`. An unplug tears the transport
+            // down from an event handler, which nulls `this._reader` while this
+            // loop is still parked inside read(), and the finally below would
+            // then throw instead of releasing the lock. The stream stays locked
+            // for good after that, so the replug cannot start a new pump.
+            const reader = this.port.readable.getReader();
+            this._reader = reader;
+            let ended = false;
             try {
                 for (;;) {
-                    const { value, done } = await this._reader.read();
-                    if (done) break;
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        ended = true;
+                        break;
+                    }
+                    errors = 0;
                     if (value && this._onData) this._onData(value);
                 }
             } catch {
-                break; // device unplugged; close() tidies up
+                // Recoverable in principle, but a port that keeps erroring
+                // without ever going away would spin just as hard as the done
+                // case, so give up after a few in a row.
+                if (++errors > 5) ended = true;
             } finally {
                 try {
-                    this._reader.releaseLock();
+                    reader.releaseLock();
                 } catch {
                     /* already released */
                 }
             }
+            if (ended) break;
         }
     }
 
@@ -105,6 +263,9 @@ export class WebSerialTransport {
      */
     async close() {
         this._closing = true;
+        // An explicit disconnect means the operator wants the port let go, so
+        // the watcher must not helpfully reopen it on the next connect event.
+        this.release();
         let err = null;
         try {
             await this._reader?.cancel();
@@ -142,16 +303,70 @@ export class JigLink extends EventTarget {
         super();
         this.t = transport;
         this.t.onData((bytes) => this._feed(bytes));
+        this.t.onStatus?.((s) => this._onLink(s));
         this._buf = new Uint8Array(0);
         this._collector = null; // {lines, done, isEnd, timer}
         this._binary = null; // {remaining, chunks, done}
         this._queue = Promise.resolve();
         this._streaming = false;
         this.recording = false;
+        // Last `recording` / `stopped` line seen, held until someone takes it.
+        //
+        // `_emit` is fire-and-forget, so a line that arrives while nothing is
+        // listening is gone. Both of these are announced by the operator
+        // pressing a button on the jig, and the operator does not wait for the
+        // tool: pressing A during the pre-run clock probe, which is 200 round
+        // trips long, fires `recording` seconds before the coach subscribes to
+        // it. The coach then waits forever for a line that already came, with
+        // the capture running and no way out but abort.
+        this._latched = { recording: null, stopped: null };
+    }
+
+    /**
+     * The cable came out or went back in, without anyone clicking anything.
+     *
+     * An unplug is not an error here. It is a step in every experiment that
+     * moves the robot. What it must not do is leave a command waiting out its
+     * four second timeout on a port that is physically gone, so the in-flight
+     * collector is failed at once and the partial line buffer is dropped: a
+     * reply cut in half by an unplug must not be glued to the next reply.
+     */
+    _onLink({ connected, reason }) {
+        if (!connected) {
+            this._streaming = false;
+            this._buf = new Uint8Array(0);
+            this._binary = null;
+            this._collector?.fail(new Error('cable unplugged during the command'));
+        }
+        this._emit('status', { connected, reason });
+    }
+
+    /** Take a line that arrived before anyone was listening. Consumes it. */
+    takeLatched(name) {
+        const v = this._latched[name] ?? null;
+        this._latched[name] = null;
+        return v;
+    }
+
+    /** Drop both latches, so one run cannot consume the previous run's line. */
+    clearLatched() {
+        this._latched = { recording: null, stopped: null };
     }
 
     get connected() {
         return this.t.connected;
+    }
+
+    /**
+     * A port has been picked, whether or not the cable is in right now.
+     *
+     * Adopted-but-not-connected is the normal state for half of every driven
+     * run, and it is worth telling apart from a jig that was never connected:
+     * one reconnects by itself when the cable goes back in, the other needs a
+     * click and a trip through the browser's port chooser.
+     */
+    get adopted() {
+        return this.t.adopted ?? this.t.connected;
     }
 
     async connect() {
@@ -222,7 +437,14 @@ export class JigLink extends EventTarget {
             if (!m) continue;
             if (u.name === 'recording') this.recording = true;
             if (u.name === 'stopped') this.recording = false;
-            this._emit(u.name, { ...u.map(m), tHost: performance.now() });
+            const detail = { ...u.map(m), tHost: performance.now() };
+            // Latched before it is emitted, and left latched even when a
+            // listener takes it live: whoever consumes it clears the latch.
+            // tHost matters here. It is the run's start or stop time, so an
+            // early press has to keep the timestamp of the press rather than
+            // the moment the coach got around to noticing.
+            this._latched[u.name] = detail;
+            this._emit(u.name, detail);
             return; // never fed to a command collector
         }
 
@@ -252,6 +474,14 @@ export class JigLink extends EventTarget {
                             this._collector = null;
                             resolve(lines);
                         }
+                    },
+                    // Called when the cable goes, so the caller hears about it
+                    // now instead of waiting out the full timeout on a port
+                    // that is physically gone.
+                    fail: (err) => {
+                        clearTimeout(timer);
+                        this._collector = null;
+                        reject(err);
                     },
                 };
             });

@@ -58,6 +58,8 @@ h3 { font-size: 19px; margin: 4px 0 6px; }
 }
 .chip.ok { border-color: var(--ok); color: var(--ok); }
 .chip.bad { border-color: var(--bad); color: var(--bad); }
+/* Cable out on purpose: ours, coming back, not an error. Amber, not red. */
+.chip.warn { border-color: var(--warn); color: var(--warn); }
 .chip.idle { border-color: var(--edge); color: var(--muted); cursor: default; }
 .chip.armed { border-color: var(--warn); color: #14161a; background: var(--warn); font-weight: 700; cursor: default; }
 

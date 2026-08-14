@@ -12,8 +12,7 @@ premise of this tool: the log file gets labeled at the instant it is created, no
 
 ## Goal
 
-Cut per-run bookkeeping from about two minutes of writing to one number typed (pack voltage) plus one
-button press. Evaluate the runbook's abort gates automatically at the moment they can still be acted
+Cut per-run bookkeeping from about two minutes of writing to one button press. Evaluate the runbook's abort gates automatically at the moment they can still be acted
 on, so a bad run is discarded and redone in the same session rather than discovered during the fit.
 
 ## Non-goals
@@ -404,12 +403,11 @@ may switch to before E11 and E22.
 5. Select the experiment. Check the encoder badge against what is physically plugged in. The tool shows
    the amplitude it will use and the predicted distance, and says so plainly if the experiment does not
    fit and needs the field.
-6. Enter pack voltage. It carries over to the next run.
-7. Click **Arm**. The pre-run clock probe fires.
-8. Press **A** on the jig. The coach starts on the `recording` line.
-9. Hold still through the countdown. The tool plays the excitation and disarms at the end of it. Hold
+6. Click **Arm**. The pre-run clock probe fires.
+7. Press **A** on the jig. The coach starts on the `recording` line.
+8. Hold still through the countdown. The tool plays the excitation and disarms at the end of it. Hold
    still again.
-10. Press **B**. The post probe fires, the encoder check runs, gates evaluate, the row is written.
+9. Press **B**. The post probe fires, the encoder check runs, gates evaluate, the row is written.
 11. Repeat. Export JSON and Markdown at the end.
 
 Steps 8 and 10 stay manual button presses on the jig rather than software triggers, because the jig's
@@ -425,7 +423,6 @@ Run {
   logFile, samples, dropped,
   tStartHost, tStopHost, durationS,
   holdPre: {start, end}, holdPost: {start, end},
-  packVoltage,
   clockPre:  {offsetMs, residualMs, kept, total, atHostMs, atJigMs},
   clockPost: {...}, skewPpm,
   encoderExpected, encoderCountAfter,

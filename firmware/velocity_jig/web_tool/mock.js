@@ -12,7 +12,9 @@ const enc = new TextEncoder();
 export class MockJigTransport {
     constructor(opts = {}) {
         this.connected = false;
+        this.adopted = false;
         this._onData = null;
+        this._onStatus = null;
         this._line = '';
         this._streamTimer = null;
         this._recording = false;
@@ -42,14 +44,44 @@ export class MockJigTransport {
 
     async open() {
         this.connected = true;
+        this.adopted = true;
     }
     onData(cb) {
         this._onData = cb;
     }
+    onStatus(cb) {
+        this._onStatus = cb;
+    }
     async close() {
+        this.connected = false;
+        this.adopted = false;
+        clearInterval(this._streamTimer);
+        this._streamTimer = null;
+    }
+
+    /**
+     * Pull the USB cable.
+     *
+     * The jig runs off its LiPo, so the recording keeps going and the sample
+     * count keeps climbing. Only the wire goes away. Rehearsing this in mock is
+     * worth the twenty lines: every experiment that moves the robot needs the
+     * cable out, and finding out on the day that the tool wedges when it does
+     * costs an afternoon that cannot be rerun.
+     */
+    unplug() {
+        if (!this.connected) return;
         this.connected = false;
         clearInterval(this._streamTimer);
         this._streamTimer = null;
+        this._line = '';
+        this._onStatus?.({ connected: false, reason: 'unplugged' });
+    }
+
+    /** Plug it back in. Reopens by itself, the same as the real transport. */
+    replug() {
+        if (this.connected) return;
+        this.connected = true;
+        this._onStatus?.({ connected: true, reason: 'replugged' });
     }
 
     /**
@@ -71,6 +103,11 @@ export class MockJigTransport {
     }
 
     _send(text) {
+        // Nothing crosses a cable that is out. This is the whole point of
+        // rehearsing the unplug: a `stopped` line sent with the cable out is
+        // gone for good, and that is exactly why the coach asks for the replug
+        // before B rather than after it.
+        if (!this.connected) return;
         // Reply latency, so lowest-decile filtering has something to filter.
         const delay = Math.random() * this.replyJitterMs;
         setTimeout(() => this._onData?.(enc.encode(text)), delay);

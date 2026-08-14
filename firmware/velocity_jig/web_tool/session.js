@@ -3,8 +3,8 @@
 // The point of the tool is that a run writes itself down. The jig already
 // announces the filename, the sample count, and the dropped count without being
 // asked, and the tool already knows the clock probes, the program it played, and
-// when the still holds started and ended. Pack voltage and free-text notes are
-// the only fields a human types.
+// when the still holds started and ended. Free-text notes are the only field a
+// human types.
 //
 // Gates run the moment a run closes, while the robot is still on the floor and
 // re-running is cheap. The 2026-07-03 AprilTag session shipped parameters fit
@@ -59,7 +59,6 @@ export function newRun(exp, variant, fields = {}) {
         durationS: null,
         holdPre: null,
         holdPost: null,
-        packVoltage: fields.packVoltage ?? null,
         // Straight-line trim, as a commanded angular value. A trimmed run is a
         // two-input excitation and the fit has to be told so.
         trim: null,
@@ -243,17 +242,17 @@ export function toMarkdown(session) {
     L.push('## Runs');
     L.push('');
     L.push(
-        '| # | Log | Experiment | Enc | Pack V | Samples | Drop | Clock pre | Clock post | Skew | Verdict |',
+        '| # | Log | Experiment | Enc | Samples | Drop | Clock pre | Clock post | Skew | Verdict |',
     );
-    L.push('|---|---|---|---|---|---|---|---|---|---|---|');
+    L.push('|---|---|---|---|---|---|---|---|---|---|');
     session.runs.forEach((r, i) => {
         const pre = r.clockPre ? `${r.clockPre.offsetMs.toFixed(1)} (${r.clockPre.residualMs.toFixed(2)})` : '';
         const post = r.clockPost ? `${r.clockPost.offsetMs.toFixed(1)} (${r.clockPost.residualMs.toFixed(2)})` : '';
         const name = r.variantLabel ? `${r.experimentId} ${r.variantLabel}` : r.experimentId;
         L.push(
             `| ${i + 1} | ${r.logFile ?? ''} | ${name} | ${r.encoder[0].toUpperCase()} | ${
-                r.packVoltage ?? ''
-            } | ${r.samples ?? ''} | ${r.dropped ?? ''} | ${pre} | ${post} | ${
+                r.samples ?? ''
+            } | ${r.dropped ?? ''} | ${pre} | ${post} | ${
                 r.skewPpm !== null && r.skewPpm !== undefined ? r.skewPpm.toFixed(0) : ''
             } | ${r.verdict ?? ''} |`,
         );

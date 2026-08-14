@@ -46,6 +46,52 @@ share one `performance.now()` origin. A separate driver process would stack a se
 offset on top of the one the probe is trying to measure, and command-to-motion delay is about 60 ms,
 which is the same size as the error that would introduce.
 
+The browser's port chooser appears once per port per session. After that the tool holds the port it
+was given and reopens it by itself whenever the cable comes back, so the cable can move as often as
+the battery needs it to without a click. Clicking a chip is what gives the port up, and only then does
+the chooser come back.
+
+The chip is the source of truth. `Start stream`, `LIST` and `TIME` are live only while it reads
+`Jig: connected`, so if they are greyed out, the connect did not take. The reason prints in the panel
+directly under them. The usual ones:
+
+- **No port chosen.** The chooser was cancelled, or the jig was not in the list. Check the cable is
+  a data cable, not charge-only.
+- **Claimed by something else.** Another tab with this tool open, or a serial monitor, still holds
+  the device. Close it. Only one process gets the port.
+- **Web Serial unavailable.** The page is not on `http://localhost`, or the browser is not
+  Chromium. `file://` does not qualify.
+
+## The USB cable
+
+Every experiment that moves the robot needs the cable out for the motion, and the jig does not care:
+the LiPo powers it and USB only overrides and charges the cell, so the capture keeps running with
+nothing plugged in. The tool asks for the cable in the right places and advances on the cable itself,
+so both hands stay on the robot.
+
+Order, per driven run:
+
+1. Clock probe and the pre-run still hold, cable **in**. The hold is where the run's gyro bias comes
+   from, and pulling a plug jostles the robot, so the cable comes out after it and not before.
+2. Press A. The `recording` line has to be seen, so this happens with the cable in.
+3. **Unplug.** The step advances on the disconnect. `Jig: cable out` in amber means the port is still
+   ours and the capture is still running.
+4. Drive the experiment. Post-run still hold.
+5. **Plug back in.** Reconnects on its own, no click.
+6. Press B, then the encoder check and the post clock probe.
+
+Plugging back in before B is the part that matters. The stop summary exists only on the wire and
+nothing buffers it, so pressing B with the cable out loses the sample and dropped counts for good, and
+those are two of the gates. Nothing else is lost by a late replug: the recording is still running and
+its tail is not used.
+
+Both cable steps offer `Skip step`, since a step that only an OS event can advance is a step that
+wedges when the OS does not notice the re-enumeration. Use it and carry on; nothing downstream depends
+on the event having fired.
+
+Mock mode has an `Unplug USB` button in the Mock jig panel, and the mock drops output while it is out,
+so a rehearsal that presses B early fails the same way the real thing would.
+
 ## Safety
 
 **The driver's SF arm switch is the failsafe.** Everything below reduces how often it gets used. None
@@ -141,12 +187,38 @@ Two console commands sit next to the stream button:
   afternoon fails that gate too, and it is worth fixing before spending the time.
 
 Diagnostics and a run cannot share the port, since the jig stops streaming on any input. Starting a run
-stops the stream, and so do LIST and TIME. Both refuse to run mid-recording, because the jig answers
-`BUSY` to everything but `TIME` while it is recording.
+stops the stream, and so do LIST and TIME.
+
+All three stay live for most of a run. A run is mostly the coach waiting on you, through checklist steps
+and still holds, and the jig is idle for all of it. Only the capture itself blocks the console, and only
+partly: the jig answers `BUSY` to everything but `TIME` while recording, so `Start stream` and `LIST`
+grey out for the capture and `TIME` does not. Probing the clock mid-capture is the one way to catch a
+link going bad without discarding the run in progress. The buttons come back on the stop line, including
+a stop the tool did not ask for, such as a full card.
 
 Either connection chip disconnects when clicked. Disconnecting the transmitter disarms it first, and
 disconnecting either one mid-run aborts the run rather than leaving the coach waiting on a line that
-can no longer arrive.
+can no longer arrive. A cable coming out is not that: it does not abort anything, and it does not need
+a click to come back. See "The USB cable".
+
+## When a run gets stuck
+
+The run panel is the only thing that can end a run. `Clear runs` and `New session` refuse while one is
+in flight, and say so.
+
+Press **Abort** in the run panel. The run closes with whatever the coach collected, gates run on it, and
+you get the normal save step, so an aborted run is still recorded rather than lost.
+
+If Abort does not clear it, open the browser console:
+
+```js
+jigDebug.step()     // what the coach is waiting on
+jigDebug.rescue()   // force the run to the save step
+jigDebug.state      // everything
+```
+
+Reloading the tab works too and is the last resort. It costs the in-flight run and nothing else: saved
+runs and every setup field persist, and the log file is on the SD card either way.
 
 ## Known limits
 

@@ -2,8 +2,8 @@
 //
 // The coach walks the runbook's run card one step at a time, doing everything
 // it can without being asked: clock probes, the excitation, the encoder-state
-// check, the gates. The operator presses A and B on the jig and types a pack
-// voltage. That is the whole manual burden.
+// check, the gates. The operator presses A and B on the jig. That is the whole
+// manual burden.
 
 import { JigLink, WebSerialTransport } from './jig.js';
 import { MockJigTransport, MockTrainerTransport } from './mock.js';
@@ -52,10 +52,10 @@ const state = {
     selected: { expId: 'E0', variantId: 'main' },
     active: null, // in-flight run
     diagOn: false,
-    lastPackVoltage: null,
     audio: null,
     abort: null,
     advance: null, // resolver for "operator pressed the button"
+    cable: null, // resolver for "the USB cable moved"
     plan: null,
 };
 
@@ -77,10 +77,43 @@ function logLine(text, cls = '') {
 function attachJig(transport) {
     const jig = new JigLink(transport);
     jig.addEventListener('line', (e) => logLine(e.detail));
-    jig.addEventListener('recording', (e) => logLine(`>> recording ${e.detail.logFile}`, 'evt'));
-    jig.addEventListener('stopped', (e) =>
-        logLine(`>> stopped n=${e.detail.samples} dropped=${e.detail.dropped}`, 'evt'),
-    );
+    // These two are what the console buttons key off now, so each has to redraw
+    // them. The jig announces both without being asked, including a stop it
+    // decided on itself, so the buttons come back even on a capture that ended
+    // in a way the coach did not plan.
+    jig.addEventListener('recording', (e) => {
+        logLine(`>> recording ${e.detail.logFile}`, 'evt');
+        renderStatus();
+    });
+    jig.addEventListener('stopped', (e) => {
+        logLine(`>> stopped n=${e.detail.samples} dropped=${e.detail.dropped}`, 'evt');
+        renderStatus();
+    });
+    // The cable moving is a step, not a fault. Every experiment that drives the
+    // robot needs it out, and the jig keeps logging on its LiPo while it is.
+    // So this only reports and redraws: it must not abort the run, which is
+    // what an explicit Disconnect click does.
+    jig.addEventListener('status', (e) => {
+        const { connected, reason } = e.detail;
+        if (reason === 'unplugged') {
+            state.diagOn = false;
+            $('diagToggle').textContent = 'Start stream';
+            $('diagOut').textContent = 'Jig unplugged.';
+            logLine('jig cable out', 'evt');
+        } else if (reason === 'replugged') {
+            $('diagOut').textContent = 'Not streaming.';
+            logLine('jig cable back in, reconnected', 'evt');
+        } else if (!connected && reason) {
+            // Only a reconnect that was tried and failed lands here. A plain
+            // `connected: false` with no reason is the explicit Disconnect
+            // click reporting itself, and calling that a failure would put a
+            // red error under a button the operator just pressed on purpose.
+            logLine(`jig reconnect failed: ${reason}`);
+            $('diagOut').innerHTML = `<p class="note stop">Jig did not reopen. ${reason}</p>`;
+        }
+        state.cable?.check();
+        renderStatus();
+    });
     state.jig = jig;
     return jig;
 }
@@ -101,14 +134,28 @@ function abortForDisconnect(what) {
 }
 
 async function connectJig() {
-    if (state.jig?.connected) return disconnectJig();
+    // `state.jig`, not `state.jig.connected`. With the cable out the link still
+    // exists, still owns the chosen port, and is still listening for the
+    // replug. Treating that click as a fresh connect would build a second
+    // transport whose watcher fights the first one for the device on replug,
+    // so a click there means give the port up.
+    if (state.jig) return disconnectJig();
     try {
         const t = state.mock ? new MockJigTransport() : new WebSerialTransport();
         if (state.mock) state.mockJig = t;
         attachJig(t);
         await state.jig.connect();
         logLine('jig connected', 'evt');
+        $('diagOut').textContent = 'Not streaming.';
     } catch (err) {
+        // Dropped here as well as the console, because the console is at the
+        // bottom of the page and a cancelled port chooser otherwise looks
+        // identical to a connect that worked but left the buttons dead.
+        state.jig = null;
+        const why = /No port selected|cancell?ed/i.test(err.message)
+            ? 'No port chosen. Pick the jig in the browser dialog.'
+            : err.message;
+        $('diagOut').innerHTML = `<p class="note stop">Jig not connected. ${why}</p>`;
         logLine(`jig connect failed: ${err.message}`);
     }
     renderStatus();
@@ -174,36 +221,87 @@ async function connectTx() {
     renderStatus();
 }
 
+/**
+ * Apply properties to an element, tolerating one that is not there.
+ *
+ * renderStatus() writes to eight elements in a row, and a plain `$(id).textContent`
+ * on a missing one throws and abandons every write after it. That failure is
+ * silent and asymmetric: the jig chip is set before the buttons are enabled, so a
+ * throw in between leaves a green "connected" chip above three greyed-out buttons,
+ * which reads as a logic bug and is not one.
+ */
+function setEl(id, props) {
+    const el = $(id);
+    if (!el) {
+        logLine(`missing element #${id}: the page and app.js are out of step, reload`);
+        return;
+    }
+    Object.assign(el, props);
+}
+
 function renderStatus() {
+    const jOn = !!state.jig?.connected;
+    const tOn = !!state.link?.connected;
+
+    // Gated on the jig actually recording, not on a run being in flight. Those
+    // are very different windows: a run is mostly the coach waiting on the
+    // operator, through checklist steps and still holds, and the jig is idle for
+    // all of it. Only the capture itself answers BUSY. Gating on the run instead
+    // greys these out for minutes at a stretch, including the gap after a run
+    // finishes while its notes are still unsaved, which is exactly when you want
+    // to check the card or re-probe the clock.
+    //
+    // Computed and applied first, ahead of the chips, so that the buttons track
+    // the port even if something further down this function goes wrong.
+    const rec = !!state.jig?.recording;
+    const why = !jOn ? 'Connect the jig first' : rec ? 'The jig is recording' : null;
+    for (const id of ['cmdList', 'diagToggle']) {
+        setEl(id, { disabled: !!why, title: why ?? '' });
+    }
+    // TIME is deliberately not in that list. The jig's recording branch answers
+    // it for real and BUSYs everything else, because a clock probe touches
+    // neither the SD card nor the capture path (loop() in src/main.cpp). It is
+    // the only console command that works during a capture, which also makes it
+    // the only way to catch a link going bad without throwing away the run in
+    // progress, so greying it out would remove the one check worth having.
+    setEl('cmdTime', {
+        disabled: !jOn,
+        title: !jOn ? 'Connect the jig first' : rec ? 'Works during a capture' : '',
+    });
+
     // Both chips toggle. The tooltip says which way, because "Jig: connected"
     // reads as a status readout and gives no hint that it is also the button
     // that closes the port.
-    const j = $('connectJig');
-    const jOn = !!state.jig?.connected;
-    j.textContent = jOn ? 'Jig: connected' : 'Jig: disconnected';
-    j.className = `chip ${jOn ? 'ok' : 'bad'}`;
-    j.title = jOn ? 'Click to disconnect the jig' : 'Click to connect the jig';
-    const t = $('connectTx');
-    const tOn = !!state.link?.connected;
-    t.textContent = tOn ? 'TX: connected' : 'TX: disconnected';
-    t.className = `chip ${tOn ? 'ok' : 'bad'}`;
-    t.title = tOn ? 'Click to disconnect the transmitter' : 'Click to connect the transmitter';
-
-    // The console buttons need the port to themselves, so they are only live
-    // when the jig is connected and no run is in flight. Greying them out says
-    // that before the click rather than after it.
-    const why = !jOn ? 'Connect the jig first' : state.active ? 'Not available mid-run' : null;
-    for (const id of ['cmdList', 'cmdTime', 'diagToggle']) {
-        const b = $(id);
-        if (!b) continue;
-        b.disabled = !!why;
-        b.title = why ?? '';
-    }
-    const a = $('armState');
-    a.textContent = state.link?.armed ? 'ARMED' : 'Disarmed';
-    a.className = `chip ${state.link?.armed ? 'armed' : 'idle'}`;
-    $('sessionId').textContent = state.session.id + (state.mock ? '  [mock]' : '');
-    $('toggleMock').className = state.mock ? 'chip ok' : 'ghost';
+    // Three states, not two. A cable pulled for a driven run is not a fault and
+    // must not read like one: the port is still ours, the capture is still
+    // running on the jig's battery, and plugging back in reopens it with no
+    // click. Showing that as "disconnected" next to a red chip sends the
+    // operator to the connect button mid-run, which drops the adopted port and
+    // brings up the chooser for no reason.
+    const jOut = !jOn && !!state.jig?.adopted;
+    setEl('connectJig', {
+        textContent: jOn ? 'Jig: connected' : jOut ? 'Jig: cable out' : 'Jig: disconnected',
+        className: `chip ${jOn ? 'ok' : jOut ? 'warn' : 'bad'}`,
+        title: jOn
+            ? 'Click to disconnect the jig'
+            : jOut
+              ? 'Plug the cable back in and it reconnects on its own. Click only to give up the port.'
+              : 'Click to connect the jig',
+    });
+    setEl('connectTx', {
+        textContent: tOn ? 'TX: connected' : 'TX: disconnected',
+        className: `chip ${tOn ? 'ok' : 'bad'}`,
+        title: tOn ? 'Click to disconnect the transmitter' : 'Click to connect the transmitter',
+    });
+    setEl('armState', {
+        textContent: state.link?.armed ? 'ARMED' : 'Disarmed',
+        className: `chip ${state.link?.armed ? 'armed' : 'idle'}`,
+    });
+    setEl('mockCable', {
+        textContent: state.mockJig && !state.mockJig.connected ? 'Plug USB back in' : 'Unplug USB',
+    });
+    setEl('sessionId', { textContent: state.session.id + (state.mock ? '  [mock]' : '') });
+    setEl('toggleMock', { className: state.mock ? 'chip ok' : 'ghost' });
 }
 
 // --- session form -------------------------------------------------------
@@ -532,11 +630,13 @@ async function toggleDiag() {
  * Shared guard for the ad-hoc console buttons.
  *
  * Both preconditions are the jig's, not the tool's: a live STREAM blocks the
- * console loop, and during a recording the jig answers BUSY to everything but
- * TIME. Rather than let either produce a confusing timeout, stop the stream and
- * refuse mid-run.
+ * console loop, and during a recording the jig answers BUSY. Rather than let
+ * either produce a confusing timeout, stop the stream and refuse mid-capture.
+ *
+ * `okWhileRecording` is for TIME, the one command the jig's recording branch
+ * still answers for real.
  */
-async function consoleReady(what) {
+async function consoleReady(what, okWhileRecording = false) {
     // Refusals go to diagOut, not just the console panel. The console is at the
     // bottom of the page, well away from the button that was clicked, so a
     // guard that only logs there reads as a dead button.
@@ -546,8 +646,8 @@ async function consoleReady(what) {
         return false;
     };
     if (!state.jig?.connected) return refuse('connect the jig first.');
-    if (state.active) {
-        return refuse('not available mid-run. The jig answers BUSY while recording.');
+    if (state.jig.recording && !okWhileRecording) {
+        return refuse('the jig is recording and answers BUSY. Wait for the capture to end.');
     }
     if (state.diagOn) await toggleDiag();
     return true;
@@ -585,7 +685,7 @@ async function cmdList() {
  * over the 2 ms gate here, every run of the afternoon will fail the same gate.
  */
 async function cmdTime() {
-    if (!(await consoleReady('TIME'))) return;
+    if (!(await consoleReady('TIME', true))) return;
     $('diagOut').textContent = 'Probing...';
     try {
         const p = await state.jig.probeClock(50, (i, n) => {
@@ -651,9 +751,7 @@ function renderRuns() {
               <strong>${r.experimentId} ${r.variantLabel}</strong>
               <span class="muted">${r.logFile ?? '(no file)'}</span>
             </div>
-            <div class="muted">${r.samples ?? '?'} samples · dropped ${r.dropped ?? '?'} · ${
-                r.packVoltage ? `${r.packVoltage} V` : 'no voltage'
-            }</div>
+            <div class="muted">${r.samples ?? '?'} samples · dropped ${r.dropped ?? '?'}</div>
             ${failed.map((g) => `<div class="gate fail">✗ ${g.name}: ${g.detail}</div>`).join('')}
             ${unknown.map((g) => `<div class="gate unknown">? ${g.name}: ${g.detail}</div>`).join('')}
             ${r.notes ? `<div class="gate">${r.notes}</div>` : ''}`;
@@ -708,8 +806,23 @@ function deleteRun(id) {
  * but the operator, robot, board length and IMU ranges are all still correct and
  * nobody wants to retype them under time pressure.
  */
+/**
+ * Say no to a destructive action mid-run, and say where the exit is.
+ *
+ * "Finish or abort the run first" is true and useless: the console is at the
+ * bottom of the page, the run panel is at the top, and nothing connects the
+ * sentence to the Abort button that resolves it.
+ */
+function refuseMidRun(what) {
+    const r = state.active;
+    const where = `${r.experimentId} ${r.variantLabel}`.trim();
+    const msg = `Cannot ${what} while ${where} is in progress. Press Abort in the run panel, then save or discard it.`;
+    $('diagOut').innerHTML = `<p class="note stop">${msg}</p>`;
+    logLine(msg);
+}
+
 function clearRuns() {
-    if (state.active) return logLine('finish or abort the run before clearing');
+    if (state.active) return refuseMidRun('clear runs');
     const n = state.session.runs.length;
     if (!n) return logLine('no runs to clear');
     if (
@@ -729,7 +842,7 @@ function clearRuns() {
 
 /** Start over completely: new id, empty runs, setup fields back to defaults. */
 function resetSession() {
-    if (state.active) return logLine('finish or abort the run before starting a new session');
+    if (state.active) return refuseMidRun('start a new session');
     const n = state.session.runs.length;
     if (
         !confirm(
@@ -754,8 +867,14 @@ function resetSession() {
 
 class Aborted extends Error {}
 
+// Which step the coach is on. Steps are a list of closures, so the number has
+// to come from the runner: a step cannot know its own place in a list that is
+// built differently for every experiment. It is the operator's only sense of
+// how much of the run is left, so it has to be right.
+let curStep = 0;
+
 function showStep(n, total, title, detail, big = '', bigClass = '') {
-    $('stepIndex').textContent = total ? `Step ${n} of ${total}` : '';
+    $('stepIndex').textContent = total ? `Step ${n ?? curStep} of ${total}` : '';
     $('stepTitle').textContent = title;
     $('stepDetail').textContent = detail ?? '';
     $('stepBig').textContent = big;
@@ -774,6 +893,59 @@ function waitAdvance() {
     return new Promise((resolve, reject) => {
         state.advance = { resolve, reject };
     });
+}
+
+/**
+ * Wait for one of the two lines the operator triggers by hand on the jig.
+ *
+ * Checks the latch before subscribing. Both lines come from a button press on
+ * the jig, and an operator who presses A while the pre-run clock probe is still
+ * running fires `recording` well before this step is reached. Subscribing alone
+ * would miss it and wait forever for a line that already came, which wedges the
+ * run: the capture is live, the console is BUSY, the primary button is hidden,
+ * and the only way out is an abort that throws away a capture that is sitting
+ * on the card perfectly intact.
+ */
+async function waitJigLine(name) {
+    const early = state.jig.takeLatched(name);
+    if (early) {
+        logLine(`${name}: you were ahead of the tool, picked up the line you already sent`, 'evt');
+        return early;
+    }
+    const detail = await waitEvent(state.jig, name);
+    // Taken live, so drop the copy the latch kept. Otherwise the next step to
+    // ask for this line would be handed one that has already been used.
+    state.jig.takeLatched(name);
+    return detail;
+}
+
+/**
+ * Wait for the USB cable to come out, or go back in.
+ *
+ * Advances on the browser's own connect and disconnect events, so the operator
+ * moves the cable with both hands on the robot and never has to come back to
+ * the laptop to confirm it. Skip step is there because a run that can only be
+ * advanced by an event is a run that wedges if the event never fires, and this
+ * one depends on the OS noticing a re-enumeration.
+ */
+async function waitCable(want) {
+    if (!!state.jig?.connected === want) return;
+    setButtons({ go: null, skip: true });
+    try {
+        await Promise.race([
+            new Promise((resolve, reject) => {
+                state.cable = {
+                    check: () => {
+                        if (!!state.jig?.connected === want) resolve();
+                    },
+                };
+                state.abort.signal.addEventListener('abort', () => reject(new Aborted()));
+            }),
+            waitAdvance(),
+        ]);
+    } finally {
+        state.cable = null;
+    }
 }
 
 function waitEvent(target, name) {
@@ -858,7 +1030,9 @@ async function startRun() {
     });
     state.active = run;
     state.abort = new AbortController();
-    renderStatus(); // the console buttons grey out for the duration
+    // A line left over from the previous run must not satisfy this one's wait.
+    state.jig.clearLatched();
+    renderStatus(); // LIST and the stream grey out once the capture starts
 
     const steps = [];
     const add = (fn) => steps.push(fn);
@@ -894,8 +1068,9 @@ async function startRun() {
             });
         }
         try {
-            for (const fn of steps) {
+            for (const [i, fn] of steps.entries()) {
                 if (state.abort.signal.aborted) throw new Aborted();
+                curStep = i + 1;
                 await fn();
             }
         } catch (err) {
@@ -918,32 +1093,17 @@ async function startRun() {
                 : enc === 'attached'
                   ? ENCODER_SWAP.reattach.join(' ')
                   : 'Either state is acceptable for this experiment.';
-        showStep(1, steps.length, `Encoder ${enc}`, detail);
+        showStep(null, steps.length, `Encoder ${enc}`, detail);
         setButtons({ go: 'Confirmed' });
         await waitAdvance();
     });
 
-    // 2. pack voltage
-    add(async () => {
-        showStep(2, steps.length, 'Pack resting voltage', 'Measure it now, not afterward.');
-        // Carries over from the last run: on a battery of short runs it rarely
-        // changes, and E20 is the experiment that cares, where it gets retyped.
-        $('stepExtra').innerHTML = `<label>Volts <input id="packV" type="number" step="0.01"
-            placeholder="16.4" value="${state.lastPackVoltage ?? ''}"></label>`;
-        setButtons({ go: 'Recorded', skip: true });
-        await waitAdvance();
-        const v = Number($('packV')?.value);
-        run.packVoltage = Number.isFinite(v) && v > 0 ? v : null;
-        if (run.packVoltage) state.lastPackVoltage = run.packVoltage;
-        $('stepExtra').innerHTML = '';
-    });
-
     // 3. clock probe, pre
     add(async () => {
-        showStep(3, steps.length, 'Clock probe, pre', '200 round trips against the jig clock.');
+        showStep(null, steps.length, 'Clock probe, pre', '200 round trips against the jig clock.');
         setButtons({ go: null });
         run.clockPre = await state.jig.probeClock(200, (i, n) =>
-            showStep(3, steps.length, 'Clock probe, pre', 'Probing', `${i}/${n}`),
+            showStep(null, steps.length, 'Clock probe, pre', 'Probing', `${i}/${n}`),
         );
         logLine(
             `clock pre: offset ${run.clockPre.offsetMs.toFixed(2)} ms residual ${run.clockPre.residualMs.toFixed(3)} ms`,
@@ -996,7 +1156,7 @@ async function startRun() {
     add(async () => {
         showStep(null, steps.length, 'Press A on the jig', 'The tool waits for the recording line.');
         setButtons({ go: null });
-        const evt = await waitEvent(state.jig, 'recording');
+        const evt = await waitJigLine('recording');
         run.logFile = evt.logFile;
         run.tStartHost = evt.tHost;
     });
@@ -1006,6 +1166,29 @@ async function startRun() {
         add(async () => {
             setButtons({ go: null });
             run.holdPre = await countdown(10, 'Hold still', 'Per-run gyro bias estimate. Do not skip.');
+        });
+    }
+
+    // 6b. cable out, for anything that moves the robot away from the bench
+    //
+    // The jig runs off its LiPo and USB only overrides and charges it, so the
+    // capture keeps running with the cable out. It has to come out here rather
+    // than before the still hold: pulling a plug jostles the robot, and the
+    // hold is where the per-run gyro bias comes from.
+    const movesRobot = exp.motion && exp.motion !== 'none';
+    if (movesRobot) {
+        add(async () => {
+            showStep(
+                null,
+                steps.length,
+                'Unplug the USB cable from the jig',
+                'The jig keeps recording on its battery. Leave the cable out until the motion is done, ' +
+                    'and check nothing else is tethering the robot.',
+                'Cable OUT',
+                'warn',
+            );
+            await waitCable(false);
+            logLine('cable out, robot free', 'evt');
         });
     }
 
@@ -1060,11 +1243,33 @@ async function startRun() {
         });
     }
 
+    // 8b. cable back in, before B is pressed
+    //
+    // Order is not negotiable. The stop summary is a serial line and nothing
+    // buffers it, so pressing B with the cable out loses the sample and drop
+    // counts for good, and those are two of the gates. Plugging in first costs
+    // nothing: the recording is still running and the tail is not used.
+    if (movesRobot) {
+        add(async () => {
+            showStep(
+                null,
+                steps.length,
+                'Plug the USB cable back into the jig',
+                'Do this before pressing B. The stop summary only exists on the wire, so a stop with the ' +
+                    'cable out loses the sample and dropped counts. Reconnects on its own.',
+                'Cable IN',
+                'warn',
+            );
+            await waitCable(true);
+            logLine('cable back in', 'evt');
+        });
+    }
+
     // 9. stop recording
     add(async () => {
         showStep(null, steps.length, 'Press B on the jig', 'The tool waits for the stop summary.');
         setButtons({ go: null });
-        const evt = await waitEvent(state.jig, 'stopped');
+        const evt = await waitJigLine('stopped');
         run.samples = evt.samples;
         run.dropped = evt.dropped;
         run.tStopHost = evt.tHost;
@@ -1112,8 +1317,9 @@ async function startRun() {
 
     // run it
     try {
-        for (const fn of steps) {
+        for (const [i, fn] of steps.entries()) {
             if (state.abort.signal.aborted) throw new Aborted();
+            curStep = i + 1;
             await fn();
         }
     } catch (err) {
@@ -1122,8 +1328,20 @@ async function startRun() {
         run.notes = (run.notes ? `${run.notes} ` : '') + (err instanceof Aborted ? 'aborted' : err.message);
     }
 
-    applyGates(run, exp);
-    await finishRun(run, exp);
+    try {
+        // Inside the guard, not before it. applyGates reads a dozen fields off a
+        // run that may have been abandoned half-populated, and a throw out here
+        // would escape startRun entirely with the flag still set.
+        applyGates(run, exp);
+        await finishRun(run, exp);
+    } finally {
+        // finishRun clears this itself, but only after waiting for the operator
+        // to save. A throw anywhere in there would otherwise leave the flag set,
+        // and Start run, Clear runs and New session all refuse while it is,
+        // so the afternoon stops until someone reloads the page.
+        state.active = null;
+        renderStatus();
+    }
 }
 
 async function finishRun(run, exp) {
@@ -1206,6 +1424,12 @@ function bind() {
     ]) {
         $(id).addEventListener('change', () => {
             readForm();
+            // Persisted on every edit, not only when a run completes. Reloading
+            // the tab is the recovery for a wedged run, and it should cost the
+            // in-flight run and nothing else. Retyping operator, robot, board
+            // length and IMU ranges under time pressure is how they get typed
+            // wrong, and every one of them lands in the exported sheet.
+            save(state.session);
             renderSpace();
             if (!state.active) renderPlan();
         });
@@ -1227,6 +1451,12 @@ function bind() {
 
     $('mockA').onclick = () => state.mockJig?.pressA();
     $('mockB').onclick = () => state.mockJig?.pressB();
+    $('mockCable').onclick = () => {
+        const m = state.mockJig;
+        if (!m) return;
+        if (m.connected) m.unplug();
+        else m.replug();
+    };
     $('mockEncoder').onchange = (e) => {
         if (state.mockJig) state.mockJig.encoderAttached = e.target.checked;
     };
@@ -1249,6 +1479,28 @@ function init() {
     if (!navigator.serial && !state.mock) {
         logLine('Web Serial unavailable. Use Chrome or Edge, served over http://localhost.');
     }
+
+    // Everything here lives in a module, so a wedged run cannot be looked at
+    // from the browser console without a handle to it. Diagnosing one by
+    // reasoning about the source instead is slow and gets the answer wrong.
+    //
+    // `rescue()` is the last resort: it force-ends the run, keeping whatever
+    // the coach had already collected, so the panel unlocks without a reload.
+    window.jigDebug = {
+        state,
+        step: () => ({
+            active: state.active,
+            waiting: state.advance ? 'a button' : 'not a button',
+            aborted: !!state.abort?.signal.aborted,
+            recording: !!state.jig?.recording,
+            latched: state.jig?._latched,
+        }),
+        rescue: () => {
+            state.abort?.abort();
+            state.advance?.reject(new Aborted());
+            return 'aborted; the run panel should now offer Save run';
+        },
+    };
 }
 
 init();
