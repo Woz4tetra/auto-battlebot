@@ -66,15 +66,14 @@ excitation to play.
 
 - [ ] 1. Confirm encoder state matches the experiment. Detached runs: verify `AB 11` and a frozen
       `ENC` on the diagnostics screen (button C).
-- [ ] 2. Record pack resting voltage on the session sheet.
-- [ ] 3. Clock probe, pre. 200 probes. Record the fitted offset.
-- [ ] 4. Press A to start recording.
-- [ ] 5. **Hold still 10 s.** Do not skip this. It is the per-run gyro bias estimate.
-- [ ] 6. Play the excitation.
-- [ ] 7. **Hold still 10 s.** This is the bias drift bound for the run.
-- [ ] 8. Press B to stop. Record the filename, sample count, and `DROPPED` from the summary screen.
-- [ ] 9. Clock probe, post. Record the offset and the implied skew.
-- [ ] 10. Write the run down on the session sheet immediately. The jig names files `LOG-0`, `LOG-1`,
+- [ ] 2. Clock probe, pre. 200 probes. Record the fitted offset.
+- [ ] 3. Press A to start recording.
+- [ ] 4. **Hold still 10 s.** Do not skip this. It is the per-run gyro bias estimate.
+- [ ] 5. Play the excitation.
+- [ ] 6. **Hold still 10 s.** This is the bias drift bound for the run.
+- [ ] 7. Press B to stop. Record the filename, sample count, and `DROPPED` from the summary screen.
+- [ ] 8. Clock probe, post. Record the offset and the implied skew.
+- [ ] 9. Write the run down on the session sheet immediately. The jig names files `LOG-0`, `LOG-1`,
       and so on, with no metadata inside. An unlabeled log is a discarded log.
 
 **Gates that abort a run**

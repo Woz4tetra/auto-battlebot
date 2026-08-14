@@ -408,9 +408,9 @@ may switch to before E11 and E22.
 8. Hold still through the countdown. The tool plays the excitation and disarms at the end of it. Hold
    still again.
 9. Press **B**. The post probe fires, the encoder check runs, gates evaluate, the row is written.
-11. Repeat. Export JSON and Markdown at the end.
+10. Repeat. Export JSON and Markdown at the end.
 
-Steps 8 and 10 stay manual button presses on the jig rather than software triggers, because the jig's
+Steps 7 and 9 stay manual button presses on the jig rather than software triggers, because the jig's
 buttons are the only start and stop that cannot be lost to a USB problem.
 
 ## Data model

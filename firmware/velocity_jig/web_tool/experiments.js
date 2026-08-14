@@ -17,7 +17,6 @@ const V = (id, label, extra = {}) => ({ id, label, ...extra });
 /** Shared run-card steps for any recorded driven run. */
 export const RUN_CARD = [
     'Confirm encoder state matches the experiment.',
-    'Record pack resting voltage.',
     'Clock probe, pre.',
     'Press A to start recording.',
     'Hold still 10 s. This is the per-run gyro bias estimate.',
