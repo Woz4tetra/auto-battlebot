@@ -17,52 +17,9 @@
 #include "rgbd_camera/grab_health_monitor.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "rgbd_camera/svo_recorder.hpp"
+#include "rgbd_camera/zed_device.hpp"
 
 namespace auto_battlebot {
-inline sl::RESOLUTION get_zed_resolution(Resolution resolution) {
-    switch (resolution) {
-        case Resolution::RES_3856x2180:
-            return sl::RESOLUTION::HD4K;
-        case Resolution::RES_3800x1800:
-            return sl::RESOLUTION::QHDPLUS;
-        case Resolution::RES_2208x1242:
-            return sl::RESOLUTION::HD2K;
-        case Resolution::RES_1920x1536:
-            return sl::RESOLUTION::HD1536;
-        case Resolution::RES_1920x1080:
-            return sl::RESOLUTION::HD1080;
-        case Resolution::RES_1920x1200:
-            return sl::RESOLUTION::HD1200;
-        case Resolution::RES_1280x720:
-            return sl::RESOLUTION::HD720;
-        case Resolution::RES_960x600:
-            return sl::RESOLUTION::SVGA;
-        case Resolution::RES_672x376:
-            return sl::RESOLUTION::VGA;
-    }
-    throw std::invalid_argument("Unknown Resolution value");
-}
-
-inline sl::DEPTH_MODE get_zed_depth_mode(DepthMode depth_mode) {
-    switch (depth_mode) {
-        case DepthMode::ZED_NONE:
-            return sl::DEPTH_MODE::NONE;
-        case DepthMode::ZED_PERFORMANCE:
-            return sl::DEPTH_MODE::PERFORMANCE;
-        case DepthMode::ZED_QUALITY:
-            return sl::DEPTH_MODE::QUALITY;
-        case DepthMode::ZED_ULTRA:
-            return sl::DEPTH_MODE::ULTRA;
-        case DepthMode::ZED_NEURAL_LIGHT:
-            return sl::DEPTH_MODE::NEURAL_LIGHT;
-        case DepthMode::ZED_NEURAL:
-            return sl::DEPTH_MODE::NEURAL;
-        case DepthMode::ZED_NEURAL_PLUS:
-            return sl::DEPTH_MODE::NEURAL_PLUS;
-    }
-    throw std::invalid_argument("Unknown DepthMode value");
-}
-
 class ZedRgbdCamera : public RgbdCameraInterface {
    public:
     explicit ZedRgbdCamera(ZedRgbdCameraConfiguration &config);
@@ -80,9 +37,6 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     bool capture_frame();
     void reset_capture_timing_stats() const;
     void reset_runtime_state();
-    // Wait for the pending open() future, leaking it on hard timeout so shutdown never
-    // blocks on a wedged SDK call. Returns true if open() completed, false if it was leaked.
-    bool await_or_leak_open(const char *context, const char *validation_label);
     // Block until frame_ready() (or a lifecycle/disconnect event). `lock` must be held on
     // entry. Returns false if the camera disconnected while waiting.
     bool wait_for_new_frame(std::unique_lock<std::mutex> &lock, int &wait_loops,
@@ -90,15 +44,10 @@ class ZedRgbdCamera : public RgbdCameraInterface {
 
     // Asynchronous open() handling.
     std::atomic<bool> cancel_open_{false};
-    std::future<sl::ERROR_CODE> pending_open_;
     std::atomic<bool> capture_thread_done_{false};
 
-    // ZED SDK handles and the most recently captured frame.
-    sl::Camera zed_;
-    sl::InitParameters params_;
-    sl::Mat zed_rgb_;
-    sl::Mat zed_depth_;
-    sl::Pose zed_pose_;
+    // The SDK handle and single-frame capture, shared with the SVO playback camera.
+    ZedDevice device_;
     CameraData latest_data_;
     mutable std::mutex data_mutex_;
     mutable std::condition_variable data_cv_;
@@ -122,8 +71,6 @@ class ZedRgbdCamera : public RgbdCameraInterface {
 
     GrabHealthMonitor grab_health_;
 
-    sl::POSITIONAL_TRACKING_STATE prev_tracking_state_;
-    bool position_tracking_enabled_;
     bool is_playback_input_;
     /// Absolute path of the SVO being replayed, empty for a live camera.
     std::string playback_svo_path_;

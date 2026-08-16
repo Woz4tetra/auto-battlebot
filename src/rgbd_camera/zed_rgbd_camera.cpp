@@ -42,24 +42,6 @@ void warn_if_slow(const std::chrono::steady_clock::time_point &start, const char
     }
 }
 
-// Deliberate static leak: a std::future whose underlying task is wedged inside the ZED SDK
-// cannot be safely destroyed (its destructor blocks on the task). On a hard timeout we move
-// the stuck future here so it outlives the rest of the program; the OS reclaims memory at
-// process exit. Allocated with `new` and never freed so neither the vector nor the mutex
-// ever has its destructor invoked at static teardown.
-std::mutex *g_leaked_open_futures_mutex = new std::mutex;
-std::vector<std::future<sl::ERROR_CODE>> *g_leaked_open_futures =
-    new std::vector<std::future<sl::ERROR_CODE>>;
-
-void leak_open_future(std::future<sl::ERROR_CODE> &&future) {
-    std::lock_guard<std::mutex> lock(*g_leaked_open_futures_mutex);
-    g_leaked_open_futures->push_back(std::move(future));
-}
-
-// Returns true if the thread joined cleanly within kJoinHardTimeout, false if it had to be
-// detached because it appeared wedged. We poll a "done" flag the capture thread sets on exit
-// rather than calling thread.join() directly with a separate timer, because we need to be
-// able to give up without blocking the process shutdown path.
 bool join_with_timeout(std::thread &thread, const std::atomic<bool> &done_flag,
                        const char *context) {
     const auto deadline = std::chrono::steady_clock::now() + kJoinHardTimeout;
@@ -77,21 +59,10 @@ bool join_with_timeout(std::thread &thread, const std::atomic<bool> &done_flag,
     thread.detach();
     return false;
 }
-
-bool is_transient_grab_error(sl::ERROR_CODE error_code) {
-    switch (error_code) {
-        case sl::ERROR_CODE::CORRUPTED_FRAME:
-        case sl::ERROR_CODE::CAMERA_REBOOTING:
-            return true;
-        default:
-            return false;
-    }
-}
 }  // namespace
 
 ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
-    : zed_(sl::Camera()),
-      is_initialized_(false),
+    : is_initialized_(false),
       should_close_(false),
       stop_thread_(false),
       camera_connected_(false),
@@ -99,25 +70,24 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
       depth_frame_counter_(0),
       last_returned_frame_counter_(0),
       grab_health_(kGrabErrorWindow, kGrabErrorExitThreshold),
-      prev_tracking_state_(sl::POSITIONAL_TRACKING_STATE::LAST),
-      position_tracking_enabled_(config.position_tracking),
       is_playback_input_(!config.svo_file_path.empty()),
       svo_start_frame_(config.svo_start_frame) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("zed_rgbd_camera");
     reset_capture_timing_stats();
 
-    svo_recorder_ = std::make_unique<SvoRecorder>(zed_, get_project_path("data/temp_svo"),
-                                                  config.svo_max_size_gb * kBytesPerGb,
-                                                  config.svo_holding_dir_max_size_gb * kBytesPerGb);
+    device_.set_tracking_enabled(config.position_tracking);
+    svo_recorder_ = std::make_unique<SvoRecorder>(
+        device_.handle(), get_project_path("data/temp_svo"), config.svo_max_size_gb * kBytesPerGb,
+        config.svo_holding_dir_max_size_gb * kBytesPerGb);
     // Recording is only meaningful for a live camera, not when replaying an SVO file.
     svo_recorder_->set_desired(config.svo_recording && config.svo_file_path.empty());
 
-    params_ = sl::InitParameters();
-    params_.camera_fps = config.camera_fps;
-    params_.camera_resolution = get_zed_resolution(config.camera_resolution);
-    params_.depth_mode = get_zed_depth_mode(config.depth_mode);
-    params_.coordinate_system = sl::COORDINATE_SYSTEM::IMAGE;
-    params_.coordinate_units = sl::UNIT::METER;
+    sl::InitParameters params;
+    params.camera_fps = config.camera_fps;
+    params.camera_resolution = get_zed_resolution(config.camera_resolution);
+    params.depth_mode = get_zed_depth_mode(config.depth_mode);
+    params.coordinate_system = sl::COORDINATE_SYSTEM::IMAGE;
+    params.coordinate_units = sl::UNIT::METER;
 
     // Set SVO file path if provided (for playback instead of live camera)
     if (is_playback_input_) {
@@ -126,19 +96,21 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
         spdlog::info("Resolved SVO path: {}", svo_file_abs_path.string());
         playback_svo_path_ = svo_file_abs_path.string();
 
-        params_.input.setFromSVOFile(svo_file_abs_path.c_str());
-        params_.svo_real_time_mode = config.svo_real_time_mode;
+        params.input.setFromSVOFile(svo_file_abs_path.c_str());
+        params.svo_real_time_mode = config.svo_real_time_mode;
     }
+    device_.set_params(params);
 }
 
 ZedRgbdCamera::~ZedRgbdCamera() {
     // Cancel any in-progress initialize() before doing anything else.
     cancel_open_ = true;
-    if (pending_open_.valid()) {
+    if (device_.has_pending_open()) {
         // is_initialized_ is false (only set after a successful open returns), so on a leaked
         // open the capture-thread / zed_.close() block below is correctly skipped. Returning
         // also avoids racing zed_.close() against the still-running zed_.open() call.
-        if (!await_or_leak_open("ZedRgbdCamera destructor", "pending_open_wait_destructor")) {
+        if (!device_.await_or_leak_open("ZedRgbdCamera destructor",
+                                        "pending_open_wait_destructor")) {
             return;
         }
     }
@@ -158,23 +130,8 @@ ZedRgbdCamera::~ZedRgbdCamera() {
             }
         }
         svo_recorder_->stop();
-        zed_.close();
+        device_.close();
     }
-}
-
-bool ZedRgbdCamera::await_or_leak_open(const char *context, const char *validation_label) {
-    const auto wait_start = std::chrono::steady_clock::now();
-    if (pending_open_.wait_for(kOpenHardTimeout) == std::future_status::timeout) {
-        spdlog::critical(
-            "{}: zed_.open() stuck after {}s; leaking the open future for soft shutdown "
-            "(the ZED SDK call completes in the background and is reaped at process exit)",
-            context, kOpenHardTimeout.count());
-        spdlog::default_logger()->flush();
-        leak_open_future(std::move(pending_open_));
-        return false;
-    }
-    warn_if_slow(wait_start, validation_label, kOpenWaitWarnMs);
-    return true;
 }
 
 void ZedRgbdCamera::cancel_initialize() { cancel_open_ = true; }
@@ -202,37 +159,22 @@ bool ZedRgbdCamera::initialize() {
     // Ensure the SDK camera handle is reset before calling open() again.
     if (is_initialized_) {
         svo_recorder_->stop();
-        zed_.close();
+        device_.close();
         is_initialized_ = false;
     }
 
     reset_runtime_state();
 
-    // Run zed_.open() on a background thread so we can check cancel_open_ while it blocks.
     cancel_open_ = false;
-    pending_open_ =
-        std::async(std::launch::async, [this]() -> sl::ERROR_CODE { return zed_.open(params_); });
-
-    while (pending_open_.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
-        if (cancel_open_) {
-            // We can't interrupt zed_.open() itself; wait for it to return before we leave so
-            // the ZED object is never used concurrently or destroyed mid-open.
-            if (!await_or_leak_open("ZedRgbdCamera::initialize cancel",
-                                    "pending_open_wait_cancel")) {
-                should_close_ = true;
-            }
-            return false;
-        }
-    }
-
-    sl::ERROR_CODE returned_state = pending_open_.get();
-    if (returned_state != sl::ERROR_CODE::SUCCESS) {
-        spdlog::error("Failed to open ZED camera: {}", sl::toString(returned_state).c_str());
+    const ZedDevice::OpenResult open_result = device_.open(cancel_open_);
+    if (open_result == ZedDevice::OpenResult::Leaked) {
+        should_close_ = true;
         return false;
     }
+    if (open_result != ZedDevice::OpenResult::Opened) return false;
 
-    if (svo_start_frame_ > 0 && zed_.getCameraInformation().input_type == sl::INPUT_TYPE::SVO) {
-        const int n_frames = zed_.getSVONumberOfFrames();
+    if (svo_start_frame_ > 0 && device_.is_svo_input()) {
+        const int n_frames = device_.svo_frame_count();
         if (n_frames > 0) {
             const int frame = std::clamp(svo_start_frame_, 0, n_frames - 1);
             if (frame != svo_start_frame_) {
@@ -240,48 +182,13 @@ bool ZedRgbdCamera::initialize() {
                              svo_start_frame_, n_frames, frame);
             }
             spdlog::info("SVO starting at frame {} of {}", frame, n_frames);
-            zed_.setSVOPosition(frame);
+            device_.set_svo_position(frame);
         }
     }
 
-    if (position_tracking_enabled_) {
-        // Enable positional tracking for getting camera pose
-        sl::PositionalTrackingParameters tracking_params;
-        tracking_params.enable_imu_fusion = true;
-        returned_state = zed_.enablePositionalTracking(tracking_params);
-        if (returned_state != sl::ERROR_CODE::SUCCESS) {
-            spdlog::error("Failed to enable positional tracking: {}",
-                          sl::toString(returned_state).c_str());
-            zed_.close();
-            return false;
-        }
-    } else {
-        spdlog::info("Position tracking is disabled");
-    }
+    if (!device_.enable_tracking()) return false;
 
-    // Get camera information for intrinsics
-    sl::CalibrationParameters calibration =
-        zed_.getCameraInformation().camera_configuration.calibration_parameters;
-    sl::Resolution image_size = zed_.getCameraInformation().camera_configuration.resolution;
-
-    // Initialize camera info
-    latest_data_.camera_info.width = static_cast<int>(image_size.width);
-    latest_data_.camera_info.height = static_cast<int>(image_size.height);
-
-    // Set intrinsics matrix (fx, 0, cx; 0, fy, cy; 0, 0, 1)
-    latest_data_.camera_info.intrinsics = cv::Mat::eye(3, 3, CV_64F);
-    latest_data_.camera_info.intrinsics.at<double>(0, 0) = calibration.left_cam.fx;
-    latest_data_.camera_info.intrinsics.at<double>(1, 1) = calibration.left_cam.fy;
-    latest_data_.camera_info.intrinsics.at<double>(0, 2) = calibration.left_cam.cx;
-    latest_data_.camera_info.intrinsics.at<double>(1, 2) = calibration.left_cam.cy;
-
-    // Set distortion coefficients
-    latest_data_.camera_info.distortion = cv::Mat::zeros(1, 5, CV_64F);
-    latest_data_.camera_info.distortion.at<double>(0, 0) = calibration.left_cam.disto[0];  // k1
-    latest_data_.camera_info.distortion.at<double>(0, 1) = calibration.left_cam.disto[1];  // k2
-    latest_data_.camera_info.distortion.at<double>(0, 2) = calibration.left_cam.disto[2];  // p1
-    latest_data_.camera_info.distortion.at<double>(0, 3) = calibration.left_cam.disto[3];  // p2
-    latest_data_.camera_info.distortion.at<double>(0, 4) = calibration.left_cam.disto[4];  // k3
+    latest_data_.camera_info = device_.read_camera_info();
 
     is_initialized_ = true;
 
@@ -306,7 +213,7 @@ void ZedRgbdCamera::reset_runtime_state() {
     last_returned_frame_counter_ = 0;
     playback_stamp_offset_initialized_ = false;
     grab_health_.reset();
-    prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST;
+    device_.reset_runtime_state();
     reset_capture_timing_stats();
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
@@ -348,19 +255,14 @@ bool ZedRgbdCamera::capture_frame() {
         depth_requested_ = false;
     }
 
-    // Grab new frame (without lock)
-    sl::RuntimeParameters rt_params;
-    rt_params.enable_depth = true;
-    const auto grab_start = std::chrono::steady_clock::now();
-    sl::ERROR_CODE grab_status = zed_.grab(rt_params);
-    warn_if_slow(grab_start, "zed_grab", kGrabWarnMs);
+    const ZedDevice::GrabStatus grab_status = device_.grab();
 
-    if (is_transient_grab_error(grab_status)) {
+    if (grab_status == ZedDevice::GrabStatus::TransientError) {
         // Treat transient frame grab issues as recoverable: wait for the next good frame.
         return false;
     }
 
-    if (grab_status != sl::ERROR_CODE::SUCCESS) {
+    if (grab_status != ZedDevice::GrabStatus::Ok) {
         camera_connected_ = false;
         grab_health_.record(true, std::chrono::steady_clock::now());
 
@@ -378,15 +280,13 @@ bool ZedRgbdCamera::capture_frame() {
         }
 
         data_cv_.notify_all();
-        if (grab_status == sl::ERROR_CODE::END_OF_SVOFILE_REACHED) {
+        if (grab_status == ZedDevice::GrabStatus::EndOfFile) {
             {
                 std::lock_guard<std::mutex> lock(data_mutex_);
                 should_close_ = true;
             }
             data_cv_.notify_all();
             spdlog::info("End of SVO file reached.");
-        } else {
-            spdlog::error("Failed to grab frame: {}", sl::toString(grab_status).c_str());
         }
         return false;
     }
@@ -401,118 +301,42 @@ bool ZedRgbdCamera::capture_frame() {
     const auto lock_hold_start = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(data_mutex_);
 
-    // Retrieve RGB image
-    sl::ERROR_CODE retrieve_status = zed_.retrieveImage(zed_rgb_, sl::VIEW::LEFT);
-
-    if (retrieve_status != sl::ERROR_CODE::SUCCESS) {
-        spdlog::error("Failed to retrieve RGB image: {}", sl::toString(retrieve_status).c_str());
+    if (!device_.retrieve(need_depth, latest_data_)) {
+        if (need_depth) depth_requested_ = true;  // re-request depth for the next frame
         return false;
     }
-
-    // Retrieve depth map only if requested
-    if (need_depth) {
-        retrieve_status = zed_.retrieveMeasure(zed_depth_, sl::MEASURE::DEPTH);
-        if (retrieve_status != sl::ERROR_CODE::SUCCESS) {
-            spdlog::error("Failed to retrieve depth image: {}",
-                          sl::toString(retrieve_status).c_str());
-            depth_requested_ = true;  // re-request depth for the next frame
-            return false;
-        }
-    }
-
-    // Use the frame capture time (IMAGE): live it is the true capture instant, and in SVO playback
-    // it is the original recording time, which lets a ManualClock drive deterministic replay.
-    sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE);
-    double stamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
 
     // Record which camera frame this is, independent of the stamp. TIME_REFERENCE::IMAGE runs
     // about half a frame ahead of what the SVO recorder writes for the same grab, so a
     // timestamp alone cannot join recorded output back to SVO frames after the fact.
-    latest_data_.frame_identity.image_stamp_ns = timestamp.getNanoseconds();
     latest_data_.frame_identity.svo_frame_index = svo_frame.index;
     latest_data_.frame_identity.svo_path = svo_frame.path;
     if (is_playback_input_) {
         // Replaying, so the frame identity comes from the file being read rather than one being
         // written. getSVOPosition() counts frames already read, putting the one just grabbed one
         // behind it.
-        const int svo_position = zed_.getSVOPosition();
+        const int svo_position = device_.svo_position();
         latest_data_.frame_identity.svo_frame_index = svo_position > 0 ? svo_position - 1 : -1;
         latest_data_.frame_identity.svo_path = playback_svo_path_;
-    }
-    if (is_playback_input_) {
-        // Rebase SVO stamps onto the current wall clock so replay recordings (and the
-        // mcap start time) begin now, not at the original recording time. The offset is
-        // fixed at the first frame, preserving inter-frame deltas.
+
+        // Rebase SVO stamps onto the current wall clock so replay recordings (and the mcap start
+        // time) begin now, not at the original recording time. The offset is fixed at the first
+        // frame, preserving inter-frame deltas.
+        const double raw_stamp =
+            static_cast<double>(latest_data_.frame_identity.image_stamp_ns) / 1e9;
         if (!playback_stamp_offset_initialized_) {
             const double now_s =
                 std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch())
                     .count();
-            playback_stamp_offset_s_ = now_s - stamp;
+            playback_stamp_offset_s_ = now_s - raw_stamp;
             playback_stamp_offset_initialized_ = true;
         }
-        stamp += playback_stamp_offset_s_;
+        const double stamp = raw_stamp + playback_stamp_offset_s_;
+        latest_data_.rgb.header.stamp = stamp;
+        latest_data_.depth.header.stamp = stamp;
+        latest_data_.camera_info.header.stamp = stamp;
+        latest_data_.tf_visodom_from_camera.header.stamp = stamp;
     }
-
-    latest_data_.tf_visodom_from_camera.header.stamp = stamp;
-    latest_data_.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
-    latest_data_.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
-
-    // Get camera pose
-    if (position_tracking_enabled_) {
-        sl::POSITIONAL_TRACKING_STATE tracking_state =
-            zed_.getPosition(zed_pose_, sl::REFERENCE_FRAME::WORLD);
-        latest_data_.tracking_ok = (tracking_state == sl::POSITIONAL_TRACKING_STATE::OK);
-        if (tracking_state != prev_tracking_state_) {
-            spdlog::info("Tracking state: {}", sl::toString(tracking_state).c_str());
-            prev_tracking_state_ = tracking_state;
-        }
-
-        // Convert pose to transform matrix (4x4 Eigen matrix)
-        sl::Transform zed_transform = zed_pose_.pose_data;
-        latest_data_.tf_visodom_from_camera.transform.tf = Eigen::MatrixXd(4, 4);
-        for (int i = 0; i < 4; i++) {
-            for (int j = 0; j < 4; j++) {
-                latest_data_.tf_visodom_from_camera.transform.tf(i, j) = zed_transform(i, j);
-            }
-        }
-    } else {
-        latest_data_.tf_visodom_from_camera.transform.tf = Eigen::MatrixXd::Identity(4, 4);
-        latest_data_.tracking_ok = true;
-    }
-
-    // Convert ZED RGB image to OpenCV Mat (BGRA to BGR).
-    //
-    // Write into a fresh Mat rather than reusing latest_data_.rgb.image. get() hands consumers a
-    // shallow cv::Mat that shares this buffer, and cv::Mat::create() reuses an existing allocation
-    // whenever size and type match without consulting the reference count. Converting straight
-    // into the member would therefore overwrite pixels that perception is still reading, one frame
-    // behind. Assigning a per-frame buffer instead lets the consumer's reference keep the old
-    // allocation alive until it is done. Costs one allocation per frame and no extra copy: the
-    // conversion has to write the full image either way.
-    cv::Mat zed_rgb_mat(zed_rgb_.getHeight(), zed_rgb_.getWidth(), CV_8UC4,
-                        zed_rgb_.getPtr<sl::uchar1>());
-    cv::Mat rgb_frame;
-    cv::cvtColor(zed_rgb_mat, rgb_frame, cv::COLOR_BGRA2BGR);
-    latest_data_.rgb.image = rgb_frame;
-
-    // Convert ZED depth image to OpenCV Mat (float32) if requested. Same per-frame buffer rule.
-    if (need_depth) {
-        cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1,
-                              zed_depth_.getPtr<sl::uchar1>());
-        cv::Mat depth_frame;
-        zed_depth_mat.copyTo(depth_frame);
-        latest_data_.depth.image = depth_frame;
-    } else {
-        latest_data_.depth.image.release();
-    }
-
-    Header header;
-    header.stamp = stamp;
-    header.frame_id = FrameId::CAMERA;
-
-    latest_data_.rgb.header = header;
-    latest_data_.depth.header = header;
-    latest_data_.camera_info.header = header;
 
     // Publish the frame while holding data_mutex_: bump frame_counter_ (and depth_frame_counter_
     // when this frame carries depth) so waiting get() calls observe a fully populated frame.
