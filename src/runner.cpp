@@ -50,7 +50,7 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
     const bool mcap_recording_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
     SystemStatus status;
     status.camera_ok = camera_ok;
-    status.transmitter_connected = control_loop_->loop().is_transmitter_connected();
+    status.transmitter_connected = control_loop_->is_transmitter_connected();
     status.loop_rate_hz = loop_rate_hz;
     status.initialized = initialized_;
     status.selected_opponent_count = runtime_opponent_count_;
@@ -91,10 +91,10 @@ void Runner::handle_autonomy_toggle_request() {
     int autonomy_req = ui_state_->autonomy_toggle_requested.exchange(0);
     if (autonomy_req == 1 && !autonomy_enabled_) {
         autonomy_enabled_ = true;
-        control_loop_->loop().set_autonomy_enabled(true);
+        control_loop_->set_autonomy_enabled(true);
     } else if (autonomy_req == -1 && autonomy_enabled_) {
         autonomy_enabled_ = false;
-        control_loop_->loop().set_autonomy_enabled(false);
+        control_loop_->set_autonomy_enabled(false);
     }
 }
 
@@ -227,7 +227,7 @@ void Runner::initialize() {
     if (!keypoint_model_->initialize()) {
         spdlog::error("Failed to initialize keypoint model.");
     }
-    control_loop_->loop().set_autonomy_enabled(autonomy_enabled_);
+    control_loop_->set_autonomy_enabled(autonomy_enabled_);
     // Brings up the transmitter, then starts the thread for threaded drivers (a no-op for stepped
     // ones). Everything the control loop touches must be constructed by now, since it may begin
     // cycling immediately.
@@ -262,7 +262,7 @@ void Runner::initialize_field(const CameraData &camera_data) {
     }
     publisher_->publish_initial_field_description(*initial_field_description_);
 
-    control_loop_->loop().request_filter_reinit(runtime_opponent_count_);
+    control_loop_->request_filter_reinit(runtime_opponent_count_);
     initialized_ = true;
     spdlog::info("Field initialized");
 }
@@ -301,7 +301,7 @@ int Runner::run() {
             // rather than trusting a loop that has missed its deadline.
             spdlog::error("Control loop missed its watchdog deadline; disabling autonomy.");
             autonomy_enabled_ = false;
-            control_loop_->loop().set_autonomy_enabled(false);
+            control_loop_->set_autonomy_enabled(false);
         }
         health_logger_->record_tick(ms_since(tick_start));
         health_logger_->maybe_log();
@@ -342,7 +342,7 @@ bool Runner::tick() {
     // drivers own it and make this a no-op, latching the init-button edge for
     // take_init_button_press() to hand back.
     control_loop_->pump_input();
-    should_reinit_field = should_reinit_field || control_loop_->loop().take_init_button_press();
+    should_reinit_field = should_reinit_field || control_loop_->take_init_button_press();
 
     CameraData camera_data;
     bool is_camera_ok;
@@ -374,8 +374,9 @@ bool Runner::tick() {
             spdlog::warn("Skipping field initialization because camera tracking is not ready.");
         }
     } else if (robot_filter_reinit_pending_ && initialized_) {
+        // Handle opponent count change (this reinitializes the filters but not the field)
         robot_filter_reinit_pending_ = false;
-        control_loop_->loop().request_filter_reinit(runtime_opponent_count_);
+        control_loop_->request_filter_reinit(runtime_opponent_count_);
     }
 
     if (!initialized_) return handle_uninitialized_tick(camera_data, loop_rate_hz);
@@ -416,7 +417,7 @@ bool Runner::tick() {
     // Hand perception to the control loop and let the driver decide when cycles run. The stepped
     // driver runs them inline here; the threaded driver consumes measurements on its own thread
     // and ignores advance_to.
-    control_loop_->loop().submit_measurement(ControlMeasurement{
+    control_loop_->submit_measurement(ControlMeasurement{
         .keypoints = keypoints,
         .robot_blob_keypoints = robot_blob_keypoints,
         .field_description = field_description,
@@ -427,7 +428,7 @@ bool Runner::tick() {
         control_loop_->advance_to(camera_data.rgb.header.stamp);
     }
 
-    const ControlOutput control_output = control_loop_->loop().latest_output();
+    const ControlOutput control_output = control_loop_->latest_output();
     const RobotDescriptionsStamped &robots = control_output.robots;
 
     {
@@ -448,7 +449,7 @@ bool Runner::tick() {
         publisher_->publish_robots(robots);
         publisher_->publish_blob_detections(robot_mask_model_->last_detections());
         publisher_->publish_keypoint_detections(keypoint_model_->last_detections());
-        publisher_->publish_navigation(control_loop_->loop().last_visualization());
+        publisher_->publish_navigation(control_loop_->last_visualization());
     }
 
     publish_system_status(true, loop_rate_hz);
@@ -457,7 +458,7 @@ bool Runner::tick() {
         ui_state_->set_field_description(field_description);
         ui_state_->set_robots(robots);
         ui_state_->set_keypoints(keypoints);
-        ui_state_->set_navigation_path(control_loop_->loop().last_visualization().path);
+        ui_state_->set_navigation_path(control_loop_->last_visualization().path);
         set_ui_debug_image_from_camera(camera_data);
     }
 

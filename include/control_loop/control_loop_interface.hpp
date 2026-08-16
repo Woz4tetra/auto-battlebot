@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <utility>
 
 #include "control_loop/control_loop.hpp"
 
@@ -46,8 +47,18 @@ class ControlLoopInterface {
     /** False when the driver has missed its deadline by more than the configured watchdog. */
     virtual bool is_healthy() const { return true; }
 
-    ControlLoop &loop() { return *loop_; }
-    const ControlLoop &loop() const { return *loop_; }
+    // The rest of the loop's surface, forwarded so callers deal with one object rather than
+    // having to know which half of the split each call lives on. Every one of these is safe to
+    // call from another thread while a driver is cycling.
+    void submit_measurement(ControlMeasurement measurement) {
+        loop_->submit_measurement(std::move(measurement));
+    }
+    bool take_init_button_press() { return loop_->take_init_button_press(); }
+    ControlOutput latest_output() const { return loop_->latest_output(); }
+    void request_filter_reinit(int opponent_count) { loop_->request_filter_reinit(opponent_count); }
+    void set_autonomy_enabled(bool enabled) { loop_->set_autonomy_enabled(enabled); }
+    bool is_transmitter_connected() const { return loop_->is_transmitter_connected(); }
+    NavigationVisualization last_visualization() const { return loop_->last_visualization(); }
 
    protected:
     explicit ControlLoopInterface(std::shared_ptr<ControlLoop> loop) : loop_(std::move(loop)) {}
