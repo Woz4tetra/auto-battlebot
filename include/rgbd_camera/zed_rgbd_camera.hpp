@@ -71,16 +71,6 @@ class ZedRgbdCamera : public RgbdCameraInterface {
 
     GrabHealthMonitor grab_health_;
 
-    bool is_playback_input_;
-    /// Absolute path of the SVO being replayed, empty for a live camera.
-    std::string playback_svo_path_;
-    int svo_start_frame_;
-    // Offset added to SVO frame stamps so replay output starts at the current wall clock
-    // instead of the original recording time. Computed once from the first grabbed frame;
-    // inter-frame deltas are preserved, so stamp-driven replay stays deterministic.
-    bool playback_stamp_offset_initialized_ = false;
-    double playback_stamp_offset_s_ = 0.0;
-
     std::unique_ptr<SvoRecorder> svo_recorder_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 

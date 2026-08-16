@@ -8,6 +8,7 @@ tolerance_l = 60.0
 tolerance_ab = 25.0
 
 [rgbd_camera]
+type = "ZedSvoPlaybackCamera"
 # camera FPS setting is ignored for SVOs
 
 # Open Sauce data collection July 18 2026

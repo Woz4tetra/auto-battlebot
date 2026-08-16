@@ -6,6 +6,7 @@
 extends = "playback/_playback"
 
 [rgbd_camera]
+type = "ZedSvoPlaybackCamera"
 # Auto-driving recording: OUR_ROBOT_1 is driven closed-loop and prominent, so the command-based
 # prediction (which only applies to our robot) is actually exercised, with command ~ actual motion.
 svo_file_path = "data/svo/tests/2026-05-01T11-27-37.svo2"

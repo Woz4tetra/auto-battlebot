@@ -4,6 +4,7 @@
 #include <optional>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "time/clock_interface.hpp"
 #include "transmitter/config.hpp"
 #include "transmitter/differential_drive_processor.hpp"
 #include "transmitter/transmitter_interface.hpp"
@@ -11,7 +12,8 @@
 namespace auto_battlebot {
 class PlaybackTransmitter : public TransmitterInterface {
    public:
-    explicit PlaybackTransmitter(PlaybackTransmitterConfiguration &config);
+    PlaybackTransmitter(PlaybackTransmitterConfiguration &config,
+                        std::shared_ptr<ClockInterface> clock);
 
     bool initialize() override;
     CommandFeedback update() override;
@@ -22,7 +24,12 @@ class PlaybackTransmitter : public TransmitterInterface {
    private:
     double init_delay_seconds_;
     bool initialized_;
-    std::chrono::steady_clock::time_point start_time_;
+    std::shared_ptr<ClockInterface> clock_;
+    /** Logical time of the first update(), so the init button fires on a fixed frame rather than
+     *  after a wall-clock delay. Under synchronous playback a wall-clock delay lands on a
+     *  different frame every run, which makes field initialization, and therefore the whole run,
+     *  irreproducible. */
+    std::optional<double> start_time_seconds_;
     bool init_button_pressed_;
     bool init_button_done_pressing_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;

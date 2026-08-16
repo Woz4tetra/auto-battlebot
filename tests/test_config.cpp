@@ -176,7 +176,6 @@ type = "NoopPublisher"
     EXPECT_EQ(zed_config->camera_fps, 30);
     EXPECT_EQ(zed_config->camera_resolution, Resolution::RES_1280x720);
     EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_NEURAL_LIGHT);
-    EXPECT_EQ(zed_config->svo_start_frame, 0);
 }
 
 // Test ZedRgbdCamera configuration with custom values
@@ -187,7 +186,6 @@ type = "ZedRgbdCamera"
 camera_fps = 60
 camera_resolution = "RES_1920x1080"
 depth_mode = "ZED_ULTRA"
-svo_start_frame = 1200
 
 [field_model]
 type = "NoopMaskModel"
@@ -227,7 +225,6 @@ type = "NoopPublisher"
     EXPECT_EQ(zed_config->camera_fps, 60);
     EXPECT_EQ(zed_config->camera_resolution, Resolution::RES_1920x1080);
     EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_ULTRA);
-    EXPECT_EQ(zed_config->svo_start_frame, 1200);
 }
 
 // Test ZedRgbdCamera configuration with partial custom values

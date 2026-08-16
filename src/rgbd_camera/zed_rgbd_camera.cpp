@@ -69,9 +69,7 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
       frame_counter_(0),
       depth_frame_counter_(0),
       last_returned_frame_counter_(0),
-      grab_health_(kGrabErrorWindow, kGrabErrorExitThreshold),
-      is_playback_input_(!config.svo_file_path.empty()),
-      svo_start_frame_(config.svo_start_frame) {
+      grab_health_(kGrabErrorWindow, kGrabErrorExitThreshold) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("zed_rgbd_camera");
     reset_capture_timing_stats();
 
@@ -79,8 +77,7 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
     svo_recorder_ = std::make_unique<SvoRecorder>(
         device_.handle(), get_project_path("data/temp_svo"), config.svo_max_size_gb * kBytesPerGb,
         config.svo_holding_dir_max_size_gb * kBytesPerGb);
-    // Recording is only meaningful for a live camera, not when replaying an SVO file.
-    svo_recorder_->set_desired(config.svo_recording && config.svo_file_path.empty());
+    svo_recorder_->set_desired(config.svo_recording);
 
     sl::InitParameters params;
     params.camera_fps = config.camera_fps;
@@ -88,17 +85,6 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
     params.depth_mode = get_zed_depth_mode(config.depth_mode);
     params.coordinate_system = sl::COORDINATE_SYSTEM::IMAGE;
     params.coordinate_units = sl::UNIT::METER;
-
-    // Set SVO file path if provided (for playback instead of live camera)
-    if (is_playback_input_) {
-        std::filesystem::path svo_file_path = config.svo_file_path.c_str();
-        std::filesystem::path svo_file_abs_path = std::filesystem::absolute(svo_file_path);
-        spdlog::info("Resolved SVO path: {}", svo_file_abs_path.string());
-        playback_svo_path_ = svo_file_abs_path.string();
-
-        params.input.setFromSVOFile(svo_file_abs_path.c_str());
-        params.svo_real_time_mode = config.svo_real_time_mode;
-    }
     device_.set_params(params);
 }
 
@@ -173,19 +159,6 @@ bool ZedRgbdCamera::initialize() {
     }
     if (open_result != ZedDevice::OpenResult::Opened) return false;
 
-    if (svo_start_frame_ > 0 && device_.is_svo_input()) {
-        const int n_frames = device_.svo_frame_count();
-        if (n_frames > 0) {
-            const int frame = std::clamp(svo_start_frame_, 0, n_frames - 1);
-            if (frame != svo_start_frame_) {
-                spdlog::warn("svo_start_frame {} out of range for this SVO ({} frames), using {}",
-                             svo_start_frame_, n_frames, frame);
-            }
-            spdlog::info("SVO starting at frame {} of {}", frame, n_frames);
-            device_.set_svo_position(frame);
-        }
-    }
-
     if (!device_.enable_tracking()) return false;
 
     latest_data_.camera_info = device_.read_camera_info();
@@ -211,7 +184,6 @@ void ZedRgbdCamera::reset_runtime_state() {
     frame_counter_ = 0;
     depth_frame_counter_ = 0;
     last_returned_frame_counter_ = 0;
-    playback_stamp_offset_initialized_ = false;
     grab_health_.reset();
     device_.reset_runtime_state();
     reset_capture_timing_stats();
@@ -280,14 +252,6 @@ bool ZedRgbdCamera::capture_frame() {
         }
 
         data_cv_.notify_all();
-        if (grab_status == ZedDevice::GrabStatus::EndOfFile) {
-            {
-                std::lock_guard<std::mutex> lock(data_mutex_);
-                should_close_ = true;
-            }
-            data_cv_.notify_all();
-            spdlog::info("End of SVO file reached.");
-        }
         return false;
     }
     camera_connected_ = true;
@@ -311,33 +275,6 @@ bool ZedRgbdCamera::capture_frame() {
     // timestamp alone cannot join recorded output back to SVO frames after the fact.
     latest_data_.frame_identity.svo_frame_index = svo_frame.index;
     latest_data_.frame_identity.svo_path = svo_frame.path;
-    if (is_playback_input_) {
-        // Replaying, so the frame identity comes from the file being read rather than one being
-        // written. getSVOPosition() counts frames already read, putting the one just grabbed one
-        // behind it.
-        const int svo_position = device_.svo_position();
-        latest_data_.frame_identity.svo_frame_index = svo_position > 0 ? svo_position - 1 : -1;
-        latest_data_.frame_identity.svo_path = playback_svo_path_;
-
-        // Rebase SVO stamps onto the current wall clock so replay recordings (and the mcap start
-        // time) begin now, not at the original recording time. The offset is fixed at the first
-        // frame, preserving inter-frame deltas.
-        const double raw_stamp =
-            static_cast<double>(latest_data_.frame_identity.image_stamp_ns) / 1e9;
-        if (!playback_stamp_offset_initialized_) {
-            const double now_s =
-                std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch())
-                    .count();
-            playback_stamp_offset_s_ = now_s - raw_stamp;
-            playback_stamp_offset_initialized_ = true;
-        }
-        const double stamp = raw_stamp + playback_stamp_offset_s_;
-        latest_data_.rgb.header.stamp = stamp;
-        latest_data_.depth.header.stamp = stamp;
-        latest_data_.camera_info.header.stamp = stamp;
-        latest_data_.tf_visodom_from_camera.header.stamp = stamp;
-    }
-
     // Publish the frame while holding data_mutex_: bump frame_counter_ (and depth_frame_counter_
     // when this frame carries depth) so waiting get() calls observe a fully populated frame.
     frame_counter_++;
@@ -432,11 +369,6 @@ bool ZedRgbdCamera::wait_for_new_frame(std::unique_lock<std::mutex> &lock, int &
 bool ZedRgbdCamera::should_close() { return should_close_; }
 
 bool ZedRgbdCamera::set_recording_enabled(bool enabled) {
-    if (is_playback_input_) {
-        spdlog::warn("Ignoring SVO recording toggle while using SVO playback input.");
-        return false;
-    }
-
     if (svo_recorder_->desired() == enabled) return true;
 
     // Before the camera is open, just remember the desired state; initialize() acts on it.

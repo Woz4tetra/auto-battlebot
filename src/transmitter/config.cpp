@@ -40,7 +40,7 @@ std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfigur
         return std::make_shared<NoopTransmitter>();
     } else if (config.type == "PlaybackTransmitter") {
         return std::make_shared<PlaybackTransmitter>(
-            config_cast<PlaybackTransmitterConfiguration>(config));
+            config_cast<PlaybackTransmitterConfiguration>(config), std::move(clock));
     } else if (config.type == "OpenTxTransmitter") {
         return std::make_shared<OpenTxTransmitter>(
             config_cast<OpenTxTransmitterConfiguration>(config), std::move(clock));

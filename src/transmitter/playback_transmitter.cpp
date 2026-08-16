@@ -4,10 +4,11 @@
 
 namespace auto_battlebot {
 
-PlaybackTransmitter::PlaybackTransmitter(PlaybackTransmitterConfiguration &config)
+PlaybackTransmitter::PlaybackTransmitter(PlaybackTransmitterConfiguration &config,
+                                         std::shared_ptr<ClockInterface> clock)
     : init_delay_seconds_(config.init_delay_seconds),
       initialized_(false),
-      start_time_(),
+      clock_(std::move(clock)),
       init_button_pressed_(false),
       init_button_done_pressing_(false),
       logger_(DiagnosticsLogger::get_logger("playback_transmitter")),
@@ -22,7 +23,7 @@ PlaybackTransmitter::PlaybackTransmitter(PlaybackTransmitterConfiguration &confi
           logger_) {}
 
 bool PlaybackTransmitter::initialize() {
-    start_time_ = std::chrono::steady_clock::now();
+    start_time_seconds_.reset();
     initialized_ = true;
     return true;
 }
@@ -38,9 +39,11 @@ CommandFeedback PlaybackTransmitter::update() {
     // continuous stream. Gating feedback on init_button_pressed_ left the command-driven prediction
     // path inert (and therefore untested) in playback.
     if (!init_button_pressed_) {
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(now - start_time_);
-        if (elapsed.count() >= init_delay_seconds_) {
+        // Logical time, not wall clock: the delay has to land on the same frame every run or
+        // replay is not reproducible.
+        const double now = clock_ ? clock_->now() : 0.0;
+        if (!start_time_seconds_) start_time_seconds_ = now;
+        if (now - *start_time_seconds_ >= init_delay_seconds_) {
             init_button_pressed_ = true;
         }
     }

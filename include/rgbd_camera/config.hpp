@@ -29,9 +29,6 @@ struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
     int camera_fps = 30;
     Resolution camera_resolution = Resolution::RES_1280x720;
     DepthMode depth_mode = DepthMode::ZED_NEURAL_LIGHT;
-    std::string svo_file_path = "";
-    int svo_start_frame = 0;
-    bool svo_real_time_mode = true;
     bool position_tracking = true;
     bool svo_recording = true;
     uint64_t svo_max_size_gb = 10;
@@ -44,13 +41,40 @@ struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
             PARSE_FIELD(camera_fps)
             PARSE_ENUM(camera_resolution, Resolution)
             PARSE_ENUM(depth_mode, DepthMode)
-            PARSE_FIELD_STRING(svo_file_path)
-            PARSE_FIELD(svo_start_frame)
-            PARSE_FIELD_BOOL(svo_real_time_mode)
             PARSE_FIELD_BOOL(position_tracking)
             PARSE_FIELD_BOOL(svo_recording)
             PARSE_FIELD(svo_max_size_gb)
             PARSE_FIELD(svo_holding_dir_max_size_gb)
+        )
+    // clang-format on
+};
+
+/** SVO replay. Separate from the live camera so recording, reconnection, and the capture thread
+ *  are not reachable here, and so svo_recording cannot be combined with an svo_file_path. */
+struct ZedSvoPlaybackCameraConfiguration : public RgbdCameraConfiguration {
+    int camera_fps = 30;
+    Resolution camera_resolution = Resolution::RES_1280x720;
+    DepthMode depth_mode = DepthMode::ZED_NEURAL_LIGHT;
+    std::string svo_file_path = "";
+    int svo_start_frame = 0;
+    bool svo_real_time_mode = true;
+    bool position_tracking = true;
+    /** Shift frame stamps to the current wall clock. Turn off to compare recordings between
+     *  builds, where the offset otherwise makes every payload differ. */
+    bool rebase_stamps = true;
+
+    ZedSvoPlaybackCameraConfiguration() { type = "ZedSvoPlaybackCamera"; }
+
+    // clang-format off
+        PARSE_CONFIG_FIELDS(
+            PARSE_FIELD(camera_fps)
+            PARSE_ENUM(camera_resolution, Resolution)
+            PARSE_ENUM(depth_mode, DepthMode)
+            PARSE_FIELD_STRING(svo_file_path)
+            PARSE_FIELD(svo_start_frame)
+            PARSE_FIELD_BOOL(svo_real_time_mode)
+            PARSE_FIELD_BOOL(position_tracking)
+            PARSE_FIELD_BOOL(rebase_stamps)
         )
     // clang-format on
 };

@@ -5,17 +5,17 @@
 
 #include "data_structures.hpp"
 #include "rgbd_camera/config.hpp"
-#include "rgbd_camera/zed_rgbd_camera.hpp"
+#include "rgbd_camera/zed_svo_playback_camera.hpp"
 
 namespace auto_battlebot {
-class ZedRgbdCameraTest : public ::testing::Test {
+class ZedSvoPlaybackCameraTest : public ::testing::Test {
    protected:
     std::string svo_file_path;
 
     // Shared camera opened once for the suite to avoid ZED SDK segfault when
     // opening the same SVO twice in one process.
-    static std::unique_ptr<ZedRgbdCamera> shared_camera_;
-    static ZedRgbdCameraConfiguration shared_config_;
+    static std::unique_ptr<ZedSvoPlaybackCamera> shared_camera_;
+    static ZedSvoPlaybackCameraConfiguration shared_config_;
 
     void SetUp() override {
         std::filesystem::path test_dir = std::filesystem::path(__FILE__).parent_path();
@@ -37,7 +37,7 @@ class ZedRgbdCameraTest : public ::testing::Test {
         shared_config_.camera_fps = 30;
         shared_config_.camera_resolution = Resolution::RES_1280x720;
         shared_config_.depth_mode = DepthMode::ZED_NEURAL;
-        shared_camera_ = std::make_unique<ZedRgbdCamera>(shared_config_);
+        shared_camera_ = std::make_unique<ZedSvoPlaybackCamera>(shared_config_);
         if (!shared_camera_->initialize()) {
             shared_camera_.reset();
         }
@@ -46,10 +46,10 @@ class ZedRgbdCameraTest : public ::testing::Test {
     static void TearDownTestSuite() { shared_camera_.reset(); }
 };
 
-std::unique_ptr<ZedRgbdCamera> ZedRgbdCameraTest::shared_camera_;
-ZedRgbdCameraConfiguration ZedRgbdCameraTest::shared_config_;
+std::unique_ptr<ZedSvoPlaybackCamera> ZedSvoPlaybackCameraTest::shared_camera_;
+ZedSvoPlaybackCameraConfiguration ZedSvoPlaybackCameraTest::shared_config_;
 
-TEST_F(ZedRgbdCameraTest, FullDataPipeline) {
+TEST_F(ZedSvoPlaybackCameraTest, FullDataPipeline) {
     ASSERT_NE(shared_camera_, nullptr)
         << "Shared ZED camera not available (SVO missing or init failed)";
 
@@ -82,7 +82,7 @@ TEST_F(ZedRgbdCameraTest, FullDataPipeline) {
     EXPECT_EQ(data.tf_visodom_from_camera.transform.tf.cols(), 4);
 }
 
-TEST_F(ZedRgbdCameraTest, MultipleFrameProcessing) {
+TEST_F(ZedSvoPlaybackCameraTest, MultipleFrameProcessing) {
     ASSERT_NE(shared_camera_, nullptr)
         << "Shared ZED camera not available (SVO missing or init failed)";
 
@@ -105,7 +105,7 @@ TEST_F(ZedRgbdCameraTest, MultipleFrameProcessing) {
     EXPECT_NE(timestamp1, timestamp2);
 }
 
-TEST_F(ZedRgbdCameraTest, DataIndependence) {
+TEST_F(ZedSvoPlaybackCameraTest, DataIndependence) {
     ASSERT_NE(shared_camera_, nullptr)
         << "Shared ZED camera not available (SVO missing or init failed)";
 
@@ -126,15 +126,15 @@ TEST_F(ZedRgbdCameraTest, DataIndependence) {
     }
 }
 
-TEST_F(ZedRgbdCameraTest, SvoEndOfFile) {
+TEST_F(ZedSvoPlaybackCameraTest, SvoEndOfFile) {
     // Verify should_close() returns true when SVO reaches end
-    ZedRgbdCameraConfiguration config;
+    ZedSvoPlaybackCameraConfiguration config;
     config.svo_file_path = svo_file_path;
     config.camera_fps = 30;
     config.camera_resolution = Resolution::RES_1280x720;
     config.depth_mode = DepthMode::ZED_NEURAL;
 
-    ZedRgbdCamera camera(config);
+    ZedSvoPlaybackCamera camera(config);
     ASSERT_TRUE(camera.initialize());
 
     EXPECT_FALSE(camera.should_close());
@@ -152,27 +152,27 @@ TEST_F(ZedRgbdCameraTest, SvoEndOfFile) {
     EXPECT_TRUE(camera.should_close() || frame_count >= max_frames);
 }
 
-TEST_F(ZedRgbdCameraTest, ShouldCloseBeforeInitialize) {
+TEST_F(ZedSvoPlaybackCameraTest, ShouldCloseBeforeInitialize) {
     // Verify should_close() returns false before initialization
-    ZedRgbdCameraConfiguration config;
+    ZedSvoPlaybackCameraConfiguration config;
     config.svo_file_path = svo_file_path;
     config.camera_fps = 30;
     config.camera_resolution = Resolution::RES_1280x720;
     config.depth_mode = DepthMode::ZED_NEURAL;
 
-    ZedRgbdCamera camera(config);
+    ZedSvoPlaybackCamera camera(config);
     EXPECT_FALSE(camera.should_close());
 }
 
-TEST_F(ZedRgbdCameraTest, InvalidSvoFile) {
+TEST_F(ZedSvoPlaybackCameraTest, InvalidSvoFile) {
     // Verify initialization fails with non-existent SVO file
-    ZedRgbdCameraConfiguration config;
+    ZedSvoPlaybackCameraConfiguration config;
     config.svo_file_path = "/nonexistent/path/to/file.svo2";
     config.camera_fps = 30;
     config.camera_resolution = Resolution::RES_1280x720;
     config.depth_mode = DepthMode::ZED_NEURAL;
 
-    ZedRgbdCamera camera(config);
+    ZedSvoPlaybackCamera camera(config);
     EXPECT_FALSE(camera.initialize());
 }
 
