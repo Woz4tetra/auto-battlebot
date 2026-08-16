@@ -225,6 +225,44 @@ working.
 
 Selected by config through the existing factory pattern, same as every other component.
 
+### Rolling back to single-threaded
+
+Phase 2 must keep a configuration that reproduces pre-Phase-2 behavior exactly. Two reasons, and
+the second is the one that matters at an event:
+
+1. It is the regression baseline every Phase 2 measurement is compared against.
+2. It is the fallback if the threaded loop misbehaves in the field. Switching config and rebooting
+   gives up the latency win and returns to known behavior without a rebuild.
+
+**No new config field is needed.** `SteppedControlLoop` with `rate_hz = 0` means one control cycle
+per perception frame, which is exactly the current pipeline: camera, perception, filter, target
+selection, navigation, transmit, once per frame, on one thread.
+
+```toml
+[control_loop]
+type = "SteppedControlLoop"
+rate_hz = 0.0    # one cycle per perception frame = pre-Phase-2 behavior
+```
+
+`rate_hz = 0` rather than `rate_hz = 30`: at 30 Hz, `floor(dt / period)` runs zero cycles on a
+frame that arrives slightly early and one otherwise, so frame jitter would silently skip commands.
+Zero means one cycle per `advance_to` regardless of timing, which is what the current tick does.
+This matches the existing convention where `max_loop_rate <= 0` means free-run
+(`src/runner.cpp:298`).
+
+Three requirements fall out of this, and each is a way the rollback could be subtly wrong:
+
+- The watchdog must be inert under the stepped driver. There is no deadline to miss when the
+  perception loop drives the cycles.
+- The measurement queue must drain synchronously inside `advance_to`, so no correction is deferred
+  by a frame relative to today.
+- `transmit_rate_hz` must not decimate below one send per cycle in this mode, or the robot would
+  get fewer commands than it does today.
+
+Verify it the way Phase 1 was verified: replay an SVO under the legacy config and diff against the
+pre-Phase-2 build. Once the synchronous playback path lands (Determinism item 1) that diff is exact
+rather than statistical, so this becomes a real gate rather than a plausibility check.
+
 ### Transmitter output rate
 
 **The 115200 baud in `SerialPort::open` does not throttle anything.** Confirmed by reading the
@@ -291,12 +329,20 @@ them for its own scheduling bug.
 
 ```toml
 [control_loop]
-type = "ThreadedControlLoop"     # SteppedControlLoop for playback and sim
-rate_hz = 250.0
-watchdog_timeout_ms = 20.0
+type = "ThreadedControlLoop"     # SteppedControlLoop for playback, sim, and rollback
+rate_hz = 250.0                  # 0 = one cycle per perception frame (pre-Phase-2 behavior)
+watchdog_timeout_ms = 20.0       # inert under SteppedControlLoop
 max_prediction_horizon_ms = 400.0
 transmit_rate_hz = 150.0         # per-child cap; 0 = every cycle
 ```
+
+Three configurations matter, and all three are the same two fields:
+
+| Purpose | `type` | `rate_hz` |
+|---|---|---|
+| Live, the point of this plan | `ThreadedControlLoop` | 250 |
+| Playback and sim, deterministic | `SteppedControlLoop` | 250 |
+| Rollback to pre-Phase-2 behavior | `SteppedControlLoop` | 0 |
 
 `rate_hz = 250` comes from the plant, not from taste. The Kalman plan measured an accel time
 constant of 58 ms and an actuation lag of 59 ms; sampling at 10-20x the dominant constant puts the
@@ -431,9 +477,13 @@ This is Win 1. Measure:
 
 1. Command update interval, mean and p99, against the 33.3 ms baseline.
 2. Control loop deadline misses at 100, 250, and 500 Hz. Find where the Jetson stops keeping up.
-3. Trainer serial duty cycle at 150 Hz, confirming or killing the decimation concern.
+3. Trainer command loss at the configured rate, using the `Invalid command` detector from
+   Transmitter output rate. Measured ceiling is 3000 Hz, so this should be clean, but confirm it
+   from the Jetson rather than the dev machine.
 4. SVO replay determinism: byte-identical output across repeated runs under `SteppedControlLoop`.
-5. Nav sim sweep hit rate and time-to-stop, against the Stage 3 baseline. This should improve, and
+5. **Rollback fidelity:** `SteppedControlLoop` with `rate_hz = 0` replayed against the
+   pre-Phase-2 build, byte-identical. This gates the field fallback, so it is not optional.
+6. Nav sim sweep hit rate and time-to-stop, against the Stage 3 baseline. This should improve, and
    if it does not, the control rate is not the binding constraint and Phase 3 needs rethinking.
 
 ### Phase 3: rollback and replay, forward prediction
