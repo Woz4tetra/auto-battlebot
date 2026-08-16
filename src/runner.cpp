@@ -433,8 +433,13 @@ bool Runner::tick() {
     RobotDescriptionsStamped robots;
     {
         FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
-        robots = robot_filter_->update(keypoints, field_description, camera_data.camera_info,
-                                       robot_blob_keypoints, command_feedback);
+        // predict/correct/state run back to back here. They split apart once the control loop
+        // moves to its own thread and calls predict/state at the control rate while correct stays
+        // on the perception rate (docs/control_loop_thread_plan.md).
+        robot_filter_->predict(clock_->now(), command_feedback);
+        robot_filter_->correct(keypoints, field_description, camera_data.camera_info,
+                               robot_blob_keypoints);
+        robots = robot_filter_->state();
     }
 
     {

@@ -310,19 +310,82 @@ Two knock-on effects on that plan:
 
 ## Phases
 
-### Phase 1: split the interface, stay single-threaded
+### Phase 1: split the interface, stay single-threaded (done)
 
-No thread yet. Split `update()` into `predict()`, `correct()`, and `state()`, and have the Runner
-call them in sequence exactly where `update()` was. Migrate the four existing filters.
+No thread yet. `update()` is split into `predict()`, `correct()`, and `state()`, called in sequence
+where `update()` was (`src/runner.cpp:436`). `command_feedback` moved to `predict()` as the control
+input. `NoopRobotFilter` and `GroundTruthRobotFilter` take the default no-op `predict()`;
+`RobotFrontBackSimpleFilter` overrides it to record the control input its `correct()` consumes.
 
-This should be a behavioral no-op. Verify with an SVO replay producing identical output to the
-current build. Cheap to review, and it de-risks the interface before any concurrency lands.
+**Playback is not reproducible today, so "identical output" was not verifiable.** The plan assumed
+it was. Measured on `2026-05-02T11-45-08.svo2` from frame 13000, comparing `/robot_markers` poses
+joined on `svo_frame_index`:
+
+| Comparison | Median | p95 | Max |
+|---|---|---|---|
+| Same binary, 7 run pairs | 2.3 to 39.5 mm | 11.6 to 110.4 mm | up to 1056 mm |
+| Baseline vs Phase 1, 2 run pairs | 32.9 to 47.2 mm | 104.5 to 130.3 mm | up to 2462 mm |
+
+Two runs of the *same* binary differ as much as baseline versus the change, so the harness cannot
+resolve a difference at this scale. Two independent causes:
+
+1. `ZedRgbdCamera` grabs on an async `capture_thread_` and the loop consumes `latest_data_`, so
+   which frames reach the pipeline depends on thread scheduling. Runs processed 1922 to 2028 frames
+   of the same file, sharing only ~75%. The filter is history-dependent, so a different frame
+   subset gives a different trajectory.
+2. Message header stamps are rebased to wall clock, so payload bytes never match across runs. Only
+   `/camera/frame_meta.image_stamp_ns` and `svo_frame_index` are stable.
+
+Parity was instead proven with a differential test. `RobotFrontBackSimpleFilter` from the commit
+before the split was vendored under a second name and driven alongside the new one through a
+deterministic 400-frame scenario covering our-robot dropouts (dead reckoning), opponent dropouts
+(hold last pose), blob-only frames, and varying command feedback. Every output field matched
+bit-exactly, including pose, rotation, size, velocity, staleness, and
+`last_our_blob_present_no_keypoint`.
+
+The test is sensitive to the failure mode it was written for: mutating `predict()` to drop the
+control input makes it fail at frame 35, the first our-robot dropout. The vendored copy is not in
+the tree, since it duplicates 671 lines and stops being meaningful the moment Phase 2 changes
+prediction deliberately. Reproduce with
+`git show <pre-split-commit>:src/robot_filter/robot_front_back_simple_filter.cpp`.
+
+The 257 pre-existing unit tests also pass unchanged. Only their call mechanism was rewritten; every
+numeric assertion is untouched, so they encode the old behavior's expected values.
+
+**This moves determinism from a Phase 2 checkbox to a prerequisite.** `SteppedControlLoop` cannot
+make playback reproducible while the camera still delivers a scheduling-dependent frame subset. The
+camera needs a synchronous playback path that hands every frame to the loop in order before Phase 2
+measurement 4 means anything.
 
 ### Phase 2: add the control loop, no forward prediction
 
 Add `ControlLoopInterface` with both drivers. Run the filter, target selection, navigation, and
 transmit at `rate_hz`. `predict()` advances the state, but corrections still apply at the current
 time without rollback, so the estimate remains 55 ms old.
+
+**The existing prediction model cannot simply be called faster.** `RobotTemporalMotionFilter::
+update_with_prediction` (`src/robot_filter/robot_temporal_motion_filter.cpp:29`) has four
+properties that make a naive 250 Hz call a no-op or worse:
+
+| Line | Property | Effect at control rate |
+|---|---|---|
+| `:54,101` | `dt` is measured against the last *measurement* stamp, refreshed for every track every call | Called at 250 Hz with a 30 Hz stamp, `dt` is 0 on 7 of 8 calls |
+| `:55` | `if (dt <= 0.0 \|\| dt > 1.0) continue;` | Those 7 calls skip prediction entirely, so nothing advances |
+| `:43` | `if (measured_frame_ids.count(frame_id) != 0) continue;` | Measured tracks are never propagated, which is exactly what Phase 3 needs |
+| `:45-49` | No command feedback for a frame id means hold last pose | Opponents are frozen between measurements, never extrapolated |
+
+Three changes are needed before the rate increase buys anything:
+
+1. **Take control time, not the measurement stamp.** `predict(now, ...)` already carries it; the
+   temporal filter needs to use it and keep a separate per-track propagation clock.
+2. **Propagate measured tracks too**, not just unmeasured ones.
+3. **Give opponents a motion model.** Holding the last pose means navigation at 250 Hz chases a
+   30 Hz staircase for the opponent, so Win 1 lands almost entirely on our-robot dead reckoning
+   until this exists. The opponent track is already live under 50% of frames, so this matters more
+   than it looks.
+
+Item 3 is the constant-velocity opponent EKF in the Kalman plan. Items 1 and 2 are prerequisites
+for it and belong to this plan.
 
 This is Win 1. Measure:
 
@@ -353,15 +416,84 @@ Hand off to `kalman_filter_plan.md`. The prediction step it specifies replaces t
 one, and its covariance replaces the fixed `max_prediction_horizon_ms` cutoff with something that
 knows when it stopped being confident.
 
+## Determinism: what it would take
+
+Playback and a live camera need different definitions, and both are reachable.
+
+**Playback: same file, identical output, every run.** Fully achievable.
+
+**Live: not reproducible, but a pure function of the frames consumed.** A camera sees a different
+world each run, so "same output every run" is meaningless. The useful property is that replaying
+the exact frame sequence a live run consumed reproduces that run's output. That is what makes a
+recorded match debuggable offline, and it is achievable.
+
+### What is already deterministic
+
+Measured on `2026-05-02T11-45-08.svo2` from frame 13000, two runs of the same binary.
+
+**TensorRT is bitwise reproducible.** All three engines the desktop config loads, tested at the raw
+TensorRT level with no ultralytics preprocessing or NMS, over 8 fixed inputs with 10 repeats each,
+run twice in separate processes:
+
+| Engine | Within process | Across processes |
+|---|---|---|
+| `yolo26n-pose_our_robots_2026-05-01` | 8/8 identical | identical |
+| `yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31` | 8/8 identical | identical |
+| `field_deeplabv3p_r50_2026-07-29` | 8/8 identical | identical |
+
+**`svo_frame_index` is correct.** Strictly monotonic, no duplicates, and the index gap agrees with
+elapsed `image_stamp_ns` in 2055 of 2056 steps. `capture_frame` also follows both documented ZED
+pitfalls correctly: `grab()` is called exactly once per iteration
+(`src/rgbd_camera/zed_rgbd_camera.cpp:355`) and the position is read only after the success check
+at `:363`.
+
+**Perception is deterministic given the same frame.** Joining the two runs on frame index via
+`camera_info`'s stamp, detections match on **1527 of 1529 shared frames (99.87%)**.
+
+### The one real cause
+
+**Frame selection, not frame processing.** `ZedRgbdCamera` grabs on an async `capture_thread_` and
+the loop consumes whatever `latest_data_` holds. The two runs processed 2057 and 2034 frames of the
+same file and shared only 1529 of them. The filter is history-dependent, so a different frame
+subset produces a different trajectory. That alone accounts for the divergence measured in Phase 1.
+
+### One latent race worth fixing regardless
+
+`ZedRgbdCamera::get` (`zed_rgbd_camera.cpp:561`) does `data = latest_data_;`. `cv::Mat` assignment
+is a shallow copy, so the consumer holds a pointer into the buffer `capture_frame` writes the next
+frame into via `cv::cvtColor`, which reuses the destination allocation when size and type match.
+`data_mutex_` protects the struct copy, not the pixels afterward. The UI path already works around
+this locally (`src/runner.cpp:155` notes UIState clones "to detach from the camera SDK's reusable
+buffer").
+
+The 99.87% figure bounds how often this actually bites at current frame rates, so it is a
+correctness fix rather than the determinism blocker.
+
+### What it would take
+
+1. **Synchronous frame delivery in playback.** No capture thread: `get()` grabs and returns that
+   frame, every frame in order, none dropped. This is the whole fix for playback.
+2. **No shared mutable pixel buffer at the handoff.** Deep copy costs roughly 2.7 MB per frame; a
+   rotating buffer pool avoids the copy if that measures.
+3. **Record which frames the pipeline consumed.** `/camera/frame_meta` already carries a
+   trustworthy identity, so the record already exists.
+4. **A replay mode that consumes exactly a recorded frame list**, rather than whatever is latest.
+   This is what turns a live recording into a reproducible one, and it is the only sense in which a
+   live camera can be deterministic.
+
+Items 1 and 2 are prerequisites for Phase 2. Items 3 and 4 stand on their own merits and are
+independent of the control loop work. Nothing here is blocked on model or SDK behavior.
+
 ## Risks
 
 **Forward prediction can make things worse.** Extrapolating 55 ms with a bad model compounds error
 rather than removing staleness. This is why Phase 3 is separate from Phase 2 and gated on a
 measurement, and why the kill switch caps the horizon at zero.
 
-**Playback determinism.** The single most likely thing to break, and it breaks the project's main
-regression-test mechanism. `SteppedControlLoop` exists specifically to prevent it, and Phase 2
-measurement 4 checks it explicitly. Do not let live and playback share a threaded driver.
+**Playback is not reproducible today, for one reason below the control loop.** See
+[Determinism](#determinism-what-it-would-take) for the measurements and the cause.
+`SteppedControlLoop` stops the control loop from adding a second source, but it cannot fix the
+camera. This is a prerequisite for Phase 2 measurement 4, not a byproduct of it.
 
 **Target selection at 250 Hz may flip.** Running selection eight times more often on a
 predicted-only state could oscillate between opponents during a coast.
@@ -378,11 +510,18 @@ using them sees no benefit, which is correct and should not be papered over.
 
 ## Next steps
 
-1. Land Phase 1. It is a mechanical interface split with an SVO replay proving it changed nothing.
-2. Confirm whether the handset's USB CDC honors the 115200 baud setting. That decides whether
-   trainer decimation is required or optional, and it is a 10 minute measurement.
-3. Build `ControlLoopInterface` with `SteppedControlLoop` first. Playback determinism is the
-   constraint most likely to force a redesign, so prove it before writing the threaded driver.
-4. Run Phase 2 and find the rate ceiling on real Jetson hardware, not on the dev machine.
-5. Only then decide whether Phase 3 is worth it, using measured prediction error rather than the
+1. ~~Land Phase 1.~~ Done. The interface split is in; see the Phase 1 notes for what its
+   verification could and could not establish.
+2. **Fix the shared pixel buffer at `zed_rgbd_camera.cpp:561`.** A latent data race that can hand
+   perception a half-overwritten frame, worth fixing whether or not determinism is pursued.
+3. **Give the camera a synchronous playback path** that grabs and returns each frame in order.
+   This is the whole determinism fix for playback and the blocking item for Phase 2.
+4. Add a replay mode that consumes a recorded frame list, making live runs reproducible offline.
+   Independent of the control loop work. See Determinism for the full list.
+5. Confirm whether the handset's USB CDC honors the 115200 baud setting. That decides whether
+   trainer decimation is required or optional, and it is a 10 minute measurement. Independent of
+   everything else.
+6. Build `ControlLoopInterface` with `SteppedControlLoop` first, on top of step 3.
+7. Run Phase 2 and find the rate ceiling on real Jetson hardware, not on the dev machine.
+8. Only then decide whether Phase 3 is worth it, using measured prediction error rather than the
    ~55 ms figure this document assumes.

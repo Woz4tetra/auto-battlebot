@@ -26,12 +26,22 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     bool initialize(int opponent_count) override;
 
     /**
-     * Runs one filter cycle: converts keypoints and blob detections to field-frame measurements,
-     * merges them, applies temporal prediction, and returns stamped robot descriptions.
+     * Records the control input for the next correct() to propagate with.
+     *
+     * The dead-reckoning propagation still runs inside correct() via
+     * RobotTemporalMotionFilter::update_with_prediction, so this does not advance state on its own
+     * and `now` is unused. Moving the propagation here is Phase 2 of the control loop plan.
      */
-    RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
-                                    CameraInfo camera_info, KeypointsStamped robot_blob_keypoints,
-                                    CommandFeedback command_feedback) override;
+    void predict(double now, CommandFeedback command_feedback) override;
+
+    /**
+     * Runs one filter cycle: converts keypoints and blob detections to field-frame measurements,
+     * merges them, applies temporal prediction, and stores stamped robot descriptions.
+     */
+    void correct(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info,
+                 KeypointsStamped robot_blob_keypoints) override;
+
+    RobotDescriptionsStamped state() const override { return state_; }
 
     /** See RobotFilterInterface::last_our_blob_present_no_keypoint. */
     bool last_our_blob_present_no_keypoint() const override {
@@ -65,7 +75,12 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     FrameIdAssigner frame_id_assigner_;
     RobotTemporalMotionFilter temporal_motion_filter_;
 
-    /** Set when the most recent update() suppressed a blob near our held pose; see the interface
+    /** Control input recorded by predict(), consumed by the next correct(). */
+    CommandFeedback command_feedback_;
+    /** Result of the most recent correct(), returned by state(). */
+    RobotDescriptionsStamped state_;
+
+    /** Set when the most recent correct() suppressed a blob near our held pose; see the interface
      * accessor. */
     bool our_blob_present_no_keypoint_ = false;
     /**

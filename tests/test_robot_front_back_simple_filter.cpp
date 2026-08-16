@@ -8,6 +8,19 @@
 
 namespace auto_battlebot {
 namespace {
+/**
+ * Runs one full filter cycle the way the Runner does: predict, then correct, then read state.
+ * Tests exercise that sequence rather than a shortcut so they cover the real call pattern.
+ */
+RobotDescriptionsStamped run_filter(RobotFrontBackSimpleFilter &filter, KeypointsStamped keypoints,
+                                    const FieldDescription &field, const CameraInfo &camera_info,
+                                    KeypointsStamped robot_blob_keypoints,
+                                    const CommandFeedback &command_feedback) {
+    filter.predict(keypoints.header.stamp, command_feedback);
+    filter.correct(std::move(keypoints), field, camera_info, std::move(robot_blob_keypoints));
+    return filter.state();
+}
+
 CameraInfo make_camera_info() {
     CameraInfo camera_info;
     camera_info.width = 640;
@@ -136,20 +149,20 @@ TEST(RobotFrontBackSimpleFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) 
     const KeypointsStamped empty_blob_keypoints;
     const CommandFeedback command_feedback;
 
-    const auto first = filter.update(make_opponent_keypoints(1.0, 300.0, 340.0), field, camera_info,
-                                     empty_blob_keypoints, command_feedback);
+    const auto first = run_filter(filter, make_opponent_keypoints(1.0, 300.0, 340.0), field,
+                                  camera_info, empty_blob_keypoints, command_feedback);
     ASSERT_EQ(first.descriptions.size(), 1u);
     const double first_x = first.descriptions[0].pose.position.x;
     EXPECT_FALSE(first.descriptions[0].is_stale);
 
-    const auto second = filter.update(make_opponent_keypoints(1.1, 460.0, 500.0), field,
-                                      camera_info, empty_blob_keypoints, command_feedback);
+    const auto second = run_filter(filter, make_opponent_keypoints(1.1, 460.0, 500.0), field,
+                                   camera_info, empty_blob_keypoints, command_feedback);
     ASSERT_EQ(second.descriptions.size(), 1u);
     EXPECT_TRUE(second.descriptions[0].is_stale);
     EXPECT_NEAR(second.descriptions[0].pose.position.x, first_x, 1e-6);
 
-    const auto third = filter.update(make_opponent_keypoints(1.2, 460.0, 500.0), field, camera_info,
-                                     empty_blob_keypoints, command_feedback);
+    const auto third = run_filter(filter, make_opponent_keypoints(1.2, 460.0, 500.0), field,
+                                  camera_info, empty_blob_keypoints, command_feedback);
     ASSERT_EQ(third.descriptions.size(), 1u);
     EXPECT_FALSE(third.descriptions[0].is_stale);
     EXPECT_GT(std::abs(third.descriptions[0].pose.position.x - first_x), 0.5);
@@ -196,8 +209,8 @@ TEST(RobotFrontBackSimpleFilterTest, BlobFallbackToOpponentRelabelsToOpponent) {
     append_keypoint_pair(blob_keypoints, Label::MRS_BUFF_MK1, KeypointLabel::MRS_BUFF_MK1_FRONT,
                          KeypointLabel::MRS_BUFF_MK1_BACK, 1, 430.0, 470.0, 240.0, 0.8);
 
-    const auto result =
-        filter.update(opponent_keypoints, field, camera_info, blob_keypoints, command_feedback);
+    const auto result = run_filter(filter, opponent_keypoints, field, camera_info, blob_keypoints,
+                                   command_feedback);
     ASSERT_EQ(result.descriptions.size(), 2u);
 
     const RobotDescription *kp_meas = nullptr;
@@ -261,7 +274,7 @@ TEST(RobotFrontBackSimpleFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlo
                          KeypointLabel::MRS_BUFF_MK3_BACK, 3, 300.0, 340.0, 240.0, 0.95);
 
     const auto result =
-        filter.update(empty_keypoints, field, camera_info, blob_keypoints, command_feedback);
+        run_filter(filter, empty_keypoints, field, camera_info, blob_keypoints, command_feedback);
 
     // Two slots, three blobs -- one blob is dropped. The MRS_BUFF_MK3 blob must keep its
     // configured slot and label; the higher-confidence OPPONENT blob takes the remaining slot.
@@ -299,17 +312,16 @@ TEST(RobotFrontBackSimpleFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
     const CommandFeedback command_feedback;
 
     // Frame 1: our robot measured by keypoints, no blob. Establishes the held pose; not a leak.
-    const auto first = filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field,
-                                     camera_info, no_blob, command_feedback);
+    const auto first = run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field,
+                                  camera_info, no_blob, command_feedback);
     ASSERT_EQ(first.descriptions.size(), 1u);
     ASSERT_EQ(first.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
     EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
 
     // Frame 2: our keypoint drops out; a blob sits where our robot was. This is a leak-opportunity.
     // The frame stamp must come from the keypoints, which drive the filter's clock.
-    const auto second =
-        filter.update(make_empty_keypoints(1.1), field, camera_info,
-                      make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
+    const auto second = run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
+                                   make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
     EXPECT_TRUE(filter.last_our_blob_present_no_keypoint());
     (void)second;
 }
@@ -325,13 +337,13 @@ TEST(RobotFrontBackSimpleFilterTest, NoLeakFlagWhenBlobFarFromHeldPose) {
     const KeypointsStamped no_blob;
     const CommandFeedback command_feedback;
 
-    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
-                  command_feedback);
+    run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+               command_feedback);
 
     // Keypoint miss, but the blob is well away from the held pose (far in image y).
     const KeypointsStamped no_keypoints;
-    filter.update(no_keypoints, field, camera_info, make_opponent_blob(1.1, 300.0, 340.0, 380.0),
-                  command_feedback);
+    run_filter(filter, no_keypoints, field, camera_info,
+               make_opponent_blob(1.1, 300.0, 340.0, 380.0), command_feedback);
     EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
 }
 
@@ -346,12 +358,12 @@ TEST(RobotFrontBackSimpleFilterTest, NoLeakFlagWhenOurKeypointPresent) {
     const KeypointsStamped no_blob;
     const CommandFeedback command_feedback;
 
-    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
-                  command_feedback);
+    run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+               command_feedback);
 
     // Our keypoint is present again this frame alongside a coincident blob: not a leak-opportunity.
-    filter.update(make_our_keypoints(1.1, 300.0, 340.0, 220.0), field, camera_info,
-                  make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
+    run_filter(filter, make_our_keypoints(1.1, 300.0, 340.0, 220.0), field, camera_info,
+               make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
     EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
 }
 
@@ -371,22 +383,22 @@ TEST(RobotFrontBackSimpleFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
     const CommandFeedback command_feedback;
 
     // Frame 1: our robot measured by keypoints -> OUR_ROBOT_1 tracked.
-    const auto first = filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field,
-                                     camera_info, no_blob, command_feedback);
+    const auto first = run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field,
+                                  camera_info, no_blob, command_feedback);
     ASSERT_EQ(first.descriptions.size(), 1u);
     ASSERT_EQ(first.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
     EXPECT_FALSE(first.descriptions[0].is_stale);
 
     // Frame 2: keypoint miss 0.10 s later (within the 0.15 s window) -> still held, flagged stale.
-    const auto within =
-        filter.update(make_empty_keypoints(1.10), field, camera_info, no_blob, command_feedback);
+    const auto within = run_filter(filter, make_empty_keypoints(1.10), field, camera_info, no_blob,
+                                   command_feedback);
     ASSERT_EQ(within.descriptions.size(), 1u);
     EXPECT_EQ(within.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
     EXPECT_TRUE(within.descriptions[0].is_stale);
 
     // Frame 3: still no keypoint, now 0.20 s past the last confirmation (> window) -> dropped.
-    const auto expired =
-        filter.update(make_empty_keypoints(1.20), field, camera_info, no_blob, command_feedback);
+    const auto expired = run_filter(filter, make_empty_keypoints(1.20), field, camera_info, no_blob,
+                                    command_feedback);
     EXPECT_TRUE(expired.descriptions.empty());
 }
 
@@ -402,12 +414,12 @@ TEST(RobotFrontBackSimpleFilterTest, HoldsStaleOurRobotWhenDecayDisabled) {
     const KeypointsStamped no_blob;
     const CommandFeedback command_feedback;
 
-    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
-                  command_feedback);
+    run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+               command_feedback);
 
     // A full second later with no keypoints: still held (stale), never dropped.
-    const auto held =
-        filter.update(make_empty_keypoints(2.0), field, camera_info, no_blob, command_feedback);
+    const auto held = run_filter(filter, make_empty_keypoints(2.0), field, camera_info, no_blob,
+                                 command_feedback);
     ASSERT_EQ(held.descriptions.size(), 1u);
     EXPECT_EQ(held.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
     EXPECT_TRUE(held.descriptions[0].is_stale);
@@ -436,13 +448,12 @@ TEST(RobotFrontBackSimpleFilterTest, SuppressesBlobOnOurHeldPoseDuringKeypointDr
     const CommandFeedback command_feedback;
 
     // Frame 1: keypoints see our robot, establishing the held pose.
-    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
-                  command_feedback);
+    run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+               command_feedback);
 
     // Frame 2: our keypoints drop out; a blob lands on the same spot.
-    const auto result =
-        filter.update(make_empty_keypoints(1.1), field, camera_info,
-                      make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
+    const auto result = run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
+                                   make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
 
     EXPECT_TRUE(filter.last_our_blob_present_no_keypoint());
     EXPECT_EQ(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
@@ -461,13 +472,12 @@ TEST(RobotFrontBackSimpleFilterTest, EmitsBlobOnOurHeldPoseAfterWindowExpires) {
     const KeypointsStamped no_blob;
     const CommandFeedback command_feedback;
 
-    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
-                  command_feedback);
+    run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+               command_feedback);
 
     // Well past the window, and past our_robot_hold_window_s so the anchor is frozen, not tracked.
-    const auto result =
-        filter.update(make_empty_keypoints(2.0), field, camera_info,
-                      make_opponent_blob(2.0, 300.0, 340.0, 220.0), command_feedback);
+    const auto result = run_filter(filter, make_empty_keypoints(2.0), field, camera_info,
+                                   make_opponent_blob(2.0, 300.0, 340.0, 220.0), command_feedback);
 
     EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
     EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
@@ -485,13 +495,12 @@ TEST(RobotFrontBackSimpleFilterTest, KeepsBlobOutsideRadiusDuringKeypointDropout
     const KeypointsStamped no_blob;
     const CommandFeedback command_feedback;
 
-    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
-                  command_feedback);
+    run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+               command_feedback);
 
     // Same dropout, but the blob is ~0.96 m away in the field frame, well outside the radius.
-    const auto result =
-        filter.update(make_empty_keypoints(1.1), field, camera_info,
-                      make_opponent_blob(1.1, 300.0, 340.0, 380.0), command_feedback);
+    const auto result = run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
+                                   make_opponent_blob(1.1, 300.0, 340.0, 380.0), command_feedback);
 
     EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
     EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
@@ -509,12 +518,11 @@ TEST(RobotFrontBackSimpleFilterTest, ZeroRadiusDisablesDropoutSuppression) {
     const KeypointsStamped no_blob;
     const CommandFeedback command_feedback;
 
-    filter.update(make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
-                  command_feedback);
+    run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
+               command_feedback);
 
-    const auto result =
-        filter.update(make_empty_keypoints(1.1), field, camera_info,
-                      make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
+    const auto result = run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
+                                   make_opponent_blob(1.1, 300.0, 340.0, 220.0), command_feedback);
 
     EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
     EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);

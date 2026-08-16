@@ -26,16 +26,19 @@ bool GroundTruthRobotFilter::initialize(int opponent_count) {
     return true;
 }
 
-RobotDescriptionsStamped GroundTruthRobotFilter::update(
-    [[maybe_unused]] KeypointsStamped keypoints, [[maybe_unused]] FieldDescription field,
-    [[maybe_unused]] CameraInfo camera_info, [[maybe_unused]] KeypointsStamped robot_blob_keypoints,
-    [[maybe_unused]] CommandFeedback cf) {
+void GroundTruthRobotFilter::correct([[maybe_unused]] KeypointsStamped keypoints,
+                                     [[maybe_unused]] FieldDescription field,
+                                     [[maybe_unused]] CameraInfo camera_info,
+                                     [[maybe_unused]] KeypointsStamped robot_blob_keypoints) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = clock_->now();
 
     const auto &gt = connection_->last_ground_truth_poses();
-    if (gt.empty()) return result;
+    if (gt.empty()) {
+        state_ = result;
+        return;
+    }
 
     // GT order: [0] = our robot, [1:] = opponents (matches sim config order)
     size_t gt_idx = 0;
@@ -61,7 +64,7 @@ RobotDescriptionsStamped GroundTruthRobotFilter::update(
         result.descriptions.push_back(desc);
     }
 
-    return result;
+    state_ = result;
 }
 
 }  // namespace auto_battlebot

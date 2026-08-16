@@ -123,11 +123,14 @@ bool RobotFrontBackSimpleFilter::initialize(int opponent_count) {
     return true;
 }
 
-RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped keypoints,
-                                                            FieldDescription field,
-                                                            CameraInfo camera_info,
-                                                            KeypointsStamped robot_blob_keypoints,
-                                                            CommandFeedback command_feedback) {
+void RobotFrontBackSimpleFilter::predict([[maybe_unused]] double now,
+                                         CommandFeedback command_feedback) {
+    command_feedback_ = std::move(command_feedback);
+}
+
+void RobotFrontBackSimpleFilter::correct(KeypointsStamped keypoints, FieldDescription field,
+                                         CameraInfo camera_info,
+                                         KeypointsStamped robot_blob_keypoints) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = keypoints.header.stamp;
@@ -149,7 +152,7 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
 
     const int num_measurements_before_temporal = static_cast<int>(all_measurements.size());
     result.descriptions = temporal_motion_filter_.update_with_prediction(
-        all_measurements, command_feedback, result.header.stamp, frame_id_assigner_, field,
+        all_measurements, command_feedback_, result.header.stamp, frame_id_assigner_, field,
         field_bounds_margin_meters_, our_robot_hold_window_s_);
 
     // Anchor the held OUR_ROBOT_1 pose from this frame's output (measured or predicted) so the next
@@ -164,7 +167,7 @@ RobotDescriptionsStamped RobotFrontBackSimpleFilter::update(KeypointsStamped key
          {"num_measurements_before_temporal", num_measurements_before_temporal},
          {"num_measurements_after_temporal", static_cast<int>(result.descriptions.size())}});
 
-    return result;
+    state_ = std::move(result);
 }
 
 bool RobotFrontBackSimpleFilter::is_blob_suppressed_by_keypoint(
