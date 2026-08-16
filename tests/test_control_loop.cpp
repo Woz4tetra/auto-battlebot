@@ -1,9 +1,7 @@
-// Phase 2 of docs/control_loop_thread_plan.md.
-//
-// The parity claim is that SteppedControlLoop with rate_hz = 0 runs exactly the pre-Phase-2
-// sequence: one filter/target/navigation/transmit pass per perception frame. Replay cannot prove
-// that yet, because playback frame selection is still nondeterministic, so prove it here against
-// an inline reference sequence written independently of the ControlLoop body.
+// SteppedControlLoop with rate_hz = 0 must run exactly one filter/target/navigation/transmit pass
+// per perception frame, matching what a single-threaded pipeline does. SVO replay cannot prove
+// that while playback frame selection stays nondeterministic, so prove it here against an inline
+// reference sequence written independently of the ControlLoop body.
 
 #include <gtest/gtest.h>
 
@@ -189,7 +187,7 @@ void expect_robots_equal(const RobotDescriptionsStamped &a, const RobotDescripti
 TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
     const auto measurements = make_measurements(200);
 
-    // Reference: the pre-Phase-2 order, written out inline.
+    // Reference: the single-threaded order, written out inline.
     std::vector<VelocityCommand> reference_commands;
     std::vector<RobotDescriptionsStamped> reference_robots;
     {
@@ -330,7 +328,7 @@ TEST(ControlLoopTest, MeasurementIsCorrectedExactlyOnce) {
     ASSERT_EQ(after_first.descriptions.size(), after_extra_cycles.descriptions.size());
     for (size_t i = 0; i < after_first.descriptions.size(); ++i) {
         // Every track is stale now, so a cycle without a measurement must leave poses untouched:
-        // the Phase 1 filter only propagates on correct().
+        // this filter only propagates inside correct().
         EXPECT_EQ(after_first.descriptions[i].pose.position.x,
                   after_extra_cycles.descriptions[i].pose.position.x);
     }

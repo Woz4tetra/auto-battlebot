@@ -10,7 +10,7 @@ SteppedControlLoop::SteppedControlLoop(std::shared_ptr<ControlLoop> loop, double
 
 void SteppedControlLoop::advance_to(double until) {
     if (period_ <= 0.0) {
-        // Pre-Phase-2 behavior: one cycle per perception frame, independent of frame timing.
+        // One cycle per perception frame, independent of frame timing.
         loop_->run_cycle();
         return;
     }

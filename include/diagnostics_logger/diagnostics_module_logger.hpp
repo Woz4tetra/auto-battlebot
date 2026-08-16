@@ -111,8 +111,7 @@ class DiagnosticsModuleLogger {
 
    private:
     std::string logger_name_;
-    // Guards data_, messages_, and level_. Since the control loop moved to its own thread
-    // (docs/control_loop_thread_plan.md) a module logger has two writers: the control thread
+    // Guards data_, messages_, and level_. A module logger has two writers: the control thread
     // logging, and the Runner thread clearing during DiagnosticsLogger::publish().
     mutable std::mutex mutex_;
     std::map<std::string, DiagnosticsData> data_;

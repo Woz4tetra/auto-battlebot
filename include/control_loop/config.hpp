@@ -11,8 +11,7 @@ namespace auto_battlebot {
 
 struct ControlLoopConfiguration {
     std::string type;
-    /** Cycles per second. 0 on SteppedControlLoop means one cycle per perception frame, which
-     *  reproduces the pre-Phase-2 pipeline. Ignored shape-wise by drivers that pace themselves. */
+    /** Cycles per second. 0 on SteppedControlLoop means one cycle per perception frame. */
     double rate_hz = 250.0;
     /** Threaded driver only: a cycle older than this marks the loop unhealthy. */
     double watchdog_timeout_ms = 20.0;
@@ -28,7 +27,7 @@ struct ControlLoopConfiguration {
 struct SteppedControlLoopConfiguration : public ControlLoopConfiguration {
     SteppedControlLoopConfiguration() {
         type = "SteppedControlLoop";
-        rate_hz = 0.0;  // default to pre-Phase-2 behavior: one cycle per perception frame
+        rate_hz = 0.0;  // one cycle per perception frame
     }
 };
 

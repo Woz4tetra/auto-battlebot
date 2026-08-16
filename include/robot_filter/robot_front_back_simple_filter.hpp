@@ -30,7 +30,7 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
      *
      * The dead-reckoning propagation still runs inside correct() via
      * RobotTemporalMotionFilter::update_with_prediction, so this does not advance state on its own
-     * and `now` is unused. Moving the propagation here is Phase 2 of the control loop plan.
+     * and `now` is unused.
      */
     void predict(double now, CommandFeedback command_feedback) override;
 

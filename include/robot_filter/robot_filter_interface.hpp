@@ -7,11 +7,9 @@ namespace auto_battlebot {
  * Two-phase robot filter: predict advances state through time, correct folds in a perception
  * measurement, state reads the current estimate.
  *
- * The Runner calls predict(), correct(), then state() in that order on every tick. Once the
- * control loop moves to its own thread (docs/control_loop_thread_plan.md) predict() and state()
- * run at the control rate while correct() runs at the slower perception rate, so implementations
- * must not assume the two are called in lockstep, at the same frequency, or that a correct()
- * always follows a predict().
+ * predict() and state() run at the control rate; correct() runs at the slower perception rate.
+ * Implementations must not assume the two are called in lockstep, at the same frequency, or that
+ * a correct() always follows a predict().
  */
 class RobotFilterInterface {
    public:
@@ -23,15 +21,14 @@ class RobotFilterInterface {
      *
      * Defaults to a no-op, so filters whose state only moves when a measurement arrives need no
      * implementation. Propagation currently still happens inside correct(); the only override
-     * today records the control input for correct() to consume. Moving the propagation here is
-     * Phase 2 of the control loop plan.
+     * today records the control input for correct() to consume.
      */
     virtual void predict([[maybe_unused]] double now,
                          [[maybe_unused]] CommandFeedback command_feedback) {}
 
     /**
      * Fold in one perception measurement. `keypoints.header.stamp` is the capture time, which is
-     * older than the most recent predict() time once the control loop outruns perception.
+     * older than the most recent predict() time, since the control loop outruns perception.
      */
     virtual void correct(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info,
                          KeypointsStamped robot_blob_keypoints) = 0;

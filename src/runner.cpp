@@ -338,9 +338,9 @@ bool Runner::tick() {
         return false;
     }
 
-    // Stepped drivers read the transmitter here, on this thread, so the ordering matches the
-    // pre-Phase-2 tick exactly. Threaded drivers own it and make this a no-op, latching the
-    // init-button edge for take_init_button_press() to hand back.
+    // Stepped drivers read the transmitter here, on this thread, before the camera grab. Threaded
+    // drivers own it and make this a no-op, latching the init-button edge for
+    // take_init_button_press() to hand back.
     control_loop_->pump_input();
     should_reinit_field = should_reinit_field || control_loop_->loop().take_init_button_press();
 
@@ -414,8 +414,8 @@ bool Runner::tick() {
     }
 
     // Hand perception to the control loop and let the driver decide when cycles run. The stepped
-    // driver runs them inline here; the threaded driver has been consuming measurements on its own
-    // thread all along and ignores advance_to.
+    // driver runs them inline here; the threaded driver consumes measurements on its own thread
+    // and ignores advance_to.
     control_loop_->loop().submit_measurement(ControlMeasurement{
         .keypoints = keypoints,
         .robot_blob_keypoints = robot_blob_keypoints,

@@ -12,10 +12,10 @@ namespace auto_battlebot {
  * No thread, so playback and sim stay reproducible: the same recording produces the same cycle
  * sequence regardless of wall-clock speed or machine load.
  *
- * `rate_hz = 0` means exactly one cycle per advance_to() call, which reproduces the pre-Phase-2
- * pipeline: one filter/target/navigation/transmit pass per perception frame. This is deliberately
- * not the same as `rate_hz = 30`, where floor(dt / period) runs zero cycles on a frame that
- * arrives slightly early and would silently skip commands under frame jitter.
+ * `rate_hz = 0` means exactly one cycle per advance_to() call: one
+ * filter/target/navigation/transmit pass per perception frame. This is deliberately not the same
+ * as `rate_hz = 30`, where floor(dt / period) runs zero cycles on a frame that arrives slightly
+ * early and would silently skip commands under frame jitter.
  */
 class SteppedControlLoop : public ControlLoopInterface {
    public:
@@ -23,7 +23,7 @@ class SteppedControlLoop : public ControlLoopInterface {
 
     void stop() override {}
 
-    /** Stepped drivers read input inline so the ordering matches the pre-Phase-2 tick. */
+    /** Read inline, so a single-threaded run reads the transmitter before the camera grab. */
     void pump_input() override { loop_->pump_input(); }
 
     void advance_to(double until) override;

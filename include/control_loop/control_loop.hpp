@@ -64,9 +64,8 @@ class ControlLoop {
      *
      * Kept separate from run_cycle() because the Runner needs the init-button edge before it calls
      * camera_->get(), which is where field reinitialization is triggered. Stepped drivers call
-     * this inline from the Runner's thread so the ordering matches the pre-Phase-2 tick exactly;
-     * the threaded driver calls it itself at the top of each cycle and the Runner's call is a
-     * no-op.
+     * this inline from the Runner's thread, before the camera grab; the threaded driver calls it
+     * itself at the top of each cycle and the Runner's call is a no-op.
      */
     void pump_input();
 

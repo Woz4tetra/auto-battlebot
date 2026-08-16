@@ -13,9 +13,9 @@ namespace auto_battlebot {
 /**
  * Runs control cycles on their own thread, paced against the wall clock at rate_hz.
  *
- * This is the change Phase 2 exists for: the command tracks the filter's evolving estimate instead
- * of freezing between perception frames. The thread owns the transmitter, so the Runner reaches it
- * only through ControlLoop's request setters.
+ * The command tracks the filter's evolving estimate instead of freezing between perception frames.
+ * The thread owns the transmitter, so the Runner reaches it only through ControlLoop's request
+ * setters.
  */
 class ThreadedControlLoop : public ControlLoopInterface {
    public:

@@ -12,8 +12,8 @@ std::unique_ptr<ControlLoopConfiguration> load_control_loop_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections) {
     auto section = toml_data["control_loop"].as_table();
     if (!section) {
-        // Absent section means the pre-Phase-2 pipeline: one cycle per perception frame, no
-        // thread. Every config that predates this plan keeps working unchanged.
+        // Absent section means one cycle per perception frame with no thread, so configs written
+        // before the control loop existed keep their original behavior.
         return std::make_unique<SteppedControlLoopConfiguration>();
     }
     ConfigParser parser(*section, "control_loop");
