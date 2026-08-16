@@ -11,7 +11,7 @@
 #include "serial/serial_port.hpp"
 #include "time/clock_interface.hpp"
 #include "transmitter/config.hpp"
-#include "transmitter/differential_drive_processor.hpp"
+#include "transmitter/drive_processor_interface.hpp"
 #include "transmitter/transmitter_interface.hpp"
 
 namespace auto_battlebot {
@@ -27,7 +27,7 @@ class OpenTxTransmitter : public TransmitterInterface {
     /** Read available serial data, parse CRSF telemetry and channel updates. */
     CommandFeedback update() override;
 
-    /** Convert velocity command (m/s, rad/s) to tank steering trainer channels. */
+    /** Convert velocity command (m/s, rad/s) to trainer channels via the configured processor. */
     void send(VelocityCommand command) override;
 
     /**
@@ -44,7 +44,7 @@ class OpenTxTransmitter : public TransmitterInterface {
     OpenTxTransmitterConfiguration config_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
     std::shared_ptr<ClockInterface> clock_;
-    DifferentialDriveProcessor processor_;
+    std::unique_ptr<DriveProcessorInterface> processor_;
 
     // Linear-command slew limiter. Caps the normalized linear command rate so wheel-surface
     // acceleration stays below the slip/flip threshold (see config_.max_motor_rpm_per_sec).
@@ -64,7 +64,7 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     bool reconnect_if_needed();
     void process_channel_updates(const std::vector<uint8_t>& bytes);
-    void write_trainer_channels(int linear_value, int angular_value);
+    void write_trainer_channels(int channel_a_value, int channel_b_value);
 
     /** Slew-limit the normalized linear command so wheel-surface acceleration stays under the
      *  configured RPM/s cap. Uses the logical clock for dt and passes the command through

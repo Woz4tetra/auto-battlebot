@@ -34,7 +34,7 @@ class PlaybackTransmitter : public TransmitterInterface {
     bool init_button_done_pressing_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
     DifferentialDriveProcessor processor_;
-    std::optional<DifferentialDriveProcessor::Result> last_processed_;
+    std::optional<BodyVelocity> last_processed_;
 };
 
 }  // namespace auto_battlebot

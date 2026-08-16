@@ -45,7 +45,15 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
 struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     int init_button_channel = 5;      // RC channel index used as the init button
     int init_button_threshold = 500;  // channel value above which = button pressed
+    /** Mixer that turns the body-frame command into the two output channels:
+     *  "TankDriveProcessor" sends left and right motor commands directly,
+     *  "DifferentialDriveProcessor" sends linear and angular for the radio-side mixer. */
+    std::string drive_processor = "TankDriveProcessor";
+    /** RC channel carrying the first mixer output: left wheel under tank drive, linear under
+     *  differential drive. */
     int linear_channel = 0;
+    /** RC channel carrying the second mixer output: right wheel under tank drive, angular under
+     *  differential drive. */
     int angular_channel = 1;
     /** RC channel carrying the trainer enable switch (SG). Autonomous motion only reaches the
      *  wheels while this switch is engaged, at which point the channel reads negative. The linear
@@ -79,6 +87,7 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
             static_cast<int>(parser.get_optional_int("init_button_channel", init_button_channel));
         init_button_threshold = static_cast<int>(
             parser.get_optional_int("init_button_threshold", init_button_threshold));
+        drive_processor = parser.get_optional_string("drive_processor", drive_processor);
         linear_channel =
             static_cast<int>(parser.get_optional_int("linear_channel", linear_channel));
         angular_channel =

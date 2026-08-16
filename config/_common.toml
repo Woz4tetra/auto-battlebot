@@ -99,14 +99,17 @@ type = "NearestTarget"
 
 [transmitter]
 type = "OpenTxTransmitter"
+# TankDriveProcessor sends left/right motor commands on the two output channels.
+# DifferentialDriveProcessor sends linear/angular for a radio model that mixes them itself.
+drive_processor = "TankDriveProcessor"
 wheel_track_width = 0.195
-max_motor_rpm = 1500            # RPM
-max_motor_rpm_per_sec = 3000    # RPM/s
+max_motor_rpm = 1500                   # RPM
+max_motor_rpm_per_sec = 3000           # RPM/s
 wheel_diameter = 0.05
 lifted_deadzone_percent = 10
 zero_deadzone_percent = 2
 reverse_angular_channel = true
-velocity_saturation_limit = 1.0 # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
+velocity_saturation_limit = 1.0        # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
 
 [navigation]
 type = "PursuitNavigation"

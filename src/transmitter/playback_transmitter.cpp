@@ -60,7 +60,7 @@ CommandFeedback PlaybackTransmitter::update() {
 }
 
 void PlaybackTransmitter::send(VelocityCommand command) {
-    last_processed_ = processor_.process(command);
+    last_processed_ = processor_.to_body_velocity(processor_.process(command));
 }
 
 bool PlaybackTransmitter::did_init_button_press() {

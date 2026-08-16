@@ -1,6 +1,6 @@
 # Pseudo code
 
-```cpp
+```cpp    
 class Runner
     Runner(
 		RgbdCameraInterface camera,
@@ -9,10 +9,7 @@ class Runner
 		RobotBlobModelInterface robot_blob_model,
 		FieldFilterInterface field_filter,
 		KeypointModelInterface keypoint_model,
-		RobotFilterInterface robot_filter,
-		NavigationInterface navigation,
-        TargetSelectorInterface target_selector,
-		TransmitterInterface transmitter,
+        ControlLoopInterface control_loop,
         PublisherInterface publisher,
 	)
 		// assign properties
@@ -27,9 +24,8 @@ class Runner
         field_filter.reset(camera_data.tf_visodom_from_camera)
         field_mask = field_model.update(camera_data.rgb)
         initial_field_description = field_filter.compute_field(camera_data, field_mask)
+        control_loop.request_filter_reinit()
 
-        robot_filter.initialize(opponent_count)
-        navigation.initialize()
         initialized = true
 
     int run()
@@ -42,13 +38,16 @@ class Runner
             DiagnosticsLogger.publish()
 
     bool tick()
+        control_loop.pump_input()  // Inactive in multi threaded implementations
+        should_reinit_field = did_ui_press_reinit() or control_loop.take_init_button_press()
+
         command_feedback = transmitter.update()
         CameraData camera_data
         if not camera.get(camera_data)
             // push error to diagnostics and log
             continue
 
-        if transmitter.did_init_button_press()
+        if should_reinit_field
             initialize_field(camera_data)
 
         if not initialized:
@@ -57,20 +56,12 @@ class Runner
         field_description = field_filter.track_field(camera_data.tf_visodom_from_camera, initial_field_description)
         keypoints = keypoint_model.update(camera_data.rgb)
         robot_blob_keypoints = robot_blob_model.update(camera_data.rgb)
-        robots = robot_filter.update(
-            keypoints,
-            field_description,
-            camera_data.camera_info,
-            robot_blob_keypoints,
-            command_feedback
-        )
-        target = resolve_target(robots, field_description)
-        command = navigation.update(robots, field_description, target)
-        transmitter.send(command)
-
-    TargetSelection resolve_target(RobotDescriptionsStamped robots, FieldDescription field_description)
-        // Manual UI target overrides automatic selection (does not update cache)
-        // Otherwise, refresh the cached selection if the selector returns one
+        control_loop.submit_measurement(ControlMeasurement(
+            keypoints=keypoints,
+            robot_blob_keypoints=robot_blob_keypoints,
+            field_description=field_description,
+            camera_info=camera_data.camera_info,
+        ))
 
 int main()
     ClassConfiguration class_config = load_classes_from_config()
@@ -102,6 +93,69 @@ int main()
     return runner.run()
 ```
 
+```cpp
+class ControlLoopInterface
+    ControlLoopInterface(ControlLoop loop)
+
+    bool start()
+    void pump_input()
+    void advance_to(double until)
+    bool is_healthy()
+    
+
+    void submit_measurement(ControlMeasurement measurement)
+        loop.submit_measurement(ControlMeasurement measurement)
+
+    bool take_init_button_press()
+        return loop.take_init_button_press()
+
+    ControlOutput latest_output()
+        return loop.latest_output()
+
+    void request_filter_reinit(int opponent_count)
+        loop.request_filter_reinit(opponent_count)
+
+    void set_autonomy_enabled(bool enabled)
+        loop.set_autonomy_enabled(enabled)
+
+    bool is_transmitter_connected()
+        return loop.is_transmitter_connected()
+
+
+```
+
+```cpp
+class ControlLoop
+    ControlLoop(
+		RobotFilterInterface robot_filter,
+		NavigationInterface navigation,
+        TargetSelectorInterface target_selector,
+		TransmitterInterface transmitter,
+    )
+		// assign properties
+
+        robot_filter.initialize(opponent_count)
+        navigation.initialize()
+
+
+        robots = robot_filter.update(
+            keypoints,
+            field_description,
+            camera_data.camera_info,
+            robot_blob_keypoints,
+            command_feedback
+        )
+        target = resolve_target(robots, field_description)
+        command = navigation.update(robots, field_description, target)
+        transmitter.send(command)
+
+
+
+    TargetSelection resolve_target(RobotDescriptionsStamped robots, FieldDescription field_description)
+        // Manual UI target overrides automatic selection (does not update cache)
+        // Otherwise, refresh the cached selection if the selector returns one
+
+```
 # Interfaces
 
 ```cpp

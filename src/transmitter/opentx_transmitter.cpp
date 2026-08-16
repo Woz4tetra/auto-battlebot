@@ -18,14 +18,15 @@ OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& confi
       logger_(DiagnosticsLogger::get_logger("opentx_transmitter")),
       clock_(std::move(clock)),
       processor_(
-          {
-              .velocity_saturation_limit = config.velocity_saturation_limit,
-              .zero_deadzone_percent = config.zero_deadzone_percent,
-              .lifted_deadzone_percent = config.lifted_deadzone_percent,
-              .reverse_linear = config.reverse_linear_channel,
-              .reverse_angular = config.reverse_angular_channel,
-          },
-          logger_) {
+          make_drive_processor(config.drive_processor,
+                               {
+                                   .velocity_saturation_limit = config.velocity_saturation_limit,
+                                   .zero_deadzone_percent = config.zero_deadzone_percent,
+                                   .lifted_deadzone_percent = config.lifted_deadzone_percent,
+                                   .reverse_linear = config.reverse_linear_channel,
+                                   .reverse_angular = config.reverse_angular_channel,
+                               },
+                               logger_)) {
     // The command reaching send() is normalized ([-1, 1] == +/-max_motor_rpm), so an RPM/s limit
     // becomes a normalized rate limit by dividing out max_motor_rpm. wheel_diameter is not needed
     // here; it only enters the RPM/s default derived from the m/s^2 slip threshold.
@@ -85,11 +86,18 @@ CommandFeedback OpenTxTransmitter::update() {
     const double max_linear_mps = config_.max_motor_rpm * M_PI * config_.wheel_diameter / 60.0;
     const double max_angular_radps = 2.0 * max_linear_mps / config_.wheel_track_width;
 
+    // The channels on the wire are in whatever space the processor emits, so convert them back to
+    // body axes before scaling to physical units.
+    const auto body = processor_->to_body_velocity({
+        .channel_a = get_channel_value(config_.linear_channel) * kChannelScale,
+        .channel_b = get_channel_value(config_.angular_channel) * kChannelScale,
+    });
+
     CommandFeedback feedback;
     feedback.commands[FrameId::OUR_ROBOT_1] = {
-        .linear_x = get_channel_value(config_.linear_channel) * kChannelScale * max_linear_mps,
+        .linear_x = body.linear * max_linear_mps,
         .linear_y = 0.0,
-        .angular_z = get_channel_value(config_.angular_channel) * kChannelScale * max_angular_radps,
+        .angular_z = body.angular * max_angular_radps,
     };
     return feedback;
 }
@@ -113,18 +121,19 @@ void OpenTxTransmitter::send(VelocityCommand command) {
 
     command.linear_x = limit_linear_acceleration(command.linear_x);
 
-    // Differential control mode: linear_channel carries forward velocity, angular_channel
-    // carries yaw rate. The OpenTX-side mixer combines them into per-wheel motor outputs.
-    const auto p = processor_.process(command);
-    const int linear_value = to_trainer_value(p.linear);
-    const int angular_value = to_trainer_value(p.angular);
+    // What the two channels carry depends on the configured processor: left and right motor
+    // commands under tank drive, forward velocity and yaw rate under differential drive (where the
+    // OpenTX-side mixer combines them into per-wheel motor outputs).
+    const auto channels = processor_->process(command);
+    const int channel_a_value = to_trainer_value(channels.channel_a);
+    const int channel_b_value = to_trainer_value(channels.channel_b);
 
-    logger_->debug("send", {{"linear_channel", config_.linear_channel},
-                            {"angular_channel", config_.angular_channel},
-                            {"linear_channel_val", linear_value},
-                            {"angular_channel_val", angular_value}});
+    logger_->debug("send", {{"channel_a", config_.linear_channel},
+                            {"channel_b", config_.angular_channel},
+                            {"channel_a_val", channel_a_value},
+                            {"channel_b_val", channel_b_value}});
 
-    write_trainer_channels(linear_value, angular_value);
+    write_trainer_channels(channel_a_value, channel_b_value);
 }
 
 double OpenTxTransmitter::limit_linear_acceleration(double linear_command) {
@@ -163,15 +172,15 @@ double OpenTxTransmitter::limit_linear_acceleration(double linear_command) {
     return limited;
 }
 
-void OpenTxTransmitter::write_trainer_channels(int linear_value, int angular_value) {
-    const bool linear_ok = serial_.write("trainer " + std::to_string(config_.linear_channel) + " " +
-                                         std::to_string(linear_value) + "\r\n");
-    const bool angular_ok = serial_.write("trainer " + std::to_string(config_.angular_channel) +
-                                          " " + std::to_string(angular_value) + "\r\n");
+void OpenTxTransmitter::write_trainer_channels(int channel_a_value, int channel_b_value) {
+    const bool channel_a_ok = serial_.write("trainer " + std::to_string(config_.linear_channel) +
+                                            " " + std::to_string(channel_a_value) + "\r\n");
+    const bool channel_b_ok = serial_.write("trainer " + std::to_string(config_.angular_channel) +
+                                            " " + std::to_string(channel_b_value) + "\r\n");
 
-    if (!linear_ok || !angular_ok) {
-        logger_->warning("write_failed_reconnecting",
-                         {{"linear_write_ok", linear_ok}, {"angular_write_ok", angular_ok}});
+    if (!channel_a_ok || !channel_b_ok) {
+        logger_->warning("write_failed_reconnecting", {{"channel_a_write_ok", channel_a_ok},
+                                                       {"channel_b_write_ok", channel_b_ok}});
         serial_.close();
         next_reconnect_attempt_ = std::chrono::steady_clock::now();
     }
