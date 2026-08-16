@@ -17,7 +17,16 @@ class ControlLoopInterface {
    public:
     virtual ~ControlLoopInterface() = default;
 
-    virtual void start() = 0;
+    /**
+     * Initializes the transmitter, then starts the driver. Not virtual: the ordering is the point,
+     * since a driver that begins cycling before the transmitter is up would send() into it.
+     */
+    bool start() {
+        const bool ok = loop_->initialize();
+        start_driver();
+        return ok;
+    }
+
     virtual void stop() = 0;
 
     /**
@@ -42,6 +51,10 @@ class ControlLoopInterface {
 
    protected:
     explicit ControlLoopInterface(std::shared_ptr<ControlLoop> loop) : loop_(std::move(loop)) {}
+
+    /** Begin cycling. Spawns the thread for threaded drivers, does nothing for stepped ones. */
+    virtual void start_driver() = 0;
+
     std::shared_ptr<ControlLoop> loop_;
 };
 

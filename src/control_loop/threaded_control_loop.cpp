@@ -15,7 +15,7 @@ ThreadedControlLoop::ThreadedControlLoop(std::shared_ptr<ControlLoop> loop, doub
 
 ThreadedControlLoop::~ThreadedControlLoop() { stop(); }
 
-void ThreadedControlLoop::start() {
+void ThreadedControlLoop::start_driver() {
     if (running_.exchange(true)) return;
     thread_ = std::thread(&ThreadedControlLoop::thread_main, this);
 }

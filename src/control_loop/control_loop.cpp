@@ -1,5 +1,7 @@
 #include "control_loop/control_loop.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <utility>
 
 #include "diagnostics_logger/function_timer.hpp"
@@ -20,6 +22,14 @@ ControlLoop::ControlLoop(std::shared_ptr<RobotFilterInterface> robot_filter,
       clock_(std::move(clock)),
       ui_state_(std::move(ui_state)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("runner")) {}
+
+bool ControlLoop::initialize() {
+    if (!transmitter_->initialize()) {
+        spdlog::error("Failed to initialize transmitter");
+        return false;
+    }
+    return true;
+}
 
 void ControlLoop::pump_input() {
     command_feedback_ = transmitter_->update();

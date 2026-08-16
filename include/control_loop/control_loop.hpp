@@ -54,6 +54,12 @@ class ControlLoop {
                 std::shared_ptr<ClockInterface> clock, std::shared_ptr<UIState> ui_state);
 
     /**
+     * Brings up the transmitter. Called by ControlLoopInterface::start() before any driver can
+     * cycle, which is the ordering that keeps a send() from preceding transmitter initialization.
+     */
+    bool initialize();
+
+    /**
      * Read transmitter input and latch an init-button edge.
      *
      * Kept separate from run_cycle() because the Runner needs the init-button edge before it calls

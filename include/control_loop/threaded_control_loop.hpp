@@ -23,13 +23,15 @@ class ThreadedControlLoop : public ControlLoopInterface {
                         double watchdog_timeout_ms);
     ~ThreadedControlLoop() override;
 
-    void start() override;
     void stop() override;
 
     /** The control thread reads input itself; the Runner's call must not touch the transmitter. */
     void pump_input() override {}
 
     bool is_healthy() const override;
+
+   protected:
+    void start_driver() override;
 
    private:
     void thread_main();

@@ -21,13 +21,15 @@ class SteppedControlLoop : public ControlLoopInterface {
    public:
     SteppedControlLoop(std::shared_ptr<ControlLoop> loop, double rate_hz);
 
-    void start() override {}
     void stop() override {}
 
     /** Stepped drivers read input inline so the ordering matches the pre-Phase-2 tick. */
     void pump_input() override { loop_->pump_input(); }
 
     void advance_to(double until) override;
+
+   protected:
+    void start_driver() override {}
 
    private:
     double period_ = 0.0;  // 0 = one cycle per call

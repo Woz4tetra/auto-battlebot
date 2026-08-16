@@ -16,7 +16,6 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<FieldFilterInterface> field_filter,
                std::shared_ptr<KeypointModelInterface> keypoint_model,
                std::shared_ptr<ParallelModelBatch> perception_batch,
-               std::shared_ptr<TransmitterInterface> transmitter,
                std::shared_ptr<ControlLoopInterface> control_loop,
                std::shared_ptr<PublisherInterface> publisher,
                SystemActionCallback system_action_callback,
@@ -29,7 +28,6 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       field_filter_(field_filter),
       keypoint_model_(keypoint_model),
       perception_batch_(std::move(perception_batch)),
-      transmitter_(transmitter),
       control_loop_(std::move(control_loop)),
       publisher_(publisher),
       ui_state_(std::move(ui_state)),
@@ -229,13 +227,13 @@ void Runner::initialize() {
     if (!keypoint_model_->initialize()) {
         spdlog::error("Failed to initialize keypoint model.");
     }
-    if (!transmitter_->initialize()) {
-        spdlog::error("Failed to initialize transmitter");
-    }
     control_loop_->loop().set_autonomy_enabled(autonomy_enabled_);
-    // Starts the thread for threaded drivers; a no-op for stepped ones. Everything the control
-    // loop touches must be constructed by now, since it may begin cycling immediately.
-    control_loop_->start();
+    // Brings up the transmitter, then starts the thread for threaded drivers (a no-op for stepped
+    // ones). Everything the control loop touches must be constructed by now, since it may begin
+    // cycling immediately.
+    if (!control_loop_->start()) {
+        spdlog::error("Failed to initialize control loop");
+    }
     diagnostics_logger_->debug({}, "Initialization complete");
     DiagnosticsLogger::publish();
 }

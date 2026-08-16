@@ -148,8 +148,7 @@ int main(int argc, char** argv) {
 
     Runner runner(
         class_config.runner, camera, health_logger, field_model, robot_mask_model, field_filter,
-        keypoint_model, perception_batch, transmitter, control_loop, publisher,
-        handle_system_action,
+        keypoint_model, perception_batch, control_loop, publisher, handle_system_action,
         [profile_selector](const std::string& name) {
             write_selection_file(profile_selector, name);
         },

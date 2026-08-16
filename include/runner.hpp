@@ -33,7 +33,6 @@
 #include "runner_config.hpp"
 #include "target_selector/target_selector_interface.hpp"
 #include "time/clock_interface.hpp"
-#include "transmitter/transmitter_interface.hpp"
 #include "ui/ui_state.hpp"
 
 namespace auto_battlebot {
@@ -52,7 +51,6 @@ class Runner : public Quittable {
            std::shared_ptr<FieldFilterInterface> field_filter,
            std::shared_ptr<KeypointModelInterface> keypoint_model,
            std::shared_ptr<ParallelModelBatch> perception_batch,
-           std::shared_ptr<TransmitterInterface> transmitter,
            std::shared_ptr<ControlLoopInterface> control_loop,
            std::shared_ptr<PublisherInterface> publisher,
            SystemActionCallback system_action_callback,
@@ -81,9 +79,6 @@ class Runner : public Quittable {
     std::shared_ptr<KeypointModelInterface> keypoint_model_;
     // Runs keypoint_model_ and robot_mask_model_ in parallel each tick.
     std::shared_ptr<ParallelModelBatch> perception_batch_;
-    /** Only for initialize(), which runs before the control loop starts. Once it is running the
-     *  transmitter belongs to the control loop's thread; reach it through control_loop_. */
-    std::shared_ptr<TransmitterInterface> transmitter_;
     /** Owns the filter/target/navigation/transmit half. The Runner reaches the transmitter through
      *  it once running, since a threaded driver owns it on another thread. */
     std::shared_ptr<ControlLoopInterface> control_loop_;
