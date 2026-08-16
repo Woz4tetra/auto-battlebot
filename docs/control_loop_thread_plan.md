@@ -227,18 +227,51 @@ Selected by config through the existing factory pattern, same as every other com
 
 ### Transmitter output rate
 
-Sending trainer channels at 250 Hz will not fit the wire. `write_trainer_channels`
-(`src/transmitter/opentx_transmitter.cpp:166`) writes two ASCII lines totaling ~34 bytes, and
-`SerialPort::open` defaults to 115200 baud. That is 2.95 ms per send, so 250 Hz would need 74% of
-the link and 150 Hz needs 44%.
+**The 115200 baud in `SerialPort::open` does not throttle anything.** Confirmed by reading the
+EdgeTX source rather than measuring. `CDC_SET_LINE_CODING`
+(`radio/src/targets/common/arm/stm32/usbd_cdc.cpp:191-201`) stores the host's requested bitrate in
+`g_lc` and invokes `baudRateCb` if one is registered. `baudRateCb` is initialized to `nullptr`
+(`:140`), and nothing in the tree ever registers one: `setBaudrateCb` exists only as a
+`serial_driver.h` vtable slot, wired to `usbSerialSetBaudRateCb` in the CDC driver and set to
+`nullptr` everywhere else, with no call site anywhere. The stored value is only echoed back on
+`CDC_GET_LINE_CODING`. Bytes land in `cliRxBuffer` and are consumed by `cliTask`
+(`radio/src/cli.cpp:2000`), which blocks on a stream buffer with no rate limiting.
 
-**Decimate per transmitter child.** The trainer path caps at 150 Hz, which matches Crossfire's
-over-air rate so no information is lost. ESP-NOW, when it lands, runs at the full control rate.
-`CompositeTransmitter` from `espnow_link_plan.md` is the natural place for a per-child rate cap.
+So an earlier concern in this plan was wrong: 250 Hz does not need 74% of a 115200 link, because
+there is no 115200 link. Traffic moves at USB full speed, where 34 bytes at 250 Hz is 8.5 KB/s
+against roughly 1 MB/s of practical bulk throughput.
 
-Measure first: if the handset's USB CDC ignores the baud setting and runs at USB speed, which is
-likely for an STM32 virtual COM port, the constraint disappears. If it does not, fall back to
-100 Hz on the trainer path.
+Two real limits remain, neither of which forces decimation:
+
+- `cliTask` consumes **one byte per stream-buffer receive** (`cli.cpp:2015`, with a standing TODO
+  to make it a block read). At 250 Hz that is 8500 receives per second. Cheap on an STM32F4, but it
+  is the actual ceiling rather than baud.
+- CLI echo would double the traffic, but `cliEchoEnabled()` (`cli.cpp:182`) returns false while
+  channel or telemetry streaming is on, and `OpenTxTransmitter::initialize` enables both. So echo
+  is already suppressed in this configuration.
+
+**Still cap per transmitter child, for a different reason.** Sending trainer updates faster than
+Crossfire's 150 Hz over-air rate delivers no information, so the cap is about not wasting CLI
+cycles rather than about fitting the wire. `CompositeTransmitter` from `espnow_link_plan.md` is the
+natural place for it.
+
+To confirm empirically once a handset is attached, time a burst of writes and compare against
+11.5 KB/s (115200 / 10 bits per byte). Anything materially above that proves the baud is
+cosmetic:
+
+```bash
+python - <<'EOF'
+import time, serial
+s = serial.Serial("/dev/ttyACM0", 115200)
+msg = b"trainer 0 0\r\n" * 100
+t0 = time.perf_counter()
+for _ in range(100):
+    s.write(msg)
+s.flush()
+dt = time.perf_counter() - t0
+print(f"{len(msg) * 100 / dt / 1000:.1f} KB/s   (115200 baud would cap at 11.5)")
+EOF
+```
 
 ### Watchdog
 
@@ -524,9 +557,8 @@ using them sees no benefit, which is correct and should not be papered over.
    This is the whole determinism fix for playback and the blocking item for Phase 2.
 4. Add a replay mode that consumes a recorded frame list, making live runs reproducible offline.
    Independent of the control loop work. See Determinism for the full list.
-5. Confirm whether the handset's USB CDC honors the 115200 baud setting. That decides whether
-   trainer decimation is required or optional, and it is a 10 minute measurement. Independent of
-   everything else.
+5. ~~Confirm whether the handset's USB CDC honors the 115200 baud setting.~~ Answered from the
+   EdgeTX source: it does not. Decimation is optional, not required. See Transmitter output rate.
 6. Build `ControlLoopInterface` with `SteppedControlLoop` first, on top of step 3.
 7. Run Phase 2 and find the rate ceiling on real Jetson hardware, not on the dev machine.
 8. Only then decide whether Phase 3 is worth it, using measured prediction error rather than the
