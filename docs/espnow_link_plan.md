@@ -19,7 +19,7 @@ Applied throughout, that resolves to:
 | Choice | Decision | Cost accepted |
 |---|---|---|
 | ESP-NOW PHY rate | 6 Mbps OFDM via `esp_now_set_peer_rate_config()` | No `WIFI_PROTOCOL_LR`, so ~10 dB less link budget |
-| Channel | Quietest measured in the pits, not a fixed 1 | One pre-event scan per venue |
+| Channel | Dongle scans and picks at boot, robot sweeps to find it | Each match runs on an untested channel |
 | Dongle repeat rate | 250 Hz, forwarding on arrival | ~6% channel duty cycle |
 | `FRESH_STREAK_REQUIRED` | 3, not 5 | Slightly more source-switch flapping at range |
 | CRSF serial baud | 921600, not the 400000 default | None, it is free |
@@ -106,10 +106,63 @@ but a better antenna and dongle placement, which costs no latency.
 CSMA backoff sits directly in the ESP-NOW budget, and backoff grows with channel occupancy. A
 congested channel does not just raise loss, it raises median latency through deferral and retry.
 
-**Decision: scan in the pits and pin both ends to the quietest channel** rather than hardcoding
-channel 1. One constant in the firmware and one in the dongle, edited per event. Channel 1 is the
-single most crowded 2.4 GHz channel at any venue with public WiFi, which makes it the worst
-default available.
+**Decision: the dongle picks the channel at boot and the robot sweeps to find it.** No pit scan,
+no per-event constant edit, nothing to do on competition day.
+
+The obvious version of this breaks. If both ends scan independently and each picks the quietest
+channel, they will disagree: different antennas, different locations (dongle at the Jetson, robot
+in the box), different instants, different tie-breaks. A channel mismatch produces silent send
+failures, not an error, so the link would be dead with nothing in the logs explaining why.
+
+Make it asymmetric instead.
+
+**The dongle picks.** One scan at boot, then fixed for the rest of the run. The dongle is the right
+authority because it is not the end that takes hits and brown-out reboots mid-match. Score all 11
+channels by occupancy but only ever select from {1, 6, 11}, so the pick absorbs adjacent-channel
+energy from its neighbors instead of landing in the skirts between the clusters.
+
+**The robot discovers by sweeping.** The dongle already transmits every 4 ms (the 250 Hz repeat
+below), which gives the robot a continuous signal to search for:
+
+```
+for channel in [last_known_good, 1, 6, 11]:
+    esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE)
+    wait 25 ms                     // ~6 dongle repeats plus switch settling
+    if a frame carrying the session magic arrived:
+        lock, persist the channel, done
+```
+
+Three candidates at 25 ms is a 75 ms worst-case sweep. The common case is one dwell on the
+last-known-good channel, so 25 ms. The robot runs on the trainer path for the duration, which is
+the same degradation as any other ESP-NOW dropout.
+
+The sweep also covers re-acquisition. After `REACQUIRE_SILENCE_MS` with no valid frame, the robot
+resumes sweeping. That self-heals a robot reboot mid-match, which a flashed constant does not, and
+it self-heals the dongle restarting on a different channel.
+
+#### What auto selection costs
+
+- **The scan measures beacons, not airtime.** The interferers that actually drive CSMA backoff at
+  an event are other teams' 2.4 GHz control links, video TX, Bluetooth, and the ZED's own USB3
+  noise. None of them emit beacons, so an AP-count scan can rank a channel quiet while it is
+  saturated. Sampling occupancy in promiscuous mode is the better metric and costs 100 ms or more
+  per channel, so budget 1-3s of dongle boot time for a scan worth trusting.
+- **Boot time and boot location are the wrong sample.** The dongle scans where the Jetson powers
+  on, not in the cage, and before the match rather than during it. The pit scan has the same flaw,
+  so this is not a regression, but auto selection does not fix it either.
+- **Reproducibility is gone.** Every match runs on a channel that was never bench tested. Mitigate
+  by reporting the selected channel in `diag_data_t` and the `0x04` link stats frame so it lands in
+  the MCAP, and by pinning `ESPNOW_CHANNEL_OVERRIDE` for bench runs.
+- **Sweep flap.** A weak but alive link can cross the staleness threshold and trigger a sweep that
+  loses the packets which would have recovered it. `REACQUIRE_SILENCE_MS` sits well above
+  `COMMAND_STALE_MS` for exactly this reason.
+- **No rescan mid-run.** A dongle that periodically rescans to stay adaptive drops the link on
+  every rescan while the robot re-acquires. Scan once at boot. The only other scan trigger is the
+  explicit combat to tuning transition.
+
+What makes this an acceptable trade is that ESP-NOW holds no authority. A bad pick costs ~5 ms of
+latency, not control, because the trainer path carries every command. If ESP-NOW were the control
+link, a flashed constant and a pit scan would be the right answer.
 
 ### The 30 Hz command rate dominates everything, and is solved elsewhere
 
@@ -345,7 +398,7 @@ already handles partial reads from `SerialPort::read_available()`.
 | `0x01` command | Jetson to robot | `seq:u32, jetson_tx_us:u32, linear:f32, angular:f32` |
 | `0x02` telemetry | robot to Jetson | `diag_data_t` plus `seq:u32, jetson_tx_us:u32` echo |
 | `0x03` tunable set | Jetson to robot | `id:u8, value:f32` |
-| `0x04` link stats | dongle to Jetson | `sent:u32, acked:u32, failed:u32, last_rtt_us:u32` |
+| `0x04` link stats | dongle to Jetson | `sent:u32, acked:u32, failed:u32, last_rtt_us:u32, channel:u8` |
 
 `0x04` originates on the dongle from `esp_now_register_send_cb`, not from the robot. It is the only
 link-quality signal available, since ESP-NOW has no equivalent to Crossfire's LQ and RSSI.
@@ -509,10 +562,10 @@ the dashboard's TX bursts stop adding contention and jitter to the command path:
 
 ```
 tuning -> combat:  diag_server.end() -> WiFi.softAPdisconnect(true) -> WiFi.mode(WIFI_STA)
-                   -> esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE)
+                   -> sweep_for_dongle()   // sets the channel, see channel selection above
                    -> espnow.begin(...) -> esp_now_set_peer_rate_config(PEER_MAC, 6 Mbps OFDM)
 
-combat -> tuning:  espnow.end() -> WiFi.softAP(ssid, pass, ESPNOW_CHANNEL)
+combat -> tuning:  espnow.end() -> WiFi.softAP(ssid, pass, resolved_channel)
                    -> setup_ota() -> diag_server.begin(tunables)
 ```
 
@@ -523,16 +576,27 @@ Peers need re-registering after any mode or channel change, so treat the transit
 sequence rather than assuming the peer survives. The transition costs 100-300 ms, which is free
 because the mode toggle already stops the motors.
 
-Replace the hardcoded channel at `main.cpp:224` with a single named constant used by both the
-SoftAP and ESP-NOW:
+Replace the hardcoded channel at `main.cpp:224` with a resolved channel used by both the SoftAP and
+ESP-NOW. The firmware does not choose it. It is whatever the sweep locked onto, or the override:
 
 ```c
-// Quietest channel measured in the pits. Channel 1 is the most crowded 2.4 GHz channel at any
-// venue with public WiFi; leaving it there costs median latency through CSMA deferral.
-const uint8_t ESPNOW_CHANNEL = 1;   // re-measure and edit per event
+// 0 selects the sweep. Set a real channel to pin both ends, which is what bench runs should do so
+// results are reproducible against a known channel.
+const uint8_t ESPNOW_CHANNEL_OVERRIDE = 0;
+
+// Sweep candidates in order. Last-known-good is tried ahead of these at runtime.
+const uint8_t CHANNEL_CANDIDATES[] = {1, 6, 11};
+const uint32_t CHANNEL_DWELL_MS = 25;   // ~6 dongle repeats at 250 Hz, plus switch settling
+
+// Well above COMMAND_STALE_MS (60). A marginal link should fall back to the trainer path and stay
+// there, not drop into a sweep that loses the packets which would have recovered it.
+const uint32_t REACQUIRE_SILENCE_MS = 500;
 ```
 
-The dongle must use the same value. A mismatch produces silent send failures, not an error.
+Two consequences for the mode transition above. The tuning-mode SoftAP comes up on the resolved
+channel rather than a fixed one, so a laptop reconnecting to the same SSID may land on a different
+channel between boots. And combat mode has no AP, so the sweep is the only re-acquisition path
+during a match. It has to work without one.
 
 ### Edit: `firmware/mr_stabs_mk2/include/diagnostics_server.h`
 
@@ -546,7 +610,11 @@ needs to evaluate the link:
 +    uint32_t espnow_age_ms;    // time since last accepted ESP-NOW command
 +    uint32_t espnow_seq;       // last accepted sequence number
 +    uint32_t jetson_tx_us;     // echoed for round-trip measurement
++    uint8_t  espnow_channel;   // channel the sweep locked onto, 0 while sweeping
 ```
+
+`espnow_channel` is what makes a bad auto pick diagnosable after the fact. Without it in the MCAP,
+a match with poor LQ has no attributable cause.
 
 Four call sites reference `wifi_clients`: `main.cpp:276`, `:312`, `:344`, `:409`.
 
@@ -1185,13 +1253,22 @@ slew limiter cannot correct an offset (it limits rate, not value). Phase 1 measu
 this. A construction-time equality check across children would catch it earlier and is worth adding
 if the config proves easy to get wrong.
 
-**Fixed channel.** ESP-NOW does not hop. A blocked channel takes the link out completely with no
-hop to escape to. Mitigation is that both paths carry every command: losing ESP-NOW costs latency,
-not control.
+**No frequency hopping.** ESP-NOW stays on one channel for the run. A channel that goes bad
+mid-match takes the link out with nothing to hop to, and the sweep will not help because the dongle
+is still transmitting there. Mitigation is that both paths carry every command: losing ESP-NOW
+costs latency, not control.
+
+**Auto channel selection.** The scan can rank a channel quiet that is loud with traffic it cannot
+see, and the sweep is a new failure surface on a path that used to be a flashed constant. Worst
+case is a robot that never locks and runs the whole match on the trainer path, which is exactly
+today's behavior. Test the sweep with the dongle deliberately parked on each of 1, 6, and 11, and
+with the dongle off entirely, and confirm the robot settles into trainer-only rather than sweeping
+forever and stalling `loop()`. Full reasoning in the channel selection section.
 
 **Mode transition.** Tearing WiFi down and back up is the most likely thing to break, since peers
-need re-registering and the peer rate config must be reapplied after any channel change. Test
-combat to tuning to combat repeatedly, and confirm OTA still works after a round trip.
+need re-registering and the peer rate config must be reapplied after any channel change. The sweep
+changes channels at runtime, so it hits this path too, not only the mode toggle. Test combat to
+tuning to combat repeatedly, and confirm OTA still works after a round trip.
 
 **USB3 noise.** The ZED 2i emits broadband noise near 2.4 GHz. Keep the dongle on a short extension
 away from the camera cable and ferrite the ZED cable. This looks like arena interference and is
@@ -1210,7 +1287,9 @@ Check what the pinned `espressif32` platform actually provides before designing 
 3. Confirm the NHRL rules question. Only gates the command path.
 4. Build the dongle firmware. Confirm `esp_now_add_peer` succeeds with `ifidx = WIFI_IF_AP` (the
    most common silent failure), set the 6 Mbps rate config, and implement forward-on-arrival plus
-   the 250 Hz repeat.
+   the 250 Hz repeat. Pin the channel with `ESPNOW_CHANNEL_OVERRIDE` for this step. Bring up the
+   boot scan and the robot sweep only after a pinned link measures clean, so a sweep bug and a
+   radio bug cannot be confused for each other.
 5. Land `CompositeTransmitter` first, with `OpenTxTransmitter` as its only child. It should be a
    behavioral no-op against the current config, which makes it cheap to verify and de-risks the
    fan-out before any radio work.
