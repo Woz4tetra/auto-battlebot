@@ -448,7 +448,9 @@ pitfalls correctly: `grab()` is called exactly once per iteration
 at `:363`.
 
 **Perception is deterministic given the same frame.** Joining the two runs on frame index via
-`camera_info`'s stamp, detections match on **1527 of 1529 shared frames (99.87%)**.
+`camera_info`'s stamp, detections match on **1522 of 1522 shared frames (100%)** on both
+`/keypoint_detections` and `/blob_detections`, once the buffer race below is fixed. Before that fix
+it was 99.87% and 99.80%.
 
 ### The one real cause
 
@@ -457,32 +459,36 @@ the loop consumes whatever `latest_data_` holds. The two runs processed 2057 and
 same file and shared only 1529 of them. The filter is history-dependent, so a different frame
 subset produces a different trajectory. That alone accounts for the divergence measured in Phase 1.
 
-### One latent race worth fixing regardless
+### The pixel buffer race (fixed)
 
-`ZedRgbdCamera::get` (`zed_rgbd_camera.cpp:561`) does `data = latest_data_;`. `cv::Mat` assignment
-is a shallow copy, so the consumer holds a pointer into the buffer `capture_frame` writes the next
-frame into via `cv::cvtColor`, which reuses the destination allocation when size and type match.
-`data_mutex_` protects the struct copy, not the pixels afterward. The UI path already works around
-this locally (`src/runner.cpp:155` notes UIState clones "to detach from the camera SDK's reusable
-buffer").
+`ZedRgbdCamera::get` does `data = latest_data_;`, and `cv::Mat` assignment is a shallow copy, so the
+consumer held a pointer into the buffer `capture_frame` wrote the next frame into via
+`cv::cvtColor`. `cv::Mat::create()` reuses an existing allocation whenever size and type match
+without consulting the reference count, so perception could read pixels being overwritten one frame
+behind. `data_mutex_` protected the struct copy, not the pixels afterward.
 
-The 99.87% figure bounds how often this actually bites at current frame rates, so it is a
-correctness fix rather than the determinism blocker.
+Fixed by converting into a per-frame `cv::Mat` and assigning it, so the consumer's reference keeps
+its allocation alive. Costs one allocation per frame and no extra copy, since the conversion writes
+the full image either way. Measured effect: perception determinism went from 99.87% and 99.80% to
+100% on both channels, with no change in tick time (mean `tick_ms_max` 33.5/32.3 before,
+32.9/33.3 after).
+
+The UI path had already worked around this locally (`src/runner.cpp:155` notes UIState clones "to
+detach from the camera SDK's reusable buffer"), which was the same bug surfacing once before.
 
 ### What it would take
 
 1. **Synchronous frame delivery in playback.** No capture thread: `get()` grabs and returns that
    frame, every frame in order, none dropped. This is the whole fix for playback.
-2. **No shared mutable pixel buffer at the handoff.** Deep copy costs roughly 2.7 MB per frame; a
-   rotating buffer pool avoids the copy if that measures.
+2. ~~**No shared mutable pixel buffer at the handoff.**~~ Done: per-frame conversion buffer.
 3. **Record which frames the pipeline consumed.** `/camera/frame_meta` already carries a
    trustworthy identity, so the record already exists.
 4. **A replay mode that consumes exactly a recorded frame list**, rather than whatever is latest.
    This is what turns a live recording into a reproducible one, and it is the only sense in which a
    live camera can be deterministic.
 
-Items 1 and 2 are prerequisites for Phase 2. Items 3 and 4 stand on their own merits and are
-independent of the control loop work. Nothing here is blocked on model or SDK behavior.
+Item 1 is the one remaining prerequisite for Phase 2. Items 3 and 4 stand on their own merits and
+are independent of the control loop work. Nothing here is blocked on model or SDK behavior.
 
 ## Risks
 
@@ -512,8 +518,8 @@ using them sees no benefit, which is correct and should not be papered over.
 
 1. ~~Land Phase 1.~~ Done. The interface split is in; see the Phase 1 notes for what its
    verification could and could not establish.
-2. **Fix the shared pixel buffer at `zed_rgbd_camera.cpp:561`.** A latent data race that can hand
-   perception a half-overwritten frame, worth fixing whether or not determinism is pursued.
+2. ~~Fix the shared pixel buffer.~~ Done. Perception is now bitwise reproducible per frame, so
+   frame selection is the only remaining source of nondeterminism.
 3. **Give the camera a synchronous playback path** that grabs and returns each frame in order.
    This is the whole determinism fix for playback and the blocking item for Phase 2.
 4. Add a replay mode that consumes a recorded frame list, making live runs reproducible offline.

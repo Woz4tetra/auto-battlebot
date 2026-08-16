@@ -480,16 +480,28 @@ bool ZedRgbdCamera::capture_frame() {
         latest_data_.tracking_ok = true;
     }
 
-    // Convert ZED RGB image to OpenCV Mat (BGRA to BGR)
+    // Convert ZED RGB image to OpenCV Mat (BGRA to BGR).
+    //
+    // Write into a fresh Mat rather than reusing latest_data_.rgb.image. get() hands consumers a
+    // shallow cv::Mat that shares this buffer, and cv::Mat::create() reuses an existing allocation
+    // whenever size and type match without consulting the reference count. Converting straight
+    // into the member would therefore overwrite pixels that perception is still reading, one frame
+    // behind. Assigning a per-frame buffer instead lets the consumer's reference keep the old
+    // allocation alive until it is done. Costs one allocation per frame and no extra copy: the
+    // conversion has to write the full image either way.
     cv::Mat zed_rgb_mat(zed_rgb_.getHeight(), zed_rgb_.getWidth(), CV_8UC4,
                         zed_rgb_.getPtr<sl::uchar1>());
-    cv::cvtColor(zed_rgb_mat, latest_data_.rgb.image, cv::COLOR_BGRA2BGR);
+    cv::Mat rgb_frame;
+    cv::cvtColor(zed_rgb_mat, rgb_frame, cv::COLOR_BGRA2BGR);
+    latest_data_.rgb.image = rgb_frame;
 
-    // Convert ZED depth image to OpenCV Mat (float32) if requested
+    // Convert ZED depth image to OpenCV Mat (float32) if requested. Same per-frame buffer rule.
     if (need_depth) {
         cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1,
                               zed_depth_.getPtr<sl::uchar1>());
-        zed_depth_mat.copyTo(latest_data_.depth.image);
+        cv::Mat depth_frame;
+        zed_depth_mat.copyTo(depth_frame);
+        latest_data_.depth.image = depth_frame;
     } else {
         latest_data_.depth.image.release();
     }
