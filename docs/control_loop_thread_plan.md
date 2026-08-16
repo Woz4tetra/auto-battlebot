@@ -241,37 +241,44 @@ So an earlier concern in this plan was wrong: 250 Hz does not need 74% of a 1152
 there is no 115200 link. Traffic moves at USB full speed, where 34 bytes at 250 Hz is 8.5 KB/s
 against roughly 1 MB/s of practical bulk throughput.
 
-Two real limits remain, neither of which forces decimation:
+### Measured on the X9D+ 2019
 
-- `cliTask` consumes **one byte per stream-buffer receive** (`cli.cpp:2015`, with a standing TODO
-  to make it a block read). At 250 Hz that is 8500 receives per second. Cheap on an STM32F4, but it
-  is the actual ceiling rather than baud.
-- CLI echo would double the traffic, but `cliEchoEnabled()` (`cli.cpp:182`) returns false while
-  channel or telemetry streaming is on, and `OpenTxTransmitter::initialize` enables both. So echo
-  is already suppressed in this configuration.
+Throughput, writing `trainer 0 0` continuously at three nominal baud settings:
 
-**Still cap per transmitter child, for a different reason.** Sending trainer updates faster than
-Crossfire's 150 Hz over-air rate delivers no information, so the cap is about not wasting CLI
-cycles rather than about fitting the wire. `CompositeTransmitter` from `espnow_link_plan.md` is the
-natural place for it.
+| Nominal baud | Throughput | Would cap at |
+|---|---|---|
+| 9600 | 584.6 KB/s | 0.96 KB/s |
+| 115200 | 585.6 KB/s | 11.5 KB/s |
+| 921600 | 584.5 KB/s | 92.2 KB/s |
 
-To confirm empirically once a handset is attached, time a burst of writes and compare against
-11.5 KB/s (115200 / 10 bits per byte). Anything materially above that proves the baud is
-cosmetic:
+Flat to within 1.00x across a 96x range of settings, and 51x the 115200 cap. The setting is
+ignored, as the source says.
 
-```bash
-python - <<'EOF'
-import time, serial
-s = serial.Serial("/dev/ttyACM0", 115200)
-msg = b"trainer 0 0\r\n" * 100
-t0 = time.perf_counter()
-for _ in range(100):
-    s.write(msg)
-s.flush()
-dt = time.perf_counter() - t0
-print(f"{len(msg) * 100 / dt / 1000:.1f} KB/s   (115200 baud would cap at 11.5)")
-EOF
-```
+**But throughput is not the useful number.** `cliDefaultRx` (`radio/src/cli.cpp:107`) pushes into a
+256-byte stream buffer with `xStreamBufferSendFromISR` and never checks the return, so anything
+that does not fit is **dropped silently**. `CLI_RX_BUFFER_SIZE` is 256 (`cli.cpp:62`) and
+`cliTask` drains it one byte at a time (`cli.cpp:2015`, with a standing TODO to make it a block
+read). The 585 KB/s figure measures the USB path, not commands the CLI actually executed.
+
+A dropped byte garbles a line, and the CLI answers a garbled line with `Invalid command` or
+`Invalid argument` (`cli.cpp:~1958`), so loss is directly detectable. Sending the real two-line,
+26-byte update at increasing rates for 2 s each:
+
+| Rate | CLI errors |
+|---|---|
+| 50 to 3000 Hz | 0 |
+| 5000 Hz | 4 |
+
+**Clean to 3000 Hz, lossy at 5000 Hz.** A 250 Hz control loop has 12x margin. This is a
+conservative floor: the test ran with CLI echo on, since it connected without enabling streaming,
+whereas `OpenTxTransmitter::initialize` turns channel and telemetry streaming on, which makes
+`cliEchoEnabled()` (`cli.cpp:182`) false and removes the device's echo work entirely.
+
+**Cap per transmitter child anyway, for two reasons.** Sending faster than Crossfire's 150 Hz
+over-air rate carries no information. And the failure mode above the ceiling is silent byte-drop
+producing corrupted commands, not backpressure, so there is no safety margin in finding out
+empirically during a match. `CompositeTransmitter` from `espnow_link_plan.md` is the natural place
+for the cap.
 
 ### Watchdog
 
@@ -557,8 +564,9 @@ using them sees no benefit, which is correct and should not be papered over.
    This is the whole determinism fix for playback and the blocking item for Phase 2.
 4. Add a replay mode that consumes a recorded frame list, making live runs reproducible offline.
    Independent of the control loop work. See Determinism for the full list.
-5. ~~Confirm whether the handset's USB CDC honors the 115200 baud setting.~~ Answered from the
-   EdgeTX source: it does not. Decimation is optional, not required. See Transmitter output rate.
+5. ~~Confirm whether the handset's USB CDC honors the 115200 baud setting.~~ Measured on the
+   X9D+ 2019: it does not, and the CLI sustains 3000 Hz cleanly against a 250 Hz need. Decimation
+   is optional, not required. See Transmitter output rate.
 6. Build `ControlLoopInterface` with `SteppedControlLoop` first, on top of step 3.
 7. Run Phase 2 and find the rate ceiling on real Jetson hardware, not on the dev machine.
 8. Only then decide whether Phase 3 is worth it, using measured prediction error rather than the
