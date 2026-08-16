@@ -22,6 +22,7 @@ void DiagnosticsModuleLogger::log(int8_t level, const std::string &message) {
 }
 void DiagnosticsModuleLogger::log(int8_t level, const std::string &subsection_name,
                                   const DiagnosticsData &data, const std::string &message) {
+    std::lock_guard<std::mutex> lock(mutex_);
     // Update level to the highest severity
     level_ = std::max(level, level_);
 
@@ -105,14 +106,19 @@ void DiagnosticsModuleLogger::error(const std::string &subsection_name, const Di
 }
 
 void DiagnosticsModuleLogger::clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
     level_ = diagnostic_msgs::DiagnosticStatus::OK;
     messages_.clear();
     data_.clear();
 }
 
-bool DiagnosticsModuleLogger::has_status() const { return !messages_.empty() || !data_.empty(); }
+bool DiagnosticsModuleLogger::has_status() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return !messages_.empty() || !data_.empty();
+}
 
 std::vector<diagnostic_msgs::DiagnosticStatus> DiagnosticsModuleLogger::get_status() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<diagnostic_msgs::DiagnosticStatus> diagnostics;
     for (const auto &[subsection_name, data_map] : data_) {
         // Join messages for this subsection with " | " separator
@@ -135,6 +141,7 @@ std::vector<diagnostic_msgs::DiagnosticStatus> DiagnosticsModuleLogger::get_stat
 }
 
 std::vector<DiagnosticStatusSnapshot> DiagnosticsModuleLogger::get_snapshots() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<DiagnosticStatusSnapshot> snapshots;
     for (const auto &[subsection_name, data_map] : data_) {
         std::string combined_message;

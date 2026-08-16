@@ -1,6 +1,8 @@
 #pragma once
 
 #include <diagnostic_msgs/DiagnosticStatus.hxx>
+#include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -109,6 +111,10 @@ class DiagnosticsModuleLogger {
 
    private:
     std::string logger_name_;
+    // Guards data_, messages_, and level_. Since the control loop moved to its own thread
+    // (docs/control_loop_thread_plan.md) a module logger has two writers: the control thread
+    // logging, and the Runner thread clearing during DiagnosticsLogger::publish().
+    mutable std::mutex mutex_;
     std::map<std::string, DiagnosticsData> data_;
     int8_t level_;
     std::map<std::string, std::vector<std::string>> messages_;  // Messages per subsection

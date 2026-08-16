@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "config/config_parser.hpp"
+#include "control_loop/config.hpp"
 #include "data_structures.hpp"
 #include "directories.hpp"
 #include "field_filter/config.hpp"
@@ -48,6 +49,7 @@ struct ClassConfiguration {
     std::unique_ptr<TargetSelectorConfiguration> target_selector;
     std::unique_ptr<NavigationConfiguration> navigation;
     std::unique_ptr<TransmitterConfiguration> transmitter;
+    std::unique_ptr<ControlLoopConfiguration> control_loop;
     std::unique_ptr<PublisherConfiguration> publisher;
     RunnerConfiguration runner;
     HealthConfiguration health;

@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 
+#include "control_loop/control_loop_interface.hpp"
 #include "data_structures.hpp"
 #include "data_structures/command_feedback.hpp"
 #include "data_structures/target_selection.hpp"
@@ -51,10 +52,8 @@ class Runner : public Quittable {
            std::shared_ptr<FieldFilterInterface> field_filter,
            std::shared_ptr<KeypointModelInterface> keypoint_model,
            std::shared_ptr<ParallelModelBatch> perception_batch,
-           std::shared_ptr<RobotFilterInterface> robot_filter,
-           std::shared_ptr<TargetSelectorInterface> target_selector,
-           std::shared_ptr<NavigationInterface> navigation,
            std::shared_ptr<TransmitterInterface> transmitter,
+           std::shared_ptr<ControlLoopInterface> control_loop,
            std::shared_ptr<PublisherInterface> publisher,
            SystemActionCallback system_action_callback,
            ProfileSelectCallback profile_select_callback = nullptr,
@@ -82,10 +81,12 @@ class Runner : public Quittable {
     std::shared_ptr<KeypointModelInterface> keypoint_model_;
     // Runs keypoint_model_ and robot_mask_model_ in parallel each tick.
     std::shared_ptr<ParallelModelBatch> perception_batch_;
-    std::shared_ptr<RobotFilterInterface> robot_filter_;
-    std::shared_ptr<TargetSelectorInterface> target_selector_;
-    std::shared_ptr<NavigationInterface> navigation_;
+    /** Only for initialize(), which runs before the control loop starts. Once it is running the
+     *  transmitter belongs to the control loop's thread; reach it through control_loop_. */
     std::shared_ptr<TransmitterInterface> transmitter_;
+    /** Owns the filter/target/navigation/transmit half. The Runner reaches the transmitter through
+     *  it once running, since a threaded driver owns it on another thread. */
+    std::shared_ptr<ControlLoopInterface> control_loop_;
     std::shared_ptr<PublisherInterface> publisher_;
     std::shared_ptr<UIState> ui_state_;
     std::shared_ptr<McapRecorder> mcap_recorder_;
@@ -95,8 +96,6 @@ class Runner : public Quittable {
 
     int runtime_opponent_count_;
     bool robot_filter_reinit_pending_;
-    TargetSelection previous_selected_target_;
-    RobotDescriptionsCache robot_descriptions_cache_;
 
     bool initialized_;
     bool autonomy_enabled_;
@@ -116,8 +115,6 @@ class Runner : public Quittable {
     bool recover_camera_after_failure();
     void set_ui_debug_image_from_camera(const CameraData &camera_data) const;
     bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);
-    TargetSelection resolve_target(const RobotDescriptionsStamped &robots,
-                                   const FieldDescription &field_description);
     double elapsed_ms();
 };
 }  // namespace auto_battlebot

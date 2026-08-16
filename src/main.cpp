@@ -12,6 +12,7 @@
 
 #include "config/config.hpp"
 #include "config/profile_selection.hpp"
+#include "control_loop/config.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/ros_diagnostics_backend.hpp"
 #include "directories.hpp"
@@ -138,10 +139,17 @@ int main(int argc, char** argv) {
     auto transmitter = make_transmitter(*class_config.transmitter, clock);
     auto health_logger = std::make_shared<HealthLogger>(class_config.health);
 
+    // The control loop owns the filter/target/navigation/transmit half. A threaded driver runs it
+    // on its own thread, so nothing else may touch those components after Runner::initialize().
+    auto control_loop_body =
+        std::make_shared<ControlLoop>(robot_filter, target_selector, navigation, transmitter, clock,
+                                      ui_manager ? ui_manager->ui_state() : nullptr);
+    auto control_loop = make_control_loop(*class_config.control_loop, control_loop_body);
+
     Runner runner(
         class_config.runner, camera, health_logger, field_model, robot_mask_model, field_filter,
-        keypoint_model, perception_batch, robot_filter, target_selector, navigation, transmitter,
-        publisher, handle_system_action,
+        keypoint_model, perception_batch, transmitter, control_loop, publisher,
+        handle_system_action,
         [profile_selector](const std::string& name) {
             write_selection_file(profile_selector, name);
         },

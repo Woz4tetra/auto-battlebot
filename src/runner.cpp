@@ -16,10 +16,8 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<FieldFilterInterface> field_filter,
                std::shared_ptr<KeypointModelInterface> keypoint_model,
                std::shared_ptr<ParallelModelBatch> perception_batch,
-               std::shared_ptr<RobotFilterInterface> robot_filter,
-               std::shared_ptr<TargetSelectorInterface> target_selector,
-               std::shared_ptr<NavigationInterface> navigation,
                std::shared_ptr<TransmitterInterface> transmitter,
+               std::shared_ptr<ControlLoopInterface> control_loop,
                std::shared_ptr<PublisherInterface> publisher,
                SystemActionCallback system_action_callback,
                ProfileSelectCallback profile_select_callback, std::shared_ptr<UIState> ui_state,
@@ -31,10 +29,8 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       field_filter_(field_filter),
       keypoint_model_(keypoint_model),
       perception_batch_(std::move(perception_batch)),
-      robot_filter_(robot_filter),
-      target_selector_(target_selector),
-      navigation_(navigation),
       transmitter_(transmitter),
+      control_loop_(std::move(control_loop)),
       publisher_(publisher),
       ui_state_(std::move(ui_state)),
       mcap_recorder_(std::move(mcap_recorder)),
@@ -43,7 +39,6 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       profile_select_callback_(std::move(profile_select_callback)),
       runtime_opponent_count_(runner_config_.default_opponent_count),
       robot_filter_reinit_pending_(false),
-      previous_selected_target_(TargetSelection{}),
       initialized_(false),
       autonomy_enabled_(runner_config_.autonomy_enabled_by_default),
       initial_field_description_(),
@@ -57,7 +52,7 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
     const bool mcap_recording_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
     SystemStatus status;
     status.camera_ok = camera_ok;
-    status.transmitter_connected = transmitter_->is_connected();
+    status.transmitter_connected = control_loop_->loop().is_transmitter_connected();
     status.loop_rate_hz = loop_rate_hz;
     status.initialized = initialized_;
     status.selected_opponent_count = runtime_opponent_count_;
@@ -97,11 +92,11 @@ void Runner::handle_opponent_count_request() {
 void Runner::handle_autonomy_toggle_request() {
     int autonomy_req = ui_state_->autonomy_toggle_requested.exchange(0);
     if (autonomy_req == 1 && !autonomy_enabled_) {
-        transmitter_->enable();
         autonomy_enabled_ = true;
+        control_loop_->loop().set_autonomy_enabled(true);
     } else if (autonomy_req == -1 && autonomy_enabled_) {
-        transmitter_->disable();
         autonomy_enabled_ = false;
+        control_loop_->loop().set_autonomy_enabled(false);
     }
 }
 
@@ -237,11 +232,10 @@ void Runner::initialize() {
     if (!transmitter_->initialize()) {
         spdlog::error("Failed to initialize transmitter");
     }
-    if (autonomy_enabled_) {
-        transmitter_->enable();
-    } else {
-        transmitter_->disable();
-    }
+    control_loop_->loop().set_autonomy_enabled(autonomy_enabled_);
+    // Starts the thread for threaded drivers; a no-op for stepped ones. Everything the control
+    // loop touches must be constructed by now, since it may begin cycling immediately.
+    control_loop_->start();
     diagnostics_logger_->debug({}, "Initialization complete");
     DiagnosticsLogger::publish();
 }
@@ -270,27 +264,9 @@ void Runner::initialize_field(const CameraData &camera_data) {
     }
     publisher_->publish_initial_field_description(*initial_field_description_);
 
-    robot_filter_->initialize(runtime_opponent_count_);
-    navigation_->initialize();
-    robot_descriptions_cache_.reset();
-    previous_selected_target_ = TargetSelection{};
+    control_loop_->loop().request_filter_reinit(runtime_opponent_count_);
     initialized_ = true;
     spdlog::info("Field initialized");
-}
-
-TargetSelection Runner::resolve_target(const RobotDescriptionsStamped &robots,
-                                       const FieldDescription &field_description) {
-    if (ui_state_) {
-        if (auto manual_target = ui_state_->get_manual_target()) {
-            return *manual_target;
-        }
-    }
-    if (target_selector_) {
-        if (auto selected = target_selector_->get_target(robots, field_description)) {
-            previous_selected_target_ = *selected;
-        }
-    }
-    return previous_selected_target_;
 }
 
 int Runner::run() {
@@ -319,7 +295,15 @@ int Runner::run() {
         const auto tick_start = std::chrono::steady_clock::now();
         if (!tick()) {
             spdlog::warn("Runner::tick requested shutdown; runner loop exiting.");
+            control_loop_->stop();
             return 0;
+        }
+        if (!control_loop_->is_healthy()) {
+            // A stalled control loop leaves the robot executing its last command. Cut autonomy
+            // rather than trusting a loop that has missed its deadline.
+            spdlog::error("Control loop missed its watchdog deadline; disabling autonomy.");
+            autonomy_enabled_ = false;
+            control_loop_->loop().set_autonomy_enabled(false);
         }
         health_logger_->record_tick(ms_since(tick_start));
         health_logger_->maybe_log();
@@ -356,8 +340,11 @@ bool Runner::tick() {
         return false;
     }
 
-    CommandFeedback command_feedback = transmitter_->update();
-    should_reinit_field = should_reinit_field || transmitter_->did_init_button_press();
+    // Stepped drivers read the transmitter here, on this thread, so the ordering matches the
+    // pre-Phase-2 tick exactly. Threaded drivers own it and make this a no-op, latching the
+    // init-button edge for take_init_button_press() to hand back.
+    control_loop_->pump_input();
+    should_reinit_field = should_reinit_field || control_loop_->loop().take_init_button_press();
 
     CameraData camera_data;
     bool is_camera_ok;
@@ -390,9 +377,7 @@ bool Runner::tick() {
         }
     } else if (robot_filter_reinit_pending_ && initialized_) {
         robot_filter_reinit_pending_ = false;
-        robot_filter_->initialize(runtime_opponent_count_);
-        navigation_->initialize();
-        robot_descriptions_cache_.reset();
+        control_loop_->loop().request_filter_reinit(runtime_opponent_count_);
     }
 
     if (!initialized_) return handle_uninitialized_tick(camera_data, loop_rate_hz);
@@ -430,52 +415,22 @@ bool Runner::tick() {
         }
     }
 
-    RobotDescriptionsStamped robots;
+    // Hand perception to the control loop and let the driver decide when cycles run. The stepped
+    // driver runs them inline here; the threaded driver has been consuming measurements on its own
+    // thread all along and ignores advance_to.
+    control_loop_->loop().submit_measurement(ControlMeasurement{
+        .keypoints = keypoints,
+        .robot_blob_keypoints = robot_blob_keypoints,
+        .field_description = field_description,
+        .camera_info = camera_data.camera_info,
+    });
     {
-        FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
-        // predict/correct/state run back to back here. They split apart once the control loop
-        // moves to its own thread and calls predict/state at the control rate while correct stays
-        // on the perception rate (docs/control_loop_thread_plan.md).
-        robot_filter_->predict(clock_->now(), command_feedback);
-        robot_filter_->correct(keypoints, field_description, camera_data.camera_info,
-                               robot_blob_keypoints);
-        robots = robot_filter_->state();
+        FunctionTimer timer(diagnostics_logger_, "control_loop.advance");
+        control_loop_->advance_to(camera_data.rgb.header.stamp);
     }
 
-    {
-        // Raw detection counts before the cache resolves missing critical robots, so future
-        // recordings expose how often a fresh (non-stale) opponent fix was actually available.
-        int their_total = 0;
-        int their_live = 0;
-        int our_live = 0;
-        for (const auto &robot : robots.descriptions) {
-            if (robot.group == Group::THEIRS) {
-                ++their_total;
-                if (!robot.is_stale) ++their_live;
-            }
-            if (robot.frame_id == FrameId::OUR_ROBOT_1 && !robot.is_stale) {
-                our_live = 1;
-            }
-        }
-        const int our_blob_no_keypoint = robot_filter_->last_our_blob_present_no_keypoint() ? 1 : 0;
-        diagnostics_logger_->debug("perception",
-                                   {{"their_count_total", their_total},
-                                    {"their_count_live", their_live},
-                                    {"our_present_live", our_live},
-                                    {"our_blob_present_no_keypoint", our_blob_no_keypoint}});
-    }
-
-    // Resolve once so target selection and navigation operate on the same robot set within a
-    // tick. Substitutes the previous critical snapshot when this frame is missing OUR or THEIRS.
-    auto cached_robots = robot_descriptions_cache_.resolve(robots);
-    diagnostics_logger_->debug(
-        "navigation", {{"using_previous_robots", static_cast<int>(cached_robots.using_previous)}});
-
-    TargetSelection resolved_target = resolve_target(cached_robots.robots, field_description);
-
-    VelocityCommand command =
-        navigation_->update(cached_robots.robots, field_description, resolved_target);
-    transmitter_->send(command);
+    const ControlOutput control_output = control_loop_->loop().latest_output();
+    const RobotDescriptionsStamped &robots = control_output.robots;
 
     {
         // Measure end-to-end latency from when the image was sampled (camera frame timestamp)
@@ -495,7 +450,7 @@ bool Runner::tick() {
         publisher_->publish_robots(robots);
         publisher_->publish_blob_detections(robot_mask_model_->last_detections());
         publisher_->publish_keypoint_detections(keypoint_model_->last_detections());
-        publisher_->publish_navigation(navigation_->get_last_visualization());
+        publisher_->publish_navigation(control_loop_->loop().last_visualization());
     }
 
     publish_system_status(true, loop_rate_hz);
@@ -504,7 +459,7 @@ bool Runner::tick() {
         ui_state_->set_field_description(field_description);
         ui_state_->set_robots(robots);
         ui_state_->set_keypoints(keypoints);
-        ui_state_->set_navigation_path(navigation_->get_last_visualization().path);
+        ui_state_->set_navigation_path(control_loop_->loop().last_visualization().path);
         set_ui_debug_image_from_camera(camera_data);
     }
 

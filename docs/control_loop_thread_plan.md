@@ -443,11 +443,51 @@ make playback reproducible while the camera still delivers a scheduling-dependen
 camera needs a synchronous playback path that hands every frame to the loop in order before Phase 2
 measurement 4 means anything.
 
-### Phase 2: add the control loop, no forward prediction
+### Phase 2: add the control loop, no forward prediction (done)
 
-Add `ControlLoopInterface` with both drivers. Run the filter, target selection, navigation, and
-transmit at `rate_hz`. `predict()` advances the state, but corrections still apply at the current
-time without rollback, so the estimate remains 55 ms old.
+`ControlLoopInterface` with both drivers is in. `ControlLoop` owns the filter, target selection,
+navigation, and transmitter; the Runner keeps camera and perception and hands measurements over
+through `submit_measurement`. Corrections still apply at the current time without rollback, so the
+estimate remains 55 ms old.
+
+**Parity at `rate_hz = 0` is proven exactly**, by unit test rather than by replay.
+`tests/test_control_loop.cpp` drives the same components two ways, through the control loop and
+through an inline reference sequence written independently of the `ControlLoop` body, over 200
+frames covering our-robot dropouts and opponent dropouts. Robot poses, staleness, frame ids, and
+the full command stream match bit-exactly. Three further tests pin the properties the rollback
+depends on: `rate_hz = 0` runs exactly one cycle per `advance_to` regardless of advance timing, a
+non-zero rate runs the expected multiple, and a measurement is corrected exactly once.
+
+Replay agrees to the resolution the harness allows. Detections are 100% identical, and pose deltas
+between pre-Phase-2 and Phase 2 stepped (20.1 and 38.7 mm median) sit inside the same-binary
+control range (23.6 and 21.7 mm median). Exact replay comparison still waits on Determinism item 1.
+
+**Threaded at 250 Hz, measured on the dev machine over two ~40 s replays:**
+
+| Metric | Result |
+|---|---|
+| Achieved rate | 250.0 Hz mean, 249.7 to 250.9 Hz range |
+| Deadline misses | 1 per run, out of ~10,000 cycles |
+| Cycle time, mean | 97.6 us against a 4000 us budget (2.4% duty) |
+| Cycle time, worst | 2805 us, still inside the period |
+| Command update interval | 20.1 ms stepped, **4.0 ms threaded** |
+| Perception tick rate | 49.7 Hz stepped, 49.4 Hz threaded (no regression) |
+
+The command interval result is Win 1, measured. Replay runs perception faster than the 30 fps the
+camera delivers, so the real-hardware improvement is 33.3 ms to 4.0 ms rather than 20.1 to 4.0.
+
+At 97.6 us mean the loop has roughly 40x headroom at 250 Hz, so the rate ceiling is far above what
+the plant needs. That ceiling still has to be confirmed on the Jetson, where the loop competes with
+TensorRT for cores.
+
+**Two bugs this surfaced, both fixed:**
+
+- `DiagnosticsModuleLogger` had no locking. A module logger now has two writers, the control thread
+  logging and the Runner thread clearing during `DiagnosticsLogger::publish()`, and the unguarded
+  `std::map` members segfaulted within seconds. Guarded with a mutex.
+- The watchdog fired during startup because `run_cycle()` stamped its heartbeat at the end, after
+  the early return taken while no field is defined yet. A cycle that legitimately does nothing is
+  still a cycle, so the stamp moved to cycle entry.
 
 **The existing prediction model cannot simply be called faster.** `RobotTemporalMotionFilter::
 update_with_prediction` (`src/robot_filter/robot_temporal_motion_filter.cpp:29`) has four
@@ -608,16 +648,19 @@ using them sees no benefit, which is correct and should not be papered over.
 
 1. ~~Land Phase 1.~~ Done. The interface split is in; see the Phase 1 notes for what its
    verification could and could not establish.
-2. ~~Fix the shared pixel buffer.~~ Done. Perception is now bitwise reproducible per frame, so
+2. ~~Land Phase 2.~~ Done. Both drivers are in, parity at `rate_hz = 0` is proven by unit test,
+   and 250 Hz measured 250.0 Hz achieved at 2.4% duty. See the Phase 2 notes.
+3. ~~Fix the shared pixel buffer.~~ Done. Perception is now bitwise reproducible per frame, so
    frame selection is the only remaining source of nondeterminism.
-3. **Give the camera a synchronous playback path** that grabs and returns each frame in order.
-   This is the whole determinism fix for playback and the blocking item for Phase 2.
-4. Add a replay mode that consumes a recorded frame list, making live runs reproducible offline.
+4. **Give the camera a synchronous playback path** that grabs and returns each frame in order.
+   This is the whole determinism fix for playback, and it is what turns the Phase 2 parity check
+   from a unit test into an exact end-to-end replay diff.
+5. Add a replay mode that consumes a recorded frame list, making live runs reproducible offline.
    Independent of the control loop work. See Determinism for the full list.
-5. ~~Confirm whether the handset's USB CDC honors the 115200 baud setting.~~ Measured on the
+6. ~~Confirm whether the handset's USB CDC honors the 115200 baud setting.~~ Measured on the
    X9D+ 2019: it does not, and the CLI sustains 3000 Hz cleanly against a 250 Hz need. Decimation
    is optional, not required. See Transmitter output rate.
-6. Build `ControlLoopInterface` with `SteppedControlLoop` first, on top of step 3.
-7. Run Phase 2 and find the rate ceiling on real Jetson hardware, not on the dev machine.
+7. Find the rate ceiling on real Jetson hardware, not on the dev machine. The dev machine shows
+   2.4% duty at 250 Hz; the Jetson competes with TensorRT for cores.
 8. Only then decide whether Phase 3 is worth it, using measured prediction error rather than the
    ~55 ms figure this document assumes.
