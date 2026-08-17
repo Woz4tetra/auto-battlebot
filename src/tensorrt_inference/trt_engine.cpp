@@ -2,6 +2,7 @@
 
 #include <NvInferRuntime.h>
 #include <NvInferRuntimeBase.h>
+#include <NvInferVersion.h>
 #include <cuda_runtime.h>
 #include <spdlog/spdlog.h>
 
@@ -10,6 +11,12 @@
 #include <cstring>
 #include <fstream>
 #include <new>
+
+// IStreamReaderV2 arrived in TensorRT 10.7 and deprecated IStreamReader. The dev machines
+// are on 10.14; the Jetson's JetPack TensorRT predates 10.7 and only has the older
+// interface. Pick whichever the installed headers provide.
+#define AB_TRT_HAS_STREAM_READER_V2 \
+    (NV_TENSORRT_MAJOR > 10 || (NV_TENSORRT_MAJOR == 10 && NV_TENSORRT_MINOR >= 7))
 
 namespace auto_battlebot {
 namespace {
@@ -47,18 +54,25 @@ void log_load_failure(const std::string& message) {
     spdlog::error("{}", message);
 }
 
+#if AB_TRT_HAS_STREAM_READER_V2
+using TrtStreamReaderBase = nvinfer1::IStreamReaderV2;
+#else
+using TrtStreamReaderBase = nvinfer1::IStreamReader;
+#endif
+
 // Feeds a file to TensorRT incrementally so deserialization can abort early.
 //
-// IStreamReaderV2 (rather than the IStreamReader deprecated in TensorRT 10.7, which
-// would trip -Werror) may hand us a device pointer as the destination, so every read is
+// The V2 interface may hand us a device pointer as the destination, so every read is
 // staged through a host buffer and routed with cudaMemcpyDefault. Unified addressing
-// makes that correct whether the target is host or device memory.
-class FileStreamReader final : public nvinfer1::IStreamReaderV2 {
+// makes that correct whether the target is host or device memory. V1 destinations are
+// always host memory, and V1 has no seek.
+class FileStreamReader final : public TrtStreamReaderBase {
    public:
     explicit FileStreamReader(const std::string& path) : file_(path, std::ios::binary) {}
 
     bool is_open() const { return file_.is_open(); }
 
+#if AB_TRT_HAS_STREAM_READER_V2
     int64_t read(void* destination, int64_t nbBytes, cudaStream_t stream) noexcept override {
         if (nbBytes <= 0) return 0;
         try {
@@ -98,10 +112,19 @@ class FileStreamReader final : public nvinfer1::IStreamReaderV2 {
         file_.seekg(static_cast<std::streamoff>(offset), direction);
         return file_.good();
     }
+#else
+    int64_t read(void* destination, int64_t nbBytes) noexcept override {
+        if (nbBytes <= 0) return 0;
+        file_.read(static_cast<char*>(destination), static_cast<std::streamsize>(nbBytes));
+        return static_cast<int64_t>(file_.gcount());
+    }
+#endif
 
    private:
     std::ifstream file_;
+#if AB_TRT_HAS_STREAM_READER_V2
     std::vector<char> staging_;
+#endif
 };
 
 // Compute volume (product of dimensions). Returns 0 if dims are invalid.
