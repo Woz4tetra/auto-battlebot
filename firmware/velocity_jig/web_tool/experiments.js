@@ -1,22 +1,25 @@
 // The runbook as data. Source of truth for procedure text:
 // docs/experiments/kalman_filter/velocity_jig_runbook.md
 //
-// Every experiment carries its checklist, its encoder state, what it produces,
-// and (where it is driven) a builder that turns the space budget into an actual
-// command program. The tool exists so none of this gets copied onto paper.
+// Every experiment carries its checklist, what it produces, and (where it is
+// driven) a builder that turns the space budget into an actual command program.
+// The tool exists so none of this gets copied onto paper.
+//
+// The encoder stays mounted for every experiment. Detaching it changed the
+// angular response too little to be worth the swap, so the runbook's detached
+// variants and its attach/detach block are gone, and every angular battery is
+// capped at the E5 rate limit because the wheel is always scrubbing.
 //
 // `variants` splits an experiment into the runs you actually record. E8 is two
-// runs, forward and reverse. E12 is two runs, encoder attached and detached.
-// The variant is what a Run record points at.
+// runs, forward and reverse. The variant is what a Run record points at.
 
 import * as ex from './excitation.js';
-import { PLANT, encoderPasses } from './plant.js';
+import { PLANT, MIN_HOLD_S, encoderPasses } from './plant.js';
 
 const V = (id, label, extra = {}) => ({ id, label, ...extra });
 
 /** Shared run-card steps for any recorded driven run. */
 export const RUN_CARD = [
-    'Confirm encoder state matches the experiment.',
     'Clock probe, pre.',
     'Press A to start recording.',
     'Hold still 10 s. This is the per-run gyro bias estimate.',
@@ -32,7 +35,6 @@ export const EXPERIMENTS = [
         id: 'E0',
         name: 'Firmware and range check',
         block: 0,
-        encoder: 'either',
         durationMin: 15,
         motion: 'none',
         recorded: false,
@@ -57,7 +59,6 @@ export const EXPERIMENTS = [
         id: 'E1',
         name: 'Clock probe verification',
         block: 0,
-        encoder: 'either',
         durationMin: 20,
         motion: 'none',
         recorded: false,
@@ -79,7 +80,6 @@ export const EXPERIMENTS = [
         id: 'E2',
         name: 'Gyro bias and Allan variance',
         block: 0,
-        encoder: 'detached',
         durationMin: 35,
         motion: 'none',
         recorded: true,
@@ -98,7 +98,6 @@ export const EXPERIMENTS = [
         id: 'E3',
         name: 'Gyro scale factor',
         block: 0,
-        encoder: 'detached',
         durationMin: 15,
         motion: 'by hand',
         recorded: true,
@@ -123,7 +122,6 @@ export const EXPERIMENTS = [
         id: 'E4',
         name: 'Encoder scale',
         block: 0,
-        encoder: 'attached',
         durationMin: 20,
         motion: 'pushed by hand, motors disarmed',
         recorded: true,
@@ -162,7 +160,6 @@ export const EXPERIMENTS = [
         id: 'E5',
         name: 'Lever arms',
         block: 0,
-        encoder: 'attached',
         durationMin: 20,
         motion: 'driven, slow spins only',
         recorded: true,
@@ -174,7 +171,7 @@ export const EXPERIMENTS = [
         steps: [
             'Clear a 2 m circle.',
             'Command pure spins at four increasing yaw rates. Keep the top rate under 8 rad/s.',
-            'This is the one spin experiment with the encoder attached. The wheel scrubs sideways the whole time.',
+            'The wheel scrubs sideways the whole time, and the rate limit this finds caps every later angular run.',
             'Stop immediately if the encoder wheel chatters, skips, or leaves a scrub mark, and note the limit.',
         ],
         gates: [
@@ -195,7 +192,6 @@ export const EXPERIMENTS = [
         id: 'E6',
         name: 'Polarity check',
         block: 2,
-        encoder: 'attached',
         durationMin: 2,
         motion: 'driven',
         recorded: true,
@@ -250,7 +246,6 @@ export const EXPERIMENTS = [
         id: 'E7',
         name: 'Linear deadzone staircase',
         block: 2,
-        encoder: 'attached',
         durationMin: 1,
         motion: 'driven',
         recorded: true,
@@ -259,20 +254,19 @@ export const EXPERIMENTS = [
         driven: true,
         produces: '`dz_lin_fwd`, `dz_lin_rev`',
         steps: [
-            'Staircase 0.01 to 0.10 in steps of 0.01, holding each 1.5 s.',
+            'Staircase 0.01 to 0.10 in steps of 0.01, holding each 2 s.',
             'The deadzone is the level where speed first clears 5 sigma of stationary noise.',
             'If the robot moves at 0.01, extend the staircase downward.',
         ],
         gates: [{ name: 'bracket', detail: 'At least three levels below the motion threshold and three above.' }],
         variants: [V('fwd', 'Forward'), V('rev', 'Reverse')],
         program: (cfg, variant) =>
-            ex.staircase({ channel: 'linear', sign: variant.id === 'rev' ? -1 : 1, holdS: cfg.holdS ?? 1.5 }),
+            ex.staircase({ channel: 'linear', sign: variant.id === 'rev' ? -1 : 1, holdS: cfg.holdS ?? MIN_HOLD_S }),
     },
     {
         id: 'E8',
         name: 'Linear steps',
         block: 2,
-        encoder: 'attached',
         durationMin: 2,
         motion: 'driven',
         recorded: true,
@@ -282,8 +276,8 @@ export const EXPERIMENTS = [
         primary: true,
         produces: '`k_fwd`, `k_rev`, `tau_lin_a/d`, most delay edges',
         steps: [
-            'Longest straight available. At 5.6 m/s a 1.0 step covers ground fast.',
-            'Steps 0.25, 0.5, 0.75, 1.0, holding each, returning to zero and coasting fully between.',
+            'Longest straight available. Budget about 1.5 m for the 1.0 step alone.',
+            'Steps 0.25, 0.5, 0.75, 1.0, holding each at least 2 s, returning to zero and coasting fully between.',
             'The step must not be slew limited. A ramped command is why stage 2 could not fit forward accel tau.',
             'If the floor runs out before steady state at 1.0, record the shorter step and note it.',
         ],
@@ -295,7 +289,7 @@ export const EXPERIMENTS = [
         program: (cfg, variant) =>
             ex.steps({
                 channel: 'linear',
-                holdS: cfg.holdS ?? 3 * PLANT.tauAccel,
+                holdS: cfg.holdS ?? MIN_HOLD_S,
                 sign: variant.id === 'rev' ? -1 : 1,
                 shuttle: cfg.shuttle ?? false,
                 scale: cfg.scale ?? 1.0,
@@ -305,7 +299,6 @@ export const EXPERIMENTS = [
         id: 'E9',
         name: 'Coast tails',
         block: 2,
-        encoder: 'attached',
         durationMin: 1,
         motion: 'driven',
         recorded: true,
@@ -322,7 +315,7 @@ export const EXPERIMENTS = [
         program: (cfg, variant) =>
             ex.coastTails({
                 amplitude: 0.6 * (cfg.scale ?? 1.0),
-                holdS: cfg.holdS ?? 2.0,
+                holdS: cfg.holdS ?? MIN_HOLD_S,
                 reps: cfg.reps ?? 10,
                 sign: variant.id === 'rev' ? -1 : 1,
                 shuttle: cfg.shuttle ?? false,
@@ -332,7 +325,6 @@ export const EXPERIMENTS = [
         id: 'E10',
         name: 'Angular deadzone staircase',
         block: 2,
-        encoder: 'attached',
         durationMin: 1,
         motion: 'driven',
         recorded: true,
@@ -342,20 +334,19 @@ export const EXPERIMENTS = [
         driven: true,
         produces: '`dz_ang_l`, `dz_ang_r`',
         steps: [
-            'Staircase 0.01 to 0.10 in steps of 0.01, holding each 1.5 s.',
-            'Low rate throughout, so the encoder stays on.',
+            'Staircase 0.01 to 0.10 in steps of 0.01, holding each 2 s.',
+            'Low rate throughout, so the encoder wheel barely scrubs.',
             'Confirm encoder linear drift stayed small. Large drift means the robot is walking, not pivoting.',
         ],
         gates: [{ name: 'pivot', detail: 'Encoder drift small enough that the robot pivoted rather than walked.' }],
         variants: [V('left', 'Left'), V('right', 'Right')],
         program: (cfg, variant) =>
-            ex.staircase({ channel: 'angular', sign: variant.id === 'right' ? -1 : 1, holdS: cfg.holdS ?? 1.5 }),
+            ex.staircase({ channel: 'angular', sign: variant.id === 'right' ? -1 : 1, holdS: cfg.holdS ?? MIN_HOLD_S }),
     },
     {
         id: 'E11',
-        name: 'Angular steps and max spin',
+        name: 'Angular steps',
         block: 2,
-        encoder: 'detached',
         durationMin: 2,
         motion: 'driven',
         recorded: true,
@@ -365,67 +356,38 @@ export const EXPERIMENTS = [
         driven: true,
         primary: true,
         produces: '`k_ang`, `tau_ang_a/d`',
+        capped: true,
         steps: [
-            'Detach the encoder. Confirm the frozen count.',
             'Confirm the gyro range is 4000 dps. At 2000 dps the run clips and the result is worthless.',
-            'Steps 0.25, 0.5, 0.75, 1.0, holding each, returning to zero between.',
+            'Steps 0.25, 0.5, 0.75, 1.0 scaled to the E5 rate limit, holding each, returning to zero between.',
+            'Watch the encoder wheel. It scrubs sideways for the whole battery.',
             'Check the saturation count immediately after the run.',
         ],
         gates: [
             { name: 'saturation', detail: 'Zero saturated gyro samples.' },
-            { name: 'steady state', detail: 'Visible plateau at 1.0.' },
+            { name: 'steady state', detail: 'Visible plateau at the top step.' },
             { name: 'geometric bound', detail: 'Fitted k_ang below 2 * k_fwd / track_width.' },
+            {
+                name: 'top rate',
+                detail: 'Capped at the E5 limit, so this is not max spin. Note the cap with the fit.',
+            },
         ],
         variants: [V('left', 'Spin left'), V('right', 'Spin right')],
+        // Capped like every other angular battery: the encoder wheel is on the
+        // robot for this run, so the E5 rate limit binds here too. That costs
+        // the top of the k_ang lever arm, which the fit has to state.
         program: (cfg, variant) =>
             ex.steps({
                 channel: 'angular',
-                holdS: cfg.holdS ?? 3 * PLANT.tauAccel,
+                amplitudes: ex.capAmplitudes([0.25, 0.5, 0.75, 1.0], cfg.angularCap),
+                holdS: cfg.holdS ?? MIN_HOLD_S,
                 sign: variant.id === 'right' ? -1 : 1,
-            }),
-    },
-    {
-        id: 'E12',
-        name: 'Encoder drag delta',
-        block: 2,
-        encoder: 'both',
-        durationMin: 10,
-        motion: 'driven',
-        recorded: true,
-        needsSpace: true,
-        spaceKind: 'circle',
-        holds: true,
-        driven: true,
-        produces: 'bias correction for all linear parameters',
-        steps: [
-            'Encoder attached: capped angular battery, steps 0.25 and 0.5 only, both directions, five repetitions.',
-            'Stay under the rate limit found in E5.',
-            'Detach the encoder. Change nothing else: same pack, same floor, within 10 minutes.',
-            'Run the identical sequence detached.',
-        ],
-        gates: [
-            { name: 'pairing', detail: 'Both halves on the same pack, within 10 minutes.' },
-            { name: 'delta', detail: 'Compare k_ang and tau_ang_a. Record the verdict prominently.' },
-        ],
-        pairing: true,
-        variants: [
-            V('attached', 'Attached, capped', { encoder: 'attached' }),
-            V('detached', 'Detached, same sequence', { encoder: 'detached' }),
-        ],
-        // Capped, and the cap applies to both halves. The attached and detached
-        // runs have to be the same sequence or the delta means nothing.
-        program: (cfg) =>
-            ex.steps({
-                channel: 'angular',
-                amplitudes: ex.capAmplitudes([0.25, 0.5, -0.25, -0.5], cfg.angularCap),
-                holdS: cfg.holdS ?? 1.5,
             }),
     },
     {
         id: 'E13',
         name: 'Coupling grid',
         block: 2,
-        encoder: 'attached',
         durationMin: 1,
         motion: 'driven',
         recorded: true,
@@ -446,7 +408,7 @@ export const EXPERIMENTS = [
         variants: [V('main', 'Full grid')],
         program: (cfg) =>
             ex.couplingGrid({
-                holdS: cfg.holdS ?? 1.5,
+                holdS: cfg.holdS ?? MIN_HOLD_S,
                 shuttle: cfg.shuttle ?? false,
                 scale: cfg.scale ?? 1.0,
                 angularCap: cfg.angularCap ?? 1.0,
@@ -456,7 +418,6 @@ export const EXPERIMENTS = [
         id: 'E14',
         name: 'Linear PRBS',
         block: 2,
-        encoder: 'attached',
         durationMin: 0.5,
         motion: 'driven',
         recorded: true,
@@ -484,7 +445,6 @@ export const EXPERIMENTS = [
         id: 'E15',
         name: 'Angular PRBS',
         block: 2,
-        encoder: 'both',
         durationMin: 1,
         motion: 'driven',
         recorded: true,
@@ -494,19 +454,17 @@ export const EXPERIMENTS = [
         driven: true,
         holdout: true,
         produces: 'holdout validation',
+        capped: true,
         steps: [
-            'Attached, capped: amplitude limited to the E5 rate limit, 30 s.',
-            'Detached, full: amplitude 0.6, 30 s. Confirm the frozen count before starting.',
+            'Amplitude limited to the E5 rate limit, 30 s.',
+            'A PRBS at the cap still spins the robot the whole time. Clear the circle.',
         ],
-        gates: [{ name: 'encoder state', detail: 'Matches the variant.' }],
-        variants: [
-            V('attached', 'Attached, capped', { encoder: 'attached' }),
-            V('detached', 'Detached, full', { encoder: 'detached' }),
-        ],
-        program: (cfg, variant) =>
+        gates: [{ name: 'bounds', detail: 'Robot stayed inside the circle.' }],
+        variants: [V('main', 'Angular PRBS, capped')],
+        program: (cfg) =>
             ex.prbs({
                 channels: ['angular'],
-                amplitude: variant.id === 'attached' ? (cfg.angularCap ?? 0.2) : 0.6,
+                amplitude: cfg.angularCap ?? 0.2,
                 durationS: cfg.durationS ?? 30,
                 seed: cfg.seed ?? 0x1234,
             }),
@@ -515,7 +473,6 @@ export const EXPERIMENTS = [
         id: 'E16',
         name: 'Combined PRBS',
         block: 2,
-        encoder: 'attached',
         durationMin: 0.5,
         motion: 'driven',
         recorded: true,
@@ -544,7 +501,6 @@ export const EXPERIMENTS = [
         id: 'E17',
         name: 'Chirp',
         block: 2,
-        encoder: 'attached',
         durationMin: 1,
         motion: 'driven',
         recorded: true,
@@ -572,7 +528,6 @@ export const EXPERIMENTS = [
         id: 'E18',
         name: 'Operator driving',
         block: 2,
-        encoder: 'both',
         durationMin: 2,
         motion: 'driven by hand',
         recorded: true,
@@ -581,23 +536,20 @@ export const EXPERIMENTS = [
         manualDrive: true,
         holdout: true,
         produces: 'realistic-distribution holdout',
+        capped: true,
         steps: [
-            'Attached: drive as in a match but keep spins under the E5 rate limit. 60 s.',
-            'Detached: drive with no rate restriction, including full spins. 60 s. Heading-only validation.',
+            'Drive as in a match, but keep spins under the E5 rate limit. 60 s.',
+            'Two runs with different drivers beats one long run by one driver.',
             'Note who drove and roughly what they were doing.',
         ],
         gates: [{ name: 'notes', detail: 'Driver and intent recorded.' }],
-        variants: [
-            V('attached', 'Attached, capped', { encoder: 'attached' }),
-            V('detached', 'Detached, unrestricted', { encoder: 'detached' }),
-        ],
+        variants: [V('a', 'Driver A'), V('b', 'Driver B')],
         program: (cfg) => ex.manual({ durationS: cfg.durationS ?? 60 }),
     },
     {
         id: 'E19',
         name: 'Closure runs',
         block: 2,
-        encoder: 'attached',
         durationMin: 2,
         motion: 'driven by hand',
         recorded: true,
@@ -629,7 +581,6 @@ export const EXPERIMENTS = [
         id: 'E20',
         name: 'Pack state repeat',
         block: 2,
-        encoder: 'attached',
         durationMin: 10,
         motion: 'driven',
         recorded: true,
@@ -649,7 +600,7 @@ export const EXPERIMENTS = [
         program: (cfg, variant) =>
             ex.steps({
                 channel: 'linear',
-                holdS: cfg.holdS ?? 3 * PLANT.tauAccel,
+                holdS: cfg.holdS ?? MIN_HOLD_S,
                 sign: 1,
                 shuttle: cfg.shuttle ?? false,
                 scale: cfg.scale ?? 1.0,
@@ -661,7 +612,6 @@ export const EXPERIMENTS = [
         id: 'E21',
         name: 'Joint jig and camera session',
         block: 3,
-        encoder: 'both',
         durationMin: 45,
         motion: 'driven',
         recorded: true,
@@ -675,20 +625,15 @@ export const EXPERIMENTS = [
             'Record on the Jetson, live: SVO plus MCAP with perception outputs, filter state, and commands.',
             'Do not plan to re-derive perception by replaying the SVO on a desktop. Replay warps frames a few percent.',
             'Align three clocks: jig to host by TIME probe, host to Jetson by NTP or a shared command log.',
-            'Attached, capped: run E8, E13, E14, E16, E18 inside the arena.',
-            'Detached: run E11 and the detached E18.',
+            'Run E8, E11, E13, E14, E16, E18 inside the arena, all capped as usual.',
         ],
         gates: [{ name: 'live capture', detail: 'Recorded on the Jetson, not replayed later.' }],
-        variants: [
-            V('attached', 'Attached set', { encoder: 'attached' }),
-            V('detached', 'Detached set', { encoder: 'detached' }),
-        ],
+        variants: [V('main', 'Arena set')],
     },
     {
         id: 'E22',
         name: 'Weapon-spinning delta',
         block: 3,
-        encoder: 'detached',
         durationMin: 15,
         motion: 'driven',
         recorded: true,
@@ -701,9 +646,9 @@ export const EXPERIMENTS = [
         steps: [
             'Do not run this until every other experiment is complete and the plant model is fit.',
             'Full safety setup: containment, everyone clear, weapon spun up outside the drive path first.',
-            'Encoder detached. Nothing fragile stays mounted.',
-            'Repeat the E12 capped angular sequence with the weapon at match RPM.',
-            'Compare k_ang and tau_ang_a against the weapon-stopped values from E12.',
+            'Nothing fragile stays mounted. The encoder wheel does, so keep the cap on.',
+            'Repeat the E11 capped angular sequence with the weapon at match RPM.',
+            'Compare k_ang and tau_ang_a against the weapon-stopped values from E11.',
         ],
         gates: [
             { name: 'prerequisites', detail: 'Every other experiment complete and fit.' },
@@ -711,39 +656,21 @@ export const EXPERIMENTS = [
             { name: 'gyro range', detail: '4000 dps.' },
         ],
         variants: [V('main', 'Capped angular, weapon live')],
-        // Identical to E12's sequence, cap included. The only difference between
+        // Identical to E11's sequence, cap included. The only difference between
         // the two runs is meant to be the weapon.
         program: (cfg) =>
             ex.steps({
                 channel: 'angular',
-                amplitudes: ex.capAmplitudes([0.25, 0.5, -0.25, -0.5], cfg.angularCap),
-                holdS: cfg.holdS ?? 1.5,
+                amplitudes: ex.capAmplitudes([0.25, 0.5, 0.75, 1.0], cfg.angularCap),
+                holdS: cfg.holdS ?? MIN_HOLD_S,
             }),
     },
 ];
 
 export const BLOCKS = {
     0: { title: 'Block 0: Bench setup', note: 'No driven motion. Once per hardware change.' },
-    1: { title: 'Block 1: Encoder attach and detach', note: 'Whenever the encoder moves.' },
     2: { title: 'Block 2: Driven battery', note: 'The data the model is fit from. Three passes per session.' },
     3: { title: 'Block 3: Validation and extensions', note: 'After the model is fit.' },
-};
-
-/** The encoder swap procedure, which is Block 1 in the runbook. */
-export const ENCODER_SWAP = {
-    detach: [
-        'Disarm and power down the drive.',
-        'Unplug the encoder connector. Do not cut power to the jig; the IMU heartbeat should keep running.',
-        'Remove the wheel assembly from its mount.',
-        'Confirm a frozen count (the tool checks this automatically after the next run).',
-    ],
-    reattach: [
-        'Mount the wheel assembly at the same position and preload. Note any adjustment.',
-        'Plug in the connector.',
-        'Confirm the count changes when you roll the robot by hand, and increases going forward.',
-        'Spot check scale: one hand-pushed pass over the measured course, within 1%.',
-    ],
-    spotCheckFail: 'Redo E4 in full. Do not scale-correct by hand from a single pass.',
 };
 
 export function getExperiment(id) {
@@ -752,11 +679,6 @@ export function getExperiment(id) {
 
 export function getVariant(exp, variantId) {
     return exp.variants.find((v) => v.id === variantId) ?? exp.variants[0];
-}
-
-/** Encoder state a specific run needs: the variant overrides the experiment. */
-export function encoderStateFor(exp, variant) {
-    return variant?.encoder ?? exp.encoder;
 }
 
 /** Build the command program for a run, or null if the run is not scripted. */

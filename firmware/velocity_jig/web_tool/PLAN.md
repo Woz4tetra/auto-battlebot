@@ -2,7 +2,7 @@
 
 A browser page that runs the session sheet from
 [`velocity_jig_runbook.md`](../../../docs/experiments/kalman_filter/velocity_jig_runbook.md) so an
-operator can get through 23 experiments in an afternoon without writing anything down by hand.
+operator can get through 22 experiments in an afternoon without writing anything down by hand.
 
 The jig already announces the two facts that are most annoying to transcribe. `startRecording()` prints
 `recording LOG-7.TXT` when button A is pressed, and `stopRecording()` prints
@@ -78,13 +78,37 @@ ASCII, mirroring `src/transmitter/opentx_transmitter.cpp`:
 ```
 telemetry on\r\n          prime, once at open
 channels on\r\n           prime, once at open
-trainer 0 <value>\r\n     linear,  value in [-500, 500]
-trainer 1 <value>\r\n     angular, value in [-500, 500]
+trainer 0 <value>\r\n     left wheel,  value in [-500, 500]
+trainer 1 <value>\r\n     right wheel, value in [-500, 500]
 ```
 
 Web Serial holds two ports at once, so the page drives the robot and reads the jig in the same tab.
-Raw commands are sent with no deadzone pre-compensation, since the physical deadzone is the thing E7
-and E10 measure.
+
+### Body axes to wheels
+
+mrs_buff_mk3 runs `TankDriveProcessor` (`config/_common.toml`), so those two channels are the left and
+right wheel, not linear and angular: driving straight forward is 1 on both. Excitations are written in
+body axes, so `trainer.js` mixes them the same way `src/transmitter/drive_mixing.cpp` does, in the same
+order:
+
+```
+saturate    angular clamped to [-1, 1], linear clamped to +/-(1 - |angular|)
+reverse     angular negated (reverse_angular_channel = true)
+mix         left = linear + angular,  right = linear - angular
+```
+
+Matching the deployed path is not cosmetic. The plant being fit is the plant the controller drives
+through, so a transform between command and motors has to sit in the same place here or the fit
+describes a vehicle nobody drives. The mix is checked against the expectations pinned in
+`tests/test_drive_processors.cpp`.
+
+Two consequences:
+
+- **Angular has priority over linear.** E13's top row asks for `|linear| + |angular| = 1.13`, so its
+  linear term comes back cut to 0.87. The run panel says so before arming, and the command log records
+  the delivered pair next to the requested one.
+- **The per-wheel lifted deadzone is deliberately not replicated.** E7 and E10 exist to measure the
+  deadzone, and pre-compensating for it would erase the thing being measured.
 
 **The reason to build it here rather than as a Python script:** the command log and the clock probe end
 up on the same clock by construction. `drive_protocol.py`'s docstring makes this argument for
@@ -123,10 +147,14 @@ stick input to the command.
 
 ## Space budget
 
-The workshop is shorter than the runbook assumes, and even the 2.4 m field is tight. Using stage 2's
-numbers, a full-amplitude forward step needs more room than it looks.
+The workshop is shorter than the runbook assumes, and even the 2.4 m field is tight. A full-amplitude
+forward step needs more room than it looks.
 
-With `v_ss = 5.60 m/s`, `tau_a = 0.058 s`, `tau_d = 0.078 s`, and `L_d = 0.060 s`, the distance for a
+Stage 2's `v_ss = 5.60 m/s` and `tau_a = 0.058 s` predicted 1.5 m in under 0.3 s. On the floor it takes
+about 2 s, so both were roughly 6x off. The numbers below read that observation back as a first-order
+model, and E8 and E9 replace them with a fit.
+
+With `v_ss = 0.85 m/s`, `tau_a = 0.30 s`, `tau_d = 0.40 s`, and `L_d = 0.060 s`, the distance for a
 step held `T` seconds past the edge and then commanded to zero is:
 
 ```
@@ -137,10 +165,15 @@ d_decay = v_ss * tau_d         first-order coast to rest
 
 | Dwell | Settling | d_rise | d_delay | d_decay | Total |
 |---|---|---:|---:|---:|---:|
-| `3*tau_a` = 0.174 s | 95% | 0.67 m | 0.34 m | 0.44 m | **1.44 m** |
-| `5*tau_a` = 0.290 s | 99% | 1.30 m | 0.34 m | 0.44 m | **2.07 m** |
+| 2.0 s (the floor) | 99.9% | 1.45 m | 0.05 m | 0.34 m | **1.84 m** |
+| 3.0 s | 100% | 2.30 m | 0.05 m | 0.34 m | **2.69 m** |
+| 4.0 s | 100% | 3.15 m | 0.05 m | 0.34 m | **3.54 m** |
 
-Everything scales linearly with commanded amplitude `a`, since `v_ss = a * 5.60`. So the tool solves
+**Two seconds is a floor, not a knob.** A hold shorter than the rise has no plateau to read a max speed
+off, and stage 2's fifth-of-a-second holds are exactly why its forward accel constant never fit. The
+dwell ladder stops at 2 s; below that the tool shuttles and then scales amplitude instead.
+
+Everything scales linearly with commanded amplitude `a`, since `v_ss = a * 0.85`. So the tool solves
 for the amplitude that fits the space:
 
 ```
@@ -242,7 +275,7 @@ needed to break away, and `tau_a` is surface dependent whenever the robot is tra
 than motor limited. Fitting those on plywood and deploying on the arena floor bakes in a bias that no
 amount of careful measurement removes.
 
-This is the same shape of problem as the encoder wheel in E12, and it takes the same fix: measure the
+This is the same shape of problem as the encoder wheel, and it takes the same fix: measure the
 delta. Carry one short capped step through to the arena session in E21 and repeat it on the real floor,
 then compare `tau_d` and the deadzones against the board fit. If they agree inside the run-to-run
 spread, the board was free. If they do not, every board-fit parameter needs the correction.
@@ -264,12 +297,12 @@ is a pure measurement reference. Do E4 that way regardless of how much floor is 
 
 ### Knobs, in the order worth spending
 
-1. **Shorten the dwell to `3*tau_a`.** Costs 4 percentage points of settling and saves 0.63 m. A
-   prediction-error fit recovers `tau` from the shape of the rise and does not need full settling, so
-   this is nearly free.
+1. **Shorten the dwell, down to 2 s.** From 4 s to the floor saves 1.70 m and still clears the rise
+   with six time constants to spare. Below 2 s there is no plateau left to shorten, so the ladder
+   stops there rather than trading away the thing the run exists to measure.
 2. **Shuttle instead of one-way.** A forward step followed by a reverse step retraces the same ground.
-   Reverse is slower (4.84 m/s), so net drift is about 0.2 m per cycle rather than 1.44 m, and E8 needs
-   both directions anyway. Same space, half the runs.
+   Reverse is slower (0.73 m/s), so net drift is about 0.25 m per cycle rather than 1.84 m, and E8
+   needs both directions anyway. Same space, half the runs.
 3. **Scale amplitude.** `tau_a` and `tau_d` are amplitude-independent in a first-order model, so they
    stay identifiable at reduced amplitude. What you lose is the top of the range, where saturation and
    any real nonlinearity live. Measure `max_linear_speed` with one sprint in the field and do the rest
@@ -302,30 +335,32 @@ partly circular, since the model is what we are fitting, so the safety integral 
 parameters (highest `v_ss`, longest `tau_d`, longest `L_d`) while planning uses best estimates. The
 firmware `POS` follow-up below turns this into a closed loop.
 
-## Automatic encoder detection
+## Automatic encoder check
 
-The runbook's abort gate is "frozen encoder count on a linear run". The tool checks this with no user
-interaction, using a property of the firmware: `startRecording()` sets `g_encCount = 0` under
-`noInterrupts()`, and nothing resets it afterward. So after button B, the free-running count equals the
-net quadrature counts accumulated during that run.
+The encoder stays mounted for every experiment: detaching it changed the angular response too little to
+pay for the swap, and a remount changes the effective wheel radius, which biases everything fit after
+it. So there is no encoder state to confirm, and one abort gate is left: "frozen count on a run that
+moved".
 
-A half-second `STREAM` immediately after the run stops reads it:
+The tool checks it with no user interaction, using a property of the firmware: `startRecording()` sets
+`g_encCount = 0` under `noInterrupts()`, and nothing resets it afterward. So after button B, the
+free-running count equals the net quadrature counts accumulated during that run. A half-second
+`STREAM` immediately after the stop reads it:
 
-| Experiment requires | Count after run | Verdict |
+| Run | Count after run | Verdict |
 |---|---|---|
-| attached | `abs(count) > 100` | pass |
-| attached | `abs(count) <= 100` | discard, encoder frozen or unplugged |
-| detached | `count == 0` | pass |
-| detached | `count != 0` | discard, encoder was left plugged in |
+| goes down the board | `abs(count) > 100` | pass |
+| goes down the board | `abs(count) <= 100` | discard, connector is off |
+| pivots in place | any | reported, not judged |
 
-This works for spin-in-place runs with the encoder attached (E5, E10, E13), because the wheel sits off
-the yaw axis and the lever arm turns it. The count moving is exactly the signal `r_enc_perp` is fit
-from.
+A pivot does turn the wheel, since it sits off the yaw axis and the lever arm drags it, and that motion
+is exactly the signal `r_enc_perp` is fit from. But how much it counts depends on the lever arm, so a
+spin run reports its count without a threshold on it.
 
 The diagnostics screen distinguishes a disconnected encoder by its pin levels (`AB 11`, both pulled
 up), but `STREAM` rows carry only the count, not `AB`. Adding `AB` to the stream row is a three-line
-firmware change and would let the tool check encoder state *before* a run instead of after. Listed
-under [Firmware follow-ups](#firmware-follow-ups), not done here.
+firmware change and would catch a dead connector *before* a run instead of after. Listed under
+[Firmware follow-ups](#firmware-follow-ups), not done here.
 
 ## Clock probe
 
@@ -376,7 +411,7 @@ since knowing which runs were thrown away and why is part of the record.
 
 ## Screens
 
-**Run.** The active experiment: encoder badge, duration, what it produces, condensed procedure. Arm
+**Run.** The active experiment: duration, what it produces, condensed procedure. Arm
 button, then a coach that walks the run card: hold still 10 s with a countdown and a beep, excitation,
 hold still 10 s, press B. Gate results appear the moment the stop line arrives.
 
@@ -385,7 +420,7 @@ hold still 10 s, press B. Gate results appear the moment the stop line arrives.
 yaw rate `dot(gyro, u)`, which is how E0 derives the yaw axis. Covers E0's hand-rotation wiring check
 and the attach procedure's roll-the-robot check.
 
-**Session.** Run table, progress against the 23 experiments, remaining time estimate, export.
+**Session.** Run table, progress against the 22 experiments, remaining time estimate, export.
 
 **Console.** Collapsible raw serial for `LIST`, `DEL`, `BOOTSEL`, and debugging.
 
@@ -400,7 +435,7 @@ may switch to before E11 and E22.
 3. Set usable run length and usable width. Both are live controls, so change them whenever the space
    changes. The tool says which one binds.
 4. Run the trim pass once per surface and pack. Low speed, not recorded, closed loop on live gyro.
-5. Select the experiment. Check the encoder badge against what is physically plugged in. The tool shows
+5. Select the experiment. The tool shows
    the amplitude it will use and the predicted distance, and says so plainly if the experiment does not
    fit and needs the field.
 6. Click **Arm**. The pre-run clock probe fires.
@@ -419,7 +454,7 @@ buttons are the only start and stop that cannot be lost to a USB problem.
 Session { id, startedAt, operator, robot, imu: {gyroDpsPerLsb, accelGPerLsb}, notes, runs: [Run] }
 
 Run {
-  id, experimentId, variant,            // variant: "attached" | "detached" for both-encoder experiments
+  id, experimentId, variant,            // variant: which recorded run of the experiment, e.g. "fwd"/"rev"
   logFile, samples, dropped,
   tStartHost, tStopHost, durationS,
   holdPre: {start, end}, holdPost: {start, end},
@@ -465,7 +500,7 @@ firmware/velocity_jig/web_tool/
   excitation.js    protocol generators: step, staircase, PRBS, chirp, coupling grid, shuttle
   plant.js         current parameter estimates, distance and lateral integrals, amplitude solver
   trim.js          closed-loop straight-line trim against live STREAM gyro
-  experiments.js   the 23 experiments as data: encoder state, duration, produces, gates, protocol
+  experiments.js   the 22 experiments as data: duration, produces, gates, protocol
   session.js       run records, gate evaluation, persistence, JSON and Markdown export
   app.js           UI wiring, run coach, space budget panel
   mock.js          simulated jig and transmitter for testing without hardware
@@ -497,8 +532,8 @@ None is required. Each removes a manual step or a safety compromise, and none is
    distance feedback, so the excitation reverses on measured position instead of predicted position.
    This is the highest-value change of the three, and it is what makes a short workshop safe rather
    than merely calculated.
-2. **Add `AB` pin levels to the `STREAM` row.** Lets the tool verify encoder state before a run rather
-   than inferring it after, and turns a discarded run into a blocked one.
+2. **Add `AB` pin levels to the `STREAM` row.** Lets the tool catch a dead encoder connector before a
+   run rather than inferring it after, and turns a discarded run into a blocked one.
 3. **Per-axis saturation counters in the log header.** E0 asks for a saturation count; today the tool
    can only flag it live in diagnostics, and offline analysis has to scan the whole file.
 

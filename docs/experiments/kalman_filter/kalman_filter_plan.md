@@ -336,11 +336,11 @@ in 1.5.
 | `polarity` | 1 m forward, 90 deg left | 5 s | sign conventions, abort gate |
 | `bias_pre` / `bias_post` | stationary | 30 s each | gyro bias, in-run drift bound |
 | `lever` | pure spins at 4 rates | 40 s | `r_imu`, `r_enc_perp` |
-| `dz_lin` | staircase 0.01 to 0.10 in 0.01, 1.5 s hold, both signs | 30 s | linear deadzone, unfloored |
+| `dz_lin` | staircase 0.01 to 0.10 in 0.01, 2 s hold, both signs | 30 s | linear deadzone, unfloored |
 | `dz_ang` | same staircase on angular | 30 s | angular deadzone |
-| `step_lin` | steps to 0.25/0.5/0.75/1.0, both signs, 1.5 s hold, return to zero between | 60 s | `k_fwd`, `k_rev`, `tau_lin_a`, `tau_lin_d` |
+| `step_lin` | steps to 0.25/0.5/0.75/1.0, both signs, 2 s hold, return to zero between | 60 s | `k_fwd`, `k_rev`, `tau_lin_a`, `tau_lin_d` |
 | `step_ang` | same on angular | 60 s | `k_ang`, `tau_ang_a`, `tau_ang_d` |
-| `grid` | 4x4 grid of held (u_lin, u_ang) combinations, 1.5 s each | 40 s | `c_sb`, `c_ad` |
+| `grid` | 4x4 grid of held (u_lin, u_ang) combinations, 2 s each | 40 s | `c_sb`, `c_ad` |
 | `prbs_lin` | PRBS, amplitude 0.6, bit period 60 ms | 30 s | broadband validation set |
 | `prbs_ang` | PRBS on angular, same | 30 s | broadband validation set |
 | `prbs_both` | independent PRBS on both channels | 30 s | coupling validation set |

@@ -10,8 +10,6 @@
 //
 // Wire protocol matches playground/calibration/calib_lib/drive_protocol.py:
 // ASCII lines at 115200, `trainer <channel> <value>` with value in [-500, 500].
-// No deadzone pre-compensation. E7 and E10 exist to measure the deadzone, so
-// compensating for it here would erase the thing being measured.
 //
 // The human driver's SF arm switch is the failsafe. Everything below reduces
 // how often it has to be used; none of it replaces it.
@@ -20,13 +18,60 @@ import { WebSerialTransport } from './jig.js';
 
 export const OPENTX_FILTERS = [{ usbVendorId: 0x0483, usbProductId: 0x5740 }];
 export const TRAINER_MAX = 500;
-export const LINEAR_CHANNEL = 0;
-export const ANGULAR_CHANNEL = 1;
+
+// mrs_buff_mk3 runs TankDriveProcessor (config/_common.toml), so the two trainer
+// channels carry the left and right wheel, not linear and angular. Driving
+// straight forward means putting 1 on both. Excitations are written in body
+// axes, so the mix below converts, and it matches src/transmitter/drive_mixing.cpp
+// exactly: saturate, reverse angular, then left = lin + ang, right = lin - ang.
+//
+// Matching the deployed path matters more than it looks. The plant this fits is
+// the plant the controller drives through, so any transform sitting between a
+// command and the motors has to sit in the same place here or the fit describes
+// a vehicle nobody drives.
+//
+// One transform is deliberately left out: the per-wheel lifted deadzone from the
+// same config. E7 and E10 exist to measure the deadzone, and pre-compensating
+// for it would erase the thing being measured.
+export const LEFT_CHANNEL = 0;
+export const RIGHT_CHANNEL = 1;
+export const REVERSE_ANGULAR = true; // reverse_angular_channel in config/_common.toml
+export const SATURATION_LIMIT = 1.0; // velocity_saturation_limit, |linear| + |angular| <= 1
+
+const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+
+/**
+ * Angular gets priority and linear fills the remaining headroom, per
+ * saturate_velocity(). A commanded pair that exceeds the budget comes back
+ * reduced, and the reduced value is what gets logged: the fit needs the command
+ * the robot saw, not the one the program asked for.
+ */
+export function saturate(linear, angular, limit = SATURATION_LIMIT) {
+    const ang = clamp(angular, -1, 1);
+    if (limit > 0) {
+        const headroom = Math.max(0, clamp(limit, 0, 1) - Math.abs(ang));
+        return { linear: clamp(linear, -headroom, headroom), angular: ang };
+    }
+    return { linear: clamp(linear, -1, 1), angular: ang };
+}
+
+/** Body command to wheel commands. Returns the saturated body pair alongside. */
+export function mixToWheels(linear, angular, limit = SATURATION_LIMIT) {
+    const body = saturate(linear, angular, limit);
+    const ang = REVERSE_ANGULAR ? -body.angular : body.angular;
+    return {
+        left: body.linear + ang,
+        right: body.linear - ang,
+        linear: body.linear,
+        angular: body.angular,
+    };
+}
+
 export const TICK_HZ = 50;
 export const WATCHDOG_MS = 100;
 
 export function toTrainer(x) {
-    return Math.round(Math.max(-1, Math.min(1, x)) * TRAINER_MAX);
+    return Math.round(clamp(x, -1, 1) * TRAINER_MAX);
 }
 
 export class TrainerLink extends EventTarget {
@@ -138,16 +183,17 @@ export class TrainerLink extends EventTarget {
 
     async _writeRaw(linear, angular) {
         if (!this.connected) return null;
-        const lin = toTrainer(linear);
-        const ang = toTrainer(angular);
-        const msg = `trainer ${LINEAR_CHANNEL} ${lin}\r\ntrainer ${ANGULAR_CHANNEL} ${ang}\r\n`;
+        const wheels = mixToWheels(linear, angular);
+        const left = toTrainer(wheels.left);
+        const right = toTrainer(wheels.right);
+        const msg = `trainer ${LEFT_CHANNEL} ${left}\r\ntrainer ${RIGHT_CHANNEL} ${right}\r\n`;
         try {
             await this.t.write(new TextEncoder().encode(msg));
         } catch {
             await this.disarm('write failed');
             return null;
         }
-        return { lin, ang };
+        return { left, right, linear: wheels.linear, angular: wheels.angular };
     }
 
     _tick() {
@@ -165,11 +211,16 @@ export class TrainerLink extends EventTarget {
             if (raw) {
                 this._emit('command', {
                     tHost: now,
-                    linear: this.linear,
-                    angular,
+                    // What the robot saw, after the saturation budget. The
+                    // requested pair is kept alongside so a run where the two
+                    // differ is visible in the log rather than inferred.
+                    linear: raw.linear,
+                    angular: raw.angular,
+                    linearRequested: this.linear,
+                    angularRequested: angular,
                     trim: this.trim,
-                    trainerLin: raw.lin,
-                    trainerAng: raw.ang,
+                    trainerLeft: raw.left,
+                    trainerRight: raw.right,
                 });
             }
         });

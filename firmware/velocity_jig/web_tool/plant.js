@@ -9,15 +9,39 @@
 // fit. It sizes excitations to the space available.
 
 export const PLANT = {
-    vSsFwd: 5.6, // m/s at command 1.0
-    vSsRev: 4.84,
+    // Floor observation, 2026-08-16: full throttle for 2 s covers about 1.5 m.
+    // Stage 2 put v_ss at 5.60 m/s and tau_a at 0.058 s, which predicts 1.5 m in
+    // under 0.3 s. Both were camera-derived and roughly 6x high. The numbers
+    // below are the observation read back as a first-order model; E8 and E9
+    // replace them with a fit.
+    vSsFwd: 0.85, // m/s at command 1.0
+    vSsRev: 0.73,
     wSs: 61.5, // rad/s, camera-derived and probably inflated (E11 checks)
-    tauAccel: 0.058, // s
-    tauDecel: 0.078, // s
+    tauAccel: 0.3, // s
+    tauDecel: 0.4, // s
     delayS: 0.06, // command to motion
     trackWidthM: 0.1, // beetleweight
     encoderRateLimit: 8.0, // rad/s, provisional until E5 measures it
 };
+
+/**
+ * Shortest throttle hold any driven experiment is allowed to use.
+ *
+ * A hold has to outlast the rise before the plateau it is named after exists.
+ * At tau_a = 0.3 s, 2 s is over six time constants, and it is also the duration
+ * the floor observation above was taken at. Nothing shortens a hold past this:
+ * the space fitter shuttles and then scales amplitude instead.
+ */
+export const MIN_HOLD_S = 2.0;
+
+/**
+ * Shortest gap between repetitions, in seconds.
+ *
+ * A step that starts from a moving robot fits as a different step. Four decel
+ * time constants plus the transport delay leaves 1.8% of peak speed, and the
+ * floor is here because a longer hold reaches a higher peak to shed.
+ */
+export const MIN_COAST_S = 1.5;
 
 /**
  * Floor a single step consumes, from command edge to standstill.
@@ -63,10 +87,19 @@ export function solveAmplitude(budgetM, holdS, reverse = false, p = PLANT) {
     return Math.min(1, budgetM / unit);
 }
 
-/** Shortest hold, in tau, that still fits at full amplitude. Null if none does. */
-export function solveHoldTaus(budgetM, reverse = false, p = PLANT) {
-    for (const n of [5, 4, 3, 2.5, 2]) {
-        if (stepDistance(1.0, n * p.tauAccel, reverse, p).total <= budgetM) return n;
+/**
+ * Holds the space fitter walks, longest first, all at or above the floor.
+ *
+ * Seconds, not time constants. Dwell used to be expressed in tau because tau
+ * was the thing a 0.058 s model made scarce; at 0.3 s the useful holds are all
+ * on the far side of the plateau and the tau count stopped carrying meaning.
+ */
+export const HOLD_LADDER_S = [4.0, 3.0, 2.5, MIN_HOLD_S];
+
+/** Longest hold on the ladder that still fits at full amplitude. Null if none does. */
+export function solveHoldS(budgetM, reverse = false, p = PLANT) {
+    for (const h of HOLD_LADDER_S) {
+        if (stepDistance(1.0, h, reverse, p).total <= budgetM) return h;
     }
     return null;
 }

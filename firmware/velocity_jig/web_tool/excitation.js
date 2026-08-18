@@ -12,7 +12,10 @@
 //   a short board, because it costs nothing in the fit: a reverse step is a
 //   step, and E8 wants both directions anyway.
 
-import { PLANT } from './plant.js';
+import { PLANT, MIN_HOLD_S, MIN_COAST_S } from './plant.js';
+
+/** Every generator clamps its hold here, so no caller can ask for a stub run. */
+const hold = (s) => Math.max(MIN_HOLD_S, s ?? MIN_HOLD_S);
 
 function piecewise(segments, label = '') {
     const durationS = segments.length ? segments[segments.length - 1].t1 : 0;
@@ -37,7 +40,7 @@ function push(segs, dur, linear, angular, label) {
 
 /** Settle time to let a coast finish before the next repetition. */
 function coastTime(p = PLANT) {
-    return p.delayS + 4 * p.tauDecel + 0.3;
+    return Math.max(MIN_COAST_S, p.delayS + 4 * p.tauDecel + 0.3);
 }
 
 /**
@@ -70,15 +73,16 @@ export function staircase({
     from = 0.01,
     to = 0.1,
     step = 0.01,
-    holdS = 1.5,
+    holdS = MIN_HOLD_S,
     sign = 1,
 }) {
     const segs = [];
+    const h = hold(holdS);
     for (let a = from; a <= to + 1e-9; a += step) {
         const v = Math.round(a * 1000) / 1000;
         push(
             segs,
-            holdS,
+            h,
             channel === 'linear' ? sign * v : 0,
             channel === 'angular' ? sign * v : 0,
             `${channel} ${(sign * v).toFixed(2)}`,
@@ -91,26 +95,28 @@ export function staircase({
 /**
  * E8, E11. Amplitude steps with a full coast between each.
  *
- * `holdS` is the knob that trades floor for fit quality. Three time constants
- * reaches 95% of steady state and is enough to fit tau; five reaches 99.3% and
- * is enough to read max speed straight off the plateau. Under three, the
- * plateau is not a plateau and only the model can tell you the max speed.
+ * `holdS` is the knob that trades floor for fit quality, and MIN_HOLD_S is where
+ * it stops. Two seconds is over six time constants, which reaches the plateau
+ * with room to spare, so max speed reads straight off the trace instead of
+ * coming out of a fitted model. Shorter holds are what stage 2 ran, and stage 2
+ * could not fit the forward accel constant.
  */
 export function steps({
     channel = 'linear',
     amplitudes = [0.25, 0.5, 0.75, 1.0],
-    holdS = 1.5,
+    holdS = MIN_HOLD_S,
     sign = 1,
     shuttle = false,
     scale = 1.0,
 }) {
     const segs = [];
+    const h = hold(holdS);
     let dir = sign;
     for (const a of amplitudes) {
         const v = a * scale * dir;
         push(
             segs,
-            holdS,
+            h,
             channel === 'linear' ? v : 0,
             channel === 'angular' ? v : 0,
             `${channel} ${v.toFixed(2)}`,
@@ -122,11 +128,18 @@ export function steps({
 }
 
 /** E9. Dedicated coast tails: hold, then drop to zero instantly. */
-export function coastTails({ amplitude = 0.6, holdS = 2.0, reps = 10, sign = 1, shuttle = false }) {
+export function coastTails({
+    amplitude = 0.6,
+    holdS = MIN_HOLD_S,
+    reps = 10,
+    sign = 1,
+    shuttle = false,
+}) {
     const segs = [];
+    const h = hold(holdS);
     let dir = sign;
     for (let i = 0; i < reps; i++) {
-        push(segs, holdS, amplitude * dir, 0, `hold ${(amplitude * dir).toFixed(2)}`);
+        push(segs, h, amplitude * dir, 0, `hold ${(amplitude * dir).toFixed(2)}`);
         push(segs, coastTime() + 0.5, 0, 0, 'coast to standstill');
         if (shuttle) dir = -dir;
     }
@@ -139,8 +152,8 @@ export function spins({ amplitudes = [0.15, 0.25, 0.35, 0.45], holdS = 4.0, sign
     // E5 finds the rate limit, so it has to approach it, but the runbook caps
     // the top rate and the wheel is scrubbing the whole time.
     for (const a of capAmplitudes(amplitudes, angularCap)) {
-        push(segs, holdS, 0, a * sign, `spin ${(a * sign).toFixed(2)}`);
-        push(segs, 1.5, 0, 0, 'settle');
+        push(segs, hold(holdS), 0, a * sign, `spin ${(a * sign).toFixed(2)}`);
+        push(segs, MIN_COAST_S, 0, 0, 'settle');
     }
     return piecewise(segs, 'lever-arm spins');
 }
@@ -154,12 +167,13 @@ export function spins({ amplitudes = [0.15, 0.25, 0.35, 0.45], holdS = 4.0, sign
 export function couplingGrid({
     linear = [0.25, 0.5, 0.75, 1.0],
     angular = [0, 0.1, 0.2, 0.3],
-    holdS = 1.5,
+    holdS = MIN_HOLD_S,
     shuttle = false,
     scale = 1.0,
     angularCap = 1.0,
 }) {
     const segs = [];
+    const h = hold(holdS);
     let dir = 1;
     const cells = [];
     const angScaled = capAmplitudes(angular, angularCap);
@@ -167,7 +181,7 @@ export function couplingGrid({
     for (const [l, a] of cells) {
         const lin = l * scale * dir;
         const ang = a;
-        push(segs, holdS, lin, ang, `lin ${lin.toFixed(2)} ang ${ang.toFixed(2)}`);
+        push(segs, h, lin, ang, `lin ${lin.toFixed(2)} ang ${ang.toFixed(2)}`);
         push(segs, coastTime(), 0, 0, 'coast');
         if (shuttle) dir = -dir;
     }
@@ -309,6 +323,30 @@ export function predictFootprint(program, p = PLANT, dt = 0.005) {
         peakYawRate: peakYaw,
         headingTurns: heading / (2 * Math.PI),
     };
+}
+
+/**
+ * Peak combined demand a program asks for, and where it asks for it.
+ *
+ * The transmitter spends a single budget across both axes (`|linear| + |angular|
+ * <= 1`, angular first), so a cell that asks for more comes back with its linear
+ * term cut. That is what the robot does in a match and the command log records
+ * the reduced value, but a grid whose top row quietly loses a third of its
+ * linear command is a grid that measured something else. Worth saying before the
+ * run, not after.
+ */
+export function peakDemand(program, dt = 0.01) {
+    let peak = 0;
+    let label = '';
+    for (let t = 0; t < program.durationS; t += dt) {
+        const c = program.at(t);
+        const d = Math.abs(c.linear ?? 0) + Math.abs(c.angular ?? 0);
+        if (d > peak) {
+            peak = d;
+            label = c.label ?? '';
+        }
+    }
+    return { peak, label, saturates: peak > 1 + 1e-9 };
 }
 
 /**

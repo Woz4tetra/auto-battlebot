@@ -9,13 +9,15 @@ import { JigLink, WebSerialTransport } from './jig.js';
 import { MockJigTransport, MockTrainerTransport } from './mock.js';
 import { TrainerLink, play } from './trainer.js';
 import { calibrateStill, runTrim, detectRub } from './trim.js';
-import { predictFootprint, fitToBudget } from './excitation.js';
+import { predictFootprint, fitToBudget, peakDemand } from './excitation.js';
 import {
     PLANT,
     lateralExcursion,
     mismatchForHalfWidth,
     usableLength,
-    solveHoldTaus,
+    solveHoldS,
+    HOLD_LADDER_S,
+    MIN_HOLD_S,
     stepDistance,
     encoderPasses,
 } from './plant.js';
@@ -24,9 +26,7 @@ import {
     BLOCKS,
     getExperiment,
     getVariant,
-    encoderStateFor,
     buildProgram,
-    ENCODER_SWAP,
 } from './experiments.js';
 import {
     newSession,
@@ -345,9 +345,10 @@ function readForm() {
 }
 
 /**
- * Space panel. The knee is around a 10 ft board: that is where a full-amplitude
- * step gets five time constants of dwell, which is enough to read max speed off
- * the plateau instead of inferring it from the fitted model.
+ * Space panel. The floor a full-amplitude step needs is the throttle hold plus
+ * the stopping distance: 1.84 m at the 2 s minimum dwell, 2.69 m at 3 s. So a
+ * 2.4 m board is the shortest that runs E8 at all, and a 10 ft board is where
+ * the dwell stops being the binding constraint.
  */
 function renderSpace() {
     const s = state.session;
@@ -356,18 +357,18 @@ function renderSpace() {
     const fmt = (x, n = 2) => x.toFixed(n);
 
     rows.push(['Usable straight', `${fmt(budget)} m`]);
-    for (const taus of [3, 5]) {
-        const d = stepDistance(1.0, taus * PLANT.tauAccel);
+    for (const holdS of [MIN_HOLD_S, 3.0]) {
+        const d = stepDistance(1.0, holdS);
         const fits = d.total <= budget;
         rows.push([
-            `Full-amplitude step, ${taus}&tau; dwell`,
+            `Full-amplitude step, ${fmt(holdS, 1)} s dwell`,
             `<span class="${fits ? '' : 'stop'}">${fmt(d.total)} m ${fits ? 'fits' : 'over'}</span>`,
         ]);
     }
-    const best = solveHoldTaus(budget);
+    const best = solveHoldS(budget);
     rows.push([
         'Longest dwell that fits at 1.0',
-        best ? `${best}&tau; (${fmt(best * PLANT.tauAccel * 1000, 0)} ms)` : '<span class="stop">none</span>',
+        best ? `${fmt(best, 1)} s` : '<span class="stop">none</span>',
     ]);
 
     const excursion = lateralExcursion(budget, 0.02, PLANT.trackWidthM);
@@ -404,9 +405,10 @@ function angularCap(session) {
 /**
  * Fit a run to the space available.
  *
- * Order matters and follows PLAN.md: shorten the dwell first, then shuttle,
- * then scale amplitude. Amplitude is last because it costs signal-to-noise and
- * hides any nonlinearity that only appears near full command.
+ * Order matters and follows PLAN.md: shorten the dwell first, but only down to
+ * MIN_HOLD_S, then shuttle, then scale amplitude. Amplitude is last because it
+ * costs signal-to-noise and hides any nonlinearity that only appears near full
+ * command.
  */
 function planRun(exp, variant, session) {
     const budget = session.space.usableM;
@@ -421,16 +423,17 @@ function planRun(exp, variant, session) {
     const dwellTunable = ['E8', 'E9', 'E11', 'E13', 'E20'].includes(exp.id);
     const notes = [];
     const attempts = [];
-    const dwells = dwellTunable ? [5, 4, 3] : [null];
-    for (const taus of dwells) {
+    const dwells = dwellTunable ? HOLD_LADDER_S : [null];
+    for (const holdS of dwells) {
         for (const shuttle of [false, true]) {
             const cfg = { ...base, shuttle };
-            if (taus) cfg.holdS = taus * PLANT.tauAccel;
+            if (holdS) cfg.holdS = holdS;
             const program = buildProgram(exp, variant, cfg);
             const footprint = predictFootprint(program);
-            attempts.push({ cfg, program, footprint, taus, shuttle });
+            attempts.push({ cfg, program, footprint, holdS, shuttle });
             if (footprint.spanM <= budget) {
-                if (taus && taus < 5) notes.push(`Dwell shortened to ${taus} time constants to fit.`);
+                if (holdS && holdS < HOLD_LADDER_S[0])
+                    notes.push(`Dwell shortened to ${holdS.toFixed(1)} s to fit.`);
                 if (shuttle) notes.push('Shuttling: successive repetitions alternate direction.');
                 return { ...attempts[attempts.length - 1], cfg, program, footprint, notes };
             }
@@ -442,7 +445,10 @@ function planRun(exp, variant, session) {
         (scale) => buildProgram(exp, variant, { ...last.cfg, scale }),
         budget,
     );
-    notes.push(`Dwell already at minimum, so amplitude scaled to ${(fitted.scale * 100).toFixed(0)}%.`);
+    notes.push(
+        `Dwell already at the ${MIN_HOLD_S.toFixed(1)} s floor, so amplitude scaled to ` +
+            `${(fitted.scale * 100).toFixed(0)}%.`,
+    );
     notes.push('Scaled amplitude weakens the fit and can hide nonlinearity near full command.');
     if (!fitted.fits) notes.push('Still does not fit. Shorten the program or find more floor.');
     return {
@@ -450,7 +456,7 @@ function planRun(exp, variant, session) {
         program: fitted.program,
         footprint: fitted.footprint,
         notes,
-        taus: last.taus,
+        holdS: last.holdS,
         shuttle: last.shuttle,
     };
 }
@@ -461,10 +467,22 @@ function renderPlan() {
     const s = state.session;
     state.plan = planRun(exp, variant, s);
 
+    // The transmitter spends one budget across both axes, so a cell that asks
+    // for more than that gets its linear term cut before the wheels see it.
+    if (state.plan.program) {
+        const demand = peakDemand(state.plan.program);
+        if (demand.saturates) {
+            state.plan.notes.push(
+                `Peak demand ${demand.peak.toFixed(2)} exceeds the transmitter budget of 1.00` +
+                    `${demand.label ? ` at "${demand.label}"` : ''}. Angular keeps its value and ` +
+                    `linear is cut to fit. The command log records what was sent, not what was asked.`,
+            );
+        }
+    }
+
     $('runTitle').textContent = `${exp.id}. ${exp.name}`;
-    const enc = encoderStateFor(exp, variant);
     $('runMeta').textContent =
-        `${variant.label} · encoder ${enc} · ~${exp.durationMin} min · produces ${exp.produces ?? 'n/a'}`;
+        `${variant.label} · ~${exp.durationMin} min · produces ${exp.produces ?? 'n/a'}`;
 
     const fp = state.plan.footprint;
     const rows = [];
@@ -477,7 +495,7 @@ function renderPlan() {
         rows.push(['Peak speed', `${fp.peakSpeed.toFixed(2)} m/s`]);
         if (fp.peakYawRate > 0.01) {
             const limit = s.encoderRateLimit ?? PLANT.encoderRateLimit;
-            const scrub = enc === 'attached' && fp.peakYawRate > limit;
+            const scrub = fp.peakYawRate > limit;
             const clip = (s.imu.gyroRangeDps * Math.PI) / 180;
             rows.push([
                 'Peak yaw rate',
@@ -494,7 +512,7 @@ function renderPlan() {
             }
             if (scrub) {
                 state.plan.notes.push(
-                    `Peak yaw exceeds the E5 rate limit of ${limit} rad/s with the encoder wheel attached. The wheel scrubs sideways the whole time.`,
+                    `Peak yaw exceeds the E5 rate limit of ${limit} rad/s. The encoder wheel scrubs sideways the whole time.`,
                 );
             }
         }
@@ -563,10 +581,7 @@ function renderBattery() {
             const sel =
                 state.selected.expId === exp.id && state.selected.variantId === v.id ? ' active' : '';
             b.className = `varBtn${passes ? ' done' : ''}${sel}`;
-            const enc = encoderStateFor(exp, v);
-            b.innerHTML = `<span>${v.label}</span><span class="tag ${
-                enc === 'detached' ? 'det' : ''
-            }">${enc === 'either' ? '' : enc[0].toUpperCase()}${passes ? ` ✓${passes}` : ''}</span>`;
+            b.innerHTML = `<span>${v.label}</span><span class="tag">${passes ? `✓${passes}` : ''}</span>`;
             b.onclick = () => {
                 state.selected = { expId: exp.id, variantId: v.id };
                 $('runner').hidden = false;
@@ -1007,7 +1022,6 @@ async function startRun() {
     const exp = getExperiment(state.selected.expId);
     const variant = getVariant(exp, state.selected.variantId);
     const plan = state.plan;
-    const enc = encoderStateFor(exp, variant);
     // Checked once here rather than at each use. Every experiment needs the jig
     // for at least a clock probe, and starting without it would fail several
     // steps in, after the operator has already held still for ten seconds.
@@ -1085,20 +1099,7 @@ async function startRun() {
         return;
     }
 
-    // 1. encoder state
-    add(async () => {
-        const detail =
-            enc === 'detached'
-                ? ENCODER_SWAP.detach.join(' ')
-                : enc === 'attached'
-                  ? ENCODER_SWAP.reattach.join(' ')
-                  : 'Either state is acceptable for this experiment.';
-        showStep(null, steps.length, `Encoder ${enc}`, detail);
-        setButtons({ go: 'Confirmed' });
-        await waitAdvance();
-    });
-
-    // 3. clock probe, pre
+    // 1. clock probe, pre
     add(async () => {
         showStep(null, steps.length, 'Clock probe, pre', '200 round trips against the jig clock.');
         setButtons({ go: null });
@@ -1111,7 +1112,7 @@ async function startRun() {
         );
     });
 
-    // 4. optional trim, for open-loop linear runs on a narrow board
+    // 2. optional trim, for open-loop linear runs on a narrow board
     const needsTrim =
         exp.driven &&
         plan.footprint &&
@@ -1152,7 +1153,7 @@ async function startRun() {
         });
     }
 
-    // 5. start recording
+    // 3. start recording
     add(async () => {
         showStep(null, steps.length, 'Press A on the jig', 'The tool waits for the recording line.');
         setButtons({ go: null });
@@ -1161,7 +1162,7 @@ async function startRun() {
         run.tStartHost = evt.tHost;
     });
 
-    // 6. still hold, pre
+    // 4. still hold, pre
     if (exp.holds !== false) {
         add(async () => {
             setButtons({ go: null });
@@ -1192,7 +1193,7 @@ async function startRun() {
         });
     }
 
-    // 7. excitation
+    // 5. excitation
     add(async () => {
         if (!plan.program) {
             const passes = exp.planPasses?.(state.session.space.courseM);
@@ -1235,7 +1236,7 @@ async function startRun() {
         run.commands = res.commands;
     });
 
-    // 8. still hold, post
+    // 6. still hold, post
     if (exp.holds !== false) {
         add(async () => {
             setButtons({ go: null });
@@ -1265,7 +1266,7 @@ async function startRun() {
         });
     }
 
-    // 9. stop recording
+    // 7. stop recording
     add(async () => {
         showStep(null, steps.length, 'Press B on the jig', 'The tool waits for the stop summary.');
         setButtons({ go: null });
@@ -1276,7 +1277,7 @@ async function startRun() {
         run.durationS = (run.tStopHost - run.tStartHost) / 1000;
     });
 
-    // 10. encoder state check, free because startRecording() zeroed the count
+    // 8. encoder count, free because startRecording() zeroed it
     add(async () => {
         showStep(null, steps.length, 'Encoder check', 'Reading the count the run accumulated.');
         setButtons({ go: null });
@@ -1288,7 +1289,7 @@ async function startRun() {
         }
     });
 
-    // 11. clock probe, post
+    // 9. clock probe, post
     add(async () => {
         showStep(null, steps.length, 'Clock probe, post', '200 more round trips.');
         setButtons({ go: null });
@@ -1298,7 +1299,7 @@ async function startRun() {
         run.skewPpm = JigLink.skewPpm(run.clockPre, run.clockPost);
     });
 
-    // 12. hand measurements, where the experiment calls for them
+    // 10. hand measurements, where the experiment calls for them
     if (exp.measures) {
         add(async () => {
             showStep(null, steps.length, 'Measurements', 'Tape measure values for this run.');
@@ -1458,7 +1459,7 @@ function bind() {
         else m.replug();
     };
     $('mockEncoder').onchange = (e) => {
-        if (state.mockJig) state.mockJig.encoderAttached = e.target.checked;
+        if (state.mockJig) state.mockJig.encoderConnected = e.target.checked;
     };
 }
 

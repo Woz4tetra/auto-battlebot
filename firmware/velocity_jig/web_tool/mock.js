@@ -32,8 +32,9 @@ export class MockJigTransport {
         this.skewPpm = opts.skewPpm ?? 30;
         this.replyJitterMs = opts.replyJitterMs ?? 1.2;
 
-        // Truth the encoder gate should see.
-        this.encoderAttached = opts.encoderAttached ?? true;
+        // Truth the encoder gate should see. The wheel is always mounted, so
+        // this simulates the one failure left: a connector that fell off.
+        this.encoderConnected = opts.encoderConnected ?? true;
         this.count = 0;
         this.dropped = 0;
         this.samples = 0;
@@ -172,7 +173,7 @@ export class MockJigTransport {
 
     _streamRow() {
         const { v, w } = this._motion;
-        if (this.encoderAttached) this.count += Math.round(v * 100);
+        if (this.encoderConnected) this.count += Math.round(v * 100);
         // Gravity on +z, yaw rate on +z, plus a little noise and a bias.
         const g = [
             Math.round(randn() * 20),
@@ -209,7 +210,7 @@ export class MockJigTransport {
     /** Drive the simulated robot, so encoder counts and gyro reflect commands. */
     setMotion(v, w) {
         this._motion = { v, w };
-        if (this._recording && this.encoderAttached) this.count += Math.round(v * 10);
+        if (this._recording && this.encoderConnected) this.count += Math.round(v * 10);
     }
 }
 

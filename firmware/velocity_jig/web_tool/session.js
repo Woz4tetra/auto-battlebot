@@ -10,15 +10,13 @@
 // re-running is cheap. The 2026-07-03 AprilTag session shipped parameters fit
 // from one surviving segment because bad data was not caught at capture time.
 
-import { encoderStateFor } from './experiments.js';
-
 const STORE_KEY = 'velocity_jig_session_v1';
 export const IMU_ODR_HZ = 1660;
 
 export const GATE_LIMITS = {
     clockResidualMs: 2.0,
     holdSecondsMin: 9.0,
-    encoderAttachedMinCount: 100,
+    encoderMinCount: 100,
     sampleShortfallFrac: 0.9,
     biasDriftDegPerS: 0.05, // offline only; the tool cannot see samples during a run
     skewPpmMax: 200,
@@ -37,7 +35,6 @@ export function newSession(fields = {}) {
         imu: { gyroDpsPerLsb: 0.07, accelGPerLsb: 0.000244, gyroRangeDps: 2000, accelRangeG: 8 },
         space: { boardM: 2.5, usableM: 2.0, halfWidthM: 0.25, courseM: 2.0 },
         encoderRateLimit: null, // filled from E5
-        dragVerdict: '', // filled from E12
         notes: '',
         runs: [],
     };
@@ -50,7 +47,6 @@ export function newRun(exp, variant, fields = {}) {
         experimentName: exp.name,
         variant: variant?.id ?? 'main',
         variantLabel: variant?.label ?? '',
-        encoder: encoderStateFor(exp, variant),
         logFile: null,
         samples: null,
         dropped: null,
@@ -120,22 +116,21 @@ export function evaluateGates(run, exp) {
 
     // The encoder check is free: startRecording() zeroes the count and nothing
     // resets it afterward, so a STREAM right after the stop reads the run total.
+    // The wheel stays mounted for every experiment, so the failure left to catch
+    // is a connector that fell off: a run that went down the board and counted
+    // nothing. A pivot in place counts little by design, so a circle run reports
+    // its count without judging it.
+    const expectsCount = exp.needsSpace && exp.spaceKind !== 'circle';
     if (run.encoderCountAfter === null || run.encoderCountAfter === undefined) {
-        add('encoder state', null, 'not read');
-    } else if (run.encoder === 'detached') {
+        add('encoder count', null, 'not read');
+    } else if (expectsCount) {
         add(
-            'encoder state',
-            run.encoderCountAfter === 0,
-            `count=${run.encoderCountAfter}, expected frozen at 0`,
-        );
-    } else if (run.encoder === 'attached') {
-        add(
-            'encoder state',
-            Math.abs(run.encoderCountAfter) > GATE_LIMITS.encoderAttachedMinCount,
+            'encoder count',
+            Math.abs(run.encoderCountAfter) > GATE_LIMITS.encoderMinCount,
             `count=${run.encoderCountAfter}, expected motion`,
         );
     } else {
-        add('encoder state', null, `count=${run.encoderCountAfter}, either state accepted`);
+        add('encoder count', null, `count=${run.encoderCountAfter}`);
     }
 
     if (run.samples !== null && run.durationS) {
@@ -236,21 +231,18 @@ export function toMarkdown(session) {
     L.push(
         `- E5 encoder rate limit: ${session.encoderRateLimit ?? '(not measured)'} rad/s`,
     );
-    L.push(`- E12 drag verdict: ${session.dragVerdict || '(not measured)'}`);
     L.push('');
 
     L.push('## Runs');
     L.push('');
-    L.push(
-        '| # | Log | Experiment | Enc | Samples | Drop | Clock pre | Clock post | Skew | Verdict |',
-    );
-    L.push('|---|---|---|---|---|---|---|---|---|---|');
+    L.push('| # | Log | Experiment | Samples | Drop | Clock pre | Clock post | Skew | Verdict |');
+    L.push('|---|---|---|---|---|---|---|---|---|');
     session.runs.forEach((r, i) => {
         const pre = r.clockPre ? `${r.clockPre.offsetMs.toFixed(1)} (${r.clockPre.residualMs.toFixed(2)})` : '';
         const post = r.clockPost ? `${r.clockPost.offsetMs.toFixed(1)} (${r.clockPost.residualMs.toFixed(2)})` : '';
         const name = r.variantLabel ? `${r.experimentId} ${r.variantLabel}` : r.experimentId;
         L.push(
-            `| ${i + 1} | ${r.logFile ?? ''} | ${name} | ${r.encoder[0].toUpperCase()} | ${
+            `| ${i + 1} | ${r.logFile ?? ''} | ${name} | ${
                 r.samples ?? ''
             } | ${r.dropped ?? ''} | ${pre} | ${post} | ${
                 r.skewPpm !== null && r.skewPpm !== undefined ? r.skewPpm.toFixed(0) : ''
@@ -318,7 +310,7 @@ export function toMarkdown(session) {
     L.push('These need the log files and cannot be checked at capture time:');
     L.push('');
     L.push('- Gyro bias drift between the pre and post still holds, limit 0.05 deg/s.');
-    L.push('- Saturated gyro samples on every detached spin run.');
+    L.push('- Saturated gyro samples on every spin run.');
     L.push('- Yaw axis from the still-hold gravity vector, recomputed per run.');
     return L.join('\n');
 }

@@ -78,7 +78,7 @@ Order, per driven run:
    ours and the capture is still running.
 4. Drive the experiment. Post-run still hold.
 5. **Plug back in.** Reconnects on its own, no click.
-6. Press B, then the encoder check and the post clock probe.
+6. Press B, then the encoder count read and the post clock probe.
 
 Plugging back in before B is the part that matters. The stop summary exists only on the wire and
 nothing buffers it, so pressing B with the cable out loses the sample and dropped counts for good, and
@@ -107,6 +107,23 @@ every disarm path individually.
 Weapon stays installed but disabled for the whole battery except E22, which is last and has its own
 containment requirements.
 
+## Commands reach the robot as wheel commands
+
+mrs_buff_mk3 runs `TankDriveProcessor`, so the two trainer channels are the left and right wheel:
+driving straight forward is 1 on both. Excitations are written in body axes, and `trainer.js` mixes
+them exactly the way `src/transmitter/drive_mixing.cpp` does, so a command played here reaches the
+motors the same way the same command does in a match.
+
+Angular gets priority over the shared output budget, so a cell asking for `|linear| + |angular| > 1`
+comes back with its linear term cut. E13's top row is the one that hits it. The run panel warns before
+arming, and the command log records the delivered pair alongside the requested one.
+
+The per-wheel lifted deadzone from the robot config is deliberately not replicated: E7 and E10 exist to
+measure the deadzone, and pre-compensating for it would erase it.
+
+If the jig is ever pointed at mr_stabs_mk2, which runs `DifferentialDriveProcessor`, the mix has to
+come back out. It is one function, `mixToWheels` in `trainer.js`.
+
 ## Space
 
 Set board length, half width, and measured course in the Space panel. All three are live: change them
@@ -114,7 +131,7 @@ whenever the space changes and every prediction updates.
 
 The tool fits each experiment to the space in this order:
 
-1. Shorten the dwell, down to three time constants.
+1. Shorten the dwell, down to the 2 s floor and no further.
 2. Shuttle, so successive repetitions alternate direction and the robot stays near where it started.
 3. Scale amplitude, last, because it costs signal-to-noise and hides nonlinearity near full command.
 
@@ -175,7 +192,7 @@ overwrites the saved state and there is no undo.
 
 The Diagnostics panel streams at 10 Hz and shows encoder count, gyro in dps, accel in g, saturation
 flags, and the gyro projected onto gravity. That projection is the yaw rate, and it is how E0's wiring
-check and the encoder reattach check get done. It works on a tilted or rotated mount, where no single
+check and the roll-the-robot encoder check get done. It works on a tilted or rotated mount, where no single
 gyro axis is yaw anymore.
 
 Two console commands sit next to the stream button:
@@ -222,16 +239,20 @@ runs and every setup field persist, and the log file is on the SD card either wa
 
 ## Known limits
 
-- **Two experiments saturate a 2000 dps gyro.** The range clips at 34.9 rad/s. E11 detached max spin
-  reaches 61.5 and E15 detached reaches 36.9. Both are running at the amplitude their step text calls
-  for, so the fix is a firmware change and not a smaller command: set `IMU_GYRO_RANGE` to 4000 dps and
-  reflash before either one. The tool shows the clip threshold in the run panel and warns when a
-  planned run crosses it. Every other experiment is capped at the E5 rate limit and stays inside 2000
-  dps.
-- **The space budget is open loop.** Predicted distance comes from integrating the stage-2 plant
-  estimates, not from measured position. A `POS` command answered during recording would turn it into
+- **No experiment measures max spin any more.** The encoder wheel stays mounted for everything, so
+  every angular run is capped at the E5 rate limit and stays well inside a 2000 dps gyro. E11 fits
+  `k_ang` from the capped part of the lever arm, which is honest but narrower than the uncapped fit
+  the runbook originally planned. Set `IMU_GYRO_RANGE` to 4000 dps anyway if E5 comes back above
+  34.9 rad/s; the tool shows the clip threshold in the run panel and warns when a planned run crosses
+  it.
+- **The space budget is open loop.** Predicted distance comes from integrating the plant estimates,
+  not from measured position. A `POS` command answered during recording would turn it into
   closed-loop distance feedback, which is the single change that would most improve running in a short
   space. See "Firmware follow-ups" in `PLAN.md`.
-- **Encoder state is verified after the run, not before.** The count is zeroed at recording start and
-  nothing resets it, so a short stream right after stop reads the run's net count. Adding A/B pin levels
-  to the stream row would turn a discarded run into a blocked one.
+- **The plant estimates the budget is built on are a floor observation, not a fit.** 1.5 m in 2 s at
+  full throttle, read back as `v_ss = 0.85 m/s` and `tau_a = 0.3 s`. E8 and E9 replace them. Until
+  then, treat every predicted footprint as approximate and leave margin.
+- **The encoder count is read after the run, not before.** The count is zeroed at recording start and
+  nothing resets it, so a short stream right after stop reads the run's net count. That catches a
+  connector that fell off, one run late. Adding A/B pin levels to the stream row would turn a
+  discarded run into a blocked one.
