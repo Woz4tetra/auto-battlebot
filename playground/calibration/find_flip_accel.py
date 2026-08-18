@@ -4,7 +4,7 @@
 A torque-happy rammer (e.g. Mr Stabs) backflips when you slam the throttle from rest: it is the
 acceleration (how fast the command rises), not the top speed, that pitches it over. This ramps the
 forward command 0 -> target at an escalating slew rate and stops at the rate that flips it. Feed the
-result into DriveSpecs.max_accel so the main calibration (drive_protocol.build_protocol) and the deployed
+result is the safe forward command slew rate, so scripted excitation and the deployed
 controller slew-limit every motion to stay upright, instead of blindly capping speed.
 
 No camera, no MCAP, no AprilTag. The measurement is operator-in-the-loop: you watch the robot and answer
@@ -30,7 +30,6 @@ import sys
 import time
 
 from calib_lib import drive_protocol as dp
-from calib_lib import transmitter_axes as tx
 
 
 class _TrialTimeout(Exception):
@@ -74,10 +73,10 @@ def main() -> None:
         "--transmitter-port", default=None, help="OpenTX serial device (auto-detected if omitted)"
     )
     parser.add_argument(
-        "--robot",
-        choices=sorted(dp.ROBOTS),
+        "--v-max",
+        type=float,
         default=None,
-        help="report the limit in m/s^2 using this robot's v_max, and show its current max_accel",
+        help="top speed in m/s, to report the limit in m/s^2 as well as command units",
     )
     parser.add_argument(
         "--rate", type=float, default=50.0, help="command send rate in Hz (default 50)"
@@ -121,13 +120,13 @@ def main() -> None:
     if not sys.stdin.isatty():
         raise SystemExit("This tool is interactive; run it from a terminal.")
 
-    v_max = dp.ROBOTS[args.robot].v_max if args.robot else None
+    v_max = args.v_max
 
     def in_ms2(accel_cmd: float) -> str:
         # d(speed)/dt = d(command)/dt * v_max, since speed ~= command * v_max (deadzone/lag aside).
         return f"  (~{accel_cmd * v_max:.1f} m/s^2)" if v_max is not None else ""
 
-    tx_port = args.transmitter_port or tx.find_transmitter_port()
+    tx_port = args.transmitter_port or dp.find_transmitter_port()
     if tx_port is None:
         raise SystemExit("No OpenTX transmitter found; pass --transmitter-port.")
 
@@ -138,7 +137,9 @@ def main() -> None:
         raise SystemExit("Aborted (not armed).")
 
     signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(_TrialTimeout()))
-    link = dp.TrainerLink(tx_port, reverse_angular=not args.no_reverse_angular)
+    link = dp.TrainerLink(
+        tx_port, dp.MixConfig(reverse_angular=not args.no_reverse_angular), read_back=False
+    )
 
     last_safe: float | None = None
     flipped_at: float | None = None
@@ -182,7 +183,7 @@ def main() -> None:
     if last_safe is not None:
         print(f"max safe     {last_safe:.2f} command/s{in_ms2(last_safe)}")
         print(
-            f"Set DriveSpecs.max_accel = {last_safe:.2f} for {args.robot or 'this robot'} (leave headroom)."
+            f"Safe forward command slew: {last_safe:.2f} /s (leave headroom)."
         )
     else:
         print("No safe ramp rate recorded (flipped on the gentlest trial? lower --start-accel).")

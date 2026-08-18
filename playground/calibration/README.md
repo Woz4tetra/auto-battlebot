@@ -5,9 +5,73 @@ Tooling to physically characterize the drivetrain so the headless sim
 testbed. Background and the parameter taxonomy are in
 `docs/experiments/control_improvement/` (Stage 1 report) and the control plan.
 
+There are two ground-truth paths here. **The velocity jig is the current one**; the AprilTag path
+below it came first and its analysis scripts are kept for the recordings already made with it.
+
+## Velocity jig (current)
+
+An RP2040 datalogger rides on the robot and records a wheel encoder plus an IMU at 1 kHz, so the
+ground truth is on-robot rather than from an overhead camera. Firmware and wiring:
+`firmware/velocity_jig`. Procedure: `docs/experiments/kalman_filter/velocity_jig_runbook.md`.
+
+```bash
+source scripts/activate_python.sh
+
+# Inspect the waveform catalog and preview a program, no hardware needed.
+python playground/calibration/velocity_jig_drive.py --list-waveforms
+python playground/calibration/velocity_jig_drive.py --waveform lin_step_full --dry-run \
+    --half-width-m 0.25 --params playground/calibration/out/plant_params.toml
+
+# Confirm which serial port is the jig and which is the radio.
+python playground/calibration/velocity_jig_drive.py --list-ports
+
+# Record. Each run leaves LOG-N.TXT, LOG-N.toml and LOG-N.cmd.csv in the session directory.
+python playground/calibration/velocity_jig_drive.py \
+    --waveform lin_step_full --waveform lin_coast --reps 3 \
+    --name "garage floor, pack 3" \
+    --out playground/calibration/out/2026-08-17-garage
+
+# Fit, and read the report between batteries to decide what to record next.
+python playground/calibration/fit_jig_plant.py \
+    playground/calibration/out/2026-08-17-garage \
+    --calibration playground/calibration/out/jig_calibration.toml \
+    --out playground/calibration/out/plant_params.toml \
+    --report playground/calibration/out/jig_fit.html
+
+# Process noise, from the same session directories.
+python playground/calibration/fit_process_noise.py \
+    playground/calibration/out/2026-08-17-garage \
+    --calibration playground/calibration/out/jig_calibration.toml \
+    --params playground/calibration/out/plant_params.toml
+```
+
+Waveforms are declared in `waveforms.toml`, each with a `kind`, a `channel` and a `role`. Those
+three fields are also what the fit routes on, so adding an excitation is a catalog edit rather
+than a code change. `role = "fit"` trains the model and `role = "holdout"` validates it.
+
+The HTML report opens with a table ranking each parameter by how poorly determined it is, mapped
+to the waveform that constrains it, with a run count to reach a 10% target. Pass `--bootstrap 8`
+to measure the convergence slope instead of assuming the root-N law, and `--detail all` for a
+measured-against-predicted figure per run.
+
+Two things worth knowing before a session:
+
+- **The coupling grid must span both angular signs.** Angular droop flips with the turn direction
+  and straight-line drift does not, so a one-sided grid cannot separate them and the fitter will
+  refuse to report `c_ad` rather than return a contaminated number.
+- **The robot arcs under a pure forward command**, because the guard plates drag asymmetrically.
+  That is fitted as `c_drift` and `c_drift_bias` rather than trimmed away. Any trim applied during
+  a run is logged as an angular command, never as a hidden offset.
+
+## AprilTag overhead camera (superseded)
+
 The plant fit `playground/control_stage0/fit_plant.py` produces from fight recordings is rough: it runs on
 noisy ZED perception poses (flat-plane bias, yaw flips) and gentle driving that sits in the ESC deadzone.
-These tools fix that with a deliberate excitation run against clean AprilTag ground truth.
+These tools fixed that with a deliberate excitation run against clean AprilTag ground truth.
+
+`apriltag_track.py`, which recorded these sessions, has been removed along with the excitation
+program it drove. `analyze_apriltag_mcap.py` and `fit_plant_calib.py` still run on recordings made
+before that, and `make_print_tags.py` / `make_robot_tag_3d.py` still generate the physical tags.
 
 ## What gets measured
 
@@ -46,7 +110,7 @@ These tools fix that with a deliberate excitation run against clean AprilTag gro
 - **Guard plates ON**, competition battery, surface matched to the NHRL arena floor. Plate friction is part
   of the plant. See `am32_tuning.md`.
 - Driver radio sticks centered: trainer mode adds stick input to the script's command.
-- The capture and the excitation run in one process (`apriltag_track.py --drive`), so the camera frames and
+- The capture and the excitation ran in one process, so the camera frames and
   the issued commands share one `CLOCK_MONOTONIC` and the fitter does no time alignment.
 
 ## Run order
@@ -59,17 +123,8 @@ pip install -r playground/calibration/requirements.txt   # once: DepthAI (OAK) +
 #    board, so it needs no printing (make_print_tags also writes a floor_grid.pdf for reprints only).
 python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
 
-# 1. Dry-run the protocol (no hardware) to review the maneuver schedule.
-python playground/calibration/apriltag_track.py --dry-run
-
-# 2. Capture + drive in one process. OAK-1 W intrinsics + distortion + 1080p@60 come from the device;
-#    defaults match the manufactured board. It prompts you to place the floor board to lock the world frame,
-#    then to REMOVE the board. --drive plays the scripted excitation on the trainer link while recording:
-#    pressing [S] in the preview ARMS the robot and drives the protocol, logging the issued commands to the
-#    MCAP. Disarms on any exit. Guard plates ON, clear space, driver sticks CENTERED. The raw camera images
-#    are recorded to MCAP; AprilTag detection + the pose solve happen offline (step 3).
-python playground/calibration/apriltag_track.py \
-    --source oak --drive --out playground/calibration/out/apriltag_track.mcap
+# 1. Recording step removed: apriltag_track.py is gone. Steps 2 and 3 below still run on
+#    MCAPs recorded before it was removed.
 
 # 3. Solve the field-plane poses from the recording -> the truth CSV. On a --drive recording this CSV also
 #    carries the issued commands (cmd_lin, cmd_ang, ...) zero-order-held onto each frame, so it is the only
@@ -78,7 +133,7 @@ python playground/calibration/analyze_apriltag_mcap.py \
     playground/calibration/out/apriltag_track.mcap \
     --out playground/calibration/out/truth_log.csv --plot playground/calibration/out/track.png
 
-# 4. Fit the plant and write the validation plot.
+# 3. Fit the plant and write the validation plot.
 python playground/calibration/fit_plant_calib.py \
     playground/calibration/out/truth_log.csv \
     --plot playground/calibration/out/fit.png

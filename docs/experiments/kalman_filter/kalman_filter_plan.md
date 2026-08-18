@@ -365,7 +365,7 @@ than assumed.
 
 Safety: the trainer link adds to stick input, so the human driver's sticks stay centered; the runner
 zeroes channels and disarms on every exit path including timeout and Ctrl-C. That behavior already
-exists in `apriltag_track.py` and gets reused.
+exists in `calib_lib/drive_protocol.py` and gets reused.
 
 ## 1.5 Identification methodology
 
@@ -712,7 +712,7 @@ account for it.
 |-------|----------|-------|
 | Jig log reader, units, saturation flags | `auto_battlebot/velocity_jig.py` | shared, linted, typed |
 | Plant model in Python (for fitting and sim) | `auto_battlebot/plant.py` | one implementation, used by fit and by the sim |
-| Excitation runner | `playground/calibration/velocity_jig_drive.py` | reuses `calib_lib/drive_protocol.py` TrainerLink, camera path removed |
+| Excitation runner | `playground/calibration/velocity_jig_drive.py` | built; waveforms from `waveforms.toml`, logs downloaded with a sidecar per run |
 | Plant identification | `playground/calibration/fit_jig_plant.py` | ports the per-phase fits from `fit_plant_calib.py` |
 | Process noise fit | `playground/calibration/fit_process_noise.py` | produces the coverage tables |
 | EKF, our robot | `include/robot_filter/robot_ekf_filter.hpp`, `src/robot_filter/` | registered in the filter factory |
@@ -764,6 +764,6 @@ Remember `cmake -S . -B build` after adding source files; the source glob is not
 2. Write `auto_battlebot/velocity_jig.py` and confirm it round-trips an existing `LOG-N.TXT`.
 3. Run the bench calibrations in 1.2 and record the numbers in
    `docs/experiments/kalman_filter/jig_calibration.md`.
-4. Build `velocity_jig_drive.py` from `calib_lib/drive_protocol.py` with the camera path removed and
-   the step-phase slew limiter off.
+4. Record a first session with `velocity_jig_drive.py`, then fit and read the report's
+   "what to collect next" table before planning the rest.
 5. Run the first excitation session and report the M0-M4 ladder.

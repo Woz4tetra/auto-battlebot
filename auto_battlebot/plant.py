@@ -85,6 +85,15 @@ class PlantParams:
     delay_s: float = 0.059
     c_sb: float = 0.0  # steer-brake: fraction of forward speed lost per unit |angular command|
     c_ad: float = 0.0  # angular droop: fraction of yaw rate lost per unit |linear command|
+    # Straight-line drift. The robot arcs under a pure forward command because the guard
+    # plates drag asymmetrically on the floor. Two candidate mechanisms with different
+    # shapes, both zero by default so an unfitted parameter set behaves as before:
+    #   c_drift      left/right gain mismatch, so yaw scales with the linear command
+    #   c_drift_bias asymmetric drag torque, so yaw is constant while sliding
+    # Both flip sign in reverse. Which one is real is a model-ladder question (M5, M6),
+    # not something to assume: fit both and let the holdout choose.
+    c_drift: float = 0.0  # rad/s per unit effective linear command
+    c_drift_bias: float = 0.0  # rad/s while moving, signed by the linear command
 
     def replace(self, **kwargs: float) -> PlantParams:
         return replace(self, **kwargs)
@@ -133,6 +142,8 @@ PARAM_BOUNDS: dict[str, tuple[float, float]] = {
     "delay_s": (0.0, 0.2),
     "c_sb": (-0.5, 1.5),
     "c_ad": (-0.5, 1.5),
+    "c_drift": (-8.0, 8.0),
+    "c_drift_bias": (-8.0, 8.0),
 }
 
 
@@ -146,6 +157,8 @@ class ModelStructure:
     asymmetric_tau: bool = True  # accel and decel constants differ
     asymmetric_gain: bool = True  # forward and reverse max speeds differ
     coupling: bool = True  # steer-brake and angular droop
+    drift_prop: bool = False  # yaw drift proportional to the linear command
+    drift_offset: bool = False  # yaw drift constant while moving
 
     def apply(self, p: PlantParams) -> PlantParams:
         """Collapse a full parameter set onto this structure, so disabled terms cannot leak in."""
@@ -160,6 +173,10 @@ class ModelStructure:
             out = out.replace(k_rev=out.k_fwd, dz_lin_rev=out.dz_lin_fwd, dz_ang_r=out.dz_ang_l)
         if not self.coupling:
             out = out.replace(c_sb=0.0, c_ad=0.0)
+        if not self.drift_prop:
+            out = out.replace(c_drift=0.0)
+        if not self.drift_offset:
+            out = out.replace(c_drift_bias=0.0)
         return out
 
     def free_names(self) -> list[str]:
@@ -174,6 +191,10 @@ class ModelStructure:
                 names += ["tau_lin_d", "tau_ang_d"]
         if self.coupling:
             names += ["c_sb", "c_ad"]
+        if self.drift_prop:
+            names += ["c_drift"]
+        if self.drift_offset:
+            names += ["c_drift_bias"]
         return names
 
 
@@ -183,6 +204,8 @@ MODEL_LADDER: tuple[ModelStructure, ...] = (
     ModelStructure("M2", True, True, False, False, False),
     ModelStructure("M3", True, True, True, True, False),
     ModelStructure("M4", True, True, True, True, True),
+    ModelStructure("M5", True, True, True, True, True, True, False),
+    ModelStructure("M6", True, True, True, True, True, True, True),
 )
 
 FULL_MODEL = MODEL_LADDER[-1]
@@ -224,6 +247,13 @@ def steady_state(u_lin: np.ndarray, u_ang: np.ndarray, p: PlantParams) -> tuple[
         v_target = v_target * np.clip(1.0 - p.c_sb * np.abs(ang_eff), 0.0, None)
     if p.c_ad:
         w_target = w_target * np.clip(1.0 - p.c_ad * np.abs(lin_eff), 0.0, None)
+    # Drift is additive, not multiplicative: it does not scale the commanded yaw, it adds
+    # yaw the driver never asked for. That is also what separates it from c_ad, which
+    # flips with the turn direction while drift does not.
+    if p.c_drift:
+        w_target = w_target + p.c_drift * lin_eff
+    if p.c_drift_bias:
+        w_target = w_target + p.c_drift_bias * np.sign(lin_eff)
     return v_target, w_target
 
 
@@ -504,6 +534,11 @@ class WindowSet:
     u_ang: np.ndarray
     truth: dict[str, np.ndarray]  # (W, H) ground truth per sample
     state0: PlantState
+    # Which run each window came from, as an index into whatever run list the caller
+    # built the set from. Without it, concatenating runs makes every per-run question
+    # unanswerable: which waveform has the worst residuals, which single run a parameter
+    # rests on. The caller assigns the numbering; concat_windows preserves it.
+    origin: np.ndarray | None = None
 
     def count(self) -> int:
         return len(self.starts)
@@ -533,6 +568,7 @@ class WindowSet:
                 v=np.asarray(self.state0.v)[pick],
                 w=np.asarray(self.state0.w)[pick],
             ),
+            origin=None if self.origin is None else self.origin[pick],
         )
 
 
@@ -559,6 +595,13 @@ def concat_windows(sets: Sequence[WindowSet]) -> WindowSet:
             v=np.concatenate([np.asarray(s.state0.v) for s in sets]),
             w=np.concatenate([np.asarray(s.state0.w) for s in sets]),
         ),
+        # All or nothing: a partially attributed batch would silently mis-assign windows
+        # to the wrong run, which is worse than having no attribution at all.
+        origin=(
+            None
+            if any(s.origin is None for s in sets)
+            else np.concatenate([s.origin for s in sets])
+        ),
     )
 
 
@@ -580,6 +623,7 @@ def make_windows(
     horizons: Sequence[float] = DEFAULT_HORIZONS,
     stride_s: float = 0.05,
     valid: np.ndarray | None = None,
+    origin: int | None = None,
 ) -> WindowSet | None:
     """Cut strided windows out of a run, dropping any that overlap invalid samples.
 
@@ -616,6 +660,7 @@ def make_windows(
         u_ang=u_ang_d[idx],
         truth={"x": x[idx], "y": y[idx], "theta": theta[idx], "v": v[idx], "w": w[idx]},
         state0=PlantState(x=x[starts], y=y[starts], theta=theta[starts], v=v[starts], w=w[starts]),
+        origin=None if origin is None else np.full(len(starts), origin, dtype=int),
     )
 
 
@@ -635,6 +680,12 @@ class WindowErrors:
     yaw_rate: np.ndarray  # (W,) truth yaw rate at window start
     horizons: np.ndarray  # (H,)
     starts: np.ndarray  # (W,)
+    # Signed commands at the window start. Kept separately from speed/yaw_rate, which are
+    # absolute values: the drift diagnostic needs the sign, because what separates drift
+    # from angular droop is whether the effect flips with the turn direction.
+    u_lin0: np.ndarray | None = None  # (W,)
+    u_ang0: np.ndarray | None = None  # (W,)
+    origin: np.ndarray | None = None  # (W,) run index, see WindowSet.origin
 
     @property
     def position(self) -> np.ndarray:
@@ -697,4 +748,7 @@ def predict_windows(
         yaw_rate=np.abs(np.asarray(windows.state0.w, dtype=float)),
         horizons=windows.horizons,
         starts=windows.starts,
+        u_lin0=windows.u_lin[:, 0],
+        u_ang0=windows.u_ang[:, 0],
+        origin=windows.origin,
     )

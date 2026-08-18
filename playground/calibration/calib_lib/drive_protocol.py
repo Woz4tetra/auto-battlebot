@@ -1,424 +1,375 @@
-"""Scripted excitation driver for the Mrs Buff MK3 drivetrain characterization.
+"""Trainer link to the OpenTX/EdgeTX radio: writes commands, reads back what was sent.
 
-This is the write counterpart to transmitter_axes.py (which only reads the radio). apriltag_track.py
---drive uses it to play a deterministic command sequence through the OpenTX trainer link while the same
-process records the overhead camera and the issued commands, so the command log and the AprilTag
-ground-truth share one CLOCK_MONOTONIC and need no time alignment.
+Mirrors the trainer protocol in `src/transmitter/opentx_transmitter.cpp`. The radio is a USB
+CDC device (VID 0x0483, PID 0x5740) primed once with `telemetry on` + `channels on`, then
+driven with `trainer <channel> <value>` at 50 Hz, value in [-500, 500].
 
-It mirrors the trainer protocol in src/transmitter/opentx_transmitter.cpp: a USB CDC serial device (the
-same VID=0x0483, PID=0x5740 that transmitter_axes.find_transmitter_port() auto-detects), primed with
-`telemetry on` + `channels on`, commanded `trainer <channel> <value>` where channel 0 = linear, channel
-1 = angular, value in [-500, 500].
+**One port, both directions.** The same serial port that accepts `trainer` writes also
+streams the radio's mixer output back once primed. Reading that back matters because
+trainer mode *adds* to the human driver's sticks: the mixer output is the command the robot
+actually received, not the one this process asked for. Two consequences:
 
-Unlike the deployed transmitter, it sends RAW commands and does NOT apply the DifferentialDriveProcessor
-deadzone (lifted_deadzone_percent / zero_deadzone_percent): the physical deadzone is exactly what we are
-measuring, so it must not be pre-compensated here.
+- A hand-driven run has a real command log. Without the readback it has a column of zeros
+  and is unusable for fitting.
+- A scripted run gets a contamination check. If the driver's stick is not centered, measured
+  diverges from commanded and the run can be flagged instead of quietly poisoning the fit.
+
+Commands are sent RAW. The deployed transmitter applies `DifferentialDriveProcessor`'s
+lifted and zero deadzones; this does not, because the physical deadzone is exactly what is
+being measured and pre-compensating it here would measure the compensation.
 
 SAFETY
-- The robot moves fast. Run in a clear, bounded space with guard plates on (see am32_tuning.md).
-- Keep the human driver's sticks centered: in trainer mode the radio ADDS stick input to the command.
-- apriltag_track.py zeroes the channels and disarms on every exit path (normal, Ctrl-C, exception, hard
-  wall-clock timeout) and gates the run behind an explicit arm.
+- The robot moves fast. Run in a clear, bounded space with guard plates on.
+- Keep the human driver's sticks centered: in trainer mode the radio ADDS stick input.
+- Zero the channels and disarm on every exit path: normal return, Ctrl-C, exception, and a
+  hard wall-clock timeout. `armed()` is a context manager that does this.
 """
 
 from __future__ import annotations
 
-import math
+import struct
 import threading
 import time
-from collections.abc import Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Callable, Iterator
+
+from serial.tools.list_ports import comports
 
 # Matches kChannelMax / kTrainerMax in opentx_transmitter.cpp.
 TRAINER_MAX = 500
-LINEAR_CHANNEL = 0
-ANGULAR_CHANNEL = 1
+OPENTX_VID = 0x0483
+OPENTX_PID = 0x5740
+TRANSMITTER_USB_IDS = frozenset({(OPENTX_VID, OPENTX_PID)})
 
-# Excitation sizing. A moving segment's duration is shrunk so the robot does not run out of the
-# overhead camera's view (linear) or spin an unbounded number of turns (angular). Tuned as single
-# knobs after the first real run.
-SAFETY_FRACTION = 0.5  # fraction of view_size a translation phase may cross before it must stop
-N_ROT = 3.0  # rotations a sustained/step spin is allowed to complete
-TWITCH_ANGLE = 0.5  # rad a sync twitch rotates, regardless of robot (keeps the pulse crisp)
-SLEW_DT = 0.05  # sub-step (s) used to approximate a slew-limited command ramp
+# The two trainer channels this writes. What they MEAN depends on the mix: under "direct"
+# they are linear and angular, under "tank" they are left and right wheel.
+CHANNEL_A = 0
+CHANNEL_B = 1
 
-# Selectable excitation phases, in run order, for build_protocol(phases=...) and --phases. A subset
-# run still gets the in-place sync twitches at both ends: they cost no travel, and the fitter needs
-# them to cross-correlate the command log against the AprilTag capture. Everything else is opt-in.
-# lin_step alone yields both the accel (rise) and decel/coast (drop-to-zero) time constants.
-PHASES: tuple[str, ...] = (
-    "idle",
-    "lin_deadzone",
-    "lin_step",
-    "ang_deadzone",
-    "ang_step",
-    "lin_max",
-    "ang_max",
-    "steer_brake",
-    "latency",
-)
+# Radio channel-stream framing: sync, phase byte (0 = channels 1..16, 1 = 17..32), length
+# byte, 16 little-endian int16, then a checksum equal to phase ^ length ^ every data byte.
+_SYNC = bytes([0xA3, 0xA4, 0xA5])
+_CHANNELS_PER_PACKET = 16
+_NUM_CHANNELS = 32
+_PACKET_LEN = _CHANNELS_PER_PACKET * 2 + 1
 
 
-@dataclass
-class Segment:
-    """Hold (linear, angular) normalized command for `duration` seconds.
+def find_transmitter_port() -> str | None:
+    for p in comports():
+        if p.vid == OPENTX_VID and p.pid == OPENTX_PID:
+            return p.device
+    return None
 
-    `linear` and `angular` are in [-1, 1]; they map to trainer values via round(x * TRAINER_MAX).
-    `label` tags the maneuver so the fitter can slice the log by phase.
 
-    A `checkpoint` segment is a zero-duration, zero-command marker between phases: DriveRunner stops
-    the robot and blocks for the operator to reposition it (Enter to continue). It issues no command,
-    so it never lands in the recording or the fitter's label slices.
+def to_trainer(value: float) -> int:
+    """Normalized [-1, 1] to the radio's integer range, clamped."""
+    return max(-TRAINER_MAX, min(TRAINER_MAX, round(value * TRAINER_MAX)))
+
+
+@dataclass(frozen=True)
+class MixConfig:
+    """How body command maps onto the two trainer channels, and how to read it back.
+
+    `mode` is "tank" when the robot runs TankDriveProcessor and the radio must carry left
+    and right wheel, or "direct" when the robot's own processor mixes and the channels carry
+    linear and angular. Getting this backwards makes the robot arc on a straight command and
+    spin on a turn, which is why the polarity check exists as a session abort gate.
     """
 
-    duration: float
-    linear: float
-    angular: float
-    label: str
-    checkpoint: bool = False
+    mode: str = "tank"
+    reverse_angular: bool = True
+    channel_scale: float = 1024.0  # full scale of the readback stream
+    read_linear: int = 0
+    read_angular: int = 1
+    read_arm: int = 4
 
+    def to_channels(self, linear: float, angular: float) -> tuple[int, int]:
+        ang = -angular if self.reverse_angular else angular
+        if self.mode != "tank":
+            return to_trainer(linear), to_trainer(ang)
+        # Angular has priority: saturate it first, then give the forward command whatever
+        # authority is left. A turn that gets clipped instead is a turn the fit sees as
+        # commanded but never delivered.
+        ang = max(-1.0, min(1.0, ang))
+        room = 1.0 - abs(ang)
+        lin = max(-room, min(room, linear))
+        return to_trainer(lin + ang), to_trainer(lin - ang)
 
-@dataclass
-class DriveSpecs:
-    """Drivetrain geometry for one robot, the input to build_protocol().
-
-    We take physical specs, not max velocities, because max velocity is exactly what the calibration
-    measures: requiring it as input would be circular. The theoretical maxima are derived here purely
-    to size the excitation so the robot stays in the overhead camera's view.
-    """
-
-    shaft_rpm: float  # output-shaft (wheel) max RPM
-    wheel_diameter_m: float  # drive wheel diameter, metres
-    wheel_base_m: float  # left-right wheel track, metres
-    view_size_m: float  # usable camera footprint at the floor, shorter dimension, metres
-    # Max forward acceleration in command units per second before the robot flips. Torque-happy bots
-    # (e.g. Mr Stabs) backflip on a full-command launch; it is the acceleration, not the top speed, that
-    # pitches them over. Measure it with find_flip_accel.py. When set, build_protocol slew-limits every
-    # forward command INCREASE to this rate, so the robot reaches full command via a safe ramp instead
-    # of a launch step. None = step instantly (robots that don't flip); the natural step response is
-    # then measured directly.
-    max_accel: float | None = None
-
-    @property
-    def v_max(self) -> float:
-        """Theoretical max linear speed, m/s (both wheels at shaft_rpm)."""
-        return math.pi * self.wheel_diameter_m * (self.shaft_rpm / 60.0)
-
-    @property
-    def omega_max(self) -> float:
-        """Theoretical max yaw rate, rad/s (wheels counter-rotating, differential drive)."""
-        return 2.0 * self.v_max / self.wheel_base_m
-
-
-# Per-robot presets, selected with apriltag_track.py --robot NAME.
-# TODO: measure and fill real specs for each robot (shaft RPM, wheel diameter, wheel base, and the
-# usable camera footprint at the floor). The placeholders below only make --dry-run runnable.
-ROBOTS: dict[str, DriveSpecs] = {
-    "mr_stabs_mk2": DriveSpecs(
-        shaft_rpm=1500.0,
-        wheel_diameter_m=0.050,
-        wheel_base_m=0.131,
-        view_size_m=1.6,
-        max_accel=2.16,  # measured with find_flip_accel.py: max safe ~8.5 m/s^2 before it backflips
-    ),
-    "mrs_buff_mk3": DriveSpecs(
-        shaft_rpm=1500.0,
-        wheel_diameter_m=0.050,
-        wheel_base_m=0.195,
-        view_size_m=1.6,
-        # max_accel left at None: heavier, does not flip on launch. Set it if it ever does.
-    ),
-}
+    def from_channels(self, a: float, b: float) -> tuple[float, float]:
+        """Inverse of `to_channels`, so the log is in body units whatever the mix."""
+        if self.mode != "tank":
+            lin, ang = a, b
+        else:
+            lin, ang = 0.5 * (a + b), 0.5 * (a - b)
+        return lin, (-ang if self.reverse_angular else ang)
 
 
 @dataclass
 class CommandSample:
-    """One issued command, stamped with the CLOCK_MONOTONIC time it was sent.
+    """One tick: what was asked for, what was sent, and what the radio said it sent."""
 
-    DriveRunner hands these to apriltag_track.py's capture loop (the sole MCAP writer) via a queue, so the
-    issued commands land in the recording on the same clock as the camera frames.
-    """
+    t: float  # time.monotonic()
+    linear: float
+    angular: float
+    trim: float
+    channel_a: int
+    channel_b: int
+    meas_linear: float = float("nan")
+    meas_angular: float = float("nan")
+    meas_arm: float = float("nan")
+    label: str = ""
 
-    t: float
-    cmd_lin: float
-    cmd_ang: float
-    trainer_lin: int
-    trainer_ang: int
-    label: str
 
+class _ChannelDecoder:
+    """Frames the radio's channel stream. Silent on corruption: a noisy link should not
+    spam the console during a run."""
 
-def build_protocol(specs: DriveSpecs, phases: Collection[str] | None = None) -> list[Segment]:
-    """The excitation sequence (see docs/experiments/control_improvement and the calibration plan).
+    def __init__(self) -> None:
+        self._buf = bytearray()
 
-    Moving-segment durations are sized from `specs` so a full-speed maneuver stays inside the camera
-    view (linear) or completes a bounded number of turns (angular), and a checkpoint (operator
-    repositions the robot, Enter to continue) sits between phases that would otherwise drift the robot
-    out of frame. Pure and deterministic so it can be inspected with --dry-run without hardware.
-
-    `phases` (names from PHASES) restricts the run to a subset for focused re-tuning, e.g. just
-    "lin_step" to iterate on accel/decel tau without driving the full battery. None runs everything.
-    The sync twitches always bracket the output regardless of the filter. Each phase starts and ends
-    at rest, so dropping phases never changes the ones that remain.
-    """
-    selected = None if phases is None else frozenset(phases)
-
-    def want(name: str) -> bool:
-        return selected is None or name in selected
-
-    v_max = specs.v_max
-    omega_max = specs.omega_max
-    max_accel = specs.max_accel  # forward command/s slew limit (None = step instantly)
-    travel_budget = specs.view_size_m * SAFETY_FRACTION  # metres a translation phase may cross
-    rot_budget = N_ROT * 2.0 * math.pi  # radians a spin phase may sweep
-
-    seg: list[Segment] = []
-    prev_lin = 0.0  # last commanded forward value, for the slew limiter
-
-    def hold(duration: float, lin: float, ang: float, label: str) -> None:
-        seg.append(Segment(duration, lin, ang, label))
-
-    def checkpoint(next_phase: str) -> None:
-        seg.append(Segment(0.0, 0.0, 0.0, f"checkpoint:{next_phase}", checkpoint=True))
-
-    def capped(nominal: float, command: float, speed: float, budget: float) -> float:
-        """Shrink `nominal` so |command|*speed*duration <= budget (distance or angle covered).
-
-        A rest/coast segment (command 0) keeps its nominal duration.
-        """
-        move = abs(command) * speed
-        return nominal if move <= 0.0 else min(nominal, budget / move)
-
-    def drive_to(target: float, hold_dur: float, label: str, ang: float = 0.0) -> None:
-        """Move the forward command to `target`, then hold for `hold_dur` (with optional yaw `ang`).
-
-        With max_accel set, an INCREASE in command magnitude is slew-limited to that rate so a
-        torque-happy bot ramps up instead of launching into a wheelie; the ramp sub-steps are labeled
-        "slew" so they stay out of the fitter's phase slices. A decrease (e.g. back to 0) steps
-        instantly, preserving the natural coast/decel the fitter measures.
-        """
-        nonlocal prev_lin
-        if max_accel is not None and abs(target) > abs(prev_lin) + 1e-9:
-            delta = target - prev_lin
-            n = max(1, round(abs(delta) / max_accel / SLEW_DT))
-            for i in range(1, n + 1):
-                hold(SLEW_DT, prev_lin + delta * i / n, 0.0, "slew")
-        if hold_dur > 0.0:
-            hold(hold_dur, target, ang, label)
-        prev_lin = target
-
-    # 8. Sync twitch (start): a sharp, short yaw pulse to cross-correlate the command log against the
-    #    AprilTag capture (recorded in the same process, so the two already share a clock). In-place,
-    #    so scale to a fixed small angle, floored so it stays long enough to register on both logs.
-    twitch = max(0.1, TWITCH_ANGLE / (0.8 * omega_max))
-    hold(twitch, 0.0, 0.8, "sync_start")
-    hold(twitch, 0.0, -0.8, "sync_start")
-    hold(1.0, 0.0, 0.0, "sync_start")
-
-    # 1. Idle baseline: drift + ground-truth noise floor. Follows the in-place twitch, robot still
-    #    centred, so no checkpoint before it.
-    if want("idle"):
-        hold(3.0, 0.0, 0.0, "idle")
-
-    # 2. Linear deadzone staircase: creep the command up until the wheels break static friction. Each
-    #    direction marches the robot the same way, so recentre before each and bound the *cumulative*
-    #    crawl across the seven steps to one travel budget.
-    if want("lin_deadzone"):
-        step_budget = travel_budget / 7.0
-        for sign, tag in ((1.0, "fwd"), (-1.0, "rev")):
-            checkpoint(f"lin_deadzone_{tag}")
-            for frac in (0.04, 0.08, 0.12, 0.16, 0.20, 0.24, 0.28):
-                hold(capped(0.8, frac, v_max, step_budget), sign * frac, 0.0, f"lin_deadzone_{tag}")
-            hold(1.0, 0.0, 0.0, f"lin_deadzone_{tag}")
-
-    # 3. Linear steps: rise to steady state, then step to zero to capture coast (decel) tau. The
-    #    rise is slew-limited (when max_accel is set) so a torque-happy bot does not wheelie; the
-    #    drop to zero always steps so the natural coast is measured. Each step's post-drop coast is
-    #    uncounted travel (that IS the decel tau), so at high amp the robot ends near the edge:
-    #    checkpoint before EVERY step for the operator to recentre, giving each drive its full view.
-    if want("lin_step"):
-        for amp in (0.25, 0.5, 0.75, 1.0):
-            for sign in (1.0, -1.0):
-                checkpoint("lin_step")
-                drive_to(sign * amp, capped(1.2, amp, v_max, travel_budget), "lin_step")
-                drive_to(0.0, 1.2, "lin_step")
-
-    # 4. Angular deadzone staircase + yaw steps, both directions. Spin-in-place stays centred, so one
-    #    checkpoint before the whole angular block (no recentre between left and right) and the limit
-    #    is rotations, not view.
-    if want("ang_deadzone"):
-        checkpoint("ang_deadzone")
-        for sign, tag in ((1.0, "left"), (-1.0, "right")):
-            for frac in (0.04, 0.08, 0.12, 0.16, 0.20, 0.24, 0.28):
-                hold(
-                    capped(0.8, frac, omega_max, rot_budget),
-                    0.0,
-                    sign * frac,
-                    f"ang_deadzone_{tag}",
+    def feed(self, data: bytes) -> list[tuple[int, list[int]]]:
+        self._buf.extend(data)
+        out: list[tuple[int, list[int]]] = []
+        while True:
+            i = self._buf.find(_SYNC)
+            if i < 0:
+                # Keep the last two bytes: a three-byte sync can straddle two reads.
+                if len(self._buf) > 2:
+                    del self._buf[: len(self._buf) - 2]
+                break
+            if i > 0:
+                del self._buf[:i]
+            if len(self._buf) < len(_SYNC) + 2 + _PACKET_LEN:
+                break
+            phase = self._buf[len(_SYNC)]
+            length = self._buf[len(_SYNC) + 1]
+            if length != _PACKET_LEN:
+                del self._buf[:1]  # bad framing; resync on the next sync word
+                continue
+            start = len(_SYNC) + 2
+            payload = bytes(self._buf[start : start + _PACKET_LEN])
+            del self._buf[: start + _PACKET_LEN]
+            chk = phase ^ length
+            for b in payload[:-1]:
+                chk ^= b
+            if chk != payload[-1] or phase not in (0, 1):
+                continue
+            out.append(
+                (
+                    phase,
+                    [
+                        struct.unpack_from("<h", payload, j)[0]
+                        for j in range(0, _CHANNELS_PER_PACKET * 2, 2)
+                    ],
                 )
-            hold(0.8, 0.0, 0.0, f"ang_deadzone_{tag}")
-    if want("ang_step"):
-        checkpoint("ang_step")
-        for amp in (0.25, 0.5, 0.75, 1.0):
-            for sign in (1.0, -1.0):
-                hold(capped(1.0, amp, omega_max, rot_budget), 0.0, sign * amp, "ang_step")
-                hold(1.0, 0.0, 0.0, "ang_step")
-
-    # 5. Sustained max speed: slew up to full command (no launch wheelie when max_accel is set), then
-    #    hold for the steady-state gain. The slew sub-steps are labeled "slew" so they stay out of the
-    #    fitter's lin_max/lin_step max-speed slice; only the steady hold carries the lin_max label.
-    if want("lin_max"):
-        checkpoint("lin_max")
-        drive_to(1.0, capped(1.0, 1.0, v_max, travel_budget), "lin_max")
-        drive_to(0.0, 1.5, "lin_max")
-    if want("ang_max"):
-        checkpoint("ang_max")
-        hold(capped(2.0, 1.0, omega_max, rot_budget), 0.0, 1.0, "ang_max")
-        hold(1.5, 0.0, 0.0, "ang_max")
-
-    # 6. Steer-brake grid: forward speed loss as a function of |yaw command|. Each 0.7 forward pulse
-    #    drives across the view, so checkpoint before EVERY pulse for the operator to recentre; each
-    #    pulse then gets the full travel budget. The forward rise is slew-limited (when max_accel is
-    #    set); the yaw is applied on the steady hold.
-    if want("steer_brake"):
-        for ang in (0.0, 0.25, 0.5, 0.75):
-            checkpoint(f"steer_brake ang={ang:g}")
-            drive_to(0.7, capped(1.5, 0.7, v_max, travel_budget), "steer_brake", ang=ang)
-            drive_to(0.0, 0.8, "steer_brake")
-
-    # 7. Latency battery: many sharp +/- steps for actuation-lag cross-correlation. Sharp edges are the
-    #    point, so these are NOT slew-limited; instead a flip-prone bot (max_accel set) uses a small
-    #    amplitude that is still crisp but stays under the wheelie threshold (0.35 still flipped).
-    if want("latency"):
-        checkpoint("latency")
-        lat_amp = 0.2 if max_accel is not None else 0.8
-        lat = capped(0.3, lat_amp, v_max, travel_budget)
-        for _ in range(8):
-            hold(lat, lat_amp, 0.0, "latency")
-            hold(lat, -lat_amp, 0.0, "latency")
-
-    # 8. Sync twitch (end).
-    checkpoint("sync_end")
-    hold(1.0, 0.0, 0.0, "sync_end")
-    hold(twitch, 0.0, 0.8, "sync_end")
-    hold(twitch, 0.0, -0.8, "sync_end")
-    return seg
-
-
-def protocol_duration(protocol: list[Segment]) -> float:
-    return sum(s.duration for s in protocol)
-
-
-def to_trainer(value: float) -> int:
-    """Normalized [-1, 1] command -> trainer integer, clamped, matching to_trainer_value()."""
-    return max(-TRAINER_MAX, min(TRAINER_MAX, round(value * TRAINER_MAX)))
+            )
+        return out
 
 
 class TrainerLink:
-    """Thin wrapper over the OpenTX USB CDC serial link. Sends raw trainer channel commands."""
+    """Serial link to the radio. Writes trainer commands, decodes the channel stream."""
 
-    def __init__(self, port: str, reverse_angular: bool) -> None:
-        import serial  # lazy import so --dry-run needs no pyserial
+    def __init__(self, port: str, mix: MixConfig | None = None, *, read_back: bool = True):
+        import serial  # lazy so --dry-run needs no pyserial
 
+        self.mix = mix or MixConfig()
         self._serial = serial.Serial(port, baudrate=115200, timeout=0.1)
-        self._reverse_angular = reverse_angular
-        # Re-prime the OpenTX-side streams, same as OpenTxTransmitter::initialize().
+        self._channels = [0] * _NUM_CHANNELS
+        self._packets = 0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        # Re-prime, same as OpenTxTransmitter::initialize().
         self._serial.write(b"telemetry on\r\n")
         self._serial.write(b"channels on\r\n")
+        self._reader: threading.Thread | None = None
+        if read_back:
+            self._reader = threading.Thread(target=self._run, name="trainer-reader", daemon=True)
+            self._reader.start()
+
+    def _run(self) -> None:
+        decoder = _ChannelDecoder()
+        while not self._stop.is_set():
+            try:
+                n = self._serial.in_waiting or 1
+                data = self._serial.read(n)
+            except Exception:
+                break
+            if not data:
+                continue
+            for phase, channels in decoder.feed(data):
+                base = phase * _CHANNELS_PER_PACKET
+                with self._lock:
+                    self._channels[base : base + _CHANNELS_PER_PACKET] = channels
+                    self._packets += 1
+
+    @property
+    def packets(self) -> int:
+        with self._lock:
+            return self._packets
+
+    def measured(self) -> tuple[float, float, float]:
+        """Latest (linear, angular, arm) from the radio, normalized. NaN before any packet."""
+        with self._lock:
+            if self._packets == 0:
+                return float("nan"), float("nan"), float("nan")
+            raw = list(self._channels)
+        scale = self.mix.channel_scale or 1.0
+        a = raw[self.mix.read_linear] / scale
+        b = raw[self.mix.read_angular] / scale
+        arm = raw[self.mix.read_arm] / scale
+        lin, ang = self.mix.from_channels(a, b)
+        return lin, ang, arm
 
     def send(self, linear: float, angular: float) -> tuple[int, int]:
-        # reverse_angular_channel = true in main.toml; keep the same convention so "+angular" turns the
-        # robot the same way it does in deployment.
-        ang = -angular if self._reverse_angular else angular
-        lin_val = to_trainer(linear)
-        ang_val = to_trainer(ang)
-        self._serial.write(f"trainer {LINEAR_CHANNEL} {lin_val}\r\n".encode())
-        self._serial.write(f"trainer {ANGULAR_CHANNEL} {ang_val}\r\n".encode())
-        return lin_val, ang_val
+        a, b = self.mix.to_channels(linear, angular)
+        self._serial.write(f"trainer {CHANNEL_A} {a}\r\n".encode())
+        self._serial.write(f"trainer {CHANNEL_B} {b}\r\n".encode())
+        return a, b
 
     def disarm(self) -> None:
         try:
-            self._serial.write(f"trainer {LINEAR_CHANNEL} 0\r\n".encode())
-            self._serial.write(f"trainer {ANGULAR_CHANNEL} 0\r\n".encode())
+            self._serial.write(f"trainer {CHANNEL_A} 0\r\n".encode())
+            self._serial.write(f"trainer {CHANNEL_B} 0\r\n".encode())
             self._serial.flush()
         except Exception:
             pass
 
     def close(self) -> None:
         self.disarm()
+        self._stop.set()
+        if self._reader:
+            self._reader.join(timeout=0.5)
         try:
             self._serial.close()
         except Exception:
             pass
 
 
-class DriveRunner(threading.Thread):
-    """Plays the excitation protocol on a daemon thread, independent of the camera capture loop.
+@dataclass
+class PlayResult:
+    commands: list[CommandSample] = field(default_factory=list)
+    completed: bool = False
+    aborted_reason: str = ""
 
-    Each tick sends one command at `rate_hz` and hands a CommandSample (stamped with the send time) to
-    `sink`, which apriltag_track.py wires to the queue its capture loop drains; that loop is the sole MCAP
-    writer, so the commands are recorded without a second thread touching the writer. `stop_event` aborts
-    the run (sending a zero command first); `finished` is set on any exit and `completed` only when the
-    protocol ran to its end. The runner never closes the link: the caller owns it and disarms on exit.
+    @property
+    def contamination(self) -> float:
+        """Worst gap between what was commanded and what the radio reported sending.
 
-    On a checkpoint segment the runner stops the robot, sets `pause_event`, and blocks on `resume_event`
-    (still honoring `stop_event`). apriltag_track.py owns the operator prompt and the hard-timeout while
-    paused, so this stays UI-agnostic.
+        Non-zero means the driver's sticks were not centered, since trainer mode sums the
+        two. A run above roughly 0.05 has a second, unlogged input in it.
+        """
+        worst = 0.0
+        for c in self.commands:
+            if c.meas_linear != c.meas_linear:  # NaN: no readback available
+                continue
+            worst = max(
+                worst, abs(c.meas_linear - c.linear), abs(c.meas_angular - (c.angular + c.trim))
+            )
+        return worst
+
+
+def play(
+    link: TrainerLink,
+    program,
+    *,
+    rate_hz: float = 50.0,
+    trim: float = 0.0,
+    stop_event: threading.Event | None = None,
+    timeout_s: float | None = None,
+    on_tick: Callable[[CommandSample], None] | None = None,
+) -> PlayResult:
+    """Play one excitation program, logging every tick on CLOCK_MONOTONIC.
+
+    `trim` is added to the angular channel and recorded in its own column. It is never a
+    hidden offset: a trimmed straight run is a two-input excitation, and a fit that does not
+    know about the second input attributes its effect to the first.
+
+    The caller owns disarm. This returns on completion, on `stop_event`, or on the hard
+    timeout, and in every case the last thing it sends is a zero command.
+    """
+    result = PlayResult()
+    period = 1.0 / rate_hz
+    t0 = time.monotonic()
+    deadline = t0 + (timeout_s if timeout_s is not None else program.duration_s + 10.0)
+    try:
+        while True:
+            now = time.monotonic()
+            elapsed = now - t0
+            if elapsed >= program.duration_s:
+                result.completed = True
+                break
+            if now >= deadline:
+                result.aborted_reason = "hard wall-clock timeout"
+                break
+            if stop_event is not None and stop_event.is_set():
+                result.aborted_reason = "stop requested"
+                break
+
+            linear, angular = program.at(elapsed)
+            a, b = link.send(linear, angular + trim)
+            meas_lin, meas_ang, meas_arm = link.measured()
+            sample = CommandSample(
+                t=now,
+                linear=linear,
+                angular=angular,
+                trim=trim,
+                channel_a=a,
+                channel_b=b,
+                meas_linear=meas_lin,
+                meas_angular=meas_ang,
+                meas_arm=meas_arm,
+                label=_label_at(program, elapsed),
+            )
+            result.commands.append(sample)
+            if on_tick:
+                on_tick(sample)
+            time.sleep(max(0.0, period - (time.monotonic() - now)))
+    finally:
+        link.send(0.0, 0.0)
+    return result
+
+
+def _label_at(program, t: float) -> str:
+    if not getattr(program, "segments", None):
+        return program.kind
+    for seg in program.segments:
+        if seg.t0 <= t < seg.t1:
+            return seg.label
+    return "idle"
+
+
+class armed:
+    """Context manager that guarantees a disarm.
+
+    Every exit path goes through __exit__: normal return, exception, and Ctrl-C, since
+    KeyboardInterrupt is an exception. The runbook asks the operator to verify this once per
+    session with a deliberate Ctrl-C before trusting the rest of the day.
     """
 
-    def __init__(
-        self,
-        link: TrainerLink,
-        protocol: list[Segment],
-        rate_hz: float,
-        sink,
-        stop_event: threading.Event,
-    ) -> None:
-        super().__init__(name="drive-runner", daemon=True)
+    def __init__(self, link: TrainerLink) -> None:
         self._link = link
-        self._protocol = protocol
-        self._period = 1.0 / rate_hz
-        self._sink = sink
-        self._stop_event = stop_event
-        self.finished = threading.Event()
-        self.completed = False
-        # Checkpoint handshake: the runner sets pause_event (with pause_label naming the upcoming
-        # phase) and waits for the operator (via apriltag_track.py) to set resume_event.
-        self.pause_event = threading.Event()
-        self.resume_event = threading.Event()
-        self.pause_label = ""
 
-    def run(self) -> None:
-        # Timestamps are absolute time.monotonic() (CLOCK_MONOTONIC), the same clock the camera frames are
-        # stamped with in this process, so the command log and the truth poses need no alignment.
-        try:
-            for s in self._protocol:
-                if s.checkpoint:
-                    # Stop the robot and block until the operator repositions it and resumes. A stop
-                    # during the pause still aborts cleanly.
-                    self._link.send(0.0, 0.0)
-                    self.pause_label = s.label
-                    self.resume_event.clear()
-                    self.pause_event.set()
-                    while not self.resume_event.wait(timeout=0.1):
-                        if self._stop_event.is_set():
-                            self._link.send(0.0, 0.0)
-                            return
-                    self.pause_event.clear()
-                    continue
-                seg_end = time.monotonic() + s.duration
-                while time.monotonic() < seg_end:
-                    if self._stop_event.is_set():
-                        self._link.send(
-                            0.0, 0.0
-                        )  # cut output immediately; caller still disarms on exit
-                        return
-                    lin_val, ang_val = self._link.send(s.linear, s.angular)
-                    self._sink(
-                        CommandSample(
-                            time.monotonic(), s.linear, s.angular, lin_val, ang_val, s.label
-                        )
-                    )
-                    time.sleep(self._period)
-            self.completed = True
-        finally:
-            self.finished.set()
+    def __enter__(self) -> TrainerLink:
+        return self._link
+
+    def __exit__(self, *exc: object) -> None:
+        self._link.disarm()
+
+
+def stream_measured(link: TrainerLink, seconds: float, rate_hz: float = 50.0) -> Iterator[
+    tuple[float, float, float, float]
+]:
+    """(t, linear, angular, arm) from the radio alone, with nothing being commanded.
+
+    This is how a hand-driven run gets a command log: the tool sends nothing, the operator
+    drives, and the radio reports what it sent.
+    """
+    period = 1.0 / rate_hz
+    t0 = time.monotonic()
+    while True:
+        now = time.monotonic()
+        if now - t0 >= seconds:
+            return
+        lin, ang, arm = link.measured()
+        yield now, lin, ang, arm
+        time.sleep(max(0.0, period - (time.monotonic() - now)))

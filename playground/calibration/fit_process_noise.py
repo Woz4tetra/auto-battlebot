@@ -25,7 +25,6 @@ Usage:
     source scripts/activate_python.sh
     python playground/calibration/fit_process_noise.py \\
         playground/calibration/out/session_A.json \\
-        --logs playground/calibration/out/logs_A \\
         --calibration playground/calibration/out/jig_calibration.toml \\
         --params playground/calibration/out/plant_params.toml \\
         --out playground/calibration/out/process_noise.toml
@@ -46,7 +45,7 @@ from scipy.stats import chi2
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fit_jig_plant import build_windows, load_all  # noqa: E402
+from calib_lib.jig_fit import build_windows, load_all  # noqa: E402
 
 from auto_battlebot.plant import (  # noqa: E402
     MODEL_LADDER,
@@ -57,7 +56,6 @@ from auto_battlebot.plant import (  # noqa: E402
     toml_float,
 )
 from auto_battlebot.velocity_jig import (  # noqa: E402
-    HOLDOUT_EXPERIMENTS,
     JigCalibration,
 )
 
@@ -334,8 +332,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("sessions", type=Path, nargs="+", help="session JSON exports")
-    parser.add_argument("--logs", type=Path, nargs="*", default=None)
+    parser.add_argument("sessions", type=Path, nargs="+", help="session directories written by velocity_jig_drive.py")
     parser.add_argument("--calibration", type=Path, required=True)
     parser.add_argument("--params", type=Path, required=True, help="plant TOML from fit_jig_plant")
     parser.add_argument("--out", type=Path, default=None)
@@ -352,21 +349,18 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    log_dirs = args.logs if args.logs else [p.parent for p in args.sessions]
-    if len(log_dirs) != len(args.sessions):
-        parser.error("--logs must name one directory per session")
 
     calib = JigCalibration.from_toml(args.calibration)
     params = PlantParams.from_toml(args.params)
     structure: ModelStructure = next(m for m in MODEL_LADDER if m.name == args.model)
     print(f"plant: {args.params}, model {structure.name}, delay {params.delay_s * 1e3:.1f} ms")
 
-    loaded = load_all(args.sessions, log_dirs, calib, args.fit_hz, args.keep_bad)
-    runs = loaded.runs if args.include_train else loaded.by_experiment(HOLDOUT_EXPERIMENTS)
+    loaded = load_all(args.sessions, calib, args.fit_hz, args.keep_bad)
+    runs = loaded.runs if args.include_train else loaded.select(roles=("holdout",))
     if not runs:
         print("no validation runs found (E14-E19). Use --include-train to fall back to all runs.")
         return
-    print(f"using {len(runs)} runs: {', '.join(sorted({r.experiment_id for r in runs}))}")
+    print(f"using {len(runs)} runs: {', '.join(sorted({r.waveform for r in runs}))}")
 
     windows = build_windows(
         runs,

@@ -12,7 +12,8 @@ Everything here turns those raw counts into the ground truth the plant fit consu
 about the measured gravity axis, forward speed from encoder arc length with the encoder wheel's
 lever arm removed, and a dead-reckoned pose. It also carries the two things a log alone cannot
 tell you: which host clock a sample belongs to (`ClockFit`), and which run it came from
-(`load_session`, reading the web tool's exported session JSON).
+(`load_session_dir`, reading the sidecar TOML that `velocity_jig_drive.py` writes next to
+every downloaded log).
 
 Three failure modes get flagged rather than silently absorbed, because stage 2 shipped
 parameters from silently degraded ground truth:
@@ -27,7 +28,8 @@ See `docs/experiments/kalman_filter/kalman_filter_plan.md` part 1.2 and the comp
 
 from __future__ import annotations
 
-import json
+import csv
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,10 +51,29 @@ RAW_SATURATION = 32000
 
 AXIS_NAMES = ("x", "y", "z")
 
-# Experiment ids whose commands are scripted excitation the fit trains on, versus the holdout
-# set. Kept here because both fit scripts and any future report need the same split.
-FIT_EXPERIMENTS = ("E7", "E8", "E9", "E10", "E11", "E12", "E13", "E20")
-HOLDOUT_EXPERIMENTS = ("E14", "E15", "E16", "E17", "E18", "E19")
+# What a run played, in the terms the fit routes on. Replaces the old runbook experiment
+# ids: a waveform is declared in a TOML catalog, so the fit cannot key on a fixed list of
+# experiments without a code change every time a new excitation is tried.
+WAVEFORM_KINDS = (
+    "step",
+    "staircase",
+    "coast",
+    "grid",
+    "prbs",
+    "chirp",
+    "sine",
+    "triangle",
+    "trim",
+    "manual",
+)
+CHANNELS = ("linear", "angular", "combined")
+# Whether a run trains the fit or validates it. Declared per waveform rather than derived,
+# so a holdout stays a holdout even if someone later reuses the same excitation for fitting.
+ROLES = ("fit", "holdout")
+
+# Sidecar metadata format. Checked on load: reading a future file as if it were this
+# version is how a silently wrong fit happens.
+SIDECAR_SCHEMA = 1
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +439,14 @@ r_imu = 0.0               # E5, lateral accel vs yaw rate squared slope, meters
 
 @dataclass(frozen=True)
 class ClockProbe:
-    """One `TIME` probe burst, as the web tool records it (`jig.js probeClock`)."""
+    """One `TIME` probe burst, as `velocity_jig_drive.py` records it.
+
+    The probe sends `TIME` many times, keeps the fastest decile by round trip, and reports
+    the median host-minus-jig offset with the RMS about that median as `residual_ms`. Only
+    the fastest probes are kept because USB Full Speed polls in 1 ms frames: most of the
+    spread is host scheduling, and the fastest round trips are the ones whose transport was
+    most nearly symmetric.
+    """
 
     offset_ms: float  # host minus jig
     residual_ms: float
@@ -428,17 +456,27 @@ class ClockProbe:
     total: int = 0
 
     @classmethod
-    def from_json(cls, data: dict[str, Any] | None) -> ClockProbe | None:
+    def from_toml(cls, data: dict[str, Any] | None) -> ClockProbe | None:
         if not data:
             return None
         return cls(
-            offset_ms=float(data["offsetMs"]),
-            residual_ms=float(data.get("residualMs", 0.0)),
-            at_host_ms=float(data.get("atHostMs", 0.0)),
-            at_jig_ms=float(data.get("atJigMs", 0.0)),
+            offset_ms=float(data["offset_ms"]),
+            residual_ms=float(data.get("residual_ms", 0.0)),
+            at_host_ms=float(data.get("at_host_ms", 0.0)),
+            at_jig_ms=float(data.get("at_jig_ms", 0.0)),
             kept=int(data.get("kept", 0)),
             total=int(data.get("total", 0)),
         )
+
+    def to_toml_table(self) -> dict[str, Any]:
+        return {
+            "offset_ms": self.offset_ms,
+            "residual_ms": self.residual_ms,
+            "at_host_ms": self.at_host_ms,
+            "at_jig_ms": self.at_jig_ms,
+            "kept": self.kept,
+            "total": self.total,
+        }
 
 
 @dataclass(frozen=True)
@@ -492,7 +530,7 @@ class ClockFit:
 
 
 # ---------------------------------------------------------------------------
-# Session JSON (web tool export)
+# Session directory (sidecar TOML written by velocity_jig_drive.py)
 # ---------------------------------------------------------------------------
 
 
@@ -506,16 +544,120 @@ class ProtocolSegment:
     angular: float
     label: str
 
+    @classmethod
+    def from_toml(cls, data: dict[str, Any]) -> ProtocolSegment:
+        return cls(
+            t0=float(data["t0"]),
+            t1=float(data["t1"]),
+            linear=float(data.get("linear", 0.0)),
+            angular=float(data.get("angular", 0.0)),
+            label=str(data.get("label", "")),
+        )
+
+
+@dataclass(frozen=True)
+class WaveformSpec:
+    """What a run played, in the terms the fit routes on.
+
+    This replaces the runbook experiment id. A fit that keys on "E8" needs editing every
+    time a new excitation is worth trying; a fit that keys on "a step on the linear
+    channel" does not. `params` is the catalog entry verbatim, which is what lets the
+    report say that an amplitude was declared but never actually reached.
+    """
+
+    name: str
+    kind: str
+    channel: str
+    role: str = "fit"
+    label: str = ""
+    params: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_toml_table(cls, data: dict[str, Any]) -> WaveformSpec:
+        kind = str(data.get("kind", "")).strip()
+        channel = str(data.get("channel", "")).strip()
+        role = str(data.get("role", "fit")).strip()
+        if kind not in WAVEFORM_KINDS:
+            raise ValueError(f"unknown waveform kind {kind!r}, expected one of {WAVEFORM_KINDS}")
+        if channel not in CHANNELS:
+            raise ValueError(f"unknown channel {channel!r}, expected one of {CHANNELS}")
+        if role not in ROLES:
+            raise ValueError(f"unknown role {role!r}, expected one of {ROLES}")
+        return cls(
+            name=str(data.get("name", "")),
+            kind=kind,
+            channel=channel,
+            role=role,
+            label=str(data.get("label", "")),
+            params=dict(data.get("params", {})),
+        )
+
+    def matches(
+        self,
+        *,
+        kinds: Sequence[str] | None = None,
+        channels: Sequence[str] | None = None,
+        roles: Sequence[str] | None = None,
+    ) -> bool:
+        """None means any. Channel matching is exact on purpose.
+
+        A combined grid run is not a linear run. Letting one through would feed coupled
+        segments to the linear deadzone fit, which reads the first command level that
+        produces motion and would find it early because the angular channel was also
+        pushing.
+        """
+        if kinds is not None and self.kind not in kinds:
+            return False
+        if channels is not None and self.channel not in channels:
+            return False
+        if roles is not None and self.role not in roles:
+            return False
+        return True
+
+    @property
+    def amplitudes(self) -> tuple[float, ...]:
+        """Declared amplitude set, for the coverage view. Empty when the kind has none."""
+        for key in ("amplitudes", "linear", "angular"):
+            value = self.params.get(key)
+            if isinstance(value, (list, tuple)) and value:
+                return tuple(float(v) for v in value)
+        value = self.params.get("amplitude")
+        return (float(value),) if isinstance(value, (int, float)) else ()
+
+    @property
+    def band_hz(self) -> tuple[float, float] | None:
+        """Excitation band, for comparing command energy against the plant corner.
+
+        A step battery has almost no energy above 1/(2*hold), and the plant corner sits
+        near 2.7 Hz, so this is usually the number that explains a weak time constant.
+        """
+        p = self.params
+        if self.kind == "chirp":
+            return float(p.get("f0_hz", 0.2)), float(p.get("f1_hz", 8.0))
+        if self.kind in ("sine", "triangle"):
+            f = float(p.get("freq_hz", 1.0))
+            return f, f
+        if self.kind == "prbs":
+            bit_s = max(float(p.get("bit_ms", 60.0)) * 1e-3, 1e-6)
+            duration = max(float(p.get("duration_s", 30.0)), bit_s)
+            return 1.0 / duration, 1.0 / (2.0 * bit_s)
+        if self.kind in ("step", "staircase", "coast", "grid"):
+            hold = max(float(p.get("hold_s", 2.0)), 1e-6)
+            return 0.0, 1.0 / (2.0 * hold)
+        return None
+
 
 @dataclass
 class RunRecord:
-    """One row of the exported session: what was played, when, and whether it passed its gates."""
+    """One run's sidecar: what was played, when, and whether it cleared the gates."""
 
     run_id: str
-    experiment_id: str
-    variant: str
+    session_id: str
+    spec: WaveformSpec
+    rep: int
     encoder: str  # "attached", "detached", or "either"
     log_file: str | None
+    command_file: str | None
     verdict: str | None
     notes: str
     trim: float | None
@@ -526,11 +668,18 @@ class RunRecord:
     skew_ppm: float | None
     hold_pre: tuple[float, float] | None  # host seconds
     hold_post: tuple[float, float] | None
-    protocol_label: str
     segments: list[ProtocolSegment]
     cmd_t: np.ndarray  # host seconds
     cmd_lin: np.ndarray
     cmd_ang: np.ndarray
+    # Where the command came from. "measured" is the radio's own mixer output read back
+    # over the trainer link, which is what the robot actually received; "commanded" is what
+    # the CLI asked for. They differ when the driver's stick was not centered, and for a
+    # hand-driven run only the measured stream exists at all.
+    command_source: str = "commanded"
+    cmd_lin_requested: np.ndarray | None = None
+    cmd_ang_requested: np.ndarray | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
 
     @property
     def clock(self) -> ClockFit:
@@ -540,106 +689,245 @@ class RunRecord:
     def has_commands(self) -> bool:
         return len(self.cmd_t) > 1
 
+    @property
+    def waveform(self) -> str:
+        return self.spec.name
+
+    @property
+    def kind(self) -> str:
+        return self.spec.kind
+
+    @property
+    def channel(self) -> str:
+        return self.spec.channel
+
+    @property
+    def role(self) -> str:
+        return self.spec.role
+
 
 @dataclass
 class Session:
-    """The web tool's session export, which is the only metadata a `LOG-N.TXT` has."""
+    """One capture directory: the only metadata a `LOG-N.TXT` has."""
 
     path: Path
     session_id: str
-    robot: str
-    operator: str
-    floor_surface: str
-    guard_plates_on: bool
-    weapon_disabled: bool
-    encoder_rate_limit: float | None
+    name: str = ""
+    started_utc: str = ""
+    robot: str = ""
+    operator: str = ""
+    floor_surface: str = ""
+    guard_plates_on: bool = False
+    weapon_disabled: bool = False
+    encoder_rate_limit: float | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
     runs: list[RunRecord] = field(default_factory=list)
+    # Logs the drive CLI downloaded but never annotated, usually because it crashed or was
+    # interrupted between the download and the sidecar write. Reported rather than dropped:
+    # the data is recoverable by hand and a silently vanishing run is how a session ends up
+    # short without anyone noticing.
+    orphans: list[str] = field(default_factory=list)
 
-    def passing(self, experiments: Sequence[str] | None = None) -> list[RunRecord]:
-        """Runs that cleared their capture-time gates, optionally filtered by experiment id."""
-        out = [r for r in self.runs if r.verdict == "pass"]
-        if experiments is not None:
-            keep = set(experiments)
-            out = [r for r in out if r.experiment_id in keep]
+    def select(
+        self,
+        *,
+        kinds: Sequence[str] | None = None,
+        channels: Sequence[str] | None = None,
+        roles: Sequence[str] | None = None,
+        passing_only: bool = False,
+    ) -> list[RunRecord]:
+        out = [r for r in self.runs if r.spec.matches(kinds=kinds, channels=channels, roles=roles)]
+        if passing_only:
+            out = [r for r in out if r.verdict != "discard"]
         return out
 
 
-def _hold_seconds(data: dict[str, Any] | None) -> tuple[float, float] | None:
-    if not data or "start" not in data or "end" not in data:
-        return None
-    return float(data["start"]) * 1e-3, float(data["end"]) * 1e-3
+def read_command_log(path: Path | str) -> dict[str, np.ndarray]:
+    """Read a `LOG-N.cmd.csv` written by the drive CLI.
 
-
-def _segments(protocol: dict[str, Any] | None) -> list[ProtocolSegment]:
-    if not protocol or not protocol.get("segments"):
-        return []
-    return [
-        ProtocolSegment(
-            t0=float(s["t0"]),
-            t1=float(s["t1"]),
-            linear=float(s.get("linear", 0.0)),
-            angular=float(s.get("angular", 0.0)),
-            label=str(s.get("label", "")),
-        )
-        for s in protocol["segments"]
-    ]
-
-
-def load_session(path: Path | str) -> Session:
-    """Load a session exported by the velocity jig web tool (`session.js toJson`).
-
-    Command timestamps and clock probes share one `performance.now()` origin, so the only
-    unknown left between a command and a sample is the jig offset, which `ClockFit` covers.
+    Columns are named in a `# columns:` comment so the file can grow without breaking
+    older readers. `t_host_s` shares its origin with the clock probes' `at_host_ms`, which
+    is the identity `ClockFit` rests on.
     """
     path = Path(path)
+    names: list[str] = []
+    rows: list[list[float]] = []
     with open(path, "r", encoding="utf-8") as handle:
-        data = json.load(handle)
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                if "columns:" in line:
+                    names = [c.strip() for c in line.split("columns:", 1)[1].split(",")]
+                continue
+            if not names:
+                raise ValueError(f"{path}: rows before the '# columns:' header")
+            parts = line.split(",")
+            if len(parts) != len(names):
+                continue
+            try:
+                rows.append([float(p) for p in parts])
+            except ValueError:
+                continue
 
-    runs: list[RunRecord] = []
-    for raw in data.get("runs", []):
-        commands = raw.get("commands") or []
-        cmd_t = np.array([float(c["tHost"]) * 1e-3 for c in commands], dtype=float)
-        cmd_lin = np.array([float(c.get("linear", 0.0)) for c in commands], dtype=float)
-        cmd_ang = np.array([float(c.get("angular", 0.0)) for c in commands], dtype=float)
-        protocol = raw.get("protocol")
-        runs.append(
-            RunRecord(
-                run_id=str(raw.get("id", "")),
-                experiment_id=str(raw.get("experimentId", "")),
-                variant=str(raw.get("variant", "main")),
-                encoder=str(raw.get("encoder", "either")),
-                log_file=raw.get("logFile"),
-                verdict=raw.get("verdict"),
-                notes=str(raw.get("notes", "")),
-                trim=(None if raw.get("trim") is None else float(raw["trim"])),
-                samples=(None if raw.get("samples") is None else int(raw["samples"])),
-                dropped=(None if raw.get("dropped") is None else int(raw["dropped"])),
-                clock_pre=ClockProbe.from_json(raw.get("clockPre")),
-                clock_post=ClockProbe.from_json(raw.get("clockPost")),
-                skew_ppm=(None if raw.get("skewPpm") is None else float(raw["skewPpm"])),
-                hold_pre=_hold_seconds(raw.get("holdPre")),
-                hold_post=_hold_seconds(raw.get("holdPost")),
-                protocol_label=str((protocol or {}).get("label", "")),
-                segments=_segments(protocol),
-                cmd_t=cmd_t,
-                cmd_lin=cmd_lin,
-                cmd_ang=cmd_ang,
-            )
+    if not rows:
+        raise ValueError(f"{path}: no command rows")
+    data = np.array(rows, dtype=float)
+    out = {name: data[:, i] for i, name in enumerate(names)}
+
+    # A host clock can step backwards; jig microseconds cannot. A stepped command log
+    # misaligns every window in the run, and it does so quietly, so refuse it here.
+    t = out.get("t_host_s")
+    if t is None:
+        raise ValueError(f"{path}: no t_host_s column")
+    if len(t) > 1 and np.any(np.diff(t) < 0.0):
+        raise ValueError(f"{path}: t_host_s is not monotone; the host clock stepped mid-run")
+    return out
+
+
+def _hold_window(data: dict[str, Any] | None) -> tuple[float, float] | None:
+    if not data or "start" not in data or "end" not in data:
+        return None
+    return float(data["start"]), float(data["end"])
+
+
+def _log_index(name: str) -> tuple[int, str]:
+    """Sort key that puts LOG-2 before LOG-10, unlike a plain string sort."""
+    match = re.search(r"(\d+)", name)
+    return (int(match.group(1)) if match else 1 << 30, name)
+
+
+def load_run_record(toml_path: Path | str, session: Session | None = None) -> RunRecord:
+    """Read one sidecar TOML and its command CSV."""
+    toml_path = Path(toml_path)
+    with open(toml_path, "rb") as handle:
+        data = tomllib.load(handle)
+
+    schema = int(data.get("schema", 0))
+    if schema != SIDECAR_SCHEMA:
+        raise ValueError(
+            f"{toml_path}: sidecar schema {schema}, this build reads {SIDECAR_SCHEMA}. "
+            "Reading it anyway would risk a silently wrong fit."
         )
 
-    return Session(
-        path=path,
-        session_id=str(data.get("id", path.stem)),
-        robot=str(data.get("robot", "")),
-        operator=str(data.get("operator", "")),
-        floor_surface=str(data.get("floorSurface", "")),
-        guard_plates_on=bool(data.get("guardPlatesOn", False)),
-        weapon_disabled=bool(data.get("weaponDisabled", False)),
-        encoder_rate_limit=(
-            None if data.get("encoderRateLimit") is None else float(data["encoderRateLimit"])
-        ),
-        runs=runs,
+    run = data.get("run", {})
+    spec_table = dict(data.get("waveform", {}))
+    spec_table.setdefault("name", toml_path.stem)
+    spec = WaveformSpec.from_toml_table(spec_table)
+
+    transfer = data.get("transfer", {})
+    clock = data.get("clock", {})
+    hold = data.get("hold", {})
+
+    cmd_t = np.zeros(0)
+    cmd_lin = np.zeros(0)
+    cmd_ang = np.zeros(0)
+    cmd_lin_req: np.ndarray | None = None
+    cmd_ang_req: np.ndarray | None = None
+    source = "commanded"
+    command_file = run.get("command_file")
+    if command_file:
+        cols = read_command_log(toml_path.parent / str(command_file))
+        cmd_t = cols["t_host_s"]
+        # Prefer what the radio reported sending. Trainer mode adds the human's sticks to
+        # the scripted command, so the mixer output is the only record of what the robot
+        # actually received, and for a hand-driven run it is the only command signal there is.
+        if "meas_linear" in cols and np.any(np.isfinite(cols["meas_linear"])):
+            cmd_lin = cols["meas_linear"]
+            cmd_ang = cols.get("meas_angular", np.zeros_like(cmd_t))
+            cmd_lin_req = cols.get("linear")
+            cmd_ang_req = cols.get("angular")
+            source = "measured"
+        else:
+            cmd_lin = cols.get("linear", np.zeros_like(cmd_t))
+            cmd_ang = cols.get("angular", np.zeros_like(cmd_t))
+
+    return RunRecord(
+        run_id=str(run.get("id", toml_path.stem)),
+        session_id=str(data.get("session", {}).get("id", session.session_id if session else "")),
+        spec=spec,
+        rep=int(run.get("rep", 0)),
+        encoder=str(run.get("encoder", "either")),
+        log_file=run.get("log_file"),
+        command_file=command_file,
+        verdict=run.get("verdict"),
+        notes=str(run.get("notes", "")),
+        trim=(None if run.get("trim") is None else float(run["trim"])),
+        samples=(None if transfer.get("samples") is None else int(transfer["samples"])),
+        dropped=(None if transfer.get("dropped") is None else int(transfer["dropped"])),
+        clock_pre=ClockProbe.from_toml(clock.get("pre")),
+        clock_post=ClockProbe.from_toml(clock.get("post")),
+        skew_ppm=(None if clock.get("skew_ppm") is None else float(clock["skew_ppm"])),
+        hold_pre=_hold_window(hold.get("pre")),
+        hold_post=_hold_window(hold.get("post")),
+        segments=[ProtocolSegment.from_toml(seg) for seg in data.get("segment", [])],
+        cmd_t=cmd_t,
+        cmd_lin=cmd_lin,
+        cmd_ang=cmd_ang,
+        command_source=source,
+        cmd_lin_requested=cmd_lin_req,
+        cmd_ang_requested=cmd_ang_req,
+        provenance=dict(data.get("provenance", {})),
     )
+
+
+def load_session_dir(path: Path | str) -> Session:
+    """Load a capture directory written by `velocity_jig_drive.py`.
+
+    Reads `session.toml` when present, then every `LOG-*.toml` beside it. A log with no
+    sidecar goes to `Session.orphans` rather than being skipped silently.
+    """
+    path = Path(path)
+    if not path.is_dir():
+        raise ValueError(f"{path}: not a session directory")
+
+    meta: dict[str, Any] = {}
+    session_toml = path / "session.toml"
+    if session_toml.exists():
+        with open(session_toml, "rb") as handle:
+            meta = tomllib.load(handle)
+        schema = int(meta.get("schema", 0))
+        if schema != SIDECAR_SCHEMA:
+            raise ValueError(f"{session_toml}: schema {schema}, this build reads {SIDECAR_SCHEMA}")
+
+    info = meta.get("session", {})
+    session = Session(
+        path=path,
+        session_id=str(info.get("id", path.name)),
+        name=str(info.get("name", "")),
+        started_utc=str(info.get("started_utc", "")),
+        robot=str(info.get("robot", "")),
+        operator=str(info.get("operator", "")),
+        floor_surface=str(info.get("floor_surface", "")),
+        guard_plates_on=bool(info.get("guard_plates_on", False)),
+        weapon_disabled=bool(info.get("weapon_disabled", False)),
+        encoder_rate_limit=(
+            None if info.get("encoder_rate_limit") is None else float(info["encoder_rate_limit"])
+        ),
+        provenance=dict(meta.get("provenance", {})),
+    )
+
+    sidecars = sorted(
+        (p for p in path.glob("*.toml") if p.name != "session.toml"),
+        key=lambda p: _log_index(p.name),
+    )
+    annotated: set[str] = set()
+    for sidecar in sidecars:
+        record = load_run_record(sidecar, session)
+        session.runs.append(record)
+        if record.log_file:
+            annotated.add(record.log_file)
+
+    for log in sorted(path.glob("LOG-*.TXT"), key=lambda p: _log_index(p.name)):
+        if log.name not in annotated:
+            session.orphans.append(log.name)
+
+    return session
+
+
+def load_sessions(paths: Sequence[Path | str]) -> list[Session]:
+    return [load_session_dir(p) for p in paths]
 
 
 # ---------------------------------------------------------------------------
@@ -893,8 +1181,12 @@ class RunQuality:
     """Everything that decides whether a run is fit for fitting, in one place."""
 
     log_file: str
-    experiment_id: str
-    variant: str
+    session_id: str
+    waveform: str
+    kind: str
+    channel: str
+    role: str
+    rep: int
     verdict: str | None
     dropped: int | None
     malformed_rows: int
@@ -907,6 +1199,18 @@ class RunQuality:
     skew_ppm: float | None
     still_holds: int
     encoder_valid: bool
+    # How much of the run the fit can actually use. Nothing computed this before, so a run
+    # that was mostly slip or mostly uncommanded counted the same as a clean one when
+    # deciding whether an experiment had enough data.
+    duration_s: float = 0.0
+    commanded_s: float = 0.0
+    valid_s: float = 0.0
+    # Distance between the still hold the drive CLI commanded and the one actually found in
+    # the log. A large gap means the jig and the CLI disagree about when the run started,
+    # which today surfaces only as a mysteriously bad fit.
+    hold_pre_gap_s: float = 0.0
+    hold_post_gap_s: float = 0.0
+    command_source: str = "commanded"
 
     def problems(
         self,
@@ -917,6 +1221,8 @@ class RunQuality:
         max_saturation: float = 0.001,
         max_slip_fraction: float = 0.05,
         max_clock_residual_ms: float = 2.0,
+        min_valid_s: float = 1.0,
+        max_hold_gap_s: float = 2.0,
     ) -> list[str]:
         """Reasons to exclude this run. Empty means usable."""
         out: list[str] = []
@@ -937,6 +1243,14 @@ class RunQuality:
             out.append(f"clock residual {self.clock_residual_ms:.2f} ms")
         if self.still_holds < 2:
             out.append(f"{self.still_holds} still holds found, need 2")
+        if self.valid_s < min_valid_s:
+            out.append(f"only {self.valid_s:.1f} s of usable commanded data")
+        gap = max(self.hold_pre_gap_s, self.hold_post_gap_s)
+        if gap > max_hold_gap_s:
+            out.append(
+                f"still hold detected {gap:.1f} s from the commanded hold: "
+                "the jig and the drive CLI disagree on when the run started"
+            )
         return out
 
 
@@ -969,13 +1283,31 @@ class Run:
     truth: GroundTruth
 
     @property
-    def experiment_id(self) -> str:
-        return self.record.experiment_id
+    def spec(self) -> WaveformSpec:
+        return self.record.spec
+
+    @property
+    def waveform(self) -> str:
+        return self.record.spec.name
+
+    @property
+    def kind(self) -> str:
+        return self.record.spec.kind
+
+    @property
+    def channel(self) -> str:
+        return self.record.spec.channel
+
+    @property
+    def role(self) -> str:
+        return self.record.spec.role
 
     @property
     def name(self) -> str:
+        # The session id is part of the name because two sessions both start at LOG-0, and
+        # a report that lists them both would otherwise show two rows with one label.
         log = self.record.log_file or self.record.run_id
-        return f"{log} [{self.record.experiment_id}/{self.record.variant}]"
+        return f"{self.record.session_id}/{log} [{self.waveform}#{self.record.rep}]"
 
     @property
     def encoder_valid(self) -> bool:
@@ -1000,13 +1332,34 @@ def zoh(src_t: np.ndarray, src_v: np.ndarray, dst_t: np.ndarray) -> np.ndarray:
     return out
 
 
+def _hold_gap(
+    commanded: tuple[float, float] | None,
+    stills: Sequence[StillSegment],
+    clock: ClockFit,
+    *,
+    first: bool,
+) -> float:
+    """Seconds between a commanded still hold and the one actually found in the log.
+
+    The drive CLI knows when it told the operator to hold still; the log knows when the
+    robot was actually motionless. If those disagree by more than a couple of seconds the
+    jig was not recording when the CLI thought it was, and every downstream time alignment
+    is off by that much.
+    """
+    if commanded is None or not stills:
+        return 0.0
+    seg = stills[0] if first else stills[-1]
+    found = float(clock.host_seconds(np.array([seg.t0 if first else seg.t1]))[0])
+    return abs(found - (commanded[0] if first else commanded[1]))
+
+
 def _labels_for(record: RunRecord, t: np.ndarray) -> np.ndarray:
     """Per-sample phase label. Segments are program-relative; the first command anchors them."""
     if not record.has_commands:
-        return np.array([record.experiment_id] * len(t))
+        return np.array([record.spec.name] * len(t))
     t0 = float(record.cmd_t[0])
     if not record.segments:
-        return np.array([record.experiment_id] * len(t))
+        return np.array([record.spec.name] * len(t))
     rel = t - t0
     labels = np.array(["idle"] * len(t), dtype=object)
     for seg in record.segments:
@@ -1070,11 +1423,22 @@ def load_run(
     v_noise = float(np.std(v[idle])) if np.count_nonzero(idle) > 10 else 0.0
     w_noise = float(np.std(w[idle])) if np.count_nonzero(idle) > 10 else 0.0
 
+    # Usable seconds, which is what the report ranks waveforms by when deciding what to
+    # collect more of. A run that was mostly slip contributes far less than its length.
+    commanded_s = float(dt * np.count_nonzero(commanded))
+    valid_s = float(dt * np.count_nonzero(commanded & ~slip))
+    hold_pre_gap = _hold_gap(record.hold_pre, stills, clock, first=True)
+    hold_post_gap = _hold_gap(record.hold_post, stills, clock, first=False)
+
     sat = log.saturation()
     quality = RunQuality(
         log_file=record.log_file,
-        experiment_id=record.experiment_id,
-        variant=record.variant,
+        session_id=record.session_id,
+        waveform=record.spec.name,
+        kind=record.spec.kind,
+        channel=record.spec.channel,
+        role=record.spec.role,
+        rep=record.rep,
         verdict=record.verdict,
         dropped=record.dropped,
         malformed_rows=log.malformed_rows,
@@ -1087,6 +1451,12 @@ def load_run(
         skew_ppm=record.skew_ppm,
         still_holds=len(stills),
         encoder_valid=truth.encoder_valid,
+        duration_s=float(grid[-1] - grid[0]) if len(grid) > 1 else 0.0,
+        commanded_s=commanded_s,
+        valid_s=valid_s,
+        hold_pre_gap_s=hold_pre_gap,
+        hold_post_gap_s=hold_post_gap,
+        command_source=record.command_source,
     )
 
     return Run(
@@ -1113,10 +1483,12 @@ def load_run(
 
 def load_runs(
     session: Session,
-    log_dir: Path | str,
     calib: JigCalibration,
     *,
-    experiments: Sequence[str] | None = None,
+    log_dir: Path | str | None = None,
+    kinds: Sequence[str] | None = None,
+    channels: Sequence[str] | None = None,
+    roles: Sequence[str] | None = None,
     include_discarded: bool = False,
     fit_hz: float = 200.0,
     smooth_s: float = 0.02,
@@ -1124,9 +1496,9 @@ def load_runs(
     """Load every run that has a log file. Returns (runs, skipped) with a reason per skip."""
     runs: list[Run] = []
     skipped: list[tuple[RunRecord, str]] = []
-    keep = set(experiments) if experiments is not None else None
+    log_dir = session.path if log_dir is None else log_dir
     for record in session.runs:
-        if keep is not None and record.experiment_id not in keep:
+        if not record.spec.matches(kinds=kinds, channels=channels, roles=roles):
             continue
         if not record.log_file:
             skipped.append((record, "no log file"))

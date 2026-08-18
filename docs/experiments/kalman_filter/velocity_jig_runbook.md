@@ -54,33 +54,61 @@ the connector.
 
 ## How a run works
 
-Every driven run follows the same card. Learn this once and the rest of the document is just which
-excitation to play.
+The CLI drives the run and writes the metadata. Learn this once and the rest of the document is
+just which excitation to play.
 
-**Run card**
+```bash
+source scripts/activate_python.sh
+python playground/calibration/velocity_jig_drive.py \
+    --waveform lin_step_full --reps 3 \
+    --name "garage floor, pack 3" \
+    --out playground/calibration/out/2026-08-17-garage
+```
 
-- [ ] 1. Clock probe, pre. 200 probes. Record the fitted offset.
-- [ ] 2. Press A to start recording.
+**Run card.** Steps 1, 3, 5, 7, 8, 9 and 10 are automatic; the CLI prompts for the rest.
+
+- [ ] 1. Clock probe, pre. 200 probes. Discard the run if the residual exceeds 2 ms.
+- [ ] 2. **Press A** on the jig. The CLI waits for the `recording LOG-N.TXT` line.
 - [ ] 3. **Hold still 10 s.** Do not skip this. It is the per-run gyro bias estimate.
-- [ ] 4. Play the excitation.
-- [ ] 5. **Hold still 10 s.** This is the bias drift bound for the run.
-- [ ] 6. Press B to stop. Record the filename, sample count, and `DROPPED` from the summary screen.
-- [ ] 7. Clock probe, post. Record the offset and the implied skew.
-- [ ] 8. Write the run down on the session sheet immediately. The jig names files `LOG-0`, `LOG-1`,
-      and so on, with no metadata inside. An unlabeled log is a discarded log.
+- [ ] 4. **Unplug the USB cable.** The jig keeps logging on its own battery.
+- [ ] 5. Arm and play the excitation. Ctrl-C aborts and disarms at any point.
+- [ ] 6. **Hold still 10 s.** This is the bias drift bound for the run.
+- [ ] 7. **Plug the cable back in**, then **press B**. In that order: the stop summary goes to the
+      wire unbuffered, so pressing B while unplugged loses the sample and dropped counts.
+- [ ] 8. Clock probe, post. The skew comes from the two probes together.
+- [ ] 9. The log downloads over USB into the session directory.
+- [ ] 10. The sidecar TOML and command CSV are written beside it.
 
-**Gates that abort a run**
+The session sheet is gone. Each log gets a `LOG-N.toml` next to it holding the waveform, its
+parameters, both clock probes, the still-hold windows, and the gate results, so an unlabeled log
+is no longer possible. Add anything the tool cannot know at the notes prompt, or type `discard`
+there to reject a run by hand.
+
+**Gates**
+
+Capture-time gates run in the CLI and print a verdict at the end of each run:
 
 | Observation | Action |
 |-------------|--------|
-| `DROPPED` nonzero | Discard the run. Lower `IMU_ODR`, raise `SD_SCK_MHZ_VAL`, or swap the card |
-| Clock probe residuals over 2 ms | Stop recording data. Fix the USB path before continuing |
-| Pre and post bias differ by more than 0.05 deg/s | Discard. The IMU is drifting, usually thermal |
-| Robot hit a wall, tipped, or was touched | Discard. Note why on the sheet |
-| Frozen encoder count on a linear run | Discard. Check the connector |
+| `dropped` nonzero | Discard. Lower `IMU_ODR`, raise `SD_SCK_MHZ_VAL`, or swap the card |
+| Clock probe residual over 2 ms | Stop recording data. Fix the USB path before continuing |
+| Clock skew over 200 ppm | Discard. One of the two probes is wrong |
+| Measured command differs from commanded | The driver's sticks were not centered. Discard |
+| Robot hit a wall, tipped, or was touched | Discard by typing `discard` at the notes prompt |
+
+The rest need the log parsed and are applied by the fitter, which prints them per run and shows
+them in the report's run-quality table: gyro bias drift over 0.05 deg/s, IMU saturation, encoder
+slip, a frozen encoder count on a linear run, and a still hold detected far from where the CLI
+commanded one.
 
 Discarding runs is cheap. The 2026-07-03 AprilTag session shipped parameters fit from a single
 surviving segment because bad data was not caught at the time it was recorded.
+
+**Safety, every run**
+
+Trainer mode *adds* to the human driver's sticks, so a run is only as safe as the person holding
+the radio. Verify the disarm once per session with a deliberate Ctrl-C during the first run,
+before trusting it for the rest of the day.
 
 ---
 
@@ -571,8 +599,8 @@ minimum hold makes every step battery longer than the runbook's first draft assu
 
 1. Run E0 and decide on the gyro and accel ranges before anything else is recorded.
 2. Run E1. If the clock probe does not hold 2 ms, stop and fix it; the delay estimate depends on it.
-3. Build `velocity_jig_drive.py` from `calib_lib/drive_protocol.py` with the camera path removed and
-   the step-phase slew limiter off.
+3. Record a first session with `velocity_jig_drive.py`, then fit and read the report's
+   "what to collect next" table before planning the rest.
 4. Run blocks 0 and 1, then a first pass of block 2, and fit before scheduling the remaining sessions.
    One fit on real data will change some of these procedures, and it is cheaper to find that out after
    one session than after three.

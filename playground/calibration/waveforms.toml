@@ -1,0 +1,196 @@
+# Excitation waveforms for velocity jig runs.
+#
+#   python playground/calibration/velocity_jig_drive.py --waveform lin_step_full --name ...
+#
+# Every entry declares kind + channel + role. Those are also what the fit routes on, so a
+# new waveform reaches the right fit without editing fit_jig_plant.py.
+#
+#   kind     step | staircase | coast | grid | prbs | chirp | sine | triangle | trim | manual
+#   channel  linear | angular | combined
+#   role     fit (trains the model) | holdout (validates it, never fitted)
+#
+# Amplitudes are normalized to [-1, 1]. Deadzone is NOT compensated anywhere: the physical
+# deadzone is one of the things being measured.
+
+[defaults]
+hold_s = 2.0
+# Cap for angular amplitudes. The encoder wheel scrubs sideways through every spin, so the
+# rate limit measured on the bench caps every angular run. Set from your own E5 measurement:
+# encoder_rate_limit / k_ang.
+angular_cap = 0.13
+
+# --- linear ---------------------------------------------------------------
+
+[waveform.lin_deadzone]
+kind = "staircase"
+channel = "linear"
+role = "fit"
+label = "linear deadzone staircase"
+# Starts at 0.01, not 0.04. Stage 2 reported a deadzone of 0.04 because that was the
+# smallest command it tested and the robot already moved there. Several rungs must land
+# below the motion threshold or the crossing is an extrapolation.
+from = 0.01
+to = 0.10
+step = 0.01
+both_directions = true
+
+[waveform.lin_step_full]
+kind = "step"
+channel = "linear"
+role = "fit"
+label = "linear steps"
+amplitudes = [0.25, 0.5, 0.75, 1.0]
+shuttle = true
+# Not trimmed. This is the run the straight-line drift is measured from, so correcting the
+# arc here would remove the signal.
+trim = false
+
+[waveform.lin_coast]
+kind = "coast"
+channel = "linear"
+role = "fit"
+label = "linear coast tails"
+amplitude = 0.6
+reps = 10
+shuttle = true
+trim = false
+
+# --- angular --------------------------------------------------------------
+
+[waveform.ang_deadzone]
+kind = "staircase"
+channel = "angular"
+role = "fit"
+label = "angular deadzone staircase"
+from = 0.01
+to = 0.10
+step = 0.01
+both_directions = true
+
+[waveform.ang_step_full]
+kind = "step"
+channel = "angular"
+role = "fit"
+label = "angular steps"
+amplitudes = [0.25, 0.5, 0.75, 1.0]
+cap = 0.13
+shuttle = true
+
+[waveform.ang_coast]
+kind = "coast"
+channel = "angular"
+role = "fit"
+label = "angular coast tails"
+# The angular decel constant had no dedicated excitation before, so it was fitted from the
+# drops at the end of angular steps alone. This is the run to add when it comes back weak.
+amplitude = 0.13
+reps = 10
+shuttle = true
+
+# --- coupling -------------------------------------------------------------
+
+[waveform.coupling_grid]
+kind = "grid"
+channel = "combined"
+role = "fit"
+label = "coupling grid"
+linear = [0.25, 0.5, 0.75, 1.0]
+# Spans BOTH signs, and that is load-bearing. Steer-brake and angular droop flip with the
+# turn direction; straight-line drift does not. A grid that only ever turns one way cannot
+# separate them and will quietly fold the drift into the droop coefficient.
+angular = [-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3]
+
+# --- holdouts -------------------------------------------------------------
+
+[waveform.lin_prbs]
+kind = "prbs"
+channel = "linear"
+role = "holdout"
+label = "linear PRBS"
+amplitude = 0.6
+# 60 ms bits cover roughly 0.2 to 8 Hz, which brackets both the 58-78 ms plant time
+# constants and the 33 ms frame period.
+bit_ms = 60
+duration_s = 30
+seed = 44001
+
+[waveform.ang_prbs]
+kind = "prbs"
+channel = "angular"
+role = "holdout"
+label = "angular PRBS"
+amplitude = 0.13
+bit_ms = 60
+duration_s = 30
+seed = 44002
+
+[waveform.combined_prbs]
+kind = "prbs"
+channel = "combined"
+role = "holdout"
+label = "combined PRBS"
+amplitude = 0.6
+angular_amplitude = 0.13
+bit_ms = 60
+duration_s = 30
+seed = 44003
+
+[waveform.lin_chirp]
+kind = "chirp"
+channel = "linear"
+role = "holdout"
+label = "linear chirp"
+# A first-order model with tau 58 ms puts its corner near 2.7 Hz. This sweep is the
+# frequency-domain cross-check on a time constant fitted from steps.
+f0_hz = 0.2
+f1_hz = 8.0
+amplitude = 0.4
+duration_s = 30
+
+[waveform.ang_chirp]
+kind = "chirp"
+channel = "angular"
+role = "holdout"
+label = "angular chirp"
+f0_hz = 0.2
+f1_hz = 8.0
+amplitude = 0.13
+duration_s = 30
+
+[waveform.lin_sine]
+kind = "sine"
+channel = "linear"
+role = "holdout"
+label = "linear sine"
+freq_hz = 1.0
+amplitude = 0.5
+cycles = 20
+
+[waveform.lin_triangle]
+kind = "triangle"
+channel = "linear"
+role = "holdout"
+label = "linear triangle"
+freq_hz = 0.5
+amplitude = 0.5
+cycles = 12
+
+[waveform.operator]
+kind = "manual"
+channel = "combined"
+role = "holdout"
+label = "operator driving"
+# Emits nothing. The operator drives and the radio's own mixer output is the command log,
+# which is why the readback exists.
+duration_s = 60
+
+# --- bench ----------------------------------------------------------------
+
+[waveform.trim]
+kind = "trim"
+channel = "linear"
+role = "holdout"
+label = "straight-line trim"
+# Low and slow, to measure how far the robot arcs before committing to a long straight run.
+amplitude = 0.15
+duration_s = 5
