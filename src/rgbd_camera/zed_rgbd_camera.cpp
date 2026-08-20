@@ -323,6 +323,16 @@ void ZedRgbdCamera::reset_capture_timing_stats() const {
 
 void ZedRgbdCamera::capture_thread_loop() {
     while (!stop_thread_) {
+        if (paused_.load(std::memory_order_acquire)) {
+            // Wait rather than spin. Reuses data_cv_ (not a dedicated cv) so the two existing
+            // stop_thread_ = true call sites, which already notify_all() on data_cv_, wake a
+            // paused thread for shutdown with no changes there.
+            std::unique_lock<std::mutex> lock(data_mutex_);
+            data_cv_.wait(lock, [this] {
+                return !paused_.load(std::memory_order_acquire) || stop_thread_.load();
+            });
+            continue;
+        }
         // capture_frame() bumps frame_counter_ under data_mutex_ once the frame is fully
         // populated; we just wake any waiters here.
         if (capture_frame()) {
@@ -332,6 +342,13 @@ void ZedRgbdCamera::capture_thread_loop() {
         }
     }
     capture_thread_done_.store(true, std::memory_order_release);
+}
+
+void ZedRgbdCamera::pause_capture() { paused_.store(true, std::memory_order_release); }
+
+void ZedRgbdCamera::resume_capture() {
+    paused_.store(false, std::memory_order_release);
+    data_cv_.notify_all();
 }
 
 bool ZedRgbdCamera::capture_frame() {

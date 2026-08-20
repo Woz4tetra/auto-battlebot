@@ -73,6 +73,8 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     bool should_close() override;
     bool set_recording_enabled(bool enabled) override;
     bool is_recording_enabled() const override;
+    void pause_capture() override;
+    void resume_capture() override;
     std::string get_current_svo_path() const;
 
    private:
@@ -113,6 +115,10 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     std::atomic<bool> should_close_;
     std::atomic<bool> stop_thread_;
     std::atomic<bool> camera_connected_;
+    // Set by pause_capture()/resume_capture(). Checked at the top of capture_thread_loop(); while
+    // set, the thread waits on data_cv_ instead of grabbing, so SVO playback truly halts rather
+    // than continuing to advance (real-time-paced or not) while the caller is away from get().
+    std::atomic<bool> paused_{false};
 
     // Frame handoff between capture thread and get(). Counters guarded by data_mutex_.
     std::atomic<uint64_t> frame_counter_;
