@@ -50,11 +50,23 @@ build_cpp_project() {
     # correctly re-runs cmake to finish an interrupted configure.
     if [ ! -f "Makefile" ]; then
         echo "Running cmake with BUILD_TESTING=${BUILD_TESTING_FLAG} and BUILD_TYPE=${BUILD_TYPE}..."
-        cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_TESTING="${BUILD_TESTING_FLAG}" -DBUILD_DEBUG="${BUILD_TESTING_FLAG}"
+        cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_TESTING="${BUILD_TESTING_FLAG}" -DBUILD_DEBUG="${BUILD_TESTING_FLAG}" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
     fi
 
     echo "Building project..."
     make -j"$(nproc)"
+
+    # .clangd (shared by every environment) points CompileFlags.CompilationDatabase at
+    # the literal "build" directory. When AUTO_BATTLEBOT_BUILD_DIR points elsewhere (the
+    # docker dev/playback containers' build-docker), clangd sees no compilation database
+    # at all and can't resolve FetchContent headers (miniros, CLI11, ...) or the
+    # auto_battlebot namespace -- every include and every project symbol looks
+    # undeclared. Symlink only: a plain host build regenerates a real
+    # build/compile_commands.json via CMAKE_EXPORT_COMPILE_COMMANDS and overwrites this.
+    if [ -n "${AUTO_BATTLEBOT_BUILD_DIR:-}" ] && [ "${AUTO_BATTLEBOT_BUILD_DIR}" != "build" ]; then
+        mkdir -p "${SCRIPT_DIR}/../build"
+        ln -sf "../${BUILD_DIR}/compile_commands.json" "${SCRIPT_DIR}/../build/compile_commands.json"
+    fi
 
     echo "Build complete!"
 }

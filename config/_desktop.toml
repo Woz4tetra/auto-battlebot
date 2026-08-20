@@ -12,10 +12,10 @@ extends = "_common"
 type = "DeepLabMaskModel"
 
 [field_model.engine]
-# No sm86 build of this model exists yet, on this machine or megamind, so the field model
-# is the one that still fails on an RTX A6000. Build one and add it here.
 candidates = [
   "data/models/field_deeplabv3p_r50_2026-07-29_x86_64_sm89.engine",
+  # sm86 (RTX 3060 and RTX A6000). Built locally with training/deeplab/convert_to_tensorrt.py
+  # from the .pth already in data/models/ -- same trained model as the sm89 build above.
   "data/models/field_deeplabv3p_r50_2026-07-29_x86_64_sm86.engine",
 ]
 
@@ -32,6 +32,12 @@ candidates = [
   "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_x86_64_sm89.engine",
   # sm86 (RTX A6000, megamind). Same trained model as the sm89 build above.
   "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_x86_64_sm86.engine",
+  # Fallback only: the "mixed_2026-07-31" training data isn't in the synced model
+  # folder, so this is the older 2026-07-29 (non-mixed) bbox model instead, sm86-built
+  # locally from the .onnx in data/models/. Different weights than the two candidates
+  # above, not just a recompile -- replace with a real "mixed" sm86 build once one
+  # exists.
+  "data/models/yolo26n_nhrl_robots_bbox_2class_2026-07-29_x86_64_sm86.engine",
 ]
 
 [keypoint_model]

@@ -103,10 +103,67 @@ services:
         # the default profile is defined.
         command: ["./scripts/docker/container_entrypoint.sh", "-c", "${PLAYBACK_CONFIG}"]
 
+    # Same playback toolchain, plus personal devtools (docker/dev.Dockerfile), for
+    # developing inside the container rather than just replaying an SVO. Driven by
+    # scripts/docker/build_dev_image.sh and dev_shell.sh. A separate image and HOME
+    # volume from `playback` above, so plain playback runs are unaffected by this and
+    # vice versa.
+    dev:
+        image: auto-battlebot-dev:latest
+        build:
+            context: ..
+            dockerfile: docker/dev.Dockerfile
+        depends_on:
+            - auto-battlebot-ros
+
+        network_mode: "host"
+        ipc: "host"
+
+        user: "${HOST_UID}:${HOST_GID}"
+        working_dir: "${REPO}"
+
+        environment:
+            HOME: /home/dev
+            AUTO_BATTLEBOT_BUILD_DIR: build-docker
+            DISPLAY: "${DISPLAY}"
+            XAUTHORITY: "${XAUTHORITY}"
+
+        volumes:
+            - /etc/passwd:/etc/passwd:ro
+            - /etc/group:/etc/group:ro
+
+            # Not auto-battlebot-home: that volume is already seeded (by `playback`)
+            # without any dotfiles, and named volumes only seed once. Keeping this one
+            # separate also means resetting it (see docs/docker_playback.md) never
+            # touches the plain playback flow.
+            - auto-battlebot-dev-home:/home/dev
+
+            - auto-battlebot-zed-resources:/usr/local/zed/resources
+            - auto-battlebot-zed-settings:/usr/local/zed/settings
+
+            - "${REPO}:${REPO}"
+
+            - /tmp/.X11-unix:/tmp/.X11-unix:ro
+            - "${XAUTHORITY}:${XAUTHORITY}:ro"
+
+        deploy:
+            resources:
+                reservations:
+                    devices:
+                        - driver: nvidia
+                          count: all
+                          capabilities: [gpu]
+
+        stdin_open: true
+        tty: true
+        init: true
+
 volumes:
     # Explicit names so the volumes stay stable and are not prefixed per project.
     auto-battlebot-home:
         name: auto-battlebot-home
+    auto-battlebot-dev-home:
+        name: auto-battlebot-dev-home
     auto-battlebot-zed-resources:
         name: auto-battlebot-zed-resources
     auto-battlebot-zed-settings:

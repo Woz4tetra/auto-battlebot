@@ -83,6 +83,34 @@ The first launch spends several minutes GPU-optimizing the ZED neural depth mode
 needs network access. It looks like a hang but is not. The result is cached in the
 `auto-battlebot-zed-resources` volume, so later runs skip it.
 
+## Developing inside the container
+
+`docker/dev.Dockerfile` layers personal devtools
+([workstation_setup](https://github.com/aalbaali/workstation_setup)'s "Quick bootstrap":
+ansible, then zsh + oh-my-zsh + starship, neovim + packer, vim) on top of the playback
+image, for editing and running code from inside the container instead of just replaying
+an SVO. It is not part of `playback.Dockerfile` on purpose -- that image is the
+team-shared toolchain, and personal dotfiles have no business in it.
+
+```bash
+./scripts/docker/build_dev_image.sh
+./scripts/docker/dev_shell.sh
+```
+
+`dev_shell.sh` takes the same `--no-display` flag and command-forwarding as `shell.sh`,
+and shares every mount `shell.sh` does except `HOME`: the dev image gets its own
+`auto-battlebot-dev-home` volume so dotfiles never touch the plain playback flow's
+`auto-battlebot-home`, and vice versa.
+
+`workstation_setup`'s `ansible/tasks/*.yaml` declare `vars:` as a list of single-key
+dicts (`- home: ...`), which current `ansible-core` rejects outright ("Vars in a Play
+must be specified as a dictionary"). `docker/fix_workstation_setup_vars.py` merges that
+into a dict after cloning and otherwise runs the same playbooks the upstream bootstrap
+script does -- an upstream incompatibility, not a container issue, safe to drop once
+the YAML is fixed. Separately, the neovim and vim plugin installs can outrun their
+30-second budget on a cold cache; the build tolerates that rather than failing outright,
+so run `:PackerSync` or `vim +PlugInstall` on first launch if either warns.
+
 ## Getting the data
 
 `data/` is gitignored and roughly 46 GB, so the container cannot supply it. On a new
