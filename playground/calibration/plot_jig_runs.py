@@ -34,9 +34,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
 import numpy as np
-
+from matplotlib.patches import Patch
 
 DEFAULT_CALIBRATION = Path(__file__).resolve().parent / "jig_calibration.toml"
 
@@ -49,7 +48,6 @@ from auto_battlebot.velocity_jig import (
     RunRecord,
     find_still_segments,
     read_jig_log,
-    solve_ground_truth,
     still_stats,
 )
 
@@ -102,7 +100,6 @@ def forward_speed(log: JigLog, calib: JigCalibration | None) -> tuple[np.ndarray
 REGION_STYLE = {
     "still hold": ("#cfe3cf", 0.55),
     "not commanded": ("#d9d9d9", 0.55),
-    "encoder slip": ("#f6d6a8", 0.75),
     "IMU saturated": ("#f3b3ae", 0.85),
 }
 
@@ -111,11 +108,10 @@ def excluded_regions(
     log: JigLog,
     t: np.ndarray,
     record: RunRecord | None,
-    truth_slip: np.ndarray | None,
 ) -> dict[str, list[tuple[float, float]]]:
     """Stretches the plant fit does not learn from, in plot time.
 
-    Four kinds, and they are excluded for different reasons worth telling apart:
+    Three kinds, and they are excluded for different reasons worth telling apart:
 
     - **still hold**: real data, but it is where the gyro bias and the noise floor come from,
       not something the fit windows over.
@@ -123,8 +119,6 @@ def excluded_regions(
       asked to predict motion from nothing. The fit keeps two seconds of coast past the last
       command, since the runner zeroes and disarms on exit, and drops the rest. That is why
       the gap between the opening hold and the first command is dead time: the cable was out.
-    - **encoder slip**: the wheel and the IMU disagree about how fast the robot changed speed,
-      so the encoder is wrong there. Needs a calibration to detect.
     - **IMU saturated**: a channel is at full scale, so its true value is unknown and biases
       anything fitted through it.
     """
@@ -151,9 +145,6 @@ def excluded_regions(
             edges.append((hi, float(t[-1])))
         if edges:
             out["not commanded"] = edges
-
-    if truth_slip is not None and truth_slip.any():
-        out["encoder slip"] = spans(truth_slip, t)
 
     sat, _ = saturated_mask(log)
     if sat.any():
@@ -183,24 +174,7 @@ def plot_run(
     if calib is not None:
         yaw = yaw * calib.gyro_scale
 
-    # Per-sample slip needs the same ground-truth solve the fit does, so it needs the
-    # calibration. Without one the panel simply has no slip shading rather than a guess.
-    truth_slip = None
-    if calib is not None:
-        try:
-            stills = find_still_segments(log)
-            truth = solve_ground_truth(
-                log,
-                calib,
-                still_pre=still_stats(log, stills[0]) if stills else None,
-                still_post=still_stats(log, stills[-1]) if len(stills) > 1 else None,
-                clock=clock,
-            )
-            truth_slip = truth.slip
-        except (ValueError, IndexError):
-            truth_slip = None
-
-    regions = excluded_regions(log, t, record, truth_slip)
+    regions = excluded_regions(log, t, record)
 
     fig, axes = plt.subplots(
         6, 1, figsize=(13, 12.5), sharex=True,
@@ -337,9 +311,6 @@ def plot_run(
             for a in axes:
                 a.axvspan(lo, hi, color=colour, alpha=alpha, lw=0, zorder=0)
         handles.append(Patch(facecolor=colour, alpha=alpha, label=f"{name} (not fitted)"))
-    if calib is None:
-        handles.append(Patch(facecolor="none", edgecolor="none",
-                             label="encoder slip needs --calibration to detect"))
     if handles:
         fig.legend(handles=handles, loc="lower center", ncol=len(handles),
                    fontsize=8, frameon=False, bbox_to_anchor=(0.5, 0.0))
@@ -554,8 +525,8 @@ def main() -> None:
     parser.add_argument(
         "--calibration", type=Path, default=DEFAULT_CALIBRATION,
         help=(
-            "jig calibration TOML. Plots in m/s and shades encoder slip when it has a real"
-            " meters_per_count; falls back to encoder counts/s when it does not."
+            "jig calibration TOML. Plots in m/s when it has a real meters_per_count;"
+            " falls back to encoder counts/s when it does not."
         ),
     )
     parser.add_argument("--force", action="store_true", help="redraw plots that already exist")

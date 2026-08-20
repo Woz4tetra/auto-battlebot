@@ -227,14 +227,14 @@ class HeldSegment:
     t0: float
 
 
-def _rise_tau(mv: np.ndarray, v_ss: float, dt: float, eps: float, bad: np.ndarray) -> float:
+def _rise_tau(mv: np.ndarray, v_ss: float, dt: float, eps: float) -> float:
     """First-order rise constant from the leading contiguous 15-90% band, log-linear.
 
     Restricting to the first contiguous in-band run is the stage 2 fix that mattered most: one
     late steady-state sample that dips back into the band flattens the slope and inflates tau by
     10x, turning a 55 ms rise into a reported 1.1 s.
     """
-    inband = (mv > 0.15 * v_ss) & (mv < 0.9 * v_ss) & ((v_ss - mv) > 0.5 * eps) & ~bad
+    inband = (mv > 0.15 * v_ss) & (mv < 0.9 * v_ss) & ((v_ss - mv) > 0.5 * eps)
     runs = _runs_of(inband)
     if not runs:
         return float("nan")
@@ -266,10 +266,8 @@ def held_segments(run: Run, channel: str) -> list[HeldSegment]:
             n = stop - start
             if n >= min_hold:
                 mv = np.abs(vel[start:stop])
-                bad = run.slip[start:stop]
                 tail = slice(int(0.6 * n), n)
-                clean = mv[tail][~bad[tail]]
-                v_ss = float(np.median(clean)) if len(clean) >= 2 else float(np.median(mv[tail]))
+                v_ss = float(np.median(mv[tail]))
                 out.append(
                     HeldSegment(
                         run=run.name,
@@ -278,7 +276,7 @@ def held_segments(run: Run, channel: str) -> list[HeldSegment]:
                         u_eff=float("nan"),
                         v_ss=v_ss,
                         tau=(
-                            _rise_tau(mv, v_ss, run.dt, eps, bad)
+                            _rise_tau(mv, v_ss, run.dt, eps)
                             if v_ss > max(3 * eps, 1e-3)
                             else float("nan")
                         ),
@@ -307,7 +305,7 @@ def coast_taus(run: Run, channel: str) -> list[float]:
         k = 0
         while k < n and mv[k] > max(3 * eps, 0.1 * mv[0]):
             k += 1
-        if k < 4 or run.slip[a : a + k].any():
+        if k < 4:
             continue
         tt = np.arange(k) * run.dt
         slope = float(np.polyfit(tt, np.log(mv[:k]), 1)[0])
@@ -633,8 +631,6 @@ def fit_delay(runs: Sequence[Run]) -> DelayStack:
                 lo, hi = e - pre, e + max_lag + 1
                 if lo < 0 or hi > len(accel):
                     continue
-                if run.slip[lo:hi].any():
-                    continue
                 if max(abs(cmd[e]), abs(cmd[e - 1])) < 0.1:
                     continue
                 # Sign-flip by the step direction so accels and decels add rather than cancel.
@@ -818,7 +814,7 @@ def build_windows(
             continue
         if not require_encoder and run.encoder_valid:
             continue
-        valid = ~run.slip & run.commanded
+        valid = run.commanded
         if np.count_nonzero(valid) < 10:
             continue
         ws = make_windows(
@@ -876,9 +872,10 @@ def joint_fit(
 ) -> tuple[PlantParams, float]:
     """Minimize windowed open-loop error over the structure's free parameters.
 
-    Soft-L1 loss so a slipped wheel or a wall bump that survived the slip flag cannot steer the
-    parameters. Delay is fixed here and profiled outside: the objective is not smooth in it at
-    the millisecond resolution that matters.
+    Soft-L1 loss so a slipped wheel or a wall bump cannot steer the parameters. This is the only
+    thing standing between a bad window and the fit, so keep the capture-time verdict honest.
+    Delay is fixed here and profiled outside: the objective is not smooth in it at the
+    millisecond resolution that matters.
     """
     names = structure.free_names()
     x0 = start.to_vector(names)

@@ -37,17 +37,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-
-
-from auto_battlebot.plant import (
-    PARAM_BOUNDS,
-    ModelStructure,
-    PlantParams,
-    WindowErrors,
-    effective_command,
-    predict_windows,
-)
-from auto_battlebot.velocity_jig import Run
 from calib_lib.jig_fit import (
     PARAM_SOURCES,
     Estimate,
@@ -58,6 +47,16 @@ from calib_lib.jig_fit import (
     score,
     window_delay,
 )
+
+from auto_battlebot.plant import (
+    PARAM_BOUNDS,
+    ModelStructure,
+    PlantParams,
+    WindowErrors,
+    effective_command,
+    predict_windows,
+)
+from auto_battlebot.velocity_jig import Run
 
 # Relative spread below which a parameter counts as measured. 10% is the point where the
 # parameter stops being the thing limiting the model.
@@ -213,7 +212,7 @@ class ParamStatus:
     note: str
     sources: tuple[tuple[str, str], ...]
     runs_now: int
-    valid_s_now: float
+    commanded_s_now: float
 
     @property
     def rel(self) -> float:
@@ -280,7 +279,7 @@ def param_status(loaded: Loaded, stage) -> list[ParamStatus]:
                 note=est.note,
                 sources=sources,
                 runs_now=len(unique),
-                valid_s_now=float(sum(r.quality.valid_s for r in unique)),
+                commanded_s_now=float(sum(r.quality.commanded_s for r in unique)),
             )
         )
     out.sort(key=lambda s: (-s.rel if np.isfinite(s.rel) else -1e18))
@@ -318,7 +317,7 @@ def section_next(statuses: Sequence[ParamStatus], curves: dict[str, float]) -> S
                 "n/a" if not np.isfinite(s.rel) else f"{s.rel:.0%}",
                 chip(s.status, s.level) + (f" {esc(s.note)}" if s.note else ""),
                 esc(_source_label(s.sources)),
-                f"{s.runs_now} runs, {s.valid_s_now:.0f} s",
+                f"{s.runs_now} runs, {s.commanded_s_now:.0f} s",
                 esc(advice) + f' <span class="chip">{basis}</span>',
             ]
         )
@@ -349,9 +348,8 @@ def section_next(statuses: Sequence[ParamStatus], curves: dict[str, float]) -> S
 def section_inventory(loaded: Loaded, window_counts: dict[str, int]) -> Section:
     sec = Section("inventory", "1. Data inventory")
     sec.body = (
-        '<p class="note">Usable seconds, not run count, is what a fit actually consumes: a '
-        "run that was mostly encoder slip or mostly uncommanded contributes far less than its "
-        "length suggests.</p>"
+        '<p class="note">Commanded seconds, not run count, is what a fit actually consumes: '
+        "a run that was mostly uncommanded contributes far less than its length suggests.</p>"
     )
     rows = []
     for name, runs in sorted(loaded.by_waveform().items()):
@@ -365,16 +363,15 @@ def section_inventory(loaded: Loaded, window_counts: dict[str, int]) -> Section:
                 len(runs),
                 f"{sum(r.quality.duration_s for r in runs):.0f}",
                 f"{sum(r.quality.commanded_s for r in runs):.0f}",
-                f"{sum(r.quality.valid_s for r in runs):.0f}",
                 window_counts.get(name, 0),
             ]
         )
     sec.add(
         table_html(
             ["waveform", "kind", "channel", "role", "runs", "duration s", "commanded s",
-             "valid s", "windows"],
+             "windows"],
             rows,
-            numeric=(4, 5, 6, 7, 8),
+            numeric=(4, 5, 6, 7),
         )
     )
     return sec
@@ -396,9 +393,8 @@ def section_quality(loaded: Loaded) -> Section:
                 q.malformed_rows,
                 f"{q.worst_saturation:.2%}",
                 fmt(q.bias_drift_dps, 4),
-                f"{q.slip_fraction:.1%}",
                 fmt(q.clock_residual_ms, 2),
-                f"{q.valid_s:.1f}",
+                f"{q.commanded_s:.1f}",
                 esc(q.command_source),
                 chips,
             ]
@@ -407,10 +403,10 @@ def section_quality(loaded: Loaded) -> Section:
     sec.add(
         table_html(
             ["run", "verdict", "duration s", "dropped", "malformed", "saturation",
-             "bias drift", "slip", "clock resid", "valid s", "commands", "gates"],
+             "bias drift", "clock resid", "commanded s", "commands", "gates"],
             rows,
             row_cls=cls,
-            numeric=(2, 3, 4, 5, 6, 7, 8, 9),
+            numeric=(2, 3, 4, 5, 6, 7, 8),
         )
     )
     return sec
@@ -773,8 +769,8 @@ def section_coverage(loaded: Loaded, params: PlantParams) -> Section:
     if not runs:
         return sec
 
-    lin = np.concatenate([r.cmd_lin[r.commanded & ~r.slip] for r in runs]) if runs else np.array([])
-    ang = np.concatenate([r.cmd_ang[r.commanded & ~r.slip] for r in runs]) if runs else np.array([])
+    lin = np.concatenate([r.cmd_lin[r.commanded] for r in runs]) if runs else np.array([])
+    ang = np.concatenate([r.cmd_ang[r.commanded] for r in runs]) if runs else np.array([])
     dt = float(np.median([r.dt for r in runs]))
 
     if len(lin) > 10:
@@ -1101,7 +1097,7 @@ def run_trace_figure(run: Run, params: PlantParams, structure: ModelStructure, r
 
     # Grey out what the fit ignores, so a run that looks bad because it was excluded is
     # visibly different from one that is bad because the model is wrong.
-    bad = run.slip | ~run.commanded
+    bad = ~run.commanded
     if np.any(bad):
         edges = np.flatnonzero(np.diff(bad.astype(int)) != 0) + 1
         bounds = np.concatenate([[0], edges, [len(bad)]])
@@ -1139,7 +1135,7 @@ def section_per_run(
         sec.add(
             f"<details><summary>{esc(run.name)} {chips}</summary>"
             + figure_html(fig, "Model reinitialized from truth every 500 ms. Red shading is "
-                               "encoder slip or uncommanded time, which the fit ignores.")
+                               "uncommanded time, which the fit ignores.")
             + "</details>"
         )
     return sec

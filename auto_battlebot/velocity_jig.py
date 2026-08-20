@@ -15,13 +15,11 @@ tell you: which host clock a sample belongs to (`ClockFit`), and which run it ca
 (`load_session_dir`, reading the sidecar TOML that `velocity_jig_drive.py` writes next to
 every downloaded log).
 
-Three failure modes get flagged rather than silently absorbed, because stage 2 shipped
+Two failure modes get flagged rather than silently absorbed, because stage 2 shipped
 parameters from silently degraded ground truth:
 
 - Saturated IMU channels (`|raw| > 32000`), per axis, per run.
 - Gyro bias drift between the pre-run and post-run still holds.
-- Encoder slip, from disagreement between encoder acceleration and IMU longitudinal
-  acceleration.
 
 See `docs/experiments/kalman_filter/kalman_filter_plan.md` part 1.2 and the companion runbook.
 """
@@ -50,22 +48,6 @@ DEG_TO_RAD = np.pi / 180.0
 RAW_SATURATION = 32000
 
 AXIS_NAMES = ("x", "y", "z")
-
-# Window the encoder and the IMU are compared over for encoder slip.
-#
-# Widening this trades latency for discrimination, and the trade is one-sided. The encoder is
-# differentiated and the IMU integrated, so the two carry slightly different effective delays;
-# that mismatch shows up as a speed error of roughly (delay difference) x (acceleration),
-# which does not grow with the window. Real slip does grow with it, because the wheel keeps
-# over-running for as long as it is loose. So a longer window leaves the artifact where it is
-# and lets the signal climb past it.
-#
-# 100 ms was too short once the robot turned out to do 3.7 m/s rather than the 0.85 m/s the
-# tooling originally assumed: the speed change inside one window reached 0.89 m/s, and asking
-# two sensors to agree to 0.1 m/s across that flagged the launch and stop transients of every
-# run. Those transients are where the acceleration time constants live, so throwing them away
-# defeats the fit.
-SLIP_COMPARE_S = 0.30
 
 # What a run played, in the terms the fit routes on. Replaces the old runbook experiment
 # ids: a waveform is declared in a TOML catalog, so the fit cannot key on a fixed list of
@@ -372,21 +354,6 @@ def bias_drift_dps(pre: StillStats, post: StillStats, up: np.ndarray | None = No
     return float(abs(np.dot(post.bias - pre.bias, axis)) / DEG_TO_RAD)
 
 
-def plane_basis(up: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Two orthonormal vectors spanning the horizontal plane, for lever-arm and slip work.
-
-    The basis is arbitrary in rotation about `up`. Nothing here needs a particular forward axis;
-    `forward_axis` finds the real one from motion.
-    """
-    seed = np.array([1.0, 0.0, 0.0])
-    if abs(float(np.dot(seed, up))) > 0.9:
-        seed = np.array([0.0, 1.0, 0.0])
-    e1 = seed - np.dot(seed, up) * up
-    e1 /= np.linalg.norm(e1)
-    e2 = np.cross(up, e1)
-    return e1, e2
-
-
 # ---------------------------------------------------------------------------
 # Calibration constants (E3, E4, E5)
 # ---------------------------------------------------------------------------
@@ -399,9 +366,7 @@ class JigCalibration:
     `meters_per_count` (E4) and `gyro_scale` (E3) set the units of every fitted parameter.
     `r_enc_perp` (E5) is the encoder wheel's lever arm, removed from every speed measurement,
     which is what makes combined linear-plus-angular runs usable instead of discarded. `r_imu` is
-    kept for the report and for E5's own sanity check against a tape measure: the slip detector
-    fits the IMU's lever-arm terms per run instead, because a single scalar cannot say which axis
-    the offset lies on and the two terms land on different channels depending on that.
+    kept for the report and for E5's own sanity check against a tape measure.
     """
 
     meters_per_count: float
@@ -996,35 +961,6 @@ def _moving_average(a: np.ndarray, window: int) -> np.ndarray:
     return np.convolve(padded, kernel, mode="valid")
 
 
-def forward_axis(
-    up: np.ndarray, accel: np.ndarray, a_ref: np.ndarray, mask: np.ndarray | None = None
-) -> np.ndarray:
-    """Recover the IMU's forward axis by regressing horizontal accel on encoder acceleration.
-
-    Gravity fixes the yaw axis but says nothing about which horizontal direction is forward, and
-    that direction is needed to cross-check the encoder against the IMU.
-
-    Each horizontal component is regressed *on* the encoder acceleration, not the other way
-    round. That matches the physics (forward acceleration causes the reading) and, more
-    practically, it stays well posed: on a run with no turning, the lateral component is pure
-    noise, and regressing the encoder on both components hands that near-degenerate column a huge
-    coefficient which then dominates the normalized direction.
-    """
-    e1, e2 = plane_basis(up)
-    h1 = accel @ e1
-    h2 = accel @ e2
-    if mask is not None:
-        h1, h2, a_ref = h1[mask], h2[mask], a_ref[mask]
-    denom = float(np.sum(a_ref * a_ref))
-    if len(a_ref) < 10 or denom < 1e-9:
-        return e1
-    vec = (float(np.sum(h1 * a_ref)) / denom) * e1 + (float(np.sum(h2 * a_ref)) / denom) * e2
-    norm = float(np.linalg.norm(vec))
-    if norm < 1e-9:
-        return e1
-    return vec / norm
-
-
 @dataclass
 class GroundTruth:
     """Dead-reckoned truth for one run, on the jig's 1 kHz sample grid.
@@ -1040,15 +976,10 @@ class GroundTruth:
     theta: np.ndarray  # heading, rad, unwrapped
     x: np.ndarray
     y: np.ndarray
-    slip: np.ndarray  # bool, encoder and IMU disagree on longitudinal acceleration
     encoder_valid: bool
     bias_drift_dps: float
     yaw_scale: float
     clock: ClockFit
-
-    @property
-    def slip_fraction(self) -> float:
-        return float(np.mean(self.slip)) if len(self.slip) else 0.0
 
     def closure_error(self) -> tuple[float, float]:
         """(position error, path length) between the run's start and end, both meters.
@@ -1071,8 +1002,6 @@ def solve_ground_truth(
     clock: ClockFit | None = None,
     smooth_s: float = 0.02,
     onset_smooth_s: float = 0.005,
-    slip_sigma: float = 4.0,
-    slip_compare_s: float = SLIP_COMPARE_S,
 ) -> GroundTruth:
     """Unicycle dead reckoning from encoder arc length and gyro yaw.
 
@@ -1129,10 +1058,6 @@ def solve_ground_truth(
     x = np.concatenate([[0.0], np.cumsum(0.5 * (v[1:] + v[:-1]) * np.cos(theta[:-1]) * dt[1:])])
     y = np.concatenate([[0.0], np.cumsum(0.5 * (v[1:] + v[:-1]) * np.sin(theta[:-1]) * dt[1:])])
 
-    slip = np.zeros(n, dtype=bool)
-    if encoder_valid:
-        slip = _slip_flags(log, up, w, v, calib, window, slip_sigma, slip_compare_s)
-
     drift = (
         bias_drift_dps(still_pre, still_post, up)
         if still_pre is not None and still_post is not None
@@ -1147,80 +1072,11 @@ def solve_ground_truth(
         theta=theta,
         x=x,
         y=y,
-        slip=slip,
         encoder_valid=encoder_valid,
         bias_drift_dps=drift,
         yaw_scale=calib.gyro_scale,
         clock=clock,
     )
-
-
-def _slip_flags(
-    log: JigLog,
-    up: np.ndarray,
-    w: np.ndarray,
-    v: np.ndarray,
-    calib: JigCalibration,
-    window: int,
-    sigma: float,
-    compare_s: float = SLIP_COMPARE_S,
-) -> np.ndarray:
-    """Flag stretches where the encoder and the IMU disagree about how the speed changed.
-
-    The trailing wheel can slip under hard accel or lift during a wheelie, which is exactly the
-    regime the plant fit cares most about. The IMU does not slip, so the two only disagree when
-    the encoder is wrong.
-
-    The comparison is on speed change over a 100 ms window, not on instantaneous acceleration.
-    Encoder acceleration needs two differentiations of a quantized count and therefore heavy
-    smoothing, while IMU acceleration is measured directly, so comparing them sample by sample
-    mostly measures the difference between two filters. Integrating the IMU over the same window
-    the encoder is differenced over puts both through one operator, and the result is in m/s
-    where a threshold means something physical.
-
-    Centripetal (`w^2 r`) and tangential (`alpha x r`) terms come out first: both appear in the
-    IMU during a turn and neither is forward acceleration.
-    """
-    dt = max(log.dt, 1e-9)
-    a_enc = _moving_average(np.gradient(v, log.t), window)
-    accel = log.accel
-    # Remove gravity, then project onto the measured forward direction.
-    horiz = accel - np.outer(accel @ up, up)
-    alpha = np.gradient(w, log.t)
-    fwd = forward_axis(up, accel, a_enc, mask=np.abs(v) > 0.2)
-    a_fwd = horiz @ fwd
-
-    # Remove the lever-arm terms by regression rather than by assuming the geometry. An IMU
-    # offset from the yaw axis adds a centripetal term (w^2 r) and a tangential term (alpha r) to
-    # the forward channel, and which one lands where depends on which way the offset points. E5
-    # measures a single scalar, which cannot say. Fitting the two coefficients against the
-    # residual that the encoder does not explain covers any mounting.
-    design = np.stack([np.ones_like(w), w**2, alpha], axis=1)
-    coeff, *_ = np.linalg.lstsq(design, a_fwd - a_enc, rcond=None)
-    a_imu = a_fwd - design @ coeff
-
-    # Integrate the IMU into a relative velocity and put it through the same smoothing the
-    # encoder velocity went through. Without that, a fast reversal shows up as disagreement
-    # purely because one signal is filtered and the other is not.
-    span = max(2, int(round(compare_s / dt)))
-    integral = np.concatenate([[0.0], np.cumsum(a_imu[1:] * np.diff(log.t))])
-    integral = _moving_average(integral, window)
-    diff = (v[span:] - v[:-span]) - (integral[span:] - integral[:-span])
-
-    # Robust scale, because the slips themselves are in this signal and a plain standard
-    # deviation would widen the threshold until it stopped catching them.
-    scale = 1.4826 * float(np.median(np.abs(diff - np.median(diff))))
-    if not np.isfinite(scale):
-        return np.zeros(len(v), dtype=bool)
-    # Absolute floor: a disagreement under 0.1 m/s over 100 ms is below the noise of this
-    # comparison and not worth throwing a window away for.
-    flagged = (np.abs(diff) > max(sigma * scale, 0.1)).astype(float)
-
-    # A flag covers the window it was measured over, not just that window's first sample.
-    dilated = np.convolve(flagged, np.ones(span))[: len(v)] > 0.0
-    out = np.zeros(len(v), dtype=bool)
-    out[: len(dilated)] = dilated
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1245,22 +1101,17 @@ class RunQuality:
     worst_saturation: float
     saturated_axes: list[str]
     bias_drift_dps: float
-    slip_fraction: float
     clock_measured: bool
     clock_residual_ms: float
     skew_ppm: float | None
     still_holds: int
     encoder_valid: bool
-    # How much of the run the fit can actually use. Nothing computed this before, so a run
-    # that was mostly slip or mostly uncommanded counted the same as a clean one when
-    # deciding whether an experiment had enough data.
     saturated_samples: int = 0
-    # Seconds of commanded driving the slip detector threw away. The fraction alone cannot
-    # say whether that is a rounding error or the whole run.
-    slip_seconds: float = 0.0
+    # How much of the run the fit can actually use. Nothing computed this before, so a run
+    # that was mostly uncommanded counted the same as a fully driven one when deciding
+    # whether an experiment had enough data.
     duration_s: float = 0.0
     commanded_s: float = 0.0
-    valid_s: float = 0.0
     # Seconds of each commanded still hold that the log does not show as motionless. Large
     # means the jig and the CLI disagree about when the run started, which otherwise surfaces
     # only as a mysteriously bad fit.
@@ -1278,9 +1129,8 @@ class RunQuality:
         # so anything fitted through it is biased without ever looking wrong. Raise this
         # deliberately when a run is worth keeping anyway.
         max_saturation: float = 0.0,
-        max_slip_fraction: float = 0.05,
         max_clock_residual_ms: float = 2.0,
-        min_valid_s: float = 1.0,
+        min_commanded_s: float = 1.0,
         # Half a ten second hold. Detection trims the edges of a still stretch, so a little
         # uncovered time is normal; half of it missing is not.
         max_hold_gap_s: float = 5.0,
@@ -1301,17 +1151,12 @@ class RunQuality:
             )
         if np.isfinite(self.bias_drift_dps) and self.bias_drift_dps > max_bias_drift_dps:
             out.append(f"gyro bias drift {self.bias_drift_dps:.3f} deg/s")
-        if self.slip_fraction > max_slip_fraction:
-            out.append(
-                f"encoder slip on {self.slip_fraction:.1%} of the commanded stretch "
-                f"({self.slip_seconds:.1f} s)"
-            )
         if self.clock_measured and self.clock_residual_ms > max_clock_residual_ms:
             out.append(f"clock residual {self.clock_residual_ms:.2f} ms")
         if self.still_holds < 2:
             out.append(f"{self.still_holds} still holds found, need 2")
-        if self.valid_s < min_valid_s:
-            out.append(f"only {self.valid_s:.1f} s of usable commanded data")
+        if self.commanded_s < min_commanded_s:
+            out.append(f"only {self.commanded_s:.1f} s of commanded data")
         gap = max(self.hold_pre_gap_s, self.hold_post_gap_s)
         if gap > max_hold_gap_s:
             out.append(
@@ -1344,7 +1189,6 @@ class Run:
     cmd_ang: np.ndarray
     commanded: np.ndarray  # bool, the command is known here (see load_run)
     label: np.ndarray  # per-sample phase label from the protocol segments
-    slip: np.ndarray
     v_noise: float
     w_noise: float
     truth: GroundTruth
@@ -1475,7 +1319,6 @@ def load_run(
     theta = np.interp(grid, truth.t, truth.theta)
     x = np.interp(grid, truth.t, truth.x)
     y = np.interp(grid, truth.t, truth.y)
-    slip = np.interp(grid, truth.t, truth.slip.astype(float)) > 0.5
 
     cmd_lin = zoh(record.cmd_t, record.cmd_lin, grid)
     cmd_ang = zoh(record.cmd_t, record.cmd_ang, grid)
@@ -1499,9 +1342,8 @@ def load_run(
     w_noise = float(np.std(w[idle])) if np.count_nonzero(idle) > 10 else 0.0
 
     # Usable seconds, which is what the report ranks waveforms by when deciding what to
-    # collect more of. A run that was mostly slip contributes far less than its length.
+    # collect more of. A run that was mostly still holds contributes far less than its length.
     commanded_s = float(dt * np.count_nonzero(commanded))
-    valid_s = float(dt * np.count_nonzero(commanded & ~slip))
     hold_pre_gap = _hold_uncovered_s(record.hold_pre, stills, clock)
     hold_post_gap = _hold_uncovered_s(record.hold_post, stills, clock)
 
@@ -1521,15 +1363,6 @@ def load_run(
         saturated_axes=[a.name for a in sat if a.count],
         saturated_samples=sum(a.count for a in sat),
         bias_drift_dps=truth.bias_drift_dps,
-        # Over the commanded stretch, not the whole log. A run is mostly still holds, so a
-        # whole-log fraction divides the slip by however long the operator stood around: the
-        # 2026-08-19 lin_coast reads 5.8% of the log and 44.5% of the 4.2 s it actually drove.
-        slip_fraction=(
-            float(np.count_nonzero(slip & commanded) / max(np.count_nonzero(commanded), 1))
-            if np.any(commanded)
-            else truth.slip_fraction
-        ),
-        slip_seconds=float(dt * np.count_nonzero(slip & commanded)),
         clock_measured=clock.measured,
         clock_residual_ms=clock.residual_ms,
         skew_ppm=record.skew_ppm,
@@ -1537,7 +1370,6 @@ def load_run(
         encoder_valid=truth.encoder_valid,
         duration_s=float(grid[-1] - grid[0]) if len(grid) > 1 else 0.0,
         commanded_s=commanded_s,
-        valid_s=valid_s,
         hold_pre_gap_s=hold_pre_gap,
         hold_post_gap_s=hold_post_gap,
         command_source=record.command_source,
@@ -1558,7 +1390,6 @@ def load_run(
         cmd_ang=cmd_ang,
         commanded=commanded,
         label=labels,
-        slip=slip,
         v_noise=v_noise,
         w_noise=w_noise,
         truth=truth,
