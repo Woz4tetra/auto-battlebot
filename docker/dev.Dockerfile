@@ -63,5 +63,27 @@ RUN sudo apt-get update \
     && sudo chown -R dev:dev /home/dev \
     && chmod -R a+rwX /home/dev
 
+# The `dev` user above only exists for build-time paths (see note atop this file); the
+# container actually runs as an arbitrary host UID via --user, resolved to a name
+# through the read-only /etc/passwd mount. That UID has no matching sudoers entry, so
+# the "dev ALL=(ALL) NOPASSWD:ALL" rule earlier in this file never applies to it and
+# sudo fails. Match by ALL instead of by name, the same "must work for whatever UID
+# shows up at runtime" treatment this file already gives /home/dev, /usr/local/zed, and
+# /opt/venv. Kept as its own layer so it doesn't invalidate the ansible/devtools layer
+# above.
+RUN echo "ALL ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/nopasswd-all >/dev/null \
+    && sudo chmod 0440 /etc/sudoers.d/nopasswd-all
+
+# The sudoers rule above still isn't enough: only /etc/passwd and /etc/group are
+# bind-mounted from the host, not /etc/shadow, so PAM's account phase
+# (/etc/pam.d/sudo -> @include common-account -> pam_unix.so) finds no shadow entry for
+# the runtime UID, falls through to the `pam_deny.so requisite` fallback in
+# common-account, and sudo reports "account validation failure, is your account
+# locked?" even though the sudoers rule matched. There's no meaningful account to
+# validate here (the NOPASSWD:ALL rule above already trusts any resolved user), so
+# replace sudo's account check with an unconditional pass. Scoped to /etc/pam.d/sudo
+# specifically rather than editing the shared common-account file.
+RUN sudo sed -i 's/^@include common-account$/account required pam_permit.so/' /etc/pam.d/sudo
+
 WORKDIR /workspace
 CMD ["/bin/zsh"]
