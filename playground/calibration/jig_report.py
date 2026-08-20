@@ -35,13 +35,11 @@ from typing import Any, Sequence
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from auto_battlebot.plant import (  # noqa: E402
+from auto_battlebot.plant import (
     PARAM_BOUNDS,
     ModelStructure,
     PlantParams,
@@ -49,8 +47,8 @@ from auto_battlebot.plant import (  # noqa: E402
     effective_command,
     predict_windows,
 )
-from auto_battlebot.velocity_jig import Run  # noqa: E402
-from calib_lib.jig_fit import (  # noqa: E402
+from auto_battlebot.velocity_jig import Run
+from calib_lib.jig_fit import (
     PARAM_SOURCES,
     Estimate,
     FitWeights,

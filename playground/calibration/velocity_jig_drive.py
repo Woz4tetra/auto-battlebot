@@ -10,11 +10,10 @@ and a CSV of the command timeline.
     python playground/calibration/velocity_jig_drive.py --list-waveforms
     python playground/calibration/velocity_jig_drive.py --waveform lin_step_full --dry-run
 
-    # record
+    # record; --out defaults to out/<date>-<name>
     python playground/calibration/velocity_jig_drive.py \\
         --waveform lin_step_full --waveform lin_coast \\
-        --name "garage floor sweep" \\
-        --out playground/calibration/out/2026-08-17-garage
+        --name "garage floor sweep"
 
 Two USB serial devices are open at once: the jig (`/dev/ttyACM*`) and the OpenTX radio
 (0483:5740). `--list-ports` shows every candidate with its ids.
@@ -41,19 +40,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from auto_battlebot.plant import PlantParams, simulate  # noqa: E402
-from auto_battlebot.velocity_jig import SIDECAR_SCHEMA, ClockProbe  # noqa: E402
-from calib_lib import drive_protocol as dp  # noqa: E402
-from calib_lib import excitation as ex  # noqa: E402
-from calib_lib import jig_link as jl  # noqa: E402
+from auto_battlebot.plant import PlantParams, simulate
+from auto_battlebot.velocity_jig import SIDECAR_SCHEMA, ClockProbe
+from calib_lib import drive_protocol as dp
+from calib_lib import excitation as ex
+from calib_lib import jig_link as jl
 
 DEFAULT_CATALOG = Path(__file__).resolve().parent / "waveforms.toml"
+DEFAULT_OUT_ROOT = Path(__file__).resolve().parent / "out"
 # Long enough to bound the gyro bias estimate, short enough that an operator will actually
 # stand still for it. The fit needs two of these per run to bracket the bias drift.
-DEFAULT_HOLD_S = 10.0
+DEFAULT_HOLD_S = 5.0
 DEFAULT_PROBES = 200
 
 
@@ -260,15 +258,41 @@ def write_run_toml(
 def write_command_csv(path: Path, samples: Sequence[dp.CommandSample], meta: str) -> None:
     header = [
         "# auto-battlebot velocity jig command log",
-        "# columns: t_host_s,linear,angular,trim,meas_linear,meas_angular,meas_arm",
+        "# linear/angular are what was asked for; meas_ch_a/meas_ch_b are what the radio",
+        "# reported on the two drive channels. meas_linear/meas_angular are those channels",
+        "# read through the configured mix, so they are an interpretation and the channels",
+        "# are the measurement. A wrong mix can be corrected from the channels offline.",
+        "# columns: t_host_s,linear,angular,trim,meas_ch_a,meas_ch_b,"
+        "meas_linear,meas_angular,meas_arm",
         f"# {meta}",
     ]
     rows = [
         f"{s.t:.6f},{s.linear:.4f},{s.angular:.4f},{s.trim:.4f},"
+        f"{s.meas_ch_a:.4f},{s.meas_ch_b:.4f},"
         f"{s.meas_linear:.4f},{s.meas_angular:.4f},{s.meas_arm:.4f}"
         for s in samples
     ]
     path.write_text("\n".join(header + rows) + "\n", encoding="utf-8")
+
+
+def slug(text: str) -> str:
+    """Filesystem-safe form of a free-text name."""
+    out = "".join(c.lower() if c.isalnum() else "-" for c in text)
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-")
+
+
+def default_out_dir(name: str) -> Path:
+    """Where a session lands when --out is not given.
+
+    One directory per day per name. Re-running the same name on the same day appends to it,
+    which is what you want: a session is the leave-one-out unit for the fit, and one battery
+    on one floor is one session whether it took one invocation or five.
+    """
+    stamp = f"{datetime.now():%Y-%m-%d}"
+    tail = slug(name)
+    return DEFAULT_OUT_ROOT / (f"{stamp}-{tail}" if tail else stamp)
 
 
 def git_sha() -> str:
@@ -403,7 +427,9 @@ def run_one(
     elif trainer is not None:
         # Hand-driven. Nothing is sent; the radio's own mixer output is the command log.
         say(f"      drive the robot for {program.duration_s:.0f} s. Recording the radio.")
-        for t, lin, ang, arm in dp.stream_measured(trainer, program.duration_s, args.rate):
+        for t, ch_a, ch_b, lin, ang, arm in dp.stream_measured(
+            trainer, program.duration_s, args.rate
+        ):
             commands.append(
                 dp.CommandSample(
                     t=t,
@@ -412,6 +438,8 @@ def run_one(
                     trim=0.0,
                     channel_a=0,
                     channel_b=0,
+                    meas_ch_a=ch_a,
+                    meas_ch_b=ch_b,
                     meas_linear=lin,
                     meas_angular=ang,
                     meas_arm=arm,
@@ -451,6 +479,13 @@ def run_one(
     n += 1
     step(n, total, f"Download {log_file}")
     dest = out_dir / log_file
+    if dest.exists():
+        # The jig picks the first free name on its own card, so names never repeat within a
+        # card. They do repeat after a card wipe, and appending to an existing session
+        # directory would then overwrite the earlier run's log without saying so.
+        stamp = f"{datetime.now():%H%M%S}"
+        dest = out_dir / f"{dest.stem}-{stamp}{dest.suffix}"
+        say(f"      {log_file} already here from an earlier card; saving as {dest.name}")
     written = link.download(log_file, dest)
     say(f"      {written} bytes -> {dest}")
 
@@ -466,7 +501,11 @@ def run_one(
         )
 
     problems = gates(dropped, clock_pre, clock_post, skew, samples, args.hold_s, contamination)
+    problems += log_gates(dest)
     verdict = "discard" if problems else "pass"
+    # The reasons go in the sidecar too. A verdict with no reason means working out months
+    # later whether a run was thrown away for a real fault or a since-fixed tool bug.
+    gate_note = "; ".join(problems)
     notes = args.notes
     if not args.no_prompt:
         try:
@@ -482,12 +521,16 @@ def run_one(
         out_dir / f"{stem}.toml",
         run={
             "id": f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}-{program.name}-{rep}",
-            "log_file": log_file,
+            # dest.name, not the jig's name: a collision after a card wipe renames the file
+            # on disk, and a sidecar pointing at the original name would load the wrong log.
+            "log_file": dest.name,
             "command_file": cmd_name if commands else None,
             "rep": rep,
             "started_utc": f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}",
             "duration_s": program.duration_s,
             "verdict": verdict,
+            "gates": gate_note,
+            "contamination": round(contamination, 4),
             "notes": notes,
             "encoder": args.encoder,
             "trim": args.trim,
@@ -519,7 +562,33 @@ def run_one(
         say(f"\n      VERDICT: discard -- {'; '.join(problems)}")
     else:
         say("\n      VERDICT: pass")
-    return link, RunOutcome(log_file, samples, dropped, verdict, problems)
+    return link, RunOutcome(dest.name, samples, dropped, verdict, problems)
+
+
+def log_gates(log_path: Path) -> list[str]:
+    """Gates that need the downloaded log parsed, checked here rather than at fit time.
+
+    Saturation is the one that matters at the robot: a clipped IMU channel usually means an
+    impact, and knowing that before the next run beats finding out a week later when the fit
+    excludes it. Cheap enough at 1 kHz that it is not worth deferring.
+    """
+    try:
+        from auto_battlebot.velocity_jig import read_jig_log
+
+        log = read_jig_log(log_path)
+    except (OSError, ValueError) as err:
+        return [f"log unreadable: {err}"]
+
+    out: list[str] = []
+    sat = [a for a in log.saturation() if a.count]
+    if sat:
+        axes = ", ".join(f"{a.name} x{a.count}" for a in sat)
+        out.append(f"IMU saturation on {axes} (impact, or the range is set too low)")
+    if log.malformed_rows:
+        out.append(f"{log.malformed_rows} malformed rows in the log")
+    if not log.encoder_moved:
+        out.append("encoder count never changed; check the connector")
+    return out
 
 
 def gates(
@@ -568,7 +637,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="waveform to play; repeat to queue several runs back to back",
     )
     parser.add_argument("--name", default="", help="experiment name, recorded in the metadata")
-    parser.add_argument("--out", type=Path, default=None, help="session output directory")
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help=(
+            "session output directory. Defaults to "
+            f"{DEFAULT_OUT_ROOT}/<date>-<name>, so repeated runs on the same day land in "
+            "one session, which is the unit leave-one-out validation holds out."
+        ),
+    )
     parser.add_argument("--session", type=Path, default=None, help="session metadata TOML")
     parser.add_argument("--reps", type=int, default=1, help="repetitions of each waveform")
     parser.add_argument("--jig-port", default=None)
@@ -578,6 +656,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rate", type=float, default=50.0, help="command send rate in Hz")
     parser.add_argument("--mix", choices=("tank", "direct"), default="tank")
     parser.add_argument("--no-reverse-angular", action="store_true")
+    # Readback wiring, from --check-radio. These affect only how the radio's own report is
+    # interpreted, never what gets sent, so a wrong value costs a false contamination flag
+    # rather than a wrong command.
+    parser.add_argument("--read-linear", type=int, default=0)
+    parser.add_argument("--read-angular", type=int, default=1)
+    parser.add_argument("--read-arm", type=int, default=4)
+    parser.add_argument("--read-invert-a", action="store_true")
+    parser.add_argument("--read-invert-b", action="store_true")
+    parser.add_argument("--channel-scale", type=float, default=1024.0)
     parser.add_argument(
         "--trim",
         type=float,
@@ -594,6 +681,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-prompt", action="store_true", help="skip the per-run notes prompt")
     parser.add_argument("--half-width-m", type=float, default=0.0, help="usable floor half-width")
     parser.add_argument("--params", type=Path, default=None, help="plant TOML for --dry-run")
+    parser.add_argument(
+        "--check-radio",
+        action="store_true",
+        help="infer the radio's channel mapping, signs and scale. Run with the robot OFF.",
+    )
+    parser.add_argument("--check-amplitude", type=float, default=0.5)
     parser.add_argument("--list-waveforms", action="store_true")
     parser.add_argument("--list-ports", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="inspect programs, touch no hardware")
@@ -619,6 +712,103 @@ def do_list_ports() -> None:
         )
 
 
+def mix_from_args(args: argparse.Namespace) -> dp.MixConfig:
+    return dp.MixConfig(
+        mode=args.mix,
+        reverse_angular=not args.no_reverse_angular,
+        channel_scale=args.channel_scale,
+        read_linear=args.read_linear,
+        read_angular=args.read_angular,
+        read_arm=args.read_arm,
+        read_invert_a=args.read_invert_a,
+        read_invert_b=args.read_invert_b,
+    )
+
+
+def do_check_radio(link: dp.TrainerLink, amplitude: float = 0.5) -> None:
+    """Work out how the radio reports what we send it, without guessing.
+
+    Run this with the ROBOT POWERED OFF. The radio's mixer responds to trainer input whether
+    or not anything is listening downstream, so nothing has to move for this to work.
+
+    Sends five known commands and regresses every returned channel against them. That
+    recovers which channel carries what, its sign, and its scale. A radio with servo-reverse
+    set on one drive channel reports it negated while the ESC compensates, so the robot
+    drives correctly and only the readback disagrees. Left unfound, that shows up as a
+    contamination gate firing on runs that were fine.
+    """
+    probes = [(0.0, 0.0), (amplitude, 0.0), (-amplitude, 0.0), (0.0, amplitude), (0.0, -amplitude)]
+    say("Radio check. Robot OFF; nothing needs to move.")
+    say(f"Sending {len(probes)} known commands at amplitude {amplitude:g}.\n")
+
+    rows: list[tuple[float, float, list[float]]] = []
+    with dp.armed(link):
+        for lin, ang in probes:
+            deadline = time.monotonic() + 0.6
+            while time.monotonic() < deadline:
+                link.send(lin, ang)
+                time.sleep(0.02)
+            raw = link.measured_raw()
+            if not raw:
+                raise SystemExit(
+                    "No channel packets from the radio. Is it streaming? The link primes "
+                    "'telemetry on' and 'channels on' at open."
+                )
+            rows.append((lin, ang, raw))
+            say(f"  sent lin {lin:+.2f} ang {ang:+.2f}")
+
+    import numpy as np
+
+    design = np.array([[1.0, lin, ang] for lin, ang, _ in rows])
+    n_ch = min(len(r[2]) for r in rows)
+    observed = np.array([r[2][:n_ch] for r in rows])
+    coeff, *_ = np.linalg.lstsq(design, observed, rcond=None)
+
+    say("\nChannels that respond (offset, per unit linear, per unit angular):")
+    responders = []
+    for ch in range(n_ch):
+        offset, to_lin, to_ang = coeff[:, ch]
+        if max(abs(to_lin), abs(to_ang)) < 0.05:
+            continue
+        responders.append((ch, offset, to_lin, to_ang))
+        say(f"  ch{ch:<3d} offset {offset:+.3f}   lin {to_lin:+.3f}   ang {to_ang:+.3f}")
+    if len(responders) < 2:
+        say("\nFewer than two channels responded. Check that the trainer input is enabled")
+        say("on the radio and that the model's mixer routes it to the drive channels.")
+        return
+
+    a_ch, _, a_lin, a_ang = responders[0]
+    b_ch, _, b_lin, b_ang = responders[1]
+    # Under tank, both channels carry the linear command; under direct they split it.
+    tank = abs(a_lin) > 0.05 and abs(b_lin) > 0.05
+    mode = "tank" if tank else "direct"
+    scale = max(abs(a_lin), abs(a_ang), abs(b_lin), abs(b_ang))
+
+    say(f"\nInferred mix: {mode}")
+    say(f"Response magnitude {scale:.3f} per unit command.")
+    if abs(scale - 1.0) > 0.05:
+        say(
+            f"  That is not 1.0, so channel_scale is off by {1.0 / scale:.3f}x. "
+            f"Set channel_scale = {link.mix.channel_scale / scale:.0f}."
+        )
+    invert_a = (a_lin if tank else a_lin or a_ang) < 0
+    invert_b = (b_lin if tank else b_ang) < 0
+    if invert_a or invert_b:
+        say(
+            "  One or both drive channels come back negated, which is servo-reverse on the "
+            "radio. The robot still drives correctly; only the readback needs to undo it."
+        )
+
+    say("\nUse:")
+    say(f"  --mix {mode}")
+    say(f"  read_linear = {a_ch}, read_angular = {b_ch}")
+    say(f"  read_invert_a = {str(invert_a).lower()}, read_invert_b = {str(invert_b).lower()}")
+    say(
+        "\nThese live in MixConfig (calib_lib/drive_protocol.py). Set them before recording, "
+        "or the contamination gate will discard good runs."
+    )
+
+
 def do_list_waveforms(catalog: dict[str, ex.WaveformDecl]) -> None:
     say(f"{'name':<20} {'kind':<10} {'channel':<9} {'role':<8} {'duration':>9}")
     say("-" * 62)
@@ -635,6 +825,17 @@ def main() -> None:
 
     if args.list_ports:
         do_list_ports()
+        return
+
+    if args.check_radio:
+        tx_port = args.tx_port or dp.find_transmitter_port()
+        if tx_port is None:
+            raise SystemExit("No transmitter found. Pass --tx-port.")
+        link = dp.TrainerLink(tx_port, mix_from_args(args))
+        try:
+            do_check_radio(link, args.check_amplitude)
+        finally:
+            link.close()
         return
 
     catalog = ex.load_catalog(args.waveforms)
@@ -656,9 +857,7 @@ def main() -> None:
         do_dry_run(programs, params, args.half_width_m)
         return
 
-    if args.out is None:
-        raise SystemExit("--out is required when recording")
-    out_dir = args.out
+    out_dir = args.out or default_out_dir(args.name)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     info = jl.find_jig_port(args.jig_port)
@@ -670,18 +869,29 @@ def main() -> None:
             "Add it to JIG_USB_IDS."
         )
 
+    mix = mix_from_args(args)
     trainer: dp.TrainerLink | None = None
     if not args.no_drive:
         tx_port = args.tx_port or dp.find_transmitter_port()
         if tx_port is None:
             raise SystemExit("No transmitter found. Pass --tx-port, or use --no-drive.")
-        trainer = dp.TrainerLink(
-            tx_port,
-            dp.MixConfig(mode=args.mix, reverse_angular=not args.no_reverse_angular),
-        )
-        say(f"transmitter: {tx_port} (mix={args.mix})")
+        trainer = dp.TrainerLink(tx_port, mix)
+        say(f"transmitter: {tx_port} (mix={mix.mode})")
 
-    provenance = {"drive_cli_sha": git_sha(), "waveform_toml": str(args.waveforms)}
+    provenance = {
+        "drive_cli_sha": git_sha(),
+        "waveform_toml": str(args.waveforms),
+        # How the radio's channels were read. Recorded because meas_linear/meas_angular are
+        # these settings applied to the raw channels, so reinterpreting a run later needs to
+        # know which settings produced them.
+        "mix": mix.mode,
+        "reverse_angular": mix.reverse_angular,
+        "channel_scale": mix.channel_scale,
+        "read_linear": mix.read_linear,
+        "read_angular": mix.read_angular,
+        "read_invert_a": mix.read_invert_a,
+        "read_invert_b": mix.read_invert_b,
+    }
     session_meta = {
         "id": out_dir.name,
         "name": args.name,

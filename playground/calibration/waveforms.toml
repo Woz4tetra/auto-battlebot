@@ -13,7 +13,9 @@
 # deadzone is one of the things being measured.
 
 [defaults]
-hold_s = 2.0
+hold_s = 0.6
+coast_s = 1.2
+
 # Cap for angular amplitudes. The encoder wheel scrubs sideways through every spin, so the
 # rate limit measured on the bench caps every angular run. Set from your own E5 measurement:
 # encoder_rate_limit / k_ang.

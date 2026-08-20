@@ -36,9 +36,8 @@ from typing import Sequence
 import numpy as np
 from scipy.optimize import least_squares
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from auto_battlebot.plant import (  # noqa: E402
+from auto_battlebot.plant import (
     MODEL_LADDER,
     PARAM_BOUNDS,
     ModelStructure,
@@ -49,7 +48,7 @@ from auto_battlebot.plant import (  # noqa: E402
     make_windows,
     predict_windows,
 )
-from auto_battlebot.velocity_jig import (  # noqa: E402
+from auto_battlebot.velocity_jig import (
     JigCalibration,
     Run,
     Session,
@@ -157,11 +156,13 @@ def load_all(
     fit_hz: float,
     keep_bad: bool,
     smooth_s: float = 0.02,
+    commands: str = "measured",
+    max_saturation: float = 0.0,
 ) -> Loaded:
     """Load every capture directory. A session is a directory, so its logs are inside it."""
     out = Loaded()
     for session_dir in session_dirs:
-        session = load_session_dir(session_dir)
+        session = load_session_dir(session_dir, commands=commands)
         out.sessions.append(session)
         runs, skipped = load_runs(session, calib, fit_hz=fit_hz, smooth_s=smooth_s)
         for record, why in skipped:
@@ -169,7 +170,7 @@ def load_all(
         for name in session.orphans:
             out.excluded.append((name, "log file with no sidecar TOML"))
         for run in runs:
-            problems = run.quality.problems()
+            problems = run.quality.problems(max_saturation=max_saturation)
             if problems and not keep_bad:
                 out.excluded.append((run.name, "; ".join(problems)))
                 continue

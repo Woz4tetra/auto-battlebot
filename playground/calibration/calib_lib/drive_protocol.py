@@ -82,6 +82,13 @@ class MixConfig:
     read_linear: int = 0
     read_angular: int = 1
     read_arm: int = 4
+    # Per-channel sign on the READ path only. A radio with servo-reverse set on one drive
+    # channel reports it negated while the ESC on that side compensates, so the robot moves
+    # correctly and only the readback disagrees. Without these, a straight command un-mixes
+    # into a pure turn and the contamination gate fires on a perfectly good run. Find them
+    # with `velocity_jig_drive.py --check-radio`.
+    read_invert_a: bool = False
+    read_invert_b: bool = False
 
     def to_channels(self, linear: float, angular: float) -> tuple[int, int]:
         ang = -angular if self.reverse_angular else angular
@@ -97,6 +104,10 @@ class MixConfig:
 
     def from_channels(self, a: float, b: float) -> tuple[float, float]:
         """Inverse of `to_channels`, so the log is in body units whatever the mix."""
+        if self.read_invert_a:
+            a = -a
+        if self.read_invert_b:
+            b = -b
         if self.mode != "tank":
             lin, ang = a, b
         else:
@@ -114,6 +125,10 @@ class CommandSample:
     trim: float
     channel_a: int
     channel_b: int
+    # As reported by the radio. The channels are the measurement; linear and angular are
+    # derived from them through the mix, and are kept only for convenience.
+    meas_ch_a: float = float("nan")
+    meas_ch_b: float = float("nan")
     meas_linear: float = float("nan")
     meas_angular: float = float("nan")
     meas_arm: float = float("nan")
@@ -207,18 +222,43 @@ class TrainerLink:
         with self._lock:
             return self._packets
 
+    def measured_raw(self) -> list[float]:
+        """Every channel, normalized by channel_scale and otherwise untouched.
+
+        `measured()` applies the mix and the read inversions; this is what they are inferred
+        from, so it must stay raw.
+        """
+        with self._lock:
+            if self._packets == 0:
+                return []
+            raw = list(self._channels)
+        scale = self.mix.channel_scale or 1.0
+        return [v / scale for v in raw]
+
     def measured(self) -> tuple[float, float, float]:
-        """Latest (linear, angular, arm) from the radio, normalized. NaN before any packet."""
+        """Latest (channel a, channel b, arm) from the radio, normalized.
+
+        Deliberately the two raw drive channels rather than body units. The radio measures
+        channels; linear and angular are an interpretation that depends on the mix and the
+        per-channel signs, and getting those wrong should be fixable offline rather than
+        costing a re-record. `to_body()` applies the interpretation when one is wanted.
+        """
         with self._lock:
             if self._packets == 0:
                 return float("nan"), float("nan"), float("nan")
             raw = list(self._channels)
         scale = self.mix.channel_scale or 1.0
-        a = raw[self.mix.read_linear] / scale
-        b = raw[self.mix.read_angular] / scale
-        arm = raw[self.mix.read_arm] / scale
-        lin, ang = self.mix.from_channels(a, b)
-        return lin, ang, arm
+        return (
+            raw[self.mix.read_linear] / scale,
+            raw[self.mix.read_angular] / scale,
+            raw[self.mix.read_arm] / scale,
+        )
+
+    def to_body(self, a: float, b: float) -> tuple[float, float]:
+        """Two drive channels to (linear, angular), under the configured mix."""
+        if a != a or b != b:  # NaN in, NaN out
+            return float("nan"), float("nan")
+        return self.mix.from_channels(a, b)
 
     def send(self, linear: float, angular: float) -> tuple[int, int]:
         a, b = self.mix.to_channels(linear, angular)
@@ -251,21 +291,42 @@ class PlayResult:
     completed: bool = False
     aborted_reason: str = ""
 
+    # Ticks to ignore after the command changes. The radio reports its mixer output on its
+    # own schedule, so `measured` lags `commanded` by a tick or two. At a step edge that lag
+    # makes the two differ by the full step height, which has nothing to do with the driver.
+    SETTLE_TICKS = 4
+
     @property
     def contamination(self) -> float:
-        """Worst gap between what was commanded and what the radio reported sending.
+        """How far the radio's own report of what it sent diverges from what we asked for.
 
-        Non-zero means the driver's sticks were not centered, since trainer mode sums the
-        two. A run above roughly 0.05 has a second, unlogged input in it.
+        Trainer mode sums the scripted command with the human's sticks, so a persistent gap
+        means a second, unlogged input is in the run. Anything above roughly 0.05 is worth
+        discarding over.
+
+        Measured over held stretches only, and reported as a high percentile rather than the
+        maximum. Both matter: comparing sample-by-sample across a step edge measures the
+        radio's reporting lag, and a single outlying tick is not evidence of a leaning stick.
         """
-        worst = 0.0
+        diffs = []
+        settle = 0
+        prev: tuple[float, float] | None = None
         for c in self.commands:
-            if c.meas_linear != c.meas_linear:  # NaN: no readback available
+            target = (c.linear, c.angular + c.trim)
+            if prev is not None and target != prev:
+                settle = self.SETTLE_TICKS
+            prev = target
+            if settle > 0:
+                settle -= 1
                 continue
-            worst = max(
-                worst, abs(c.meas_linear - c.linear), abs(c.meas_angular - (c.angular + c.trim))
-            )
-        return worst
+            if c.meas_linear != c.meas_linear:  # NaN: no readback yet
+                continue
+            diffs.append(max(abs(c.meas_linear - target[0]), abs(c.meas_angular - target[1])))
+        if not diffs:
+            return 0.0
+        import numpy as np
+
+        return float(np.percentile(diffs, 95))
 
 
 def play(
@@ -307,7 +368,8 @@ def play(
 
             linear, angular = program.at(elapsed)
             a, b = link.send(linear, angular + trim)
-            meas_lin, meas_ang, meas_arm = link.measured()
+            ch_a, ch_b, meas_arm = link.measured()
+            meas_lin, meas_ang = link.to_body(ch_a, ch_b)
             sample = CommandSample(
                 t=now,
                 linear=linear,
@@ -315,6 +377,8 @@ def play(
                 trim=trim,
                 channel_a=a,
                 channel_b=b,
+                meas_ch_a=ch_a,
+                meas_ch_b=ch_b,
                 meas_linear=meas_lin,
                 meas_angular=meas_ang,
                 meas_arm=meas_arm,
@@ -357,9 +421,9 @@ class armed:
 
 
 def stream_measured(link: TrainerLink, seconds: float, rate_hz: float = 50.0) -> Iterator[
-    tuple[float, float, float, float]
+    tuple[float, float, float, float, float, float]
 ]:
-    """(t, linear, angular, arm) from the radio alone, with nothing being commanded.
+    """(t, ch_a, ch_b, linear, angular, arm) from the radio alone, nothing commanded.
 
     This is how a hand-driven run gets a command log: the tool sends nothing, the operator
     drives, and the radio reports what it sent.
@@ -370,6 +434,7 @@ def stream_measured(link: TrainerLink, seconds: float, rate_hz: float = 50.0) ->
         now = time.monotonic()
         if now - t0 >= seconds:
             return
-        lin, ang, arm = link.measured()
-        yield now, lin, ang, arm
+        ch_a, ch_b, arm = link.measured()
+        lin, ang = link.to_body(ch_a, ch_b)
+        yield now, ch_a, ch_b, lin, ang, arm
         time.sleep(max(0.0, period - (time.monotonic() - now)))

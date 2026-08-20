@@ -14,7 +14,6 @@ Usage:
     source scripts/activate_python.sh
     python playground/calibration/fit_jig_plant.py \\
         playground/calibration/out/2026-08-17-garage \\
-        --calibration playground/calibration/out/jig_calibration.toml \\
         --out playground/calibration/out/plant_params.toml \\
         --report playground/calibration/out/jig_fit.html
 """
@@ -27,16 +26,16 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from auto_battlebot.plant import (  # noqa: E402
+from auto_battlebot.plant import (
     MODEL_LADDER,
     PlantParams,
     predict_windows,
 )
-from auto_battlebot.velocity_jig import CALIBRATION_TEMPLATE, JigCalibration  # noqa: E402
-from calib_lib.jig_fit import (  # noqa: E402
+from auto_battlebot.velocity_jig import CALIBRATION_TEMPLATE, JigCalibration
+DEFAULT_CALIBRATION = Path(__file__).resolve().parent / "jig_calibration.toml"
+
+from calib_lib.jig_fit import (
     DelayProfile,
     FitWeights,
     HorizonReport,
@@ -69,7 +68,12 @@ def main() -> None:
         nargs="*",
         help="session directories written by velocity_jig_drive.py",
     )
-    parser.add_argument("--calibration", type=Path, required=False, help="jig calibration TOML")
+    parser.add_argument(
+        "--calibration",
+        type=Path,
+        default=DEFAULT_CALIBRATION,
+        help="jig calibration TOML (runbook block 0)",
+    )
     parser.add_argument("--out", type=Path, default=None, help="write fitted parameters here")
     parser.add_argument(
         "--report", type=Path, default=None, help="write a self-contained HTML report here"
@@ -109,6 +113,27 @@ def main() -> None:
     parser.add_argument("--no-joint", action="store_true", help="stop after stage A")
     parser.add_argument("--no-delay-profile", action="store_true", help="keep the stage A delay")
     parser.add_argument("--keep-bad", action="store_true", help="do not exclude runs that fail QC")
+    parser.add_argument(
+        "--commands",
+        choices=("measured", "requested"),
+        default="measured",
+        help=(
+            "which command stream to fit. 'measured' is the radio's own report of what it"
+            " sent, which is what the robot received. Use 'requested' when a run's readback"
+            " was mis-decoded, since a wrong channel sign corrupts the measured stream while"
+            " leaving what the tool asked for exact."
+        ),
+    )
+    parser.add_argument(
+        "--max-saturation",
+        type=float,
+        default=0.0,
+        help=(
+            "fraction of clipped IMU samples a run may have. 0 rejects any saturation, on"
+            " the grounds that a clipped sample means an impact and its true value is"
+            " unknown. Raise it to keep a run anyway."
+        ),
+    )
     parser.add_argument("--name", default="", help="report title")
     parser.add_argument(
         "--detail",
@@ -139,14 +164,19 @@ def main() -> None:
         return
     if not args.sessions:
         parser.error("at least one session directory is required")
-    if not args.calibration:
-        parser.error("--calibration is required (runbook block 0)")
+    if not args.calibration.exists():
+        parser.error(
+            f"{args.calibration} not found. Fill it in from runbook block 0, or write a "
+            "blank one with --write-calibration-template."
+        )
 
     calib = JigCalibration.from_toml(args.calibration)
     print(f"calibration: {calib.meters_per_count:.8g} m/count, gyro scale {calib.gyro_scale:.4f}")
 
     loaded = load_all(
-        args.sessions, calib, args.fit_hz, args.keep_bad, args.smooth_ms / 1000.0
+        args.sessions, calib, args.fit_hz, args.keep_bad, args.smooth_ms / 1000.0,
+        commands=args.commands,
+        max_saturation=args.max_saturation,
     )
     print(f"\nloaded {len(loaded.runs)} runs from {len(loaded.sessions)} session(s)")
     for name, why in loaded.excluded:

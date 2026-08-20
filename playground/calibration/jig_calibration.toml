@@ -1,0 +1,74 @@
+# Velocity jig bench calibration: the constants every fitted parameter depends on.
+#
+# One set per hardware configuration. Remounting the encoder changes the effective wheel
+# radius, and a 2% scale error there is a 2% velocity error in everything fitted afterwards,
+# so re-measure after any change to the mount.
+#
+# Procedures are runbook block 0:
+#   docs/experiments/kalman_filter/velocity_jig_runbook.md
+#
+# Read by fit_jig_plant.py, fit_process_noise.py and plot_jig_runs.py, which all default to
+# this path.
+
+[encoder]
+# E4, metres per quadrature count. The constant every linear measurement depends on.
+#
+# Measured 2026-08-20 from twelve hand-pushed out-and-back passes at four distances:
+#   0.50 m  LOG-38, LOG-39, LOG-40
+#   0.75 m  LOG-42, LOG-43, LOG-44
+#   1.00 m  LOG-45, LOG-46, LOG-47
+#   3.00 m  LOG-50, LOG-51, LOG-52
+#
+#   python playground/calibration/fit_encoder_scale.py \
+#       --run 0.5  LOG-38.TXT LOG-39.TXT LOG-40.TXT \
+#       --run 0.75 LOG-42.TXT LOG-43.TXT LOG-44.TXT \
+#       --run 1.0  LOG-45.TXT LOG-46.TXT LOG-47.TXT \
+#       --run 3.0  LOG-50.TXT LOG-51.TXT LOG-52.TXT \
+#       --plot playground/calibration/out/encoder_scale.png
+#
+# This is the SLOPE of counts against distance, not a fit through the origin. There is a
+# +113 count (+4.7 mm) fixed offset per pass, from coasting past the mark or backlash taken
+# up at the start, and the slope is differential so it cancels out. Through the origin would
+# give 4.174e-05, 0.2% high.
+#
+# Uncertainty 0.14%, under the runbook's 0.3% bar. The 3 m passes carry it: an earlier fit
+# over 0.5 to 1.0 m alone gave 4.2547e-05 +/- 0.63% with a +17 mm offset, and both were
+# artifacts of too short a lever arm. Worst closure across the twelve passes was 5.3 mm.
+meters_per_count = 4.183811e-05
+
+# E5, the encoder wheel's offset perpendicular to the forward axis, metres. Removed from the
+# speed measurement so combined linear-plus-angular runs are usable instead of discarded.
+# Regress encoder rate against gyro yaw rate over pure spins; the slope is this.
+r_enc_perp = 0.0
+
+# E5, yaw rate above which the encoder wheel scrubs sideways instead of rolling. Caps the
+# amplitude of every angular waveform. Stop and lower it if the wheel chatters or leaves a
+# scrub mark.
+rate_limit = 8.0
+
+[gyro]
+# E3, integrated gyro angle against a known rotation.
+#
+# Measured 2026-08-20 from two ten-turn hand rotations on a pivot:
+#   LOG-54  +3600 deg, gyro read 3604.4  (+0.12%)
+#   LOG-55  -3600 deg, gyro read -3605.0  (-0.14%)
+#
+#   python playground/calibration/fit_gyro_scale.py \
+#       --run 3600 LOG-54.TXT --run -3600 LOG-55.TXT \
+#       --plot playground/calibration/out/gyro_scale.png
+#
+# The two directions agree to 0.02%, so this is a scale factor and not a mounting sign
+# problem. Well inside the runbook's 1% bar, and small enough that carrying it or dropping it
+# makes little difference to anything fitted downstream.
+#
+# Peak rate was 875 deg/s, comfortably inside the +/-2294 deg/s the header reports. A driven
+# spin is a different matter: stage 2 measured 61.5 rad/s, which is 3524 deg/s and would clip.
+# Switch the gyro to 4000 dps before recording angular steps.
+scale = 0.9987
+
+[imu]
+# E5, the IMU's offset from the yaw axis, metres. Regress measured lateral acceleration
+# against yaw rate squared over pure spins; the slope is this. Kept for E5's own sanity
+# check against a tape measure: the slip detector fits the lever-arm terms per run instead,
+# because a single scalar cannot say which of two terms an offset lands on.
+r_imu = 0.0

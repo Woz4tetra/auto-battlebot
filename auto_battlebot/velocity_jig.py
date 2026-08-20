@@ -51,6 +51,22 @@ RAW_SATURATION = 32000
 
 AXIS_NAMES = ("x", "y", "z")
 
+# Window the encoder and the IMU are compared over for encoder slip.
+#
+# Widening this trades latency for discrimination, and the trade is one-sided. The encoder is
+# differentiated and the IMU integrated, so the two carry slightly different effective delays;
+# that mismatch shows up as a speed error of roughly (delay difference) x (acceleration),
+# which does not grow with the window. Real slip does grow with it, because the wheel keeps
+# over-running for as long as it is loose. So a longer window leaves the artifact where it is
+# and lets the signal climb past it.
+#
+# 100 ms was too short once the robot turned out to do 3.7 m/s rather than the 0.85 m/s the
+# tooling originally assumed: the speed change inside one window reached 0.89 m/s, and asking
+# two sensors to agree to 0.1 m/s across that flagged the launch and stop transients of every
+# run. Those transients are where the acceleration time constants live, so throwing them away
+# defeats the fit.
+SLIP_COMPARE_S = 0.30
+
 # What a run played, in the terms the fit routes on. Replaces the old runbook experiment
 # ids: a waveform is declared in a TOML catalog, so the fit cannot key on a fixed list of
 # experiments without a code change every time a new excitation is tried.
@@ -405,6 +421,14 @@ class JigCalibration:
         imu = data.get("imu", {})
         if "meters_per_count" not in enc:
             raise ValueError(f"{path}: [encoder] meters_per_count is required (E4)")
+        if float(enc["meters_per_count"]) <= 0.0:
+            # A zero scale makes every speed zero, and a fit over zero speed produces
+            # parameters that look plausible and are entirely wrong. Refuse instead.
+            raise ValueError(
+                f"{path}: [encoder] meters_per_count is {enc['meters_per_count']}, which "
+                "would make every measured speed zero. Measure it with runbook E4 and "
+                "playground/calibration/fit_encoder_scale.py."
+            )
         return cls(
             meters_per_count=float(enc["meters_per_count"]),
             gyro_scale=float(gyro.get("scale", 1.0)),
@@ -659,6 +683,8 @@ class RunRecord:
     log_file: str | None
     command_file: str | None
     verdict: str | None
+    # Why the capture-time gates rejected it, when they did. Empty on a pass.
+    gate_note: str
     notes: str
     trim: float | None
     samples: int | None
@@ -679,6 +705,11 @@ class RunRecord:
     command_source: str = "commanded"
     cmd_lin_requested: np.ndarray | None = None
     cmd_ang_requested: np.ndarray | None = None
+    # The two drive channels exactly as the radio reported them. This is the measurement;
+    # cmd_lin/cmd_ang are these read through a mix, so a mix set wrong can be corrected from
+    # these without re-recording.
+    meas_ch_a: np.ndarray | None = None
+    meas_ch_b: np.ndarray | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -798,8 +829,19 @@ def _log_index(name: str) -> tuple[int, str]:
     return (int(match.group(1)) if match else 1 << 30, name)
 
 
-def load_run_record(toml_path: Path | str, session: Session | None = None) -> RunRecord:
-    """Read one sidecar TOML and its command CSV."""
+def load_run_record(
+    toml_path: Path | str,
+    session: Session | None = None,
+    *,
+    commands: str = "measured",
+) -> RunRecord:
+    """Read one sidecar TOML and its command CSV.
+
+    `commands` picks which stream the fit sees. "measured" is the radio's own report, which
+    is what the robot actually received and the right default. "requested" is what the tool
+    asked for, and is the escape hatch for a run whose readback was mis-decoded: a wrong mix
+    or channel sign corrupts the measured stream while leaving the requested one exact.
+    """
     toml_path = Path(toml_path)
     with open(toml_path, "rb") as handle:
         data = tomllib.load(handle)
@@ -825,15 +867,20 @@ def load_run_record(toml_path: Path | str, session: Session | None = None) -> Ru
     cmd_ang = np.zeros(0)
     cmd_lin_req: np.ndarray | None = None
     cmd_ang_req: np.ndarray | None = None
+    ch_a: np.ndarray | None = None
+    ch_b: np.ndarray | None = None
     source = "commanded"
     command_file = run.get("command_file")
     if command_file:
         cols = read_command_log(toml_path.parent / str(command_file))
         cmd_t = cols["t_host_s"]
+        ch_a = cols.get("meas_ch_a")
+        ch_b = cols.get("meas_ch_b")
         # Prefer what the radio reported sending. Trainer mode adds the human's sticks to
         # the scripted command, so the mixer output is the only record of what the robot
         # actually received, and for a hand-driven run it is the only command signal there is.
-        if "meas_linear" in cols and np.any(np.isfinite(cols["meas_linear"])):
+        use_measured = commands != "requested"
+        if use_measured and "meas_linear" in cols and np.any(np.isfinite(cols["meas_linear"])):
             cmd_lin = cols["meas_linear"]
             cmd_ang = cols.get("meas_angular", np.zeros_like(cmd_t))
             cmd_lin_req = cols.get("linear")
@@ -852,6 +899,7 @@ def load_run_record(toml_path: Path | str, session: Session | None = None) -> Ru
         log_file=run.get("log_file"),
         command_file=command_file,
         verdict=run.get("verdict"),
+        gate_note=str(run.get("gates", "")),
         notes=str(run.get("notes", "")),
         trim=(None if run.get("trim") is None else float(run["trim"])),
         samples=(None if transfer.get("samples") is None else int(transfer["samples"])),
@@ -868,11 +916,13 @@ def load_run_record(toml_path: Path | str, session: Session | None = None) -> Ru
         command_source=source,
         cmd_lin_requested=cmd_lin_req,
         cmd_ang_requested=cmd_ang_req,
+        meas_ch_a=ch_a,
+        meas_ch_b=ch_b,
         provenance=dict(data.get("provenance", {})),
     )
 
 
-def load_session_dir(path: Path | str) -> Session:
+def load_session_dir(path: Path | str, *, commands: str = "measured") -> Session:
     """Load a capture directory written by `velocity_jig_drive.py`.
 
     Reads `session.toml` when present, then every `LOG-*.toml` beside it. A log with no
@@ -914,7 +964,7 @@ def load_session_dir(path: Path | str) -> Session:
     )
     annotated: set[str] = set()
     for sidecar in sidecars:
-        record = load_run_record(sidecar, session)
+        record = load_run_record(sidecar, session, commands=commands)
         session.runs.append(record)
         if record.log_file:
             annotated.add(record.log_file)
@@ -926,8 +976,8 @@ def load_session_dir(path: Path | str) -> Session:
     return session
 
 
-def load_sessions(paths: Sequence[Path | str]) -> list[Session]:
-    return [load_session_dir(p) for p in paths]
+def load_sessions(paths: Sequence[Path | str], *, commands: str = "measured") -> list[Session]:
+    return [load_session_dir(p, commands=commands) for p in paths]
 
 
 # ---------------------------------------------------------------------------
@@ -1022,6 +1072,7 @@ def solve_ground_truth(
     smooth_s: float = 0.02,
     onset_smooth_s: float = 0.005,
     slip_sigma: float = 4.0,
+    slip_compare_s: float = SLIP_COMPARE_S,
 ) -> GroundTruth:
     """Unicycle dead reckoning from encoder arc length and gyro yaw.
 
@@ -1080,7 +1131,7 @@ def solve_ground_truth(
 
     slip = np.zeros(n, dtype=bool)
     if encoder_valid:
-        slip = _slip_flags(log, up, w, v, calib, window, slip_sigma)
+        slip = _slip_flags(log, up, w, v, calib, window, slip_sigma, slip_compare_s)
 
     drift = (
         bias_drift_dps(still_pre, still_post, up)
@@ -1112,6 +1163,7 @@ def _slip_flags(
     calib: JigCalibration,
     window: int,
     sigma: float,
+    compare_s: float = SLIP_COMPARE_S,
 ) -> np.ndarray:
     """Flag stretches where the encoder and the IMU disagree about how the speed changed.
 
@@ -1150,7 +1202,7 @@ def _slip_flags(
     # Integrate the IMU into a relative velocity and put it through the same smoothing the
     # encoder velocity went through. Without that, a fast reversal shows up as disagreement
     # purely because one signal is filtered and the other is not.
-    span = max(2, int(round(0.1 / dt)))
+    span = max(2, int(round(compare_s / dt)))
     integral = np.concatenate([[0.0], np.cumsum(a_imu[1:] * np.diff(log.t))])
     integral = _moving_average(integral, window)
     diff = (v[span:] - v[:-span]) - (integral[span:] - integral[:-span])
@@ -1202,12 +1254,16 @@ class RunQuality:
     # How much of the run the fit can actually use. Nothing computed this before, so a run
     # that was mostly slip or mostly uncommanded counted the same as a clean one when
     # deciding whether an experiment had enough data.
+    saturated_samples: int = 0
+    # Seconds of commanded driving the slip detector threw away. The fraction alone cannot
+    # say whether that is a rounding error or the whole run.
+    slip_seconds: float = 0.0
     duration_s: float = 0.0
     commanded_s: float = 0.0
     valid_s: float = 0.0
-    # Distance between the still hold the drive CLI commanded and the one actually found in
-    # the log. A large gap means the jig and the CLI disagree about when the run started,
-    # which today surfaces only as a mysteriously bad fit.
+    # Seconds of each commanded still hold that the log does not show as motionless. Large
+    # means the jig and the CLI disagree about when the run started, which otherwise surfaces
+    # only as a mysteriously bad fit.
     hold_pre_gap_s: float = 0.0
     hold_post_gap_s: float = 0.0
     command_source: str = "commanded"
@@ -1215,14 +1271,19 @@ class RunQuality:
     def problems(
         self,
         max_bias_drift_dps: float = 0.05,
-        # A handful of clipped samples on one axis is not the same failure as a channel that
-        # spends a fight against its rail, so the gate is a fraction rather than zero. The
-        # fraction is always reported, and E11's own pass bar is still zero saturated samples.
-        max_saturation: float = 0.001,
+        # Zero tolerance by default. A saturated accelerometer sample means the IMU hit full
+        # scale, which on this robot means an impact or a hard landing rather than noise: the
+        # 21 clipped samples that marked the 2026-08-19 wall contact were 0.06% of the run and
+        # would have cleared a fraction-based bar. A clipped sample's true value is unknown,
+        # so anything fitted through it is biased without ever looking wrong. Raise this
+        # deliberately when a run is worth keeping anyway.
+        max_saturation: float = 0.0,
         max_slip_fraction: float = 0.05,
         max_clock_residual_ms: float = 2.0,
         min_valid_s: float = 1.0,
-        max_hold_gap_s: float = 2.0,
+        # Half a ten second hold. Detection trims the edges of a still stretch, so a little
+        # uncovered time is normal; half of it missing is not.
+        max_hold_gap_s: float = 5.0,
     ) -> list[str]:
         """Reasons to exclude this run. Empty means usable."""
         out: list[str] = []
@@ -1232,13 +1293,19 @@ class RunQuality:
             out.append(f"dropped={self.dropped} samples on the SD path")
         if self.malformed_rows:
             out.append(f"{self.malformed_rows} malformed rows")
-        if self.worst_saturation > max_saturation:
+        if self.saturated_axes and self.worst_saturation > max_saturation:
             axes = ", ".join(self.saturated_axes)
-            out.append(f"IMU saturation {self.worst_saturation:.2%} on {axes}")
+            out.append(
+                f"IMU saturation on {axes}: {self.saturated_samples} samples "
+                f"({self.worst_saturation:.3%} of the worst axis)"
+            )
         if np.isfinite(self.bias_drift_dps) and self.bias_drift_dps > max_bias_drift_dps:
             out.append(f"gyro bias drift {self.bias_drift_dps:.3f} deg/s")
         if self.slip_fraction > max_slip_fraction:
-            out.append(f"encoder slip on {self.slip_fraction:.1%} of samples")
+            out.append(
+                f"encoder slip on {self.slip_fraction:.1%} of the commanded stretch "
+                f"({self.slip_seconds:.1f} s)"
+            )
         if self.clock_measured and self.clock_residual_ms > max_clock_residual_ms:
             out.append(f"clock residual {self.clock_residual_ms:.2f} ms")
         if self.still_holds < 2:
@@ -1248,7 +1315,7 @@ class RunQuality:
         gap = max(self.hold_pre_gap_s, self.hold_post_gap_s)
         if gap > max_hold_gap_s:
             out.append(
-                f"still hold detected {gap:.1f} s from the commanded hold: "
+                f"{gap:.1f} s of a commanded still hold was not motionless: "
                 "the jig and the drive CLI disagree on when the run started"
             )
         return out
@@ -1332,25 +1399,33 @@ def zoh(src_t: np.ndarray, src_v: np.ndarray, dst_t: np.ndarray) -> np.ndarray:
     return out
 
 
-def _hold_gap(
+def _hold_uncovered_s(
     commanded: tuple[float, float] | None,
     stills: Sequence[StillSegment],
     clock: ClockFit,
-    *,
-    first: bool,
 ) -> float:
-    """Seconds between a commanded still hold and the one actually found in the log.
+    """Seconds of a commanded still hold that the log does not show as still.
 
-    The drive CLI knows when it told the operator to hold still; the log knows when the
-    robot was actually motionless. If those disagree by more than a couple of seconds the
-    jig was not recording when the CLI thought it was, and every downstream time alignment
-    is off by that much.
+    Overlap, not edge alignment. The jig starts recording when the operator presses A, which
+    is before the CLI starts its hold countdown, so the detected still segment routinely
+    begins earlier than the commanded one and ends later. An edge comparison reads that
+    normal offset as a fault.
+
+    What actually matters is whether the robot was motionless for the window the fit will
+    take its gyro bias from. A commanded hold that the log shows as moving means the jig was
+    not recording when the CLI thought it was, and every downstream alignment is off.
     """
-    if commanded is None or not stills:
+    if commanded is None:
         return 0.0
-    seg = stills[0] if first else stills[-1]
-    found = float(clock.host_seconds(np.array([seg.t0 if first else seg.t1]))[0])
-    return abs(found - (commanded[0] if first else commanded[1]))
+    lo, hi = commanded
+    span = max(hi - lo, 0.0)
+    if span <= 0.0 or not stills:
+        return span
+    covered = 0.0
+    for seg in stills:
+        s0, s1 = clock.host_seconds(np.array([seg.t0, seg.t1]))
+        covered += max(0.0, min(hi, float(s1)) - max(lo, float(s0)))
+    return max(0.0, span - covered)
 
 
 def _labels_for(record: RunRecord, t: np.ndarray) -> np.ndarray:
@@ -1427,8 +1502,8 @@ def load_run(
     # collect more of. A run that was mostly slip contributes far less than its length.
     commanded_s = float(dt * np.count_nonzero(commanded))
     valid_s = float(dt * np.count_nonzero(commanded & ~slip))
-    hold_pre_gap = _hold_gap(record.hold_pre, stills, clock, first=True)
-    hold_post_gap = _hold_gap(record.hold_post, stills, clock, first=False)
+    hold_pre_gap = _hold_uncovered_s(record.hold_pre, stills, clock)
+    hold_post_gap = _hold_uncovered_s(record.hold_post, stills, clock)
 
     sat = log.saturation()
     quality = RunQuality(
@@ -1444,8 +1519,17 @@ def load_run(
         malformed_rows=log.malformed_rows,
         worst_saturation=max((a.fraction for a in sat), default=0.0),
         saturated_axes=[a.name for a in sat if a.count],
+        saturated_samples=sum(a.count for a in sat),
         bias_drift_dps=truth.bias_drift_dps,
-        slip_fraction=truth.slip_fraction,
+        # Over the commanded stretch, not the whole log. A run is mostly still holds, so a
+        # whole-log fraction divides the slip by however long the operator stood around: the
+        # 2026-08-19 lin_coast reads 5.8% of the log and 44.5% of the 4.2 s it actually drove.
+        slip_fraction=(
+            float(np.count_nonzero(slip & commanded) / max(np.count_nonzero(commanded), 1))
+            if np.any(commanded)
+            else truth.slip_fraction
+        ),
+        slip_seconds=float(dt * np.count_nonzero(slip & commanded)),
         clock_measured=clock.measured,
         clock_residual_ms=clock.residual_ms,
         skew_ppm=record.skew_ppm,

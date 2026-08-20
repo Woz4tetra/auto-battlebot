@@ -61,9 +61,12 @@ just which excitation to play.
 source scripts/activate_python.sh
 python playground/calibration/velocity_jig_drive.py \
     --waveform lin_step_full --reps 3 \
-    --name "garage floor, pack 3" \
-    --out playground/calibration/out/2026-08-17-garage
+    --name "garage floor, pack 3"
 ```
+
+The session lands in `playground/calibration/out/<date>-<name>` unless `--out` says otherwise.
+Running the same name again the same day appends to it, which is what you want: a session is one
+battery on one floor, and it is also the unit the fitter holds out for leave-one-out validation.
 
 **Run card.** Steps 1, 3, 5, 7, 8, 9 and 10 are automatic; the CLI prompts for the rest.
 
@@ -230,7 +233,28 @@ problem, not a scale factor. Sort it before continuing.
 - [ ] Disarm the robot. This run is hand-pushed, so no command is involved.
 - [ ] Start recording, then push the robot along the line from mark to mark, smoothly, staying
       straight. Ten passes forward, ten back, all in one recording, pausing 2 s at each end.
-- [ ] Fit meters per count by least squares through the origin across all 20 passes.
+- [ ] Fit meters per count:
+
+      ```bash
+      python playground/calibration/fit_encoder_scale.py \
+          --run 1.0 LOG-a.TXT LOG-b.TXT LOG-c.TXT \
+          --run 2.0 LOG-d.TXT LOG-e.TXT LOG-f.TXT \
+          --run 3.0 LOG-g.TXT LOG-h.TXT LOG-i.TXT \
+          --plot playground/calibration/out/encoder_scale.png
+      ```
+
+      It reads the encoder count at each dwell and fits counts against distance, then prints
+      the `[encoder]` block to paste into `playground/calibration/jig_calibration.toml`.
+
+      **Use several distances, not one distance repeated.** A fixed error, the robot coasting
+      past the mark or backlash taken up at the start, is a constant count offset. With one
+      distance it is invisible and lands entirely in the scale; with three it shows up as an
+      intercept and the differential slope cancels it. The 2026-08-20 measurement found
+      +17 mm per pass that way, which a through-origin fit would have carried into the scale
+      as a 2.1% error in every speed fitted afterwards.
+- [ ] Paste `meters_per_count` into `playground/calibration/jig_calibration.toml`. The fit
+      tools default to that path and refuse to run while it is still zero, since a zero scale
+      makes every measured speed zero and produces parameters that look plausible.
 
 **Pass:** standard error under 0.3% across passes. Forward and reverse scale should agree; if they do
 not, look for a mounting that is not square rather than accepting two numbers.

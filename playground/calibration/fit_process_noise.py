@@ -42,12 +42,12 @@ import numpy as np
 from scipy.optimize import nnls
 from scipy.stats import chi2
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from calib_lib.jig_fit import build_windows, load_all  # noqa: E402
+DEFAULT_CALIBRATION = Path(__file__).resolve().parent / "jig_calibration.toml"
 
-from auto_battlebot.plant import (  # noqa: E402
+from calib_lib.jig_fit import build_windows, load_all
+
+from auto_battlebot.plant import (
     MODEL_LADDER,
     ModelStructure,
     PlantParams,
@@ -55,7 +55,7 @@ from auto_battlebot.plant import (  # noqa: E402
     predict_windows,
     toml_float,
 )
-from auto_battlebot.velocity_jig import (  # noqa: E402
+from auto_battlebot.velocity_jig import (
     JigCalibration,
 )
 
@@ -333,7 +333,7 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("sessions", type=Path, nargs="+", help="session directories written by velocity_jig_drive.py")
-    parser.add_argument("--calibration", type=Path, required=True)
+    parser.add_argument("--calibration", type=Path, default=DEFAULT_CALIBRATION)
     parser.add_argument("--params", type=Path, required=True, help="plant TOML from fit_jig_plant")
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--plot", type=Path, default=None)

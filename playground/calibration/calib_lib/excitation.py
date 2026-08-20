@@ -37,7 +37,7 @@ else:
 # A held command shorter than this cannot show a plateau to read a steady state off. Stage 2
 # held roughly a fifth of a second, which sat under the rise, and no maximum speed could be
 # read from it. The floor is applied to every generated hold rather than trusted to config.
-MIN_HOLD_S = 2.0
+MIN_HOLD_S = 0.5
 # Time to let the robot come to rest between cells, so each step's decay is measured from a
 # standstill rather than from whatever the previous cell left behind.
 MIN_COAST_S = 1.5
@@ -216,7 +216,7 @@ def _build_coast(d: WaveformDecl) -> Program:
     hold = max(float(p.get("hold_s", MIN_HOLD_S)), MIN_HOLD_S)
     reps = int(p.get("reps", 10))
     shuttle = bool(p.get("shuttle", True))
-    coast = float(p.get("coast_s", MIN_COAST_S + 0.5))
+    coast = float(p.get("coast_s", MIN_COAST_S))
     b = _Builder()
     for i in range(reps):
         sign = -1.0 if (shuttle and i % 2) else 1.0

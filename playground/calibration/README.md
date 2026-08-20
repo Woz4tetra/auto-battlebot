@@ -25,25 +25,45 @@ python playground/calibration/velocity_jig_drive.py --waveform lin_step_full --d
 # Confirm which serial port is the jig and which is the radio.
 python playground/calibration/velocity_jig_drive.py --list-ports
 
-# Record. Each run leaves LOG-N.TXT, LOG-N.toml and LOG-N.cmd.csv in the session directory.
+# Record. Each run leaves LOG-N.TXT, LOG-N.toml and LOG-N.cmd.csv in the session directory,
+# which defaults to out/<date>-<name>. Pass --out to put it somewhere else.
 python playground/calibration/velocity_jig_drive.py \
     --waveform lin_step_full --waveform lin_coast --reps 3 \
-    --name "garage floor, pack 3" \
-    --out playground/calibration/out/2026-08-17-garage
+    --name "garage floor, pack 3"
 
-# Fit, and read the report between batteries to decide what to record next.
+# Eyeball each run. Writes LOG-N.png beside every log that does not have one yet, so
+# running it again after three more runs costs three plots.
+python playground/calibration/plot_jig_runs.py
+
+# Fit, and read the report between batteries to decide what to record next. The calibration
+# defaults to playground/calibration/jig_calibration.toml.
 python playground/calibration/fit_jig_plant.py \
-    playground/calibration/out/2026-08-17-garage \
-    --calibration playground/calibration/out/jig_calibration.toml \
+    playground/calibration/out/2026-08-19-garage-floor-pack-3 \
     --out playground/calibration/out/plant_params.toml \
     --report playground/calibration/out/jig_fit.html
 
 # Process noise, from the same session directories.
 python playground/calibration/fit_process_noise.py \
-    playground/calibration/out/2026-08-17-garage \
-    --calibration playground/calibration/out/jig_calibration.toml \
+    playground/calibration/out/2026-08-19-garage-floor-pack-3 \
     --params playground/calibration/out/plant_params.toml
 ```
+
+Before any of that, `jig_calibration.toml` needs `meters_per_count`. The tools default to
+that path and refuse a zero rather than fitting speeds of zero. Push the robot between marked
+points with the motors disarmed, dwelling at each, over **several distances**:
+
+```bash
+python playground/calibration/fit_encoder_scale.py \
+    --run 1.0 LOG-a.TXT LOG-b.TXT LOG-c.TXT \
+    --run 2.0 LOG-d.TXT LOG-e.TXT LOG-f.TXT \
+    --run 3.0 LOG-g.TXT LOG-h.TXT LOG-i.TXT \
+    --plot playground/calibration/out/encoder_scale.png
+```
+
+Several distances rather than one repeated, because a fixed error per pass (coasting past
+the mark, backlash at the start) is a constant count offset that only shows up as an
+intercept when the distance varies. The current value came out 2.1% different once that
+offset was separated out.
 
 Waveforms are declared in `waveforms.toml`, each with a `kind`, a `channel` and a `role`. Those
 three fields are also what the fit routes on, so adding an excitation is a catalog edit rather
