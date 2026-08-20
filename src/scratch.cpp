@@ -1,5 +1,6 @@
 #include <spdlog/spdlog.h>
 
+#include <Eigen/Dense>
 #include <deque>
 #include <magic_enum.hpp>
 #include <opencv2/opencv.hpp>
@@ -7,11 +8,18 @@
 #include "config/config.hpp"
 #include "directories.hpp"
 #include "label_utils.hpp"
+#include "transform_utils.hpp"
 
 namespace {
 using namespace auto_battlebot;
 
 constexpr size_t kDefaultHistorySize = 20;
+
+// RobotFrontBackSimpleFilter never populates RobotDescription::size (it reads per-detection blob
+// and keypoint sizes internally but never writes one back to its output), so it is always
+// {0,0,0}. Fall back to an approximate 30lb-class footprint so the corners box below isn't a
+// degenerate point.
+constexpr double kFallbackRobotSizeMeters = 0.3;
 
 // One previously-shown frame's display inputs, cached so 'p' can redraw it without re-touching
 // the camera, GPU models, or robot_filter. rgb is cloned on capture: camera_data.rgb.image is
@@ -21,6 +29,9 @@ struct FrameHistoryEntry {
     cv::Mat rgb;
     KeypointsStamped keypoints;
     KeypointsStamped robot_blob_keypoints;
+    RobotDescriptionsStamped robots;
+    FieldDescription field_description;
+    CameraInfo camera_info;
     int tick = 0;
     int64_t svo_frame_index = -1;
 };
@@ -41,6 +52,85 @@ void draw_point(cv::Mat& img, double x, double y, Label label, const std::string
                 cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
 }
 
+// Projects a camera-frame 3D point to a pixel via pinhole intrinsics -- the inverse of
+// transform_utils.hpp's pixel_to_camera_ray. False if the point is at/behind the camera (nothing
+// sane to draw) or intrinsics are degenerate.
+bool project_to_pixel(const CameraInfo& camera_info, const Eigen::Vector3d& point_camera,
+                      cv::Point2d& out_pixel) {
+    if (camera_info.intrinsics.rows != 3 || camera_info.intrinsics.cols != 3) return false;
+    const double fx = camera_info.intrinsics.at<double>(0, 0);
+    const double fy = camera_info.intrinsics.at<double>(1, 1);
+    const double cx = camera_info.intrinsics.at<double>(0, 2);
+    const double cy = camera_info.intrinsics.at<double>(1, 2);
+    if (std::abs(fx) < 1e-6 || std::abs(fy) < 1e-6) return false;
+    if (point_camera.z() <= 1e-3) return false;
+    out_pixel.x = fx * point_camera.x() / point_camera.z() + cx;
+    out_pixel.y = fy * point_camera.y() / point_camera.z() + cy;
+    return std::isfinite(out_pixel.x) && std::isfinite(out_pixel.y);
+}
+
+void draw_dashed_segment(cv::Mat& img, cv::Point a, cv::Point b, const cv::Scalar& color,
+                         int thickness) {
+    constexpr int kDashes = 8;
+    for (int d = 0; d < kDashes; d += 2) {
+        const double t0 = static_cast<double>(d) / kDashes;
+        const double t1 = static_cast<double>(d + 1) / kDashes;
+        const cv::Point start(a.x + static_cast<int>((b.x - a.x) * t0),
+                              a.y + static_cast<int>((b.y - a.y) * t0));
+        const cv::Point end(a.x + static_cast<int>((b.x - a.x) * t1),
+                            a.y + static_cast<int>((b.y - a.y) * t1));
+        cv::line(img, start, end, color, thickness, cv::LINE_AA);
+    }
+}
+
+// Reprojects one RobotDescription's estimated footprint into the image: its Size box in the XY
+// plane, oriented by its Pose (robot-local corners -> field frame via pose_to_matrix -> camera
+// frame via field.tf_camera_from_fieldcenter -> pixels). Solid outline for a fresh measurement,
+// dashed for a predicted/stale one (robot_filter still emits a pose for those, dead-reckoned
+// forward -- see docs/robot_filter_pipeline.md). Skips the whole box rather than drawing a
+// degenerate partial polygon if any corner falls behind the camera.
+void draw_robot_corners(cv::Mat& img, const RobotDescription& robot, const FieldDescription& field,
+                        const CameraInfo& camera_info) {
+    const Eigen::Matrix4d tf_field_from_robot = pose_to_matrix(robot.pose);
+    const double size_x = robot.size.x > 0.0 ? robot.size.x : kFallbackRobotSizeMeters;
+    const double size_y = robot.size.y > 0.0 ? robot.size.y : kFallbackRobotSizeMeters;
+    const double hx = size_x * 0.5;
+    const double hy = size_y * 0.5;
+    const Eigen::Vector3d local_corners[4] = {
+        {hx, hy, 0.0}, {hx, -hy, 0.0}, {-hx, -hy, 0.0}, {-hx, hy, 0.0}};
+
+    std::vector<cv::Point> pixel_corners;
+    pixel_corners.reserve(4);
+    for (const auto& local : local_corners) {
+        const Eigen::Vector3d field_point = transform_point(tf_field_from_robot, local);
+        const Eigen::Vector3d camera_point =
+            transform_point(field.tf_camera_from_fieldcenter.tf, field_point);
+        cv::Point2d pixel;
+        if (!project_to_pixel(camera_info, camera_point, pixel)) return;
+        pixel_corners.emplace_back(static_cast<int>(std::round(pixel.x)),
+                                   static_cast<int>(std::round(pixel.y)));
+    }
+
+    auto [b, g, r] = get_color_for_index(robot.frame_id).to_bgr_255();
+    const cv::Scalar color(b, g, r);
+    const int thickness = robot.is_stale ? 1 : 2;
+    if (robot.is_stale) {
+        for (size_t i = 0; i < pixel_corners.size(); ++i) {
+            draw_dashed_segment(img, pixel_corners[i],
+                                pixel_corners[(i + 1) % pixel_corners.size()], color, thickness);
+        }
+    } else {
+        cv::polylines(img, pixel_corners, /*isClosed=*/true, color, thickness, cv::LINE_AA);
+    }
+
+    const std::string text =
+        std::string(magic_enum::enum_name(robot.frame_id)) + (robot.is_stale ? " (stale)" : "");
+    const cv::Point label_pos = pixel_corners[0] + cv::Point(4, -6);
+    cv::putText(img, text, label_pos, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 2,
+                cv::LINE_AA);
+    cv::putText(img, text, label_pos, cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv::LINE_AA);
+}
+
 // Draws one cached frame's keypoint sources on top of its RGB image and blocks until the user
 // presses 'n' (next), 'p' (previous), or 'q'/Esc (quit). Any other key is ignored so a stray
 // keypress can't skip a frame.
@@ -55,6 +145,9 @@ Step show_frame_and_wait_for_key(const FrameHistoryEntry& entry, bool has_older,
     for (const auto& kp : entry.keypoints.keypoints) {
         draw_point(vis, kp.x, kp.y, kp.label,
                    get_short_name(std::string(magic_enum::enum_name(kp.keypoint_label))), 4);
+    }
+    for (const auto& robot : entry.robots.descriptions) {
+        draw_robot_corners(vis, robot, entry.field_description, entry.camera_info);
     }
     // svo_frame_index is the actual position in the file (vs. tick, this loop's own counter) --
     // watch it advance/retreat by exactly 1 per 'n'/'p' press to confirm capture is truly paused
@@ -223,6 +316,9 @@ int main(int argc, char** argv) {
             entry.rgb = camera_data.rgb.image.clone();
             entry.keypoints = std::move(keypoints);
             entry.robot_blob_keypoints = std::move(robot_blob_keypoints);
+            entry.robots = std::move(robots);
+            entry.field_description = field_description;
+            entry.camera_info = camera_data.camera_info;
             entry.tick = tick;
             entry.svo_frame_index = camera_data.frame_identity.svo_frame_index;
             history.push_back(std::move(entry));
