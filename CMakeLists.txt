@@ -158,6 +158,11 @@ file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES CONFIGURE_DEPENDS
     "src/**/*.cpp"
 )
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
+# Every standalone executable's entry point must be excluded here, not just main.cpp: each one
+# defines its own main(), and a source glob is oblivious to that, so an executable's .cpp left in
+# this list gets compiled into the shared library too and collides at link time with whichever
+# other main() also ends up there ("multiple definition of main").
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*scratch\\.cpp$")
 # Keep LVGL/SDL UI units out of the shared library.
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*lvgl_ui.*\\.cpp$")
 
@@ -305,6 +310,14 @@ target_link_libraries(auto_battlebot
     CLI11::CLI11
     lvgl::lvgl
     ${SDL2_TARGET}
+)
+
+add_executable(scratch
+    src/scratch.cpp
+)
+target_link_libraries(scratch
+    auto_battlebot_lib
+    lvgl::lvgl
 )
 
 # Compiler flags for executable
