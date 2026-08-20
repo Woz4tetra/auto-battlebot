@@ -82,6 +82,16 @@ FetchContent_Declare(
 )
 set(SPDLOG_BUILD_PIC ON CACHE BOOL "" FORCE)
 
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+# Header-only; skip building its tests/install targets.
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+
 # LVGL config path (must be set before MakeAvailable)
 set(LV_BUILD_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include/ui/lv_conf.h" CACHE PATH "")
 # Disable demos and examples to speed up build
@@ -101,9 +111,9 @@ if(BUILD_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl spdlog mcap googletest)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl spdlog mcap nlohmann_json googletest)
 else()
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl spdlog mcap)
+    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl spdlog mcap nlohmann_json)
 endif()
 
 # mcap is header-only; expose its cpp/ include directory
@@ -256,6 +266,7 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     ${TensorRT_LIBRARIES}
     ${PCL_LIBRARIES}
     spdlog::spdlog
+    nlohmann_json::nlohmann_json
 )
 
 # Common compiler flags
