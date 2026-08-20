@@ -9,6 +9,7 @@
 #include "config/config.hpp"
 #include "directories.hpp"
 #include "robot_filter/filter_input_record.hpp"
+#include "transform_utils.hpp"
 
 namespace {
 // Blocks on stdin for Enter (continue) or 'q'/EOF (quit). Line-based rather than a raw single
@@ -90,8 +91,9 @@ int main(int argc, char** argv) {
         spdlog::info("Tick: {}. Frame: {}", record->tick,
                      magic_enum::enum_name(robots.header.frame_id));
         for (const auto& robot : robots.descriptions) {
-            spdlog::info("  pos=({:.2f}, {:.2f}) stale={}", robot.pose.position.x,
-                         robot.pose.position.y, robot.is_stale);
+            spdlog::info("  robot={}, pos=({:.2f}, {:.2f}, {:.2f}), stale={}",
+                         magic_enum::enum_name(robot.frame_id), robot.pose.position.x,
+                         robot.pose.position.y, robot.pose.position.z, robot.is_stale);
         }
         ++record_count;
 
