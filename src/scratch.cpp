@@ -1,8 +1,7 @@
 #include <spdlog/spdlog.h>
 
+#include <deque>
 #include <magic_enum.hpp>
-#include <opencv2/core/mat.hpp>
-#include <opencv2/core/types.hpp>
 #include <opencv2/opencv.hpp>
 
 #include "config/config.hpp"
@@ -11,6 +10,22 @@
 
 namespace {
 using namespace auto_battlebot;
+
+constexpr size_t kDefaultHistorySize = 20;
+
+// One previously-shown frame's display inputs, cached so 'p' can redraw it without re-touching
+// the camera, GPU models, or robot_filter. rgb is cloned on capture: camera_data.rgb.image is
+// reused by the next camera->get() call, so without cloning every cached entry would alias the
+// same (constantly overwritten) buffer.
+struct FrameHistoryEntry {
+    cv::Mat rgb;
+    KeypointsStamped keypoints;
+    KeypointsStamped robot_blob_keypoints;
+    int tick = 0;
+    int64_t svo_frame_index = -1;
+};
+
+enum class Step { kNext, kPrev, kQuit };
 
 // Small filled circle + label text, shared by both keypoint sources below; only the marker
 // radius and prefix differ, so the two callers stay one-liners.
@@ -26,36 +41,42 @@ void draw_point(cv::Mat& img, double x, double y, Label label, const std::string
                 cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
 }
 
-// Draws both keypoint sources on top of the frame and blocks until the user presses 'n' (next
-// frame) or 'q'/Esc (quit). Any other key is ignored so a stray keypress can't skip a frame.
-// Returns false on quit.
-bool show_frame_and_wait_for_key(const cv::Mat& rgb, const KeypointsStamped& keypoints,
-                                 const KeypointsStamped& robot_blob_keypoints, int tick,
-                                 int64_t svo_frame_index) {
-    // rgb.setTo(cv::Scalar(255, 255, 255));
-    if (rgb.empty()) return true;
-    cv::Mat vis = rgb.clone();
+// Draws one cached frame's keypoint sources on top of its RGB image and blocks until the user
+// presses 'n' (next), 'p' (previous), or 'q'/Esc (quit). Any other key is ignored so a stray
+// keypress can't skip a frame.
+Step show_frame_and_wait_for_key(const FrameHistoryEntry& entry, bool has_older,
+                                 bool history_full) {
+    if (entry.rgb.empty()) return Step::kNext;
+    cv::Mat vis = entry.rgb.clone();
 
-    for (const auto& kp : robot_blob_keypoints.keypoints) {
+    for (const auto& kp : entry.robot_blob_keypoints.keypoints) {
         draw_point(vis, kp.x, kp.y, kp.label, "blob:" + get_short_name(kp.label), 5);
     }
-    for (const auto& kp : keypoints.keypoints) {
+    for (const auto& kp : entry.keypoints.keypoints) {
         draw_point(vis, kp.x, kp.y, kp.label,
                    get_short_name(std::string(magic_enum::enum_name(kp.keypoint_label))), 4);
     }
     // svo_frame_index is the actual position in the file (vs. tick, this loop's own counter) --
-    // watch it advance by exactly 1 per 'n' press to confirm capture is truly paused in between.
+    // watch it advance/retreat by exactly 1 per 'n'/'p' press to confirm capture is truly paused
+    // in between and history bookkeeping lines up.
     cv::putText(vis,
-                "tick " + std::to_string(tick) + "  svo_frame " + std::to_string(svo_frame_index) +
-                    "  [n]ext  [q]uit",
+                "tick " + std::to_string(entry.tick) + "  svo_frame " +
+                    std::to_string(entry.svo_frame_index) + "  [n]ext  [p]rev" +
+                    (has_older ? "" : " (oldest cached)") + "  [q]uit",
                 cv::Point(10, 24), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2,
                 cv::LINE_AA);
+    if (history_full) {
+        cv::putText(vis, "history full: oldest cached frame drops as new ones arrive",
+                    cv::Point(10, 48), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 200, 255), 1,
+                    cv::LINE_AA);
+    }
 
     cv::imshow("scratch: robot_filter playback", vis);
     while (true) {
         int key = cv::waitKey(0) & 0xFF;
-        if (key == 'q' || key == 27) return false;  // quit (Esc also works)
-        if (key == 'n') return true;                // advance to the next frame
+        if (key == 'q' || key == 27) return Step::kQuit;  // Esc also works
+        if (key == 'n') return Step::kNext;
+        if (key == 'p') return Step::kPrev;
         // Anything else (window manager events, modifier keys, ...) -- keep waiting.
     }
 }
@@ -68,15 +89,27 @@ bool show_frame_and_wait_for_key(const cv::Mat& rgb, const KeypointsStamped& key
 // tick() at the calls actually needed to drive robot_filter_->update().
 //
 // Shows the RGB frame with keypoint/blob detections overlaid and single-steps on 'n' (needs a
-// real X11 DISPLAY -- run via scripts/docker/dev_shell.sh without --no-display).
+// real X11 DISPLAY -- run via scripts/docker/dev_shell.sh without --no-display). 'p' goes back
+// through a capped in-memory cache of the last `history size` frames shown -- purely a display
+// rewind: it redraws a previously-captured frame without re-running the camera, GPU models, or
+// robot_filter, so the filter's printed console output does not rewind with it (robot_filter is
+// stateful -- its hold windows, temporal motion prediction, and frame-ID assignment memory all
+// assume forward-only progress, so replaying an old tick's inputs into it now would desync that
+// state rather than reproduce what it believed back then).
 //
-// Usage: ./scratch [config path or profile name], defaults to the mrs_buff_mk3 playback profile.
+// Usage: ./scratch [config path or profile name] [history size]
+//   Defaults: mrs_buff_mk3 playback profile, 20 cached frames.
 int main(int argc, char** argv) {
     using namespace auto_battlebot;
 
     std::filesystem::path config_path =
         argc > 1 ? normalize_config_path(argv[1])
                  : get_config_dir() / "playback/mrs_buff_mk3_playback.toml";
+    size_t history_size = argc > 2 ? static_cast<size_t>(std::stoul(argv[2])) : kDefaultHistorySize;
+    if (history_size == 0) {
+        spdlog::error("history size must be at least 1");
+        return 1;
+    }
 
     spdlog::info("Loading config: {}", config_path.string());
     ClassConfiguration class_config = load_classes_from_config(config_path);
@@ -123,70 +156,114 @@ int main(int argc, char** argv) {
     bool field_initialized = false;
     int tick = 0;
 
+    // history.back() is the most recently captured (live) frame. view_offset counts how many
+    // steps back from that we're currently displaying: 0 means live, >0 means browsing the cache.
+    // need_new_frame is deliberately a separate flag from "view_offset == 0": walking 'n' back
+    // down to the live edge must first redisplay the already-cached history.back() (view_offset
+    // hits 0 with need_new_frame still false), and only a *further* 'n' press from there should
+    // fetch a genuinely new frame. Folding both into "view_offset == 0" would fetch (and silently
+    // skip redisplaying) a new frame the instant the walk-back reached the live edge.
+    std::deque<FrameHistoryEntry> history;
+    size_t view_offset = 0;
+    bool need_new_frame = true;
+
     while (true) {
-        CameraData camera_data;
-        // get_depth=true only while waiting to initialize the field: that is the one step that
-        // needs a depth-carrying frame (field_filter->compute_field fits a plane to the point
-        // cloud). Every tick after that only needs RGB, same as Runner::tick.
-        if (!camera->get(camera_data, /*get_depth=*/!field_initialized)) {
-            if (camera->should_close()) {
-                spdlog::info("Camera signalled end of playback after {} ticks.", tick);
-            } else {
-                spdlog::warn("camera->get() failed without should_close(); stopping.");
+        if (need_new_frame) {
+            CameraData camera_data;
+            // get_depth=true only while waiting to initialize the field: that is the one step
+            // that needs a depth-carrying frame (field_filter->compute_field fits a plane to the
+            // point cloud). Every tick after that only needs RGB, same as Runner::tick.
+            if (!camera->get(camera_data, /*get_depth=*/!field_initialized)) {
+                if (camera->should_close()) {
+                    spdlog::info("Camera signalled end of playback after {} ticks.", tick);
+                } else {
+                    spdlog::warn("camera->get() failed without should_close(); stopping.");
+                }
+                break;
             }
-            break;
-        }
-        if (clock) clock->set(camera_data.rgb.header.stamp);
+            if (clock) clock->set(camera_data.rgb.header.stamp);
 
-        if (!field_initialized) {
-            if (!camera_data.tracking_ok) continue;
-            field_filter->reset(camera_data.tf_visodom_from_camera);
-            MaskStamped field_mask = field_model->update(camera_data.rgb);
-            if (field_mask.mask.mask.empty()) {
-                spdlog::warn("Empty field mask this frame; waiting for a usable one.");
-                continue;
+            if (!field_initialized) {
+                if (!camera_data.tracking_ok) continue;
+                field_filter->reset(camera_data.tf_visodom_from_camera);
+                MaskStamped field_mask = field_model->update(camera_data.rgb);
+                if (field_mask.mask.mask.empty()) {
+                    spdlog::warn("Empty field mask this frame; waiting for a usable one.");
+                    continue;
+                }
+                initial_field = field_filter->compute_field(camera_data, field_mask);
+                if (initial_field->header.frame_id == FrameId::EMPTY) {
+                    spdlog::warn("Failed to find a field plane this frame; retrying.");
+                    continue;
+                }
+                robot_filter->initialize(class_config.runner.default_opponent_count);
+                field_initialized = true;
+                spdlog::info("Field initialized after {} ticks.", tick);
             }
-            initial_field = field_filter->compute_field(camera_data, field_mask);
-            if (initial_field->header.frame_id == FrameId::EMPTY) {
-                spdlog::warn("Failed to find a field plane this frame; retrying.");
-                continue;
+
+            FieldDescription field_description =
+                field_filter->track_field(camera_data.tf_visodom_from_camera, initial_field);
+            KeypointsStamped keypoints = keypoint_model->update(camera_data.rgb);
+            KeypointsStamped robot_blob_keypoints = robot_mask_model->update(camera_data.rgb);
+
+            // The full pipeline feeds real transmitter command feedback here for motion
+            // prediction; an empty CommandFeedback{} just means the filter sees no commanded
+            // velocity this tick.
+            RobotDescriptionsStamped robots =
+                robot_filter->update(keypoints, field_description, camera_data.camera_info,
+                                     robot_blob_keypoints, CommandFeedback{});
+
+            for (const auto& robot : robots.descriptions) {
+                spdlog::info("[{}] {} pos=({:.2f}, {:.2f}) stale={}", tick,
+                             magic_enum::enum_name(robot.frame_id), robot.pose.position.x,
+                             robot.pose.position.y, robot.is_stale);
             }
-            robot_filter->initialize(class_config.runner.default_opponent_count);
-            field_initialized = true;
-            spdlog::info("Field initialized after {} ticks.", tick);
+
+            FrameHistoryEntry entry;
+            entry.rgb = camera_data.rgb.image.clone();
+            entry.keypoints = std::move(keypoints);
+            entry.robot_blob_keypoints = std::move(robot_blob_keypoints);
+            entry.tick = tick;
+            entry.svo_frame_index = camera_data.frame_identity.svo_frame_index;
+            history.push_back(std::move(entry));
+            if (history.size() > history_size) history.pop_front();
+
+            ++tick;
+            need_new_frame = false;
+            view_offset = 0;
         }
 
-        FieldDescription field_description =
-            field_filter->track_field(camera_data.tf_visodom_from_camera, initial_field);
-        KeypointsStamped keypoints = keypoint_model->update(camera_data.rgb);
-        KeypointsStamped robot_blob_keypoints = robot_mask_model->update(camera_data.rgb);
-
-        // The full pipeline feeds real transmitter command feedback here for motion prediction;
-        // an empty CommandFeedback{} just means the filter sees no commanded velocity this tick.
-        RobotDescriptionsStamped robots =
-            robot_filter->update(keypoints, field_description, camera_data.camera_info,
-                                 robot_blob_keypoints, CommandFeedback{});
-
-        for (const auto& robot : robots.descriptions) {
-            spdlog::info("[{}] {} pos=({:.2f}, {:.2f}) stale={}", tick,
-                         magic_enum::enum_name(robot.frame_id), robot.pose.position.x,
-                         robot.pose.position.y, robot.is_stale);
-        }
+        const FrameHistoryEntry& displayed = history[history.size() - 1 - view_offset];
+        bool has_older = view_offset + 1 < history.size();
+        bool history_full = history.size() >= history_size;
 
         // Pause background capture while blocked on the keypress: ZedRgbdCamera otherwise keeps
         // grabbing (real-time-paced or not) the whole time nobody is calling get(), so the next
         // get() would silently return a frame far ahead of this one instead of the next one.
+        // Kept paused for the whole wait regardless of view_offset, including while browsing
+        // cached history, so nothing advances behind our back before the next live fetch.
         camera->pause_capture();
-        bool advance =
-            show_frame_and_wait_for_key(camera_data.rgb.image, keypoints, robot_blob_keypoints,
-                                        tick, camera_data.frame_identity.svo_frame_index);
+        Step step = show_frame_and_wait_for_key(displayed, has_older, history_full);
         camera->resume_capture();
-        if (!advance) {
+
+        if (step == Step::kQuit) {
             spdlog::info("Quit requested.");
             break;
         }
-
-        ++tick;
+        if (step == Step::kNext) {
+            if (view_offset > 0) {
+                view_offset--;  // walk back toward live using the cache; no fetch
+            } else {
+                need_new_frame = true;  // already at the live edge -- advance for real
+            }
+        } else if (step == Step::kPrev) {
+            if (has_older) {
+                view_offset++;
+            } else {
+                spdlog::info("No older cached frame (history holds the last {} frames).",
+                             history.size());
+            }
+        }
     }
 
     cv::destroyAllWindows();
