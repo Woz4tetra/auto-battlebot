@@ -11,6 +11,7 @@ libwebsocketpp-dev
 libjsoncpp-dev
 libssl-dev
 cmake
+ninja-build
 build-essential
 libboost-all-dev
 libeigen3-dev
