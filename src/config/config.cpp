@@ -8,8 +8,8 @@
 namespace auto_battlebot {
 namespace {
 // Deep-copy an overlay node into dst[key], replacing whatever is there.
-void assign_copy(toml::table &dst, std::string_view key, const toml::node &src) {
-    src.visit([&](auto &&node) { dst.insert_or_assign(key, node); });
+void assign_copy(toml::table& dst, std::string_view key, const toml::node& src) {
+    src.visit([&](auto&& node) { dst.insert_or_assign(key, node); });
 }
 
 // Recursively merge `overlay` onto `base` in place.
@@ -17,11 +17,11 @@ void assign_copy(toml::table &dst, std::string_view key, const toml::node &src) 
 //   selected, so the base section's fields are meaningless). This lets a variant swap e.g. a
 //   YoloKeypointModel for a NoopKeypointModel without inheriting stale fields.
 // - Otherwise tables are merged key-by-key; scalars and arrays from the overlay replace the base.
-void merge_into(toml::table &base, const toml::table &overlay) {
-    for (auto &&[key, value] : overlay) {
-        const toml::table *overlay_sub = value.as_table();
-        toml::node *base_node = base.get(key.str());
-        toml::table *base_sub = base_node ? base_node->as_table() : nullptr;
+void merge_into(toml::table& base, const toml::table& overlay) {
+    for (auto&& [key, value] : overlay) {
+        const toml::table* overlay_sub = value.as_table();
+        toml::node* base_node = base.get(key.str());
+        toml::table* base_sub = base_node ? base_node->as_table() : nullptr;
 
         if (overlay_sub && base_sub) {
             auto base_type = (*base_sub)["type"].value<std::string>();
@@ -41,8 +41,8 @@ void merge_into(toml::table &base, const toml::table &overlay) {
 // config root directory (never a recursive/name-based search), appending `.toml` if needed.
 // Extends values are always written relative to the config root, so a base like `_desktop` or
 // `playback/_playback` resolves the same way regardless of which subdirectory declares it.
-std::filesystem::path resolve_extends(const std::filesystem::path &config_root,
-                                      const std::string &value) {
+std::filesystem::path resolve_extends(const std::filesystem::path& config_root,
+                                      const std::string& value) {
     std::filesystem::path resolved = config_root / value;
     if (resolved.extension() != ".toml") {
         resolved += ".toml";
@@ -53,19 +53,19 @@ std::filesystem::path resolve_extends(const std::filesystem::path &config_root,
 // Parse `path` and, if it declares `extends`, recursively load+merge its base config underneath it.
 // `config_root` is the directory that `extends` values are resolved against.
 // `chain` holds the canonical paths currently being resolved, for cycle detection.
-toml::table load_and_merge_config(const std::filesystem::path &path,
-                                  const std::filesystem::path &config_root,
-                                  std::vector<std::filesystem::path> &chain) {
+toml::table load_and_merge_config(const std::filesystem::path& path,
+                                  const std::filesystem::path& config_root,
+                                  std::vector<std::filesystem::path>& chain) {
     std::error_code ec;
     std::filesystem::path canonical = std::filesystem::weakly_canonical(path, ec);
     if (ec) {
         canonical = path;
     }
 
-    for (const auto &visited : chain) {
+    for (const auto& visited : chain) {
         if (visited == canonical) {
             std::string msg = "Circular config inheritance detected: ";
-            for (const auto &c : chain) {
+            for (const auto& c : chain) {
                 msg += c.filename().string() + " -> ";
             }
             msg += canonical.filename().string();
@@ -96,8 +96,8 @@ toml::table load_and_merge_config(const std::filesystem::path &path,
 }  // namespace
 
 template <typename ConfigType>
-ConfigType parse_config_section(const toml::table &toml_data, const std::string &section_name,
-                                std::vector<std::string> &parsed_sections) {
+ConfigType parse_config_section(const toml::table& toml_data, const std::string& section_name,
+                                std::vector<std::string>& parsed_sections) {
     ConfigType config;
 
     auto section = toml_data[section_name].as_table();
@@ -113,7 +113,7 @@ ConfigType parse_config_section(const toml::table &toml_data, const std::string 
     return config;
 }
 
-std::filesystem::path normalize_config_path(const std::string &config_path) {
+std::filesystem::path normalize_config_path(const std::string& config_path) {
     std::filesystem::path path;
     if (config_path.empty()) {
         path = get_config_dir() / "main.toml";
@@ -129,15 +129,15 @@ std::filesystem::path normalize_config_path(const std::string &config_path) {
     return path;
 }
 
-toml::table load_merged_config(const std::filesystem::path &path,
-                               const std::filesystem::path &config_root) {
+toml::table load_merged_config(const std::filesystem::path& path,
+                               const std::filesystem::path& config_root) {
     std::filesystem::path root = config_root.empty() ? get_config_dir() : config_root;
     std::vector<std::filesystem::path> chain;
     return load_and_merge_config(path, root, chain);
 }
 
-ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
-                                            const std::filesystem::path &config_root) {
+ClassConfiguration load_classes_from_config(const std::filesystem::path& path,
+                                            const std::filesystem::path& config_root) {
     ClassConfiguration config;
 
     try {
@@ -162,14 +162,14 @@ ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
         config.clock = load_clock_from_toml(toml_data, parsed_sections);
 
         validate_no_extra_sections(toml_data, parsed_sections, path.stem());
-    } catch (const toml::parse_error &e) {
+    } catch (const toml::parse_error& e) {
         spdlog::error("Error parsing classes config file: {}", path.string());
         spdlog::error("{}", e.description());
         throw;
-    } catch (const ConfigValidationError &e) {
+    } catch (const ConfigValidationError& e) {
         spdlog::error("Configuration validation error in {}: {}", path.string(), e.what());
         throw;
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
         spdlog::error("Error reading classes config file: {}", e.what());
         throw;
     }

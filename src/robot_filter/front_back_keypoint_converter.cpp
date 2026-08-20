@@ -9,14 +9,14 @@
 
 namespace auto_battlebot {
 FrontBackKeypointConverter::FrontBackKeypointConverter(
-    const FrontBackKeypointConverterConfig &config)
+    const FrontBackKeypointConverterConfig& config)
     : config_(config) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("front_back_keypoint_converter");
 }
 
 std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>>
-FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
-                                    const FieldDescription &field, const CameraInfo &camera_info) {
+FrontBackKeypointConverter::convert(const KeypointsStamped& keypoints,
+                                    const FieldDescription& field, const CameraInfo& camera_info) {
     Eigen::Vector3d plane_center = Eigen::Vector3d::Zero();
     Eigen::Vector3d plane_normal = Eigen::Vector3d::UnitZ();
     if (!transform_to_plane_center_normal(field.tf_camera_from_fieldcenter, plane_center,
@@ -33,7 +33,7 @@ FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
     std::map<GroupKey, bool> group_has_front;
     std::map<GroupKey, bool> group_has_back;
 
-    for (const Keypoint &keypoint : keypoints.keypoints) {
+    for (const Keypoint& keypoint : keypoints.keypoints) {
         Eigen::Vector3d projected_keypoint;
         if (!project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info,
                                          config_.keypoint_heights.height_for(keypoint.label),
@@ -75,7 +75,7 @@ FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
     // Build result: map Label -> vector of (assignment, confidence), only include groups with valid
     // pose (front and back set)
     std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>> result;
-    for (const auto &[group_key, assignment] : group_assignments) {
+    for (const auto& [group_key, assignment] : group_assignments) {
         if (!group_has_front[group_key] || !group_has_back[group_key]) {
             continue;
         }
@@ -86,9 +86,9 @@ FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
     return result;
 }
 
-bool FrontBackKeypointConverter::get_pose_from_points(const Eigen::Vector3d &front_point,
-                                                      const Eigen::Vector3d &back_point,
-                                                      Transform &out_transform) {
+bool FrontBackKeypointConverter::get_pose_from_points(const Eigen::Vector3d& front_point,
+                                                      const Eigen::Vector3d& back_point,
+                                                      Transform& out_transform) {
     constexpr double EPSILON = 1e-6;
     Eigen::Vector3d origin_vec(1.0, 0.0, 0.0);
     // Pose +X points toward front: direction from back to front
