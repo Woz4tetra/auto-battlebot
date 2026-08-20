@@ -18,6 +18,10 @@ and a CSV of the command timeline.
 Two USB serial devices are open at once: the jig (`/dev/ttyACM*`) and the OpenTX radio
 (0483:5740). `--list-ports` shows every candidate with its ids.
 
+PAUSES. A piecewise waveform stops between cells and waits for Enter, so the robot can be
+put back on its mark before the next one. The program clock stops with it and the sidecar
+records each window. `--no-pause` plays straight through.
+
 ONE CLOCK. Command timestamps and clock probes both come from `time.monotonic()` in this
 process. Splitting them across processes reintroduces exactly the offset the `TIME` probe
 exists to remove, and the transport delay fitted afterwards would be that offset plus the
@@ -73,6 +77,12 @@ def prompt(msg: str) -> None:
         input(f"      {msg} ")
     except EOFError:
         raise SystemExit("\naborted: stdin closed") from None
+
+
+def pause_prompt(index: int, count: int) -> None:
+    """Between-cell stop. The channels are already zeroed when this is called."""
+    say(f"\n      --- paused {index}/{count} ---")
+    prompt("Put the robot back on its mark, then press Enter to continue:")
 
 
 def countdown(seconds: float, msg: str) -> tuple[float, float]:
@@ -150,6 +160,7 @@ def do_dry_run(programs: Sequence[ex.Program], params: PlantParams, half_width_m
                 )
             if len(program.segments) > 40:
                 say(f"  ... {len(program.segments) - 40} more")
+            say(f"{len(ex.pause_points(program))} operator stops (--no-pause to run straight)")
         else:
             say("continuous waveform, sampled at 50 Hz:")
             for t, lin, ang in program.sample(5.0)[:10]:
@@ -213,6 +224,7 @@ def write_run_toml(
     spec: dict[str, Any],
     params: dict[str, Any],
     segments: Sequence[Any],
+    pauses: Sequence[tuple[float, float]],
     transfer: dict[str, Any],
     clock_pre: ClockProbe | None,
     clock_post: ClockProbe | None,
@@ -241,6 +253,12 @@ def write_run_toml(
                 "label": seg.label,
             },
         )
+    # Where the operator stopped the run to reset the robot's position. The segment times
+    # above already carry these, so a reader that ignores pauses still labels the run
+    # correctly; they are written out because the robot was handled inside each window and
+    # the motion there is the operator's, not the plant's.
+    for at, held in pauses:
+        lines += _table("[pause]", {"program_t": round(at, 3), "held_s": round(held, 3)})
     lines += _table("transfer", transfer)
     if skew_ppm is not None:
         lines += _table("clock", {"skew_ppm": skew_ppm})
@@ -404,7 +422,11 @@ def run_one(
     step(n, total, f"Play {program.name}")
     commands: list[dp.CommandSample] = []
     contamination = 0.0
+    pauses: list[tuple[float, float]] = []
     if trainer is not None and decl.kind != "manual":
+        pause_at = [] if (args.no_pause or args.no_prompt) else ex.pause_points(program)
+        if pause_at:
+            say(f"      stopping {len(pause_at)} times to reset the robot's position")
         prompt("Type Enter to ARM and play (Ctrl-C aborts and disarms):")
         with dp.armed(trainer):
             result = dp.play(
@@ -413,10 +435,15 @@ def run_one(
                 rate_hz=args.rate,
                 trim=args.trim,
                 timeout_s=program.duration_s + 10.0,
+                pause_at=pause_at,
+                on_pause=pause_prompt,
             )
         commands = result.commands
         contamination = result.contamination
+        pauses = result.pauses
         say(f"      {len(commands)} commands, completed={result.completed}")
+        if pauses:
+            say(f"      {len(pauses)} pauses, {sum(g for _, g in pauses):.0f} s held")
         if result.aborted_reason:
             say(f"      ABORTED: {result.aborted_reason}")
         if contamination > 0.05:
@@ -527,7 +554,7 @@ def run_one(
             "command_file": cmd_name if commands else None,
             "rep": rep,
             "started_utc": f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}",
-            "duration_s": program.duration_s,
+            "duration_s": program.duration_s + sum(g for _, g in pauses),
             "verdict": verdict,
             "gates": gate_note,
             "contamination": round(contamination, 4),
@@ -543,7 +570,8 @@ def run_one(
             "label": program.label,
         },
         params=decl.params,
-        segments=program.segments or [],
+        segments=ex.shift_segments(program.segments or [], pauses),
+        pauses=pauses,
         transfer={"samples": samples, "dropped": dropped, "bytes": written},
         clock_pre=clock_pre,
         clock_post=clock_post,
@@ -678,7 +706,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--encoder", default="attached", choices=("attached", "detached", "either"))
     parser.add_argument("--notes", default="")
-    parser.add_argument("--no-prompt", action="store_true", help="skip the per-run notes prompt")
+    parser.add_argument(
+        "--no-prompt",
+        action="store_true",
+        help="skip the per-run notes prompt, and play each waveform straight through",
+    )
+    parser.add_argument(
+        "--no-pause",
+        action="store_true",
+        help=(
+            "play each waveform straight through. By default the run stops between cells so "
+            "the robot can be put back on its mark; a grid waveform has one stop per cell."
+        ),
+    )
     parser.add_argument("--half-width-m", type=float, default=0.0, help="usable floor half-width")
     parser.add_argument("--params", type=Path, default=None, help="plant TOML for --dry-run")
     parser.add_argument(

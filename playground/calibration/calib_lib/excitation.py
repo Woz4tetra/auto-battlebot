@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import math
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -400,6 +400,49 @@ def _finish(d: WaveformDecl, b: _Builder) -> Program:
         label=d.label,
         params=dict(d.params),
     )
+
+
+# ---------------------------------------------------------------------------
+# Cell boundaries
+# ---------------------------------------------------------------------------
+
+
+def _is_rest(seg: ProtocolSegment) -> bool:
+    return abs(seg.linear) < 1e-6 and abs(seg.angular) < 1e-6
+
+
+def pause_points(program: Program) -> list[float]:
+    """Program times where the run can stop so the operator can put the robot back.
+
+    A pause belongs only where a rest is already followed by more driving. There is nothing
+    safe to stop at inside a cell: a coast tail has to follow its entry with no gap, or the
+    decel constant fitted from it is the gap's rather than the robot's. Continuous waveforms
+    have no cells and get an empty list, which is right for a chirp or a PRBS anyway.
+    """
+    segments = program.segments or []
+    return [
+        seg.t0 for prev, seg in zip(segments, segments[1:]) if _is_rest(prev) and not _is_rest(seg)
+    ]
+
+
+def shift_segments(
+    segments: Sequence[ProtocolSegment], pauses: Sequence[tuple[float, float]]
+) -> list[ProtocolSegment]:
+    """Move segment times onto the timeline the run actually took.
+
+    Segment times are program-relative, and readers anchor them at the first command sample
+    on the assumption that the program ran end to end. A paused run breaks that assumption,
+    so the recorded times carry the pauses and every label after the first one still lands on
+    the samples it describes. `pauses` is (program time, seconds held), in order.
+    """
+    pending = list(pauses)
+    offset = 0.0
+    out: list[ProtocolSegment] = []
+    for seg in segments:
+        while pending and pending[0][0] <= seg.t0 + 1e-9:
+            offset += pending.pop(0)[1]
+        out.append(replace(seg, t0=seg.t0 + offset, t1=seg.t1 + offset))
+    return out
 
 
 BUILDERS: dict[str, Callable[[WaveformDecl], Program]] = {

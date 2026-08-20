@@ -31,7 +31,7 @@ import struct
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Iterator
+from typing import Callable, Iterator, Sequence
 
 from serial.tools.list_ports import comports
 
@@ -290,6 +290,9 @@ class PlayResult:
     commands: list[CommandSample] = field(default_factory=list)
     completed: bool = False
     aborted_reason: str = ""
+    # (program time, seconds held) for every operator pause. The command log runs on host
+    # time, so without these a pause reads as one very long coast tail.
+    pauses: list[tuple[float, float]] = field(default_factory=list)
 
     # Ticks to ignore after the command changes. The radio reports its mixer output on its
     # own schedule, so `measured` lags `commanded` by a tick or two. At a step edge that lag
@@ -338,6 +341,8 @@ def play(
     stop_event: threading.Event | None = None,
     timeout_s: float | None = None,
     on_tick: Callable[[CommandSample], None] | None = None,
+    pause_at: Sequence[float] | None = None,
+    on_pause: Callable[[int, int], None] | None = None,
 ) -> PlayResult:
     """Play one excitation program, logging every tick on CLOCK_MONOTONIC.
 
@@ -345,11 +350,20 @@ def play(
     hidden offset: a trimmed straight run is a two-input excitation, and a fit that does not
     know about the second input attributes its effect to the first.
 
+    `pause_at` lists program times to stop at, and `on_pause(index, count)` blocks there
+    until the operator is done. The channels are zeroed first, the program clock and the
+    timeout both stop for the duration, and the excitation resumes on the exact command it
+    was about to send. Nothing is logged while stopped, so the command log has a gap that a
+    zero-order hold reads as the zero command it was: the last tick before a pause always
+    lands in a rest cell.
+
     The caller owns disarm. This returns on completion, on `stop_event`, or on the hard
     timeout, and in every case the last thing it sends is a zero command.
     """
     result = PlayResult()
     period = 1.0 / rate_hz
+    pending = sorted(float(p) for p in pause_at) if (pause_at and on_pause) else []
+    count = len(pending)
     t0 = time.monotonic()
     deadline = t0 + (timeout_s if timeout_s is not None else program.duration_s + 10.0)
     try:
@@ -365,6 +379,19 @@ def play(
             if stop_event is not None and stop_event.is_set():
                 result.aborted_reason = "stop requested"
                 break
+            if on_pause is not None and pending and elapsed >= pending[0]:
+                at = pending.pop(0)
+                # Zero the channels before anyone walks up to the robot. The check sits ahead
+                # of the send below, so the cell after the pause has not started yet and no
+                # drive command reaches the robot while a hand is on it.
+                link.disarm()
+                held = time.monotonic()
+                on_pause(count - len(pending), count)
+                gap = time.monotonic() - held
+                result.pauses.append((at, gap))
+                t0 += gap
+                deadline += gap
+                continue
 
             linear, angular = program.at(elapsed)
             a, b = link.send(linear, angular + trim)

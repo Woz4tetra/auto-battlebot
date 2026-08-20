@@ -27,6 +27,8 @@ python playground/calibration/velocity_jig_drive.py --list-ports
 
 # Record. Each run leaves LOG-N.TXT, LOG-N.toml and LOG-N.cmd.csv in the session directory,
 # which defaults to out/<date>-<name>. Pass --out to put it somewhere else.
+# A piecewise waveform stops between cells and waits for Enter so the robot can go back on
+# its mark; --dry-run prints how many stops to expect and --no-pause plays straight through.
 python playground/calibration/velocity_jig_drive.py \
     --waveform lin_step_full --waveform lin_coast --reps 3 \
     --name "garage floor, pack 3"
