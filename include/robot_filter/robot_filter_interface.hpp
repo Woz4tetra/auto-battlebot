@@ -7,6 +7,16 @@ class RobotFilterInterface {
    public:
     virtual ~RobotFilterInterface() = default;
     virtual bool initialize(int opponent_count) = 0;
+    /**
+     * @brief Update the all robot estimates
+     *
+     * @param keypoints Keypoints of *our* robot(s).
+     * @param field Estimated field, relative to the camera.
+     * @param camera_info Camera params.
+     * @param robot_blob_keypoints Opponent (possibly our robot) blob keypoints.
+     * @param command_feedback Feedback from the transmitted?
+     * @return Best estimate of all robots in the field.
+     */
     virtual RobotDescriptionsStamped update(KeypointsStamped keypoints, FieldDescription field,
                                             CameraInfo camera_info,
                                             KeypointsStamped robot_blob_keypoints,
