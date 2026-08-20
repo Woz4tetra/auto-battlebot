@@ -173,6 +173,8 @@ list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
 # this list gets compiled into the shared library too and collides at link time with whichever
 # other main() also ends up there ("multiple definition of main").
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*scratch\\.cpp$")
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*record_filter_inputs\\.cpp$")
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*replay_filter_inputs\\.cpp$")
 # Keep LVGL/SDL UI units out of the shared library.
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*lvgl_ui.*\\.cpp$")
 
@@ -327,6 +329,26 @@ add_executable(scratch
     src/scratch.cpp
 )
 target_link_libraries(scratch
+    auto_battlebot_lib
+    lvgl::lvgl
+)
+
+# Extracts robot_filter's inputs (keypoints, robot_blob_keypoints, camera_info,
+# field_description) from a live run to a .jsonl file -- see include/robot_filter/filter_input_record.hpp.
+add_executable(record_filter_inputs
+    src/record_filter_inputs.cpp
+)
+target_link_libraries(record_filter_inputs
+    auto_battlebot_lib
+    lvgl::lvgl
+)
+
+# Replays a .jsonl file written by record_filter_inputs through robot_filter->update(), with no
+# camera, GPU models, or ZED SDK involved.
+add_executable(replay_filter_inputs
+    src/replay_filter_inputs.cpp
+)
+target_link_libraries(replay_filter_inputs
     auto_battlebot_lib
     lvgl::lvgl
 )
