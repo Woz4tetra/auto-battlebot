@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Sequence
 
 import matplotlib
 
@@ -45,8 +46,11 @@ from auto_battlebot.velocity_jig import (
     ClockFit,
     JigCalibration,
     JigLog,
+    PauseWindow,
     RunRecord,
     find_still_segments,
+    overlaps_pause,
+    pause_mask,
     read_jig_log,
     still_stats,
 )
@@ -100,6 +104,7 @@ def forward_speed(log: JigLog, calib: JigCalibration | None) -> tuple[np.ndarray
 REGION_STYLE = {
     "still hold": ("#cfe3cf", 0.55),
     "not commanded": ("#d9d9d9", 0.55),
+    "operator pause": ("#cdd8f0", 0.75),
     "IMU saturated": ("#f3b3ae", 0.85),
 }
 
@@ -111,10 +116,13 @@ def excluded_regions(
 ) -> dict[str, list[tuple[float, float]]]:
     """Stretches the plant fit does not learn from, in plot time.
 
-    Three kinds, and they are excluded for different reasons worth telling apart:
+    Four kinds, and they are excluded for different reasons worth telling apart:
 
     - **still hold**: real data, but it is where the gyro bias and the noise floor come from,
       not something the fit windows over.
+    - **operator pause**: the run was stopped and the robot carried back to its mark. Every
+      sample here is the operator's hands, which is why the gates skip it too: setting the
+      robot down clips the accelerometer without a wall ever being involved.
     - **not commanded**: outside the command log there is no input, so the model would be
       asked to predict motion from nothing. The fit keeps two seconds of coast past the last
       command, since the runner zeroes and disarms on exit, and drops the rest. That is why
@@ -124,9 +132,19 @@ def excluded_regions(
     """
     out: dict[str, list[tuple[float, float]]] = {}
 
-    stills = find_still_segments(log)
     clock = record.clock if record is not None else ClockFit.identity()
     offset = t[0] - clock.host_seconds(log.t[:1])[0] if len(t) else 0.0
+    pauses = record.pauses if record is not None else []
+    if pauses:
+        out["operator pause"] = [(p.t_start + offset, p.t_end + offset) for p in pauses]
+
+    # A pause looks motionless once the robot is back down, so those stretches are not still
+    # holds. Same rule the fit uses.
+    stills = [
+        seg
+        for seg in find_still_segments(log)
+        if not overlaps_pause(clock.host_seconds(np.array([seg.t0, seg.t1])), pauses)
+    ]
     if stills:
         out["still hold"] = [
             tuple(clock.host_seconds(np.array([seg.t0, seg.t1])) + offset) for seg in stills
@@ -146,7 +164,9 @@ def excluded_regions(
         if edges:
             out["not commanded"] = edges
 
-    sat, _ = saturated_mask(log)
+    # Clipping inside a pause is the robot being set down, and that stretch is already
+    # shaded as a pause. Only clipping in the robot's own data earns the saturation colour.
+    sat, _ = saturated_mask(log, pauses, clock)
     if sat.any():
         out["IMU saturated"] = spans(sat, t)
     return out
@@ -212,7 +232,13 @@ def plot_run(
         ax.set_ylim(-1.05, 1.05)
         ax.legend(fontsize=8, ncol=2, loc="upper right")
         ax.set_ylabel("radio reported", fontsize=9)
-        if _channels_opposed(ch_a, ch_b):
+        # Only worth saying when nothing is already correcting for it. Once the run records
+        # an invert flag the opposed channels are expected, and repeating the warning sends
+        # the reader off to re-run --check-radio for a setting that is already right.
+        inverted = bool(record.provenance.get("read_invert_a")) or bool(
+            record.provenance.get("read_invert_b")
+        )
+        if _channels_opposed(ch_a, ch_b) and not inverted:
             ax.text(
                 0.01, 0.06,
                 "channels move opposite while a straight command is held: one is reversed "
@@ -327,7 +353,7 @@ def plot_run(
         if not clock.measured:
             bits.append("clock not probed, times are jig seconds")
         title += "   " + "   ".join(bits)
-    _, sat_axes = saturated_mask(log)
+    _, sat_axes = saturated_mask(log, record.pauses if record is not None else [], clock)
     if sat_axes:
         title += f"   SATURATED: {', '.join(sat_axes)}"
     fig.suptitle(title, fontsize=11)
@@ -385,17 +411,24 @@ def from_rest(
     return (t_ext, *(np.concatenate([[0.0], v, [0.0]]) for v in series))
 
 
-def saturated_mask(log: JigLog) -> tuple[np.ndarray, list[str]]:
+def saturated_mask(
+    log: JigLog,
+    pauses: Sequence[PauseWindow] = (),
+    clock: ClockFit | None = None,
+) -> tuple[np.ndarray, list[str]]:
     """Samples where any IMU axis is at or past full scale, and which axes did it.
 
     A clipped channel biases every fit downstream and does it silently, so it gets its own
-    marking rather than a line in a summary.
+    marking rather than a line in a summary. Samples inside an operator pause are not the
+    robot's data at all, so they neither shade nor name an axis.
     """
     names: list[str] = []
     mask = np.zeros(len(log.t), dtype=bool)
+    clock = clock or ClockFit.identity()
+    keep = ~pause_mask(clock.host_seconds(log.t), pauses)
     for prefix, raw in (("g", log.gyro_raw), ("a", log.accel_raw)):
         for i, axis in enumerate(("x", "y", "z")):
-            over = np.abs(raw[:, i]) > RAW_SATURATION
+            over = (np.abs(raw[:, i]) > RAW_SATURATION) & keep
             if over.any():
                 names.append(f"{prefix}{axis}")
                 mask |= over

@@ -75,7 +75,9 @@ channel = "angular"
 role = "fit"
 label = "angular steps"
 amplitudes = [0.25, 0.5, 0.75, 1.0]
-cap = 0.13
+cap = 1.0
+hold_s = 3.0
+coast_s = 2.0
 shuttle = true
 
 [waveform.ang_coast]
@@ -85,7 +87,7 @@ role = "fit"
 label = "angular coast tails"
 # The angular decel constant had no dedicated excitation before, so it was fitted from the
 # drops at the end of angular steps alone. This is the run to add when it comes back weak.
-amplitude = 0.13
+amplitude = 1.0
 reps = 10
 shuttle = true
 
@@ -113,7 +115,7 @@ amplitude = 0.6
 # 60 ms bits cover roughly 0.2 to 8 Hz, which brackets both the 58-78 ms plant time
 # constants and the 33 ms frame period.
 bit_ms = 60
-duration_s = 30
+duration_s = 5
 seed = 44001
 
 [waveform.ang_prbs]
@@ -121,9 +123,9 @@ kind = "prbs"
 channel = "angular"
 role = "holdout"
 label = "angular PRBS"
-amplitude = 0.13
+amplitude = 0.5
 bit_ms = 60
-duration_s = 30
+duration_s = 15
 seed = 44002
 
 [waveform.combined_prbs]
@@ -131,10 +133,10 @@ kind = "prbs"
 channel = "combined"
 role = "holdout"
 label = "combined PRBS"
-amplitude = 0.6
-angular_amplitude = 0.13
+amplitude = 0.3
+angular_amplitude = 0.5
 bit_ms = 60
-duration_s = 30
+duration_s = 15
 seed = 44003
 
 [waveform.lin_chirp]
@@ -147,7 +149,7 @@ label = "linear chirp"
 f0_hz = 0.2
 f1_hz = 8.0
 amplitude = 0.4
-duration_s = 30
+duration_s = 7
 
 [waveform.ang_chirp]
 kind = "chirp"
@@ -156,7 +158,7 @@ role = "holdout"
 label = "angular chirp"
 f0_hz = 0.2
 f1_hz = 8.0
-amplitude = 0.13
+amplitude = 0.5
 duration_s = 30
 
 [waveform.lin_sine]
@@ -166,15 +168,15 @@ role = "holdout"
 label = "linear sine"
 freq_hz = 1.0
 amplitude = 0.5
-cycles = 20
+cycles = 10
 
 [waveform.lin_triangle]
 kind = "triangle"
 channel = "linear"
 role = "holdout"
 label = "linear triangle"
-freq_hz = 0.5
-amplitude = 0.5
+freq_hz = 1.0
+amplitude = 0.4
 cycles = 12
 
 [waveform.operator]

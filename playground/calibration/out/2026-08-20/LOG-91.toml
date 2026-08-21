@@ -1,0 +1,80 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-21T03:06:23Z-lin_triangle-0"
+log_file = "LOG-91.TXT"
+command_file = "LOG-91.cmd.csv"
+rep = 0
+started_utc = "2026-08-21T03:06:23Z"
+duration_s = 12.0
+verdict = "pass"
+gates = ""
+warnings = ""
+contamination = 0.0
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "lin_triangle"
+kind = "triangle"
+channel = "linear"
+role = "holdout"
+label = "linear triangle"
+
+[waveform.params]
+hold_s = 0.6
+coast_s = 1.2
+angular_cap = 0.13
+freq_hz = 1.0
+amplitude = 0.4
+cycles = 12
+
+[transfer]
+samples = 0
+dropped = 0
+bytes = 1161017
+
+[clock]
+skew_ppm = 7.712776986235798
+
+[clock.pre]
+offset_ms = 6765652.03693925
+residual_ms = 0.006605866756241411
+at_host_ms = 6825922.1663315
+at_jig_ms = 60270.152
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 6765652.34777675
+residual_ms = 0.0038619062905061023
+at_host_ms = 6866224.126524
+at_jig_ms = 100571.784
+kept = 20
+total = 200
+
+[hold.pre]
+start = 6828.484202851
+end = 6833.484599719
+
+[hold.post]
+start = 6851.624075671
+end = 6856.624487206
+
+[session]
+id = "2026-08-20"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "1ff340a"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

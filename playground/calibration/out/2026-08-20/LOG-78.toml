@@ -1,0 +1,81 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-21T02:52:37Z-lin_prbs-0"
+log_file = "LOG-78.TXT"
+command_file = "LOG-78.cmd.csv"
+rep = 0
+started_utc = "2026-08-21T02:52:37Z"
+duration_s = 5.0
+verdict = "discard"
+gates = "IMU saturation on ax x1 (impact, or the range is set too low)"
+warnings = ""
+contamination = 0.0141
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "lin_prbs"
+kind = "prbs"
+channel = "linear"
+role = "holdout"
+label = "linear PRBS"
+
+[waveform.params]
+hold_s = 0.6
+coast_s = 1.2
+angular_cap = 0.13
+amplitude = 0.6
+bit_ms = 60
+duration_s = 5
+seed = 44001
+
+[transfer]
+samples = 36369
+dropped = 0
+bytes = 1341440
+
+[clock]
+skew_ppm = 6.9944749845583605
+
+[clock.pre]
+offset_ms = 4970087.33641675
+residual_ms = 0.01238418502039013
+at_host_ms = 6005260.208233
+at_jig_ms = 1035172.8925000001
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 4970087.660076249
+residual_ms = 0.008049125758216175
+at_host_ms = 6051534.141402001
+at_jig_ms = 1081446.487
+kept = 20
+total = 200
+
+[hold.pre]
+start = 6012.7873162
+end = 6017.78750004
+
+[hold.post]
+start = 6032.036887234
+end = 6037.037114291
+
+[session]
+id = "2026-08-20"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "1ff340a"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

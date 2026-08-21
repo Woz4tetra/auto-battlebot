@@ -27,7 +27,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from auto_battlebot.velocity_jig import CHANNELS, ROLES, WAVEFORM_KINDS, ProtocolSegment
+from auto_battlebot.velocity_jig import (
+    CHANNELS,
+    ROLES,
+    WAVEFORM_KINDS,
+    PauseWindow,
+    ProtocolSegment,
+)
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -426,21 +432,21 @@ def pause_points(program: Program) -> list[float]:
 
 
 def shift_segments(
-    segments: Sequence[ProtocolSegment], pauses: Sequence[tuple[float, float]]
+    segments: Sequence[ProtocolSegment], pauses: Sequence[PauseWindow]
 ) -> list[ProtocolSegment]:
     """Move segment times onto the timeline the run actually took.
 
     Segment times are program-relative, and readers anchor them at the first command sample
     on the assumption that the program ran end to end. A paused run breaks that assumption,
     so the recorded times carry the pauses and every label after the first one still lands on
-    the samples it describes. `pauses` is (program time, seconds held), in order.
+    the samples it describes. `pauses` is in program order.
     """
     pending = list(pauses)
     offset = 0.0
     out: list[ProtocolSegment] = []
     for seg in segments:
-        while pending and pending[0][0] <= seg.t0 + 1e-9:
-            offset += pending.pop(0)[1]
+        while pending and pending[0].program_t <= seg.t0 + 1e-9:
+            offset += pending.pop(0).held_s
         out.append(replace(seg, t0=seg.t0 + offset, t1=seg.t1 + offset))
     return out
 

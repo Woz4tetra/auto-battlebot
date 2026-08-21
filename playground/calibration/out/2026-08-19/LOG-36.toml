@@ -1,0 +1,99 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-20T03:21:01Z-lin_coast-0"
+log_file = "LOG-36.TXT"
+command_file = "LOG-36.cmd.csv"
+rep = 0
+started_utc = "2026-08-20T03:21:01Z"
+duration_s = 4.2
+verdict = "pass"
+gates = ""
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "lin_coast"
+kind = "coast"
+channel = "linear"
+role = "fit"
+label = "linear coast tails"
+
+[waveform.params]
+hold_s = 0.6
+coast_s = 1.2
+angular_cap = 0.13
+amplitude = 0.6
+reps = 2
+shuttle = true
+
+[[segment]]
+t0 = 0.0
+t1 = 0.6
+linear = 0.6
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 0.6
+t1 = 2.1
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 2.1
+t1 = 2.7
+linear = -0.6
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 2.7
+t1 = 4.2
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[transfer]
+samples = 32470
+dropped = 0
+bytes = 1149094
+
+[clock]
+skew_ppm = 8.413786548741834
+
+[clock.pre]
+offset_ms = 223177494.7083245
+residual_ms = 0.004299842112210628
+at_host_ms = 223701276.501574
+at_jig_ms = 523781.80350000004
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 223177495.05402726
+residual_ms = 0.005970167260853545
+at_host_ms = 223742364.50532147
+at_jig_ms = 564869.4595
+kept = 20
+total = 200
+
+[hold.pre]
+start = 223709.800386732
+end = 223714.800666615
+
+[hold.post]
+start = 223727.756541517
+end = 223732.756768313
+
+[session]
+id = "2026-08-19"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "e56a446"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"

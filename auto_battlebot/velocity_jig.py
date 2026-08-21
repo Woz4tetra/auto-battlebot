@@ -151,20 +151,25 @@ class JigLog:
         """False for a detached encoder: the inputs are pulled up, so the count freezes."""
         return bool(len(self.count) and self.count.max() != self.count.min())
 
-    def saturation(self) -> list[AxisSaturation]:
-        """Per-axis saturation report, gyro first then accel."""
+    def saturation(self, keep: np.ndarray | None = None) -> list[AxisSaturation]:
+        """Per-axis saturation report, gyro first then accel.
+
+        `keep` restricts the report to the samples that describe the plant. Handling the
+        robot at an operator pause clips the accel for a sample or two, which says nothing
+        about the run, so callers that know where the pauses were mask them out.
+        """
         out: list[AxisSaturation] = []
         for prefix, raw in (("g", self.gyro_raw), ("a", self.accel_raw)):
             for i, axis in enumerate(AXIS_NAMES):
-                col = raw[:, i]
+                col = raw[:, i] if keep is None else raw[keep, i]
                 over = int(np.count_nonzero(np.abs(col) > RAW_SATURATION))
                 peak = int(np.max(np.abs(col))) if len(col) else 0
                 out.append(AxisSaturation(f"{prefix}{axis}", over, len(col), peak))
         return out
 
-    def saturated_fraction(self) -> float:
+    def saturated_fraction(self, keep: np.ndarray | None = None) -> float:
         """Worst per-axis saturated fraction, the single number a run gate needs."""
-        report = self.saturation()
+        report = self.saturation(keep)
         return max((a.fraction for a in report), default=0.0)
 
     def slice_time(self, t0: float, t1: float) -> slice:
@@ -517,6 +522,13 @@ class ClockFit:
         offset = self.offset_ms + self.skew_ppm * 1e-6 * (jig_ms - self.ref_jig_ms)
         return (jig_ms + offset) * 1e-3
 
+    def jig_seconds(self, t_host_s: np.ndarray | float) -> np.ndarray:
+        """Map host seconds back to jig seconds, to place a host-time window on log samples."""
+        host_ms = np.asarray(t_host_s, dtype=float) * 1e3
+        rate = 1.0 + self.skew_ppm * 1e-6
+        jig_ms = (host_ms - self.offset_ms + self.skew_ppm * 1e-6 * self.ref_jig_ms) / rate
+        return jig_ms * 1e-3
+
 
 # ---------------------------------------------------------------------------
 # Session directory (sidecar TOML written by velocity_jig_drive.py)
@@ -542,6 +554,71 @@ class ProtocolSegment:
             angular=float(data.get("angular", 0.0)),
             label=str(data.get("label", "")),
         )
+
+
+@dataclass(frozen=True)
+class PauseWindow:
+    """One operator stop, in host seconds.
+
+    The robot is picked up, walked back to its mark and set down inside this window, so the
+    motion there is the operator's rather than the plant's. Every gate and every duration
+    that describes the run has to skip it: setting the robot down clips the accelerometer,
+    and counting the wait as commanded time makes a 17 s excitation look like 54 s.
+    """
+
+    t_start: float
+    t_end: float
+    program_t: float = 0.0
+
+    @property
+    def held_s(self) -> float:
+        return self.t_end - self.t_start
+
+    @classmethod
+    def from_toml(cls, data: dict[str, Any]) -> PauseWindow | None:
+        """None for a sidecar written before host windows were recorded."""
+        if "t_start" not in data or "t_end" not in data:
+            return None
+        return cls(
+            t_start=float(data["t_start"]),
+            t_end=float(data["t_end"]),
+            program_t=float(data.get("program_t", 0.0)),
+        )
+
+
+def pause_windows_from_commands(
+    cmd_t: np.ndarray, program_t: Sequence[float] = (), min_gap_s: float = 0.5
+) -> list[PauseWindow]:
+    """Recover pause windows from a gap in the command stream.
+
+    The runner stops sending while the operator resets the robot, so a pause is a hole in
+    the command timestamps an order of magnitude wider than the 20 ms tick. This is the only
+    way to place the pauses of a run captured before the windows were written out, and it
+    agrees with the recorded hold times to within a tick.
+    """
+    if len(cmd_t) < 2:
+        return []
+    gaps = np.flatnonzero(np.diff(np.asarray(cmd_t, dtype=float)) > min_gap_s)
+    out = []
+    for i, k in enumerate(gaps):
+        at = float(program_t[i]) if i < len(program_t) else 0.0
+        out.append(PauseWindow(float(cmd_t[k]), float(cmd_t[k + 1]), at))
+    return out
+
+
+def pause_mask(t_host: np.ndarray, pauses: Sequence[PauseWindow]) -> np.ndarray:
+    """True where the sample is inside an operator pause."""
+    t_host = np.asarray(t_host, dtype=float)
+    out = np.zeros(t_host.shape, dtype=bool)
+    for p in pauses:
+        out |= (t_host >= p.t_start) & (t_host <= p.t_end)
+    return out
+
+
+def overlaps_pause(window: np.ndarray, pauses: Sequence[PauseWindow]) -> bool:
+    """True when a host-time [start, end] window touches any pause."""
+    t0, t1 = float(window[0]), float(window[-1])
+    return any(p.t_start <= t1 and t0 <= p.t_end for p in pauses)
 
 
 @dataclass(frozen=True)
@@ -660,6 +737,9 @@ class RunRecord:
     hold_pre: tuple[float, float] | None  # host seconds
     hold_post: tuple[float, float] | None
     segments: list[ProtocolSegment]
+    # Operator stops, in host seconds. Empty for a straight-through run, and derived from
+    # the command stream for a sidecar written before the windows themselves were recorded.
+    pauses: list[PauseWindow]
     cmd_t: np.ndarray  # host seconds
     cmd_lin: np.ndarray
     cmd_ang: np.ndarray
@@ -788,6 +868,21 @@ def _hold_window(data: dict[str, Any] | None) -> tuple[float, float] | None:
     return float(data["start"]), float(data["end"])
 
 
+def _pause_windows(entries: list[dict[str, Any]], cmd_t: np.ndarray) -> list[PauseWindow]:
+    """Pause windows from the sidecar, or reconstructed from the command stream.
+
+    Sidecars written before the host windows were recorded carry only the program time and
+    the seconds held, neither of which places the pause on the log. The command gaps do, and
+    they are the same measurement the runner would have written.
+    """
+    if not entries:
+        return []
+    parsed = [PauseWindow.from_toml(entry) for entry in entries]
+    if all(p is not None for p in parsed):
+        return [p for p in parsed if p is not None]
+    return pause_windows_from_commands(cmd_t, [float(e.get("program_t", 0.0)) for e in entries])
+
+
 def _log_index(name: str) -> tuple[int, str]:
     """Sort key that puts LOG-2 before LOG-10, unlike a plain string sort."""
     match = re.search(r"(\d+)", name)
@@ -875,6 +970,7 @@ def load_run_record(
         hold_pre=_hold_window(hold.get("pre")),
         hold_post=_hold_window(hold.get("post")),
         segments=[ProtocolSegment.from_toml(seg) for seg in data.get("segment", [])],
+        pauses=_pause_windows(data.get("pause", []), cmd_t),
         cmd_t=cmd_t,
         cmd_lin=cmd_lin,
         cmd_ang=cmd_ang,
@@ -1303,10 +1399,18 @@ def load_run(
         raise ValueError(f"run {record.run_id} has no log file recorded")
     log = read_jig_log(Path(log_dir) / record.log_file)
 
-    stills = find_still_segments(log)
+    clock = record.clock
+    # Every stretch the operator spent handling the robot is dropped before anything is
+    # measured. A pause is not a still hold, not commanded time, and not a place where a
+    # clipped accelerometer says anything about the plant.
+    log_pause = pause_mask(clock.host_seconds(log.t), record.pauses)
+    stills = [
+        seg
+        for seg in find_still_segments(log)
+        if not overlaps_pause(clock.host_seconds(np.array([seg.t0, seg.t1])), record.pauses)
+    ]
     pre = still_stats(log, stills[0]) if stills else None
     post = still_stats(log, stills[-1]) if len(stills) > 1 else None
-    clock = record.clock
     truth = solve_ground_truth(
         log, calib, still_pre=pre, still_post=post, clock=clock, smooth_s=smooth_s
     )
@@ -1330,6 +1434,7 @@ def load_run(
     # on exit), so that much grace is kept and the rest is dropped.
     if record.has_commands:
         commanded = (grid >= record.cmd_t[0]) & (grid <= record.cmd_t[-1] + 2.0)
+        commanded &= ~pause_mask(grid, record.pauses)
     else:
         commanded = np.zeros(len(grid), dtype=bool)
 
@@ -1347,7 +1452,7 @@ def load_run(
     hold_pre_gap = _hold_uncovered_s(record.hold_pre, stills, clock)
     hold_post_gap = _hold_uncovered_s(record.hold_post, stills, clock)
 
-    sat = log.saturation()
+    sat = log.saturation(keep=~log_pause)
     quality = RunQuality(
         log_file=record.log_file,
         session_id=record.session_id,

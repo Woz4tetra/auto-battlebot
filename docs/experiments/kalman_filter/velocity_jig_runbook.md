@@ -76,8 +76,10 @@ battery on one floor, and it is also the unit the fitter holds out for leave-one
 - [ ] 4. **Unplug the USB cable.** The jig keeps logging on its own battery.
 - [ ] 5. Arm and play the excitation. Ctrl-C aborts and disarms at any point.
 - [ ] 6. **Hold still 10 s.** This is the bias drift bound for the run.
-- [ ] 7. **Plug the cable back in**, then **press B**. In that order: the stop summary goes to the
-      wire unbuffered, so pressing B while unplugged loses the sample and dropped counts.
+- [ ] 7. **Plug the cable back in**, then **press B**, then press Enter at the prompt. In that
+      order: the stop summary goes to the wire unbuffered, so pressing B while unplugged loses
+      the sample and dropped counts. The CLI advances on Enter, so a mistimed press costs the
+      counts instead of hanging the run.
 - [ ] 8. Clock probe, post. The skew comes from the two probes together.
 - [ ] 9. The log downloads over USB into the session directory.
 - [ ] 10. The sidecar TOML and command CSV are written beside it.
@@ -96,8 +98,22 @@ Capture-time gates run in the CLI and print a verdict at the end of each run:
 | `dropped` nonzero | Discard. Lower `IMU_ODR`, raise `SD_SCK_MHZ_VAL`, or swap the card |
 | Clock probe residual over 2 ms | Stop recording data. Fix the USB path before continuing |
 | Clock skew over 200 ppm | Discard. One of the two probes is wrong |
+| Gaps in the 1 kHz stream, or a log that stops short of a still hold | Discard. The recording was cut short |
 | Measured command differs from commanded | The driver's sticks were not centered. Discard |
 | Robot hit a wall, tipped, or was touched | Discard by typing `discard` at the notes prompt |
+| Post-probe uptime below the pre-probe | **Warning, not a discard.** The jig rebooted, usually at the replug |
+
+A warning prints at the end of the run and is written to the sidecar's `warnings`, but the
+verdict stays `pass`. A reboot costs the skew correction, worth 0.9 ms per 30 s at the RP2040's
+30 ppm and measured at 2.77 ppm on this board, and it costs the `n`/`dropped` counts, which the
+log's own timestamps show anyway. What it does not do by itself is damage the samples already on
+the card: whether the reset truncated the run is checked directly, from the sample spacing and
+the still-hold coverage. Fix the cable or the battery before the next run, because a reset that
+lands during excitation instead of after it takes the run with it.
+
+Operator pauses are cut out before any of this is counted. The robot is handled inside those
+windows, so a set-down that clips the accelerometer is not an impact, and the seconds spent
+waiting are not commanded time.
 
 The rest need the log parsed and are applied by the fitter, which prints them per run and shows
 them in the report's run-quality table: gyro bias drift over 0.05 deg/s, IMU saturation, encoder

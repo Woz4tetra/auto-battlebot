@@ -1,0 +1,81 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-21T03:00:04Z-ang_chirp-0"
+log_file = "LOG-84.TXT"
+command_file = "LOG-84.cmd.csv"
+rep = 0
+started_utc = "2026-08-21T03:00:04Z"
+duration_s = 30.0
+verdict = "pass"
+gates = ""
+warnings = ""
+contamination = 0.0
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "ang_chirp"
+kind = "chirp"
+channel = "angular"
+role = "holdout"
+label = "angular chirp"
+
+[waveform.params]
+hold_s = 0.6
+coast_s = 1.2
+angular_cap = 0.13
+f0_hz = 0.2
+f1_hz = 8.0
+amplitude = 0.5
+duration_s = 30
+
+[transfer]
+samples = 52712
+dropped = 0
+bytes = 2188677
+
+[clock]
+skew_ppm = 8.185318975696845
+
+[clock.pre]
+offset_ms = 4970090.910959
+residual_ms = 0.01102822146557242
+at_host_ms = 6425154.803214
+at_jig_ms = 1455063.8965
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 4970091.436516751
+residual_ms = 0.005415857751630781
+at_host_ms = 6489362.6898105
+at_jig_ms = 1519271.26
+kept = 20
+total = 200
+
+[hold.pre]
+start = 6433.782722421
+end = 6438.782915681
+
+[hold.post]
+start = 6473.734389387
+end = 6478.734711311
+
+[session]
+id = "2026-08-20"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "1ff340a"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

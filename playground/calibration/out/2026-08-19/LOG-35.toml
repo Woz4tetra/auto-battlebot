@@ -1,0 +1,99 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-20T03:15:09Z-lin_coast-0"
+log_file = "LOG-35.TXT"
+command_file = "LOG-35.cmd.csv"
+rep = 0
+started_utc = "2026-08-20T03:15:09Z"
+duration_s = 4.2
+verdict = "discard"
+gates = "operator: wall contact"
+notes = "clipped the wall during the run; the accel saturation is the impact"
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "lin_coast"
+kind = "coast"
+channel = "linear"
+role = "fit"
+label = "linear coast tails"
+
+[waveform.params]
+hold_s = 0.6
+coast_s = 1.2
+angular_cap = 0.13
+amplitude = 0.6
+reps = 2
+shuttle = true
+
+[[segment]]
+t0 = 0.0
+t1 = 0.6
+linear = 0.6
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 0.6
+t1 = 2.1
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 2.1
+t1 = 2.7
+linear = -0.6
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 2.7
+t1 = 4.2
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[transfer]
+samples = 32789
+dropped = 0
+bytes = 1137935
+
+[clock]
+skew_ppm = 8.240772367857613
+
+[clock.pre]
+offset_ms = 223177491.619446
+residual_ms = 0.006879289360275228
+at_host_ms = 223349446.78580803
+at_jig_ms = 171955.1765
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 223177491.923429
+residual_ms = 0.006228468169748226
+at_host_ms = 223386334.77812248
+at_jig_ms = 208842.86000000002
+kept = 20
+total = 200
+
+[hold.pre]
+start = 223353.401805334
+end = 223358.402116678
+
+[hold.post]
+start = 223368.613459397
+end = 223373.613745232
+
+[session]
+id = "2026-08-19"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "e56a446"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"

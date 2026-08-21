@@ -1,0 +1,240 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-21T01:21:05Z-lin_deadzone-0"
+log_file = "LOG-57.TXT"
+command_file = "LOG-57.cmd.csv"
+rep = 0
+started_utc = "2026-08-21T01:21:05Z"
+duration_s = 24.303153888999983
+verdict = "pass"
+gates = ""
+contamination = 0.0023
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "lin_deadzone"
+kind = "staircase"
+channel = "linear"
+role = "fit"
+label = "linear deadzone staircase"
+
+[waveform.params]
+hold_s = 0.6
+coast_s = 1.2
+angular_cap = 0.13
+from = 0.01
+to = 0.1
+step = 0.01
+both_directions = true
+
+[[segment]]
+t0 = 0.0
+t1 = 0.6
+linear = 0.01
+angular = 0.0
+label = "staircase_0.010"
+
+[[segment]]
+t0 = 0.6
+t1 = 1.2
+linear = 0.02
+angular = 0.0
+label = "staircase_0.020"
+
+[[segment]]
+t0 = 1.2
+t1 = 1.7999999999999998
+linear = 0.03
+angular = 0.0
+label = "staircase_0.030"
+
+[[segment]]
+t0 = 1.7999999999999998
+t1 = 2.4
+linear = 0.04
+angular = 0.0
+label = "staircase_0.040"
+
+[[segment]]
+t0 = 2.4
+t1 = 3.0
+linear = 0.05
+angular = 0.0
+label = "staircase_0.050"
+
+[[segment]]
+t0 = 3.0
+t1 = 3.6
+linear = 0.060000000000000005
+angular = 0.0
+label = "staircase_0.060"
+
+[[segment]]
+t0 = 3.6
+t1 = 4.2
+linear = 0.07
+angular = 0.0
+label = "staircase_0.070"
+
+[[segment]]
+t0 = 4.2
+t1 = 4.8
+linear = 0.08
+angular = 0.0
+label = "staircase_0.080"
+
+[[segment]]
+t0 = 4.8
+t1 = 5.3999999999999995
+linear = 0.09
+angular = 0.0
+label = "staircase_0.090"
+
+[[segment]]
+t0 = 5.3999999999999995
+t1 = 5.999999999999999
+linear = 0.09999999999999999
+angular = 0.0
+label = "staircase_0.100"
+
+[[segment]]
+t0 = 5.999999999999999
+t1 = 7.499999999999999
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 16.803153888999987
+t1 = 17.403153888999988
+linear = -0.01
+angular = 0.0
+label = "staircase_0.010"
+
+[[segment]]
+t0 = 17.403153888999988
+t1 = 18.003153888999986
+linear = -0.02
+angular = 0.0
+label = "staircase_0.020"
+
+[[segment]]
+t0 = 18.003153888999986
+t1 = 18.603153888999984
+linear = -0.03
+angular = 0.0
+label = "staircase_0.030"
+
+[[segment]]
+t0 = 18.603153888999984
+t1 = 19.203153888999985
+linear = -0.04
+angular = 0.0
+label = "staircase_0.040"
+
+[[segment]]
+t0 = 19.203153888999985
+t1 = 19.803153888999987
+linear = -0.05
+angular = 0.0
+label = "staircase_0.050"
+
+[[segment]]
+t0 = 19.803153888999987
+t1 = 20.403153888999984
+linear = -0.060000000000000005
+angular = 0.0
+label = "staircase_0.060"
+
+[[segment]]
+t0 = 20.403153888999984
+t1 = 21.003153888999982
+linear = -0.07
+angular = 0.0
+label = "staircase_0.070"
+
+[[segment]]
+t0 = 21.003153888999982
+t1 = 21.603153888999984
+linear = -0.08
+angular = 0.0
+label = "staircase_0.080"
+
+[[segment]]
+t0 = 21.603153888999984
+t1 = 22.203153888999985
+linear = -0.09
+angular = 0.0
+label = "staircase_0.090"
+
+[[segment]]
+t0 = 22.203153888999985
+t1 = 22.803153888999983
+linear = -0.09999999999999999
+angular = 0.0
+label = "staircase_0.100"
+
+[[segment]]
+t0 = 22.803153888999983
+t1 = 24.303153888999983
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[pause]]
+program_t = 7.5
+held_s = 9.324
+t_start = 506.644587
+t_end = 515.968568
+
+[transfer]
+samples = 57443
+dropped = 0
+bytes = 2080561
+
+[clock]
+skew_ppm = 2.7734267215715978
+
+[clock.pre]
+offset_ms = 415808.14998024993
+residual_ms = 0.0056764340656977955
+at_host_ms = 480425.52642149996
+at_jig_ms = 64617.391
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 415808.31897475
+residual_ms = 0.004692199958203475
+at_host_ms = 541359.1696365
+at_jig_ms = 125550.856
+kept = 20
+total = 200
+
+[hold.pre]
+start = 483.842169946
+end = 488.842442991
+
+[hold.post]
+start = 523.481276413
+end = 528.481773475
+
+[session]
+id = "2026-08-20"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "1ff340a"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

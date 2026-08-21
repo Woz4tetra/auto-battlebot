@@ -35,6 +35,8 @@ from typing import Callable, Iterator, Sequence
 
 from serial.tools.list_ports import comports
 
+from auto_battlebot.velocity_jig import PauseWindow
+
 # Matches kChannelMax / kTrainerMax in opentx_transmitter.cpp.
 TRAINER_MAX = 500
 OPENTX_VID = 0x0483
@@ -88,7 +90,8 @@ class MixConfig:
     # into a pure turn and the contamination gate fires on a perfectly good run. Find them
     # with `velocity_jig_drive.py --check-radio`.
     read_invert_a: bool = False
-    read_invert_b: bool = False
+    # True for this radio, measured with --check-radio: channel B comes back negated.
+    read_invert_b: bool = True
 
     def to_channels(self, linear: float, angular: float) -> tuple[int, int]:
         ang = -angular if self.reverse_angular else angular
@@ -290,9 +293,10 @@ class PlayResult:
     commands: list[CommandSample] = field(default_factory=list)
     completed: bool = False
     aborted_reason: str = ""
-    # (program time, seconds held) for every operator pause. The command log runs on host
-    # time, so without these a pause reads as one very long coast tail.
-    pauses: list[tuple[float, float]] = field(default_factory=list)
+    # Every operator pause, in host seconds. The robot is handled inside these windows, so
+    # every gate and every duration downstream drops them; without them a pause reads as one
+    # very long coast tail.
+    pauses: list[PauseWindow] = field(default_factory=list)
 
     # Ticks to ignore after the command changes. The radio reports its mixer output on its
     # own schedule, so `measured` lags `commanded` by a tick or two. At a step edge that lag
@@ -388,7 +392,7 @@ def play(
                 held = time.monotonic()
                 on_pause(count - len(pending), count)
                 gap = time.monotonic() - held
-                result.pauses.append((at, gap))
+                result.pauses.append(PauseWindow(t_start=held, t_end=held + gap, program_t=at))
                 t0 += gap
                 deadline += gap
                 continue

@@ -39,14 +39,15 @@ import argparse
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
+import numpy as np
 
 from auto_battlebot.plant import PlantParams, simulate
-from auto_battlebot.velocity_jig import SIDECAR_SCHEMA, ClockProbe
+from auto_battlebot.velocity_jig import SIDECAR_SCHEMA, ClockFit, ClockProbe, PauseWindow
 from calib_lib import drive_protocol as dp
 from calib_lib import excitation as ex
 from calib_lib import jig_link as jl
@@ -83,6 +84,29 @@ def pause_prompt(index: int, count: int) -> None:
     """Between-cell stop. The channels are already zeroed when this is called."""
     say(f"\n      --- paused {index}/{count} ---")
     prompt("Put the robot back on its mark, then press Enter to continue:")
+
+
+def confirm_stopped(link: jl.JigLink, grace: float = 1.0) -> tuple[int, int]:
+    """Stop the recording on an Enter press, not on the jig's `stopped` line.
+
+    Waiting on the line alone hangs the run whenever the press is mistimed: a press that
+    lands before the cable is back in never puts a summary on the wire, and the step then
+    sits there until the 300 s timeout. Gating on Enter costs only the counts, which are a
+    reporting nicety. gates() already reads samples=0 as unknown, and the log on the card
+    is complete either way.
+    """
+    prompt("Press B on the jig to stop recording, then press Enter:")
+    for attempt in (1, 2):
+        try:
+            return link.wait_stopped(timeout=grace)
+        except TimeoutError:
+            pass
+        if attempt == 1:
+            say("      no 'stopped' line came back.")
+            prompt("If the jig is still recording, press B now, then press Enter:")
+    say("      WARNING: no stop summary, so n and dropped are unknown for this run.")
+    say("      If the download fails as BUSY, the jig never stopped: press B and rerun.")
+    return 0, 0
 
 
 def countdown(seconds: float, msg: str) -> tuple[float, float]:
@@ -224,7 +248,7 @@ def write_run_toml(
     spec: dict[str, Any],
     params: dict[str, Any],
     segments: Sequence[Any],
-    pauses: Sequence[tuple[float, float]],
+    pauses: Sequence[PauseWindow],
     transfer: dict[str, Any],
     clock_pre: ClockProbe | None,
     clock_post: ClockProbe | None,
@@ -255,10 +279,19 @@ def write_run_toml(
         )
     # Where the operator stopped the run to reset the robot's position. The segment times
     # above already carry these, so a reader that ignores pauses still labels the run
-    # correctly; they are written out because the robot was handled inside each window and
-    # the motion there is the operator's, not the plant's.
-    for at, held in pauses:
-        lines += _table("[pause]", {"program_t": round(at, 3), "held_s": round(held, 3)})
+    # correctly. `t_start`/`t_end` are host seconds, the same clock the command log and the
+    # still holds use: the robot was handled inside each window, so the gates, the saturation
+    # count and the commanded-seconds total all skip them.
+    for p in pauses:
+        lines += _table(
+            "[pause]",
+            {
+                "program_t": round(p.program_t, 3),
+                "held_s": round(p.held_s, 3),
+                "t_start": round(p.t_start, 6),
+                "t_end": round(p.t_end, 6),
+            },
+        )
     lines += _table("transfer", transfer)
     if skew_ppm is not None:
         lines += _table("clock", {"skew_ppm": skew_ppm})
@@ -330,6 +363,21 @@ def git_sha() -> str:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class Gate:
+    """One thing a gate found.
+
+    `fatal` is the difference between "this run's data is unusable" and "something went
+    wrong at the bench that you want to fix before the next run". Conflating the two throws
+    away complete recordings: a jig that reboots after the post-hold loses the skew
+    correction and the dropped-sample count, neither of which is a defect in the samples it
+    already wrote.
+    """
+
+    reason: str
+    fatal: bool = True
+
+
 @dataclass
 class RunOutcome:
     log_file: str
@@ -337,6 +385,7 @@ class RunOutcome:
     dropped: int
     verdict: str
     problems: list[str]
+    warnings: list[str] = field(default_factory=list)
 
 
 def reopen_after_replug(link: jl.JigLink, timeout: float = 300.0) -> jl.JigLink:
@@ -422,7 +471,7 @@ def run_one(
     step(n, total, f"Play {program.name}")
     commands: list[dp.CommandSample] = []
     contamination = 0.0
-    pauses: list[tuple[float, float]] = []
+    pauses: list[PauseWindow] = []
     if trainer is not None and decl.kind != "manual":
         pause_at = [] if (args.no_pause or args.no_prompt) else ex.pause_points(program)
         if pause_at:
@@ -443,7 +492,7 @@ def run_one(
         pauses = result.pauses
         say(f"      {len(commands)} commands, completed={result.completed}")
         if pauses:
-            say(f"      {len(pauses)} pauses, {sum(g for _, g in pauses):.0f} s held")
+            say(f"      {len(pauses)} pauses, {sum(p.held_s for p in pauses):.0f} s held")
         if result.aborted_reason:
             say(f"      ABORTED: {result.aborted_reason}")
         if contamination > 0.05:
@@ -491,8 +540,9 @@ def run_one(
     # Deliberately after the replug: the stop summary goes to the wire unbuffered, so a
     # press while unplugged loses the sample and dropped counts for good.
     step(n, total, "Press B on the jig to stop recording")
-    samples, dropped = link.wait_stopped()
-    say(f"      stopped: n={samples} dropped={dropped}")
+    samples, dropped = confirm_stopped(link)
+    if samples:
+        say(f"      stopped: n={samples} dropped={dropped}")
 
     n += 1
     step(n, total, "Clock probe, post")
@@ -527,12 +577,18 @@ def run_one(
             f"rate_hz={args.rate} waveform={program.name} run={log_file}",
         )
 
-    problems = gates(dropped, clock_pre, clock_post, skew, samples, args.hold_s, contamination)
-    problems += log_gates(dest)
+    holds = {"pre": hold_pre, "post": hold_post}
+    found = gates(dropped, clock_pre, clock_post, skew, samples, args.hold_s, contamination)
+    found += log_gates(dest, pauses, ClockFit.from_probes(clock_pre, clock_post), holds)
+    problems = [g.reason for g in found if g.fatal]
+    warnings = [g.reason for g in found if not g.fatal]
     verdict = "discard" if problems else "pass"
     # The reasons go in the sidecar too. A verdict with no reason means working out months
-    # later whether a run was thrown away for a real fault or a since-fixed tool bug.
+    # later whether a run was thrown away for a real fault or a since-fixed tool bug. The
+    # warnings go beside them: a run can be worth keeping and still be worth fixing.
     gate_note = "; ".join(problems)
+    for warning in warnings:
+        say(f"      WARNING: {warning}")
     notes = args.notes
     if not args.no_prompt:
         try:
@@ -554,9 +610,10 @@ def run_one(
             "command_file": cmd_name if commands else None,
             "rep": rep,
             "started_utc": f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}",
-            "duration_s": program.duration_s + sum(g for _, g in pauses),
+            "duration_s": program.duration_s + sum(p.held_s for p in pauses),
             "verdict": verdict,
             "gates": gate_note,
+            "warnings": "; ".join(warnings),
             "contamination": round(contamination, 4),
             "notes": notes,
             "encoder": args.encoder,
@@ -590,10 +647,15 @@ def run_one(
         say(f"\n      VERDICT: discard -- {'; '.join(problems)}")
     else:
         say("\n      VERDICT: pass")
-    return link, RunOutcome(dest.name, samples, dropped, verdict, problems)
+    return link, RunOutcome(dest.name, samples, dropped, verdict, problems, warnings)
 
 
-def log_gates(log_path: Path) -> list[str]:
+def log_gates(
+    log_path: Path,
+    pauses: Sequence[Any],
+    clock: ClockFit,
+    holds: dict[str, tuple[float, float]] | None = None,
+) -> list[Gate]:
     """Gates that need the downloaded log parsed, checked here rather than at fit time.
 
     Saturation is the one that matters at the robot: a clipped IMU channel usually means an
@@ -601,21 +663,38 @@ def log_gates(log_path: Path) -> list[str]:
     excludes it. Cheap enough at 1 kHz that it is not worth deferring.
     """
     try:
-        from auto_battlebot.velocity_jig import read_jig_log
+        from auto_battlebot.velocity_jig import pause_mask, read_jig_log
 
         log = read_jig_log(log_path)
     except (OSError, ValueError) as err:
-        return [f"log unreadable: {err}"]
+        return [Gate(f"log unreadable: {err}")]
 
-    out: list[str] = []
-    sat = [a for a in log.saturation() if a.count]
+    out: list[Gate] = []
+    # Whether the run survived is a question about the samples, not about how tidily the
+    # session ended. A recording cut short by a reset, a card that stopped taking writes, or
+    # a battery that browned out all look the same here: the log stops before the second
+    # still hold, or it has holes in the middle.
+    step = np.diff(log.t)
+    late = int(np.count_nonzero(step > 5 * log.dt)) if len(step) else 0
+    if late:
+        out.append(Gate(f"{late} gaps in the log, the 1 kHz stream is not continuous"))
+    for kind, window in (holds or {}).items():
+        covered = clock.host_seconds(log.t[[0, -1]])
+        if window[0] < covered[0] - 0.1 or window[1] > covered[1] + 0.1:
+            out.append(Gate(f"the log stops short of the {kind} still hold"))
+
+    # Setting the robot back on its mark clips the accel, so the operator's pauses come out
+    # before anything is counted. What is left is the robot's own data, and one clipped
+    # sample in it is still an impact.
+    keep = ~pause_mask(clock.host_seconds(log.t), pauses)
+    sat = [a for a in log.saturation(keep=keep) if a.count]
     if sat:
         axes = ", ".join(f"{a.name} x{a.count}" for a in sat)
-        out.append(f"IMU saturation on {axes} (impact, or the range is set too low)")
+        out.append(Gate(f"IMU saturation on {axes} (impact, or the range is set too low)"))
     if log.malformed_rows:
-        out.append(f"{log.malformed_rows} malformed rows in the log")
+        out.append(Gate(f"{log.malformed_rows} malformed rows in the log"))
     if not log.encoder_moved:
-        out.append("encoder count never changed; check the connector")
+        out.append(Gate("encoder count never changed; check the connector"))
     return out
 
 
@@ -627,24 +706,43 @@ def gates(
     samples: int,
     hold_s: float,
     contamination: float,
-) -> list[str]:
+) -> list[Gate]:
     """Capture-time gates. The offline ones (bias drift, saturation, encoder slip) need the
     log parsed and live in `RunQuality.problems()`, not here."""
-    out: list[str] = []
+    out: list[Gate] = []
     if dropped:
-        out.append(f"dropped={dropped} samples on the SD path")
+        out.append(Gate(f"dropped={dropped} samples on the SD path"))
     if clock_pre.residual_ms > 2.0:
-        out.append(f"clock pre residual {clock_pre.residual_ms:.2f} ms")
+        out.append(Gate(f"clock pre residual {clock_pre.residual_ms:.2f} ms"))
     if clock_post.residual_ms > 2.0:
-        out.append(f"clock post residual {clock_post.residual_ms:.2f} ms")
-    if abs(skew) > 200.0:
-        out.append(f"clock skew {skew:.0f} ppm")
+        out.append(Gate(f"clock post residual {clock_post.residual_ms:.2f} ms"))
+    if clock_post.at_jig_ms < clock_pre.at_jig_ms:
+        # The jig counts microseconds since its own boot, so a post-probe below the pre-probe
+        # is a board that restarted rather than a clock that drifted. Reporting the ppm here
+        # would be arithmetic on a counter that went backwards. Replugging the USB cable did
+        # this on LOG-62, and the recording ended with it.
+        #
+        # Not fatal on its own. What the reboot costs is the skew correction, worth about
+        # 0.9 ms per 30 s at the RP2040's 30 ppm and measured at 2.77 ppm on this board, and
+        # the dropped-sample count, which the log's own timestamps show anyway. Whether the
+        # reset truncated the run is a separate question, and `log_gates` answers it from the
+        # samples instead of assuming the worst.
+        out.append(
+            Gate(
+                f"the jig rebooted between clock probes (uptime "
+                f"{clock_pre.at_jig_ms / 1e3:.0f} s -> {clock_post.at_jig_ms / 1e3:.0f} s): "
+                f"no skew correction, and the stop counts are lost",
+                fatal=False,
+            )
+        )
+    elif abs(skew) > 200.0:
+        out.append(Gate(f"clock skew {skew:.0f} ppm"))
     # The firmware logs on a fixed 1 kHz timer, not at the IMU's 1660 Hz ODR. The old tool
     # compared against 1660 and so failed every real run while passing against its mock.
     if samples and samples < (2 * hold_s) * 1000.0 * 0.5:
-        out.append(f"only {samples} samples, short for the still holds alone")
+        out.append(Gate(f"only {samples} samples, short for the still holds alone"))
     if contamination > 0.05:
-        out.append(f"stick contamination {contamination:.3f}")
+        out.append(Gate(f"stick contamination {contamination:.3f}"))
     return out
 
 
@@ -691,7 +789,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--read-angular", type=int, default=1)
     parser.add_argument("--read-arm", type=int, default=4)
     parser.add_argument("--read-invert-a", action="store_true")
-    parser.add_argument("--read-invert-b", action="store_true")
+    # The radio has servo-reverse set on drive channel B, so it reports that channel negated
+    # while the ESC on that side compensates. Reading it straight un-mixes every straight-line
+    # command into a pure turn, which is what discarded LOG-57 and LOG-62 on 2026-08-20.
+    parser.add_argument("--no-read-invert-b", action="store_true")
     parser.add_argument("--channel-scale", type=float, default=1024.0)
     parser.add_argument(
         "--trim",
@@ -761,7 +862,7 @@ def mix_from_args(args: argparse.Namespace) -> dp.MixConfig:
         read_angular=args.read_angular,
         read_arm=args.read_arm,
         read_invert_a=args.read_invert_a,
-        read_invert_b=args.read_invert_b,
+        read_invert_b=not args.no_read_invert_b,
     )
 
 

@@ -1,0 +1,80 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-21T03:03:16Z-lin_sine-0"
+log_file = "LOG-88.TXT"
+command_file = "LOG-88.cmd.csv"
+rep = 0
+started_utc = "2026-08-21T03:03:16Z"
+duration_s = 10.0
+verdict = "pass"
+gates = ""
+warnings = ""
+contamination = 0.0
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "lin_sine"
+kind = "sine"
+channel = "linear"
+role = "holdout"
+label = "linear sine"
+
+[waveform.params]
+hold_s = 0.6
+coast_s = 1.2
+angular_cap = 0.13
+freq_hz = 1.0
+amplitude = 0.5
+cycles = 10
+
+[transfer]
+samples = 0
+dropped = 0
+bytes = 1169388
+
+[clock]
+skew_ppm = 8.1187353295261
+
+[clock.pre]
+offset_ms = 6595064.06012075
+residual_ms = 0.00584556079180821
+at_host_ms = 6648751.4448285
+at_jig_ms = 53687.391
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 6595064.400292501
+residual_ms = 0.004070562537738707
+at_host_ms = 6690651.3877245
+at_jig_ms = 95586.9895
+kept = 20
+total = 200
+
+[hold.pre]
+start = 6651.175844152
+end = 6656.176150932
+
+[hold.post]
+start = 6671.937263845
+end = 6676.937699727
+
+[session]
+id = "2026-08-20"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "1ff340a"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true
