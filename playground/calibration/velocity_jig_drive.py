@@ -39,7 +39,7 @@ import argparse
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
@@ -306,24 +306,36 @@ def write_run_toml(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def write_command_csv(path: Path, samples: Sequence[dp.CommandSample], meta: str) -> None:
-    header = [
-        "# auto-battlebot velocity jig command log",
-        "# linear/angular are what was asked for; meas_ch_a/meas_ch_b are what the radio",
-        "# reported on the two drive channels. meas_linear/meas_angular are those channels",
-        "# read through the configured mix, so they are an interpretation and the channels",
-        "# are the measurement. A wrong mix can be corrected from the channels offline.",
-        "# columns: t_host_s,linear,angular,trim,meas_ch_a,meas_ch_b,"
-        "meas_linear,meas_angular,meas_arm",
-        f"# {meta}",
-    ]
-    rows = [
+COMMAND_COLUMNS = (
+    "t_host_s,linear,angular,trim,meas_ch_a,meas_ch_b,"
+    "meas_linear,meas_angular,meas_weapon,meas_arm"
+)
+COMMAND_PREAMBLE = [
+    "# auto-battlebot velocity jig command log",
+    "# linear/angular are what was asked for; meas_ch_a/meas_ch_b are what the radio",
+    "# reported on the two drive channels. meas_linear/meas_angular are those channels",
+    "# read through the configured mix, so they are an interpretation and the channels",
+    "# are the measurement. A wrong mix can be corrected from the channels offline.",
+    "# meas_weapon is the weapon throttle and meas_arm the weapon arm switch, CH3 and CH5",
+    "# on the radio. Neither drives the plant; both say what the robot was doing. On a",
+    "# hand-driven run the measured columns are the whole record: nothing was commanded.",
+    f"# columns: {COMMAND_COLUMNS}",
+]
+
+
+def command_row(s: dp.CommandSample) -> str:
+    """One CSV line. Shared so a rewrite cannot drift from the header it is written under."""
+    return (
         f"{s.t:.6f},{s.linear:.4f},{s.angular:.4f},{s.trim:.4f},"
         f"{s.meas_ch_a:.4f},{s.meas_ch_b:.4f},"
-        f"{s.meas_linear:.4f},{s.meas_angular:.4f},{s.meas_arm:.4f}"
-        for s in samples
-    ]
-    path.write_text("\n".join(header + rows) + "\n", encoding="utf-8")
+        f"{s.meas_linear:.4f},{s.meas_angular:.4f},"
+        f"{s.meas_weapon:.4f},{s.meas_arm:.4f}"
+    )
+
+
+def write_command_csv(path: Path, samples: Sequence[dp.CommandSample], meta: str) -> None:
+    lines = COMMAND_PREAMBLE + [f"# {meta}"] + [command_row(s) for s in samples]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def slug(text: str) -> str:
@@ -503,26 +515,14 @@ def run_one(
     elif trainer is not None:
         # Hand-driven. Nothing is sent; the radio's own mixer output is the command log.
         say(f"      drive the robot for {program.duration_s:.0f} s. Recording the radio.")
-        for t, ch_a, ch_b, lin, ang, arm in dp.stream_measured(
-            trainer, program.duration_s, args.rate
-        ):
-            commands.append(
-                dp.CommandSample(
-                    t=t,
-                    linear=0.0,
-                    angular=0.0,
-                    trim=0.0,
-                    channel_a=0,
-                    channel_b=0,
-                    meas_ch_a=ch_a,
-                    meas_ch_b=ch_b,
-                    meas_linear=lin,
-                    meas_angular=ang,
-                    meas_arm=arm,
-                    label=program.kind,
-                )
-            )
+        for sample in dp.stream_measured(trainer, program.duration_s, args.rate):
+            commands.append(replace(sample, label=program.kind))
         say(f"      {len(commands)} radio samples")
+        live = [c for c in commands if c.meas_arm > 0.0]
+        if live:
+            span = live[-1].t - live[0].t
+            peak = max(abs(c.meas_weapon) for c in live)
+            say(f"      weapon armed for {span:.0f} s, throttle peak {peak:+.2f}")
     else:
         countdown(program.duration_s, "run the maneuver")
 

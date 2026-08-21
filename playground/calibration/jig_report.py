@@ -304,9 +304,13 @@ def section_next(statuses: Sequence[ParamStatus], curves: dict[str, float]) -> S
             continue
         need = s.runs_needed()
         slope = curves.get(s.name)
-        basis = "measured slope" if slope else "root-N estimate"
-        if slope and slope < -1e-6 and np.isfinite(s.rel) and s.rel > TARGET_REL:
+        # A slope flat enough to be indistinguishable from zero says more data of this kind
+        # buys nothing, and extrapolating through it overflows: the exponent 1/slope runs to
+        # hundreds and the base is below 1. Fall back to the root-N estimate there.
+        usable_slope = bool(slope) and slope < -1e-3
+        if usable_slope and np.isfinite(s.rel) and s.rel > TARGET_REL:
             need = max(1, int(np.ceil(s.runs_now * (TARGET_REL / s.rel) ** (1.0 / slope))) - s.runs_now)
+        basis = "measured slope" if usable_slope else "root-N estimate"
         advice = f"+{need} runs of {_source_label(s.sources)}" if need else "hold"
         if s.runs_now <= 1:
             advice += " (one run means no cross-run check exists)"

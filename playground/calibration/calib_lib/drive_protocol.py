@@ -81,8 +81,12 @@ class MixConfig:
     mode: str = "tank"
     reverse_angular: bool = True
     channel_scale: float = 1024.0  # full scale of the readback stream
+    # Slots into the radio's channel stream, which is 0-based: slot 0 is what the radio's own
+    # screen calls CH1. The named ones on this model are CH1/CH2 drive, CH3 weapon throttle,
+    # CH5 weapon arm. CH4 is unused and is not logged.
     read_linear: int = 0
     read_angular: int = 1
+    read_weapon: int = 2
     read_arm: int = 4
     # Per-channel sign on the READ path only. A radio with servo-reverse set on one drive
     # channel reports it negated while the ESC on that side compensates, so the robot moves
@@ -134,6 +138,10 @@ class CommandSample:
     meas_ch_b: float = float("nan")
     meas_linear: float = float("nan")
     meas_angular: float = float("nan")
+    # Weapon throttle and the weapon arm switch, CH3 and CH5 on the radio. Neither drives
+    # the plant, and both explain a run: the arm says whether the bot was live, and the
+    # throttle says whether the disc was spun up when the gyro saw something it should not.
+    meas_weapon: float = float("nan")
     meas_arm: float = float("nan")
     label: str = ""
 
@@ -182,6 +190,21 @@ class _ChannelDecoder:
                 )
             )
         return out
+
+
+@dataclass(frozen=True)
+class Measured:
+    """One tick of the named channels, as the radio reported them.
+
+    A record rather than a tuple: this is unpacked at three call sites and the drive pair
+    reads the same as any other pair of floats, so a widening tuple is a silent reordering
+    waiting to happen.
+    """
+
+    ch_a: float = float("nan")
+    ch_b: float = float("nan")
+    weapon: float = float("nan")
+    arm: float = float("nan")
 
 
 class TrainerLink:
@@ -238,23 +261,24 @@ class TrainerLink:
         scale = self.mix.channel_scale or 1.0
         return [v / scale for v in raw]
 
-    def measured(self) -> tuple[float, float, float]:
-        """Latest (channel a, channel b, arm) from the radio, normalized.
+    def measured(self) -> Measured:
+        """Latest named channels from the radio, normalized.
 
-        Deliberately the two raw drive channels rather than body units. The radio measures
-        channels; linear and angular are an interpretation that depends on the mix and the
-        per-channel signs, and getting those wrong should be fixable offline rather than
-        costing a re-record. `to_body()` applies the interpretation when one is wanted.
+        Deliberately the raw channels rather than body units. The radio measures channels;
+        linear and angular are an interpretation that depends on the mix and the per-channel
+        signs, and getting those wrong should be fixable offline rather than costing a
+        re-record. `to_body()` applies the interpretation when one is wanted.
         """
         with self._lock:
             if self._packets == 0:
-                return float("nan"), float("nan"), float("nan")
+                return Measured()
             raw = list(self._channels)
         scale = self.mix.channel_scale or 1.0
-        return (
-            raw[self.mix.read_linear] / scale,
-            raw[self.mix.read_angular] / scale,
-            raw[self.mix.read_arm] / scale,
+        return Measured(
+            ch_a=raw[self.mix.read_linear] / scale,
+            ch_b=raw[self.mix.read_angular] / scale,
+            weapon=raw[self.mix.read_weapon] / scale,
+            arm=raw[self.mix.read_arm] / scale,
         )
 
     def to_body(self, a: float, b: float) -> tuple[float, float]:
@@ -399,8 +423,8 @@ def play(
 
             linear, angular = program.at(elapsed)
             a, b = link.send(linear, angular + trim)
-            ch_a, ch_b, meas_arm = link.measured()
-            meas_lin, meas_ang = link.to_body(ch_a, ch_b)
+            m = link.measured()
+            meas_lin, meas_ang = link.to_body(m.ch_a, m.ch_b)
             sample = CommandSample(
                 t=now,
                 linear=linear,
@@ -408,11 +432,12 @@ def play(
                 trim=trim,
                 channel_a=a,
                 channel_b=b,
-                meas_ch_a=ch_a,
-                meas_ch_b=ch_b,
+                meas_ch_a=m.ch_a,
+                meas_ch_b=m.ch_b,
                 meas_linear=meas_lin,
                 meas_angular=meas_ang,
-                meas_arm=meas_arm,
+                meas_weapon=m.weapon,
+                meas_arm=m.arm,
                 label=_label_at(program, elapsed),
             )
             result.commands.append(sample)
@@ -451,13 +476,15 @@ class armed:
         self._link.disarm()
 
 
-def stream_measured(link: TrainerLink, seconds: float, rate_hz: float = 50.0) -> Iterator[
-    tuple[float, float, float, float, float, float]
-]:
-    """(t, ch_a, ch_b, linear, angular, arm) from the radio alone, nothing commanded.
+def stream_measured(
+    link: TrainerLink, seconds: float, rate_hz: float = 50.0
+) -> Iterator[CommandSample]:
+    """Ticks from the radio alone, nothing commanded.
 
     This is how a hand-driven run gets a command log: the tool sends nothing, the operator
-    drives, and the radio reports what it sent.
+    drives, and the radio reports what it sent. `linear` and `angular` stay zero because
+    nothing was asked for; the measured channels are the whole record of the run, which is
+    why the weapon pair rides along with the drive pair here.
     """
     period = 1.0 / rate_hz
     t0 = time.monotonic()
@@ -465,7 +492,20 @@ def stream_measured(link: TrainerLink, seconds: float, rate_hz: float = 50.0) ->
         now = time.monotonic()
         if now - t0 >= seconds:
             return
-        ch_a, ch_b, arm = link.measured()
-        lin, ang = link.to_body(ch_a, ch_b)
-        yield now, ch_a, ch_b, lin, ang, arm
+        m = link.measured()
+        lin, ang = link.to_body(m.ch_a, m.ch_b)
+        yield CommandSample(
+            t=now,
+            linear=0.0,
+            angular=0.0,
+            trim=0.0,
+            channel_a=0,
+            channel_b=0,
+            meas_ch_a=m.ch_a,
+            meas_ch_b=m.ch_b,
+            meas_linear=lin,
+            meas_angular=ang,
+            meas_weapon=m.weapon,
+            meas_arm=m.arm,
+        )
         time.sleep(max(0.0, period - (time.monotonic() - now)))

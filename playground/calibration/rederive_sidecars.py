@@ -37,7 +37,14 @@ import tomllib
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from calib_lib import drive_protocol as dp  # noqa: E402
-from velocity_jig_drive import gates, log_gates, mix_from_args, write_run_toml  # noqa: E402
+from velocity_jig_drive import (  # noqa: E402
+    COMMAND_PREAMBLE,
+    command_row,
+    gates,
+    log_gates,
+    mix_from_args,
+    write_run_toml,
+)
 
 from auto_battlebot.velocity_jig import (  # noqa: E402
     ClockFit,
@@ -86,6 +93,9 @@ def commands_from_csv(path: Path, mix: dp.MixConfig) -> list[dp.CommandSample]:
                 meas_ch_b=ch_b,
                 meas_linear=lin,
                 meas_angular=ang,
+                meas_weapon=(
+                    float(cols["meas_weapon"][i]) if "meas_weapon" in cols else float("nan")
+                ),
                 meas_arm=float(cols["meas_arm"][i]) if "meas_arm" in cols else float("nan"),
             )
         )
@@ -93,16 +103,16 @@ def commands_from_csv(path: Path, mix: dp.MixConfig) -> list[dp.CommandSample]:
 
 
 def rewrite_command_csv(path: Path, samples: list[dp.CommandSample], note: str) -> None:
-    """Rewrite only the two derived columns, keeping every recorded channel byte for byte."""
-    header = [line for line in path.read_text().splitlines() if line.startswith("#")]
-    header.append(f"# {note}")
-    rows = [
-        f"{s.t:.6f},{s.linear:.4f},{s.angular:.4f},{s.trim:.4f},"
-        f"{s.meas_ch_a:.4f},{s.meas_ch_b:.4f},"
-        f"{s.meas_linear:.4f},{s.meas_angular:.4f},{s.meas_arm:.4f}"
-        for s in samples
-    ]
-    path.write_text("\n".join(header + rows) + "\n", encoding="utf-8")
+    """Rewrite only the derived columns, keeping every recorded channel byte for byte.
+
+    The header is reissued from the current preamble rather than preserved, because a file
+    written before a column existed carries a `# columns:` line that no longer describes its
+    own rows. Channels the older run never recorded come back as nan, which is the truth.
+    """
+    kept = ("# rate_hz=", "# meas_linear/meas_angular re-derived")
+    meta = [line for line in path.read_text().splitlines() if line.startswith(kept)]
+    lines = COMMAND_PREAMBLE + meta + [f"# {note}"] + [command_row(s) for s in samples]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def rederive(toml_path: Path, mix: dp.MixConfig, hold_s: float, write: bool) -> list[str]:
