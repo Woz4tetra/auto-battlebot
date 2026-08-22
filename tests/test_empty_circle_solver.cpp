@@ -1,12 +1,14 @@
-// Geometric cases with hand-checkable answers for the largest-empty-circle solvers, plus an
-// exact-vs-brute-force agreement sweep. Assertions are on radius, not just center: a
+// Geometric cases with hand-checkable answers for the exact largest-empty-circle solver,
+// plus a brute-force agreement sweep. Assertions are on radius, not just center: a
 // center-only check passes for the wrong reason when the clearance terms are wrong in
-// compensating ways. These mirror the cases the solver experiment validates on recorded
+// compensating ways. These mirror the cases the solver experiment validated on recorded
 // fights, so they regression-test code that has been measured.
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <random>
 #include <vector>
 
@@ -29,113 +31,108 @@ Pose2D make_pose(double x, double y) {
     return pose;
 }
 
-constexpr double kGridResolution = 0.15;
-// Best grid node radius is within resolution / sqrt(2) of the optimum (1-Lipschitz).
-const double kGridBound = kGridResolution / std::sqrt(2.0);
-constexpr double kBnbTolerance = 0.01;
-constexpr double kExactTol = 1e-9;
+constexpr double kTol = 1e-9;
 
-struct Solver {
-    const char *name;
-    double radius_bound;  // how far below the true optimum the reported radius may fall
-    EmptyCircle (*solve)(const Size &, const std::vector<Pose2D> &);
-};
-
-EmptyCircle run_grid(const Size &field, const std::vector<Pose2D> &opponents) {
-    return solve_coarse_grid(field, opponents, kGridResolution);
+/** Sampled ground truth for the agreement sweep: best radius over a uniform grid. The
+ *  radius function is 1-Lipschitz, so the best node trails the true optimum by at most
+ *  resolution / sqrt(2). Lives here rather than in the library because only this test
+ *  needs it. */
+double brute_force_radius(const Size &field, const std::vector<Pose2D> &opponents,
+                          double resolution_m) {
+    const int nx = std::max(2, static_cast<int>(std::ceil(field.x / resolution_m)) + 1);
+    const int ny = std::max(2, static_cast<int>(std::ceil(field.y / resolution_m)) + 1);
+    const double step_x = field.x / (nx - 1);
+    const double step_y = field.y / (ny - 1);
+    double best = -std::numeric_limits<double>::infinity();
+    for (int iy = 0; iy < ny; ++iy) {
+        const double y = -field.y / 2.0 + iy * step_y;
+        for (int ix = 0; ix < nx; ++ix) {
+            best = std::max(best,
+                            empty_circle_radius(field, -field.x / 2.0 + ix * step_x, y, opponents));
+        }
+    }
+    return best;
 }
-EmptyCircle run_exact(const Size &field, const std::vector<Pose2D> &opponents) {
-    return solve_exact(field, opponents);
-}
-EmptyCircle run_bnb(const Size &field, const std::vector<Pose2D> &opponents) {
-    return solve_branch_and_bound(field, opponents, kBnbTolerance);
-}
-
-const Solver kSolvers[] = {
-    {"grid", kGridBound, run_grid},
-    {"exact", kExactTol, run_exact},
-    {"bnb", kBnbTolerance, run_bnb},
-};
 
 TEST(EmptyCircleSolverTest, NoOpponentsSquareFieldCentersAtOrigin) {
-    const Size field = make_field(2.44, 2.44);
-    for (const auto &solver : kSolvers) {
-        const EmptyCircle result = solver.solve(field, {});
-        EXPECT_NEAR(result.radius, 1.22, solver.radius_bound) << solver.name;
-        EXPECT_NEAR(result.center.x, 0.0, solver.radius_bound) << solver.name;
-        EXPECT_NEAR(result.center.y, 0.0, solver.radius_bound) << solver.name;
-    }
+    const EmptyCircle result = solve_exact(make_field(2.44, 2.44), {});
+    EXPECT_NEAR(result.radius, 1.22, kTol);
+    EXPECT_NEAR(result.center.x, 0.0, kTol);
+    EXPECT_NEAR(result.center.y, 0.0, kTol);
 }
 
 TEST(EmptyCircleSolverTest, NoOpponentsRectangularFieldLimitedByShortAxis) {
     // Catches an implementation that assumes a square field: radius is the short half
-    // extent and the center sits on the long-axis medial segment, not pinned to origin.
+    // extent and the center sits on the long-axis medial segment.
+    const EmptyCircle result = solve_exact(make_field(3.0, 2.0), {});
+    EXPECT_NEAR(result.radius, 1.0, kTol);
+    EXPECT_NEAR(result.center.y, 0.0, kTol);
+    EXPECT_LE(std::abs(result.center.x), 0.5 + kTol);
+}
+
+TEST(EmptyCircleSolverTest, RectangularPlateauTieBreaksTowardPreference) {
+    // The no-opponent solution set on 3.0 x 2.0 is the segment y = 0, |x| <= 0.5; the
+    // solver generates its endpoints and the center. The preference point picks among
+    // those ties without changing the radius.
     const Size field = make_field(3.0, 2.0);
-    for (const auto &solver : kSolvers) {
-        const EmptyCircle result = solver.solve(field, {});
-        EXPECT_NEAR(result.radius, 1.0, solver.radius_bound) << solver.name;
-        EXPECT_NEAR(result.center.y, 0.0, solver.radius_bound) << solver.name;
-        EXPECT_LE(std::abs(result.center.x), 0.5 + solver.radius_bound) << solver.name;
-    }
+    const EmptyCircle toward_pos = solve_exact(field, {}, make_pose(1.4, 0.8));
+    EXPECT_NEAR(toward_pos.radius, 1.0, kTol);
+    EXPECT_NEAR(toward_pos.center.x, 0.5, kTol);
+    const EmptyCircle toward_neg = solve_exact(field, {}, make_pose(-1.4, -0.8));
+    EXPECT_NEAR(toward_neg.radius, 1.0, kTol);
+    EXPECT_NEAR(toward_neg.center.x, -0.5, kTol);
 }
 
 TEST(EmptyCircleSolverTest, OpponentAtCenterOfSquareFieldPushesToCorners) {
-    // Four corners tie. On the diagonal at distance t from center: wall clearance
-    // half - t / sqrt(2)... solved exactly, r = half * (2 - sqrt(2)).
-    const Size field = make_field(2.44, 2.44);
+    // Four corners tie; solved exactly on the diagonal, r = half * (2 - sqrt(2)).
     const std::vector<Pose2D> opponents = {make_pose(0.0, 0.0)};
     const double expected = 1.22 * (2.0 - std::sqrt(2.0));
-    for (const auto &solver : kSolvers) {
-        const EmptyCircle result = solver.solve(field, opponents);
-        EXPECT_NEAR(result.radius, expected, solver.radius_bound) << solver.name;
-        // Winner is corner-symmetric; check the center is on a diagonal.
-        EXPECT_NEAR(std::abs(result.center.x), std::abs(result.center.y), 2.0 * solver.radius_bound)
-            << solver.name;
+    const EmptyCircle result = solve_exact(make_field(2.44, 2.44), opponents);
+    EXPECT_NEAR(result.radius, expected, kTol);
+    EXPECT_NEAR(std::abs(result.center.x), std::abs(result.center.y), kTol);
+}
+
+TEST(EmptyCircleSolverTest, CenterOpponentCornerTieBreaksTowardPreference) {
+    const std::vector<Pose2D> opponents = {make_pose(0.0, 0.0)};
+    for (const double sx : {1.0, -1.0}) {
+        for (const double sy : {1.0, -1.0}) {
+            const EmptyCircle result =
+                solve_exact(make_field(2.44, 2.44), opponents, make_pose(sx, sy));
+            EXPECT_GT(result.center.x * sx, 0.0) << sx << "," << sy;
+            EXPECT_GT(result.center.y * sy, 0.0) << sx << "," << sy;
+        }
     }
 }
 
 TEST(EmptyCircleSolverTest, OffCenterOpponentBeatsEquidistantCase) {
-    const Size field = make_field(2.44, 2.44);
     const double equidistant = 1.22 * (2.0 - std::sqrt(2.0));
     const std::vector<Pose2D> opponents = {make_pose(0.7, 0.0)};
-    for (const auto &solver : kSolvers) {
-        const EmptyCircle result = solver.solve(field, opponents);
-        EXPECT_GT(result.radius, equidistant + 0.05) << solver.name;
-        EXPECT_LT(result.center.x, 0.0) << solver.name;  // far side from the opponent
-    }
+    const EmptyCircle result = solve_exact(make_field(2.44, 2.44), opponents);
+    EXPECT_GT(result.radius, equidistant + 0.05);
+    EXPECT_LT(result.center.x, 0.0);  // far side from the opponent
 }
 
 TEST(EmptyCircleSolverTest, OpponentAgainstWallDoesNotStraddleIt) {
-    const Size field = make_field(2.44, 2.44);
     const std::vector<Pose2D> opponents = {make_pose(1.2, 0.0)};
-    for (const auto &solver : kSolvers) {
-        const EmptyCircle result = solver.solve(field, opponents);
-        const double dx = result.center.x - opponents[0].x;
-        const double dy = result.center.y - opponents[0].y;
-        EXPECT_LE(result.radius, std::hypot(dx, dy) + kExactTol) << solver.name;
-    }
+    const EmptyCircle result = solve_exact(make_field(2.44, 2.44), opponents);
+    const double dx = result.center.x - opponents[0].x;
+    const double dy = result.center.y - opponents[0].y;
+    EXPECT_LE(result.radius, std::hypot(dx, dy) + kTol);
 }
 
 TEST(EmptyCircleSolverTest, CoincidentTracksMatchSingleOpponentAnswer) {
-    // Two filter tracks landing on one robot must not perturb the exact solver.
+    // Two filter tracks landing on one robot must not perturb the solver.
     const Size field = make_field(2.44, 2.44);
-    const std::vector<Pose2D> one = {make_pose(0.4, -0.3)};
-    const std::vector<Pose2D> two = {make_pose(0.4, -0.3), make_pose(0.4, -0.3)};
-    for (const auto &solver : kSolvers) {
-        const EmptyCircle a = solver.solve(field, one);
-        const EmptyCircle b = solver.solve(field, two);
-        EXPECT_NEAR(a.radius, b.radius, kExactTol) << solver.name;
-    }
+    const EmptyCircle one = solve_exact(field, {make_pose(0.4, -0.3)});
+    const EmptyCircle two = solve_exact(field, {make_pose(0.4, -0.3), make_pose(0.4, -0.3)});
+    EXPECT_NEAR(one.radius, two.radius, kTol);
 }
 
 TEST(EmptyCircleSolverTest, OpponentOutsideFieldIsHarmless) {
-    const Size field = make_field(2.44, 2.44);
-    const std::vector<Pose2D> opponents = {make_pose(5.0, 0.0)};
-    for (const auto &solver : kSolvers) {
-        const EmptyCircle result = solver.solve(field, opponents);
-        // Too far away to constrain anything: same answer as the empty field.
-        EXPECT_NEAR(result.radius, 1.22, solver.radius_bound) << solver.name;
-    }
+    // The filter can produce sites outside the rectangle; too far away to constrain
+    // anything, the answer matches the empty field.
+    const EmptyCircle result = solve_exact(make_field(2.44, 2.44), {make_pose(5.0, 0.0)});
+    EXPECT_NEAR(result.radius, 1.22, kTol);
 }
 
 TEST(EmptyCircleSolverTest, ExactMatchesBruteForceOnRandomConfigurations) {
@@ -152,11 +149,11 @@ TEST(EmptyCircleSolverTest, ExactMatchesBruteForceOnRandomConfigurations) {
             opponents.push_back(make_pose(coord(rng), coord(rng)));
         }
         const EmptyCircle exact = solve_exact(field, opponents);
-        const EmptyCircle brute = solve_brute_force(field, opponents, brute_resolution);
+        const double brute = brute_force_radius(field, opponents, brute_resolution);
         // Exact must never fall below the sampled optimum, and the sample can only trail
         // the true optimum by its grid bound.
-        EXPECT_GE(exact.radius, brute.radius - kExactTol) << "trial " << trial;
-        EXPECT_LE(exact.radius, brute.radius + brute_bound + kExactTol) << "trial " << trial;
+        EXPECT_GE(exact.radius, brute - kTol) << "trial " << trial;
+        EXPECT_LE(exact.radius, brute + brute_bound + kTol) << "trial " << trial;
     }
 }
 

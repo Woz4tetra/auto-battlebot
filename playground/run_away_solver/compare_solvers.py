@@ -13,6 +13,11 @@ run_away_solver_ext (built with -DBUILD_PYTHON_BINDINGS=ON in build/), and write
 
 The whole Python side is marshal, call, aggregate: no solver logic and no timing
 lives here.
+
+Historical: the experiment concluded and the exact solver won, so the nanobind
+module, the CMake option, and the losing solvers were removed afterwards. To
+reproduce this comparison, check out commit b2f37a0 (the last commit with all
+four solvers and the bindings) and rebuild the module there.
 """
 
 from __future__ import annotations

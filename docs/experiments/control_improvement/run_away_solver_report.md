@@ -9,8 +9,10 @@ decision comes down to fidelity and jitter, as the plan predicted.
 The exact constraint-triple solver (method B) matched brute force on every one
 of the 52,032 ticks, is the fastest of the three (0.075 us median, 15
 evaluations), and tracks the true optimum's frame-to-frame motion most
-faithfully. I recommend it. `SafestPointTarget::solve()` stays a noop until this
-pick is confirmed; nothing is wired and no solver has been deleted.
+faithfully. It won: `SafestPointTarget::solve()` now calls `solve_exact()`, the
+losing solvers and the nanobind experiment plumbing were removed, and a
+brute-force reference lives on in the unit tests. Commit b2f37a0 is the last
+one holding all four solvers and the bindings, for reruns.
 
 ## Setup
 
@@ -192,7 +194,7 @@ not occur once in six real fights, even with wall-hugging opponents. Returning
 the best spot unconditionally is the right behavior; no `std::nullopt` path or
 config knob is warranted.
 
-## Pick, pending review
+## Pick
 
 Exact (method B), reasons in order:
 
@@ -282,12 +284,16 @@ Bucket quirks worth knowing before reading too much into single cells:
 
 ## Next steps
 
-1. Ben reviews this pick. `SafestPointTarget::solve()` is a noop until then.
-2. Jetson confirmation run: build the module on the Jetson, re-run the batch on
-   the same trace CSVs (no camera or radio needed).
-3. Wire `solve()` to the winner, delete the two losers, log the winning radius
-   next to the target in `ControlLoop`, and add the solver-dependent
-   `SafestPointTarget` geometric tests from the plan.
-4. Bench test the transmitter track: flip the CH7 switch and watch
+The pick is applied: `SafestPointTarget::solve()` calls `solve_exact()` with a
+tie-break toward our pose, the losing solvers and the nanobind plumbing are
+deleted (commit b2f37a0 has them for reruns), and the geometric cases are
+locked by `tests/test_empty_circle_solver.cpp` and
+`tests/test_safest_point_target.cpp`. Remaining:
+
+1. Switch one robot config to `type = "SafestPointTarget"` for bench testing
+   before promoting it to `_common.toml`.
+2. Bench test the transmitter track: flip the CH7 switch and watch
    `switch_states`; confirm the trainer-enable hold-at-standstill path now that
    CH6 carries the switch.
+3. Field test run-away against a static opponent stand-in, watching the
+   `run_away_target` radius log entry, before running against a real robot.

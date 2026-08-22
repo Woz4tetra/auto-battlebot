@@ -1,8 +1,10 @@
 #pragma once
 
+#include <memory>
 #include <optional>
 #include <vector>
 
+#include "diagnostics_logger/diagnostics_logger.hpp"
 #include "target_selector/config.hpp"
 #include "target_selector/nearest_target.hpp"
 #include "target_selector/target_selector_interface.hpp"
@@ -26,14 +28,16 @@ class SafestPointTarget : public TargetSelectorInterface {
     double circle_radius(double x, double y, const FieldDescription &field,
                          const std::vector<Pose2D> &opponents) const;
 
-    /** Center of the largest empty circle. The body will be whichever solver the experiment
-     *  in docs/experiments/control_improvement/run_away_solver_report.md picks; until then it
-     *  returns std::nullopt, so RUN_AWAY holds the previous target via
-     *  ControlLoop::resolve_target(). */
-    std::optional<Pose2D> solve(const FieldDescription &field,
-                                const std::vector<Pose2D> &opponents) const;
+    /** Center of the largest empty circle via the exact constraint-triple solver, the
+     *  winner of the experiment in
+     *  docs/experiments/control_improvement/run_away_solver_report.md. Ties on the
+     *  no-opponent plateau resolve toward our_pose so we do not cross the field for
+     *  nothing; without our pose the search still runs and only the tie-break degrades. */
+    std::optional<Pose2D> solve(const FieldDescription &field, const std::vector<Pose2D> &opponents,
+                                const std::optional<Pose2D> &our_pose) const;
 
     NearestTarget attack_selector_;
+    std::shared_ptr<DiagnosticsModuleLogger> logger_;
     double retarget_improvement_m_;
     std::optional<Pose2D> held_target_;
 };
