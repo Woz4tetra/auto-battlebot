@@ -17,8 +17,8 @@ bool CrsfBridge::update(radio_data_t *radio_data) {
         radio_data->a_percent = -1 * scale_channel_to_percent(channels->ch0);
         radio_data->b_percent = scale_channel_to_percent(channels->ch1);
         radio_data->armed = channels->ch4 > MID_CYCLE;
-        radio_data->flip_switch_state = get_switch_state(channels->ch5);
-        radio_data->button_state = get_button_state(channels->ch6);
+        radio_data->flip_switch_state = get_switch_state(channels->ch7);
+        radio_data->button_state = get_button_state(channels->ch9);
         radio_data->connected = true;
         return true;
     } else {

@@ -81,4 +81,4 @@ rrw_deg_per_s_sqrt_s = 1.862e-04
 # against yaw rate squared over pure spins; the slope is this. Kept for E5's own sanity
 # check against a tape measure: the slip detector fits the lever-arm terms per run instead,
 # because a single scalar cannot say which of two terms an offset lands on.
-r_imu = 0.0
+r_imu = 0.022
