@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <magic_enum.hpp>
 #include <utility>
 
 #include "diagnostics_logger/function_timer.hpp"
@@ -157,10 +158,13 @@ void ControlLoop::run_cycle() {
     // Resolve once so target selection and navigation operate on the same robot set within a
     // cycle. Substitutes the previous critical snapshot when a frame is missing OUR or THEIRS.
     auto cached_robots = robot_descriptions_cache_.resolve(robots);
-    diagnostics_logger_->debug(
-        "navigation", {{"using_previous_robots", static_cast<int>(cached_robots.using_previous)}});
-
     const auto behavior_mode = static_cast<BehaviorMode>(behavior_mode_.load());
+    // The mode that actually drove this cycle's target selection, whatever the transmitter is.
+    // OpenTxTransmitter logs the raw switch channel separately; this is the resolved value.
+    diagnostics_logger_->debug(
+        "navigation", {{"using_previous_robots", static_cast<int>(cached_robots.using_previous)},
+                       {"behavior_mode", std::string(magic_enum::enum_name(behavior_mode))}});
+
     TargetSelection resolved_target =
         resolve_target(cached_robots.robots, *field_description_, behavior_mode);
     VelocityCommand command =

@@ -12,6 +12,7 @@
 
 #include "control_loop/control_loop.hpp"
 #include "control_loop/stepped_control_loop.hpp"
+#include "diagnostics_logger/diagnostics_logger.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_front_back_filter.hpp"
@@ -377,6 +378,43 @@ TEST(ControlLoopTest, BehaviorModeReachesSelectorAndOutput) {
         EXPECT_EQ(mode, BehaviorMode::RUN_AWAY);
     }
     EXPECT_EQ(loop->latest_output().behavior_mode, BehaviorMode::RUN_AWAY);
+}
+
+TEST(ControlLoopTest, BehaviorModeIsLoggedEveryCycle) {
+    auto runner_logger = DiagnosticsLogger::get_logger("runner");
+    runner_logger->clear();
+
+    auto config = make_filter_config();
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
+    ASSERT_TRUE(filter->initialize(1));
+    auto navigation = std::make_shared<RecordingNavigation>();
+    auto transmitter = std::make_shared<RunAwayTransmitter>();
+    auto selector = std::make_shared<RecordingTargetSelector>();
+    auto clock = std::make_shared<ManualClock>();
+    auto loop =
+        std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock, nullptr);
+
+    SteppedControlLoop driver(loop, 0.0);
+    driver.start();
+
+    const auto measurements = make_measurements(1);
+    for (const auto &m : measurements) {
+        driver.pump_input();
+        clock->set(m.keypoints.header.stamp);
+        loop->submit_measurement(m);
+        driver.advance_to(m.keypoints.header.stamp);
+    }
+
+    bool found = false;
+    for (const auto &snapshot : runner_logger->get_snapshots()) {
+        if (snapshot.subsection != "navigation") continue;
+        auto it = snapshot.values.find("behavior_mode");
+        if (it == snapshot.values.end()) continue;
+        found = true;
+        EXPECT_EQ(it->second, "RUN_AWAY");
+    }
+    EXPECT_TRUE(found) << "no behavior_mode value in the runner/navigation diagnostics";
+    runner_logger->clear();
 }
 
 }  // namespace auto_battlebot

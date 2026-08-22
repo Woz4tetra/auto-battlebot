@@ -102,7 +102,7 @@ MRS_BUFF_MK3 = 0.0
 "OPPONENT" = ["THEIR_ROBOT_1", "THEIR_ROBOT_2", "THEIR_ROBOT_3"]
 
 [target_selector]
-type = "NearestTarget"
+type = "SafestPointTarget"
 
 [transmitter]
 type = "OpenTxTransmitter"
@@ -130,11 +130,11 @@ angular_kp = 0.2
 angular_kd = 0.01
 angle_threshold = 1.7
 velocity_ramp_far_distance = 1.5
-velocity_ramp_near_distance = 0.5
+velocity_ramp_near_distance = 1.0
 velocity_ramp_min_scale = 0.35
 wall_reverse_distance = 0.25      # set > 0 to reverse when within this distance of any wall
 wall_heading_threshold = 1.047    # ~60 deg; heading must point toward wall to trigger reversal
-max_linear_command = 0.75         # 0 = no limit
+max_linear_command = 1.0          # 0 = no limit
 max_angular_command = 0.0         # 0 = no limit
 
 [publisher]

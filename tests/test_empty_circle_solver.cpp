@@ -10,6 +10,7 @@
 #include <cmath>
 #include <limits>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "target_selector/empty_circle_solver.hpp"
@@ -155,6 +156,22 @@ TEST(EmptyCircleSolverTest, ExactMatchesBruteForceOnRandomConfigurations) {
         EXPECT_GE(exact.radius, brute - kTol) << "trial " << trial;
         EXPECT_LE(exact.radius, brute + brute_bound + kTol) << "trial " << trial;
     }
+}
+
+TEST(EmptyCircleSolverTest, ReportsWinningConstraintFamily) {
+    // No opponents: only the wall constraints can bind, and on a square field the three-wall
+    // triples and the field center tie at the middle.
+    const EmptyCircle square = solve_exact(make_field(4.0, 4.0), {});
+    EXPECT_TRUE(square.source == "three_wall" || square.source == "field_center") << square.source;
+
+    // One opponent dead center pushes the answer to a corner, which two perpendicular walls
+    // and the opponent pin.
+    const EmptyCircle pushed = solve_exact(make_field(4.0, 4.0), {make_pose(0.0, 0.0)});
+    EXPECT_EQ(pushed.source, "perpendicular_walls_point");
+
+    // A degenerate field still leaves the field marked, never an empty string.
+    const EmptyCircle degenerate = solve_exact(make_field(0.0, 0.0), {});
+    EXPECT_FALSE(degenerate.source.empty());
 }
 
 }  // namespace

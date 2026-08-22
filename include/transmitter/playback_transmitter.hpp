@@ -20,9 +20,11 @@ class PlaybackTransmitter : public TransmitterInterface {
     void send(VelocityCommand command) override;
     bool did_init_button_press() override;
     bool is_connected() const override { return true; }
+    BehaviorMode behavior_mode() const override { return behavior_mode_; }
 
    private:
     double init_delay_seconds_;
+    BehaviorMode behavior_mode_;
     bool initialized_;
     std::shared_ptr<ClockInterface> clock_;
     /** Logical time of the first update(), so the init button fires on a fixed frame rather than

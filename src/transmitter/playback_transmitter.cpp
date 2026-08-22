@@ -1,5 +1,7 @@
 #include "transmitter/playback_transmitter.hpp"
 
+#include <magic_enum.hpp>
+
 #include "enums/frame_id.hpp"
 
 namespace auto_battlebot {
@@ -7,6 +9,7 @@ namespace auto_battlebot {
 PlaybackTransmitter::PlaybackTransmitter(PlaybackTransmitterConfiguration &config,
                                          std::shared_ptr<ClockInterface> clock)
     : init_delay_seconds_(config.init_delay_seconds),
+      behavior_mode_(config.behavior_mode),
       initialized_(false),
       clock_(std::move(clock)),
       init_button_pressed_(false),
@@ -32,6 +35,11 @@ CommandFeedback PlaybackTransmitter::update() {
     if (!initialized_) {
         return CommandFeedback{};
     }
+
+    // Configured mode, logged alongside ControlLoop's resolved mode so a mismatch between what
+    // the config asked for and what drove target selection is visible in the replay diagnostics.
+    logger_->debug("behavior_mode",
+                   {{"configured", std::string(magic_enum::enum_name(behavior_mode_))}});
 
     // One-shot init button: fires once after the delay, mirroring the physical init button on the
     // radio. It must NOT gate command feedback. OpenTxTransmitter streams channel feedback every

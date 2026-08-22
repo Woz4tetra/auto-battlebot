@@ -5,8 +5,11 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <map>
 #include <optional>
+#include <string>
 
+#include "diagnostics_logger/diagnostics_logger.hpp"
 #include "target_selector/nearest_target.hpp"
 #include "target_selector/safest_point_target.hpp"
 #include "transform_utils.hpp"
@@ -39,8 +42,14 @@ void add_opponent(RobotDescriptionsStamped &robots, double x, double y) {
     robots.descriptions.push_back(make_robot(FrameId::THEIR_ROBOT_1, Group::THEIRS, x, y));
 }
 
-SafestPointTarget make_selector() {
-    return SafestPointTarget(SafestPointTargetConfiguration{});  // retarget_improvement_m 0.15
+/** Config default, retarget_improvement_m = 0.0: the held target only survives an exact tie. */
+SafestPointTarget make_selector() { return SafestPointTarget(SafestPointTargetConfiguration{}); }
+
+/** Selector with retarget hysteresis on, for the tests that exercise the threshold itself. */
+SafestPointTarget make_selector_with_hysteresis(double retarget_improvement_m) {
+    SafestPointTargetConfiguration config;
+    config.retarget_improvement_m = retarget_improvement_m;
+    return SafestPointTarget(config);
 }
 
 TEST(SafestPointTargetTest, RunAwayNoOpponentsTargetsFieldCenter) {
@@ -93,7 +102,8 @@ TEST(SafestPointTargetTest, AttackMatchesNearestTarget) {
 }
 
 TEST(SafestPointTargetTest, HeldTargetSurvivesSmallOpponentMove) {
-    auto selector = make_selector();
+    // Explicit threshold: the config default is 0.0, which holds only on an exact tie.
+    auto selector = make_selector_with_hysteresis(0.15);
     const FieldDescription field = make_field(2.44, 2.44);
     auto robots = our_robot_at(0.5, 0.5);
     add_opponent(robots, 0.6, 0.0);
@@ -110,8 +120,28 @@ TEST(SafestPointTargetTest, HeldTargetSurvivesSmallOpponentMove) {
     EXPECT_EQ(second->pose.y, first->pose.y);
 }
 
-TEST(SafestPointTargetTest, RetargetsWhenCandidateBeatsHeldByThreshold) {
+TEST(SafestPointTargetTest, DefaultThresholdRetargetsOnAnyImprovement) {
+    // The 0.0 default is the deliberate setting: every improvement is taken, and only an
+    // exact tie holds. Same 5 cm opponent shift that HeldTargetSurvivesSmallOpponentMove
+    // pins in place at 0.15.
     auto selector = make_selector();
+    const FieldDescription field = make_field(2.44, 2.44);
+    auto robots = our_robot_at(0.5, 0.5);
+    add_opponent(robots, 0.6, 0.0);
+    const auto first = selector.get_target(robots, field, BehaviorMode::RUN_AWAY);
+    ASSERT_TRUE(first.has_value());
+
+    auto moved = our_robot_at(0.5, 0.5);
+    add_opponent(moved, 0.55, 0.0);
+    const auto second = selector.get_target(moved, field, BehaviorMode::RUN_AWAY);
+    ASSERT_TRUE(second.has_value());
+    EXPECT_NE(second->pose.x, first->pose.x);
+}
+
+TEST(SafestPointTargetTest, RetargetsWhenCandidateBeatsHeldByThreshold) {
+    // Pairs with HeldTargetSurvivesSmallOpponentMove: same threshold, improvement large
+    // enough to clear it. At the 0.0 default this case would pass without testing anything.
+    auto selector = make_selector_with_hysteresis(0.15);
     const FieldDescription field = make_field(2.44, 2.44);
     auto robots = our_robot_at(0.5, 0.5);
     add_opponent(robots, 0.6, 0.0);
@@ -138,8 +168,8 @@ TEST(SafestPointTargetTest, LeavingRunAwayClearsHeldTarget) {
     EXPECT_GT(first->pose.x, 0.0);
 
     // Bounce through ATTACK, then re-enter run-away from the opposite corner. The corners
-    // tie on radius, so a stale held target would win the hysteresis and stick; getting the
-    // near corner proves re-entry started fresh.
+    // tie on radius, and a tie never retargets at any threshold, so a stale held target would
+    // stick; getting the near corner proves re-entry started fresh.
     selector.get_target(robots, field, BehaviorMode::ATTACK);
     auto far_side = our_robot_at(-0.9, -0.9);
     add_opponent(far_side, 0.0, 0.0);
@@ -162,6 +192,32 @@ TEST(SafestPointTargetTest, MissingOurPoseStillAnswersRunAwayButNotAttack) {
     // Attack delegates to NearestTarget, which cannot rank opponents without us.
     const auto attack = selector.get_target(robots, field, BehaviorMode::ATTACK);
     EXPECT_FALSE(attack.has_value());
+}
+
+TEST(SafestPointTargetTest, LogsSolverSourceForTheChosenPoint) {
+    auto logger = DiagnosticsLogger::get_logger("safest_point_target");
+    logger->clear();
+
+    auto selector = make_selector();
+    auto robots = our_robot_at(0.9, 0.9);
+    add_opponent(robots, 0.0, 0.0);
+    ASSERT_TRUE(
+        selector.get_target(robots, make_field(2.44, 2.44), BehaviorMode::RUN_AWAY).has_value());
+
+    std::map<std::string, std::string> solver_values;
+    for (const auto &snapshot : logger->get_snapshots()) {
+        if (snapshot.subsection == "solver") solver_values = snapshot.values;
+    }
+
+    ASSERT_FALSE(solver_values.empty()) << "no solver subsection in the selector diagnostics";
+    // A centered opponent puts the answer in a corner, pinned by two walls and the opponent.
+    EXPECT_EQ(solver_values["source"], "perpendicular_walls_point");
+    EXPECT_EQ(solver_values["n_opponents"], "1");
+    EXPECT_EQ(solver_values["tie_break"], "1");
+    EXPECT_NE(solver_values.find("radius"), solver_values.end());
+    EXPECT_NE(solver_values.find("evaluations"), solver_values.end());
+
+    logger->clear();
 }
 
 }  // namespace

@@ -75,6 +75,15 @@ std::optional<Pose2D> SafestPointTarget::solve(const FieldDescription &field,
                                                const std::vector<Pose2D> &opponents,
                                                const std::optional<Pose2D> &our_pose) const {
     const EmptyCircle best = solve_exact(field.size.size, opponents, our_pose);
+    // The winning constraint family says which geometry pinned this answer: a target that
+    // keeps coming back as "field_center" means the opponent terms never bound the solve.
+    logger_->debug("solver", {{"x", best.center.x},
+                              {"y", best.center.y},
+                              {"radius", best.radius},
+                              {"source", best.source},
+                              {"evaluations", best.evaluations},
+                              {"n_opponents", static_cast<int>(opponents.size())},
+                              {"tie_break", our_pose.has_value() ? 1 : 0}});
     // Nonpositive radius means the field rectangle itself is degenerate (no measurement
     // yet); hold the previous target upstream rather than steering at garbage.
     if (best.radius <= 0.0) return std::nullopt;

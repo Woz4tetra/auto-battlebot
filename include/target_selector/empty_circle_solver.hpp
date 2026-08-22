@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "data_structures/field.hpp"
@@ -8,12 +9,17 @@
 
 namespace auto_battlebot {
 
-/** Result of a largest-empty-circle solve: the circle center, its radius, and how many
- *  candidate evaluations the solver spent. */
+/** Result of a largest-empty-circle solve: the circle center, its radius, how many
+ *  candidate evaluations the solver spent, and which constraint family won. */
 struct EmptyCircle {
     Pose2D center{};
     double radius = 0.0;
     int evaluations = 0;
+    /** Constraint family that produced the winning center: "three_wall",
+     *  "opposite_walls_point", "perpendicular_walls_point", "wall_point_pair", "point_triple",
+     *  or "field_center". "none" when nothing was considered. Says which geometry pinned the
+     *  answer, so a bad target can be traced to the generator that produced it. */
+    std::string source = "none";
 };
 
 /** Radius of the largest circle centered at (x, y) that stays inside the field rectangle

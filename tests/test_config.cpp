@@ -1317,4 +1317,76 @@ our_robot_mode = "ekf"
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
 
+namespace {
+/** Minimal full config with a parameterizable [transmitter] block. */
+std::string config_with_transmitter(const std::string &transmitter_toml) {
+    return R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
+
+[navigation]
+type = "NoopNavigation"
+)" + transmitter_toml +
+           R"(
+[publisher]
+type = "NoopPublisher"
+)";
+}
+}  // namespace
+
+TEST_F(ConfigTest, PlaybackTransmitterBehaviorModeDefaultsToAttack) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "PlaybackTransmitter"
+)"));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *transmitter_config =
+        dynamic_cast<PlaybackTransmitterConfiguration *>(config.transmitter.get());
+    ASSERT_NE(transmitter_config, nullptr);
+    EXPECT_EQ(transmitter_config->behavior_mode, BehaviorMode::ATTACK);
+}
+
+TEST_F(ConfigTest, PlaybackTransmitterBehaviorModeParsesRunAway) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "PlaybackTransmitter"
+behavior_mode = "RUN_AWAY"
+)"));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *transmitter_config =
+        dynamic_cast<PlaybackTransmitterConfiguration *>(config.transmitter.get());
+    ASSERT_NE(transmitter_config, nullptr);
+    EXPECT_EQ(transmitter_config->behavior_mode, BehaviorMode::RUN_AWAY);
+}
+
+TEST_F(ConfigTest, PlaybackTransmitterUnknownBehaviorModeThrows) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "PlaybackTransmitter"
+behavior_mode = "FLEE"
+)"));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), std::invalid_argument);
+}
+
 }  // namespace auto_battlebot

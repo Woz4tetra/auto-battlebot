@@ -57,7 +57,9 @@ class Best {
         result_.radius = -std::numeric_limits<double>::infinity();
     }
 
-    void consider(double x, double y) {
+    /** `source` names the constraint family that generated the point. Held as a literal
+     *  pointer through the enumeration and turned into a string once, in finish(). */
+    void consider(double x, double y, const char *source) {
         ++evaluations_;
         const double r = empty_circle_radius(field_, x, y, opponents_);
         bool take = r > result_.radius + kTieEps;
@@ -68,17 +70,20 @@ class Best {
             result_.center.x = x;
             result_.center.y = y;
             result_.radius = r;
+            source_ = source;
         }
     }
 
     EmptyCircle finish() {
         result_.evaluations = evaluations_;
+        result_.source = source_;
         return result_;
     }
 
    private:
     EmptyCircle result_;
     int evaluations_ = 0;
+    const char *source_ = "none";
     const Size &field_;
     const std::vector<Pose2D> &opponents_;
     const Pose2D *prefer_;
@@ -94,9 +99,9 @@ void add_three_wall_candidates(Best &best, double half_x, double half_y) {
         for (const double s : {1.0, -1.0}) {
             const double cb = s * (half_b - half_a);
             if (b_axis == 0) {
-                best.consider(cb, 0.0);
+                best.consider(cb, 0.0, "three_wall");
             } else {
-                best.consider(0.0, cb);
+                best.consider(0.0, cb, "three_wall");
             }
         }
     }
@@ -117,9 +122,9 @@ void add_opposite_walls_point_candidates(Best &best, double half_x, double half_
             for (const double s : {1.0, -1.0}) {
                 const double cb = ob + s * offset;
                 if (a_axis == 0) {
-                    best.consider(0.0, cb);
+                    best.consider(0.0, cb, "opposite_walls_point");
                 } else {
-                    best.consider(cb, 0.0);
+                    best.consider(cb, 0.0, "opposite_walls_point");
                 }
             }
         }
@@ -143,7 +148,8 @@ void add_perpendicular_walls_point_candidates(Best &best, double half_x, double 
                 for (const double s : {1.0, -1.0}) {
                     const double r = p + q + s * root;
                     if (r <= 0.0) continue;
-                    best.consider(sx * (half_x - r), sy * (half_y - r));
+                    best.consider(sx * (half_x - r), sy * (half_y - r),
+                                  "perpendicular_walls_point");
                 }
             }
         }
@@ -173,7 +179,7 @@ void add_wall_point_pair_candidates(Best &best, const Wall &wall, const Pose2D &
     std::array<double, 2> roots{};
     const int n = solve_quadratic(w1 * w1 - 1.0, 2.0 * w0 * w1, w0 * w0 - e * e, roots);
     for (int i = 0; i < n; ++i) {
-        best.consider(mx + roots[i] * ux, my + roots[i] * uy);
+        best.consider(mx + roots[i] * ux, my + roots[i] * uy, "wall_point_pair");
     }
 }
 
@@ -196,7 +202,7 @@ void add_point_triple_candidates(Best &best, const std::vector<Pose2D> &opponent
                     (a2 * (pb.y - pc.y) + b2 * (pc.y - pa.y) + c2 * (pa.y - pb.y)) / d;
                 const double cy =
                     (a2 * (pc.x - pb.x) + b2 * (pa.x - pc.x) + c2 * (pb.x - pa.x)) / d;
-                best.consider(cx, cy);
+                best.consider(cx, cy, "point_triple");
             }
         }
     }
@@ -225,7 +231,7 @@ EmptyCircle solve_exact(const Size &field, const std::vector<Pose2D> &opponents,
     Best best(field, opponents, tie_break_near.has_value() ? &tie_break_near.value() : nullptr);
     // Field center covers the fully degenerate case (every triple skipped) and joins the
     // no-opponent plateau tie on a non-square field.
-    best.consider(0.0, 0.0);
+    best.consider(0.0, 0.0, "field_center");
 
     add_three_wall_candidates(best, half_x, half_y);
     add_opposite_walls_point_candidates(best, half_x, half_y, opponents);

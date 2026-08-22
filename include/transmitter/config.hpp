@@ -2,6 +2,7 @@
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
+#include "enums/behavior_mode.hpp"
 #include "time/clock_interface.hpp"
 #include "transmitter/transmitter_interface.hpp"
 
@@ -27,6 +28,9 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
     double lifted_deadzone_percent = 0.0;
     bool reverse_linear_channel = false;
     bool reverse_angular_channel = false;
+    /** Behavior mode for the run. Playback has no radio, so this stands in for the
+     *  physical switch OpenTxTransmitter reads on behavior_mode_channel. */
+    BehaviorMode behavior_mode = BehaviorMode::ATTACK;
 
     PlaybackTransmitterConfiguration() { type = "PlaybackTransmitter"; }
 
@@ -38,6 +42,7 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
         PARSE_FIELD_DOUBLE(lifted_deadzone_percent)
         PARSE_FIELD_BOOL(reverse_linear_channel)
         PARSE_FIELD_BOOL(reverse_angular_channel)
+        PARSE_ENUM(behavior_mode, BehaviorMode)
     )
     // clang-format on
 };
