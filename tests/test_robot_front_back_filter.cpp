@@ -4,7 +4,7 @@
 #include <cmath>
 #include <opencv2/core.hpp>
 
-#include "robot_filter/robot_front_back_simple_filter.hpp"
+#include "robot_filter/robot_front_back_filter.hpp"
 
 namespace auto_battlebot {
 namespace {
@@ -12,7 +12,7 @@ namespace {
  * Runs one full filter cycle the way the Runner does: predict, then correct, then read state.
  * Tests exercise that sequence rather than a shortcut so they cover the real call pattern.
  */
-RobotDescriptionsStamped run_filter(RobotFrontBackSimpleFilter &filter, KeypointsStamped keypoints,
+RobotDescriptionsStamped run_filter(RobotFrontBackFilter &filter, KeypointsStamped keypoints,
                                     const FieldDescription &field, const CameraInfo &camera_info,
                                     KeypointsStamped robot_blob_keypoints,
                                     const CommandFeedback &command_feedback) {
@@ -114,8 +114,8 @@ KeypointsStamped make_opponent_blob(double stamp, double front_x, double back_x,
 }
 
 // Config where MRS_BUFF_MK3 keypoints are our robot (OUR_ROBOT_1) and OPPONENT slots are theirs.
-RobotFrontBackSimpleFilterConfiguration make_our_robot_config() {
-    RobotFrontBackSimpleFilterConfiguration config;
+RobotFrontBackFilterConfiguration make_our_robot_config() {
+    RobotFrontBackFilterConfiguration config;
     config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK3_FRONT};
     config.back_keypoints = {KeypointLabel::OPPONENT_BACK, KeypointLabel::MRS_BUFF_MK3_BACK};
     config.label_to_frame_ids = {{Label::MRS_BUFF_MK3, {FrameId::OUR_ROBOT_1}}};
@@ -132,8 +132,8 @@ RobotFrontBackSimpleFilterConfiguration make_our_robot_config() {
 }
 }  // namespace
 
-TEST(RobotFrontBackSimpleFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) {
-    RobotFrontBackSimpleFilterConfiguration config;
+TEST(RobotFrontBackFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) {
+    RobotFrontBackFilterConfiguration config;
     config.front_keypoints = {KeypointLabel::OPPONENT_FRONT};
     config.back_keypoints = {KeypointLabel::OPPONENT_BACK};
     config.label_to_frame_ids = {{Label::OPPONENT, {FrameId::THEIR_ROBOT_1}}};
@@ -141,7 +141,7 @@ TEST(RobotFrontBackSimpleFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) 
     config.max_jump_distance = 0.2;
     config.max_consecutive_jump_rejects = 1;
 
-    RobotFrontBackSimpleFilter filter(config);
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();
@@ -174,8 +174,8 @@ TEST(RobotFrontBackSimpleFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) 
 // group) stay consistent. Otherwise downstream consumers see a specific-model label sitting
 // in a generic opponent slot, and the label flips back to its specific value the next tick a
 // "proper" slot frees up (an ID swap).
-TEST(RobotFrontBackSimpleFilterTest, BlobFallbackToOpponentRelabelsToOpponent) {
-    RobotFrontBackSimpleFilterConfiguration config;
+TEST(RobotFrontBackFilterTest, BlobFallbackToOpponentRelabelsToOpponent) {
+    RobotFrontBackFilterConfiguration config;
     config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK1_FRONT};
     config.back_keypoints = {KeypointLabel::OPPONENT_BACK, KeypointLabel::MRS_BUFF_MK1_BACK};
     config.label_to_frame_ids = {{Label::MRS_BUFF_MK1, {FrameId::THEIR_ROBOT_1}}};
@@ -187,7 +187,7 @@ TEST(RobotFrontBackSimpleFilterTest, BlobFallbackToOpponentRelabelsToOpponent) {
     config.robot_keypoint_tracker_config.min_confidence = 0.2;
     config.robot_keypoint_tracker_config.max_candidates = 8;
 
-    RobotFrontBackSimpleFilter filter(config);
+    RobotFrontBackFilter filter(config);
     // 2 opponents -> Label::OPPONENT maps to {THEIR_ROBOT_1, THEIR_ROBOT_2}, so MRS_BUFF_MK1's
     // own slot {THEIR_ROBOT_1} can be exhausted by an OPPONENT keypoint while a free OPPONENT
     // fallback slot remains.
@@ -239,8 +239,8 @@ TEST(RobotFrontBackSimpleFilterTest, BlobFallbackToOpponentRelabelsToOpponent) {
 // though MRS_BUFF_MK3 is configured to own THEIR_ROBOT_2 outright. The new global assignment
 // honors per-measurement allowed-FrameId constraints in a single call, so the specific-label
 // blob keeps its slot regardless of enum order.
-TEST(RobotFrontBackSimpleFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlob) {
-    RobotFrontBackSimpleFilterConfiguration config;
+TEST(RobotFrontBackFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlob) {
+    RobotFrontBackFilterConfiguration config;
     config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK3_FRONT};
     config.back_keypoints = {KeypointLabel::OPPONENT_BACK, KeypointLabel::MRS_BUFF_MK3_BACK};
     config.label_to_frame_ids = {{Label::MRS_BUFF_MK3, {FrameId::THEIR_ROBOT_2}}};
@@ -252,7 +252,7 @@ TEST(RobotFrontBackSimpleFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlo
     config.robot_keypoint_tracker_config.min_confidence = 0.2;
     config.robot_keypoint_tracker_config.max_candidates = 8;
 
-    RobotFrontBackSimpleFilter filter(config);
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(2));
 
     const CameraInfo camera_info = make_camera_info();
@@ -301,9 +301,9 @@ TEST(RobotFrontBackSimpleFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlo
 // Leak-opportunity flag (see docs/robot_filter_decay_plan.md): after our robot has been
 // tracked, a frame where its keypoint drops out but a blob coincides with its held pose is the
 // exact tick the identity decay would fix. The filter must flag it.
-TEST(RobotFrontBackSimpleFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
-    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
-    RobotFrontBackSimpleFilter filter(config);
+TEST(RobotFrontBackFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
+    RobotFrontBackFilterConfiguration config = make_our_robot_config();
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();
@@ -327,9 +327,9 @@ TEST(RobotFrontBackSimpleFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
 }
 
 // A blob far from our robot's held pose is a genuine opponent, not a leak.
-TEST(RobotFrontBackSimpleFilterTest, NoLeakFlagWhenBlobFarFromHeldPose) {
-    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
-    RobotFrontBackSimpleFilter filter(config);
+TEST(RobotFrontBackFilterTest, NoLeakFlagWhenBlobFarFromHeldPose) {
+    RobotFrontBackFilterConfiguration config = make_our_robot_config();
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();
@@ -348,9 +348,9 @@ TEST(RobotFrontBackSimpleFilterTest, NoLeakFlagWhenBlobFarFromHeldPose) {
 }
 
 // When our keypoint is present the blob is suppressed / double-counts, so it is never a leak.
-TEST(RobotFrontBackSimpleFilterTest, NoLeakFlagWhenOurKeypointPresent) {
-    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
-    RobotFrontBackSimpleFilter filter(config);
+TEST(RobotFrontBackFilterTest, NoLeakFlagWhenOurKeypointPresent) {
+    RobotFrontBackFilterConfiguration config = make_our_robot_config();
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();
@@ -371,10 +371,10 @@ TEST(RobotFrontBackSimpleFilterTest, NoLeakFlagWhenOurKeypointPresent) {
 // out is held (predicted forward, is_stale) only up to our_robot_hold_window_s. Within the window
 // it is still emitted; once the window elapses without a fresh keypoint it is dropped entirely,
 // rather than lingering as a ghost after our robot has genuinely departed.
-TEST(RobotFrontBackSimpleFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
-    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+TEST(RobotFrontBackFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
+    RobotFrontBackFilterConfiguration config = make_our_robot_config();
     config.our_robot_hold_window_s = 0.15;
-    RobotFrontBackSimpleFilter filter(config);
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();
@@ -403,10 +403,10 @@ TEST(RobotFrontBackSimpleFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
 }
 
 // A window <= 0 disables the decay: the our-robot track is held indefinitely (legacy behavior).
-TEST(RobotFrontBackSimpleFilterTest, HoldsStaleOurRobotWhenDecayDisabled) {
-    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+TEST(RobotFrontBackFilterTest, HoldsStaleOurRobotWhenDecayDisabled) {
+    RobotFrontBackFilterConfiguration config = make_our_robot_config();
     config.our_robot_hold_window_s = 0.0;
-    RobotFrontBackSimpleFilter filter(config);
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();
@@ -437,9 +437,9 @@ const RobotDescription *find_frame_id(const RobotDescriptionsStamped &result, Fr
 
 // The blob model has no class for our robot, so during a keypoint dropout a blob sitting on our
 // own position would be assigned an opponent FrameId and targeted. It must be discarded instead.
-TEST(RobotFrontBackSimpleFilterTest, SuppressesBlobOnOurHeldPoseDuringKeypointDropout) {
-    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
-    RobotFrontBackSimpleFilter filter(config);
+TEST(RobotFrontBackFilterTest, SuppressesBlobOnOurHeldPoseDuringKeypointDropout) {
+    RobotFrontBackFilterConfiguration config = make_our_robot_config();
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();
@@ -461,10 +461,10 @@ TEST(RobotFrontBackSimpleFilterTest, SuppressesBlobOnOurHeldPoseDuringKeypointDr
 
 // The suppression is time-bounded: once the window elapses the anchor is no longer trusted, so a
 // genuine opponent parked where we were last seen becomes targetable again.
-TEST(RobotFrontBackSimpleFilterTest, EmitsBlobOnOurHeldPoseAfterWindowExpires) {
-    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+TEST(RobotFrontBackFilterTest, EmitsBlobOnOurHeldPoseAfterWindowExpires) {
+    RobotFrontBackFilterConfiguration config = make_our_robot_config();
     config.our_keypoint_dropout_blob_window_s = 0.4;
-    RobotFrontBackSimpleFilter filter(config);
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();
@@ -485,9 +485,9 @@ TEST(RobotFrontBackSimpleFilterTest, EmitsBlobOnOurHeldPoseAfterWindowExpires) {
 
 // Suppression is confined to the configured radius: a real opponent elsewhere on the field is
 // still tracked normally while our keypoints are missing.
-TEST(RobotFrontBackSimpleFilterTest, KeepsBlobOutsideRadiusDuringKeypointDropout) {
-    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
-    RobotFrontBackSimpleFilter filter(config);
+TEST(RobotFrontBackFilterTest, KeepsBlobOutsideRadiusDuringKeypointDropout) {
+    RobotFrontBackFilterConfiguration config = make_our_robot_config();
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();
@@ -507,10 +507,10 @@ TEST(RobotFrontBackSimpleFilterTest, KeepsBlobOutsideRadiusDuringKeypointDropout
 }
 
 // A zero radius turns the feature off, restoring the pre-suppression behaviour.
-TEST(RobotFrontBackSimpleFilterTest, ZeroRadiusDisablesDropoutSuppression) {
-    RobotFrontBackSimpleFilterConfiguration config = make_our_robot_config();
+TEST(RobotFrontBackFilterTest, ZeroRadiusDisablesDropoutSuppression) {
+    RobotFrontBackFilterConfiguration config = make_our_robot_config();
     config.our_keypoint_dropout_blob_radius_meters = 0.0;
-    RobotFrontBackSimpleFilter filter(config);
+    RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
 
     const CameraInfo camera_info = make_camera_info();

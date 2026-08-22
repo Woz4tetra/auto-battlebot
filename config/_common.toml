@@ -44,7 +44,7 @@ label = "OPPONENT"
 keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 
 [robot_filter]
-type = "RobotFrontBackSimpleFilter"
+type = "RobotFrontBackFilter"
 default_frame_id = "OUR_ROBOT_1"
 
 front_keypoints = [
@@ -77,6 +77,13 @@ our_robot_hold_window_s = 0.15
 # our_robot_hold_window_s deliberately: the track decays before a typical dropout ends.
 our_keypoint_dropout_blob_radius_meters = 0.4
 our_keypoint_dropout_blob_window_s = 1.0
+
+# Propagation strategy between perception frames. Absent means DeadReckoningMotionEstimator
+# (last commanded velocity applied directly, opponents held at their last pose). The Kalman
+# arm runs opponents through a constant-velocity filter with innovation gating and coasts the
+# output at control rate; our robot still dead-reckons until a plant model ships:
+# [robot_filter.motion_estimator]
+# type = "KalmanMotionEstimator"
 
 # Tracked keypoints sit this far above the field plane by default.
 keypoint_height_meters = 0.03

@@ -13,24 +13,23 @@
 #include "robot_filter/config.hpp"
 #include "robot_filter/frame_id_assigner.hpp"
 #include "robot_filter/front_back_keypoint_converter.hpp"
+#include "robot_filter/motion_estimator_interface.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "robot_filter/robot_keypoint_tracker.hpp"
-#include "robot_filter/robot_temporal_motion_filter.hpp"
 
 namespace auto_battlebot {
-class RobotFrontBackSimpleFilter : public RobotFilterInterface {
+class RobotFrontBackFilter : public RobotFilterInterface {
    public:
-    explicit RobotFrontBackSimpleFilter(RobotFrontBackSimpleFilterConfiguration &config);
+    explicit RobotFrontBackFilter(RobotFrontBackFilterConfiguration &config);
 
     /** Sets up per-label FrameId mappings and resets all filter state for a new match. */
     bool initialize(int opponent_count) override;
 
     /**
-     * Records the control input for the next correct() to propagate with.
-     *
-     * The dead-reckoning propagation still runs inside correct() via
-     * RobotTemporalMotionFilter::update_with_prediction, so this does not advance state on its own
-     * and `now` is unused.
+     * Control-rate tick: forwards the command to the motion estimator and, when the estimator
+     * coasts (Kalman), refreshes state() with descriptions advanced to `now`. With the
+     * dead-reckoning estimator this only records the command and state() keeps the last
+     * correct() result.
      */
     void predict(double now, CommandFeedback command_feedback) override;
 
@@ -73,11 +72,10 @@ class RobotFrontBackSimpleFilter : public RobotFilterInterface {
     double our_keypoint_dropout_blob_window_s_;
     RobotKeypointTracker robot_keypoint_tracker_;
     FrameIdAssigner frame_id_assigner_;
-    RobotTemporalMotionFilter temporal_motion_filter_;
+    /** Propagation strategy behind the association front-end; see MotionEstimatorInterface. */
+    std::unique_ptr<MotionEstimatorInterface> motion_estimator_;
 
-    /** Control input recorded by predict(), consumed by the next correct(). */
-    CommandFeedback command_feedback_;
-    /** Result of the most recent correct(), returned by state(). */
+    /** Result of the most recent correct(), or of a coasting predict(), returned by state(). */
     RobotDescriptionsStamped state_;
 
     /** Set when the most recent correct() suppressed a blob near our held pose; see the interface

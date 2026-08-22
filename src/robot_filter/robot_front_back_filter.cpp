@@ -1,4 +1,4 @@
-#include "robot_filter/robot_front_back_simple_filter.hpp"
+#include "robot_filter/robot_front_back_filter.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -72,9 +72,8 @@ auto_battlebot::Group infer_group_from_frame_ids(
 }  // namespace
 
 namespace auto_battlebot {
-RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
-    RobotFrontBackSimpleFilterConfiguration &config)
-    : diagnostics_logger_(DiagnosticsLogger::get_logger("robot_front_back_simple_filter")),
+RobotFrontBackFilter::RobotFrontBackFilter(RobotFrontBackFilterConfiguration &config)
+    : diagnostics_logger_(DiagnosticsLogger::get_logger("robot_front_back_filter")),
       label_to_frame_ids_(config.label_to_frame_ids),
       default_frame_id_(config.default_frame_id),
       max_jump_distance_(config.max_jump_distance),
@@ -86,7 +85,8 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
       our_keypoint_dropout_blob_radius_meters_(config.our_keypoint_dropout_blob_radius_meters),
       our_keypoint_dropout_blob_window_s_(config.our_keypoint_dropout_blob_window_s),
       robot_keypoint_tracker_(config.robot_keypoint_tracker_config),
-      frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects) {
+      frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects),
+      motion_estimator_(make_motion_estimator(*config.motion_estimator)) {
     FrontBackKeypointConverterConfig converter_config;
     converter_config.front_keypoints = config.front_keypoints;
     converter_config.back_keypoints = config.back_keypoints;
@@ -94,7 +94,7 @@ RobotFrontBackSimpleFilter::RobotFrontBackSimpleFilter(
     keypoint_converter_ = std::make_unique<FrontBackKeypointConverter>(converter_config);
 }
 
-bool RobotFrontBackSimpleFilter::initialize(int opponent_count) {
+bool RobotFrontBackFilter::initialize(int opponent_count) {
     if (opponent_count < 1 || opponent_count > 3) {
         spdlog::error("Invalid opponent count: {}", opponent_count);
         return false;
@@ -110,7 +110,7 @@ bool RobotFrontBackSimpleFilter::initialize(int opponent_count) {
 
     robot_configs_.clear();
     frame_id_assigner_.reset();
-    temporal_motion_filter_.reset();
+    motion_estimator_->reset();
     our_blob_present_no_keypoint_ = false;
     has_last_our_position_ = false;
     last_our_size_x_ = 0.0;
@@ -123,14 +123,17 @@ bool RobotFrontBackSimpleFilter::initialize(int opponent_count) {
     return true;
 }
 
-void RobotFrontBackSimpleFilter::predict([[maybe_unused]] double now,
-                                         CommandFeedback command_feedback) {
-    command_feedback_ = std::move(command_feedback);
+void RobotFrontBackFilter::predict(double now, CommandFeedback command_feedback) {
+    motion_estimator_->predict(now, command_feedback);
+    if (auto coasted = motion_estimator_->coast(now)) {
+        state_.header.frame_id = FrameId::FIELD;
+        state_.header.stamp = now;
+        state_.descriptions = std::move(*coasted);
+    }
 }
 
-void RobotFrontBackSimpleFilter::correct(KeypointsStamped keypoints, FieldDescription field,
-                                         CameraInfo camera_info,
-                                         KeypointsStamped robot_blob_keypoints) {
+void RobotFrontBackFilter::correct(KeypointsStamped keypoints, FieldDescription field,
+                                   CameraInfo camera_info, KeypointsStamped robot_blob_keypoints) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = keypoints.header.stamp;
@@ -151,9 +154,14 @@ void RobotFrontBackSimpleFilter::correct(KeypointsStamped keypoints, FieldDescri
     }
 
     const int num_measurements_before_temporal = static_cast<int>(all_measurements.size());
-    result.descriptions = temporal_motion_filter_.update_with_prediction(
-        all_measurements, command_feedback_, result.header.stamp, frame_id_assigner_, field,
-        field_bounds_margin_meters_, our_robot_hold_window_s_);
+    MotionEstimatorContext estimator_context;
+    estimator_context.tf_fieldcenter_from_camera = tf_fieldcenter_from_camera;
+    estimator_context.camera_info = camera_info;
+    estimator_context.field_bounds_margin_meters = field_bounds_margin_meters_;
+    estimator_context.our_robot_hold_window_s = our_robot_hold_window_s_;
+    result.descriptions =
+        motion_estimator_->update(std::move(all_measurements), result.header.stamp,
+                                  frame_id_assigner_, field, estimator_context);
 
     // Anchor the held OUR_ROBOT_1 pose from this frame's output (measured or predicted) so the next
     // frame's blob suppression has a reference even when our keypoint drops out.
@@ -170,7 +178,7 @@ void RobotFrontBackSimpleFilter::correct(KeypointsStamped keypoints, FieldDescri
     state_ = std::move(result);
 }
 
-bool RobotFrontBackSimpleFilter::is_blob_suppressed_by_keypoint(
+bool RobotFrontBackFilter::is_blob_suppressed_by_keypoint(
     const RobotKeypointDetection &blob,
     const std::vector<RobotDescription> &keypoint_measurements) const {
     // Keypoint detections are higher quality than blob detections. When a blob overlaps a
@@ -193,14 +201,14 @@ bool RobotFrontBackSimpleFilter::is_blob_suppressed_by_keypoint(
                        });
 }
 
-bool RobotFrontBackSimpleFilter::is_our_anchor_fresh(double stamp) const {
+bool RobotFrontBackFilter::is_our_anchor_fresh(double stamp) const {
     if (!has_last_our_position_) return false;
     if (our_keypoint_dropout_blob_window_s_ <= 0.0) return false;
     const double age = stamp - last_our_position_stamp_;
     return age >= 0.0 && age <= our_keypoint_dropout_blob_window_s_;
 }
 
-int RobotFrontBackSimpleFilter::suppress_blobs_near_our_anchor(
+int RobotFrontBackFilter::suppress_blobs_near_our_anchor(
     double stamp, const std::vector<RobotDescription> &keypoint_measurements,
     std::vector<RobotKeypointDetection> &blobs) const {
     if (our_keypoint_dropout_blob_radius_meters_ <= 0.0) return 0;
@@ -228,7 +236,7 @@ int RobotFrontBackSimpleFilter::suppress_blobs_near_our_anchor(
     return num_removed;
 }
 
-void RobotFrontBackSimpleFilter::update_our_position_anchor(
+void RobotFrontBackFilter::update_our_position_anchor(
     const std::vector<RobotDescription> &descriptions, double stamp) {
     for (const auto &description : descriptions) {
         if (description.frame_id == FrameId::OUR_ROBOT_1) {
@@ -245,7 +253,7 @@ void RobotFrontBackSimpleFilter::update_our_position_anchor(
     // last held pose rather than clearing it here.
 }
 
-std::vector<FrameId> RobotFrontBackSimpleFilter::get_assignment_frame_ids(
+std::vector<FrameId> RobotFrontBackFilter::get_assignment_frame_ids(
     Label label, const std::vector<RobotDescription> &used_measurements) const {
     auto is_used = [&used_measurements](FrameId fid) {
         return std::any_of(used_measurements.begin(), used_measurements.end(),
@@ -269,7 +277,7 @@ std::vector<FrameId> RobotFrontBackSimpleFilter::get_assignment_frame_ids(
     return assignment_fids;
 }
 
-void RobotFrontBackSimpleFilter::merge_blob_detections(
+void RobotFrontBackFilter::merge_blob_detections(
     const KeypointsStamped &robot_blob_keypoints,
     const std::vector<RobotDescription> &keypoint_measurements, const FieldDescription &field,
     const CameraInfo &camera_info, const Eigen::Matrix4d &tf_fieldcenter_from_camera, double stamp,
@@ -387,7 +395,7 @@ void RobotFrontBackSimpleFilter::merge_blob_detections(
     }
 }
 
-std::vector<RobotDescription> RobotFrontBackSimpleFilter::convert_keypoints_to_measurements(
+std::vector<RobotDescription> RobotFrontBackFilter::convert_keypoints_to_measurements(
     const KeypointsStamped &keypoints, const FieldDescription &field, const CameraInfo &camera_info,
     const Eigen::Matrix4d &tf_fieldcenter_from_camera) {
     std::vector<RobotDescription> filter_measurements;
@@ -451,7 +459,7 @@ std::vector<RobotDescription> RobotFrontBackSimpleFilter::convert_keypoints_to_m
     return filter_measurements;
 }
 
-std::vector<MeasurementWithConfidence> RobotFrontBackSimpleFilter::build_valid_measurements(
+std::vector<MeasurementWithConfidence> RobotFrontBackFilter::build_valid_measurements(
     const Eigen::Matrix4d &tf_fieldcenter_from_camera, Label label,
     const std::vector<std::pair<FrontBackAssignment, double>> &assignments_with_conf) {
     std::vector<MeasurementWithConfidence> valid_measurements;
@@ -487,13 +495,13 @@ std::vector<MeasurementWithConfidence> RobotFrontBackSimpleFilter::build_valid_m
     return valid_measurements;
 }
 
-std::vector<FrameId> RobotFrontBackSimpleFilter::get_frame_ids_for_label(Label label) const {
+std::vector<FrameId> RobotFrontBackFilter::get_frame_ids_for_label(Label label) const {
     if (label_to_frame_ids_.count(label) != 0 && !label_to_frame_ids_.at(label).empty())
         return label_to_frame_ids_.at(label);
     return {get_default_frame_id_for_label(label)};
 }
 
-FrameId RobotFrontBackSimpleFilter::get_default_frame_id_for_label(const Label label) const {
+FrameId RobotFrontBackFilter::get_default_frame_id_for_label(const Label label) const {
     if (label_to_frame_ids_.count(label) == 0) return default_frame_id_;
     const std::vector<FrameId> &v = label_to_frame_ids_.at(label);
     if (v.empty()) return default_frame_id_;

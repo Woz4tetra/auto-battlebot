@@ -14,7 +14,7 @@
 #include "control_loop/stepped_control_loop.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "robot_descriptions_cache.hpp"
-#include "robot_filter/robot_front_back_simple_filter.hpp"
+#include "robot_filter/robot_front_back_filter.hpp"
 #include "time/manual_clock.hpp"
 #include "transmitter/transmitter_interface.hpp"
 
@@ -122,8 +122,8 @@ void append_pair(KeypointsStamped &kp, Label label, KeypointLabel front_label,
     kp.keypoints.push_back(back);
 }
 
-RobotFrontBackSimpleFilterConfiguration make_filter_config() {
-    RobotFrontBackSimpleFilterConfiguration config;
+RobotFrontBackFilterConfiguration make_filter_config() {
+    RobotFrontBackFilterConfiguration config;
     config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK3_FRONT};
     config.back_keypoints = {KeypointLabel::OPPONENT_BACK, KeypointLabel::MRS_BUFF_MK3_BACK};
     config.label_to_frame_ids = {{Label::MRS_BUFF_MK3, {FrameId::OUR_ROBOT_1}},
@@ -192,7 +192,7 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
     std::vector<RobotDescriptionsStamped> reference_robots;
     {
         auto config = make_filter_config();
-        RobotFrontBackSimpleFilter filter(config);
+        RobotFrontBackFilter filter(config);
         ASSERT_TRUE(filter.initialize(1));
         RecordingNavigation navigation;
         RecordingTransmitter transmitter;
@@ -217,7 +217,7 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
     std::vector<RobotDescriptionsStamped> loop_robots;
     {
         auto config = make_filter_config();
-        auto filter = std::make_shared<RobotFrontBackSimpleFilter>(config);
+        auto filter = std::make_shared<RobotFrontBackFilter>(config);
         ASSERT_TRUE(filter->initialize(1));
         auto navigation = std::make_shared<RecordingNavigation>();
         auto transmitter = std::make_shared<RecordingTransmitter>();
@@ -256,7 +256,7 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
 
 TEST(ControlLoopTest, ZeroRateRunsExactlyOneCyclePerAdvance) {
     auto config = make_filter_config();
-    auto filter = std::make_shared<RobotFrontBackSimpleFilter>(config);
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
     ASSERT_TRUE(filter->initialize(1));
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
@@ -278,7 +278,7 @@ TEST(ControlLoopTest, ZeroRateRunsExactlyOneCyclePerAdvance) {
 
 TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
     auto config = make_filter_config();
-    auto filter = std::make_shared<RobotFrontBackSimpleFilter>(config);
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
     ASSERT_TRUE(filter->initialize(1));
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
@@ -305,7 +305,7 @@ TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
 
 TEST(ControlLoopTest, MeasurementIsCorrectedExactlyOnce) {
     auto config = make_filter_config();
-    auto filter = std::make_shared<RobotFrontBackSimpleFilter>(config);
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
     ASSERT_TRUE(filter->initialize(1));
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();

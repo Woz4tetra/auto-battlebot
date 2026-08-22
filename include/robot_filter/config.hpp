@@ -2,6 +2,7 @@
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
+#include "robot_filter/motion_estimator_config.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "robot_filter/robot_keypoint_tracker.hpp"
 #include "time/clock_interface.hpp"
@@ -29,7 +30,7 @@ struct GroundTruthRobotFilterConfiguration : public RobotFilterConfiguration {
     )
 };
 
-struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration {
+struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
     std::vector<KeypointLabel> front_keypoints;
     std::vector<KeypointLabel> back_keypoints;
     std::map<Label, std::vector<FrameId>> label_to_frame_ids;
@@ -60,8 +61,15 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
      */
     double our_keypoint_dropout_blob_window_s = 1.0;
     RobotKeypointTrackerConfig robot_keypoint_tracker_config;
+    /**
+     * Propagation strategy behind the association front-end. Selected by the nested
+     * [robot_filter.motion_estimator] table; absent means dead reckoning, the historical
+     * behavior.
+     */
+    std::shared_ptr<MotionEstimatorConfiguration> motion_estimator =
+        std::make_shared<DeadReckoningMotionEstimatorConfiguration>();
 
-    RobotFrontBackSimpleFilterConfiguration() { type = "RobotFrontBackSimpleFilter"; }
+    RobotFrontBackFilterConfiguration() { type = "RobotFrontBackFilter"; }
 
     void parse_fields(ConfigParser &parser) override {
         front_keypoints = parse_keypoints(parser, "front_keypoints");
@@ -84,7 +92,18 @@ struct RobotFrontBackSimpleFilterConfiguration : public RobotFilterConfiguration
         our_keypoint_dropout_blob_window_s = parser.get_optional_double(
             "our_keypoint_dropout_blob_window_s", our_keypoint_dropout_blob_window_s);
         parse_robot_keypoint_tracker_config(parser);
+        parse_motion_estimator(parser);
         parser.validate_no_extra_fields();
+    }
+
+    void parse_motion_estimator(ConfigParser &parser) {
+        const toml::table *table_ptr = parser.get_table("motion_estimator");
+        if (!table_ptr) {
+            return;  // Optional; the default-constructed member selects dead reckoning.
+        }
+        ConfigParser sub_parser(*table_ptr, "robot_filter.motion_estimator");
+        motion_estimator =
+            ConfigFactory<MotionEstimatorConfiguration>::instance().create_and_parse(sub_parser);
     }
 
     void parse_robot_keypoint_tracker_config(ConfigParser &parser) {

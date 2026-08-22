@@ -1148,7 +1148,7 @@ type = "NoopFieldFilter"
 type = "NoopKeypointModel"
 
 [robot_filter]
-type = "RobotFrontBackSimpleFilter"
+type = "RobotFrontBackFilter"
 default_frame_id = "OUR_ROBOT_1"
 front_keypoints = ["OPPONENT_FRONT"]
 back_keypoints = ["OPPONENT_BACK"]
@@ -1175,7 +1175,7 @@ type = "NoopPublisher"
 
     auto config = load_classes_from_config(temp_config_file.string());
     auto *filter_config =
-        dynamic_cast<RobotFrontBackSimpleFilterConfiguration *>(config.robot_filter.get());
+        dynamic_cast<RobotFrontBackFilterConfiguration *>(config.robot_filter.get());
     ASSERT_NE(filter_config, nullptr);
 
     const KeypointHeights &heights = filter_config->robot_keypoint_tracker_config.keypoint_heights;
@@ -1183,6 +1183,95 @@ type = "NoopPublisher"
     EXPECT_DOUBLE_EQ(heights.height_for(Label::OPPONENT), 0.09);
     // Labels without a per-label entry fall back to the default.
     EXPECT_DOUBLE_EQ(heights.height_for(Label::HOUSE_BOT), 0.05);
+}
+
+namespace {
+/** Minimal full config with a parameterizable [robot_filter.motion_estimator] block. */
+std::string config_with_motion_estimator(const std::string &motion_estimator_toml) {
+    return R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "RobotFrontBackFilter"
+default_frame_id = "OUR_ROBOT_1"
+front_keypoints = ["OPPONENT_FRONT"]
+back_keypoints = ["OPPONENT_BACK"]
+
+[robot_filter.label_mapping]
+"OPPONENT" = ["THEIR_ROBOT_1"]
+)" + motion_estimator_toml +
+           R"(
+[target_selector]
+type = "NoopTarget"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+)";
+}
+}  // namespace
+
+TEST_F(ConfigTest, RobotFilterMotionEstimatorDefaultsToDeadReckoning) {
+    write_config_file(config_with_motion_estimator(""));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *filter_config =
+        dynamic_cast<RobotFrontBackFilterConfiguration *>(config.robot_filter.get());
+    ASSERT_NE(filter_config, nullptr);
+    ASSERT_NE(filter_config->motion_estimator, nullptr);
+    EXPECT_EQ(filter_config->motion_estimator->type, "DeadReckoningMotionEstimator");
+}
+
+TEST_F(ConfigTest, RobotFilterMotionEstimatorParsesKalman) {
+    write_config_file(config_with_motion_estimator(R"(
+[robot_filter.motion_estimator]
+type = "KalmanMotionEstimator"
+opponent_accel_psd = 12.5
+max_coast_s = 0.3
+gate_nis = 9.21
+)"));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *filter_config =
+        dynamic_cast<RobotFrontBackFilterConfiguration *>(config.robot_filter.get());
+    ASSERT_NE(filter_config, nullptr);
+    auto *kalman_config =
+        dynamic_cast<KalmanMotionEstimatorConfiguration *>(filter_config->motion_estimator.get());
+    ASSERT_NE(kalman_config, nullptr);
+    EXPECT_EQ(kalman_config->our_robot_mode, "dead_reckoning");
+    EXPECT_DOUBLE_EQ(kalman_config->opponent_accel_psd, 12.5);
+    EXPECT_DOUBLE_EQ(kalman_config->max_coast_s, 0.3);
+    EXPECT_DOUBLE_EQ(kalman_config->gate_nis, 9.21);
+    // Unset fields keep their defaults.
+    EXPECT_DOUBLE_EQ(kalman_config->blob_position_sigma_m, 0.10);
+}
+
+TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeRejectedUntilPlantModelExists) {
+    write_config_file(config_with_motion_estimator(R"(
+[robot_filter.motion_estimator]
+type = "KalmanMotionEstimator"
+our_robot_mode = "ekf"
+)"));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
 
 }  // namespace auto_battlebot
