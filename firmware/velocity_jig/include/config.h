@@ -49,14 +49,30 @@ static constexpr uint32_t IMU_ODR_HZ = 1660;
 
 // Full-scale ranges. Battlebot: fast spin + hard hits. The standard ranges are
 // the LSM6DS enums (ISM330DHCX adds only a 4000 dps gyro extension).
-#define IMU_ACCEL_RANGE LSM6DS_ACCEL_RANGE_8_G
-#define IMU_GYRO_RANGE LSM6DS_GYRO_RANGE_2000_DPS
+//
+// Both ranges were raised after the 2026-08-20 session ran out of headroom on
+// each. The angular steps peaked at 2054 dps against the 2294 dps that +/-2000
+// covers, 90% of full scale, and the coupling grid pegged the accelerometer at
+// +/-32764 on nine isolated 1 ms samples with nothing struck: tank-steer
+// chatter through the guard plates, not an impact. The gyro extension also has
+// to cover the raised angular_cap in waveforms.toml.
+//
+// Cost of the change is resolution: both channels halve, so the noise floor per
+// LSB doubles. That is the right trade here, because a clipped sample's true
+// value is unknown and biases every fit that reads it.
+#define IMU_ACCEL_RANGE LSM6DS_ACCEL_RANGE_16_G
+#define IMU_GYRO_RANGE ISM330DHCX_GYRO_RANGE_4000_DPS
 // LSB scale factors for the ranges above (documented in the file header).
 // String forms are used in the file header to avoid a float-printf dependency.
-static constexpr float ACCEL_G_PER_LSB = 0.000244f;  // 0.244 mg/LSB at +/-8g
-static constexpr float GYRO_DPS_PER_LSB = 0.070f;    // 70 mdps/LSB at +/-2000dps
-#define ACCEL_G_PER_LSB_STR "0.000244"
-#define GYRO_DPS_PER_LSB_STR "0.070"
+//
+// These are the nominal datasheet sensitivities, so full int16 swing covers
+// more than the range name: 0.000488 * 32768 = 15.99 g, 0.140 * 32768 = 4587
+// dps. read_jig_log derives the header's range that way, which is why a
+// +/-2000 dps log reports 2293.76.
+static constexpr float ACCEL_G_PER_LSB = 0.000488f;  // 0.488 mg/LSB at +/-16g
+static constexpr float GYRO_DPS_PER_LSB = 0.140f;    // 140 mdps/LSB at +/-4000dps
+#define ACCEL_G_PER_LSB_STR "0.000488"
+#define GYRO_DPS_PER_LSB_STR "0.140"
 
 // ---- SD and buffering ----
 

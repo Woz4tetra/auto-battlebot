@@ -65,6 +65,16 @@ rate_limit = 8.0
 # spin is a different matter: stage 2 measured 61.5 rad/s, which is 3524 deg/s and would clip.
 # Switch the gyro to 4000 dps before recording angular steps.
 scale = 0.9987
+# E2, from LOG-97, 30.5 min stationary, 2026-08-21.
+#   python playground/calibration/fit_gyro_noise.py \
+#       playground/calibration/out/gyro_bias/LOG-97.TXT \
+#       --plot playground/calibration/out/gyro_noise.png
+# Inert parameters until the noise model is incorporated into the plant fitting script.
+bias_dps = [0.27216, -0.27925, -0.46824]
+arw_deg_sqrt_hr = 0.5102
+bias_instability_dps = 0.00241
+bias_tau_s = 57.6
+rrw_deg_per_s_sqrt_s = 1.862e-04
 
 [imu]
 # E5, the IMU's offset from the yaw axis, metres. Regress measured lateral acceleration

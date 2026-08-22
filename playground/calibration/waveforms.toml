@@ -13,13 +13,36 @@
 # deadzone is one of the things being measured.
 
 [defaults]
+# 0.6 s is set by floor length, not by the runbook's 2 s. At the fitted tau_lin_a of
+# 0.1309 s it is 4.6 time constants, 98.98% settled, and a full-command step costs 1.88 m
+# including the coast to a stop. Two seconds would be 15 tau and 6.57 m, more floor than
+# this robot has and more settling than a first-order rise can use.
+#
+# The runbook's 2 s predates the measured tau. What it was guarding against was stage 2's
+# 0.2 s, which is 1.5 tau and only 78% settled, so there was genuinely no plateau to read.
+# Precision on k_fwd and k_rev comes from segment count, not segment length: k_rev is
+# +/- 38% from n=4, and reps fix that where a longer hold does not.
+#
+# Angular waveforms override this below. A spin costs no floor, so there is no reason to
+# be stingy there.
 hold_s = 0.6
-coast_s = 1.2
+# Coasting happens after the robot has stopped travelling under command, so a long tail
+# costs 0.30 m regardless. 2.0 s is 22 decel constants.
+coast_s = 2.0
 
 # Cap for angular amplitudes. The encoder wheel scrubs sideways through every spin, so the
 # rate limit measured on the bench caps every angular run. Set from your own E5 measurement:
 # encoder_rate_limit / k_ang.
-angular_cap = 0.13
+#
+# The old 0.13 was 8.0 / 61.5, using stage 2's camera k_ang. The jig measures k_ang at
+# 32.16 +/- 0.572 rad/s, and the raw gyro counts rule out 61.5 outright: LOG-69 peaked at
+# 2054 dps against a 2294 dps full scale, where 61.5 rad/s would be 3524 dps and would have
+# railed. So the cap doubles to 8.0 / 32.16 = 0.249.
+#
+# This assumes rate_limit = 8.0 rad/s in jig_calibration.toml is a real E5 measurement. E5
+# has not been run: r_enc_perp and r_imu are both still 0.0. Run it before trusting this,
+# and stop the moment the encoder wheel chatters or leaves a scrub mark.
+angular_cap = 0.24
 
 # --- linear ---------------------------------------------------------------
 
@@ -28,13 +51,21 @@ kind = "staircase"
 channel = "linear"
 role = "fit"
 label = "linear deadzone staircase"
-# Starts at 0.01, not 0.04. Stage 2 reported a deadzone of 0.04 because that was the
-# smallest command it tested and the robot already moved there. Several rungs must land
-# below the motion threshold or the crossing is an extrapolation.
-from = 0.01
-to = 0.10
-step = 0.01
+# Starts at 0.001, not 0.01. Same mistake one decade down: the 2026-08-20 fit put the
+# forward crossing between 0.000 and 0.010, meaning the robot already moved on the first
+# rung and the crossing is again an extrapolation. Resolution is the step size, so 0.01
+# steps can only ever report +/- 0.0098.
+#
+# Stops at 0.030 rather than 0.10. The crossing is under 0.01, so rungs above 0.03 measure
+# nothing the step runs do not already cover, and 30 rungs at 2 s each is already 60 s per
+# direction.
+from = 0.001
+to = 0.030
+step = 0.001
 both_directions = true
+# Rungs run back to back with no return to zero, so distance accumulates across all 30.
+# At 1.0 s that is 0.82 m per direction and 7.6 tau per rung, both comfortable.
+hold_s = 1.0
 
 [waveform.lin_step_full]
 kind = "step"
@@ -64,10 +95,14 @@ kind = "staircase"
 channel = "angular"
 role = "fit"
 label = "angular deadzone staircase"
-from = 0.01
-to = 0.10
-step = 0.01
+# Left crossed between 0.000 and 0.010 on 2026-08-20, same as the linear channel. Right
+# crossed between 0.010 and 0.019, so it needs the range and the resolution.
+from = 0.001
+to = 0.030
+step = 0.001
 both_directions = true
+# Pivoting in place, so the 2 s the runbook asks for is free here.
+hold_s = 2.0
 
 [waveform.ang_step_full]
 kind = "step"
@@ -90,6 +125,7 @@ label = "angular coast tails"
 amplitude = 1.0
 reps = 10
 shuttle = true
+hold_s = 2.0
 
 # --- coupling -------------------------------------------------------------
 
@@ -98,13 +134,20 @@ kind = "grid"
 channel = "combined"
 role = "fit"
 label = "coupling grid"
-linear = [0.25, 0.5, 0.75, 1.0]
+# Tops out at 0.76, not 1.0, so no cell asks for more authority than the mix can deliver.
+# to_channels gives angular priority and clips linear to 1 - abs(ang), so a 1.0 cell at the
+# 0.24 cap goes out as 0.76. That is a 0.24 gap between commanded and measured, which trips
+# the contamination gate at 0.05 and discarded LOG-71 as a leaning stick when the sticks
+# were centered: every cell over the bar had tgt_lin = 1.0, and the median error across all
+# 56 held stretches was 0.0029, same as the clean runs.
+linear = [0.25, 0.5, 0.7, 0.76]
 # Spans BOTH signs, and that is load-bearing. Steer-brake and angular droop flip with the
 # turn direction; straight-line drift does not. A grid that only ever turns one way cannot
 # separate them and will quietly fold the drift into the droop coefficient.
 angular = [-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3]
 
 # --- holdouts -------------------------------------------------------------
+# These are used for testing the model not for fitting.
 
 [waveform.lin_prbs]
 kind = "prbs"
@@ -115,7 +158,7 @@ amplitude = 0.6
 # 60 ms bits cover roughly 0.2 to 8 Hz, which brackets both the 58-78 ms plant time
 # constants and the 33 ms frame period.
 bit_ms = 60
-duration_s = 5
+duration_s = 30
 seed = 44001
 
 [waveform.ang_prbs]
@@ -125,7 +168,7 @@ role = "holdout"
 label = "angular PRBS"
 amplitude = 0.5
 bit_ms = 60
-duration_s = 15
+duration_s = 30
 seed = 44002
 
 [waveform.combined_prbs]
@@ -136,7 +179,7 @@ label = "combined PRBS"
 amplitude = 0.3
 angular_amplitude = 0.5
 bit_ms = 60
-duration_s = 15
+duration_s = 30
 seed = 44003
 
 [waveform.lin_chirp]
@@ -149,7 +192,7 @@ label = "linear chirp"
 f0_hz = 0.2
 f1_hz = 8.0
 amplitude = 0.4
-duration_s = 7
+duration_s = 30
 
 [waveform.ang_chirp]
 kind = "chirp"
