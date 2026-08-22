@@ -79,6 +79,23 @@ class RecordingTransmitter : public TransmitterInterface {
     int update_calls = 0;
 };
 
+class RunAwayTransmitter : public RecordingTransmitter {
+   public:
+    BehaviorMode behavior_mode() const override { return BehaviorMode::RUN_AWAY; }
+};
+
+/** Records the mode each get_target() call received; selects nothing. */
+class RecordingTargetSelector : public TargetSelectorInterface {
+   public:
+    std::optional<TargetSelection> get_target(const RobotDescriptionsStamped &,
+                                              const FieldDescription &,
+                                              BehaviorMode mode) override {
+        seen_modes.push_back(mode);
+        return std::nullopt;
+    }
+    std::vector<BehaviorMode> seen_modes;
+};
+
 CameraInfo make_camera_info() {
     CameraInfo camera_info;
     camera_info.width = 640;
@@ -332,6 +349,34 @@ TEST(ControlLoopTest, MeasurementIsCorrectedExactlyOnce) {
         EXPECT_EQ(after_first.descriptions[i].pose.position.x,
                   after_extra_cycles.descriptions[i].pose.position.x);
     }
+}
+
+TEST(ControlLoopTest, BehaviorModeReachesSelectorAndOutput) {
+    auto config = make_filter_config();
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
+    ASSERT_TRUE(filter->initialize(1));
+    auto navigation = std::make_shared<RecordingNavigation>();
+    auto transmitter = std::make_shared<RunAwayTransmitter>();
+    auto selector = std::make_shared<RecordingTargetSelector>();
+    auto clock = std::make_shared<ManualClock>();
+    auto loop =
+        std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock, nullptr);
+    SteppedControlLoop driver(loop, 0.0);
+    driver.start();
+
+    const auto measurements = make_measurements(3);
+    for (const auto &m : measurements) {
+        driver.pump_input();
+        clock->set(m.keypoints.header.stamp);
+        loop->submit_measurement(m);
+        driver.advance_to(m.keypoints.header.stamp);
+    }
+
+    ASSERT_FALSE(selector->seen_modes.empty());
+    for (const auto mode : selector->seen_modes) {
+        EXPECT_EQ(mode, BehaviorMode::RUN_AWAY);
+    }
+    EXPECT_EQ(loop->latest_output().behavior_mode, BehaviorMode::RUN_AWAY);
 }
 
 }  // namespace auto_battlebot

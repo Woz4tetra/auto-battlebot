@@ -8,6 +8,7 @@
 #include "data_structures.hpp"
 #include "data_structures/target_selection.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "enums/behavior_mode.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
@@ -35,6 +36,9 @@ struct ControlOutput {
     TargetSelection target;
     VelocityCommand command;
     bool our_blob_present_no_keypoint = false;
+    /** Behavior mode that produced `target`, so UI and MCAP recordings can tell a run-away
+     *  target from an attack selector gone haywire. */
+    BehaviorMode behavior_mode = BehaviorMode::ATTACK;
 };
 
 /**
@@ -117,10 +121,12 @@ class ControlLoop {
     /** -1 until the first cycle applies it, so the initial state always reaches the transmitter. */
     std::atomic<int> autonomy_applied_{-1};
     std::atomic<bool> transmitter_connected_{false};
+    /** Stored as int to match how autonomy_applied_ is handled. */
+    std::atomic<int> behavior_mode_{static_cast<int>(BehaviorMode::ATTACK)};
     std::atomic<int64_t> last_cycle_us_{0};
 
     TargetSelection resolve_target(const RobotDescriptionsStamped &robots,
-                                   const FieldDescription &field_description);
+                                   const FieldDescription &field_description, BehaviorMode mode);
 };
 
 }  // namespace auto_battlebot

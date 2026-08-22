@@ -443,6 +443,49 @@ type = "NoopPublisher"
     EXPECT_EQ(config.transmitter->type, "NoopTransmitter");
 }
 
+TEST_F(ConfigTest, SafestPointTargetConfiguration) {
+    write_config_file(R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[target_selector]
+type = "SafestPointTarget"
+retarget_improvement_m = 0.3
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+)");
+
+    auto config = load_classes_from_config(temp_config_file.string());
+
+    ASSERT_NE(config.target_selector, nullptr);
+    EXPECT_EQ(config.target_selector->type, "SafestPointTarget");
+    const auto &selector_config =
+        dynamic_cast<const SafestPointTargetConfiguration &>(*config.target_selector);
+    EXPECT_DOUBLE_EQ(selector_config.retarget_improvement_m, 0.3);
+}
+
 TEST_F(ConfigTest, OpenTxTransmitterRejectsUnknownFields) {
     // Regression test: when channel-control fields were renamed
     // (left_channel/right_channel -> linear_channel/angular_channel,

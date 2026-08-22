@@ -6,6 +6,7 @@ namespace auto_battlebot {
 class NearestTarget : public TargetSelectorInterface {
    public:
     std::optional<TargetSelection> get_target(const RobotDescriptionsStamped &robots,
-                                              const FieldDescription &field) override;
+                                              const FieldDescription &field,
+                                              BehaviorMode mode) override;
 };
 }  // namespace auto_battlebot

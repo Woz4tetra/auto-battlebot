@@ -4,6 +4,7 @@
 #include <chrono>
 #include <memory>
 #include <optional>
+#include <tuple>
 
 #include "channels/channels_parser.hpp"
 #include "crsf/crsf_parser.hpp"
@@ -37,6 +38,12 @@ class OpenTxTransmitter : public TransmitterInterface {
     bool did_init_button_press() override;
 
     bool is_connected() const override { return serial_.is_open(); }
+
+    /** Level-triggered behavior mode switch: RUN_AWAY while the configured channel reads
+     *  above behavior_mode_threshold, ATTACK otherwise (including before any channel frame
+     *  has arrived, so a disconnected radio reports ATTACK). */
+    BehaviorMode behavior_mode() const override;
+
     void enable() override;
     void disable() override;
 
@@ -58,12 +65,21 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     std::optional<std::array<int16_t, kMaxChannels>> latest_channels_;
     bool init_button_was_pressed_ = false;
+    /** Decoded (behavior_mode, trainer_enabled, init_button) flags as last written to the
+     *  switch_states log entry; empty until the first channel frame is logged. */
+    std::optional<std::tuple<bool, bool, bool>> last_logged_switch_states_;
     bool enabled_ = false;
     std::chrono::steady_clock::time_point next_reconnect_attempt_ =
         std::chrono::steady_clock::now();
 
     bool reconnect_if_needed();
     void process_channel_updates(const std::vector<uint8_t>& bytes);
+
+    /** Log decoded switch flags (with the raw channel value next to each) once on the first
+     *  channel frame and then on every change, so recordings show what the transmitter
+     *  believed even when the driver never touched a switch. Kept out of behavior_mode() so
+     *  that stays side-effect free. */
+    void log_switch_states();
     void write_trainer_channels(int channel_a_value, int channel_b_value);
 
     /** Slew-limit the normalized linear command so wheel-surface acceleration stays under the

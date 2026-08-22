@@ -9,7 +9,7 @@
 namespace auto_battlebot {
 
 std::optional<TargetSelection> NearestTarget::get_target(const RobotDescriptionsStamped &robots,
-                                                         const FieldDescription &) {
+                                                         const FieldDescription &, BehaviorMode) {
     std::optional<Pose2D> our_pose;
     for (const auto &robot : robots.descriptions) {
         if (robot.frame_id == FrameId::OUR_ROBOT_1) {

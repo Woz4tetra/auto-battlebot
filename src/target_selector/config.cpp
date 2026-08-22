@@ -4,10 +4,12 @@
 
 #include "target_selector/nearest_target.hpp"
 #include "target_selector/noop_target.hpp"
+#include "target_selector/safest_point_target.hpp"
 
 namespace auto_battlebot {
 REGISTER_CONFIG(TargetSelectorConfiguration, NearestTargetConfiguration, "NearestTarget")
 REGISTER_CONFIG(TargetSelectorConfiguration, NoopTargetConfiguration, "NoopTarget")
+REGISTER_CONFIG(TargetSelectorConfiguration, SafestPointTargetConfiguration, "SafestPointTarget")
 
 std::unique_ptr<TargetSelectorConfiguration> parse_target_selector_config(ConfigParser &parser) {
     return ConfigFactory<TargetSelectorConfiguration>::instance().create_and_parse(parser);
@@ -33,6 +35,10 @@ std::shared_ptr<TargetSelectorInterface> make_target_selector(
     }
     if (config.type == "NoopTarget") {
         return std::make_shared<NoopTarget>();
+    }
+    if (config.type == "SafestPointTarget") {
+        return std::make_shared<SafestPointTarget>(
+            dynamic_cast<const SafestPointTargetConfiguration &>(config));
     }
     throw std::invalid_argument("Failed to load TargetSelector of type " + config.type);
 }

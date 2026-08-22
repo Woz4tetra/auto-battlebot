@@ -14,6 +14,10 @@ option(BUILD_TESTING "Build tests" OFF)
 # Option to enable debug build
 option(BUILD_DEBUG "Build with debug flags" OFF)
 
+# nanobind module for the run-away solver experiment (playground/run_away_solver). OFF by
+# default so normal builds and Jetson deploys need no Python dev headers.
+option(BUILD_PYTHON_BINDINGS "Build nanobind solver module" OFF)
+
 if(BUILD_TESTING)
     message("Building tests")
 endif()
@@ -160,6 +164,8 @@ file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES CONFIGURE_DEPENDS
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
 # Keep LVGL/SDL UI units out of the shared library.
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*lvgl_ui.*\\.cpp$")
+# nanobind module sources build only under BUILD_PYTHON_BINDINGS, never into the lib.
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*src/bindings/.*\\.cpp$")
 
 add_library(auto_battlebot_lib SHARED
     ${AUTO_BATTLEBOT_SOURCES}
@@ -401,4 +407,27 @@ if(BUILD_TESTING)
 
     include(GoogleTest)
     gtest_discover_tests(auto_battlebot_test)
+endif()
+
+if(BUILD_PYTHON_BINDINGS)
+    # Point Python_EXECUTABLE at venv/bin/python so the module builds against the project venv.
+    find_package(Python 3.10 COMPONENTS Interpreter Development.Module REQUIRED)
+    FetchContent_Declare(
+        nanobind
+        GIT_REPOSITORY https://github.com/wjakob/nanobind.git
+        GIT_TAG v2.7.0
+        GIT_SHALLOW TRUE
+        UPDATE_DISCONNECTED TRUE
+    )
+    FetchContent_MakeAvailable(nanobind)
+
+    # Links auto_battlebot_lib so the experiment measures the exact objects the app ships.
+    # nanobind_add_module sets its own compile flags; the project's -Wall -Wextra -Werror are
+    # per-target and do not apply to nanobind's headers here.
+    nanobind_add_module(run_away_solver_ext src/bindings/run_away_solver_ext.cpp)
+    target_link_libraries(run_away_solver_ext PRIVATE auto_battlebot_lib)
+    # Fixed output path that playground/run_away_solver/compare_solvers.py adds to sys.path.
+    set_target_properties(run_away_solver_ext PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/python
+    )
 endif()

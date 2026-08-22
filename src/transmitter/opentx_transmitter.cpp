@@ -79,6 +79,7 @@ CommandFeedback OpenTxTransmitter::update() {
     }
 
     process_channel_updates(bytes);
+    log_switch_states();
 
     if (!latest_channels_) return {};
 
@@ -190,6 +191,37 @@ int OpenTxTransmitter::get_channel_value(int channel_idx) const {
     if (!latest_channels_ || channel_idx < 0 || channel_idx >= kMaxChannels) return 0;
     return std::clamp(static_cast<int>((*latest_channels_)[channel_idx]), -kChannelMax,
                       kChannelMax);
+}
+
+BehaviorMode OpenTxTransmitter::behavior_mode() const {
+    return get_channel_value(config_.behavior_mode_channel) > config_.behavior_mode_threshold
+               ? BehaviorMode::RUN_AWAY
+               : BehaviorMode::ATTACK;
+}
+
+void OpenTxTransmitter::log_switch_states() {
+    if (!latest_channels_) return;
+    const int mode_raw = get_channel_value(config_.behavior_mode_channel);
+    const int trainer_raw = get_channel_value(config_.trainer_enable_channel);
+    const int init_raw = get_channel_value(config_.init_button_channel);
+    const bool run_away = mode_raw > config_.behavior_mode_threshold;
+    // Trainer enable is active while the channel reads negative, matching the comparison in
+    // limit_linear_acceleration(). Do not normalize the sign; it is a property of the OpenTX
+    // model.
+    const bool trainer_enabled = trainer_raw < 0;
+    const bool init_pressed = init_raw > config_.init_button_threshold;
+    const auto states = std::make_tuple(run_away, trainer_enabled, init_pressed);
+    if (last_logged_switch_states_ == states) return;
+    last_logged_switch_states_ = states;
+    // The raw value next to each flag separates "switch on the wrong channel" from "threshold
+    // set wrong": both look like a flag that never changes. These three flags decide whether
+    // the robot moves at all, so they log at info and survive the default log level.
+    logger_->info("switch_states", {{"behavior_mode", run_away ? "run_away" : "attack"},
+                                    {"behavior_mode_raw", mode_raw},
+                                    {"trainer_enabled", static_cast<int>(trainer_enabled)},
+                                    {"trainer_raw", trainer_raw},
+                                    {"init_button", static_cast<int>(init_pressed)},
+                                    {"init_button_raw", init_raw}});
 }
 
 bool OpenTxTransmitter::did_init_button_press() {

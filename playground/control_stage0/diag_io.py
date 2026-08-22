@@ -265,6 +265,32 @@ def load_robot_tracks(path: Path) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
+def load_robot_positions(path: Path) -> pd.DataFrame:
+    """One row per robot per /robot_markers message: where each robot was that tick.
+
+    Sibling of load_robot_tracks: same CUBE body markers (ns == "robot_bounds",
+    marker.id -> FrameId enum index), but keeps the marker pose instead of only
+    presence. Positions are in the marker's own frame (field-center for these
+    recordings). Columns: timestamp_ns, frame, group, x, y."""
+    records = []
+    for m in read_ros1_messages(str(path), topics=[ROBOT_MARKERS_TOPIC]):
+        ts = _log_time_ns(m)
+        for mk in m.ros_msg.markers:
+            if mk.ns != "robot_bounds":
+                continue
+            name = frame_name(mk.id)
+            records.append(
+                {
+                    "timestamp_ns": ts,
+                    "frame": name,
+                    "group": group_of(name),
+                    "x": float(mk.pose.position.x),
+                    "y": float(mk.pose.position.y),
+                }
+            )
+    return pd.DataFrame(records)
+
+
 # ---------------------------------------------------------------------------
 # /tf + /tf_static -> camera position in the field frame
 # ---------------------------------------------------------------------------

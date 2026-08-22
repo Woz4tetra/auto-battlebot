@@ -27,6 +27,16 @@ struct NoopTargetConfiguration : public TargetSelectorConfiguration {
     )
 };
 
+struct SafestPointTargetConfiguration : public TargetSelectorConfiguration {
+    /** Radius (m) a new candidate must beat the held target by before retargeting.
+     *  Suppresses solver jitter as opponents move. */
+    double retarget_improvement_m = 0.15;
+
+    SafestPointTargetConfiguration() { type = "SafestPointTarget"; }
+
+    PARSE_CONFIG_FIELDS(PARSE_FIELD_DOUBLE(retarget_improvement_m))
+};
+
 std::shared_ptr<TargetSelectorInterface> make_target_selector(
     const TargetSelectorConfiguration &config);
 std::unique_ptr<TargetSelectorConfiguration> parse_target_selector_config(ConfigParser &parser);

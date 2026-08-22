@@ -37,6 +37,7 @@ void ControlLoop::pump_input() {
         init_button_latched_.store(true);
     }
     transmitter_connected_.store(transmitter_->is_connected());
+    behavior_mode_.store(static_cast<int>(transmitter_->behavior_mode()));
 }
 
 bool ControlLoop::take_init_button_press() { return init_button_latched_.exchange(false); }
@@ -67,14 +68,15 @@ std::chrono::steady_clock::time_point ControlLoop::last_cycle_time() const {
 }
 
 TargetSelection ControlLoop::resolve_target(const RobotDescriptionsStamped &robots,
-                                            const FieldDescription &field_description) {
+                                            const FieldDescription &field_description,
+                                            BehaviorMode mode) {
     if (ui_state_) {
         if (auto manual_target = ui_state_->get_manual_target()) {
             return *manual_target;
         }
     }
     if (target_selector_) {
-        if (auto selected = target_selector_->get_target(robots, field_description)) {
+        if (auto selected = target_selector_->get_target(robots, field_description, mode)) {
             previous_selected_target_ = *selected;
         }
     }
@@ -158,7 +160,9 @@ void ControlLoop::run_cycle() {
     diagnostics_logger_->debug(
         "navigation", {{"using_previous_robots", static_cast<int>(cached_robots.using_previous)}});
 
-    TargetSelection resolved_target = resolve_target(cached_robots.robots, *field_description_);
+    const auto behavior_mode = static_cast<BehaviorMode>(behavior_mode_.load());
+    TargetSelection resolved_target =
+        resolve_target(cached_robots.robots, *field_description_, behavior_mode);
     VelocityCommand command =
         navigation_->update(cached_robots.robots, *field_description_, resolved_target);
     transmitter_->send(command);
@@ -171,6 +175,7 @@ void ControlLoop::run_cycle() {
         output_.using_previous = cached_robots.using_previous;
         output_.target = resolved_target;
         output_.command = command;
+        output_.behavior_mode = behavior_mode;
         output_.our_blob_present_no_keypoint = robot_filter_->last_our_blob_present_no_keypoint();
         visualization_ = navigation_->get_last_visualization();
     }
