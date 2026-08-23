@@ -23,3 +23,6 @@ lifted_deadzone_percent = 0
 zero_deadzone_percent = 2
 reverse_angular_channel = true
 velocity_saturation_limit = 1.0                # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
+
+[robot_filter.motion_estimator]
+type = "DeadReckoningMotionEstimator"
