@@ -42,7 +42,7 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
      * last measured pose with no prediction of any kind, matching
      * DeadReckoningMotionEstimator's opponent behavior.
      */
-    std::string opponent_mode = "kalman";
+    std::string opponent_mode = "hold";
 
     /**
      * Continuous white-noise acceleration PSD (m^2/s^3) for the opponent constant-velocity
