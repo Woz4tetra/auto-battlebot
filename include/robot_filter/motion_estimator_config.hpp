@@ -29,8 +29,10 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     /**
      * How the our-robot track is propagated. "dead_reckoning" applies the last commanded
      * velocity directly, matching DeadReckoningMotionEstimator for that track. "ekf" runs the
-     * 5-state EKF and requires a registered plant model; none exists until a model ladder rung
-     * is selected, so "ekf" is rejected at config validation with a message saying why.
+     * 5-state EKF with JigPlantModel built from the plant table, and is rejected when that
+     * table is absent. The plant fit has not passed acceptance (heading misses by 4x at the
+     * 400 ms coast horizon), so production configs stay on dead_reckoning; sim and playback
+     * experiments opt in through the extends chain.
      */
     std::string our_robot_mode = "dead_reckoning";
 
@@ -46,6 +48,9 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     double keypoint_position_sigma_m = 0.03;
     /** Position measurement sigma (meters) for blob centroids. */
     double blob_position_sigma_m = 0.10;
+    /** Heading measurement sigma (radians) for keypoint-derived poses, our-robot EKF only.
+     * Placeholder until the joint jig and camera session measures R. */
+    double keypoint_heading_sigma_rad = 0.15;
     /** Extra position sigma per meter of camera range, applied on top of the base sigma. Zero
      * disables range dependence. */
     double position_sigma_per_meter = 0.0;
@@ -93,17 +98,10 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
             throw ConfigValidationError("Invalid our_robot_mode '" + our_robot_mode +
                                         "': expected 'dead_reckoning' or 'ekf'");
         }
-        if (our_robot_mode == "ekf") {
-            throw ConfigValidationError(
-                "our_robot_mode = 'ekf' is not available: the velocity jig plant fit has not "
-                "passed its acceptance criteria (heading misses by 4x at the 400 ms coast "
-                "horizon), so the EKF our-robot arm is not wired to the plant model. Use "
-                "'dead_reckoning' until then. See "
-                "docs/experiments/kalman_filter/plant_model_poc_plan.md");
-        }
         PARSE_FIELD_DOUBLE(opponent_accel_psd)
         PARSE_FIELD_DOUBLE(keypoint_position_sigma_m)
         PARSE_FIELD_DOUBLE(blob_position_sigma_m)
+        PARSE_FIELD_DOUBLE(keypoint_heading_sigma_rad)
         PARSE_FIELD_DOUBLE(position_sigma_per_meter)
         PARSE_FIELD_DOUBLE(gate_nis)
         reinit_after_rejects =
@@ -113,6 +111,13 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         PARSE_FIELD_DOUBLE(max_coast_s)
         PARSE_FIELD_DOUBLE(min_heading_speed)
         parse_plant(parser);
+        if (our_robot_mode == "ekf" && !plant.has_value()) {
+            throw ConfigValidationError(
+                "our_robot_mode = 'ekf' requires the [robot_filter.motion_estimator.plant] "
+                "table: the EKF our-robot arm propagates through JigPlantModel and has no "
+                "defaults for the fitted plant parameters. See "
+                "docs/experiments/kalman_filter/plant_model_poc_plan.md");
+        }
         parser.validate_no_extra_fields();
     }
 

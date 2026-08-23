@@ -26,11 +26,11 @@ struct TimedCommand {
 /**
  * Process model for the our-robot EKF: commands in, predicted state and Jacobian out.
  *
- * The production implementation mirrors auto_battlebot/plant.py exactly (deadzone, per-sign
- * gain, transport delay, asymmetric first-order lag, arc integration with 2 ms substeps) and is
- * configured by the fitted plant_params.toml plus a model-structure name. None is registered
- * yet: the plant fit has not passed its acceptance criteria and no ladder rung is selected, so
- * this slot stays empty on purpose. Tests drive the EKF with a stub implementation instead.
+ * JigPlantModel implements this, mirroring auto_battlebot/plant.py exactly (deadzone,
+ * per-sign gain, transport delay, asymmetric first-order lag, arc integration with 2 ms
+ * substeps), configured from the [robot_filter.motion_estimator.plant] table. The plant fit
+ * has not passed its acceptance criteria, so only sim, playback, and test configs opt in via
+ * our_robot_mode = "ekf"; production configs stay on dead reckoning on purpose.
  */
 class PlantModelInterface {
    public:

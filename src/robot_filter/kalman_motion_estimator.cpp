@@ -24,13 +24,20 @@ namespace auto_battlebot {
 
 KalmanMotionEstimator::KalmanMotionEstimator(const KalmanMotionEstimatorConfiguration &config)
     : config_(config),
-      diagnostics_logger_(DiagnosticsLogger::get_logger("kalman_motion_estimator")) {}
+      diagnostics_logger_(DiagnosticsLogger::get_logger("kalman_motion_estimator")) {
+    // Config validation already required the plant table when the mode is "ekf".
+    if (config_.our_robot_mode == "ekf" && config_.plant.has_value()) {
+        plant_model_ = std::make_unique<JigPlantModel>(*config_.plant, config_.plant_noise);
+    }
+}
 
 void KalmanMotionEstimator::reset() {
     opponent_tracks_.clear();
     our_tracks_.clear();
+    our_ekf_tracks_.clear();
     command_feedback_ = CommandFeedback{};
     command_history_.clear();
+    if (plant_model_) plant_model_->reset();
     last_field_ = FieldDescription{};
     has_field_ = false;
     last_field_margin_ = 0.0;
@@ -106,6 +113,65 @@ void KalmanMotionEstimator::advance_opponent(OpponentTrack &track, double target
     push_snapshot(track);
 }
 
+void KalmanMotionEstimator::advance_our_ekf(OurEkfTrack &track, double target_stamp) {
+    const double dt_total = target_stamp - track.stamp;
+    if (dt_total <= 0.0) return;
+    const double dt = std::min(dt_total, kMaxIntegrationStepS);
+
+    // Pose integration stops at the coast horizon (predicting further with this model is
+    // fiction, same as the opponent arm), but only for the span past it: a step that crosses
+    // the horizon still integrates its measured-side portion.
+    const double age = track.stamp - track.last_measured_stamp;
+    const double allowed = std::max(0.0, config_.max_coast_s - age);
+    const double move = dt_total > kMaxIntegrationStepS ? 0.0 : std::min(dt, allowed);
+
+    std::vector<TimedCommand> commands;
+    command_history_.gather(track.stamp - config_.plant->delay_s, track.stamp + dt, commands);
+
+    ekf::Mat<5, 5> jacobian = ekf::Mat<5, 5>::Identity();
+    if (move > 0.0) {
+        track.state = plant_model_->propagate(track.state, commands, track.stamp,
+                                              track.stamp + move, jacobian);
+    }
+    // Process noise covers the whole step, held or not: time passing without measurements is
+    // uncertainty regardless of whether the pose is allowed to move.
+    ekf::propagate_covariance<5>(track.covariance, jacobian,
+                                 plant_model_->process_noise(track.state, commands, dt));
+    track.stamp = target_stamp;
+}
+
+void KalmanMotionEstimator::init_our_ekf(OurEkfTrack &track, const RobotDescription &measurement,
+                                         double stamp, double position_variance) {
+    const Pose2D pose = pose_to_pose2d(measurement.pose);
+    track.state = PlantState{pose.x, pose.y, pose.yaw, 0.0, 0.0};
+    track.covariance = ekf::Mat<5, 5>::Zero();
+    track.covariance(0, 0) = track.covariance(1, 1) = position_variance;
+    track.covariance(2, 2) =
+        config_.keypoint_heading_sigma_rad * config_.keypoint_heading_sigma_rad;
+    track.covariance(3, 3) = config_.initial_velocity_sigma * config_.initial_velocity_sigma;
+    // Full-stick yaw rate as the initial yaw-rate sigma: the fitted gain is the scale of what
+    // the drivetrain can be doing while unobserved.
+    track.covariance(4, 4) = config_.plant->k_ang * config_.plant->k_ang;
+    track.stamp = stamp;
+    track.last_measured_stamp = stamp;
+    track.consecutive_rejects = 0;
+    track.output_stale = false;
+    track.description = measurement;
+}
+
+RobotDescription KalmanMotionEstimator::render_our_ekf(const OurEkfTrack &track,
+                                                       const PlantState &state, bool stale) const {
+    RobotDescription description = track.description;
+    const double z = description.pose.position.z;
+    description.pose = pose2d_to_pose(Pose2D{state.x, state.y, state.theta});
+    description.pose.position.z = z;
+    clip_to_field_bounds(description.pose.position, last_field_, last_field_margin_);
+    const Eigen::Vector2d velocity_field = body_velocity_to_field(state.v, 0.0, state.theta);
+    description.velocity = Velocity2D{velocity_field.x(), velocity_field.y(), state.w};
+    description.is_stale = stale;
+    return description;
+}
+
 void KalmanMotionEstimator::init_opponent(OpponentTrack &track, const RobotDescription &measurement,
                                           double stamp, double position_variance) {
     track.state << measurement.pose.position.x, measurement.pose.position.y, 0.0, 0.0;
@@ -172,15 +238,83 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
     int num_gated = 0;
     int num_reinit = 0;
     int num_rewind_missed = 0;
+    int num_heading_flips = 0;
 
     for (auto &input : measurements) {
         if (input.frame_id == FrameId::EMPTY) continue;
         measured_frame_ids.insert(input.frame_id);
 
         if (input.group == Group::OURS) {
-            OurTrack &track = our_tracks_[input.frame_id];
-            track.description = input;
-            track.last_measured_stamp = timestamp;
+            if (!plant_model_) {
+                OurTrack &track = our_tracks_[input.frame_id];
+                track.description = input;
+                track.last_measured_stamp = timestamp;
+                continue;
+            }
+
+            const ekf::Mat<2, 2> measurement_noise = measurement_noise_for(input, context);
+            auto [it, inserted] = our_ekf_tracks_.try_emplace(input.frame_id);
+            OurEkfTrack &track = it->second;
+            if (inserted) {
+                init_our_ekf(track, input, timestamp, measurement_noise(0, 0));
+                continue;
+            }
+            advance_our_ekf(track, timestamp);
+
+            const Pose2D measured_pose = pose_to_pose2d(input.pose);
+            ekf::Vec<5> state_vec;
+            state_vec << track.state.x, track.state.y, track.state.theta, track.state.v,
+                track.state.w;
+
+            // Blob centroids carry no heading, and a keypoint heading flipped past pi/2 is
+            // the front/back converter mislabeling, not the robot teleporting: both correct
+            // the position rows only.
+            const bool has_heading =
+                !input.keypoints.empty() &&
+                std::abs(ekf::wrap_angle(measured_pose.yaw - track.state.theta)) <= M_PI / 2.0;
+            if (!input.keypoints.empty() && !has_heading) ++num_heading_flips;
+
+            ekf::UpdateOutcome outcome;
+            if (has_heading) {
+                ekf::Mat<3, 5> observation = ekf::Mat<3, 5>::Zero();
+                observation(0, 0) = observation(1, 1) = observation(2, 2) = 1.0;
+                ekf::Mat<3, 3> noise = ekf::Mat<3, 3>::Zero();
+                noise(0, 0) = noise(1, 1) = measurement_noise(0, 0);
+                noise(2, 2) =
+                    config_.keypoint_heading_sigma_rad * config_.keypoint_heading_sigma_rad;
+                const ekf::Vec<3> measured(measured_pose.x, measured_pose.y, measured_pose.yaw);
+                const ekf::Vec<3> predicted(track.state.x, track.state.y, track.state.theta);
+                outcome = ekf::ekf_update<5, 3>(
+                    state_vec, track.covariance, measured, predicted, observation, noise,
+                    config_.gate_nis, {false, false, true}, {false, false, true, false, false},
+                    config_.covariance_floor);
+            } else {
+                ekf::Mat<2, 5> observation = ekf::Mat<2, 5>::Zero();
+                observation(0, 0) = observation(1, 1) = 1.0;
+                const ekf::Vec<2> measured(measured_pose.x, measured_pose.y);
+                const ekf::Vec<2> predicted(track.state.x, track.state.y);
+                outcome = ekf::ekf_update<5, 2>(state_vec, track.covariance, measured, predicted,
+                                                observation, measurement_noise, config_.gate_nis,
+                                                {false, false}, {false, false, true, false, false},
+                                                config_.covariance_floor);
+            }
+
+            if (outcome.accepted) {
+                track.state = PlantState{state_vec(0), state_vec(1), state_vec(2), state_vec(3),
+                                         state_vec(4)};
+                track.last_measured_stamp = timestamp;
+                track.consecutive_rejects = 0;
+                track.output_stale = false;
+                track.description = input;
+            } else {
+                ++num_gated;
+                track.output_stale = true;
+                ++track.consecutive_rejects;
+                if (track.consecutive_rejects >= config_.reinit_after_rejects) {
+                    init_our_ekf(track, input, timestamp, measurement_noise(0, 0));
+                    ++num_reinit;
+                }
+            }
             continue;
         }
 
@@ -256,6 +390,18 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         track.stamp = timestamp;
     }
 
+    // Our robot in ekf mode: propagate unmeasured tracks through the plant model, which is
+    // the coast behavior the jig fit exists to make honest.
+    for (auto &[frame_id, track] : our_ekf_tracks_) {
+        if (measured_frame_ids.count(frame_id) != 0) continue;
+        track.output_stale = true;
+        advance_our_ekf(track, timestamp);
+        Position predicted_position{track.state.x, track.state.y,
+                                    track.description.pose.position.z};
+        clip_to_field_bounds(predicted_position, field, context.field_bounds_margin_meters);
+        frame_id_assigner.set_last_position(frame_id, predicted_position);
+    }
+
     // Opponents without an accepted measurement this frame: predict to the frame time and keep
     // the assigner's association anchor on the predicted position.
     for (auto &[frame_id, track] : opponent_tracks_) {
@@ -278,31 +424,65 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                 (timestamp - it->second.last_measured_stamp) > context.our_robot_hold_window_s;
             it = expired ? our_tracks_.erase(it) : ++it;
         }
+        for (auto it = our_ekf_tracks_.begin(); it != our_ekf_tracks_.end();) {
+            const bool expired =
+                it->second.output_stale &&
+                (timestamp - it->second.last_measured_stamp) > context.our_robot_hold_window_s;
+            it = expired ? our_ekf_tracks_.erase(it) : ++it;
+        }
     }
 
     std::vector<RobotDescription> outputs;
-    outputs.reserve(our_tracks_.size() + opponent_tracks_.size());
+    outputs.reserve(our_tracks_.size() + our_ekf_tracks_.size() + opponent_tracks_.size());
     for (const auto &[frame_id, track] : our_tracks_) {
         RobotDescription output = track.description;
         output.is_stale = track.output_stale;
         outputs.push_back(std::move(output));
     }
+    for (const auto &[frame_id, track] : our_ekf_tracks_) {
+        outputs.push_back(render_our_ekf(track, track.state, track.output_stale));
+    }
     for (const auto &[frame_id, track] : opponent_tracks_) {
         outputs.push_back(render_opponent(track, field, track.output_stale));
     }
 
-    diagnostics_logger_->debug({{"num_our_tracks", static_cast<int>(our_tracks_.size())},
-                                {"num_opponent_tracks", static_cast<int>(opponent_tracks_.size())},
-                                {"num_measurements", static_cast<int>(measurements.size())},
-                                {"num_gated", num_gated},
-                                {"num_reinit", num_reinit},
-                                {"num_rewind_missed", num_rewind_missed}});
+    diagnostics_logger_->debug(
+        {{"num_our_tracks", static_cast<int>(our_tracks_.size() + our_ekf_tracks_.size())},
+         {"num_opponent_tracks", static_cast<int>(opponent_tracks_.size())},
+         {"num_measurements", static_cast<int>(measurements.size())},
+         {"num_gated", num_gated},
+         {"num_reinit", num_reinit},
+         {"num_rewind_missed", num_rewind_missed},
+         {"num_heading_flips", num_heading_flips}});
     return outputs;
 }
 
 std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double now) {
     std::vector<RobotDescription> outputs;
-    outputs.reserve(our_tracks_.size() + opponent_tracks_.size());
+    outputs.reserve(our_tracks_.size() + our_ekf_tracks_.size() + opponent_tracks_.size());
+
+    // Rendered on a copy, like the dead-reckoning arm: the committed state only advances in
+    // update(), so measurements always fold in at or after the track stamp and the our-robot
+    // arm needs no snapshot rewind. propagate_unwrapped skips the finite-difference Jacobian
+    // (10 extra plant integrations) that a covariance-free render never uses.
+    for (const auto &[frame_id, track] : our_ekf_tracks_) {
+        PlantState state = track.state;
+        const double dt = now - track.stamp;
+        const double age = track.stamp - track.last_measured_stamp;
+        const double allowed = std::max(0.0, config_.max_coast_s - age);
+        const double move = dt > kMaxIntegrationStepS ? 0.0 : std::min(dt, allowed);
+        if (move > 0.0) {
+            std::vector<TimedCommand> commands;
+            command_history_.gather(track.stamp - config_.plant->delay_s, track.stamp + move,
+                                    commands);
+            state =
+                plant_model_->propagate_unwrapped(state, commands, track.stamp, track.stamp + move);
+            state.theta = ekf::wrap_angle(state.theta);
+        }
+        const bool stale =
+            track.output_stale || (now - track.last_measured_stamp) > kCoastStaleAgeS;
+        outputs.push_back(render_our_ekf(track, state, stale));
+    }
 
     for (const auto &[frame_id, track] : our_tracks_) {
         RobotDescription output = track.description;

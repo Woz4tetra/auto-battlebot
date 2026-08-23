@@ -104,8 +104,31 @@ coast behavior across real perception dropouts (p90 gap 340 ms).
   the value is usable as-is; fixing the bound or the loss shape is fit-side work, not
   filter-side.
 
-## Next steps
+## Status 2026-08-23
 
-1. Implement steps 1-2 and the golden test; that alone proves the interface fits.
-2. Run `fit_process_noise.py` and wire the Q it produces.
-3. Playback replay on an NHRL recording with the plant-backed predict step.
+All three steps are done.
+
+1. Steps 1-2 and the golden test landed; C++ matches `plant.py` within 1e-9 over 2.4 s.
+2. `fit_process_noise.py` ran clean on the four stage A sessions. Along-track and heading
+   are scale-factor dominated (54% of speed, 178% of yaw rate), cross-track is white-noise
+   accel, delay jitter fit to zero. The script now also emits `heading_scale_factor`: its
+   output used to drop the heading h^2 term, which would have understated heading sigma
+   about 4x at 400 ms. `JigPlantModel::process_noise` maps the mechanisms per predict step,
+   with the h^2 and h^0 terms injected at a rate matched at the 400 ms design horizon
+   (exact at a full coast, conservative below it).
+3. `our_robot_mode = "ekf"` now runs a 5-state EKF through `JigPlantModel` (position +
+   heading corrections, heading-flip gate falls back to position-only). Only
+   `config/experiments/plant_model_playback.toml` opts in; production configs stay on
+   dead reckoning, and "ekf" without the plant table is still a config error.
+
+Replay on the NHRL 15-35 recording (ironwarrior, frames 3000-7177): the plant-backed
+predict ran the full match with no crash, our track live 93.2% of ticks, 3 reinits,
+74 heading-flip fallbacks. Measured-phase output is slightly smoother than the
+dead-reckoning baseline (p50 step 8.0 vs 10.7 mm).
+
+Coast accuracy is not scoreable from replay: the command history feeding the plant is the
+replay navigation's output, not the sticks that drove the recorded robot, so the model
+integrates commands that never happened. Reacquisition jumps after dropout gaps came out
+near the dead-reckoning baseline (p50 407 vs 415 mm on 150-400 ms gaps), which measures
+that mismatch, not the model. Scoring the coast needs a recording with the real command
+stream logged: a jig session or an autonomous-mode run.

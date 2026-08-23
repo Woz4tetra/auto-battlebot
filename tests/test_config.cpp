@@ -1368,6 +1368,24 @@ heading_random_walk = 0.5
     EXPECT_DOUBLE_EQ(kalman_config->plant_noise.q_along, JigPlantNoiseParams{}.q_along);
 }
 
+TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeAcceptedWithPlantTable) {
+    write_config_file(config_with_motion_estimator(std::string(R"(
+[robot_filter.motion_estimator]
+type = "KalmanMotionEstimator"
+our_robot_mode = "ekf"
+)") + kPlantTableToml));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *filter_config =
+        dynamic_cast<RobotFrontBackFilterConfiguration *>(config.robot_filter.get());
+    ASSERT_NE(filter_config, nullptr);
+    auto *kalman_config =
+        dynamic_cast<KalmanMotionEstimatorConfiguration *>(filter_config->motion_estimator.get());
+    ASSERT_NE(kalman_config, nullptr);
+    EXPECT_EQ(kalman_config->our_robot_mode, "ekf");
+    ASSERT_TRUE(kalman_config->plant.has_value());
+}
+
 TEST_F(ConfigTest, RobotFilterMotionEstimatorPlantMissingFieldThrows) {
     // Every plant field is required; drop delay_s and the parse must refuse rather than
     // default a fitted physical parameter to zero.

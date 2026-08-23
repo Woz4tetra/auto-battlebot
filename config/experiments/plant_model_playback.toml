@@ -1,12 +1,16 @@
 # Plant model PoC profile. Extends playback and enables the Kalman motion estimator with the
 # jig-fitted plant parameters, which is the config-chain home for the fitted values: sim and
-# playback opt in here while the production configs stay on dead reckoning. our_robot_mode
-# stays "dead_reckoning" on purpose; "ekf" is rejected until the plant fit passes acceptance.
-# See docs/experiments/kalman_filter/plant_model_poc_plan.md.
-extends = "playback/_playback"
+# playback opt in here while the production configs stay on dead reckoning. our_robot_mode =
+# "ekf" runs the our-robot 5-state EKF through JigPlantModel; the fit has not passed
+# acceptance (heading misses 4x at the 400 ms coast horizon), so only this experiment profile
+# opts in. See docs/experiments/kalman_filter/plant_model_poc_plan.md.
+# The plant is Mrs Buff Mk3's (the jig robot), so the base is her playback profile: replays
+# of the NHRL May matches get the right OUR/THEIR label mapping.
+extends = "playback/mrs_buff_mk3_playback"
 
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
+our_robot_mode = "ekf"
 
 # Stage A per-phase fit, playground/calibration/out/plant_stageA.toml, sessions 2026-08-19
 # through 2026-08-23, model M4 (drift terms disabled by the ladder, written as zero). The fit

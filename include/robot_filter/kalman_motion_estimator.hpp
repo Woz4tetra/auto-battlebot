@@ -3,12 +3,14 @@
 #include <Eigen/Dense>
 #include <array>
 #include <map>
+#include <memory>
 #include <optional>
 #include <vector>
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "robot_filter/command_ring_buffer.hpp"
 #include "robot_filter/ekf_math.hpp"
+#include "robot_filter/jig_plant_model.hpp"
 #include "robot_filter/motion_estimator_config.hpp"
 #include "robot_filter/motion_estimator_interface.hpp"
 
@@ -24,9 +26,13 @@ namespace auto_battlebot {
  * Measurements older than the track state (perception latency) are handled by rewinding to a
  * stored snapshot, correcting at the measurement's own stamp, and re-propagating.
  *
- * The our-robot track dead-reckons with the last commanded velocity, matching
- * DeadReckoningMotionEstimator for that track until a plant model is registered
- * (our_robot_mode = "ekf" is rejected at config validation until then).
+ * The our-robot track has two modes. "dead_reckoning" applies the last commanded velocity
+ * directly, matching DeadReckoningMotionEstimator for that track. "ekf" runs a 5-state EKF
+ * [x, y, theta, v, w] propagated through JigPlantModel with the issued-command history read
+ * at t - delay, corrected by keypoint poses (position + heading) or blob centroids
+ * (position only). A heading innovation past pi/2 falls back to the position rows: the
+ * front/back keypoint converter can flip, and folding a flipped heading in would spin the
+ * whole state.
  *
  * coast() renders every track advanced to the control-loop clock, so the emitted state moves
  * between perception frames instead of freezing at the last correct().
@@ -94,8 +100,30 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         bool output_stale = false;
     };
 
+    /** Our robot in "ekf" mode: 5-state [x, y, theta, v, w] propagated by the plant model. */
+    struct OurEkfTrack {
+        PlantState state;
+        ekf::Mat<5, 5> covariance = ekf::Mat<5, 5>::Zero();
+        double stamp = 0.0;
+        double last_measured_stamp = 0.0;
+        int consecutive_rejects = 0;
+        bool output_stale = false;
+        /** Non-kinematic fields of the latest accepted measurement, the output template. */
+        RobotDescription description;
+    };
+
     /** Propagates the track to target_stamp (no-op when not ahead) and stores a snapshot. */
     void advance_opponent(OpponentTrack &track, double target_stamp);
+    /** Propagates the our-robot EKF track through the plant model to target_stamp. Pose
+     * integration stops once the unmeasured age crosses max_coast_s; covariance keeps
+     * growing over the whole step either way. */
+    void advance_our_ekf(OurEkfTrack &track, double target_stamp);
+    /** Resets the track to this measurement with a fresh large covariance. */
+    void init_our_ekf(OurEkfTrack &track, const RobotDescription &measurement, double stamp,
+                      double position_variance);
+    /** Builds the output description from the track's current state. */
+    RobotDescription render_our_ekf(const OurEkfTrack &track, const PlantState &state,
+                                    bool stale) const;
     void push_snapshot(OpponentTrack &track);
     /**
      * Restores the newest snapshot at or before target_stamp and drops the ones after it.
@@ -119,6 +147,11 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
 
     std::map<FrameId, OpponentTrack> opponent_tracks_;
     std::map<FrameId, OurTrack> our_tracks_;
+    std::map<FrameId, OurEkfTrack> our_ekf_tracks_;
+
+    /** Present only in "ekf" mode; the concrete type so coast() can propagate a copy without
+     * paying for the finite-difference Jacobian. */
+    std::unique_ptr<JigPlantModel> plant_model_;
 
     /** Latest control input, for dead-reckoning our robot and coast extrapolation. */
     CommandFeedback command_feedback_;

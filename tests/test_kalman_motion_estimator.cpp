@@ -4,6 +4,7 @@
 
 #include "robot_filter/dead_reckoning_motion_estimator.hpp"
 #include "robot_filter/kalman_motion_estimator.hpp"
+#include "transform_utils.hpp"
 
 namespace auto_battlebot {
 namespace {
@@ -252,6 +253,151 @@ TEST(KalmanMotionEstimatorTest, OurRobotDropsAfterHoldWindow) {
     // Past the hold window the stale our-robot track decays away instead of being held forever.
     outputs = estimator.update({}, t0 + 0.2, assigner, field, context);
     EXPECT_TRUE(outputs.empty());
+}
+
+/** Stage A fit (plant_stageA.toml, 2026-08-23), same values as the config chain carries. */
+JigPlantParams stage_a_params() {
+    JigPlantParams params;
+    params.dz_lin_fwd = 0.0109768;
+    params.dz_lin_rev = 0.0253396;
+    params.dz_ang_l = 0.016061;
+    params.dz_ang_r = 0.0240734;
+    params.k_fwd = 4.88002;
+    params.k_rev = 4.3546;
+    params.k_ang = 31.7062;
+    params.tau_lin_a = 0.14921;
+    params.tau_lin_d = 0.123461;
+    params.tau_ang_a = 0.173867;
+    params.tau_ang_d = 0.0878998;
+    params.delay_s = 0.0522094;
+    params.c_sb = 2.70197;
+    params.c_ad = 0.463423;
+    return params;
+}
+
+KalmanMotionEstimatorConfiguration ekf_config() {
+    KalmanMotionEstimatorConfiguration config;
+    config.our_robot_mode = "ekf";
+    config.plant = stage_a_params();
+    return config;
+}
+
+/** A keypoint-derived our-robot pose measurement: keypoints non-empty marks it as carrying a
+ * trustworthy heading, matching what the front/back converter emits. */
+RobotDescription make_our_pose_measurement(const PlantState &truth) {
+    RobotDescription description;
+    description.frame_id = FrameId::OUR_ROBOT_1;
+    description.label = Label::MR_STABS_MK1;
+    description.group = Group::OURS;
+    description.pose = pose2d_to_pose(Pose2D{truth.x, truth.y, truth.theta});
+    description.size = Size{0.25, 0.25, 0.1};
+    description.keypoints.push_back(Position{truth.x, truth.y, 0.0});
+    return description;
+}
+
+/** Runs `steps` measured frames at 30 Hz with a constant command, generating the measurement
+ * from a truth plant driven by the same command history the estimator sees. */
+double run_ekf_measured_phase(KalmanMotionEstimator &estimator, JigPlantModel &truth_model,
+                              PlantState &truth, std::vector<TimedCommand> &truth_history,
+                              const VelocityCommand &command, FrameIdAssigner &assigner,
+                              const FieldDescription &field, const MotionEstimatorContext &context,
+                              int steps) {
+    CommandFeedback feedback;
+    feedback.commands[FrameId::OUR_ROBOT_1] = command;
+    double t = kStartTime;
+    for (int i = 0; i < steps; ++i) {
+        estimator.predict(t, feedback);
+        truth_history.push_back(TimedCommand{t, command});
+        if (i > 0) {
+            truth = truth_model.propagate_unwrapped(truth, truth_history, t - kDt, t);
+        }
+        estimator.update({make_our_pose_measurement(truth)}, t, assigner, field, context);
+        if (i + 1 < steps) t += kDt;
+    }
+    return t;
+}
+
+TEST(KalmanMotionEstimatorTest, OurRobotEkfTracksPlantTruthThroughDropout) {
+    KalmanMotionEstimator estimator{ekf_config()};
+    JigPlantModel truth_model(stage_a_params());
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    // A gentle arc: v about 1.3 m/s, w about 0.95 rad/s under the stage A gains.
+    const VelocityCommand command{0.3, 0.0, 0.05};
+    PlantState truth;
+    std::vector<TimedCommand> truth_history;
+    double t = run_ekf_measured_phase(estimator, truth_model, truth, truth_history, command,
+                                      assigner, field, context, 60);
+    ASSERT_GT(truth.v, 1.0);
+
+    // 300 ms of dropout, inside the 400 ms coast horizon: the filter propagates through the
+    // plant model with the held command and stays on the truth it was converged to.
+    CommandFeedback feedback;
+    feedback.commands[FrameId::OUR_ROBOT_1] = command;
+    for (int i = 0; i < 9; ++i) {
+        const double prev_t = t;
+        t += kDt;
+        estimator.predict(t, feedback);
+        truth_history.push_back(TimedCommand{t, command});
+        truth = truth_model.propagate_unwrapped(truth, truth_history, prev_t, t);
+        auto outputs = estimator.update({}, t, assigner, field, context);
+        ASSERT_EQ(outputs.size(), 1u);
+        EXPECT_TRUE(outputs[0].is_stale);
+        EXPECT_NEAR(outputs[0].pose.position.x, truth.x, 0.03) << "dropout frame " << i;
+        EXPECT_NEAR(outputs[0].pose.position.y, truth.y, 0.03) << "dropout frame " << i;
+        const double yaw = pose_to_pose2d(outputs[0].pose).yaw;
+        EXPECT_NEAR(std::remainder(yaw - truth.theta, 2.0 * M_PI), 0.0, 0.05)
+            << "dropout frame " << i;
+    }
+
+    // Past the coast horizon the pose freezes instead of integrating fiction.
+    std::vector<RobotDescription> frozen;
+    for (int i = 0; i < 9; ++i) {
+        t += kDt;
+        estimator.predict(t, feedback);
+        frozen = estimator.update({}, t, assigner, field, context);
+        ASSERT_EQ(frozen.size(), 1u);
+    }
+    const double frozen_x = frozen[0].pose.position.x;
+    t += kDt;
+    estimator.predict(t, feedback);
+    frozen = estimator.update({}, t, assigner, field, context);
+    ASSERT_EQ(frozen.size(), 1u);
+    EXPECT_NEAR(frozen[0].pose.position.x, frozen_x, 1e-9);
+}
+
+TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
+    KalmanMotionEstimator estimator{ekf_config()};
+    JigPlantModel truth_model(stage_a_params());
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    const VelocityCommand command{0.3, 0.0, 0.0};
+    PlantState truth;
+    std::vector<TimedCommand> truth_history;
+    double t = run_ekf_measured_phase(estimator, truth_model, truth, truth_history, command,
+                                      assigner, field, context, 40);
+
+    // The front/back converter mislabels: heading arrives flipped by pi, position correct.
+    t += kDt;
+    CommandFeedback feedback;
+    feedback.commands[FrameId::OUR_ROBOT_1] = command;
+    estimator.predict(t, feedback);
+    truth_history.push_back(TimedCommand{t, command});
+    truth = truth_model.propagate_unwrapped(truth, truth_history, t - kDt, t);
+    PlantState flipped = truth;
+    flipped.theta = truth.theta + M_PI;
+    auto outputs =
+        estimator.update({make_our_pose_measurement(flipped)}, t, assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    // Position folded in, heading kept: the estimate must not spin toward the flip.
+    EXPECT_FALSE(outputs[0].is_stale);
+    EXPECT_NEAR(outputs[0].pose.position.x, truth.x, 0.03);
+    const double yaw = pose_to_pose2d(outputs[0].pose).yaw;
+    EXPECT_NEAR(std::remainder(yaw - truth.theta, 2.0 * M_PI), 0.0, 0.1);
 }
 
 TEST(KalmanMotionEstimatorTest, ResetClearsTracks) {
