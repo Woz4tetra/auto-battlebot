@@ -1,0 +1,80 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-23T04:17:57Z-lin_sine-0"
+log_file = "LOG-135.TXT"
+command_file = "LOG-135.cmd.csv"
+rep = 0
+started_utc = "2026-08-23T04:17:57Z"
+duration_s = 10.0
+verdict = "pass"
+gates = ""
+warnings = "accel clipped on ay x1, peak 16.0 g. Check the plot: an impact mid-run is worth knowing about, handling at either end is not"
+contamination = 0.002
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "lin_sine"
+kind = "sine"
+channel = "linear"
+role = "holdout"
+label = "linear sine"
+
+[waveform.params]
+hold_s = 2.0
+coast_s = 4.0
+angular_cap = 0.24
+freq_hz = 1.0
+amplitude = 0.4
+cycles = 10
+
+[transfer]
+samples = 0
+dropped = 0
+bytes = 1359738
+
+[clock]
+skew_ppm = 5.09001311685153
+
+[clock.pre]
+offset_ms = 6374942.892589749
+residual_ms = 0.004712574854241216
+at_host_ms = 9723879.507180002
+at_jig_ms = 3348936.62
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 6374943.11574375
+residual_ms = 0.004054252531236938
+at_host_ms = 9767721.268906
+at_jig_ms = 3392778.1575
+kept = 20
+total = 200
+
+[hold.pre]
+start = 9726.310054745
+end = 9731.310610329
+
+[hold.post]
+start = 9746.716901783
+end = 9751.717516048
+
+[session]
+id = "2026-08-23"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "ece9e0f"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

@@ -1,0 +1,78 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-23T04:36:26Z-operator-0"
+log_file = "LOG-145.TXT"
+command_file = "LOG-145.cmd.csv"
+rep = 0
+started_utc = "2026-08-23T04:36:26Z"
+duration_s = 60.0
+verdict = "pass"
+gates = ""
+warnings = "accel clipped on ay x2, peak 16.0 g. Check the plot: an impact mid-run is worth knowing about, handling at either end is not"
+contamination = 0.0
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "operator"
+kind = "manual"
+channel = "combined"
+role = "holdout"
+label = "operator driving"
+
+[waveform.params]
+hold_s = 2.0
+coast_s = 3.0
+angular_cap = 0.24
+duration_s = 60
+
+[transfer]
+samples = 0
+dropped = 0
+bytes = 3543445
+
+[clock]
+skew_ppm = 15.073274882386318
+
+[clock.pre]
+offset_ms = 6374950.291672501
+residual_ms = 0.006223168796481491
+at_host_ms = 10778161.915948
+at_jig_ms = 4403211.6345
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 6374951.6492345
+residual_ms = 0.010667590362825795
+at_host_ms = 10868227.4431605
+at_jig_ms = 4493275.805
+kept = 20
+total = 200
+
+[hold.pre]
+start = 10780.936014308
+end = 10785.936135823
+
+[hold.post]
+start = 10847.491733727
+end = 10852.492129229
+
+[session]
+id = "2026-08-23"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "ece9e0f"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

@@ -1,0 +1,521 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-23T04:39:18Z-ang_deadzone-0"
+log_file = "LOG-146.TXT"
+command_file = "LOG-146.cmd.csv"
+rep = 0
+started_utc = "2026-08-23T04:39:18Z"
+duration_s = 131.20365030000175
+verdict = "pass"
+gates = ""
+warnings = ""
+contamination = 0.001
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "ang_deadzone"
+kind = "staircase"
+channel = "angular"
+role = "fit"
+label = "angular deadzone staircase"
+
+[waveform.params]
+hold_s = 2.0
+coast_s = 3.0
+angular_cap = 0.24
+from = 0.001
+to = 0.03
+step = 0.001
+both_directions = true
+
+[[segment]]
+t0 = 0.0
+t1 = 2.0
+linear = 0.0
+angular = 0.001
+label = "staircase_0.001"
+
+[[segment]]
+t0 = 2.0
+t1 = 4.0
+linear = 0.0
+angular = 0.002
+label = "staircase_0.002"
+
+[[segment]]
+t0 = 4.0
+t1 = 6.0
+linear = 0.0
+angular = 0.003
+label = "staircase_0.003"
+
+[[segment]]
+t0 = 6.0
+t1 = 8.0
+linear = 0.0
+angular = 0.004
+label = "staircase_0.004"
+
+[[segment]]
+t0 = 8.0
+t1 = 10.0
+linear = 0.0
+angular = 0.005
+label = "staircase_0.005"
+
+[[segment]]
+t0 = 10.0
+t1 = 12.0
+linear = 0.0
+angular = 0.006
+label = "staircase_0.006"
+
+[[segment]]
+t0 = 12.0
+t1 = 14.0
+linear = 0.0
+angular = 0.007
+label = "staircase_0.007"
+
+[[segment]]
+t0 = 14.0
+t1 = 16.0
+linear = 0.0
+angular = 0.008
+label = "staircase_0.008"
+
+[[segment]]
+t0 = 16.0
+t1 = 18.0
+linear = 0.0
+angular = 0.009000000000000001
+label = "staircase_0.009"
+
+[[segment]]
+t0 = 18.0
+t1 = 20.0
+linear = 0.0
+angular = 0.010000000000000002
+label = "staircase_0.010"
+
+[[segment]]
+t0 = 20.0
+t1 = 22.0
+linear = 0.0
+angular = 0.011000000000000003
+label = "staircase_0.011"
+
+[[segment]]
+t0 = 22.0
+t1 = 24.0
+linear = 0.0
+angular = 0.012000000000000004
+label = "staircase_0.012"
+
+[[segment]]
+t0 = 24.0
+t1 = 26.0
+linear = 0.0
+angular = 0.013000000000000005
+label = "staircase_0.013"
+
+[[segment]]
+t0 = 26.0
+t1 = 28.0
+linear = 0.0
+angular = 0.014000000000000005
+label = "staircase_0.014"
+
+[[segment]]
+t0 = 28.0
+t1 = 30.0
+linear = 0.0
+angular = 0.015000000000000006
+label = "staircase_0.015"
+
+[[segment]]
+t0 = 30.0
+t1 = 32.0
+linear = 0.0
+angular = 0.016000000000000007
+label = "staircase_0.016"
+
+[[segment]]
+t0 = 32.0
+t1 = 34.0
+linear = 0.0
+angular = 0.017000000000000008
+label = "staircase_0.017"
+
+[[segment]]
+t0 = 34.0
+t1 = 36.0
+linear = 0.0
+angular = 0.01800000000000001
+label = "staircase_0.018"
+
+[[segment]]
+t0 = 36.0
+t1 = 38.0
+linear = 0.0
+angular = 0.01900000000000001
+label = "staircase_0.019"
+
+[[segment]]
+t0 = 38.0
+t1 = 40.0
+linear = 0.0
+angular = 0.02000000000000001
+label = "staircase_0.020"
+
+[[segment]]
+t0 = 40.0
+t1 = 42.0
+linear = 0.0
+angular = 0.02100000000000001
+label = "staircase_0.021"
+
+[[segment]]
+t0 = 42.0
+t1 = 44.0
+linear = 0.0
+angular = 0.022000000000000013
+label = "staircase_0.022"
+
+[[segment]]
+t0 = 44.0
+t1 = 46.0
+linear = 0.0
+angular = 0.023000000000000013
+label = "staircase_0.023"
+
+[[segment]]
+t0 = 46.0
+t1 = 48.0
+linear = 0.0
+angular = 0.024000000000000014
+label = "staircase_0.024"
+
+[[segment]]
+t0 = 48.0
+t1 = 50.0
+linear = 0.0
+angular = 0.025000000000000015
+label = "staircase_0.025"
+
+[[segment]]
+t0 = 50.0
+t1 = 52.0
+linear = 0.0
+angular = 0.026000000000000016
+label = "staircase_0.026"
+
+[[segment]]
+t0 = 52.0
+t1 = 54.0
+linear = 0.0
+angular = 0.027000000000000017
+label = "staircase_0.027"
+
+[[segment]]
+t0 = 54.0
+t1 = 56.0
+linear = 0.0
+angular = 0.028000000000000018
+label = "staircase_0.028"
+
+[[segment]]
+t0 = 56.0
+t1 = 58.0
+linear = 0.0
+angular = 0.02900000000000002
+label = "staircase_0.029"
+
+[[segment]]
+t0 = 58.0
+t1 = 60.0
+linear = 0.0
+angular = 0.03000000000000002
+label = "staircase_0.030"
+
+[[segment]]
+t0 = 60.0
+t1 = 61.5
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 69.70365030000175
+t1 = 71.70365030000175
+linear = 0.0
+angular = -0.001
+label = "staircase_0.001"
+
+[[segment]]
+t0 = 71.70365030000175
+t1 = 73.70365030000175
+linear = 0.0
+angular = -0.002
+label = "staircase_0.002"
+
+[[segment]]
+t0 = 73.70365030000175
+t1 = 75.70365030000175
+linear = 0.0
+angular = -0.003
+label = "staircase_0.003"
+
+[[segment]]
+t0 = 75.70365030000175
+t1 = 77.70365030000175
+linear = 0.0
+angular = -0.004
+label = "staircase_0.004"
+
+[[segment]]
+t0 = 77.70365030000175
+t1 = 79.70365030000175
+linear = 0.0
+angular = -0.005
+label = "staircase_0.005"
+
+[[segment]]
+t0 = 79.70365030000175
+t1 = 81.70365030000175
+linear = 0.0
+angular = -0.006
+label = "staircase_0.006"
+
+[[segment]]
+t0 = 81.70365030000175
+t1 = 83.70365030000175
+linear = 0.0
+angular = -0.007
+label = "staircase_0.007"
+
+[[segment]]
+t0 = 83.70365030000175
+t1 = 85.70365030000175
+linear = 0.0
+angular = -0.008
+label = "staircase_0.008"
+
+[[segment]]
+t0 = 85.70365030000175
+t1 = 87.70365030000175
+linear = 0.0
+angular = -0.009000000000000001
+label = "staircase_0.009"
+
+[[segment]]
+t0 = 87.70365030000175
+t1 = 89.70365030000175
+linear = 0.0
+angular = -0.010000000000000002
+label = "staircase_0.010"
+
+[[segment]]
+t0 = 89.70365030000175
+t1 = 91.70365030000175
+linear = 0.0
+angular = -0.011000000000000003
+label = "staircase_0.011"
+
+[[segment]]
+t0 = 91.70365030000175
+t1 = 93.70365030000175
+linear = 0.0
+angular = -0.012000000000000004
+label = "staircase_0.012"
+
+[[segment]]
+t0 = 93.70365030000175
+t1 = 95.70365030000175
+linear = 0.0
+angular = -0.013000000000000005
+label = "staircase_0.013"
+
+[[segment]]
+t0 = 95.70365030000175
+t1 = 97.70365030000175
+linear = 0.0
+angular = -0.014000000000000005
+label = "staircase_0.014"
+
+[[segment]]
+t0 = 97.70365030000175
+t1 = 99.70365030000175
+linear = 0.0
+angular = -0.015000000000000006
+label = "staircase_0.015"
+
+[[segment]]
+t0 = 99.70365030000175
+t1 = 101.70365030000175
+linear = 0.0
+angular = -0.016000000000000007
+label = "staircase_0.016"
+
+[[segment]]
+t0 = 101.70365030000175
+t1 = 103.70365030000175
+linear = 0.0
+angular = -0.017000000000000008
+label = "staircase_0.017"
+
+[[segment]]
+t0 = 103.70365030000175
+t1 = 105.70365030000175
+linear = 0.0
+angular = -0.01800000000000001
+label = "staircase_0.018"
+
+[[segment]]
+t0 = 105.70365030000175
+t1 = 107.70365030000175
+linear = 0.0
+angular = -0.01900000000000001
+label = "staircase_0.019"
+
+[[segment]]
+t0 = 107.70365030000175
+t1 = 109.70365030000175
+linear = 0.0
+angular = -0.02000000000000001
+label = "staircase_0.020"
+
+[[segment]]
+t0 = 109.70365030000175
+t1 = 111.70365030000175
+linear = 0.0
+angular = -0.02100000000000001
+label = "staircase_0.021"
+
+[[segment]]
+t0 = 111.70365030000175
+t1 = 113.70365030000175
+linear = 0.0
+angular = -0.022000000000000013
+label = "staircase_0.022"
+
+[[segment]]
+t0 = 113.70365030000175
+t1 = 115.70365030000175
+linear = 0.0
+angular = -0.023000000000000013
+label = "staircase_0.023"
+
+[[segment]]
+t0 = 115.70365030000175
+t1 = 117.70365030000175
+linear = 0.0
+angular = -0.024000000000000014
+label = "staircase_0.024"
+
+[[segment]]
+t0 = 117.70365030000175
+t1 = 119.70365030000175
+linear = 0.0
+angular = -0.025000000000000015
+label = "staircase_0.025"
+
+[[segment]]
+t0 = 119.70365030000175
+t1 = 121.70365030000175
+linear = 0.0
+angular = -0.026000000000000016
+label = "staircase_0.026"
+
+[[segment]]
+t0 = 121.70365030000175
+t1 = 123.70365030000175
+linear = 0.0
+angular = -0.027000000000000017
+label = "staircase_0.027"
+
+[[segment]]
+t0 = 123.70365030000175
+t1 = 125.70365030000175
+linear = 0.0
+angular = -0.028000000000000018
+label = "staircase_0.028"
+
+[[segment]]
+t0 = 125.70365030000175
+t1 = 127.70365030000175
+linear = 0.0
+angular = -0.02900000000000002
+label = "staircase_0.029"
+
+[[segment]]
+t0 = 127.70365030000175
+t1 = 129.70365030000175
+linear = 0.0
+angular = -0.03000000000000002
+label = "staircase_0.030"
+
+[[segment]]
+t0 = 129.70365030000175
+t1 = 131.20365030000175
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[pause]]
+program_t = 61.5
+held_s = 8.204
+t_start = 10967.463199
+t_end = 10975.666849
+
+[transfer]
+samples = 0
+dropped = 0
+bytes = 5455533
+
+[clock]
+skew_ppm = 12.674791144681466
+
+[clock.pre]
+offset_ms = 6374952.014432499
+residual_ms = 0.00884803507375423
+at_host_ms = 10892876.569124
+at_jig_ms = 4517924.5675
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 6374954.026105499
+residual_ms = 0.010434383714719773
+at_host_ms = 11051593.0715905
+at_jig_ms = 4676639.0565
+kept = 20
+total = 200
+
+[hold.pre]
+start = 10895.393269451
+end = 10900.393843925
+
+[hold.post]
+start = 11037.176199747
+end = 11042.176643997
+
+[session]
+id = "2026-08-23"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "ece9e0f"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

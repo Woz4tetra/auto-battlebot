@@ -37,6 +37,7 @@ import tomllib
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from calib_lib import drive_protocol as dp  # noqa: E402
+from calib_lib import jig_link as jl  # noqa: E402
 from velocity_jig_drive import (  # noqa: E402
     COMMAND_PREAMBLE,
     command_row,
@@ -141,7 +142,7 @@ def rederive(toml_path: Path, mix: dp.MixConfig, hold_s: float, write: bool) -> 
         cmd_t = read_command_log(csv_path)["t_host_s"] if csv_path.exists() else []
         pauses = pause_windows_from_commands(cmd_t, program_t) if entries else []
 
-    result = dp.PlayResult(commands=samples, pauses=pauses)
+    result = dp.PlayResult(commands=samples, pauses=pauses, mix=mix)
     contamination = result.contamination if samples else float(run.get("contamination", 0.0))
 
     hold = data.get("hold", {})
@@ -151,11 +152,18 @@ def rederive(toml_path: Path, mix: dp.MixConfig, hold_s: float, write: bool) -> 
         if "start" in w and "end" in w
     }
     transfer = dict(data.get("transfer", {}))
+    # Recomputed from the probes rather than carried over. The stored value is only as good
+    # as the version of `skew_ppm` that wrote it, and the pre-2026-08-23 one divided across a
+    # reboot: LOG-119 carried -1048410 ppm, which nothing should ever apply.
+    if clock_pre is not None and clock_post is not None:
+        skew: float | None = jl.skew_ppm(clock_pre, clock_post)
+    else:
+        skew = data.get("clock", {}).get("skew_ppm")
     found = gates(
         int(transfer.get("dropped", 0) or 0),
         clock_pre,
         clock_post,
-        float(data.get("clock", {}).get("skew_ppm", 0.0) or 0.0),
+        float(skew or 0.0),
         int(transfer.get("samples", 0) or 0),
         hold_s,
         contamination,
@@ -180,6 +188,9 @@ def rederive(toml_path: Path, mix: dp.MixConfig, hold_s: float, write: bool) -> 
         changes.append(
             f"contamination {float(run.get('contamination', 0.0)):.3f} -> {contamination:.3f}"
         )
+    stored_skew = data.get("clock", {}).get("skew_ppm")
+    if stored_skew is not None and skew is not None and abs(float(stored_skew) - skew) > 1e-6:
+        changes.append(f"skew {float(stored_skew):.1f} -> {skew:.1f} ppm")
     if entries and not all(p is not None for p in parsed):
         changes.append(f"{len(pauses)} pause windows recovered from the command gaps")
     if not changes:
@@ -204,7 +215,7 @@ def rederive(toml_path: Path, mix: dp.MixConfig, hold_s: float, write: bool) -> 
         transfer=transfer,
         clock_pre=clock_pre,
         clock_post=clock_post,
-        skew_ppm=data.get("clock", {}).get("skew_ppm"),
+        skew_ppm=skew,
         holds=holds,
         session=dict(data.get("session", {})),
         provenance=provenance,

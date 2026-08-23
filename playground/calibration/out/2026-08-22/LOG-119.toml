@@ -1,0 +1,633 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-23T03:22:37Z-coupling_grid-0"
+log_file = "LOG-119.TXT"
+command_file = "LOG-119.cmd.csv"
+rep = 0
+started_utc = "2026-08-23T03:22:37Z"
+duration_s = 218.5651898649976
+verdict = "pass"
+gates = ""
+warnings = "the jig rebooted between clock probes (uptime 5185 s -> 7 s): no skew correction, and the stop counts are lost; the log's last row is truncated: the board reset or lost power between the write and the flush. Every row before it parsed"
+contamination = 0.0178
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "coupling_grid"
+kind = "grid"
+channel = "combined"
+role = "fit"
+label = "coupling grid"
+
+[waveform.params]
+hold_s = 1.5
+coast_s = 4.0
+angular_cap = 0.24
+linear = [0.25, 0.5, 0.7, 0.76]
+angular = [-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3]
+
+[[segment]]
+t0 = 0.0
+t1 = 1.5
+linear = 0.25
+angular = -0.24
+label = "grid_0.25_-0.24"
+
+[[segment]]
+t0 = 1.5
+t1 = 3.0
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 3.9723606269999436
+t1 = 5.472360626999944
+linear = 0.25
+angular = -0.16
+label = "grid_0.25_-0.16"
+
+[[segment]]
+t0 = 5.472360626999944
+t1 = 6.972360626999944
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 10.326656175999233
+t1 = 11.826656175999233
+linear = 0.25
+angular = -0.08
+label = "grid_0.25_-0.08"
+
+[[segment]]
+t0 = 11.826656175999233
+t1 = 13.326656175999233
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 17.11869854899942
+t1 = 18.61869854899942
+linear = 0.25
+angular = 0.0
+label = "grid_0.25_0"
+
+[[segment]]
+t0 = 18.61869854899942
+t1 = 20.11869854899942
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 20.792237811999257
+t1 = 22.292237811999257
+linear = 0.25
+angular = 0.08
+label = "grid_0.25_0.08"
+
+[[segment]]
+t0 = 22.292237811999257
+t1 = 23.792237811999257
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 28.57338268699914
+t1 = 30.07338268699914
+linear = 0.25
+angular = 0.16
+label = "grid_0.25_0.16"
+
+[[segment]]
+t0 = 30.07338268699914
+t1 = 31.57338268699914
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 32.03542941899832
+t1 = 33.53542941899832
+linear = 0.25
+angular = 0.24
+label = "grid_0.25_0.24"
+
+[[segment]]
+t0 = 33.53542941899832
+t1 = 35.03542941899832
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 35.673968405998494
+t1 = 37.173968405998494
+linear = 0.5
+angular = -0.24
+label = "grid_0.5_-0.24"
+
+[[segment]]
+t0 = 37.173968405998494
+t1 = 38.673968405998494
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 39.188653283998065
+t1 = 40.688653283998065
+linear = 0.5
+angular = -0.16
+label = "grid_0.5_-0.16"
+
+[[segment]]
+t0 = 40.688653283998065
+t1 = 42.188653283998065
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 45.09409172799769
+t1 = 46.59409172799769
+linear = 0.5
+angular = -0.08
+label = "grid_0.5_-0.08"
+
+[[segment]]
+t0 = 46.59409172799769
+t1 = 48.09409172799769
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 52.94648117799716
+t1 = 54.44648117799716
+linear = 0.5
+angular = 0.0
+label = "grid_0.5_0"
+
+[[segment]]
+t0 = 54.44648117799716
+t1 = 55.94648117799716
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 63.25641327599715
+t1 = 64.75641327599715
+linear = 0.5
+angular = 0.08
+label = "grid_0.5_0.08"
+
+[[segment]]
+t0 = 64.75641327599715
+t1 = 66.25641327599715
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 73.99248264299695
+t1 = 75.49248264299695
+linear = 0.5
+angular = 0.16
+label = "grid_0.5_0.16"
+
+[[segment]]
+t0 = 75.49248264299695
+t1 = 76.99248264299695
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 77.39333770299709
+t1 = 78.89333770299709
+linear = 0.5
+angular = 0.24
+label = "grid_0.5_0.24"
+
+[[segment]]
+t0 = 78.89333770299709
+t1 = 80.39333770299709
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 85.22557972799677
+t1 = 86.72557972799677
+linear = 0.7
+angular = -0.24
+label = "grid_0.7_-0.24"
+
+[[segment]]
+t0 = 86.72557972799677
+t1 = 88.22557972799677
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 92.99710250899716
+t1 = 94.49710250899716
+linear = 0.7
+angular = -0.16
+label = "grid_0.7_-0.16"
+
+[[segment]]
+t0 = 94.49710250899716
+t1 = 95.99710250899716
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 101.22904797999763
+t1 = 102.72904797999763
+linear = 0.7
+angular = -0.08
+label = "grid_0.7_-0.08"
+
+[[segment]]
+t0 = 102.72904797999763
+t1 = 104.22904797999763
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 111.63634436199754
+t1 = 113.13634436199754
+linear = 0.7
+angular = 0.0
+label = "grid_0.7_0"
+
+[[segment]]
+t0 = 113.13634436199754
+t1 = 114.63634436199754
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 125.53374759299732
+t1 = 127.03374759299732
+linear = 0.7
+angular = 0.08
+label = "grid_0.7_0.08"
+
+[[segment]]
+t0 = 127.03374759299732
+t1 = 128.53374759299732
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 136.5476738929974
+t1 = 138.0476738929974
+linear = 0.7
+angular = 0.16
+label = "grid_0.7_0.16"
+
+[[segment]]
+t0 = 138.0476738929974
+t1 = 139.5476738929974
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 150.23404985999787
+t1 = 151.73404985999787
+linear = 0.7
+angular = 0.24
+label = "grid_0.7_0.24"
+
+[[segment]]
+t0 = 151.73404985999787
+t1 = 153.23404985999787
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 157.06643918699774
+t1 = 158.56643918699774
+linear = 0.76
+angular = -0.24
+label = "grid_0.76_-0.24"
+
+[[segment]]
+t0 = 158.56643918699774
+t1 = 160.06643918699774
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 160.06660699899749
+t1 = 161.56660699899749
+linear = 0.76
+angular = -0.16
+label = "grid_0.76_-0.16"
+
+[[segment]]
+t0 = 161.56660699899749
+t1 = 163.06660699899749
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 166.91452249099802
+t1 = 168.41452249099802
+linear = 0.76
+angular = -0.08
+label = "grid_0.76_-0.08"
+
+[[segment]]
+t0 = 168.41452249099802
+t1 = 169.91452249099802
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 176.2330351749979
+t1 = 177.7330351749979
+linear = 0.76
+angular = 0.0
+label = "grid_0.76_0"
+
+[[segment]]
+t0 = 177.7330351749979
+t1 = 179.2330351749979
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 190.13277204199767
+t1 = 191.63277204199767
+linear = 0.76
+angular = 0.08
+label = "grid_0.76_0.08"
+
+[[segment]]
+t0 = 191.63277204199767
+t1 = 193.13277204199767
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 202.64006238099773
+t1 = 204.14006238099773
+linear = 0.76
+angular = 0.16
+label = "grid_0.76_0.16"
+
+[[segment]]
+t0 = 204.14006238099773
+t1 = 205.64006238099773
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 215.5651898649976
+t1 = 217.0651898649976
+linear = 0.76
+angular = 0.24
+label = "grid_0.76_0.24"
+
+[[segment]]
+t0 = 217.0651898649976
+t1 = 218.5651898649976
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[pause]]
+program_t = 3.0
+held_s = 0.972
+t_start = 6151.539412
+t_end = 6152.511773
+
+[[pause]]
+program_t = 6.0
+held_s = 3.354
+t_start = 6155.5042
+t_end = 6158.858496
+
+[[pause]]
+program_t = 9.0
+held_s = 3.792
+t_start = 6161.869093
+t_end = 6165.661135
+
+[[pause]]
+program_t = 12.0
+held_s = 0.674
+t_start = 6168.649715
+t_end = 6169.323254
+
+[[pause]]
+program_t = 15.0
+held_s = 4.781
+t_start = 6172.33823
+t_end = 6177.119375
+
+[[pause]]
+program_t = 18.0
+held_s = 0.462
+t_start = 6180.112039
+t_end = 6180.574085
+
+[[pause]]
+program_t = 21.0
+held_s = 0.639
+t_start = 6183.566862
+t_end = 6184.205401
+
+[[pause]]
+program_t = 24.0
+held_s = 0.515
+t_start = 6187.213627
+t_end = 6187.728312
+
+[[pause]]
+program_t = 27.0
+held_s = 2.905
+t_start = 6190.717958
+t_end = 6193.623397
+
+[[pause]]
+program_t = 30.0
+held_s = 4.852
+t_start = 6196.633787
+t_end = 6201.486176
+
+[[pause]]
+program_t = 33.0
+held_s = 7.31
+t_start = 6204.491822
+t_end = 6211.801754
+
+[[pause]]
+program_t = 36.0
+held_s = 7.736
+t_start = 6214.790658
+t_end = 6222.526727
+
+[[pause]]
+program_t = 39.0
+held_s = 0.401
+t_start = 6225.536034
+t_end = 6225.936889
+
+[[pause]]
+program_t = 42.0
+held_s = 4.832
+t_start = 6228.927667
+t_end = 6233.75991
+
+[[pause]]
+program_t = 45.0
+held_s = 4.772
+t_start = 6236.769969
+t_end = 6241.541492
+
+[[pause]]
+program_t = 48.0
+held_s = 5.232
+t_start = 6244.531832
+t_end = 6249.763777
+
+[[pause]]
+program_t = 51.0
+held_s = 7.407
+t_start = 6252.774277
+t_end = 6260.181573
+
+[[pause]]
+program_t = 54.0
+held_s = 10.897
+t_start = 6263.17251
+t_end = 6274.069913
+
+[[pause]]
+program_t = 57.0
+held_s = 8.014
+t_start = 6277.064684
+t_end = 6285.07861
+
+[[pause]]
+program_t = 60.0
+held_s = 10.686
+t_start = 6288.09132
+t_end = 6298.777696
+
+[[pause]]
+program_t = 63.0
+held_s = 3.832
+t_start = 6301.772212
+t_end = 6305.604601
+
+[[pause]]
+program_t = 66.0
+held_s = 0.0
+t_start = 6308.595941
+t_end = 6308.596109
+
+[[pause]]
+program_t = 69.0
+held_s = 3.848
+t_start = 6311.609249
+t_end = 6315.457165
+
+[[pause]]
+program_t = 72.0
+held_s = 6.319
+t_start = 6318.448808
+t_end = 6324.76732
+
+[[pause]]
+program_t = 75.0
+held_s = 10.9
+t_start = 6327.779735
+t_end = 6338.679472
+
+[[pause]]
+program_t = 78.0
+held_s = 9.507
+t_start = 6341.670181
+t_end = 6351.177471
+
+[[pause]]
+program_t = 81.0
+held_s = 9.925
+t_start = 6354.170208
+t_end = 6364.095336
+
+[transfer]
+samples = 0
+dropped = 0
+bytes = 33554432
+
+[clock]
+skew_ppm = 0.0
+
+[clock.pre]
+offset_ms = 945726.8697939995
+residual_ms = 0.011207212281473963
+at_host_ms = 6130872.403159499
+at_jig_ms = 5185145.5325
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 6374929.709753
+residual_ms = 0.008296989604210683
+at_host_ms = 6381562.935342999
+at_jig_ms = 6633.2385
+kept = 20
+total = 200
+
+[hold.pre]
+start = 6135.051568717
+end = 6140.051960759
+
+[hold.post]
+start = 6367.120892332
+end = 6372.121285418
+
+[session]
+id = "2026-08-22"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "ece9e0f"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

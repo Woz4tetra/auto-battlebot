@@ -8,10 +8,10 @@ command_file = "LOG-62.cmd.csv"
 rep = 0
 started_utc = "2026-08-21T01:32:20Z"
 duration_s = 53.866507250999845
-verdict = "pass"
-gates = ""
+verdict = "discard"
+gates = "operator: reverse steps ran at 0.5/0.75/1.0, before reverse_cap existed"
 contamination = 0.0234
-notes = ""
+notes = "Same reason as LOG-106: the reverse half of the ladder is above the spin threshold, so k_rev, the reverse half of tau_lin_a, and both drift terms would be fit through a scrubbing encoder wheel. Held 0.6 s per rung against LOG-106's 2.0 s, so it was the weaker of the two even on the clean forward half."
 encoder = "attached"
 trim = 0.0
 warnings = "the jig rebooted between clock probes (uptime 75 s -> 10 s): no skew correction, and the stop counts are lost"
@@ -190,7 +190,7 @@ dropped = 0
 bytes = 3163860
 
 [clock]
-skew_ppm = -2583518.2201765557
+skew_ppm = 0.0
 
 [clock.pre]
 offset_ms = 1047978.3510732499

@@ -39,7 +39,7 @@ meters_per_count = 4.183811e-05
 # E5, the encoder wheel's offset perpendicular to the forward axis, metres. Removed from the
 # speed measurement so combined linear-plus-angular runs are usable instead of discarded.
 # Regress encoder rate against gyro yaw rate over pure spins; the slope is this.
-r_enc_perp = 0.0
+r_enc_perp = 0.156
 
 # E5, yaw rate above which the encoder wheel scrubs sideways instead of rolling. Caps the
 # amplitude of every angular waveform. Stop and lower it if the wheel chatters or leaves a

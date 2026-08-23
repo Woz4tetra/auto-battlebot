@@ -1,0 +1,234 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-23T04:10:07Z-lin_step_full-0"
+log_file = "LOG-130.TXT"
+command_file = "LOG-130.cmd.csv"
+rep = 0
+started_utc = "2026-08-23T04:10:07Z"
+duration_s = 75.73904890100312
+verdict = "pass"
+gates = ""
+warnings = ""
+contamination = 0.0176
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "lin_step_full"
+kind = "step"
+channel = "linear"
+role = "fit"
+label = "linear steps"
+
+[waveform.params]
+hold_s = 2.0
+coast_s = 4.0
+angular_cap = 0.24
+amplitudes = [1.0, 0.75, 0.5, 0.25]
+shuttle = true
+reverse_cap = 0.4
+
+[[segment]]
+t0 = 0.0
+t1 = 2.0
+linear = 1.0
+angular = 0.0
+label = "step_+1"
+
+[[segment]]
+t0 = 2.0
+t1 = 6.0
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 7.408528732001287
+t1 = 9.408528732001287
+linear = -0.4
+angular = -0.0
+label = "step_-0.4"
+
+[[segment]]
+t0 = 9.408528732001287
+t1 = 13.408528732001287
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 24.07505386700177
+t1 = 26.07505386700177
+linear = 0.75
+angular = 0.0
+label = "step_+0.75"
+
+[[segment]]
+t0 = 26.07505386700177
+t1 = 30.07505386700177
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 31.192974628002048
+t1 = 33.19297462800205
+linear = -0.3
+angular = -0.0
+label = "step_-0.3"
+
+[[segment]]
+t0 = 33.19297462800205
+t1 = 37.19297462800205
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 44.45516592900276
+t1 = 46.45516592900276
+linear = 0.5
+angular = 0.0
+label = "step_+0.5"
+
+[[segment]]
+t0 = 46.45516592900276
+t1 = 50.45516592900276
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 51.34313792500325
+t1 = 53.34313792500325
+linear = -0.2
+angular = -0.0
+label = "step_-0.2"
+
+[[segment]]
+t0 = 53.34313792500325
+t1 = 57.34313792500325
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 62.624653397002476
+t1 = 64.62465339700248
+linear = 0.25
+angular = 0.0
+label = "step_+0.25"
+
+[[segment]]
+t0 = 64.62465339700248
+t1 = 68.62465339700248
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[segment]]
+t0 = 69.73904890100312
+t1 = 71.73904890100312
+linear = -0.1
+angular = -0.0
+label = "step_-0.1"
+
+[[segment]]
+t0 = 71.73904890100312
+t1 = 75.73904890100312
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[[pause]]
+program_t = 6.0
+held_s = 1.409
+t_start = 9212.639245
+t_end = 9214.047774
+
+[[pause]]
+program_t = 12.0
+held_s = 10.667
+t_start = 9220.052733
+t_end = 9230.719258
+
+[[pause]]
+program_t = 18.0
+held_s = 1.118
+t_start = 9236.72439
+t_end = 9237.84231
+
+[[pause]]
+program_t = 24.0
+held_s = 7.262
+t_start = 9243.830072
+t_end = 9251.092264
+
+[[pause]]
+program_t = 30.0
+held_s = 0.888
+t_start = 9257.095953
+t_end = 9257.983925
+
+[[pause]]
+program_t = 36.0
+held_s = 5.282
+t_start = 9263.989525
+t_end = 9269.27104
+
+[[pause]]
+program_t = 42.0
+held_s = 1.114
+t_start = 9275.275924
+t_end = 9276.390319
+
+[transfer]
+samples = 0
+dropped = 0
+bytes = 3883159
+
+[clock]
+skew_ppm = 5.591176261420471
+
+[clock.pre]
+offset_ms = 6374940.21021325
+residual_ms = 0.014877465205252124
+at_host_ms = 9193523.296669
+at_jig_ms = 2818583.0885
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 6374940.8180995
+residual_ms = 0.0056333746456005244
+at_host_ms = 9302246.319447
+at_jig_ms = 2927305.515
+kept = 20
+total = 200
+
+[hold.pre]
+start = 9196.14044867
+end = 9201.140676938
+
+[hold.post]
+start = 9282.397865481
+end = 9287.398282041
+
+[session]
+id = "2026-08-23"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "ece9e0f"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

@@ -18,7 +18,11 @@ every downloaded log).
 Two failure modes get flagged rather than silently absorbed, because stage 2 shipped
 parameters from silently degraded ground truth:
 
-- Saturated IMU channels (`|raw| > 32000`), per axis, per run.
+- Saturated gyro channels (`|raw| > 32000`), per axis, per run. This one disqualifies a run:
+  a railed yaw axis makes the heading integral wrong from that sample on.
+- Clipped accelerometer channels, past `ACCEL_SATURATION_G`. Reported, never gated. Nothing
+  in the plant model reads acceleration, so a clip marks an impact worth looking at rather
+  than data the fit would be wrong to use.
 - Gyro bias drift between the pre-run and post-run still holds.
 
 See `docs/experiments/kalman_filter/kalman_filter_plan.md` part 1.2 and the companion runbook.
@@ -46,6 +50,12 @@ DEG_TO_RAD = np.pi / 180.0
 # int16 full scale is 32767. Anything at or past this is either clipped or one LSB away from it,
 # and a clipped channel biases every fit downstream of it.
 RAW_SATURATION = 32000
+
+# Accelerometer gate, in g rather than raw counts. A raw threshold means a different physical
+# acceleration on every range the firmware runs: 32000 counts is 7.81 g on the 8 g range and
+# 15.62 g on the 16 g one, so the same number silently changed what the gate meant when the
+# range went up. Anything past 15 g on this robot is an impact or a hard landing.
+ACCEL_SATURATION_G = 15.0
 
 AXIS_NAMES = ("x", "y", "z")
 
@@ -100,6 +110,17 @@ class JigHeader:
     def accel_range_g(self) -> float:
         return self.accel_g_per_lsb * 32768.0
 
+    @property
+    def accel_raw_limit(self) -> float:
+        """Raw count past which an accel sample is not worth fitting through.
+
+        `ACCEL_SATURATION_G` where the range can reach it, the rail otherwise. On the 8 g range
+        15 g sits at 61475 counts, past int16, so a bare conversion would produce a gate that
+        can never fire. Falling back to `RAW_SATURATION` keeps clip detection on those logs,
+        which is the only thing an 8 g recording can tell you about a 15 g event anyway.
+        """
+        return min(ACCEL_SATURATION_G / self.accel_g_per_lsb, RAW_SATURATION)
+
 
 @dataclass(frozen=True)
 class AxisSaturation:
@@ -126,6 +147,9 @@ class JigLog:
     gyro_raw: np.ndarray  # (N, 3) int16 as written
     accel_raw: np.ndarray  # (N, 3) int16 as written
     malformed_rows: int = 0
+    # Of `malformed_rows`, how many were the truncated final line rather than damage inside
+    # the stream. A reset during the last write leaves one; real corruption does not.
+    malformed_tail: int = 0
 
     @property
     def gyro(self) -> np.ndarray:
@@ -159,10 +183,17 @@ class JigLog:
         about the run, so callers that know where the pauses were mask them out.
         """
         out: list[AxisSaturation] = []
-        for prefix, raw in (("g", self.gyro_raw), ("a", self.accel_raw)):
+        # The gyro keeps the raw rail test. Its ranges are chosen to sit just above the spin
+        # rates being measured, so "near full scale" is the whole question there. The accel
+        # runs wide of anything commanded, so what matters is the physical number.
+        limits = (
+            ("g", self.gyro_raw, RAW_SATURATION),
+            ("a", self.accel_raw, self.header.accel_raw_limit),
+        )
+        for prefix, raw, limit in limits:
             for i, axis in enumerate(AXIS_NAMES):
                 col = raw[:, i] if keep is None else raw[keep, i]
-                over = int(np.count_nonzero(np.abs(col) > RAW_SATURATION))
+                over = int(np.count_nonzero(np.abs(col) > limit))
                 peak = int(np.max(np.abs(col))) if len(col) else 0
                 out.append(AxisSaturation(f"{prefix}{axis}", over, len(col), peak))
         return out
@@ -208,9 +239,13 @@ def read_jig_log(path: Path | str) -> JigLog:
     header_lines: list[str] = []
     rows: list[list[int]] = []
     malformed = 0
+    # Line index of the last unparseable row, and of the last row seen at all. When they are
+    # the same, the only bad row was the file's last one.
+    last_bad = -1
+    index = -1
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            line = line.strip()
+        for index, raw in enumerate(handle):
+            line = raw.strip()
             if not line:
                 continue
             if line.startswith("#"):
@@ -219,11 +254,13 @@ def read_jig_log(path: Path | str) -> JigLog:
             parts = line.split(",")
             if len(parts) != 8:
                 malformed += 1
+                last_bad = index
                 continue
             try:
                 rows.append([int(p) for p in parts])
             except ValueError:
                 malformed += 1
+                last_bad = index
 
     if not rows:
         raise ValueError(f"{path}: no sample rows")
@@ -233,8 +270,16 @@ def read_jig_log(path: Path | str) -> JigLog:
     # time_us_64() wraps after 584,000 years, so a decreasing timestamp means a corrupt row, not
     # a rollover. Keep the monotone prefix and count the rest as malformed.
     good = np.concatenate([[True], np.diff(data[:, 0]) > 0])
-    malformed += int(np.count_nonzero(~good))
+    interior_bad = int(np.count_nonzero(~good))
+    malformed += interior_bad
     data = data[good]
+
+    # A single bad row at the very end is a half-written line, not corruption: the board lost
+    # power or reset between the write and the flush, and the card kept the sector with a NUL
+    # tail. Everything before it parsed. Separating the two lets the run gate on real damage
+    # without throwing away a complete recording over its last millisecond. LOG-119 was
+    # discarded for exactly one such row out of 239,647.
+    tail_only = malformed == 1 and interior_bad == 0 and last_bad == index
 
     return JigLog(
         path=path,
@@ -244,6 +289,7 @@ def read_jig_log(path: Path | str) -> JigLog:
         gyro_raw=data[:, 2:5].copy(),
         accel_raw=data[:, 5:8].copy(),
         malformed_rows=malformed,
+        malformed_tail=1 if tail_only else 0,
     )
 
 
@@ -1194,6 +1240,8 @@ class RunQuality:
     verdict: str | None
     dropped: int | None
     malformed_rows: int
+    # Gyro only. A railed gyro axis means the yaw rate itself is wrong, and yaw rate is the
+    # measurement every angular parameter and the whole dead-reckoned heading rest on.
     worst_saturation: float
     saturated_axes: list[str]
     bias_drift_dps: float
@@ -1203,6 +1251,16 @@ class RunQuality:
     still_holds: int
     encoder_valid: bool
     saturated_samples: int = 0
+    # Of `malformed_rows`, how many were the truncated final line. A reset during the last
+    # write leaves one; damage inside the stream does not.
+    malformed_tail: int = 0
+    # Accel clipping, reported and never gated. The model has no acceleration state: the fit
+    # reads speed from the encoder and yaw from the gyro, and the accelerometer is used only
+    # to find the gravity axis during a still hold. A clipped sample mid-run says an impact
+    # happened, which is worth seeing on the plot, but it does not corrupt anything fitted.
+    accel_clip_axes: list[str] = field(default_factory=list)
+    accel_clip_samples: int = 0
+    accel_peak_g: float = 0.0
     # How much of the run the fit can actually use. Nothing computed this before, so a run
     # that was mostly uncommanded counted the same as a fully driven one when deciding
     # whether an experiment had enough data.
@@ -1218,12 +1276,14 @@ class RunQuality:
     def problems(
         self,
         max_bias_drift_dps: float = 0.05,
-        # Zero tolerance by default. A saturated accelerometer sample means the IMU hit full
-        # scale, which on this robot means an impact or a hard landing rather than noise: the
-        # 21 clipped samples that marked the 2026-08-19 wall contact were 0.06% of the run and
-        # would have cleared a fraction-based bar. A clipped sample's true value is unknown,
-        # so anything fitted through it is biased without ever looking wrong. Raise this
-        # deliberately when a run is worth keeping anyway.
+        # Gyro only, and zero tolerance. A railed yaw axis is unrecoverable: the true rate is
+        # unknown, so the heading integral past that sample is wrong and stays wrong.
+        #
+        # The accelerometer used to gate here too and no longer does. It cost more runs than
+        # it saved, and it discarded them for the procedure rather than for the data: on
+        # 2026-08-22 the clip that discarded LOG-108 landed 1.29 s before the first command
+        # (unplugging the USB cable) and the one that discarded LOG-110 landed 18.8 s after
+        # the last (picking the robot up to plug it back in). See `accel_clip_samples`.
         max_saturation: float = 0.0,
         max_clock_residual_ms: float = 2.0,
         min_commanded_s: float = 1.0,
@@ -1237,12 +1297,14 @@ class RunQuality:
             out.append("capture-time verdict: discard")
         if self.dropped:
             out.append(f"dropped={self.dropped} samples on the SD path")
-        if self.malformed_rows:
-            out.append(f"{self.malformed_rows} malformed rows")
+        # A truncated final row is a reset during the last write, not damage to the stream.
+        interior = self.malformed_rows - self.malformed_tail
+        if interior:
+            out.append(f"{interior} malformed rows")
         if self.saturated_axes and self.worst_saturation > max_saturation:
             axes = ", ".join(self.saturated_axes)
             out.append(
-                f"IMU saturation on {axes}: {self.saturated_samples} samples "
+                f"gyro saturation on {axes}: {self.saturated_samples} samples "
                 f"({self.worst_saturation:.3%} of the worst axis)"
             )
         if np.isfinite(self.bias_drift_dps) and self.bias_drift_dps > max_bias_drift_dps:
@@ -1258,6 +1320,22 @@ class RunQuality:
             out.append(
                 f"{gap:.1f} s of a commanded still hold was not motionless: "
                 "the jig and the drive CLI disagree on when the run started"
+            )
+        return out
+
+    def notices(self) -> list[str]:
+        """Things worth looking at that do not disqualify the run.
+
+        Separate from `problems` on purpose. A reason to open the plot is not a reason to
+        throw the recording away, and folding the two together is what made an unplugged
+        cable look identical to a wall strike.
+        """
+        out: list[str] = []
+        if self.accel_clip_samples:
+            axes = ", ".join(self.accel_clip_axes)
+            out.append(
+                f"accel clipped on {axes}: {self.accel_clip_samples} samples, "
+                f"peak {self.accel_peak_g:.1f} g. Impact or handling, not a fit problem"
             )
         return out
 
@@ -1452,7 +1530,13 @@ def load_run(
     hold_pre_gap = _hold_uncovered_s(record.hold_pre, stills, clock)
     hold_post_gap = _hold_uncovered_s(record.hold_post, stills, clock)
 
+    # Split by sensor: the gyro half gates the run, the accel half is only reported.
     sat = log.saturation(keep=~log_pause)
+    gyro_sat = [a for a in sat if a.name.startswith("g")]
+    accel_sat = [a for a in sat if a.name.startswith("a")]
+    accel_peak_g = max(
+        (a.peak_raw * log.header.accel_g_per_lsb for a in accel_sat if a.count), default=0.0
+    )
     quality = RunQuality(
         log_file=record.log_file,
         session_id=record.session_id,
@@ -1464,9 +1548,13 @@ def load_run(
         verdict=record.verdict,
         dropped=record.dropped,
         malformed_rows=log.malformed_rows,
-        worst_saturation=max((a.fraction for a in sat), default=0.0),
-        saturated_axes=[a.name for a in sat if a.count],
-        saturated_samples=sum(a.count for a in sat),
+        malformed_tail=log.malformed_tail,
+        worst_saturation=max((a.fraction for a in gyro_sat), default=0.0),
+        saturated_axes=[a.name for a in gyro_sat if a.count],
+        saturated_samples=sum(a.count for a in gyro_sat),
+        accel_clip_axes=[a.name for a in accel_sat if a.count],
+        accel_clip_samples=sum(a.count for a in accel_sat),
+        accel_peak_g=accel_peak_g,
         bias_drift_dps=truth.bias_drift_dps,
         clock_measured=clock.measured,
         clock_residual_ms=clock.residual_ms,

@@ -9,9 +9,9 @@ their_robot_labels = ["OPPONENT", "MRS_BUFF_MK3"]
 
 [navigation]
 type = "PursuitNavigation"
-angular_kp = 0.2
+angular_kp = 0.1
 angular_kd = 0.003
-max_linear_command = 0.65   # 0 = no limit
+max_linear_command = 0.65  # 0 = no limit
 
 [transmitter]
 # The radio model mixes linear/angular into the motor outputs, so send body axes.

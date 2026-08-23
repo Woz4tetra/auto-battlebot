@@ -8,11 +8,11 @@ command_file = "LOG-106.cmd.csv"
 rep = 0
 started_utc = "2026-08-23T02:03:09Z"
 duration_s = 105.78479518600011
-verdict = "pass"
-gates = ""
+verdict = "discard"
+gates = "operator: reverse steps ran at 0.5/0.75/1.0, before reverse_cap existed"
 warnings = ""
-contamination = 0.0234
-notes = ""
+contamination = 0.02345
+notes = "Recorded 02:03Z, about 15 min before reverse_cap landed in waveforms.toml. The reverse half of the ladder is above the spin threshold, so k_rev, the reverse half of tau_lin_a, and both drift terms would be fit through a scrubbing encoder wheel. The forward steps are clean, but discard is per-run, so they go with it."
 encoder = "attached"
 trim = 0.0
 

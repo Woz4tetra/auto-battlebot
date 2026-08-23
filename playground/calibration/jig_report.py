@@ -387,7 +387,11 @@ def section_quality(loaded: Loaded) -> Section:
     for run in loaded.runs:
         q = run.quality
         problems = q.problems()
-        chips = "".join(chip(p, "bad") for p in problems) or chip("clean", "ok")
+        # Notices are not problems. They render as their own chip so a clipped accel reads as
+        # "look at this" rather than joining the reasons a run was dropped.
+        chips = "".join(chip(p, "bad") for p in problems)
+        chips += "".join(chip(n, "warn") for n in q.notices())
+        chips = chips or chip("clean", "ok")
         rows.append(
             [
                 esc(run.name),
@@ -406,7 +410,7 @@ def section_quality(loaded: Loaded) -> Section:
         cls.append("bad" if problems else "ok")
     sec.add(
         table_html(
-            ["run", "verdict", "duration s", "dropped", "malformed", "saturation",
+            ["run", "verdict", "duration s", "dropped", "malformed", "gyro sat",
              "bias drift", "clock resid", "commanded s", "commands", "gates"],
             rows,
             row_cls=cls,

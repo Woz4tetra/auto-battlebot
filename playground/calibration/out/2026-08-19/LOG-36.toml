@@ -8,9 +8,9 @@ command_file = "LOG-36.cmd.csv"
 rep = 0
 started_utc = "2026-08-20T03:21:01Z"
 duration_s = 4.2
-verdict = "pass"
-gates = ""
-notes = ""
+verdict = "discard"
+gates = "operator: lin_coast reverse entries ran to -0.600, before reverse_cap existed"
+notes = "Recorded at the pre-2026-08-23 lin_coast amplitude, so the reverse entries ran to -0.600, past the amplitude where this robot breaks into an uncommanded spin. coast_taus takes |v|, so the reverse tails pool into tau_lin_d alongside clean ones instead of being separable. Forward tails in this run are clean; discard is per-run, so they go with it. Superseded by LOG-108, LOG-110, LOG-143, LOG-144."
 encoder = "attached"
 trim = 0.0
 

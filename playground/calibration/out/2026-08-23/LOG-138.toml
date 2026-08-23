@@ -1,0 +1,93 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-23T04:21:48Z-trim-0"
+log_file = "LOG-138.TXT"
+command_file = "LOG-138.cmd.csv"
+rep = 0
+started_utc = "2026-08-23T04:21:48Z"
+duration_s = 6.5
+verdict = "pass"
+gates = ""
+warnings = ""
+contamination = 0.0035
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "trim"
+kind = "trim"
+channel = "linear"
+role = "holdout"
+label = "straight-line trim"
+
+[waveform.params]
+hold_s = 2.0
+coast_s = 4.0
+angular_cap = 0.24
+amplitude = 0.15
+duration_s = 5
+
+[[segment]]
+t0 = 0.0
+t1 = 5.0
+linear = 0.15
+angular = 0.0
+label = "trim"
+
+[[segment]]
+t0 = 5.0
+t1 = 6.5
+linear = 0.0
+angular = 0.0
+label = "coast"
+
+[transfer]
+samples = 0
+dropped = 0
+bytes = 927815
+
+[clock]
+skew_ppm = 5.104531949843975
+
+[clock.pre]
+offset_ms = 6374943.96804875
+residual_ms = 0.0038294050293962156
+at_host_ms = 9931179.536485499
+at_jig_ms = 3556235.5745
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 6374944.1530915
+residual_ms = 0.004238358512918034
+at_host_ms = 9967430.407962002
+at_jig_ms = 3592486.2535
+kept = 20
+total = 200
+
+[hold.pre]
+start = 9933.445302966
+end = 9938.445626197
+
+[hold.post]
+start = 9948.901654828
+end = 9953.90206302
+
+[session]
+id = "2026-08-23"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "ece9e0f"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

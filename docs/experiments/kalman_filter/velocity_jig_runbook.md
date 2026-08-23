@@ -68,7 +68,7 @@ The session lands in `playground/calibration/out/<date>-<name>` unless `--out` s
 Running the same name again the same day appends to it, which is what you want: a session is one
 battery on one floor, and it is also the unit the fitter holds out for leave-one-out validation.
 
-**Run card.** Steps 1, 3, 5, 7, 8, 9 and 10 are automatic; the CLI prompts for the rest.
+**Run card.** Steps 1, 3, 5, 9 and 10 are automatic; the CLI prompts for the rest.
 
 - [ ] 1. Clock probe, pre. 200 probes. Discard the run if the residual exceeds 2 ms.
 - [ ] 2. **Press A** on the jig. The CLI waits for the `recording LOG-N.TXT` line.
@@ -76,13 +76,23 @@ battery on one floor, and it is also the unit the fitter holds out for leave-one
 - [ ] 4. **Unplug the USB cable.** The jig keeps logging on its own battery.
 - [ ] 5. Arm and play the excitation. Ctrl-C aborts and disarms at any point.
 - [ ] 6. **Hold still 10 s.** This is the bias drift bound for the run.
-- [ ] 7. **Plug the cable back in**, then **press B**, then press Enter at the prompt. In that
-      order: the stop summary goes to the wire unbuffered, so pressing B while unplugged loses
-      the sample and dropped counts. The CLI advances on Enter, so a mistimed press costs the
-      counts instead of hanging the run.
-- [ ] 8. Clock probe, post. The skew comes from the two probes together.
-- [ ] 9. The log downloads over USB into the session directory.
-- [ ] 10. The sidecar TOML and command CSV are written beside it.
+- [ ] 7. **Press B with the cable still out**, then press Enter at the prompt.
+- [ ] 8. **Plug the cable back in.** The download starts as soon as the jig reappears.
+
+      B first, cable second. Plugging in resets this board, and the reset lands wherever the
+      firmware happens to be. On LOG-119 it landed mid-write: the log's last row came back
+      truncated and the post-probe measured a fresh boot, which cost the skew correction.
+      Pressing B first closes the file on the card before USB can do anything, so the reset
+      has nothing left to interrupt.
+
+      This costs the stop summary. It goes to the wire unbuffered, so with the cable out
+      there is nothing to receive `n` and `dropped`. Both are reporting niceties: the gates
+      read a missing count as unknown, and the log's own timestamps show the drops. A
+      truncated recording cannot be recovered; a lost counter can be lived without.
+- [ ] 9. Clock probe, post. The skew comes from the two probes together, and a reboot between
+      them means there is no skew to have: the tool reports 0 ppm rather than the ratio of two
+      different boot epochs.
+- [ ] 10. The sidecar TOML and command CSV are written beside the downloaded log.
 
 The session sheet is gone. Each log gets a `LOG-N.toml` next to it holding the waveform, its
 parameters, both clock probes, the still-hold windows, and the gate results, so an unlabeled log
@@ -99,9 +109,11 @@ Capture-time gates run in the CLI and print a verdict at the end of each run:
 | Clock probe residual over 2 ms | Stop recording data. Fix the USB path before continuing |
 | Clock skew over 200 ppm | Discard. One of the two probes is wrong |
 | Gaps in the 1 kHz stream, or a log that stops short of a still hold | Discard. The recording was cut short |
-| Measured command differs from commanded | The driver's sticks were not centered. Discard |
+| Measured command differs from what the mix could send | The driver's sticks were not centered. Discard |
 | Robot hit a wall, tipped, or was touched | Discard by typing `discard` at the notes prompt |
 | Post-probe uptime below the pre-probe | **Warning, not a discard.** The jig rebooted, usually at the replug |
+| Truncated last row in the log | **Warning, not a discard.** A reset between the write and the flush. Every earlier row parsed |
+| Clipped accelerometer | **Warning, not a discard.** Nothing in the plant model reads acceleration. Check where it lands on the plot |
 
 A warning prints at the end of the run and is written to the sidecar's `warnings`, but the
 verdict stays `pass`. A reboot costs the skew correction, worth 0.9 ms per 30 s at the RP2040's
@@ -110,6 +122,11 @@ log's own timestamps show anyway. What it does not do by itself is damage the sa
 the card: whether the reset truncated the run is checked directly, from the sample spacing and
 the still-hold coverage. Fix the cable or the battery before the next run, because a reset that
 lands during excitation instead of after it takes the run with it.
+
+Since step 7 moved ahead of the replug, the reset arrives after the file is closed, so what it
+leaves behind is at worst a truncated final row. The skew is still gone, because the post-probe
+measures a board that restarted; the tool reports 0 ppm instead of the ratio of two boot epochs.
+At the 2.77 ppm measured on this board, a 200 s run loses about 0.6 ms.
 
 Operator pauses are cut out before any of this is counted. The robot is handled inside those
 windows, so a set-down that clips the accelerometer is not an impact, and the seconds spent

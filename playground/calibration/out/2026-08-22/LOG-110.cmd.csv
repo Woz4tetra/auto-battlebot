@@ -9,6 +9,7 @@
 # columns: t_host_s,linear,angular,trim,meas_ch_a,meas_ch_b,meas_linear,meas_angular,meas_weapon,meas_arm
 # rate_hz=50.0 waveform=lin_coast run=LOG-110.TXT
 # meas_linear/meas_angular re-derived from the channels with read_invert_a=false read_invert_b=true
+# meas_linear/meas_angular re-derived from the channels with read_invert_a=false read_invert_b=true
 2751.536675,0.6000,0.0000,0.0000,-0.0020,-0.0020,0.0000,0.0020,-1.0000,-1.0000
 2751.556935,0.6000,0.0000,0.0000,-0.0020,-0.0020,0.0000,0.0020,-1.0000,-1.0000
 2751.577102,0.6000,0.0000,0.0000,0.5840,-0.5879,0.5859,0.0020,-1.0000,-1.0000

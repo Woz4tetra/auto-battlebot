@@ -430,8 +430,15 @@ def skew_ppm(pre: ClockProbe, post: ClockProbe) -> float:
 
     The RP2040 crystal runs around 30 ppm, which is about 0.9 ms over a 30 s run: small,
     but the same order as the residual the run card gates on, so worth removing.
+
+    Returns 0.0 when the span is not positive. The jig counts from its own boot, so a
+    post-probe at or below the pre-probe is a board that restarted, and dividing by that
+    span is arithmetic across two epochs. LOG-119 did exactly this and produced -1048410
+    ppm, which reads as a 105% clock error and would shift a 218 s run by 228 s if anything
+    applied it. `ClockFit.from_probes` already guarded against it; this did not, so the
+    number reached the sidecar where a reader picking `skew_ppm` up directly would trust it.
     """
     span_ms = post.at_jig_ms - pre.at_jig_ms
-    if abs(span_ms) < 1e-6:
+    if span_ms <= 1e-6:
         return 0.0
     return (post.offset_ms - pre.offset_ms) / span_ms * 1e6

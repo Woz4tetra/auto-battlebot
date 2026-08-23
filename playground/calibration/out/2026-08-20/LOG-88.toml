@@ -8,11 +8,11 @@ command_file = "LOG-88.cmd.csv"
 rep = 0
 started_utc = "2026-08-21T03:03:16Z"
 duration_s = 10.0
-verdict = "pass"
-gates = ""
+verdict = "discard"
+gates = "operator: lin_sine reverse half ran to -0.500, before the amplitude was capped"
 warnings = ""
 contamination = 0.0
-notes = ""
+notes = "Recorded at the pre-2026-08-23 lin_sine amplitude, so the reverse half reached -0.500, past the amplitude where this robot breaks into an uncommanded spin. A holdout is scored against the model, so leaving it live would charge the model for a scrubbing encoder wheel. Superseded by LOG-135."
 encoder = "attached"
 trim = 0.0
 

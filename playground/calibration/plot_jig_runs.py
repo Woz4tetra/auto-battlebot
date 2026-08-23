@@ -105,8 +105,12 @@ REGION_STYLE = {
     "still hold": ("#cfe3cf", 0.55),
     "not commanded": ("#d9d9d9", 0.55),
     "operator pause": ("#cdd8f0", 0.75),
-    "IMU saturated": ("#f3b3ae", 0.85),
+    "gyro saturated": ("#f3b3ae", 0.85),
 }
+
+# Accel clipping is marked, not shaded. Shading says "the fit skips this"; the fit does not
+# skip it, because nothing in the plant model reads acceleration. This is a "look here".
+ACCEL_CLIP_COLOUR = "#c2185b"
 
 
 def excluded_regions(
@@ -127,8 +131,11 @@ def excluded_regions(
       asked to predict motion from nothing. The fit keeps two seconds of coast past the last
       command, since the runner zeroes and disarms on exit, and drops the rest. That is why
       the gap between the opening hold and the first command is dead time: the cable was out.
-    - **IMU saturated**: a channel is at full scale, so its true value is unknown and biases
-      anything fitted through it.
+    - **gyro saturated**: a yaw axis is at full scale, so its true value is unknown and every
+      heading integrated past it is wrong.
+
+    Accel clipping is deliberately not here. It is marked on the accel panel instead, because
+    the fit does not exclude it: no part of the plant model reads acceleration.
     """
     out: dict[str, list[tuple[float, float]]] = {}
 
@@ -166,9 +173,9 @@ def excluded_regions(
 
     # Clipping inside a pause is the robot being set down, and that stretch is already
     # shaded as a pause. Only clipping in the robot's own data earns the saturation colour.
-    sat, _ = saturated_mask(log, pauses, clock)
+    sat, _ = saturated_mask(log, pauses, clock, sensors="g")
     if sat.any():
-        out["IMU saturated"] = spans(sat, t)
+        out["gyro saturated"] = spans(sat, t)
     return out
 
 
@@ -272,17 +279,46 @@ def plot_run(
             align_zero(ax, twin)
         ax.legend(fontsize=8, loc="upper left")
 
-    # 5. Accelerometer, with the clipping limit drawn. A saturated channel reads as a plateau
-    # against that line, and its true value is unknown, so anything fitted through it is
-    # biased without ever looking wrong.
+    # 5. Accelerometer, with the clipping limit drawn. A clipped channel reads as a plateau
+    # against that line. This panel is the only place clipping is reported, and it is a
+    # notice rather than a verdict: nothing in the plant model reads acceleration, so the
+    # fit keeps the run either way.
     ax = axes[4]
-    limit = RAW_SATURATION * log.header.accel_g_per_lsb
+    limit = log.header.accel_raw_limit * log.header.accel_g_per_lsb
     for i, axis in enumerate(("x", "y", "z")):
         ax.plot(t, log.accel[:, i] / G_MPS2, lw=0.7, label=f"a{axis}")
     ax.axhline(limit, color="C3", ls="--", lw=0.9)
     ax.axhline(-limit, color="C3", ls="--", lw=0.9,
                label=f"clip at +/-{limit:.1f} g")
     ax.set_ylabel("accel (g)", fontsize=9)
+
+    # Marked, not shaded, and only on this panel. Where it lands on the time axis is the
+    # whole point: a clip between the first and last command is something that hit the robot,
+    # a clip outside them is the operator picking it up to reach the USB cable.
+    clip, clip_axes = saturated_mask(
+        log, record.pauses if record is not None else [], clock, sensors="a"
+    )
+    if clip.any():
+        # A clip is a couple of milliseconds wide, which is invisible on a two-minute axis.
+        # The span carries the position and a caret at the top carries the visibility.
+        marks = spans(clip, t)
+        for lo, hi in marks:
+            ax.axvspan(lo, hi, color=ACCEL_CLIP_COLOUR, alpha=0.3, lw=0, zorder=2)
+        ax.plot(
+            [0.5 * (lo + hi) for lo, hi in marks], [0.94] * len(marks),
+            marker="v", ls="none", ms=5, color=ACCEL_CLIP_COLOUR,
+            transform=ax.get_xaxis_transform(), clip_on=False, zorder=5,
+        )
+        peak = float(np.max(np.abs(log.accel[clip])) / G_MPS2)
+        # Boxed and off the axis floor, so it does not read as struck through by the
+        # clip line it sits next to.
+        ax.annotate(
+            f"clipped on {', '.join(clip_axes)}: {int(clip.sum())} samples, peak {peak:.1f} g"
+            "   (not a discard, and not excluded from the fit)",
+            xy=(0.01, 0.13), xycoords="axes fraction", fontsize=7.5,
+            color=ACCEL_CLIP_COLOUR,
+            bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1.5},
+        )
     ax.legend(fontsize=7, ncol=4, loc="upper right")
 
     # 6. The two dead-reckoned quantities together: how far it went and how much it turned.
@@ -353,9 +389,15 @@ def plot_run(
         if not clock.measured:
             bits.append("clock not probed, times are jig seconds")
         title += "   " + "   ".join(bits)
-    _, sat_axes = saturated_mask(log, record.pauses if record is not None else [], clock)
-    if sat_axes:
-        title += f"   SATURATED: {', '.join(sat_axes)}"
+    # Only the gyro reaches the title. Accel clipping stays on its own panel, where the time
+    # axis says whether it was the robot or the operator.
+    _, gyro_axes = saturated_mask(
+        log, record.pauses if record is not None else [], clock, sensors="g"
+    )
+    if gyro_axes:
+        title += f"   GYRO SATURATED: {', '.join(gyro_axes)}"
+    if clip_axes:
+        title += f"   accel clipped: {', '.join(clip_axes)}"
     fig.suptitle(title, fontsize=11)
     fig.tight_layout(rect=(0, 0.035, 1, 0.98))
     fig.savefig(out_path, dpi=110)
@@ -415,20 +457,35 @@ def saturated_mask(
     log: JigLog,
     pauses: Sequence[PauseWindow] = (),
     clock: ClockFit | None = None,
+    sensors: str = "ga",
 ) -> tuple[np.ndarray, list[str]]:
-    """Samples where any IMU axis is at or past full scale, and which axes did it.
+    """Samples where an IMU axis is past its limit, and which axes did it.
 
-    A clipped channel biases every fit downstream and does it silently, so it gets its own
-    marking rather than a line in a summary. Samples inside an operator pause are not the
-    robot's data at all, so they neither shade nor name an axis.
+    `sensors` picks which halves to look at: `"g"` for the gyro, `"a"` for the accel, `"ga"`
+    for both. They are asked for separately because they mean different things. A railed gyro
+    axis is a hole in the measurement the fit depends on, so it shades as excluded. A clipped
+    accel axis is an event nothing in the model reads, so it only gets marked.
+
+    Samples inside an operator pause are not the robot's data at all, so they neither shade
+    nor name an axis.
     """
     names: list[str] = []
     mask = np.zeros(len(log.t), dtype=bool)
     clock = clock or ClockFit.identity()
     keep = ~pause_mask(clock.host_seconds(log.t), pauses)
-    for prefix, raw in (("g", log.gyro_raw), ("a", log.accel_raw)):
+    # Accel uses the header-derived limit, gyro the raw rail. Same split as JigLog.saturation,
+    # so what is drawn is exactly what the sidecar counted.
+    limits = [
+        (prefix, raw, limit)
+        for prefix, raw, limit in (
+            ("g", log.gyro_raw, RAW_SATURATION),
+            ("a", log.accel_raw, log.header.accel_raw_limit),
+        )
+        if prefix in sensors
+    ]
+    for prefix, raw, limit in limits:
         for i, axis in enumerate(("x", "y", "z")):
-            over = (np.abs(raw[:, i]) > RAW_SATURATION) & keep
+            over = (np.abs(raw[:, i]) > limit) & keep
             if over.any():
                 names.append(f"{prefix}{axis}")
                 mask |= over

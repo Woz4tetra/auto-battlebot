@@ -73,16 +73,124 @@ def step(n: int, total: int, msg: str) -> None:
     say(f"\n[{n}/{total}] {msg}")
 
 
+# How long to keep discarding keystrokes before a prompt will accept one. A double-tapped
+# Enter lands 50-200 ms after the first, so a single flush at prompt time is too early to
+# catch it: the stray press arrives afterwards and satisfies the prompt that just appeared.
+SETTLE_S = 0.35
+
+
+def drain_stdin(settle_s: float = SETTLE_S) -> None:
+    """Throw away anything typed before a prompt is ready to accept it.
+
+    Without this, a double-tapped Enter at one pause silently answers the next prompt, so
+    the robot arms and drives while someone still has a hand on it. The whole point of the
+    pause is that nothing moves until the operator says so, and a buffered keystroke is not
+    the operator saying so.
+
+    Only meaningful on a terminal. A piped or redirected stdin has no driver queue to flush
+    and termios would raise on it, so `--no-prompt` and any scripted run are unaffected.
+    """
+    if not sys.stdin.isatty():
+        return
+    try:
+        import termios
+    except ImportError:  # not POSIX
+        return
+    deadline = time.monotonic() + settle_s
+    while True:
+        try:
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+        except (OSError, termios.error):
+            return
+        if time.monotonic() >= deadline:
+            return
+        time.sleep(0.02)
+
+
 def prompt(msg: str) -> None:
+    drain_stdin()
     try:
         input(f"      {msg} ")
     except EOFError:
         raise SystemExit("\naborted: stdin closed") from None
 
 
-def pause_prompt(index: int, count: int) -> None:
-    """Between-cell stop. The channels are already zeroed when this is called."""
+def upcoming(program: ex.Program, pause_at: Sequence[float], index: int) -> list[Any]:
+    """The segments that will play once this pause is released, up to the next stop.
+
+    `index` is 1-based, matching what `play` hands to `on_pause`.
+
+    Empty for a continuous program. A chirp, sine, triangle or PRBS has `segments = None`
+    because it has no cell structure to slice by, and it never pauses either, so the only
+    caller that reaches it is the arm-time preview. `describe` covers that case.
+    """
+    start = pause_at[index - 1]
+    stop = pause_at[index] if index < len(pause_at) else float("inf")
+    return [s for s in (program.segments or []) if start <= s.t0 < stop]
+
+
+def describe_continuous(program: ex.Program, step_s: float = 0.005) -> str:
+    """One line for a program with no segments: what it sweeps and how hard.
+
+    Sampled from `at`, which is the authority for what actually gets sent, rather than read
+    off the catalog amplitude. A capped or clipped waveform would otherwise be described by
+    the number it asked for instead of the one the robot receives.
+    """
+    n = max(2, int(program.duration_s / step_s) + 1)
+    lin = np.array([program.at(i * step_s)[0] for i in range(n)])
+    ang = np.array([program.at(i * step_s)[1] for i in range(n)])
+    return (
+        f"{program.duration_s:5.2f} s  continuous {program.kind}  "
+        f"lin {lin.min():+.3f} to {lin.max():+.3f}  "
+        f"ang {ang.min():+.3f} to {ang.max():+.3f}"
+    )
+
+
+# Longest "about to send" list printed in full. A staircase has no rest between rungs, so
+# its first cell is the whole ladder: 60 lines that bury the prompt underneath them and tell
+# the operator nothing the summary does not.
+PREVIEW_LINES = 4
+
+
+def preview(program: ex.Program, pause_at: Sequence[float], index: int) -> list[str]:
+    """The 'about to send' lines, for a piecewise or a continuous program."""
+    cells = upcoming(program, pause_at, index)
+    if not cells:
+        # No segments at all means a continuous program. Segments that exist but do not
+        # match means this pause is the last one and nothing follows it.
+        return [] if program.segments else [describe_continuous(program)]
+
+    def fmt(seg: Any) -> str:
+        return (
+            f"{seg.t1 - seg.t0:5.2f} s  lin {seg.linear:+.3f}  "
+            f"ang {seg.angular:+.3f}   {seg.label}"
+        )
+
+    if len(cells) <= PREVIEW_LINES:
+        return [fmt(seg) for seg in cells]
+    rest = cells[PREVIEW_LINES - 1 :]
+    span = sum(seg.t1 - seg.t0 for seg in rest)
+    lins = [seg.linear for seg in rest]
+    angs = [seg.angular for seg in rest]
+    return [fmt(seg) for seg in cells[: PREVIEW_LINES - 1]] + [
+        f"{span:5.2f} s  lin {min(lins):+.3f} to {max(lins):+.3f}  "
+        f"ang {min(angs):+.3f} to {max(angs):+.3f}   + {len(rest)} more segments"
+    ]
+
+
+def pause_prompt(index: int, count: int, program: ex.Program, pause_at: Sequence[float]) -> None:
+    """Between-cell stop. The channels are already zeroed when this is called.
+
+    Prints the cell about to play before waiting. Knowing that the next command is -0.4 and
+    not +0.6 is what tells the operator which way to aim the robot, and how much floor it
+    needs, while there is still time to do something about it.
+    """
     say(f"\n      --- paused {index}/{count} ---")
+    lines = preview(program, pause_at, index)
+    if lines:
+        say("      about to send:")
+        for line in lines:
+            say(f"        {line}")
     prompt("Put the robot back on its mark, then press Enter to continue:")
 
 
@@ -446,7 +554,9 @@ def run_one(
     session_meta: dict[str, Any],
     provenance: dict[str, Any],
 ) -> tuple[jl.JigLink, RunOutcome]:
-    total = 11 if decl.motion else 9
+    # A moving run adds the unplug, the B press, the replug, and the operator's own pauses.
+    # The B press became its own step when it moved ahead of the replug.
+    total = 12 if decl.motion else 9
     n = 0
     say(f"\n{'=' * 70}")
     say(f"RUN  {program.name}#{rep}  ({program.kind}/{program.channel}, {program.role})")
@@ -488,6 +598,13 @@ def run_one(
         pause_at = [] if (args.no_pause or args.no_prompt) else ex.pause_points(program)
         if pause_at:
             say(f"      stopping {len(pause_at)} times to reset the robot's position")
+        # The first cell has no pause in front of it, so it is the one the operator would
+        # otherwise arm into blind.
+        first = preview(program, [0.0] + list(pause_at), 1)
+        if first:
+            say("      about to send:")
+            for line in first:
+                say(f"        {line}")
         prompt("Type Enter to ARM and play (Ctrl-C aborts and disarms):")
         with dp.armed(trainer):
             result = dp.play(
@@ -497,7 +614,7 @@ def run_one(
                 trim=args.trim,
                 timeout_s=program.duration_s + 10.0,
                 pause_at=pause_at,
-                on_pause=pause_prompt,
+                on_pause=lambda i, n: pause_prompt(i, n, program, pause_at),
             )
         commands = result.commands
         contamination = result.contamination
@@ -530,19 +647,32 @@ def run_one(
     step(n, total, f"Hold still {args.hold_s:.0f} s (bias drift bound)")
     hold_post = countdown(args.hold_s, "hold still")
 
+    # B first, cable second. Plugging in resets this board, and a reset lands wherever the
+    # firmware happens to be: on LOG-119 it landed mid-write and left a truncated final row
+    # and a post-probe on a fresh boot epoch. Pressing B while unplugged closes the file on
+    # the card before USB can do anything, so the reset has nothing left to interrupt.
+    #
+    # The cost is the stop summary, which goes to the wire unbuffered and so is lost with
+    # the cable out. That is n and dropped, both reporting niceties: gates() reads samples=0
+    # as unknown, and the log's own timestamps show the drops anyway. A truncated recording
+    # is not recoverable, and a lost counter is.
+    samples, dropped = 0, 0
     if decl.motion:
+        n += 1
+        step(n, total, "Press B on the jig to stop recording, with the cable still out")
+        prompt("Press B now, then press Enter:")
+
         n += 1
         step(n, total, "Plug the USB cable back in")
         link = reopen_after_replug(link)
         say(f"      reconnected on {link.port}")
-
-    n += 1
-    # Deliberately after the replug: the stop summary goes to the wire unbuffered, so a
-    # press while unplugged loses the sample and dropped counts for good.
-    step(n, total, "Press B on the jig to stop recording")
-    samples, dropped = confirm_stopped(link)
-    if samples:
-        say(f"      stopped: n={samples} dropped={dropped}")
+        say("      stop counts are not available over a replug; the log timestamps carry them")
+    else:
+        n += 1
+        step(n, total, "Press B on the jig to stop recording")
+        samples, dropped = confirm_stopped(link)
+        if samples:
+            say(f"      stopped: n={samples} dropped={dropped}")
 
     n += 1
     step(n, total, "Clock probe, post")
@@ -592,6 +722,7 @@ def run_one(
     notes = args.notes
     if not args.no_prompt:
         try:
+            drain_stdin()
             entered = input("      Notes (blank to keep, 'discard' to reject): ").strip()
         except EOFError:
             entered = ""
@@ -658,9 +789,14 @@ def log_gates(
 ) -> list[Gate]:
     """Gates that need the downloaded log parsed, checked here rather than at fit time.
 
-    Saturation is the one that matters at the robot: a clipped IMU channel usually means an
-    impact, and knowing that before the next run beats finding out a week later when the fit
-    excludes it. Cheap enough at 1 kHz that it is not worth deferring.
+    Cheap enough at 1 kHz that it is not worth deferring: knowing at the robot beats finding
+    out a week later when the fit excludes the run.
+
+    Accel clipping is a warning here, not a gate. It was a gate until 2026-08-22, when it
+    turned out to be discarding runs for the run card rather than for the data: every run
+    ends with the operator picking the robot up to plug the USB cable back in, and that
+    clips the accel outside the pause mask. Nothing in the plant model reads acceleration
+    anyway, so the clip is worth seeing and never worth discarding a recording over.
     """
     try:
         from auto_battlebot.velocity_jig import pause_mask, read_jig_log
@@ -684,15 +820,35 @@ def log_gates(
             out.append(Gate(f"the log stops short of the {kind} still hold"))
 
     # Setting the robot back on its mark clips the accel, so the operator's pauses come out
-    # before anything is counted. What is left is the robot's own data, and one clipped
-    # sample in it is still an impact.
+    # before anything is counted. What is left is the robot's own data.
     keep = ~pause_mask(clock.host_seconds(log.t), pauses)
     sat = [a for a in log.saturation(keep=keep) if a.count]
-    if sat:
-        axes = ", ".join(f"{a.name} x{a.count}" for a in sat)
-        out.append(Gate(f"IMU saturation on {axes} (impact, or the range is set too low)"))
-    if log.malformed_rows:
-        out.append(Gate(f"{log.malformed_rows} malformed rows in the log"))
+    gyro = [a for a in sat if a.name.startswith("g")]
+    accel = [a for a in sat if a.name.startswith("a")]
+    if gyro:
+        axes = ", ".join(f"{a.name} x{a.count}" for a in gyro)
+        out.append(Gate(f"gyro saturation on {axes}: the yaw rate is wrong from there on"))
+    if accel:
+        axes = ", ".join(f"{a.name} x{a.count}" for a in accel)
+        peak = max(a.peak_raw for a in accel) * log.header.accel_g_per_lsb
+        out.append(
+            Gate(
+                f"accel clipped on {axes}, peak {peak:.1f} g. Check the plot: an impact"
+                " mid-run is worth knowing about, handling at either end is not",
+                fatal=False,
+            )
+        )
+    interior = log.malformed_rows - log.malformed_tail
+    if interior:
+        out.append(Gate(f"{interior} malformed rows inside the log"))
+    if log.malformed_tail:
+        out.append(
+            Gate(
+                "the log's last row is truncated: the board reset or lost power between the"
+                " write and the flush. Every row before it parsed",
+                fatal=False,
+            )
+        )
     if not log.encoder_moved:
         out.append(Gate("encoder count never changed; check the connector"))
     return out

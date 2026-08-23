@@ -1,0 +1,81 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-23T04:15:28Z-lin_prbs-0"
+log_file = "LOG-133.TXT"
+command_file = "LOG-133.cmd.csv"
+rep = 0
+started_utc = "2026-08-23T04:15:28Z"
+duration_s = 30.0
+verdict = "pass"
+gates = ""
+warnings = ""
+contamination = 0.0094
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "lin_prbs"
+kind = "prbs"
+channel = "linear"
+role = "holdout"
+label = "linear PRBS"
+
+[waveform.params]
+hold_s = 2.0
+coast_s = 4.0
+angular_cap = 0.24
+amplitude = 0.4
+bit_ms = 60
+duration_s = 30
+seed = 44001
+
+[transfer]
+samples = 0
+dropped = 0
+bytes = 1988524
+
+[clock]
+skew_ppm = 4.886477311673461
+
+[clock.pre]
+offset_ms = 6374942.097374
+residual_ms = 0.0046103319732214805
+at_host_ms = 9565099.188934
+at_jig_ms = 3190157.0915
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 6374942.39765
+residual_ms = 0.004989303514611816
+at_host_ms = 9626549.889624001
+at_jig_ms = 3251607.4945
+kept = 20
+total = 200
+
+[hold.pre]
+start = 9571.635674459
+end = 9576.636121331
+
+[hold.post]
+start = 9611.59574926
+end = 9616.596246514
+
+[session]
+id = "2026-08-23"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "ece9e0f"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

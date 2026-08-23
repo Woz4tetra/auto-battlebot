@@ -11,6 +11,11 @@
 #
 # Amplitudes are normalized to [-1, 1]. Deadzone is NOT compensated anywhere: the physical
 # deadzone is one of the things being measured.
+#
+# `reverse_cap` on a step or coast waveform scales the reverse half of the ladder to that
+# peak, leaving forward alone. Use it when the robot misbehaves in one direction only. Keep
+# it per waveform: [defaults] merges into every entry, and on an angular waveform it would
+# shrink right turns against left ones and bias k_ang.
 
 [defaults]
 # 0.6 s is set by floor length, not by the runbook's 2 s. At the fitted tau_lin_a of
@@ -25,10 +30,10 @@
 #
 # Angular waveforms override this below. A spin costs no floor, so there is no reason to
 # be stingy there.
-hold_s = 0.6
+hold_s = 2.0
 # Coasting happens after the robot has stopped travelling under command, so a long tail
 # costs 0.30 m regardless. 2.0 s is 22 decel constants.
-coast_s = 2.0
+coast_s = 3.0
 
 # Cap for angular amplitudes. The encoder wheel scrubs sideways through every spin, so the
 # rate limit measured on the bench caps every angular run. Set from your own E5 measurement:
@@ -65,25 +70,43 @@ step = 0.001
 both_directions = true
 # Rungs run back to back with no return to zero, so distance accumulates across all 30.
 # At 1.0 s that is 0.82 m per direction and 7.6 tau per rung, both comfortable.
-hold_s = 1.0
+hold_s = 0.5
 
 [waveform.lin_step_full]
 kind = "step"
 channel = "linear"
 role = "fit"
 label = "linear steps"
-amplitudes = [0.25, 0.5, 0.75, 1.0]
+amplitudes = [1.0, 0.75, 0.5, 0.25]
 shuttle = true
+# Reverse ladder scaled to a 0.4 peak, so [0.1, 0.2, 0.3, 0.4]. At and above 0.5 reverse the
+# robot breaks into an uncommanded spin, and a spun hold is not a straight-line steady state:
+# the encoder wheel scrubs sideways, so the arc length it reports is not the distance
+# travelled, and the r_enc_perp lever-arm correction assumes rolling and cannot recover it.
+#
+# Nothing downstream would have caught this. `held_segments` gates on the commanded angular
+# channel, which is zero through a linear run, so spun rungs feed `k_rev`, the pooled
+# `tau_lin_a`, and both drift terms as clean data.
+#
+# 0.4 rather than 0.45 leaves margin: the spin threshold is where it was observed, not where
+# it was measured, and it will move with floor and pack voltage. Raise this once the
+# underlying asymmetry is fixed, since the reverse gain is measured over a shorter lever arm
+# until then.
+reverse_cap = 0.4
 # Not trimmed. This is the run the straight-line drift is measured from, so correcting the
 # arc here would remove the signal.
 trim = false
+hold_s = 2.0
 
 [waveform.lin_coast]
 kind = "coast"
 channel = "linear"
 role = "fit"
 label = "linear coast tails"
-amplitude = 0.6
+amplitude = 0.5
+# Reverse entries drop to 0.4, same spin threshold as lin_step_full. The decel constant is
+# read off the tail, and a tail that starts from a spin decays with the scrub in it.
+reverse_cap = 0.4
 reps = 10
 shuttle = true
 trim = false
@@ -112,7 +135,7 @@ label = "angular steps"
 amplitudes = [0.25, 0.5, 0.75, 1.0]
 cap = 1.0
 hold_s = 3.0
-coast_s = 2.0
+coast_s = 3.0
 shuttle = true
 
 [waveform.ang_coast]
@@ -125,7 +148,7 @@ label = "angular coast tails"
 amplitude = 1.0
 reps = 10
 shuttle = true
-hold_s = 2.0
+hold_s = 3.0
 
 # --- coupling -------------------------------------------------------------
 
@@ -145,6 +168,7 @@ linear = [0.25, 0.5, 0.7, 0.76]
 # turn direction; straight-line drift does not. A grid that only ever turns one way cannot
 # separate them and will quietly fold the drift into the droop coefficient.
 angular = [-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3]
+hold_s = 1.5
 
 # --- holdouts -------------------------------------------------------------
 # These are used for testing the model not for fitting.
@@ -154,9 +178,23 @@ kind = "prbs"
 channel = "linear"
 role = "holdout"
 label = "linear PRBS"
-amplitude = 0.6
+# 0.4, not 0.6. A PRBS is symmetric by construction, so a 0.6 amplitude commands -0.6 on
+# every reverse bit, which is past the amplitude where this robot breaks into an uncommanded
+# spin. LOG-76, LOG-77 and LOG-88 were all recorded that way, so the whole linear holdout set
+# validated the model against a scrubbing encoder wheel. A holdout that fails for that reason
+# looks exactly like a model error and costs an afternoon.
+#
+# Capping only the reverse half is not an option here the way it is for steps and coasts:
+# an asymmetric PRBS has different spectral content and a DC bias that walks the robot down
+# the floor over 30 s. Lowering both halves keeps the sequence a PRBS.
+#
+# The cost is excitation amplitude, so the prediction error is measured against a smaller
+# signal. That is the right trade against validating on data the plant model does not
+# describe. Raise it once the reverse asymmetry itself is fixed.
+amplitude = 0.4
 # 60 ms bits cover roughly 0.2 to 8 Hz, which brackets both the 58-78 ms plant time
-# constants and the 33 ms frame period.
+# constants and the 33 ms frame period. Unchanged: bit rate sets the bandwidth, and only
+# the amplitude moved.
 bit_ms = 60
 duration_s = 30
 seed = 44001
@@ -210,7 +248,9 @@ channel = "linear"
 role = "holdout"
 label = "linear sine"
 freq_hz = 1.0
-amplitude = 0.5
+# 0.4 for the same reason as lin_prbs: a sine is symmetric, so 0.5 drove the reverse half
+# into the spin. LOG-88 was recorded at 0.5.
+amplitude = 0.4
 cycles = 10
 
 [waveform.lin_triangle]

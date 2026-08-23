@@ -109,6 +109,25 @@ class MixConfig:
         lin = max(-room, min(room, linear))
         return to_trainer(lin + ang), to_trainer(lin - ang)
 
+    def deliverable(self, linear: float, angular: float) -> tuple[float, float]:
+        """What `to_channels` will actually send, back in body units.
+
+        `to_channels` clips before it mixes: angular gets priority and linear is left with
+        `1 - |angular|` of authority. A cell that asks for more than that comes back short
+        through no fault of the driver, so the contamination check has to compare the
+        readback against this rather than against the request. It cost LOG-71: every cell
+        over the bar had `tgt_lin = 1.0` against the 0.24 angular cap, so the mix sent 0.76
+        and the check read the 0.24 clip as a leaning stick.
+
+        Sign does not enter it. `to_channels` negates angular under `reverse_angular` before
+        clipping, and the clip depends only on the magnitude.
+        """
+        ang = max(-1.0, min(1.0, angular))
+        if self.mode != "tank":
+            return max(-1.0, min(1.0, linear)), ang
+        room = 1.0 - abs(ang)
+        return max(-room, min(room, linear)), ang
+
     def from_channels(self, a: float, b: float) -> tuple[float, float]:
         """Inverse of `to_channels`, so the log is in body units whatever the mix."""
         if self.read_invert_a:
@@ -321,6 +340,10 @@ class PlayResult:
     # every gate and every duration downstream drops them; without them a pause reads as one
     # very long coast tail.
     pauses: list[PauseWindow] = field(default_factory=list)
+    # The mix the run was played through. Needed to know what the radio could have sent, not
+    # only what it was asked for. Optional so an old caller still builds a usable result,
+    # with the pre-2026-08-23 behaviour of comparing against the raw request.
+    mix: MixConfig | None = None
 
     # Ticks to ignore after the command changes. The radio reports its mixer output on its
     # own schedule, so `measured` lags `commanded` by a tick or two. At a step edge that lag
@@ -338,12 +361,17 @@ class PlayResult:
         Measured over held stretches only, and reported as a high percentile rather than the
         maximum. Both matter: comparing sample-by-sample across a step edge measures the
         radio's reporting lag, and a single outlying tick is not evidence of a leaning stick.
+
+        The comparison is against what the mix could deliver, not against what was asked for.
+        A grid cell that asks for more authority than the mix has left gets clipped on the
+        way out, and calling that clip a leaning stick discarded LOG-71 on 2026-08-20.
         """
         diffs = []
         settle = 0
         prev: tuple[float, float] | None = None
         for c in self.commands:
-            target = (c.linear, c.angular + c.trim)
+            asked = (c.linear, c.angular + c.trim)
+            target = self.mix.deliverable(*asked) if self.mix is not None else asked
             if prev is not None and target != prev:
                 settle = self.SETTLE_TICKS
             prev = target
@@ -388,7 +416,7 @@ def play(
     The caller owns disarm. This returns on completion, on `stop_event`, or on the hard
     timeout, and in every case the last thing it sends is a zero command.
     """
-    result = PlayResult()
+    result = PlayResult(mix=link.mix)
     period = 1.0 / rate_hz
     pending = sorted(float(p) for p in pause_at) if (pause_at and on_pause) else []
     count = len(pending)

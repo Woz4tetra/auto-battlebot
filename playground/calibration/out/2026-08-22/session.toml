@@ -4,10 +4,10 @@ schema = 1
 [session]
 id = "2026-08-22"
 name = ""
-started_utc = "2026-08-23T02:25:57Z"
+started_utc = "2026-08-23T03:59:32Z"
 
 [provenance]
-drive_cli_sha = "5ee90dd"
+drive_cli_sha = "ece9e0f"
 waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
 mix = "tank"
 reverse_angular = true

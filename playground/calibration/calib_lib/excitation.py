@@ -173,17 +173,34 @@ def cap_amplitudes(amplitudes: Sequence[float], cap: float | None) -> list[float
 
 
 def _build_step(d: WaveformDecl) -> Program:
+    """Ladder of held commands, each returning to zero, optionally shuttling direction.
+
+    `reverse_cap` scales the reverse half of the ladder down independently. The robot is not
+    required to behave the same both ways, and this one does not: above 0.5 reverse it breaks
+    into an uncommanded spin. A spun hold is not a straight-line steady state, and nothing
+    downstream rejects it, because `held_segments` gates on the commanded angular channel,
+    which is zero throughout a linear run. So the spun rungs enter `k_rev`, the pooled
+    `tau_lin_a`, and both straight-line drift terms as if they were clean.
+
+    Scaling rather than clipping, for the reason `cap_amplitudes` gives: the gain fit reads a
+    slope, and clipping collapses the top rungs onto one value.
+    """
     p = d.params
     amps = cap_amplitudes(p.get("amplitudes", [0.25, 0.5, 0.75, 1.0]), p.get("cap"))
+    # Same rung count either way, so shuttle still pairs each forward step with a reverse one.
+    rev_amps = cap_amplitudes(amps, p.get("reverse_cap"))
+    secondary = float(p.get("secondary", 0.0))
     hold = max(float(p.get("hold_s", MIN_HOLD_S)), MIN_HOLD_S)
     coast = float(p.get("coast_s", MIN_COAST_S))
     shuttle = bool(p.get("shuttle", True))
     b = _Builder()
-    for amp in amps:
-        signs = (1.0, -1.0) if shuttle else (1.0,)
-        for sign in signs:
-            lin, ang = _axes(d.channel, sign * amp, sign * float(p.get("secondary", 0.0)))
-            b.hold(hold, lin, ang, f"step_{amp:g}")
+    for amp, rev in zip(amps, rev_amps):
+        cells = ((1.0, amp), (-1.0, rev)) if shuttle else ((1.0, amp),)
+        for sign, mag in cells:
+            lin, ang = _axes(d.channel, sign * mag, sign * secondary)
+            # Signed label. The two directions of a rung no longer share a magnitude, so a
+            # label naming only the forward one would misreport the reverse cell.
+            b.hold(hold, lin, ang, f"step_{sign * mag:+g}")
             b.coast(coast, "coast")
     return _finish(d, b)
 
@@ -216,17 +233,23 @@ def _build_coast(d: WaveformDecl) -> Program:
 
     The drop must be instantaneous. A ramp down is a second input and the decel constant
     fitted through it is the ramp's, not the robot's.
+
+    `reverse_cap` lowers the entry speed of the reverse repetitions only, same reason as in
+    `_build_step`: the tail has to decay from a straight-line steady state, and a robot that
+    spun up during the entry is scrubbing the encoder wheel sideways for the whole tail.
     """
     p = d.params
     amp = float(p.get("amplitude", 0.6))
+    rev_amp = cap_amplitudes([amp], p.get("reverse_cap"))[0]
     hold = max(float(p.get("hold_s", MIN_HOLD_S)), MIN_HOLD_S)
     reps = int(p.get("reps", 10))
     shuttle = bool(p.get("shuttle", True))
     coast = float(p.get("coast_s", MIN_COAST_S))
     b = _Builder()
     for i in range(reps):
-        sign = -1.0 if (shuttle and i % 2) else 1.0
-        lin, ang = _axes(d.channel, sign * amp)
+        reverse = shuttle and bool(i % 2)
+        sign = -1.0 if reverse else 1.0
+        lin, ang = _axes(d.channel, sign * (rev_amp if reverse else amp))
         b.hold(hold, lin, ang, "coast_entry")
         b.coast(coast, "coast_tail")
     return _finish(d, b)

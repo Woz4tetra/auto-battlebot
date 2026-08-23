@@ -13,6 +13,8 @@ gates = "operator: wall contact"
 notes = "clipped the wall during the run; the accel saturation is the impact"
 encoder = "attached"
 trim = 0.0
+warnings = "accel clipped on ax x21, ay x11, az x4, peak 8.0 g. Check the plot: an impact mid-run is worth knowing about, handling at either end is not"
+contamination = 0.0
 
 [waveform]
 name = "lin_coast"
@@ -97,3 +99,5 @@ robot = ""
 [provenance]
 drive_cli_sha = "e56a446"
 waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+read_invert_a = false
+read_invert_b = true
