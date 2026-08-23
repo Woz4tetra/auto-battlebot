@@ -19,11 +19,19 @@ comment.
 
 ## Steps
 
-### 1. Parameter loading
+### 1. Parameter loading, through the existing config system
 
-- `PlantParams` struct mirroring the `[plant]` table, loaded with toml++ the same way
-  `load_robot_filter_from_toml` does in `src/robot_filter/config.cpp`.
-- Refuse a file with no `[plant]` table. Ignore `[plant.provenance]`.
+- No separate params file at runtime. The plant parameters become a `plant` sub-table of the
+  `[robot_filter]` config section, parsed in `src/robot_filter/config.cpp` by
+  `load_robot_filter_from_toml` into the `RobotFilterConfiguration` struct like every other
+  option, and carried through the config extends chain.
+- The fitted values are copied from `playground/calibration/out/plant_stageA.toml` into the
+  config TOML, provenance comment pointing back at the fit. The fit stays the source of
+  truth for the numbers; the config is where the runtime reads them.
+- Model structure selection stays fit-side: a ladder rung disables a term by writing it as
+  zero, so the C++ side needs no ladder knowledge. Zero tau means no lag, zero delay means
+  no delay.
+- `test_config.cpp` gets the round-trip coverage the other sections have.
 
 ### 2. `JigPlantModel`
 
@@ -70,8 +78,9 @@ comment.
 
 ### 5. Wiring
 
-- A config section selects the plant model and points at the params file. No production
-  registration; sim and playback configs opt in.
+- The `[robot_filter]` section selects the plant model by name, with the parameters inline
+  per step 1. No production registration; sim and playback configs opt in through the
+  extends chain.
 
 ## Validation
 
