@@ -33,7 +33,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.attack_terminal_velocity" = 0.0
+"navigation.attack_terminal_speed_fraction" = 0.0
 
 # --- turn90: start perpendicular to the goal bearing ---
 [[runs]]
@@ -56,7 +56,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.attack_terminal_velocity" = 0.0
+"navigation.attack_terminal_speed_fraction" = 0.0
 
 # --- turn135: start most of the way around; exercises the hysteresis latch too ---
 [[runs]]
@@ -79,7 +79,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.attack_terminal_velocity" = 0.0
+"navigation.attack_terminal_speed_fraction" = 0.0
 
 # --- arc: goal off to the side at close range, so the whole approach is a turn ---
 [[runs]]
@@ -102,4 +102,4 @@ opponents = [{ behavior = "static", start_pos = [0.7, -0.2] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.attack_terminal_velocity" = 0.0
+"navigation.attack_terminal_speed_fraction" = 0.0

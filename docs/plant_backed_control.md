@@ -77,8 +77,8 @@ frame periods at 30 Hz: normal between-frame coasting stays fresh, a real dropou
 `MotionProfileNavigation` (`src/navigation/motion_profile_navigation.cpp`) drives to the
 goal and arrives at a commanded terminal velocity without overrunning. The terminal
 velocity is per behavior mode, because the driver's switch decides what the mission is:
-`attack_terminal_velocity` ships at `1.0` so the robot drives through the opponent at full
-speed, and `run_away_terminal_velocity` ships at `0.0` so it arrives stopped at the safe
+`attack_terminal_speed_fraction` ships at `1.0` so the robot drives through the opponent at full
+speed, and `run_away_terminal_speed_fraction` ships at `0.0` so it arrives stopped at the safe
 point. Both are a fraction of the plant's `k_fwd`, clamped to `[0, 1]`, so a refit
 rescales them. A mode flip resets the trajectory
 state, since the goal and the terminal speed both change at once and carrying the old

@@ -22,7 +22,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.attack_terminal_velocity" = 0.0
+"navigation.attack_terminal_speed_fraction" = 0.0
 
 [[runs]]
 name = "dropout_50_tracker"
@@ -33,7 +33,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.attack_terminal_velocity" = 0.0
+"navigation.attack_terminal_speed_fraction" = 0.0
 
 [[runs]]
 name = "dropout_80_tracker"
@@ -44,7 +44,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.attack_terminal_velocity" = 0.0
+"navigation.attack_terminal_speed_fraction" = 0.0
 
 [[runs]]
 name = "dropout_50_baseline"

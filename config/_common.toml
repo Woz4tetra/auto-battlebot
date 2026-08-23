@@ -180,12 +180,12 @@ stop_distance = 0.15             # arrive stopped within this distance of the go
 # hold. A fraction of the plant's k_fwd, clamped to 0..1: 0 = arrive stopped, 1 = full
 # speed. Normalized rather than m/s so a refit rescales these instead of leaving a
 # hand-copied speed stale.
-attack_terminal_velocity = 1.0   # full forward speed into the opponent
-run_away_terminal_velocity = 0.0 # arrive stopped at the safe point
-wall_reverse_distance = 0.25     # set > 0 to reverse when within this distance of any wall
-wall_heading_threshold = 1.047   # ~60 deg; heading must point toward wall to trigger reversal
-max_linear_command = 1.0         # 0 = no limit
-max_angular_command = 1.0        # 0 = no limit
+attack_terminal_speed_fraction = 1.0   # full forward speed into the opponent
+run_away_terminal_speed_fraction = 0.0 # arrive stopped at the safe point
+wall_reverse_distance = 0.25           # set > 0 to reverse when within this distance of any wall
+wall_heading_threshold = 1.047         # ~60 deg; heading must point toward wall to trigger reversal
+max_linear_command = 1.0               # 0 = no limit
+max_angular_command = 1.0              # 0 = no limit
 
 [publisher]
 type = "RosPublisher"

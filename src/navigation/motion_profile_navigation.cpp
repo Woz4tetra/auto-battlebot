@@ -29,8 +29,8 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       steer_brake_floor_(config.steer_brake_floor),
       angular_deadzone_left_(config.plant.dz_ang_l),
       angular_deadzone_right_(config.plant.dz_ang_r),
-      attack_terminal_velocity_(config.attack_terminal_velocity),
-      run_away_terminal_velocity_(config.run_away_terminal_velocity),
+      attack_terminal_speed_fraction_(config.attack_terminal_speed_fraction),
+      run_away_terminal_speed_fraction_(config.run_away_terminal_speed_fraction),
       stop_distance_(config.stop_distance),
       speed_kp_(config.speed_kp),
       speed_ki_(config.speed_ki),
@@ -75,8 +75,8 @@ void MotionProfileNavigation::reset_state() {
 }
 
 double MotionProfileNavigation::terminal_velocity_for(BehaviorMode mode) const {
-    const double configured =
-        (mode == BehaviorMode::RUN_AWAY) ? run_away_terminal_velocity_ : attack_terminal_velocity_;
+    const double configured = (mode == BehaviorMode::RUN_AWAY) ? run_away_terminal_speed_fraction_
+                                                               : attack_terminal_speed_fraction_;
     // Scale the fraction by the fitted top speed. The controller only ever drives toward the
     // goal, so a negative fraction has nothing to mean and clamps to a stop.
     return std::clamp(configured, 0.0, 1.0) * max_linear_speed_fwd_;

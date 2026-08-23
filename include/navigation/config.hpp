@@ -168,11 +168,11 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     // them instead of leaving a hand-copied speed stale.
 
     /** Terminal speed while the driver has ATTACK selected, as a fraction of the plant's k_fwd. */
-    double attack_terminal_velocity = 1.0;
+    double attack_terminal_speed_fraction = 1.0;
 
     /** Terminal speed while the driver has RUN_AWAY selected, as a fraction of the plant's
      * k_fwd. */
-    double run_away_terminal_velocity = 0.0;
+    double run_away_terminal_speed_fraction = 0.0;
 
     /** Distance (m) at which a zero-velocity mission is complete and the command is cut. Only used
      * when the active terminal velocity is 0 (a drive-through mission never stops). */
@@ -268,8 +268,8 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(deadzone)
         PARSE_FIELD_DOUBLE(accel_limit)
         PARSE_FIELD_DOUBLE(steer_brake_floor)
-        PARSE_FIELD_DOUBLE(attack_terminal_velocity)
-        PARSE_FIELD_DOUBLE(run_away_terminal_velocity)
+        PARSE_FIELD_DOUBLE(attack_terminal_speed_fraction)
+        PARSE_FIELD_DOUBLE(run_away_terminal_speed_fraction)
         PARSE_FIELD_DOUBLE(stop_distance)
         PARSE_FIELD_DOUBLE(speed_kp)
         PARSE_FIELD_DOUBLE(speed_ki)

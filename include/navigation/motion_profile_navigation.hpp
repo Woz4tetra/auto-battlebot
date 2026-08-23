@@ -154,8 +154,8 @@ class MotionProfileNavigation : public NavigationInterface {
     double angular_deadzone_right_;
 
     // Trajectory.
-    double attack_terminal_velocity_;
-    double run_away_terminal_velocity_;
+    double attack_terminal_speed_fraction_;
+    double run_away_terminal_speed_fraction_;
     double stop_distance_;
 
     // Speed feedback.

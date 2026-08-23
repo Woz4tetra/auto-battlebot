@@ -113,18 +113,18 @@ TEST_F(MotionProfileModeTest, AttackDoesNotBrakeWhereRunAwayDoes) {
 
 // --- how the configured numbers are read ---
 
-TEST_F(MotionProfileModeTest, TerminalVelocityIsAFractionOfTheTopSpeed) {
+TEST_F(MotionProfileModeTest, TerminalSpeedFractionScalesWithTheTopSpeed) {
     // Half throttle at the goal has to mean half of whatever the fit says the drivetrain does, so
     // a refit rescales the mission instead of leaving a hand-copied m/s stale. Checked by halving
     // the top speed and asking for twice the fraction: the same arrival speed either way.
     MotionProfileNavigationConfiguration fast = config_;
-    fast.attack_terminal_velocity = 0.4;
+    fast.attack_terminal_speed_fraction = 0.4;
     MotionProfileNavigationConfiguration slow = config_;
     slow.plant.k_fwd = config_.plant.k_fwd * 0.5;
-    slow.attack_terminal_velocity = 0.8;
+    slow.attack_terminal_speed_fraction = 0.8;
 
-    ASSERT_DOUBLE_EQ(fast.attack_terminal_velocity * fast.plant.k_fwd,
-                     slow.attack_terminal_velocity * slow.plant.k_fwd);
+    ASSERT_DOUBLE_EQ(fast.attack_terminal_speed_fraction * fast.plant.k_fwd,
+                     slow.attack_terminal_speed_fraction * slow.plant.k_fwd);
 
     // Read through the command, which the halved top speed rescales by the same factor: the
     // feedforward divides the reference speed by the plant's k_fwd.
@@ -136,14 +136,14 @@ TEST_F(MotionProfileModeTest, TerminalVelocityIsAFractionOfTheTopSpeed) {
     EXPECT_GT(slow_cmd, fast_cmd);  // same m/s asked of half the drivetrain
 }
 
-TEST_F(MotionProfileModeTest, TerminalVelocityIsClampedToTheUnitInterval) {
+TEST_F(MotionProfileModeTest, TerminalSpeedFractionIsClampedToTheUnitInterval) {
     // Out-of-range fractions are nonsense rather than a request: above 1 the drivetrain has
     // nothing left to give, and below 0 there is no reverse arrival to ask for, since the
     // controller only ever drives toward the goal.
     MotionProfileNavigationConfiguration over = config_;
-    over.attack_terminal_velocity = 3.0;
+    over.attack_terminal_speed_fraction = 3.0;
     MotionProfileNavigationConfiguration full = config_;
-    full.attack_terminal_velocity = 1.0;
+    full.attack_terminal_speed_fraction = 1.0;
 
     auto over_nav = make_nav(over);
     auto full_nav = make_nav(full);
@@ -151,7 +151,7 @@ TEST_F(MotionProfileModeTest, TerminalVelocityIsClampedToTheUnitInterval) {
                      tick(*full_nav, 0.5, BehaviorMode::ATTACK, 1.0).linear_x);
 
     MotionProfileNavigationConfiguration negative = config_;
-    negative.run_away_terminal_velocity = -2.0;
+    negative.run_away_terminal_speed_fraction = -2.0;
     auto negative_nav = make_nav(negative);
     const VelocityCommand cmd =
         tick(*negative_nav, config_.stop_distance * 0.5, BehaviorMode::RUN_AWAY, 1.0);
@@ -159,11 +159,11 @@ TEST_F(MotionProfileModeTest, TerminalVelocityIsClampedToTheUnitInterval) {
     EXPECT_DOUBLE_EQ(cmd.angular_z, 0.0);
 }
 
-TEST_F(MotionProfileModeTest, RunAwayTerminalVelocityIsConfigurable) {
+TEST_F(MotionProfileModeTest, RunAwayTerminalSpeedFractionIsConfigurable) {
     // Nothing pins RUN_AWAY to zero in the code; it is a config value like any other. A positive
     // one turns the safe point into a waypoint the robot drives through.
     MotionProfileNavigationConfiguration driving_config = config_;
-    driving_config.run_away_terminal_velocity = 0.4;  // ~2.0 m/s
+    driving_config.run_away_terminal_speed_fraction = 0.4;  // ~2.0 m/s
 
     auto stopping = make_nav(config_);
     auto driving = make_nav(driving_config);
@@ -178,12 +178,12 @@ TEST_F(MotionProfileModeTest, RunAwayTerminalVelocityIsConfigurable) {
               0.0);
 }
 
-TEST_F(MotionProfileModeTest, AttackTerminalVelocityIsConfigurable) {
+TEST_F(MotionProfileModeTest, AttackTerminalSpeedFractionIsConfigurable) {
     // A finite attack speed is the ram-tuning knob playground/control_stage0 sweeps.
     MotionProfileNavigationConfiguration slow = config_;
-    slow.attack_terminal_velocity = 0.1;  // ~0.5 m/s
+    slow.attack_terminal_speed_fraction = 0.1;  // ~0.5 m/s
     MotionProfileNavigationConfiguration fast = config_;
-    fast.attack_terminal_velocity = 0.3;  // ~1.5 m/s
+    fast.attack_terminal_speed_fraction = 0.3;  // ~1.5 m/s
 
     auto slow_nav = make_nav(slow);
     auto fast_nav = make_nav(fast);
