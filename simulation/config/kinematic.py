@@ -65,12 +65,15 @@ class PlantConfig:
     tau_angular_accel: float = 0.0  # falls back to tau_angular
     tau_angular_decel: float = 0.0  # falls back to tau_angular_accel
     steer_brake_coeff: float = 0.0  # forward-speed loss per unit |angular cmd| (physical coupling)
-    # Residual deadzone the plant still shows AFTER the transmitter's lifted_deadzone
-    # compensation. The measured physical deadzone belongs in config/main.toml
-    # lifted_deadzone_percent, not here; set this
-    # only if the real closed loop still has a dead low end. 0 = none.
-    deadzone_linear: float = 0.0  # command fraction
-    deadzone_angular: float = 0.0
+    angular_droop_coeff: float = 0.0  # yaw-rate loss per unit |linear cmd| (physical coupling)
+    # Deadzone on the command the plant actually receives. SimTransmitter hands the navigation
+    # command straight to the sim with no drive processor, so unlike the deployed path there is
+    # no lifted_deadzone_percent upstream and these carry the raw physical deadzone. Per sign,
+    # matching the jig fit: the _rev / _right value falls back to its counterpart when unset.
+    deadzone_linear: float = 0.0  # command fraction, forward
+    deadzone_linear_rev: float | None = None
+    deadzone_angular: float = 0.0  # command fraction, left
+    deadzone_angular_right: float | None = None
 
 
 @dataclass
@@ -83,7 +86,12 @@ class ProjectionBiasConfig:
 class PerceptionConfig:
     pos_noise_std: float = 0.0  # m
     yaw_noise_std: float = 0.0  # rad
-    dropout_prob: float = 0.0  # per-robot per-tick probability of omission
+    dropout_prob: float = 0.0  # per-opponent per-tick probability of omission
+    # Per-tick probability that our own robot is not observed. Separate from dropout_prob because
+    # the two have different consequences: a missed opponent costs a target update, a missed self
+    # pose puts the controller on dead reckoning. Measured p90 gap on real recordings is 340 ms,
+    # about 10 ticks at 30 Hz.
+    our_dropout_prob: float = 0.0
     projection_bias: ProjectionBiasConfig = field(default_factory=ProjectionBiasConfig)
 
 

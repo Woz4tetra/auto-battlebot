@@ -12,7 +12,7 @@
 #
 # Metrics in results.csv: terminal_pos_err_m, terminal_vel_mps, overshoot_m, t_to_goal_s, wall_contacts.
 
-sim_config = "simulation/kinematic_sim_mr_stabs_mk2.toml"
+sim_config = "simulation/sim_mr_stabs_mk2.toml"
 
 [[runs]]
 name = "stop_short"

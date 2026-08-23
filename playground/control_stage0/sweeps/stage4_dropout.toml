@@ -1,0 +1,69 @@
+# Stage 4 scenario: zero-velocity stop while our own track drops out.
+#
+# The test step 4 needs. Perception loses our robot regularly on real recordings (p90 gap 340 ms,
+# about 10 ticks at 30 Hz), and the controller used to answer a missing self-pose with a pose delta
+# of exactly zero: no latency lead subtracted, and speed_kp * v_ref of extra thrust, in the one
+# stretch where it cannot see. What should happen instead is that the commanded speed falls, or at
+# worst holds, and never rises.
+#
+# our_dropout_prob is per tick, so 0.5 gives a mean run of 2 dropped frames and a p90 near 7, and
+# 0.8 gives a mean of 5 and a p90 near 10. The 0.0 row is the control.
+#
+# Compare in results.csv: terminal_pos_err_m, terminal_vel_mps, overshoot_m, wall_contacts.
+
+sim_config = "simulation/sim_mrs_buff_mk3.toml"
+
+[[runs]]
+name = "dropout_00_tracker"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"perception.our_dropout_prob" = 0.0
+opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
+[runs.cpp]
+"navigation.type" = "MotionProfileNavigation"
+"navigation.stop_distance" = 0.15
+"navigation.terminal_velocity" = 0.0
+
+[[runs]]
+name = "dropout_50_tracker"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"perception.our_dropout_prob" = 0.5
+opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
+[runs.cpp]
+"navigation.type" = "MotionProfileNavigation"
+"navigation.stop_distance" = 0.15
+"navigation.terminal_velocity" = 0.0
+
+[[runs]]
+name = "dropout_80_tracker"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"perception.our_dropout_prob" = 0.8
+opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
+[runs.cpp]
+"navigation.type" = "MotionProfileNavigation"
+"navigation.stop_distance" = 0.15
+"navigation.terminal_velocity" = 0.0
+
+[[runs]]
+name = "dropout_50_baseline"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"perception.our_dropout_prob" = 0.5
+opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
+[runs.cpp]
+"navigation.stop_distance" = 0.15
+"navigation.max_angular_command" = 0.25
+"navigation.brake_distance" = 0.8
+
+[[runs]]
+name = "dropout_80_baseline"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"perception.our_dropout_prob" = 0.8
+opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
+[runs.cpp]
+"navigation.stop_distance" = 0.15
+"navigation.max_angular_command" = 0.25
+"navigation.brake_distance" = 0.8

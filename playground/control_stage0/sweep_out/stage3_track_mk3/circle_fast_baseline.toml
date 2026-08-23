@@ -1,0 +1,8 @@
+extends = "/home/ben/auto-battlebot/config/simulation/kinematic_sim"
+
+[mcap]
+enable = true
+
+[navigation]
+stop_distance = 0.15
+max_angular_command = 0.25
