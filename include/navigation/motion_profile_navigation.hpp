@@ -62,9 +62,6 @@ class MotionProfileNavigation : public NavigationInterface {
      */
     static double compensate_coupling(double command, double effect, double coeff, double floor);
 
-    /** @brief Deadzone removal per sign, rescaled so full command still maps to full effect. */
-    static double effective_command(double command, double deadzone_pos, double deadzone_neg);
-
    private:
     /** @brief Find our robot in the robot descriptions. */
     std::optional<RobotDescription> find_our_robot(const RobotDescriptionsStamped &robots) const;
@@ -76,7 +73,7 @@ class MotionProfileNavigation : public NavigationInterface {
 
     /**
      * @brief Terminal speed (m/s) for the driver's current mode: the configured fraction,
-     * clamped to [0, 1], times max_linear_speed_fwd. Normalized in config so a refit rescales
+     * clamped to [0, 1], times the plant's k_fwd. Normalized in config so a refit rescales
      * it instead of leaving a hand-copied speed stale.
      */
     double terminal_velocity_for(BehaviorMode mode) const;

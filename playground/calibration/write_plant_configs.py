@@ -1,10 +1,13 @@
 """Push the fitted plant numbers from plant_stageA.toml into every consumer that hard-codes them.
 
 The plant numbers have three homes: the fit (`playground/calibration/out/plant_stageA.toml`), the
-kinematic sim (`simulation/sim_mrs_buff_mk3.toml`), and the controller defaults
-(`include/navigation/config.hpp`). Only the first is authored. They drifted apart once already,
-which is how MotionProfileNavigation ended up running Mr Stabs Mk2's time constants on Mrs Buff
-Mk3, so this script makes the other two derived.
+kinematic sim (`simulation/sim_mrs_buff_mk3.toml`), and the C++ config chain's `[plant]` table
+(`config/_common.toml`). Only the first is authored. They drifted apart once already, which is how
+MotionProfileNavigation ended up running Mr Stabs Mk2's time constants on Mrs Buff Mk3, so this
+script makes the other two derived.
+
+The `[plant]` table is read by both the our-robot EKF and MotionProfileNavigation, so there is one
+C++-side target rather than one per consumer.
 
 It rewrites the numeric literal of each mapped field in place and touches nothing else. The
 hand-written doc comments around those fields explain what each number does and why, which a
@@ -33,7 +36,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIT = REPO_ROOT / "playground" / "calibration" / "out" / "plant_stageA.toml"
 SIM_CONFIG = REPO_ROOT / "simulation" / "sim_mrs_buff_mk3.toml"
-NAV_CONFIG = REPO_ROOT / "include" / "navigation" / "config.hpp"
+PLANT_CONFIG = REPO_ROOT / "config" / "_common.toml"
 
 # Consumer field name -> fit parameter name. The sim models the plant, so it takes every term
 # including the ones the controller deliberately ignores. `delay_ms` is derived below; the sim
@@ -67,19 +70,14 @@ SIM_FIELDS = {
 # 0.067 m and time-to-goal from 1.10 s to 2.83 s, because the harder turn it commands is exactly
 # what the steer-brake term then charges forward speed for. The controller default stays 0.0 and
 # is not derived from the fit. `c_drift`/`c_drift_bias` are absent because model M4 disables them.
-NAV_MOTION_PROFILE = {
-    "max_linear_speed_fwd": "k_fwd",
-    "max_linear_speed_rev": "k_rev",
-    "tau_accel": "tau_lin_a",
-    "tau_decel": "tau_lin_d",
-    "latency": "delay_s",
-    "steer_brake_coeff": "c_sb",
-    "angular_deadzone_left": "dz_ang_l",
-    "angular_deadzone_right": "dz_ang_r",
-    "max_angular_speed": "k_ang",
-    "tau_angular_accel": "tau_ang_a",
-    "tau_angular_decel": "tau_ang_d",
-}
+# The [plant] table uses the fit's own names, so this mapping is the identity. Listed explicitly
+# so a field added to the fit does not silently skip the table.
+PLANT_FIELDS = {name: name for name in (
+    "dz_lin_fwd", "dz_lin_rev", "dz_ang_l", "dz_ang_r",
+    "k_fwd", "k_rev", "k_ang",
+    "tau_lin_a", "tau_lin_d", "tau_ang_a", "tau_ang_d",
+    "delay_s", "c_sb", "c_ad", "c_drift", "c_drift_bias",
+)}
 
 
 @dataclass
@@ -93,7 +91,12 @@ class Change:
 def _format(value: float) -> str:
     """Round-trip float formatting, trimmed. Keeps the file readable without losing the fit."""
     text = repr(round(value, 9))
-    return text.rstrip("0").rstrip(".") if "." in text and "e" not in text else text
+    if "." not in text or "e" in text:
+        return text
+    text = text.rstrip("0").rstrip(".")
+    # A ladder-disabled term is exactly 0.0, and the trim above would leave a bare "0". TOML reads
+    # that as an integer, so keep one decimal place to hold every plant field a float.
+    return text if "." in text else text + ".0"
 
 
 def _rewrite(
@@ -118,7 +121,6 @@ def _rewrite(
 
 NUMBER = r"(?P<value>-?\d+\.?\d*(?:[eE][-+]?\d+)?)"
 TOML_FIELD = r"^\s*{field}\s*=\s*" + NUMBER
-CPP_FIELD = r"^\s*double\s+{field}\s*=\s*" + NUMBER
 
 
 def main() -> int:
@@ -137,7 +139,7 @@ def main() -> int:
     all_changes: list[Change] = []
     for path, pattern, fields in (
         (SIM_CONFIG, TOML_FIELD, SIM_FIELDS),
-        (NAV_CONFIG, CPP_FIELD, NAV_MOTION_PROFILE),
+        (PLANT_CONFIG, TOML_FIELD, PLANT_FIELDS),
     ):
         text = path.read_text()
         updated, changes = _rewrite(text, pattern, fields, plant, path)
@@ -157,7 +159,6 @@ def main() -> int:
     if args.check:
         print("\nRun without --check to write these, then rebuild.")
         return 1
-    print("\nRebuild for the C++ defaults to take effect: ./scripts/build.sh")
     return 0
 
 

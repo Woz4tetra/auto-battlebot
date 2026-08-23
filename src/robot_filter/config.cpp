@@ -38,13 +38,15 @@ std::unique_ptr<RobotFilterConfiguration> parse_robot_filter_config(ConfigParser
 }
 
 std::unique_ptr<RobotFilterConfiguration> load_robot_filter_from_toml(
-    toml::table const &toml_data, std::vector<std::string> &parsed_sections) {
+    toml::table const &toml_data, std::vector<std::string> &parsed_sections,
+    const PlantConfiguration &plant) {
     auto section = toml_data["robot_filter"].as_table();
     if (!section) {
         throw ConfigValidationError("Missing required section [robot_filter]");
     }
     ConfigParser parser(*section, "robot_filter");
     auto config = parse_robot_filter_config(parser);
+    config->apply_plant(plant);
     parsed_sections.push_back("robot_filter");
     return config;
 }

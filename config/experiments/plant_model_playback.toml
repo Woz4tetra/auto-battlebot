@@ -17,7 +17,7 @@ our_robot_mode = "EKF"
 # is the source of truth: refit and re-copy, do not hand-edit. delay_s is the onset-stack
 # measurement (3486 edges, SNR 22.4), corroborated by the tau-pinned profile (54 ms) and the
 # stage 2 camera value (59 ms).
-[robot_filter.motion_estimator.plant]
+[plant]
 dz_lin_fwd = 0.0109768
 dz_lin_rev = 0.0253396
 dz_ang_l = 0.016061
@@ -39,7 +39,7 @@ c_drift_bias = 0.0
 # and plant as above. Growth-law mechanisms: white-noise accel (h^3), scale-factor error on
 # v and w (h^2, applied state-dependent at runtime), heading random walk (h), delay jitter
 # (constant, fit found none). Refit and re-copy, do not hand-edit.
-[robot_filter.motion_estimator.plant.process_noise]
+[plant.process_noise]
 q_along = 0.37125
 q_cross = 0.351167
 q_heading = 0.0

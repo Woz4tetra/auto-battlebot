@@ -145,14 +145,16 @@ ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
 
         std::vector<std::string> parsed_sections;
 
+        // Parsed before its consumers: both the robot filter and navigation are handed this.
+        config.plant = load_plant_from_toml(toml_data, parsed_sections);
         config.camera = load_camera_from_toml(toml_data, parsed_sections);
         config.field_model = load_field_model_from_toml(toml_data, parsed_sections);
         config.robot_mask_model = load_robot_blob_model_from_toml(toml_data, parsed_sections);
         config.field_filter = load_field_filter_from_toml(toml_data, parsed_sections);
         config.keypoint_model = load_keypoint_model_from_toml(toml_data, parsed_sections);
-        config.robot_filter = load_robot_filter_from_toml(toml_data, parsed_sections);
+        config.robot_filter = load_robot_filter_from_toml(toml_data, parsed_sections, config.plant);
         config.target_selector = load_target_selector_from_toml(toml_data, parsed_sections);
-        config.navigation = load_navigation_from_toml(toml_data, parsed_sections);
+        config.navigation = load_navigation_from_toml(toml_data, parsed_sections, config.plant);
         config.transmitter = load_transmitter_from_toml(toml_data, parsed_sections);
         config.control_loop = load_control_loop_from_toml(toml_data, parsed_sections);
         config.publisher = load_publisher_from_toml(toml_data, parsed_sections);

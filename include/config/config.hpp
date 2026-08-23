@@ -23,6 +23,7 @@
 #include "mcap_recorder/config.hpp"
 #include "navigation/config.hpp"
 #include "navigation/navigation_interface.hpp"
+#include "plant/config.hpp"
 #include "publisher/config.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "rgbd_camera/config.hpp"
@@ -40,6 +41,9 @@
 
 namespace auto_battlebot {
 struct ClassConfiguration {
+    /** The shared jig fit from [plant]. Both the our-robot EKF and MotionProfileNavigation are
+     * handed this after their own sections parse; see PlantConfiguration. */
+    PlantConfiguration plant;
     std::unique_ptr<RgbdCameraConfiguration> camera;
     std::unique_ptr<MaskModelConfiguration> field_model;
     std::unique_ptr<RobotBlobModelConfiguration> robot_mask_model;

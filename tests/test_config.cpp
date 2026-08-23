@@ -1320,7 +1320,7 @@ our_robot_mode = "EKF"
 namespace {
 /** The jig-fitted plant table, stage A values (plant_stageA.toml, 2026-08-23). */
 constexpr const char *kPlantTableToml = R"(
-[robot_filter.motion_estimator.plant]
+[plant]
 dz_lin_fwd = 0.0109768
 dz_lin_rev = 0.0253396
 dz_ang_l = 0.016061
@@ -1346,7 +1346,7 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorParsesPlantTable) {
 type = "KalmanMotionEstimator"
 )") + kPlantTableToml +
                                                    R"(
-[robot_filter.motion_estimator.plant.process_noise]
+[plant.process_noise]
 heading_random_walk = 0.5
 )"));
 
@@ -1406,6 +1406,43 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorPlantUnknownFieldThrows) {
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 )") + kPlantTableToml + "not_a_plant_field = 1.0\n"));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+}
+
+// The same [plant] table feeds the controller. These two tests are what keeps the navigation
+// half from drifting back to its own copy of the fit.
+
+namespace {
+/** The minimal config with [plant] present and the motion-profile controller selected. */
+std::string config_with_motion_profile_nav(const std::string &extra_toml) {
+    std::string toml = config_with_motion_estimator(extra_toml);
+    const auto at = toml.find("\"NoopNavigation\"");
+    EXPECT_NE(at, std::string::npos);
+    return toml.replace(at, std::string("\"NoopNavigation\"").size(),
+                        "\"MotionProfileNavigation\"");
+}
+}  // namespace
+
+TEST_F(ConfigTest, MotionProfileNavigationReadsTheSharedPlantTable) {
+    write_config_file(config_with_motion_profile_nav(kPlantTableToml));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *nav = dynamic_cast<MotionProfileNavigationConfiguration *>(config.navigation.get());
+    ASSERT_NE(nav, nullptr);
+    EXPECT_DOUBLE_EQ(nav->plant.k_fwd, 4.88002);
+    EXPECT_DOUBLE_EQ(nav->plant.tau_lin_d, 0.123461);
+    EXPECT_DOUBLE_EQ(nav->plant.delay_s, 0.0522094);
+    EXPECT_DOUBLE_EQ(nav->plant.c_ad, 0.463423);
+    // The coefficient arrives from the fit; compensating it is off by default because doing so
+    // measures worse. See MotionProfileNavigationConfiguration::compensate_angular_droop.
+    EXPECT_FALSE(nav->compensate_angular_droop);
+}
+
+TEST_F(ConfigTest, MotionProfileNavigationWithoutPlantTableThrows) {
+    // No fallback: the brake schedule and feedforward are the fit, so a missing table has to be
+    // an error rather than a controller quietly inverting a zero drivetrain.
+    write_config_file(config_with_motion_profile_nav(""));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }

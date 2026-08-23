@@ -6,7 +6,7 @@
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
-#include "plant/jig_plant_model.hpp"
+#include "plant/config.hpp"
 #include "robot_filter/motion_estimator_interface.hpp"
 
 namespace auto_battlebot {
@@ -15,6 +15,13 @@ struct MotionEstimatorConfiguration {
     std::string type;
     virtual ~MotionEstimatorConfiguration() = default;
     virtual void parse_fields([[maybe_unused]] ConfigParser &parser) {}
+
+    /**
+     * Hand over the shared [plant] table, after parse_fields. Separate from parsing because the
+     * plant is a top-level section: this config's own parser never sees it. Estimators that
+     * ignore the plant keep the no-op.
+     */
+    virtual void apply_plant([[maybe_unused]] const PlantConfiguration &plant) {}
 };
 
 struct DeadReckoningMotionEstimatorConfiguration : public MotionEstimatorConfiguration {
@@ -91,16 +98,15 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     double min_heading_speed = 0.3;
 
     /**
-     * Jig-fitted plant parameters, from the [robot_filter.motion_estimator.plant] table.
-     * Absent unless the config carries the table. Presence does not enable our_robot_mode =
-     * EKF: that stays rejected until the plant fit passes acceptance. Sim, playback, and
-     * tests construct JigPlantModel from here, which is what keeps the parameters in the
-     * config extends chain instead of a separate runtime file.
+     * Jig-fitted plant parameters, from the shared top-level [plant] table, stamped in by
+     * apply_plant. Absent unless the config carries the table. Presence does not enable
+     * our_robot_mode = EKF: that stays rejected until the plant fit passes acceptance. Sim,
+     * playback, and tests construct JigPlantModel from here, which is what keeps the parameters
+     * in the config extends chain instead of a separate runtime file.
      */
     std::optional<JigPlantParams> plant;
-    /** Process noise PSDs for the plant model, [robot_filter.motion_estimator.plant.process_noise].
-     * Fields are optional; defaults are the fit_process_noise.py output baked into
-     * JigPlantNoiseParams. */
+    /** Process noise PSDs for the plant model, from [plant.process_noise]. Fields are optional;
+     * defaults are the fit_process_noise.py output baked into JigPlantNoiseParams. */
     JigPlantNoiseParams plant_noise;
 
     KalmanMotionEstimatorConfiguration() { type = "KalmanMotionEstimator"; }
@@ -120,69 +126,22 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         PARSE_FIELD_DOUBLE(covariance_floor)
         PARSE_FIELD_DOUBLE(max_coast_s)
         PARSE_FIELD_DOUBLE(min_heading_speed)
-        parse_plant(parser);
-        if (our_robot_mode == OurRobotMode::EKF && !plant.has_value()) {
-            throw ConfigValidationError(
-                "our_robot_mode = 'EKF' requires the [robot_filter.motion_estimator.plant] "
-                "table: the EKF our-robot arm propagates through JigPlantModel and has no "
-                "defaults for the fitted plant parameters. See "
-                "docs/experiments/kalman_filter/plant_model_poc_plan.md");
-        }
         parser.validate_no_extra_fields();
     }
 
     /**
-     * Every plant field is required: these are fitted physical parameters, and a partly
-     * defaulted plant would predict with a mix of fit and zero that no experiment produced.
-     * A ladder rung disables a term by writing it as zero in the config, same as the fit
-     * output files.
+     * The EKF check lives here rather than in parse_fields because it needs both our_robot_mode
+     * (parsed) and the plant (a top-level section this config's parser cannot see).
      */
-    void parse_plant(ConfigParser &parser) {
-        const toml::table *table_ptr = parser.get_table("plant");
-        if (!table_ptr) {
-            return;  // Optional; no plant model is constructible without it.
+    void apply_plant(const PlantConfiguration &plant_config) override {
+        plant = plant_config.params;
+        plant_noise = plant_config.noise;
+        if (our_robot_mode == OurRobotMode::EKF && !plant.has_value()) {
+            throw ConfigValidationError(
+                "our_robot_mode = 'EKF' requires the top-level [plant] table: the EKF our-robot "
+                "arm propagates through JigPlantModel and has no defaults for the fitted plant "
+                "parameters. See docs/experiments/kalman_filter/plant_model_poc_plan.md");
         }
-        ConfigParser sub_parser(*table_ptr, "robot_filter.motion_estimator.plant");
-        JigPlantParams params;
-        params.dz_lin_fwd = sub_parser.get_required_double("dz_lin_fwd");
-        params.dz_lin_rev = sub_parser.get_required_double("dz_lin_rev");
-        params.dz_ang_l = sub_parser.get_required_double("dz_ang_l");
-        params.dz_ang_r = sub_parser.get_required_double("dz_ang_r");
-        params.k_fwd = sub_parser.get_required_double("k_fwd");
-        params.k_rev = sub_parser.get_required_double("k_rev");
-        params.k_ang = sub_parser.get_required_double("k_ang");
-        params.tau_lin_a = sub_parser.get_required_double("tau_lin_a");
-        params.tau_lin_d = sub_parser.get_required_double("tau_lin_d");
-        params.tau_ang_a = sub_parser.get_required_double("tau_ang_a");
-        params.tau_ang_d = sub_parser.get_required_double("tau_ang_d");
-        params.delay_s = sub_parser.get_required_double("delay_s");
-        params.c_sb = sub_parser.get_required_double("c_sb");
-        params.c_ad = sub_parser.get_required_double("c_ad");
-        params.c_drift = sub_parser.get_required_double("c_drift");
-        params.c_drift_bias = sub_parser.get_required_double("c_drift_bias");
-        parse_plant_noise(sub_parser);
-        sub_parser.validate_no_extra_fields();
-        plant = params;
-    }
-
-    void parse_plant_noise(ConfigParser &plant_parser) {
-        const toml::table *table_ptr = plant_parser.get_table("process_noise");
-        if (!table_ptr) {
-            return;  // Optional; the defaults are the baked-in fit values.
-        }
-        ConfigParser sub_parser(*table_ptr, "robot_filter.motion_estimator.plant.process_noise");
-        plant_noise.q_along = sub_parser.get_optional_double("q_along", plant_noise.q_along);
-        plant_noise.q_cross = sub_parser.get_optional_double("q_cross", plant_noise.q_cross);
-        plant_noise.q_heading = sub_parser.get_optional_double("q_heading", plant_noise.q_heading);
-        plant_noise.scale_factor =
-            sub_parser.get_optional_double("scale_factor", plant_noise.scale_factor);
-        plant_noise.heading_scale_factor = sub_parser.get_optional_double(
-            "heading_scale_factor", plant_noise.heading_scale_factor);
-        plant_noise.heading_random_walk =
-            sub_parser.get_optional_double("heading_random_walk", plant_noise.heading_random_walk);
-        plant_noise.delay_jitter_s =
-            sub_parser.get_optional_double("delay_jitter_s", plant_noise.delay_jitter_s);
-        sub_parser.validate_no_extra_fields();
     }
 };
 

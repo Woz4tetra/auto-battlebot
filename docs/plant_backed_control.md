@@ -79,7 +79,7 @@ goal and arrives at a commanded terminal velocity without overrunning. The termi
 velocity is per behavior mode, because the driver's switch decides what the mission is:
 `attack_terminal_velocity` ships at `1.0` so the robot drives through the opponent at full
 speed, and `run_away_terminal_velocity` ships at `0.0` so it arrives stopped at the safe
-point. Both are a fraction of `max_linear_speed_fwd`, clamped to `[0, 1]`, so a refit
+point. Both are a fraction of the plant's `k_fwd`, clamped to `[0, 1]`, so a refit
 rescales them. A mode flip resets the trajectory
 state, since the goal and the terminal speed both change at once and carrying the old
 reference across would feed the feedforward a `dv/dt` step the plant never asked for.
@@ -116,33 +116,45 @@ both channels within a few ticks.
 ## One fit, two consumers
 
 The fitted numbers live in `playground/calibration/out/plant_stageA.toml` (sessions
-2026-08-19 through 2026-08-23, model M4). `playground/calibration/write_plant_configs.py`
-rewrites the numeric literals in `simulation/sim_mrs_buff_mk3.toml` and
-`include/navigation/config.hpp` in place, so the hand-written notes next to each number
-survive. `--check` reports drift without changing anything.
+2026-08-19 through 2026-08-23, model M4). One C++-side copy carries them: the top-level
+`[plant]` table in `config/_common.toml`, parsed into `PlantConfiguration`
+(`include/plant/config.hpp`) and handed to both consumers after their own sections parse.
+The estimator builds a `JigPlantModel` from it; the controller inverts the same fields for
+its brake schedule and feedforward. Neither has C++ defaults, so a config with no `[plant]`
+is a load error rather than a subsystem running on zeros.
 
-| Fit parameter | Estimator (`[robot_filter.motion_estimator.plant]`) | Navigation (`config.hpp`) |
+`playground/calibration/write_plant_configs.py` rewrites the numeric literals in
+`simulation/sim_mrs_buff_mk3.toml` and `config/_common.toml` in place, so the hand-written
+notes next to each number survive. `--check` reports drift without changing anything.
+
+Which term does what on each side:
+
+| Fit parameter | Estimator | Navigation |
 | --- | --- | --- |
-| `k_fwd` 4.88002 | `k_fwd` | `max_linear_speed_fwd` |
-| `k_rev` 4.3546 | `k_rev` | `max_linear_speed_rev` |
-| `k_ang` 31.7062 | `k_ang` | `max_angular_speed` |
-| `tau_lin_a` 0.14921 | `tau_lin_a` | `tau_accel` |
-| `tau_lin_d` 0.123461 | `tau_lin_d` | `tau_decel` |
-| `tau_ang_a` 0.173867 | `tau_ang_a` | `tau_angular_accel` |
-| `tau_ang_d` 0.0878998 | `tau_ang_d` | `tau_angular_decel` |
-| `delay_s` 0.0522094 | `delay_s` | `latency` |
-| `c_sb` 2.70197 | `c_sb` | `steer_brake_coeff` |
-| `c_ad` 0.463423 | `c_ad` | `angular_droop_coeff` (defaults to 0) |
+| `k_fwd` 4.88002 | forward gain | divisor mapping reference speed to command |
+| `k_rev` 4.3546 | reverse gain | reverse-gain rescale |
+| `k_ang` 31.7062 | yaw gain | divisor mapping yaw-rate reference to command |
+| `tau_lin_a` 0.14921 | spin-up lag | feedforward of `dv/dt` |
+| `tau_lin_d` 0.123461 | coast lag | brake horizon, with `delay_s` |
+| `tau_ang_a` 0.173867 | yaw spin-up lag | yaw feedforward, rising |
+| `tau_ang_d` 0.0878998 | yaw coast lag | yaw feedforward, falling |
+| `delay_s` 0.0522094 | transport delay | latency lead in the brake schedule |
+| `c_sb` 2.70197 | steer-brake loss | divided back out of the forward command |
+| `c_ad` 0.463423 | angular droop | only when `compensate_angular_droop` is true |
 
-The one deliberate mismatch is `c_ad`. The estimator models the droop because the plant
-has it. The controller does not compensate it, because compensating made the controller
+The one deliberate asymmetry is `c_ad`. The estimator models the droop because the plant
+has it. The controller reads the same coefficient but ships with
+`navigation.compensate_angular_droop = false`, because compensating made the controller
 worse: on the 90-degree turning approach, enabling it moved terminal error from 0.008 m to
 0.067 m and time-to-goal from 1.10 s to 2.83 s. Compensating buys faster heading
 convergence by commanding a harder turn, and the steer-brake term charges forward speed
 for exactly that. The heading loop is closed-loop already and gets there without the help.
+The coefficient is measured; the compensation is a choice, which is why the switch is a
+bool rather than a second copy of the number.
 
 ## Where each piece is selected
 
+- `[plant]` in `config/_common.toml`, the shared fit both subsystems read.
 - `[robot_filter.motion_estimator] type = "KalmanMotionEstimator"`, `our_robot_mode = "EKF"`
   in `config/_common.toml`.
 - `[navigation] type = "MotionProfileNavigation"` in `config/_common.toml`, so every

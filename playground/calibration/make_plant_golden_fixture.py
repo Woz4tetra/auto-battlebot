@@ -26,7 +26,7 @@ from auto_battlebot.plant import Plant, PlantParams
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PARAMS_TOML = REPO_ROOT / "playground/calibration/out/plant_stageA.toml"
-OUT_HEADER = REPO_ROOT / "tests/robot_filter/plant_golden_data.hpp"
+OUT_HEADER = REPO_ROOT / "tests/plant/plant_golden_data.hpp"
 
 DT = 0.002  # step at the substep size, so each step is exactly one substep on both sides
 CMD_TICK_S = 0.02  # command rate, matching the drive CLI

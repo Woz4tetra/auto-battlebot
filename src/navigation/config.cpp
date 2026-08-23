@@ -23,13 +23,15 @@ std::unique_ptr<NavigationConfiguration> parse_navigation_config(ConfigParser &p
 }
 
 std::unique_ptr<NavigationConfiguration> load_navigation_from_toml(
-    toml::table const &toml_data, std::vector<std::string> &parsed_sections) {
+    toml::table const &toml_data, std::vector<std::string> &parsed_sections,
+    const PlantConfiguration &plant) {
     auto section = toml_data["navigation"].as_table();
     if (!section) {
         throw ConfigValidationError("Missing required section [navigation]");
     }
     ConfigParser parser(*section, "navigation");
     auto config = parse_navigation_config(parser);
+    config->apply_plant(plant);
     parsed_sections.push_back("navigation");
     return config;
 }

@@ -3,11 +3,15 @@
 # The plan asks for a delta per step rather than one combined number. Steps 2, 3 and 5 are all
 # reachable from config, so each row below is the full controller with exactly one term disabled:
 #
-#   steer_brake_coeff = 0        -> step 2 off (forward authority not compensated for the turn)
-#   max_linear_speed_rev = k_fwd -> step 5 off (the reverse-gain rescale becomes a no-op)
+#   plant.c_sb = 0        -> step 2 off (forward authority not compensated for the turn)
+#   plant.k_rev = k_fwd   -> step 5 off (the reverse-gain rescale becomes a no-op)
 #
-# Droop runs the other way. `angular_droop_coeff` ships at 0.0 because compensating for it
-# measured worse, so its row turns the term ON at the fitted c_ad to price that decision.
+# Those two edit the shared [plant] table, which is where the controller now reads the fit from.
+# That only ablates the controller here: the sim profile runs GroundTruthRobotFilter, so no
+# motion estimator reads the same table back.
+#
+# Droop runs the other way. `compensate_angular_droop` ships false because compensating for the
+# measured c_ad made the controller worse, so its row turns the term ON to price that decision.
 #
 # Run on the turning approach, where all three terms bite. `full` is the reference row, and it is
 # also the shipped configuration.
@@ -35,7 +39,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
 "navigation.attack_terminal_velocity" = 0.0
-"navigation.steer_brake_coeff" = 0.0
+"plant.c_sb" = 0.0
 
 [[runs]]
 name = "turn90_with_droop"
@@ -47,7 +51,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
 "navigation.attack_terminal_velocity" = 0.0
-"navigation.angular_droop_coeff" = 0.463423
+"navigation.compensate_angular_droop" = true
 
 [[runs]]
 name = "turn90_no_rev_gain"
@@ -59,7 +63,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
 "navigation.attack_terminal_velocity" = 0.0
-"navigation.max_linear_speed_rev" = 4.88002
+"plant.k_rev" = 4.88002
 
 [[runs]]
 name = "stop_full"
@@ -80,7 +84,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
 "navigation.attack_terminal_velocity" = 0.0
-"navigation.max_linear_speed_rev" = 4.88002
+"plant.k_rev" = 4.88002
 
 [[runs]]
 name = "stop_no_steer_brake"
@@ -91,4 +95,4 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
 "navigation.attack_terminal_velocity" = 0.0
-"navigation.steer_brake_coeff" = 0.0
+"plant.c_sb" = 0.0

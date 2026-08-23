@@ -85,47 +85,10 @@ keypoint_height_meters = 0.03
 # (last commanded velocity applied directly, opponents held at their last pose). The Kalman
 # arm runs opponents through a constant-velocity filter with innovation gating and coasts the
 # output at control rate; our robot still dead-reckons until the plant fit passes acceptance.
-# The jig-fitted plant parameters ride in a [robot_filter.motion_estimator.plant] table; see
-# config/experiments/plant_model_playback.toml for the fitted values and provenance.
+# The jig-fitted plant parameters ride in the shared top-level [plant] table below.
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
-
-# Stage A per-phase fit, playground/calibration/out/plant_stageA.toml, sessions 2026-08-19
-# through 2026-08-23, model M4 (drift terms disabled by the ladder, written as zero). The fit
-# is the source of truth: refit and re-copy, do not hand-edit. delay_s is the onset-stack
-# measurement (3486 edges, SNR 22.4), corroborated by the tau-pinned profile (54 ms) and the
-# stage 2 camera value (59 ms).
-[robot_filter.motion_estimator.plant]
-dz_lin_fwd = 0.0109768
-dz_lin_rev = 0.0253396
-dz_ang_l = 0.016061
-dz_ang_r = 0.0240734
-k_fwd = 4.88002
-k_rev = 4.3546
-k_ang = 31.7062
-tau_lin_a = 0.14921
-tau_lin_d = 0.123461
-tau_ang_a = 0.173867
-tau_ang_d = 0.0878998
-delay_s = 0.0522094
-c_sb = 2.70197
-c_ad = 0.463423
-c_drift = 0.0
-c_drift_bias = 0.0
-
-# fit_process_noise.py output, playground/calibration/out/process_noise.toml, same sessions
-# and plant as above. Growth-law mechanisms: white-noise accel (h^3), scale-factor error on
-# v and w (h^2, applied state-dependent at runtime), heading random walk (h), delay jitter
-# (constant, fit found none). Refit and re-copy, do not hand-edit.
-[robot_filter.motion_estimator.plant.process_noise]
-q_along = 0.37125
-q_cross = 0.351167
-q_heading = 0.0
-scale_factor = 0.541056
-heading_scale_factor = 1.7783
-heading_random_walk = 0.0703417
-delay_jitter_s = 0.0
 
 # Per-label keypoint height overrides; labels not listed use keypoint_height_meters.
 [robot_filter.keypoint_height_meters_per_label]
@@ -163,12 +126,50 @@ zero_deadzone_percent = 2
 reverse_angular_channel = true
 velocity_saturation_limit = 1.0 # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
 
+# The measured drivetrain, read by two subsystems: the our-robot EKF propagates through it and
+# MotionProfileNavigation inverts it for the brake schedule and feedforward. One table, so a
+# refit lands in one place.
+#
+# Stage A per-phase fit, playground/calibration/out/plant_stageA.toml, sessions 2026-08-19
+# through 2026-08-23, model M4 (drift terms disabled by the ladder, written as zero). The fit
+# is the source of truth: refit and re-copy, do not hand-edit. Measured with guard plates on;
+# their ground friction is part of the fitted plant. delay_s is the onset-stack measurement
+# (3486 edges, SNR 22.4), corroborated by the tau-pinned profile (54 ms) and the stage 2
+# camera value (59 ms).
+[plant]
+dz_lin_fwd = 0.0109768
+dz_lin_rev = 0.0253396
+dz_ang_l = 0.016061
+dz_ang_r = 0.0240734
+k_fwd = 4.88002
+k_rev = 4.3546
+k_ang = 31.7062
+tau_lin_a = 0.14921
+tau_lin_d = 0.123461
+tau_ang_a = 0.173867
+tau_ang_d = 0.0878998
+delay_s = 0.0522094
+c_sb = 2.70197
+c_ad = 0.463423
+c_drift = 0.0
+c_drift_bias = 0.0
+
+# fit_process_noise.py output, playground/calibration/out/process_noise.toml, same sessions
+# and plant as above; only the EKF reads them. Growth-law mechanisms: white-noise accel (h^3), scale-factor error on
+# v and w (h^2, applied state-dependent at runtime), heading random walk (h), delay jitter
+# (constant, fit found none). Refit and re-copy, do not hand-edit.
+[plant.process_noise]
+q_along = 0.37125
+q_cross = 0.351167
+q_heading = 0.0
+scale_factor = 0.541056
+heading_scale_factor = 1.7783
+heading_random_walk = 0.0703417
+delay_jitter_s = 0.0
+
 # Motion-profiled tracker: a distance-to-go brake schedule and inverse-plant feedforward, both
-# derived from the jig fit. See docs/plant_backed_control.md. The plant terms (max_linear_speed_*,
-# tau_*, latency, steer_brake_*, angular deadzones, max_angular_speed, tau_angular_*) default to
-# the Mrs Buff Mk3 fit in include/navigation/config.hpp, written by
-# playground/calibration/write_plant_configs.py. Do not hand-copy them here; a refit would leave
-# this table stale. Only the mission and field settings live below.
+# derived from the jig fit. See docs/plant_backed_control.md. The plant terms come from the
+# [plant] table above, not from here, so only the mission and field settings live below.
 #
 # Mr Stabs Mk2 has no fit and stays on PursuitNavigation. Its profiles set `type` themselves,
 # which makes the merge replace this whole section rather than merge keys into it.
@@ -176,7 +177,7 @@ velocity_saturation_limit = 1.0 # 0 = disabled; e.g. 1.0 = |linear| + |angular| 
 type = "MotionProfileNavigation"
 stop_distance = 0.15             # arrive stopped within this distance of the goal
 # Terminal speed at the goal, per driver switch position: hit it, or get away from it and
-# hold. A fraction of max_linear_speed_fwd, clamped to 0..1: 0 = arrive stopped, 1 = full
+# hold. A fraction of the plant's k_fwd, clamped to 0..1: 0 = arrive stopped, 1 = full
 # speed. Normalized rather than m/s so a refit rescales these instead of leaving a
 # hand-copied speed stale.
 attack_terminal_velocity = 1.0   # full forward speed into the opponent

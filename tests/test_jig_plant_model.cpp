@@ -4,8 +4,9 @@
 #include <vector>
 
 #include "plant/jig_plant_model.hpp"
+#include "plant/mrs_buff_mk3_params.hpp"
+#include "plant/plant_golden_data.hpp"
 #include "robot_filter/command_ring_buffer.hpp"
-#include "robot_filter/plant_golden_data.hpp"
 
 namespace auto_battlebot {
 namespace {
@@ -22,26 +23,7 @@ double wrap_angle(double angle) {
     return wrapped - M_PI;
 }
 
-JigPlantParams golden_params() {
-    JigPlantParams params;
-    params.dz_lin_fwd = plant_golden::kParam_dz_lin_fwd;
-    params.dz_lin_rev = plant_golden::kParam_dz_lin_rev;
-    params.dz_ang_l = plant_golden::kParam_dz_ang_l;
-    params.dz_ang_r = plant_golden::kParam_dz_ang_r;
-    params.k_fwd = plant_golden::kParam_k_fwd;
-    params.k_rev = plant_golden::kParam_k_rev;
-    params.k_ang = plant_golden::kParam_k_ang;
-    params.tau_lin_a = plant_golden::kParam_tau_lin_a;
-    params.tau_lin_d = plant_golden::kParam_tau_lin_d;
-    params.tau_ang_a = plant_golden::kParam_tau_ang_a;
-    params.tau_ang_d = plant_golden::kParam_tau_ang_d;
-    params.delay_s = plant_golden::kParam_delay_s;
-    params.c_sb = plant_golden::kParam_c_sb;
-    params.c_ad = plant_golden::kParam_c_ad;
-    params.c_drift = plant_golden::kParam_c_drift;
-    params.c_drift_bias = plant_golden::kParam_c_drift_bias;
-    return params;
-}
+JigPlantParams golden_params() { return mrs_buff_mk3_plant(); }
 
 std::vector<TimedCommand> golden_commands() {
     std::vector<TimedCommand> commands;

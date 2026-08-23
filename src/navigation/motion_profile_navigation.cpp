@@ -18,26 +18,28 @@ namespace auto_battlebot {
 
 MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationConfiguration &config,
                                                  std::shared_ptr<ClockInterface> clock)
-    : max_linear_speed_fwd_(config.max_linear_speed_fwd),
-      max_linear_speed_rev_(config.max_linear_speed_rev),
-      tau_accel_(config.tau_accel),
-      tau_decel_(config.tau_decel),
-      latency_(config.latency),
+    : max_linear_speed_fwd_(config.plant.k_fwd),
+      max_linear_speed_rev_(config.plant.k_rev),
+      tau_accel_(config.plant.tau_lin_a),
+      tau_decel_(config.plant.tau_lin_d),
+      latency_(config.plant.delay_s),
       deadzone_(config.deadzone),
       accel_limit_(config.accel_limit),
-      steer_brake_coeff_(config.steer_brake_coeff),
+      steer_brake_coeff_(config.plant.c_sb),
       steer_brake_floor_(config.steer_brake_floor),
-      angular_deadzone_left_(config.angular_deadzone_left),
-      angular_deadzone_right_(config.angular_deadzone_right),
+      angular_deadzone_left_(config.plant.dz_ang_l),
+      angular_deadzone_right_(config.plant.dz_ang_r),
       attack_terminal_velocity_(config.attack_terminal_velocity),
       run_away_terminal_velocity_(config.run_away_terminal_velocity),
       stop_distance_(config.stop_distance),
       speed_kp_(config.speed_kp),
       speed_ki_(config.speed_ki),
-      max_angular_speed_(config.max_angular_speed),
-      tau_angular_accel_(config.tau_angular_accel),
-      tau_angular_decel_(config.tau_angular_decel),
-      angular_droop_coeff_(config.angular_droop_coeff),
+      max_angular_speed_(config.plant.k_ang),
+      tau_angular_accel_(config.plant.tau_ang_a),
+      tau_angular_decel_(config.plant.tau_ang_d),
+      // The coefficient is measured, the compensation is a choice: off means the droop term
+      // simply never divides back out, which compensate_coupling already does at zero.
+      angular_droop_coeff_(config.compensate_angular_droop ? config.plant.c_ad : 0.0),
       angular_droop_floor_(config.angular_droop_floor),
       angular_kp_(config.angular_kp),
       angular_kd_(config.angular_kd),
@@ -252,13 +254,6 @@ std::optional<double> MotionProfileNavigation::measure_forward_speed(const Robot
     return robot.velocity.vx * std::cos(our_pose.yaw) + robot.velocity.vy * std::sin(our_pose.yaw);
 }
 
-double MotionProfileNavigation::effective_command(double command, double deadzone_pos,
-                                                  double deadzone_neg) {
-    const double deadzone = std::clamp(command >= 0.0 ? deadzone_pos : deadzone_neg, 0.0, 0.95);
-    const double magnitude = std::max(std::abs(command) - deadzone, 0.0) / (1.0 - deadzone);
-    return std::copysign(magnitude, command);
-}
-
 double MotionProfileNavigation::compensate_coupling(double command, double effect, double coeff,
                                                     double floor) {
     if (coeff <= 0.0) return command;
@@ -340,8 +335,8 @@ double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt
     prev_linear_uncompensated_ = std::clamp(u, -1.0, 1.0);
 
     // Steer-brake: the plant multiplies forward authority by (1 - c_sb*|u_ang_eff|).
-    const double u_ang_eff = effective_command(prev_angular_uncompensated_, angular_deadzone_left_,
-                                               angular_deadzone_right_);
+    const double u_ang_eff = plant_effective_command(
+        prev_angular_uncompensated_, angular_deadzone_left_, angular_deadzone_right_);
     u = compensate_coupling(u, u_ang_eff, steer_brake_coeff_, steer_brake_floor_);
 
     // Exact inverse-deadzone: the plant applies (|c| - dz)/(1 - dz), so pre-distort the command so
@@ -415,7 +410,8 @@ double MotionProfileNavigation::compute_angular_command(double w_ref, double dt)
     // Angular droop: the plant multiplies yaw authority by (1 - c_ad*|u_lin_eff|), so the heading
     // loop is weaker at speed than in place. Driven by the uncompensated linear command; see the
     // loop-gain note in compute_linear_command.
-    const double u_lin_eff = effective_command(prev_linear_uncompensated_, deadzone_, deadzone_);
+    const double u_lin_eff =
+        plant_effective_command(prev_linear_uncompensated_, deadzone_, deadzone_);
     u = compensate_coupling(u, u_lin_eff, angular_droop_coeff_, angular_droop_floor_);
 
     return std::clamp(u, -1.0, 1.0);

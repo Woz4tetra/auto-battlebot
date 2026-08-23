@@ -5,6 +5,7 @@
 
 #include "enums/behavior_mode.hpp"
 #include "navigation/motion_profile_navigation.hpp"
+#include "plant/mrs_buff_mk3_params.hpp"
 #include "time/manual_clock.hpp"
 #include "transform_utils.hpp"
 
@@ -62,7 +63,15 @@ class MotionProfileModeTest : public ::testing::Test {
                           make_target(distance, 0.0, mode));
     }
 
-    MotionProfileNavigationConfiguration config_{};
+    // Nothing in C++ defaults to a fit any more: the plant arrives from the [plant] config
+    // table, so a test config has to ask for one or it drives a zero drivetrain.
+    MotionProfileNavigationConfiguration make_config() {
+        MotionProfileNavigationConfiguration config;
+        config.plant = mrs_buff_mk3_plant();
+        return config;
+    }
+
+    MotionProfileNavigationConfiguration config_ = make_config();
     std::shared_ptr<ManualClock> clock_ = std::make_shared<ManualClock>();
 };
 
@@ -111,14 +120,14 @@ TEST_F(MotionProfileModeTest, TerminalVelocityIsAFractionOfTheTopSpeed) {
     MotionProfileNavigationConfiguration fast = config_;
     fast.attack_terminal_velocity = 0.4;
     MotionProfileNavigationConfiguration slow = config_;
-    slow.max_linear_speed_fwd = config_.max_linear_speed_fwd * 0.5;
+    slow.plant.k_fwd = config_.plant.k_fwd * 0.5;
     slow.attack_terminal_velocity = 0.8;
 
-    ASSERT_DOUBLE_EQ(fast.attack_terminal_velocity * fast.max_linear_speed_fwd,
-                     slow.attack_terminal_velocity * slow.max_linear_speed_fwd);
+    ASSERT_DOUBLE_EQ(fast.attack_terminal_velocity * fast.plant.k_fwd,
+                     slow.attack_terminal_velocity * slow.plant.k_fwd);
 
     // Read through the command, which the halved top speed rescales by the same factor: the
-    // feedforward divides the reference speed by max_linear_speed_fwd.
+    // feedforward divides the reference speed by the plant's k_fwd.
     auto fast_nav = make_nav(fast);
     auto slow_nav = make_nav(slow);
     const double fast_cmd = tick(*fast_nav, 0.1, BehaviorMode::ATTACK, 1.0).linear_x;

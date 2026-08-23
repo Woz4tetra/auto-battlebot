@@ -12,6 +12,10 @@ struct RobotFilterConfiguration {
     std::string type;
     virtual ~RobotFilterConfiguration() = default;
     virtual void parse_fields([[maybe_unused]] ConfigParser &parser) {}
+
+    /** Hand over the shared [plant] table, after parse_fields. Filters that hold a motion
+     * estimator forward it there; the rest keep the no-op. */
+    virtual void apply_plant([[maybe_unused]] const PlantConfiguration &plant) {}
 };
 
 struct NoopRobotFilterConfiguration : public RobotFilterConfiguration {
@@ -94,6 +98,10 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
         parse_robot_keypoint_tracker_config(parser);
         parse_motion_estimator(parser);
         parser.validate_no_extra_fields();
+    }
+
+    void apply_plant(const PlantConfiguration &plant) override {
+        motion_estimator->apply_plant(plant);
     }
 
     void parse_motion_estimator(ConfigParser &parser) {
@@ -214,5 +222,6 @@ std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfigu
                                                         std::shared_ptr<ClockInterface> clock);
 std::unique_ptr<RobotFilterConfiguration> parse_robot_filter_config(ConfigParser &parser);
 std::unique_ptr<RobotFilterConfiguration> load_robot_filter_from_toml(
-    toml::table const &toml_data, std::vector<std::string> &parsed_sections);
+    toml::table const &toml_data, std::vector<std::string> &parsed_sections,
+    const PlantConfiguration &plant);
 }  // namespace auto_battlebot
