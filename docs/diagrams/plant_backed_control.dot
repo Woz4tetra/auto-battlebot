@@ -1,0 +1,161 @@
+digraph PlantBackedControl {
+    graph [
+        rankdir=TB
+        label="Plant-backed control loop: KalmanMotionEstimator + MotionProfileNavigation"
+        labelloc=t
+        fontsize=22
+        fontname="Helvetica"
+        pad=0.35
+        nodesep=0.45
+        ranksep=0.55
+        splines=spline
+        bgcolor="white"
+        compound=true
+    ];
+    node [
+        shape=box
+        style="rounded,filled"
+        fillcolor="#F8FAFC"
+        color="#CBD5E1"
+        fontname="Helvetica"
+        fontsize=11
+        penwidth=1.4
+        margin="0.20,0.14"
+    ];
+    edge [
+        color="#475569"
+        penwidth=1.5
+        arrowsize=0.85
+        fontname="Helvetica"
+        fontsize=10
+    ];
+
+    /* ---------- one source of truth for the plant numbers ---------- */
+    fit [
+        shape=note
+        fillcolor="#FEF9C3"
+        color="#EAB308"
+        label=<<b>One plant fit, used in both directions</b><br align="left"/>playground/calibration/out/plant_stageA.toml<br align="left"/><br align="left"/>k_fwd 4.88 &#183; k_rev 4.35 &#183; k_ang 31.7<br align="left"/>tau_lin_a 0.149 &#183; tau_lin_d 0.123<br align="left"/>tau_ang_a 0.174 &#183; tau_ang_d 0.088<br align="left"/>delay_s 0.052 &#183; c_sb 2.70 &#183; c_ad 0.463<br align="left"/><br align="left"/>write_plant_configs.py copies these into the<br align="left"/>estimator TOML and the navigation defaults.<br align="left"/><font color="#15803D"><b>Green boxes</b></font> are the fitted plant: run forward<br align="left"/>in the filter, inverted in the controller.<br align="left"/>>
+    ];
+
+    /* ---------- perception ---------- */
+    subgraph cluster_perception {
+        label="Perception (~30 Hz)";
+        fontname="Helvetica"; fontsize=13; color="#CBD5E1"; style="rounded"; bgcolor="#FCFCFD";
+        meas [label=<<b>keypoints + robot blobs</b><br align="left"/>projected onto the field plane<br align="left"/>>];
+    }
+
+    /* ---------- filter ---------- */
+    subgraph cluster_filter {
+        label="RobotFrontBackFilter";
+        fontname="Helvetica"; fontsize=13; color="#A5B4FC"; style="rounded"; bgcolor="#F5F7FF";
+
+        assoc [label=<<b>Association front-end</b><br align="left"/>FrontBackKeypointConverter pairs front/back<br align="left"/>blob merge suppresses duplicates<br align="left"/>FrameIdAssigner: nearest-neighbor + jump gate<br align="left"/>>];
+
+        subgraph cluster_estimator {
+            label="KalmanMotionEstimator  (MotionEstimatorInterface seam)";
+            fontname="Helvetica"; fontsize=12; color="#818CF8"; style="rounded"; bgcolor="#EEF2FF";
+
+            ring [
+                fillcolor="#E0E7FF" color="#818CF8"
+                label=<<b>predict(now, command_feedback)</b>  <i>control rate</i><br align="left"/>CommandRingBuffer.push(TimedCommand)<br align="left"/>256 entries, ~8 s of issued commands<br align="left"/>>
+            ];
+
+            our [
+                fillcolor="#DCFCE7" color="#4ADE80"
+                label=<<b>Our robot: 5-state EKF</b>  [x, y, theta, v, w]<br align="left"/><br align="left"/>propagate through <b>JigPlantModel</b> (forward plant)<br align="left"/>&#8226; commands re-read at t &#8722; delay_s, 2 ms arc substeps<br align="left"/>&#8226; per-sign deadzone, asymmetric first-order lag<br align="left"/>&#8226; steer-brake and angular-droop coupling<br align="left"/>correct: keypoint pose (position + heading)<br align="left"/>or blob centroid (position only)<br align="left"/>heading innovation &gt; pi/2 &#8594; position rows only<br align="left"/>>
+            ];
+
+            opp [
+                label=<<b>Opponents: 4-state linear KF</b>  [px, py, vx, vy]<br align="left"/><br align="left"/>constant velocity, white-noise accel PSD<br align="left"/>position-only measurement, chi-square NIS gate<br align="left"/>reinit after repeated rejects<br align="left"/>late measurement &#8594; rewind to snapshot (64-deep),<br align="left"/>correct at its own stamp, re-propagate<br align="left"/>>
+            ];
+
+            coast [
+                fillcolor="#E0E7FF" color="#818CF8"
+                label=<<b>coast(now)</b>  <i>control rate</i><br align="left"/>renders every track forward to the control clock<br align="left"/>our EKF coasts up to max_coast_s of unmeasured age,<br align="left"/>then holds position while covariance keeps growing<br align="left"/>is_stale once unmeasured for 0.1 s<br align="left"/>>
+            ];
+        }
+    }
+
+    robots [
+        fillcolor="#F1F5F9" color="#94A3B8"
+        label=<<b>RobotDescriptions</b> @ control rate<br align="left"/>pose, velocity, is_stale, per FrameId<br align="left"/>>
+    ];
+
+    target [label=<<b>TargetSelector</b><br align="left"/>picks the goal pose for the active mode<br align="left"/>>];
+
+    /* ---------- navigation ---------- */
+    subgraph cluster_nav {
+        label="MotionProfileNavigation";
+        fontname="Helvetica"; fontsize=13; color="#4ADE80"; style="rounded"; bgcolor="#F4FDF7";
+
+        vref [
+            label=<<b>1. Distance-to-go brake schedule</b><br align="left"/>v_ref = v_term + max(0, d &#8722; |v|&#183;latency) / tau_decel<br align="left"/>ramp-up rate-limited by accel_limit<br align="left"/><i>latency lead + coast horizon, both from the fit</i><br align="left"/>>
+        ];
+
+        ulin [
+            fillcolor="#DCFCE7" color="#4ADE80"
+            label=<<b>2. Inverse-plant feedforward</b>  (linear)<br align="left"/>u_ff = (v_ref + tau&#183;dv/dt) / k_fwd, tau by sign of dv/dt<br align="left"/>reverse rescaled by k_fwd / k_rev<br align="left"/>steer-brake divided out: u / max(floor, 1 &#8722; c_sb&#183;|u_ang_eff|)<br align="left"/>exact inverse-deadzone<br align="left"/>>
+        ];
+
+        fb [
+            fillcolor="#FEF2F2" color="#FCA5A5"
+            label=<<b>3. Speed PI feedback</b><br align="left"/>err = v_ref &#8722; v_actual, clamped integrator<br align="left"/><b>dropped while our track is_stale</b><br align="left"/><i>a dead-reckoned speed is our own command</i><br align="left"/>>
+        ];
+
+        wref [
+            label=<<b>4a. Heading PD &#8594; yaw-rate reference</b><br align="left"/>turn-lock hysteresis: commit 135&#176;, release 90&#176;<br align="left"/>w_ref = kp&#183;e + kd&#183;de/dt, clamped to max_yaw_rate<br align="left"/>>
+        ];
+
+        uang [
+            fillcolor="#DCFCE7" color="#4ADE80"
+            label=<<b>4b. Inverse-plant feedforward</b>  (angular)<br align="left"/>u = (w_ref + tau_ang&#183;dw/dt) / k_ang<br align="left"/>angular droop divided out: 1 &#8722; c_ad&#183;|u_lin_eff|<br align="left"/>>
+        ];
+
+        gate [
+            shape=diamond style=filled fillcolor="#FFFFFF" color="#94A3B8"
+            label=<|angle error|<br/>&lt; threshold?>
+        ];
+
+        wall [label=<<b>5. Wall reverse override + clamp</b><br align="left"/>>];
+    }
+
+    tx [
+        fillcolor="#EEF2FF" color="#A5B4FC"
+        label=<<b>Transmitter</b><br align="left"/>send(VelocityCommand) &#8594; CRSF sticks<br align="left"/>update() reads the channels back as CommandFeedback<br align="left"/>>
+    ];
+
+    /* ---------- main flow ---------- */
+    meas -> assoc [ltail=cluster_perception];
+    assoc -> our   [label="  OURS"];
+    assoc -> opp   [label="  others"];
+    our   -> coast;
+    opp   -> coast;
+    ring  -> our [label="  command history\l"];
+    coast -> robots;
+    robots -> target;
+    target -> vref [label="  goal pose  "];
+    robots -> vref [label="  distance, v_actual  "];
+    robots -> fb   [label="  is_stale  " style=dashed color="#EF4444" fontcolor="#B91C1C"];
+    robots -> wref [label="  heading error  "];
+
+    vref -> ulin;
+    fb   -> ulin [label="  u_fb  "];
+    wref -> uang;
+    ulin -> gate;
+    uang -> wall;
+    gate -> wall [label="  yes: linear_x\l  no: 0, turn in place\l"];
+    wall -> tx   [label="  VelocityCommand  "];
+
+    /* ---------- the loop closes here ---------- */
+    tx -> ring [
+        label="  CommandFeedback  \l  (the same command the plant model integrates)  \l"
+        color="#7C3AED" fontcolor="#6D28D9" penwidth=2.0 style=bold
+        constraint=false
+    ];
+
+    /* ---------- mutual coupling compensation ---------- */
+    ulin -> uang [label="  prev u_lin (uncompensated)  " style=dotted color="#94A3B8" fontcolor="#64748B" constraint=false];
+    uang -> ulin [label="  prev u_ang (uncompensated)  " style=dotted color="#94A3B8" fontcolor="#64748B" constraint=false];
+
+}
