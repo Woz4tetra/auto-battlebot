@@ -1,0 +1,7 @@
+name,our_robot.start_pos,opponents,navigation.stop_distance,navigation.max_angular_command,navigation.brake_distance,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,wall_contacts,impact_speed_mps,terminal_pos_err_m,terminal_vel_mps,overshoot_m,t_to_goal_s,navigation.type,navigation.terminal_velocity
+short_baseline,"[-0.5, -0.5]","[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,0.25,0.8,True,900,0.005,True,0.37,3.3,28.9,0.0,0,2.74,0.102,0.0,0.321,0.37,,
+short_tracker,"[-0.5, -0.5]","[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,0.25,,True,900,0.0,True,0.5,1.7,0.0,0.0,0,0.48,0.006,0.0,0.006,0.57,MotionProfileNavigation,0.0
+center_baseline,"[-0.9, -0.9]","[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,0.25,0.8,True,900,0.003,True,0.57,4.4,64.0,0.0,0,3.31,0.061,0.0,0.389,0.57,,
+center_tracker,"[-0.9, -0.9]","[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,0.25,,True,900,0.005,True,0.67,2.2,0.0,0.0,0,1.04,0.005,0.0,0.0,0.73,MotionProfileNavigation,0.0
+far_diag_baseline,"[-0.9, -0.9]","[{'behavior': 'static', 'start_pos': [0.8, 0.8]}]",0.15,0.25,0.8,True,900,0.033,True,1.07,5.4,5.4,0.0,0,3.42,0.108,0.0,0.338,1.1,,
+far_diag_tracker,"[-0.9, -0.9]","[{'behavior': 'static', 'start_pos': [0.8, 0.8]}]",0.15,0.25,,True,900,0.02,True,0.93,3.1,0.0,0.0,0,1.16,0.02,0.0,0.0,0.97,MotionProfileNavigation,0.0

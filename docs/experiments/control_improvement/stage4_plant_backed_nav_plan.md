@@ -344,70 +344,83 @@ branch that cannot be taken is what hid this.
 
 ## One source of truth
 
-The plant numbers now live in three places: `plant_stageA.toml` (fitted),
-`simulation/sim_mrs_buff_mk3.toml` (sim), and the `[navigation]` section (controller). They have
-already drifted apart once, which is how the controller ended up running Mr Stabs Mk2's taus on
-Mrs Buff Mk3.
+The plant numbers live in three places: `plant_stageA.toml` (fitted),
+`simulation/sim_mrs_buff_mk3.toml` (sim), and `include/navigation/config.hpp` (controller
+defaults). They had already drifted apart once, which is how the controller ended up running Mr
+Stabs Mk2's taus on Mrs Buff Mk3.
 
-Do not add a fourth. The cheapest fix that holds: a small script under
-`playground/calibration/` that reads `plant_stageA.toml` and writes the derived blocks into the
-sim config and a `config/plant/mrs_buff_mk3.toml` fragment the nav config extends, run as part of
-the fit rather than by hand. Names differ between consumers (`k_fwd` vs `max_linear_speed_fwd`,
-`tau_lin_a` vs `tau_accel`), so the mapping has to live somewhere; a generator is the place.
-
-## Acceptance
-
-Re-run all three Stage 3 sweeps after Step 0 to set the baseline, then after each of Steps 1 to 5.
+Landed as `playground/calibration/write_plant_configs.py`. It reads the fit and rewrites the
+numeric literal of each named field in the other two, in place. Rewriting literals rather than
+regenerating blocks is deliberate: both consumers carry hand-written notes next to the numbers
+(which term is weakest, where `c_sb` goes singular) that a block generator would flatten. Run it
+after every fit:
 
 ```bash
 source scripts/activate_python.sh
-cmake -S . -B build && ./scripts/build.sh
-for s in stage3_stop stage3_ram stage3_track; do
-  python playground/control_stage0/sim_sweep.py \
-    --sweep playground/control_stage0/sweeps/$s.toml \
-    --out playground/control_stage0/sweep_out/$s
-done
-./scripts/lint
+python playground/calibration/write_plant_configs.py            # write
+python playground/calibration/write_plant_configs.py --check    # report drift, exit 1
 ```
 
-Report the metric and the delta per step, not a combined number. Targets, against the Step 0
-baseline rather than against the void Stage 3 table:
+Its first run caught two rounding drifts from the earlier hand transcription (`command_ms`
+52.2 -> 52.2094, `max_linear_speed` 4.88 -> 4.88002).
 
-- **Stop:** terminal position error and overshoot both improve at Step 1. If they do not, the
-  brake-horizon reasoning is wrong and the rest of the plan is built on it.
-- **Turning approach:** Step 2 is the only step that changes anything here, and the existing
-  sweeps barely exercise it because their goals are close to straight ahead. Add a fourth sweep,
-  `stage4_turn_approach.toml`, with start headings 45, 90 and 135 deg off the goal bearing.
-  Without it Step 2 has no test.
-- **Heading:** Step 3 should cut heading overshoot on the turn-in-place phase. Watch for the
-  `angular_kp` units change swamping the effect; retune before comparing.
-- **Dropout:** Step 4 needs a scenario the sweeps do not have. Set
-  `[perception] dropout_prob` in the sim config to produce gaps near the measured p90 of 340 ms
-  and check that the commanded speed falls rather than rises during a gap.
+Two fitted terms are deliberately absent from the nav mapping, documented at the mapping table:
+`c_ad` (the plant droops, but compensating measured worse; see the ablation in the report) and
+`c_drift` / `c_drift_bias` (disabled by model M4).
 
-Two of the five steps have no test today. Write those two sweeps before writing the code for
-Steps 2 and 4.
+## Acceptance
+
+Results are in `stage4_sim_report.md`. Summary against the four targets:
+
+- **Stop:** met at Step 1, as predicted. Center-goal terminal error 0.096 -> 0.005 m from the
+  config change alone, and overshoot goes to zero against pursuit's 0.389 m. The brake-horizon
+  reasoning holds.
+- **Turning approach:** met. `stage4_turn.toml` was written as the plan required. Terminal error
+  0.001 to 0.022 m against pursuit's 0.133 to 0.149, and the tracker is faster to the goal in all
+  four cases. Mean heading error improves 3x to 8x in three of four; turn90 regresses 31.0 ->
+  39.9 deg.
+- **Heading:** partly met, and the caveat in the plan was the right one. The rad/s angular loop
+  helps three of four turn cases; the units change did need a retune before the effect was
+  visible.
+- **Dropout:** mostly met. `stage4_dropout.toml` covers 0/50/80% loss of our own pose. Braking
+  -phase gaps at 50% fall 1 / rise 0; at 80% they fall 1 / rise 1 / flat 4, with the single rise
+  at +0.338 m/s. No wall contacts and no residual velocity in any scenario.
+
+Chasing the dropout criterion found a genuine bug in `GroundTruthRobotFilter`'s dead-reckoning
+path: a fabricated origin seed, a gap-spanning pose delta divided by one frame interval, and a
+coast that wrote back over the last measurement. Details and the fix are in the report. Numbers
+measured before that fix are not comparable.
+
+Unit coverage for the plant algebra itself is in `tests/navigation/test_motion_profile_plant.cpp`
+(15 tests over `effective_command` and `compensate_coupling`, including the behavior at and past
+the `1/c_sb` = 0.370 singularity).
 
 ## Known limits
 
 - **`tau_lin_a` is the weakest number used here.** +/- 0.074 on 0.149, with 10 of 24 segments
   yielding nothing. It only feeds the ramp-up feedforward, which the speed PID corrects and which
-  no acceptance metric scores directly. If Step 1 makes launch behavior worse, this is the first
-  suspect and the fix is more E8 data, not a hand tune.
+  no acceptance metric scores directly. If launch behavior is worse on hardware, this is the
+  first suspect and the fix is more E8 data, not a hand tune.
 - **`k_ang` disagrees with Stage 2 by 1.9x** and that is unresolved. The jig value is used here
   on the strength of the raw dps counts.
 - **`c_sb`'s loss shape is wrong above `|u_ang_eff|` = 0.37.** The floor in Step 2 is what keeps
-  the controller out of that region. Fixing the shape is fit-side work.
+  the controller out of that region, and the ablation shows why it matters: enabling droop
+  compensation drives p95 effective angular command to 0.466, past the singularity, and costs
+  59 mm of terminal error. Fixing the shape is fit-side work.
+- **Steer-brake and reverse gain are inert in the shipped configuration.** Disabling either moves
+  terminal error by 1 mm, because `turn90_full` never commands hard enough turns to enter the
+  region where they apply. They are insurance, not active terms.
 - **Session count.** Four sessions (2026-08-19 through 2026-08-23) is enough to see
   session-to-session spread but not enough to trust it; leave-one-session-out was uninformative
   on the earlier two-session fit.
 - **These are Mrs Buff Mk3's numbers with guard plates on.** The plates' ground friction is part
   of the fitted plant. Characterizing or running without them invalidates the fit.
+- **Sim only.** No hardware runs behind any number in the report.
 
 ## Next steps
 
-1. Add `angular_droop_coeff` to the sim plant and fill `simulation/sim_mrs_buff_mk3.toml` from
-   `plant_stageA.toml`. Re-run the three sweeps for a new baseline.
-2. Land Step 1 as a config change and re-run. This is the highest ratio of expected improvement
-   to risk in the plan.
-3. Write `stage4_turn_approach.toml` and the dropout scenario, then implement Steps 2 and 4.
+1. Bench-test the stop cases on Mrs Buff Mk3 with guard plates on. The sim says 5 mm; anything
+   inside 50 mm on hardware validates the approach.
+2. Fix the `c_sb` loss shape above `|u_ang_eff|` = 0.37 on the fit side, then re-run
+   `turn90_with_droop`. Droop compensation may be recoverable once it is not fighting a floor.
+3. Collect more E8 data for `tau_lin_a` before trusting the ramp-up feedforward on hardware.

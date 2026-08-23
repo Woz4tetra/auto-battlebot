@@ -18,7 +18,7 @@ height = 2.4
 # onset stack: 52.2 ms over 3486 edges at SNR 22.4, clock measured. The server quantizes this to
 # whole sim ticks, so at dt = 0.0333 it is applied as 2 ticks (66.6 ms).
 [latency]
-command_ms = 52.2
+command_ms = 52.2094
 observation_ms = 0.0
 
 [camera]
@@ -40,7 +40,7 @@ radius = 0.11
 #   c_sb        -> steer_brake_coeff              c_ad         -> angular_droop_coeff
 #   dz_lin_fwd/_rev, dz_ang_l/_r -> deadzone_linear/_rev, deadzone_angular/_right
 # Measured with guard plates on; their ground friction is part of the fitted plant.
-max_linear_speed = 4.88   # symmetric fallback (unused once _fwd/_rev are set)
+max_linear_speed = 4.88002   # symmetric fallback (unused once _fwd/_rev are set)
 max_angular_speed = 31.7062
 tau_linear = 0.14921      # fallback
 tau_angular = 0.173867    # fallback

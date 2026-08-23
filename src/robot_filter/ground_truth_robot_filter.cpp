@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <optional>
 
 #include "transform_utils.hpp"
 
@@ -44,28 +45,29 @@ void GroundTruthRobotFilter::correct([[maybe_unused]] KeypointsStamped keypoints
     // Field-frame velocity from the pose delta since the last frame. Consumers that close a loop
     // on speed (MotionProfileNavigation) read velocity rather than differencing poses themselves,
     // because only the filter knows whether a pose is a fresh measurement or a propagated one.
-    const double dt = result.header.stamp - prev_stamp_;
-    const bool dt_usable = prev_stamp_ > 0.0 && dt > 0.0 && dt < 0.5;
+    const double now = result.header.stamp;
+    const double dt = prev_stamp_ > 0.0 ? now - prev_stamp_ : 0.0;
 
     // GT order: [0] = our robot, [1:] = opponents (matches sim config order)
     size_t gt_idx = 0;
     for (size_t i = 0; i < our_frame_ids_.size() && gt_idx < gt.size(); ++i, ++gt_idx) {
-        result.descriptions.push_back(
-            describe(our_frame_ids_[i], Label::EMPTY, Group::OURS, gt[gt_idx], dt, dt_usable));
+        auto desc = describe(our_frame_ids_[i], Label::EMPTY, Group::OURS, gt[gt_idx], now, dt);
+        if (desc) result.descriptions.push_back(*desc);
     }
 
     for (size_t i = 0; i < opponent_frame_ids_.size() && gt_idx < gt.size(); ++i, ++gt_idx) {
-        result.descriptions.push_back(describe(opponent_frame_ids_[i], Label::OPPONENT,
-                                               Group::THEIRS, gt[gt_idx], dt, dt_usable));
+        auto desc =
+            describe(opponent_frame_ids_[i], Label::OPPONENT, Group::THEIRS, gt[gt_idx], now, dt);
+        if (desc) result.descriptions.push_back(*desc);
     }
 
     prev_stamp_ = result.header.stamp;
     state_ = result;
 }
 
-RobotDescription GroundTruthRobotFilter::describe(FrameId frame_id, Label label, Group group,
-                                                  const Pose2D &gt_pose, double dt,
-                                                  bool dt_usable) {
+std::optional<RobotDescription> GroundTruthRobotFilter::describe(FrameId frame_id, Label label,
+                                                                 Group group, const Pose2D &gt_pose,
+                                                                 double now, double dt) {
     RobotDescription desc;
     desc.frame_id = frame_id;
     desc.label = label;
@@ -78,17 +80,23 @@ RobotDescription GroundTruthRobotFilter::describe(FrameId frame_id, Label label,
     // worse sim than the real filter: a consumer whose brake schedule is driven by
     // distance-to-goal would see the distance stop shrinking and release the brake mid-stop.
     if (!std::isfinite(gt_pose.x) || !std::isfinite(gt_pose.y) || !std::isfinite(gt_pose.yaw)) {
-        desc.is_stale = true;
         const auto held = prev_poses_.find(frame_id);
+        // Never observed, so there is nothing to hold or coast. Seeding the origin here used to
+        // poison the first real measurement: velocity_from_delta differenced the true pose
+        // against that fabricated (0, 0) over one frame interval, and the coast then integrated
+        // the resulting tens-of-m/s velocity forever.
+        if (held == prev_poses_.end()) return std::nullopt;
+
+        desc.is_stale = true;
         const auto velocity = prev_velocities_.find(frame_id);
-        Pose2D coasted = held != prev_poses_.end() ? held->second : Pose2D{};
-        if (velocity != prev_velocities_.end()) {
+        Pose2D coasted = held->second;
+        if (velocity != prev_velocities_.end() && interval_usable(dt)) {
             desc.velocity = velocity->second;
-            if (dt_usable) {
-                coasted.x += desc.velocity.vx * dt;
-                coasted.y += desc.velocity.vy * dt;
-                coasted.yaw = normalize_angle(coasted.yaw + desc.velocity.omega * dt);
-            }
+            coasted.x += desc.velocity.vx * dt;
+            coasted.y += desc.velocity.vy * dt;
+            coasted.yaw = normalize_angle(coasted.yaw + desc.velocity.omega * dt);
+        } else if (velocity != prev_velocities_.end()) {
+            desc.velocity = velocity->second;
         }
         prev_poses_[frame_id] = coasted;
         desc.pose = pose2d_to_pose(coasted);
@@ -97,9 +105,15 @@ RobotDescription GroundTruthRobotFilter::describe(FrameId frame_id, Label label,
 
     desc.pose = pose2d_to_pose(gt_pose);
     desc.is_stale = false;
-    desc.velocity = velocity_from_delta(frame_id, gt_pose, dt, dt_usable);
+    desc.velocity = velocity_from_delta(frame_id, gt_pose, now);
     prev_velocities_[frame_id] = desc.velocity;
     return desc;
+}
+
+bool GroundTruthRobotFilter::interval_usable(double interval) {
+    // A real frame interval at 30 Hz is 33 ms. Anything under a millisecond is a repeated stamp,
+    // and anything over half a second is long enough that a constant-velocity delta is meaningless.
+    return interval > 1e-3 && interval < 0.5;
 }
 
 double GroundTruthRobotFilter::normalize_angle(double angle) {
@@ -109,17 +123,23 @@ double GroundTruthRobotFilter::normalize_angle(double angle) {
 }
 
 Velocity2D GroundTruthRobotFilter::velocity_from_delta(FrameId frame_id, const Pose2D &pose,
-                                                       double dt, bool dt_usable) {
-    const auto found = prev_poses_.find(frame_id);
-    const bool have_previous = found != prev_poses_.end();
+                                                       double now) {
+    const auto found = measured_poses_.find(frame_id);
+    const auto stamped = measured_stamps_.find(frame_id);
+    const bool have_previous = found != measured_poses_.end() && stamped != measured_stamps_.end();
     // Copy before storing: writing through the same key first would make the delta zero.
     const Pose2D previous = have_previous ? found->second : pose;
+    const double elapsed = have_previous ? now - stamped->second : 0.0;
+
     prev_poses_[frame_id] = pose;
-    if (!dt_usable || !have_previous) return Velocity2D{};
+    measured_poses_[frame_id] = pose;
+    measured_stamps_[frame_id] = now;
+
+    if (!have_previous || !interval_usable(elapsed)) return Velocity2D{};
     return Velocity2D{
-        (pose.x - previous.x) / dt,
-        (pose.y - previous.y) / dt,
-        normalize_angle(pose.yaw - previous.yaw) / dt,
+        (pose.x - previous.x) / elapsed,
+        (pose.y - previous.y) / elapsed,
+        normalize_angle(pose.yaw - previous.yaw) / elapsed,
     };
 }
 

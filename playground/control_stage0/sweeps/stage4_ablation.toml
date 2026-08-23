@@ -4,10 +4,13 @@
 # reachable from config, so each row below is the full controller with exactly one term disabled:
 #
 #   steer_brake_coeff = 0        -> step 2 off (forward authority not compensated for the turn)
-#   angular_droop_coeff = 0      -> step 3's droop term off (yaw authority not compensated)
 #   max_linear_speed_rev = k_fwd -> step 5 off (the reverse-gain rescale becomes a no-op)
 #
-# Run on the turning approach, where all three terms bite. `full` is the reference row.
+# Droop runs the other way. `angular_droop_coeff` ships at 0.0 because compensating for it
+# measured worse, so its row turns the term ON at the fitted c_ad to price that decision.
+#
+# Run on the turning approach, where all three terms bite. `full` is the reference row, and it is
+# also the shipped configuration.
 
 sim_config = "simulation/sim_mrs_buff_mk3.toml"
 
@@ -35,7 +38,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 "navigation.steer_brake_coeff" = 0.0
 
 [[runs]]
-name = "turn90_no_droop"
+name = "turn90_with_droop"
 [runs.sim]
 "our_robot.start_pos" = [-0.8, -0.8]
 "our_robot.start_yaw_deg" = 135.0
@@ -44,7 +47,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
 "navigation.terminal_velocity" = 0.0
-"navigation.angular_droop_coeff" = 0.0
+"navigation.angular_droop_coeff" = 0.463423
 
 [[runs]]
 name = "turn90_no_rev_gain"

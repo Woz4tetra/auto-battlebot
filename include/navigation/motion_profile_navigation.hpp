@@ -48,6 +48,18 @@ class MotionProfileNavigation : public NavigationInterface {
         return last_visualization_;
     }
 
+    // Pure functions of their arguments, public so the plant algebra can be tested directly
+    // instead of inferred from a whole update() call.
+
+    /**
+     * @brief Divide out a coupling loss of the form (1 - coeff*|effect|), floored. Returns the
+     * command scaled back up to the size the plant will actually deliver.
+     */
+    static double compensate_coupling(double command, double effect, double coeff, double floor);
+
+    /** @brief Deadzone removal per sign, rescaled so full command still maps to full effect. */
+    static double effective_command(double command, double deadzone_pos, double deadzone_neg);
+
    private:
     /** @brief Find our robot in the robot descriptions. */
     std::optional<RobotDescription> find_our_robot(const RobotDescriptionsStamped &robots) const;
@@ -79,15 +91,6 @@ class MotionProfileNavigation : public NavigationInterface {
      */
     double compute_linear_command(double v_ref, double dvdt, double v_actual, double dt,
                                   bool speed_is_measured);
-
-    /**
-     * @brief Divide out a coupling loss of the form (1 - coeff*|effect|), floored. Returns the
-     * command scaled back up to the size the plant will actually deliver.
-     */
-    static double compensate_coupling(double command, double effect, double coeff, double floor);
-
-    /** @brief Deadzone removal per sign, rescaled so full command still maps to full effect. */
-    static double effective_command(double command, double deadzone_pos, double deadzone_neg);
 
     /** @brief Turn-direction hysteresis on the raw heading error (see PursuitNavigation). */
     double apply_hysteresis(double angle_error);

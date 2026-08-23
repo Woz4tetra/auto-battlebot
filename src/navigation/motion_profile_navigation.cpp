@@ -381,8 +381,8 @@ double MotionProfileNavigation::compute_angular_command(double w_ref, double dt)
     // that is winding up needs extra command, a turn that is stopping needs the command pulled
     // back early or the heading sails past.
     const double dwdt = (dt > 0.0) ? (w_ref - prev_w_ref_) / dt : 0.0;
-    const double tau = (std::abs(w_ref) > std::abs(prev_w_ref_)) ? tau_angular_accel_
-                                                                 : tau_angular_decel_;
+    const double tau =
+        (std::abs(w_ref) > std::abs(prev_w_ref_)) ? tau_angular_accel_ : tau_angular_decel_;
     double u = (w_ref + tau * dwdt) / max_angular_speed_;
     prev_angular_uncompensated_ = std::clamp(u, -1.0, 1.0);
 

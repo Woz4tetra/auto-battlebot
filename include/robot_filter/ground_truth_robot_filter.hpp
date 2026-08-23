@@ -2,6 +2,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "robot_filter/robot_filter_interface.hpp"
@@ -31,16 +32,23 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
     /**
      * Build one description from a ground-truth slot. A non-finite pose means the sim did not
      * observe this robot on this frame, which yields a held pose flagged stale rather than a
-     * missing entry, so the ground-truth ordering stays fixed.
+     * missing entry. Returns nothing when the slot has never been observed: there is no pose to
+     * hold, and inventing one would hand consumers a fabricated position.
      */
-    RobotDescription describe(FrameId frame_id, Label label, Group group, const Pose2D &gt_pose,
-                              double dt, bool dt_usable);
+    std::optional<RobotDescription> describe(FrameId frame_id, Label label, Group group,
+                                             const Pose2D &gt_pose, double now, double dt);
 
     /**
-     * Field-frame velocity from this robot's pose delta since the last correct(), and record the
-     * pose for next time. Returns zero on the first frame or an unusable dt.
+     * Field-frame velocity from this robot's pose delta since its last *measurement*, and record
+     * the measurement for next time. The interval is measured-to-measured rather than
+     * frame-to-frame: across a dropout the pose delta spans the whole gap, so dividing it by one
+     * frame interval would scale the velocity by the number of frames missed. Returns zero on the
+     * first measurement or an unusable interval.
      */
-    Velocity2D velocity_from_delta(FrameId frame_id, const Pose2D &pose, double dt, bool dt_usable);
+    Velocity2D velocity_from_delta(FrameId frame_id, const Pose2D &pose, double now);
+
+    /** True when an elapsed time is a plausible measurement-to-measurement interval. */
+    static bool interval_usable(double interval);
 
     static double normalize_angle(double angle);
 
@@ -50,7 +58,12 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
     std::shared_ptr<ClockInterface> clock_;
     /** Ground truth needs no propagation, so this only changes on correct(). */
     RobotDescriptionsStamped state_;
+    /** Best current estimate per track: the measurement, or the coast propagated from it. */
     std::map<FrameId, Pose2D> prev_poses_;
+    /** Last actual measurement and its stamp. Never written by the coast branch, so a returning
+     * frame differences against real data instead of against the propagated pose it just made. */
+    std::map<FrameId, Pose2D> measured_poses_;
+    std::map<FrameId, double> measured_stamps_;
     std::map<FrameId, Velocity2D> prev_velocities_;
     double prev_stamp_ = 0.0;
 };
