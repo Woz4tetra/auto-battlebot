@@ -33,6 +33,7 @@ KalmanMotionEstimator::KalmanMotionEstimator(const KalmanMotionEstimatorConfigur
 
 void KalmanMotionEstimator::reset() {
     opponent_tracks_.clear();
+    held_opponent_tracks_.clear();
     our_tracks_.clear();
     our_ekf_tracks_.clear();
     command_feedback_ = CommandFeedback{};
@@ -246,7 +247,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
 
         if (input.group == Group::OURS) {
             if (!plant_model_) {
-                OurTrack &track = our_tracks_[input.frame_id];
+                HeldTrack &track = our_tracks_[input.frame_id];
                 track.description = input;
                 track.last_measured_stamp = timestamp;
                 continue;
@@ -315,6 +316,15 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                     ++num_reinit;
                 }
             }
+            continue;
+        }
+
+        if (config_.opponent_mode == "hold") {
+            HeldTrack &track = held_opponent_tracks_[input.frame_id];
+            track.description = input;
+            track.stamp = timestamp;
+            track.last_measured_stamp = timestamp;
+            track.output_stale = false;
             continue;
         }
 
@@ -402,6 +412,15 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         frame_id_assigner.set_last_position(frame_id, predicted_position);
     }
 
+    // Hold-mode opponents without a measurement this frame: stale, pinned in place, and the
+    // assigner keeps associating against the held pose.
+    for (auto &[frame_id, track] : held_opponent_tracks_) {
+        if (measured_frame_ids.count(frame_id) != 0) continue;
+        track.output_stale = true;
+        track.stamp = timestamp;
+        frame_id_assigner.set_last_position(frame_id, track.description.pose.position);
+    }
+
     // Opponents without an accepted measurement this frame: predict to the frame time and keep
     // the assigner's association anchor on the predicted position.
     for (auto &[frame_id, track] : opponent_tracks_) {
@@ -433,7 +452,8 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
     }
 
     std::vector<RobotDescription> outputs;
-    outputs.reserve(our_tracks_.size() + our_ekf_tracks_.size() + opponent_tracks_.size());
+    outputs.reserve(our_tracks_.size() + our_ekf_tracks_.size() + opponent_tracks_.size() +
+                    held_opponent_tracks_.size());
     for (const auto &[frame_id, track] : our_tracks_) {
         RobotDescription output = track.description;
         output.is_stale = track.output_stale;
@@ -445,10 +465,16 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
     for (const auto &[frame_id, track] : opponent_tracks_) {
         outputs.push_back(render_opponent(track, field, track.output_stale));
     }
+    for (const auto &[frame_id, track] : held_opponent_tracks_) {
+        RobotDescription output = track.description;
+        output.is_stale = track.output_stale;
+        outputs.push_back(std::move(output));
+    }
 
     diagnostics_logger_->debug(
         {{"num_our_tracks", static_cast<int>(our_tracks_.size() + our_ekf_tracks_.size())},
-         {"num_opponent_tracks", static_cast<int>(opponent_tracks_.size())},
+         {"num_opponent_tracks",
+          static_cast<int>(opponent_tracks_.size() + held_opponent_tracks_.size())},
          {"num_measurements", static_cast<int>(measurements.size())},
          {"num_gated", num_gated},
          {"num_reinit", num_reinit},
@@ -459,7 +485,8 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
 
 std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double now) {
     std::vector<RobotDescription> outputs;
-    outputs.reserve(our_tracks_.size() + our_ekf_tracks_.size() + opponent_tracks_.size());
+    outputs.reserve(our_tracks_.size() + our_ekf_tracks_.size() + opponent_tracks_.size() +
+                    held_opponent_tracks_.size());
 
     // Rendered on a copy, like the dead-reckoning arm: the committed state only advances in
     // update(), so measurements always fold in at or after the track stamp and the our-robot
@@ -510,6 +537,12 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
         const bool stale =
             track.output_stale || (now - track.last_measured_stamp) > kCoastStaleAgeS;
         outputs.push_back(render_opponent(track, last_field_, stale));
+    }
+
+    for (const auto &[frame_id, track] : held_opponent_tracks_) {
+        RobotDescription output = track.description;
+        output.is_stale = track.output_stale || (now - track.last_measured_stamp) > kCoastStaleAgeS;
+        outputs.push_back(std::move(output));
     }
     return outputs;
 }

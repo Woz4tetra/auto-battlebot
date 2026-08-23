@@ -400,6 +400,38 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
     EXPECT_NEAR(std::remainder(yaw - truth.theta, 2.0 * M_PI), 0.0, 0.1);
 }
 
+TEST(KalmanMotionEstimatorTest, HoldModePinsOpponentAtLastMeasurement) {
+    KalmanMotionEstimatorConfiguration config;
+    config.opponent_mode = "hold";
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    double x = 1.0;
+    double y = 2.0;
+    const double last_t =
+        run_constant_velocity(estimator, assigner, field, context, 30, x, y, 1.5, 0.0);
+
+    // Dropout: the output stays pinned at the last measured pose, no extrapolation, and
+    // coast() holds the same pose between frames.
+    double t = last_t;
+    for (int i = 0; i < 6; ++i) {
+        t += kDt;
+        estimator.predict(t, CommandFeedback{});
+        auto outputs = estimator.update({}, t, assigner, field, context);
+        ASSERT_EQ(outputs.size(), 1u);
+        EXPECT_TRUE(outputs[0].is_stale);
+        EXPECT_DOUBLE_EQ(outputs[0].pose.position.x, x);
+        EXPECT_DOUBLE_EQ(outputs[0].pose.position.y, y);
+    }
+    auto coasted = estimator.coast(t + 0.05);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 1u);
+    EXPECT_DOUBLE_EQ((*coasted)[0].pose.position.x, x);
+    EXPECT_TRUE((*coasted)[0].is_stale);
+}
+
 TEST(KalmanMotionEstimatorTest, ResetClearsTracks) {
     KalmanMotionEstimator estimator{KalmanMotionEstimatorConfiguration{}};
     FrameIdAssigner assigner(10.0, 5);

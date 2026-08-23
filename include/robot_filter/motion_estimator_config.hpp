@@ -37,6 +37,14 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     std::string our_robot_mode = "dead_reckoning";
 
     /**
+     * How opponent tracks are propagated. "kalman" runs the constant-velocity filter with
+     * innovation gating and coasts through dropout gaps. "hold" pins each opponent at its
+     * last measured pose with no prediction of any kind, matching
+     * DeadReckoningMotionEstimator's opponent behavior.
+     */
+    std::string opponent_mode = "kalman";
+
+    /**
      * Continuous white-noise acceleration PSD (m^2/s^3) for the opponent constant-velocity
      * model. Placeholder until it is measured from fight replays; sized from ~10 m/s^2 peak
      * accelerations sustained over ~0.3 s maneuvers.
@@ -97,6 +105,11 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         if (our_robot_mode != "dead_reckoning" && our_robot_mode != "ekf") {
             throw ConfigValidationError("Invalid our_robot_mode '" + our_robot_mode +
                                         "': expected 'dead_reckoning' or 'ekf'");
+        }
+        opponent_mode = parser.get_optional_string("opponent_mode", opponent_mode);
+        if (opponent_mode != "kalman" && opponent_mode != "hold") {
+            throw ConfigValidationError("Invalid opponent_mode '" + opponent_mode +
+                                        "': expected 'kalman' or 'hold'");
         }
         PARSE_FIELD_DOUBLE(opponent_accel_psd)
         PARSE_FIELD_DOUBLE(keypoint_position_sigma_m)

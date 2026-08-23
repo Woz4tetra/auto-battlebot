@@ -90,8 +90,10 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         size_t snapshot_count = 0;
     };
 
-    /** Our robot, dead-reckoned exactly like RobotTemporalMotionFilter. */
-    struct OurTrack {
+    /** A track output straight from its stored description: the dead-reckoned our robot
+     * (pose advanced by the last command, exactly like RobotTemporalMotionFilter) and
+     * hold-mode opponents (pose pinned at the last measurement). */
+    struct HeldTrack {
         RobotDescription description;
         /** Time of the last update() that touched this track; dead-reckoning dt spans from
          * here. */
@@ -146,7 +148,9 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
     std::map<FrameId, OpponentTrack> opponent_tracks_;
-    std::map<FrameId, OurTrack> our_tracks_;
+    /** Opponents in opponent_mode = "hold": last measured description, no prediction. */
+    std::map<FrameId, HeldTrack> held_opponent_tracks_;
+    std::map<FrameId, HeldTrack> our_tracks_;
     std::map<FrameId, OurEkfTrack> our_ekf_tracks_;
 
     /** Present only in "ekf" mode; the concrete type so coast() can propagate a copy without
