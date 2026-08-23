@@ -1,0 +1,32 @@
+# Plant model PoC profile. Extends playback and enables the Kalman motion estimator with the
+# jig-fitted plant parameters, which is the config-chain home for the fitted values: sim and
+# playback opt in here while the production configs stay on dead reckoning. our_robot_mode
+# stays "dead_reckoning" on purpose; "ekf" is rejected until the plant fit passes acceptance.
+# See docs/experiments/kalman_filter/plant_model_poc_plan.md.
+extends = "playback/_playback"
+
+[robot_filter.motion_estimator]
+type = "KalmanMotionEstimator"
+
+# Stage A per-phase fit, playground/calibration/out/plant_stageA.toml, sessions 2026-08-19
+# through 2026-08-23, model M4 (drift terms disabled by the ladder, written as zero). The fit
+# is the source of truth: refit and re-copy, do not hand-edit. delay_s is the onset-stack
+# measurement (3486 edges, SNR 22.4), corroborated by the tau-pinned profile (54 ms) and the
+# stage 2 camera value (59 ms).
+[robot_filter.motion_estimator.plant]
+dz_lin_fwd = 0.0109768
+dz_lin_rev = 0.0253396
+dz_ang_l = 0.016061
+dz_ang_r = 0.0240734
+k_fwd = 4.88002
+k_rev = 4.3546
+k_ang = 31.7062
+tau_lin_a = 0.14921
+tau_lin_d = 0.123461
+tau_ang_a = 0.173867
+tau_ang_d = 0.0878998
+delay_s = 0.0522094
+c_sb = 2.70197
+c_ad = 0.463423
+c_drift = 0.0
+c_drift_bias = 0.0

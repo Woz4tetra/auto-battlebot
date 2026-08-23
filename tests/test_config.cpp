@@ -1318,6 +1318,81 @@ our_robot_mode = "ekf"
 }
 
 namespace {
+/** The jig-fitted plant table, stage A values (plant_stageA.toml, 2026-08-23). */
+constexpr const char *kPlantTableToml = R"(
+[robot_filter.motion_estimator.plant]
+dz_lin_fwd = 0.0109768
+dz_lin_rev = 0.0253396
+dz_ang_l = 0.016061
+dz_ang_r = 0.0240734
+k_fwd = 4.88002
+k_rev = 4.3546
+k_ang = 31.7062
+tau_lin_a = 0.14921
+tau_lin_d = 0.123461
+tau_ang_a = 0.173867
+tau_ang_d = 0.0878998
+delay_s = 0.0522094
+c_sb = 2.70197
+c_ad = 0.463423
+c_drift = 0.0
+c_drift_bias = 0.0
+)";
+}  // namespace
+
+TEST_F(ConfigTest, RobotFilterMotionEstimatorParsesPlantTable) {
+    write_config_file(config_with_motion_estimator(std::string(R"(
+[robot_filter.motion_estimator]
+type = "KalmanMotionEstimator"
+)") + kPlantTableToml +
+                                                   R"(
+[robot_filter.motion_estimator.plant.process_noise]
+q_theta = 0.5
+)"));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *filter_config =
+        dynamic_cast<RobotFrontBackFilterConfiguration *>(config.robot_filter.get());
+    ASSERT_NE(filter_config, nullptr);
+    auto *kalman_config =
+        dynamic_cast<KalmanMotionEstimatorConfiguration *>(filter_config->motion_estimator.get());
+    ASSERT_NE(kalman_config, nullptr);
+    ASSERT_TRUE(kalman_config->plant.has_value());
+    EXPECT_DOUBLE_EQ(kalman_config->plant->dz_lin_fwd, 0.0109768);
+    EXPECT_DOUBLE_EQ(kalman_config->plant->k_ang, 31.7062);
+    EXPECT_DOUBLE_EQ(kalman_config->plant->delay_s, 0.0522094);
+    EXPECT_DOUBLE_EQ(kalman_config->plant->c_sb, 2.70197);
+    EXPECT_DOUBLE_EQ(kalman_config->plant->c_drift, 0.0);
+    // Overridden noise field takes, the rest keep their stage A holdout seeds.
+    EXPECT_DOUBLE_EQ(kalman_config->plant_noise.q_theta, 0.5);
+    EXPECT_DOUBLE_EQ(kalman_config->plant_noise.q_along, JigPlantNoiseParams{}.q_along);
+}
+
+TEST_F(ConfigTest, RobotFilterMotionEstimatorPlantMissingFieldThrows) {
+    // Every plant field is required; drop delay_s and the parse must refuse rather than
+    // default a fitted physical parameter to zero.
+    std::string table(kPlantTableToml);
+    const auto at = table.find("delay_s");
+    ASSERT_NE(at, std::string::npos);
+    table.erase(at, table.find('\n', at) + 1 - at);
+    write_config_file(config_with_motion_estimator(std::string(R"(
+[robot_filter.motion_estimator]
+type = "KalmanMotionEstimator"
+)") + table));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+}
+
+TEST_F(ConfigTest, RobotFilterMotionEstimatorPlantUnknownFieldThrows) {
+    write_config_file(config_with_motion_estimator(std::string(R"(
+[robot_filter.motion_estimator]
+type = "KalmanMotionEstimator"
+)") + kPlantTableToml + "not_a_plant_field = 1.0\n"));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+}
+
+namespace {
 /** Minimal full config with a parameterizable [transmitter] block. */
 std::string config_with_transmitter(const std::string &transmitter_toml) {
     return R"(

@@ -81,7 +81,9 @@ our_keypoint_dropout_blob_window_s = 1.0
 # Propagation strategy between perception frames. Absent means DeadReckoningMotionEstimator
 # (last commanded velocity applied directly, opponents held at their last pose). The Kalman
 # arm runs opponents through a constant-velocity filter with innovation gating and coasts the
-# output at control rate; our robot still dead-reckons until a plant model ships:
+# output at control rate; our robot still dead-reckons until the plant fit passes acceptance.
+# The jig-fitted plant parameters ride in a [robot_filter.motion_estimator.plant] table; see
+# config/experiments/plant_model_playback.toml for the fitted values and provenance.
 # [robot_filter.motion_estimator]
 # type = "KalmanMotionEstimator"
 

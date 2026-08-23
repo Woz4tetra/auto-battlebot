@@ -1,10 +1,12 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
+#include "robot_filter/jig_plant_model.hpp"
 #include "robot_filter/motion_estimator_interface.hpp"
 
 namespace auto_battlebot {
@@ -70,6 +72,18 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
      * the last measured heading is kept. */
     double min_heading_speed = 0.3;
 
+    /**
+     * Jig-fitted plant parameters, from the [robot_filter.motion_estimator.plant] table.
+     * Absent unless the config carries the table. Presence does not enable our_robot_mode =
+     * "ekf": that stays rejected until the plant fit passes acceptance. Sim, playback, and
+     * tests construct JigPlantModel from here, which is what keeps the parameters in the
+     * config extends chain instead of a separate runtime file.
+     */
+    std::optional<JigPlantParams> plant;
+    /** Process noise PSDs for the plant model, [robot_filter.motion_estimator.plant.process_noise].
+     * Fields are optional; defaults are the stage A holdout seeds in JigPlantNoiseParams. */
+    JigPlantNoiseParams plant_noise;
+
     KalmanMotionEstimatorConfiguration() { type = "KalmanMotionEstimator"; }
 
     void parse_fields(ConfigParser &parser) override {
@@ -80,10 +94,11 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         }
         if (our_robot_mode == "ekf") {
             throw ConfigValidationError(
-                "our_robot_mode = 'ekf' requires a plant model, and none is registered: the "
-                "velocity jig plant fit has not passed its acceptance criteria and no model "
-                "ladder rung is selected. Use 'dead_reckoning' until then. See "
-                "docs/experiments/kalman_filter/cpp_implementation_plan.md");
+                "our_robot_mode = 'ekf' is not available: the velocity jig plant fit has not "
+                "passed its acceptance criteria (heading misses by 4x at the 400 ms coast "
+                "horizon), so the EKF our-robot arm is not wired to the plant model. Use "
+                "'dead_reckoning' until then. See "
+                "docs/experiments/kalman_filter/plant_model_poc_plan.md");
         }
         PARSE_FIELD_DOUBLE(opponent_accel_psd)
         PARSE_FIELD_DOUBLE(keypoint_position_sigma_m)
@@ -96,7 +111,56 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         PARSE_FIELD_DOUBLE(covariance_floor)
         PARSE_FIELD_DOUBLE(max_coast_s)
         PARSE_FIELD_DOUBLE(min_heading_speed)
+        parse_plant(parser);
         parser.validate_no_extra_fields();
+    }
+
+    /**
+     * Every plant field is required: these are fitted physical parameters, and a partly
+     * defaulted plant would predict with a mix of fit and zero that no experiment produced.
+     * A ladder rung disables a term by writing it as zero in the config, same as the fit
+     * output files.
+     */
+    void parse_plant(ConfigParser &parser) {
+        const toml::table *table_ptr = parser.get_table("plant");
+        if (!table_ptr) {
+            return;  // Optional; no plant model is constructible without it.
+        }
+        ConfigParser sub_parser(*table_ptr, "robot_filter.motion_estimator.plant");
+        JigPlantParams params;
+        params.dz_lin_fwd = sub_parser.get_required_double("dz_lin_fwd");
+        params.dz_lin_rev = sub_parser.get_required_double("dz_lin_rev");
+        params.dz_ang_l = sub_parser.get_required_double("dz_ang_l");
+        params.dz_ang_r = sub_parser.get_required_double("dz_ang_r");
+        params.k_fwd = sub_parser.get_required_double("k_fwd");
+        params.k_rev = sub_parser.get_required_double("k_rev");
+        params.k_ang = sub_parser.get_required_double("k_ang");
+        params.tau_lin_a = sub_parser.get_required_double("tau_lin_a");
+        params.tau_lin_d = sub_parser.get_required_double("tau_lin_d");
+        params.tau_ang_a = sub_parser.get_required_double("tau_ang_a");
+        params.tau_ang_d = sub_parser.get_required_double("tau_ang_d");
+        params.delay_s = sub_parser.get_required_double("delay_s");
+        params.c_sb = sub_parser.get_required_double("c_sb");
+        params.c_ad = sub_parser.get_required_double("c_ad");
+        params.c_drift = sub_parser.get_required_double("c_drift");
+        params.c_drift_bias = sub_parser.get_required_double("c_drift_bias");
+        parse_plant_noise(sub_parser);
+        sub_parser.validate_no_extra_fields();
+        plant = params;
+    }
+
+    void parse_plant_noise(ConfigParser &plant_parser) {
+        const toml::table *table_ptr = plant_parser.get_table("process_noise");
+        if (!table_ptr) {
+            return;  // Optional; the defaults are the stage A holdout seeds.
+        }
+        ConfigParser sub_parser(*table_ptr, "robot_filter.motion_estimator.plant.process_noise");
+        plant_noise.q_along = sub_parser.get_optional_double("q_along", plant_noise.q_along);
+        plant_noise.q_cross = sub_parser.get_optional_double("q_cross", plant_noise.q_cross);
+        plant_noise.q_theta = sub_parser.get_optional_double("q_theta", plant_noise.q_theta);
+        plant_noise.q_v = sub_parser.get_optional_double("q_v", plant_noise.q_v);
+        plant_noise.q_w = sub_parser.get_optional_double("q_w", plant_noise.q_w);
+        sub_parser.validate_no_extra_fields();
     }
 };
 

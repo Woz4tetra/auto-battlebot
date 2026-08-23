@@ -1,0 +1,253 @@
+#include <gtest/gtest.h>
+
+#include <cmath>
+#include <vector>
+
+#include "robot_filter/command_ring_buffer.hpp"
+#include "robot_filter/jig_plant_model.hpp"
+#include "robot_filter/plant_golden_data.hpp"
+
+namespace auto_battlebot {
+namespace {
+
+// Both sides run identical double arithmetic at the same 2 ms substep; the only drift is
+// last-ulp libm differences accumulating over 1200 steps, well under this.
+constexpr double kGoldenTol = 1e-9;
+
+double wrap_angle(double angle) {
+    double wrapped = std::fmod(angle + M_PI, 2.0 * M_PI);
+    if (wrapped < 0.0) {
+        wrapped += 2.0 * M_PI;
+    }
+    return wrapped - M_PI;
+}
+
+JigPlantParams golden_params() {
+    JigPlantParams params;
+    params.dz_lin_fwd = plant_golden::kParam_dz_lin_fwd;
+    params.dz_lin_rev = plant_golden::kParam_dz_lin_rev;
+    params.dz_ang_l = plant_golden::kParam_dz_ang_l;
+    params.dz_ang_r = plant_golden::kParam_dz_ang_r;
+    params.k_fwd = plant_golden::kParam_k_fwd;
+    params.k_rev = plant_golden::kParam_k_rev;
+    params.k_ang = plant_golden::kParam_k_ang;
+    params.tau_lin_a = plant_golden::kParam_tau_lin_a;
+    params.tau_lin_d = plant_golden::kParam_tau_lin_d;
+    params.tau_ang_a = plant_golden::kParam_tau_ang_a;
+    params.tau_ang_d = plant_golden::kParam_tau_ang_d;
+    params.delay_s = plant_golden::kParam_delay_s;
+    params.c_sb = plant_golden::kParam_c_sb;
+    params.c_ad = plant_golden::kParam_c_ad;
+    params.c_drift = plant_golden::kParam_c_drift;
+    params.c_drift_bias = plant_golden::kParam_c_drift_bias;
+    return params;
+}
+
+std::vector<TimedCommand> golden_commands() {
+    std::vector<TimedCommand> commands;
+    commands.reserve(plant_golden::kNumCommands);
+    for (int i = 0; i < plant_golden::kNumCommands; ++i) {
+        commands.push_back({plant_golden::kCmdStamp[i],
+                            {plant_golden::kCmdLin[i], 0.0, plant_golden::kCmdAng[i]}});
+    }
+    return commands;
+}
+
+void expect_matches_record(const PlantState &state, int record, const char *label) {
+    EXPECT_NEAR(state.x, plant_golden::kExpectedX[record], kGoldenTol) << label << record;
+    EXPECT_NEAR(state.y, plant_golden::kExpectedY[record], kGoldenTol) << label << record;
+    // The fixture's theta is unwrapped while propagate wraps, so compare the wrapped
+    // difference. The dynamics only see theta through sin/cos, making the trajectories
+    // identical either way.
+    EXPECT_NEAR(wrap_angle(state.theta - plant_golden::kExpectedTheta[record]), 0.0, kGoldenTol)
+        << label << record;
+    EXPECT_NEAR(state.v, plant_golden::kExpectedV[record], kGoldenTol) << label << record;
+    EXPECT_NEAR(state.w, plant_golden::kExpectedW[record], kGoldenTol) << label << record;
+}
+
+TEST(JigPlantModelTest, GoldenTickByTickMatchesPythonReference) {
+    JigPlantModel model(golden_params());
+    const std::vector<TimedCommand> commands = golden_commands();
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    for (int step = 1; step <= plant_golden::kSteps; ++step) {
+        const double t0 = static_cast<double>(step - 1) * plant_golden::kDt;
+        const double t1 = static_cast<double>(step) * plant_golden::kDt;
+        state = model.propagate(state, commands, t0, t1, jacobian);
+        if (step % plant_golden::kRecordStride == 0) {
+            const int record = step / plant_golden::kRecordStride - 1;
+            expect_matches_record(state, record, "tick record ");
+        }
+    }
+}
+
+TEST(JigPlantModelTest, GoldenChunkedPropagateMatchesPythonReference) {
+    // 100 ms per propagate call, the frame-gap scale the EKF will use. The command is
+    // re-read every substep, so edges landing inside a chunk take effect at their own time
+    // and the result matches the tick-by-tick reference exactly.
+    JigPlantModel model(golden_params());
+    const std::vector<TimedCommand> commands = golden_commands();
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    constexpr int kChunkSteps = 50;
+    for (int step = kChunkSteps; step <= plant_golden::kSteps; step += kChunkSteps) {
+        const double t0 = static_cast<double>(step - kChunkSteps) * plant_golden::kDt;
+        const double t1 = static_cast<double>(step) * plant_golden::kDt;
+        state = model.propagate(state, commands, t0, t1, jacobian);
+        const int record = step / plant_golden::kRecordStride - 1;
+        expect_matches_record(state, record, "chunk record ");
+    }
+}
+
+TEST(JigPlantModelTest, GatheredRingBufferSpanMatchesFullHistory) {
+    JigPlantModel model(golden_params());
+    const std::vector<TimedCommand> commands = golden_commands();
+    CommandRingBuffer buffer;
+    for (const TimedCommand &command : commands) {
+        buffer.push(command);
+    }
+    const double t0 = 1.0;
+    const double t1 = 1.1;
+    std::vector<TimedCommand> gathered;
+    buffer.gather(t0 - model.params().delay_s, t1, gathered);
+
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    state.v = 1.0;
+    state.w = 2.0;
+    const PlantState from_full = model.propagate(state, commands, t0, t1, jacobian);
+    const PlantState from_gathered = model.propagate(state, gathered, t0, t1, jacobian);
+    EXPECT_DOUBLE_EQ(from_full.x, from_gathered.x);
+    EXPECT_DOUBLE_EQ(from_full.y, from_gathered.y);
+    EXPECT_DOUBLE_EQ(from_full.theta, from_gathered.theta);
+    EXPECT_DOUBLE_EQ(from_full.v, from_gathered.v);
+    EXPECT_DOUBLE_EQ(from_full.w, from_gathered.w);
+}
+
+TEST(JigPlantModelTest, ZeroSpanReturnsStateAndIdentityJacobian) {
+    JigPlantModel model(golden_params());
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    state.x = 1.0;
+    state.theta = 2.0;
+    state.v = -0.5;
+    const PlantState out = model.propagate(state, {}, 3.0, 3.0, jacobian);
+    EXPECT_DOUBLE_EQ(out.x, state.x);
+    EXPECT_DOUBLE_EQ(out.v, state.v);
+    EXPECT_TRUE(jacobian.isApprox(Eigen::Matrix<double, 5, 5>::Identity(), 1e-12));
+}
+
+TEST(JigPlantModelTest, JacobianSingleStepStraightLine) {
+    JigPlantModel model(golden_params());
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    state.v = 1.0;
+    const double dt = 0.002;
+    model.propagate(state, {}, 0.0, dt, jacobian);
+
+    // Pose integrates the start-of-substep velocity, so over a single substep these are
+    // exact: dx/dv = dt at theta 0, dtheta/dw = dt, and the pose rows are identity in
+    // themselves.
+    EXPECT_NEAR(jacobian(0, 3), dt, 1e-6);
+    EXPECT_NEAR(jacobian(1, 3), 0.0, 1e-6);
+    EXPECT_NEAR(jacobian(2, 4), dt, 1e-6);
+    EXPECT_NEAR(jacobian(0, 0), 1.0, 1e-9);
+    EXPECT_NEAR(jacobian(1, 1), 1.0, 1e-9);
+    EXPECT_NEAR(jacobian(2, 2), 1.0, 1e-9);
+    // No command: the target is zero, both perturbations decelerate, so dv'/dv is the
+    // decel lag factor.
+    EXPECT_NEAR(jacobian(3, 3), std::exp(-dt / model.params().tau_lin_d), 1e-6);
+}
+
+TEST(JigPlantModelTest, JacobianHeadingRotatesVelocityIntoCross) {
+    JigPlantModel model(golden_params());
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    state.theta = M_PI / 2.0;
+    state.v = 1.0;
+    const double dt = 0.002;
+    model.propagate(state, {}, 0.0, dt, jacobian);
+    EXPECT_NEAR(jacobian(1, 3), dt, 1e-6);
+    EXPECT_NEAR(jacobian(0, 3), 0.0, 1e-6);
+    // dx/dtheta = -v * dt * sin(theta) = -dt at pi/2.
+    EXPECT_NEAR(jacobian(0, 2), -state.v * dt, 1e-6);
+}
+
+TEST(JigPlantModelTest, TransportDelayGatesCommandOnset) {
+    JigPlantModel model(golden_params());
+    ASSERT_GT(model.params().delay_s, 0.05);
+    const std::vector<TimedCommand> commands = {{0.0, {1.0, 0.0, 0.0}}};
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    state = model.propagate(state, commands, 0.0, 0.05, jacobian);
+    // Inside the transport delay the command has not arrived: no motion at all.
+    EXPECT_DOUBLE_EQ(state.v, 0.0);
+    EXPECT_DOUBLE_EQ(state.x, 0.0);
+    state = model.propagate(state, commands, 0.05, 0.15, jacobian);
+    EXPECT_GT(state.v, 0.5);
+    EXPECT_GT(state.x, 0.0);
+}
+
+TEST(JigPlantModelTest, ZeroCommandBeforeFirstEntry) {
+    JigPlantModel model(golden_params());
+    const std::vector<TimedCommand> commands = {{1.0, {1.0, 0.0, 0.0}}};
+    Eigen::Matrix<double, 5, 5> jacobian;
+    PlantState state;
+    state = model.propagate(state, commands, 0.0, 1.0, jacobian);
+    EXPECT_DOUBLE_EQ(state.v, 0.0);
+    EXPECT_DOUBLE_EQ(state.x, 0.0);
+}
+
+TEST(JigPlantModelTest, EffectiveCommandDeadzoneAndRescale) {
+    const JigPlantParams params = golden_params();
+    EXPECT_DOUBLE_EQ(plant_effective_command(0.0, params.dz_lin_fwd, params.dz_lin_rev), 0.0);
+    EXPECT_DOUBLE_EQ(
+        plant_effective_command(params.dz_lin_fwd * 0.9, params.dz_lin_fwd, params.dz_lin_rev),
+        0.0);
+    // Full command maps to full effect: the rescale keeps the gain equal to the max speed.
+    EXPECT_DOUBLE_EQ(plant_effective_command(1.0, params.dz_lin_fwd, params.dz_lin_rev), 1.0);
+    EXPECT_DOUBLE_EQ(plant_effective_command(-1.0, params.dz_lin_fwd, params.dz_lin_rev), -1.0);
+    const double expected = (0.5 - params.dz_lin_fwd) / (1.0 - params.dz_lin_fwd);
+    EXPECT_DOUBLE_EQ(plant_effective_command(0.5, params.dz_lin_fwd, params.dz_lin_rev), expected);
+    // The reverse side uses its own, larger deadzone.
+    EXPECT_LT(std::abs(plant_effective_command(-0.5, params.dz_lin_fwd, params.dz_lin_rev)),
+              expected);
+}
+
+TEST(JigPlantModelTest, SteadyStateSteerBrakeClampsToZero) {
+    const JigPlantParams params = golden_params();
+    ASSERT_GT(params.c_sb, 2.0);
+    double v_target = 0.0;
+    double w_target = 0.0;
+    // At c_sb 2.70 the factor crosses zero near |u_ang_eff| 0.37; a half-stick turn is far
+    // past it, so the forward target must clamp to zero, not go negative.
+    plant_steady_state(0.5, 0.5, params, v_target, w_target);
+    EXPECT_DOUBLE_EQ(v_target, 0.0);
+    EXPECT_GT(w_target, 1.0);
+    // A pure forward command keeps its full gain.
+    plant_steady_state(0.5, 0.0, params, v_target, w_target);
+    const double lin_eff = plant_effective_command(0.5, params.dz_lin_fwd, params.dz_lin_rev);
+    EXPECT_DOUBLE_EQ(v_target, params.k_fwd * lin_eff);
+}
+
+TEST(JigPlantModelTest, ProcessNoiseRotatesPositionBlockWithHeading) {
+    JigPlantNoiseParams noise;
+    JigPlantModel model(golden_params(), noise);
+    const double dt = 0.1;
+    PlantState state;
+    Eigen::Matrix<double, 5, 5> q_forward = model.process_noise(state, {}, dt);
+    EXPECT_DOUBLE_EQ(q_forward(0, 0), noise.q_along * dt);
+    EXPECT_DOUBLE_EQ(q_forward(1, 1), noise.q_cross * dt);
+    EXPECT_DOUBLE_EQ(q_forward(2, 2), noise.q_theta * dt);
+    EXPECT_DOUBLE_EQ(q_forward(3, 3), noise.q_v * dt);
+    EXPECT_DOUBLE_EQ(q_forward(4, 4), noise.q_w * dt);
+
+    state.theta = M_PI / 2.0;
+    Eigen::Matrix<double, 5, 5> q_sideways = model.process_noise(state, {}, dt);
+    EXPECT_NEAR(q_sideways(0, 0), noise.q_cross * dt, 1e-12);
+    EXPECT_NEAR(q_sideways(1, 1), noise.q_along * dt, 1e-12);
+    EXPECT_TRUE(q_sideways.isApprox(q_sideways.transpose(), 1e-12));
+}
+
+}  // namespace
+}  // namespace auto_battlebot
