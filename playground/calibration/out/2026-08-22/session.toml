@@ -1,0 +1,18 @@
+# Velocity jig capture session. Written by velocity_jig_drive.py.
+schema = 1
+
+[session]
+id = "2026-08-22"
+name = ""
+started_utc = "2026-08-23T02:25:57Z"
+
+[provenance]
+drive_cli_sha = "5ee90dd"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true

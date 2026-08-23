@@ -1,0 +1,275 @@
+# One velocity jig run. Written by velocity_jig_drive.py.
+schema = 1
+
+[run]
+id = "2026-08-23T02:18:44Z-lin_coast-0"
+log_file = "LOG-108.TXT"
+command_file = "LOG-108.cmd.csv"
+rep = 0
+started_utc = "2026-08-23T02:18:44Z"
+duration_s = 113.77179322199981
+verdict = "discard"
+gates = "IMU saturation on az x2 (impact, or the range is set too low)"
+warnings = ""
+contamination = 0.0141
+notes = ""
+encoder = "attached"
+trim = 0.0
+
+[waveform]
+name = "lin_coast"
+kind = "coast"
+channel = "linear"
+role = "fit"
+label = "linear coast tails"
+
+[waveform.params]
+hold_s = 2.0
+coast_s = 4.0
+angular_cap = 0.24
+amplitude = 0.6
+reverse_cap = 0.4
+reps = 10
+shuttle = true
+
+[[segment]]
+t0 = 0.0
+t1 = 2.0
+linear = 0.6
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 2.0
+t1 = 6.0
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 8.717207619999954
+t1 = 10.717207619999954
+linear = -0.4
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 10.717207619999954
+t1 = 14.717207619999954
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 23.664451955000004
+t1 = 25.664451955000004
+linear = 0.6
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 25.664451955000004
+t1 = 29.664451955000004
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 30.45993372699968
+t1 = 32.45993372699968
+linear = -0.4
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 32.45993372699968
+t1 = 36.45993372699968
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 47.799451890999535
+t1 = 49.799451890999535
+linear = 0.6
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 49.799451890999535
+t1 = 53.799451890999535
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 54.89423394199957
+t1 = 56.89423394199957
+linear = -0.4
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 56.89423394199957
+t1 = 60.89423394199957
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 70.73428976199921
+t1 = 72.73428976199921
+linear = 0.6
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 72.73428976199921
+t1 = 76.73428976199921
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 77.38591451399952
+t1 = 79.38591451399952
+linear = -0.4
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 79.38591451399952
+t1 = 83.38591451399952
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 101.39208430699955
+t1 = 103.39208430699955
+linear = 0.6
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 103.39208430699955
+t1 = 107.39208430699955
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[segment]]
+t0 = 107.77179322199981
+t1 = 109.77179322199981
+linear = -0.4
+angular = 0.0
+label = "coast_entry"
+
+[[segment]]
+t0 = 109.77179322199981
+t1 = 113.77179322199981
+linear = 0.0
+angular = 0.0
+label = "coast_tail"
+
+[[pause]]
+program_t = 6.0
+held_s = 2.717
+t_start = 2490.357678
+t_end = 2493.074886
+
+[[pause]]
+program_t = 12.0
+held_s = 8.947
+t_start = 2499.079903
+t_end = 2508.027147
+
+[[pause]]
+program_t = 18.0
+held_s = 0.795
+t_start = 2514.028226
+t_end = 2514.823707
+
+[[pause]]
+program_t = 24.0
+held_s = 11.34
+t_start = 2520.822369
+t_end = 2532.161887
+
+[[pause]]
+program_t = 30.0
+held_s = 1.095
+t_start = 2538.169757
+t_end = 2539.264539
+
+[[pause]]
+program_t = 36.0
+held_s = 9.84
+t_start = 2545.251974
+t_end = 2555.09203
+
+[[pause]]
+program_t = 42.0
+held_s = 0.652
+t_start = 2561.093754
+t_end = 2561.745378
+
+[[pause]]
+program_t = 48.0
+held_s = 18.006
+t_start = 2567.750862
+t_end = 2585.757031
+
+[[pause]]
+program_t = 54.0
+held_s = 0.38
+t_start = 2591.76188
+t_end = 2592.141589
+
+[transfer]
+samples = 143968
+dropped = 0
+bytes = 5735155
+
+[clock]
+skew_ppm = 21.887869383282194
+
+[clock.pre]
+offset_ms = 945727.0307084998
+residual_ms = 0.01193531587503577
+at_host_ms = 2456845.453901
+at_jig_ms = 1511118.446
+kept = 20
+total = 200
+
+[clock.post]
+offset_ms = 945730.5418172502
+residual_ms = 0.005423496408163984
+at_host_ms = 2617262.4366285
+at_jig_ms = 1671531.901
+kept = 20
+total = 200
+
+[hold.pre]
+start = 2471.546576274
+end = 2476.546981398
+
+[hold.post]
+start = 2598.131373841
+end = 2603.131641461
+
+[session]
+id = "2026-08-22"
+name = ""
+robot = ""
+
+[provenance]
+drive_cli_sha = "5ee90dd"
+waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+mix = "tank"
+reverse_angular = true
+channel_scale = 1024.0
+read_linear = 0
+read_angular = 1
+read_invert_a = false
+read_invert_b = true
