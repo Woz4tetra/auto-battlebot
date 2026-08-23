@@ -1,0 +1,167 @@
+calibration: 4.183811e-05 m/count, gyro scale 0.9987
+
+loaded 37 runs from 4 session(s)
+  excluded LOG-35.TXT: verdict: discard
+  excluded LOG-36.TXT: verdict: discard
+  excluded LOG-62.TXT: verdict: discard
+  excluded LOG-76.TXT: verdict: discard
+  excluded LOG-77.TXT: verdict: discard
+  excluded LOG-78.TXT: verdict: discard
+  excluded LOG-88.TXT: verdict: discard
+  excluded LOG-106.TXT: verdict: discard
+  excluded LOG-107.TXT: verdict: discard
+
+=== Stage A: per-phase fits ===
+  dz_lin_fwd   0.01098 +/- 0.0019 (n=22)  [crossing between 0.010 and 0.012]
+  dz_lin_rev   0.02534 +/- 0.002 (n=22)  [crossing between 0.023 and 0.025]
+  dz_ang_l     0.01606 +/- 0.002 (n=22)  [crossing between 0.016 and 0.018]
+  dz_ang_r     0.02407 +/- 0.002 (n=22)  [crossing between 0.023 and 0.025]
+  k_fwd        4.88 +/- 0.313 (n=12)
+  k_rev        4.355 +/- 0.744 (n=12)
+  k_ang        31.71 +/- 0.425 (n=32)
+  k_ang_left   32.13 +/- 11.6 (n=16)
+  k_ang_right  31.28 +/- 10.6 (n=16)
+  tau_lin_a    0.1494 +/- 0.0892 (n=14)
+  tau_lin_d    0.1246 +/- 0.0665 (n=64)
+  tau_ang_a    0.1834 +/- 1.21 (n=18)
+  tau_ang_d    0.08641 +/- 0.0269 (n=44)
+  c_sb         2.702 +/- 0.106 (n=96)
+  c_ad         n/a (grid is not symmetric in angular sign, so angular droop and straight-line drift cannot be separated from it)
+  delay_s      0.05221 +/- nan (n=3486)  [onset stack]
+  delay stack: 3486 onsets, peak SNR 22.4, lag 52.2 ms, clock measured
+  pinned at their stage A values: dz_lin_fwd, dz_lin_rev, dz_ang_l, dz_ang_r
+
+train runs: 22, holdout runs: 15
+
+=== Stage B: joint fit by simulation error ===
+  profiling delay over 61 points
+    delay    0.0 ms -> cost 12669.1197
+    delay    2.0 ms -> cost 12663.1301
+    delay    4.0 ms -> cost 12658.1097
+    delay    6.0 ms -> cost 12654.4114
+    delay    8.0 ms -> cost 12651.7764
+    delay   10.0 ms -> cost 12650.8033
+    delay   12.0 ms -> cost 12649.8010
+    delay   14.0 ms -> cost 12651.3522
+    delay   16.0 ms -> cost 12653.2492
+    delay   18.0 ms -> cost 12657.6080
+    delay   20.0 ms -> cost 12663.7199
+    delay   22.0 ms -> cost 12670.4110
+    delay   24.0 ms -> cost 12680.3489
+    delay   26.0 ms -> cost 12689.9418
+    delay   28.0 ms -> cost 12701.5888
+    delay   30.0 ms -> cost 12714.4163
+    delay   32.0 ms -> cost 12728.1607
+    delay   34.0 ms -> cost 12745.6128
+    delay   36.0 ms -> cost 12759.5142
+    delay   38.0 ms -> cost 12777.0491
+    delay   40.0 ms -> cost 12795.5562
+    delay   42.0 ms -> cost 12811.6758
+    delay   44.0 ms -> cost 12831.9457
+    delay   46.0 ms -> cost 12848.7851
+    delay   48.0 ms -> cost 12871.3170
+    delay   50.0 ms -> cost 12894.3928
+    delay   52.0 ms -> cost 12916.0070
+    delay   54.0 ms -> cost 12943.2159
+    delay   56.0 ms -> cost 12963.7884
+    delay   58.0 ms -> cost 12991.7765
+    delay   60.0 ms -> cost 13018.5615
+    delay   62.0 ms -> cost 13045.0848
+    delay   64.0 ms -> cost 13077.5747
+    delay   66.0 ms -> cost 13103.6005
+    delay   68.0 ms -> cost 13139.3034
+    delay   70.0 ms -> cost 13173.4433
+    delay   72.0 ms -> cost 13205.8422
+    delay   74.0 ms -> cost 13244.9288
+    delay   76.0 ms -> cost 13277.8072
+    delay   78.0 ms -> cost 13320.6603
+    delay   80.0 ms -> cost 13362.8142
+    delay   82.0 ms -> cost 13402.5009
+    delay   84.0 ms -> cost 13449.4866
+    delay   86.0 ms -> cost 13490.8952
+    delay   88.0 ms -> cost 13540.1745
+    delay   90.0 ms -> cost 13588.3799
+    delay   92.0 ms -> cost 13635.6985
+    delay   94.0 ms -> cost 13689.2982
+    delay   96.0 ms -> cost 13735.6113
+    delay   98.0 ms -> cost 13787.9983
+    delay  100.0 ms -> cost 13831.2565
+    delay  102.0 ms -> cost 13879.7491
+    delay  104.0 ms -> cost 13934.3097
+    delay  106.0 ms -> cost 13976.7502
+    delay  108.0 ms -> cost 14033.8237
+    delay  110.0 ms -> cost 14084.5669
+    delay  112.0 ms -> cost 14140.6075
+    delay  114.0 ms -> cost 14203.4798
+    delay  116.0 ms -> cost 14255.0425
+    delay  118.0 ms -> cost 14321.0068
+    delay  120.0 ms -> cost 14378.3091
+  profile minimum at 12.0 ms
+  fitting 4000 windows on 9 params
+  final cost 42182.1053
+  weight check (heading weight 2x): largest move tau_ang_d 2.0%
+
+holdout windows: 4000
+  lag-1 residual autocorrelation at 500 ms: 0.87
+
+=== Fitted parameters ===
+  dz_lin_fwd   0.0109768
+  dz_lin_rev   0.0253396
+  dz_ang_l     0.016061
+  dz_ang_r     0.0240734
+  k_fwd        4.70885
+  k_rev        4.05626
+  k_ang        33.3617
+  tau_lin_a    0.282447
+  tau_lin_d    0.246311
+  tau_ang_a    0.6
+  tau_ang_d    0.120989
+  delay_s      0.012
+  c_sb         1.5
+  c_ad         -0.235583
+  c_drift      -0.853798
+  c_drift_bias -0.333261
+
+  train error vs horizon
+    horizon ms |       35       65      100      200      300      400      500
+    ---------------------------------------------------------------------------
+    along_bias_mm |     0.10     0.21     0.22     1.17    -0.61    -0.27    -5.73
+    along_rmse_mm |     3.14     5.46    11.16    24.14    37.42    49.83    67.53
+    cross_bias_mm |     0.35     2.21     4.13    -4.26     8.53     1.36    17.45
+    cross_rmse_mm |     1.50     8.52    16.44    30.78    46.24    64.69    84.20
+    pos_rmse_mm |     3.48    10.12    19.87    39.12    59.48    81.65   107.93
+     pos_p95_mm |     9.57    30.49    59.85    86.47   119.89   160.17   226.64
+     pos_p99_mm |    12.56    35.46    66.00   155.24   240.09   313.80   409.17
+    head_rmse_deg |     0.45     1.25     2.45     7.25    13.15    19.46    22.73
+    head_p95_deg |     0.91     2.32     4.65    13.35    23.19    33.90    45.91
+
+  holdout error vs horizon
+    horizon ms |       35       65      100      200      300      400      500
+    ---------------------------------------------------------------------------
+    along_bias_mm |     0.19     0.58     1.17     3.15     4.87     6.53     8.37
+    along_rmse_mm |     3.96     8.20    15.27    39.78    66.99    97.00   130.79
+    cross_bias_mm |     0.00     0.07     0.29     2.03     5.61    10.83    17.64
+    cross_rmse_mm |     0.32     1.54     4.69    24.68    56.09    93.64   134.29
+    pos_rmse_mm |     3.98     8.35    15.98    46.81    87.37   134.82   187.46
+     pos_p95_mm |     8.08    16.45    30.65    85.13   175.19   289.06   428.21
+     pos_p99_mm |    11.98    27.82    58.32   197.94   372.21   558.30   779.49
+    head_rmse_deg |     0.84     2.34     4.51    11.80    19.59    27.24    34.43
+    head_p95_deg |     1.75     5.02     9.81    26.12    44.74    63.56    79.02
+
+=== Acceptance criteria (holdout) ===
+  C1 position RMSE at 100 ms: 16.0 mm (target < 15)
+  C2 position RMSE at 400 ms: 134.8 mm (target < 80)
+  C3 heading RMSE at 400 ms: 27.24 deg (target < 8)
+
+=== Leave-one-session-out ===
+  2026-08-19: not enough windows
+  holding out 2026-08-20: 500 ms position RMSE 109.7 mm
+  holding out 2026-08-22: 500 ms position RMSE 120.9 mm
+  holding out 2026-08-23: 500 ms position RMSE 158.8 mm
+
+=== Cross-checks ===
+  k_ang 33.4 rad/s is under the geometric bound 94.2 rad/s.
+  k_ang is 46% below the stage 2 camera value of 61.5 rad/s. That points at yaw keypoint flips inflating the camera number, which is a finding about perception, not only about the plant.
+  delay 12.0 ms vs stage 2's 59 ms, 47.0 ms apart. Two independent methods on independent hardware agreeing is the strongest evidence available for this number.
+
+wrote playground/calibration/out/plant_params_pinned.toml

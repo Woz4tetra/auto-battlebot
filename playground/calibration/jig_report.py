@@ -548,7 +548,7 @@ def section_evidence(stage, params: PlantParams, profile) -> Section:
 
     # Coupling grid, with the mirror structure visible. Empty mirrors are the finding.
     if stage.coupling_cells:
-        cells = [(a, b, v, w) for a, b, v, w in stage.coupling_cells if abs(b) > 1e-3]
+        cells = [(a, b, v, w) for a, b, v, w, _cmd in stage.coupling_cells if abs(b) > 1e-3]
         if cells:
             fig, ax = plt.subplots(figsize=(6.5, 3.4))
             xs = [c[0] for c in cells]

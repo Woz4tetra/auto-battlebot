@@ -1,0 +1,42 @@
+# Drivetrain plant parameters fit from velocity jig data.
+# fit from playground/calibration/out/2026-08-19, playground/calibration/out/2026-08-20 with model M2
+# Consumed by the C++ filter and simulation/kinematic_sim_server.py. One source of
+# truth for the plant numbers: edit the fit, not this file.
+
+[plant]
+dz_lin_fwd = 0.0162893
+dz_lin_rev = 0.0214935
+dz_ang_l = 0.130315
+dz_ang_r = 0.0135559
+k_fwd = 3.27461
+k_rev = 2.05335
+k_ang = 34.5035
+tau_lin_a = 0.248967
+tau_lin_d = 0.0892436
+tau_ang_a = 0.147823
+tau_ang_d = 0.0864289
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = -1.78724
+c_drift_bias = 0.0
+
+[plant.provenance]
+dz_lin_fwd = "0.008518 +/- 0.0098 (n=10)  [crossing between 0.000 and 0.010]"
+dz_lin_rev = "0.02149 +/- 0.0098 (n=10)  [crossing between 0.019 and 0.029]"
+dz_ang_l = "0.006586 +/- 0.0098 (n=10)  [crossing between 0.000 and 0.010]"
+dz_ang_r = "0.01356 +/- 0.0097 (n=10)  [crossing between 0.010 and 0.019]"
+k_fwd = "3.353 +/- 0.215 (n=4)"
+k_rev = "2.053 +/- 0.786 (n=4)"
+k_ang = "32.16 +/- 0.572 (n=16)"
+k_ang_left = "32.73 +/- 13.5 (n=8)"
+k_ang_right = "31.59 +/- 12.5 (n=8)"
+tau_lin_a = "0.1309 +/- 0.0226 (n=6)"
+tau_ang_a = "0.1579 +/- 0.0859 (n=5)"
+tau_lin_d = "0.08924 +/- 0.0497 (n=8)"
+tau_ang_d = "0.08643 +/- 0.0271 (n=18)"
+c_sb = "n/a (0 grid cells, need 3)"
+c_ad = "n/a (grid is not symmetric in angular sign, so angular droop and straight-line drift cannot be separated from it)"
+c_drift = "-1.787 +/- 0.314 (n=26)"
+c_drift_bias = "-0.007997 +/- 0.117 (n=26)  [consistent with zero]"
+delay_s = "0.03305 +/- nan (n=873)  [onset stack]"

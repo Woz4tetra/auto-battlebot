@@ -1,0 +1,103 @@
+calibration: 4.183811e-05 m/count, gyro scale 0.9987
+
+loaded 37 runs from 4 session(s)
+  excluded LOG-35.TXT: verdict: discard
+  excluded LOG-36.TXT: verdict: discard
+  excluded LOG-62.TXT: verdict: discard
+  excluded LOG-76.TXT: verdict: discard
+  excluded LOG-77.TXT: verdict: discard
+  excluded LOG-78.TXT: verdict: discard
+  excluded LOG-88.TXT: verdict: discard
+  excluded LOG-106.TXT: verdict: discard
+  excluded LOG-107.TXT: verdict: discard
+
+=== Stage A: per-phase fits ===
+  dz_lin_fwd   0.01098 +/- 0.0019 (n=22)  [crossing between 0.010 and 0.012]
+  dz_lin_rev   0.02534 +/- 0.002 (n=22)  [crossing between 0.023 and 0.025]
+  dz_ang_l     0.01606 +/- 0.002 (n=22)  [crossing between 0.016 and 0.018]
+  dz_ang_r     0.02407 +/- 0.002 (n=22)  [crossing between 0.023 and 0.025]
+  k_fwd        4.88 +/- 0.313 (n=12)
+  k_rev        4.355 +/- 0.744 (n=12)
+  k_ang        31.71 +/- 0.425 (n=32)
+  k_ang_left   32.13 +/- 11.6 (n=16)
+  k_ang_right  31.28 +/- 10.6 (n=16)
+  tau_lin_a    0.1492 +/- 0.0738 (n=13)  [1 outlier cut; 10/24 segments gave no value]
+  tau_lin_d    0.1235 +/- 0.0625 (n=63)  [1 outlier cut]
+  tau_ang_a    0.1739 +/- 0.036 (n=15)  [3 outliers cut; 14/32 segments gave no value]
+  tau_ang_d    0.0879 +/- 0.0255 (n=43)  [1 outlier cut]
+  c_sb         2.702 +/- 0.106 (n=96)
+  c_ad         0.4634 +/- 0.143 (n=12)
+  delay_s      0.05221 +/- nan (n=3486)  [onset stack]
+  delay stack: 3486 onsets, peak SNR 22.4, lag 52.2 ms, clock measured
+
+train runs: 22, holdout runs: 15
+
+=== Stage B: joint fit by simulation error ===
+  fitting 4000 windows on 14 params
+  final cost 37317.5817
+  weight check (heading weight 2x): largest move c_ad 32.3%
+
+holdout windows: 4000
+  lag-1 residual autocorrelation at 500 ms: 0.86
+
+=== Fitted parameters ===
+  dz_lin_fwd   0.061034
+  dz_lin_rev   2.3236e-18
+  dz_ang_l     0.0219207
+  dz_ang_r     0.0398448
+  k_fwd        4.88014
+  k_rev        4.07326
+  k_ang        33.3945
+  tau_lin_a    0.269308
+  tau_lin_d    0.209205
+  tau_ang_a    0.537343
+  tau_ang_d    0.0730486
+  delay_s      0.0522094
+  c_sb         1.5
+  c_ad         -0.292553
+  c_drift      -2.59558
+  c_drift_bias -0.333261
+
+  train error vs horizon
+    horizon ms |       35       65      100      200      300      400      500
+    ---------------------------------------------------------------------------
+    along_bias_mm |     0.08     0.14     0.06     0.71    -1.82    -2.19    -8.70
+    along_rmse_mm |     3.42     5.80    12.32    24.64    35.13    45.15    61.20
+    cross_bias_mm |     0.43     2.51     4.52    -6.62     3.07   -10.73    -1.45
+    cross_rmse_mm |     1.74     9.64    18.07    32.37    49.07    66.86    85.42
+    pos_rmse_mm |     3.83    11.25    21.87    40.68    60.35    80.68   105.08
+     pos_p95_mm |    10.94    35.25    69.14    95.33   129.27   156.87   218.66
+     pos_p99_mm |    13.84    40.72    75.08   160.82   238.64   317.47   427.08
+    head_rmse_deg |     0.47     1.27     2.41     6.61    11.97    17.36    20.77
+    head_p95_deg |     0.91     2.32     4.49    11.90    20.64    29.96    39.82
+
+  holdout error vs horizon
+    horizon ms |       35       65      100      200      300      400      500
+    ---------------------------------------------------------------------------
+    along_bias_mm |     0.14     0.29     0.42     0.44    -0.75    -2.97    -6.01
+    along_rmse_mm |     4.08     8.73    16.37    42.54    70.44    98.57   129.04
+    cross_bias_mm |    -0.02    -0.09    -0.27    -1.60    -4.26    -8.01   -12.10
+    cross_rmse_mm |     0.33     1.57     4.81    25.63    59.41   100.91   145.53
+    pos_rmse_mm |     4.09     8.87    17.06    49.66    92.15   141.06   194.50
+     pos_p95_mm |     8.52    17.72    33.01    91.13   188.53   313.05   452.07
+     pos_p99_mm |    12.04    27.86    60.79   204.42   370.07   551.04   762.85
+    head_rmse_deg |     1.02     2.89     5.48    13.55    21.69    29.37    36.44
+    head_p95_deg |     2.27     6.37    11.98    30.43    49.31    67.98    83.11
+
+=== Acceptance criteria (holdout) ===
+  C1 position RMSE at 100 ms: 17.1 mm (target < 15)
+  C2 position RMSE at 400 ms: 141.1 mm (target < 80)
+  C3 heading RMSE at 400 ms: 29.37 deg (target < 8)
+
+=== Leave-one-session-out ===
+  2026-08-19: not enough windows
+  holding out 2026-08-20: 500 ms position RMSE 106.6 mm
+  holding out 2026-08-22: 500 ms position RMSE 120.1 mm
+  holding out 2026-08-23: 500 ms position RMSE 159.1 mm
+
+=== Cross-checks ===
+  k_ang 33.4 rad/s is under the geometric bound 97.6 rad/s.
+  k_ang is 46% below the stage 2 camera value of 61.5 rad/s. That points at yaw keypoint flips inflating the camera number, which is a finding about perception, not only about the plant.
+  delay 52.2 ms vs stage 2's 59 ms, 6.8 ms apart. Two independent methods on independent hardware agreeing is the strongest evidence available for this number.
+
+wrote playground/calibration/out/plant_params_m5.toml

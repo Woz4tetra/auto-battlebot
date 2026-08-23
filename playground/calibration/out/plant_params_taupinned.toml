@@ -1,0 +1,43 @@
+# Drivetrain plant parameters fit from velocity jig data.
+# fit from playground/calibration/out/2026-08-19, playground/calibration/out/2026-08-20, playground/calibration/out/2026-08-22, playground/calibration/out/2026-08-23 with model M4
+# Consumed by the C++ filter and simulation/kinematic_sim_server.py. One source of
+# truth for the plant numbers: edit the fit, not this file.
+# Model M4. Terms it disables are written as zero: c_drift, c_drift_bias, tau_ang_a, tau_ang_d, tau_lin_a, tau_lin_d.
+
+[plant]
+dz_lin_fwd = 0.0219074
+dz_lin_rev = 0.041597
+dz_ang_l = 0.0739444
+dz_ang_r = 0.0221536
+k_fwd = 4.42428
+k_rev = 4.13057
+k_ang = 32.48
+tau_lin_a = 0.14921
+tau_lin_d = 0.123461
+tau_ang_a = 0.173867
+tau_ang_d = 0.0878998
+delay_s = 0.054
+c_sb = 1.5
+c_ad = -0.0908151
+c_drift = 0.0
+c_drift_bias = 0.0
+
+[plant.provenance]
+dz_lin_fwd = "0.01098 +/- 0.0019 (n=22)  [crossing between 0.010 and 0.012]"
+dz_lin_rev = "0.02534 +/- 0.002 (n=22)  [crossing between 0.023 and 0.025]"
+dz_ang_l = "0.01606 +/- 0.002 (n=22)  [crossing between 0.016 and 0.018]"
+dz_ang_r = "0.02407 +/- 0.002 (n=22)  [crossing between 0.023 and 0.025]"
+k_fwd = "4.88 +/- 0.313 (n=12)"
+k_rev = "4.355 +/- 0.744 (n=12)"
+k_ang = "31.71 +/- 0.425 (n=32)"
+k_ang_left = "32.13 +/- 11.6 (n=16)"
+k_ang_right = "31.28 +/- 10.6 (n=16)"
+tau_lin_a = "0.1492 +/- 0.0738 (n=13)  [1 outlier cut; 10/24 segments gave no value]"
+tau_ang_a = "0.1739 +/- 0.036 (n=15)  [3 outliers cut; 14/32 segments gave no value]"
+tau_lin_d = "0.1235 +/- 0.0625 (n=63)  [1 outlier cut]"
+tau_ang_d = "0.0879 +/- 0.0255 (n=43)  [1 outlier cut]"
+c_sb = "2.702 +/- 0.106 (n=96)"
+c_ad = "0.4634 +/- 0.143 (n=12)"
+c_drift = "-0.8538 +/- 0.226 (n=103)"
+c_drift_bias = "-0.3333 +/- 0.0852 (n=103)"
+delay_s = "0.05221 +/- nan (n=3486)  [onset stack]"

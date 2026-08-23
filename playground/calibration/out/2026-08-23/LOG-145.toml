@@ -12,7 +12,8 @@ verdict = "pass"
 gates = ""
 warnings = "accel clipped on ay x2, peak 16.0 g. Check the plot: an impact mid-run is worth knowing about, handling at either end is not"
 contamination = 0.0
-notes = ""
+waive_still_holds = true
+notes = "operator holdout. This is the hand-driven realism check, the only run in the set that tests the model against match-like driving rather than a designed excitation. Its pre hold peaked at 3.83 dps from handling. Losing it would cost the one holdout that answers whether the plant model survives real driving. Post hold waived. It brackets gyro bias drift; without it solve_ground_truth holds the pre-hold bias constant. On this board that is ~0.04 deg of heading error over 60 s at the measured 1.862e-4 deg/s/sqrt(s) rate random walk, and ~0.5 deg even at the worst drift seen across 33 two-hold runs. Holdout only, so nothing fitted depends on it."
 encoder = "attached"
 trim = 0.0
 

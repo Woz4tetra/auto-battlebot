@@ -142,7 +142,8 @@ def rederive(toml_path: Path, mix: dp.MixConfig, hold_s: float, write: bool) -> 
         cmd_t = read_command_log(csv_path)["t_host_s"] if csv_path.exists() else []
         pauses = pause_windows_from_commands(cmd_t, program_t) if entries else []
 
-    result = dp.PlayResult(commands=samples, pauses=pauses, mix=mix)
+    manual = str(data.get("waveform", {}).get("kind", "")) == "manual"
+    result = dp.PlayResult(commands=samples, pauses=pauses, mix=mix, manual=manual)
     contamination = result.contamination if samples else float(run.get("contamination", 0.0))
 
     hold = data.get("hold", {})

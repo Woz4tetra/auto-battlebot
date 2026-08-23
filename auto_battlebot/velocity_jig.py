@@ -336,11 +336,39 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(starts.tolist(), (stops + 1).tolist()))
 
 
+def _bridge_blips(mask: np.ndarray, max_run: int) -> np.ndarray:
+    """Fill False runs no longer than `max_run`, leaving longer ones alone.
+
+    A held segment is one contiguous run, so without this a single sample over threshold
+    splits a 5 s hold into two 2.5 s halves and neither clears `min_duration`. That is not a
+    hypothetical: LOG-143's pre-hold peaked at 2.01 dps against the 2.0 bar with the encoder
+    dead still and gravity flat to 0.5%, and it was thrown out, while LOG-115 peaked at 1.90
+    and passed. The two are the same physical state.
+
+    Real motion lasts far longer than this window. A blip is a footfall on the floor, a bump
+    of the bench, or the sensor's own tail.
+    """
+    if max_run < 1 or mask.all() or not mask.any():
+        return np.asarray(mask, dtype=bool)
+    out = mask.copy()
+    idx = np.flatnonzero(~mask)
+    breaks = np.flatnonzero(np.diff(idx) > 1)
+    starts = np.concatenate([[idx[0]], idx[breaks + 1]])
+    stops = np.concatenate([idx[breaks], [idx[-1]]]) + 1
+    for a, b in zip(starts.tolist(), stops.tolist()):
+        # Only interior runs. A leading or trailing violation is the boundary of the hold,
+        # not a blip inside it, and bridging it would extend the segment into real motion.
+        if b - a <= max_run and a > 0 and b < len(mask):
+            out[a:b] = True
+    return np.asarray(out, dtype=bool)
+
+
 def find_still_segments(
     log: JigLog,
     min_duration: float = 5.0,
     gyro_thresh_dps: float = 2.0,
     accel_tol_g: float = 0.05,
+    max_blip_s: float = 0.05,
 ) -> list[StillSegment]:
     """Find stationary stretches at least `min_duration` long.
 
@@ -362,6 +390,8 @@ def find_still_segments(
         ahead = np.concatenate([counts[half:], np.full(half, counts[-1])])
         behind = np.concatenate([np.full(half, counts[0]), counts[:-half]])
         still &= np.abs(ahead - behind) <= 1.0
+
+    still = _bridge_blips(still, max(1, int(round(max_blip_s / max(log.dt, 1e-9)))))
 
     out: list[StillSegment] = []
     for a, b in _runs(still):
@@ -802,6 +832,9 @@ class RunRecord:
     meas_ch_a: np.ndarray | None = None
     meas_ch_b: np.ndarray | None = None
     provenance: dict[str, Any] = field(default_factory=dict)
+    # Operator waiver for the still-hold requirement, set per run in the sidecar. See
+    # `RunQuality.still_holds_waived` for what it costs.
+    waive_still_holds: bool = False
 
     @property
     def clock(self) -> ClockFit:
@@ -1015,6 +1048,7 @@ def load_run_record(
         skew_ppm=(None if clock.get("skew_ppm") is None else float(clock["skew_ppm"])),
         hold_pre=_hold_window(hold.get("pre")),
         hold_post=_hold_window(hold.get("post")),
+        waive_still_holds=bool(run.get("waive_still_holds", False)),
         segments=[ProtocolSegment.from_toml(seg) for seg in data.get("segment", [])],
         pauses=_pause_windows(data.get("pause", []), cmd_t),
         cmd_t=cmd_t,
@@ -1254,6 +1288,14 @@ class RunQuality:
     # Of `malformed_rows`, how many were the truncated final line. A reset during the last
     # write leaves one; damage inside the stream does not.
     malformed_tail: int = 0
+    # Set per run in the sidecar. The post hold exists to bracket gyro bias drift, and
+    # without it `solve_ground_truth` holds the pre-hold bias constant instead of ramping it.
+    # Measured on this board that is worth very little: rate random walk is 1.862e-4
+    # deg/s/sqrt(s) (E2, LOG-97), so 60 s of run moves the bias about 1.4e-3 deg/s and leaves
+    # roughly 0.04 deg of heading error. Even the worst drift seen across 33 two-hold runs,
+    # 0.0155 deg/s, is only about 0.5 deg over 60 s. Waive it when a run is worth more than
+    # that, and never on a run whose still holds failed because the robot was being handled.
+    still_holds_waived: bool = False
     # Accel clipping, reported and never gated. The model has no acceleration state: the fit
     # reads speed from the encoder and yaw from the gyro, and the accelerometer is used only
     # to find the gravity axis during a still hold. A clipped sample mid-run says an impact
@@ -1311,12 +1353,12 @@ class RunQuality:
             out.append(f"gyro bias drift {self.bias_drift_dps:.3f} deg/s")
         if self.clock_measured and self.clock_residual_ms > max_clock_residual_ms:
             out.append(f"clock residual {self.clock_residual_ms:.2f} ms")
-        if self.still_holds < 2:
+        if self.still_holds < 2 and not self.still_holds_waived:
             out.append(f"{self.still_holds} still holds found, need 2")
         if self.commanded_s < min_commanded_s:
             out.append(f"only {self.commanded_s:.1f} s of commanded data")
         gap = max(self.hold_pre_gap_s, self.hold_post_gap_s)
-        if gap > max_hold_gap_s:
+        if gap > max_hold_gap_s and not self.still_holds_waived:
             out.append(
                 f"{gap:.1f} s of a commanded still hold was not motionless: "
                 "the jig and the drive CLI disagree on when the run started"
@@ -1331,6 +1373,14 @@ class RunQuality:
         cable look identical to a wall strike.
         """
         out: list[str] = []
+        if self.still_holds_waived and (
+            self.still_holds < 2 or max(self.hold_pre_gap_s, self.hold_post_gap_s) > 0.5
+        ):
+            gap = max(self.hold_pre_gap_s, self.hold_post_gap_s)
+            out.append(
+                f"still-hold check waived: {self.still_holds} hold(s) found, {gap:.1f} s of a "
+                "commanded hold uncovered. Gyro bias is held constant instead of ramped"
+            )
         if self.accel_clip_samples:
             axes = ", ".join(self.accel_clip_axes)
             out.append(
@@ -1549,6 +1599,7 @@ def load_run(
         dropped=record.dropped,
         malformed_rows=log.malformed_rows,
         malformed_tail=log.malformed_tail,
+        still_holds_waived=record.waive_still_holds,
         worst_saturation=max((a.fraction for a in gyro_sat), default=0.0),
         saturated_axes=[a.name for a in gyro_sat if a.count],
         saturated_samples=sum(a.count for a in gyro_sat),

@@ -159,6 +159,10 @@ class ModelStructure:
     coupling: bool = True  # steer-brake and angular droop
     drift_prop: bool = False  # yaw drift proportional to the linear command
     drift_offset: bool = False  # yaw drift constant while moving
+    # Parameters the joint fit may not move, held at whatever stage A measured. A parameter
+    # with its own dedicated excitation and a tight spread is evidence; leaving it free lets
+    # an objective that cannot see it directly trade it away against something it can.
+    pinned: tuple[str, ...] = ()
 
     def apply(self, p: PlantParams) -> PlantParams:
         """Collapse a full parameter set onto this structure, so disabled terms cannot leak in."""
@@ -195,7 +199,7 @@ class ModelStructure:
             names += ["c_drift"]
         if self.drift_offset:
             names += ["c_drift_bias"]
-        return names
+        return [n for n in names if n not in self.pinned]
 
 
 MODEL_LADDER: tuple[ModelStructure, ...] = (

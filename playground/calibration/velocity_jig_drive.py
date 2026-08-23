@@ -115,6 +115,39 @@ def prompt(msg: str) -> None:
         raise SystemExit("\naborted: stdin closed") from None
 
 
+# Long enough for the robot to stop from full command once the excitation ends. The piecewise
+# waveforms give themselves 4 s through a trailing coast cell, and that is many decel
+# constants, so match it rather than invent a second number.
+SETTLE_COAST_S = 4.0
+
+
+# How long the command must have been zero at the end of a program for the robot to be at
+# rest when it returns. Many decel constants, so what follows is a stopped robot and not a
+# slow one.
+REST_TAIL_S = 1.0
+
+
+def ends_at_rest(program: ex.Program, eps: float = 1e-3, tail_s: float = REST_TAIL_S) -> bool:
+    """Whether the program leaves the robot stopped, judged over a trailing window.
+
+    The last command alone is not enough. A sine ends on a zero crossing and a PRBS can end
+    on a zero bit, but the plant lags the command: at the moment a sine's command reaches
+    zero the robot is near peak speed, because the first-order response is phase shifted. So
+    ask whether the command has been zero for long enough to have stopped it, not whether the
+    final sample happens to be zero.
+
+    Sampled from `at`, not inferred from the kind, so a piecewise program given a nonzero last
+    cell is caught too.
+    """
+    step = 0.005
+    n = max(1, int(round(min(tail_s, program.duration_s) / step)))
+    for i in range(n + 1):
+        lin, ang = program.at(max(0.0, program.duration_s - i * step))
+        if abs(lin) >= eps or abs(ang) >= eps:
+            return False
+    return True
+
+
 def upcoming(program: ex.Program, pause_at: Sequence[float], index: int) -> list[Any]:
     """The segments that will play once this pause is released, up to the next stop.
 
@@ -557,6 +590,8 @@ def run_one(
     # A moving run adds the unplug, the B press, the replug, and the operator's own pauses.
     # The B press became its own step when it moved ahead of the replug.
     total = 12 if decl.motion else 9
+    if decl.motion and not ends_at_rest(program):
+        total += 1  # the coast-to-a-stop step
     n = 0
     say(f"\n{'=' * 70}")
     say(f"RUN  {program.name}#{rep}  ({program.kind}/{program.channel}, {program.role})")
@@ -642,6 +677,20 @@ def run_one(
             say(f"      weapon armed for {span:.0f} s, throttle peak {peak:+.2f}")
     else:
         countdown(program.duration_s, "run the maneuver")
+
+    # A piecewise program ends on a rest cell, so the robot is already stopped by the time
+    # the excitation returns. A continuous one does not: a PRBS, chirp or sine ends on
+    # whatever value its last tick lands on, and `play` sends a single zero and returns with
+    # the robot at speed. The post-hold countdown then measures a coasting robot, the
+    # stillness test rejects it, and the run is thrown out for having one still hold.
+    #
+    # LOG-134, LOG-135, LOG-137 and LOG-145 were all lost this way, each with 0.02 s between
+    # the last live command and the start of the hold. The piecewise runs beside them had 3
+    # to 4 s of trailing coast and passed.
+    if not ends_at_rest(program):
+        n += 1
+        step(n, total, "Let the robot coast to a stop")
+        countdown(SETTLE_COAST_S, "coasting")
 
     n += 1
     step(n, total, f"Hold still {args.hold_s:.0f} s (bias drift bound)")

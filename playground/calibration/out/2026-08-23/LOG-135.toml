@@ -12,7 +12,8 @@ verdict = "pass"
 gates = ""
 warnings = "accel clipped on ay x1, peak 16.0 g. Check the plot: an impact mid-run is worth knowing about, handling at either end is not"
 contamination = 0.002
-notes = ""
+waive_still_holds = true
+notes = "lin_sine holdout. Same as LOG-134: a sine ends on a zero command while the plant's phase lag leaves the robot near peak speed, so the post hold caught it still moving. Post hold waived. It brackets gyro bias drift; without it solve_ground_truth holds the pre-hold bias constant. On this board that is ~0.04 deg of heading error over 60 s at the measured 1.862e-4 deg/s/sqrt(s) rate random walk, and ~0.5 deg even at the worst drift seen across 33 two-hold runs. Holdout only, so nothing fitted depends on it."
 encoder = "attached"
 trim = 0.0
 

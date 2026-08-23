@@ -11,8 +11,9 @@ duration_s = 30.0
 verdict = "pass"
 gates = ""
 warnings = ""
-contamination = 0.0094
-notes = ""
+contamination = 0.00935
+waive_still_holds = true
+notes = "lin_prbs holdout. The post hold measured a coasting robot: this predates the coast-to-a-stop step, so the countdown began 0.02 s after the last live command. Post hold waived. It brackets gyro bias drift; without it solve_ground_truth holds the pre-hold bias constant. On this board that is ~0.04 deg of heading error over 60 s at the measured 1.862e-4 deg/s/sqrt(s) rate random walk, and ~0.5 deg even at the worst drift seen across 33 two-hold runs. Holdout only, so nothing fitted depends on it."
 encoder = "attached"
 trim = 0.0
 

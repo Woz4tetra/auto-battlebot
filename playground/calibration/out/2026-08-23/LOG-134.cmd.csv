@@ -8,6 +8,7 @@
 # hand-driven run the measured columns are the whole record: nothing was commanded.
 # columns: t_host_s,linear,angular,trim,meas_ch_a,meas_ch_b,meas_linear,meas_angular,meas_weapon,meas_arm
 # rate_hz=50.0 waveform=lin_prbs run=LOG-134.TXT
+# meas_linear/meas_angular re-derived from the channels with read_invert_a=false read_invert_b=true
 9657.328360,-0.4000,0.0000,0.0000,-0.0020,-0.0020,0.0000,0.0020,-1.0000,-1.0000
 9657.348454,-0.4000,0.0000,0.0000,-0.3926,0.3887,-0.3906,0.0020,-1.0000,-1.0000
 9657.368883,-0.4000,0.0000,0.0000,-0.3926,0.3887,-0.3906,0.0020,-1.0000,-1.0000

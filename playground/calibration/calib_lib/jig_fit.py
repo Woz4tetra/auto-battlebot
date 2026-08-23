@@ -38,6 +38,7 @@ from scipy.optimize import least_squares
 
 
 from auto_battlebot.plant import (
+    FULL_MODEL,
     MODEL_LADDER,
     PARAM_BOUNDS,
     ModelStructure,
@@ -246,14 +247,22 @@ def _rise_tau(mv: np.ndarray, v_ss: float, dt: float, eps: float) -> float:
     return -1.0 / slope if slope < 0 else float("nan")
 
 
-def held_segments(run: Run, channel: str) -> list[HeldSegment]:
-    """Every contiguous stretch where this channel held a constant nonzero command."""
+def held_segments(run: Run, channel: str, min_level: float = 0.0) -> list[HeldSegment]:
+    """Every contiguous stretch where this channel held a constant nonzero command.
+
+    `min_level` drops cells commanded below it. The default keeps everything, because the
+    deadzone staircase depends on rungs down at 0.001 and must see them. Gain and rise fits
+    want a floor: the radio's trainer range is 1000 steps, so a rest cell reads back at up to
+    0.002 rather than 0.000, and those rest cells were being collected as held segments in
+    their own right. On LOG-121 that was eight of the run's sixteen, each contributing a
+    `nan` rise constant and inflating the reported segment count with nothing.
+    """
     cmd, vel = _channel(run, channel)
     other = run.cmd_ang if channel == "lin" else run.cmd_lin
     eps = _eps(run, channel)
     min_hold = max(5, int(round(MIN_HOLD_S / run.dt)))
 
-    active = np.abs(cmd) > 1e-3
+    active = np.abs(cmd) > max(1e-3, min_level)
     # Split on any command change, so a staircase is many segments rather than one.
     changed = np.concatenate([[False], np.abs(np.diff(cmd)) > 1e-4])
     seg_id = np.cumsum(changed)
@@ -264,7 +273,8 @@ def held_segments(run: Run, channel: str) -> list[HeldSegment]:
             same = seg_id[start:b] == seg_id[start]
             stop = start + int(np.count_nonzero(same))
             n = stop - start
-            if n >= min_hold:
+            level = float(np.median(cmd[start:stop]))
+            if n >= min_hold and abs(level) >= min_level:
                 mv = np.abs(vel[start:stop])
                 tail = slice(int(0.6 * n), n)
                 v_ss = float(np.median(mv[tail]))
@@ -272,7 +282,7 @@ def held_segments(run: Run, channel: str) -> list[HeldSegment]:
                     HeldSegment(
                         run=run.name,
                         channel=channel,
-                        level=float(np.median(cmd[start:stop])),
+                        level=level,
                         u_eff=float("nan"),
                         v_ss=v_ss,
                         tau=(
@@ -344,10 +354,37 @@ class Estimate:
 
 
 def _pool(values: Sequence[float]) -> Estimate:
+    """Median of the usable segment values, with a spread that survives one bad segment.
+
+    The value was always the median, which is robust. The spread was `np.std` over the same
+    list, which is not, so a single wild segment reported a parameter as unmeasured while the
+    median sat on the right answer. `tau_ang_a` came back 0.1834 +/- 1.211 with fifteen
+    segments inside 0.10-0.24 and three at 0.36, 1.16 and 5.43 -- all three from the two
+    lowest reverse amplitudes, where the rise band is only a handful of samples wide and a
+    log-linear fit through its tail returns whatever it likes.
+
+    Tukey fences cut those, and the note carries both the outliers and the segments that
+    never produced a number, so a thin pool is visible rather than hidden behind `n`.
+    """
+    seen = len(values)
     vals = np.array([v for v in values if np.isfinite(v)], dtype=float)
     if len(vals) == 0:
-        return Estimate(float("nan"), note="no usable segments")
-    return Estimate(float(np.median(vals)), float(np.std(vals)), len(vals))
+        return Estimate(float("nan"), note=f"no usable segments out of {seen}")
+    kept, cut = vals, 0
+    # Quartiles need a real sample behind them; below this, one value moves the fence.
+    if len(vals) >= 8:
+        q1, q3 = np.percentile(vals, [25, 75])
+        span = q3 - q1
+        keep = (vals >= q1 - 1.5 * span) & (vals <= q3 + 1.5 * span)
+        if keep.any():
+            cut = int(np.count_nonzero(~keep))
+            kept = vals[keep]
+    notes = []
+    if cut:
+        notes.append(f"{cut} outlier{'s' if cut > 1 else ''} cut")
+    if seen - len(vals):
+        notes.append(f"{seen - len(vals)}/{seen} segments gave no value")
+    return Estimate(float(np.median(kept)), float(np.std(kept)), len(kept), "; ".join(notes))
 
 
 def fit_deadzone(runs: Sequence[Run], channel: str, sign: float) -> Estimate:
@@ -423,7 +460,7 @@ def fit_gain(
 
 def fit_coupling(
     runs: Sequence[Run], p: PlantParams
-) -> tuple[Estimate, Estimate, list[tuple[float, float, float, float]]]:
+) -> tuple[Estimate, Estimate, list[tuple[float, float, float, float, float]]]:
     """Steer-brake and angular droop from the E13 grid.
 
         v = k_lin * u_lin_eff * (1 - c_sb * |u_ang_eff|)
@@ -432,12 +469,17 @@ def fit_coupling(
     Both are regressed through the origin on fractional loss. A coefficient whose spread covers
     zero does not go in the model: three terms that are all real beat six where two are noise.
     """
-    cells: list[tuple[float, float, float, float]] = []  # u_lin_eff, u_ang_eff, v_ss, w_ss
+    # u_lin_eff, u_ang_eff, v_ss, w_ss, and the angular command as issued. The last one is
+    # what mirror matching keys on: the effective command has the per-side deadzone removed,
+    # and those two deadzones are not equal, so +0.08 and -0.08 come out at +0.0650 and
+    # -0.0573 and never match. The grid is symmetric in what was commanded, never in what is
+    # left after deadzone removal.
+    cells: list[tuple[float, float, float, float, float]] = []
     for run in runs:
         for seg in held_segments(run, "lin"):
             if seg.other <= 0.02:
                 lin_eff = float(effective_command(np.array(seg.level), p.dz_lin_fwd, p.dz_lin_rev))
-                cells.append((lin_eff, 0.0, seg.v_ss, 0.0))
+                cells.append((lin_eff, 0.0, seg.v_ss, 0.0, 0.0))
                 continue
             lin_eff = float(effective_command(np.array(seg.level), p.dz_lin_fwd, p.dz_lin_rev))
             ang_eff = float(
@@ -448,10 +490,10 @@ def fit_coupling(
             # straight-line drift, since droop flips with the turn and drift does not.
             mask = (run.t >= seg.t0) & (run.t < seg.t0 + seg.n * run.dt)
             w_ss = float(np.median(run.w[mask])) if np.count_nonzero(mask) else 0.0
-            cells.append((lin_eff, ang_eff, seg.v_ss, w_ss))
+            cells.append((lin_eff, ang_eff, seg.v_ss, w_ss, float(seg.other_signed)))
 
     sb_x, sb_y, ad_x, ad_y = [], [], [], []
-    for lin_eff, ang_eff, v_ss, w_ss in cells:
+    for lin_eff, ang_eff, v_ss, w_ss, _cmd in cells:
         if abs(lin_eff) > 1e-3 and abs(ang_eff) > 1e-3:
             k = p.k_fwd if lin_eff > 0 else p.k_rev
             v0 = k * abs(lin_eff)
@@ -498,28 +540,45 @@ def fit_coupling(
 
 
 def _mirror_pairs(
-    cells: Sequence[tuple[float, float, float, float]],
+    cells: Sequence[tuple[float, float, float, float, float]],
 ) -> list[tuple[float, float, float, float]]:
     """Match each grid cell to its mirror across the angular axis.
 
-    Returns (u_lin_eff, |u_ang_eff|, w at +u_ang, w at -u_ang). Cells with no mirror are
-    dropped rather than used one-sided: a one-sided cell cannot distinguish droop from
-    drift, and including it would let whichever term the fit reached first absorb the other.
+    Returns (u_lin_eff, mean |u_ang_eff| over the pair, w at +u_ang, w at -u_ang). Cells with
+    no mirror are dropped rather than used one-sided: a one-sided cell cannot distinguish
+    droop from drift, and including it would let whichever term the fit reached first absorb
+    the other.
+
+    Matching is on the angular command as issued, not on the effective command. The grid is
+    laid out symmetrically in what it asks for, and `effective_command` then subtracts a
+    different deadzone from each side -- 0.01606 turning left against 0.02407 turning right.
+    That 8 milli-unit gap shifts every positive key away from its mirror, so keying on the
+    effective command produced an empty intersection every time and reported the grid as
+    asymmetric. It never was.
+
+    The returned magnitude is the mean of the two sides, which is what the droop regression
+    needs: with e_p and e_n the two effective commands, the half-difference of the yaw rates
+    is `k_ang * 0.5 * (e_p - e_n) * (1 - c_ad * |u_lin|)`, so the authority behind the pair is
+    their average, not either one alone.
     """
-    index: dict[tuple[int, int], float] = {}
-    for lin_eff, ang_eff, _v, w_ss in cells:
-        if abs(ang_eff) <= 1e-3:
+    index: dict[tuple[int, int], tuple[float, float]] = {}
+    for lin_eff, ang_eff, _v, w_ss, ang_cmd in cells:
+        if abs(ang_cmd) <= 1e-3:
             continue
-        index[(int(round(lin_eff * 1000)), int(round(ang_eff * 1000)))] = w_ss
+        index[(int(round(lin_eff * 1000)), int(round(ang_cmd * 1000)))] = (w_ss, ang_eff)
 
     out: list[tuple[float, float, float, float]] = []
-    for (lin_key, ang_key), w_pos in index.items():
+    for (lin_key, ang_key), (w_pos, eff_pos) in index.items():
         if ang_key <= 0:
             continue
         mirror = index.get((lin_key, -ang_key))
         if mirror is None:
             continue
-        out.append((lin_key / 1000.0, ang_key / 1000.0, w_pos, mirror))
+        w_neg, eff_neg = mirror
+        mag = 0.5 * (abs(eff_pos) + abs(eff_neg))
+        if mag <= 1e-3:
+            continue
+        out.append((lin_key / 1000.0, mag, w_pos, w_neg))
     return out
 
 
@@ -667,7 +726,7 @@ class StageA:
     lin_segments: list[HeldSegment]
     ang_segments: list[HeldSegment]
     delay: DelayStack
-    coupling_cells: list[tuple[float, float, float, float]]
+    coupling_cells: list[tuple[float, float, float, float, float]]
     # (u_lin_eff, w_ss) over straight held segments, the evidence behind the drift terms.
     drift_points: list[tuple[float, float]] = field(default_factory=list)
 
@@ -694,13 +753,17 @@ def stage_a(loaded: Loaded, prior: PlantParams) -> StageA:
         dz_ang_r=_dz("dz_ang_r", prior.dz_ang_r),
     )
 
+    # Above the radio's readback quantization, below the smallest commanded step in any
+    # ladder (0.1 linear after the reverse cap, 0.244 angular), so this drops rest cells and
+    # nothing that was actually driven.
+    step_floor = 0.01
     lin_segs: list[HeldSegment] = []
     for run in loaded.select(kinds=STEP_KINDS, channels=("linear",), roles=("fit",)):
         if run.encoder_valid:
-            lin_segs += held_segments(run, "lin")
+            lin_segs += held_segments(run, "lin", min_level=step_floor)
     ang_segs: list[HeldSegment] = []
     for run in loaded.select(kinds=STEP_KINDS, channels=("angular",), roles=("fit",)):
-        ang_segs += held_segments(run, "ang")
+        ang_segs += held_segments(run, "ang", min_level=step_floor)
 
     est["k_fwd"], used_f = fit_gain(lin_segs, p.dz_lin_fwd, p.dz_lin_rev, 1.0)
     est["k_rev"], used_r = fit_gain(lin_segs, p.dz_lin_fwd, p.dz_lin_rev, -1.0)
@@ -1074,12 +1137,28 @@ def cross_checks(p: PlantParams, track_width_m: float) -> list[str]:
     return out
 
 
-def write_params(path: Path, p: PlantParams, stage: StageA, note: str) -> None:
+def write_params(
+    path: Path, p: PlantParams, stage: StageA, note: str, structure: ModelStructure
+) -> None:
+    """Write the selected model's parameters, with the terms it disables set to zero.
+
+    `structure.apply` is not optional here. The ladder picks a rung by held-out error and the
+    rung decides which terms exist, but the fitted parameter set still carries a value for
+    every term in the full model. Writing it raw shipped `c_drift = -0.854` and
+    `c_drift_bias = -0.333` under a header that said `model M4` -- and M4 sets both to zero
+    precisely because the ladder measured them making held-out prediction worse. Nothing
+    downstream reads the header comment, so the C++ filter and the sim would have applied two
+    terms the model selection had rejected.
+    """
+    p = structure.apply(p)
+    disabled = sorted(set(FULL_MODEL.free_names()) - set(structure.free_names()))
     lines = [
         "# Drivetrain plant parameters fit from velocity jig data.",
         f"# {note}",
         "# Consumed by the C++ filter and simulation/kinematic_sim_server.py. One source of",
         "# truth for the plant numbers: edit the fit, not this file.",
+        f"# Model {structure.name}. Terms it disables are written as zero"
+        + (f": {', '.join(disabled)}." if disabled else "; there are none."),
         "",
         p.to_toml("plant").rstrip(),
         "",

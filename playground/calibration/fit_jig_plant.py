@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -28,6 +29,7 @@ import numpy as np
 
 
 from auto_battlebot.plant import (
+    FULL_MODEL,
     MODEL_LADDER,
     PlantParams,
     predict_windows,
@@ -109,6 +111,19 @@ def main() -> None:
         "--track-width", type=float, default=0.10, help="meters, for the k_ang bound"
     )
     parser.add_argument("--model", default="M4", choices=[m.name for m in MODEL_LADDER])
+    parser.add_argument(
+        "--pin-deadzones",
+        action="store_true",
+        help="shorthand for --pin dz_lin_fwd,dz_lin_rev,dz_ang_l,dz_ang_r",
+    )
+    parser.add_argument(
+        "--pin",
+        default="",
+        help="comma-separated parameters to hold at their stage A values instead of letting the"
+        " joint fit move them. Use it where a dedicated excitation measures a parameter"
+        " directly and the window objective only sees it through its effect on everything"
+        " else, which is where the two disagree worst.",
+    )
     parser.add_argument("--ladder", action="store_true", help="fit and score every model rung")
     parser.add_argument("--no-joint", action="store_true", help="stop after stage A")
     parser.add_argument("--no-delay-profile", action="store_true", help="keep the stage A delay")
@@ -189,6 +204,17 @@ def main() -> None:
     print_stage_a(stage)
 
     structure = next(m for m in MODEL_LADDER if m.name == args.model)
+    pin = [n.strip() for n in args.pin.split(",") if n.strip()]
+    if args.pin_deadzones:
+        pin += ["dz_lin_fwd", "dz_lin_rev", "dz_ang_l", "dz_ang_r"]
+    if pin:
+        known = set(FULL_MODEL.free_names())
+        unknown = [n for n in pin if n not in known]
+        if unknown:
+            raise SystemExit(f"--pin: not fittable parameters: {', '.join(unknown)}")
+        pinned = tuple(dict.fromkeys(pin))
+        structure = dataclasses.replace(structure, pinned=pinned)
+        print(f"  pinned at their stage A values: {', '.join(pinned)}")
     params = stage.params
     profile: DelayProfile | None = None
     reports: dict[str, HorizonReport] = {}
@@ -337,7 +363,7 @@ def main() -> None:
 
     if args.out:
         note = f"fit from {', '.join(str(s) for s in args.sessions)} with model {structure.name}"
-        write_params(args.out, params, stage, note)
+        write_params(args.out, params, stage, note, structure)
     if args.report:
         # Imported here so a fit that writes no report never pays for matplotlib.
         from jig_report import render_report

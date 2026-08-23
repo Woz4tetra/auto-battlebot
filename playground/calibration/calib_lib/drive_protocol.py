@@ -344,6 +344,11 @@ class PlayResult:
     # only what it was asked for. Optional so an old caller still builds a usable result,
     # with the pre-2026-08-23 behaviour of comparing against the raw request.
     mix: MixConfig | None = None
+    # True for a hand-driven run. The contamination check asks whether the radio sent
+    # something other than what was scripted, and on a manual run nothing is scripted: the
+    # divergence between the zero target and the human's sticks IS the recording. Checking it
+    # reports 1.000 every time and discards the one run that tests real driving.
+    manual: bool = False
 
     # Ticks to ignore after the command changes. The radio reports its mixer output on its
     # own schedule, so `measured` lags `commanded` by a tick or two. At a step edge that lag
@@ -366,6 +371,8 @@ class PlayResult:
         A grid cell that asks for more authority than the mix has left gets clipped on the
         way out, and calling that clip a leaning stick discarded LOG-71 on 2026-08-20.
         """
+        if self.manual:
+            return 0.0
         diffs = []
         settle = 0
         prev: tuple[float, float] | None = None
