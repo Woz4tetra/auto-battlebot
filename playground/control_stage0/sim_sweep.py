@@ -100,6 +100,9 @@ def write_cpp_overlay(run: Run, out_dir: Path) -> Path:
     # Scoring reads the MCAP the run writes, so the sweep turns recording on itself rather than
     # depending on the base config leaving it on. A run override can still switch it back off.
     _deep_set(data, "mcap.enable", True)
+    # A sweep is a batch job: the sim profile inherits ui.enable from the desktop base, which pops
+    # a window per run. Force it off here so a sweep does not take over the screen.
+    _deep_set(data, "ui.enable", False)
     for dotted_key, value in run.cpp.items():
         _deep_set(data, dotted_key, value)
     path = out_dir / f"{run.name}.toml"

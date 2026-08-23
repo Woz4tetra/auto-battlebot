@@ -305,8 +305,14 @@ class Perception:
     def observe(self, our: Pose, opps: list[Pose]) -> tuple[Pose, list[Pose]]:
         self._buf.append((our, opps))
         obs_our, obs_opps = self._buf[0]  # oldest within the delay window
-        # Our robot: bias + noise but never dropped (the controller needs self-pose).
-        out_our = self._noisy(obs_our)
+        # Our robot keeps its slot in the ground-truth list whatever happens, because the C++ side
+        # maps ground truth to frame ids by position. A dropped self-observation is signalled by
+        # NaN in the slot rather than by removing it, which the filter reads as "no measurement
+        # this frame" and answers with a held, stale pose.
+        if self._cfg.our_dropout_prob > 0.0 and self._rng.random() < self._cfg.our_dropout_prob:
+            out_our: Pose = (math.nan, math.nan, math.nan)
+        else:
+            out_our = self._noisy(obs_our)
         out_opps = [
             self._noisy(p) for p in obs_opps if self._rng.random() >= self._cfg.dropout_prob
         ]

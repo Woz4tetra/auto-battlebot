@@ -61,8 +61,8 @@ void MotionProfileNavigation::reset_state() {
     last_known_our_pose_.reset();
     last_measured_speed_ = 0.0;
     prev_w_ref_ = 0.0;
-    prev_linear_command_ = 0.0;
-    prev_angular_command_ = 0.0;
+    prev_linear_uncompensated_ = 0.0;
+    prev_angular_uncompensated_ = 0.0;
 }
 
 bool MotionProfileNavigation::initialize() {
@@ -171,8 +171,8 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
         prev_v_ref_ = 0.0;
         prev_w_ref_ = 0.0;
         speed_integral_ = 0.0;
-        prev_linear_command_ = 0.0;
-        prev_angular_command_ = 0.0;
+        prev_linear_uncompensated_ = 0.0;
+        prev_angular_uncompensated_ = 0.0;
         logger_->debug("stop", {{"distance", distance}}, "Reached goal; stopping");
         return VelocityCommand{0.0, 0.0, 0.0};
     }
@@ -203,9 +203,6 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     if (max_linear_command_ > 0.0) {
         cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_command_, max_linear_command_);
     }
-
-    prev_linear_command_ = cmd.linear_x;
-    prev_angular_command_ = cmd.angular_z;
 
     logger_->debug("profile",
                    {
@@ -309,11 +306,16 @@ double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt
         u *= max_linear_speed_fwd_ / max_linear_speed_rev_;
     }
 
-    // Steer-brake: the plant multiplies forward authority by (1 - c_sb*|u_ang_eff|). Use the
-    // previous tick's turn command, since this tick's is being built from this one in the angular
-    // channel; at 30 Hz that lag is far below the coefficient's own uncertainty.
-    const double u_ang_eff =
-        effective_command(prev_angular_command_, angular_deadzone_left_, angular_deadzone_right_);
+    // Remember the command before compensation. Each channel's coupling term is driven by the
+    // other channel's UNCOMPENSATED command, which breaks what is otherwise a positive feedback
+    // loop: compensating the droop raises the turn command, which raises the steer-brake
+    // compensation, which raises the droop compensation again. Measured loop gain is above 1, so
+    // feeding the compensated values back saturates both channels within a few ticks.
+    prev_linear_uncompensated_ = std::clamp(u, -1.0, 1.0);
+
+    // Steer-brake: the plant multiplies forward authority by (1 - c_sb*|u_ang_eff|).
+    const double u_ang_eff = effective_command(prev_angular_uncompensated_, angular_deadzone_left_,
+                                               angular_deadzone_right_);
     u = compensate_coupling(u, u_ang_eff, steer_brake_coeff_, steer_brake_floor_);
 
     // Exact inverse-deadzone: the plant applies (|c| - dz)/(1 - dz), so pre-distort the command so
@@ -382,11 +384,12 @@ double MotionProfileNavigation::compute_angular_command(double w_ref, double dt)
     const double tau = (std::abs(w_ref) > std::abs(prev_w_ref_)) ? tau_angular_accel_
                                                                  : tau_angular_decel_;
     double u = (w_ref + tau * dwdt) / max_angular_speed_;
+    prev_angular_uncompensated_ = std::clamp(u, -1.0, 1.0);
 
     // Angular droop: the plant multiplies yaw authority by (1 - c_ad*|u_lin_eff|), so the heading
-    // loop is weaker at speed than in place. Previous tick's linear command, for the same reason
-    // the steer-brake term uses the previous angular one.
-    const double u_lin_eff = effective_command(prev_linear_command_, deadzone_, deadzone_);
+    // loop is weaker at speed than in place. Driven by the uncompensated linear command; see the
+    // loop-gain note in compute_linear_command.
+    const double u_lin_eff = effective_command(prev_linear_uncompensated_, deadzone_, deadzone_);
     u = compensate_coupling(u, u_lin_eff, angular_droop_coeff_, angular_droop_floor_);
 
     return std::clamp(u, -1.0, 1.0);

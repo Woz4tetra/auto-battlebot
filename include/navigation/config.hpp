@@ -218,10 +218,16 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
      * the way in and stalls on the way out. */
     double tau_angular_decel = 0.0878998;
 
-    /** Angular droop, the fit's c_ad: the plant multiplies yaw authority by
-     * (1 - c_ad*|u_lin_eff|), so the heading loop is weaker at speed than in place. Divided back
-     * out like the steer-brake term. 0 = no compensation. */
-    double angular_droop_coeff = 0.463423;
+    /** Angular droop, the fit's c_ad = 0.463: the plant multiplies yaw authority by
+     * (1 - c_ad*|u_lin_eff|), so the heading loop is weaker at speed than in place.
+     *
+     * Defaults OFF even though the coefficient is measured, because compensating it makes the
+     * controller worse. On the 90-degree turning approach, enabling it takes terminal error from
+     * 0.008 m to 0.067 m and time-to-goal from 1.10 s to 2.83 s. Compensating buys faster heading
+     * convergence by commanding a harder turn, and a harder turn is exactly what the steer-brake
+     * term charges forward speed for. The heading loop is closed-loop already and gets there
+     * without the help; the forward speed it spends is not refunded. Set > 0 to re-enable. */
+    double angular_droop_coeff = 0.0;
 
     /** Floor on the droop multiplier. c_ad = 0.463 never reaches zero, so this is a guard against
      * a refit pushing the coefficient past 1, not a shape limit like steer_brake_floor. */

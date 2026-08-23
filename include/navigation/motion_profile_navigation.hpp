@@ -29,9 +29,10 @@ namespace auto_battlebot {
  *     yaw-rate reference in rad/s, then an inverse-plant feedforward through max_angular_speed
  *     with the regime-appropriate yaw time constant and the angular droop divided out.
  *
- * Both coupling compensations are resolved with the counterpart command from the previous tick.
- * They are mutually recursive within a tick, and at 30 Hz with both channels rate-limited one
- * tick of staleness is far smaller than the parameter uncertainty.
+ * The two coupling compensations are mutually recursive: the droop term reads the linear command
+ * and the steer-brake term reads the turn command. Each is driven by the previous tick's
+ * UNCOMPENSATED counterpart, which breaks the loop. Feeding the compensated values back instead
+ * has a loop gain above 1 and saturates both channels within a few ticks.
  */
 class MotionProfileNavigation : public NavigationInterface {
    public:
@@ -173,9 +174,13 @@ class MotionProfileNavigation : public NavigationInterface {
      * keeps working while the speed feedback is off. */
     double last_measured_speed_ = 0.0;
     double prev_w_ref_ = 0.0;
-    /** Previous tick's commands, used to resolve the mutually recursive coupling terms. */
-    double prev_linear_command_ = 0.0;
-    double prev_angular_command_ = 0.0;
+    /**
+     * Previous tick's commands BEFORE coupling compensation, which is what each channel's coupling
+     * term reads. Using the compensated values instead closes a positive feedback loop between the
+     * two compensations whose measured gain is above 1: both channels saturate within a few ticks.
+     */
+    double prev_linear_uncompensated_ = 0.0;
+    double prev_angular_uncompensated_ = 0.0;
     NavigationVisualization last_visualization_;
 };
 
