@@ -2,24 +2,25 @@
 # fit from playground/calibration/out/2026-08-19, playground/calibration/out/2026-08-20, playground/calibration/out/2026-08-22, playground/calibration/out/2026-08-23 with model M4
 # Consumed by the C++ filter and simulation/kinematic_sim_server.py. One source of
 # truth for the plant numbers: edit the fit, not this file.
+# Model M4. Terms it disables are written as zero: c_drift, c_drift_bias.
 
 [plant]
-dz_lin_fwd = 0.0109765
-dz_lin_rev = 0.0253404
-dz_ang_l = 0.0160605
-dz_ang_r = 0.0240717
-k_fwd = 4.88012
-k_rev = 4.35437
-k_ang = 31.3684
-tau_lin_a = 0.149434
-tau_lin_d = 0.124599
-tau_ang_a = 0.183631
-tau_ang_d = 0.0881791
-delay_s = 0.034571
-c_sb = 2.70204
-c_ad = 0.0
-c_drift = -0.840423
-c_drift_bias = -0.296231
+dz_lin_fwd = 0.0109768
+dz_lin_rev = 0.0253396
+dz_ang_l = 0.016061
+dz_ang_r = 0.0240734
+k_fwd = 4.88002
+k_rev = 4.3546
+k_ang = 31.7062
+tau_lin_a = 0.14921
+tau_lin_d = 0.123461
+tau_ang_a = 0.173867
+tau_ang_d = 0.0878998
+delay_s = 0.0522094
+c_sb = 2.70197
+c_ad = 0.463423
+c_drift = 0.0
+c_drift_bias = 0.0
 
 [plant.provenance]
 dz_lin_fwd = "0.01098 +/- 0.0019 (n=22)  [crossing between 0.010 and 0.012]"
@@ -27,16 +28,16 @@ dz_lin_rev = "0.02534 +/- 0.002 (n=22)  [crossing between 0.023 and 0.025]"
 dz_ang_l = "0.01606 +/- 0.002 (n=22)  [crossing between 0.016 and 0.018]"
 dz_ang_r = "0.02407 +/- 0.002 (n=22)  [crossing between 0.023 and 0.025]"
 k_fwd = "4.88 +/- 0.313 (n=12)"
-k_rev = "4.354 +/- 0.744 (n=12)"
-k_ang = "31.37 +/- 0.353 (n=16)"
-k_ang_left = "31.72 +/- 5.96 (n=8)"
-k_ang_right = "31.02 +/- 6.88 (n=8)"
-tau_lin_a = "0.1494 +/- 0.0892 (n=14)"
-tau_ang_a = "0.1836 +/- 1.4 (n=13)"
-tau_lin_d = "0.1246 +/- 0.0779 (n=44)"
-tau_ang_d = "0.08818 +/- 0.0246 (n=36)"
+k_rev = "4.355 +/- 0.744 (n=12)"
+k_ang = "31.71 +/- 0.425 (n=32)"
+k_ang_left = "32.13 +/- 11.6 (n=16)"
+k_ang_right = "31.28 +/- 10.6 (n=16)"
+tau_lin_a = "0.1492 +/- 0.0738 (n=13)  [1 outlier cut; 10/24 segments gave no value]"
+tau_ang_a = "0.1739 +/- 0.036 (n=15)  [3 outliers cut; 14/32 segments gave no value]"
+tau_lin_d = "0.1235 +/- 0.0625 (n=63)  [1 outlier cut]"
+tau_ang_d = "0.0879 +/- 0.0255 (n=43)  [1 outlier cut]"
 c_sb = "2.702 +/- 0.106 (n=96)"
-c_ad = "n/a (grid is not symmetric in angular sign, so angular droop and straight-line drift cannot be separated from it)"
-c_drift = "-0.8404 +/- 0.242 (n=83)"
-c_drift_bias = "-0.2962 +/- 0.0876 (n=83)"
-delay_s = "0.03457 +/- nan (n=1964)  [onset stack]"
+c_ad = "0.4634 +/- 0.143 (n=12)"
+c_drift = "-0.8538 +/- 0.226 (n=103)"
+c_drift_bias = "-0.3333 +/- 0.0852 (n=103)"
+delay_s = "0.05221 +/- nan (n=3486)  [onset stack]"
