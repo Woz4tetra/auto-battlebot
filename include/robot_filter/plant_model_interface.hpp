@@ -30,7 +30,7 @@ struct TimedCommand {
  * per-sign gain, transport delay, asymmetric first-order lag, arc integration with 2 ms
  * substeps), configured from the [robot_filter.motion_estimator.plant] table. The plant fit
  * has not passed its acceptance criteria, so only sim, playback, and test configs opt in via
- * our_robot_mode = "ekf"; production configs stay on dead reckoning on purpose.
+ * our_robot_mode = "EKF"; production configs stay on dead reckoning on purpose.
  */
 class PlantModelInterface {
    public:

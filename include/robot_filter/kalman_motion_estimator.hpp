@@ -26,8 +26,8 @@ namespace auto_battlebot {
  * Measurements older than the track state (perception latency) are handled by rewinding to a
  * stored snapshot, correcting at the measurement's own stamp, and re-propagating.
  *
- * The our-robot track has two modes. "dead_reckoning" applies the last commanded velocity
- * directly, matching DeadReckoningMotionEstimator for that track. "ekf" runs a 5-state EKF
+ * The our-robot track has two modes. DEAD_RECKONING applies the last commanded velocity
+ * directly, matching DeadReckoningMotionEstimator for that track. EKF runs a 5-state EKF
  * [x, y, theta, v, w] propagated through JigPlantModel with the issued-command history read
  * at t - delay, corrected by keypoint poses (position + heading) or blob centroids
  * (position only). A heading innovation past pi/2 falls back to the position rows: the
@@ -102,7 +102,7 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         bool output_stale = false;
     };
 
-    /** Our robot in "ekf" mode: 5-state [x, y, theta, v, w] propagated by the plant model. */
+    /** Our robot in EKF mode: 5-state [x, y, theta, v, w] propagated by the plant model. */
     struct OurEkfTrack {
         PlantState state;
         ekf::Mat<5, 5> covariance = ekf::Mat<5, 5>::Zero();
@@ -148,12 +148,12 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
     std::map<FrameId, OpponentTrack> opponent_tracks_;
-    /** Opponents in opponent_mode = "hold": last measured description, no prediction. */
+    /** Opponents in OpponentMode::HOLD: last measured description, no prediction. */
     std::map<FrameId, HeldTrack> held_opponent_tracks_;
     std::map<FrameId, HeldTrack> our_tracks_;
     std::map<FrameId, OurEkfTrack> our_ekf_tracks_;
 
-    /** Present only in "ekf" mode; the concrete type so coast() can propagate a copy without
+    /** Present only in EKF mode; the concrete type so coast() can propagate a copy without
      * paying for the finite-difference Jacobian. */
     std::unique_ptr<JigPlantModel> plant_model_;
 

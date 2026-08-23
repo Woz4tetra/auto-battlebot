@@ -25,8 +25,8 @@ namespace auto_battlebot {
 KalmanMotionEstimator::KalmanMotionEstimator(const KalmanMotionEstimatorConfiguration &config)
     : config_(config),
       diagnostics_logger_(DiagnosticsLogger::get_logger("kalman_motion_estimator")) {
-    // Config validation already required the plant table when the mode is "ekf".
-    if (config_.our_robot_mode == "ekf" && config_.plant.has_value()) {
+    // Config validation already required the plant table when the mode is EKF.
+    if (config_.our_robot_mode == OurRobotMode::EKF && config_.plant.has_value()) {
         plant_model_ = std::make_unique<JigPlantModel>(*config_.plant, config_.plant_noise);
     }
 }
@@ -319,7 +319,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
             continue;
         }
 
-        if (config_.opponent_mode == "hold") {
+        if (config_.opponent_mode == OpponentMode::HOLD) {
             HeldTrack &track = held_opponent_tracks_[input.frame_id];
             track.description = input;
             track.stamp = timestamp;

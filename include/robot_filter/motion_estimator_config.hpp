@@ -25,24 +25,29 @@ struct DeadReckoningMotionEstimatorConfiguration : public MotionEstimatorConfigu
     )
 };
 
-struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration {
-    /**
-     * How the our-robot track is propagated. "dead_reckoning" applies the last commanded
-     * velocity directly, matching DeadReckoningMotionEstimator for that track. "ekf" runs the
-     * 5-state EKF with JigPlantModel built from the plant table, and is rejected when that
-     * table is absent. The plant fit has not passed acceptance (heading misses by 4x at the
-     * 400 ms coast horizon), so production configs stay on dead_reckoning; sim and playback
-     * experiments opt in through the extends chain.
-     */
-    std::string our_robot_mode = "dead_reckoning";
+/**
+ * How the our-robot track is propagated. DEAD_RECKONING applies the last commanded velocity
+ * directly, matching DeadReckoningMotionEstimator for that track. EKF runs the 5-state EKF
+ * with JigPlantModel built from the plant table, and is rejected when that table is absent.
+ */
+enum class OurRobotMode { DEAD_RECKONING, EKF };
 
-    /**
-     * How opponent tracks are propagated. "kalman" runs the constant-velocity filter with
-     * innovation gating and coasts through dropout gaps. "hold" pins each opponent at its
-     * last measured pose with no prediction of any kind, matching
-     * DeadReckoningMotionEstimator's opponent behavior.
-     */
-    std::string opponent_mode = "hold";
+/**
+ * How opponent tracks are propagated. KALMAN runs the constant-velocity filter with
+ * innovation gating and coasts through dropout gaps. HOLD pins each opponent at its last
+ * measured pose with no prediction of any kind, matching DeadReckoningMotionEstimator's
+ * opponent behavior.
+ */
+enum class OpponentMode { KALMAN, HOLD };
+
+struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration {
+    /** The plant fit has not passed acceptance (heading misses by 4x at the 400 ms coast
+     * horizon), so production configs stay on DEAD_RECKONING; sim and playback experiments
+     * opt in through the extends chain. */
+    OurRobotMode our_robot_mode = OurRobotMode::DEAD_RECKONING;
+
+    /** Opponent prediction is disabled for now; flip to KALMAN to re-enable. */
+    OpponentMode opponent_mode = OpponentMode::HOLD;
 
     /**
      * Continuous white-noise acceleration PSD (m^2/s^3) for the opponent constant-velocity
@@ -88,7 +93,7 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     /**
      * Jig-fitted plant parameters, from the [robot_filter.motion_estimator.plant] table.
      * Absent unless the config carries the table. Presence does not enable our_robot_mode =
-     * "ekf": that stays rejected until the plant fit passes acceptance. Sim, playback, and
+     * EKF: that stays rejected until the plant fit passes acceptance. Sim, playback, and
      * tests construct JigPlantModel from here, which is what keeps the parameters in the
      * config extends chain instead of a separate runtime file.
      */
@@ -101,16 +106,8 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     KalmanMotionEstimatorConfiguration() { type = "KalmanMotionEstimator"; }
 
     void parse_fields(ConfigParser &parser) override {
-        our_robot_mode = parser.get_optional_string("our_robot_mode", our_robot_mode);
-        if (our_robot_mode != "dead_reckoning" && our_robot_mode != "ekf") {
-            throw ConfigValidationError("Invalid our_robot_mode '" + our_robot_mode +
-                                        "': expected 'dead_reckoning' or 'ekf'");
-        }
-        opponent_mode = parser.get_optional_string("opponent_mode", opponent_mode);
-        if (opponent_mode != "kalman" && opponent_mode != "hold") {
-            throw ConfigValidationError("Invalid opponent_mode '" + opponent_mode +
-                                        "': expected 'kalman' or 'hold'");
-        }
+        PARSE_ENUM(our_robot_mode, OurRobotMode)
+        PARSE_ENUM(opponent_mode, OpponentMode)
         PARSE_FIELD_DOUBLE(opponent_accel_psd)
         PARSE_FIELD_DOUBLE(keypoint_position_sigma_m)
         PARSE_FIELD_DOUBLE(blob_position_sigma_m)
@@ -124,9 +121,9 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         PARSE_FIELD_DOUBLE(max_coast_s)
         PARSE_FIELD_DOUBLE(min_heading_speed)
         parse_plant(parser);
-        if (our_robot_mode == "ekf" && !plant.has_value()) {
+        if (our_robot_mode == OurRobotMode::EKF && !plant.has_value()) {
             throw ConfigValidationError(
-                "our_robot_mode = 'ekf' requires the [robot_filter.motion_estimator.plant] "
+                "our_robot_mode = 'EKF' requires the [robot_filter.motion_estimator.plant] "
                 "table: the EKF our-robot arm propagates through JigPlantModel and has no "
                 "defaults for the fitted plant parameters. See "
                 "docs/experiments/kalman_filter/plant_model_poc_plan.md");

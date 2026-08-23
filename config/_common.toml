@@ -89,7 +89,7 @@ keypoint_height_meters = 0.03
 # config/experiments/plant_model_playback.toml for the fitted values and provenance.
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
-our_robot_mode = "ekf"
+our_robot_mode = "EKF"
 
 # Stage A per-phase fit, playground/calibration/out/plant_stageA.toml, sessions 2026-08-19
 # through 2026-08-23, model M4 (drift terms disabled by the ladder, written as zero). The fit

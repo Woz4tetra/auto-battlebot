@@ -61,8 +61,16 @@ double run_constant_velocity(KalmanMotionEstimator &estimator, FrameIdAssigner &
     return t;
 }
 
+/** Opponent-KF tests pin KALMAN explicitly: the config default is HOLD (opponent
+ * prediction disabled), which would pin every opponent at its last measured pose. */
+KalmanMotionEstimatorConfiguration kalman_opponents_config() {
+    KalmanMotionEstimatorConfiguration config;
+    config.opponent_mode = OpponentMode::KALMAN;
+    return config;
+}
+
 TEST(KalmanMotionEstimatorTest, ConvergesToConstantVelocityAndPredictsAhead) {
-    KalmanMotionEstimator estimator{KalmanMotionEstimatorConfiguration{}};
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
     const MotionEstimatorContext context;
@@ -93,7 +101,7 @@ TEST(KalmanMotionEstimatorTest, ConvergesToConstantVelocityAndPredictsAhead) {
 }
 
 TEST(KalmanMotionEstimatorTest, CoastHoldsPositionPastMaxCoast) {
-    KalmanMotionEstimatorConfiguration config;
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
     config.max_coast_s = 0.4;
     KalmanMotionEstimator estimator{config};
     FrameIdAssigner assigner(10.0, 5);
@@ -132,7 +140,7 @@ TEST(KalmanMotionEstimatorTest, CoastHoldsPositionPastMaxCoast) {
 }
 
 TEST(KalmanMotionEstimatorTest, GateRejectsJumpThenReinitializes) {
-    KalmanMotionEstimatorConfiguration config;
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
     config.reinit_after_rejects = 3;
     KalmanMotionEstimator estimator{config};
     FrameIdAssigner assigner(10.0, 5);
@@ -165,7 +173,7 @@ TEST(KalmanMotionEstimatorTest, GateRejectsJumpThenReinitializes) {
 }
 
 TEST(KalmanMotionEstimatorTest, LateMeasurementRetrodictsInsteadOfCorruptingTrack) {
-    KalmanMotionEstimator estimator{KalmanMotionEstimatorConfiguration{}};
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
     const MotionEstimatorContext context;
@@ -277,7 +285,7 @@ JigPlantParams stage_a_params() {
 
 KalmanMotionEstimatorConfiguration ekf_config() {
     KalmanMotionEstimatorConfiguration config;
-    config.our_robot_mode = "ekf";
+    config.our_robot_mode = OurRobotMode::EKF;
     config.plant = stage_a_params();
     return config;
 }
@@ -402,7 +410,7 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
 
 TEST(KalmanMotionEstimatorTest, HoldModePinsOpponentAtLastMeasurement) {
     KalmanMotionEstimatorConfiguration config;
-    config.opponent_mode = "hold";
+    config.opponent_mode = OpponentMode::HOLD;
     KalmanMotionEstimator estimator{config};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();

@@ -1299,7 +1299,7 @@ gate_nis = 9.21
     auto *kalman_config =
         dynamic_cast<KalmanMotionEstimatorConfiguration *>(filter_config->motion_estimator.get());
     ASSERT_NE(kalman_config, nullptr);
-    EXPECT_EQ(kalman_config->our_robot_mode, "dead_reckoning");
+    EXPECT_EQ(kalman_config->our_robot_mode, OurRobotMode::DEAD_RECKONING);
     EXPECT_DOUBLE_EQ(kalman_config->opponent_accel_psd, 12.5);
     EXPECT_DOUBLE_EQ(kalman_config->max_coast_s, 0.3);
     EXPECT_DOUBLE_EQ(kalman_config->gate_nis, 9.21);
@@ -1311,7 +1311,7 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeRejectedUntilPlantModelExist
     write_config_file(config_with_motion_estimator(R"(
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
-our_robot_mode = "ekf"
+our_robot_mode = "EKF"
 )"));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
@@ -1372,7 +1372,7 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeAcceptedWithPlantTable) {
     write_config_file(config_with_motion_estimator(std::string(R"(
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
-our_robot_mode = "ekf"
+our_robot_mode = "EKF"
 )") + kPlantTableToml));
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -1382,7 +1382,7 @@ our_robot_mode = "ekf"
     auto *kalman_config =
         dynamic_cast<KalmanMotionEstimatorConfiguration *>(filter_config->motion_estimator.get());
     ASSERT_NE(kalman_config, nullptr);
-    EXPECT_EQ(kalman_config->our_robot_mode, "ekf");
+    EXPECT_EQ(kalman_config->our_robot_mode, OurRobotMode::EKF);
     ASSERT_TRUE(kalman_config->plant.has_value());
 }
 
