@@ -165,17 +165,38 @@ PlantState JigPlantModel::propagate(const PlantState &state, std::span<const Tim
 
 Eigen::Matrix<double, 5, 5> JigPlantModel::process_noise(
     const PlantState &state, [[maybe_unused]] std::span<const TimedCommand> commands, double dt) {
-    // Body-frame diagonal PSDs mapped over dt, position block rotated into the field frame.
-    // Input-independent for now; fit_process_noise.py is the path to a conditioned version.
+    // Growth-law mechanisms from fit_process_noise.py, mapped per predict step. The
+    // white-noise acceleration PSDs use the standard discrete block (position picks up the
+    // h^3/3 growth through the Jacobian as the EKF accumulates F P F^T + Q). The
+    // scale-factor and delay-jitter mechanisms grow h^2 and h^0, which additive per-step Q
+    // cannot reproduce, so they are injected at a rate matched at the 400 ms design horizon:
+    // exact at a full coast, conservative below it. q = 3c assumes undamped velocity-error
+    // integration; the plant's lag damps it, so the h^3 terms come out somewhat narrow over
+    // long coasts. Cross-track has no velocity state, so its whole budget is
+    // horizon-matched, and heading noise also reaches cross-track through the Jacobian: a
+    // known double count in the wide direction.
+    constexpr double kDesignHorizonS = 0.4;  // the max-coast timeout
+    const double sf_v = noise_.scale_factor * state.v;
+    const double sf_w = noise_.heading_scale_factor * state.w;
+    const double jitter = noise_.delay_jitter_s * state.v;
+    const double p_along = noise_.q_along * dt * dt / 3.0 + sf_v * sf_v * kDesignHorizonS +
+                           (kDesignHorizonS > 0.0 ? jitter * jitter / kDesignHorizonS : 0.0);
+    const double p_cross = noise_.q_cross * kDesignHorizonS * kDesignHorizonS / 3.0;
+    const double p_theta = noise_.heading_random_walk + sf_w * sf_w * kDesignHorizonS +
+                           noise_.q_heading * dt * dt / 3.0;
+
     Eigen::Matrix<double, 5, 5> noise = Eigen::Matrix<double, 5, 5>::Zero();
     const double c = std::cos(state.theta);
     const double s = std::sin(state.theta);
-    noise(0, 0) = (c * c * noise_.q_along + s * s * noise_.q_cross) * dt;
-    noise(1, 1) = (s * s * noise_.q_along + c * c * noise_.q_cross) * dt;
-    noise(0, 1) = noise(1, 0) = c * s * (noise_.q_along - noise_.q_cross) * dt;
-    noise(2, 2) = noise_.q_theta * dt;
-    noise(3, 3) = noise_.q_v * dt;
-    noise(4, 4) = noise_.q_w * dt;
+    noise(0, 0) = (c * c * p_along + s * s * p_cross) * dt;
+    noise(1, 1) = (s * s * p_along + c * c * p_cross) * dt;
+    noise(0, 1) = noise(1, 0) = c * s * (p_along - p_cross) * dt;
+    noise(0, 3) = noise(3, 0) = c * noise_.q_along * dt * dt / 2.0;
+    noise(1, 3) = noise(3, 1) = s * noise_.q_along * dt * dt / 2.0;
+    noise(2, 2) = p_theta * dt;
+    noise(2, 4) = noise(4, 2) = noise_.q_heading * dt * dt / 2.0;
+    noise(3, 3) = noise_.q_along * dt;
+    noise(4, 4) = noise_.q_heading * dt;
     return noise;
 }
 

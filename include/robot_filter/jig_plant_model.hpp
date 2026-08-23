@@ -34,19 +34,24 @@ struct JigPlantParams {
 };
 
 /**
- * Continuous-time process noise PSDs, body frame, applied as diag * dt with the position
- * block rotated into the field frame by the current heading. Defaults are seeded from the
- * stage A holdout residuals at the 400 ms coast horizon (along 137 mm, cross 88 mm, heading
- * 35.9 deg), so the covariance is honest for dropout bridging and conservative at frame
- * rate. Replace with fit_process_noise.py output once that has been run. The velocity terms
- * are hand-picked placeholders: the holdout tables report pose residuals only.
+ * Continuous-time process noise from fit_process_noise.py, mirroring its growth-law
+ * mechanisms: white-noise acceleration (variance growing h^3), scale-factor error on the
+ * velocity states (h^2, state-dependent), heading angle random walk (h), and delay jitter
+ * (constant). Defaults are the fit from sessions 2026-08-19 through 2026-08-23 against
+ * plant_stageA.toml; the config table overrides them field by field.
+ *
+ * The scale-factor and jitter terms grow faster or slower than the linear-in-h accumulation
+ * an additive Q can produce, so process_noise() injects them at a rate matched at the 400 ms
+ * design horizon (the max-coast timeout): exact there, conservative below it.
  */
 struct JigPlantNoiseParams {
-    double q_along = 4.7e-2;  // m^2/s
-    double q_cross = 1.9e-2;  // m^2/s
-    double q_theta = 0.98;    // rad^2/s
-    double q_v = 0.25;        // (m/s)^2/s
-    double q_w = 4.0;         // (rad/s)^2/s
+    double q_along = 0.37125;                // (m/s^2)^2/Hz, white-noise accel on v
+    double q_cross = 0.351167;               // (m/s^2)^2/Hz, cross-track, no state to feed
+    double q_heading = 0.0;                  // (rad/s^2)^2/Hz, white-noise accel on w
+    double scale_factor = 0.541056;          // fractional speed error, sigma = |v| h eps
+    double heading_scale_factor = 1.7783;    // fractional yaw-rate error, sigma = |w| h eps
+    double heading_random_walk = 0.0703417;  // rad^2/s
+    double delay_jitter_s = 0.0;             // s, along-track sigma = |v| * jitter, flat in h
 };
 
 /** Deadzone removal and rescale, per sign: u_eff = sign(u) * max(|u| - dz, 0) / (1 - dz).

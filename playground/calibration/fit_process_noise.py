@@ -153,9 +153,11 @@ class ProcessNoise:
     q_cross: float
     q_heading: float  # (rad/s^2)^2 / Hz
     scale_factor: float  # fractional speed error, dimensionless
+    heading_scale_factor: float  # fractional yaw-rate error, dimensionless
     heading_rw: float  # rad^2/s, angle random walk feeding cross-track
     delay_jitter_s: float  # s, from the constant term at the median speed
     median_speed: float
+    median_yaw_rate: float
 
     def to_toml(self, table: str = "process_noise") -> str:
         lines = [
@@ -166,32 +168,38 @@ class ProcessNoise:
             f"q_cross = {toml_float(self.q_cross)}",
             f"q_heading = {toml_float(self.q_heading)}  # (rad/s^2)^2/Hz",
             f"scale_factor = {toml_float(self.scale_factor)}  # sigma = |v| h eps",
+            f"heading_scale_factor = {toml_float(self.heading_scale_factor)}  # sigma = |w| h eps",
             f"heading_random_walk = {toml_float(self.heading_rw)}  # rad^2/s",
             f"delay_jitter_s = {toml_float(self.delay_jitter_s)}",
         ]
         return "\n".join(lines) + "\n"
 
 
-def build_q(fits: dict[str, GrowthFit], median_speed: float) -> ProcessNoise:
+def build_q(fits: dict[str, GrowthFit], median_speed: float, median_yaw_rate: float) -> ProcessNoise:
     """Map the fitted coefficients onto the EKF's continuous-time noise terms.
 
     sigma_p^2 = q h^3 / 3 is the standard position variance under white-noise acceleration, so
-    q = 3c. The scale-factor term is state dependent (it grows with speed), so it is stored as a
-    fraction and applied at runtime as |v| h eps rather than folded into q here.
+    q = 3c. The scale-factor terms are state dependent (they grow with speed and yaw rate), so
+    they are stored as fractions and applied at runtime as |v| h eps and |w| h eps rather than
+    folded into q here. The heading b term is the dominant heading mechanism at 400 ms; dropping
+    it would understate heading sigma about 4x, a confidently wrong covariance.
     """
     along = fits["along"]
     cross = fits["cross"]
     heading = fits["heading"]
     eps = float(np.sqrt(along.b)) / max(median_speed, 1e-6)
+    eps_heading = float(np.sqrt(heading.b)) / max(median_yaw_rate, 1e-6)
     jitter = float(np.sqrt(along.const)) / max(median_speed, 1e-6)
     return ProcessNoise(
         q_along=3.0 * along.c,
         q_cross=3.0 * cross.c,
         q_heading=3.0 * heading.c,
         scale_factor=eps,
+        heading_scale_factor=eps_heading,
         heading_rw=heading.a,
         delay_jitter_s=jitter,
         median_speed=median_speed,
+        median_yaw_rate=median_yaw_rate,
     )
 
 
@@ -398,12 +406,19 @@ def main() -> None:
         )
 
     median_speed = float(np.median(err.speed[err.speed > 0.1])) if np.any(err.speed > 0.1) else 1.0
-    noise = build_q(fits, median_speed)
+    median_yaw_rate = (
+        float(np.median(err.yaw_rate[err.yaw_rate > 0.1])) if np.any(err.yaw_rate > 0.1) else 1.0
+    )
+    noise = build_q(fits, median_speed, median_yaw_rate)
     print("\n=== Process noise ===")
     print(f"  q_along        {noise.q_along:.4g} (m/s^2)^2/Hz")
     print(f"  q_cross        {noise.q_cross:.4g} (m/s^2)^2/Hz")
     print(f"  q_heading      {noise.q_heading:.4g} (rad/s^2)^2/Hz")
     print(f"  scale factor   {noise.scale_factor:.4g} ({noise.scale_factor * 100:.2f}% of speed)")
+    print(
+        f"  heading scale  {noise.heading_scale_factor:.4g}"
+        f" ({noise.heading_scale_factor * 100:.2f}% of yaw rate)"
+    )
     print(f"  heading RW     {noise.heading_rw:.4g} rad^2/s")
     print(f"  delay jitter   {noise.delay_jitter_s * 1e3:.2f} ms at {median_speed:.2f} m/s")
 

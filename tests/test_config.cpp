@@ -1347,7 +1347,7 @@ type = "KalmanMotionEstimator"
 )") + kPlantTableToml +
                                                    R"(
 [robot_filter.motion_estimator.plant.process_noise]
-q_theta = 0.5
+heading_random_walk = 0.5
 )"));
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -1363,8 +1363,8 @@ q_theta = 0.5
     EXPECT_DOUBLE_EQ(kalman_config->plant->delay_s, 0.0522094);
     EXPECT_DOUBLE_EQ(kalman_config->plant->c_sb, 2.70197);
     EXPECT_DOUBLE_EQ(kalman_config->plant->c_drift, 0.0);
-    // Overridden noise field takes, the rest keep their stage A holdout seeds.
-    EXPECT_DOUBLE_EQ(kalman_config->plant_noise.q_theta, 0.5);
+    // Overridden noise field takes, the rest keep the baked-in fit values.
+    EXPECT_DOUBLE_EQ(kalman_config->plant_noise.heading_random_walk, 0.5);
     EXPECT_DOUBLE_EQ(kalman_config->plant_noise.q_along, JigPlantNoiseParams{}.q_along);
 }
 

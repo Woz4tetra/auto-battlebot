@@ -234,19 +234,79 @@ TEST(JigPlantModelTest, ProcessNoiseRotatesPositionBlockWithHeading) {
     JigPlantNoiseParams noise;
     JigPlantModel model(golden_params(), noise);
     const double dt = 0.1;
+    constexpr double kDesignHorizonS = 0.4;
     PlantState state;
+    state.v = 1.5;
+    state.w = 2.0;
+    const double sf_v = noise.scale_factor * state.v;
+    const double sf_w = noise.heading_scale_factor * state.w;
+    const double jitter = noise.delay_jitter_s * state.v;
+    const double p_along = noise.q_along * dt * dt / 3.0 + sf_v * sf_v * kDesignHorizonS +
+                           jitter * jitter / kDesignHorizonS;
+    const double p_cross = noise.q_cross * kDesignHorizonS * kDesignHorizonS / 3.0;
+    const double p_theta =
+        noise.heading_random_walk + sf_w * sf_w * kDesignHorizonS + noise.q_heading * dt * dt / 3.0;
+
     Eigen::Matrix<double, 5, 5> q_forward = model.process_noise(state, {}, dt);
-    EXPECT_DOUBLE_EQ(q_forward(0, 0), noise.q_along * dt);
-    EXPECT_DOUBLE_EQ(q_forward(1, 1), noise.q_cross * dt);
-    EXPECT_DOUBLE_EQ(q_forward(2, 2), noise.q_theta * dt);
-    EXPECT_DOUBLE_EQ(q_forward(3, 3), noise.q_v * dt);
-    EXPECT_DOUBLE_EQ(q_forward(4, 4), noise.q_w * dt);
+    EXPECT_DOUBLE_EQ(q_forward(0, 0), p_along * dt);
+    EXPECT_DOUBLE_EQ(q_forward(1, 1), p_cross * dt);
+    EXPECT_DOUBLE_EQ(q_forward(2, 2), p_theta * dt);
+    EXPECT_DOUBLE_EQ(q_forward(3, 3), noise.q_along * dt);
+    EXPECT_DOUBLE_EQ(q_forward(4, 4), noise.q_heading * dt);
+    EXPECT_DOUBLE_EQ(q_forward(0, 3), noise.q_along * dt * dt / 2.0);
+    EXPECT_DOUBLE_EQ(q_forward(1, 3), 0.0);
 
     state.theta = M_PI / 2.0;
     Eigen::Matrix<double, 5, 5> q_sideways = model.process_noise(state, {}, dt);
-    EXPECT_NEAR(q_sideways(0, 0), noise.q_cross * dt, 1e-12);
-    EXPECT_NEAR(q_sideways(1, 1), noise.q_along * dt, 1e-12);
+    EXPECT_NEAR(q_sideways(0, 0), p_cross * dt, 1e-12);
+    EXPECT_NEAR(q_sideways(1, 1), p_along * dt, 1e-12);
+    EXPECT_NEAR(q_sideways(1, 3), noise.q_along * dt * dt / 2.0, 1e-12);
+    EXPECT_NEAR(q_sideways(0, 3), 0.0, 1e-12);
     EXPECT_TRUE(q_sideways.isApprox(q_sideways.transpose(), 1e-12));
+}
+
+TEST(JigPlantModelTest, ProcessNoiseMatchesGrowthLawAtDesignHorizon) {
+    const JigPlantParams params = golden_params();
+    JigPlantModel model(params, JigPlantNoiseParams{});
+
+    // Hold the fit's median operating point (0.47 m/s, 0.83 rad/s): commands whose steady
+    // state lands there, with the state started at that steady state so the window matches
+    // the conditions the growth law was fit under.
+    const double u_lin = 0.10983;
+    const double u_ang = 0.04294;
+    PlantState state;
+    plant_steady_state(u_lin, u_ang, params, state.v, state.w);
+    ASSERT_NEAR(state.v, 0.47, 0.02);
+    ASSERT_NEAR(state.w, 0.83, 0.03);
+    const std::vector<TimedCommand> commands{{-1.0, {u_lin, 0.0, u_ang}}};
+
+    // EKF-style accumulation P = F P F^T + Q per frame over the 400 ms design horizon.
+    Eigen::Matrix<double, 5, 5> covariance = Eigen::Matrix<double, 5, 5>::Zero();
+    Eigen::Matrix<double, 5, 5> jacobian;
+    const double dt = 0.025;
+    const int steps = 16;
+    for (int step = 0; step < steps; ++step) {
+        const double t0 = static_cast<double>(step) * dt;
+        state = model.propagate(state, commands, t0, t0 + dt, jacobian);
+        covariance =
+            jacobian * covariance * jacobian.transpose() + model.process_noise(state, commands, dt);
+    }
+
+    // Targets are the fitted growth law at 400 ms (fit_process_noise.py modelled row):
+    // along 135 mm, cross 86.6 mm, heading 35.1 deg, decomposed at the start heading
+    // (theta0 = 0, so field x is along-track). The band is wide on purpose: the plant's lag
+    // damps the q h^3/3 terms below their undamped mapping, and heading noise reaches
+    // cross-track through the Jacobian on top of the fitted cross budget. The test pins the
+    // wiring (units, rotation, mechanism terms), not the second-order shape.
+    const double sigma_along = std::sqrt(covariance(0, 0));
+    const double sigma_cross = std::sqrt(covariance(1, 1));
+    const double sigma_heading = std::sqrt(covariance(2, 2));
+    EXPECT_GT(sigma_along, 0.6 * 0.135);
+    EXPECT_LT(sigma_along, 1.5 * 0.135);
+    EXPECT_GT(sigma_cross, 0.6 * 0.0866);
+    EXPECT_LT(sigma_cross, 1.5 * 0.0866);
+    EXPECT_GT(sigma_heading, 0.6 * 0.613);
+    EXPECT_LT(sigma_heading, 1.5 * 0.613);
 }
 
 }  // namespace

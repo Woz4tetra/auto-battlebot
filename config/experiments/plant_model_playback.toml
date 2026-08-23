@@ -30,3 +30,16 @@ c_sb = 2.70197
 c_ad = 0.463423
 c_drift = 0.0
 c_drift_bias = 0.0
+
+# fit_process_noise.py output, playground/calibration/out/process_noise.toml, same sessions
+# and plant as above. Growth-law mechanisms: white-noise accel (h^3), scale-factor error on
+# v and w (h^2, applied state-dependent at runtime), heading random walk (h), delay jitter
+# (constant, fit found none). Refit and re-copy, do not hand-edit.
+[robot_filter.motion_estimator.plant.process_noise]
+q_along = 0.37125
+q_cross = 0.351167
+q_heading = 0.0
+scale_factor = 0.541056
+heading_scale_factor = 1.7783
+heading_random_walk = 0.0703417
+delay_jitter_s = 0.0

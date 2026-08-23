@@ -81,7 +81,8 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
      */
     std::optional<JigPlantParams> plant;
     /** Process noise PSDs for the plant model, [robot_filter.motion_estimator.plant.process_noise].
-     * Fields are optional; defaults are the stage A holdout seeds in JigPlantNoiseParams. */
+     * Fields are optional; defaults are the fit_process_noise.py output baked into
+     * JigPlantNoiseParams. */
     JigPlantNoiseParams plant_noise;
 
     KalmanMotionEstimatorConfiguration() { type = "KalmanMotionEstimator"; }
@@ -152,14 +153,20 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     void parse_plant_noise(ConfigParser &plant_parser) {
         const toml::table *table_ptr = plant_parser.get_table("process_noise");
         if (!table_ptr) {
-            return;  // Optional; the defaults are the stage A holdout seeds.
+            return;  // Optional; the defaults are the baked-in fit values.
         }
         ConfigParser sub_parser(*table_ptr, "robot_filter.motion_estimator.plant.process_noise");
         plant_noise.q_along = sub_parser.get_optional_double("q_along", plant_noise.q_along);
         plant_noise.q_cross = sub_parser.get_optional_double("q_cross", plant_noise.q_cross);
-        plant_noise.q_theta = sub_parser.get_optional_double("q_theta", plant_noise.q_theta);
-        plant_noise.q_v = sub_parser.get_optional_double("q_v", plant_noise.q_v);
-        plant_noise.q_w = sub_parser.get_optional_double("q_w", plant_noise.q_w);
+        plant_noise.q_heading = sub_parser.get_optional_double("q_heading", plant_noise.q_heading);
+        plant_noise.scale_factor =
+            sub_parser.get_optional_double("scale_factor", plant_noise.scale_factor);
+        plant_noise.heading_scale_factor = sub_parser.get_optional_double(
+            "heading_scale_factor", plant_noise.heading_scale_factor);
+        plant_noise.heading_random_walk =
+            sub_parser.get_optional_double("heading_random_walk", plant_noise.heading_random_walk);
+        plant_noise.delay_jitter_s =
+            sub_parser.get_optional_double("delay_jitter_s", plant_noise.delay_jitter_s);
         sub_parser.validate_no_extra_fields();
     }
 };
