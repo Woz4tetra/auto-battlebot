@@ -24,13 +24,23 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       latency_(config.latency),
       deadzone_(config.deadzone),
       accel_limit_(config.accel_limit),
+      steer_brake_coeff_(config.steer_brake_coeff),
+      steer_brake_floor_(config.steer_brake_floor),
+      angular_deadzone_left_(config.angular_deadzone_left),
+      angular_deadzone_right_(config.angular_deadzone_right),
       terminal_velocity_(config.terminal_velocity),
       stop_distance_(config.stop_distance),
       speed_kp_(config.speed_kp),
       speed_ki_(config.speed_ki),
+      max_angular_speed_(config.max_angular_speed),
+      tau_angular_accel_(config.tau_angular_accel),
+      tau_angular_decel_(config.tau_angular_decel),
+      angular_droop_coeff_(config.angular_droop_coeff),
+      angular_droop_floor_(config.angular_droop_floor),
       angular_kp_(config.angular_kp),
       angular_kd_(config.angular_kd),
       angle_threshold_(config.angle_threshold),
+      max_yaw_rate_(config.max_yaw_rate),
       max_angular_command_(config.max_angular_command),
       enable_hysteresis_(config.enable_hysteresis),
       boundary_margin_(config.boundary_margin),
@@ -47,18 +57,22 @@ void MotionProfileNavigation::reset_state() {
     prev_angular_timestamp_ = 0.0;
     prev_v_ref_ = 0.0;
     speed_integral_ = 0.0;
-    prev_our_pose_.reset();
     prev_speed_timestamp_ = 0.0;
     last_known_our_pose_.reset();
+    last_measured_speed_ = 0.0;
+    prev_w_ref_ = 0.0;
+    prev_linear_command_ = 0.0;
+    prev_angular_command_ = 0.0;
 }
 
 bool MotionProfileNavigation::initialize() {
     reset_state();
     last_visualization_ = NavigationVisualization{};
     spdlog::info(
-        "MotionProfileNavigation initialized: v_max_fwd={} m/s, terminal_velocity={} m/s, "
-        "brake_horizon={} s",
-        max_linear_speed_fwd_, terminal_velocity_, tau_decel_ + latency_);
+        "MotionProfileNavigation initialized: v_max_fwd={} m/s, w_max={} rad/s, "
+        "terminal_velocity={} m/s, brake_horizon={} s, c_sb={}, c_ad={}",
+        max_linear_speed_fwd_, max_angular_speed_, terminal_velocity_, tau_decel_ + latency_,
+        steer_brake_coeff_, angular_droop_coeff_);
     return true;
 }
 
@@ -71,9 +85,11 @@ VelocityCommand MotionProfileNavigation::update(RobotDescriptionsStamped robots,
     auto our_robot_opt = find_our_robot(robots);
     Pose2D our_pose;
     PoseSource pose_source = PoseSource::Live;
+    std::optional<double> measured_speed;
     if (our_robot_opt.has_value()) {
         our_pose = pose_to_pose2d(our_robot_opt->pose);
         last_known_our_pose_ = our_pose;
+        measured_speed = measure_forward_speed(*our_robot_opt, our_pose);
     } else if (last_known_our_pose_.has_value()) {
         our_pose = *last_known_our_pose_;
         pose_source = PoseSource::Cached;
@@ -95,9 +111,10 @@ VelocityCommand MotionProfileNavigation::update(RobotDescriptionsStamped robots,
                        {"our_yaw_deg", our_pose.yaw * 180.0 / M_PI},
                        {"target_x", target.pose.x},
                        {"target_y", target.pose.y},
+                       {"speed_measured", measured_speed.has_value() ? 1 : 0},
                    });
 
-    auto cmd = compute_command(our_pose, target.pose, field);
+    auto cmd = compute_command(our_pose, target.pose, field, measured_speed);
 
     logger_->debug("command", {
                                   {"linear_x", cmd.linear_x},
@@ -119,7 +136,8 @@ std::optional<RobotDescription> MotionProfileNavigation::find_our_robot(
 
 VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                                                          const Pose2D &target_pose,
-                                                         const FieldDescription &field) {
+                                                         const FieldDescription &field,
+                                                         std::optional<double> measured_speed) {
     const double now_s = clock_->now();
     const Pose2D clamped_target = clamp_to_field(target_pose, field);
     const double dx = clamped_target.x - our_pose.x;
@@ -129,16 +147,21 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     const double raw_angle_error = normalize_angle(angle_to_target - our_pose.yaw);
     const double angle_error = apply_hysteresis(raw_angle_error);
 
-    // Logical dt between frames (guards against the accelerated free-run collapsing dt); compute
-    // from the previous stamp before the speed estimator's state is refreshed below.
+    // Logical dt between frames (guards against the accelerated free-run collapsing dt).
     double dt = 0.0;
     if (prev_speed_timestamp_ > 0.0) {
         const double d = now_s - prev_speed_timestamp_;
         if (d > 0.0 && d < 0.5) dt = d;
     }
-    const double v_actual = estimate_forward_speed(our_pose, now_s);
-    prev_our_pose_ = our_pose;
     prev_speed_timestamp_ = now_s;
+
+    // Without a measurement, carry the last measured speed forward rather than reporting zero. A
+    // zero here would tell the brake schedule there is no latency lead to subtract and tell the
+    // speed feedback the robot is stopped, so the controller would command MORE thrust in exactly
+    // the stretch where it is blind.
+    const bool speed_is_measured = measured_speed.has_value();
+    if (speed_is_measured) last_measured_speed_ = *measured_speed;
+    const double v_actual = last_measured_speed_;
 
     // Zero-velocity mission complete: cut the command and reset the tracker so the next mission
     // starts clean. Ram missions (terminal_velocity > 0) drive through the goal, never stopping.
@@ -146,7 +169,10 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
         committed_turn_sign_ = 0;
         prev_angle_error_ = 0.0;
         prev_v_ref_ = 0.0;
+        prev_w_ref_ = 0.0;
         speed_integral_ = 0.0;
+        prev_linear_command_ = 0.0;
+        prev_angular_command_ = 0.0;
         logger_->debug("stop", {{"distance", distance}}, "Reached goal; stopping");
         return VelocityCommand{0.0, 0.0, 0.0};
     }
@@ -155,12 +181,17 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     const double dvdt = (dt > 0.0) ? (v_ref - prev_v_ref_) / dt : 0.0;
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
-    cmd.angular_z = compute_angular_command(angle_error, now_s);
+    const double w_ref = compute_yaw_reference(angle_error, now_s);
+    cmd.angular_z = compute_angular_command(w_ref, dt);
+    if (max_angular_command_ > 0.0) {
+        cmd.angular_z = std::clamp(cmd.angular_z, -max_angular_command_, max_angular_command_);
+    }
+    prev_w_ref_ = w_ref;
 
     // Only drive forward once roughly facing the target; otherwise turn in place and bleed the
     // linear state so the robot does not lunge the instant the heading gate opens.
     if (std::abs(angle_error) < angle_threshold_) {
-        cmd.linear_x = compute_linear_command(v_ref, dvdt, v_actual, dt);
+        cmd.linear_x = compute_linear_command(v_ref, dvdt, v_actual, dt, speed_is_measured);
         prev_v_ref_ = v_ref;
     } else {
         prev_v_ref_ = 0.0;
@@ -172,30 +203,49 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     if (max_linear_command_ > 0.0) {
         cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_command_, max_linear_command_);
     }
-    if (max_angular_command_ > 0.0) {
-        cmd.angular_z = std::clamp(cmd.angular_z, -max_angular_command_, max_angular_command_);
-    }
+
+    prev_linear_command_ = cmd.linear_x;
+    prev_angular_command_ = cmd.angular_z;
 
     logger_->debug("profile",
                    {
                        {"distance", distance},
                        {"v_ref", v_ref},
                        {"v_actual", v_actual},
+                       {"speed_is_measured", speed_is_measured ? 1 : 0},
+                       {"w_ref", w_ref},
                        {"angle_error_deg", angle_error * 180.0 / M_PI},
                        {"facing_target", std::abs(angle_error) < angle_threshold_ ? 1 : 0},
                    });
     return cmd;
 }
 
-double MotionProfileNavigation::estimate_forward_speed(const Pose2D &our_pose, double now_s) const {
-    if (!prev_our_pose_.has_value() || prev_speed_timestamp_ <= 0.0) return 0.0;
-    const double dt = now_s - prev_speed_timestamp_;
-    if (dt <= 0.0 || dt >= 0.5) return 0.0;
-    const double dx = our_pose.x - prev_our_pose_->x;
-    const double dy = our_pose.y - prev_our_pose_->y;
-    // Project the displacement onto the current heading to get a signed forward speed.
-    const double forward = dx * std::cos(our_pose.yaw) + dy * std::sin(our_pose.yaw);
-    return forward / dt;
+std::optional<double> MotionProfileNavigation::measure_forward_speed(const RobotDescription &robot,
+                                                                     const Pose2D &our_pose) const {
+    // A stale track is the filter propagating our own last command, so its velocity is a function
+    // of what this controller asked for. Feeding that back is not feedback.
+    if (robot.is_stale) return std::nullopt;
+    // Project the field-frame velocity onto our heading for a signed forward speed.
+    return robot.velocity.vx * std::cos(our_pose.yaw) + robot.velocity.vy * std::sin(our_pose.yaw);
+}
+
+double MotionProfileNavigation::effective_command(double command, double deadzone_pos,
+                                                  double deadzone_neg) {
+    const double deadzone = std::clamp(command >= 0.0 ? deadzone_pos : deadzone_neg, 0.0, 0.95);
+    const double magnitude = std::max(std::abs(command) - deadzone, 0.0) / (1.0 - deadzone);
+    return std::copysign(magnitude, command);
+}
+
+double MotionProfileNavigation::compensate_coupling(double command, double effect, double coeff,
+                                                    double floor) {
+    if (coeff <= 0.0) return command;
+    // The plant scales the channel by (1 - coeff*|effect|). Below the floor it delivers so little
+    // that dividing by the modelled multiplier is extrapolation, not compensation: for the
+    // steer-brake term the floor sits just under 1/c_sb, where the fitted linear loss reaches zero
+    // and the fit stops describing the plant. Saturating there keeps the command finite and stops
+    // the controller from believing it has authority it does not have.
+    const double authority = std::max(floor, 1.0 - coeff * std::abs(effect));
+    return command / authority;
 }
 
 double MotionProfileNavigation::compute_reference_speed(double distance, double v_actual,
@@ -223,9 +273,8 @@ double MotionProfileNavigation::compute_reference_speed(double distance, double 
 }
 
 double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt, double v_actual,
-                                                       double dt) {
-    const double v_max = (v_ref >= 0.0) ? max_linear_speed_fwd_ : max_linear_speed_rev_;
-    if (v_max <= 1e-6) return 0.0;
+                                                       double dt, bool speed_is_measured) {
+    if (max_linear_speed_fwd_ <= 1e-6) return 0.0;
 
     // Inverse-plant feedforward: steady-state fraction plus the lag term tau * dv/dt, using BOTH
     // signs of dv/dt and the regime-appropriate time constant. A rising reference (dv/dt > 0) adds
@@ -233,19 +282,39 @@ double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt
     // reverse, which is what a first-order plant needs to actually track a deceleration instead of
     // coasting past the goal.
     const double tau = (dvdt >= 0.0) ? tau_accel_ : tau_decel_;
-    const double u_ff = (v_ref + tau * dvdt) / v_max;
+    const double u_ff = (v_ref + tau * dvdt) / max_linear_speed_fwd_;
 
-    // Speed feedback closes the loop on plant-model error.
-    const double err = v_ref - v_actual;
-    if (speed_ki_ > 0.0) {
-        speed_integral_ += err * dt;
-        // Anti-windup: bound the integral so its command contribution stays within [-1, 1].
-        const double limit = 1.0 / speed_ki_;
-        speed_integral_ = std::clamp(speed_integral_, -limit, limit);
+    // Speed feedback closes the loop on plant-model error, but only while the speed is a
+    // measurement. On a stale track the integrator is frozen and the proportional term dropped;
+    // the feedforward is open-loop by construction and stays valid.
+    double u_fb = 0.0;
+    if (speed_is_measured) {
+        const double err = v_ref - v_actual;
+        if (speed_ki_ > 0.0) {
+            speed_integral_ += err * dt;
+            // Anti-windup: bound the integral so its command contribution stays within [-1, 1].
+            const double limit = 1.0 / speed_ki_;
+            speed_integral_ = std::clamp(speed_integral_, -limit, limit);
+        }
+        u_fb = speed_kp_ * err + speed_ki_ * speed_integral_;
     }
-    const double u_fb = speed_kp_ * err + speed_ki_ * speed_integral_;
 
     double u = u_ff + u_fb;
+
+    // The feedforward divided by the forward gain, but reverse is a weaker drive than forward, so
+    // a braking command normalized against k_fwd arrives smaller than intended. Rescale once the
+    // sign is known. This is the branch the old sign-of-v_ref test could never reach: v_ref is
+    // clamped non-negative, and it is the derivative term that drives the command negative.
+    if (u < 0.0 && max_linear_speed_rev_ > 1e-6) {
+        u *= max_linear_speed_fwd_ / max_linear_speed_rev_;
+    }
+
+    // Steer-brake: the plant multiplies forward authority by (1 - c_sb*|u_ang_eff|). Use the
+    // previous tick's turn command, since this tick's is being built from this one in the angular
+    // channel; at 30 Hz that lag is far below the coefficient's own uncertainty.
+    const double u_ang_eff =
+        effective_command(prev_angular_command_, angular_deadzone_left_, angular_deadzone_right_);
+    u = compensate_coupling(u, u_ang_eff, steer_brake_coeff_, steer_brake_floor_);
 
     // Exact inverse-deadzone: the plant applies (|c| - dz)/(1 - dz), so pre-distort the command so
     // the desired fraction survives. No-op when deadzone_ == 0 (the sim / real-robot default, since
@@ -283,7 +352,7 @@ double MotionProfileNavigation::apply_hysteresis(double angle_error) {
     return angle_error;
 }
 
-double MotionProfileNavigation::compute_angular_command(double angle_error, double now_s) {
+double MotionProfileNavigation::compute_yaw_reference(double angle_error, double now_s) {
     // Logical time (frame stamp), not wall-clock: the PD derivative dt must track the time between
     // frames the controller actually processed so it stays correct under sim / playback time
     // scaling.
@@ -297,7 +366,30 @@ double MotionProfileNavigation::compute_angular_command(double angle_error, doub
     prev_angle_error_ = angle_error;
     prev_angular_timestamp_ = now_s;
 
-    return angular_kp_ * angle_error + d_term;
+    double w_ref = angular_kp_ * angle_error + d_term;
+    if (max_yaw_rate_ > 0.0) w_ref = std::clamp(w_ref, -max_yaw_rate_, max_yaw_rate_);
+    return w_ref;
+}
+
+double MotionProfileNavigation::compute_angular_command(double w_ref, double dt) {
+    if (max_angular_speed_ <= 1e-6) return 0.0;
+
+    // Same inverse-plant shape as the linear channel. The yaw spin-up constant is about twice the
+    // coast constant, so the feedforward has to know which way the reference is moving: a turn
+    // that is winding up needs extra command, a turn that is stopping needs the command pulled
+    // back early or the heading sails past.
+    const double dwdt = (dt > 0.0) ? (w_ref - prev_w_ref_) / dt : 0.0;
+    const double tau = (std::abs(w_ref) > std::abs(prev_w_ref_)) ? tau_angular_accel_
+                                                                 : tau_angular_decel_;
+    double u = (w_ref + tau * dwdt) / max_angular_speed_;
+
+    // Angular droop: the plant multiplies yaw authority by (1 - c_ad*|u_lin_eff|), so the heading
+    // loop is weaker at speed than in place. Previous tick's linear command, for the same reason
+    // the steer-brake term uses the previous angular one.
+    const double u_lin_eff = effective_command(prev_linear_command_, deadzone_, deadzone_);
+    u = compensate_coupling(u, u_lin_eff, angular_droop_coeff_, angular_droop_floor_);
+
+    return std::clamp(u, -1.0, 1.0);
 }
 
 void MotionProfileNavigation::apply_wall_reverse(const Pose2D &our_pose,

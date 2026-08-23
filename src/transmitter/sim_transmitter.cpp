@@ -2,12 +2,15 @@
 
 #include <spdlog/spdlog.h>
 
+#include "transmitter/drive_mixing.hpp"
+
 namespace auto_battlebot {
 
 SimTransmitter::SimTransmitter(const SimTransmitterConfiguration &config,
                                std::shared_ptr<ClockInterface> clock)
     : init_delay_seconds_(config.init_delay_seconds),
       command_delay_ms_(config.command_delay_ms),
+      velocity_saturation_limit_(config.velocity_saturation_limit),
       clock_(std::move(clock)),
       connection_(SimConnection::instance()) {
     if (command_delay_ms_ > 0.0) {
@@ -37,6 +40,15 @@ void SimTransmitter::disable() { enabled_ = false; }
 
 void SimTransmitter::send(VelocityCommand command) {
     if (!connection_ || !enabled_) return;
+
+    // The real transmitter's drive processor saturates before mixing to wheels, giving angular
+    // priority and leaving linear whatever authority is left. There is no processor in the sim
+    // path, so apply the same clip here or the simulated robot drives through turns that the real
+    // one cannot.
+    const auto saturated =
+        saturate_velocity(command.linear_x, command.angular_z, velocity_saturation_limit_);
+    command.linear_x = saturated.linear;
+    command.angular_z = saturated.angular;
 
     if (command_delay_ms_ <= 0.0) {
         connection_->set_command(command);
