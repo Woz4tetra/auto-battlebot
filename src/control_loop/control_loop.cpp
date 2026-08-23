@@ -71,8 +71,13 @@ std::chrono::steady_clock::time_point ControlLoop::last_cycle_time() const {
 TargetSelection ControlLoop::resolve_target(const RobotDescriptionsStamped &robots,
                                             const FieldDescription &field_description,
                                             BehaviorMode mode) {
+    // Stamp the mode on the way out rather than letting the selectors set it. A selector that
+    // found nothing leaves the previous target in place, and a manual target from the UI never saw
+    // a mode at all; both still have to carry the switch position navigation is steering under
+    // right now.
     if (ui_state_) {
         if (auto manual_target = ui_state_->get_manual_target()) {
+            manual_target->mode = mode;
             return *manual_target;
         }
     }
@@ -81,6 +86,7 @@ TargetSelection ControlLoop::resolve_target(const RobotDescriptionsStamped &robo
             previous_selected_target_ = *selected;
         }
     }
+    previous_selected_target_.mode = mode;
     return previous_selected_target_;
 }
 

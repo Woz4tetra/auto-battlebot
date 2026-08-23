@@ -6,7 +6,7 @@
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
-#include "robot_filter/jig_plant_model.hpp"
+#include "plant/jig_plant_model.hpp"
 #include "robot_filter/motion_estimator_interface.hpp"
 
 namespace auto_battlebot {

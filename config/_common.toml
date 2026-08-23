@@ -163,18 +163,28 @@ zero_deadzone_percent = 2
 reverse_angular_channel = true
 velocity_saturation_limit = 1.0 # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
 
+# Motion-profiled tracker: a distance-to-go brake schedule and inverse-plant feedforward, both
+# derived from the jig fit. See docs/plant_backed_control.md. The plant terms (max_linear_speed_*,
+# tau_*, latency, steer_brake_*, angular deadzones, max_angular_speed, tau_angular_*) default to
+# the Mrs Buff Mk3 fit in include/navigation/config.hpp, written by
+# playground/calibration/write_plant_configs.py. Do not hand-copy them here; a refit would leave
+# this table stale. Only the mission and field settings live below.
+#
+# Mr Stabs Mk2 has no fit and stays on PursuitNavigation. Its profiles set `type` themselves,
+# which makes the merge replace this whole section rather than merge keys into it.
 [navigation]
-type = "PursuitNavigation"
-angular_kp = 0.2
-angular_kd = 0.01
-angle_threshold = 1.7
-velocity_ramp_far_distance = 1.5
-velocity_ramp_near_distance = 1.0
-velocity_ramp_min_scale = 0.35
-wall_reverse_distance = 0.25      # set > 0 to reverse when within this distance of any wall
-wall_heading_threshold = 1.047    # ~60 deg; heading must point toward wall to trigger reversal
-max_linear_command = 1.0          # 0 = no limit
-max_angular_command = 0.0         # 0 = no limit
+type = "MotionProfileNavigation"
+stop_distance = 0.15             # arrive stopped within this distance of the goal
+# Terminal speed at the goal, per driver switch position: hit it, or get away from it and
+# hold. A fraction of max_linear_speed_fwd, clamped to 0..1: 0 = arrive stopped, 1 = full
+# speed. Normalized rather than m/s so a refit rescales these instead of leaving a
+# hand-copied speed stale.
+attack_terminal_velocity = 1.0   # full forward speed into the opponent
+run_away_terminal_velocity = 0.0 # arrive stopped at the safe point
+wall_reverse_distance = 0.25     # set > 0 to reverse when within this distance of any wall
+wall_heading_threshold = 1.047   # ~60 deg; heading must point toward wall to trigger reversal
+max_linear_command = 1.0         # 0 = no limit
+max_angular_command = 1.0        # 0 = no limit
 
 [publisher]
 type = "RosPublisher"

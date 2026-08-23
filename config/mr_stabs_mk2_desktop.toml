@@ -7,11 +7,21 @@ extends = "_desktop"
 [robot_mask_model]
 their_robot_labels = ["OPPONENT", "MRS_BUFF_MK3"]
 
+# Mr Stabs Mk2 has no jig plant fit, so it stays on the pre-Stage-4 pursuit controller. `type`
+# differs from _common, so the merge replaces that section wholesale: every field this controller
+# needs has to be listed here, not inherited.
 [navigation]
 type = "PursuitNavigation"
 angular_kp = 0.06
 angular_kd = 0.005
-max_linear_command = 0.25  # 0 = no limit
+max_linear_command = 0.25         # 0 = no limit
+angle_threshold = 1.7
+velocity_ramp_far_distance = 1.5
+velocity_ramp_near_distance = 1.0
+velocity_ramp_min_scale = 0.35
+wall_reverse_distance = 0.25      # set > 0 to reverse when within this distance of any wall
+wall_heading_threshold = 1.047    # ~60 deg; heading must point toward wall to trigger reversal
+max_angular_command = 0.0         # 0 = no limit
 
 [transmitter]
 # The radio model mixes linear/angular into the motor outputs, so send body axes.

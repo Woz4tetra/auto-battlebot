@@ -3,8 +3,8 @@
 #include <cmath>
 #include <vector>
 
+#include "plant/jig_plant_model.hpp"
 #include "robot_filter/command_ring_buffer.hpp"
-#include "robot_filter/jig_plant_model.hpp"
 #include "robot_filter/plant_golden_data.hpp"
 
 namespace auto_battlebot {

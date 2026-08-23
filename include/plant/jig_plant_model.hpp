@@ -2,7 +2,7 @@
 
 #include <span>
 
-#include "robot_filter/plant_model_interface.hpp"
+#include "plant/plant_model_interface.hpp"
 
 namespace auto_battlebot {
 

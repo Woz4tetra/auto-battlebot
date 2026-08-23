@@ -41,6 +41,11 @@ velocity_ramp_near_distance = 0.5
 velocity_ramp_min_scale = 0.5
 max_linear_command = 1.0
 stop_distance = 0.0
+# Previously inherited from _common; `type` now differs there, so the merge no longer supplies
+# them and they have to be spelled out to keep this sim behaving as before.
+wall_reverse_distance = 0.25   # set > 0 to reverse when within this distance of any wall
+wall_heading_threshold = 1.047 # ~60 deg; heading must point toward wall to trigger reversal
+max_angular_command = 0.0      # 0 = no limit
 
 # Actuation latency is modeled in sim-ticks by the kinematic server, so keep this at 0
 # (the SimTransmitter delay is wall-clock based and would not survive accelerated runs).

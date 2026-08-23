@@ -4,6 +4,7 @@
 #include <optional>
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
+#include "enums/behavior_mode.hpp"
 #include "navigation/config.hpp"
 #include "time/clock_interface.hpp"
 
@@ -13,6 +14,10 @@ namespace auto_battlebot {
  *
  * Stage 3 control law (control_improvement_plan.md, option 2). For a first-order drivetrain it
  * drives to the goal and arrives at a commanded terminal velocity without overrunning:
+ *
+ * The terminal velocity is per behavior mode: ATTACK drives through the opponent at full speed,
+ * RUN_AWAY arrives stopped at the safe point. Both are configurable, and a mode flip resets the
+ * trajectory state because the mission changed.
  *
  *  1. Distance-to-go velocity profile. The residual travel after commanding v_term on a first-order
  *     plant is ~ v*(tau_decel + latency), so the reference speed is capped at
@@ -67,7 +72,14 @@ class MotionProfileNavigation : public NavigationInterface {
     /** @brief Compute the velocity command that tracks the goal. */
     VelocityCommand compute_command(const Pose2D &our_pose, const Pose2D &target_pose,
                                     const FieldDescription &field,
-                                    std::optional<double> measured_speed);
+                                    std::optional<double> measured_speed, BehaviorMode mode);
+
+    /**
+     * @brief Terminal speed (m/s) for the driver's current mode: the configured fraction,
+     * clamped to [0, 1], times max_linear_speed_fwd. Normalized in config so a refit rescales
+     * it instead of leaving a hand-copied speed stale.
+     */
+    double terminal_velocity_for(BehaviorMode mode) const;
 
     /**
      * @brief Our signed forward speed (m/s): the filter's field-frame velocity projected onto our
@@ -82,7 +94,8 @@ class MotionProfileNavigation : public NavigationInterface {
      * @brief Reference forward speed (m/s) from the distance-to-go coast-aware brake schedule,
      * rate-limited on ramp-up. Read-only (uses prev_v_ref_ as last tick's reference).
      */
-    double compute_reference_speed(double distance, double v_actual, double dt) const;
+    double compute_reference_speed(double distance, double v_actual, double dt,
+                                   double terminal_velocity) const;
 
     /**
      * @brief Map a reference speed (m/s) to a normalized linear command via inverse-plant
@@ -121,6 +134,15 @@ class MotionProfileNavigation : public NavigationInterface {
 
     void reset_state();
 
+    /**
+     * @brief Clear the trajectory and integrator state that only makes sense within one mission:
+     * turn commitment, reference speeds, the speed integral, and the coupling history. Runs when
+     * a zero-velocity goal is reached and when the behavior mode flips, both of which start a new
+     * mission. Leaves the pose and speed memory alone, since those describe the robot rather than
+     * the mission.
+     */
+    void reset_trajectory_state();
+
     // Plant parameters.
     double max_linear_speed_fwd_;
     double max_linear_speed_rev_;
@@ -135,7 +157,8 @@ class MotionProfileNavigation : public NavigationInterface {
     double angular_deadzone_right_;
 
     // Trajectory.
-    double terminal_velocity_;
+    double attack_terminal_velocity_;
+    double run_away_terminal_velocity_;
     double stop_distance_;
 
     // Speed feedback.
@@ -184,6 +207,8 @@ class MotionProfileNavigation : public NavigationInterface {
      */
     double prev_linear_uncompensated_ = 0.0;
     double prev_angular_uncompensated_ = 0.0;
+    /** Mode the last tick ran under, to notice the driver flipping the switch. */
+    BehaviorMode prev_mode_ = BehaviorMode::ATTACK;
     NavigationVisualization last_visualization_;
 };
 

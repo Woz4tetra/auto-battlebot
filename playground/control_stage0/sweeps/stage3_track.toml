@@ -29,7 +29,7 @@ name = "circle_slow_tracker"
 opponents = [{ behavior = "circle", radius = 0.6, speed = 0.8 }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
-"navigation.terminal_velocity" = 1.5
+"navigation.attack_terminal_velocity" = 0.307  # 1.5 m/s
 "navigation.stop_distance" = 0.15
 "navigation.max_angular_command" = 0.25
 
@@ -50,6 +50,6 @@ name = "circle_fast_tracker"
 opponents = [{ behavior = "circle", radius = 0.6, speed = 1.5 }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
-"navigation.terminal_velocity" = 1.5
+"navigation.attack_terminal_velocity" = 0.307  # 1.5 m/s
 "navigation.stop_distance" = 0.15
 "navigation.max_angular_command" = 0.25

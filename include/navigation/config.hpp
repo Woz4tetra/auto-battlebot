@@ -182,12 +182,22 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
 
     // --- Trajectory ---
 
-    /** Commanded terminal speed at the goal (m/s). 0 = precise zero-velocity stop; > 0 = ram,
-     * arrive at the goal at this contact speed and drive through. */
-    double terminal_velocity = 0.0;
+    // Commanded terminal speed at the goal, one per behavior mode: the driver's switch decides
+    // whether the mission is to hit something or to get away from it, and those want opposite
+    // arrivals. Both are a fraction of max_linear_speed_fwd, clamped to [0, 1]: 0 is a precise
+    // zero-velocity stop and 1 is full speed. Normalized rather than m/s so a refit rescales
+    // them instead of leaving a hand-copied speed stale.
+
+    /** Terminal speed while the driver has ATTACK selected, as a fraction of max_linear_speed_fwd.
+     */
+    double attack_terminal_velocity = 1.0;
+
+    /** Terminal speed while the driver has RUN_AWAY selected, as a fraction of
+     * max_linear_speed_fwd. */
+    double run_away_terminal_velocity = 0.0;
 
     /** Distance (m) at which a zero-velocity mission is complete and the command is cut. Only used
-     * when terminal_velocity == 0 (ram never stops). */
+     * when the active terminal velocity is 0 (a drive-through mission never stops). */
     double stop_distance = 0.15;
 
     // --- Speed feedback (closes the loop on plant-model error) ---
@@ -285,7 +295,8 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(steer_brake_floor)
         PARSE_FIELD_DOUBLE(angular_deadzone_left)
         PARSE_FIELD_DOUBLE(angular_deadzone_right)
-        PARSE_FIELD_DOUBLE(terminal_velocity)
+        PARSE_FIELD_DOUBLE(attack_terminal_velocity)
+        PARSE_FIELD_DOUBLE(run_away_terminal_velocity)
         PARSE_FIELD_DOUBLE(stop_distance)
         PARSE_FIELD_DOUBLE(speed_kp)
         PARSE_FIELD_DOUBLE(speed_ki)

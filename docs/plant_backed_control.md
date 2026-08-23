@@ -75,7 +75,14 @@ frame periods at 30 Hz: normal between-frame coasting stays fresh, a real dropou
 ## Navigation: the same plant inverted
 
 `MotionProfileNavigation` (`src/navigation/motion_profile_navigation.cpp`) drives to the
-goal and arrives at a commanded terminal velocity without overrunning.
+goal and arrives at a commanded terminal velocity without overrunning. The terminal
+velocity is per behavior mode, because the driver's switch decides what the mission is:
+`attack_terminal_velocity` ships at `1.0` so the robot drives through the opponent at full
+speed, and `run_away_terminal_velocity` ships at `0.0` so it arrives stopped at the safe
+point. Both are a fraction of `max_linear_speed_fwd`, clamped to `[0, 1]`, so a refit
+rescales them. A mode flip resets the trajectory
+state, since the goal and the terminal speed both change at once and carrying the old
+reference across would feed the feedforward a `dv/dt` step the plant never asked for.
 
 1. **Distance-to-go brake schedule.** On a first-order plant the residual travel after
    commanding `v_term` is about `v*(tau_decel + latency)`, so the reference speed is
@@ -138,9 +145,10 @@ for exactly that. The heading loop is closed-loop already and gets there without
 
 - `[robot_filter.motion_estimator] type = "KalmanMotionEstimator"`, `our_robot_mode = "EKF"`
   in `config/_common.toml`.
-- `[navigation] type` still defaults to `PursuitNavigation` in `config/_common.toml`.
-  `MotionProfileNavigation` is selected by the sim and sweep configs under
-  `playground/control_stage0/sweeps/`.
+- `[navigation] type = "MotionProfileNavigation"` in `config/_common.toml`, so every
+  profile gets it by default. Mr Stabs Mk2 has no jig fit and pins `PursuitNavigation` in
+  its own profiles; setting `type` there makes the merge replace the whole section, so
+  those profiles spell out every pursuit field rather than inheriting any.
 
 ## Next steps
 

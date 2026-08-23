@@ -32,7 +32,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 "navigation.max_angular_command" = 0.25
 
 # --- stop_center: -0.9,-0.9 -> 0,0 ---
@@ -54,7 +54,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 "navigation.max_angular_command" = 0.25
 
 # --- stop_far_diag: -0.9,-0.9 -> 0.8,0.8 (long run into a corner goal) ---
@@ -76,5 +76,5 @@ opponents = [{ behavior = "static", start_pos = [0.8, 0.8] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 "navigation.max_angular_command" = 0.25

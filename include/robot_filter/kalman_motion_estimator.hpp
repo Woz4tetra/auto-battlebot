@@ -8,9 +8,9 @@
 #include <vector>
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
+#include "plant/jig_plant_model.hpp"
 #include "robot_filter/command_ring_buffer.hpp"
 #include "robot_filter/ekf_math.hpp"
-#include "robot_filter/jig_plant_model.hpp"
 #include "robot_filter/motion_estimator_config.hpp"
 #include "robot_filter/motion_estimator_interface.hpp"
 

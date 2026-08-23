@@ -23,7 +23,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 
 [[runs]]
 name = "turn90_no_steer_brake"
@@ -34,7 +34,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 "navigation.steer_brake_coeff" = 0.0
 
 [[runs]]
@@ -46,7 +46,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 "navigation.angular_droop_coeff" = 0.463423
 
 [[runs]]
@@ -58,7 +58,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 "navigation.max_linear_speed_rev" = 4.88002
 
 [[runs]]
@@ -69,7 +69,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 
 [[runs]]
 name = "stop_no_rev_gain"
@@ -79,7 +79,7 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 "navigation.max_linear_speed_rev" = 4.88002
 
 [[runs]]
@@ -90,5 +90,5 @@ opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
 "navigation.stop_distance" = 0.15
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 "navigation.steer_brake_coeff" = 0.0

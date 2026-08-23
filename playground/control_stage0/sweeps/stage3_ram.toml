@@ -1,8 +1,8 @@
 # Stage 3 scenario 3: ram (nonzero terminal velocity). Same controller, different terminal condition.
-# The tracker commands terminal_velocity = 3.0 m/s, so its distance-to-go profile arrives at the goal
-# at ~3 m/s and drives through (a controlled contact speed). The baseline PursuitNavigation has no
-# terminal-velocity concept: with brake_distance = 0 it rams at whatever the velocity ramp gives
-# (uncontrolled, near top speed).
+# The tracker commands attack_terminal_velocity = 0.615 of its 4.88 m/s top speed, so its
+# distance-to-go profile arrives at the goal at ~3 m/s and drives through, a controlled contact
+# speed. The baseline PursuitNavigation has no terminal-velocity concept: with brake_distance = 0
+# it rams at whatever the velocity ramp gives (uncontrolled, near top speed).
 #
 # Compare in results.csv: impact_speed_mps (should be ~3.0 for the tracker, ~commanded contact
 # speed), min_dist_m, reached, wall_contacts.
@@ -28,7 +28,7 @@ name = "center_tracker"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
-"navigation.terminal_velocity" = 3.0
+"navigation.attack_terminal_velocity" = 0.615  # 3.0 m/s
 "navigation.max_angular_command" = 0.25
 
 # --- ram_short: -0.5,-0.5 -> 0,0 (less runway to reach contact speed) ---
@@ -49,12 +49,12 @@ name = "short_tracker"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
-"navigation.terminal_velocity" = 3.0
+"navigation.attack_terminal_velocity" = 0.615  # 3.0 m/s
 "navigation.max_angular_command" = 0.25
 
 # --- terminal-velocity characterization: does the contact speed track the command? ---
 # Longest runway the 2.4 m arena allows (corner -> center, ~1.41 m). impact_speed_mps should rise
-# monotonically with the commanded terminal_velocity.
+# monotonically with the commanded attack_terminal_velocity.
 [[runs]]
 name = "vt_char_0p0"
 [runs.sim]
@@ -62,7 +62,7 @@ name = "vt_char_0p0"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
-"navigation.terminal_velocity" = 0.0
+"navigation.attack_terminal_velocity" = 0.0
 "navigation.stop_distance" = 0.0
 "navigation.max_angular_command" = 0.25
 
@@ -73,7 +73,7 @@ name = "vt_char_1p5"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
-"navigation.terminal_velocity" = 1.5
+"navigation.attack_terminal_velocity" = 0.307  # 1.5 m/s
 "navigation.max_angular_command" = 0.25
 
 [[runs]]
@@ -83,7 +83,7 @@ name = "vt_char_3p0"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
-"navigation.terminal_velocity" = 3.0
+"navigation.attack_terminal_velocity" = 0.615  # 3.0 m/s
 "navigation.max_angular_command" = 0.25
 
 [[runs]]
@@ -93,5 +93,5 @@ name = "vt_char_4p5"
 opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
 [runs.cpp]
 "navigation.type" = "MotionProfileNavigation"
-"navigation.terminal_velocity" = 4.5
+"navigation.attack_terminal_velocity" = 0.922  # 4.5 m/s
 "navigation.max_angular_command" = 0.25

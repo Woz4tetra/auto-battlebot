@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <magic_enum.hpp>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "enums/frame_id.hpp"
@@ -28,7 +29,8 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       steer_brake_floor_(config.steer_brake_floor),
       angular_deadzone_left_(config.angular_deadzone_left),
       angular_deadzone_right_(config.angular_deadzone_right),
-      terminal_velocity_(config.terminal_velocity),
+      attack_terminal_velocity_(config.attack_terminal_velocity),
+      run_away_terminal_velocity_(config.run_away_terminal_velocity),
       stop_distance_(config.stop_distance),
       speed_kp_(config.speed_kp),
       speed_ki_(config.speed_ki),
@@ -51,18 +53,31 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       logger_(DiagnosticsLogger::get_logger("motion_profile_nav")),
       clock_(std::move(clock)) {}
 
-void MotionProfileNavigation::reset_state() {
+void MotionProfileNavigation::reset_trajectory_state() {
     committed_turn_sign_ = 0;
     prev_angle_error_ = 0.0;
-    prev_angular_timestamp_ = 0.0;
     prev_v_ref_ = 0.0;
+    prev_w_ref_ = 0.0;
     speed_integral_ = 0.0;
+    prev_linear_uncompensated_ = 0.0;
+    prev_angular_uncompensated_ = 0.0;
+}
+
+void MotionProfileNavigation::reset_state() {
+    reset_trajectory_state();
+    prev_angular_timestamp_ = 0.0;
     prev_speed_timestamp_ = 0.0;
     last_known_our_pose_.reset();
     last_measured_speed_ = 0.0;
-    prev_w_ref_ = 0.0;
-    prev_linear_uncompensated_ = 0.0;
-    prev_angular_uncompensated_ = 0.0;
+    prev_mode_ = BehaviorMode::ATTACK;
+}
+
+double MotionProfileNavigation::terminal_velocity_for(BehaviorMode mode) const {
+    const double configured =
+        (mode == BehaviorMode::RUN_AWAY) ? run_away_terminal_velocity_ : attack_terminal_velocity_;
+    // Scale the fraction by the fitted top speed. The controller only ever drives toward the
+    // goal, so a negative fraction has nothing to mean and clamps to a stop.
+    return std::clamp(configured, 0.0, 1.0) * max_linear_speed_fwd_;
 }
 
 bool MotionProfileNavigation::initialize() {
@@ -70,9 +85,10 @@ bool MotionProfileNavigation::initialize() {
     last_visualization_ = NavigationVisualization{};
     spdlog::info(
         "MotionProfileNavigation initialized: v_max_fwd={} m/s, w_max={} rad/s, "
-        "terminal_velocity={} m/s, brake_horizon={} s, c_sb={}, c_ad={}",
-        max_linear_speed_fwd_, max_angular_speed_, terminal_velocity_, tau_decel_ + latency_,
-        steer_brake_coeff_, angular_droop_coeff_);
+        "terminal_velocity attack={} m/s run_away={} m/s, brake_horizon={} s, c_sb={}, c_ad={}",
+        max_linear_speed_fwd_, max_angular_speed_, terminal_velocity_for(BehaviorMode::ATTACK),
+        terminal_velocity_for(BehaviorMode::RUN_AWAY), tau_decel_ + latency_, steer_brake_coeff_,
+        angular_droop_coeff_);
     return true;
 }
 
@@ -114,7 +130,7 @@ VelocityCommand MotionProfileNavigation::update(RobotDescriptionsStamped robots,
                        {"speed_measured", measured_speed.has_value() ? 1 : 0},
                    });
 
-    auto cmd = compute_command(our_pose, target.pose, field, measured_speed);
+    auto cmd = compute_command(our_pose, target.pose, field, measured_speed, target.mode);
 
     logger_->debug("command", {
                                   {"linear_x", cmd.linear_x},
@@ -137,8 +153,22 @@ std::optional<RobotDescription> MotionProfileNavigation::find_our_robot(
 VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                                                          const Pose2D &target_pose,
                                                          const FieldDescription &field,
-                                                         std::optional<double> measured_speed) {
+                                                         std::optional<double> measured_speed,
+                                                         BehaviorMode mode) {
     const double now_s = clock_->now();
+    const double terminal_velocity = terminal_velocity_for(mode);
+
+    // A flipped switch is a new mission: the goal jumps from the opponent to the safe point (or
+    // back) and the terminal speed changes with it. Carrying the old reference across the flip
+    // would feed the feedforward a dv/dt step that the plant never asked for.
+    if (mode != prev_mode_) {
+        reset_trajectory_state();
+        logger_->debug("mode",
+                       {{"mode", std::string(magic_enum::enum_name(mode))},
+                        {"terminal_velocity", terminal_velocity}},
+                       "Behavior mode changed; resetting the trajectory");
+    }
+    prev_mode_ = mode;
     const Pose2D clamped_target = clamp_to_field(target_pose, field);
     const double dx = clamped_target.x - our_pose.x;
     const double dy = clamped_target.y - our_pose.y;
@@ -164,20 +194,14 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     const double v_actual = last_measured_speed_;
 
     // Zero-velocity mission complete: cut the command and reset the tracker so the next mission
-    // starts clean. Ram missions (terminal_velocity > 0) drive through the goal, never stopping.
-    if (terminal_velocity_ <= 0.0 && distance < stop_distance_) {
-        committed_turn_sign_ = 0;
-        prev_angle_error_ = 0.0;
-        prev_v_ref_ = 0.0;
-        prev_w_ref_ = 0.0;
-        speed_integral_ = 0.0;
-        prev_linear_uncompensated_ = 0.0;
-        prev_angular_uncompensated_ = 0.0;
+    // starts clean. A drive-through mission (terminal velocity > 0) never stops.
+    if (terminal_velocity <= 0.0 && distance < stop_distance_) {
+        reset_trajectory_state();
         logger_->debug("stop", {{"distance", distance}}, "Reached goal; stopping");
         return VelocityCommand{0.0, 0.0, 0.0};
     }
 
-    const double v_ref = compute_reference_speed(distance, v_actual, dt);
+    const double v_ref = compute_reference_speed(distance, v_actual, dt, terminal_velocity);
     const double dvdt = (dt > 0.0) ? (v_ref - prev_v_ref_) / dt : 0.0;
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
@@ -213,6 +237,8 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                        {"w_ref", w_ref},
                        {"angle_error_deg", angle_error * 180.0 / M_PI},
                        {"facing_target", std::abs(angle_error) < angle_threshold_ ? 1 : 0},
+                       {"terminal_velocity", terminal_velocity},
+                       {"behavior_mode", std::string(magic_enum::enum_name(mode))},
                    });
     return cmd;
 }
@@ -245,8 +271,8 @@ double MotionProfileNavigation::compensate_coupling(double command, double effec
     return command / authority;
 }
 
-double MotionProfileNavigation::compute_reference_speed(double distance, double v_actual,
-                                                        double dt) const {
+double MotionProfileNavigation::compute_reference_speed(double distance, double v_actual, double dt,
+                                                        double terminal_velocity) const {
     // Coast-aware brake schedule for a first-order plant. Two measured effects set where braking
     // must begin:
     //   - Latency lead: the brake command bites `latency` seconds late, after the robot has already
@@ -257,7 +283,7 @@ double MotionProfileNavigation::compute_reference_speed(double distance, double 
     // measured plant, not a hand-set brake distance.
     const double d_eff = std::max(0.0, distance - std::abs(v_actual) * latency_);
     const double brake_horizon = std::max(tau_decel_ + latency_, 1e-3);
-    double v_ref = terminal_velocity_ + d_eff / brake_horizon;
+    double v_ref = terminal_velocity + d_eff / brake_horizon;
     v_ref = std::clamp(v_ref, 0.0, max_linear_speed_fwd_);
 
     // Rate-limit ramp-up only, for a clean launch and a bounded feedforward derivative. Braking
