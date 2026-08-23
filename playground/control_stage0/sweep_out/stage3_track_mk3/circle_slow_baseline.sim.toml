@@ -1,0 +1,68 @@
+opponents = [
+    { behavior = "circle", radius = 0.6, speed = 0.8 },
+]
+
+[server]
+host = "127.0.0.1"
+port = 14882
+
+[sim]
+dt = 0.0333
+max_ticks = 900
+seed = 0
+
+[arena]
+width = 2.4
+height = 2.4
+
+[latency]
+command_ms = 52.2
+observation_ms = 0.0
+
+[camera]
+res_width = 16
+res_height = 16
+fov = 70.0
+pos = [
+    0.0,
+    -1.5,
+    0.6,
+]
+lookat = [
+    0.0,
+    0.0,
+    0.0,
+]
+
+[our_robot]
+start_pos = [
+    -0.9,
+    -0.9,
+]
+start_yaw_deg = 45.0
+radius = 0.11
+max_linear_speed = 4.88
+max_angular_speed = 31.7062
+tau_linear = 0.14921
+tau_angular = 0.173867
+max_linear_speed_fwd = 4.88002
+max_linear_speed_rev = 4.3546
+tau_linear_accel = 0.14921
+tau_linear_decel = 0.123461
+tau_angular_accel = 0.173867
+tau_angular_decel = 0.0878998
+steer_brake_coeff = 2.70197
+angular_droop_coeff = 0.463423
+deadzone_linear = 0.0109768
+deadzone_linear_rev = 0.0253396
+deadzone_angular = 0.016061
+deadzone_angular_right = 0.0240734
+
+[perception]
+pos_noise_std = 0.0
+yaw_noise_std = 0.0
+dropout_prob = 0.0
+
+[perception.projection_bias]
+enabled = false
+keypoint_height = 0.06

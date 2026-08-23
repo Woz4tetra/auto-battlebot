@@ -65,12 +65,15 @@ class PlantConfig:
     tau_angular_accel: float = 0.0  # falls back to tau_angular
     tau_angular_decel: float = 0.0  # falls back to tau_angular_accel
     steer_brake_coeff: float = 0.0  # forward-speed loss per unit |angular cmd| (physical coupling)
-    # Residual deadzone the plant still shows AFTER the transmitter's lifted_deadzone
-    # compensation. The measured physical deadzone belongs in config/main.toml
-    # lifted_deadzone_percent, not here; set this
-    # only if the real closed loop still has a dead low end. 0 = none.
-    deadzone_linear: float = 0.0  # command fraction
-    deadzone_angular: float = 0.0
+    angular_droop_coeff: float = 0.0  # yaw-rate loss per unit |linear cmd| (physical coupling)
+    # Deadzone on the command the plant actually receives. SimTransmitter hands the navigation
+    # command straight to the sim with no drive processor, so unlike the deployed path there is
+    # no lifted_deadzone_percent upstream and these carry the raw physical deadzone. Per sign,
+    # matching the jig fit: the _rev / _right value falls back to its counterpart when unset.
+    deadzone_linear: float = 0.0  # command fraction, forward
+    deadzone_linear_rev: float | None = None
+    deadzone_angular: float = 0.0  # command fraction, left
+    deadzone_angular_right: float | None = None
 
 
 @dataclass

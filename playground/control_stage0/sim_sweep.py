@@ -43,7 +43,7 @@ BINARY = REPO_ROOT / "build" / "auto_battlebot"
 MASTER = REPO_ROOT / "build" / "bin" / "miniroscore"
 SERVER = REPO_ROOT / "simulation" / "kinematic_sim_server.py"
 RECORDINGS = REPO_ROOT / "data" / "recordings"
-BASE_CPP_CONFIG = REPO_ROOT / "config" / "simulation" / "headless_sim"  # overlays `extends` this
+BASE_CPP_CONFIG = REPO_ROOT / "config" / "simulation" / "kinematic_sim"  # overlays `extends` this
 BASE_SIM_CONFIG = REPO_ROOT / "simulation" / "kinematic_sim.toml"
 MASTER_PORT = 11311
 SIM_PORT = 14882
@@ -97,6 +97,9 @@ def write_cpp_overlay(run: Run, out_dir: Path) -> Path:
     `extends` is an absolute path so it resolves regardless of where the overlay lives.
     """
     data: dict[str, Any] = {"extends": str(BASE_CPP_CONFIG)}
+    # Scoring reads the MCAP the run writes, so the sweep turns recording on itself rather than
+    # depending on the base config leaving it on. A run override can still switch it back off.
+    _deep_set(data, "mcap.enable", True)
     for dotted_key, value in run.cpp.items():
         _deep_set(data, dotted_key, value)
     path = out_dir / f"{run.name}.toml"

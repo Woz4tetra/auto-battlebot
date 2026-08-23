@@ -10,7 +10,7 @@
 # half), min_dist_m, mean_abs_ang_deg, wall_contacts.
 # Run: python playground/control_stage0/sim_sweep.py --sweep playground/control_stage0/sweeps/stage3_track.toml --out playground/control_stage0/sweep_out/stage3_track
 
-sim_config = "simulation/kinematic_sim_mr_stabs_mk2.toml"
+sim_config = "simulation/sim_mr_stabs_mk2.toml"
 
 # --- circle_slow: opponent circles at 0.8 m/s, radius 0.6 ---
 [[runs]]

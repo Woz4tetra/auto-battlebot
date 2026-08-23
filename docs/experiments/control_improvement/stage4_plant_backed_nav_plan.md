@@ -142,17 +142,77 @@ placeholder, and it is wrong by more than the effects being chased:
 Yaw rate is 5.3x low and forward speed 2.4x low. Any gain tuned against this sim is tuned
 against a different vehicle. Before touching the controller:
 
-1. Add an `angular_droop_coeff` term to `Plant.step` in `simulation/kinematic_sim_server.py`,
-   mirroring the existing `steer_brake_coeff` line:
-   `w_target *= max(0.0, 1.0 - cfg.angular_droop_coeff * abs(lc))`.
-2. Fill `simulation/sim_mrs_buff_mk3.toml` from `plant_stageA.toml`.
-3. Re-run `stage3_stop.toml`, `stage3_ram.toml`, `stage3_track.toml` unchanged. This is the new
-   baseline. Expect the Stage 3 result table to move; treat the old numbers as void, not as a
-   regression.
+**Done.** `Plant.step` now mirrors `auto_battlebot/plant.py` term for term and
+agrees with it to 1e-14 over a 3.66 s command sequence that exercises every term. Four changes
+were needed, not the one the first draft of this plan predicted:
 
-The sim's `_apply_deadzone` is symmetric and its plant has no forward/reverse gain split beyond
-`max_linear_speed_fwd`/`_rev`. Both are already supported by the config, so only the droop term
-is new code.
+1. `angular_droop_coeff` on the yaw target, mirroring the existing `steer_brake_coeff` line.
+2. Per-sign deadzone (`deadzone_linear_rev`, `deadzone_angular_right`). The forward and reverse
+   linear deadzones differ by 2.3x, and the old `_apply_deadzone` was symmetric.
+3. **2 ms substepping with exact arc integration.** This one is not optional. The old code took
+   one straight-line Euler step per 33 ms tick. At the corrected 31.7 rad/s yaw gain that is up
+   to 1.05 rad of rotation in a single step, and integrating an arc as a straight line over 60
+   degrees is wrong by roughly the quantity being measured: on 1.5 s of driving while turning,
+   one step per tick and 2 ms substeps disagree by 0.055 m of position and 8.8 degrees of
+   heading, against stop-accuracy metrics in the 0.03 to 0.10 m range. The same error was
+   present in the Mr Stabs Mk2 sim at 61.5 rad/s, where a tick is 2.05 rad and the disagreement
+   is 18 degrees of heading. Every Stage 3 number was computed through it.
+4. `simulation/sim_mrs_buff_mk3.toml` filled from `plant_stageA.toml`, plus `max_ticks = 900` so
+   runs terminate the way the Mr Stabs config does instead of relying on the sweep timeout.
+
+The sweep harness also had to be revived. It had been dead since the config refactor, with three
+independent breakages, which is why the Stage 3 table was never re-run:
+
+- `BASE_CPP_CONFIG` pointed at `config/simulation/headless_sim`, renamed to `kinematic_sim`.
+- All four sweeps' `sim_config` pointed at `simulation/kinematic_sim_mr_stabs_mk2.toml`, renamed
+  to `sim_mr_stabs_mk2.toml`.
+- MCAP recording is off throughout the sim config chain, so every run scored empty even after
+  the paths were fixed. `write_cpp_overlay` now sets `mcap.enable = true` itself rather than
+  depending on the base config.
+
+Note that the sweeps target Mr Stabs Mk2 by default. The baseline below was taken with
+`--sim-config simulation/sim_mrs_buff_mk3.toml`.
+
+### Step 0 baseline, Mrs Buff Mk3 measured plant
+
+Taken with the nav still on Mr Stabs Mk2's constants (`v_max_fwd = 5.6`, brake horizon 0.138 s),
+so this is the number Step 1 has to beat, not a result.
+
+| stop | terminal err (m) | terminal vel (m/s) | overshoot (m) | t_to_goal (s) | wall |
+|---|---:|---:|---:|---:|---:|
+| short_baseline | 0.102 | 0.0 | 0.321 | 0.37 | 0 |
+| short_tracker | 0.072 | 0.0 | **0.000** | 0.40 | 0 |
+| center_baseline | 0.061 | 0.0 | 0.389 | 0.57 | 0 |
+| center_tracker | 0.096 | 0.0 | **0.000** | 0.90 | 0 |
+| far_diag_baseline | 0.101 | 0.0 | 0.333 | 1.10 | 0 |
+| far_diag_tracker | **0.030** | 0.0 | **0.000** | 0.93 | 0 |
+
+The tracker still holds its Stage 3 headline: zero overshoot on all three geometries against a
+consistent 0.32 to 0.39 m for the baseline. Terminal error is now a split decision (tracker wins
+short and far_diag, loses center), where on the old sim it won everywhere.
+
+| ram | commanded v_term | impact speed (m/s) | min dist (m) |
+|---|---:|---:|---:|
+| vt_char_0p0 | 0.0 | 0.25 | 0.001 |
+| vt_char_1p5 | 1.5 | 3.03 | 0.002 |
+| vt_char_3p0 | 3.0 | 4.50 | 0.007 |
+| vt_char_4p5 | 4.5 | 4.50 | 0.006 |
+
+Contact speed still rises with the command but saturates at 4.50 m/s, and `v_term = 0` no longer
+reaches an exact stop (0.25 m/s, against 0.00 on the old sim). Both are consistent with a brake
+horizon 27% shorter than the plant needs, which is exactly what Step 1 corrects.
+
+| track | mean err (m) | RMS err (m) |
+|---|---:|---:|
+| circle_slow_baseline | 0.224 | 0.263 |
+| circle_slow_tracker | 0.319 | 0.354 |
+| circle_fast_baseline | 0.659 | 0.689 |
+| circle_fast_tracker | **0.227** | **0.234** |
+
+The fast circle is where the tracker's margin grew: 0.234 RMS against 0.689, a 66% cut, where on
+the old sim it was 13%. The slow circle reversed, with the tracker now 35% worse than baseline.
+Both are turning-while-driving cases, so both are dominated by the steer-brake coupling the
+controller does not model. Step 2 is the one to watch here.
 
 ## Steps 1 to 5: the controller
 

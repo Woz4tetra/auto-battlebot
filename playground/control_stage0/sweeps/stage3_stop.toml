@@ -11,7 +11,7 @@
 # Compare in results.csv: terminal_pos_err_m, terminal_vel_mps, overshoot_m, t_to_goal_s, wall_contacts.
 # Run: python playground/control_stage0/sim_sweep.py --sweep playground/control_stage0/sweeps/stage3_stop.toml --out playground/control_stage0/sweep_out/stage3_stop
 
-sim_config = "simulation/kinematic_sim_mr_stabs_mk2.toml"
+sim_config = "simulation/sim_mr_stabs_mk2.toml"
 
 # --- stop_short: -0.5,-0.5 -> 0,0 ---
 [[runs]]

@@ -7,15 +7,18 @@ port = 14882
 
 [sim]
 dt = 0.0333   # ~30 Hz sim time (matches the real controller rate)
-max_ticks = 0
+max_ticks = 900 # 30 s
 seed = 0
 
 [arena]
 width = 2.4
 height = 2.4
 
+# Measured actuation latency (command issue to wheel response), in ms of sim time. From the jig
+# onset stack: 52.2 ms over 3486 edges at SNR 22.4, clock measured. The server quantizes this to
+# whole sim ticks, so at dt = 0.0333 it is applied as 2 ticks (66.6 ms).
 [latency]
-command_ms = 60.0
+command_ms = 52.2
 observation_ms = 0.0
 
 [camera]
@@ -29,13 +32,30 @@ lookat = [0.0, 0.0, 0.0]
 start_pos = [-0.9, -0.9]
 start_yaw_deg = 45.0
 radius = 0.11
-# MRS BUFF MK3 plant: UNCALIBRATED placeholder. Run playground/calibration/fit_plant_calib.py on a
-# Mrs Buff Mk3 AprilTag drive recording and paste the fitted [our_robot] block here (fwd/rev speeds,
-# accel/decel taus). Do not copy MR STABS MK2's numbers; the two drivetrains differ.
-max_linear_speed = 2.0
-max_angular_speed = 6.0
-tau_linear = 0.15
-tau_angular = 0.08
+# MRS BUFF MK3 plant, transcribed from playground/calibration/out/plant_stageA.toml (model M4,
+# velocity jig sessions 2026-08-19 through 2026-08-23). Edit the fit, not this file.
+# Mapping from the fit's parameter names:
+#   k_fwd/k_rev -> max_linear_speed_fwd/_rev      tau_lin_a/_d -> tau_linear_accel/_decel
+#   k_ang       -> max_angular_speed              tau_ang_a/_d -> tau_angular_accel/_decel
+#   c_sb        -> steer_brake_coeff              c_ad         -> angular_droop_coeff
+#   dz_lin_fwd/_rev, dz_ang_l/_r -> deadzone_linear/_rev, deadzone_angular/_right
+# Measured with guard plates on; their ground friction is part of the fitted plant.
+max_linear_speed = 4.88   # symmetric fallback (unused once _fwd/_rev are set)
+max_angular_speed = 31.7062
+tau_linear = 0.14921      # fallback
+tau_angular = 0.173867    # fallback
+max_linear_speed_fwd = 4.88002
+max_linear_speed_rev = 4.3546
+tau_linear_accel = 0.14921    # +/- 0.0738 (n=13): the weakest number in the set
+tau_linear_decel = 0.123461   # coast: the term that drives stopping overrun
+tau_angular_accel = 0.173867
+tau_angular_decel = 0.0878998
+steer_brake_coeff = 2.70197   # forward authority is gone at |u_ang_eff| = 0.370
+angular_droop_coeff = 0.463423
+deadzone_linear = 0.0109768
+deadzone_linear_rev = 0.0253396
+deadzone_angular = 0.016061
+deadzone_angular_right = 0.0240734
 
 [perception]
 pos_noise_std = 0.0
