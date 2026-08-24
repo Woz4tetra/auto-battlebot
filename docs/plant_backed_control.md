@@ -21,9 +21,12 @@ Regenerate the SVG after editing `diagrams/plant_backed_control.dot`:
 lockstep, and the split matters:
 
 1. `pump_input()` calls `transmitter_->update()`, which reads the RC channels back as
-   `CommandFeedback`. The feedback carries the command in two spaces: physical body
-   velocity (m/s, rad/s) for the dead-reckoning arm and normalized [-1, 1] stick for the
-   EKF's plant model, which applies the fitted gains itself.
+   `CommandFeedback`. The feedback is normalized [-1, 1] stick, the same space the command
+   was sent in. Physical units never cross this boundary: whoever needs m/s and rad/s
+   applies the `[plant]` gains themselves, so the drivetrain scaling is defined once. The
+   EKF hands the stick command to `JigPlantModel`; the dead-reckoning arm calls
+   `plant_stick_to_body_velocity()`, the same gains without the deadzones, coupling, and
+   lag a single-frame hold cannot represent.
 2. `robot_filter_->predict(now, command_feedback)`, every tick. Inside the estimator this
    pushes a `TimedCommand` into `CommandRingBuffer` and then calls `coast(now)`.
 3. `robot_filter_->correct(...)`, only when a new perception frame landed. This runs the

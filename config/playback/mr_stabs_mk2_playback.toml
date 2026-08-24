@@ -7,10 +7,6 @@ extends = "playback/_playback"
 [robot_mask_model]
 their_robot_labels = ["OPPONENT", "MRS_BUFF_MK3"]
 
-# Mr Stabs Mk2 drivetrain geometry, mirroring mr_stabs_mk2_jetson.toml.
-[transmitter]
-wheel_track_width = 0.131
-
 # Mr Stabs Mk2 stays on pursuit, same as the hardware profiles. `type` differs from _common, so
 # the merge replaces the section wholesale: these are the values this profile used to inherit.
 [navigation]
@@ -25,3 +21,39 @@ wall_reverse_distance = 0.25      # set > 0 to reverse when within this distance
 wall_heading_threshold = 1.047    # ~60 deg; heading must point toward wall to trigger reversal
 max_linear_command = 1.0          # 0 = no limit
 max_angular_command = 0.0         # 0 = no limit
+
+# Match the hardware profiles: no jig fit for this drivetrain, so the EKF has no measured lag or
+# delay to propagate and dead reckoning is the honest choice. `type` differs from _common, so the
+# merge replaces the section wholesale.
+[robot_filter.motion_estimator]
+type = "DeadReckoningMotionEstimator"
+
+# Mr Stabs Mk2 has no jig fit, so this table is derived from drivetrain geometry rather than
+# measured: full stick = max_motor_rpm at the wheel.
+#   k_fwd = k_rev = 1500 RPM * pi * 0.05 m / 60 = 3.92699 m/s
+#   k_ang         = 2 * 3.92699 / 0.131 m track = 59.9541 rad/s
+# Without it this profile would inherit Mrs Buff Mk3's fit from _common.toml and dead-reckon
+# Mr Stabs at the wrong scale. Deadzones and coupling are zero because geometry cannot predict
+# them, and the time constants and delay are placeholders (no lag, no delay) rather than
+# measurements. The table merges key-by-key over the base, so every field is restated rather
+# than half-inherited.
+# [plant.process_noise] is deliberately not overridden: only the EKF reads it, and this profile
+# dead-reckons. Only k_fwd, k_rev, and k_ang are read here; the rest are restated to keep another
+# robot's fit from leaking in through the merge.
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 3.92699
+k_rev = 3.92699
+k_ang = 59.9541
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0

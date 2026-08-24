@@ -42,8 +42,8 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
     for (auto &[frame_id, desc] : last_description_per_frame_id_) {
         if (measured_frame_ids.count(frame_id) != 0) continue;
 
-        auto cmd_it = command_feedback.commands.find(frame_id);
-        if (cmd_it == command_feedback.commands.end()) {
+        auto cmd_it = command_feedback.stick_commands.find(frame_id);
+        if (cmd_it == command_feedback.stick_commands.end()) {
             // Opponents (or ours without feedback): hold last known pose.
             continue;
         }
@@ -54,7 +54,7 @@ std::vector<RobotDescription> RobotTemporalMotionFilter::update_with_prediction(
         const double dt = timestamp - ts_it->second;
         if (dt <= 0.0 || dt > 1.0) continue;
 
-        const VelocityCommand &cmd = cmd_it->second;
+        const VelocityCommand cmd = plant_stick_to_body_velocity(cmd_it->second, plant_);
         Pose2D predicted_pose = pose_to_pose2d(desc.pose);
         const Eigen::Vector2d velocity_field =
             body_velocity_to_field(cmd.linear_x, cmd.linear_y, predicted_pose.yaw);

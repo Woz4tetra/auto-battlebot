@@ -6,13 +6,16 @@
 #include "data_structures/command_feedback.hpp"
 #include "data_structures/pose.hpp"
 #include "data_structures/robot.hpp"
+#include "plant/plant_params.hpp"
 #include "robot_filter/frame_id_assigner.hpp"
 
 namespace auto_battlebot {
 
 class RobotTemporalMotionFilter {
    public:
-    RobotTemporalMotionFilter() = default;
+    /** No default constructor: the fitted gains are the only thing that gives a normalized stick
+     *  command a physical meaning, so there is nothing sensible to default them to. */
+    explicit RobotTemporalMotionFilter(const JigPlantParams &plant) : plant_(plant) {}
 
     /** Clears all tracked robot state. Call before starting a new match. */
     void reset();
@@ -20,7 +23,8 @@ class RobotTemporalMotionFilter {
     /**
      * Merges new measurements into tracked state and returns one RobotDescription per tracked
      * robot. Robots with no new measurement this frame are predicted forward using their last
-     * commanded velocity and clamped to field bounds. Predicted robots are flagged is_stale=true.
+     * stick command, scaled to body velocity through the fitted plant gains, and clamped to
+     * field bounds. Predicted robots are flagged is_stale=true.
      *
      * An our-robot (Group::OURS) track that has gone unmeasured for longer than
      * our_robot_hold_window_s (seconds) is dropped from the output and forgotten rather than held
@@ -39,5 +43,8 @@ class RobotTemporalMotionFilter {
     // our-robot stale-identity decay in update_with_prediction.
     std::map<FrameId, double> last_measured_timestamp_per_frame_id_;
     std::map<FrameId, RobotDescription> last_description_per_frame_id_;
+    // Fitted gains from the shared [plant] table. Only k_fwd, k_rev, and k_ang are read: the
+    // prediction holds one command flat over a frame, with no state to carry lag or coupling.
+    JigPlantParams plant_;
 };
 }  // namespace auto_battlebot

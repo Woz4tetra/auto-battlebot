@@ -987,8 +987,8 @@ CommandFeedback CompositeTransmitter::update() {
     // Reverse order so the primary is applied last and wins on key collision. Every child is
     // still polled, which is what drains their receive paths.
     for (auto it = children_.rbegin(); it != children_.rend(); ++it) {
-        for (const auto &[frame_id, command] : (*it)->update().commands) {
-            merged.commands[frame_id] = command;
+        for (const auto &[frame_id, command] : (*it)->update().stick_commands) {
+            merged.stick_commands[frame_id] = command;
         }
     }
     return merged;

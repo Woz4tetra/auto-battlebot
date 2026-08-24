@@ -25,8 +25,10 @@ namespace auto_battlebot {
 
 KalmanMotionEstimator::KalmanMotionEstimator(const KalmanMotionEstimatorConfiguration &config)
     : config_(config),
-      diagnostics_logger_(DiagnosticsLogger::get_logger("kalman_motion_estimator")) {
-    // Config validation already required the plant table when the mode is EKF.
+      diagnostics_logger_(DiagnosticsLogger::get_logger("kalman_motion_estimator")),
+      our_dr_plant_(config.plant.value_or(JigPlantParams{})) {
+    // Config validation requires the plant table in both our-robot modes: EKF propagates through
+    // JigPlantModel, DEAD_RECKONING scales stick with our_dr_plant_.
     if (config_.our_robot_mode == OurRobotMode::EKF && config_.plant.has_value()) {
         plant_model_ = std::make_unique<JigPlantModel>(*config_.plant, config_.plant_noise);
     }
@@ -47,9 +49,9 @@ void KalmanMotionEstimator::reset() {
 
 void KalmanMotionEstimator::predict(double now, const CommandFeedback &command_feedback) {
     command_feedback_ = command_feedback;
-    // The plant model consumes normalized [-1, 1] stick commands; the physical-velocity map
-    // stays with the dead-reckoning arm. Feeding physical velocities into the plant applies
-    // the fitted gains twice (a 40x yaw-rate error at the Mrs Buff Mk3 scaling).
+    // The plant model consumes the normalized [-1, 1] stick command directly: it applies the
+    // fitted gains itself, so anything pre-scaled to m/s would apply them twice (a 40x yaw-rate
+    // error at the Mrs Buff Mk3 scaling).
     const auto cmd_it = command_feedback.stick_commands.find(FrameId::OUR_ROBOT_1);
     if (cmd_it != command_feedback.stick_commands.end()) {
         command_history_.push(TimedCommand{now, cmd_it->second});
@@ -482,10 +484,11 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
             track.output_stale = false;
         } else {
             track.output_stale = true;
-            const auto cmd_it = command_feedback_.commands.find(frame_id);
+            const auto cmd_it = command_feedback_.stick_commands.find(frame_id);
             const double dt = timestamp - track.stamp;
-            if (cmd_it != command_feedback_.commands.end() && dt > 0.0 && dt <= 1.0) {
-                const VelocityCommand &cmd = cmd_it->second;
+            if (cmd_it != command_feedback_.stick_commands.end() && dt > 0.0 && dt <= 1.0) {
+                const VelocityCommand cmd =
+                    plant_stick_to_body_velocity(cmd_it->second, our_dr_plant_);
                 Pose2D predicted_pose = pose_to_pose2d(track.description.pose);
                 const Eigen::Vector2d velocity_field =
                     body_velocity_to_field(cmd.linear_x, cmd.linear_y, predicted_pose.yaw);
@@ -614,12 +617,13 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
 
     for (const auto &[frame_id, track] : our_tracks_) {
         RobotDescription output = track.description;
-        const auto cmd_it = command_feedback_.commands.find(frame_id);
+        const auto cmd_it = command_feedback_.stick_commands.find(frame_id);
         const double dt = now - track.stamp;
-        if (cmd_it != command_feedback_.commands.end() && dt > 0.0 && dt <= kMaxIntegrationStepS) {
+        if (cmd_it != command_feedback_.stick_commands.end() && dt > 0.0 &&
+            dt <= kMaxIntegrationStepS) {
             // The same dead-reckoning step update() will commit at the next perception frame,
             // rendered ahead of time on a copy so the output moves between frames.
-            const VelocityCommand &cmd = cmd_it->second;
+            const VelocityCommand cmd = plant_stick_to_body_velocity(cmd_it->second, our_dr_plant_);
             Pose2D predicted_pose = pose_to_pose2d(output.pose);
             const Eigen::Vector2d velocity_field =
                 body_velocity_to_field(cmd.linear_x, cmd.linear_y, predicted_pose.yaw);

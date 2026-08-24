@@ -1,5 +1,7 @@
 #pragma once
 
+#include "data_structures/velocity.hpp"
+
 namespace auto_battlebot {
 
 /**
@@ -59,5 +61,19 @@ double plant_effective_command(double u, double dz_pos, double dz_neg);
  * load-bearing at the fitted c_sb of 2.70 (the factor crosses zero at |u_ang_eff| 0.37). */
 void plant_steady_state(double u_lin, double u_ang, const JigPlantParams &params, double &v_target,
                         double &w_target);
+
+/**
+ * Stick command to body velocity through the fitted gains alone: no deadzone removal, no
+ * steer-brake or droop coupling, no drift, no lag. This is what the dead-reckoning arms
+ * integrate. They hold one command flat across a single frame and carry no state, so the
+ * coupling terms would model a response the arm cannot represent. Use plant_steady_state()
+ * instead when the caller integrates a command history with lag, which is what JigPlantModel
+ * does for the EKF arm.
+ *
+ * linear_y is always zero: a differential drive has no lateral degree of freedom, and every
+ * transmitter writes zero there.
+ */
+VelocityCommand plant_stick_to_body_velocity(const VelocityCommand &stick,
+                                             const JigPlantParams &params);
 
 }  // namespace auto_battlebot

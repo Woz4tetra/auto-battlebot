@@ -71,11 +71,6 @@ type = "PlaybackTransmitter"
 init_delay_seconds = 0.4
 lifted_deadzone_percent = 10
 zero_deadzone_percent = 2
-# Full-stick physical scaling for the replayed robot (Mrs Buff Mk3 values, mirroring
-# _common.toml). Scales the physical CommandFeedback the dead-reckoning arm integrates.
-wheel_track_width = 0.195
-max_motor_rpm = 1500
-wheel_diameter = 0.05
 # Stands in for the radio's behavior mode switch. "ATTACK" (default) or "RUN_AWAY".
 # behavior_mode = "RUN_AWAY"
 

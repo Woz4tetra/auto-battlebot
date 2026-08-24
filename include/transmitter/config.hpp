@@ -28,13 +28,6 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
     double lifted_deadzone_percent = 0.0;
     bool reverse_linear_channel = false;
     bool reverse_angular_channel = false;
-    /** Full-stick physical scaling, mirroring the OpenTx values for the robot being
-     *  replayed: full stick = max_motor_rpm at the wheel, converted through wheel_diameter
-     *  and wheel_track_width. Scales the physical `commands` map of CommandFeedback; the
-     *  normalized `stick_commands` map does not use them. */
-    double wheel_track_width = 1.0;
-    double max_motor_rpm = 1500.0;
-    double wheel_diameter = 0.05;
     /** Behavior mode for the run. Playback has no radio, so this stands in for the
      *  physical switch OpenTxTransmitter reads on behavior_mode_channel. */
     BehaviorMode behavior_mode = BehaviorMode::ATTACK;
@@ -49,9 +42,6 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
         PARSE_FIELD_DOUBLE(lifted_deadzone_percent)
         PARSE_FIELD_BOOL(reverse_linear_channel)
         PARSE_FIELD_BOOL(reverse_angular_channel)
-        PARSE_FIELD_DOUBLE(wheel_track_width)
-        PARSE_FIELD_DOUBLE(max_motor_rpm)
-        PARSE_FIELD_DOUBLE(wheel_diameter)
         PARSE_ENUM(behavior_mode, BehaviorMode)
     )
     // clang-format on
@@ -88,9 +78,7 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     double lifted_deadzone_percent = 0.0;
     /** Input magnitude (%) below which output is forced to zero. */
     double zero_deadzone_percent = 0.0;
-    double wheel_track_width = 1.0;
     double max_motor_rpm = 1500.0;  // Max output shaft RPM
-    double wheel_diameter = 0.05;
     /** Max output-shaft angular acceleration (RPM/s). Slew-limits the linear command so the wheel
      *  surface acceleration stays below the slip/flip threshold. Derivation from the measured
      *  8.5 m/s^2 limit: dRPM/dt = a * 60 / (pi * wheel_diameter) = 8.5 * 60 / (pi * 0.05)
@@ -128,9 +116,7 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
             parser.get_optional_double("lifted_deadzone_percent", lifted_deadzone_percent);
         zero_deadzone_percent =
             parser.get_optional_double("zero_deadzone_percent", zero_deadzone_percent);
-        wheel_track_width = parser.get_optional_double("wheel_track_width", wheel_track_width);
         max_motor_rpm = parser.get_optional_double("max_motor_rpm", max_motor_rpm);
-        wheel_diameter = parser.get_optional_double("wheel_diameter", wheel_diameter);
         max_motor_rpm_per_sec =
             parser.get_optional_double("max_motor_rpm_per_sec", max_motor_rpm_per_sec);
         velocity_saturation_limit =
