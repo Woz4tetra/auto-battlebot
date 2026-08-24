@@ -25,7 +25,8 @@ REGISTER_CONFIG(MotionEstimatorConfiguration, KalmanMotionEstimatorConfiguration
 std::unique_ptr<MotionEstimatorInterface> make_motion_estimator(
     const MotionEstimatorConfiguration &config) {
     if (config.type == "DeadReckoningMotionEstimator") {
-        return std::make_unique<DeadReckoningMotionEstimator>();
+        return std::make_unique<DeadReckoningMotionEstimator>(
+            config_cast<DeadReckoningMotionEstimatorConfiguration>(config));
     } else if (config.type == "KalmanMotionEstimator") {
         return std::make_unique<KalmanMotionEstimator>(
             config_cast<KalmanMotionEstimatorConfiguration>(config));

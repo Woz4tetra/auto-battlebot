@@ -291,5 +291,45 @@ TEST(JigPlantModelTest, ProcessNoiseMatchesGrowthLawAtDesignHorizon) {
     EXPECT_LT(sigma_heading, 1.5 * 0.613);
 }
 
+/** The dead-reckoning conversion is the gains and nothing else. It is deliberately not
+ * plant_steady_state(): a single-frame hold carries no state, so deadzones and coupling would
+ * model a response the caller cannot represent. */
+TEST(PlantStickToBodyVelocityTest, AppliesGainsPerDirection) {
+    JigPlantParams params;
+    params.k_fwd = 4.0;
+    params.k_rev = 2.0;
+    params.k_ang = 10.0;
+
+    const VelocityCommand forward = plant_stick_to_body_velocity({0.5, 0.0, 0.0}, params);
+    EXPECT_NEAR(forward.linear_x, 2.0, 1e-12);
+    EXPECT_NEAR(forward.angular_z, 0.0, 1e-12);
+
+    const VelocityCommand reverse = plant_stick_to_body_velocity({-0.5, 0.0, 0.0}, params);
+    EXPECT_NEAR(reverse.linear_x, -1.0, 1e-12);
+
+    const VelocityCommand yaw = plant_stick_to_body_velocity({0.0, 0.0, -0.25}, params);
+    EXPECT_NEAR(yaw.angular_z, -2.5, 1e-12);
+
+    // A differential drive has no lateral axis, so linear_y stays zero whatever comes in.
+    EXPECT_NEAR(plant_stick_to_body_velocity({0.5, 0.7, 0.0}, params).linear_y, 0.0, 1e-12);
+}
+
+/** No deadzone removal here, unlike plant_steady_state(): a stick inside the fitted deadzone
+ * still produces motion. Pinned because the two converters must stay visibly different. */
+TEST(PlantStickToBodyVelocityTest, IgnoresDeadzones) {
+    JigPlantParams params = mrs_buff_mk3_plant();
+    const double inside_deadzone = params.dz_lin_fwd * 0.5;
+    ASSERT_GT(inside_deadzone, 0.0);
+
+    const VelocityCommand converted =
+        plant_stick_to_body_velocity({inside_deadzone, 0.0, 0.0}, params);
+    EXPECT_NEAR(converted.linear_x, params.k_fwd * inside_deadzone, 1e-12);
+
+    double v_target = 0.0;
+    double w_target = 0.0;
+    plant_steady_state(inside_deadzone, 0.0, params, v_target, w_target);
+    EXPECT_NEAR(v_target, 0.0, 1e-12);
+}
+
 }  // namespace
 }  // namespace auto_battlebot

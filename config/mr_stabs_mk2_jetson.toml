@@ -26,7 +26,6 @@ max_angular_command = 0.0         # 0 = no limit
 [transmitter]
 # The radio model mixes linear/angular into the motor outputs, so send body axes.
 drive_processor = "DifferentialDriveProcessor"
-wheel_track_width = 0.131
 max_motor_rpm = 1500                           # RPM
 max_motor_rpm_per_sec = 2000                   # RPM/s; caps linear accel at 8.5 m/s^2, 3247 RPM/s (slip/flip limit). 0 = off
 lifted_deadzone_percent = 0
@@ -36,3 +35,30 @@ velocity_saturation_limit = 1.0                # 0 = disabled; e.g. 1.0 = |linea
 
 [robot_filter.motion_estimator]
 type = "DeadReckoningMotionEstimator"
+# Mr Stabs Mk2 has no jig fit, so this table is derived from drivetrain geometry rather than
+# measured: full stick = max_motor_rpm at the wheel.
+#   k_fwd = k_rev = 1500 RPM * pi * 0.05 m / 60 = 3.92699 m/s
+#   k_ang         = 2 * 3.92699 / 0.131 m track = 59.9541 rad/s
+# Without it this profile would inherit Mrs Buff Mk3's fit from _common.toml and dead-reckon
+# Mr Stabs at the wrong scale. Deadzones and coupling are zero because geometry cannot predict
+# them, and the time constants and delay are placeholders (no lag, no delay) rather than
+# measurements. The table merges key-by-key over the base, so every field is restated rather
+# than half-inherited.
+# [plant.process_noise] is deliberately not overridden: only the EKF reads it.
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 3.92699
+k_rev = 3.92699
+k_ang = 59.9541
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0

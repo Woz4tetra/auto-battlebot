@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <string>
 
 namespace auto_battlebot {
@@ -28,8 +27,9 @@ OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& confi
                                },
                                logger_)) {
     // The command reaching send() is normalized ([-1, 1] == +/-max_motor_rpm), so an RPM/s limit
-    // becomes a normalized rate limit by dividing out max_motor_rpm. wheel_diameter is not needed
-    // here; it only enters the RPM/s default derived from the m/s^2 slip threshold.
+    // becomes a normalized rate limit by dividing out max_motor_rpm. The wheel diameter only
+    // entered the RPM/s default derived from the m/s^2 slip threshold, so the config carries that
+    // result rather than the geometry.
     if (config_.max_motor_rpm_per_sec > 0.0 && config_.max_motor_rpm > 0.0) {
         max_linear_rate_per_sec_ = config_.max_motor_rpm_per_sec / config_.max_motor_rpm;
     }
@@ -84,22 +84,15 @@ CommandFeedback OpenTxTransmitter::update() {
     if (!latest_channels_) return {};
 
     constexpr double kChannelScale = 1.0 / kChannelMax;
-    const double max_linear_mps = config_.max_motor_rpm * M_PI * config_.wheel_diameter / 60.0;
-    const double max_angular_radps = 2.0 * max_linear_mps / config_.wheel_track_width;
 
     // The channels on the wire are in whatever space the processor emits, so convert them back to
-    // body axes before scaling to physical units.
+    // body axes. They stay normalized: consumers scale by the fitted [plant] gains themselves.
     const auto body = processor_->to_body_velocity({
         .channel_a = get_channel_value(config_.linear_channel) * kChannelScale,
         .channel_b = get_channel_value(config_.angular_channel) * kChannelScale,
     });
 
     CommandFeedback feedback;
-    feedback.commands[FrameId::OUR_ROBOT_1] = {
-        .linear_x = body.linear * max_linear_mps,
-        .linear_y = 0.0,
-        .angular_z = body.angular * max_angular_radps,
-    };
     feedback.stick_commands[FrameId::OUR_ROBOT_1] = {
         .linear_x = body.linear,
         .linear_y = 0.0,

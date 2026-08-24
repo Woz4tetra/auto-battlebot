@@ -1173,8 +1173,34 @@ TEST_F(ProfileSelectionTest, LoadSelectorMissingFileDegradesGracefully) {
     EXPECT_FALSE(selector.selection_file.empty());  // default path
 }
 
+namespace {
+/** The jig-fitted plant table, stage A values (plant_stageA.toml, 2026-08-23). Every motion
+ *  estimator requires it, so configs that build one have to include it. */
+constexpr const char *kPlantTableToml = R"(
+[plant]
+dz_lin_fwd = 0.0109768
+dz_lin_rev = 0.0253396
+dz_ang_l = 0.016061
+dz_ang_r = 0.0240734
+k_fwd = 4.88002
+k_rev = 4.3546
+k_ang = 31.7062
+tau_lin_a = 0.14921
+tau_lin_d = 0.123461
+tau_ang_a = 0.173867
+tau_ang_d = 0.0878998
+delay_s = 0.0522094
+c_sb = 2.70197
+c_ad = 0.463423
+c_drift = 0.0
+c_drift_bias = 0.0
+)";
+}  // namespace
+
 TEST_F(ConfigTest, RobotFilterKeypointHeightsParsePerLabelWithDefault) {
-    write_config_file(R"(
+    // [plant] is here because the filter's default dead-reckoning estimator requires it, not
+    // because keypoint heights care about it.
+    write_config_file(std::string(R"(
 [rgbd_camera]
 type = "NoopRgbdCamera"
 
@@ -1214,7 +1240,7 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
-)");
+)") + kPlantTableToml);
 
     auto config = load_classes_from_config(temp_config_file.string());
     auto *filter_config =
@@ -1229,8 +1255,14 @@ type = "NoopPublisher"
 }
 
 namespace {
-/** Minimal full config with a parameterizable [robot_filter.motion_estimator] block. */
-std::string config_with_motion_estimator(const std::string &motion_estimator_toml) {
+/**
+ * Minimal full config with a parameterizable [robot_filter.motion_estimator] block. Every motion
+ * estimator needs the [plant] table to scale stick commands, so one is appended by default; pass
+ * "" for plant_toml when the test supplies its own table or is checking that a missing one is
+ * rejected.
+ */
+std::string config_with_motion_estimator(const std::string &motion_estimator_toml,
+                                         const std::string &plant_toml = kPlantTableToml) {
     return R"(
 [rgbd_camera]
 type = "NoopRgbdCamera"
@@ -1268,7 +1300,7 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
-)";
+)" + plant_toml;
 }
 }  // namespace
 
@@ -1312,43 +1344,47 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeRejectedUntilPlantModelExist
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
-)"));
+)",
+                                                   ""));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
 
-namespace {
-/** The jig-fitted plant table, stage A values (plant_stageA.toml, 2026-08-23). */
-constexpr const char *kPlantTableToml = R"(
-[plant]
-dz_lin_fwd = 0.0109768
-dz_lin_rev = 0.0253396
-dz_ang_l = 0.016061
-dz_ang_r = 0.0240734
-k_fwd = 4.88002
-k_rev = 4.3546
-k_ang = 31.7062
-tau_lin_a = 0.14921
-tau_lin_d = 0.123461
-tau_ang_a = 0.173867
-tau_ang_d = 0.0878998
-delay_s = 0.0522094
-c_sb = 2.70197
-c_ad = 0.463423
-c_drift = 0.0
-c_drift_bias = 0.0
-)";
-}  // namespace
+TEST_F(ConfigTest, DeadReckoningMotionEstimatorWithoutPlantTableThrows) {
+    // The stick-to-velocity scaling is the fit. A missing table has to be an error rather than a
+    // zero plant that freezes every prediction without saying so.
+    write_config_file(config_with_motion_estimator(R"(
+[robot_filter.motion_estimator]
+type = "DeadReckoningMotionEstimator"
+)",
+                                                   ""));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+}
+
+TEST_F(ConfigTest, KalmanMotionEstimatorDeadReckoningModeRequiresPlantTable) {
+    // DEAD_RECKONING used to run without a plant because only the EKF arm needed the fit. Both
+    // arms now scale stick through it, so the table is required in either mode.
+    write_config_file(config_with_motion_estimator(R"(
+[robot_filter.motion_estimator]
+type = "KalmanMotionEstimator"
+our_robot_mode = "DEAD_RECKONING"
+)",
+                                                   ""));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+}
 
 TEST_F(ConfigTest, RobotFilterMotionEstimatorParsesPlantTable) {
     write_config_file(config_with_motion_estimator(std::string(R"(
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 )") + kPlantTableToml +
-                                                   R"(
+                                                       R"(
 [plant.process_noise]
 heading_random_walk = 0.5
-)"));
+)",
+                                                   ""));
 
     auto config = load_classes_from_config(temp_config_file.string());
     auto *filter_config =
@@ -1373,7 +1409,8 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeAcceptedWithPlantTable) {
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
-)") + kPlantTableToml));
+)") + kPlantTableToml,
+                                                   ""));
 
     auto config = load_classes_from_config(temp_config_file.string());
     auto *filter_config =
@@ -1396,7 +1433,8 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorPlantMissingFieldThrows) {
     write_config_file(config_with_motion_estimator(std::string(R"(
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
-)") + table));
+)") + table,
+                                                   ""));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
@@ -1405,7 +1443,8 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorPlantUnknownFieldThrows) {
     write_config_file(config_with_motion_estimator(std::string(R"(
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
-)") + kPlantTableToml + "not_a_plant_field = 1.0\n"));
+)") + kPlantTableToml + "not_a_plant_field = 1.0\n",
+                                                   ""));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
@@ -1414,13 +1453,45 @@ type = "KalmanMotionEstimator"
 // half from drifting back to its own copy of the fit.
 
 namespace {
-/** The minimal config with [plant] present and the motion-profile controller selected. */
-std::string config_with_motion_profile_nav(const std::string &extra_toml) {
-    std::string toml = config_with_motion_estimator(extra_toml);
-    const auto at = toml.find("\"NoopNavigation\"");
-    EXPECT_NE(at, std::string::npos);
-    return toml.replace(at, std::string("\"NoopNavigation\"").size(),
-                        "\"MotionProfileNavigation\"");
+/**
+ * Minimal config with the motion-profile controller selected and [plant] supplied by the caller.
+ * It uses NoopRobotFilter rather than the motion-estimator helper on purpose: the motion
+ * estimators also require the plant table, and [robot_filter] is parsed before [navigation], so
+ * sharing that helper would make the without-plant test pass on the estimator's error instead of
+ * the controller's.
+ */
+std::string config_with_motion_profile_nav(const std::string &plant_toml) {
+    return R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
+
+[navigation]
+type = "MotionProfileNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+)" + plant_toml;
 }
 }  // namespace
 
@@ -1444,7 +1515,15 @@ TEST_F(ConfigTest, MotionProfileNavigationWithoutPlantTableThrows) {
     // an error rather than a controller quietly inverting a zero drivetrain.
     write_config_file(config_with_motion_profile_nav(""));
 
-    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+    // Assert on the message: the motion estimators demand the same table and are parsed first, so
+    // a bare EXPECT_THROW would pass on their error even if the controller stopped checking.
+    try {
+        load_classes_from_config(temp_config_file.string());
+        FAIL() << "expected ConfigValidationError";
+    } catch (const ConfigValidationError &e) {
+        EXPECT_NE(std::string(e.what()).find("MotionProfileNavigation"), std::string::npos)
+            << e.what();
+    }
 }
 
 namespace {
@@ -1507,24 +1586,6 @@ behavior_mode = "RUN_AWAY"
         dynamic_cast<PlaybackTransmitterConfiguration *>(config.transmitter.get());
     ASSERT_NE(transmitter_config, nullptr);
     EXPECT_EQ(transmitter_config->behavior_mode, BehaviorMode::RUN_AWAY);
-}
-
-TEST_F(ConfigTest, PlaybackTransmitterParsesPhysicalScaling) {
-    write_config_file(config_with_transmitter(R"(
-[transmitter]
-type = "PlaybackTransmitter"
-wheel_track_width = 0.131
-max_motor_rpm = 1200
-wheel_diameter = 0.06
-)"));
-
-    auto config = load_classes_from_config(temp_config_file.string());
-    auto *transmitter_config =
-        dynamic_cast<PlaybackTransmitterConfiguration *>(config.transmitter.get());
-    ASSERT_NE(transmitter_config, nullptr);
-    EXPECT_DOUBLE_EQ(transmitter_config->wheel_track_width, 0.131);
-    EXPECT_DOUBLE_EQ(transmitter_config->max_motor_rpm, 1200.0);
-    EXPECT_DOUBLE_EQ(transmitter_config->wheel_diameter, 0.06);
 }
 
 TEST_F(ConfigTest, PlaybackTransmitterUnknownBehaviorModeThrows) {

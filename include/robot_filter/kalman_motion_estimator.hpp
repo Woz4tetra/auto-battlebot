@@ -157,6 +157,11 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
      * paying for the finite-difference Jacobian. */
     std::unique_ptr<JigPlantModel> plant_model_;
 
+    /** Fitted gains for the DEAD_RECKONING our-robot arm, which scales stick to body velocity
+     * without the plant model. Zero-valued only when a test skipped the plant; config validation
+     * requires the table for both modes. */
+    JigPlantParams our_dr_plant_;
+
     /** Latest control input, for dead-reckoning our robot and coast extrapolation. */
     CommandFeedback command_feedback_;
     /** Issued-command history for the future plant-model prediction (read at t - delay). */

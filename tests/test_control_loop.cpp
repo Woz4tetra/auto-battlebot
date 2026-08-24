@@ -60,7 +60,8 @@ class RecordingNavigation : public NavigationInterface {
     NavigationVisualization last_visualization_;
 };
 
-/** Records commands and reports a fixed feedback, so the filter's dead reckoning has an input. */
+/** Records commands and reports a fixed stick feedback, so the filter's dead reckoning has an
+ *  input. The values are normalized [-1, 1]; consumers scale them by the plant gains. */
 class RecordingTransmitter : public TransmitterInterface {
    public:
     bool initialize() override { return true; }
@@ -68,7 +69,7 @@ class RecordingTransmitter : public TransmitterInterface {
     CommandFeedback update() override {
         update_calls++;
         CommandFeedback feedback;
-        feedback.commands[FrameId::OUR_ROBOT_1] = {0.3, 0.0, 0.15};
+        feedback.stick_commands[FrameId::OUR_ROBOT_1] = {0.3, 0.0, 0.15};
         return feedback;
     }
 

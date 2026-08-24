@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include "plant/mrs_buff_mk3_params.hpp"
 #include "robot_filter/dead_reckoning_motion_estimator.hpp"
 #include "robot_filter/kalman_motion_estimator.hpp"
 #include "transform_utils.hpp"
@@ -66,6 +67,21 @@ double run_constant_velocity(KalmanMotionEstimator &estimator, FrameIdAssigner &
 KalmanMotionEstimatorConfiguration kalman_opponents_config() {
     KalmanMotionEstimatorConfiguration config;
     config.opponent_mode = OpponentMode::KALMAN;
+    config.plant = mrs_buff_mk3_plant();
+    return config;
+}
+
+/** Our-robot DEAD_RECKONING config with the plant the estimator now needs to give a normalized
+ *  stick command a physical scale. Config loading requires the table in both modes. */
+KalmanMotionEstimatorConfiguration dead_reckoning_config() {
+    KalmanMotionEstimatorConfiguration config;
+    config.plant = mrs_buff_mk3_plant();
+    return config;
+}
+
+DeadReckoningMotionEstimatorConfiguration dr_estimator_config() {
+    DeadReckoningMotionEstimatorConfiguration config;
+    config.plant = mrs_buff_mk3_plant();
     return config;
 }
 
@@ -205,8 +221,8 @@ TEST(KalmanMotionEstimatorTest, LateMeasurementRetrodictsInsteadOfCorruptingTrac
 }
 
 TEST(KalmanMotionEstimatorTest, OurRobotMatchesDeadReckoningEstimator) {
-    KalmanMotionEstimator kalman{KalmanMotionEstimatorConfiguration{}};
-    DeadReckoningMotionEstimator dead_reckoning;
+    KalmanMotionEstimator kalman{dead_reckoning_config()};
+    DeadReckoningMotionEstimator dead_reckoning{dr_estimator_config()};
     FrameIdAssigner kalman_assigner(10.0, 5);
     FrameIdAssigner dead_reckoning_assigner(10.0, 5);
     const FieldDescription field = make_field();
@@ -214,7 +230,7 @@ TEST(KalmanMotionEstimatorTest, OurRobotMatchesDeadReckoningEstimator) {
     context.our_robot_hold_window_s = 10.0;
 
     CommandFeedback feedback;
-    feedback.commands[FrameId::OUR_ROBOT_1] = VelocityCommand{1.0, 0.0, 0.5};
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = VelocityCommand{1.0, 0.0, 0.5};
 
     const double t0 = kStartTime;
     kalman.predict(t0, feedback);
@@ -242,8 +258,65 @@ TEST(KalmanMotionEstimatorTest, OurRobotMatchesDeadReckoningEstimator) {
     }
 }
 
+/** The dead-reckoning arm scales the normalized stick command to body velocity with the fitted
+ * gains. Before [plant] became the single source of physical scaling this factor came from
+ * transmitter-local wheel geometry, which disagreed with the fit by 24% forward and 21% in yaw,
+ * and every robot inherited Mrs Buff Mk3's numbers. */
+TEST(KalmanMotionEstimatorTest, OurRobotDeadReckoningScalesStickByPlantGains) {
+    KalmanMotionEstimatorConfiguration config;
+    JigPlantParams plant;  // deliberately asymmetric and non-unit
+    plant.k_fwd = 4.0;
+    plant.k_rev = 2.0;
+    plant.k_ang = 10.0;
+    config.plant = plant;
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    MotionEstimatorContext context;
+    context.our_robot_hold_window_s = 10.0;
+
+    // Half stick forward, no yaw: one unmeasured frame advances x by 0.5 * k_fwd * dt.
+    CommandFeedback feedback;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = VelocityCommand{0.5, 0.0, 0.0};
+    const double t0 = kStartTime;
+    estimator.predict(t0, feedback);
+    estimator.update({make_our_measurement(0.0, 0.0)}, t0, assigner, field, context);
+
+    estimator.predict(t0 + kDt, feedback);
+    auto outputs = estimator.update({}, t0 + kDt, assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    EXPECT_NEAR(outputs[0].pose.position.x, 0.5 * 4.0 * kDt, 1e-9);
+}
+
+/** Reverse stick selects k_rev, not k_fwd. A naive `k_fwd * u` gets every backward coast wrong,
+ * and the fitted gains are asymmetric (4.88 forward vs 4.36 reverse on Mrs Buff Mk3). */
+TEST(KalmanMotionEstimatorTest, OurRobotDeadReckoningUsesReverseGainBackward) {
+    KalmanMotionEstimatorConfiguration config;
+    JigPlantParams plant;
+    plant.k_fwd = 4.0;
+    plant.k_rev = 2.0;
+    plant.k_ang = 10.0;
+    config.plant = plant;
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    MotionEstimatorContext context;
+    context.our_robot_hold_window_s = 10.0;
+
+    CommandFeedback feedback;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = VelocityCommand{-0.5, 0.0, 0.0};
+    const double t0 = kStartTime;
+    estimator.predict(t0, feedback);
+    estimator.update({make_our_measurement(0.0, 0.0)}, t0, assigner, field, context);
+
+    estimator.predict(t0 + kDt, feedback);
+    auto outputs = estimator.update({}, t0 + kDt, assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    EXPECT_NEAR(outputs[0].pose.position.x, -0.5 * 2.0 * kDt, 1e-9);
+}
+
 TEST(KalmanMotionEstimatorTest, OurRobotDropsAfterHoldWindow) {
-    KalmanMotionEstimator estimator{KalmanMotionEstimatorConfiguration{}};
+    KalmanMotionEstimator estimator{dead_reckoning_config()};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
     MotionEstimatorContext context;
@@ -408,42 +481,10 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
     EXPECT_NEAR(std::remainder(yaw - truth.theta, 2.0 * M_PI), 0.0, 0.1);
 }
 
-TEST(KalmanMotionEstimatorTest, OurRobotEkfIgnoresPhysicalVelocityFeedback) {
-    // Regression for the 2026-08-23 field session: OpenTxTransmitter reports physical
-    // velocities (up to 40 rad/s) in `commands` and normalized stick in `stick_commands`.
-    // The EKF read `commands`, which applied the fitted gains twice and spun the estimated
-    // heading thousands of deg/s on minor stick input.
-    KalmanMotionEstimator estimator{ekf_config()};
-    FrameIdAssigner assigner(10.0, 5);
-    const FieldDescription field = make_field();
-    const MotionEstimatorContext context;
-
-    // Stationary robot: stick at zero while the physical map carries the large yaw rate the
-    // transmitter would report for a modest deflection.
-    CommandFeedback feedback;
-    feedback.stick_commands[FrameId::OUR_ROBOT_1] = VelocityCommand{0.0, 0.0, 0.0};
-    feedback.commands[FrameId::OUR_ROBOT_1] = VelocityCommand{0.0, 0.0, 20.0};
-
-    const PlantState truth;  // at the origin, theta 0
-    double t = kStartTime;
-    for (int i = 0; i < 40; ++i) {
-        estimator.predict(t, feedback);
-        estimator.update({make_our_pose_measurement(truth)}, t, assigner, field, context);
-        t += kDt;
-    }
-
-    // Coast into a dropout: the plant must integrate the zero stick command. Reading the
-    // physical map instead would swing the heading by radians over this span.
-    auto coasted = estimator.coast(t + 0.3);
-    ASSERT_TRUE(coasted.has_value());
-    ASSERT_EQ(coasted->size(), 1u);
-    const double yaw = pose_to_pose2d((*coasted)[0].pose).yaw;
-    EXPECT_NEAR(yaw, 0.0, 0.05);
-}
-
 TEST(KalmanMotionEstimatorTest, HoldModePinsOpponentAtLastMeasurement) {
     KalmanMotionEstimatorConfiguration config;
     config.opponent_mode = OpponentMode::HOLD;
+    config.plant = mrs_buff_mk3_plant();
     KalmanMotionEstimator estimator{config};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
@@ -474,7 +515,7 @@ TEST(KalmanMotionEstimatorTest, HoldModePinsOpponentAtLastMeasurement) {
 }
 
 TEST(KalmanMotionEstimatorTest, ResetClearsTracks) {
-    KalmanMotionEstimator estimator{KalmanMotionEstimatorConfiguration{}};
+    KalmanMotionEstimator estimator{dead_reckoning_config()};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
     const MotionEstimatorContext context;
