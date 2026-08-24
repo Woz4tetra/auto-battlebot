@@ -24,6 +24,10 @@ class PlaybackTransmitter : public TransmitterInterface {
 
    private:
     double init_delay_seconds_;
+    /** Full-stick physical scaling derived from the config's motor and wheel geometry,
+     *  matching OpenTxTransmitter's conversion of channel values to body velocity. */
+    double max_linear_mps_;
+    double max_angular_radps_;
     BehaviorMode behavior_mode_;
     bool initialized_;
     std::shared_ptr<ClockInterface> clock_;

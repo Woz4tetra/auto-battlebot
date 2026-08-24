@@ -21,7 +21,9 @@ Regenerate the SVG after editing `diagrams/plant_backed_control.dot`:
 lockstep, and the split matters:
 
 1. `pump_input()` calls `transmitter_->update()`, which reads the RC channels back as
-   `CommandFeedback`.
+   `CommandFeedback`. The feedback carries the command in two spaces: physical body
+   velocity (m/s, rad/s) for the dead-reckoning arm and normalized [-1, 1] stick for the
+   EKF's plant model, which applies the fitted gains itself.
 2. `robot_filter_->predict(now, command_feedback)`, every tick. Inside the estimator this
    pushes a `TimedCommand` into `CommandRingBuffer` and then calls `coast(now)`.
 3. `robot_filter_->correct(...)`, only when a new perception frame landed. This runs the

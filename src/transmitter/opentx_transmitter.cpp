@@ -100,6 +100,11 @@ CommandFeedback OpenTxTransmitter::update() {
         .linear_y = 0.0,
         .angular_z = body.angular * max_angular_radps,
     };
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = {
+        .linear_x = body.linear,
+        .linear_y = 0.0,
+        .angular_z = body.angular,
+    };
     return feedback;
 }
 

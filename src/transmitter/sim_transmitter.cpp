@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include "enums/frame_id.hpp"
 #include "transmitter/drive_mixing.hpp"
 
 namespace auto_battlebot {
@@ -25,21 +26,34 @@ bool SimTransmitter::initialize() {
 }
 
 CommandFeedback SimTransmitter::update() {
-    if (!initialized_ || init_button_pressed_) return CommandFeedback{};
+    if (!initialized_) return CommandFeedback{};
 
-    const double elapsed = clock_->now() - start_time_;
-    if (elapsed >= init_delay_seconds_) {
-        init_button_pressed_ = true;
+    if (!init_button_pressed_) {
+        const double elapsed = clock_->now() - start_time_;
+        if (elapsed >= init_delay_seconds_) {
+            init_button_pressed_ = true;
+        }
     }
-    return CommandFeedback{};
+
+    if (!last_sent_) return CommandFeedback{};
+
+    // The sim plant consumes normalized stick commands directly, so there is no physical
+    // scaling to report: only the stick map is filled. Without this stream the robot
+    // filter's command-driven prediction is inert in simulation.
+    CommandFeedback feedback;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = *last_sent_;
+    return feedback;
 }
 
 void SimTransmitter::enable() { enabled_ = true; }
 
-void SimTransmitter::disable() { enabled_ = false; }
+void SimTransmitter::disable() {
+    enabled_ = false;
+    last_sent_.reset();
+}
 
 void SimTransmitter::send(VelocityCommand command) {
-    if (!connection_ || !enabled_) return;
+    if (!enabled_) return;
 
     // The real transmitter's drive processor saturates before mixing to wheels, giving angular
     // priority and leaving linear whatever authority is left. There is no processor in the sim
@@ -49,6 +63,11 @@ void SimTransmitter::send(VelocityCommand command) {
         saturate_velocity(command.linear_x, command.angular_z, velocity_saturation_limit_);
     command.linear_x = saturated.linear;
     command.angular_z = saturated.angular;
+
+    // Recorded before the connection guard: the feedback stream mirrors what control issued,
+    // matching OpenTxTransmitter reading its own channels back.
+    last_sent_ = command;
+    if (!connection_) return;
 
     if (command_delay_ms_ <= 0.0) {
         connection_->set_command(command);

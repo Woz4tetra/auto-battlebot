@@ -1509,6 +1509,24 @@ behavior_mode = "RUN_AWAY"
     EXPECT_EQ(transmitter_config->behavior_mode, BehaviorMode::RUN_AWAY);
 }
 
+TEST_F(ConfigTest, PlaybackTransmitterParsesPhysicalScaling) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "PlaybackTransmitter"
+wheel_track_width = 0.131
+max_motor_rpm = 1200
+wheel_diameter = 0.06
+)"));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *transmitter_config =
+        dynamic_cast<PlaybackTransmitterConfiguration *>(config.transmitter.get());
+    ASSERT_NE(transmitter_config, nullptr);
+    EXPECT_DOUBLE_EQ(transmitter_config->wheel_track_width, 0.131);
+    EXPECT_DOUBLE_EQ(transmitter_config->max_motor_rpm, 1200.0);
+    EXPECT_DOUBLE_EQ(transmitter_config->wheel_diameter, 0.06);
+}
+
 TEST_F(ConfigTest, PlaybackTransmitterUnknownBehaviorModeThrows) {
     write_config_file(config_with_transmitter(R"(
 [transmitter]

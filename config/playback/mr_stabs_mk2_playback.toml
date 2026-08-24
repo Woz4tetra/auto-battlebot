@@ -7,6 +7,10 @@ extends = "playback/_playback"
 [robot_mask_model]
 their_robot_labels = ["OPPONENT", "MRS_BUFF_MK3"]
 
+# Mr Stabs Mk2 drivetrain geometry, mirroring mr_stabs_mk2_jetson.toml.
+[transmitter]
+wheel_track_width = 0.131
+
 # Mr Stabs Mk2 stays on pursuit, same as the hardware profiles. `type` differs from _common, so
 # the merge replaces the section wholesale: these are the values this profile used to inherit.
 [navigation]

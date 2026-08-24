@@ -46,8 +46,11 @@ void KalmanMotionEstimator::reset() {
 
 void KalmanMotionEstimator::predict(double now, const CommandFeedback &command_feedback) {
     command_feedback_ = command_feedback;
-    const auto cmd_it = command_feedback.commands.find(FrameId::OUR_ROBOT_1);
-    if (cmd_it != command_feedback.commands.end()) {
+    // The plant model consumes normalized [-1, 1] stick commands; the physical-velocity map
+    // stays with the dead-reckoning arm. Feeding physical velocities into the plant applies
+    // the fitted gains twice (a 40x yaw-rate error at the Mrs Buff Mk3 scaling).
+    const auto cmd_it = command_feedback.stick_commands.find(FrameId::OUR_ROBOT_1);
+    if (cmd_it != command_feedback.stick_commands.end()) {
         command_history_.push(TimedCommand{now, cmd_it->second});
     }
 }

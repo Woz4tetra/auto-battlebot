@@ -311,7 +311,7 @@ double run_ekf_measured_phase(KalmanMotionEstimator &estimator, JigPlantModel &t
                               const FieldDescription &field, const MotionEstimatorContext &context,
                               int steps) {
     CommandFeedback feedback;
-    feedback.commands[FrameId::OUR_ROBOT_1] = command;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = command;
     double t = kStartTime;
     for (int i = 0; i < steps; ++i) {
         estimator.predict(t, feedback);
@@ -343,7 +343,7 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfTracksPlantTruthThroughDropout) {
     // 300 ms of dropout, inside the 400 ms coast horizon: the filter propagates through the
     // plant model with the held command and stays on the truth it was converged to.
     CommandFeedback feedback;
-    feedback.commands[FrameId::OUR_ROBOT_1] = command;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = command;
     for (int i = 0; i < 9; ++i) {
         const double prev_t = t;
         t += kDt;
@@ -392,7 +392,7 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
     // The front/back converter mislabels: heading arrives flipped by pi, position correct.
     t += kDt;
     CommandFeedback feedback;
-    feedback.commands[FrameId::OUR_ROBOT_1] = command;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = command;
     estimator.predict(t, feedback);
     truth_history.push_back(TimedCommand{t, command});
     truth = truth_model.propagate_unwrapped(truth, truth_history, t - kDt, t);
@@ -406,6 +406,39 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
     EXPECT_NEAR(outputs[0].pose.position.x, truth.x, 0.03);
     const double yaw = pose_to_pose2d(outputs[0].pose).yaw;
     EXPECT_NEAR(std::remainder(yaw - truth.theta, 2.0 * M_PI), 0.0, 0.1);
+}
+
+TEST(KalmanMotionEstimatorTest, OurRobotEkfIgnoresPhysicalVelocityFeedback) {
+    // Regression for the 2026-08-23 field session: OpenTxTransmitter reports physical
+    // velocities (up to 40 rad/s) in `commands` and normalized stick in `stick_commands`.
+    // The EKF read `commands`, which applied the fitted gains twice and spun the estimated
+    // heading thousands of deg/s on minor stick input.
+    KalmanMotionEstimator estimator{ekf_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    // Stationary robot: stick at zero while the physical map carries the large yaw rate the
+    // transmitter would report for a modest deflection.
+    CommandFeedback feedback;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = VelocityCommand{0.0, 0.0, 0.0};
+    feedback.commands[FrameId::OUR_ROBOT_1] = VelocityCommand{0.0, 0.0, 20.0};
+
+    const PlantState truth;  // at the origin, theta 0
+    double t = kStartTime;
+    for (int i = 0; i < 40; ++i) {
+        estimator.predict(t, feedback);
+        estimator.update({make_our_pose_measurement(truth)}, t, assigner, field, context);
+        t += kDt;
+    }
+
+    // Coast into a dropout: the plant must integrate the zero stick command. Reading the
+    // physical map instead would swing the heading by radians over this span.
+    auto coasted = estimator.coast(t + 0.3);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 1u);
+    const double yaw = pose_to_pose2d((*coasted)[0].pose).yaw;
+    EXPECT_NEAR(yaw, 0.0, 0.05);
 }
 
 TEST(KalmanMotionEstimatorTest, HoldModePinsOpponentAtLastMeasurement) {

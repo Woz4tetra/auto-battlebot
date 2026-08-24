@@ -28,11 +28,11 @@ namespace auto_battlebot {
  *
  * The our-robot track has two modes. DEAD_RECKONING applies the last commanded velocity
  * directly, matching DeadReckoningMotionEstimator for that track. EKF runs a 5-state EKF
- * [x, y, theta, v, w] propagated through JigPlantModel with the issued-command history read
- * at t - delay, corrected by keypoint poses (position + heading) or blob centroids
- * (position only). A heading innovation past pi/2 falls back to the position rows: the
- * front/back keypoint converter can flip, and folding a flipped heading in would spin the
- * whole state.
+ * [x, y, theta, v, w] propagated through JigPlantModel with the issued-command history
+ * (normalized stick space, from CommandFeedback::stick_commands) read at t - delay, corrected by
+ * keypoint poses (position + heading) or blob centroids (position only). A heading innovation past
+ * pi/2 falls back to the position rows: the front/back keypoint converter can flip, and folding a
+ * flipped heading in would spin the whole state.
  *
  * coast() renders every track advanced to the control-loop clock, so the emitted state moves
  * between perception frames instead of freezing at the last correct().

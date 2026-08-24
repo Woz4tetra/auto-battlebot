@@ -184,6 +184,7 @@ attack_terminal_speed_fraction = 1.0   # full forward speed into the opponent
 run_away_terminal_speed_fraction = 0.0 # arrive stopped at the safe point
 wall_reverse_distance = 0.25           # set > 0 to reverse when within this distance of any wall
 wall_heading_threshold = 1.047         # ~60 deg; heading must point toward wall to trigger reversal
+wall_reverse_min_speed = 0.25
 max_linear_command = 1.0               # 0 = no limit
 max_angular_command = 1.0              # 0 = no limit
 

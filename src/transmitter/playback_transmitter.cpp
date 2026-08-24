@@ -1,5 +1,6 @@
 #include "transmitter/playback_transmitter.hpp"
 
+#include <cmath>
 #include <magic_enum.hpp>
 
 #include "enums/frame_id.hpp"
@@ -9,6 +10,8 @@ namespace auto_battlebot {
 PlaybackTransmitter::PlaybackTransmitter(PlaybackTransmitterConfiguration &config,
                                          std::shared_ptr<ClockInterface> clock)
     : init_delay_seconds_(config.init_delay_seconds),
+      max_linear_mps_(config.max_motor_rpm * M_PI * config.wheel_diameter / 60.0),
+      max_angular_radps_(2.0 * max_linear_mps_ / config.wheel_track_width),
       behavior_mode_(config.behavior_mode),
       initialized_(false),
       clock_(std::move(clock)),
@@ -58,8 +61,15 @@ CommandFeedback PlaybackTransmitter::update() {
 
     if (!last_processed_) return CommandFeedback{};
 
+    // last_processed_ is normalized stick space; the physical map applies the same
+    // full-stick scaling OpenTxTransmitter reads back from its channels.
     CommandFeedback feedback;
     feedback.commands[FrameId::OUR_ROBOT_1] = {
+        .linear_x = last_processed_->linear * max_linear_mps_,
+        .linear_y = 0.0,
+        .angular_z = last_processed_->angular * max_angular_radps_,
+    };
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = {
         .linear_x = last_processed_->linear,
         .linear_y = 0.0,
         .angular_z = last_processed_->angular,

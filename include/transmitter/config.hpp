@@ -28,6 +28,13 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
     double lifted_deadzone_percent = 0.0;
     bool reverse_linear_channel = false;
     bool reverse_angular_channel = false;
+    /** Full-stick physical scaling, mirroring the OpenTx values for the robot being
+     *  replayed: full stick = max_motor_rpm at the wheel, converted through wheel_diameter
+     *  and wheel_track_width. Scales the physical `commands` map of CommandFeedback; the
+     *  normalized `stick_commands` map does not use them. */
+    double wheel_track_width = 1.0;
+    double max_motor_rpm = 1500.0;
+    double wheel_diameter = 0.05;
     /** Behavior mode for the run. Playback has no radio, so this stands in for the
      *  physical switch OpenTxTransmitter reads on behavior_mode_channel. */
     BehaviorMode behavior_mode = BehaviorMode::ATTACK;
@@ -42,6 +49,9 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
         PARSE_FIELD_DOUBLE(lifted_deadzone_percent)
         PARSE_FIELD_BOOL(reverse_linear_channel)
         PARSE_FIELD_BOOL(reverse_angular_channel)
+        PARSE_FIELD_DOUBLE(wheel_track_width)
+        PARSE_FIELD_DOUBLE(max_motor_rpm)
+        PARSE_FIELD_DOUBLE(wheel_diameter)
         PARSE_ENUM(behavior_mode, BehaviorMode)
     )
     // clang-format on

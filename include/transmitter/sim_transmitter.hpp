@@ -2,6 +2,7 @@
 
 #include <deque>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "data_structures/velocity.hpp"
@@ -38,6 +39,10 @@ class SimTransmitter : public TransmitterInterface {
     std::shared_ptr<SimConnection> connection_;
     // Queued commands with their logical enqueue time, for the artificial actuation delay.
     std::deque<std::pair<double, VelocityCommand>> command_queue_;
+    /** Last command issued through send() (post-saturation, normalized stick space), reported
+     *  back as CommandFeedback. Cleared on disable(): with autonomy cut nothing reaches the
+     *  simulated robot, so there is no command to report. */
+    std::optional<VelocityCommand> last_sent_;
 };
 
 }  // namespace auto_battlebot
