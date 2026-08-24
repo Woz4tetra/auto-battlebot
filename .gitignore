@@ -71,3 +71,6 @@ Thumbs.db
 # training
 runs/
 *.pt
+
+# Claude artifacts
+/.claude/worktrees/

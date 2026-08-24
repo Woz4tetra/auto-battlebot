@@ -110,9 +110,17 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
      * differenced. A gap this long means dropped detections, and the robot's path between the
      * two poses is no longer a straight line worth differentiating. */
     double speed_measurement_max_dt_s = 0.25;
-    /** Floor on the derived forward-speed sigma (m/s). The propagated value assumes independent
-     * position noise at both ends; the floor covers the part that is common-mode. */
-    double speed_sigma_floor_mps = 0.15;
+    /** Position noise (meters) the forward-speed sigma is derived from. Deliberately not
+     * keypoint_position_sigma_m: that one is a conservative placeholder that also sets the
+     * position gate, while differencing needs the real frame-to-frame scatter. Measured at
+     * 2.7 mm median residual about a 9-frame smooth on the 2026-08-23 20-37 recording, taken
+     * here at 3.5 mm to leave room for the smoother following some of the noise. */
+    double speed_position_sigma_m = 0.0035;
+    /** Floor on the derived forward-speed sigma (m/s). Position scatter is not the whole error:
+     * the chord understates an arc, the projection inherits the heading error, and the two
+     * endpoint stamps are not exact. Set from the residual against a 150 ms chord reference on
+     * the same recording, 0.168 m/s median absolute, which is 0.25 sigma if Gaussian. */
+    double speed_sigma_floor_mps = 0.25;
     /** Chi-square gate for the forward-speed update alone, deliberately looser than gate_nis.
      * That gate protects a pose the track cannot recover without; this one guards a state whose
      * fallback is the plant model's own guess, which the innovations say is worse than a noisy
@@ -151,6 +159,7 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         PARSE_FIELD_DOUBLE(min_heading_speed)
         PARSE_FIELD_DOUBLE(speed_measurement_min_dt_s)
         PARSE_FIELD_DOUBLE(speed_measurement_max_dt_s)
+        PARSE_FIELD_DOUBLE(speed_position_sigma_m)
         PARSE_FIELD_DOUBLE(speed_sigma_floor_mps)
         PARSE_FIELD_DOUBLE(speed_gate_nis)
         parser.validate_no_extra_fields();

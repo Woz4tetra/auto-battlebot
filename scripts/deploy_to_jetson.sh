@@ -62,6 +62,26 @@ fi
 echo "Stamping build version: ${GIT_VERSION}"
 echo "$GIT_VERSION" > "$PROJECT_ROOT/.build_version"
 
+# ── Deploy excludes ────────────────────────────────────────────────────────────────
+# .deployignore lists paths that stay off the Jetson even though they are
+# tracked in git. Syntax matches .gitignore, including "!pattern" to re-include.
+# The rules become an rsync filter file applied before the .gitignore merge, so
+# a "!pattern" here can also pull back a gitignored path.
+DEPLOY_IGNORE="$PROJECT_ROOT/.deployignore"
+DEPLOY_FILTER_OPTS=()
+if [ -f "$DEPLOY_IGNORE" ]; then
+    DEPLOY_FILTER="$(mktemp)"
+    trap 'rm -f "$DEPLOY_FILTER"' EXIT
+    awk '
+        { sub(/\r$/, ""); sub(/[[:space:]]+$/, "") }
+        /^[[:space:]]*($|#)/ { next }
+        /^!/ { print "+ " substr($0, 2); next }
+        { print "- " $0 }
+    ' "$DEPLOY_IGNORE" > "$DEPLOY_FILTER"
+    echo "Applying $(grep -c . "$DEPLOY_FILTER") rule(s) from .deployignore"
+    DEPLOY_FILTER_OPTS=( "--filter=. $DEPLOY_FILTER" )
+fi
+
 RSYNC_OPTS=(
     --archive
     --verbose
@@ -74,11 +94,13 @@ RSYNC_OPTS=(
 # --filter reads each .gitignore encountered during traversal, excluding all
 # gitignored paths. /data is excluded by the root .gitignore, so --delete
 # will not touch it on the remote. .git/ is excluded explicitly.
+# .deployignore adds excludes on top of that (see above).
 echo "Syncing code to ${REMOTE_DEST}..."
 # --include for .build_version is ordered before the gitignore merge so the
 # stamped version file transfers even though it is gitignored (first match wins).
 rsync "${RSYNC_OPTS[@]}" \
     --include='/.build_version' \
+    "${DEPLOY_FILTER_OPTS[@]}" \
     --filter=':- .gitignore' \
     --exclude='.git/' \
     "$PROJECT_ROOT/" \

@@ -331,8 +331,10 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                     // held above a floor for the part that is common-mode.
                     const double floor_var =
                         config_.speed_sigma_floor_mps * config_.speed_sigma_floor_mps;
+                    const double endpoint_var =
+                        config_.speed_position_sigma_m * config_.speed_position_sigma_m;
                     speed_variance =
-                        std::max(floor_var, 2.0 * measurement_noise(0, 0) / (speed_dt * speed_dt));
+                        std::max(floor_var, 2.0 * endpoint_var / (speed_dt * speed_dt));
                     has_speed = true;
                 }
             }

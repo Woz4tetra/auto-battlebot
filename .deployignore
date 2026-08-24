@@ -1,0 +1,24 @@
+# Paths excluded from scripts/deploy_to_jetson.sh, on top of .gitignore.
+#
+# Syntax follows .gitignore/.dockerignore:
+#   pattern      exclude it
+#   /pattern     anchor to the repo root
+#   pattern/     directories only
+#   !pattern     re-include something an earlier rule (or .gitignore) excluded
+#   # comment    ignored
+#
+# Two rsync notes:
+#   - Excluding a path here does not delete an already-deployed copy on the
+#     Jetson. Remove it there by hand once.
+#   - To re-include a file inside an excluded directory, re-include the
+#     directory first: "!config/", then "!config/keep.toml".
+
+# Examples:
+/docs/
+/logo/
+/stickers/
+/.claude/
+/.serena/
+/build/
+/build-test/
+/build-docker/

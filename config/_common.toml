@@ -157,9 +157,17 @@ c_drift_bias = 0.0
 # fit_process_noise.py output, playground/calibration/out/process_noise.toml, same sessions
 # and plant as above; only the EKF reads them. Growth-law mechanisms: white-noise accel (h^3), scale-factor error on
 # v and w (h^2, applied state-dependent at runtime), heading random walk (h), delay jitter
-# (constant, fit found none). Refit and re-copy, do not hand-edit.
+# (constant, fit found none). Refit and re-copy, do not hand-edit -- except q_along, see below.
 [plant.process_noise]
-q_along = 0.37125
+# Hand-set, not from the fit. The fitted 0.37125 left the EKF's forward-speed sigma at 0.17 m/s
+# while its speed was actually wrong by 0.56 m/s, so the filter out-voted its own measurements
+# and the motion profile braked on a number that read half the robot's real speed. Chosen by
+# sweeping against a 150 ms chord reference on the 2026-08-23 20-37 RUN_AWAY segments and taking
+# the point where the speed innovations become chi-square consistent: median NIS 0.44 against the
+# 0.455 target for 1 DOF, from 5.65 at the fitted value. Position jitter is unchanged (2.9 ->
+# 3.1 mm) and heading rejections fall from 4.4% to 0.1%. Replace with a real fit when
+# fit_process_noise.py next runs on a session with autonomous RUN_AWAY motion in it.
+q_along = 10.0
 q_cross = 0.351167
 q_heading = 0.0
 scale_factor = 0.541056
