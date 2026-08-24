@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <magic_enum.hpp>
 #include <set>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
@@ -277,6 +278,27 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                 !input.keypoints.empty() &&
                 std::abs(ekf::wrap_angle(measured_pose.yaw - track.state.theta)) <= M_PI / 2.0;
             if (!input.keypoints.empty() && !has_heading) ++num_heading_flips;
+
+            // Heading is the input the motion profile brakes on: a rejected keypoint yaw leaves
+            // theta running on the plant model alone, so record the state and the innovation that
+            // was thrown away. Without both sides here a diverged theta is indistinguishable from a
+            // bad measurement.
+            if (!input.keypoints.empty()) {
+                diagnostics_logger_->debug(
+                    "our_heading",
+                    {{"frame_id", std::string(magic_enum::enum_name(input.frame_id))},
+                     {"accepted", has_heading ? 1 : 0},
+                     {"state_theta_deg", track.state.theta * 180.0 / M_PI},
+                     {"state_w_dps", track.state.w * 180.0 / M_PI},
+                     {"state_v", track.state.v},
+                     {"measured_yaw_deg", measured_pose.yaw * 180.0 / M_PI},
+                     {"innovation_deg",
+                      ekf::wrap_angle(measured_pose.yaw - track.state.theta) * 180.0 / M_PI},
+                     {"cov_theta_deg",
+                      std::sqrt(std::max(0.0, track.covariance(2, 2))) * 180.0 / M_PI},
+                     {"cov_w_dps", std::sqrt(std::max(0.0, track.covariance(4, 4))) * 180.0 / M_PI},
+                     {"stamp_age_s", timestamp - track.last_measured_stamp}});
+            }
 
             ekf::UpdateOutcome outcome;
             if (has_heading) {
