@@ -162,6 +162,11 @@ void KalmanMotionEstimator::init_our_ekf(OurEkfTrack &track, const RobotDescript
     track.consecutive_rejects = 0;
     track.output_stale = false;
     track.description = measurement;
+    track.speed_ref_x = pose.x;
+    track.speed_ref_y = pose.y;
+    track.speed_ref_yaw = pose.yaw;
+    track.speed_ref_stamp = stamp;
+    track.has_speed_ref = !measurement.keypoints.empty();
 }
 
 RobotDescription KalmanMotionEstimator::render_our_ekf(const OurEkfTrack &track,
@@ -300,6 +305,47 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                      {"stamp_age_s", timestamp - track.last_measured_stamp}});
             }
 
+            // Forward speed differenced against an earlier accepted pose. The state's v row is
+            // otherwise unobserved, so it tracks the plant model rather than the robot, and the
+            // motion profile brakes on that number. Only attempted alongside an accepted heading:
+            // the difference has to be projected onto a direction, and a rejected yaw is not one.
+            double speed_measurement = 0.0;
+            double speed_variance = 0.0;
+            bool has_speed = false;
+            if (has_heading && track.has_speed_ref) {
+                const double speed_dt = timestamp - track.speed_ref_stamp;
+                if (speed_dt > config_.speed_measurement_max_dt_s) {
+                    track.has_speed_ref = false;
+                } else if (speed_dt >= config_.speed_measurement_min_dt_s) {
+                    const double dx = measured_pose.x - track.speed_ref_x;
+                    const double dy = measured_pose.y - track.speed_ref_y;
+                    // Project onto the heading halfway through the baseline. Over an arc the
+                    // endpoint heading points off the chord, and this drivetrain turns fast
+                    // enough for that to bias the projection.
+                    const double mid_yaw =
+                        track.speed_ref_yaw +
+                        0.5 * ekf::wrap_angle(measured_pose.yaw - track.speed_ref_yaw);
+                    speed_measurement =
+                        (dx * std::cos(mid_yaw) + dy * std::sin(mid_yaw)) / speed_dt;
+                    // Independent position noise at both ends, propagated through the divide,
+                    // held above a floor for the part that is common-mode.
+                    const double floor_var =
+                        config_.speed_sigma_floor_mps * config_.speed_sigma_floor_mps;
+                    speed_variance =
+                        std::max(floor_var, 2.0 * measurement_noise(0, 0) / (speed_dt * speed_dt));
+                    has_speed = true;
+                }
+            }
+            if (has_speed) {
+                diagnostics_logger_->debug(
+                    "our_speed", {{"measured_v", speed_measurement},
+                                  {"state_v", track.state.v},
+                                  {"innovation", speed_measurement - track.state.v},
+                                  {"sigma", std::sqrt(speed_variance)},
+                                  {"baseline_s", timestamp - track.speed_ref_stamp},
+                                  {"cov_v", std::sqrt(std::max(0.0, track.covariance(3, 3)))}});
+            }
+
             ekf::UpdateOutcome outcome;
             if (has_heading) {
                 ekf::Mat<3, 5> observation = ekf::Mat<3, 5>::Zero();
@@ -325,6 +371,24 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                                                 config_.covariance_floor);
             }
 
+            // Speed corrects in a second update rather than as another row above. Sharing the
+            // gate would let one noisy finite difference discard the position fix that arrived
+            // with it, and position is the measurement this track cannot do without. Its own
+            // gate can drop the speed row alone.
+            if (outcome.accepted && has_speed) {
+                ekf::Mat<1, 5> observation = ekf::Mat<1, 5>::Zero();
+                observation(0, 3) = 1.0;
+                ekf::Mat<1, 1> noise;
+                noise(0, 0) = speed_variance;
+                ekf::Vec<1> measured;
+                measured(0) = speed_measurement;
+                ekf::Vec<1> predicted;
+                predicted(0) = state_vec(3);
+                ekf::ekf_update<5, 1>(state_vec, track.covariance, measured, predicted, observation,
+                                      noise, config_.speed_gate_nis, {false},
+                                      {false, false, true, false, false}, config_.covariance_floor);
+            }
+
             if (outcome.accepted) {
                 track.state = PlantState{state_vec(0), state_vec(1), state_vec(2), state_vec(3),
                                          state_vec(4)};
@@ -332,6 +396,16 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                 track.consecutive_rejects = 0;
                 track.output_stale = false;
                 track.description = input;
+                // Only move the reference once its baseline has been spent, or when there is
+                // none to spend. Advancing every frame would pin the baseline at one frame and
+                // put the speed row back in the noise it was widened to escape.
+                if (has_speed || !track.has_speed_ref) {
+                    track.speed_ref_x = measured_pose.x;
+                    track.speed_ref_y = measured_pose.y;
+                    track.speed_ref_yaw = measured_pose.yaw;
+                    track.speed_ref_stamp = timestamp;
+                    track.has_speed_ref = !input.keypoints.empty();
+                }
             } else {
                 ++num_gated;
                 track.output_stale = true;

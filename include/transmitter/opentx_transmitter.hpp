@@ -65,7 +65,7 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     std::optional<std::array<int16_t, kMaxChannels>> latest_channels_;
     bool init_button_was_pressed_ = false;
-    /** Decoded (behavior_mode, trainer_enabled, init_button) flags as last written to the
+    /** Decoded (behavior_mode, autonomy_enabled, init_button) flags as last written to the
      *  switch_states log entry; empty until the first channel frame is logged. */
     std::optional<std::tuple<bool, bool, bool>> last_logged_switch_states_;
     bool enabled_ = false;

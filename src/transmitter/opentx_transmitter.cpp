@@ -210,12 +210,14 @@ void OpenTxTransmitter::log_switch_states() {
     const int trainer_raw = get_channel_value(config_.trainer_enable_channel);
     const int init_raw = get_channel_value(config_.init_button_channel);
     const bool run_away = mode_raw > config_.behavior_mode_threshold;
-    // Trainer enable is active while the channel reads negative, matching the comparison in
-    // limit_linear_acceleration(). Do not normalize the sign; it is a property of the OpenTX
-    // model.
-    const bool trainer_enabled = trainer_raw < 0;
+    // SA drives this channel high when it is down, which is the position that mixes the trainer
+    // inputs into ch0/ch1 (firmware/config/CHANNEL_CONVENTION.md). Negative therefore means the
+    // sticks alone reach the robot and nothing we send is applied. The comparison in
+    // limit_linear_acceleration() reads the same way: its `< 0` branch is the bypass taken when
+    // we are not driving.
+    const bool autonomy_enabled = trainer_raw >= 0;
     const bool init_pressed = init_raw > config_.init_button_threshold;
-    const auto states = std::make_tuple(run_away, trainer_enabled, init_pressed);
+    const auto states = std::make_tuple(run_away, autonomy_enabled, init_pressed);
     if (last_logged_switch_states_ == states) return;
     last_logged_switch_states_ = states;
     // The raw value next to each flag separates "switch on the wrong channel" from "threshold
@@ -223,8 +225,8 @@ void OpenTxTransmitter::log_switch_states() {
     // the robot moves at all, so they log at info and survive the default log level.
     logger_->info("switch_states", {{"behavior_mode", run_away ? "run_away" : "attack"},
                                     {"behavior_mode_raw", mode_raw},
-                                    {"trainer_enabled", static_cast<int>(trainer_enabled)},
-                                    {"trainer_raw", trainer_raw},
+                                    {"autonomy_enabled", static_cast<int>(autonomy_enabled)},
+                                    {"autonomy_raw", trainer_raw},
                                     {"init_button", static_cast<int>(init_pressed)},
                                     {"init_button_raw", init_raw}});
 }

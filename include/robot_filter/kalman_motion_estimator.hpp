@@ -112,6 +112,14 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         bool output_stale = false;
         /** Non-kinematic fields of the latest accepted measurement, the output template. */
         RobotDescription description;
+        /** Earlier accepted pose the forward-speed observation differences against, held until
+         * the baseline reaches speed_measurement_min_dt_s. Stored as plain components so the
+         * header does not need the pose types. */
+        double speed_ref_x = 0.0;
+        double speed_ref_y = 0.0;
+        double speed_ref_yaw = 0.0;
+        double speed_ref_stamp = 0.0;
+        bool has_speed_ref = false;
     };
 
     /** Propagates the track to target_stamp (no-op when not ahead) and stores a snapshot. */

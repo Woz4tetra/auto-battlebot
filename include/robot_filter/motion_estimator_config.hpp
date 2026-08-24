@@ -98,6 +98,29 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     double min_heading_speed = 0.3;
 
     /**
+     * Baseline (seconds) for the our-robot forward-speed observation, differenced between two
+     * accepted keypoint poses. Nothing else in the update observes v directly, so without this
+     * the speed the motion profile brakes on is whatever the plant model predicted. One frame
+     * of baseline is too short to be useful: at 30 Hz and a 0.03 m position sigma the
+     * difference carries ~1.3 m/s of noise, so the reference pose is held until the gap reaches
+     * this value (about three frames) and the sigma falls with it.
+     */
+    double speed_measurement_min_dt_s = 0.08;
+    /** Baseline age (seconds) past which the held reference pose is dropped rather than
+     * differenced. A gap this long means dropped detections, and the robot's path between the
+     * two poses is no longer a straight line worth differentiating. */
+    double speed_measurement_max_dt_s = 0.25;
+    /** Floor on the derived forward-speed sigma (m/s). The propagated value assumes independent
+     * position noise at both ends; the floor covers the part that is common-mode. */
+    double speed_sigma_floor_mps = 0.15;
+    /** Chi-square gate for the forward-speed update alone, deliberately looser than gate_nis.
+     * That gate protects a pose the track cannot recover without; this one guards a state whose
+     * fallback is the plant model's own guess, which the innovations say is worse than a noisy
+     * measurement. Sized to pass the innovations the current process noise makes look
+     * impossible. */
+    double speed_gate_nis = 400.0;
+
+    /**
      * Jig-fitted plant parameters, from the shared top-level [plant] table, stamped in by
      * apply_plant. Absent unless the config carries the table. Presence does not enable
      * our_robot_mode = EKF: that stays rejected until the plant fit passes acceptance. Sim,
@@ -126,6 +149,10 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         PARSE_FIELD_DOUBLE(covariance_floor)
         PARSE_FIELD_DOUBLE(max_coast_s)
         PARSE_FIELD_DOUBLE(min_heading_speed)
+        PARSE_FIELD_DOUBLE(speed_measurement_min_dt_s)
+        PARSE_FIELD_DOUBLE(speed_measurement_max_dt_s)
+        PARSE_FIELD_DOUBLE(speed_sigma_floor_mps)
+        PARSE_FIELD_DOUBLE(speed_gate_nis)
         parser.validate_no_extra_fields();
     }
 
