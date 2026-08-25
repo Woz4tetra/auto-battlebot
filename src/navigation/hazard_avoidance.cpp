@@ -50,7 +50,8 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
         // leaves real clearance and the run from there to the goal is unblocked against the
         // keep-out itself. Tangent to the keep-out exactly would put the waypoint on the rim.
         const TangentWaypoint tangent = tangent_waypoint(
-            our_pose, center, hazard.radius + settings_.waypoint_clearance_m, our_pose.yaw, side);
+            our_pose, center, hazard.inflated_radius + settings_.waypoint_clearance_m, our_pose.yaw,
+            side);
 
         // A hazard already routed around is excluded from the next pass. The new segment runs
         // tangent to it by construction, so re-testing it only produces a substitution loop.
@@ -70,8 +71,8 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
         double nearest = std::numeric_limits<double>::infinity();
         for (const auto &hazard : field.hazards) {
             const Pose2D center = predicted_center(hazard, settings_.prediction_horizon_s);
-            nearest = std::min(
-                nearest, std::hypot(our_pose.x - center.x, our_pose.y - center.y) - hazard.radius);
+            nearest = std::min(nearest, std::hypot(our_pose.x - center.x, our_pose.y - center.y) -
+                                            hazard.inflated_radius);
         }
         if (nearest > settings_.side_release_m) committed_side_ = 0;
     }
@@ -101,7 +102,7 @@ bool HazardAvoidance::apply_reverse(const Pose2D &our_pose, const FieldDescripti
         const Pose2D center = predicted_center(hazard, settings_.prediction_horizon_s);
         const double dx = center.x - our_pose.x;
         const double dy = center.y - our_pose.y;
-        const double gap = std::hypot(dx, dy) - hazard.radius;
+        const double gap = std::hypot(dx, dy) - hazard.inflated_radius;
         if (gap >= settings_.reverse_distance) continue;
 
         const double heading_err = std::abs(normalize_angle(std::atan2(dy, dx) - our_pose.yaw));

@@ -41,7 +41,8 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
         FieldHazard hazard;
         hazard.center.x = config.center_x;
         hazard.center.y = config.center_y;
-        hazard.radius = config.radius + ours + config_.static_margin_m;
+        hazard.object_radius = config.radius;
+        hazard.inflated_radius = config.radius + ours + config_.static_margin_m;
         hazard.source = HazardSource::STATIC;
         hazards.push_back(hazard);
     }
@@ -54,7 +55,8 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
         if (robot.is_stale) continue;
         HeldTrack track;
         track.hazard.center = pose_to_pose2d(robot.pose);
-        track.hazard.radius = half_diagonal(robot.size) + ours + config_.tracked_margin_m;
+        track.hazard.object_radius = half_diagonal(robot.size);
+        track.hazard.inflated_radius = track.hazard.object_radius + ours + config_.tracked_margin_m;
         track.hazard.velocity = robot.velocity;
         track.hazard.source = HazardSource::TRACKED;
         track.last_live_s = now_s;
@@ -95,7 +97,8 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
         const std::string prefix = std::to_string(i) + "/";
         values[prefix + "x"] = hazards[i].center.x;
         values[prefix + "y"] = hazards[i].center.y;
-        values[prefix + "radius"] = hazards[i].radius;
+        values[prefix + "inflated_radius"] = hazards[i].inflated_radius;
+        values[prefix + "object_radius"] = hazards[i].object_radius;
         values[prefix + "source"] =
             std::string(hazards[i].source == HazardSource::STATIC ? "STATIC" : "TRACKED");
     }

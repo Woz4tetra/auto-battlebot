@@ -176,29 +176,19 @@ void draw_field_border(cv::Mat &image, const FieldDescription &field,
 
 void draw_hazard_overlay(cv::Mat &image, const FieldDescription &field,
                          const CameraInfo &camera_info) {
-    constexpr int kRingSegments = 32;
     for (const auto &hazard : field.hazards) {
+        // Only the hazard itself is drawn. The keep-out ring it gets inflated to is our robot's
+        // half-diagonal plus the configured margin further out, which the eye can judge from the
+        // robot circles already on screen; drawing it as well was more clutter than information.
+        //
         // Amber for arena geometry, magenta for a live neutral track, so the driver can tell a
-        // ring that will never move from one that is following the house bot around.
+        // hazard that will never move from one following the house bot around. A tracked hazard's
+        // circle coincides with that robot's own marker circle by construction; it is still drawn
+        // here so a hazard held through a track dropout does not vanish.
         const cv::Scalar color = hazard.source == HazardSource::STATIC ? cv::Scalar(0, 165, 255)
                                                                        : cv::Scalar(255, 0, 255);
-        std::vector<cv::Point> ring;
-        ring.reserve(kRingSegments);
-        bool complete = true;
-        for (int step = 0; step < kRingSegments; ++step) {
-            const double angle = 2.0 * M_PI * step / kRingSegments;
-            cv::Point point;
-            if (!project_field_point_to_pixel(
-                    field, camera_info, hazard.center.x + hazard.radius * std::cos(angle),
-                    hazard.center.y + hazard.radius * std::sin(angle), 0.01, point)) {
-                complete = false;
-                break;
-            }
-            ring.push_back(point);
-        }
-        if (!complete || ring.size() < 3) continue;
-        cv::polylines(image, ring, true, MARKER_BORDER_COLOR, MARKER_THICKNESS + 2, cv::LINE_AA);
-        cv::polylines(image, ring, true, color, MARKER_THICKNESS, cv::LINE_AA);
+        draw_field_circle(image, field, camera_info, hazard.center.x, hazard.center.y,
+                          hazard.object_radius, 0.01, color);
     }
 }
 

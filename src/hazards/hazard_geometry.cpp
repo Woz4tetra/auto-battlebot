@@ -50,7 +50,7 @@ Pose2D push_out_of_hazards(const Pose2D &pose, const std::vector<FieldHazard> &h
             double dx = result.x - hazard.center.x;
             double dy = result.y - hazard.center.y;
             double distance = std::hypot(dx, dy);
-            if (distance >= hazard.radius) continue;
+            if (distance >= hazard.inflated_radius) continue;
             if (distance < kEps) {
                 // Dead centre: no radial direction to follow, so leave along +x. Any direction
                 // is equally good and picking one keeps the result deterministic.
@@ -58,8 +58,8 @@ Pose2D push_out_of_hazards(const Pose2D &pose, const std::vector<FieldHazard> &h
                 dy = 0.0;
                 distance = 1.0;
             }
-            result.x = hazard.center.x + dx / distance * hazard.radius;
-            result.y = hazard.center.y + dy / distance * hazard.radius;
+            result.x = hazard.center.x + dx / distance * hazard.inflated_radius;
+            result.y = hazard.center.y + dy / distance * hazard.inflated_radius;
             moved = true;
         }
         if (half_x > 0.0) result.x = std::clamp(result.x, -half_x, half_x);
@@ -79,7 +79,7 @@ std::optional<size_t> first_blocking_hazard(const Pose2D &start, const Pose2D &g
         Pose2D center = predicted_center(hazards[i], predict_s);
         double t = 0.0;
         const double distance = segment_distance(start, goal, center, t);
-        if (distance >= hazards[i].radius) continue;
+        if (distance >= hazards[i].inflated_radius) continue;
         if (t < nearest_t) {
             nearest_t = t;
             nearest = i;
@@ -146,12 +146,12 @@ double hazard_speed_cap(const Pose2D &our_pose, const std::vector<FieldHazard> &
         // Along-track and cross-track offsets in the robot's own frame.
         const double along = dx * cos_yaw + dy * sin_yaw;
         const double across = std::abs(-dx * sin_yaw + dy * cos_yaw);
-        if (along <= kEps) continue;            // behind us
-        if (across >= hazard.radius) continue;  // the swept path misses it
+        if (along <= kEps) continue;                     // behind us
+        if (across >= hazard.inflated_radius) continue;  // the swept path misses it
 
         // Scale the clearance the turn has to produce by how far off the ray the centre sits: a
         // hazard grazed on one edge needs much less deviation than one dead ahead.
-        const double needed = hazard.radius - across;
+        const double needed = hazard.inflated_radius - across;
         if (needed <= kEps) continue;
         cap = std::min(cap, max_yaw_rate * along * along / (2.0 * needed));
     }
@@ -173,13 +173,14 @@ double hazard_brake_speed(const Pose2D &our_pose, const std::vector<FieldHazard>
         // the swept path actually intrudes on, so passing one abeam costs nothing.
         const double along = dx * cos_yaw + dy * sin_yaw;
         const double across = std::abs(-dx * sin_yaw + dy * cos_yaw);
-        if (along <= kEps) continue;            // behind us
-        if (across >= hazard.radius) continue;  // the swept path misses it
+        if (along <= kEps) continue;                     // behind us
+        if (across >= hazard.inflated_radius) continue;  // the swept path misses it
 
         // Along-track clearance to the keep-out rim, which is where the robot has to be stopped.
         // The radius is already inflated by our own half-diagonal and the static margin, so the
         // real hole sits well beyond this.
-        const double clearance = along - std::sqrt(hazard.radius * hazard.radius - across * across);
+        const double clearance =
+            along - std::sqrt(hazard.inflated_radius * hazard.inflated_radius - across * across);
         if (clearance >= brake_distance) continue;
         limit = std::min(limit, max_speed * std::max(0.0, clearance) / brake_distance);
     }

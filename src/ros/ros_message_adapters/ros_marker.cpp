@@ -138,6 +138,9 @@ std::vector<visualization_msgs::Marker> to_ros_hazard_markers(const FieldDescrip
     const auto &tf = field.tf_camera_from_fieldcenter.tf;
     if (tf.rows() < 3 || tf.cols() < 4) return markers;
 
+    // One ring per hazard, at the hazard's own size. The keep-out it inflates to sits our robot's
+    // half-diagonal plus the margin further out; drawing that too was clutter, and the robot
+    // markers already give the eye the scale to judge it.
     for (size_t i = 0; i < field.hazards.size(); ++i) {
         const FieldHazard &hazard = field.hazards[i];
         visualization_msgs::Marker marker;
@@ -157,8 +160,9 @@ std::vector<visualization_msgs::Marker> to_ros_hazard_markers(const FieldDescrip
 
         for (int step = 0; step <= kRingSegments; ++step) {
             const double angle = 2.0 * M_PI * step / kRingSegments;
-            Eigen::Vector4d local{hazard.center.x + hazard.radius * std::cos(angle),
-                                  hazard.center.y + hazard.radius * std::sin(angle), 0.0, 1.0};
+            Eigen::Vector4d local{hazard.center.x + hazard.object_radius * std::cos(angle),
+                                  hazard.center.y + hazard.object_radius * std::sin(angle), 0.0,
+                                  1.0};
             Eigen::Vector3d world = tf.block<3, 4>(0, 0) * local;
             geometry_msgs::Point point;
             point.x = world.x();

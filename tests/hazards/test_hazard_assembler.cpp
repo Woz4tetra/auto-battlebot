@@ -70,7 +70,8 @@ TEST(HazardAssemblerTest, StaticHazardIsInflatedOnceByOurSizePlusMargin) {
     EXPECT_EQ(field.hazards[0].source, HazardSource::STATIC);
     EXPECT_NEAR(field.hazards[0].center.x, 0.3, 1e-9);
     EXPECT_NEAR(field.hazards[0].center.y, -0.2, 1e-9);
-    EXPECT_NEAR(field.hazards[0].radius, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.10, 1e-9);
+    EXPECT_NEAR(field.hazards[0].inflated_radius, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.10,
+                1e-9);
 }
 
 TEST(HazardAssemblerTest, OurSizeFallsBackRatherThanShrinkingOnADropout) {
@@ -82,11 +83,11 @@ TEST(HazardAssemblerTest, OurSizeFallsBackRatherThanShrinkingOnADropout) {
 
     FieldDescription seen;
     assembler.assemble(robots_with({our_robot()}), seen);
-    const double with_track = seen.hazards[0].radius;
+    const double with_track = seen.hazards[0].inflated_radius;
 
     FieldDescription dropped;
     assembler.assemble(robots_with({}), dropped);
-    EXPECT_NEAR(dropped.hazards[0].radius, with_track, 1e-9);
+    EXPECT_NEAR(dropped.hazards[0].inflated_radius, with_track, 1e-9);
 }
 
 TEST(HazardAssemblerTest, NeutralTrackBecomesATrackedHazardCarryingItsVelocity) {
@@ -101,7 +102,7 @@ TEST(HazardAssemblerTest, NeutralTrackBecomesATrackedHazardCarryingItsVelocity) 
     EXPECT_EQ(field.hazards[0].source, HazardSource::TRACKED);
     EXPECT_NEAR(field.hazards[0].center.x, 0.4, 1e-9);
     EXPECT_NEAR(field.hazards[0].velocity.vx, 0.5, 1e-9);
-    EXPECT_NEAR(field.hazards[0].radius,
+    EXPECT_NEAR(field.hazards[0].inflated_radius,
                 expected_half_diagonal(0.3, 0.3) + expected_half_diagonal(0.3, 0.2) + 0.05, 1e-9);
 }
 
@@ -235,4 +236,40 @@ TEST(HazardConfigTest, RejectsAnUnexpectedTopLevelKey) {
 }
 
 }  // namespace
+
+TEST(HazardAssemblerTest, CarriesTheGeometryAlongsideTheKeepOut) {
+    // object_radius is display-only, but it has to stay the hazard itself: a ring drawn at the
+    // inflated radius alone reads as the hole being twice its size, the inflation invisible.
+    Fixture fixture;
+    fixture.config.static_margin_m = 0.10;
+    fixture.config.tracked_margin_m = 0.05;
+
+    StaticHazardConfig hole;
+    hole.kind = "hole";
+    hole.center_x = 0.2;
+    hole.center_y = -0.1;
+    hole.radius = 0.2828;
+    HazardAssembler assembler(fixture.config, {hole}, fixture.clock);
+
+    FieldDescription field;
+    field.size.size = Size{2.4, 2.4, 0.0};
+    assembler.assemble(robots_with({our_robot(), house_bot(0.6, 0.6)}), field);
+    ASSERT_EQ(field.hazards.size(), 2u);
+
+    const double ours = expected_half_diagonal(0.30, 0.20);
+    const double their_own = expected_half_diagonal(0.30, 0.30);
+    for (const auto &hazard : field.hazards) {
+        if (hazard.source == HazardSource::STATIC) {
+            EXPECT_NEAR(hazard.object_radius, 0.2828, 1e-9);
+            EXPECT_NEAR(hazard.inflated_radius, 0.2828 + ours + 0.10, 1e-9);
+        } else {
+            EXPECT_NEAR(hazard.object_radius, their_own, 1e-9);
+            EXPECT_NEAR(hazard.inflated_radius, their_own + ours + 0.05, 1e-9);
+        }
+        // The gap between the two rings is exactly the inflation, which is the point of drawing
+        // both.
+        EXPECT_GT(hazard.inflated_radius, hazard.object_radius);
+    }
+}
+
 }  // namespace auto_battlebot

@@ -215,6 +215,15 @@ Two conventions live in `sprites.json` beside the PNGs -- pixels-per-metre, and 
 pointing +X -- so runtime rotation is a plain rotation by yaw with no per-asset offset. Get either
 wrong and every sprite sits slightly off or the robots drive sideways.
 
+### What a hazard carries
+
+`FieldHazard` holds two radii. `inflated_radius` is the keep-out: the geometry plus our robot's
+half-diagonal plus the configured margin. It is what every navigation routine tests against,
+because navigation steers a point and a configuration-space obstacle is what makes a point test
+correct. `object_radius` is the hazard itself, and is what the overlays draw -- a ring at the
+inflated radius reads as the hazard being twice its real size, since the inflation has no visible
+cause on screen.
+
 ### Two speed limits, two questions
 
 `hazard_speed_cap` asks *can I still steer clear*: `max_yaw_rate * L^2 / (2R)`, growing as the

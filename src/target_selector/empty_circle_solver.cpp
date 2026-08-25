@@ -215,7 +215,7 @@ double empty_circle_radius(const Size &field, double x, double y,
     for (const auto &hazard : hazards) {
         const double dx = x - hazard.center.x;
         const double dy = y - hazard.center.y;
-        radius = std::min(radius, std::sqrt(dx * dx + dy * dy) - hazard.radius);
+        radius = std::min(radius, std::sqrt(dx * dx + dy * dy) - hazard.inflated_radius);
     }
     return radius;
 }
@@ -244,7 +244,7 @@ EmptyCircle solve_exact(const Size &field, const std::vector<Pose2D> &opponents,
         sites.push_back(Site{opponent.x, opponent.y, 0.0, false});
     }
     for (const auto &hazard : hazards) {
-        sites.push_back(Site{hazard.center.x, hazard.center.y, hazard.radius, true});
+        sites.push_back(Site{hazard.center.x, hazard.center.y, hazard.inflated_radius, true});
     }
 
     const Wall walls[4] = {

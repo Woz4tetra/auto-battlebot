@@ -28,7 +28,7 @@ FieldHazard hazard(double x, double y, double radius, HazardSource source = Haza
     FieldHazard h;
     h.center.x = x;
     h.center.y = y;
-    h.radius = radius;
+    h.inflated_radius = radius;
     h.source = source;
     h.velocity.vx = vx;
     h.velocity.vy = vy;
@@ -300,7 +300,7 @@ TEST(HazardAvoidanceTest, NoHazardsIsAPassThrough) {
 FieldHazard brake_hazard(double x, double y, double radius) {
     FieldHazard hazard;
     hazard.center = Pose2D{x, y, 0.0};
-    hazard.radius = radius;
+    hazard.inflated_radius = radius;
     return hazard;
 }
 

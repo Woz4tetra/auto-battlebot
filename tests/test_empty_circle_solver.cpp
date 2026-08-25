@@ -38,7 +38,7 @@ FieldHazard make_hazard(double x, double y, double radius) {
     FieldHazard hazard;
     hazard.center.x = x;
     hazard.center.y = y;
-    hazard.radius = radius;
+    hazard.inflated_radius = radius;
     return hazard;
 }
 
