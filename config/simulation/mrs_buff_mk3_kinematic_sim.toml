@@ -1,0 +1,26 @@
+# Mrs Buff Mk3 against the kinematic sim. Pairs with simulation/sim_mrs_buff_mk3.toml, which holds
+# the matching plant on the sim side.
+#
+# The base runs PursuitNavigation, which is right for Mr Stabs Mk2 (no jig fit) and is the baseline
+# arm several sweeps compare against, so it stays. Mrs Buff Mk3 ships MotionProfileNavigation on
+# the robot, and only that controller runs the hazard tangent and goal-legality layers -- on
+# pursuit the robot drives straight into a hole and only backs off once it is on the lip. Running
+# the sim on pursuit meant testing a controller this robot does not use.
+extends = "simulation/kinematic_sim"
+
+[field_filter]
+hazards_file = "config/hazards/massd_arena.toml"
+
+# Restated from _common.toml rather than inherited: the base swapped this section to
+# PursuitNavigation, and a section whose `type` differs is replaced wholesale, so _common's fields
+# are already gone by the time this file is merged. Keep in sync with _common.toml [navigation].
+[navigation]
+type = "MotionProfileNavigation"
+stop_distance = 0.15                   # arrive stopped within this distance of the goal
+attack_terminal_speed_fraction = 1.0   # full forward speed into the opponent
+run_away_terminal_speed_fraction = 0.0 # arrive stopped at the safe point
+wall_reverse_distance = 0.25           # set > 0 to reverse when within this distance of any wall
+wall_heading_threshold = 1.047         # ~60 deg; heading must point toward wall to trigger reversal
+wall_reverse_min_speed = 0.25
+max_linear_command = 1.0               # 0 = no limit
+max_angular_command = 1.0              # 0 = no limit

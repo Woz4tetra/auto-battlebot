@@ -21,6 +21,17 @@ class SimParamsConfig:
     dt: float = 1.0 / 30.0  # seconds of sim time per tick
     max_ticks: int = 0  # 0 = run until interrupted; > 0 closes the connection after N ticks
     seed: int = 0
+    # What to do when an episode ends early -- today that means falling in a hole.
+    #
+    # False (interactive): report it, respawn our robot at its start pose, keep the connection.
+    # Falling in latches the plant's velocity to zero, so without a respawn the robot would sit in
+    # the hole for the rest of the session.
+    #
+    # True (batch): close the connection. sim_sweep waits for the binary to exit and reads the
+    # EPISODE line, so an outcome has to end the run for a sweep to score it at all.
+    #
+    # max_ticks is separate and always ends the run: it is an explicit cap, not an outcome.
+    stop_on_outcome: bool = False
 
 
 @dataclass
@@ -37,12 +48,14 @@ class LatencyConfig:
 
 @dataclass
 class CameraConfig:
-    # Resolution is tiny because no images are rendered (Noop perception ignores them); only the
-    # world position is used, for the flat-plane projection bias.
-    res_width: int = 16
-    res_height: int = 16
-    fov: float = 70.0
-    pos: list[float] = field(default_factory=lambda: [0.0, -1.5, 0.6])
+    # Noop perception ignores the pixels, but the UI draws its overlay on this frame by
+    # projecting field points through these intrinsics. At the old 16x16 placeholder the whole
+    # overlay landed inside a handful of pixels and the pane read as black. 640x360 is small
+    # enough to stay cheap over the socket and large enough to look like the real camera pane.
+    res_width: int = 640
+    res_height: int = 360
+    fov: float = 52.0
+    pos: list[float] = field(default_factory=lambda: [0.0, -0.5, 2.6])
     lookat: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
 
 

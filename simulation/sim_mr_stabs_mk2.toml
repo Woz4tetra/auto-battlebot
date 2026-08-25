@@ -21,10 +21,13 @@ command_ms = 60.0
 observation_ms = 0.0
 
 [camera]
-res_width = 16
-res_height = 16
-fov = 70.0
-pos = [0.0, -1.5, 0.6]
+res_width = 640
+res_height = 360
+# Overhead and slightly back, the way the ZED actually mounts over the cage. The old low side
+# view was arbitrary: nothing rendered, so the pose only fed the projection-bias model. Now the UI
+# draws its overlay on this frame, so the pose decides whether the arena is even in shot.
+fov = 52.0
+pos = [0.0, -0.5, 2.6]
 lookat = [0.0, 0.0, 0.0]
 
 [our_robot]

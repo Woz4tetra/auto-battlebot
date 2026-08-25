@@ -31,8 +31,14 @@ import struct
 from collections import deque
 from pathlib import Path
 
+import cv2
 import numpy as np
-from camera_utils import camera_view_matrix, fov_to_intrinsics
+from camera_utils import (
+    camera_view_matrix,
+    fov_to_intrinsics,
+    ground_plane_depth,
+    ground_plane_homography,
+)
 from config.kinematic import (
     CameraConfig,
     KinematicSimConfig,
@@ -448,8 +454,6 @@ class KinematicServer:
             cx,
             cy,
         )
-        self._rgb = np.zeros((cam.res_height, cam.res_width, 3), dtype=np.uint8)
-        self._depth = np.zeros((cam.res_height, cam.res_width), dtype=np.float32)
         self._obstacles = load_hazards(cfg.obstacles_file) if cfg.obstacles_file else []
         if self._obstacles:
             summary = ", ".join(
@@ -457,7 +461,20 @@ class KinematicServer:
                 for o in self._obstacles
             )
             print(f"Obstacles from {cfg.obstacles_file}: {summary}")
-        self._viewer = Viewer(cfg, self._obstacles) if cfg.viewer.enable else None
+
+        # One compositor, two consumers. The UI draws robot markers, the field border and hazard
+        # rings by projecting field points through the intrinsics above, so the frame it draws on
+        # has to be a plausible camera image or the whole overlay collapses into a few pixels. The
+        # floor is a plane, so the camera view is an exact homography of this top-down composition
+        # and needs no second renderer.
+        self._world = Viewer(cfg, self._obstacles)
+        self._viewer = self._world if cfg.viewer.enable else None
+        self._homography = ground_plane_homography(
+            tf_matrix, (fx, fy, cx, cy), self._world.metres_per_pixel(), cfg.viewer.window_px
+        )
+        # Constant: the camera does not move and the floor does not either.
+        self._depth = ground_plane_depth(tf_matrix, (fx, fy, cx, cy), cam.res_width, cam.res_height)
+        self._rgb = np.zeros((cam.res_height, cam.res_width, 3), dtype=np.uint8)
 
     def _reset(self) -> None:
         cfg = self._cfg
@@ -470,12 +487,63 @@ class KinematicServer:
         self._perception = Perception(
             cfg.perception, cfg.camera, cfg.sim.dt, cfg.latency.observation_ms, rng
         )
-        delay = max(0, round((cfg.latency.command_ms / 1000.0) / cfg.sim.dt))
-        self._cmd_buf: deque[tuple[float, float]] = deque([(0.0, 0.0)] * delay, maxlen=delay + 1)
+        self._cmd_buf: deque[tuple[float, float]] = self._empty_command_buffer()
         self._tick = 0
         self._sim_time = 0.0
 
+    def _render_camera(self) -> None:
+        """Warp the top-down arena into the camera's view.
+
+        Costs wall-clock time and nothing else: the sim owns logical time, so a slower render
+        makes the sim slower in real time and changes nothing the controller sees.
+        """
+        cam = self._cfg.camera
+        # Write into the existing buffer rather than rebinding it: _send_frame ships
+        # `self._rgb.data` straight down the socket, so it has to stay the contiguous array the
+        # C++ side reads as BGR.
+        self._rgb[:] = cv2.warpPerspective(
+            self._world.compose_world(self._plant, self._opponents),
+            self._homography,
+            (cam.res_width, cam.res_height),
+            dst=self._rgb,
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(0, 0, 0),
+        )
+
+    def _empty_command_buffer(self) -> deque[tuple[float, float]]:
+        """Command pipeline pre-filled with neutral, sized to the configured actuation latency."""
+        cfg = self._cfg
+        delay = max(0, round((cfg.latency.command_ms / 1000.0) / cfg.sim.dt))
+        return deque([(0.0, 0.0)] * delay, maxlen=delay + 1)
+
+    def _respawn(self) -> None:
+        """Put our robot back at its start pose, leaving everything else alone.
+
+        Deliberately not `_reset`: that rewinds tick and sim_time, and the C++ side drives its
+        ManualClock off sim_time. Time going backwards mid-connection desynchronises the filter in
+        ways that read as control bugs. Opponents keep where they are, including where they were
+        dragged to, because the point of continuing is to retry against the same situation.
+        """
+        cfg = self._cfg
+        self._plant = Plant(cfg.our_robot, cfg.arena.width, cfg.arena.height, self._obstacles)
+        self._cmd_buf = self._empty_command_buffer()
+
+    def _finish_episode(self, outcome: str) -> bool:
+        """Report an outcome. Returns True when the run should end."""
+        self._report(outcome)
+        if self._cfg.sim.stop_on_outcome:
+            return True
+        print(
+            f"sim: {outcome} at t={self._sim_time:.2f} s; respawning our robot and continuing "
+            f"([sim] stop_on_outcome = true to close the connection instead).",
+            flush=True,
+        )
+        self._respawn()
+        return False
+
     def _send_frame(self, conn: socket.socket, our: Pose, opps: list[Pose]) -> None:
+        self._render_camera()
         header = struct.pack(RESPONSE_HEADER_FMT, *self._header_const, self._sim_time)
         gt = struct.pack(GT_COUNT_FMT, 1 + len(opps))
         gt += struct.pack(GT_POSE_FMT, *our)
@@ -513,8 +581,7 @@ class KinematicServer:
                 )
             self._tick += 1
             self._sim_time += cfg.sim.dt
-            if self._plant.fell_in:
-                self._report("FELL_IN")
+            if self._plant.fell_in and self._finish_episode("FELL_IN"):
                 return
         self._report("MAX_TICKS")
         print(

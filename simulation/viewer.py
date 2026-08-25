@@ -252,10 +252,13 @@ class Viewer:
 
     # -- entry point -------------------------------------------------------
 
-    def compose(
-        self, plant: Any, opponents: list[Any], tick: int, sim_time: float, command: tuple
-    ) -> np.ndarray:
-        """Build one frame. Pure: no window, no waiting, so it can be unit-tested headless."""
+    def compose_world(self, plant: Any, opponents: list[Any]) -> np.ndarray:
+        """Top-down arena: floor, hazards, robots. No HUD.
+
+        Split out from `compose` because the simulated camera feed warps this into the camera's
+        view, and text and heading arrows drawn for a top-down window read as garbage once they
+        are projected into a perspective image.
+        """
         canvas: np.ndarray = self._background.copy()
         self._draw_obstacles(canvas, inflate=self._cfg.our_robot.radius)
         for index, opponent in enumerate(opponents):
@@ -265,6 +268,17 @@ class Viewer:
         self._draw_robot(
             canvas, x, y, yaw, self._cfg.our_robot.sprite, OUR_BGR, self._cfg.our_robot.radius
         )
+        return canvas
+
+    def metres_per_pixel(self) -> float:
+        """Scale of the top-down composition, for callers that reproject it."""
+        return float(1.0 / self._px_per_m)
+
+    def compose(
+        self, plant: Any, opponents: list[Any], tick: int, sim_time: float, command: tuple
+    ) -> np.ndarray:
+        """Build one frame. Pure: no window, no waiting, so it can be unit-tested headless."""
+        canvas = self.compose_world(plant, opponents)
         self._draw_overlays(canvas, plant, tick, sim_time, command)
         return canvas
 

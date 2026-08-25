@@ -1,0 +1,27 @@
+# Real arena geometry for the next event. Read by both the kinematic sim ([sim] obstacles_file)
+# and the C++ field filter ([field_filter] hazards_file), so the simulated floor and the
+# controller's keep-out discs cannot drift apart.
+#
+# Geometry is the raw hazard, in field-frame metres, before any inflation. The field frame is
+# centred on the arena, so x and y each run from -size/2 to +size/2. The controller inflates this
+# by our robot's half-diagonal plus [field_filter] static_margin_m (default 0.10).
+#
+# The floor also carries painted squares that look like the hole from above. They are not listed
+# here and must not be: hazards are declared geometry, never detected, so paint costs us nothing.
+
+# The hole is a 40 cm SQUARE, modelled as the circle that circumscribes it:
+#
+#   radius = 0.5 * 0.40 * sqrt(2) = 0.2828
+#
+# The inscribed circle (0.20) would leave the four corners of the hole outside the keep-out, so a
+# robot could drive into a corner and still fall in. Circumscribing is the only single-circle
+# choice that fully contains the square. It costs 0.083 m of extra standoff at the edge midpoints,
+# which is small next to the ~0.21 m the assembler already adds for robot size and margin.
+[[hazards]]
+kind = "hole"
+# PROVISIONAL: estimated off a single perspective photo, not measured. The hole reads as sitting
+# near the left wall, roughly two thirds of the way toward the camera. Measure the centre in field
+# coordinates before running this anywhere it matters -- every metre of the keep-out is referenced
+# to this point, and a wrong centre puts the safe zone over open floor and the hole outside it.
+center = [-0.82, -0.20]
+radius = 0.2828

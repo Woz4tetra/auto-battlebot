@@ -1,0 +1,13 @@
+# Mrs Buff Mk3 at Mass Destruction. Everything about the robot comes from the base profile; this
+# adds only what is true of that venue's floor.
+#
+# Matches [profiles] pattern "[^_].*_jetson$", so it shows up in the UI switcher on its own.
+extends = "mrs_buff_mk3_jetson"
+
+# The arena has an open 40 cm square hole in the floor. Declaring it here is what turns it into a
+# keep-out the target selector refuses to route through; nothing detects it, so leaving this unset
+# means the controller will happily drive into it.
+#
+# No `type` key, so this merges over the inherited PointCloudFieldFilter rather than replacing it.
+[field_filter]
+hazards_file = "config/hazards/massd_arena.toml"

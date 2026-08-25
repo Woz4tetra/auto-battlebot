@@ -31,7 +31,7 @@ ROBOT="$(basename "$SIM_CONFIG" .toml)"
 ROBOT="${ROBOT#sim_}"
 DEFAULT_CPP_CONFIG="./config/simulation/${ROBOT}_kinematic_sim.toml"
 if [ ! -f "$PROJECT_ROOT/${DEFAULT_CPP_CONFIG#./}" ]; then
-    DEFAULT_CPP_CONFIG="./config/simulation/kinematic_sim.toml"
+    DEFAULT_CPP_CONFIG="./config/simulation/${ROBOT}_kinematic_sim.toml"
 fi
 CPP_CONFIG="${2:-$DEFAULT_CPP_CONFIG}"
 echo "sim config: $SIM_CONFIG"

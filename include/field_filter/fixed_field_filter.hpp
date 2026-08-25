@@ -6,10 +6,13 @@ namespace auto_battlebot {
 /**
  * @brief Field filter that reports a fixed, configured arena size.
  *
- * Used by the headless kinematic sim, where the field is known a-priori and no perception runs.
- * Returns a FieldDescription with the configured size and an identity camera-from-fieldcenter
- * transform (the sim provides robot poses directly in the field frame). This gives navigation the
- * wall bounds it needs without a RANSAC field fit.
+ * Used by the kinematic sim, where the field is known a-priori and no perception runs. This gives
+ * navigation the wall bounds it needs without a RANSAC field fit.
+ *
+ * The camera-from-fieldcenter transform is taken straight from the sim, which places its camera in
+ * the same frame it reports robot poses in. Leaving it identity is not harmless: the UI projects
+ * robot markers and the field border through it, and an identity transform divides by a robot's
+ * ~1 cm height instead of its metres of range, throwing every marker far outside the image.
  */
 class FixedFieldFilter : public FieldFilterInterface {
    public:
@@ -29,10 +32,14 @@ class FixedFieldFilter : public FieldFilterInterface {
     }
 
     FieldDescription track_field(
-        [[maybe_unused]] TransformStamped tf_visodom_from_camera,
+        TransformStamped tf_visodom_from_camera,
         std::shared_ptr<FieldDescriptionWithInlierPoints> initial_description) override {
         FieldDescription description;
         description.child_frame_id = FrameId::FIELD;
+        // The sim's world origin is the field centre, so the camera pose it ships is already
+        // camera-from-fieldcenter and needs no composition.
+        description.tf_camera_from_fieldcenter = tf_visodom_from_camera.transform;
+        description.header = tf_visodom_from_camera.header;
         if (initial_description) {
             description.size = initial_description->size;
         } else {
