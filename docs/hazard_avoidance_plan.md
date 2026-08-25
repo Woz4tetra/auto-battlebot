@@ -239,13 +239,145 @@ Write the result to `docs/experiments/control_improvement/run_away_overshoot_rep
 overshoot metric before and after, using the same metric as `stage3_sim_report.md` so the numbers
 are comparable to the existing baseline.
 
+## Simulator work: obstacles, visuals, interactivity
+
+Two reasons this is step 2 rather than an afterthought. Nothing downstream is scoreable without
+hazards in the sim, and the tangent-waypoint behavior in option 4 is the kind of thing you
+diagnose by watching. A sweep row reading "minimum clearance 0.04 m" does not tell you the robot
+picked the wrong side and then cut back across the hazard.
+
+### Static obstacles
+
+`[[obstacles]]` in the sim TOML, parsed into an `ObstacleConfig` dataclass next to
+`OpponentConfig` (`simulation/config/kinematic.py:96`):
+
+```toml
+[[obstacles]]
+kind = "hole"      # hole | wall_block
+center = [0.3, -0.2]
+radius = 0.25
+```
+
+Collision handling goes in `Plant.step` (`simulation/kinematic_sim_server.py:148`) beside the
+existing wall clamp: `wall_block` clamps position to the obstacle boundary and zeroes `v`, exactly
+as the wall branch does; `hole` sets a `fell_in` flag that ends the run. Return it alongside the
+existing `hit` boolean so the server can end the episode and the sweep can count it.
+
+Obstacles must also be excluded from opponent spawn positions and from `random_walk` targets
+(`_random_target`, `simulation/kinematic_sim_server.py:209`), or a run starts with an opponent
+standing in the hole.
+
+The thing that must not drift: the sim's `[[obstacles]]` and the C++ side's `[field.hazards]`
+describe the same world. Put the geometry in one TOML file that both read rather than two
+hand-synced copies. `config/simulation/` already holds files the sim side owns and the C++ config
+merge can pull the same table in. The fallback is a startup assert in the sweep harness comparing
+the two, but a shared file beats a check that only runs in one code path.
+
+### Viewer
+
+Use OpenCV highgui. `opencv-python` is already a dependency, `cv2.setMouseCallback` gives drag
+with no threading, `cv2.warpAffine` rotates sprites, and alpha compositing is a few lines of
+numpy. Adding pygame buys better event handling than a feature this size needs. If highgui turns
+out to be limiting, pygame is the fallback, but do not start there.
+
+The render call goes at the end of the tick in `handle_client`
+(`simulation/kinematic_sim_server.py:373`), after `_send_frame`. Rendering there costs wall-clock
+time and cannot corrupt the run, because the sim owns logical time: `sim_time` ships in the
+response header and the C++ side adopts it through `ManualClock`. A slow render makes the sim
+slower in real time and changes nothing the controller sees. That property is what makes an
+in-loop viewer safe here, and it is worth not breaking later.
+
+```toml
+[viewer]
+enable = false          # sweeps stay headless and fast
+window_px = 900
+render_every = 1        # tick decimation
+realtime = true         # pace to sim.dt for a human; false = free-run
+```
+
+`enable = false` by default keeps the existing sweeps untouched. `realtime` matters both ways:
+free-running is the point for sweeps and unusable for dragging things around by hand.
+
+Frame composition, cheapest layer first:
+
+1. **Background.** `simulation/assets/cage/nhrl_cage_floor.png` (2048x2048), the flattened NHRL
+   field texture the deleted Genesis sim used through `assets/cage/floor.obj` as a unit quad. It
+   maps to the 2.4 x 2.4 m arena, matching the `ArenaConfig` defaults
+   (`simulation/config/kinematic.py:28`). Scale it once at startup to the window size and keep the
+   result; blitting a pre-scaled background per frame is free.
+2. **Obstacles.** The hole sprite, plus a thin ring at the inflated hazard radius so the keep-out
+   the controller sees is visible next to the geometry it came from. Those two circles differing
+   is the most useful single thing this viewer can show.
+3. **Robots.** Sprite rotated by yaw, alpha-composited at the pose.
+4. **Overlays.** Heading ray, the commanded `linear_x` and `angular_z` as a vector, clearance to
+   the nearest hazard, sim time, tick count, and a fell-in banner.
+
+The nav target and the option 4 tangent waypoint are the two things most worth seeing, and the sim
+cannot see either: the protocol carries a command up and poses down, nothing else. Adding a debug
+channel to `simulation/protocol.py` for the controller's current target is a small change, worth
+doing when option 4 lands rather than now.
+
+### Mouse drag
+
+`cv2.setMouseCallback` on the viewer window, hit-testing against opponent positions converted to
+world coordinates:
+
+- Press within an opponent's radius latches a drag on that opponent.
+- While dragged, `Opponent.step` returns early and x/y come from the mouse, clamped to the arena
+  the way `_clamp` already does. Add a `dragged` flag rather than special-casing every behavior
+  branch.
+- Release resumes the configured behavior from wherever it was dropped. For `circle` and `replay`
+  that means restarting a parameterized path from a new position, so re-seed the behavior's phase
+  from the drop point.
+
+No protocol change is needed. `GT_POSE_FMT` carries poses only and the C++ filter derives
+velocity, so a dragged opponent produces a real velocity estimate through the normal path. That is
+the behavior worth having: dragging the house bot across our path makes the controller react to a
+moving hazard rather than a teleporting one. Drag fast enough and the filter's innovation gate
+rejects it, which is honest and worth seeing.
+
+Leave our own robot undraggable. Its pose is the plant's integrated state, and moving it out from
+under the plant desynchronizes the EKF in ways that read as control bugs.
+
+### Blender sprites
+
+Render offline, commit the PNGs, keep Blender out of the runtime dependencies. It is not in
+`pyproject.toml` and should not be.
+
+`simulation/scripts/render_sprites.py`, run as:
+
+```bash
+blender --background --python simulation/scripts/render_sprites.py -- --out simulation/assets/sprites
+```
+
+Per asset: import the GLB, point an orthographic camera straight down, set the film transparent,
+light it flat rather than with a dramatic key so the sprite still reads at 100 px, render RGBA at
+a fixed pixels-per-meter, write the PNG.
+
+Sources already in the tree: `simulation/assets/robots/mr_stabs_mk2.glb`, `mrs_buff_mk2.glb`, and
+`house_bot.glb`. There is no `mrs_buff_mk3.glb`, so the mk2 render stands in for it and the
+manifest says so rather than mislabeling it. The hole gets a small modeled sprite, dark interior
+with a lit rim, so it reads as depth instead of a flat circle.
+
+Two conventions the runtime depends on, both recorded in a `sprites.json` manifest beside the
+PNGs:
+
+- **Pixels per meter**, so blitting scales correctly at any window size.
+- **Robot front points +X** in the render, so runtime rotation is a plain rotation by yaw with no
+  per-asset offset.
+
+Get either wrong and every sprite sits slightly off or the robots drive sideways. The manifest
+exists so those two numbers live in one place instead of scattered through the viewer.
+
 ## Order of work
 
 1. Run-away overshoot investigation through the measurement step. It is diagnosis, it may resolve
    with a one-line config change, and every option below is tuned against a controller that
    arrives where it is aimed. Do not tune hazard avoidance on top of an unexplained overshoot.
-2. Sim support: hazards in the world model and a fell-in termination condition (see below).
-   Without this there is no way to score any of what follows.
+2. Simulator work, in two passes. First the scoreable part: obstacles in the world model, the
+   fell-in condition, and the sweep metrics, because nothing after this can be measured without
+   them. Then the viewer, sprites, and drag, which is what makes the option 4 behavior debuggable
+   by watching it instead of reading a metrics table.
 3. `FieldHazard`, the assembler, config parsing, diagnostics, UI overlay, MCAP.
 4. Option 1, goal legality. Solver changes get unit tests against a brute-force reference, the
    same approach `run_away_solver_report.md` used.
@@ -255,17 +387,13 @@ are comparable to the existing baseline.
 
 ## Testing
 
-`simulation/kinematic_sim_server.py` has no obstacle concept, so hazard avoidance cannot be scored
-until it does. Needed there:
+Sweep metrics, added next to the existing terminal-error and overshoot columns: hazard entries
+(count), minimum clearance (m), and time lost to avoidance against a no-hazard baseline run. The
+last one carries the weight, because an avoidance layer that never enters a hazard by refusing to
+move scores perfectly on the first two and is useless.
 
-- Hazards in the sim world config, both static and attached to a scripted moving robot, so the
-  house bot case is covered and not just the hole.
-- A "fell in" termination condition when the robot center enters a static hazard, and a contact
-  condition for tracked hazards.
-- New sweep metrics next to the existing terminal-error and overshoot columns: hazard entries
-  (count), minimum clearance (m), and time lost to avoidance against a no-hazard baseline run. The
-  last one matters because an avoidance layer that never enters a hazard by refusing to move is
-  not a solution.
+Cover the moving case as well as the hole: a hazard attached to a scripted opponent exercises the
+house bot path, and the drag interaction covers the cases a script does not think to produce.
 
 Unit tests: the solver against brute force with hazards present, the tangent-point geometry
 including the both-sides-blocked degenerate case, and the `v_cap` formula against hand-computed
