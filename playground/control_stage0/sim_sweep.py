@@ -121,7 +121,13 @@ def write_hazard_file(run: Run, out_dir: Path) -> Path | None:
     path = out_dir / f"{run.name}.hazards.toml"
     with open(path, "wb") as f:
         tomli_w.dump({"hazards": run.hazards}, f)
-    return path
+    # Both sides resolve a relative hazard path against the project root, so write it that way
+    # rather than absolute: the generated configs then read the same as a hand-written one and
+    # stay valid if the tree moves. An --out outside the repo keeps its absolute path.
+    try:
+        return path.resolve().relative_to(REPO_ROOT)
+    except ValueError:
+        return path.resolve()
 
 
 def parse_episode_line(log_path: Path) -> dict[str, Any]:

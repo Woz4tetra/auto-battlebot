@@ -5,6 +5,9 @@ One TOML file describes the hazards for both sides of a run: the kinematic sim r
 (``[field_filter] hazards_file``) to build its keep-out discs. A single file means the simulated
 floor and the controller's model of it cannot drift apart, which two hand-synced copies would.
 
+The path is written repo-relative ("config/hazards/one_hole.toml") because the two configs that
+name it have no directory in common. Each side resolves it against the project root itself.
+
 File format, all in field-frame metres:
 
     [[hazards]]
@@ -21,6 +24,7 @@ import tomllib
 from config.kinematic import ObstacleConfig
 
 VALID_KINDS = ("hole", "wall_block")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_hazards(path: Path | str) -> list[ObstacleConfig]:
@@ -28,6 +32,8 @@ def load_hazards(path: Path | str) -> list[ObstacleConfig]:
     empty list: a typo in the path would otherwise silently remove the hazard from the sim
     while the controller still steered around it."""
     path = Path(path)
+    if not path.is_absolute():
+        path = REPO_ROOT / path
     if not path.exists():
         raise FileNotFoundError(f"hazard file not found: {path}")
     with open(path, "rb") as f:

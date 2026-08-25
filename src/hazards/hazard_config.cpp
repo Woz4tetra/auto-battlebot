@@ -8,15 +8,14 @@
 
 namespace auto_battlebot {
 namespace {
+// Hazard paths are written repo-relative ("config/hazards/one_hole.toml") so the same string works
+// in the C++ config and in the sim's, which have no directory in common. Each side resolves it
+// against the project root itself. Unlike `extends`, this is a plain file path: no implied
+// directory and no implied extension.
 std::filesystem::path resolve(const std::string &value) {
     std::filesystem::path path(value);
-    if (path.extension() != ".toml") {
-        path += ".toml";
-    }
     if (path.is_absolute()) return path;
-    // Relative paths resolve against the config directory, the same root the `extends` chain uses,
-    // so a hazard file can be named the way a config is: "hazards/one_hole".
-    return get_config_dir() / path;
+    return get_project_root() / path;
 }
 }  // namespace
 

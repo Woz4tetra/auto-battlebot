@@ -199,6 +199,18 @@ radius = 0.18
     EXPECT_NEAR(hazards[1].center_y, 0.1, 1e-9);
 }
 
+TEST(HazardConfigTest, ResolvesARepoRelativePathAgainstTheProjectRoot) {
+    // The sim config and the C++ config both name this file and share no directory, so the path
+    // is written repo-relative and each side resolves it. If this regresses, the controller loses
+    // its keep-out disc while the sim still has a hole in the floor.
+    const auto hazards = load_static_hazards("config/hazards/one_hole.toml");
+    ASSERT_EQ(hazards.size(), 1u);
+    EXPECT_EQ(hazards[0].kind, "hole");
+    EXPECT_NEAR(hazards[0].center_x, -0.35, 1e-9);
+    EXPECT_NEAR(hazards[0].center_y, 0.2, 1e-9);
+    EXPECT_NEAR(hazards[0].radius, 0.22, 1e-9);
+}
+
 TEST(HazardConfigTest, AMissingFileIsAnErrorNotAnEmptyList) {
     // A path typo must not silently remove the hole from the controller's model while the sim
     // still has one in the floor.

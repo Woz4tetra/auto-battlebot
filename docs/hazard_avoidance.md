@@ -56,6 +56,16 @@ the same path through `[sim] obstacles_file`. One file, so the simulated floor a
 controller's model of it cannot drift apart. A missing file throws on both sides rather than
 yielding an empty list: a path typo must not silently remove the hole from one of them.
 
+Write the path repo-relative, extension included:
+
+```toml
+hazards_file = "config/hazards/hole_and_block.toml"
+```
+
+The two configs that name it share no directory, so neither can own the base. Each side resolves
+against the project root itself. Unlike `extends`, this is a plain file path with no implied
+directory and no implied extension.
+
 The sweep harness generates one such file per run and points both sides at it, which makes drift
 structurally impossible rather than something a startup assert has to catch.
 
@@ -211,7 +221,7 @@ wrong and every sprite sits slightly off or the robots drive sideways.
 
 | key | default | meaning |
 |---|---|---|
-| `hazards_file` | `""` | shared geometry file, relative to `config/`; empty = no static hazards |
+| `hazards_file` | `""` | shared geometry file, repo-relative with extension; empty = no static hazards |
 | `hazard_static_margin_m` | 0.10 | clearance added to a static hazard beyond our half-diagonal |
 | `hazard_tracked_margin_m` | 0.05 | same for a hazard from a live neutral track |
 | `hazard_tracked_hold_s` | 0.75 | how long a stale neutral track keeps producing a hazard |
