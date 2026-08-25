@@ -9,3 +9,4 @@ their_robot_labels = ["OPPONENT", "MR_STABS_MK2"]
 
 [field_filter]
 hazards_file = "config/hazards/massd_arena_north_south.toml"
+# hazards_file = "config/hazards/aer_arena_east_west.toml"
