@@ -1,1 +1,1 @@
-extends = "/home/ben/auto-battlebot/config/headless_sim"
+extends = "headless_sim"

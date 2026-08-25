@@ -1,4 +1,4 @@
-obstacles_file = "/home/ben/auto-battlebot/playground/control_stage0/sweep_out/hazard_avoidance/runaway_hole.hazards.toml"
+obstacles_file = "playground/control_stage0/sweep_out/hazard_avoidance/runaway_hole.hazards.toml"
 
 [server]
 host = "127.0.0.1"

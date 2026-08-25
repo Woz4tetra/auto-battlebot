@@ -8,8 +8,8 @@ Expected COCO structure:
 
 Usage:
   python3 playground/roboflow_coco_to_yolo_keypoints.py \
-    --input /home/ben/Downloads/auto-battlebots.coco \
-    --output /home/ben/Downloads/auto-battlebots.yolo
+    --input ~/Downloads/auto-battlebots.coco \
+    --output ~/Downloads/auto-battlebots.yolo
 """
 
 from __future__ import annotations

@@ -52,7 +52,20 @@ from calib_lib import drive_protocol as dp
 from calib_lib import excitation as ex
 from calib_lib import jig_link as jl
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CATALOG = Path(__file__).resolve().parent / "waveforms.toml"
+
+
+def _repo_relative(path: Path) -> Path:
+    """Path relative to the repo root when it lives inside it, else unchanged.
+
+    Session files are committed, so an absolute path in one goes stale the moment the tree is
+    cloned somewhere else.
+    """
+    try:
+        return path.resolve().relative_to(REPO_ROOT)
+    except ValueError:
+        return path
 DEFAULT_OUT_ROOT = Path(__file__).resolve().parent / "out"
 # Long enough to bound the gyro bias estimate, short enough that an operator will actually
 # stand still for it. The fit needs two of these per run to bracket the bias drift.
@@ -1226,7 +1239,8 @@ def main() -> None:
 
     provenance = {
         "drive_cli_sha": git_sha(),
-        "waveform_toml": str(args.waveforms),
+        # Repo-relative so the session file stays readable after the tree moves.
+        "waveform_toml": str(_repo_relative(args.waveforms)),
         # How the radio's channels were read. Recorded because meas_linear/meas_angular are
         # these settings applied to the raw channels, so reinterpreting a run later needs to
         # know which settings produced them.

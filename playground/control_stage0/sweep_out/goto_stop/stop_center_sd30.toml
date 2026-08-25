@@ -1,4 +1,4 @@
-extends = "/home/ben/auto-battlebot/config/simulation/headless_sim"
+extends = "simulation/headless_sim"
 
 [navigation]
 stop_distance = 0.3

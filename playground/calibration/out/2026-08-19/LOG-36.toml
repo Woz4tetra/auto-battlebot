@@ -96,4 +96,4 @@ robot = ""
 
 [provenance]
 drive_cli_sha = "e56a446"
-waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+waveform_toml = "playground/calibration/waveforms.toml"

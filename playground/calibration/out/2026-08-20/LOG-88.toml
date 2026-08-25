@@ -70,7 +70,7 @@ robot = ""
 
 [provenance]
 drive_cli_sha = "1ff340a"
-waveform_toml = "/home/ben/auto-battlebot/playground/calibration/waveforms.toml"
+waveform_toml = "playground/calibration/waveforms.toml"
 mix = "tank"
 reverse_angular = true
 channel_scale = 1024.0

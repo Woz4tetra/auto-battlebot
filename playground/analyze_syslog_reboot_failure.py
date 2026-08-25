@@ -5,7 +5,7 @@ Designed for cases where a lockup required power cycling:
 it detects reboot markers, then inspects the pre-reboot window for clues.
 
 Example:
-  python3 playground/analyze_syslog_reboot_failure.py /home/ben/Desktop/syslog_dump
+  python3 playground/analyze_syslog_reboot_failure.py ~/Desktop/syslog_dump
 """
 
 from __future__ import annotations

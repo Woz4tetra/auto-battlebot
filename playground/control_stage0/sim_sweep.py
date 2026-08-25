@@ -43,7 +43,10 @@ BINARY = REPO_ROOT / "build" / "auto_battlebot"
 MASTER = REPO_ROOT / "build" / "bin" / "miniroscore"
 SERVER = REPO_ROOT / "simulation" / "kinematic_sim_server.py"
 RECORDINGS = REPO_ROOT / "data" / "recordings"
-BASE_CPP_CONFIG = REPO_ROOT / "config" / "simulation" / "kinematic_sim"  # overlays `extends` this
+# What each generated overlay `extends`. Written the way any config writes it: relative to
+# config/, no extension. The loader resolves `extends` against the config directory rather than
+# against the file that declares it, so this works from an overlay living under sweep_out/.
+BASE_CPP_CONFIG = "simulation/kinematic_sim"
 BASE_SIM_CONFIG = REPO_ROOT / "simulation" / "kinematic_sim.toml"
 # Episode length for every swept run, in sim ticks. At the 30 Hz sim dt this is 30 s, long enough
 # for a goto-stop or a hazard detour to settle and short enough that a 30-run sweep finishes.
@@ -94,12 +97,15 @@ def _load_toml(path: Path) -> dict[str, Any]:
 def write_sim_config(run: Run, out_dir: Path, base_sim_config: Path) -> Path:
     """Deep-merge the run's sim overrides onto the base kinematic config; write a temp TOML."""
     data = _load_toml(base_sim_config)
-    # A sweep is the opposite of an interactive run, so it overrides both interactive defaults: no
-    # window (a sweep would open one per run) and a hard episode cap (the driver waits for the
-    # binary to exit, which only happens when the server closes the connection). A sweep that wants
-    # longer or shorter episodes sets sim.max_ticks itself, below.
+    # A sweep is the opposite of an interactive run, so it overrides every interactive default:
+    # no window (a sweep would open one per run), a hard episode cap, and an outcome that ends the
+    # run instead of respawning. The last two matter because the driver waits for the binary to
+    # exit, which only happens when the server closes the connection -- an interactive sim that
+    # respawns after a fall-in would hang the sweep. A sweep that wants longer or shorter episodes
+    # sets sim.max_ticks itself, below.
     _deep_set(data, "viewer.enable", False)
     _deep_set(data, "sim.max_ticks", SWEEP_MAX_TICKS)
+    _deep_set(data, "sim.stop_on_outcome", True)
     for dotted_key, value in run.sim.items():
         _deep_set(data, dotted_key, value)
     path = out_dir / f"{run.name}.sim.toml"
@@ -191,11 +197,8 @@ def add_time_lost(rows: list[dict[str, Any]], runs: list[Run]) -> None:
 
 
 def write_cpp_overlay(run: Run, out_dir: Path) -> Path:
-    """Write a C++ overlay that extends the base headless config and overrides swept fields.
-
-    `extends` is an absolute path so it resolves regardless of where the overlay lives.
-    """
-    data: dict[str, Any] = {"extends": str(BASE_CPP_CONFIG)}
+    """Write a C++ overlay that extends the base headless config and overrides swept fields."""
+    data: dict[str, Any] = {"extends": BASE_CPP_CONFIG}
     # Scoring reads the MCAP the run writes, so the sweep turns recording on itself rather than
     # depending on the base config leaving it on. A run override can still switch it back off.
     _deep_set(data, "mcap.enable", True)
