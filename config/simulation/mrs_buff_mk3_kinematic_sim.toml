@@ -9,7 +9,7 @@
 extends = "simulation/kinematic_sim"
 
 [field_filter]
-hazards_file = "config/hazards/massd_arena_east.toml"
+hazards_file = "config/hazards/massd_arena_north_south.toml"
 
 # Restated from _common.toml rather than inherited: the base swapped this section to
 # PursuitNavigation, and a section whose `type` differs is replaced wholesale, so _common's fields

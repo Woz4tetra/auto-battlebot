@@ -8,4 +8,4 @@ extends = "playback/_playback"
 their_robot_labels = ["OPPONENT", "MR_STABS_MK2"]
 
 [field_filter]
-hazards_file = "config/hazards/massd_arena_north.toml"
+hazards_file = "config/hazards/massd_arena_north_south.toml"
