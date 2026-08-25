@@ -23,7 +23,19 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 SIM_CONFIG="${1:-$SIM_DIR/sim_mrs_buff_mk3.toml}"
-CPP_CONFIG="${2:-./config/simulation/kinematic_sim.toml}"
+
+# Pair the C++ config with the sim config by robot name: simulation/sim_<robot>.toml ->
+# config/simulation/<robot>_kinematic_sim.toml. Robots without their own file fall back to the
+# shared base, which carries the Mrs Buff Mk3 plant from _common.toml.
+ROBOT="$(basename "$SIM_CONFIG" .toml)"
+ROBOT="${ROBOT#sim_}"
+DEFAULT_CPP_CONFIG="./config/simulation/${ROBOT}_kinematic_sim.toml"
+if [ ! -f "$PROJECT_ROOT/${DEFAULT_CPP_CONFIG#./}" ]; then
+    DEFAULT_CPP_CONFIG="./config/simulation/kinematic_sim.toml"
+fi
+CPP_CONFIG="${2:-$DEFAULT_CPP_CONFIG}"
+echo "sim config: $SIM_CONFIG"
+echo "cpp config: $CPP_CONFIG"
 
 # Interactive: the sim config defaults show the viewer and run until Ctrl-C. sim_sweep.py overrides
 # both for batch runs.

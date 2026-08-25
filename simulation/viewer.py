@@ -238,6 +238,18 @@ class Viewer:
             self._opponents[self._drag_index].dragged = False
             self._drag_index = None
 
+    def _opponent_sprite(self, index: int) -> str:
+        """Sprite for opponent *index*, from its own config entry.
+
+        Opponents are drawn in config order, so the index maps straight onto ``[[opponents]]``. A
+        run that adds opponents beyond the configured list (none do today) falls back to the first
+        entry rather than raising mid-frame.
+        """
+        opponents = self._cfg.opponents
+        if not opponents:
+            return "mrs_buff_mk2"
+        return str(opponents[min(index, len(opponents) - 1)].sprite)
+
     # -- entry point -------------------------------------------------------
 
     def compose(
@@ -246,12 +258,13 @@ class Viewer:
         """Build one frame. Pure: no window, no waiting, so it can be unit-tested headless."""
         canvas: np.ndarray = self._background.copy()
         self._draw_obstacles(canvas, inflate=self._cfg.our_robot.radius)
-        for opponent in opponents:
+        for index, opponent in enumerate(opponents):
             ox, oy, oyaw = opponent.pose()
-            sprite = "house_bot" if getattr(opponent, "hazard_radius", 0.0) > 0.0 else "opponent"
-            self._draw_robot(canvas, ox, oy, oyaw, sprite, OPP_BGR, 0.11)
+            self._draw_robot(canvas, ox, oy, oyaw, self._opponent_sprite(index), OPP_BGR, 0.11)
         x, y, yaw = plant.pose()
-        self._draw_robot(canvas, x, y, yaw, "our_robot", OUR_BGR, self._cfg.our_robot.radius)
+        self._draw_robot(
+            canvas, x, y, yaw, self._cfg.our_robot.sprite, OUR_BGR, self._cfg.our_robot.radius
+        )
         self._draw_overlays(canvas, plant, tick, sim_time, command)
         return canvas
 

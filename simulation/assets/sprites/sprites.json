@@ -10,8 +10,8 @@
       "front_axis": "+X",
       "source": "simulation/assets/robots/house_bot.glb"
     },
-    "our_robot": {
-      "file": "our_robot.png",
+    "mrs_buff_mk3": {
+      "file": "mrs_buff_mk3.png",
       "pixels_per_meter": 599.021,
       "footprint_m": [
         0.2225,
@@ -30,8 +30,8 @@
       "front_axis": "+X",
       "source": "training/data/models/MR STABS MK2.gltf"
     },
-    "opponent": {
-      "file": "opponent.png",
+    "mrs_buff_mk2": {
+      "file": "mrs_buff_mk2.png",
       "pixels_per_meter": 601.0396,
       "footprint_m": [
         0.1933,

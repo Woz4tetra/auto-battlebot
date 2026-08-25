@@ -65,7 +65,8 @@ class SpriteSpec:
     """One sprite the viewer asks for by name.
 
     Attributes:
-        name: Manifest key and PNG stem. This is what the viewer looks up.
+        name: Manifest key and PNG stem, and what a sim config's ``sprite`` key names. Sprites
+            are named after the robot, not its role: which one is ours is a per-run choice.
         robot: ``[[robots]]`` entry to render, by its config ``name``.
         model_path: Override the config's model, keeping its materials and orientation. Used for
             robots the training set does not need but the viewer draws.
@@ -81,13 +82,13 @@ class SpriteSpec:
 
 
 SPRITES = (
-    SpriteSpec(name="our_robot", robot="MRS_BUFF_MK3"),
+    SpriteSpec(name="mrs_buff_mk3", robot="MRS_BUFF_MK3"),
     SpriteSpec(name="mr_stabs_mk2", robot="MR_STABS_MK2"),
     # Mrs Buff MK2 is not in the training set, but it shares the MK3's OnShape palette, so the
     # MK3's colour mapping textures it correctly. Its CAD origin sits at the back rather than the
     # front, hence the explicit front direction.
     SpriteSpec(
-        name="opponent",
+        name="mrs_buff_mk2",
         robot="MRS_BUFF_MK3",
         model_path=REPO_ROOT / "simulation/assets/robots/mrs_buff_mk2.glb",
         front_model=(0.0, -1.0, 0.0),

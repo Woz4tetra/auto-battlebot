@@ -50,6 +50,9 @@ class CameraConfig:
 class PlantConfig:
     start_pos: list[float] = field(default_factory=lambda: [-0.6, -0.6])
     start_yaw_deg: float = 45.0
+    # Which entry in the sprite manifest the viewer draws for this robot. The sprites are named
+    # after the robot, not its role, because which one is "ours" is what this config decides.
+    sprite: str = "mrs_buff_mk3"
     max_linear_speed: float = 0.434  # m/s at command magnitude 1.0
     max_angular_speed: float = 0.212  # rad/s at command magnitude 1.0
     tau_linear: float = 0.060  # s, first-order coast time constant (FIT TO RECORDINGS)
@@ -104,6 +107,7 @@ class OpponentConfig:
     heading_deg: float = 180.0
     radius: float = 0.5  # circle radius
     replay_csv: str = ""
+    sprite: str = "mrs_buff_mk2"  # manifest entry the viewer draws; "house_bot" for the house bot
     # Treat this opponent as a moving obstacle of this radius (m), the way the house bot behaves:
     # the plant is clamped out of it and clearance to it is scored. 0 = not an obstacle. On the
     # C++ side the matching track arrives as NEUTRAL (see GroundTruthRobotFilter.neutral_count)

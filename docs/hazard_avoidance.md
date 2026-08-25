@@ -170,6 +170,11 @@ watching it. `sim_sweep.py` overrides both for the runs it drives, so batch swee
 and end after `SWEEP_MAX_TICKS` ticks. When a cap does expire the server says so on stdout and
 names the setting, since the C++ side only reports it as `failed to receive header`.
 
+Sprites are named after the robot (`mrs_buff_mk3`, `mr_stabs_mk2`, `mrs_buff_mk2`, `house_bot`),
+not after a role, because which one is ours is what the sim config decides. `[our_robot] sprite`
+and each `[[opponents]] sprite` name a manifest entry; an opponent standing in for the house bot
+sets `sprite = "house_bot"` alongside its `hazard_radius`.
+
 The window shows: arena texture, hazard discs with
 the inflated keep-out ring drawn next to the real geometry, robot sprites rotated by yaw, heading
 and command vectors, clearance, and a fell-in banner. Press inside an opponent to drag it; release

@@ -1,0 +1,44 @@
+# Mr Stabs Mk2 against the kinematic sim. Pairs with simulation/sim_mr_stabs_mk2.toml, which holds
+# the matching plant on the sim side.
+#
+# The base handles everything robot-agnostic: perception bypass, fixed arena, ground-truth robot
+# filter, ManualClock, sim transmitter. Only the two things that describe *this* robot live here.
+extends = "simulation/kinematic_sim"
+
+# Same tuning as config/mr_stabs_mk2_desktop.toml. `type` matches the base, so this merges
+# key-by-key and the base's wall-reversal settings carry through.
+[navigation]
+type = "PursuitNavigation"
+angular_kp = 0.06
+angular_kd = 0.005
+max_linear_command = 0.25         # 0 = no limit
+angle_threshold = 1.7
+velocity_ramp_far_distance = 1.5
+velocity_ramp_near_distance = 1.0
+velocity_ramp_min_scale = 0.35
+
+# Without this the profile would inherit Mrs Buff Mk3's jig fit from _common.toml and drive
+# Mr Stabs at the wrong scale. Derived from drivetrain geometry, not measured: full stick =
+# max_motor_rpm at the wheel.
+#   k_fwd = k_rev = 1500 RPM * pi * 0.05 m / 60 = 3.92699 m/s
+#   k_ang         = 2 * 3.92699 / 0.131 m track = 59.9541 rad/s
+# Deadzones and coupling are zero because geometry cannot predict them; the time constants and
+# delay are placeholders rather than measurements. Only MotionProfileNavigation reads this, so it
+# matters when a sweep switches the controller, not for the pursuit run above.
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 3.92699
+k_rev = 3.92699
+k_ang = 59.9541
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
