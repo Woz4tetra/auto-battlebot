@@ -164,7 +164,13 @@ exist.
 
 ### Viewer
 
-`[viewer] enable = true` in the sim TOML opens an OpenCV window: arena texture, hazard discs with
+`./scripts/run_simulation.sh` opens an OpenCV window and runs until Ctrl-C. Both are config
+defaults (`[viewer] enable = true`, `[sim] max_ticks = 0`), because running the sim by hand means
+watching it. `sim_sweep.py` overrides both for the runs it drives, so batch sweeps stay headless
+and end after `SWEEP_MAX_TICKS` ticks. When a cap does expire the server says so on stdout and
+names the setting, since the C++ side only reports it as `failed to receive header`.
+
+The window shows: arena texture, hazard discs with
 the inflated keep-out ring drawn next to the real geometry, robot sprites rotated by yaw, heading
 and command vectors, clearance, and a fell-in banner. Press inside an opponent to drag it; release
 resumes its configured behaviour from the drop point. Our own robot is deliberately not draggable
@@ -178,8 +184,17 @@ makes the sim slower in real time and changes nothing the controller sees. Keep 
 Sprites are rendered offline and committed; Blender is not a runtime dependency:
 
 ```bash
-blender --background --python simulation/scripts/render_sprites.py -- --out simulation/assets/sprites
+cd training/synthetic
+blenderproc run render_sprites.py -- config_meshy_grade.toml
 ```
+
+The renderer reads the same config the synthetic training data does, so the OnShape part-colour to
+PBR-material mapping, the sticker textures, the upright pitch, and the per-model ground roll are
+defined in exactly one place. The front direction comes from each robot's `[robots.keypoints]`
+front/back pair, so the sprite and the keypoint detector agree on which end is the front by
+construction. Models, textures, and HDRIs live under `training/data`, which is gitignored:
+re-rendering needs a machine with the training data, but the committed PNGs are all the viewer
+reads.
 
 Two conventions live in `sprites.json` beside the PNGs -- pixels-per-metre, and the robot front
 pointing +X -- so runtime rotation is a plain rotation by yaw with no per-asset offset. Get either

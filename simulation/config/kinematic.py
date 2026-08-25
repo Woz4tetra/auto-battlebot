@@ -19,7 +19,7 @@ class KinematicServerConfig:
 @dataclass
 class SimParamsConfig:
     dt: float = 1.0 / 30.0  # seconds of sim time per tick
-    max_ticks: int = 5400  # server closes the connection after this many ticks
+    max_ticks: int = 0  # 0 = run until interrupted; > 0 closes the connection after N ticks
     seed: int = 0
 
 
@@ -133,14 +133,16 @@ class ObstacleConfig:
 
 @dataclass
 class ViewerConfig:
-    """In-loop OpenCV window. Off by default so sweeps stay headless and fast.
+    """In-loop OpenCV window. On by default: running the sim by hand means watching it.
+
+    ``sim_sweep`` turns it off for every run it drives, so batch runs stay headless and fast.
 
     Rendering costs wall-clock time but cannot corrupt a run: the sim owns logical time and ships
     ``sim_time`` in the response header, which the C++ side adopts through ManualClock. A slow
     render makes the sim slower in real time and changes nothing the controller sees.
     """
 
-    enable: bool = False
+    enable: bool = True
     window_px: int = 900
     render_every: int = 1  # tick decimation
     realtime: bool = True  # pace sim.dt to a human; False = free-run

@@ -344,19 +344,25 @@ under the plant desynchronizes the EKF in ways that read as control bugs.
 Render offline, commit the PNGs, keep Blender out of the runtime dependencies. It is not in
 `pyproject.toml` and should not be.
 
-`simulation/scripts/render_sprites.py`, run as:
+Shipped as `training/synthetic/render_sprites.py`, run as:
 
 ```bash
-blender --background --python simulation/scripts/render_sprites.py -- --out simulation/assets/sprites
+cd training/synthetic
+blenderproc run render_sprites.py -- config_meshy_grade.toml
 ```
 
-Per asset: import the GLB, point an orthographic camera straight down, set the film transparent,
-light it flat rather than with a dramatic key so the sprite still reads at 100 px, render RGBA at
-a fixed pixels-per-meter, write the PNG.
+Per asset: import the model, apply the synthetic config's materials, stand it upright, turn its
+front onto +X, point an orthographic camera straight down, set the film transparent, light it with
+an outdoor sky HDRI, render RGBA at a fixed pixels-per-meter, write the PNG.
 
-Sources already in the tree: `simulation/assets/robots/mr_stabs_mk2.glb`, `mrs_buff_mk2.glb`, and
-`house_bot.glb`. There is no `mrs_buff_mk3.glb`, so the mk2 render stands in for it and the
-manifest says so rather than mislabeling it. The hole gets a small modeled sprite, dark interior
+The first pass rendered the raw GLBs under three area lamps from a hand-maintained asset table.
+That produced untextured models, half of them upside down, because the orientation and the
+material mapping both already live in the synthetic config and were guessed at instead. Reading
+that config is what fixed it.
+
+Sources: `training/data/models/MRS BUFF MK3.glb` for our robot and `MR STABS MK2.gltf`, both
+straight out of the synthetic config; `simulation/assets/robots/mrs_buff_mk2.glb` for the opponent
+and `house_bot.glb` for the house bot. The hole gets a small modeled sprite, dark interior
 with a lit rim, so it reads as depth instead of a flat circle.
 
 Two conventions the runtime depends on, both recorded in a `sprites.json` manifest beside the

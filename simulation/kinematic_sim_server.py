@@ -517,6 +517,13 @@ class KinematicServer:
                 self._report("FELL_IN")
                 return
         self._report("MAX_TICKS")
+        print(
+            f"sim: [sim] max_ticks = {cfg.sim.max_ticks} reached after "
+            f"{self._sim_time:.1f} s of sim time. Closing the connection, which is what makes the "
+            f"C++ side log 'failed to receive header' and exit. Set max_ticks = 0 to run without "
+            f"a limit.",
+            flush=True,
+        )
 
     def _report(self, outcome: str) -> None:
         """One machine-readable line per episode. sim_sweep greps it for the hazard columns;

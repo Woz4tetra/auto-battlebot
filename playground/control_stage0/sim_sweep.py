@@ -45,6 +45,9 @@ SERVER = REPO_ROOT / "simulation" / "kinematic_sim_server.py"
 RECORDINGS = REPO_ROOT / "data" / "recordings"
 BASE_CPP_CONFIG = REPO_ROOT / "config" / "simulation" / "kinematic_sim"  # overlays `extends` this
 BASE_SIM_CONFIG = REPO_ROOT / "simulation" / "kinematic_sim.toml"
+# Episode length for every swept run, in sim ticks. At the 30 Hz sim dt this is 30 s, long enough
+# for a goto-stop or a hazard detour to settle and short enough that a 30-run sweep finishes.
+SWEEP_MAX_TICKS = 900
 MASTER_PORT = 11311
 SIM_PORT = 14882
 
@@ -91,6 +94,12 @@ def _load_toml(path: Path) -> dict[str, Any]:
 def write_sim_config(run: Run, out_dir: Path, base_sim_config: Path) -> Path:
     """Deep-merge the run's sim overrides onto the base kinematic config; write a temp TOML."""
     data = _load_toml(base_sim_config)
+    # A sweep is the opposite of an interactive run, so it overrides both interactive defaults: no
+    # window (a sweep would open one per run) and a hard episode cap (the driver waits for the
+    # binary to exit, which only happens when the server closes the connection). A sweep that wants
+    # longer or shorter episodes sets sim.max_ticks itself, below.
+    _deep_set(data, "viewer.enable", False)
+    _deep_set(data, "sim.max_ticks", SWEEP_MAX_TICKS)
     for dotted_key, value in run.sim.items():
         _deep_set(data, dotted_key, value)
     path = out_dir / f"{run.name}.sim.toml"

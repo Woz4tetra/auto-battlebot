@@ -9,7 +9,6 @@ port = 14882
 
 [sim]
 dt = 0.0333     # ~30 Hz sim time (matches the real controller rate)
-max_ticks = 900 # 30 s
 seed = 0
 
 [arena]

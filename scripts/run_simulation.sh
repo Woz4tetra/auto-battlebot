@@ -25,6 +25,9 @@ fi
 SIM_CONFIG="${1:-$SIM_DIR/sim_mrs_buff_mk3.toml}"
 CPP_CONFIG="${2:-./config/simulation/kinematic_sim.toml}"
 
+# Interactive: the sim config defaults show the viewer and run until Ctrl-C. sim_sweep.py overrides
+# both for batch runs.
+
 # Build C++
 
 "$SCRIPT_DIR/build.sh" &
