@@ -86,6 +86,13 @@ double HazardAvoidance::cap_speed(const Pose2D &our_pose, const FieldDescription
                             settings_.prediction_horizon_s);
 }
 
+double HazardAvoidance::brake_speed(const Pose2D &our_pose, const FieldDescription &field,
+                                    double speed) const {
+    if (settings_.brake_distance <= 0.0 || field.hazards.empty()) return speed;
+    return hazard_brake_speed(our_pose, field.hazards, settings_.brake_distance, speed,
+                              settings_.prediction_horizon_s);
+}
+
 bool HazardAvoidance::apply_reverse(const Pose2D &our_pose, const FieldDescription &field,
                                     VelocityCommand &command) const {
     if (settings_.reverse_distance <= 0.0) return false;

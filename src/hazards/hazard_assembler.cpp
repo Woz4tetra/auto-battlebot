@@ -5,18 +5,10 @@
 #include <utility>
 
 #include "enums/frame_id.hpp"
+#include "hazards/hazard_geometry.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
-namespace {
-/** Half the diagonal of a footprint, which is the radius of the smallest disc containing it.
- * Using the diagonal rather than half the length keeps the keep-out conservative for a robot
- * approaching a hazard corner-first. */
-double half_diagonal(const Size &size) {
-    return 0.5 * std::sqrt(size.x * size.x + size.y * size.y);
-}
-}  // namespace
-
 HazardAssembler::HazardAssembler(HazardAssemblerConfig config,
                                  std::vector<StaticHazardConfig> static_hazards,
                                  std::shared_ptr<ClockInterface> clock)

@@ -61,6 +61,7 @@ class RobotFrontBackFilter : public RobotFilterInterface {
     double blob_overwrite_min_distance_meters_;
     /** Radius scale for suppression based on blob/keypoint size estimates. */
     double blob_overwrite_size_scale_;
+    std::map<Label, Size> size_overrides_;
     /** Extra margin added to field half extents before out-of-bounds rejection. */
     double field_bounds_margin_meters_;
     /** Seconds an unmeasured our-robot track is held before the decay drops it (<= 0 disables). */
@@ -118,6 +119,8 @@ class RobotFrontBackFilter : public RobotFilterInterface {
      * Returns true if blob falls within the suppression radius of any keypoint measurement.
      * The radius is max(blob_overwrite_min_distance, blob_overwrite_size_scale * combined_size).
      */
+    void apply_size_overrides(std::vector<RobotDescription> &descriptions) const;
+
     bool is_blob_suppressed_by_keypoint(
         const RobotKeypointDetection &blob,
         const std::vector<RobotDescription> &keypoint_measurements) const;

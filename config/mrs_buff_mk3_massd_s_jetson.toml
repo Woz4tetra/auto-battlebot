@@ -1,0 +1,4 @@
+extends = "mrs_buff_mk3_jetson"
+
+[field_filter]
+hazards_file = "config/hazards/massd_arena_south.toml"

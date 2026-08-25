@@ -24,6 +24,9 @@ struct HazardAvoidanceSettings {
     double heading_threshold = 1.047;
     double reverse_min_speed = 0.35;
     double max_yaw_rate = 7.93;
+    /** Clearance (m) to a blocking hazard's keep-out rim at which braking starts.
+     * 0 disables. Ported from pursuit's brake_distance. */
+    double brake_distance = 0.0;
 };
 
 /** The hazard layers that both PursuitNavigation and MotionProfileNavigation share.
@@ -45,6 +48,11 @@ class HazardAvoidance {
     /** Option 3: cap forward speed to what the achievable turn radius can clear. Returns
      *  `speed` unchanged when nothing blocks the heading ray. */
     double cap_speed(const Pose2D &our_pose, const FieldDescription &field, double speed) const;
+
+    /** Forward speed that still leaves room to stop at a blocking hazard's keep-out rim.
+     *  Where `cap_speed` asks whether the robot can still steer clear, this asks whether it
+     *  can still stop, so it bites earlier and falls off linearly rather than as L^2. */
+    double brake_speed(const Pose2D &our_pose, const FieldDescription &field, double speed) const;
 
     /** Option 2: last-ditch reverse. Overrides `command.linear_x` when the robot is inside
      *  `reverse_distance` of a hazard edge and pointed at it. Returns true when it fired. */

@@ -158,4 +158,32 @@ double hazard_speed_cap(const Pose2D &our_pose, const std::vector<FieldHazard> &
     return std::max(cap, floor_speed);
 }
 
+double hazard_brake_speed(const Pose2D &our_pose, const std::vector<FieldHazard> &hazards,
+                          double brake_distance, double max_speed, double predict_s) {
+    if (brake_distance <= 0.0) return max_speed;
+    double limit = max_speed;
+    const double cos_yaw = std::cos(our_pose.yaw);
+    const double sin_yaw = std::sin(our_pose.yaw);
+
+    for (const auto &hazard : hazards) {
+        const Pose2D center = predicted_center(hazard, predict_s);
+        const double dx = center.x - our_pose.x;
+        const double dy = center.y - our_pose.y;
+        // Same frame and the same directional gate the steering cap uses: only brake for a hazard
+        // the swept path actually intrudes on, so passing one abeam costs nothing.
+        const double along = dx * cos_yaw + dy * sin_yaw;
+        const double across = std::abs(-dx * sin_yaw + dy * cos_yaw);
+        if (along <= kEps) continue;            // behind us
+        if (across >= hazard.radius) continue;  // the swept path misses it
+
+        // Along-track clearance to the keep-out rim, which is where the robot has to be stopped.
+        // The radius is already inflated by our own half-diagonal and the static margin, so the
+        // real hole sits well beyond this.
+        const double clearance = along - std::sqrt(hazard.radius * hazard.radius - across * across);
+        if (clearance >= brake_distance) continue;
+        limit = std::min(limit, max_speed * std::max(0.0, clearance) / brake_distance);
+    }
+    return limit;
+}
+
 }  // namespace auto_battlebot

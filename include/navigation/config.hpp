@@ -344,6 +344,19 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
      * it. */
     double hazard_speed_cap_floor = 0.35;
 
+    /** Clearance (m) to a blocking hazard's keep-out rim at which braking starts. 0 = off.
+     *
+     * Ported from PursuitNavigation's `brake_distance`: ramp the commanded speed linearly to zero
+     * inside this distance so the robot decelerates into the rim instead of arriving at full speed
+     * and coasting past it. The motion profile's own brake schedule is keyed to the goal, and in
+     * ATTACK its terminal speed is full speed, so before this nothing slowed it for a hazard --
+     * which is why pursuit stopped short of a hole and the motion profile drove in.
+     *
+     * Size it to the stopping lead: distance covered during actuation latency plus the coast that
+     * follows, `k_fwd * (delay_s + tau_lin_d)`. For the Mrs Buff Mk3 fit that is
+     * 4.88 * (0.0522 + 0.1235) = 0.86 m. */
+    double hazard_brake_distance = 0.86;
+
     /** Seconds ahead to advance a TRACKED hazard along its filtered velocity before testing it.
      * The house bot moving across our path is the case this exists for: reacting to where it is
      * now aims at where it was. */
@@ -411,6 +424,7 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(hazard_side_release_m)
         PARSE_FIELD_BOOL(hazard_speed_cap_enable)
         PARSE_FIELD_DOUBLE(hazard_speed_cap_floor)
+        PARSE_FIELD_DOUBLE(hazard_brake_distance)
         PARSE_FIELD_DOUBLE(hazard_prediction_horizon_s)
         PARSE_FIELD_DOUBLE(hazard_reverse_distance)
         PARSE_FIELD_DOUBLE(hazard_heading_threshold)

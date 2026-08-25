@@ -295,5 +295,111 @@ TEST(HazardAvoidanceTest, NoHazardsIsAPassThrough) {
     EXPECT_FALSE(avoidance.apply_reverse(pose(0.0, 0.0, 0.0), field, command));
 }
 
+// --- stop-in-time brake -------------------------------------------------------------------
+
+FieldHazard brake_hazard(double x, double y, double radius) {
+    FieldHazard hazard;
+    hazard.center = Pose2D{x, y, 0.0};
+    hazard.radius = radius;
+    return hazard;
+}
+
+TEST(HazardBrakeTest, ZeroDistanceDisablesTheBrake) {
+    const std::vector<FieldHazard> hazards{brake_hazard(1.0, 0.0, 0.49)};
+    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{0.0, 0.0, 0.0}, hazards, 0.0, 4.88, 0.0), 4.88);
+}
+
+TEST(HazardBrakeTest, RampsLinearlyToZeroAtTheKeepOutRim) {
+    // Hazard dead ahead: rim clearance is centre distance minus radius, so the ramp is a straight
+    // line in range. Brake distance 0.86 m is the Mrs Buff Mk3 stopping lead.
+    const std::vector<FieldHazard> hazards{brake_hazard(1.0, 0.0, 0.49)};
+    const double brake = 0.86;
+    // Clearance 0.51 m, inside the brake distance: speed scales by clearance / brake_distance.
+    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{0.0, 0.0, 0.0}, hazards, brake, 4.88, 0.0),
+                     4.88 * (1.0 - 0.49) / brake);
+    // Clearance 1.01 m, beyond the brake distance: untouched.
+    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{-0.5, 0.0, 0.0}, hazards, brake, 4.88, 0.0), 4.88);
+    // Sitting on the rim: fully braked.
+    EXPECT_NEAR(hazard_brake_speed(Pose2D{0.51, 0.0, 0.0}, hazards, brake, 4.88, 0.0), 0.0, 1e-9);
+}
+
+TEST(HazardBrakeTest, LeavesSpeedAloneBeyondTheBrakeDistance) {
+    const std::vector<FieldHazard> hazards{brake_hazard(2.0, 0.0, 0.49)};
+    // Clearance 1.51 m, well beyond 0.86.
+    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{0.0, 0.0, 0.0}, hazards, 0.86, 4.88, 0.0), 4.88);
+}
+
+TEST(HazardBrakeTest, IgnoresAHazardBehindUs) {
+    const std::vector<FieldHazard> hazards{brake_hazard(-0.6, 0.0, 0.49)};
+    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{0.0, 0.0, 0.0}, hazards, 0.86, 4.88, 0.0), 4.88);
+}
+
+TEST(HazardBrakeTest, IgnoresAHazardThePathPassesAbeam) {
+    // Centre 0.6 m off the track, radius 0.49: the swept ray misses it entirely, so driving past
+    // at speed costs nothing. This is the gate that keeps the brake from freezing the robot every
+    // time a hole is anywhere nearby.
+    const std::vector<FieldHazard> hazards{brake_hazard(1.0, 0.6, 0.49)};
+    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{0.0, 0.0, 0.0}, hazards, 0.86, 4.88, 0.0), 4.88);
+}
+
+TEST(HazardBrakeTest, AGrazingHazardBrakesLessThanOneDeadAhead) {
+    const std::vector<FieldHazard> dead_ahead{brake_hazard(1.0, 0.0, 0.49)};
+    const std::vector<FieldHazard> grazing{brake_hazard(1.0, 0.45, 0.49)};
+    const Pose2D pose{0.0, 0.0, 0.0};
+    // Grazing: the rim is nearer the centre along track, so more clearance and less braking.
+    EXPECT_GT(hazard_brake_speed(pose, grazing, 0.86, 4.88, 0.0),
+              hazard_brake_speed(pose, dead_ahead, 0.86, 4.88, 0.0));
+}
+
+TEST(HazardBrakeTest, TakesTheSlowestOfSeveralHazards) {
+    const std::vector<FieldHazard> hazards{brake_hazard(2.0, 0.0, 0.49),
+                                           brake_hazard(1.0, 0.0, 0.49)};
+    const Pose2D pose{0.0, 0.0, 0.0};
+    EXPECT_DOUBLE_EQ(hazard_brake_speed(pose, hazards, 0.86, 4.88, 0.0),
+                     4.88 * (1.0 - 0.49) / 0.86);
+}
+
+TEST(HazardBrakeTest, BitesEarlierThanTheSteeringCap) {
+    // The gap this closes. At the keep-out rim of a 0.49 m disc the steering cap still permits
+    // 1.94 m/s, which the plant cannot shed in 0.49 m; the brake permits zero.
+    const std::vector<FieldHazard> hazards{brake_hazard(0.49, 0.0, 0.49)};
+    const Pose2D pose{0.0, 0.0, 0.0};
+    const double cap = hazard_speed_cap(pose, hazards, 7.93, 4.88, 0.0, 0.0);
+    const double brake = hazard_brake_speed(pose, hazards, 0.86, 4.88, 0.0);
+    EXPECT_GT(cap, 1.9);
+    EXPECT_NEAR(brake, 0.0, 1e-9);
+}
+
+// --- the display contract -------------------------------------------------------------------
+
+TEST(HazardDisplayTest, ATrackedRingIsBothRobotCirclesPlusTheMargin) {
+    // What the UI draws has to add up to what the assembler inflates by, or the picture teaches
+    // the wrong thing. The overlay draws half_diagonal(size) per robot; a tracked ring is the
+    // hazard's circle plus ours plus the margin.
+    const Size house_bot{0.254, 0.3302, 0.1};
+    const Size ours{0.2225, 0.2535, 0.1};
+    const double margin = 0.05;
+
+    const double drawn_house_bot = half_diagonal(house_bot);
+    const double drawn_ours = half_diagonal(ours);
+    const double ring = drawn_house_bot + drawn_ours + margin;
+
+    EXPECT_NEAR(drawn_house_bot, 0.2083, 1e-4);
+    EXPECT_NEAR(drawn_ours, 0.1686, 1e-4);
+    EXPECT_NEAR(ring, 0.4269, 1e-4);
+    // The ring reads as roughly double the hazard's own circle, which is the thing that looked
+    // wrong on screen and is not.
+    EXPECT_NEAR(ring / drawn_house_bot, 2.05, 0.05);
+}
+
+TEST(HazardDisplayTest, AKnownSizeShrinksWhatALooseBoxWouldContribute) {
+    // The house bot's real footprint against a badly loose detection. Every consumer reads `size`,
+    // so overriding it is what keeps the keep-out and the drawn circle honest at once.
+    const Size loose{0.60, 0.60, 0.20};
+    const Size known{0.254, 0.3302, 0.2309};
+    EXPECT_NEAR(half_diagonal(known), 0.2083, 1e-4);
+    EXPECT_GT(half_diagonal(loose), 2.0 * half_diagonal(known));
+}
+
 }  // namespace
 }  // namespace auto_battlebot

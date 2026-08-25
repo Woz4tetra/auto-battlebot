@@ -1,6 +1,6 @@
 # Fast headless kinematic sim config for MRS BUFF MK3 (simulation/kinematic_sim_server.py).
 # Keep [arena] in sync with config/simulation/headless_sim.toml [field_filter].
-obstacles_file = "config/hazards/massd_arena.toml"
+obstacles_file = "config/hazards/massd_arena_east.toml"
 
 [server]
 host = "127.0.0.1"

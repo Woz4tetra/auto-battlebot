@@ -90,6 +90,20 @@ keypoint_height_meters = 0.03
 type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
 
+# Known footprint per label, in metres, as [x, y, z]. Measured off the CAD models with
+# training/synthetic/render_sprites.py's upright pose; the x/y values match the footprints in
+# simulation/assets/sprites/sprites.json.
+#
+# Without these, size comes from the detector's bounding box, which measures pixels rather than the
+# robot. A loose box on the house bot inflates the keep-out built from it, and the house bot is the
+# one robot on the field whose dimensions never change. Labels not listed here keep the measured
+# box. What the detector actually reported is logged to the `detected_size` diagnostics channel, so
+# a detector regression stays visible rather than being papered over here.
+[robot_filter.robot_size_meters_per_label]
+MRS_BUFF_MK3 = [0.2225, 0.2535, 0.0861]
+MR_STABS_MK2 = [0.137, 0.16, 0.0703]
+HOUSE_BOT = [0.254, 0.3302, 0.2309]
+
 # Per-label keypoint height overrides; labels not listed use keypoint_height_meters.
 [robot_filter.keypoint_height_meters_per_label]
 HOUSE_BOT = 0.12
@@ -108,7 +122,7 @@ type = "SafestPointTarget"
 # The solver's plateau is flat: when no opponent constrains the circle the winning center drifts
 # by a few mm per tick, and with no hysteresis the goal was moving 10-13 times a second on the
 # 2026-08-23 recordings. A new candidate now has to beat the held one by this much to take over.
-retarget_improvement_m = 0.15
+retarget_improvement_m = 0.1
 
 [transmitter]
 type = "OpenTxTransmitter"

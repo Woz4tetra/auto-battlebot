@@ -9,6 +9,7 @@
 
 #include "data_structures/pose.hpp"
 #include "enums/label.hpp"
+#include "hazards/hazard_geometry.hpp"
 #include "label_utils.hpp"
 #include "lvgl_platform_bound/lvgl_ui_services.hpp"
 #include "transform_utils.hpp"
@@ -72,6 +73,30 @@ void draw_bordered_dot(cv::Mat &image, const cv::Point &center_px, int radius_px
     cv::circle(image, center_px, radius_px, color, MARKER_THICKNESS, cv::LINE_AA);
 }
 
+/* Ground-plane circle projected through the camera, so it keeps its perspective at any range.
+ * Kept separate from the hazard ring's own loop: this is display only and must not change how a
+ * keep-out is drawn. */
+void draw_field_circle(cv::Mat &image, const FieldDescription &field, const CameraInfo &camera_info,
+                       double center_x, double center_y, double radius_m, double z,
+                       const cv::Scalar &color) {
+    constexpr int kCircleSegments = 24;
+    if (radius_m <= 0.0) return;
+    std::vector<cv::Point> ring;
+    ring.reserve(kCircleSegments);
+    for (int step = 0; step < kCircleSegments; ++step) {
+        const double angle = 2.0 * M_PI * step / kCircleSegments;
+        cv::Point point;
+        if (!project_field_point_to_pixel(field, camera_info, center_x + radius_m * std::cos(angle),
+                                          center_y + radius_m * std::sin(angle), z, point)) {
+            return;
+        }
+        ring.push_back(point);
+    }
+    if (ring.size() < 3) return;
+    cv::polylines(image, ring, true, MARKER_BORDER_COLOR, MARKER_THICKNESS + 1, cv::LINE_AA);
+    cv::polylines(image, ring, true, color, MARKER_THICKNESS, cv::LINE_AA);
+}
+
 }  // namespace
 
 void draw_robot_markers(cv::Mat &image, const RobotDescriptionsStamped &robots,
@@ -83,6 +108,13 @@ void draw_robot_markers(cv::Mat &image, const RobotDescriptionsStamped &robots,
         cv::Point start_px;
         if (!project_field_point_to_pixel(field, camera_info, pose2d.x, pose2d.y, z, start_px))
             continue;
+
+        // The robot's own footprint radius, the same half-diagonal the hazard assembler inflates
+        // by. A tracked keep-out ring is this circle for the hazard plus this circle for our robot
+        // plus the margin, which is why it reads as roughly double the robot; drawing both makes
+        // that sum visible instead of leaving it implicit.
+        draw_field_circle(image, field, camera_info, pose2d.x, pose2d.y, half_diagonal(robot.size),
+                          z, to_cv_bgr(robot.group));
 
         if (robot.group == Group::OURS) {
             const double arrow_len_m = std::max(robot.size.x * 1.5, 0.1);

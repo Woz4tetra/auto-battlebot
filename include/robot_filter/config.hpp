@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map>
+
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
 #include "robot_filter/motion_estimator_config.hpp"
@@ -130,8 +132,47 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
             "keypoint_height_meters",
             robot_keypoint_tracker_config.keypoint_heights.default_meters);
         parse_keypoint_heights_per_label(parser, "keypoint_height_meters_per_label");
+        parse_robot_sizes_per_label(parser, "robot_size_meters_per_label");
         robot_keypoint_tracker_config.max_candidates = static_cast<int>(parser.get_optional_int(
             "robot_blob_max_candidates", robot_keypoint_tracker_config.max_candidates));
+    }
+
+    /** Known footprint per label, in metres, as [x, y, z], replacing the detector's box.
+     *
+     * The box measures pixels, not the robot; a loose one on the house bot inflates every keep-out
+     * built from it. These are the dimensions we already know. Labels absent here keep the
+     * measured box. The box that was measured is logged to the `detected_size` channel so a
+     * detector regression stays visible instead of being silently papered over. */
+    std::map<Label, Size> robot_size_meters_per_label;
+
+    void parse_robot_sizes_per_label(ConfigParser &parser, const std::string &field_name) {
+        const toml::table *table_ptr = parser.get_table(field_name);
+        if (!table_ptr) {
+            return;  // Optional; labels fall back to the measured bounding box.
+        }
+        for (const auto &[key, value] : *table_ptr) {
+            std::string label_str(key.str());
+            auto label_opt = magic_enum::enum_cast<Label>(label_str);
+            if (!label_opt.has_value()) {
+                throw ConfigValidationError("Invalid Label: " + label_str);
+            }
+            const toml::array *dims = value.as_array();
+            if (dims == nullptr || dims->size() != 3) {
+                throw ConfigValidationError("robot_size_meters_per_label['" + label_str +
+                                            "'] must be [x, y, z]");
+            }
+            Size size;
+            double *fields[3] = {&size.x, &size.y, &size.z};
+            for (size_t i = 0; i < 3; ++i) {
+                auto component = (*dims)[i].value<double>();
+                if (!component.has_value() || *component <= 0.0) {
+                    throw ConfigValidationError("robot_size_meters_per_label['" + label_str +
+                                                "'] components must be numbers > 0");
+                }
+                *fields[i] = *component;
+            }
+            robot_size_meters_per_label[label_opt.value()] = size;
+        }
     }
 
     void parse_keypoint_heights_per_label(ConfigParser &parser, const std::string &field_name) {

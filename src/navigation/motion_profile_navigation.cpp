@@ -28,6 +28,7 @@ auto_battlebot::HazardAvoidanceSettings hazard_settings_from(
     settings.heading_threshold = config.hazard_heading_threshold;
     settings.reverse_min_speed = config.hazard_reverse_min_speed;
     settings.max_yaw_rate = config.max_yaw_rate;
+    settings.brake_distance = config.hazard_brake_distance;
     return settings;
 }
 }  // namespace
@@ -233,6 +234,11 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     // it can only ever lower the reference, never raise it above what distance-to-go allows.
     const double v_ref_uncapped = v_ref;
     v_ref = std::min(v_ref, hazards_.cap_speed(our_pose, field, v_ref));
+    const double v_ref_capped = v_ref;
+    // Stop-in-time brake, separate from the steering cap above. The cap asks whether the turn can
+    // still clear the hazard; this asks whether the plant can still stop at its rim, which is the
+    // question the goal-side brake schedule never poses because the goal is not the hazard.
+    v_ref = std::min(v_ref, hazards_.brake_speed(our_pose, field, v_ref));
     const double dvdt = (dt > 0.0) ? (v_ref - prev_v_ref_) / dt : 0.0;
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
@@ -274,7 +280,9 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                        {"hazard_count", static_cast<int>(field.hazards.size())},
                        {"hazard_waypoint", hazards_.last_substituted() ? 1 : 0},
                        {"hazard_side", hazards_.committed_side()},
-                       {"hazard_speed_capped", v_ref < v_ref_uncapped - 1e-9 ? 1 : 0},
+                       {"hazard_speed_capped", v_ref_capped < v_ref_uncapped - 1e-9 ? 1 : 0},
+                       {"hazard_braked", v_ref < v_ref_capped - 1e-9 ? 1 : 0},
+                       {"v_ref_uncapped", v_ref_uncapped},
                        {"hazard_reverse", hazard_reverse ? 1 : 0},
                        {"target_x_steered", clamped_target.x},
                        {"target_y_steered", clamped_target.y},

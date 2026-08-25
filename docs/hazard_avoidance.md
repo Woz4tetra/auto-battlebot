@@ -215,6 +215,32 @@ Two conventions live in `sprites.json` beside the PNGs -- pixels-per-metre, and 
 pointing +X -- so runtime rotation is a plain rotation by yaw with no per-asset offset. Get either
 wrong and every sprite sits slightly off or the robots drive sideways.
 
+### Two speed limits, two questions
+
+`hazard_speed_cap` asks *can I still steer clear*: `max_yaw_rate * L^2 / (2R)`, growing as the
+square of range, so it stays out of the way until a hazard is close and near the heading.
+
+`hazard_brake_distance` asks *can I still stop*, and is the schedule ported from
+`PursuitNavigation`'s `brake_distance`: inside that clearance, ramp speed linearly to zero at the
+keep-out rim. It exists because the motion profile's own brake schedule is keyed to the goal, and
+in ATTACK `attack_terminal_speed_fraction = 1.0` pins the reference at full speed, so nothing
+slowed the robot for a hazard. That is why pursuit stopped short of a hole and the motion profile
+drove in.
+
+The two differ where it matters. At the rim of a 0.49 m keep-out the steering cap still permits
+1.94 m/s, which the Mrs Buff Mk3 plant cannot shed in 0.49 m; the brake permits zero. Both use the
+same directional gate, so a hazard passed abeam costs nothing.
+
+Size `hazard_brake_distance` to the stopping lead, `k_fwd * (delay_s + tau_lin_d)`. For the current
+fit that is `4.88 * (0.0522 + 0.1235) = 0.86 m`. It is a hand-copied plant number, unlike the
+terminal-speed fractions which are normalized so a refit rescales them; a refit has to update this
+by hand.
+
+Measured over the eight hazard scenarios: clearance improved on five (up to +0.082 m on
+`housebot_crossing`), regressed 0.016 m on `hole_and_block`, and no run fell in, hit a block, or
+failed to reach its goal. Time cost was under 0.07 s on five runs, 0.4 s on `runaway_hole` and
+1.1 s on `housebot_crossing`.
+
 ## Config reference
 
 `[field_filter]`, shared by every field filter type:
@@ -236,6 +262,7 @@ wrong and every sprite sits slightly off or the robots drive sideways.
 | `hazard_side_release_m` | 0.05 | release margin for the latched pass side |
 | `hazard_speed_cap_enable` | true | option 3, MotionProfileNavigation only |
 | `hazard_speed_cap_floor` | 0.35 | m/s floor under the cap, same nav only |
+| `hazard_brake_distance` | `0.86` | clearance (m) to a blocking hazard's rim at which speed ramps linearly to zero; 0 = off. MotionProfileNavigation only |
 | `hazard_prediction_horizon_s` | 0.25 | how far ahead a TRACKED hazard is advanced |
 | `hazard_reverse_distance` | 0.12 | option 2; 0 disables |
 | `hazard_heading_threshold` | 1.047 | ~60 deg; heading must point at the hazard |

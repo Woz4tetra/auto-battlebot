@@ -80,6 +80,7 @@ RobotFrontBackFilter::RobotFrontBackFilter(RobotFrontBackFilterConfiguration &co
       max_consecutive_jump_rejects_(config.max_consecutive_jump_rejects),
       blob_overwrite_min_distance_meters_(config.blob_overwrite_min_distance_meters),
       blob_overwrite_size_scale_(config.blob_overwrite_size_scale),
+      size_overrides_(config.robot_size_meters_per_label),
       field_bounds_margin_meters_(config.field_bounds_margin_meters),
       our_robot_hold_window_s_(config.our_robot_hold_window_s),
       our_keypoint_dropout_blob_radius_meters_(config.our_keypoint_dropout_blob_radius_meters),
@@ -129,6 +130,7 @@ void RobotFrontBackFilter::predict(double now, CommandFeedback command_feedback)
         state_.header.frame_id = FrameId::FIELD;
         state_.header.stamp = now;
         state_.descriptions = std::move(*coasted);
+        apply_size_overrides(state_.descriptions);
     }
 }
 
@@ -176,6 +178,28 @@ void RobotFrontBackFilter::correct(KeypointsStamped keypoints, FieldDescription 
          {"num_measurements_after_temporal", static_cast<int>(result.descriptions.size())}});
 
     state_ = std::move(result);
+    apply_size_overrides(state_.descriptions);
+}
+
+void RobotFrontBackFilter::apply_size_overrides(std::vector<RobotDescription> &descriptions) const {
+    // Replace the detector's box with the robot's known dimensions, once, here: every consumer
+    // downstream reads `size`, so overriding it is what keeps the keep-out, the drawn circle and
+    // the marker cube from disagreeing about how big a robot is.
+    //
+    // The measured box is logged rather than discarded. It is the only signal that the detector
+    // has started boxing a robot badly, and overwriting it without a trace would hide exactly the
+    // regression these overrides exist to compensate for.
+    DiagnosticsData detected;
+    for (auto &description : descriptions) {
+        const auto found = size_overrides_.find(description.label);
+        if (found == size_overrides_.end()) continue;
+        const std::string label(magic_enum::enum_name(description.label));
+        detected[label + "_x"] = description.size.x;
+        detected[label + "_y"] = description.size.y;
+        detected[label + "_z"] = description.size.z;
+        description.size = found->second;
+    }
+    if (!detected.empty()) diagnostics_logger_->debug("detected_size", detected);
 }
 
 bool RobotFrontBackFilter::is_blob_suppressed_by_keypoint(

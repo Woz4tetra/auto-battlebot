@@ -1,10 +1,12 @@
 #pragma once
 
+#include <cmath>
 #include <optional>
 #include <vector>
 
 #include "data_structures/field.hpp"
 #include "data_structures/pose.hpp"
+#include "data_structures/robot.hpp"
 
 namespace auto_battlebot {
 
@@ -12,6 +14,17 @@ namespace auto_battlebot {
  *
  * Every routine here treats a hazard as an already-inflated disc (see FieldHazard): "inside the
  * radius" means the robot is in trouble, with no further clearance arithmetic. */
+
+/** Half the diagonal of a footprint, which is the radius of the smallest disc containing it.
+ *
+ * Using the diagonal rather than half the length keeps the keep-out conservative for a robot
+ * approaching a hazard corner-first. The UI draws this same circle per robot so the inflation in
+ * a keep-out ring is visible rather than implicit: a tracked ring is this for the hazard, plus
+ * this for our own robot, plus the configured margin.
+ */
+inline double half_diagonal(const Size &size) {
+    return 0.5 * std::sqrt(size.x * size.x + size.y * size.y);
+}
 
 /** Move `pose` to the nearest point outside every hazard, then back inside the field rectangle.
  *
@@ -79,5 +92,23 @@ TangentWaypoint tangent_waypoint(const Pose2D &start, const Pose2D &center, doub
 double hazard_speed_cap(const Pose2D &our_pose, const std::vector<FieldHazard> &hazards,
                         double max_yaw_rate, double max_speed, double floor_speed,
                         double predict_s);
+
+/** Forward speed limit that brings the robot to a stop at a blocking hazard's keep-out rim.
+ *
+ * Ported from PursuitNavigation's `brake_distance`, which ramps the commanded speed linearly to
+ * zero inside a fixed distance of the target so the robot decelerates into it instead of driving
+ * in at full speed and coasting past. That schedule is what made pursuit look better than the
+ * motion profile near a hole: the motion profile's own brake is keyed to the goal, and in ATTACK
+ * its terminal speed is full speed, so nothing slowed it for the hazard.
+ *
+ * Distinct from `hazard_speed_cap`, which asks "can I still steer clear" and grows as L^2. This
+ * asks "can I still stop", and is linear in the clearance, so it bites earlier and harder.
+ *
+ * @param brake_distance Clearance (m) at which braking starts. 0 disables. It should cover the
+ *   stopping lead: the distance travelled during actuation latency plus the coast that follows.
+ * @return `max_speed`, or less when a hazard lies inside `brake_distance` along the swept path.
+ */
+double hazard_brake_speed(const Pose2D &our_pose, const std::vector<FieldHazard> &hazards,
+                          double brake_distance, double max_speed, double predict_s);
 
 }  // namespace auto_battlebot
