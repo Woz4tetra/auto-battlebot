@@ -7,14 +7,9 @@
 #include "field.hpp"
 #include "header.hpp"
 #include "pose.hpp"
+#include "velocity.hpp"
 
 namespace auto_battlebot {
-struct Velocity2D {
-    double vx = 0.0;     // m/s in field frame x
-    double vy = 0.0;     // m/s in field frame y
-    double omega = 0.0;  // rad/s heading rate
-};
-
 struct RobotDescription {
     FrameId frame_id = FrameId::EMPTY;
     Label label = Label::EMPTY;

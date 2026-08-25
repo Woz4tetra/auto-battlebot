@@ -9,6 +9,7 @@
 #include "data_structures/target_selection.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "enums/behavior_mode.hpp"
+#include "hazards/hazard_assembler.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
@@ -39,6 +40,9 @@ struct ControlOutput {
     /** Behavior mode that produced `target`, so UI and MCAP recordings can tell a run-away
      *  target from an attack selector gone haywire. */
     BehaviorMode behavior_mode = BehaviorMode::ATTACK;
+    /** Keep-out discs the control loop assembled for this cycle, already inflated. The runner
+     * publishes these; it cannot rebuild them, because the assembler holds stale-track state. */
+    std::vector<FieldHazard> hazards;
 };
 
 /**
@@ -55,7 +59,8 @@ class ControlLoop {
                 std::shared_ptr<TargetSelectorInterface> target_selector,
                 std::shared_ptr<NavigationInterface> navigation,
                 std::shared_ptr<TransmitterInterface> transmitter,
-                std::shared_ptr<ClockInterface> clock, std::shared_ptr<UIState> ui_state);
+                std::shared_ptr<ClockInterface> clock, std::shared_ptr<UIState> ui_state,
+                std::shared_ptr<HazardAssembler> hazard_assembler);
 
     /**
      * Brings up the transmitter. Called by ControlLoopInterface::start() before any driver can
@@ -103,6 +108,7 @@ class ControlLoop {
     std::shared_ptr<TransmitterInterface> transmitter_;
     std::shared_ptr<ClockInterface> clock_;
     std::shared_ptr<UIState> ui_state_;
+    std::shared_ptr<HazardAssembler> hazard_assembler_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
     RobotDescriptionsCache robot_descriptions_cache_;

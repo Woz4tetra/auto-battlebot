@@ -1,0 +1,19 @@
+extends = "/home/ben/auto-battlebot/config/simulation/kinematic_sim"
+
+[mcap]
+enable = true
+
+[ui]
+enable = false
+
+[transmitter]
+behavior_mode = "ATTACK"
+
+[navigation]
+type = "MotionProfileNavigation"
+hazard_tangent_enable = false
+hazard_speed_cap_enable = false
+hazard_reverse_distance = 0.0
+
+[field_filter]
+hazards_file = "/home/ben/auto-battlebot/playground/control_stage0/sweep_out/hazard_baseline/hole_and_block.hazards.toml"

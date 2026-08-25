@@ -1,0 +1,46 @@
+{
+  "sprites": {
+    "house_bot": {
+      "file": "house_bot.png",
+      "pixels_per_meter": 600.0851,
+      "footprint_m": [
+        0.254,
+        0.3302
+      ],
+      "front_axis": "+X",
+      "source": "simulation/assets/robots/house_bot.glb"
+    },
+    "our_robot": {
+      "file": "our_robot.png",
+      "pixels_per_meter": 601.0395,
+      "footprint_m": [
+        0.1933,
+        0.228
+      ],
+      "front_axis": "+X",
+      "source": "simulation/assets/robots/mrs_buff_mk2.glb"
+    },
+    "mr_stabs_mk2": {
+      "file": "mr_stabs_mk2.png",
+      "pixels_per_meter": 601.8518,
+      "footprint_m": [
+        0.137,
+        0.16
+      ],
+      "front_axis": "+X",
+      "source": "simulation/assets/robots/mr_stabs_mk2.glb"
+    },
+    "opponent": {
+      "file": "opponent.png",
+      "pixels_per_meter": 601.8518,
+      "footprint_m": [
+        0.137,
+        0.16
+      ],
+      "front_axis": "+X",
+      "source": "simulation/assets/robots/mr_stabs_mk2.glb"
+    }
+  },
+  "front_axis": "+X",
+  "note": "Rendered by simulation/scripts/render_sprites.py. pixels_per_meter and the +X front convention are what the viewer reads; do not hand-edit."
+}

@@ -1,0 +1,53 @@
+# Does softening the reference-speed ramp calm the RUN_AWAY re-approach? The recorded limit cycle
+# re-launched at accel_limit (8.5 m/s^2) into a schedule asking 2.7 m/s half a metre from the goal.
+# Run under degraded perception, which is the regime where the cycle appears.
+
+sim_config = "simulation/sim_mrs_buff_mk3.toml"
+
+[[runs]]
+name = "accel_8p5"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"latency.observation_ms" = 60.0
+"perception.pos_noise_std" = 0.015
+opponents = [{ behavior = "static", start_pos = [0.6, 0.6] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+"navigation.accel_limit" = 8.5
+
+[[runs]]
+name = "accel_4"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"latency.observation_ms" = 60.0
+"perception.pos_noise_std" = 0.015
+opponents = [{ behavior = "static", start_pos = [0.6, 0.6] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+"navigation.accel_limit" = 4.0
+
+[[runs]]
+name = "accel_2"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"latency.observation_ms" = 60.0
+"perception.pos_noise_std" = 0.015
+opponents = [{ behavior = "static", start_pos = [0.6, 0.6] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+"navigation.accel_limit" = 2.0
+
+[[runs]]
+name = "accel_1"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"latency.observation_ms" = 60.0
+"perception.pos_noise_std" = 0.015
+opponents = [{ behavior = "static", start_pos = [0.6, 0.6] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+"navigation.accel_limit" = 1.0

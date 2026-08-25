@@ -1,0 +1,59 @@
+# How much estimator error does the RUN_AWAY stop tolerate? Same corner geometry as
+# run_away_overshoot.toml, degraded one axis at a time. The recorded fights showed the our-robot
+# EKF reading 0.31x (pre q_along) then 0.72x (post) of the chord speed; this sweep asks what that
+# class of error costs the brake schedule.
+#
+# Read overshoot_m, terminal_pos_err_m, terminal_vel_mps against the `clean` row.
+
+sim_config = "simulation/sim_mrs_buff_mk3.toml"
+
+[[runs]]
+name = "clean"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+opponents = [{ behavior = "static", start_pos = [0.6, 0.6] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+
+[[runs]]
+name = "obs_latency_60ms"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"latency.observation_ms" = 60.0
+opponents = [{ behavior = "static", start_pos = [0.6, 0.6] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+
+[[runs]]
+name = "pos_noise_15mm"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"perception.pos_noise_std" = 0.015
+opponents = [{ behavior = "static", start_pos = [0.6, 0.6] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+
+[[runs]]
+name = "our_dropout_30pct"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"perception.our_dropout_prob" = 0.3
+opponents = [{ behavior = "static", start_pos = [0.6, 0.6] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+
+[[runs]]
+name = "all_degraded"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"latency.observation_ms" = 60.0
+"perception.pos_noise_std" = 0.015
+"perception.our_dropout_prob" = 0.3
+opponents = [{ behavior = "static", start_pos = [0.6, 0.6] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"

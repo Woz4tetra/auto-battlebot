@@ -1,0 +1,16 @@
+extends = "/home/ben/auto-battlebot/config/simulation/kinematic_sim"
+
+[mcap]
+enable = true
+
+[ui]
+enable = false
+
+[transmitter]
+behavior_mode = "ATTACK"
+
+[navigation]
+type = "MotionProfileNavigation"
+
+[field_filter]
+hazards_file = "/home/ben/auto-battlebot/playground/control_stage0/sweep_out/hazard_avoidance/attack_opponent_on_lip.hazards.toml"

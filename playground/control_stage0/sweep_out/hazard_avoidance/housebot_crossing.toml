@@ -1,0 +1,19 @@
+extends = "/home/ben/auto-battlebot/config/simulation/kinematic_sim"
+
+[mcap]
+enable = true
+
+[ui]
+enable = false
+
+[transmitter]
+behavior_mode = "ATTACK"
+
+[navigation]
+type = "MotionProfileNavigation"
+
+[robot_filter]
+neutral_count = 1
+
+[runner]
+default_opponent_count = 1

@@ -133,6 +133,9 @@ struct SimTransmitterConfiguration : public TransmitterConfiguration {
      * keeps forward authority during a turn that the real one has already lost in the mixer.
      * 0 = disabled. */
     double velocity_saturation_limit = 1.0;
+    /** Behavior mode the simulated driver holds for the whole run. The real transmitter reads
+     * this off a switch; the sim has no switch, so a sweep picks the mission here. */
+    BehaviorMode behavior_mode = BehaviorMode::ATTACK;
 
     SimTransmitterConfiguration() { type = "SimTransmitter"; }
 
@@ -141,6 +144,7 @@ struct SimTransmitterConfiguration : public TransmitterConfiguration {
         PARSE_FIELD_DOUBLE(init_delay_seconds)
         PARSE_FIELD_DOUBLE(command_delay_ms)
         PARSE_FIELD_DOUBLE(velocity_saturation_limit)
+        PARSE_ENUM(behavior_mode, BehaviorMode)
     )
     // clang-format on
 };

@@ -1,0 +1,12 @@
+# A floor hole plus a solid block: the two hazard kinds in one arena, so a sweep can tell a
+# keep-out the robot must route around from one it merely must not fall into.
+
+[[hazards]]
+kind = "hole"
+center = [-0.35, 0.2]
+radius = 0.22
+
+[[hazards]]
+kind = "wall_block"
+center = [0.45, -0.35]
+radius = 0.18

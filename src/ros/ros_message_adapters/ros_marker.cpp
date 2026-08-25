@@ -132,6 +132,46 @@ std::vector<visualization_msgs::Marker> to_ros_field_marker(
     return markers;
 }
 
+std::vector<visualization_msgs::Marker> to_ros_hazard_markers(const FieldDescription &field) {
+    constexpr int kRingSegments = 48;
+    std::vector<visualization_msgs::Marker> markers;
+    const auto &tf = field.tf_camera_from_fieldcenter.tf;
+    if (tf.rows() < 3 || tf.cols() < 4) return markers;
+
+    for (size_t i = 0; i < field.hazards.size(); ++i) {
+        const FieldHazard &hazard = field.hazards[i];
+        visualization_msgs::Marker marker;
+        marker.header = to_ros_header(field.header);
+        marker.ns = "hazards";
+        marker.id = static_cast<int>(i);
+        marker.type = visualization_msgs::Marker::LINE_STRIP;
+        marker.action = visualization_msgs::Marker::ADD;
+        marker.pose.orientation.w = 1.0;
+        marker.scale.x = 0.012;
+
+        const bool is_static = hazard.source == HazardSource::STATIC;
+        marker.color.r = 1.0f;
+        marker.color.g = is_static ? 0.65f : 0.0f;
+        marker.color.b = is_static ? 0.0f : 1.0f;
+        marker.color.a = 0.9f;
+
+        for (int step = 0; step <= kRingSegments; ++step) {
+            const double angle = 2.0 * M_PI * step / kRingSegments;
+            Eigen::Vector4d local{hazard.center.x + hazard.radius * std::cos(angle),
+                                  hazard.center.y + hazard.radius * std::sin(angle), 0.0, 1.0};
+            Eigen::Vector3d world = tf.block<3, 4>(0, 0) * local;
+            geometry_msgs::Point point;
+            point.x = world.x();
+            point.y = world.y();
+            point.z = world.z();
+            marker.points.push_back(point);
+        }
+        marker.frame_locked = false;
+        markers.push_back(marker);
+    }
+    return markers;
+}
+
 std::vector<visualization_msgs::Marker> to_ros_robot_markers(
     const RobotDescriptionsStamped &robots) {
     std::vector<visualization_msgs::Marker> markers;

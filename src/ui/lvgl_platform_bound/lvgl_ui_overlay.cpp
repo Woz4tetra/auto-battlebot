@@ -142,6 +142,34 @@ void draw_field_border(cv::Mat &image, const FieldDescription &field,
     }
 }
 
+void draw_hazard_overlay(cv::Mat &image, const FieldDescription &field,
+                         const CameraInfo &camera_info) {
+    constexpr int kRingSegments = 32;
+    for (const auto &hazard : field.hazards) {
+        // Amber for arena geometry, magenta for a live neutral track, so the driver can tell a
+        // ring that will never move from one that is following the house bot around.
+        const cv::Scalar color = hazard.source == HazardSource::STATIC ? cv::Scalar(0, 165, 255)
+                                                                       : cv::Scalar(255, 0, 255);
+        std::vector<cv::Point> ring;
+        ring.reserve(kRingSegments);
+        bool complete = true;
+        for (int step = 0; step < kRingSegments; ++step) {
+            const double angle = 2.0 * M_PI * step / kRingSegments;
+            cv::Point point;
+            if (!project_field_point_to_pixel(
+                    field, camera_info, hazard.center.x + hazard.radius * std::cos(angle),
+                    hazard.center.y + hazard.radius * std::sin(angle), 0.01, point)) {
+                complete = false;
+                break;
+            }
+            ring.push_back(point);
+        }
+        if (!complete || ring.size() < 3) continue;
+        cv::polylines(image, ring, true, MARKER_BORDER_COLOR, MARKER_THICKNESS + 2, cv::LINE_AA);
+        cv::polylines(image, ring, true, color, MARKER_THICKNESS, cv::LINE_AA);
+    }
+}
+
 void draw_target_path_overlay(cv::Mat &image, const std::optional<NavigationPathSegment> &path,
                               const FieldDescription &field, const CameraInfo &camera_info) {
     if (!path.has_value()) return;
@@ -172,6 +200,7 @@ class OpenCvDebugOverlayRenderer : public IDebugOverlayRenderer {
                 const std::optional<NavigationPathSegment> &path, const FieldDescription &field,
                 const CameraInfo &camera_info) override {
         draw_field_border(image, field, camera_info);
+        draw_hazard_overlay(image, field, camera_info);
         draw_robot_markers(image, robots, field, camera_info);
         draw_target_path_overlay(image, path, field, camera_info);
     }

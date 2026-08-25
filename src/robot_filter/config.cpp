@@ -58,7 +58,9 @@ std::shared_ptr<RobotFilterInterface> make_robot_filter(const RobotFilterConfigu
     if (config.type == "NoopRobotFilter") {
         return std::make_shared<NoopRobotFilter>();
     } else if (config.type == "GroundTruthRobotFilter") {
-        return std::make_shared<GroundTruthRobotFilter>(std::move(clock));
+        return std::make_shared<GroundTruthRobotFilter>(
+            std::move(clock),
+            config_cast<GroundTruthRobotFilterConfiguration>(config).neutral_count);
     } else if (config.type == "RobotFrontBackFilter") {
         return std::make_shared<RobotFrontBackFilter>(
             config_cast<RobotFrontBackFilterConfiguration>(config));

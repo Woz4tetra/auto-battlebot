@@ -5,6 +5,7 @@
 
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "navigation/config.hpp"
+#include "navigation/hazard_avoidance.hpp"
 #include "time/clock_interface.hpp"
 
 namespace auto_battlebot {
@@ -117,6 +118,7 @@ class PursuitNavigation : public NavigationInterface {
     double lookahead_time_;
     double boundary_margin_;
     bool enable_hysteresis_;
+    HazardAvoidance hazards_;
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
     std::shared_ptr<ClockInterface> clock_;
 

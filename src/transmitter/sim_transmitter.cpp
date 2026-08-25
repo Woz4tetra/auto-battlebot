@@ -12,6 +12,7 @@ SimTransmitter::SimTransmitter(const SimTransmitterConfiguration &config,
     : init_delay_seconds_(config.init_delay_seconds),
       command_delay_ms_(config.command_delay_ms),
       velocity_saturation_limit_(config.velocity_saturation_limit),
+      behavior_mode_(config.behavior_mode),
       clock_(std::move(clock)),
       connection_(SimConnection::instance()) {
     if (command_delay_ms_ > 0.0) {
@@ -44,6 +45,8 @@ CommandFeedback SimTransmitter::update() {
     feedback.stick_commands[FrameId::OUR_ROBOT_1] = *last_sent_;
     return feedback;
 }
+
+BehaviorMode SimTransmitter::behavior_mode() const { return behavior_mode_; }
 
 void SimTransmitter::enable() { enabled_ = true; }
 

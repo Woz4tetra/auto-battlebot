@@ -431,6 +431,11 @@ bool Runner::tick() {
     const ControlOutput control_output = control_loop_->latest_output();
     const RobotDescriptionsStamped &robots = control_output.robots;
 
+    // The control loop owns hazard assembly (it holds the stale-track state), so the runner
+    // borrows this cycle's discs to publish and to draw rather than recomputing them.
+    FieldDescription hazard_view = field_description;
+    hazard_view.hazards = control_output.hazards;
+
     {
         // Measure end-to-end latency from when the image was sampled (camera frame timestamp)
         // rather than from `robots.header.stamp`, which gets reused across cache substitutions
@@ -446,6 +451,7 @@ bool Runner::tick() {
         FunctionTimer timer(diagnostics_logger_, "publishers");
         publisher_->publish_camera_data(camera_data);
         publisher_->publish_field_description(field_description, *initial_field_description_);
+        publisher_->publish_hazards(hazard_view);
         publisher_->publish_robots(robots);
         publisher_->publish_blob_detections(robot_mask_model_->last_detections());
         publisher_->publish_keypoint_detections(keypoint_model_->last_detections());
@@ -455,7 +461,7 @@ bool Runner::tick() {
     publish_system_status(true, loop_rate_hz);
     if (ui_state_) {
         ui_state_->set_camera_info(camera_data.camera_info);
-        ui_state_->set_field_description(field_description);
+        ui_state_->set_field_description(hazard_view);
         ui_state_->set_robots(robots);
         ui_state_->set_keypoints(keypoints);
         ui_state_->set_navigation_path(control_loop_->last_visualization().path);

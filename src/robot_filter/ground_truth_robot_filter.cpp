@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <optional>
@@ -15,15 +16,23 @@ bool GroundTruthRobotFilter::initialize(int opponent_count) {
 
     our_frame_ids_.clear();
     opponent_frame_ids_.clear();
+    neutral_frame_ids_.clear();
     connection_ = SimConnection::instance();
 
     static const FrameId our_ids[] = {FrameId::OUR_ROBOT_1};
     static const FrameId opp_ids[] = {FrameId::THEIR_ROBOT_1, FrameId::THEIR_ROBOT_2,
                                       FrameId::THEIR_ROBOT_3};
+    static const FrameId neutral_ids[] = {FrameId::NEUTRAL_ROBOT_1, FrameId::NEUTRAL_ROBOT_2};
 
     our_frame_ids_.push_back(our_ids[0]);
     for (int i = 0; i < opponent_count; ++i) {
         opponent_frame_ids_.push_back(opp_ids[i]);
+    }
+    // Neutral slots follow the opponents in ground-truth order, so a sim config puts the house
+    // bot last in [[opponents]] and nothing else about the ordering changes.
+    const int neutrals = std::clamp(neutral_count_, 0, 2);
+    for (int i = 0; i < neutrals; ++i) {
+        neutral_frame_ids_.push_back(neutral_ids[i]);
     }
     return true;
 }
@@ -58,6 +67,12 @@ void GroundTruthRobotFilter::correct([[maybe_unused]] KeypointsStamped keypoints
     for (size_t i = 0; i < opponent_frame_ids_.size() && gt_idx < gt.size(); ++i, ++gt_idx) {
         auto desc =
             describe(opponent_frame_ids_[i], Label::OPPONENT, Group::THEIRS, gt[gt_idx], now, dt);
+        if (desc) result.descriptions.push_back(*desc);
+    }
+
+    for (size_t i = 0; i < neutral_frame_ids_.size() && gt_idx < gt.size(); ++i, ++gt_idx) {
+        auto desc =
+            describe(neutral_frame_ids_[i], Label::HOUSE_BOT, Group::NEUTRAL, gt[gt_idx], now, dt);
         if (desc) result.descriptions.push_back(*desc);
     }
 

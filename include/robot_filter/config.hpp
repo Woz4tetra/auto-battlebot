@@ -27,11 +27,16 @@ struct NoopRobotFilterConfiguration : public RobotFilterConfiguration {
 };
 
 struct GroundTruthRobotFilterConfiguration : public RobotFilterConfiguration {
+    /** How many of the sim's ground-truth opponent slots are neutral robots rather than
+     * opponents. They come last: with `runner.default_opponent_count = 1` and `neutral_count = 1`
+     * the sim supplies two [[opponents]], the first arrives as THEIR_ROBOT_1 and the second as
+     * NEUTRAL_ROBOT_1. That is the house-bot path -- target selection ignores a NEUTRAL track and
+     * the hazard assembler turns it into a moving keep-out disc. */
+    int neutral_count = 0;
+
     GroundTruthRobotFilterConfiguration() { type = "GroundTruthRobotFilter"; }
 
-    PARSE_CONFIG_FIELDS(
-        // No additional fields -- reads GT poses from SimConnection
-    )
+    PARSE_CONFIG_FIELDS(PARSE_FIELD(neutral_count))
 };
 
 struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {

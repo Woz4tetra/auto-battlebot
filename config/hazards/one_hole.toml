@@ -1,0 +1,9 @@
+# One floor hole, left of arena centre. Read by both the kinematic sim
+# ([sim] obstacles_file) and the C++ field filter ([field_filter] hazards_file).
+# Geometry is the raw hole, in field-frame metres; the controller inflates it by our robot's
+# half-diagonal plus its configured margin.
+
+[[hazards]]
+kind = "hole"
+center = [-0.35, 0.2]
+radius = 0.22

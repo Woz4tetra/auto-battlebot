@@ -23,8 +23,10 @@ class SafestPointTarget : public TargetSelectorInterface {
                                               BehaviorMode mode) override;
 
    private:
-    /** Radius of the largest circle centered at (x, y) that clears the walls and every
-     *  opponent. Used to re-measure the held target each cycle. */
+    /** Radius of the largest circle centered at (x, y) that clears the walls, every opponent,
+     *  and every hazard. Used to re-measure the held target each cycle -- with hazards in the
+     *  same objective the solver optimizes, so a held target that a moving hazard has since
+     *  covered loses to a fresh candidate instead of being defended by hysteresis. */
     double circle_radius(double x, double y, const FieldDescription &field,
                          const std::vector<Pose2D> &opponents) const;
 

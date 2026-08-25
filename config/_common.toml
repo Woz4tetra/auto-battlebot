@@ -105,6 +105,10 @@ MRS_BUFF_MK3 = 0.0
 
 [target_selector]
 type = "SafestPointTarget"
+# The solver's plateau is flat: when no opponent constrains the circle the winning center drifts
+# by a few mm per tick, and with no hysteresis the goal was moving 10-13 times a second on the
+# 2026-08-23 recordings. A new candidate now has to beat the held one by this much to take over.
+retarget_improvement_m = 0.15
 
 [transmitter]
 type = "OpenTxTransmitter"

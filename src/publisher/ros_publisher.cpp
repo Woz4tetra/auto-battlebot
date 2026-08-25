@@ -18,6 +18,7 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
                            TypedPublisher<tf2_msgs::TFMessage> tf_publisher,
                            TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher,
                            TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher,
+                           TypedPublisher<visualization_msgs::MarkerArray> hazard_marker_publisher,
                            TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher,
                            TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher,
                            TypedPublisher<std_msgs::String> blob_detections_publisher,
@@ -31,6 +32,7 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
       tf_publisher_(std::move(tf_publisher)),
       static_tf_publisher_(std::move(static_tf_publisher)),
       field_marker_publisher_(std::move(field_marker_publisher)),
+      hazard_marker_publisher_(std::move(hazard_marker_publisher)),
       robot_marker_publisher_(std::move(robot_marker_publisher)),
       nav_marker_publisher_(std::move(nav_marker_publisher)),
       blob_detections_publisher_(std::move(blob_detections_publisher)),
@@ -167,6 +169,18 @@ void RosPublisher::publish_field_description(
         tf_publisher_.publish(tf_msg);
         if (mcap_recorder_) mcap_recorder_->write("/tf", tf_msg);
     }
+}
+
+void RosPublisher::publish_hazards(const FieldDescription &field_description) {
+    FunctionTimer timer(diagnostics_logger_, "publish_hazards");
+
+    if (!hazard_marker_publisher_) return;
+    visualization_msgs::MarkerArray markers;
+    markers.markers = ros_adapters::to_ros_hazard_markers(field_description);
+    // Published even when empty: an empty array clears last cycle's rings, so a hazard that has
+    // aged out does not linger on the overlay as something the controller is still avoiding.
+    hazard_marker_publisher_.publish(markers);
+    if (mcap_recorder_) mcap_recorder_->write("/hazard_markers", markers);
 }
 
 void RosPublisher::publish_robots(const RobotDescriptionsStamped &robots) {

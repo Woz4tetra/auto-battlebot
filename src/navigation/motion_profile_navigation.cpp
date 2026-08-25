@@ -8,11 +8,29 @@
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "enums/frame_id.hpp"
+#include "hazards/hazard_geometry.hpp"
 #include "transform_utils.hpp"
 
 namespace {
 enum class PoseSource { Live, Cached };
+
+auto_battlebot::HazardAvoidanceSettings hazard_settings_from(
+    const auto_battlebot::MotionProfileNavigationConfiguration &config) {
+    auto_battlebot::HazardAvoidanceSettings settings;
+    settings.tangent_enable = config.hazard_tangent_enable;
+    settings.tangent_max_iterations = config.hazard_tangent_max_iterations;
+    settings.waypoint_clearance_m = config.hazard_waypoint_clearance_m;
+    settings.side_release_m = config.hazard_side_release_m;
+    settings.speed_cap_enable = config.hazard_speed_cap_enable;
+    settings.speed_cap_floor = config.hazard_speed_cap_floor;
+    settings.prediction_horizon_s = config.hazard_prediction_horizon_s;
+    settings.reverse_distance = config.hazard_reverse_distance;
+    settings.heading_threshold = config.hazard_heading_threshold;
+    settings.reverse_min_speed = config.hazard_reverse_min_speed;
+    settings.max_yaw_rate = config.max_yaw_rate;
+    return settings;
 }
+}  // namespace
 
 namespace auto_battlebot {
 
@@ -32,6 +50,7 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       attack_terminal_speed_fraction_(config.attack_terminal_speed_fraction),
       run_away_terminal_speed_fraction_(config.run_away_terminal_speed_fraction),
       stop_distance_(config.stop_distance),
+      hazards_(hazard_settings_from(config)),
       speed_kp_(config.speed_kp),
       speed_ki_(config.speed_ki),
       max_angular_speed_(config.plant.k_ang),
@@ -56,6 +75,7 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       clock_(std::move(clock)) {}
 
 void MotionProfileNavigation::reset_trajectory_state() {
+    hazards_.reset();
     committed_turn_sign_ = 0;
     prev_angle_error_ = 0.0;
     prev_v_ref_ = 0.0;
@@ -171,7 +191,12 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                        "Behavior mode changed; resetting the trajectory");
     }
     prev_mode_ = mode;
-    const Pose2D clamped_target = clamp_to_field(target_pose, field);
+    // Option 1 (a legal goal) then option 4 (steer around what blocks the run to it). The
+    // tangent point is itself clamped, so a hazard hugging a wall cannot push the waypoint out
+    // of the arena.
+    const Pose2D legal_target = clamp_to_field(target_pose, field);
+    const Pose2D clamped_target =
+        clamp_to_field(hazards_.steer_around(our_pose, legal_target, field), field);
     const double dx = clamped_target.x - our_pose.x;
     const double dy = clamped_target.y - our_pose.y;
     const double distance = std::sqrt(dx * dx + dy * dy);
@@ -203,7 +228,11 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
         return VelocityCommand{0.0, 0.0, 0.0};
     }
 
-    const double v_ref = compute_reference_speed(distance, v_actual, dt, terminal_velocity);
+    double v_ref = compute_reference_speed(distance, v_actual, dt, terminal_velocity);
+    // Option 3: slow down only as much as the turn requires. Applied after the brake schedule so
+    // it can only ever lower the reference, never raise it above what distance-to-go allows.
+    const double v_ref_uncapped = v_ref;
+    v_ref = std::min(v_ref, hazards_.cap_speed(our_pose, field, v_ref));
     const double dvdt = (dt > 0.0) ? (v_ref - prev_v_ref_) / dt : 0.0;
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
@@ -225,6 +254,7 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     }
 
     apply_wall_reverse(our_pose, field, cmd);
+    const bool hazard_reverse = hazards_.apply_reverse(our_pose, field, cmd);
 
     if (max_linear_command_ > 0.0) {
         cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_command_, max_linear_command_);
@@ -241,6 +271,13 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                        {"facing_target", std::abs(angle_error) < angle_threshold_ ? 1 : 0},
                        {"terminal_velocity", terminal_velocity},
                        {"behavior_mode", std::string(magic_enum::enum_name(mode))},
+                       {"hazard_count", static_cast<int>(field.hazards.size())},
+                       {"hazard_waypoint", hazards_.last_substituted() ? 1 : 0},
+                       {"hazard_side", hazards_.committed_side()},
+                       {"hazard_speed_capped", v_ref < v_ref_uncapped - 1e-9 ? 1 : 0},
+                       {"hazard_reverse", hazard_reverse ? 1 : 0},
+                       {"target_x_steered", clamped_target.x},
+                       {"target_y_steered", clamped_target.y},
                    });
     return cmd;
 }
@@ -469,7 +506,9 @@ Pose2D MotionProfileNavigation::clamp_to_field(const Pose2D &pose,
     if (half_y > 0) {
         clamped.y = std::clamp(clamped.y, -half_y, half_y);
     }
-    return clamped;
+    // Option 1: a goal inside a hazard makes every layer below spend the match fighting it, so
+    // push it to the nearest legal point before anything else runs.
+    return push_out_of_hazards(clamped, field.hazards, half_x, half_y);
 }
 
 double MotionProfileNavigation::normalize_angle(double angle) {

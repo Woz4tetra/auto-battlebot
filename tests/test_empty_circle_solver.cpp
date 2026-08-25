@@ -34,6 +34,34 @@ Pose2D make_pose(double x, double y) {
 
 constexpr double kTol = 1e-9;
 
+FieldHazard make_hazard(double x, double y, double radius) {
+    FieldHazard hazard;
+    hazard.center.x = x;
+    hazard.center.y = y;
+    hazard.radius = radius;
+    return hazard;
+}
+
+/** Brute-force sweep with hazards, same 1-Lipschitz argument as the opponent-only version:
+ *  distance-to-centre minus a constant is still 1-Lipschitz. */
+double brute_force_radius_with_hazards(const Size &field, const std::vector<Pose2D> &opponents,
+                                       const std::vector<FieldHazard> &hazards,
+                                       double resolution_m) {
+    const int nx = std::max(2, static_cast<int>(std::ceil(field.x / resolution_m)) + 1);
+    const int ny = std::max(2, static_cast<int>(std::ceil(field.y / resolution_m)) + 1);
+    const double step_x = field.x / (nx - 1);
+    const double step_y = field.y / (ny - 1);
+    double best = -std::numeric_limits<double>::infinity();
+    for (int iy = 0; iy < ny; ++iy) {
+        const double y = -field.y / 2.0 + iy * step_y;
+        for (int ix = 0; ix < nx; ++ix) {
+            const double x = -field.x / 2.0 + ix * step_x;
+            best = std::max(best, empty_circle_radius(field, x, y, opponents, hazards));
+        }
+    }
+    return best;
+}
+
 /** Sampled ground truth for the agreement sweep: best radius over a uniform grid. The
  *  radius function is 1-Lipschitz, so the best node trails the true optimum by at most
  *  resolution / sqrt(2). Lives here rather than in the library because only this test
@@ -172,6 +200,82 @@ TEST(EmptyCircleSolverTest, ReportsWinningConstraintFamily) {
     // A degenerate field still leaves the field marked, never an empty string.
     const EmptyCircle degenerate = solve_exact(make_field(0.0, 0.0), {});
     EXPECT_FALSE(degenerate.source.empty());
+}
+
+TEST(EmptyCircleSolverTest, HazardAtCentreSolvesTheWeightedCornerCase) {
+    // A hazard is a weighted site: the clearance it contributes is distance minus its radius.
+    // As with a bare opponent at the origin the answer sits on a diagonal, but the balance
+    // point moves: with the centre at (-(h - r), -(h - r)) the two walls give r and the hazard
+    // gives sqrt(2) (h - r) - R, so r = (sqrt(2) h - R) / (1 + sqrt(2)). Not the point answer
+    // minus R, which is the easy thing to assume and is wrong.
+    const double h = 1.22;
+    const double hazard_r = 0.3;
+    const Size field = make_field(2.0 * h, 2.0 * h);
+    const EmptyCircle result = solve_exact(field, {}, {make_hazard(0.0, 0.0, hazard_r)});
+    const double expected = (std::sqrt(2.0) * h - hazard_r) / (1.0 + std::sqrt(2.0));
+    EXPECT_NEAR(result.radius, expected, 1e-9);
+    EXPECT_NEAR(std::abs(result.center.x), std::abs(result.center.y), 1e-9);
+    EXPECT_NEAR(std::abs(result.center.x), h - expected, 1e-9);
+}
+
+TEST(EmptyCircleSolverTest, GoalIsPushedOffAHazardSittingOnTheBestPoint) {
+    // Without the hazard the safest point is the field center. Dropping a hazard on it has to
+    // move the goal out of the disc entirely, not merely reduce the reported radius.
+    const Size field = make_field(2.4, 2.4);
+    const std::vector<FieldHazard> hazards = {make_hazard(0.0, 0.0, 0.4)};
+    const EmptyCircle result = solve_exact(field, {}, hazards);
+    const double distance_to_hazard = std::hypot(result.center.x, result.center.y);
+    EXPECT_GT(distance_to_hazard, 0.4) << "goal sits inside the hazard";
+    EXPECT_NEAR(result.radius, distance_to_hazard - 0.4, 1e-6);
+}
+
+TEST(EmptyCircleSolverTest, HazardCoveringTheFieldReportsNegativeRadius) {
+    // No legal goal exists. The solver must say so with a negative radius rather than inventing
+    // a point, because that is the signal SafestPointTarget uses to decline.
+    const Size field = make_field(2.4, 2.4);
+    const std::vector<FieldHazard> hazards = {make_hazard(0.0, 0.0, 5.0)};
+    const EmptyCircle result = solve_exact(field, {}, hazards);
+    EXPECT_LT(result.radius, 0.0);
+}
+
+TEST(EmptyCircleSolverTest, MixedOpponentAndHazardMatchesBruteForce) {
+    // The families that mix a point site and a weighted site are the ones the closed forms had
+    // to grow a radius term for. Brute force is the only check that covers all of them.
+    std::mt19937 rng(20260824);
+    std::uniform_real_distribution<double> coord(-1.15, 1.15);
+    std::uniform_real_distribution<double> hazard_radius(0.05, 0.45);
+    std::uniform_int_distribution<int> opponent_count(0, 3);
+    std::uniform_int_distribution<int> hazard_count(1, 3);
+    const Size field = make_field(2.44, 2.44);
+    const double brute_resolution = 0.005;
+    const double brute_bound = brute_resolution / std::sqrt(2.0);
+
+    for (int trial = 0; trial < 60; ++trial) {
+        std::vector<Pose2D> opponents;
+        for (int i = 0, n = opponent_count(rng); i < n; ++i) {
+            opponents.push_back(make_pose(coord(rng), coord(rng)));
+        }
+        std::vector<FieldHazard> hazards;
+        for (int i = 0, n = hazard_count(rng); i < n; ++i) {
+            hazards.push_back(make_hazard(coord(rng), coord(rng), hazard_radius(rng)));
+        }
+        const EmptyCircle exact = solve_exact(field, opponents, hazards);
+        const double brute =
+            brute_force_radius_with_hazards(field, opponents, hazards, brute_resolution);
+        EXPECT_GE(exact.radius, brute - kTol) << "trial " << trial;
+        EXPECT_LE(exact.radius, brute + brute_bound + kTol) << "trial " << trial;
+    }
+}
+
+TEST(EmptyCircleSolverTest, HazardFamiliesAreNamedApart) {
+    // A recorded fight without hazards has to read exactly as it did before, and one with them
+    // has to say so, or the diagnostics cannot tell which geometry pinned a bad goal.
+    const Size field = make_field(2.44, 2.44);
+    const EmptyCircle no_hazard = solve_exact(field, {make_pose(0.0, 0.0)});
+    EXPECT_EQ(no_hazard.source, "perpendicular_walls_point");
+
+    const EmptyCircle with_hazard = solve_exact(field, {}, {make_hazard(0.0, 0.0, 0.3)});
+    EXPECT_EQ(with_hazard.source, "perpendicular_walls_hazard");
 }
 
 }  // namespace

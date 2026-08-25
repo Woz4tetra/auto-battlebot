@@ -56,6 +56,14 @@ class Run:
     name: str
     sim: dict[str, Any] = field(default_factory=dict)
     cpp: dict[str, Any] = field(default_factory=dict)
+    # Arena hazards for this run, as [[hazards]]-shaped dicts. Written to one shared TOML that
+    # both the sim ([sim] obstacles_file) and the C++ field filter
+    # ([field_filter] hazards_file) are pointed at, so the simulated floor and the controller's
+    # keep-out discs cannot disagree.
+    hazards: list[dict[str, Any]] = field(default_factory=list)
+    # Name of another run in this sweep to measure "time lost to avoidance" against. Usually the
+    # same geometry with no hazards.
+    baseline: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +97,82 @@ def write_sim_config(run: Run, out_dir: Path, base_sim_config: Path) -> Path:
     with open(path, "wb") as f:
         tomli_w.dump(data, f)
     return path
+
+
+def write_hazard_file(run: Run, out_dir: Path) -> Path | None:
+    """Write this run's arena geometry to one file that both sides read.
+
+    The sim loads it through [sim] obstacles_file and the C++ field filter through
+    [field_filter] hazards_file. Generating it once per run is what makes drift between the
+    simulated floor and the controller's keep-out discs structurally impossible, rather than
+    something a startup assert has to catch.
+    """
+    if not run.hazards:
+        return None
+    path = out_dir / f"{run.name}.hazards.toml"
+    with open(path, "wb") as f:
+        tomli_w.dump({"hazards": run.hazards}, f)
+    return path
+
+
+def parse_episode_line(log_path: Path) -> dict[str, Any]:
+    """Pull the sim server's per-episode summary out of the run log.
+
+    A fall-in ends the run, so it cannot be recovered from the MCAP: the recording simply stops.
+    The server prints one `EPISODE ...` line instead.
+    """
+    if not log_path.exists():
+        return {}
+    line = ""
+    for raw in log_path.read_text(errors="replace").splitlines():
+        if raw.startswith("EPISODE "):
+            line = raw
+    if not line:
+        return {}
+    fields: dict[str, Any] = {}
+    for token in line.split()[1:]:
+        if "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        try:
+            fields[key] = float(value)
+        except ValueError:
+            fields[key] = value
+    out: dict[str, Any] = {}
+    if "fell_in" in fields:
+        out["fell_in"] = int(fields["fell_in"])
+    if "min_clearance" in fields and fields["min_clearance"] == fields["min_clearance"]:
+        out["min_clearance_m"] = round(float(fields["min_clearance"]), 4)
+    if "block_hits" in fields:
+        out["block_hits"] = int(fields["block_hits"])
+    if "outcome" in fields:
+        out["episode_outcome"] = fields["outcome"]
+    if "sim_time" in fields:
+        out["episode_s"] = round(float(fields["sim_time"]), 2)
+    return out
+
+
+def add_time_lost(rows: list[dict[str, Any]], runs: list[Run]) -> None:
+    """Time lost to avoidance, against the run each entry names as its baseline.
+
+    This is the column that carries the weight: an avoidance layer that never moves scores
+    perfectly on hazard entries and minimum clearance and is still useless.
+    """
+    by_name = {row["name"]: row for row in rows}
+    for run in runs:
+        if not run.baseline or run.name not in by_name:
+            continue
+        base = by_name.get(run.baseline)
+        if base is None:
+            continue
+        for metric, column in (("t_to_goal_s", "time_lost_s"), ("t_contact_s", "time_lost_contact_s")):
+            mine, theirs = by_name[run.name].get(metric), base.get(metric)
+            if mine is None or theirs is None:
+                continue
+            try:
+                by_name[run.name][column] = round(float(mine) - float(theirs), 2)
+            except (TypeError, ValueError):
+                continue
 
 
 def write_cpp_overlay(run: Run, out_dir: Path) -> Path:
@@ -290,6 +374,26 @@ def _plot_opponent(
         ax.plot(ox.median(), oy.median(), "X", color=color, ms=14, label=label)
 
 
+def _draw_hazards(ax: Any, hazards: list[dict[str, Any]]) -> None:
+    """Raw hazard geometry as a filled disc; the controller's inflated keep-out is not drawn here
+    because the inflation happens on the C++ side and depends on our robot's measured size."""
+    for hazard in hazards:
+        cx, cy = hazard.get("center", [0.0, 0.0])
+        radius = float(hazard.get("radius", 0.0))
+        is_hole = hazard.get("kind", "hole") == "hole"
+        ax.add_patch(
+            plt.Circle(
+                (cx, cy),
+                radius,
+                fc="0.15" if is_hole else "tab:blue",
+                ec="k",
+                lw=1.0,
+                alpha=0.8 if is_hole else 0.5,
+                zorder=1,
+            )
+        )
+
+
 def _draw_arena(ax: Any, field_size: tuple[float, float] | None) -> None:
     if field_size is not None:
         half_x, half_y = field_size[0] / 2.0, field_size[1] / 2.0
@@ -306,6 +410,7 @@ def plot_run(
     title: str,
     out_path: Path,
     goal_tolerance: float,
+    hazards: list[dict[str, Any]] | None = None,
 ) -> None:
     """Per-run physical view: top-down path (time-coloured) plus distance, heading, speed.
 
@@ -433,7 +538,13 @@ def load_sweep(path: Path) -> tuple[Path | None, list[Run]]:
     runs = []
     for entry in raw.get("runs", []):
         runs.append(
-            Run(name=str(entry["name"]), sim=entry.get("sim", {}), cpp=entry.get("cpp", {}))
+            Run(
+                name=str(entry["name"]),
+                sim=entry.get("sim", {}),
+                cpp=entry.get("cpp", {}),
+                hazards=entry.get("hazards", []),
+                baseline=str(entry.get("baseline", "")),
+            )
         )
     if not runs:
         raise ValueError(f"no [[runs]] found in {path}")
@@ -493,6 +604,10 @@ def main() -> None:
     try:
         for run in runs:
             print(f"=== run: {run.name}  sim={run.sim or '-'}  cpp={run.cpp or '-'} ===")
+            hazard_file = write_hazard_file(run, out_dir)
+            if hazard_file is not None:
+                run.sim = {**run.sim, "obstacles_file": str(hazard_file)}
+                run.cpp = {**run.cpp, "field_filter.hazards_file": str(hazard_file)}
             sim_config = write_sim_config(run, out_dir, base_sim_config)
             cpp_overlay = write_cpp_overlay(run, out_dir)
             dt = float(_load_toml(sim_config).get("sim", {}).get("dt", 1.0 / 30.0))
@@ -501,6 +616,8 @@ def main() -> None:
             ok = run_once(run, sim_config, cpp_overlay, args.timeout, out_dir)
             mcap = latest_mcap(run.name, after=started)
             row: dict[str, Any] = {"name": run.name, **run.sim, **run.cpp, "ok": ok}
+            row["hazard_count"] = len(run.hazards)
+            row.update(parse_episode_line(out_dir / f"{run.name}.log"))
             if mcap is None:
                 print(f"[{run.name}] no MCAP produced; see {out_dir / (run.name + '.log')}")
             else:
@@ -525,6 +642,7 @@ def main() -> None:
                     title,
                     out_dir / f"{run.name}.png",
                     args.goal_tolerance,
+                    run.hazards,
                 )
                 trajectories.append((run.name, df))
                 print(f"  wrote {out_dir / (run.name + '.png')}")
@@ -537,6 +655,7 @@ def main() -> None:
         plot_combined_trajectories(trajectories, field_size, out_dir / "trajectories.png")
         print(f"wrote {out_dir / 'trajectories.png'}")
 
+    add_time_lost(rows, runs)
     table = pd.DataFrame(rows)
     print("\n" + table.to_string(index=False))
     csv_path = out_dir / "results.csv"

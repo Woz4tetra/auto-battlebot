@@ -87,6 +87,58 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
      * turn; the plant/transmitter scales it by max_angular_speed). 0 = no limit. */
     double max_angular_command = 0.0;
 
+    // --- Hazard avoidance ---
+    //
+    // Options 1, 2 and 4 only. The speed cap (option 3) is stated in m/s against a measured
+    // yaw rate, and PursuitNavigation closes its heading loop in normalized command against an
+    // unfitted plant, so there is no honest number to cap with here. It lives in
+    // MotionProfileNavigation, which has the fit. Options 1 and 2 are the floor and ceiling:
+    // keeping the goal legal, and a last-ditch reverse. Options 3 and 4 do the actual work, and are
+    // one behaviour -- "cap the speed enough to make the turn, then take the turn" -- so tuning
+    // either alone will mislead. See docs/hazard_avoidance_plan.md.
+
+    /** Steer at a tangent point on a blocking hazard's rim instead of at the true goal
+     * (option 4, the primary response). Costs nothing in navigation: both controllers only ever
+     * chase a Pose2D. */
+    bool hazard_tangent_enable = true;
+
+    /** How many times to re-test the substituted waypoint against the remaining hazards. A
+     * greedy one-hazard-at-a-time step, not a planner: a field holds a handful of hazards, not a
+     * maze. When it does not converge the speed cap and the reverse backstop cover it. */
+    int hazard_tangent_max_iterations = 3;
+
+    /** Clearance (m) the tangent waypoint leaves beyond the keep-out radius. Aiming at the
+     * keep-out rim exactly means arriving with zero clearance and grinding along the edge; a
+     * little extra makes the run from the waypoint to the goal unblocked, so the true goal comes
+     * back on its own instead of the robot orbiting. */
+    double hazard_waypoint_clearance_m = 0.06;
+
+    /** Release the latched pass side once the direct run to the goal clears the hazard by this
+     * much (m). Latching is the same pattern as the turn-direction hysteresis: without it the
+     * robot re-picks a side every tick and cuts back across the hazard it was rounding. */
+    double hazard_side_release_m = 0.05;
+
+    /** Seconds ahead to advance a TRACKED hazard along its filtered velocity before testing it.
+     * The house bot moving across our path is the case this exists for: reacting to where it is
+     * now aims at where it was. */
+    double hazard_prediction_horizon_s = 0.25;
+
+    /** Distance (m) from a hazard edge inside which linear_x is overridden to reverse, when the
+     * heading also points at it. 0 = disabled.
+     *
+     * This is a stopping response, and the numbers say it will fire too late to save a
+     * full-speed approach: it is a backstop for what the steering layer cannot solve, mainly a
+     * hazard that appears close because the house bot drove into our path or its track
+     * initialised late. If a sweep shows it firing often, that is evidence options 3 and 4 are
+     * mistuned, not evidence this is working. */
+    double hazard_reverse_distance = 0.12;
+
+    /** Heading must point within this angle (rad) of the hazard for the reverse to trigger. */
+    double hazard_heading_threshold = 1.047;
+
+    /** Reverse speed floor while the hazard backstop is active (normalized command). */
+    double hazard_reverse_min_speed = 0.35;
+
     PursuitNavigationConfiguration() { type = "PursuitNavigation"; }
 
     // clang-format off
@@ -107,6 +159,14 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_BOOL(enable_hysteresis)
         PARSE_FIELD_DOUBLE(max_linear_command)
         PARSE_FIELD_DOUBLE(max_angular_command)
+        PARSE_FIELD_BOOL(hazard_tangent_enable)
+        PARSE_FIELD(hazard_tangent_max_iterations)
+        PARSE_FIELD_DOUBLE(hazard_waypoint_clearance_m)
+        PARSE_FIELD_DOUBLE(hazard_side_release_m)
+        PARSE_FIELD_DOUBLE(hazard_prediction_horizon_s)
+        PARSE_FIELD_DOUBLE(hazard_reverse_distance)
+        PARSE_FIELD_DOUBLE(hazard_heading_threshold)
+        PARSE_FIELD_DOUBLE(hazard_reverse_min_speed)
     )
     // clang-format on
 };
@@ -246,6 +306,65 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     /** Only reverse off a wall when heading is within this angle (rad) of facing it. */
     double wall_heading_threshold = 0.6;
 
+    // --- Hazard avoidance ---
+    //
+    // Four layers, weakest to strongest. Options 1 and 2 are the floor and ceiling: keeping the
+    // goal legal, and a last-ditch reverse. Options 3 and 4 do the actual work, and are one
+    // behaviour -- "cap the speed enough to make the turn, then take the turn" -- so tuning
+    // either alone will mislead. See docs/hazard_avoidance_plan.md.
+
+    /** Steer at a tangent point on a blocking hazard's rim instead of at the true goal
+     * (option 4, the primary response). Costs nothing in navigation: both controllers only ever
+     * chase a Pose2D. */
+    bool hazard_tangent_enable = true;
+
+    /** How many times to re-test the substituted waypoint against the remaining hazards. A
+     * greedy one-hazard-at-a-time step, not a planner: a field holds a handful of hazards, not a
+     * maze. When it does not converge the speed cap and the reverse backstop cover it. */
+    int hazard_tangent_max_iterations = 3;
+
+    /** Clearance (m) the tangent waypoint leaves beyond the keep-out radius. Aiming at the
+     * keep-out rim exactly means arriving with zero clearance and grinding along the edge; a
+     * little extra makes the run from the waypoint to the goal unblocked, so the true goal comes
+     * back on its own instead of the robot orbiting. */
+    double hazard_waypoint_clearance_m = 0.06;
+
+    /** Release the latched pass side once the direct run to the goal clears the hazard by this
+     * much (m). Latching is the same pattern as the turn-direction hysteresis: without it the
+     * robot re-picks a side every tick and cuts back across the hazard it was rounding. */
+    double hazard_side_release_m = 0.05;
+
+    /** Cap forward speed to what the achievable turn radius can clear (option 3). 0 = off. The
+     * cap is `max_yaw_rate * L^2 / (2 R)` at along-track range L, so it stays out of the way
+     * until a hazard is genuinely close and near the heading. */
+    bool hazard_speed_cap_enable = true;
+
+    /** Floor (m/s) under the speed cap. A cap that reaches zero recreates the stop-in-time
+     * behaviour this plant cannot deliver and strands the robot with the hazard in front of
+     * it. */
+    double hazard_speed_cap_floor = 0.35;
+
+    /** Seconds ahead to advance a TRACKED hazard along its filtered velocity before testing it.
+     * The house bot moving across our path is the case this exists for: reacting to where it is
+     * now aims at where it was. */
+    double hazard_prediction_horizon_s = 0.25;
+
+    /** Distance (m) from a hazard edge inside which linear_x is overridden to reverse, when the
+     * heading also points at it. 0 = disabled.
+     *
+     * This is a stopping response, and the numbers say it will fire too late to save a
+     * full-speed approach: it is a backstop for what the steering layer cannot solve, mainly a
+     * hazard that appears close because the house bot drove into our path or its track
+     * initialised late. If a sweep shows it firing often, that is evidence options 3 and 4 are
+     * mistuned, not evidence this is working. */
+    double hazard_reverse_distance = 0.12;
+
+    /** Heading must point within this angle (rad) of the hazard for the reverse to trigger. */
+    double hazard_heading_threshold = 1.047;
+
+    /** Reverse speed floor while the hazard backstop is active (normalized command). */
+    double hazard_reverse_min_speed = 0.35;
+
     MotionProfileNavigationConfiguration() { type = "MotionProfileNavigation"; }
 
     /**
@@ -286,6 +405,16 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(wall_reverse_distance)
         PARSE_FIELD_DOUBLE(wall_reverse_min_speed)
         PARSE_FIELD_DOUBLE(wall_heading_threshold)
+        PARSE_FIELD_BOOL(hazard_tangent_enable)
+        PARSE_FIELD(hazard_tangent_max_iterations)
+        PARSE_FIELD_DOUBLE(hazard_waypoint_clearance_m)
+        PARSE_FIELD_DOUBLE(hazard_side_release_m)
+        PARSE_FIELD_BOOL(hazard_speed_cap_enable)
+        PARSE_FIELD_DOUBLE(hazard_speed_cap_floor)
+        PARSE_FIELD_DOUBLE(hazard_prediction_horizon_s)
+        PARSE_FIELD_DOUBLE(hazard_reverse_distance)
+        PARSE_FIELD_DOUBLE(hazard_heading_threshold)
+        PARSE_FIELD_DOUBLE(hazard_reverse_min_speed)
     )
     // clang-format on
 };

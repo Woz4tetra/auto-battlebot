@@ -1,0 +1,11 @@
+# A synthetic hole for replay regression, not real arena geometry.
+#
+# The NHRL arena's real hole is not measured yet (see the open questions in
+# docs/hazard_avoidance_plan.md), but the avoidance layers can still be exercised against a
+# recorded fight by dropping a hole into the field config. Placed off centre so it sits on the
+# paths the May recordings actually take rather than somewhere the robots never go.
+
+[[hazards]]
+kind = "hole"
+center = [0.30, -0.25]
+radius = 0.22

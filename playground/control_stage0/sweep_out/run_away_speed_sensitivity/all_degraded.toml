@@ -1,0 +1,13 @@
+extends = "/home/ben/auto-battlebot/config/simulation/kinematic_sim"
+
+[mcap]
+enable = true
+
+[ui]
+enable = false
+
+[transmitter]
+behavior_mode = "RUN_AWAY"
+
+[navigation]
+type = "MotionProfileNavigation"

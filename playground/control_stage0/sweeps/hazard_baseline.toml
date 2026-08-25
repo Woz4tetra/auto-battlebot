@@ -1,0 +1,57 @@
+# The failure baseline: what the stack does with hazards in the world model and every avoidance
+# layer switched off. Same geometries as hazard_avoidance.toml, so the two tables compare row for
+# row. Both hole runs are expected to report fell_in = 1 and end inside half a second -- if they
+# do not, the layers are not actually disabled and the comparison is worthless.
+#
+# Run: python playground/control_stage0/sim_sweep.py \
+#        --sweep playground/control_stage0/sweeps/hazard_baseline.toml \
+#        --sim-config simulation/sim_mrs_buff_mk3.toml \
+#        --out playground/control_stage0/sweep_out/hazard_baseline
+
+sim_config = "simulation/sim_mrs_buff_mk3.toml"
+
+[[runs]]
+name = "clean"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"our_robot.start_yaw_deg" = 45.0
+opponents = [{ behavior = "static", start_pos = [0.9, 0.9] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "ATTACK"
+"navigation.type" = "MotionProfileNavigation"
+"navigation.hazard_tangent_enable" = false
+"navigation.hazard_speed_cap_enable" = false
+"navigation.hazard_reverse_distance" = 0.0
+
+[[runs]]
+name = "hole_on_path"
+baseline = "clean"
+hazards = [{ kind = "hole", center = [0.0, 0.0], radius = 0.22 }]
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"our_robot.start_yaw_deg" = 45.0
+opponents = [{ behavior = "static", start_pos = [0.9, 0.9] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "ATTACK"
+"navigation.type" = "MotionProfileNavigation"
+"navigation.hazard_tangent_enable" = false
+"navigation.hazard_speed_cap_enable" = false
+"navigation.hazard_reverse_distance" = 0.0
+
+[[runs]]
+name = "hole_and_block"
+baseline = "clean"
+hazards = [
+  { kind = "hole", center = [-0.1, 0.1], radius = 0.20 },
+  { kind = "wall_block", center = [0.35, 0.2], radius = 0.16 },
+]
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"our_robot.start_yaw_deg" = 45.0
+opponents = [{ behavior = "static", start_pos = [0.9, 0.9] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "ATTACK"
+"navigation.type" = "MotionProfileNavigation"
+"navigation.hazard_tangent_enable" = false
+"navigation.hazard_speed_cap_enable" = false
+"navigation.hazard_reverse_distance" = 0.0

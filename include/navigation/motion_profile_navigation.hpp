@@ -6,6 +6,7 @@
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 #include "enums/behavior_mode.hpp"
 #include "navigation/config.hpp"
+#include "navigation/hazard_avoidance.hpp"
 #include "time/clock_interface.hpp"
 
 namespace auto_battlebot {
@@ -157,6 +158,7 @@ class MotionProfileNavigation : public NavigationInterface {
     double attack_terminal_speed_fraction_;
     double run_away_terminal_speed_fraction_;
     double stop_distance_;
+    HazardAvoidance hazards_;
 
     // Speed feedback.
     double speed_kp_;

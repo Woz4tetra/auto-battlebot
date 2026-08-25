@@ -15,13 +15,15 @@ ControlLoop::ControlLoop(std::shared_ptr<RobotFilterInterface> robot_filter,
                          std::shared_ptr<TargetSelectorInterface> target_selector,
                          std::shared_ptr<NavigationInterface> navigation,
                          std::shared_ptr<TransmitterInterface> transmitter,
-                         std::shared_ptr<ClockInterface> clock, std::shared_ptr<UIState> ui_state)
+                         std::shared_ptr<ClockInterface> clock, std::shared_ptr<UIState> ui_state,
+                         std::shared_ptr<HazardAssembler> hazard_assembler)
     : robot_filter_(std::move(robot_filter)),
       target_selector_(std::move(target_selector)),
       navigation_(std::move(navigation)),
       transmitter_(std::move(transmitter)),
       clock_(std::move(clock)),
       ui_state_(std::move(ui_state)),
+      hazard_assembler_(std::move(hazard_assembler)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("runner")) {}
 
 bool ControlLoop::initialize() {
@@ -171,6 +173,12 @@ void ControlLoop::run_cycle() {
         "navigation", {{"using_previous_robots", static_cast<int>(cached_robots.using_previous)},
                        {"behavior_mode", std::string(magic_enum::enum_name(behavior_mode))}});
 
+    // Hazards are assembled once here, so target selection and navigation see the same keep-out
+    // discs, already inflated, within the cycle.
+    if (hazard_assembler_) {
+        hazard_assembler_->assemble(cached_robots.robots, *field_description_);
+    }
+
     TargetSelection resolved_target =
         resolve_target(cached_robots.robots, *field_description_, behavior_mode);
     VelocityCommand command =
@@ -186,6 +194,7 @@ void ControlLoop::run_cycle() {
         output_.target = resolved_target;
         output_.command = command;
         output_.behavior_mode = behavior_mode;
+        output_.hazards = field_description_->hazards;
         output_.our_blob_present_no_keypoint = robot_filter_->last_our_blob_present_no_keypoint();
         visualization_ = navigation_->get_last_visualization();
     }

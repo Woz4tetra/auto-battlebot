@@ -8,11 +8,28 @@
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "enums/frame_id.hpp"
+#include "hazards/hazard_geometry.hpp"
 #include "transform_utils.hpp"
 
 namespace {
 enum class PoseSource { Live, Cached };
+
+auto_battlebot::HazardAvoidanceSettings hazard_settings_from(
+    const auto_battlebot::PursuitNavigationConfiguration &config) {
+    auto_battlebot::HazardAvoidanceSettings settings;
+    settings.tangent_enable = config.hazard_tangent_enable;
+    settings.tangent_max_iterations = config.hazard_tangent_max_iterations;
+    settings.waypoint_clearance_m = config.hazard_waypoint_clearance_m;
+    settings.side_release_m = config.hazard_side_release_m;
+    // No option 3 here: the cap is stated in m/s and pursuit has no plant fit to convert against.
+    settings.speed_cap_enable = false;
+    settings.prediction_horizon_s = config.hazard_prediction_horizon_s;
+    settings.reverse_distance = config.hazard_reverse_distance;
+    settings.heading_threshold = config.hazard_heading_threshold;
+    settings.reverse_min_speed = config.hazard_reverse_min_speed;
+    return settings;
 }
+}  // namespace
 
 namespace auto_battlebot {
 
@@ -34,6 +51,7 @@ PursuitNavigation::PursuitNavigation(const PursuitNavigationConfiguration &confi
       lookahead_time_(config.lookahead_time),
       boundary_margin_(config.boundary_margin),
       enable_hysteresis_(config.enable_hysteresis),
+      hazards_(hazard_settings_from(config)),
       logger_(DiagnosticsLogger::get_logger("pursuit_nav")),
       clock_(std::move(clock)) {}
 
@@ -129,6 +147,7 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
     cmd.angular_z = compute_angular_velocity(angle_error);
     cmd.linear_x = compute_linear_velocity(angle_error, distance, cmd.angular_z);
     apply_wall_reverse(our_pose, field, cmd);
+    const bool hazard_reverse = hazards_.apply_reverse(our_pose, field, cmd);
 
     if (max_linear_command_ > 0.0) {
         cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_command_, max_linear_command_);
@@ -145,6 +164,10 @@ VelocityCommand PursuitNavigation::compute_pursuit_command(const Pose2D &our_pos
                        {"threshold_deg", angle_threshold_ * 180.0 / M_PI},
                        {"facing_target", std::abs(angle_error) < angle_threshold_ ? 1 : 0},
                        {"turn_commit", committed_turn_sign_},
+                       {"hazard_count", static_cast<int>(field.hazards.size())},
+                       {"hazard_waypoint", hazards_.last_substituted() ? 1 : 0},
+                       {"hazard_side", hazards_.committed_side()},
+                       {"hazard_reverse", hazard_reverse ? 1 : 0},
                    });
 
     return cmd;

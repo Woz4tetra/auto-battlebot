@@ -241,8 +241,8 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
         auto navigation = std::make_shared<RecordingNavigation>();
         auto transmitter = std::make_shared<RecordingTransmitter>();
         auto clock = std::make_shared<ManualClock>();
-        auto loop =
-            std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock, nullptr);
+        auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock,
+                                                  nullptr, nullptr);
         SteppedControlLoop driver(loop, 0.0);
         driver.start();
 
@@ -280,8 +280,8 @@ TEST(ControlLoopTest, ZeroRateRunsExactlyOneCyclePerAdvance) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock,
+                                              nullptr, nullptr);
     SteppedControlLoop driver(loop, 0.0);
 
     const auto measurements = make_measurements(10);
@@ -302,8 +302,8 @@ TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock,
+                                              nullptr, nullptr);
     // 240 Hz against 30 Hz frames: 8 cycles per frame after the first.
     SteppedControlLoop driver(loop, 240.0);
 
@@ -329,8 +329,8 @@ TEST(ControlLoopTest, MeasurementIsCorrectedExactlyOnce) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock,
+                                              nullptr, nullptr);
     SteppedControlLoop driver(loop, 0.0);
 
     const auto measurements = make_measurements(2);
@@ -361,8 +361,8 @@ TEST(ControlLoopTest, BehaviorModeReachesSelectorAndOutput) {
     auto transmitter = std::make_shared<RunAwayTransmitter>();
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock,
+                                              nullptr, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
 
@@ -392,8 +392,8 @@ TEST(ControlLoopTest, BehaviorModeIsLoggedEveryCycle) {
     auto transmitter = std::make_shared<RunAwayTransmitter>();
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock,
+                                              nullptr, nullptr);
 
     SteppedControlLoop driver(loop, 0.0);
     driver.start();

@@ -1,7 +1,8 @@
 """Typed config for the fast headless kinematic sim (kinematic_sim_server.py).
 
 Loaded and validated via config.loader.load_config (dacite, strict). Keep [arena] in sync with
-config/headless_sim.toml on the C++ side.
+config/simulation/kinematic_sim.toml on the C++ side. Obstacle geometry is not duplicated here:
+`obstacles_file` names the shared TOML that the C++ field filter also reads.
 """
 
 from __future__ import annotations
@@ -103,6 +104,48 @@ class OpponentConfig:
     heading_deg: float = 180.0
     radius: float = 0.5  # circle radius
     replay_csv: str = ""
+    # Treat this opponent as a moving obstacle of this radius (m), the way the house bot behaves:
+    # the plant is clamped out of it and clearance to it is scored. 0 = not an obstacle. On the
+    # C++ side the matching track arrives as NEUTRAL (see GroundTruthRobotFilter.neutral_count)
+    # and the hazard assembler turns it into a TRACKED keep-out disc.
+    #
+    # Unlike a static hazard there is no shared geometry file here: both sides derive the radius
+    # from the robot itself, so this has to be the track's own half-diagonal. GroundTruthRobotFilter
+    # reports every robot as 0.15 x 0.15 m, which is 0.106. Setting it larger models a house bot
+    # the controller cannot see the true size of, and the sweep will report the scrapes.
+    hazard_radius: float = 0.0
+
+
+@dataclass
+class ObstacleConfig:
+    """One keep-out disc in the arena, in field-frame metres.
+
+    ``hole`` ends the run when the robot's centre crosses into it; ``wall_block`` clamps the
+    robot to its boundary and kills forward speed, exactly like an arena wall. ``radius`` is the
+    raw geometry, before any inflation: the controller inflates by its own half-diagonal, the
+    simulated floor does not.
+    """
+
+    kind: str = "hole"  # hole | wall_block
+    center: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    radius: float = 0.25
+
+
+@dataclass
+class ViewerConfig:
+    """In-loop OpenCV window. Off by default so sweeps stay headless and fast.
+
+    Rendering costs wall-clock time but cannot corrupt a run: the sim owns logical time and ships
+    ``sim_time`` in the response header, which the C++ side adopts through ManualClock. A slow
+    render makes the sim slower in real time and changes nothing the controller sees.
+    """
+
+    enable: bool = False
+    window_px: int = 900
+    render_every: int = 1  # tick decimation
+    realtime: bool = True  # pace sim.dt to a human; False = free-run
+    sprites_dir: str = "simulation/assets/sprites"
+    background: str = "simulation/assets/cage/nhrl_cage_floor.png"
 
 
 @dataclass
@@ -115,3 +158,8 @@ class KinematicSimConfig:
     our_robot: PlantConfig = field(default_factory=PlantConfig)
     perception: PerceptionConfig = field(default_factory=PerceptionConfig)
     opponents: list[OpponentConfig] = field(default_factory=lambda: [OpponentConfig()])
+    viewer: ViewerConfig = field(default_factory=ViewerConfig)
+    # Shared arena geometry, as a path to a TOML file holding [[hazards]] entries. The C++ field
+    # filter reads the same file through [field_filter].hazards_file, so the simulated floor and
+    # the controller's keep-out discs cannot drift apart. Empty = no obstacles.
+    obstacles_file: str = ""

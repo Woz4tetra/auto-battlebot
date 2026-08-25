@@ -14,6 +14,7 @@ class NoopPublisher : public PublisherInterface {
     void publish_field_description([[maybe_unused]] const FieldDescription &field_description,
                                    [[maybe_unused]] const FieldDescriptionWithInlierPoints
                                        &initial_field_description) override {};
+    void publish_hazards([[maybe_unused]] const FieldDescription &field_description) override {}
     void publish_robots([[maybe_unused]] const RobotDescriptionsStamped &robots) override {}
     void publish_blob_detections([[maybe_unused]] const DetectionsStamped &detections) override {}
     void publish_keypoint_detections(

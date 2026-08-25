@@ -36,6 +36,7 @@ from camera_utils import camera_view_matrix, fov_to_intrinsics
 from config.kinematic import (
     CameraConfig,
     KinematicSimConfig,
+    ObstacleConfig,
     OpponentConfig,
     PerceptionConfig,
     PlantConfig,
@@ -51,6 +52,9 @@ from protocol import (
     recv_all,
     send_all,
 )
+from viewer import Viewer
+
+from hazards import load_hazards
 
 Pose = tuple[float, float, float]  # x, y, yaw in the field frame
 
@@ -77,7 +81,13 @@ class Plant:
     transport delay lives outside this class, in the server's command ring buffer.
     """
 
-    def __init__(self, cfg: PlantConfig, arena_w: float, arena_h: float) -> None:
+    def __init__(
+        self,
+        cfg: PlantConfig,
+        arena_w: float,
+        arena_h: float,
+        obstacles: list[ObstacleConfig] | None = None,
+    ) -> None:
         self._cfg = cfg
         self.x, self.y = cfg.start_pos
         self.yaw = math.radians(cfg.start_yaw_deg)
@@ -85,6 +95,25 @@ class Plant:
         self.w = 0.0
         self._half_x = arena_w / 2.0 - cfg.radius
         self._half_y = arena_h / 2.0 - cfg.radius
+        obstacles = obstacles or []
+        # Blocks stop the chassis, so they are grown by the robot radius the same way the walls
+        # are. A hole swallows the robot when its centre crosses the lip, so it is not grown.
+        self._blocks = [
+            (o.center[0], o.center[1], o.radius + cfg.radius)
+            for o in obstacles
+            if o.kind == "wall_block"
+        ]
+        self._holes = [(o.center[0], o.center[1], o.radius) for o in obstacles if o.kind == "hole"]
+        self.fell_in = False
+        self.wall_hits = 0
+        self.block_hits = 0
+        self.min_hazard_clearance = float("inf")
+        # Refreshed each tick from the opponents that carry a hazard_radius. Same treatment as a
+        # static block: the chassis is pushed out and the clearance is scored.
+        self._moving_blocks: list[tuple[float, float, float]] = []
+
+    def set_moving_blocks(self, blocks: list[tuple[float, float, float]]) -> None:
+        self._moving_blocks = [(x, y, r + self._cfg.radius) for x, y, r in blocks]
 
     @staticmethod
     def _effective_command(cmd: float, dz_pos: float, dz_neg: float) -> float:
@@ -135,6 +164,37 @@ class Plant:
                 v_target, w_target, sub_dt, tau_l_acc, tau_l_dec, tau_a_acc, tau_a_dec
             ):
                 break
+            if self.fell_in:
+                self.v = 0.0
+                self.w = 0.0
+                break
+
+    def _resolve_obstacles(self, nx: float, ny: float) -> tuple[float, float, bool]:
+        """Push the chassis out of any block, record the closest a hazard came, and latch a
+        fall-in. Returns the corrected position and whether a block was hit."""
+        blocked = False
+        # A block is a wall with a curved face: push the chassis back out along the radius, which
+        # is what the rectangle clamp does for the arena walls.
+        for bx, by, br in self._blocks + self._moving_blocks:
+            ddx, ddy = nx - bx, ny - by
+            dist = math.hypot(ddx, ddy)
+            if dist >= br:
+                continue
+            if dist < 1e-9:
+                ddx, ddy, dist = 1.0, 0.0, 1.0
+            nx, ny = bx + ddx / dist * br, by + ddy / dist * br
+            blocked = True
+            self.block_hits += 1
+
+        for hx, hy, hr in self._holes:
+            gap = math.hypot(nx - hx, ny - hy) - hr
+            self.min_hazard_clearance = min(self.min_hazard_clearance, gap)
+            if gap < 0.0:
+                self.fell_in = True
+        for bx, by, br in self._blocks + self._moving_blocks:
+            gap = math.hypot(nx - bx, ny - by) - br
+            self.min_hazard_clearance = min(self.min_hazard_clearance, gap)
+        return nx, ny, blocked
 
     def _substep(
         self,
@@ -175,6 +235,11 @@ class Plant:
         if abs(ny) > self._half_y:
             ny = math.copysign(self._half_y, ny)
             hit = True
+        if hit:
+            self.wall_hits += 1
+
+        nx, ny, blocked = self._resolve_obstacles(nx, ny)
+        hit = hit or blocked
 
         self.x, self.y = nx, ny
         self.yaw = math.atan2(math.sin(next_yaw), math.cos(next_yaw))
@@ -190,7 +255,12 @@ class Plant:
 
 class Opponent:
     def __init__(
-        self, cfg: OpponentConfig, arena_w: float, arena_h: float, rng: np.random.Generator
+        self,
+        cfg: OpponentConfig,
+        arena_w: float,
+        arena_h: float,
+        rng: np.random.Generator,
+        obstacles: list[ObstacleConfig] | None = None,
     ) -> None:
         self._cfg = cfg
         self.x, self.y = cfg.start_pos
@@ -198,6 +268,13 @@ class Opponent:
         self._half_x = arena_w / 2.0 - 0.11
         self._half_y = arena_h / 2.0 - 0.11
         self._rng = rng
+        # Opponents keep out of hazards too, or a run starts with one standing in the hole and
+        # the safest-point solver spends the match routing around a target that cannot exist.
+        self._keep_out = [(o.center[0], o.center[1], o.radius + 0.11) for o in (obstacles or [])]
+        self.dragged = False
+        self.hazard_radius = cfg.hazard_radius
+        if self._in_hazard(self.x, self.y):
+            self.x, self.y = self._push_out(self.x, self.y)
         self._angle = 0.0
         self._target = self._random_target()
         self._replay: list[Pose] = []
@@ -205,17 +282,48 @@ class Opponent:
         if cfg.behavior == "replay" and cfg.replay_csv:
             self._replay = _load_replay_csv(Path(cfg.replay_csv))
 
+    def _in_hazard(self, x: float, y: float) -> bool:
+        return any(math.hypot(x - hx, y - hy) < hr for hx, hy, hr in self._keep_out)
+
+    def _push_out(self, x: float, y: float) -> tuple[float, float]:
+        """Nudge a position to the nearest hazard boundary. Used for spawns and for the
+        drag handler, where a caller can put the opponent anywhere."""
+        for hx, hy, hr in self._keep_out:
+            dx, dy = x - hx, y - hy
+            dist = math.hypot(dx, dy)
+            if dist < hr:
+                if dist < 1e-9:
+                    dx, dy, dist = 1.0, 0.0, 1.0
+                x, y = hx + dx / dist * hr, hy + dy / dist * hr
+        return x, y
+
     def _random_target(self) -> tuple[float, float]:
-        return (
-            float(self._rng.uniform(-self._half_x * 0.9, self._half_x * 0.9)),
-            float(self._rng.uniform(-self._half_y * 0.9, self._half_y * 0.9)),
-        )
+        for _ in range(32):
+            candidate = (
+                float(self._rng.uniform(-self._half_x * 0.9, self._half_x * 0.9)),
+                float(self._rng.uniform(-self._half_y * 0.9, self._half_y * 0.9)),
+            )
+            if not self._in_hazard(*candidate):
+                return candidate
+        # Hazards cover most of the reachable arena; fall back to the last draw pushed clear.
+        return self._push_out(*candidate)
 
     def _clamp(self) -> None:
         self.x = float(np.clip(self.x, -self._half_x, self._half_x))
         self.y = float(np.clip(self.y, -self._half_y, self._half_y))
+        self.x, self.y = self._push_out(self.x, self.y)
+
+    def place(self, x: float, y: float) -> None:
+        """Put the opponent somewhere directly (viewer drag). Re-seeds the parameterised
+        behaviours so a release resumes from the drop point rather than snapping back."""
+        self.x, self.y = x, y
+        self._clamp()
+        self._angle = math.atan2(self.y, self.x)
+        self._target = self._random_target()
 
     def step(self, dt: float) -> None:
+        if self.dragged:
+            return
         behavior = self._cfg.behavior
         if behavior == "static":
             return
@@ -342,13 +450,22 @@ class KinematicServer:
         )
         self._rgb = np.zeros((cam.res_height, cam.res_width, 3), dtype=np.uint8)
         self._depth = np.zeros((cam.res_height, cam.res_width), dtype=np.float32)
+        self._obstacles = load_hazards(cfg.obstacles_file) if cfg.obstacles_file else []
+        if self._obstacles:
+            summary = ", ".join(
+                f"{o.kind}@({o.center[0]:.2f},{o.center[1]:.2f}) r={o.radius:.2f}"
+                for o in self._obstacles
+            )
+            print(f"Obstacles from {cfg.obstacles_file}: {summary}")
+        self._viewer = Viewer(cfg, self._obstacles) if cfg.viewer.enable else None
 
     def _reset(self) -> None:
         cfg = self._cfg
         rng = np.random.default_rng(cfg.sim.seed)
-        self._plant = Plant(cfg.our_robot, cfg.arena.width, cfg.arena.height)
+        self._plant = Plant(cfg.our_robot, cfg.arena.width, cfg.arena.height, self._obstacles)
         self._opponents = [
-            Opponent(o, cfg.arena.width, cfg.arena.height, rng) for o in cfg.opponents
+            Opponent(o, cfg.arena.width, cfg.arena.height, rng, self._obstacles)
+            for o in cfg.opponents
         ]
         self._perception = Perception(
             cfg.perception, cfg.camera, cfg.sim.dt, cfg.latency.observation_ms, rng
@@ -379,6 +496,9 @@ class KinematicServer:
             # Actuation latency: apply the command issued command_latency ago.
             self._cmd_buf.append((linear_x, angular_z))
             applied = self._cmd_buf[0]
+            self._plant.set_moving_blocks(
+                [(o.x, o.y, o.hazard_radius) for o in self._opponents if o.hazard_radius > 0.0]
+            )
             self._plant.step(applied[0], applied[1], cfg.sim.dt)
             for opponent in self._opponents:
                 opponent.step(cfg.sim.dt)
@@ -387,9 +507,28 @@ class KinematicServer:
                 self._plant.pose(), [o.pose() for o in self._opponents]
             )
             self._send_frame(conn, obs_our, obs_opps)
+            if self._viewer is not None:
+                self._viewer.render(
+                    self._plant, self._opponents, self._tick, self._sim_time, applied
+                )
             self._tick += 1
             self._sim_time += cfg.sim.dt
-        print(f"Reached max_ticks={cfg.sim.max_ticks}; closing connection.")
+            if self._plant.fell_in:
+                self._report("FELL_IN")
+                return
+        self._report("MAX_TICKS")
+
+    def _report(self, outcome: str) -> None:
+        """One machine-readable line per episode. sim_sweep greps it for the hazard columns;
+        a metric derived from the MCAP alone could not see a fall-in, because the run ends there."""
+        clearance = self._plant.min_hazard_clearance
+        clearance_str = "nan" if clearance == float("inf") else f"{clearance:.4f}"
+        print(
+            f"EPISODE outcome={outcome} tick={self._tick} sim_time={self._sim_time:.3f} "
+            f"fell_in={int(self._plant.fell_in)} wall_hits={self._plant.wall_hits} "
+            f"block_hits={self._plant.block_hits} min_clearance={clearance_str}",
+            flush=True,
+        )
 
     def serve_forever(self) -> None:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

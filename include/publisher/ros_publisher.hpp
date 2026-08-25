@@ -21,6 +21,7 @@ class RosPublisher : public PublisherInterface {
                  TypedPublisher<tf2_msgs::TFMessage> tf_publisher,
                  TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher,
                  TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher,
+                 TypedPublisher<visualization_msgs::MarkerArray> hazard_marker_publisher,
                  TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher,
                  TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher,
                  TypedPublisher<std_msgs::String> blob_detections_publisher,
@@ -35,6 +36,7 @@ class RosPublisher : public PublisherInterface {
     void publish_field_description(
         const FieldDescription &field_description,
         const FieldDescriptionWithInlierPoints &initial_field_description) override;
+    void publish_hazards(const FieldDescription &field_description) override;
     void publish_robots(const RobotDescriptionsStamped &robots) override;
     void publish_blob_detections(const DetectionsStamped &detections) override;
     void publish_keypoint_detections(const DetectionsStamped &detections) override;
@@ -48,6 +50,7 @@ class RosPublisher : public PublisherInterface {
     TypedPublisher<tf2_msgs::TFMessage> tf_publisher_;
     TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher_;
     TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher_;
+    TypedPublisher<visualization_msgs::MarkerArray> hazard_marker_publisher_;
     TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher_;
     TypedPublisher<visualization_msgs::MarkerArray> nav_marker_publisher_;
     TypedPublisher<std_msgs::String> blob_detections_publisher_;

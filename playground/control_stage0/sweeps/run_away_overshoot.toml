@@ -1,0 +1,49 @@
+# RUN_AWAY overshoot reproduction. The safest-point solver picks the goal, the driver switch is
+# pinned to RUN_AWAY via [transmitter].behavior_mode, and run_away_terminal_speed_fraction = 0
+# makes every run a zero-velocity stop. Three geometries, each with the tracker under test.
+#
+# What to read in results.csv: overshoot_m and terminal_vel_mps. A robot that arrives where it
+# aimed has both near zero.
+#
+# Run: python playground/control_stage0/sim_sweep.py \
+#        --sweep playground/control_stage0/sweeps/run_away_overshoot.toml \
+#        --sim-config simulation/sim_mrs_buff_mk3.toml \
+#        --out playground/control_stage0/sweep_out/run_away_overshoot
+
+sim_config = "simulation/sim_mrs_buff_mk3.toml"
+
+[[runs]]
+name = "corner_static"
+[runs.sim]
+"our_robot.start_pos" = [-0.9, -0.9]
+"our_robot.start_yaw_deg" = 45.0
+opponents = [{ behavior = "static", start_pos = [0.6, 0.6] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+"navigation.run_away_terminal_speed_fraction" = 0.0
+"navigation.stop_distance" = 0.15
+
+[[runs]]
+name = "center_static"
+[runs.sim]
+"our_robot.start_pos" = [0.0, -0.9]
+"our_robot.start_yaw_deg" = 90.0
+opponents = [{ behavior = "static", start_pos = [0.0, 0.0] }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+"navigation.run_away_terminal_speed_fraction" = 0.0
+"navigation.stop_distance" = 0.15
+
+[[runs]]
+name = "chased_walk"
+[runs.sim]
+"our_robot.start_pos" = [-0.6, -0.6]
+"our_robot.start_yaw_deg" = 45.0
+opponents = [{ behavior = "random_walk", start_pos = [0.5, 0.5], speed = 0.6 }]
+[runs.cpp]
+"transmitter.behavior_mode" = "RUN_AWAY"
+"navigation.type" = "MotionProfileNavigation"
+"navigation.run_away_terminal_speed_fraction" = 0.0
+"navigation.stop_distance" = 0.15
