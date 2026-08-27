@@ -131,6 +131,7 @@ int main(int argc, char** argv) {
     auto robot_mask_model = make_robot_blob_model(*class_config.robot_mask_model);
     auto field_filter = make_field_filter(*class_config.field_filter);
     auto keypoint_model = make_keypoint_model(*class_config.keypoint_model);
+    // TODO make a NoopModelBatch that is set when parallel_models is false.
     auto perception_batch = std::make_shared<ParallelModelBatch>(keypoint_model, robot_mask_model);
     auto clock = make_clock(*class_config.clock);
     auto robot_filter = make_robot_filter(*class_config.robot_filter, clock);
@@ -161,6 +162,7 @@ int main(int argc, char** argv) {
     // ui.enable = false with no quittables at all, so SIGINT and SIGTERM did nothing and
     // the process could only be stopped with SIGKILL.
     g_quittables[g_quittables_count++] = &runner;
+    // TODO: bound size and fail with a log instead of segfault
     if (ui_manager) g_quittables[g_quittables_count++] = ui_manager.get();
 
     std::signal(SIGINT, signal_quit);

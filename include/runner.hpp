@@ -90,7 +90,6 @@ class Runner : public Quittable {
     ProfileSelectCallback profile_select_callback_;
 
     int runtime_opponent_count_;
-    bool robot_filter_reinit_pending_;
 
     bool initialized_;
     bool autonomy_enabled_;

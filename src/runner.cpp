@@ -36,7 +36,6 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       system_action_callback_(std::move(system_action_callback)),
       profile_select_callback_(std::move(profile_select_callback)),
       runtime_opponent_count_(runner_config_.default_opponent_count),
-      robot_filter_reinit_pending_(false),
       initialized_(false),
       autonomy_enabled_(runner_config_.autonomy_enabled_by_default),
       initial_field_description_(),
@@ -84,7 +83,9 @@ void Runner::handle_opponent_count_request() {
     }
 
     runtime_opponent_count_ = req;
-    robot_filter_reinit_pending_ = true;
+    // Before the field is initialized there is no filter to reinitialize; initialize_field
+    // applies the current count itself, so the change is picked up either way.
+    if (initialized_) control_loop_->request_filter_reinit(runtime_opponent_count_);
 }
 
 void Runner::handle_autonomy_toggle_request() {
@@ -368,15 +369,10 @@ bool Runner::tick() {
 
     if (should_reinit_field) {
         if (camera_data.tracking_ok) {
-            robot_filter_reinit_pending_ = false;
             initialize_field(camera_data);
         } else {
             spdlog::warn("Skipping field initialization because camera tracking is not ready.");
         }
-    } else if (robot_filter_reinit_pending_ && initialized_) {
-        // Handle opponent count change (this reinitializes the filters but not the field)
-        robot_filter_reinit_pending_ = false;
-        control_loop_->request_filter_reinit(runtime_opponent_count_);
     }
 
     if (!initialized_) return handle_uninitialized_tick(camera_data, loop_rate_hz);
