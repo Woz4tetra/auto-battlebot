@@ -161,6 +161,102 @@ def decode_compressed_image(data: bytes) -> CompressedImage:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# sensor_msgs/CameraInfo
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CameraInfo:
+    stamp_ns: int
+    frame_id: str
+    width: int
+    height: int
+    distortion_model: str
+    distortion: np.ndarray
+    intrinsics: np.ndarray  # 3x3 K
+    projection: np.ndarray  # 3x4 P
+
+
+def decode_camera_info(data: bytes) -> CameraInfo:
+    """Decode a sensor_msgs/CameraInfo message from raw ROS1 bytes."""
+    stamp_ns, frame_id, off = _read_header(data, 0)
+    height, off = _read_uint32(data, off)
+    width, off = _read_uint32(data, off)
+    distortion_model, off = _read_string(data, off)
+
+    distortion_count, off = _read_uint32(data, off)
+    distortion = np.frombuffer(data, dtype="<f8", count=distortion_count, offset=off)
+    off += 8 * distortion_count
+
+    intrinsics = np.frombuffer(data, dtype="<f8", count=9, offset=off).reshape(3, 3)
+    off += 72
+    off += 72  # rectification matrix R, unused here
+    projection = np.frombuffer(data, dtype="<f8", count=12, offset=off).reshape(3, 4)
+    off += 96
+
+    return CameraInfo(
+        stamp_ns=stamp_ns,
+        frame_id=frame_id,
+        width=width,
+        height=height,
+        distortion_model=distortion_model,
+        distortion=distortion.copy(),
+        intrinsics=intrinsics.copy(),
+        projection=projection.copy(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# tf2_msgs/TFMessage
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Transform:
+    stamp_ns: int
+    parent_frame_id: str
+    child_frame_id: str
+    matrix: np.ndarray  # 4x4 homogeneous, maps points in child into parent
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (self.parent_frame_id, self.child_frame_id)
+
+
+def _quaternion_to_rotation(x: float, y: float, z: float, w: float) -> np.ndarray:
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+
+
+def decode_tf_message(data: bytes) -> list[Transform]:
+    """Decode a tf2_msgs/TFMessage into 4x4 parent-from-child matrices."""
+    count, off = _read_uint32(data, 0)
+    transforms = []
+    for _ in range(count):
+        stamp_ns, parent_frame_id, off = _read_header(data, off)
+        child_frame_id, off = _read_string(data, off)
+        tx, ty, tz, qx, qy, qz, qw = struct.unpack_from("<7d", data, off)
+        off += 56
+        matrix = np.eye(4)
+        matrix[:3, :3] = _quaternion_to_rotation(qx, qy, qz, qw)
+        matrix[:3, 3] = (tx, ty, tz)
+        transforms.append(
+            Transform(
+                stamp_ns=stamp_ns,
+                parent_frame_id=parent_frame_id,
+                child_frame_id=child_frame_id,
+                matrix=matrix,
+            )
+        )
+    return transforms
+
+
 @dataclass
 class DetectionKeypoint:
     x: float

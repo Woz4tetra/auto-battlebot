@@ -222,20 +222,74 @@ def _parse_rows(label_path: Path, names: list[str], width: int, height: int) -> 
     return np.asarray(boxes, dtype=np.float64).reshape(-1, 4), labels, keypoints
 
 
+class EngineDetector:
+    """A TensorRT engine, run per image."""
+
+    def __init__(self, model: TrtYoloModel) -> None:
+        self._model = model
+
+    def describe(self) -> str:
+        return str(self._model.describe())
+
+    def detect(self, image: np.ndarray, _stamp_ns: int) -> list:
+        return self._model.infer(image)
+
+
+class PrecomputedDetector:
+    """Detections read from a JSON file instead of produced by an engine.
+
+    Some detectors cannot be handed one image at a time. Background subtraction needs the
+    whole recording to build its background, so it is run separately by
+    `background_subtraction_predict.py` and its output is replayed here, which keeps every
+    metric, threshold and plot identical to an engine's.
+
+    Format: {"labels": [...], "frames": {"<stamp_ns>": [{"xyxy": [x1, y1, x2, y2],
+    "score": float, "class_id": int, "kps": [[x, y, v], ...]}]}}.
+    """
+
+    def __init__(self, path: Path, conf_threshold: float) -> None:
+        payload = json.loads(path.read_text())
+        self.labels: list[str] = list(payload.get("labels", []))
+        self._conf = conf_threshold
+        self._by_stamp: dict[int, list] = {}
+        for stamp, rows in payload.get("frames", {}).items():
+            self._by_stamp[int(stamp)] = [
+                (
+                    np.asarray(row["xyxy"], dtype=np.float64),
+                    float(row.get("score", 1.0)),
+                    int(row.get("class_id", 0)),
+                    row.get("kps", []),
+                )
+                for row in rows
+                if float(row.get("score", 1.0)) >= conf_threshold
+            ]
+        self._path = path
+
+    def describe(self) -> str:
+        total = sum(len(rows) for rows in self._by_stamp.values())
+        return (
+            f"precomputed {self._path.name}: {len(self._by_stamp)} frames, "
+            f"{total} detections at conf >= {self._conf}"
+        )
+
+    def detect(self, _image: np.ndarray, stamp_ns: int) -> list:
+        return self._by_stamp.get(stamp_ns, [])
+
+
 def infer_frames(
     gt_frames: dict[int, GtFrame],
     images: dict[int, Path],
-    model: TrtYoloModel,
+    detector: EngineDetector | PrecomputedDetector,
     class_labels: list[str],
     taxonomy: Taxonomy,
 ) -> list[Frame]:
-    """Run the candidate engine on every GT frame's image and pair the results."""
+    """Run the candidate on every GT frame's image and pair the results."""
     frames = []
     for gt_stamp, (gt_boxes, gt_labels, gt_keypoints) in gt_frames.items():
         image = cv2.imread(str(images[gt_stamp]))
         if image is None:
             raise SystemExit(f"Failed to read image {images[gt_stamp]}")
-        detections = model.infer(image)
+        detections = detector.detect(image, gt_stamp)
         labeled = [
             (xyxy, conf, class_labels[cls_id], kps)
             for xyxy, conf, cls_id, kps in detections
@@ -634,15 +688,21 @@ def score_candidate(
 ) -> tuple[list[dict], dict]:
     """Return (summary rows, per-frame stats). Stats feed the paired bootstrap."""
     if not engine_path.exists():
-        raise SystemExit(f"Engine not found: {engine_path}")
-    model = TrtYoloModel(
-        str(engine_path),
-        conf_threshold=args.conf,
-        nms_iou_threshold=args.nms_iou,
-        num_classes=len(class_labels),
-    )
-    print(f"  {model.describe()}")
-    frames = infer_frames(gt_frames, images, model, class_labels, taxonomy)
+        raise SystemExit(f"Candidate not found: {engine_path}")
+    detector: EngineDetector | PrecomputedDetector
+    if engine_path.suffix == ".json":
+        detector = PrecomputedDetector(engine_path, args.conf)
+    else:
+        detector = EngineDetector(
+            TrtYoloModel(
+                str(engine_path),
+                conf_threshold=args.conf,
+                nms_iou_threshold=args.nms_iou,
+                num_classes=len(class_labels),
+            )
+        )
+    print(f"  {detector.describe()}")
+    frames = infer_frames(gt_frames, images, detector, class_labels, taxonomy)
     kp_stats = keypoint_per_frame(frames, args.iou)
     keypoint_metrics = keypoint_metrics_from_stats(kp_stats)
     pr_counts: dict[str, dict[str, np.ndarray]] = {}

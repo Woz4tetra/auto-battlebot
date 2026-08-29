@@ -18,7 +18,7 @@ type = "YoloBboxRobotBlobModel"
 label_indices = ["OPPONENT", "HOUSE_BOT"]
 neutral_robot_labels = ["HOUSE_BOT"]
 field_labels = ["FIELD"]
-confidence_threshold = 0.7
+confidence_threshold = 0.6
 debug_visualization = false
 
 [robot_mask_model.engine]
