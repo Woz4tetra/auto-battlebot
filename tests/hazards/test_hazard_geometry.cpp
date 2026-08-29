@@ -29,6 +29,9 @@ FieldHazard hazard(double x, double y, double radius, HazardSource source = Haza
     h.center.x = x;
     h.center.y = y;
     h.inflated_radius = radius;
+    // The barrier tests below reason about one radius, so the hard radius matches the keep-out
+    // here; the assembler tests cover the two radii differing.
+    h.hard_radius = radius;
     h.source = source;
     h.velocity.vx = vx;
     h.velocity.vy = vy;
@@ -158,52 +161,6 @@ TEST(HazardGeometryTest, InsideTheCircleTheWaypointPointsStraightOut) {
     EXPECT_NEAR(waypoint.point.y, 0.0, kTol);
 }
 
-// --- hazard_speed_cap ------------------------------------------------------------------------
-
-TEST(HazardSpeedCapTest, MatchesTheClosedFormAtHandComputedRanges) {
-    // cap = max_yaw_rate * L^2 / (2 R), with the hazard dead ahead. These are the three ranges
-    // the plan quotes for w_max = 7.93 rad/s and R = 0.4 m.
-    const double yaw_rate = 7.93;
-    const double radius = 0.4;
-    const double max_speed = 100.0;  // high enough that the cap, not the ceiling, is measured
-    for (const auto &[range, expected] :
-         std::vector<std::pair<double, double>>{{1.0, 9.9125}, {0.5, 2.478125}, {0.3, 0.892125}}) {
-        const std::vector<FieldHazard> hazards = {hazard(range, 0.0, radius)};
-        const double cap =
-            hazard_speed_cap(pose(0.0, 0.0, 0.0), hazards, yaw_rate, max_speed, 0.0, 0.0);
-        EXPECT_NEAR(cap, expected, 1e-6) << "range " << range;
-    }
-}
-
-TEST(HazardSpeedCapTest, HazardOffToOneSideDoesNotThrottle) {
-    // A hazard whose disc the swept path misses entirely must not slow a clean run past it.
-    const std::vector<FieldHazard> hazards = {hazard(0.5, 0.5, 0.2)};
-    EXPECT_NEAR(hazard_speed_cap(pose(0.0, 0.0, 0.0), hazards, 7.93, 4.88, 0.35, 0.0), 4.88, kTol);
-}
-
-TEST(HazardSpeedCapTest, HazardBehindUsDoesNotThrottle) {
-    const std::vector<FieldHazard> hazards = {hazard(-0.3, 0.0, 0.4)};
-    EXPECT_NEAR(hazard_speed_cap(pose(0.0, 0.0, 0.0), hazards, 7.93, 4.88, 0.35, 0.0), 4.88, kTol);
-}
-
-TEST(HazardSpeedCapTest, GrazingHazardCapsLessThanOneDeadAhead) {
-    // Scaling the required clearance by the cross-track offset is what keeps the cap out of the
-    // way until a hazard is genuinely in front of us.
-    const std::vector<FieldHazard> ahead = {hazard(0.4, 0.0, 0.3)};
-    const std::vector<FieldHazard> grazing = {hazard(0.4, 0.25, 0.3)};
-    const double cap_ahead = hazard_speed_cap(pose(0.0, 0.0, 0.0), ahead, 7.93, 100.0, 0.0, 0.0);
-    const double cap_grazing =
-        hazard_speed_cap(pose(0.0, 0.0, 0.0), grazing, 7.93, 100.0, 0.0, 0.0);
-    EXPECT_LT(cap_ahead, cap_grazing);
-}
-
-TEST(HazardSpeedCapTest, NeverReturnsBelowTheFloor) {
-    // A cap that reaches zero recreates the stop-in-time behaviour this plant cannot deliver and
-    // strands the robot with the hazard in front of it.
-    const std::vector<FieldHazard> hazards = {hazard(0.02, 0.0, 0.4)};
-    EXPECT_NEAR(hazard_speed_cap(pose(0.0, 0.0, 0.0), hazards, 7.93, 4.88, 0.35, 0.0), 0.35, kTol);
-}
-
 // --- HazardAvoidance layers ------------------------------------------------------------------
 
 HazardAvoidanceSettings default_settings() {
@@ -290,84 +247,151 @@ TEST(HazardAvoidanceTest, NoHazardsIsAPassThrough) {
     const Pose2D steered = avoidance.steer_around(pose(-1.0, 0.0, 0.4), goal, field);
     EXPECT_NEAR(steered.x, goal.x, kTol);
     EXPECT_NEAR(steered.y, goal.y, kTol);
-    EXPECT_NEAR(avoidance.cap_speed(pose(0.0, 0.0, 0.0), field, 4.88), 4.88, kTol);
     VelocityCommand command{0.5, 0.0, 0.0};
+    EXPECT_FALSE(avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 2.0, command).engaged);
+    EXPECT_NEAR(command.linear_x, 0.5, kTol);
     EXPECT_FALSE(avoidance.apply_reverse(pose(0.0, 0.0, 0.0), field, command));
 }
 
-// --- stop-in-time brake -------------------------------------------------------------------
+// --- the velocity barrier --------------------------------------------------------------------
+//
+// Round-number plant so every bound is hand-checkable: k_fwd = 5, k_rev = 4, horizon = 0.2 s,
+// delay = 0.05 s. The envelope is bound = (gap - max(v_approach, 0) * delay) / horizon, and the
+// command constraint is u * k * toward <= bound per hazard.
 
-FieldHazard brake_hazard(double x, double y, double radius) {
-    FieldHazard hazard;
-    hazard.center = Pose2D{x, y, 0.0};
-    hazard.inflated_radius = radius;
-    return hazard;
+HazardAvoidanceSettings barrier_settings() {
+    HazardAvoidanceSettings settings;
+    settings.prediction_horizon_s = 0.0;
+    settings.barrier_enable = true;
+    settings.max_linear_speed_fwd = 5.0;
+    settings.max_linear_speed_rev = 4.0;
+    settings.barrier_horizon_s = 0.2;
+    settings.barrier_delay_s = 0.05;
+    return settings;
 }
 
-TEST(HazardBrakeTest, ZeroDistanceDisablesTheBrake) {
-    const std::vector<FieldHazard> hazards{brake_hazard(1.0, 0.0, 0.49)};
-    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{0.0, 0.0, 0.0}, hazards, 0.0, 4.88, 0.0), 4.88);
+TEST(HazardBarrierTest, FarHazardLeavesTheCommandAlone) {
+    // Gap 1.6 m: bound 8 m/s, above what full command reaches, so nothing binds.
+    HazardAvoidance avoidance(barrier_settings());
+    const FieldDescription field = field_with({hazard(2.0, 0.0, 0.4)});
+    VelocityCommand cmd{1.0, 0.0, 0.0};
+    const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
+    EXPECT_FALSE(result.engaged);
+    EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
 }
 
-TEST(HazardBrakeTest, RampsLinearlyToZeroAtTheKeepOutRim) {
-    // Hazard dead ahead: rim clearance is centre distance minus radius, so the ramp is a straight
-    // line in range. Brake distance 0.86 m is the Mrs Buff Mk3 stopping lead.
-    const std::vector<FieldHazard> hazards{brake_hazard(1.0, 0.0, 0.49)};
-    const double brake = 0.86;
-    // Clearance 0.51 m, inside the brake distance: speed scales by clearance / brake_distance.
-    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{0.0, 0.0, 0.0}, hazards, brake, 4.88, 0.0),
-                     4.88 * (1.0 - 0.49) / brake);
-    // Clearance 1.01 m, beyond the brake distance: untouched.
-    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{-0.5, 0.0, 0.0}, hazards, brake, 4.88, 0.0), 4.88);
-    // Sitting on the rim: fully braked.
-    EXPECT_NEAR(hazard_brake_speed(Pose2D{0.51, 0.0, 0.0}, hazards, brake, 4.88, 0.0), 0.0, 1e-9);
+TEST(HazardBarrierTest, NearHazardTapersThrustWithTheGap) {
+    // Gap 0.4 m, stationary: bound 2 m/s, so full thrust clips to 2/5 = 0.4. This is what keeps
+    // wheels from spinning up during a blocked push: the command near a hazard can never ask for
+    // a speed the remaining gap cannot absorb.
+    HazardAvoidance avoidance(barrier_settings());
+    const FieldDescription field = field_with({hazard(0.8, 0.0, 0.4)});
+    VelocityCommand cmd{1.0, 0.0, 0.0};
+    const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
+    EXPECT_TRUE(result.engaged);
+    EXPECT_FALSE(result.braking);
+    EXPECT_NEAR(cmd.linear_x, 0.4, kTol);
+    EXPECT_NEAR(result.bound_mps, 2.0, kTol);
 }
 
-TEST(HazardBrakeTest, LeavesSpeedAloneBeyondTheBrakeDistance) {
-    const std::vector<FieldHazard> hazards{brake_hazard(2.0, 0.0, 0.49)};
-    // Clearance 1.51 m, well beyond 0.86.
-    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{0.0, 0.0, 0.0}, hazards, 0.86, 4.88, 0.0), 4.88);
+TEST(HazardBarrierTest, MeasuredExcessCommandsReverseThroughAZeroCommand) {
+    // The 2026-08-28 coast: angle gate holds linear at zero while the chassis carries 3 m/s at a
+    // hazard. Bound (0.4 - 3*0.05)/0.2 = 1.25, excess 1.75, so the barrier commands full reverse
+    // through the zeroed channel. A v_ref-side brake can never do this.
+    HazardAvoidance avoidance(barrier_settings());
+    const FieldDescription field = field_with({hazard(0.8, 0.0, 0.4)});
+    VelocityCommand cmd{0.0, 0.0, 0.0};
+    const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd);
+    EXPECT_TRUE(result.engaged);
+    EXPECT_TRUE(result.braking);
+    EXPECT_NEAR(cmd.linear_x, -1.0, kTol);
 }
 
-TEST(HazardBrakeTest, IgnoresAHazardBehindUs) {
-    const std::vector<FieldHazard> hazards{brake_hazard(-0.6, 0.0, 0.49)};
-    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{0.0, 0.0, 0.0}, hazards, 0.86, 4.88, 0.0), 4.88);
+TEST(HazardBarrierTest, InsideTheHardRadiusReversesProportionallyToDepth) {
+    // Distance 0.3 to a 0.4 hard radius: gap -0.1, bound -0.5. The excess term (1.5 * 0.5 = 0.75)
+    // is the binding one, so the exit command scales with how deep the robot sits. This replaces
+    // the old fixed -0.35 backstop.
+    HazardAvoidance avoidance(barrier_settings());
+    const FieldDescription field = field_with({hazard(0.3, 0.0, 0.4)});
+    VelocityCommand cmd{0.5, 0.0, 0.0};
+    const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
+    EXPECT_TRUE(result.engaged);
+    EXPECT_TRUE(result.braking);
+    EXPECT_NEAR(cmd.linear_x, -0.75, kTol);
+    EXPECT_LT(result.bound_mps, 0.0);
 }
 
-TEST(HazardBrakeTest, IgnoresAHazardThePathPassesAbeam) {
-    // Centre 0.6 m off the track, radius 0.49: the swept ray misses it entirely, so driving past
-    // at speed costs nothing. This is the gate that keeps the brake from freezing the robot every
-    // time a hole is anywhere nearby.
-    const std::vector<FieldHazard> hazards{brake_hazard(1.0, 0.6, 0.49)};
-    EXPECT_DOUBLE_EQ(hazard_brake_speed(Pose2D{0.0, 0.0, 0.0}, hazards, 0.86, 4.88, 0.0), 4.88);
+TEST(HazardBarrierTest, ReverseTowardAHazardBehindIsLimited) {
+    // The rear-clearance check the old blind reverses lacked. Hazard 0.3 m behind: bound 1.5,
+    // and with toward = -1 the same rule becomes a floor: u >= 1.5 / (4 * -1) = -0.375.
+    HazardAvoidance avoidance(barrier_settings());
+    const FieldDescription field = field_with({hazard(-0.7, 0.0, 0.4)});
+    VelocityCommand cmd{-1.0, 0.0, 0.0};
+    const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
+    EXPECT_TRUE(result.engaged);
+    EXPECT_NEAR(cmd.linear_x, -0.375, kTol);
 }
 
-TEST(HazardBrakeTest, AGrazingHazardBrakesLessThanOneDeadAhead) {
-    const std::vector<FieldHazard> dead_ahead{brake_hazard(1.0, 0.0, 0.49)};
-    const std::vector<FieldHazard> grazing{brake_hazard(1.0, 0.45, 0.49)};
-    const Pose2D pose{0.0, 0.0, 0.0};
-    // Grazing: the rim is nearer the centre along track, so more clearance and less braking.
-    EXPECT_GT(hazard_brake_speed(pose, grazing, 0.86, 4.88, 0.0),
-              hazard_brake_speed(pose, dead_ahead, 0.86, 4.88, 0.0));
+TEST(HazardBarrierTest, SlidingRearFirstAtAHazardCommandsForwardNotReverse) {
+    // The excess recovery opposes the APPROACH, not the robot's forward axis. Rear toward the
+    // hazard (toward = -1) and sliding into it at 3 m/s: v_approach = 3, bound
+    // (0.3 - 3*0.05)/0.2 = 0.75, excess 2.25, and the recovery lands on u_min as full FORWARD
+    // drive, away. A literal reverse here would back the robot into the hole.
+    HazardAvoidance avoidance(barrier_settings());
+    const FieldDescription field = field_with({hazard(-0.7, 0.0, 0.4)});
+    VelocityCommand cmd{0.0, 0.0, 0.0};
+    const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, -3.0, cmd);
+    EXPECT_TRUE(result.engaged);
+    EXPECT_TRUE(result.braking);
+    EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
 }
 
-TEST(HazardBrakeTest, TakesTheSlowestOfSeveralHazards) {
-    const std::vector<FieldHazard> hazards{brake_hazard(2.0, 0.0, 0.49),
-                                           brake_hazard(1.0, 0.0, 0.49)};
-    const Pose2D pose{0.0, 0.0, 0.0};
-    EXPECT_DOUBLE_EQ(hazard_brake_speed(pose, hazards, 0.86, 4.88, 0.0),
-                     4.88 * (1.0 - 0.49) / 0.86);
+TEST(HazardBarrierTest, SqueezedBetweenOverlappingHazardsStops) {
+    // Inside both a hazard ahead and one behind: the forward limit demands reverse and the rear
+    // limit demands forward. No command satisfies both, so the barrier splits the violation,
+    // which here is a stop -- not a dive into either.
+    HazardAvoidance avoidance(barrier_settings());
+    const FieldDescription field = field_with({hazard(0.2, 0.0, 0.4), hazard(-0.2, 0.0, 0.4)});
+    VelocityCommand cmd{1.0, 0.0, 0.0};
+    const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
+    EXPECT_TRUE(result.engaged);
+    EXPECT_NEAR(cmd.linear_x, 0.0, kTol);
 }
 
-TEST(HazardBrakeTest, BitesEarlierThanTheSteeringCap) {
-    // The gap this closes. At the keep-out rim of a 0.49 m disc the steering cap still permits
-    // 1.94 m/s, which the plant cannot shed in 0.49 m; the brake permits zero.
-    const std::vector<FieldHazard> hazards{brake_hazard(0.49, 0.0, 0.49)};
-    const Pose2D pose{0.0, 0.0, 0.0};
-    const double cap = hazard_speed_cap(pose, hazards, 7.93, 4.88, 0.0, 0.0);
-    const double brake = hazard_brake_speed(pose, hazards, 0.86, 4.88, 0.0);
-    EXPECT_GT(cap, 1.9);
-    EXPECT_NEAR(brake, 0.0, 1e-9);
+TEST(HazardBarrierTest, PassingAbeamCostsNothing) {
+    // Tangent motion has zero approach component, so rounding a hazard at speed is free. The old
+    // brake's on/off across-gate sat exactly on this boundary and chattered; the projection makes
+    // it continuous.
+    HazardAvoidance avoidance(barrier_settings());
+    const FieldDescription field = field_with({hazard(0.0, 0.45, 0.4)});
+    VelocityCommand cmd{1.0, 0.0, 0.0};
+    const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd);
+    EXPECT_FALSE(result.engaged);
+    EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
+}
+
+TEST(HazardBarrierTest, NoPlantFitMeansNoBarrier) {
+    // Pursuit constructs the shared settings without a fit: speeds stay zero and the barrier
+    // must be a pass-through, not a division by zero.
+    HazardAvoidanceSettings settings;
+    settings.prediction_horizon_s = 0.0;
+    HazardAvoidance avoidance(settings);
+    const FieldDescription field = field_with({hazard(0.5, 0.0, 0.4)});
+    VelocityCommand cmd{1.0, 0.0, 0.0};
+    EXPECT_FALSE(avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd).engaged);
+    EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
+}
+
+TEST(HazardBarrierTest, DisabledIsAPassThrough) {
+    // The baseline sweep measures the failure mode with the barrier off; the switch has to
+    // actually switch.
+    HazardAvoidanceSettings settings = barrier_settings();
+    settings.barrier_enable = false;
+    HazardAvoidance avoidance(settings);
+    const FieldDescription field = field_with({hazard(0.5, 0.0, 0.4)});
+    VelocityCommand cmd{1.0, 0.0, 0.0};
+    EXPECT_FALSE(avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd).engaged);
+    EXPECT_NEAR(cmd.linear_x, 1.0, kTol);
 }
 
 // --- the display contract -------------------------------------------------------------------

@@ -59,6 +59,12 @@ struct FieldHazard {
      * no visible cause; the robot circles on screen give the eye enough to judge the margin without
      * a second ring for every hazard. */
     double object_radius = 0.0;
+    /** The loss boundary: the geometry plus our half-diagonal plus a small hard margin. Crossing
+     * it means a wheel is at the hole lip (or the chassis is in contact), so this is what the
+     * velocity barrier limits approach speed against. Deliberately smaller than
+     * `inflated_radius`: steering plans around the fat disc, the speed rule only gets strict at
+     * the thin one, so a fight in the outer band is legal but never arrives fast. */
+    double hard_radius = 0.0;
     Velocity2D velocity;
     HazardSource source = HazardSource::STATIC;
 };

@@ -1,11 +1,14 @@
+obstacles_file = "config/hazards/massd_arena_north_south.toml"
+
 [server]
 host = "127.0.0.1"
 port = 14882
 
 [sim]
 dt = 0.0333
-max_ticks = 900
 seed = 0
+max_ticks = 900
+stop_on_outcome = true
 
 [arena]
 width = 2.4
@@ -16,13 +19,13 @@ command_ms = 52.2094
 observation_ms = 0.0
 
 [camera]
-res_width = 16
-res_height = 16
-fov = 70.0
+res_width = 640
+res_height = 360
+fov = 52.0
 pos = [
     0.0,
-    -1.5,
-    0.6,
+    -0.5,
+    2.6,
 ]
 lookat = [
     0.0,
@@ -36,6 +39,7 @@ start_pos = [
     -0.9,
 ]
 start_yaw_deg = 45.0
+sprite = "mrs_buff_mk3"
 radius = 0.11
 max_linear_speed = 4.88002
 max_angular_speed = 31.7062
@@ -69,3 +73,6 @@ start_pos = [
     0.6,
     0.6,
 ]
+
+[viewer]
+enable = false

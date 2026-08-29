@@ -12,8 +12,7 @@ behavior_mode = "ATTACK"
 [navigation]
 type = "MotionProfileNavigation"
 hazard_tangent_enable = false
-hazard_speed_cap_enable = false
-hazard_reverse_distance = 0.0
+hazard_barrier_enable = false
 
 [field_filter]
 hazards_file = "playground/control_stage0/sweep_out/hazard_baseline/hole_and_block.hazards.toml"

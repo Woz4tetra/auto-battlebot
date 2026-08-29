@@ -6,10 +6,13 @@ enable = true
 [ui]
 enable = false
 
+[field_filter]
+size_x = 1.48
+size_y = 1.41
+hazards_file = "playground/control_stage0/sweep_out/hazard_avoidance/aer_two_holes_lip_opponent.hazards.toml"
+
 [transmitter]
 behavior_mode = "ATTACK"
 
 [navigation]
 type = "MotionProfileNavigation"
-hazard_tangent_enable = false
-hazard_barrier_enable = false

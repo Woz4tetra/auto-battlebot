@@ -75,40 +75,4 @@ struct TangentWaypoint {
 TangentWaypoint tangent_waypoint(const Pose2D &start, const Pose2D &center, double radius,
                                  double heading, int committed_side);
 
-/** Speed cap that leaves enough turning authority to clear a hazard ahead.
- *
- * An arc starting tangent to the current heading deviates laterally by about L^2 / (2 r) at
- * along-track distance L, and the achievable radius is v / max_yaw_rate, so clearing a hazard of
- * radius R at range L needs v <= max_yaw_rate * L^2 / (2 R). Braking cannot be the primary
- * response on this plant -- full speed needs 0.86 m to stop against a 0.62 m turn-out radius --
- * so this caps speed only as much as the turn requires.
- *
- * `R` is scaled by how far off the heading ray the hazard centre sits, so a hazard well off to
- * one side does not throttle a clean run past it. Returns `max_speed` when nothing is in the
- * way, and never returns below `floor_speed`: a cap that reaches zero recreates the
- * stop-in-time behaviour the plant cannot deliver and strands the robot with the hazard in
- * front of it.
- */
-double hazard_speed_cap(const Pose2D &our_pose, const std::vector<FieldHazard> &hazards,
-                        double max_yaw_rate, double max_speed, double floor_speed,
-                        double predict_s);
-
-/** Forward speed limit that brings the robot to a stop at a blocking hazard's keep-out rim.
- *
- * Ported from PursuitNavigation's `brake_distance`, which ramps the commanded speed linearly to
- * zero inside a fixed distance of the target so the robot decelerates into it instead of driving
- * in at full speed and coasting past. That schedule is what made pursuit look better than the
- * motion profile near a hole: the motion profile's own brake is keyed to the goal, and in ATTACK
- * its terminal speed is full speed, so nothing slowed it for the hazard.
- *
- * Distinct from `hazard_speed_cap`, which asks "can I still steer clear" and grows as L^2. This
- * asks "can I still stop", and is linear in the clearance, so it bites earlier and harder.
- *
- * @param brake_distance Clearance (m) at which braking starts. 0 disables. It should cover the
- *   stopping lead: the distance travelled during actuation latency plus the coast that follows.
- * @return `max_speed`, or less when a hazard lies inside `brake_distance` along the swept path.
- */
-double hazard_brake_speed(const Pose2D &our_pose, const std::vector<FieldHazard> &hazards,
-                          double brake_distance, double max_speed, double predict_s);
-
 }  // namespace auto_battlebot

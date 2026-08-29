@@ -21,6 +21,10 @@ struct HazardAssemblerConfig {
     /** How long a stale neutral track keeps producing a hazard. Forgetting a hazard is worse than
      * holding a slightly wrong one, so the disc outlives the track by this much. */
     double tracked_hold_s = 0.75;
+    /** Slack (m) on the loss boundary (`FieldHazard::hard_radius`) beyond the geometry plus our
+     * half-diagonal. Small on purpose: the hard radius is where a wheel meets the hole lip, and
+     * padding it re-creates the over-inflation that made most of a small arena illegal. */
+    double hard_margin_m = 0.02;
     /** Fallback half-diagonal (m) for our robot when no our-robot track is present this cycle.
      * Without one, a dropout would briefly shrink every keep-out disc. */
     double our_half_diagonal_fallback_m = 0.11;

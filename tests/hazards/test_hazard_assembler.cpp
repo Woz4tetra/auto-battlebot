@@ -72,6 +72,10 @@ TEST(HazardAssemblerTest, StaticHazardIsInflatedOnceByOurSizePlusMargin) {
     EXPECT_NEAR(field.hazards[0].center.y, -0.2, 1e-9);
     EXPECT_NEAR(field.hazards[0].inflated_radius, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.10,
                 1e-9);
+    // The loss boundary carries only the small hard margin: steering plans around the fat disc,
+    // the velocity barrier gets strict at the thin one.
+    EXPECT_NEAR(field.hazards[0].hard_radius, 0.25 + expected_half_diagonal(0.3, 0.2) + 0.02, 1e-9);
+    EXPECT_LT(field.hazards[0].hard_radius, field.hazards[0].inflated_radius);
 }
 
 TEST(HazardAssemblerTest, OurSizeFallsBackRatherThanShrinkingOnADropout) {
@@ -104,6 +108,8 @@ TEST(HazardAssemblerTest, NeutralTrackBecomesATrackedHazardCarryingItsVelocity) 
     EXPECT_NEAR(field.hazards[0].velocity.vx, 0.5, 1e-9);
     EXPECT_NEAR(field.hazards[0].inflated_radius,
                 expected_half_diagonal(0.3, 0.3) + expected_half_diagonal(0.3, 0.2) + 0.05, 1e-9);
+    EXPECT_NEAR(field.hazards[0].hard_radius,
+                expected_half_diagonal(0.3, 0.3) + expected_half_diagonal(0.3, 0.2) + 0.02, 1e-9);
 }
 
 TEST(HazardAssemblerTest, OpponentsAreNotHazards) {

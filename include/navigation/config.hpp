@@ -89,13 +89,11 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
 
     // --- Hazard avoidance ---
     //
-    // Options 1, 2 and 4 only. The speed cap (option 3) is stated in m/s against a measured
-    // yaw rate, and PursuitNavigation closes its heading loop in normalized command against an
-    // unfitted plant, so there is no honest number to cap with here. It lives in
-    // MotionProfileNavigation, which has the fit. Options 1 and 2 are the floor and ceiling:
-    // keeping the goal legal, and a last-ditch reverse. Options 3 and 4 do the actual work, and are
-    // one behaviour -- "cap the speed enough to make the turn, then take the turn" -- so tuning
-    // either alone will mislead. See docs/hazard_avoidance_plan.md.
+    // Only the last-ditch reverse is wired into pursuit. The velocity barrier is stated in m/s
+    // against the plant fit, and pursuit closes its loops in normalized command against an
+    // unfitted plant, so there is no honest envelope to enforce here; that lives in
+    // MotionProfileNavigation. The tangent fields below ride along in the shared settings
+    // struct but pursuit does not call steer_around. See docs/hazard_avoidance.md.
 
     /** Steer at a tangent point on a blocking hazard's rim instead of at the true goal
      * (option 4, the primary response). Costs nothing in navigation: both controllers only ever
@@ -308,10 +306,15 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
 
     // --- Hazard avoidance ---
     //
-    // Four layers, weakest to strongest. Options 1 and 2 are the floor and ceiling: keeping the
-    // goal legal, and a last-ditch reverse. Options 3 and 4 do the actual work, and are one
-    // behaviour -- "cap the speed enough to make the turn, then take the turn" -- so tuning
-    // either alone will mislead. See docs/hazard_avoidance_plan.md.
+    // Two aim layers and one speed rule. The aim layers keep the goal legal (clamp_to_field
+    // pushes it out of every keep-out) and steer a tangent around whatever blocks the run to
+    // it, both against the fat inflated radius. The velocity barrier is the only speed rule:
+    // the approach-speed component toward every hazard is limited to what the plant can shed in
+    // the remaining gap to the hard radius, applied to the final command against measured
+    // speed, so neither the angle gate nor a wall reverse can carry the robot in. It replaced
+    // the steering speed cap, the stop-at-rim brake, and the fixed hazard reverse after the
+    // 2026-08-28 AER recording showed all three losing to a blocked-push spin-up and an
+    // angle-gated coast. See docs/hazard_avoidance.md.
 
     /** Steer at a tangent point on a blocking hazard's rim instead of at the true goal
      * (option 4, the primary response). Costs nothing in navigation: both controllers only ever
@@ -334,49 +337,15 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
      * robot re-picks a side every tick and cuts back across the hazard it was rounding. */
     double hazard_side_release_m = 0.05;
 
-    /** Cap forward speed to what the achievable turn radius can clear (option 3). 0 = off. The
-     * cap is `max_yaw_rate * L^2 / (2 R)` at along-track range L, so it stays out of the way
-     * until a hazard is genuinely close and near the heading. */
-    bool hazard_speed_cap_enable = true;
-
-    /** Floor (m/s) under the speed cap. A cap that reaches zero recreates the stop-in-time
-     * behaviour this plant cannot deliver and strands the robot with the hazard in front of
-     * it. */
-    double hazard_speed_cap_floor = 0.35;
-
-    /** Clearance (m) to a blocking hazard's keep-out rim at which braking starts. 0 = off.
-     *
-     * Ported from PursuitNavigation's `brake_distance`: ramp the commanded speed linearly to zero
-     * inside this distance so the robot decelerates into the rim instead of arriving at full speed
-     * and coasting past it. The motion profile's own brake schedule is keyed to the goal, and in
-     * ATTACK its terminal speed is full speed, so before this nothing slowed it for a hazard --
-     * which is why pursuit stopped short of a hole and the motion profile drove in.
-     *
-     * Size it to the stopping lead: distance covered during actuation latency plus the coast that
-     * follows, `k_fwd * (delay_s + tau_lin_d)`. For the Mrs Buff Mk3 fit that is
-     * 4.88 * (0.0522 + 0.1235) = 0.86 m. */
-    double hazard_brake_distance = 0.86;
+    /** The velocity barrier. On unless a baseline sweep is measuring the failure mode: the
+     * bound itself is derived entirely from the plant fit (gap to the hard radius over
+     * tau_lin_d + delay_s), so there is nothing else to tune here. */
+    bool hazard_barrier_enable = true;
 
     /** Seconds ahead to advance a TRACKED hazard along its filtered velocity before testing it.
      * The house bot moving across our path is the case this exists for: reacting to where it is
      * now aims at where it was. */
     double hazard_prediction_horizon_s = 0.25;
-
-    /** Distance (m) from a hazard edge inside which linear_x is overridden to reverse, when the
-     * heading also points at it. 0 = disabled.
-     *
-     * This is a stopping response, and the numbers say it will fire too late to save a
-     * full-speed approach: it is a backstop for what the steering layer cannot solve, mainly a
-     * hazard that appears close because the house bot drove into our path or its track
-     * initialised late. If a sweep shows it firing often, that is evidence options 3 and 4 are
-     * mistuned, not evidence this is working. */
-    double hazard_reverse_distance = 0.12;
-
-    /** Heading must point within this angle (rad) of the hazard for the reverse to trigger. */
-    double hazard_heading_threshold = 1.047;
-
-    /** Reverse speed floor while the hazard backstop is active (normalized command). */
-    double hazard_reverse_min_speed = 0.35;
 
     MotionProfileNavigationConfiguration() { type = "MotionProfileNavigation"; }
 
@@ -422,13 +391,8 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD(hazard_tangent_max_iterations)
         PARSE_FIELD_DOUBLE(hazard_waypoint_clearance_m)
         PARSE_FIELD_DOUBLE(hazard_side_release_m)
-        PARSE_FIELD_BOOL(hazard_speed_cap_enable)
-        PARSE_FIELD_DOUBLE(hazard_speed_cap_floor)
-        PARSE_FIELD_DOUBLE(hazard_brake_distance)
+        PARSE_FIELD_BOOL(hazard_barrier_enable)
         PARSE_FIELD_DOUBLE(hazard_prediction_horizon_s)
-        PARSE_FIELD_DOUBLE(hazard_reverse_distance)
-        PARSE_FIELD_DOUBLE(hazard_heading_threshold)
-        PARSE_FIELD_DOUBLE(hazard_reverse_min_speed)
     )
     // clang-format on
 };

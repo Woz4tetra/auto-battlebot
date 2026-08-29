@@ -21,6 +21,8 @@ struct FieldFilterConfiguration {
     double hazard_tracked_margin_m = 0.05;
     /** How long a stale neutral track keeps producing a hazard. */
     double hazard_tracked_hold_s = 0.75;
+    /** Slack on the hard (loss-boundary) radius beyond geometry plus our half-diagonal. */
+    double hazard_hard_margin_m = 0.02;
 
     virtual ~FieldFilterConfiguration() = default;
     virtual void parse_fields([[maybe_unused]] ConfigParser &parser) {}
@@ -34,6 +36,8 @@ struct FieldFilterConfiguration {
             parser.get_optional_double("hazard_tracked_margin_m", hazard_tracked_margin_m);
         hazard_tracked_hold_s =
             parser.get_optional_double("hazard_tracked_hold_s", hazard_tracked_hold_s);
+        hazard_hard_margin_m =
+            parser.get_optional_double("hazard_hard_margin_m", hazard_hard_margin_m);
     }
 
     HazardAssemblerConfig hazard_assembler_config() const {
@@ -41,6 +45,7 @@ struct FieldFilterConfiguration {
         config.static_margin_m = hazard_static_margin_m;
         config.tracked_margin_m = hazard_tracked_margin_m;
         config.tracked_hold_s = hazard_tracked_hold_s;
+        config.hard_margin_m = hazard_hard_margin_m;
         return config;
     }
 };

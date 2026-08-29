@@ -79,19 +79,83 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
     return waypoint;
 }
 
-double HazardAvoidance::cap_speed(const Pose2D &our_pose, const FieldDescription &field,
-                                  double speed) const {
-    if (!settings_.speed_cap_enable || field.hazards.empty()) return speed;
-    return hazard_speed_cap(our_pose, field.hazards, settings_.max_yaw_rate, speed,
-                            std::min(speed, settings_.speed_cap_floor),
-                            settings_.prediction_horizon_s);
-}
+HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
+                                                   const FieldDescription &field, double v_actual,
+                                                   VelocityCommand &command) const {
+    HazardBarrierResult result;
+    if (!settings_.barrier_enable || field.hazards.empty()) return result;
+    if (settings_.max_linear_speed_fwd <= 0.0 || settings_.barrier_horizon_s <= 0.0) return result;
 
-double HazardAvoidance::brake_speed(const Pose2D &our_pose, const FieldDescription &field,
-                                    double speed) const {
-    if (settings_.brake_distance <= 0.0 || field.hazards.empty()) return speed;
-    return hazard_brake_speed(our_pose, field.hazards, settings_.brake_distance, speed,
-                              settings_.prediction_horizon_s);
+    // Gain from measured excess approach speed (m/s) to an opposing normalized command. 1.5
+    // recovers the 2026-08-28 recorded push-into-hole coast with margin in the counterfactual
+    // sim; the envelope decides where braking starts, this only decides how hard the recovery
+    // pulls once the envelope is already violated.
+    constexpr double kExcessGain = 1.5;
+    constexpr double kEps = 1e-6;
+
+    double u_min = -1.0;
+    double u_max = 1.0;
+    const double cos_yaw = std::cos(our_pose.yaw);
+    const double sin_yaw = std::sin(our_pose.yaw);
+
+    for (const auto &hazard : field.hazards) {
+        const Pose2D center = predicted_center(hazard, settings_.prediction_horizon_s);
+        const double dx = center.x - our_pose.x;
+        const double dy = center.y - our_pose.y;
+        const double distance = std::hypot(dx, dy);
+        if (distance < kEps) continue;  // dead centre: no direction to limit against
+        const double gap = distance - hazard.hard_radius;
+        // Fraction of forward motion that approaches this hazard: +1 dead ahead, -1 dead
+        // behind. A diff drive only translates along its heading, so this is the whole story.
+        const double toward = (cos_yaw * dx + sin_yaw * dy) / distance;
+        if (std::abs(toward) < kEps) continue;  // passing abeam costs nothing
+
+        const double v_approach = v_actual * toward;
+        // The approach speed a first-order plant can still shed by the hard rim, with the same
+        // latency lead the goal brake schedule uses: the command bites delay_s late, after the
+        // robot has already closed v*delay of the gap.
+        const double bound = (gap - std::max(v_approach, 0.0) * settings_.barrier_delay_s) /
+                             settings_.barrier_horizon_s;
+        const double excess = v_approach - bound;
+
+        // Constraint on the commanded wheel speed: u * k * toward <= bound. Solving for u gives
+        // an upper limit when the hazard is ahead and a lower limit when it is behind, which is
+        // the rear-clearance check falling out of the same rule. The gain k depends on the sign
+        // of the binding command, since reverse is the weaker drive.
+        if (toward > 0.0) {
+            const double k = (bound >= 0.0) ? settings_.max_linear_speed_fwd
+                                            : std::max(settings_.max_linear_speed_rev, kEps);
+            u_max = std::min(u_max, bound / (k * toward));
+            if (excess > 0.0) {
+                u_max = std::min(u_max, -std::min(1.0, kExcessGain * excess));
+                result.braking = true;
+            }
+        } else {
+            const double k = (bound >= 0.0) ? std::max(settings_.max_linear_speed_rev, kEps)
+                                            : settings_.max_linear_speed_fwd;
+            u_min = std::max(u_min, bound / (k * toward));
+            if (excess > 0.0) {
+                u_min = std::max(u_min, std::min(1.0, kExcessGain * excess));
+                result.braking = true;
+            }
+        }
+        result.bound_mps = std::min(result.bound_mps, bound);
+    }
+
+    double limited;
+    if (u_min > u_max) {
+        // Squeezed between hazards ahead and behind: no command satisfies both envelopes. Split
+        // the violation instead of picking a side and diving into the other one; with symmetric
+        // pressure this stops the robot, which is the least-bad answer available.
+        limited = 0.5 * (u_min + u_max);
+    } else {
+        limited = std::clamp(command.linear_x, u_min, u_max);
+    }
+    if (limited != command.linear_x) {
+        command.linear_x = limited;
+        result.engaged = true;
+    }
+    return result;
 }
 
 bool HazardAvoidance::apply_reverse(const Pose2D &our_pose, const FieldDescription &field,

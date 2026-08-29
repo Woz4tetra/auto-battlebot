@@ -91,8 +91,14 @@ baseline = "attack_clean"
 "our_robot.start_pos" = [-0.9, -0.9]
 "our_robot.start_yaw_deg" = 45.0
 opponents = [
-  { behavior = "static", start_pos = [0.9, 0.9] },
-  { behavior = "static", start_pos = [0.0, 0.0], hazard_radius = 0.106, sprite = "house_bot" },
+  { behavior = "static", start_pos = [
+    0.9,
+    0.9,
+  ] },
+  { behavior = "static", start_pos = [
+    0.0,
+    0.0,
+  ], hazard_radius = 0.106, sprite = "house_bot" },
 ]
 [runs.cpp]
 "transmitter.behavior_mode" = "ATTACK"
@@ -107,8 +113,14 @@ baseline = "attack_clean"
 "our_robot.start_pos" = [-0.9, -0.9]
 "our_robot.start_yaw_deg" = 45.0
 opponents = [
-  { behavior = "static", start_pos = [0.9, 0.9] },
-  { behavior = "circle", start_pos = [0.0, 0.4], speed = 0.5, radius = 0.4, hazard_radius = 0.106, sprite = "house_bot" },
+  { behavior = "static", start_pos = [
+    0.9,
+    0.9,
+  ] },
+  { behavior = "circle", start_pos = [
+    0.0,
+    0.4,
+  ], speed = 0.5, radius = 0.4, hazard_radius = 0.106, sprite = "house_bot" },
 ]
 [runs.cpp]
 "transmitter.behavior_mode" = "ATTACK"
@@ -122,13 +134,91 @@ opponents = [
 name = "hole_and_block"
 baseline = "attack_clean"
 hazards = [
-  { kind = "hole", center = [-0.1, 0.1], radius = 0.20 },
-  { kind = "wall_block", center = [0.35, 0.2], radius = 0.16 },
+  { kind = "hole", center = [
+    -0.1,
+    0.1,
+  ], radius = 0.20 },
+  { kind = "wall_block", center = [
+    0.35,
+    0.2,
+  ], radius = 0.16 },
 ]
 [runs.sim]
 "our_robot.start_pos" = [-0.9, -0.9]
 "our_robot.start_yaw_deg" = 45.0
 opponents = [{ behavior = "static", start_pos = [0.9, 0.9] }]
 [runs.cpp]
+"transmitter.behavior_mode" = "ATTACK"
+"navigation.type" = "MotionProfileNavigation"
+
+# --- The AER arena: two wall-hugging holes in a small cage ------------------------------------
+# Geometry measured from the 2026-08-28 Jetson recording (auto window 21:03-21:04 EDT): arena
+# ~1.48 x 1.41 m, holes at (+-0.65, 0) radius 0.2, opponent parked on the east hole lip. The
+# pre-barrier stack spent 24.6% of that window inside a keep-out with 32 entries; these runs are
+# the hardware-free regression for it.
+
+[[runs]]
+name = "aer_clean"
+[runs.sim]
+"arena.width" = 1.48
+"arena.height" = 1.41
+"our_robot.start_pos" = [-0.55, -0.45]
+"our_robot.start_yaw_deg" = 30.0
+opponents = [{ behavior = "static", start_pos = [0.45, -0.35] }]
+[runs.cpp]
+"field_filter.size_x" = 1.48
+"field_filter.size_y" = 1.41
+"transmitter.behavior_mode" = "ATTACK"
+"navigation.type" = "MotionProfileNavigation"
+
+[[runs]]
+name = "aer_two_holes_lip_opponent"
+baseline = "aer_clean"
+hazards = [
+  { kind = "hole", center = [
+    0.65,
+    0.0,
+  ], radius = 0.2 },
+  { kind = "hole", center = [
+    -0.65,
+    0.0,
+  ], radius = 0.2 },
+]
+[runs.sim]
+"arena.width" = 1.48
+"arena.height" = 1.41
+"our_robot.start_pos" = [-0.55, -0.45]
+"our_robot.start_yaw_deg" = 30.0
+opponents = [{ behavior = "static", start_pos = [0.45, -0.35] }]
+[runs.cpp]
+"field_filter.size_x" = 1.48
+"field_filter.size_y" = 1.41
+"transmitter.behavior_mode" = "ATTACK"
+"navigation.type" = "MotionProfileNavigation"
+
+# The corridor crossing: the goal sits past the west hole, so the run must round it in an arena
+# where the gap between the two keep-outs is ~0.36 m.
+[[runs]]
+name = "aer_corridor_crossing"
+baseline = "aer_clean"
+hazards = [
+  { kind = "hole", center = [
+    0.65,
+    0.0,
+  ], radius = 0.2 },
+  { kind = "hole", center = [
+    -0.65,
+    0.0,
+  ], radius = 0.2 },
+]
+[runs.sim]
+"arena.width" = 1.48
+"arena.height" = 1.41
+"our_robot.start_pos" = [0.45, 0.45]
+"our_robot.start_yaw_deg" = 180.0
+opponents = [{ behavior = "static", start_pos = [-0.5, -0.45] }]
+[runs.cpp]
+"field_filter.size_x" = 1.48
+"field_filter.size_y" = 1.41
 "transmitter.behavior_mode" = "ATTACK"
 "navigation.type" = "MotionProfileNavigation"

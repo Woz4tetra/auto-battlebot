@@ -21,8 +21,8 @@ auto_battlebot::HazardAvoidanceSettings hazard_settings_from(
     settings.tangent_max_iterations = config.hazard_tangent_max_iterations;
     settings.waypoint_clearance_m = config.hazard_waypoint_clearance_m;
     settings.side_release_m = config.hazard_side_release_m;
-    // No option 3 here: the cap is stated in m/s and pursuit has no plant fit to convert against.
-    settings.speed_cap_enable = false;
+    // The barrier speeds stay zero: no plant fit here, so the velocity barrier is off and the
+    // reverse backstop below is pursuit's only speed response.
     settings.prediction_horizon_s = config.hazard_prediction_horizon_s;
     settings.reverse_distance = config.hazard_reverse_distance;
     settings.heading_threshold = config.hazard_heading_threshold;

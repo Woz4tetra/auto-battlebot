@@ -20,8 +20,7 @@ opponents = [{ behavior = "static", start_pos = [0.9, 0.9] }]
 "transmitter.behavior_mode" = "ATTACK"
 "navigation.type" = "MotionProfileNavigation"
 "navigation.hazard_tangent_enable" = false
-"navigation.hazard_speed_cap_enable" = false
-"navigation.hazard_reverse_distance" = 0.0
+"navigation.hazard_barrier_enable" = false
 
 [[runs]]
 name = "hole_on_path"
@@ -35,15 +34,20 @@ opponents = [{ behavior = "static", start_pos = [0.9, 0.9] }]
 "transmitter.behavior_mode" = "ATTACK"
 "navigation.type" = "MotionProfileNavigation"
 "navigation.hazard_tangent_enable" = false
-"navigation.hazard_speed_cap_enable" = false
-"navigation.hazard_reverse_distance" = 0.0
+"navigation.hazard_barrier_enable" = false
 
 [[runs]]
 name = "hole_and_block"
 baseline = "clean"
 hazards = [
-  { kind = "hole", center = [-0.1, 0.1], radius = 0.20 },
-  { kind = "wall_block", center = [0.35, 0.2], radius = 0.16 },
+  { kind = "hole", center = [
+    -0.1,
+    0.1,
+  ], radius = 0.20 },
+  { kind = "wall_block", center = [
+    0.35,
+    0.2,
+  ], radius = 0.16 },
 ]
 [runs.sim]
 "our_robot.start_pos" = [-0.9, -0.9]
@@ -53,5 +57,4 @@ opponents = [{ behavior = "static", start_pos = [0.9, 0.9] }]
 "transmitter.behavior_mode" = "ATTACK"
 "navigation.type" = "MotionProfileNavigation"
 "navigation.hazard_tangent_enable" = false
-"navigation.hazard_speed_cap_enable" = false
-"navigation.hazard_reverse_distance" = 0.0
+"navigation.hazard_barrier_enable" = false

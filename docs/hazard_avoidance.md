@@ -76,7 +76,19 @@ house bot the controller cannot see the true size of, and the sweep reports the 
 
 ## The four layers
 
-Weakest to strongest. Options 1 and 2 are the floor and ceiling; 3 and 4 do the work.
+Two aim layers and one speed rule. The aim layers (1 and 4) plan against the fat
+`inflated_radius`; the velocity barrier (3) enforces speed against the thin `hard_radius`. The
+fixed reverse (2) survives only on PursuitNavigation, which has no plant fit for the barrier.
+
+This is the second design. The first shipped four layers -- goal legality, tangent, a steering
+speed cap, a stop-at-rim brake, plus the fixed reverse -- and the 2026-08-28 AER recording
+(auto window 21:03-21:04 EDT) showed the speed side losing anyway: 24.6% of the window inside a
+keep-out across 32 entries. Three mechanisms did the damage: a blocked push spun the wheels to
+~4.5 m/s while the chassis crawled, so the stored speed arrived all at once when the opponent
+gave way; the angle gate zeroes `linear_x` when the target falls behind, so a v_ref-side brake
+never reached the plant during exactly the coast it existed for; and the fixed reverses (hazard
+and wall) backed the robot into the other hole with no rear check. The barrier replaces the
+cap, the brake, and the motion profile's reverse with one rule that closes all three holes.
 
 **1. Keep the goal legal.** `EmptyCircleSolver` takes hazards alongside opponents as weighted
 sites: a hazard contributes `distance_to_centre - radius` instead of `distance_to_centre`. The
@@ -88,34 +100,44 @@ to before. `clamp_to_field` in both navigations then pushes the goal out of any 
 rectangle clamp. Without this, the layers below spend the whole match fighting a goal that sits
 inside the hole.
 
-**2. Last-ditch reverse.** Within `hazard_reverse_distance` of a hazard edge with the heading
-pointed at it, `linear_x` is overridden to reverse. This is a stopping response, and the plant
-says it will fire too late to save a full-speed approach: from `k_fwd = 4.88` m/s the stop takes
-0.86 m against a 0.62 m turn-out radius. It is a backstop for what the steering layer cannot
-solve, mainly a hazard that appears close because the house bot drove into our path or its track
-initialised late. **If a sweep shows it firing often, that is evidence options 3 and 4 are
-mistuned, not evidence this is working.**
+**2. Last-ditch reverse (PursuitNavigation only).** Within `hazard_reverse_distance` of a hazard
+edge with the heading pointed at it, `linear_x` is overridden to a fixed reverse. Pursuit has no
+plant fit, so this stays its only speed response. On MotionProfileNavigation the barrier
+supersedes it: a negative barrier bound is the same reverse, scaled by depth and limited by
+whatever hazard lies behind.
 
-**3. Speed cap for steering authority.** Not "slow down so you can stop", which this plant cannot
-do, but "slow down only as much as the turn requires". An arc starting tangent to the current
-heading deviates laterally by about `L^2 / (2r)` at along-track distance `L`, and the achievable
-radius is `v / max_yaw_rate`, so clearing a hazard of effective radius `R` at range `L` needs:
+**3. The velocity barrier (`HazardAvoidance::limit_command`).** One rule: per hazard, the
+velocity component toward it may not exceed the stopping envelope
 
 ```
-v_cap = max_yaw_rate * L^2 / (2 R)
+bound = (gap_to_hard_radius - max(v_approach, 0) * delay_s) / (tau_lin_d + delay_s)
 ```
 
-With `max_yaw_rate = 7.93` rad/s and `R = 0.4` m: `L = 1.0` m gives 9.9 m/s (above `k_fwd`, so no
-cap at all), `L = 0.5` m gives 2.48 m/s, `L = 0.3` m gives 0.89 m/s. The cap stays out of the way
-until a hazard is genuinely close and near the heading. `R` is scaled by how far off the heading
-ray the centre sits, so a hazard well off to one side does not throttle a clean run past it, and
-the cap never goes below `hazard_speed_cap_floor` -- a cap that reaches zero recreates the
-stop-in-time behaviour the plant cannot deliver and strands the robot with the hazard in front of
-it.
+which is the same first-order envelope the goal brake schedule inverts, aimed at the hazard.
+It constrains the final command (`u * k * toward <= bound`, with `toward` the cosine between
+heading and hazard bearing) and the measured speed (excess over the bound commands a
+proportional reverse with full authority). Applied after the angle gate and the wall reverse,
+so nothing upstream can bypass it. Three behaviours fall out:
 
-MotionProfileNavigation only. The cap is stated in m/s against a measured yaw rate, and
-PursuitNavigation closes its heading loop in normalized command against an unfitted plant, so
-there is no honest number to cap with there.
+- approaching, thrust tapers with the gap, so a blocked push can never store wheel speed the
+  gap cannot absorb;
+- coasting past the goal, the measured excess brakes through a zeroed channel, whichever way
+  the robot faces. The recovery command's sign follows the hazard's bearing, not the robot's
+  forward axis: a hazard ahead gets reverse, a hazard behind gets forward drive, so sliding
+  rear-first at a hole is answered with forward, never with backing further in;
+- inside the hard radius the bound is negative, which is the reverse backstop restated: an
+  exit command scaled by depth, directed away from the centre, and limited by whatever other
+  hazard lies on the exit path -- the rear-clearance check falls out of the rule rather than
+  being a special case.
+
+Per-hazard constraints compose as an intersection of command intervals. When hazards ahead and
+behind squeeze the interval empty, the barrier splits the violation, which stops the robot
+rather than diving into either. Passing abeam has zero approach component and costs nothing;
+this projection is continuous where the old cap and brake had an on/off cross-track gate that
+chattered exactly on the tangent-following heading.
+
+MotionProfileNavigation only, because the envelope is stated in m/s against the plant fit.
+`hazard_barrier_enable = false` exists for baseline sweeps that measure the failure mode.
 
 **4. Tangent waypoint (the primary response).** When the run from `our_pose` to the goal enters an
 inflated hazard, the goal is replaced by a tangent point on the hazard's rim, choosing the side
@@ -139,15 +161,18 @@ Three details that are load-bearing:
 Chained hazards re-test the substituted waypoint against the remaining ones, capped at
 `hazard_tangent_max_iterations`. A hazard already routed around is excluded from later passes: the
 new segment runs tangent to it by construction, so re-testing it only produces a substitution
-loop. When it does not converge, the speed cap and the reverse backstop cover it.
+loop. When it does not converge, the velocity barrier covers it.
 
 ## Diagnostics
 
-- `/diagnostics` `hazards` channel, every cycle: count, per-hazard centre, radius and source, and
-  the our-robot half-diagonal the inflation used. Lets a replay tell "the controller did not know"
-  from "the controller knew and drove in anyway".
-- Both navigations log `hazard_count`, `hazard_waypoint`, `hazard_side`, `hazard_reverse` and the
-  steered target; MotionProfileNavigation adds `hazard_speed_capped`.
+- `/diagnostics` `hazards` channel, every cycle: count, per-hazard centre, inflated and hard
+  radii, source, and the our-robot half-diagonal the inflation used. Lets a replay tell "the
+  controller did not know" from "the controller knew and drove in anyway".
+- Both navigations log `hazard_count`, `hazard_waypoint`, `hazard_side` and the steered target.
+  MotionProfileNavigation adds `hazard_barrier_engaged` (the barrier changed `linear_x`),
+  `hazard_barrier_braking` (measured speed exceeded the envelope, so the change was an active
+  brake, not a clip), and `hazard_barrier_bound` (tightest bound in m/s; negative means inside a
+  hard radius). PursuitNavigation keeps `hazard_reverse`.
 - `safest_point_target/solver` logs `n_hazards` alongside `n_opponents`, and the winning family
   name says whether a hazard pinned the answer (`*_hazard`, `wall_site_pair`, `site_triple`).
 - `/hazard_markers` publishes one ring per hazard to the UI and the MCAP: amber for `STATIC`,
@@ -217,38 +242,27 @@ wrong and every sprite sits slightly off or the robots drive sideways.
 
 ### What a hazard carries
 
-`FieldHazard` holds two radii. `inflated_radius` is the keep-out: the geometry plus our robot's
-half-diagonal plus the configured margin. It is what every navigation routine tests against,
-because navigation steers a point and a configuration-space obstacle is what makes a point test
-correct. `object_radius` is the hazard itself, and is what the overlays draw -- a ring at the
-inflated radius reads as the hazard being twice its real size, since the inflation has no visible
-cause on screen.
+`FieldHazard` holds three radii, inflated once at assembly. `inflated_radius` is the steering
+keep-out: geometry plus our half-diagonal plus the source margin (0.10 static, 0.05 tracked).
+The aim layers and the solver test against it. `hard_radius` is the loss boundary: geometry
+plus our half-diagonal plus `hazard_hard_margin_m` (0.02), where a wheel meets the hole lip.
+The velocity barrier enforces against it. The split is deliberate: on the measured AER arena
+(~1.48 x 1.41 m, two 0.2 m holes at x = +-0.65) the 0.47 m steering discs cover most of the
+floor and the opponent stood inside one for 48% of the recorded match, so a speed rule keyed to
+the fat radius would forbid the fight itself. `object_radius` is the hazard alone, and is what
+the overlays draw -- a ring at the inflated radius reads as the hazard being twice its real
+size, since the inflation has no visible cause on screen.
 
-### Two speed limits, two questions
+### Why one speed rule
 
-`hazard_speed_cap` asks *can I still steer clear*: `max_yaw_rate * L^2 / (2R)`, growing as the
-square of range, so it stays out of the way until a hazard is close and near the heading.
-
-`hazard_brake_distance` asks *can I still stop*, and is the schedule ported from
-`PursuitNavigation`'s `brake_distance`: inside that clearance, ramp speed linearly to zero at the
-keep-out rim. It exists because the motion profile's own brake schedule is keyed to the goal, and
-in ATTACK `attack_terminal_speed_fraction = 1.0` pins the reference at full speed, so nothing
-slowed the robot for a hazard. That is why pursuit stopped short of a hole and the motion profile
-drove in.
-
-The two differ where it matters. At the rim of a 0.49 m keep-out the steering cap still permits
-1.94 m/s, which the Mrs Buff Mk3 plant cannot shed in 0.49 m; the brake permits zero. Both use the
-same directional gate, so a hazard passed abeam costs nothing.
-
-Size `hazard_brake_distance` to the stopping lead, `k_fwd * (delay_s + tau_lin_d)`. For the current
-fit that is `4.88 * (0.0522 + 0.1235) = 0.86 m`. It is a hand-copied plant number, unlike the
-terminal-speed fractions which are normalized so a refit rescales them; a refit has to update this
-by hand.
-
-Measured over the eight hazard scenarios: clearance improved on five (up to +0.082 m on
-`housebot_crossing`), regressed 0.016 m on `hole_and_block`, and no run fell in, hit a block, or
-failed to reach its goal. Time cost was under 0.07 s on five runs, 0.4 s on `runaway_hole` and
-1.1 s on `housebot_crossing`.
+The envelope `gap / (tau_lin_d + delay_s)` is the plant's stopping schedule, the same one the
+goal-side brake inverts, so a refit moves both from the `[plant]` table with nothing hand-copied.
+The barrier exists because the motion profile's own schedule is keyed to the goal, and in ATTACK
+`attack_terminal_speed_fraction = 1.0` pins the reference at full speed at any distance: nothing
+mission-side ever slows the robot for a hazard, so the hazard side must own the final command.
+Applying it to `v_ref` instead was the first design's mistake -- the angle gate zeroes the linear
+channel when the target falls behind, and the recorded robot coasted into the hole at 1-2 m/s
+with the brake dutifully logged as active.
 
 ## Config reference
 
@@ -257,9 +271,10 @@ failed to reach its goal. Time cost was under 0.07 s on five runs, 0.4 s on `run
 | key | default | meaning |
 |---|---|---|
 | `hazards_file` | `""` | shared geometry file, repo-relative with extension; empty = no static hazards |
-| `hazard_static_margin_m` | 0.10 | clearance added to a static hazard beyond our half-diagonal |
+| `hazard_static_margin_m` | 0.10 | steering clearance added to a static hazard beyond our half-diagonal |
 | `hazard_tracked_margin_m` | 0.05 | same for a hazard from a live neutral track |
 | `hazard_tracked_hold_s` | 0.75 | how long a stale neutral track keeps producing a hazard |
+| `hazard_hard_margin_m` | 0.02 | slack on the loss boundary (`hard_radius`) beyond our half-diagonal |
 
 `[navigation]`, both controllers unless noted:
 
@@ -269,13 +284,11 @@ failed to reach its goal. Time cost was under 0.07 s on five runs, 0.4 s on `run
 | `hazard_tangent_max_iterations` | 3 | chained-hazard passes |
 | `hazard_waypoint_clearance_m` | 0.06 | clearance the tangent waypoint leaves beyond the keep-out |
 | `hazard_side_release_m` | 0.05 | release margin for the latched pass side |
-| `hazard_speed_cap_enable` | true | option 3, MotionProfileNavigation only |
-| `hazard_speed_cap_floor` | 0.35 | m/s floor under the cap, same nav only |
-| `hazard_brake_distance` | `0.86` | clearance (m) to a blocking hazard's rim at which speed ramps linearly to zero; 0 = off. MotionProfileNavigation only |
+| `hazard_barrier_enable` | true | the velocity barrier, MotionProfileNavigation only; off only for baseline sweeps |
 | `hazard_prediction_horizon_s` | 0.25 | how far ahead a TRACKED hazard is advanced |
-| `hazard_reverse_distance` | 0.12 | option 2; 0 disables |
-| `hazard_heading_threshold` | 1.047 | ~60 deg; heading must point at the hazard |
-| `hazard_reverse_min_speed` | 0.35 | reverse floor while the backstop is active |
+| `hazard_reverse_distance` | 0.12 | option 2, PursuitNavigation only; 0 disables |
+| `hazard_heading_threshold` | 1.047 | ~60 deg; heading must point at the hazard (pursuit) |
+| `hazard_reverse_min_speed` | 0.35 | reverse floor while the backstop is active (pursuit) |
 
 The tracked margin is smaller than the static one on purpose: the house bot is a hazard we must
 not hit, but treating it as a large keep-out disc makes big parts of the field unreachable when it

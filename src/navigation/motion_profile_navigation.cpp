@@ -21,14 +21,14 @@ auto_battlebot::HazardAvoidanceSettings hazard_settings_from(
     settings.tangent_max_iterations = config.hazard_tangent_max_iterations;
     settings.waypoint_clearance_m = config.hazard_waypoint_clearance_m;
     settings.side_release_m = config.hazard_side_release_m;
-    settings.speed_cap_enable = config.hazard_speed_cap_enable;
-    settings.speed_cap_floor = config.hazard_speed_cap_floor;
     settings.prediction_horizon_s = config.hazard_prediction_horizon_s;
-    settings.reverse_distance = config.hazard_reverse_distance;
-    settings.heading_threshold = config.hazard_heading_threshold;
-    settings.reverse_min_speed = config.hazard_reverse_min_speed;
-    settings.max_yaw_rate = config.max_yaw_rate;
-    settings.brake_distance = config.hazard_brake_distance;
+    // The barrier's envelope is the plant fit itself: the same tau_lin_d + delay_s horizon the
+    // goal brake schedule inverts, so one refit moves both.
+    settings.barrier_enable = config.hazard_barrier_enable;
+    settings.max_linear_speed_fwd = config.plant.k_fwd;
+    settings.max_linear_speed_rev = config.plant.k_rev;
+    settings.barrier_horizon_s = config.plant.tau_lin_d + config.plant.delay_s;
+    settings.barrier_delay_s = config.plant.delay_s;
     return settings;
 }
 }  // namespace
@@ -229,16 +229,7 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
         return VelocityCommand{0.0, 0.0, 0.0};
     }
 
-    double v_ref = compute_reference_speed(distance, v_actual, dt, terminal_velocity);
-    // Option 3: slow down only as much as the turn requires. Applied after the brake schedule so
-    // it can only ever lower the reference, never raise it above what distance-to-go allows.
-    const double v_ref_uncapped = v_ref;
-    v_ref = std::min(v_ref, hazards_.cap_speed(our_pose, field, v_ref));
-    const double v_ref_capped = v_ref;
-    // Stop-in-time brake, separate from the steering cap above. The cap asks whether the turn can
-    // still clear the hazard; this asks whether the plant can still stop at its rim, which is the
-    // question the goal-side brake schedule never poses because the goal is not the hazard.
-    v_ref = std::min(v_ref, hazards_.brake_speed(our_pose, field, v_ref));
+    const double v_ref = compute_reference_speed(distance, v_actual, dt, terminal_velocity);
     const double dvdt = (dt > 0.0) ? (v_ref - prev_v_ref_) / dt : 0.0;
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
@@ -260,7 +251,12 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     }
 
     apply_wall_reverse(our_pose, field, cmd);
-    const bool hazard_reverse = hazards_.apply_reverse(our_pose, field, cmd);
+    // The velocity barrier gets the final say on linear_x, after the angle gate and the wall
+    // reverse: it clips the approach-speed component toward every hazard to the plant's
+    // stopping envelope against the MEASURED speed. Placement is the fix from the 2026-08-28
+    // recording: a v_ref-side brake never reaches the plant while the angle gate holds the
+    // channel at zero, and a blind wall reverse can back into a hole; both end here.
+    const auto barrier = hazards_.limit_command(our_pose, field, v_actual, cmd);
 
     if (max_linear_command_ > 0.0) {
         cmd.linear_x = std::clamp(cmd.linear_x, -max_linear_command_, max_linear_command_);
@@ -280,10 +276,9 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                        {"hazard_count", static_cast<int>(field.hazards.size())},
                        {"hazard_waypoint", hazards_.last_substituted() ? 1 : 0},
                        {"hazard_side", hazards_.committed_side()},
-                       {"hazard_speed_capped", v_ref_capped < v_ref_uncapped - 1e-9 ? 1 : 0},
-                       {"hazard_braked", v_ref < v_ref_capped - 1e-9 ? 1 : 0},
-                       {"v_ref_uncapped", v_ref_uncapped},
-                       {"hazard_reverse", hazard_reverse ? 1 : 0},
+                       {"hazard_barrier_engaged", barrier.engaged ? 1 : 0},
+                       {"hazard_barrier_braking", barrier.braking ? 1 : 0},
+                       {"hazard_barrier_bound", std::min(barrier.bound_mps, 99.0)},
                        {"target_x_steered", clamped_target.x},
                        {"target_y_steered", clamped_target.y},
                    });
