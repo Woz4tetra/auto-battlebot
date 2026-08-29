@@ -12,9 +12,10 @@ that point in the field frame. It is the composition of two recorded transforms:
 
     tf_field_from_camera = tf_field_from_cameraworld @ tf_cameraworld_from_camera
 
-`field -> camera_world` comes from `/tf_static`, republished on every field re-init, so the
-applicable one is the latest at or before the image. `camera_world -> camera` comes from
-`/tf`, published once per frame the perception loop actually processed.
+Both edges come from `/tf`, published once per frame the perception loop actually processed.
+`field -> camera_world` only changes on a field re-init but is restamped every cycle, so the
+applicable one is the latest at or before the image. Recordings made before that edge moved
+carry it once on `/tf_static`; those are read the same way.
 
 Frame association
 -----------------
@@ -107,7 +108,7 @@ def read_recording(mcap_path: Path) -> dict[str, Any]:
     image_stamps: list[int] = []
     camera_infos: list[dict[str, Any]] = []
     dynamic: list[tuple[int, np.ndarray]] = []
-    static: list[tuple[int, np.ndarray]] = []
+    field_from_cameraworld: list[tuple[int, np.ndarray]] = []
     field_sizes: list[tuple[int, float, float]] = []
 
     with open(mcap_path, "rb") as handle:
@@ -155,20 +156,22 @@ def read_recording(mcap_path: Path) -> dict[str, Any]:
                 for tf in decoded.transforms:
                     stamp = tf.header.stamp.to_nsec()
                     matrix = transform_matrix(tf.transform.translation, tf.transform.rotation)
-                    if channel.topic == TF_STATIC_TOPIC and tf.header.frame_id == FIELD_FRAME:
-                        static.append((stamp, matrix))
+                    if tf.header.frame_id == FIELD_FRAME:
+                        # Recordings made before the edge moved carry it once on /tf_static;
+                        # newer ones repeat it on /tf every cycle. Both land here.
+                        field_from_cameraworld.append((stamp, matrix))
                     elif channel.topic == TF_TOPIC and tf.header.frame_id == CAMERA_WORLD_FRAME:
                         dynamic.append((stamp, matrix))
 
     image_stamps.sort()
     dynamic.sort(key=lambda item: item[0])
-    static.sort(key=lambda item: item[0])
+    field_from_cameraworld.sort(key=lambda item: item[0])
     field_sizes.sort(key=lambda item: item[0])
     return {
         "image_stamps": np.array(image_stamps, dtype=np.int64),
         "camera_infos": camera_infos,
         "dynamic": dynamic,
-        "static": static,
+        "field_from_cameraworld": field_from_cameraworld,
         "field_sizes": field_sizes,
     }
 
@@ -261,12 +264,14 @@ def export_sub_dataset(sub_dir: Path, dry_run: bool) -> dict[str, int]:
 
     image_stamps = recording["image_stamps"]
     dynamic = recording["dynamic"]
-    static = recording["static"]
+    field_from_cameraworld = recording["field_from_cameraworld"]
     dynamic_frames = frame_indices(image_stamps, np.array([s for s, _ in dynamic], dtype=np.int64))
-    static_stamps = [stamp for stamp, _ in static]
-    # /tf_static and /field_markers are both published by publish_initial_field_description, one
-    # pair per field init, so they share a stamp. Key the size off that rather than off ordering.
-    sizes_by_stamp = {stamp: (x, y) for stamp, x, y in recording["field_sizes"]}
+    field_tf_stamps = [stamp for stamp, _ in field_from_cameraworld]
+    # /field_markers is published once per field init, but the field -> camera_world edge now
+    # repeats every cycle, so the two no longer share a stamp. Take the latest markers at or
+    # before the image instead of keying the size off an exact stamp match.
+    field_sizes = recording["field_sizes"]
+    field_size_stamps = [stamp for stamp, _, _ in field_sizes]
 
     intrinsics = summarize_intrinsics(recording["camera_infos"])
     intrinsics.update(
@@ -297,8 +302,8 @@ def export_sub_dataset(sub_dir: Path, dry_run: bool) -> dict[str, int]:
             position, dynamic, dynamic_frames
         )
 
-        static_index = bisect_right(static_stamps, stamp) - 1
-        if static_index < 0:
+        field_tf_index = bisect_right(field_tf_stamps, stamp) - 1
+        if field_tf_index < 0:
             method, cameraworld_from_camera = "unavailable", None
             provenance = {"reason": "image precedes the first field initialization"}
 
@@ -314,17 +319,20 @@ def export_sub_dataset(sub_dir: Path, dry_run: bool) -> dict[str, int]:
             "provenance": provenance,
         }
         if cameraworld_from_camera is not None:
-            field_from_cameraworld = static[static_index][1]
-            field_from_camera = field_from_cameraworld @ cameraworld_from_camera
+            field_from_cameraworld_matrix = field_from_cameraworld[field_tf_index][1]
+            field_from_camera = field_from_cameraworld_matrix @ cameraworld_from_camera
             record["tf_field_from_camera"] = decompose(field_from_camera)
-            record["tf_field_from_cameraworld"] = decompose(field_from_cameraworld)
+            record["tf_field_from_cameraworld"] = decompose(field_from_cameraworld_matrix)
             record["tf_cameraworld_from_camera"] = decompose(cameraworld_from_camera)
-            record["provenance"]["tf_static_stamp_ns"] = int(static[static_index][0])
+            record["provenance"]["field_tf_stamp_ns"] = int(
+                field_from_cameraworld[field_tf_index][0]
+            )
             # Extents the RANSAC plane fit measured at this field init, centred on the field
             # origin. Needed to know where the arena edges are: the transform alone does not
             # say. Estimates vary per init and some are plainly bad fits, so the value is
             # reported as measured rather than snapped to a nominal arena size.
-            size = sizes_by_stamp.get(int(static[static_index][0]))
+            size_index = bisect_right(field_size_stamps, stamp) - 1
+            size = None if size_index < 0 else field_sizes[size_index][1:]
             record["field_size_m"] = (
                 {"x": round(size[0], 6), "y": round(size[1], 6)} if size else None
             )

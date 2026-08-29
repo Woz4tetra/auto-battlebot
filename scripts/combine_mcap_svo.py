@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 """Combine an MCAP recording with the SVO2 files it references.
 
-For every SVO2 file referenced in an input MCAP's /rosout log, produce one
-combined MCAP <input_mcap_stem>__<svo_stem>.mcap that contains:
+For every SVO2 file an input MCAP references (in /rosout or /camera/frame_meta),
+produce one combined MCAP <input_mcap_stem>__<svo_stem>.mcap that contains:
 
-  * All messages from `ZED_SVO_Editor -export-to-mcap <svo>`
-    (image/imu/gnss/custom data).
+  * One cropped left-eye image per SVO frame, decoded straight out of the
+    .svo2 (which is itself an MCAP container of H.264 frames).
   * The slice of the original MCAP messages whose log_time falls inside that
     SVO's [start, end] time range (intersect mode).
 
-Requires `ZED_SVO_Editor` on PATH (part of the ZED SDK) and the Python `mcap`
-package. `pyzed` is NOT used.
+Requires `ffmpeg` on PATH and the Python `mcap` package. Neither the ZED SDK
+nor `pyzed` is used.
+
+The SVO's IMU data is dropped. It lives on the `sensors` /
+`integrated_sensors` topics as an opaque base64 blob that only the SDK
+decodes, and nothing downstream of these combined MCAPs reads it: the
+model_eval and model_compare tools use /camera/image and /camera/camera_info
+only. Use `ZED_SVO_Editor -export-to-mcap` if you ever need those channels.
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
 import bisect
 import heapq
 import json
@@ -24,40 +29,41 @@ import logging
 import re
 import shutil
 import struct
-import subprocess
 import sys
+from contextlib import closing
 from pathlib import Path
-from typing import IO, Any, Iterator, List, Optional, Tuple
+from typing import Any, Iterator, List, Optional, Tuple
 
-import cv2
-import numpy as np
+from mcap.exceptions import McapError
 from mcap.reader import make_reader
 from mcap.writer import Writer
 from tqdm import tqdm
 
+from auto_battlebot import svo2
+
 logger = logging.getLogger("combine_mcap_svo")
 
-# Format emitted by ZED_SVO_Editor -export-to-mcap, one line per frame.
-EXPORT_FRAME_REGEX = re.compile(r"Export frame (\d+) on (\d+)")
-
-# ZED_SVO_Editor emits a horizontally concatenated [left | right] image on a
-# topic literally named "side_by_side" with a non-standard
-# foxglove.CompressedImage JSON schema (timestamp is a bare int instead of
-# {sec, nsec}, which breaks Foxglove TF lookups for image annotations).
-# We crop to the left half, attach a proper ROS1 header, and re-publish as
-# sensor_msgs/CompressedImage on TARGET_LEFT_IMAGE_TOPIC.
-SVO_SIDE_BY_SIDE_TOPIC = "side_by_side"
+# The SVO stores a horizontally concatenated [left | right] H.264 frame. We
+# decode it, crop to the left half, attach a proper ROS1 header, and publish
+# as sensor_msgs/CompressedImage on TARGET_LEFT_IMAGE_TOPIC.
 TARGET_LEFT_IMAGE_TOPIC = "/camera/image"
-# One message per exported frame, alongside the image it describes, carrying where that image
-# came from. Header stamps cannot answer that on their own: TIME_REFERENCE::IMAGE, which the
-# pipeline stamps its output with, runs about half a frame ahead of the timestamp the SVO
-# stores, so matching the two only ever gives a nearest-neighbour guess. The authoritative
-# answer is /camera/frame_meta, which the pipeline itself writes with the SVO frame index
-# straight from the SDK. This topic is the export-side companion to it.
+# One message per frame, alongside the image it describes, carrying where that image came
+# from. It is the export-side companion to /camera/frame_meta, which the pipeline itself
+# writes with the SVO frame index straight from the SDK.
+#
+# How well stamps alone identify a frame depends on when the recording was made. On the
+# 2026-08-23 and 2026-08-28 Jetson recordings the pipeline's stamps equal the SVO frame
+# stamp exactly (0.00 ms over 9521 frames, both /camera/frame_meta.image_stamp_ns and
+# /camera/camera_info), so stamp and index joins agree. On the 2026-05-02 NHRL recordings
+# the pipeline stamp lands 0.45 to 0.79 of the way through the SVO frame interval, so
+# nearest-timestamp matching silently costs up to a frame there; join on the index, or on
+# "pipeline stamp within [svo_stamp, next_svo_stamp)".
 SVO_FRAME_TOPIC = "/camera/svo_frame"
 # Topic in the original MCAP whose header.frame_id we copy onto the cropped
 # image messages so all camera-frame data lines up.
 CAMERA_INFO_TOPIC = "/camera/camera_info"
+# Written per frame by the pipeline with the SVO file and index it came from.
+FRAME_META_TOPIC = "/camera/frame_meta"
 
 # ros1msg schema for sensor_msgs/CompressedImage. Foxglove handles this
 # natively for image overlays / projections.
@@ -88,178 +94,117 @@ DEFAULT_SEARCH_DIRS = [
 SVO_PATH_REGEX = re.compile(rb"(?:Resolved SVO path|SVO recording started):\s+(\S+\.svo2)")
 
 
+def _frame_meta_svo_path(data: bytes) -> Optional[Path]:
+    """Return the svo_path from a /camera/frame_meta std_msgs/String payload."""
+    if len(data) < 4:
+        return None
+    (length,) = struct.unpack_from("<I", data, 0)
+    try:
+        meta = json.loads(data[4 : 4 + length])
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    raw = meta.get("svo_path")
+    if not raw:  # live-camera frames carry an empty path
+        return None
+    return Path(raw)
+
+
 def extract_svo_paths(mcap_path: Path) -> List[Path]:
-    """Return SVO paths referenced by /rosout messages, in first-seen order."""
+    """Return the SVO paths this recording used, in first-seen order.
+
+    Both /rosout and /camera/frame_meta are read, because neither is complete
+    on its own. /rosout logs the SVO the recorder opened but not the ones it
+    rotates to mid-run: auto_battlebot_..._2026-08-28_20-57-33 logs only
+    2026-08-28T20-57-35.svo2 and never mentions the 2026-08-28T21-03-09.svo2
+    that holds all but the first 123 of its frames. /camera/frame_meta names
+    the file per frame, so it catches the rotations, but only recordings from
+    2026-08 on publish it.
+    """
     seen: "dict[Path, None]" = {}
     with open(mcap_path, "rb") as f:
         reader = make_reader(f)
-        for _schema, _channel, message in reader.iter_messages(topics=["/rosout"]):
+        for _schema, channel, message in reader.iter_messages(
+            topics=["/rosout", FRAME_META_TOPIC],
+            log_time_order=True,
+        ):
+            if channel.topic == FRAME_META_TOPIC:
+                path = _frame_meta_svo_path(message.data)
+                if path is not None:
+                    seen.setdefault(path, None)
+                continue
             for match in SVO_PATH_REGEX.finditer(message.data):
-                path = Path(match.group(1).decode("utf-8", errors="ignore"))
-                if path not in seen:
-                    seen[path] = None
+                seen.setdefault(Path(match.group(1).decode("utf-8", errors="ignore")), None)
     return list(seen.keys())
 
 
+def _has_data(path: Path) -> bool:
+    """True when `path` is a file with content.
+
+    A recorder that opens an SVO and rotates away from it can leave a 0-byte
+    file behind (data/svo/2026-08-28/2026-08-28T20-57-35.svo2). It looks like
+    a hit but holds no MCAP magic, so it must not win the search.
+    """
+    if not path.is_file():
+        return False
+    if path.stat().st_size > 0:
+        return True
+    logger.warning("Ignoring empty SVO file: %s", path)
+    return False
+
+
 def resolve_svo_path(referenced: Path, search_dirs: List[Path]) -> Optional[Path]:
-    """Locate the SVO file on disk, falling back to basename matches."""
+    """Locate the SVO file on disk, falling back to basename matches.
+
+    Search dirs are walked recursively, because the recording logs the path
+    the Jetson wrote to while the files are filed here into per-date
+    subdirectories (data/svo/2026-08-23/...). Directories are tried in order,
+    each one shallow-first, so an earlier search dir always wins.
+    """
     if referenced.is_absolute():
-        if referenced.exists():
+        if _has_data(referenced):
             return referenced.resolve()
     else:
         relative = (PROJECT_ROOT / referenced).resolve()
-        if relative.exists():
+        if _has_data(relative):
             return relative
 
     for directory in search_dirs:
         candidate = directory / referenced.name
-        if candidate.exists():
+        if _has_data(candidate):
             return candidate.resolve()
+
+        matches = sorted(path for path in directory.rglob(referenced.name) if _has_data(path))
+        if matches:
+            if len(matches) > 1:
+                logger.warning(
+                    "%d files named %s under %s; using %s",
+                    len(matches),
+                    referenced.name,
+                    directory,
+                    matches[0],
+                )
+            return matches[0].resolve()
     return None
 
 
-def _stash_existing_sidecar(default_out: Path) -> Optional[Path]:
-    """Rename any pre-existing sidecar MCAP out of the way; return its stash path.
+def read_svo_time_range(svo_path: Path, topic: str) -> Tuple[int, int]:
+    """Return (start_ns, end_ns) spanned by the SVO's frames.
 
-    The tool defaults to writing <svo_stem>.mcap next to the SVO. Moving an
-    existing sidecar lets us unambiguously claim the freshly-produced file.
+    Taken from the frame timestamps, never from the MCAP summary statistics:
+    svo_header and svo_footer carry log_times unrelated to the recording's own
+    timeline, which stretches the summary range by months.
     """
-    if not default_out.exists():
-        return None
-    stash_path = default_out.with_suffix(".mcap.combine_stash")
-    default_out.rename(stash_path)
-    return stash_path
-
-
-def _restore_stashed_sidecar(stash_path: Optional[Path], default_out: Path) -> None:
-    """Restore the user's original sidecar file if we stashed it."""
-    if stash_path is None or not stash_path.exists():
-        return
-    if default_out.exists():
-        # Should not happen (we just moved it), but be defensive.
-        stash_path.unlink()
-    else:
-        stash_path.rename(default_out)
-
-
-def _stream_export_progress(stdout: IO[str], svo_path: Path, captured: List[str]) -> None:
-    """Mirror ZED_SVO_Editor frame progress to a tqdm bar, capturing all output."""
-    bar: Optional[tqdm] = None
-    try:
-        for raw_line in stdout:
-            line = raw_line.rstrip()
-            captured.append(line)
-            match = EXPORT_FRAME_REGEX.search(line)
-            if match is None:
-                continue
-            current = int(match.group(1)) + 1  # frames done (1-indexed)
-            total = int(match.group(2))
-            if bar is None:
-                bar = tqdm(
-                    total=total,
-                    desc=f"Export {svo_path.name}",
-                    unit="frame",
-                    leave=False,
-                    dynamic_ncols=True,
-                )
-            if total != bar.total:
-                bar.total = total
-                bar.refresh()
-            delta = current - bar.n
-            if delta > 0:
-                bar.update(delta)
-    finally:
-        if bar is not None:
-            bar.close()
-
-
-def _run_export(svo_path: Path, editor_bin: str) -> Tuple[int, List[str]]:
-    """Run ZED_SVO_Editor, accepting its prompts, and return (returncode, output)."""
-    captured: List[str] = []
-    proc = subprocess.Popen(
-        [editor_bin, "-export-to-mcap", str(svo_path)],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    try:
-        assert proc.stdin is not None and proc.stdout is not None
-        proc.stdin.write("\n\n")
-        proc.stdin.flush()
-        proc.stdin.close()
-        _stream_export_progress(proc.stdout, svo_path, captured)
-        returncode = proc.wait()
-    except BaseException:
-        proc.kill()
-        proc.wait()
-        raise
-    return returncode, captured
-
-
-def convert_svo_to_mcap(svo_path: Path, intermediate_path: Path, editor_bin: str) -> Path:
-    """Run ZED_SVO_Editor -export-to-mcap and move output to intermediate_path.
-
-    The tool is interactive: it prompts "Export SVO into readable MCAP [Y/n]"
-    and "Enter file name [default: <svo_stem>.mcap]". Both have defaults, so
-    we just feed two newlines on stdin to accept them. The default output
-    location is next to the SVO file.
-    """
-    default_out = svo_path.with_suffix(".mcap")
-    stash_path = _stash_existing_sidecar(default_out)
-
-    logger.info("Converting %s -> %s", svo_path, intermediate_path)
-    try:
-        returncode, captured = _run_export(svo_path, editor_bin)
-
-        if returncode != 0:
-            for line in captured:
-                sys.stderr.write(line + "\n")
-            raise RuntimeError(f"ZED_SVO_Editor failed (exit {returncode}) for {svo_path}")
-
-        if not default_out.exists():
-            for line in captured:
-                sys.stderr.write(line + "\n")
-            raise RuntimeError(f"ZED_SVO_Editor did not produce {default_out} for {svo_path}")
-
-        intermediate_path.parent.mkdir(parents=True, exist_ok=True)
-        if intermediate_path.exists():
-            intermediate_path.unlink()
-        shutil.move(str(default_out), str(intermediate_path))
-    finally:
-        _restore_stashed_sidecar(stash_path, default_out)
-    return intermediate_path
-
-
-def read_time_range(mcap_path: Path) -> Tuple[int, int]:
-    """Return (start_ns, end_ns) for an MCAP. Falls back to scanning."""
-    with open(mcap_path, "rb") as f:
-        reader = make_reader(f)
-        summary = reader.get_summary()
-        if summary is not None and summary.statistics is not None:
-            stats = summary.statistics
-            if stats.message_count > 0:
-                return stats.message_start_time, stats.message_end_time
-
-        start = end = None
-        f.seek(0)
-        reader = make_reader(f)
-        for _schema, _channel, message in reader.iter_messages():
-            t = message.log_time
-            if start is None or t < start:
-                start = t
-            if end is None or t > end:
-                end = t
-    if start is None or end is None:
-        raise RuntimeError(f"MCAP has no messages: {mcap_path}")
-    return start, end
+    stamps = svo2.read_frame_stamps(svo_path, topic)
+    if not stamps:
+        raise RuntimeError(f"SVO has no frames on {topic}: {svo_path}")
+    return min(stamps), max(stamps)
 
 
 def _iter_with_source(
     mcap_path: Path,
     source_idx: int,
     *,
+    topics: Optional[List[str]] = None,
     start_time: Optional[int] = None,
     end_time: Optional[int] = None,
 ) -> Iterator[Tuple[int, int, Any, Any, Any]]:
@@ -267,6 +212,7 @@ def _iter_with_source(
     with open(mcap_path, "rb") as f:
         reader = make_reader(f)
         for schema, channel, message in reader.iter_messages(
+            topics=topics,
             start_time=start_time,
             end_time=end_time,
             log_time_order=True,
@@ -274,56 +220,24 @@ def _iter_with_source(
             yield (message.log_time, source_idx, schema, channel, message)
 
 
-def _make_ros1_compressed_image(
-    svo_data: bytes, fallback_log_time_ns: int, frame_id: Optional[str]
-) -> bytes:
-    """Decode a side_by_side foxglove.CompressedImage JSON message, crop the
-    left half, and serialize it as a ROS1 sensor_msgs/CompressedImage with
-    a properly formed std_msgs/Header (so Foxglove can do TF-aware image
-    annotations).
+def _make_ros1_compressed_image(jpeg: bytes, stamp_ns: int, frame_id: Optional[str]) -> bytes:
+    """Wrap a JPEG as a ROS1 sensor_msgs/CompressedImage.
 
-    The SVO message stores the JPEG bytes as a JSON list of byte integers
-    and `timestamp` as a bare nanoseconds integer.
+    The std_msgs/Header is properly formed so Foxglove can do TF-aware image
+    annotations. `stamp_ns` is the SVO frame's own timestamp.
     """
-    obj = json.loads(svo_data)
+    sec = stamp_ns // 1_000_000_000
+    nsec = stamp_ns - sec * 1_000_000_000
 
-    raw_data = obj["data"]
-    if isinstance(raw_data, list):
-        img_bytes = bytes(raw_data)
-    elif isinstance(raw_data, str):
-        img_bytes = base64.b64decode(raw_data)
-    else:
-        raise RuntimeError(f"unexpected data field type: {type(raw_data).__name__}")
-    img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
-    if img is None:
-        raise RuntimeError("failed to decode side_by_side image")
-    left = img[:, : img.shape[1] // 2]
-    fmt = (obj.get("format") or "jpeg").lower()
-    ext = ".png" if fmt == "png" else ".jpg"
-    ok, encoded = cv2.imencode(ext, left)
-    if not ok:
-        raise RuntimeError(f"failed to re-encode left image (format={fmt})")
-    encoded_bytes = encoded.tobytes()
-
-    ts_field = obj.get("timestamp")
-    if isinstance(ts_field, int):
-        ts_ns = ts_field
-    elif isinstance(ts_field, dict):
-        ts_ns = int(ts_field.get("sec", 0)) * 1_000_000_000 + int(ts_field.get("nsec", 0))
-    else:
-        ts_ns = fallback_log_time_ns
-    sec = ts_ns // 1_000_000_000
-    nsec = ts_ns - sec * 1_000_000_000
-
-    fid = (frame_id if frame_id is not None else obj.get("frame_id") or "").encode("utf-8")
-    fmt_bytes = fmt.encode("utf-8")
+    fid = (frame_id or "").encode("utf-8")
+    fmt_bytes = b"jpeg"
 
     parts = [
         struct.pack("<I", 0),  # header.seq
         struct.pack("<II", sec, nsec),  # header.stamp
         struct.pack("<I", len(fid)) + fid,  # header.frame_id
         struct.pack("<I", len(fmt_bytes)) + fmt_bytes,  # format
-        struct.pack("<I", len(encoded_bytes)) + encoded_bytes,  # data
+        struct.pack("<I", len(jpeg)) + jpeg,  # data
     ]
     return b"".join(parts)
 
@@ -334,16 +248,16 @@ def _make_ros1_string(payload: str) -> bytes:
     return struct.pack("<I", len(encoded)) + encoded
 
 
-def _make_svo_frame_message(svo_name: str, ordinal: int, stamp_ns: int) -> bytes:
-    """Describe one exported frame: which SVO it came from, its position, and its timestamp.
+def _make_svo_frame_message(svo_name: str, frame_index: int, stamp_ns: int) -> bytes:
+    """Describe one frame: which SVO it came from, its index, and its timestamp.
 
-    `export_ordinal` counts exported frames from zero. Treat it as a position in the export, not
-    as the SVO frame index: ZED_SVO_Editor drops a few frames per file, so the two drift apart by
-    a small unknown offset. `svo_stamp_ns` is the reliable field, matching the image header stamp
-    exactly. For a true frame index, use /camera/frame_meta from the pipeline.
+    `svo_frame_index` counts frames from zero in file order, which is the index the SDK reports
+    as the SVO position, because every frame in the recording is read and emitted. `svo_stamp_ns`
+    matches the image header stamp exactly. /camera/frame_meta from the pipeline carries the same
+    index and is the cross-check.
     """
     payload = json.dumps(
-        {"svo_file": svo_name, "export_ordinal": ordinal, "svo_stamp_ns": stamp_ns},
+        {"svo_file": svo_name, "svo_frame_index": frame_index, "svo_stamp_ns": stamp_ns},
         separators=(",", ":"),
     )
     return _make_ros1_string(payload)
@@ -528,12 +442,15 @@ def _load_retimed_originals(
 
 def merge_mcaps(
     original_path: Path,
-    svo_mcap_path: Path,
+    svo_path: Path,
+    svo_topic: str,
+    frame_count: int,
     output_path: Path,
     time_range_ns: Tuple[int, int],
     profile: str,
+    ffmpeg_bin: str,
 ) -> None:
-    """Stream-merge `original` (sliced) and `svo_mcap` into `output_path`."""
+    """Stream-merge `original` (sliced) and the SVO's frames into `output_path`."""
     start_ns, end_ns = time_range_ns
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -546,7 +463,7 @@ def merge_mcaps(
     # Total is an upper bound: the original count is pre-time-slice, so the
     # bar may finish slightly before 100% on recordings that extend past the
     # SVO's time range. tqdm handles that gracefully.
-    total_messages = _summary_message_count(original_path) + _summary_message_count(svo_mcap_path)
+    total_messages = _summary_message_count(original_path) + frame_count
 
     # Per-source maps: source_schema_id -> writer_schema_id, same for channels.
     # Source idx 0 = original, 1 = svo.
@@ -580,8 +497,8 @@ def merge_mcaps(
             message_encoding="ros1",
             schema_id=svo_frame_schema_id,
         )
-        svo_name = svo_mcap_path.stem
-        export_ordinal = 0
+        svo_name = svo_path.stem
+        frame_index = 0
 
         def get_writer_channel_id(source_idx: int, schema: Any, channel: Any) -> int:
             cmap = channel_remap[source_idx]
@@ -616,21 +533,37 @@ def merge_mcaps(
         original_buffer = _load_retimed_originals(original_path, retimer, start_ns, end_ns)
 
         original_iter = iter(original_buffer)
-        svo_iter = _iter_with_source(svo_mcap_path, 1)
+        svo_iter = _iter_with_source(svo_path, 1, topics=[svo_topic])
 
-        with tqdm(
-            total=total_messages if total_messages > 0 else None,
-            desc=f"Merge {output_path.name}",
-            unit="msg",
-            unit_scale=True,
-            leave=False,
-            dynamic_ncols=True,
-        ) as merge_bar:
+        # ffmpeg emits one JPEG per message we feed it, in order, so the Nth
+        # image pairs with the Nth side_by_side message. closing() tears the
+        # decoder down if the merge aborts, instead of leaving it blocked on a
+        # full pipe.
+        fps = svo2.sample_fps(svo_path, svo_topic)
+        jpegs = svo2.iter_left_jpegs(svo_path, svo_topic, fps, ffmpeg_bin=ffmpeg_bin)
+
+        with (
+            closing(jpegs),
+            tqdm(
+                total=total_messages if total_messages > 0 else None,
+                desc=f"Merge {output_path.name}",
+                unit="msg",
+                unit_scale=True,
+                leave=False,
+                dynamic_ncols=True,
+            ) as merge_bar,
+        ):
             for log_time, source_idx, schema, channel, message in heapq.merge(
                 original_iter, svo_iter, key=lambda x: (x[0], x[1])
             ):
-                if source_idx == 1 and channel.topic == SVO_SIDE_BY_SIDE_TOPIC:
-                    data = _make_ros1_compressed_image(message.data, log_time, camera_frame_id)
+                if source_idx == 1:
+                    jpeg = next(jpegs, None)
+                    if jpeg is None:
+                        raise RuntimeError(
+                            f"ffmpeg produced fewer frames than the {frame_count} in "
+                            f"{svo_path}: ran out at frame {frame_index}"
+                        )
+                    data = _make_ros1_compressed_image(jpeg, log_time, camera_frame_id)
                     writer.add_message(
                         channel_id=left_image_channel_id,
                         log_time=log_time,
@@ -641,11 +574,11 @@ def merge_mcaps(
                     writer.add_message(
                         channel_id=svo_frame_channel_id,
                         log_time=log_time,
-                        data=_make_svo_frame_message(svo_name, export_ordinal, log_time),
+                        data=_make_svo_frame_message(svo_name, frame_index, log_time),
                         publish_time=log_time,
                         sequence=message.sequence,
                     )
-                    export_ordinal += 1
+                    frame_index += 1
                     merge_bar.update(1)
                     continue
 
@@ -659,23 +592,16 @@ def merge_mcaps(
                 )
                 merge_bar.update(1)
 
-        # ZED_SVO_Editor does not emit every SVO frame: a 7177-frame file exported 7174, and a
-        # 9293-frame one exported 9290. So export_ordinal is the position within the export, not
-        # the SVO frame index, and the two differ by a small unknown amount. Timestamp gaps do
-        # not recover the difference either (that same 7177-frame file shows 5 double-length
-        # gaps implying 10 missing frames, against a true shortfall of 3), because SVO stamp
-        # jitter makes ordinary gaps round up. Record the count so the shortfall is at least
-        # visible against `ZED_SVO_Editor -inf`.
+            if next(jpegs, None) is not None:
+                raise RuntimeError(
+                    f"ffmpeg produced more frames than the {frame_count} in {svo_path}"
+                )
+
         writer.add_metadata(
             "svo_export",
-            {"svo_file": svo_name, "exported_frame_count": str(export_ordinal)},
+            {"svo_file": svo_name, "frame_count": str(frame_index)},
         )
-        logger.info(
-            "Exported %d SVO frames to %s (compare against `ZED_SVO_Editor -inf`; the exporter "
-            "is known to drop a few)",
-            export_ordinal,
-            SVO_FRAME_TOPIC,
-        )
+        logger.info("Wrote %d SVO frames to %s", frame_index, SVO_FRAME_TOPIC)
 
         writer.finish()
 
@@ -692,23 +618,31 @@ def process_mcap(
     search_dirs: List[Path],
     *,
     overwrite: bool,
-    keep_intermediate: bool,
     dry_run: bool,
-    editor_bin: str,
-) -> int:
-    """Process one input MCAP. Returns the number of combined MCAPs written."""
+    ffmpeg_bin: str,
+    ignore_missing_svo: bool,
+) -> Tuple[int, int]:
+    """Process one input MCAP.
+
+    Returns (number of combined MCAPs written, number of referenced SVOs unusable).
+    """
     if not input_mcap.exists():
         logger.error("Input MCAP not found: %s", input_mcap)
-        return 0
+        return 0, 0
 
     referenced = extract_svo_paths(input_mcap)
     if not referenced:
-        logger.warning("No SVO paths found in /rosout of %s", input_mcap)
-        return 0
+        logger.warning("No SVO paths found in %s", input_mcap)
+        return 0, 0
 
     out_dir = output_dir if output_dir is not None else input_mcap.parent
     profile = get_input_profile(input_mcap)
     written = 0
+    missing = 0
+    # Two references can name one file (/rosout and /camera/frame_meta spell the
+    # same path, or two spellings resolve to the same file by basename), and a
+    # second pass over it would just rewrite the same output.
+    done: "dict[Path, None]" = {}
 
     svo_iter = tqdm(
         referenced,
@@ -721,12 +655,19 @@ def process_mcap(
     for svo_ref in svo_iter:
         svo_path = resolve_svo_path(svo_ref, search_dirs)
         if svo_path is None:
-            logger.warning(
-                "Referenced SVO %s not found on disk (searched as-is and in %s): %s",
-                [str(d) for d in search_dirs],
+            missing += 1
+            log = logger.warning if ignore_missing_svo else logger.error
+            log(
+                "Referenced SVO not found on disk: %s (also searched by basename under %s)",
                 svo_ref,
+                ", ".join(str(d) for d in search_dirs),
             )
             continue
+
+        if svo_path in done:
+            logger.debug("Already handled %s; skipping duplicate reference", svo_path)
+            continue
+        done[svo_path] = None
 
         combined_name = f"{input_mcap.stem}__{svo_path.stem}.mcap"
         combined_path = out_dir / combined_name
@@ -747,35 +688,36 @@ def process_mcap(
             )
             continue
 
-        intermediate_path = out_dir / f"{input_mcap.stem}__{svo_path.stem}.svo.mcap"
         try:
-            convert_svo_to_mcap(svo_path, intermediate_path, editor_bin)
-            try:
-                start_ns, end_ns = read_time_range(intermediate_path)
-            except RuntimeError as exc:
-                logger.error("Skipping %s: %s", svo_path, exc)
-                continue
-            logger.info(
-                "SVO time range: [%d, %d] ns (%.3f s span)",
-                start_ns,
-                end_ns,
-                (end_ns - start_ns) / 1e9,
-            )
+            svo_topic, frame_count = svo2.find_side_by_side_topic(svo_path)
+            start_ns, end_ns = read_svo_time_range(svo_path, svo_topic)
+        except (McapError, RuntimeError, ValueError, OSError) as exc:
+            # A truncated or half-written SVO reads as a broken MCAP.
+            logger.error("Skipping unreadable SVO %s: %s", svo_path, exc)
+            missing += 1
+            continue
+        logger.info(
+            "SVO time range: [%d, %d] ns (%.3f s span, %d frames)",
+            start_ns,
+            end_ns,
+            (end_ns - start_ns) / 1e9,
+            frame_count,
+        )
 
-            merge_mcaps(
-                input_mcap,
-                intermediate_path,
-                combined_path,
-                (start_ns, end_ns),
-                profile,
-            )
-            logger.info("Wrote %s", combined_path)
-            written += 1
-        finally:
-            if not keep_intermediate and intermediate_path.exists():
-                intermediate_path.unlink()
+        merge_mcaps(
+            input_mcap,
+            svo_path,
+            svo_topic,
+            frame_count,
+            combined_path,
+            (start_ns, end_ns),
+            profile,
+            ffmpeg_bin,
+        )
+        logger.info("Wrote %s", combined_path)
+        written += 1
 
-    return written
+    return written, missing
 
 
 def main() -> int:
@@ -803,8 +745,8 @@ def main() -> int:
         type=Path,
         default=None,
         help=(
-            "Additional directory to search for SVOs by basename if the path "
-            "logged in /rosout is missing. Repeatable. Defaults: data/svo, "
+            "Additional directory to search recursively for SVOs by basename if the "
+            "path logged in /rosout is missing. Repeatable. Defaults: data/svo, "
             "data/temp_svo (under the project root)."
         ),
     )
@@ -814,9 +756,13 @@ def main() -> int:
         help="Overwrite existing combined MCAPs.",
     )
     parser.add_argument(
-        "--keep-intermediate",
+        "--ignore-missing-svo",
         action="store_true",
-        help="Keep the per-SVO intermediate MCAP from ZED_SVO_Editor.",
+        help=(
+            "Treat referenced SVOs that are missing or unreadable as a warning and keep "
+            "going. "
+            "By default they are an error and the exit code is nonzero."
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -837,14 +783,15 @@ def main() -> int:
         datefmt="%H:%M:%S",
     )
 
-    editor_bin = shutil.which("ZED_SVO_Editor")
-    if editor_bin is None and not args.dry_run:
-        logger.error("ZED_SVO_Editor not found on PATH. Install the ZED SDK or pass --dry-run.")
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if ffmpeg_bin is None and not args.dry_run:
+        logger.error("ffmpeg not found on PATH. Install ffmpeg or pass --dry-run.")
         return 2
 
     search_dirs = list(args.svo_search_dir) if args.svo_search_dir else list(DEFAULT_SEARCH_DIRS)
 
     total_written = 0
+    total_missing = 0
     mcap_iter = tqdm(
         args.mcap_files,
         desc="Input MCAPs",
@@ -855,17 +802,29 @@ def main() -> int:
     )
     for mcap_path in mcap_iter:
         logger.info("Processing %s", mcap_path)
-        total_written += process_mcap(
+        written, missing = process_mcap(
             mcap_path.resolve() if mcap_path.exists() else mcap_path,
             args.output_dir.resolve() if args.output_dir else None,
             search_dirs,
             overwrite=args.overwrite,
-            keep_intermediate=args.keep_intermediate,
             dry_run=args.dry_run,
-            editor_bin=editor_bin or "",
+            ffmpeg_bin=ffmpeg_bin or "",
+            ignore_missing_svo=args.ignore_missing_svo,
         )
+        total_written += written
+        total_missing += missing
 
     logger.info("Done. Wrote %d combined MCAP(s).", total_written)
+    if total_missing:
+        if args.ignore_missing_svo:
+            logger.warning("Skipped %d unusable referenced SVO(s).", total_missing)
+        else:
+            logger.error(
+                "%d referenced SVO(s) missing or unreadable. Pass --ignore-missing-svo to "
+                "skip them.",
+                total_missing,
+            )
+            return 1
     return 0
 
 

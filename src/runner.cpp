@@ -246,7 +246,7 @@ void Runner::initialize_field(const CameraData &camera_data) {
 
     // Check before publishing. Publishing first put an empty /field_mask in the recording on
     // every failed init, so a run whose field model never loaded looked like one that ran and
-    // found nothing, and the missing /tf_static read as a publisher problem instead.
+    // found nothing, and the missing field markers read as a publisher problem instead.
     if (field_mask.mask.mask.empty()) {
         spdlog::error(
             "Field model returned an empty mask; skipping field initialization. The model "

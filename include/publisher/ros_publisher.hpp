@@ -19,7 +19,6 @@ class RosPublisher : public PublisherInterface {
                  TypedPublisher<sensor_msgs::CompressedImage> field_mask_publisher,
                  TypedPublisher<sensor_msgs::CameraInfo> field_mask_camera_info_publisher,
                  TypedPublisher<tf2_msgs::TFMessage> tf_publisher,
-                 TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher,
                  TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher,
                  TypedPublisher<visualization_msgs::MarkerArray> hazard_marker_publisher,
                  TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher,
@@ -48,7 +47,6 @@ class RosPublisher : public PublisherInterface {
     TypedPublisher<sensor_msgs::CompressedImage> field_mask_publisher_;
     TypedPublisher<sensor_msgs::CameraInfo> field_mask_camera_info_publisher_;
     TypedPublisher<tf2_msgs::TFMessage> tf_publisher_;
-    TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher_;
     TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher_;
     TypedPublisher<visualization_msgs::MarkerArray> hazard_marker_publisher_;
     TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher_;

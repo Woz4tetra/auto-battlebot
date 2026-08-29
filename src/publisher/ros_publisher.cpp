@@ -16,7 +16,6 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
                            TypedPublisher<sensor_msgs::CompressedImage> field_mask_publisher,
                            TypedPublisher<sensor_msgs::CameraInfo> field_mask_camera_info_publisher,
                            TypedPublisher<tf2_msgs::TFMessage> tf_publisher,
-                           TypedPublisher<tf2_msgs::TFMessage> static_tf_publisher,
                            TypedPublisher<visualization_msgs::MarkerArray> field_marker_publisher,
                            TypedPublisher<visualization_msgs::MarkerArray> hazard_marker_publisher,
                            TypedPublisher<visualization_msgs::MarkerArray> robot_marker_publisher,
@@ -30,7 +29,6 @@ RosPublisher::RosPublisher(TypedPublisher<sensor_msgs::CompressedImage> rgb_imag
       field_mask_publisher_(std::move(field_mask_publisher)),
       field_mask_camera_info_publisher_(std::move(field_mask_camera_info_publisher)),
       tf_publisher_(std::move(tf_publisher)),
-      static_tf_publisher_(std::move(static_tf_publisher)),
       field_marker_publisher_(std::move(field_marker_publisher)),
       hazard_marker_publisher_(std::move(hazard_marker_publisher)),
       robot_marker_publisher_(std::move(robot_marker_publisher)),
@@ -134,18 +132,6 @@ void RosPublisher::publish_initial_field_description(
         field_marker_publisher_.publish(markers);
         if (mcap_recorder_) mcap_recorder_->write("/field_markers", markers);
     }
-
-    if (static_tf_publisher_) {
-        // Publish static transform for field
-        TransformStamped field_tf;
-        field_tf.header = field_description.header;
-        field_tf.child_frame_id = field_description.child_frame_id;
-        field_tf.transform = field_description.tf_camera_from_fieldcenter;
-
-        auto tf_msg = ros_adapters::to_ros_tf_message(invert_transform(field_tf));
-        static_tf_publisher_.publish(tf_msg);
-        if (mcap_recorder_) mcap_recorder_->write("/tf_static", tf_msg);
-    }
 }
 
 void RosPublisher::publish_field_description(
@@ -164,8 +150,25 @@ void RosPublisher::publish_field_description(
     tfstamped_cameraworld_from_camera.child_frame_id = field_description.header.frame_id;
     tfstamped_cameraworld_from_camera.transform.tf = tf_cameraworld_from_camera;
 
+    // field -> camera_world does not change between field initializations, but it is republished
+    // every cycle rather than latched once. A latched message is written to the mcap a single
+    // time, so a recording that starts (or resumes) after field init never contains the edge and
+    // every camera->field lookup in it fails. Restamping it each cycle also keeps it inside a live
+    // tf2 buffer's cache window.
+    TransformStamped tfstamped_cameraworld_from_fieldcenter{};
+    tfstamped_cameraworld_from_fieldcenter.header.stamp = field_description.header.stamp;
+    tfstamped_cameraworld_from_fieldcenter.header.frame_id =
+        initial_field_description.header.frame_id;
+    tfstamped_cameraworld_from_fieldcenter.child_frame_id =
+        initial_field_description.child_frame_id;
+    tfstamped_cameraworld_from_fieldcenter.transform.tf = tf_cameraworld_from_fieldcenter;
+
     if (tf_publisher_) {
-        auto tf_msg = ros_adapters::to_ros_tf_message(tfstamped_cameraworld_from_camera);
+        tf2_msgs::TFMessage tf_msg;
+        tf_msg.transforms.push_back(ros_adapters::to_ros_transform_stamped(
+            invert_transform(tfstamped_cameraworld_from_fieldcenter)));
+        tf_msg.transforms.push_back(
+            ros_adapters::to_ros_transform_stamped(tfstamped_cameraworld_from_camera));
         tf_publisher_.publish(tf_msg);
         if (mcap_recorder_) mcap_recorder_->write("/tf", tf_msg);
     }

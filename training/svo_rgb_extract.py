@@ -23,47 +23,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from mcap.reader import make_reader
-
-from auto_battlebot.mcap_io import iter_messages
-
-# The side-by-side H.264 payload is prefixed with an 8-byte length header inside
-# each MCAP message; the Annex-B stream begins at the first NAL start code.
-_START_CODE = b"\x00\x00\x00\x01"
-_SIDE_BY_SIDE_SUFFIX = "/side_by_side"
-_DEFAULT_FPS = 30.0
-_FPS_SAMPLE_FRAMES = 240
+from auto_battlebot.svo2 import find_side_by_side_topic, iter_access_units, sample_fps
 
 _EYES = {0: "left", 1: "right"}
-
-
-def find_side_by_side_topic(path: Path) -> tuple[str, int]:
-    """Return the ``*/side_by_side`` topic name and its message count."""
-    with open(path, "rb") as file:
-        summary = make_reader(file).get_summary()
-        if summary is None:
-            raise ValueError(f"{path} has no MCAP summary; not a valid .svo2 file")
-        counts = summary.statistics.channel_message_counts if summary.statistics else {}
-        for channel in summary.channels.values():
-            if channel.topic.endswith(_SIDE_BY_SIDE_SUFFIX):
-                return channel.topic, counts.get(channel.id, 0)
-    raise ValueError(f"No '*{_SIDE_BY_SIDE_SUFFIX}' topic found in {path}")
-
-
-def sample_fps(path: Path, topic: str) -> float:
-    """Estimate frame rate from the median inter-frame timestamp gap."""
-    stamps: list[int] = []
-    for _topic, log_time_ns, _data in iter_messages(path, [topic]):
-        stamps.append(log_time_ns)
-        if len(stamps) >= _FPS_SAMPLE_FRAMES:
-            break
-    if len(stamps) < 2:
-        return _DEFAULT_FPS
-    diffs = sorted(stamps[i + 1] - stamps[i] for i in range(len(stamps) - 1))
-    median_ns = diffs[len(diffs) // 2]
-    if median_ns <= 0:
-        return _DEFAULT_FPS
-    return 1e9 / median_ns
 
 
 def convert_svo_file(svo_file: Path, channel: int, output: Path, crf: int, preset: str) -> None:
@@ -114,11 +76,8 @@ def convert_svo_file(svo_file: Path, channel: int, output: Path, crf: int, prese
     assert proc.stdin is not None
     written = 0
     try:
-        for _topic, _log_time_ns, data in iter_messages(svo_file, [topic]):
-            start = data.find(_START_CODE)
-            if start < 0:
-                continue
-            proc.stdin.write(data[start:])
+        for access_unit in iter_access_units(svo_file, topic):
+            proc.stdin.write(access_unit)
             written += 1
             if total and written % 50 == 0:
                 percent = 100.0 * written / total
