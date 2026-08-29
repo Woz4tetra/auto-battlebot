@@ -36,6 +36,10 @@ struct ControlOutput {
     bool using_previous = false;
     TargetSelection target;
     VelocityCommand command;
+    /** What the transmitter read back for this cycle, in normalized stick units. On OpenTX this
+     *  is the decoded position of the drive channels, so it reflects the mixed stick plus trainer
+     *  output rather than what navigation asked for. */
+    CommandFeedback command_feedback;
     bool our_blob_present_no_keypoint = false;
     /** Behavior mode that produced `target`, so UI and MCAP recordings can tell a run-away
      *  target from an attack selector gone haywire. */

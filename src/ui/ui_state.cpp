@@ -111,6 +111,16 @@ void UIState::get_keypoints(KeypointsStamped &out) const {
     out = keypoints_;
 }
 
+void UIState::set_command_feedback(const CommandFeedback &feedback) {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    command_feedback_ = feedback;
+}
+
+CommandFeedback UIState::get_command_feedback() const {
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    return command_feedback_;
+}
+
 void UIState::set_navigation_path(const std::optional<NavigationPathSegment> &path) {
     std::lock_guard<std::mutex> lock(status_mutex_);
     navigation_path_ = path;

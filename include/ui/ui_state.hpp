@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "data_structures/camera.hpp"
+#include "data_structures/command_feedback.hpp"
 #include "data_structures/field.hpp"
 #include "data_structures/keypoint.hpp"
 #include "data_structures/robot.hpp"
@@ -94,6 +95,11 @@ class UIState {
     void set_keypoints(const KeypointsStamped &keypoints);
     void get_keypoints(KeypointsStamped &out) const;
 
+    /** Stick positions the transmitter read back this cycle, normalized to [-1, 1]. The UI draws
+     *  our robot's as bars on the autonomy tile. */
+    void set_command_feedback(const CommandFeedback &feedback);
+    CommandFeedback get_command_feedback() const;
+
     /** Last navigation path (field frame). UI may draw for debug. */
     void set_navigation_path(const std::optional<NavigationPathSegment> &path);
     void get_navigation_path(std::optional<NavigationPathSegment> &out) const;
@@ -160,6 +166,7 @@ class UIState {
     RobotDescriptionsStamped robots_;
     KeypointsStamped keypoints_;
     std::optional<NavigationPathSegment> navigation_path_;
+    CommandFeedback command_feedback_{};
     std::optional<TargetSelection> manual_target_;
     std::optional<FieldDescription> field_description_;
     CameraInfo camera_info_;

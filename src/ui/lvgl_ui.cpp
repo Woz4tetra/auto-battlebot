@@ -11,6 +11,7 @@
 #include <opencv2/imgproc.hpp>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "data_structures/target_selection.hpp"
@@ -29,6 +30,7 @@ using ui_internal::CameraTouchData;
 using ui_internal::DIAG_STALE_SEC;
 using ui_internal::HealthRow;
 using ui_internal::OpponentTileData;
+using ui_internal::STICK_BAR_THICKNESS;
 using ui_internal::SystemActionTileData;
 using ui_internal::TILE_PAD;
 using ui_internal::TILE_RADIUS;
@@ -405,7 +407,11 @@ void build_home(lv_obj_t *tab, UIWidgets &w) {
     lv_obj_set_width(at, LV_PCT(100));
     lv_obj_set_flex_grow(at, 1);
     lv_obj_set_style_radius(at, TILE_RADIUS, 0);
-    lv_obj_set_style_pad_all(at, TILE_PAD, 0);
+    /* No tile padding: the stick bars align to the content box, so padding would inset them from
+     * the edges. The label carries the padding instead. Corner clipping masks their square top and
+     * bottom into the tile's rounded corners. */
+    lv_obj_set_style_pad_all(at, 0, 0);
+    lv_obj_set_style_clip_corner(at, true, 0);
     lv_obj_set_flex_flow(at, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(at, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(at, LV_OBJ_FLAG_SCROLLABLE);
@@ -419,6 +425,37 @@ void build_home(lv_obj_t *tab, UIWidgets &w) {
     lv_label_set_text(w.autonomy_label, "Autonomy\n--");
     lv_obj_set_style_text_font(w.autonomy_label, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_align(w.autonomy_label, LV_TEXT_ALIGN_CENTER, 0);
+    /* Keeps the text off the bars now that the tile itself has no padding. */
+    lv_obj_set_style_pad_hor(w.autonomy_label, TILE_PAD + STICK_BAR_THICKNESS, 0);
+
+    /* Stick position bars, flush against the left and right edges of the tile. Symmetrical mode
+     * fills from the vertical center, so a centered stick shows nothing and the fill grows up or
+     * down with the command. Ignoring the layout keeps them out of the tile's flex column, which
+     * would otherwise stack them above and below the label. */
+    lv_obj_t *const bars[2] = {lv_bar_create(at), lv_bar_create(at)};
+    for (lv_obj_t *bar : bars) {
+        lv_obj_add_flag(bar, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_set_size(bar, STICK_BAR_THICKNESS, LV_PCT(100));
+        lv_bar_set_orientation(bar, LV_BAR_ORIENTATION_VERTICAL);
+        lv_bar_set_range(bar, -100, 100);
+        lv_bar_set_mode(bar, LV_BAR_MODE_SYMMETRICAL);
+        lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+        /* Square ends; the tile's clip_corner rounds off whatever overhangs its corners. */
+        lv_obj_set_style_radius(bar, 0, 0);
+        lv_obj_set_style_radius(bar, 0, LV_PART_INDICATOR);
+        lv_obj_set_style_border_width(bar, 0, 0);
+        /* Dark well over whatever color the tile currently is, so the track reads the same whether
+         * autonomy is green or red, and the pink fill has something to sit against. Pink because
+         * the tile is only ever green or red underneath, and both swallow a blue fill. */
+        lv_obj_set_style_bg_color(bar, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_40, 0);
+        lv_obj_set_style_bg_color(bar, lv_color_hex(0xFF00C8), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    }
+    lv_obj_align(bars[0], LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_align(bars[1], LV_ALIGN_RIGHT_MID, 0, 0);
+    w.stick_bar_left = bars[0];
+    w.stick_bar_right = bars[1];
 
     /* Reinit tile */
     lv_obj_t *rt = lv_obj_create(top);
@@ -858,8 +895,8 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
     const bool loop_met = ui_internal::compute_loop_met_sustained(
         w.rate_below_since, avg_hz, us->get_max_loop_rate(), us->get_rate_fail_threshold(),
         us->get_rate_fail_duration_sec());
-    const ui_internal::HomeViewModel vm =
-        ui_internal::present_home(st, our_seen, opp, w.selected_opponent_count, avg_hz, loop_met);
+    const ui_internal::HomeViewModel vm = ui_internal::present_home(
+        st, us->get_command_feedback(), our_seen, opp, w.selected_opponent_count, avg_hz, loop_met);
     w.selected_opponent_count = vm.selected_opponent_count;
 
     if (w.status_tile) {
@@ -896,6 +933,9 @@ void update_home(UIWidgets &w, std::shared_ptr<UIState> us) {
         lv_obj_set_style_text_color(w.autonomy_label, lv_color_hex(vm.autonomy_label_text_color),
                                     0);
     }
+
+    if (w.stick_bar_left) lv_bar_set_value(w.stick_bar_left, vm.stick_left_percent, LV_ANIM_OFF);
+    if (w.stick_bar_right) lv_bar_set_value(w.stick_bar_right, vm.stick_right_percent, LV_ANIM_OFF);
 
     for (int i = 0; i < 3; i++) {
         if (!w.opp_tiles[i]) continue;

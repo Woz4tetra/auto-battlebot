@@ -1,8 +1,16 @@
 #include "lvgl_platform_bound/lvgl_ui_presenter.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace auto_battlebot::ui_internal {
+namespace {
+/** Normalized [-1, 1] stick unit to the [-100, 100] the autonomy tile bars span. */
+int to_stick_percent(double normalized) {
+    return static_cast<int>(std::lround(100.0 * std::clamp(normalized, -1.0, 1.0)));
+}
+}  // namespace
 
 void derive_robot_counts(const RobotDescriptionsStamped &robots, bool &our_seen, int &opp_count) {
     our_seen = false;
@@ -43,8 +51,9 @@ bool compute_loop_met_sustained(
     return elapsed < fail_duration_sec;
 }
 
-HomeViewModel present_home(const SystemStatus &st, bool our_seen, int opp_count,
-                           int current_selected_opponent_count, double avg_hz, bool loop_met) {
+HomeViewModel present_home(const SystemStatus &st, const CommandFeedback &feedback, bool our_seen,
+                           int opp_count, int current_selected_opponent_count, double avg_hz,
+                           bool loop_met) {
     HomeViewModel vm;
     vm.selected_opponent_count = current_selected_opponent_count;
     if (st.selected_opponent_count >= 1 && st.selected_opponent_count <= 3) {
@@ -117,6 +126,15 @@ HomeViewModel present_home(const SystemStatus &st, bool our_seen, int opp_count,
     vm.autonomy_tile_color = st.autonomy_enabled ? 0x00C853 : 0xFF1744;
     vm.autonomy_label_text = st.autonomy_enabled ? "Autonomy\nON" : "Autonomy\nOFF";
     vm.autonomy_label_text_color = st.autonomy_enabled ? 0x212121 : 0xFFFFFF;
+
+    // Read back from the transmitter, already in normalized stick units, so this is the position
+    // of the drive channels after mixing rather than what navigation asked for. Missing feedback
+    // (no channel data, or a transmitter that reports none) leaves both bars centered.
+    const auto stick = feedback.stick_commands.find(FrameId::OUR_ROBOT_1);
+    if (stick != feedback.stick_commands.end()) {
+        vm.stick_left_percent = to_stick_percent(stick->second.linear_x);
+        vm.stick_right_percent = to_stick_percent(stick->second.angular_z);
+    }
 
     return vm;
 }

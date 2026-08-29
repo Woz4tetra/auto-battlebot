@@ -193,6 +193,7 @@ void ControlLoop::run_cycle() {
         output_.using_previous = cached_robots.using_previous;
         output_.target = resolved_target;
         output_.command = command;
+        output_.command_feedback = command_feedback_;
         output_.behavior_mode = behavior_mode;
         output_.hazards = field_description_->hazards;
         output_.our_blob_present_no_keypoint = robot_filter_->last_our_blob_present_no_keypoint();

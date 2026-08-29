@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "data_structures/command_feedback.hpp"
 #include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "ui/ui_state.hpp"
 
@@ -27,6 +28,11 @@ struct HomeViewModel {
     uint32_t autonomy_tile_color = 0xFF1744;
     std::string autonomy_label_text;
     uint32_t autonomy_label_text_color = 0xFFFFFF;
+    /** Stick positions the transmitter reports for our robot, [-100, 100], drawn as the bars on
+     *  the autonomy tile edges. Left bar is forward, right bar is yaw. Both read 0 when the
+     *  transmitter has no feedback for our robot. */
+    int stick_left_percent = 0;
+    int stick_right_percent = 0;
 };
 
 struct SystemViewModel {
@@ -56,8 +62,9 @@ bool compute_loop_met_sustained(
     std::optional<std::chrono::steady_clock::time_point> &rate_below_since, double avg_hz,
     double max_hz, double fail_threshold_fraction, double fail_duration_sec);
 
-HomeViewModel present_home(const SystemStatus &st, bool our_seen, int opp_count,
-                           int current_selected_opponent_count, double avg_hz, bool loop_met);
+HomeViewModel present_home(const SystemStatus &st, const CommandFeedback &feedback, bool our_seen,
+                           int opp_count, int current_selected_opponent_count, double avg_hz,
+                           bool loop_met);
 SystemViewModel present_system(const SystemStatus &st);
 std::vector<HealthRowViewModel> present_health(const SystemStatus &st, bool our_seen, int opp_count,
                                                double avg_hz, bool loop_met);

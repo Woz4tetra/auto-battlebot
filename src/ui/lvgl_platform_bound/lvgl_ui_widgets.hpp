@@ -24,6 +24,10 @@ constexpr int DIAG_REBUILD_INTERVAL = 30;
 constexpr double DIAG_STALE_SEC = 2.0;
 constexpr int CAMERA_PANEL_WIDTH_PCT = 66;
 
+/* Width in pixels of the stick position bars flush against the autonomy tile edges. Wide enough
+ * to read at a glance from across the pit, narrow enough to leave the label room. */
+constexpr int STICK_BAR_THICKNESS = 14;
+
 constexpr int BATTERY_ICON_CANVAS_WIDTH = 60;
 constexpr int BATTERY_ICON_CANVAS_HEIGHT = 24;
 constexpr int BATTERY_ICON_SHELL_X = 3;
@@ -78,6 +82,7 @@ struct UIWidgets {
     lv_obj_t *status_tile = nullptr; /* whole tile colored by status */
     lv_obj_t *status_label = nullptr;
     lv_obj_t *status_detail = nullptr;
+
     lv_obj_t *profile_readout = nullptr; /* active config profile, top bar (set in update_home) */
     lv_obj_t *opp_tiles[3] = {};
     lv_obj_t *opp_label = nullptr;
@@ -90,6 +95,9 @@ struct UIWidgets {
 
     lv_obj_t *autonomy_tile = nullptr;
     lv_obj_t *autonomy_label = nullptr;
+    /* Stick positions the transmitter reports, drawn flush against the autonomy tile edges. */
+    lv_obj_t *stick_bar_left = nullptr;
+    lv_obj_t *stick_bar_right = nullptr;
 
     lv_obj_t *reinit_tile = nullptr;
     lv_obj_t *reinit_status = nullptr;

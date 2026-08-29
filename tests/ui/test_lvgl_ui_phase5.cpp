@@ -67,13 +67,13 @@ RobotDescription make_robot(Label label, Group group, double x, double y, double
 TEST(UiPresenterTest, PresentsHomeFaultAndReadyStates) {
     SystemStatus fault = make_status();
     fault.camera_ok = false;
-    const auto fault_vm = ui_internal::present_home(fault, false, 0, 1, 15.0, false);
+    const auto fault_vm = ui_internal::present_home(fault, {}, false, 0, 1, 15.0, false);
     EXPECT_EQ(fault_vm.status_label_text, "Hardware Disconnected");
     EXPECT_EQ(fault_vm.status_tile_color, 0xFF1744u);
     EXPECT_TRUE(fault_vm.reinit_should_pulse == false);
 
     SystemStatus ready = make_status();
-    const auto ready_vm = ui_internal::present_home(ready, true, 2, 1, 118.5, true);
+    const auto ready_vm = ui_internal::present_home(ready, {}, true, 2, 1, 118.5, true);
     EXPECT_EQ(ready_vm.status_label_text, "System Ready");
     EXPECT_EQ(ready_vm.status_tile_color, 0x00C853u);
     EXPECT_EQ(ready_vm.selected_opponent_count, 2);
@@ -82,7 +82,7 @@ TEST(UiPresenterTest, PresentsHomeFaultAndReadyStates) {
 TEST(UiPresenterTest, PresentsTrainerModeNotConnected) {
     SystemStatus stalled = make_status();
     stalled.transmitter.receiving_channels = false;
-    const auto stalled_vm = ui_internal::present_home(stalled, true, 1, 1, 118.5, true);
+    const auto stalled_vm = ui_internal::present_home(stalled, {}, true, 1, 1, 118.5, true);
     EXPECT_EQ(stalled_vm.status_label_text, "Trainer Mode Not Connected");
     EXPECT_EQ(stalled_vm.status_tile_color, 0xFF1744u);
     EXPECT_NE(stalled_vm.status_detail_text.find("Trainer mode not connected"), std::string::npos);
@@ -90,9 +90,37 @@ TEST(UiPresenterTest, PresentsTrainerModeNotConnected) {
     // A fully disconnected radio reports only the disconnect, not a trainer failure.
     SystemStatus off = make_status();
     off.transmitter = {.connected = false, .receiving_channels = false};
-    const auto off_vm = ui_internal::present_home(off, true, 1, 1, 118.5, true);
+    const auto off_vm = ui_internal::present_home(off, {}, true, 1, 1, 118.5, true);
     EXPECT_EQ(off_vm.status_label_text, "Hardware Disconnected");
     EXPECT_EQ(off_vm.status_detail_text.find("Trainer mode"), std::string::npos);
+}
+
+TEST(UiPresenterTest, PresentsStickBarsFromCommandFeedback) {
+    CommandFeedback feedback;
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = {
+        .linear_x = -0.62, .linear_y = 0.0, .angular_z = 0.415};
+
+    const auto vm = ui_internal::present_home(make_status(), feedback, true, 1, 1, 118.5, true);
+    EXPECT_EQ(vm.stick_left_percent, -62);
+    EXPECT_EQ(vm.stick_right_percent, 42);
+
+    // No feedback for our robot leaves both bars centered rather than reusing another frame's.
+    CommandFeedback other_robot;
+    other_robot.stick_commands[FrameId::THEIR_ROBOT_1] = {
+        .linear_x = 0.9, .linear_y = 0.0, .angular_z = -0.9};
+    const auto empty_vm =
+        ui_internal::present_home(make_status(), other_robot, true, 1, 1, 118.5, true);
+    EXPECT_EQ(empty_vm.stick_left_percent, 0);
+    EXPECT_EQ(empty_vm.stick_right_percent, 0);
+
+    // Feedback past full scale saturates at the bar ends rather than overflowing the range.
+    CommandFeedback saturated;
+    saturated.stick_commands[FrameId::OUR_ROBOT_1] = {
+        .linear_x = 4.0, .linear_y = 0.0, .angular_z = -4.0};
+    const auto saturated_vm =
+        ui_internal::present_home(make_status(), saturated, true, 1, 1, 118.5, true);
+    EXPECT_EQ(saturated_vm.stick_left_percent, 100);
+    EXPECT_EQ(saturated_vm.stick_right_percent, -100);
 }
 
 TEST(UiPresenterTest, PresentsTransmitterHealthRowStates) {

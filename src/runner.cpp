@@ -461,6 +461,7 @@ bool Runner::tick() {
         ui_state_->set_robots(robots);
         ui_state_->set_keypoints(keypoints);
         ui_state_->set_navigation_path(control_loop_->last_visualization().path);
+        ui_state_->set_command_feedback(control_output.command_feedback);
         set_ui_debug_image_from_camera(camera_data);
     }
 

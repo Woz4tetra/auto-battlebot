@@ -297,6 +297,37 @@ TEST(ControlLoopTest, ZeroRateRunsExactlyOneCyclePerAdvance) {
     EXPECT_EQ(transmitter->sent.size(), measurements.size());
 }
 
+TEST(ControlLoopTest, SendsNeutralUntilFieldIsInitialized) {
+    auto config = make_filter_config();
+    auto filter = std::make_shared<RobotFrontBackFilter>(config);
+    ASSERT_TRUE(filter->initialize(1));
+    auto navigation = std::make_shared<RecordingNavigation>();
+    auto transmitter = std::make_shared<RecordingTransmitter>();
+    auto clock = std::make_shared<ManualClock>();
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock,
+                                              nullptr, nullptr);
+    SteppedControlLoop driver(loop, 0.0);
+
+    // No measurement yet, so there is no field. The cycle still has to reach the transmitter:
+    // going silent is indistinguishable on the radio from trainer mode failing to engage.
+    for (int i = 0; i < 3; i++) driver.advance_to(0.0);
+    ASSERT_EQ(transmitter->sent.size(), 3u);
+    for (const auto &command : transmitter->sent) {
+        EXPECT_EQ(command.linear_x, 0.0);
+        EXPECT_EQ(command.linear_y, 0.0);
+        EXPECT_EQ(command.angular_z, 0.0);
+    }
+    // Navigation must not run without a field; the neutral command is synthesized, not steered.
+    EXPECT_TRUE(navigation->seen_robots.empty());
+
+    const auto measurements = make_measurements(1);
+    clock->set(measurements[0].keypoints.header.stamp);
+    loop->submit_measurement(measurements[0]);
+    driver.advance_to(measurements[0].keypoints.header.stamp);
+    EXPECT_EQ(transmitter->sent.size(), 4u);
+    EXPECT_EQ(navigation->seen_robots.size(), 1u);
+}
+
 TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
     auto config = make_filter_config();
     auto filter = std::make_shared<RobotFrontBackFilter>(config);
