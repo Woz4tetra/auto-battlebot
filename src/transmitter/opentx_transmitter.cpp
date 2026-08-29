@@ -198,7 +198,10 @@ BehaviorMode OpenTxTransmitter::behavior_mode() const {
 }
 
 void OpenTxTransmitter::log_switch_states() {
-    if (!latest_channels_) return;
+    if (!latest_channels_) {
+        logger_->info("switch_states", {{"has_switch_states", false}});
+        return;
+    }
     const int mode_raw = get_channel_value(config_.behavior_mode_channel);
     const int trainer_raw = get_channel_value(config_.trainer_enable_channel);
     const int init_raw = get_channel_value(config_.init_button_channel);
@@ -216,7 +219,8 @@ void OpenTxTransmitter::log_switch_states() {
     // The raw value next to each flag separates "switch on the wrong channel" from "threshold
     // set wrong": both look like a flag that never changes. These three flags decide whether
     // the robot moves at all, so they log at info and survive the default log level.
-    logger_->info("switch_states", {{"behavior_mode", run_away ? "run_away" : "attack"},
+    logger_->info("switch_states", {{"has_switch_states", true},
+                                    {"behavior_mode", run_away ? "run_away" : "attack"},
                                     {"behavior_mode_raw", mode_raw},
                                     {"autonomy_enabled", static_cast<int>(autonomy_enabled)},
                                     {"autonomy_raw", trainer_raw},
