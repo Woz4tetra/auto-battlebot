@@ -99,6 +99,10 @@ bool SimTransmitter::did_init_button_press() {
     return false;
 }
 
-bool SimTransmitter::is_connected() const { return connection_ && connection_->is_connected(); }
+TransmitterStatus SimTransmitter::get_status() const {
+    // Sim channels ride the same socket as the connection, so the two cannot diverge.
+    const bool connected = connection_ && connection_->is_connected();
+    return {.connected = connected, .receiving_channels = connected};
+}
 
 }  // namespace auto_battlebot

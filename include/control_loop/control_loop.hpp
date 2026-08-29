@@ -95,7 +95,7 @@ class ControlLoop {
     void request_filter_reinit(int opponent_count);
     void set_autonomy_enabled(bool enabled);
 
-    bool is_transmitter_connected() const { return transmitter_connected_.load(); }
+    TransmitterStatus transmitter_status() const { return transmitter_status_.load(); }
     NavigationVisualization last_visualization() const;
 
     /** Wall-clock time of the last completed cycle, for the threaded driver's watchdog. */
@@ -126,7 +126,7 @@ class ControlLoop {
     std::atomic<bool> autonomy_enabled_{true};
     /** -1 until the first cycle applies it, so the initial state always reaches the transmitter. */
     std::atomic<int> autonomy_applied_{-1};
-    std::atomic<bool> transmitter_connected_{false};
+    std::atomic<TransmitterStatus> transmitter_status_{};
     /** Stored as int to match how autonomy_applied_ is handled. */
     std::atomic<int> behavior_mode_{static_cast<int>(BehaviorMode::ATTACK)};
     std::atomic<int64_t> last_cycle_us_{0};

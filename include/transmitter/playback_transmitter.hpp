@@ -19,7 +19,9 @@ class PlaybackTransmitter : public TransmitterInterface {
     CommandFeedback update() override;
     void send(VelocityCommand command) override;
     bool did_init_button_press() override;
-    bool is_connected() const override { return true; }
+    TransmitterStatus get_status() const override {
+        return {.connected = true, .receiving_channels = true};
+    }
     BehaviorMode behavior_mode() const override { return behavior_mode_; }
 
    private:

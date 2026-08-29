@@ -39,7 +39,7 @@ void ControlLoop::pump_input() {
     if (transmitter_->did_init_button_press()) {
         init_button_latched_.store(true);
     }
-    transmitter_connected_.store(transmitter_->is_connected());
+    transmitter_status_.store(transmitter_->get_status());
     behavior_mode_.store(static_cast<int>(transmitter_->behavior_mode()));
 }
 

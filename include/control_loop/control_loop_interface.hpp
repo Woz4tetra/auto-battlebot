@@ -57,7 +57,7 @@ class ControlLoopInterface {
     ControlOutput latest_output() const { return loop_->latest_output(); }
     void request_filter_reinit(int opponent_count) { loop_->request_filter_reinit(opponent_count); }
     void set_autonomy_enabled(bool enabled) { loop_->set_autonomy_enabled(enabled); }
-    bool is_transmitter_connected() const { return loop_->is_transmitter_connected(); }
+    TransmitterStatus transmitter_status() const { return loop_->transmitter_status(); }
     NavigationVisualization last_visualization() const { return loop_->last_visualization(); }
 
    protected:

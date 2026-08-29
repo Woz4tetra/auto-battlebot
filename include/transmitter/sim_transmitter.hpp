@@ -22,7 +22,7 @@ class SimTransmitter : public TransmitterInterface {
     CommandFeedback update() override;
     void send(VelocityCommand command) override;
     bool did_init_button_press() override;
-    bool is_connected() const override;
+    TransmitterStatus get_status() const override;
     BehaviorMode behavior_mode() const override;
     void enable() override;
     void disable() override;

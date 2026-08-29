@@ -37,7 +37,7 @@ class OpenTxTransmitter : public TransmitterInterface {
      */
     bool did_init_button_press() override;
 
-    bool is_connected() const override { return serial_.is_open(); }
+    TransmitterStatus get_status() const override;
 
     /** Level-triggered behavior mode switch: RUN_AWAY while the configured channel reads
      *  above behavior_mode_threshold, ATTACK otherwise (including before any channel frame
@@ -71,7 +71,15 @@ class OpenTxTransmitter : public TransmitterInterface {
     bool enabled_ = false;
     std::chrono::steady_clock::time_point next_reconnect_attempt_ =
         std::chrono::steady_clock::now();
+    /** Time of the last complete channel update. Hardware timeout, so this uses
+     *  std::chrono::steady_clock directly rather than the logical clock_ (see
+     *  time/clock_interface.hpp). */
+    std::chrono::steady_clock::time_point last_channel_time_{};
 
+    /** True while complete 32-channel updates keep arriving. Seeded on port open so a fresh
+     *  (re)connect gets one timeout window of grace before it reports a stall. Assumes the
+     *  port is open; callers pair it with serial_.is_open(). */
+    bool channels_fresh() const;
     bool reconnect_if_needed();
     void process_channel_updates(const std::vector<uint8_t>& bytes);
 

@@ -7,6 +7,9 @@
 namespace auto_battlebot {
 namespace {
 constexpr auto kReconnectInterval = std::chrono::seconds(1);
+// The OpenTX `channels on` stream is periodic, so a gap this long means trainer mode never
+// engaged or has dropped. Also doubles as the grace window after a (re)connect.
+constexpr auto kChannelTimeout = std::chrono::milliseconds(500);
 constexpr int kChannelMax = 1000;  // raw RC channel range [-1000, 1000]
 constexpr int kTrainerMax = 500;   // OpenTX trainer output range [-500, 500]
 }  // namespace
@@ -60,6 +63,9 @@ bool OpenTxTransmitter::initialize() {
     // is open.
     serial_.write("telemetry on\r\n");
     serial_.write("channels on\r\n");
+    // Give the radio a grace window to start streaming before the channel stream reads as
+    // stalled, so a healthy open does not flash a trainer-mode fault on the UI.
+    last_channel_time_ = std::chrono::steady_clock::now();
     return true;
 }
 
@@ -278,6 +284,7 @@ void OpenTxTransmitter::process_channel_updates(const std::vector<uint8_t>& byte
     const bool channels_changed =
         !latest_channels_.has_value() || newest_channels != latest_channels_.value();
     latest_channels_ = newest_channels;
+    last_channel_time_ = std::chrono::steady_clock::now();
 
     if (channels_changed) {
         std::vector<int> channel_values(latest_channels_->begin(), latest_channels_->end());
@@ -285,10 +292,33 @@ void OpenTxTransmitter::process_channel_updates(const std::vector<uint8_t>& byte
     }
 }
 
-bool OpenTxTransmitter::reconnect_if_needed() {
-    if (serial_.is_open()) return true;
+bool OpenTxTransmitter::channels_fresh() const {
+    return (std::chrono::steady_clock::now() - last_channel_time_) < kChannelTimeout;
+}
 
-    auto now = std::chrono::steady_clock::now();
+TransmitterStatus OpenTxTransmitter::get_status() const {
+    const bool connected = serial_.is_open();
+    return {.connected = connected, .receiving_channels = connected && channels_fresh()};
+}
+
+bool OpenTxTransmitter::reconnect_if_needed() {
+    const auto now = std::chrono::steady_clock::now();
+
+    if (serial_.is_open()) {
+        if (channels_fresh()) return true;
+        // Port still open but the radio has gone quiet: trainer mode dropped out, or the
+        // `channels on` stream never started. Re-priming it needs a fresh open, so drop the
+        // port and fall through to the reconnect path below. Rate-limited by
+        // next_reconnect_attempt_ so a radio that never streams retries once per interval
+        // instead of thrashing the port every tick.
+        if (now < next_reconnect_attempt_) return true;
+        const auto stalled_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - last_channel_time_).count();
+        logger_->warning("channels_stalled_reconnecting",
+                         {{"stalled_ms", static_cast<int>(stalled_ms)}});
+        serial_.close();
+    }
+
     if (now < next_reconnect_attempt_) return false;
 
     next_reconnect_attempt_ = now + kReconnectInterval;

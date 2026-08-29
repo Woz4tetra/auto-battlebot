@@ -380,14 +380,24 @@ void build_home(lv_obj_t *tab, UIWidgets &w) {
     lv_obj_clear_flag(st, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(st, lv_color_hex(0x757575), 0); /* default gray until status known */
 
+    /* Labels default to LV_SIZE_CONTENT width, so long status text grows past the tile
+     * instead of wrapping inside it. Pinning the width to the tile's content box is what
+     * makes the (already default) wrap long mode take effect. Once the labels fill the
+     * cross axis the tile's flex centering no longer centers them, so set text align too. */
     w.status_label = lv_label_create(st);
     lv_label_set_text(w.status_label, "Waiting...");
     lv_obj_set_style_text_font(w.status_label, &lv_font_montserrat_28, 0);
+    lv_obj_set_width(w.status_label, LV_PCT(100));
+    lv_label_set_long_mode(w.status_label, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(w.status_label, LV_TEXT_ALIGN_CENTER, 0);
 
     w.status_detail = lv_label_create(st);
     lv_label_set_text(w.status_detail, "");
     lv_obj_set_style_text_font(w.status_detail, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(w.status_detail, lv_color_hex(0xAAAAAA), 0);
+    lv_obj_set_width(w.status_detail, LV_PCT(100));
+    lv_label_set_long_mode(w.status_detail, LV_LABEL_LONG_MODE_WRAP);
+    lv_obj_set_style_text_align(w.status_detail, LV_TEXT_ALIGN_CENTER, 0);
 
     /* Autonomy toggle tile */
     lv_obj_t *at = lv_obj_create(top);

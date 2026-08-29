@@ -18,7 +18,7 @@ namespace {
 SystemStatus make_status() {
     SystemStatus st;
     st.camera_ok = true;
-    st.transmitter_connected = true;
+    st.transmitter = {.connected = true, .receiving_channels = true};
     st.loop_rate_hz = 120.0;
     st.initialized = true;
     st.selected_opponent_count = 2;
@@ -77,6 +77,41 @@ TEST(UiPresenterTest, PresentsHomeFaultAndReadyStates) {
     EXPECT_EQ(ready_vm.status_label_text, "System Ready");
     EXPECT_EQ(ready_vm.status_tile_color, 0x00C853u);
     EXPECT_EQ(ready_vm.selected_opponent_count, 2);
+}
+
+TEST(UiPresenterTest, PresentsTrainerModeNotConnected) {
+    SystemStatus stalled = make_status();
+    stalled.transmitter.receiving_channels = false;
+    const auto stalled_vm = ui_internal::present_home(stalled, true, 1, 1, 118.5, true);
+    EXPECT_EQ(stalled_vm.status_label_text, "Trainer Mode Not Connected");
+    EXPECT_EQ(stalled_vm.status_tile_color, 0xFF1744u);
+    EXPECT_NE(stalled_vm.status_detail_text.find("Trainer mode not connected"), std::string::npos);
+
+    // A fully disconnected radio reports only the disconnect, not a trainer failure.
+    SystemStatus off = make_status();
+    off.transmitter = {.connected = false, .receiving_channels = false};
+    const auto off_vm = ui_internal::present_home(off, true, 1, 1, 118.5, true);
+    EXPECT_EQ(off_vm.status_label_text, "Hardware Disconnected");
+    EXPECT_EQ(off_vm.status_detail_text.find("Trainer mode"), std::string::npos);
+}
+
+TEST(UiPresenterTest, PresentsTransmitterHealthRowStates) {
+    const auto connected = ui_internal::present_health(make_status(), true, 1, 118.5, true);
+    ASSERT_GT(connected.size(), 1u);
+    EXPECT_TRUE(connected[1].ok);
+    EXPECT_EQ(connected[1].text, "Transmitter: Connected");
+
+    SystemStatus stalled = make_status();
+    stalled.transmitter.receiving_channels = false;
+    const auto no_channels = ui_internal::present_health(stalled, true, 1, 118.5, true);
+    EXPECT_FALSE(no_channels[1].ok);
+    EXPECT_EQ(no_channels[1].text, "Transmitter: No channel data");
+
+    SystemStatus off = make_status();
+    off.transmitter = {.connected = false, .receiving_channels = false};
+    const auto disconnected = ui_internal::present_health(off, true, 1, 118.5, true);
+    EXPECT_FALSE(disconnected[1].ok);
+    EXPECT_EQ(disconnected[1].text, "Transmitter: Disconnected");
 }
 
 TEST(UiPresenterTest, DiagnosticsSectionsRemainOrderedAndStale) {

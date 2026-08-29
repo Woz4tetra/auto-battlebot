@@ -12,6 +12,7 @@
 #include "data_structures/keypoint.hpp"
 #include "data_structures/robot.hpp"
 #include "data_structures/target_selection.hpp"
+#include "data_structures/transmitter_status.hpp"
 #include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "ui/battery_options.hpp"
@@ -27,7 +28,7 @@ enum class UISystemAction : int {
  * robots. loop_met is computed in UI from rolling average. */
 struct SystemStatus {
     bool camera_ok = false;
-    bool transmitter_connected = false;
+    TransmitterStatus transmitter;
     double loop_rate_hz = 0.0;
     bool initialized = false;
     int selected_opponent_count = 1;

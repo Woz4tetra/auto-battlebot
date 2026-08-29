@@ -49,7 +49,7 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
     const bool mcap_recording_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
     SystemStatus status;
     status.camera_ok = camera_ok;
-    status.transmitter_connected = control_loop_->is_transmitter_connected();
+    status.transmitter = control_loop_->transmitter_status();
     status.loop_rate_hz = loop_rate_hz;
     status.initialized = initialized_;
     status.selected_opponent_count = runtime_opponent_count_;

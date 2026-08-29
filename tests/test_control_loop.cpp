@@ -75,7 +75,9 @@ class RecordingTransmitter : public TransmitterInterface {
 
     void send(VelocityCommand command) override { sent.push_back(command); }
     bool did_init_button_press() override { return false; }
-    bool is_connected() const override { return true; }
+    TransmitterStatus get_status() const override {
+        return {.connected = true, .receiving_channels = true};
+    }
 
     std::vector<VelocityCommand> sent;
     int update_calls = 0;

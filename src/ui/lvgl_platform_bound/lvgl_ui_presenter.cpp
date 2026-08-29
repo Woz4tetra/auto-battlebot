@@ -51,9 +51,12 @@ HomeViewModel present_home(const SystemStatus &st, bool our_seen, int opp_count,
         vm.selected_opponent_count = st.selected_opponent_count;
     }
 
-    const bool hardware_ok = st.camera_ok && st.transmitter_connected;
+    const bool hardware_ok = st.camera_ok && st.transmitter.connected;
+    // Vacuously true when the radio is absent, so a disconnected transmitter reports only
+    // "Hardware Disconnected" and does not also claim a trainer-mode failure.
+    const bool trainer_ok = !st.transmitter.connected || st.transmitter.receiving_channels;
     const bool needs_reinit = !st.initialized;
-    const bool has_fault = !hardware_ok || !loop_met;
+    const bool has_fault = !hardware_ok || !trainer_ok || !loop_met;
     const bool tracking = our_seen && opp_count >= 1;
 
     if (has_fault) {
@@ -66,6 +69,8 @@ HomeViewModel present_home(const SystemStatus &st, bool our_seen, int opp_count,
 
     if (!hardware_ok) {
         vm.status_label_text = "Hardware Disconnected";
+    } else if (!trainer_ok) {
+        vm.status_label_text = "Trainer Mode Not Connected";
     } else if (!loop_met) {
         vm.status_label_text = "Loop Rate Low";
     } else if (needs_reinit) {
@@ -77,10 +82,11 @@ HomeViewModel present_home(const SystemStatus &st, bool our_seen, int opp_count,
     vm.status_detail_text_color = has_fault ? 0xEEEEEE : 0x424242;
 
     char buf[256];
-    if (!hardware_ok || !loop_met) {
+    if (!hardware_ok || !trainer_ok || !loop_met) {
         std::string details;
         if (!st.camera_ok) details += "Camera disconnected  ";
-        if (!st.transmitter_connected) details += "Transmitter disconnected  ";
+        if (!st.transmitter.connected) details += "Transmitter disconnected  ";
+        if (!trainer_ok) details += "Trainer mode not connected  ";
         if (!loop_met) {
             char rate_buf[64];
             snprintf(rate_buf, sizeof(rate_buf), "Loop slow (%.1f Hz)  ", avg_hz);
@@ -136,19 +142,23 @@ std::vector<HealthRowViewModel> present_health(const SystemStatus &st, bool our_
     snprintf(buf, sizeof(buf), "Camera: %s", st.camera_ok ? "Connected" : "Disconnected");
     rows[0] = {.visible = true, .ok = st.camera_ok, .text = buf};
 
-    snprintf(buf, sizeof(buf), "Transmitter: %s",
-             st.transmitter_connected ? "Connected" : "Disconnected");
-    rows[1] = {.visible = true, .ok = st.transmitter_connected, .text = buf};
+    const char *tx_state = !st.transmitter.connected           ? "Disconnected"
+                           : st.transmitter.receiving_channels ? "Connected"
+                                                               : "No channel data";
+    snprintf(buf, sizeof(buf), "Transmitter: %s", tx_state);
+    rows[1] = {.visible = true,
+               .ok = st.transmitter.connected && st.transmitter.receiving_channels,
+               .text = buf};
 
     if (st.initialized) {
         snprintf(buf, sizeof(buf), "Field: Initialized");
-    } else if (st.camera_ok && st.transmitter_connected) {
+    } else if (st.camera_ok && st.transmitter.connected) {
         snprintf(buf, sizeof(buf), "Field: Press Reinitialize");
     } else {
         snprintf(buf, sizeof(buf), "Field: Waiting for camera/transmitter");
     }
     rows[2] = {.visible = true,
-               .ok = st.initialized || (st.camera_ok && st.transmitter_connected),
+               .ok = st.initialized || (st.camera_ok && st.transmitter.connected),
                .text = buf};
 
     snprintf(buf, sizeof(buf), "Our Robot Seen: %s", our_seen ? "Yes" : "No");
