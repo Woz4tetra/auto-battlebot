@@ -77,20 +77,25 @@ class ScatterCanvas {
     cv::Point2f range_;
 };
 
-std::pair<cv::Point2f, cv::Point2f> compute_extents(const std::vector<cv::Point2f> &points) {
+// Writes the bounds through out-params rather than returning a pair. cv::Point2f is not
+// trivially copyable, so an aggregate holding two of them lands on the aarch64 calling
+// convention that changed between C++14 and C++17 and every caller draws a -Wpsabi note.
+void compute_extents(const std::vector<cv::Point2f> &points, cv::Point2f &min_corner,
+                     cv::Point2f &max_corner) {
     if (points.empty()) {
-        return {cv::Point2f(0.0f, 0.0f), cv::Point2f(1.0f, 1.0f)};
+        min_corner = cv::Point2f(0.0f, 0.0f);
+        max_corner = cv::Point2f(1.0f, 1.0f);
+        return;
     }
-    cv::Point2f min_corner(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
-    cv::Point2f max_corner(std::numeric_limits<float>::lowest(),
-                           std::numeric_limits<float>::lowest());
+    min_corner = cv::Point2f(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+    max_corner =
+        cv::Point2f(std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest());
     for (const cv::Point2f &point : points) {
         min_corner.x = std::min(min_corner.x, point.x);
         min_corner.y = std::min(min_corner.y, point.y);
         max_corner.x = std::max(max_corner.x, point.x);
         max_corner.y = std::max(max_corner.y, point.y);
     }
-    return {min_corner, max_corner};
 }
 
 // Project the cloud onto the camera X-Z plane, the view that shows the field edge-on.
@@ -159,7 +164,9 @@ void add_mask_panels(const FieldFilterDebugFrame &frame, DebugPanels &panels) {
 
 void add_point_cloud_panels(const FieldFilterDebugFrame &frame, DebugPanels &panels) {
     std::vector<cv::Point2f> points = cloud_to_xz(frame.field_cloud);
-    auto [min_corner, max_corner] = compute_extents(points);
+    cv::Point2f min_corner;
+    cv::Point2f max_corner;
+    compute_extents(points, min_corner, max_corner);
 
     std::vector<bool> is_inlier(points.size(), false);
     for (int index : frame.inlier_indices) {
@@ -188,7 +195,9 @@ void add_point_cloud_panels(const FieldFilterDebugFrame &frame, DebugPanels &pan
 
 void add_rectangle_panels(const FieldFilterDebugFrame &frame, DebugPanels &panels) {
     std::vector<cv::Point2f> points = to_points(frame.flattened_cloud_2d);
-    auto [min_corner, max_corner] = compute_extents(points);
+    cv::Point2f min_corner;
+    cv::Point2f max_corner;
+    compute_extents(points, min_corner, max_corner);
 
     ScatterCanvas flattened(min_corner, max_corner, kFlattenedPadFraction);
     for (const cv::Point2f &point : points) {
