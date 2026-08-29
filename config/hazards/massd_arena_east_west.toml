@@ -1,9 +1,9 @@
 [[hazards]]
 kind = "hole"
-center = [1.0, 0.0]
+center = [1.0, -0.1]
 radius = 0.3
 
 [[hazards]]
 kind = "hole"
-center = [-1.0, 0.0]
+center = [-1.0, -0.1]
 radius = 0.3
