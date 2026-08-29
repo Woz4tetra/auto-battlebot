@@ -161,7 +161,7 @@ k_fwd = 4.88002
 k_rev = 4.3546
 k_ang = 31.7062
 tau_lin_a = 0.14921
-tau_lin_d = 0.123461
+tau_lin_d = 0.2  # from experiment: 0.123461
 tau_ang_a = 0.173867
 tau_ang_d = 0.0878998
 delay_s = 0.0522094
@@ -209,7 +209,7 @@ run_away_terminal_speed_fraction = 0.0 # arrive stopped at the safe point
 wall_reverse_distance = 0.25           # set > 0 to reverse when within this distance of any wall
 wall_heading_threshold = 1.047         # ~60 deg; heading must point toward wall to trigger reversal
 wall_reverse_min_speed = 0.25
-max_linear_command = 1.0               # 0 = no limit
+max_linear_command = 0.8               # 0 = no limit
 max_angular_command = 1.0              # 0 = no limit
 
 [publisher]
