@@ -42,7 +42,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import yaml
-from camera_geometry import NOMINAL_FIELD_SIZE_M, field_to_pixels, load_frame_geometry
+from camera_geometry import NOMINAL_FIELD_SIZE_M, load_frame_geometry
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -153,13 +153,6 @@ class FloorRaster:
     def __init__(self, size_m: float, px_per_m: float, margin_m: float) -> None:
         self.size_m = size_m
         self.pixels = int(round(size_m * px_per_m))
-        half = size_m / 2.0
-        self._corners_field = np.array(
-            [[-half, half, 0.0], [half, half, 0.0], [half, -half, 0.0], [-half, -half, 0.0]]
-        )
-        self._corners_raster = np.array(
-            [[0, 0], [self.pixels, 0], [self.pixels, self.pixels], [0, self.pixels]], np.float32
-        )
         inset = int(round(margin_m * px_per_m))
         self.floor_mask = np.zeros((self.pixels, self.pixels), np.uint8)
         self.floor_mask[inset : self.pixels - inset, inset : self.pixels - inset] = 255
@@ -168,12 +161,55 @@ class FloorRaster:
     def size(self) -> tuple[int, int]:
         return (self.pixels, self.pixels)
 
-    def image_from_raster(self, geometry: object) -> np.ndarray | None:
-        """Homography taking raster pixels to image pixels, or None if the floor is not visible."""
-        corners_px = field_to_pixels(self._corners_field, geometry)  # type: ignore[arg-type]
-        if not np.all(np.isfinite(corners_px)):
-            return None
-        return cv2.getPerspectiveTransform(self._corners_raster, corners_px.astype(np.float32))
+    def image_from_raster(self, geometry: object) -> np.ndarray:
+        """Homography taking raster pixels to image pixels.
+
+        Built from the intrinsics and the pose rather than from the projected floor corners.
+        Fitting it to four corners needs all four in front of the camera, and when the camera
+        leans in over the wall one of them falls behind, which threw the whole frame away.
+        Roughly one scored frame in ten was lost that way.
+
+        For a plane point (x, y, 0) the projection is K [r1 r2 t] (x, y, 1), and the raster is
+        an affine relabelling of that plane, so the two compose into one homography.
+        """
+        half = self.size_m / 2.0
+        metres_per_px = self.size_m / self.pixels
+        raster_to_field = np.array(
+            [[metres_per_px, 0.0, -half], [0.0, -metres_per_px, half], [0.0, 0.0, 1.0]]
+        )
+        camera_from_field = np.linalg.inv(geometry.tf_field_from_camera)  # type: ignore[attr-defined]
+        rotation = camera_from_field[:3, :3]
+        translation = camera_from_field[:3, 3]
+        intrinsics = np.array(
+            [
+                [geometry.fx, 0.0, geometry.cx],  # type: ignore[attr-defined]
+                [0.0, geometry.fy, geometry.cy],  # type: ignore[attr-defined]
+                [0.0, 0.0, 1.0],
+            ]
+        )
+        field_to_image = intrinsics @ np.column_stack([rotation[:, 0], rotation[:, 1], translation])
+        homography = field_to_image @ raster_to_field
+
+        # Fix the overall sign so a positive homogeneous scale means "in front of the camera",
+        # using the field origin, which the camera is always pointed at.
+        centre = homography @ np.array([self.pixels / 2.0, self.pixels / 2.0, 1.0])
+        return -homography if centre[2] < 0 else homography
+
+    @staticmethod
+    def in_front_mask(homography: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+        """Image pixels whose floor point lies in front of the camera, not behind it.
+
+        The floor plane extends past the horizon, and warpPerspective happily samples the part
+        behind the camera and paints a mirrored copy of the arena into the sky. Backprojecting
+        a pixel gives a homogeneous scale whose sign says which side it came from, and that is
+        linear in the pixel, so the test is one half-plane.
+        """
+        width, height = size
+        row = np.linalg.inv(homography)[2]
+        xs = np.arange(width, dtype=np.float32)
+        ys = np.arange(height, dtype=np.float32)
+        scale = row[0] * xs[None, :] + row[1] * ys[:, None] + row[2]
+        return np.where(scale > 0, 255, 0).astype(np.uint8)
 
 
 def sample_frame_indices(recording: Recording, count: int) -> list[int]:
@@ -197,23 +233,26 @@ def build_floor_background(
         frame_index = recording.frame_index(stamp)
         if frame_index < 0 or frame_index >= len(recording.image_stamps):
             continue
-        homography = raster.image_from_raster(
+        wanted[frame_index] = raster.image_from_raster(
             _Geometry(recording.field_from_camera(pose_index), intrinsics)
         )
-        if homography is not None:
-            wanted[frame_index] = homography
 
     samples: list[np.ndarray] = []
     warps: list[np.ndarray] = []
+    masks: list[np.ndarray] = []
     for index, (_topic, _ts, data) in enumerate(
         iter_messages(recording.path, [CAMERA_IMAGE_TOPIC])
     ):
         if index in wanted:
-            samples.append(decode_compressed_image(data).image)
-            warps.append(wanted[index])
+            image = decode_compressed_image(data).image
+            homography = wanted[index]
+            samples.append(image)
+            warps.append(homography)
+            # Never fold the mirrored floor from beyond the horizon into the median.
+            masks.append(raster.in_front_mask(homography, (image.shape[1], image.shape[0])))
     if not samples:
         raise SystemExit(f"{recording.path}: no usable background samples")
-    return build_median_background(samples, warps, raster.size)
+    return build_median_background(samples, warps, raster.size, masks)
 
 
 class _Geometry:
@@ -354,12 +393,13 @@ def predict_subdataset(
         geometry = geometries[path]
         homography = raster.image_from_raster(geometry)
         frame = cv2.imread(str(path))
-        if homography is None or frame is None:
+        if frame is None:
             predictions[path.stem] = []
             continue
 
         warped_background = warp_forward(background, homography, image_size)
         valid = warp_forward(compare_mask, homography, image_size, nearest=True)
+        valid = cv2.bitwise_and(valid, raster.in_front_mask(homography, image_size))
         valid = cv2.erode(valid, np.ones((11, 11), np.uint8))
         difference, foreground = subtract(frame, warped_background, valid, params)
 

@@ -54,21 +54,27 @@ def warp_inverse(image: np.ndarray, warp: np.ndarray, size: tuple[int, int]) -> 
 
 
 def build_median_background(
-    samples: list[np.ndarray], warps: list[np.ndarray], size: tuple[int, int]
+    samples: list[np.ndarray],
+    warps: list[np.ndarray],
+    size: tuple[int, int],
+    masks: list[np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-pixel median of frames warped into a common frame, plus a coverage mask.
 
-    Robots move between samples, so the median of enough of them is an empty field. Returns
-    (background BGR, uint8 0/255 mask of pixels at least one sample actually saw).
+    Robots move between samples, so the median of enough of them is an empty field. `masks`
+    optionally says which pixels of each sample are usable, for callers that can see more of
+    the frame than they should trust. Returns (background BGR, uint8 0/255 mask of pixels at
+    least one sample actually contributed).
     """
     width, height = size
-    ones = np.full((height, width), 255, np.uint8)
+    ones = np.full((samples[0].shape[0], samples[0].shape[1]), 255, np.uint8)
 
     stack = np.empty((len(samples), height, width, 3), np.uint8)
     coverage = np.empty((len(samples), height, width), bool)
     for index, (image, warp) in enumerate(zip(samples, warps)):
+        usable = ones if masks is None else masks[index]
         stack[index] = warp_inverse(image, warp, size)
-        coverage[index] = warp_inverse(ones, warp, size) > 0
+        coverage[index] = warp_inverse(usable, warp, size) > 0
 
     background = np.zeros((height, width, 3), np.uint8)
     for channel in range(3):
