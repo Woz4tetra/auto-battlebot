@@ -62,7 +62,7 @@ type = "ZedSvoPlaybackCamera"
 # svo_file_path = "data/svo/2026-07-18/2026-07-18T19-26-31.svo2"
 # svo_file_path = "data/svo/2026-07-18/2026-07-18T19-33-38.svo2"
 
-svo_file_path = "data/svo/2026-08-29T09-38-07.svo2"
+svo_file_path = "data/svo/2026-08-29T13-20-08.svo2"
 
 svo_real_time_mode = true
 

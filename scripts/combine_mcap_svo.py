@@ -9,6 +9,13 @@ produce one combined MCAP <input_mcap_stem>__<svo_stem>.mcap that contains:
   * The slice of the original MCAP messages whose log_time falls inside that
     SVO's [start, end] time range (intersect mode).
 
+An input that does not read cleanly is repaired first: every record that still
+parses is copied into <output dir>/recovered/<same name> and the run continues
+from that copy. This covers the input MCAP and the .svo2 files it references,
+which are MCAPs as well, so a killed recorder or a Jetson that lost power, which
+tears off the recording and the SVO it was filling at the same moment, still
+yields everything written before the tear.
+
 Requires `ffmpeg` on PATH and the Python `mcap` package. Neither the ZED SDK
 nor `pyzed` is used.
 
@@ -30,12 +37,15 @@ import re
 import shutil
 import struct
 import sys
-from contextlib import closing
+import tempfile
+from contextlib import ExitStack, closing, contextmanager, suppress
 from pathlib import Path
 from typing import Any, Iterator, List, Optional, Tuple
 
 from mcap.exceptions import McapError
 from mcap.reader import make_reader
+from mcap.records import Attachment, Channel, Header, Message, Metadata, Schema
+from mcap.stream_reader import StreamReader
 from mcap.writer import Writer
 from tqdm import tqdm
 
@@ -81,6 +91,10 @@ SENSOR_MSGS_COMPRESSED_IMAGE_SCHEMA = (
 
 # ros1msg schema for std_msgs/String, matching how the pipeline publishes JSON payloads.
 STD_MSGS_STRING_SCHEMA = b"string data\n"
+
+# Where a repaired copy of a damaged input MCAP lands, under the output directory.
+RECOVERED_SUBDIR = "recovered"
+RECOVERY_LIBRARY = "combine_mcap_svo recover"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SEARCH_DIRS = [
@@ -612,6 +626,165 @@ def get_input_profile(mcap_path: Path) -> str:
         return reader.get_header().profile or ""
 
 
+def _describe_damage(mcap_path: Path) -> Optional[str]:
+    """Return a description of the first fault in `mcap_path`, or None if it reads clean.
+
+    Two checks, because they fail on different damage. The summary lookup needs the
+    footer at the end of the file, which a recording that never finalized does not
+    have. The record scan then reads the body from the front and stops wherever the
+    bytes stop making sense, which catches a torn final chunk and mid-file corruption
+    that an intact footer would otherwise hide.
+
+    Scanning is cheap next to the combine itself: 0.06 s for a 36 MB recording.
+    """
+    if mcap_path.stat().st_size == 0:
+        # The recorder opened the file and never wrote to it. Nothing to recover.
+        return "the file is empty"
+    try:
+        with open(mcap_path, "rb") as f:
+            if make_reader(f).get_summary() is None:
+                return "no summary section, so the file was never finalized"
+        with open(mcap_path, "rb") as f:
+            for _record in StreamReader(f).records:
+                pass
+    except Exception as exc:
+        # Any parse failure means the file is damaged. Truncation surfaces as an
+        # McapError, but a corrupt chunk can also come out of the decompressor.
+        return f"{type(exc).__name__}: {exc}".rstrip(": ")
+    return None
+
+
+def _copy_record(
+    writer: Writer,
+    record: Any,
+    schema_ids: "dict[int, int]",
+    channel_ids: "dict[int, int]",
+) -> int:
+    """Write one parsed record through to `writer`. Returns 1 if it was a message.
+
+    Schema and channel ids are reassigned by the writer, so the originals are mapped
+    on the way through. A message whose channel was never declared is dropped: that
+    only happens when the channel record itself was lost.
+    """
+    if isinstance(record, Schema):
+        schema_ids[record.id] = writer.register_schema(
+            name=record.name, encoding=record.encoding, data=record.data
+        )
+    elif isinstance(record, Channel):
+        channel_ids[record.id] = writer.register_channel(
+            topic=record.topic,
+            message_encoding=record.message_encoding,
+            schema_id=schema_ids.get(record.schema_id, 0),
+            metadata=record.metadata,
+        )
+    elif isinstance(record, Message):
+        channel_id = channel_ids.get(record.channel_id)
+        if channel_id is None:
+            return 0
+        writer.add_message(
+            channel_id=channel_id,
+            log_time=record.log_time,
+            data=record.data,
+            publish_time=record.publish_time,
+            sequence=record.sequence,
+        )
+        return 1
+    elif isinstance(record, Metadata):
+        writer.add_metadata(record.name, record.metadata)
+    elif isinstance(record, Attachment):
+        writer.add_attachment(
+            create_time=record.create_time,
+            log_time=record.log_time,
+            name=record.name,
+            media_type=record.media_type,
+            data=record.data,
+        )
+    return 0
+
+
+def recover_mcap(source: Path, dest: Path) -> int:
+    """Copy every record that still parses out of `source` into a fresh MCAP at `dest`.
+
+    Returns the number of messages copied. Reading stops at the first record that
+    fails to parse, so a recording torn off mid-write keeps everything before the
+    tear. The output goes through the same writer as the combined outputs, so it
+    comes back chunked, indexed, and with a summary.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    schema_ids: "dict[int, int]" = {}
+    channel_ids: "dict[int, int]" = {}
+    messages = 0
+    started = False
+    with open(source, "rb") as in_f, open(dest, "wb") as out_f:
+        writer = Writer(out_f)
+        try:
+            for record in StreamReader(in_f).records:
+                if isinstance(record, Header):
+                    writer.start(profile=record.profile, library=RECOVERY_LIBRARY)
+                    started = True
+                    continue
+                if not started:
+                    # The header itself was lost. Everything after it still reads.
+                    writer.start(library=RECOVERY_LIBRARY)
+                    started = True
+                messages += _copy_record(writer, record, schema_ids, channel_ids)
+        except Exception as exc:
+            logger.debug("Stopped reading %s after %d message(s): %s", source, messages, exc)
+        if not started:
+            writer.start(library=RECOVERY_LIBRARY)
+        writer.finish()
+    return messages
+
+
+def _recover_into(source: Path, dest_dir: Path) -> Optional[Path]:
+    """Recover `source` into `dest_dir` under the same name, or None if nothing reads.
+
+    Keeping the name means every output named after this file, combined MCAPs and
+    the svo_file field on /camera/svo_frame alike, comes out the same as it would
+    have for an undamaged input.
+    """
+    dest = dest_dir / source.name
+    messages = recover_mcap(source, dest)
+    if messages == 0:
+        dest.unlink(missing_ok=True)
+        with suppress(OSError):
+            dest_dir.rmdir()  # Only succeeds while it is empty.
+        return None
+    logger.info("Recovered %d message(s) from %s into %s", messages, source.name, dest)
+    return dest
+
+
+@contextmanager
+def _recovered_copy(source: Path, out_dir: Path, *, keep: bool) -> Iterator[Optional[Path]]:
+    """Yield a repaired copy of `source`, or None when nothing could be read out of it.
+
+    `keep` is False for a dry run, which puts the copy in a temporary directory and
+    deletes it on the way out.
+    """
+    with ExitStack() as stack:
+        if keep:
+            dest_dir = out_dir / RECOVERED_SUBDIR
+        else:
+            dest_dir = Path(
+                stack.enter_context(tempfile.TemporaryDirectory(prefix="combine_mcap_svo_"))
+            )
+        yield _recover_into(source, dest_dir)
+
+
+def _readable_svo(svo_path: Path, out_dir: Path) -> Optional[Path]:
+    """Return an SVO that reads cleanly, recovering a damaged one first.
+
+    A .svo2 is an MCAP too, so the same repair applies: the recorder that was killed
+    mid-write left the recording and the SVO it was filling both torn off. Returns
+    None when nothing at all can be read out of it.
+    """
+    damage = _describe_damage(svo_path)
+    if damage is None:
+        return svo_path
+    logger.warning("SVO %s is damaged (%s). Trying to recover the readable part.", svo_path, damage)
+    return _recover_into(svo_path, out_dir / RECOVERED_SUBDIR)
+
+
 def process_mcap(
     input_mcap: Path,
     output_dir: Optional[Path],
@@ -622,7 +795,7 @@ def process_mcap(
     ffmpeg_bin: str,
     ignore_missing_svo: bool,
 ) -> Tuple[int, int]:
-    """Process one input MCAP.
+    """Process one input MCAP, repairing it first if it does not read cleanly.
 
     Returns (number of combined MCAPs written, number of referenced SVOs unusable).
     """
@@ -630,12 +803,55 @@ def process_mcap(
         logger.error("Input MCAP not found: %s", input_mcap)
         return 0, 0
 
+    out_dir = output_dir if output_dir is not None else input_mcap.parent
+    damage = _describe_damage(input_mcap)
+    if damage is None:
+        return _combine_svos(
+            input_mcap,
+            out_dir,
+            search_dirs,
+            overwrite=overwrite,
+            dry_run=dry_run,
+            ffmpeg_bin=ffmpeg_bin,
+            ignore_missing_svo=ignore_missing_svo,
+        )
+
+    logger.warning("%s is damaged (%s). Trying to recover the readable part.", input_mcap, damage)
+    with _recovered_copy(input_mcap, out_dir, keep=not dry_run) as recovered:
+        if recovered is None:
+            logger.error("Nothing readable in %s; skipping it.", input_mcap)
+            return 0, 0
+        return _combine_svos(
+            recovered,
+            out_dir,
+            search_dirs,
+            overwrite=overwrite,
+            dry_run=dry_run,
+            ffmpeg_bin=ffmpeg_bin,
+            ignore_missing_svo=ignore_missing_svo,
+        )
+
+
+def _combine_svos(
+    input_mcap: Path,
+    out_dir: Path,
+    search_dirs: List[Path],
+    *,
+    overwrite: bool,
+    dry_run: bool,
+    ffmpeg_bin: str,
+    ignore_missing_svo: bool,
+) -> Tuple[int, int]:
+    """Write one combined MCAP per SVO `input_mcap` references.
+
+    `input_mcap` has to read cleanly by this point; process_mcap repairs it first
+    if it does not.
+    """
     referenced = extract_svo_paths(input_mcap)
     if not referenced:
         logger.warning("No SVO paths found in %s", input_mcap)
         return 0, 0
 
-    out_dir = output_dir if output_dir is not None else input_mcap.parent
     profile = get_input_profile(input_mcap)
     written = 0
     missing = 0
@@ -688,11 +904,17 @@ def process_mcap(
             )
             continue
 
+        svo_source = _readable_svo(svo_path, out_dir)
+        if svo_source is None:
+            logger.error("Nothing readable in SVO %s; skipping it.", svo_path)
+            missing += 1
+            continue
+
         try:
-            svo_topic, frame_count = svo2.find_side_by_side_topic(svo_path)
-            start_ns, end_ns = read_svo_time_range(svo_path, svo_topic)
+            svo_topic, frame_count = svo2.find_side_by_side_topic(svo_source)
+            start_ns, end_ns = read_svo_time_range(svo_source, svo_topic)
         except (McapError, RuntimeError, ValueError, OSError) as exc:
-            # A truncated or half-written SVO reads as a broken MCAP.
+            # Damage recovery cannot undo, such as an SVO whose frames are all gone.
             logger.error("Skipping unreadable SVO %s: %s", svo_path, exc)
             missing += 1
             continue
@@ -706,7 +928,7 @@ def process_mcap(
 
         merge_mcaps(
             input_mcap,
-            svo_path,
+            svo_source,
             svo_topic,
             frame_count,
             combined_path,
