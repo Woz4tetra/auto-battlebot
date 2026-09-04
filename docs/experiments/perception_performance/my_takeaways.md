@@ -116,3 +116,5 @@ docs/experiments/perception_performance/category_addition_2026-07-25.md
 # How many field images for deeplab do I need for each field type?
 
 # When do I stop training deeplab?
+
+# Does model size matter for my application? Is the latency trade off worth the improved performance?
