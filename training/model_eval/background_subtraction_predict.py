@@ -40,6 +40,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import yaml
+from score import reviewed_stems
 
 from auto_battlebot.background_subtraction import (
     SubtractionParams,
@@ -149,7 +150,7 @@ def predict_subdataset(
     roots: list[Path],
     params: SubtractionParams,
     args: argparse.Namespace,
-    reviewed_stems: set[str],
+    reviewed: set[str],
 ) -> dict[str, list[dict]]:
     data = yaml.safe_load((subdataset / "data.yaml").read_text())
     recording = read_recording(find_recording(str(data["source_mcap"]), roots))
@@ -211,7 +212,7 @@ def predict_subdataset(
 
         if annotate_dir is not None:
             gt_boxes = read_gt_boxes(subdataset, path.stem, names, image_size)
-            reviewed = "reviewed" if path.stem in reviewed_stems else "GT not reviewed"
+            reviewed = "reviewed" if path.stem in reviewed else "GT not reviewed"
             caption = (
                 f"{subdataset.name}  {path.stem}  {len(rows)} det  {len(gt_boxes)} GT  ({reviewed})"
             )
@@ -278,14 +279,9 @@ def main() -> int:
     if not subdatasets:
         raise SystemExit(f"No data.yaml found under {root}")
 
-    # edit_labels.py marks which frames have been checked. Only those are scored, so the
-    # annotations say which ones they are rather than implying every GT box is trustworthy.
-    state_path = root / ".edit_state.json"
-    reviewed: set[str] = set()
-    if state_path.exists():
-        reviewed = {
-            Path(rel).stem for rel in json.loads(state_path.read_text()).get("reviewed", [])
-        }
+    # Only frames that pass review are scored, so the annotations say which ones they are rather
+    # than implying every GT box is trustworthy. Same precedence score.py uses.
+    reviewed = reviewed_stems(root) or set()
 
     frames: dict[str, list[dict]] = {}
     for subdataset in subdatasets:

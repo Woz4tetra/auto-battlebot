@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
-"""Gate robot detections on depth prominence: how far a pixel stands in front of its surroundings.
+"""Gate robot detections on depth, two ways, and on background subtraction.
 
-An earlier version of this measured height above the fitted field plane. That inherits every
-error in the plane fit and the pose chain, and it measures the wrong quantity: these robots are
-5 to 10 cm tall, which is the noise floor of stereo at 2 to 3 m.
+**Prominence** is local and needs no plane. The camera looks across the arena at an angle, so a
+robot hides floor that would have been much further away than the robot's own height. Comparing a
+pixel to the furthest depth in a window around it recovers that occlusion depth, and no field
+frame, pose or plane fit enters the calculation.
 
-Prominence is local and needs no plane. The camera looks across the arena at an angle, so a robot
-hides floor that would have been much further away than the robot's own height. Comparing a pixel
-to the furthest depth in a window around it recovers that occlusion depth, which is tens of
-centimetres even for a low wedge, and no field frame, pose or plane fit enters the calculation.
+That independence is also why it fails. Prominence is one-sided and relative, so a flat object
+lying next to a depth discontinuity reads as maximally proud of its surroundings: the floor banner
+in the MassD arena sits near the wall and scores a prominent fraction of 1.00. Measured per
+detector box it is worse than a coin flip (AUC 0.430).
 
-Arms:
+**Height above the fitted field plane** is the quantity `render_depth_birdseye.py` paints, and it
+is two-sided: a painted graphic falls below the band and the wall, glass and crowd fall above it.
+It does inherit every error in the plane fit and the pose chain, and an earlier version of this
+script dropped it for that reason, on the argument that robots are shorter than stereo noise at
+2 to 3 m. That argument was wrong. Measured per detector box on MassD it separates (AUC 0.733),
+and the median height inside a box is 0.030 m for a real robot against -0.002 m for a false
+positive, which is exactly the flat-graphic-versus-short-robot distinction.
 
     rgb_only        the existing difference mask, unchanged, as the control
     depth_only      prominence alone, range-gated, nothing else
@@ -19,11 +26,18 @@ Arms:
     rgb_and_depth_permissive
                     AND, except pixels the stereo failed to measure do not veto
     yolo_only       the deployed detector, as it ships
-    yolo_and_depth  deployed detector boxes kept only when enough of the box is prominent
+    yolo_and_rgb    detector boxes kept only when enough of the box moved against the floor
+    yolo_and_depth  detector boxes kept only when enough of the box is prominent
+    yolo_and_rgb_and_depth
+                    both gates; says whether the two reject the same boxes or different ones
+    yolo_and_height detector boxes kept only when enough of the box sits in the robot-height band
+                    above the fitted field plane, the quantity render_depth_birdseye.py paints
+    yolo_and_rgb_and_height
+                    the two gates that actually carry signal, together
 
-`yolo_and_depth` is the arm that matters most. The measured failure out of the cage is precision,
-not recall: the detector invents robots on unfamiliar background. A depth check cannot invent
-recall, but it can throw away boxes that have nothing standing up inside them.
+The `yolo_*` arms are the ones that matter. The measured failure out of the cage is precision, not
+recall: the detector invents robots on unfamiliar background. No gate can invent recall, but it
+can throw away boxes that have nothing standing up inside them.
 
 Depth comes from `playground/cache_gt_depth.py`. Extract with NEURAL_PLUS.
 
@@ -68,7 +82,21 @@ ARMS = (
     "rgb_or_depth",
     "rgb_and_depth_permissive",
     "yolo_only",
+    "yolo_and_rgb",
     "yolo_and_depth",
+    "yolo_and_rgb_and_depth",
+    "yolo_and_height",
+    "yolo_and_rgb_and_height",
+)
+
+# Arms carrying detector boxes keep the engine's own classes; the mask arms cannot name a class.
+YOLO_ARMS = (
+    "yolo_only",
+    "yolo_and_rgb",
+    "yolo_and_depth",
+    "yolo_and_rgb_and_depth",
+    "yolo_and_height",
+    "yolo_and_rgb_and_height",
 )
 
 # How far in front of its surroundings a pixel must stand. An oblique view turns a 0.1 m robot
@@ -88,6 +116,23 @@ MAX_PROMINENCE_M = 1.5
 
 # Fraction of a detector box that must be prominent for `yolo_and_depth` to keep it.
 DEFAULT_BOX_PROMINENT_FRACTION = 0.15
+
+# Height above the fitted field plane that counts as "a robot is standing here", in metres. This
+# is the band render_depth_birdseye.py paints magenta, and unlike prominence it is two-sided: a
+# painted floor graphic falls below it and the arena wall, glass and crowd fall above it.
+#
+# Wider than the 0.01-0.05 the renderer paints. That band is right for looking at a picture, where
+# the eye forgives a robot rendered in patches, but as a per-box gate it is tighter than the plane
+# fit's own error: swept on MassD, [0.01, 0.05] scores AUC 0.712 and [0.02, 0.10] scores 0.790.
+DEFAULT_HEIGHT_BAND_M = (0.02, 0.10)
+
+# Fraction of a detector box's measured pixels that must sit in the band for `yolo_and_height`.
+DEFAULT_BOX_HEIGHT_FRACTION = 0.30
+
+# Fraction of a detector box that must differ from the floor background for `yolo_and_rgb`. A
+# robot fills most of its own box; a box on a painted floor graphic fills none of it, so this can
+# sit well below half without letting the graphic through.
+DEFAULT_BOX_FOREGROUND_FRACTION = 0.15
 
 # Prominence that counts as full confidence when ranking depth-only blobs.
 SCORE_REFERENCE_PROMINENCE_M = 0.40
@@ -199,28 +244,120 @@ def gt_box_mask(subdataset: Path, stem: str, shape: tuple[int, int]) -> np.ndarr
     return mask
 
 
-def detector_rows(
-    model: TrtYoloModel, frame: np.ndarray, prominence: np.ndarray, args: argparse.Namespace
-) -> tuple[list[dict], list[dict]]:
-    """(all detector boxes, boxes surviving the prominence gate).
+def field_height(
+    depth_raw: np.ndarray, image_size: tuple[int, int], geometry
+) -> tuple[np.ndarray, np.ndarray]:
+    """(height above the field plane in metres, measured mask) at image resolution.
 
-    The prominent fraction is carried on every ungated row so the gate can be swept offline
-    without re-running inference and the floor median for each threshold.
+    Each pixel plus its depth is a point in the camera frame; rotating it into the field frame and
+    taking the z component gives how far above the arena floor it sits. This is what
+    render_depth_birdseye.py colours, and it is a different quantity from prominence: it is
+    absolute rather than relative to a local neighbourhood, so a flat graphic reads 0 no matter
+    what stands next to it.
     """
-    kept, gated = [], []
-    for box, score, _cls, _kp in model.infer(frame):
+    width, height = image_size
+    depth = depth_raw.astype(np.float32)
+    if depth.shape != (height, width):
+        depth = cv2.resize(depth, (width, height), interpolation=cv2.INTER_NEAREST)
+
+    measured = np.isfinite(depth) & (depth > 0.0)
+    # Unmeasured pixels are zeroed before the projection, not carried as NaN through it: NaN in a
+    # matmul is both slow and noisy, and they are masked back out immediately afterwards.
+    finite_depth = np.where(measured, depth, np.float32(0.0))
+    columns, rows = np.meshgrid(
+        np.arange(width, dtype=np.float32), np.arange(height, dtype=np.float32)
+    )
+    points = np.stack(
+        [
+            (columns - geometry.cx) / geometry.fx * finite_depth,
+            (rows - geometry.cy) / geometry.fy * finite_depth,
+            finite_depth,
+        ],
+        axis=-1,
+    )
+    rotation = geometry.tf_field_from_camera[:3, :3]
+    above = points @ rotation[2, :] + geometry.tf_field_from_camera[2, 3]
+    return np.where(measured, above, np.float32(np.nan)), measured.astype(np.uint8) * 255
+
+
+def box_band_fraction(height: np.ndarray, box: np.ndarray, band: tuple[float, float]) -> float:
+    """Fraction of a box's measured pixels whose height above the floor lands inside the band."""
+    rows, columns = height.shape
+    x1 = max(0, min(int(box[0]), columns - 1))
+    y1 = max(0, min(int(box[1]), rows - 1))
+    x2 = max(x1 + 1, min(int(box[2]), columns))
+    y2 = max(y1 + 1, min(int(box[3]), rows))
+    window = height[y1:y2, x1:x2]
+    finite = np.isfinite(window)
+    if not finite.any():
+        return 0.0
+    inside = (window[finite] >= band[0]) & (window[finite] <= band[1])
+    return float(inside.mean())
+
+
+def box_foreground_fraction(foreground: np.ndarray, box: np.ndarray) -> float:
+    """Fraction of a box's pixels that the difference image calls foreground.
+
+    Unlike prominence there is no "unmeasured" category here: every pixel either differs from
+    the floor background or does not, so the whole box is the denominator.
+    """
+    height, width = foreground.shape
+    x1 = max(0, min(int(box[0]), width - 1))
+    y1 = max(0, min(int(box[1]), height - 1))
+    x2 = max(x1 + 1, min(int(box[2]), width))
+    y2 = max(y1 + 1, min(int(box[3]), height))
+    window = foreground[y1:y2, x1:x2]
+    return float((window > 0).mean()) if window.size else 0.0
+
+
+def detector_rows(
+    model: TrtYoloModel,
+    frame: np.ndarray,
+    prominence: np.ndarray,
+    foreground: np.ndarray,
+    height: np.ndarray,
+    args: argparse.Namespace,
+) -> dict[str, list[dict]]:
+    """Detector boxes per gated arm, keyed by arm name.
+
+    Both fractions are carried on every ungated row so either gate can be swept offline without
+    re-running inference and the floor median for each threshold. The engine's own class id
+    survives the gate: collapsing `house_bot` into `robot` here would invent a class the
+    detector never predicted.
+    """
+    out: dict[str, list[dict]] = {arm: [] for arm in YOLO_ARMS}
+    for box, score, cls, _kp in model.infer(frame):
+        xyxy = np.asarray(box, dtype=np.float64)
         row = {
-            "xyxy": [float(v) for v in np.asarray(box, dtype=np.float64)],
+            "xyxy": [float(v) for v in xyxy],
             "score": round(float(score), 4),
-            "class_id": 0,
+            "class_id": int(cls),
         }
-        fraction = box_prominent_fraction(
-            prominence, np.asarray(box, dtype=np.float64), args.prominence
+        prominent = box_prominent_fraction(prominence, xyxy, args.prominence)
+        moved = box_foreground_fraction(foreground, xyxy)
+        standing = box_band_fraction(height, xyxy, tuple(args.height_band))
+        out["yolo_only"].append(
+            {
+                **row,
+                "prom_fraction": round(prominent, 4),
+                "fg_fraction": round(moved, 4),
+                "height_fraction": round(standing, 4),
+            }
         )
-        kept.append({**row, "prom_fraction": round(fraction, 4)})
-        if fraction >= args.box_fraction:
-            gated.append(row)
-    return kept, gated
+        passes_depth = prominent >= args.box_fraction
+        passes_rgb = moved >= args.box_rgb_fraction
+        passes_height = standing >= args.box_height_fraction
+        if passes_rgb:
+            out["yolo_and_rgb"].append(row)
+        if passes_depth:
+            out["yolo_and_depth"].append(row)
+        if passes_rgb and passes_depth:
+            out["yolo_and_rgb_and_depth"].append(row)
+        if passes_height:
+            out["yolo_and_height"].append(row)
+        if passes_rgb and passes_height:
+            out["yolo_and_rgb_and_height"].append(row)
+    return out
 
 
 def predict_subdataset(
@@ -292,6 +429,10 @@ def predict_subdataset(
             np.isfinite(prominence) & (prominence > args.prominence), 255, 0
         ).astype(np.uint8)
 
+        # Height above the fitted plane, which unlike prominence needs the pose and gives an
+        # absolute answer rather than one relative to whatever happens to be nearby.
+        height_map, _ = field_height(depth_store[path.stem], image_size, geometry)
+
         unmeasured = cv2.bitwise_not(measured)
         masks = {
             "rgb_only": rgb_fg,
@@ -312,9 +453,9 @@ def predict_subdataset(
             )
 
         if model is not None:
-            kept, gated = detector_rows(model, frame, prominence, args)
-            out["yolo_only"][path.stem] = kept
-            out["yolo_and_depth"][path.stem] = gated
+            gated = detector_rows(model, frame, prominence, rgb_fg, height_map, args)
+            for arm, rows in gated.items():
+                out[arm][path.stem] = rows
 
         # Diagnostic: is the prominent fraction actually higher inside GT boxes than outside?
         gt_mask = gt_box_mask(subdataset, path.stem, prominence.shape)
@@ -367,6 +508,27 @@ def main() -> int:
     parser.add_argument("--window-px", type=int, default=DEFAULT_WINDOW_PX)
     parser.add_argument("--max-range-m", type=float, default=MAX_RANGE_M)
     parser.add_argument("--box-fraction", type=float, default=DEFAULT_BOX_PROMINENT_FRACTION)
+    parser.add_argument(
+        "--box-rgb-fraction",
+        type=float,
+        default=DEFAULT_BOX_FOREGROUND_FRACTION,
+        help="fraction of a detector box that must be background-subtraction foreground",
+    )
+    parser.add_argument(
+        "--height-band",
+        type=float,
+        nargs=2,
+        default=list(DEFAULT_HEIGHT_BAND_M),
+        metavar=("MIN", "MAX"),
+        help="height above the field plane that counts as a robot standing there, in metres",
+    )
+    parser.add_argument("--box-height-fraction", type=float, default=DEFAULT_BOX_HEIGHT_FRACTION)
+    parser.add_argument(
+        "--engine-labels",
+        default="opponent,house_bot",
+        type=lambda v: [s.strip() for s in v.split(",")],
+        help="GT label per engine class index, written into the yolo_* arms' JSON",
+    )
     parser.add_argument("--close-px", type=int, default=0)
     parser.add_argument("--suffix", default="", help="appended to each arm's filename")
     args = parser.parse_args()
@@ -383,7 +545,11 @@ def main() -> int:
         else None
     )
 
-    subdatasets = sorted(d for d in args.gt.iterdir() if (d / "data.yaml").exists())
+    subdatasets = (
+        [args.gt]
+        if (args.gt / "data.yaml").exists()
+        else sorted(d for d in args.gt.iterdir() if (d / "data.yaml").exists())
+    )
     merged: dict[str, dict[str, list[dict]]] = {arm: {} for arm in ARMS}
     diagnostics: dict[str, dict] = {}
 
@@ -400,7 +566,9 @@ def main() -> int:
     for arm in ARMS:
         if not merged[arm]:
             continue
-        payload = {"labels": ["opponent"], "frames": merged[arm]}
+        # Mask arms emit one nameless blob class; detector arms keep the engine's vocabulary.
+        labels = list(args.engine_labels) if arm in YOLO_ARMS else ["opponent"]
+        payload = {"labels": labels, "frames": merged[arm]}
         (args.output / f"{arm}{args.suffix}.json").write_text(json.dumps(payload))
     (args.output / f"diagnostics{args.suffix}.json").write_text(json.dumps(diagnostics, indent=2))
     print(f"Wrote arms to {args.output}")

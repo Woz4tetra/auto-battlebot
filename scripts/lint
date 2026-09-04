@@ -53,6 +53,11 @@ YELLOW='\033[1;33m'
 DIM='\033[2m'
 NC='\033[0m'
 
+# taplo logs an INFO line listing every file it visits to stderr on every run,
+# pass or fail. The Stop hook only surfaces stderr, so that noise buries the
+# real failure. Drop it to warnings unless the caller asked for more.
+export RUST_LOG="${RUST_LOG:-warn}"
+
 # Put the project venv on PATH so ruff / mypy resolve.
 VENV_BIN="$PROJECT_ROOT/venv/bin"
 if [ -d "$VENV_BIN" ]; then

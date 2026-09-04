@@ -13,8 +13,9 @@ The gap between agnostic recall and class-aware mAP is the cost of splitting the
 OPPONENT category. Outputs a summary table (stdout + summary.csv) and plots.
 
 The GT argument is either a single dataset dir (data.yaml + images/ + labels/) or a root
-containing such subdatasets (e.g. training/data/nhrl_keypoints_eval_test). If an
-edit_labels.py .edit_state.json is present, only frames marked reviewed are scored.
+containing such subdatasets (e.g. training/data/nhrl_keypoints_eval_test). If a
+validation_state.json is present, only frames it marks `pass` are scored; failing that, an
+edit_labels.py .edit_state.json is used the same way.
 
 --labels maps engine class indices to GT label names, in class order (mirrors the C++
 label_indices config). When the engine head carries keypoints (YOLO-pose), keypoint
@@ -133,24 +134,41 @@ def _dataset_dirs(root: Path) -> list[Path]:
     return subs
 
 
-def _reviewed_stems(root: Path) -> set[str] | None:
-    """Frame stems marked reviewed in edit_labels.py state, or None when untracked.
+VALIDATION_STATE = "validation_state.json"
+EDIT_STATE = ".edit_state.json"
+VALIDATION_PASS = "pass"
 
-    The state file lives at the dir edit_labels.py was pointed at (the given root either
-    way). Entries are image paths relative to that dir; stems (stamp_ns) are unique."""
-    state_path = root / ".edit_state.json"
-    if not state_path.exists():
+
+def reviewed_stems(root: Path) -> set[str] | None:
+    """Frame stems that count as ground truth, or None when the dataset tracks no review state.
+
+    `validation_state.json` is the authority: it maps each image path, relative to the root, to a
+    validation verdict, and only `pass` frames are scored. `.edit_state.json` is the older
+    edit_labels.py state and is consulted only when no validation state exists. Preferring the
+    older file silently drops whole recordings: on `nhrl_keypoints_eval_test` the edit state lists
+    429 frames and names none of the 98 MassD ones, all of which validate as `pass`.
+
+    Both files live at the dir that was pointed at, so a symlink root with neither scores every
+    label file present."""
+    validation_path = root / VALIDATION_STATE
+    if validation_path.exists():
+        state = json.loads(validation_path.read_text())
+        return {Path(rel).stem for rel, verdict in state.items() if verdict == VALIDATION_PASS}
+
+    edit_path = root / EDIT_STATE
+    if not edit_path.exists():
         return None
-    reviewed = json.loads(state_path.read_text()).get("reviewed", [])
+    reviewed = json.loads(edit_path.read_text()).get("reviewed", [])
     return {Path(rel).stem for rel in reviewed}
 
 
 def load_gt(root: Path) -> tuple[dict[int, GtFrame], list[str], dict[int, Path]]:
     """Read YOLO labels from a dataset dir or a root of subdatasets.
 
-    When an .edit_state.json exists, only frames marked reviewed count as ground truth.
+    When a review-state file exists, only the frames it accepts count as ground truth; see
+    reviewed_stems for which file wins.
     Returns ({stamp_ns: (boxes, labels, keypoints)}, names, {stamp_ns: image path})."""
-    reviewed = _reviewed_stems(root)
+    reviewed = reviewed_stems(root)
     names: list[str] = []
     frames: dict[int, GtFrame] = {}
     images: dict[int, Path] = {}

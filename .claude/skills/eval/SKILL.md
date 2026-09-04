@@ -32,8 +32,10 @@ python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
     --conf 0.5 --taxonomy training/model_eval/taxonomy_keypoint.yaml
 ```
 
-- GT arg is a dataset dir or a root of subdatasets. If `.edit_state.json` exists there,
-  only reviewed frames are scored (this handles the in-progress test dataset correctly).
+- GT arg is a dataset dir or a root of subdatasets. Review-state filtering, in priority order:
+  `validation_state.json` (frames marked `pass`), else `.edit_state.json` (frames marked
+  reviewed), else every label file. Check the printed frame count is what you expect: a stale
+  state file silently scores a whole recording as zero frames.
 - Repeat `--candidate name=engine` to compare models; two or more triggers the paired
   bootstrap significance table against the baseline (first candidate, or `--baseline`).
 - Match the C++ config when grading deployed models: blob `--conf 0.6`, keypoint

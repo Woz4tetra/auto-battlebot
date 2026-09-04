@@ -143,8 +143,11 @@ so only 38 of its 100 images resolve exactly.
 
 ## Notes
 
-- Reviewed-frame filtering: if `.edit_state.json` exists at the GT dir you pass, only
-  frames listed in its `reviewed` array are scored. Without it, every label file counts.
+- Reviewed-frame filtering, in priority order at the GT dir you pass: `validation_state.json`
+  (only frames whose verdict is `pass` are scored), else `.edit_state.json` (only frames in its
+  `reviewed` array), else every label file counts. `validation_state.json` wins because
+  `.edit_state.json` on `nhrl_keypoints_eval_test` is stale: it lists 429 frames and names none
+  of the 98 MassD ones, so preferring it silently scored that recording as zero frames.
 - `taxonomy_keypoint.yaml` excludes everything but our robots, since the pose model only
   detects them. The default `taxonomy.yaml` excludes `object` (no deployed model has an
   object class).
