@@ -24,6 +24,9 @@ import yaml
 from natsort import natsorted
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
+# Directory remove_failed_annotations.py moves failed pairs into. Kept out of the scan.
+BACKUP_DIR_NAME = "validation_backup"
+
 NAMED_COLORS: Dict[str, List[int]] = {
     # Primary colors
     "red": [255, 0, 0],
@@ -283,6 +286,15 @@ class YOLODatasetValidator:
         for ext in image_extensions:
             image_files.extend(self.dataset_path.rglob(f"*{ext}"))
             image_files.extend(self.dataset_path.rglob(f"*{ext.upper()}"))
+
+        # Drop anything remove_failed_annotations.py set aside. Those pairs already
+        # failed validation, and their backup paths do not match the state keys, so
+        # they would come back as fresh unvalidated entries.
+        image_files = [
+            img_path
+            for img_path in image_files
+            if BACKUP_DIR_NAME not in img_path.relative_to(self.dataset_path).parts
+        ]
 
         # Match with annotation files
         for img_path in natsorted(image_files):

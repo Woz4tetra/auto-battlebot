@@ -12,6 +12,10 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+# Directory failed pairs are moved into. validate_yolo_dataset.py skips it by name,
+# so keep the two in sync.
+BACKUP_DIR_NAME = "validation_backup"
+
 
 def load_validation_state(state_file: Path) -> Dict[str, str]:
     """Load validation state from JSON file."""
@@ -49,6 +53,14 @@ def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
         image_files.extend(dataset_path.rglob(f"*{ext}"))
         image_files.extend(dataset_path.rglob(f"*{ext.upper()}"))
 
+    # Never re-process pairs an earlier run already set aside, or they get moved into
+    # a backup nested inside the backup.
+    image_files = [
+        img_path
+        for img_path in image_files
+        if BACKUP_DIR_NAME not in img_path.relative_to(dataset_path).parts
+    ]
+
     # Match with annotation files
     pairs = []
     for img_path in sorted(set(image_files)):
@@ -64,7 +76,12 @@ def find_image_annotation_pairs(dataset_path: Path) -> List[Tuple[Path, Path]]:
 
 
 def find_datasets_with_state(search_root: Path) -> List[Tuple[Path, Path]]:
-    """Recursively find dataset roots that have validation_state.json."""
+    """Recursively find dataset roots that have validation_state.json.
+
+    The root is wherever the state file sits, since validate_yolo_dataset.py writes it
+    at the root its keys are relative to. That root may hold `images/` and `labels/`
+    directly, or hold one subdirectory per recording with the pairs a level down.
+    """
     found: List[Tuple[Path, Path]] = []
     seen: set[Path] = set()
 
@@ -72,9 +89,8 @@ def find_datasets_with_state(search_root: Path) -> List[Tuple[Path, Path]]:
         dataset_root = state_file.parent
         if dataset_root in seen:
             continue
-        if (dataset_root / "images").exists() and (dataset_root / "labels").exists():
-            found.append((dataset_root, state_file))
-            seen.add(dataset_root)
+        found.append((dataset_root, state_file))
+        seen.add(dataset_root)
 
     return found
 
@@ -113,7 +129,7 @@ def remove_failed_annotations(
     # Create backup directory if needed
     backup_dir = None
     if backup and not dry_run:
-        backup_dir = dataset_path / "validation_backup"
+        backup_dir = dataset_path / BACKUP_DIR_NAME
         backup_dir.mkdir(exist_ok=True)
         print(f"\nCreated backup directory: {backup_dir}")
 
@@ -241,7 +257,7 @@ def main():
         if args.no_backup:
             print("   Mode: DELETE (files will be permanently deleted)")
         else:
-            print("   Mode: BACKUP (files will be moved to validation_backup/)")
+            print(f"   Mode: BACKUP (files will be moved to {BACKUP_DIR_NAME}/)")
 
         response = input("\nProceed? (yes/no): ")
         if response.lower() != "yes":
