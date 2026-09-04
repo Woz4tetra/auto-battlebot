@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 
@@ -37,6 +38,24 @@ USABLE_METHODS = ("exact", "interpolated")
 # The arena is an 8 ft square. The per-frame `field_size_m` is the RANSAC fit's estimate and
 # reads undersized or outright fails on some inits, so the nominal is what to draw.
 NOMINAL_FIELD_SIZE_M = 2.4384
+
+
+class CameraGeometry(Protocol):
+    """Intrinsics plus a field-frame camera pose.
+
+    `FrameGeometry` reads one from an exported sidecar; `floor_background.PoseGeometry`
+    builds one from a pose matrix recovered off a recording's tf chain. The projection
+    helpers here and the floor warps in `floor_background` take either.
+    """
+
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+    tf_field_from_camera: np.ndarray  # 4x4
+
+    @property
+    def camera_position(self) -> np.ndarray: ...
 
 
 @dataclass

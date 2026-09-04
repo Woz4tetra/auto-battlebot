@@ -30,7 +30,6 @@ See `docs/experiments/kalman_filter/kalman_filter_plan.md` part 1.2 and the comp
 
 from __future__ import annotations
 
-import csv
 import re
 import sys
 from dataclasses import dataclass, field
@@ -897,19 +896,17 @@ class Session:
         return out
 
 
-def read_command_log(path: Path | str) -> dict[str, np.ndarray]:
-    """Read a `LOG-N.cmd.csv` written by the drive CLI.
+def _read_command_rows(path: Path) -> tuple[list[str], list[list[float]]]:
+    """Column names from the `# columns:` header, and every well-formed numeric row.
 
-    Columns are named in a `# columns:` comment so the file can grow without breaking
-    older readers. `t_host_s` shares its origin with the clock probes' `at_host_ms`, which
-    is the identity `ClockFit` rests on.
+    Rows whose width or contents do not match the header are skipped rather than raised on:
+    a run killed mid-write leaves a torn final line, and that should not lose the run.
     """
-    path = Path(path)
     names: list[str] = []
     rows: list[list[float]] = []
     with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
+        for raw in handle:
+            line = raw.strip()
             if not line:
                 continue
             if line.startswith("#"):
@@ -925,6 +922,18 @@ def read_command_log(path: Path | str) -> dict[str, np.ndarray]:
                 rows.append([float(p) for p in parts])
             except ValueError:
                 continue
+    return names, rows
+
+
+def read_command_log(path: Path | str) -> dict[str, np.ndarray]:
+    """Read a `LOG-N.cmd.csv` written by the drive CLI.
+
+    Columns are named in a `# columns:` comment so the file can grow without breaking
+    older readers. `t_host_s` shares its origin with the clock probes' `at_host_ms`, which
+    is the identity `ClockFit` rests on.
+    """
+    path = Path(path)
+    names, rows = _read_command_rows(path)
 
     if not rows:
         raise ValueError(f"{path}: no command rows")

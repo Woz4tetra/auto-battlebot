@@ -7,14 +7,12 @@ square landing on the arena walls is the documented check (see training/model_ev
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from track_overlay import (  # noqa: E402
+from auto_battlebot.track_overlay import (
     footprint_circle,
     project_field_points,
     read_camera_matrix,
@@ -47,8 +45,8 @@ def main() -> int:
     frame_index = stamp_to_index.nearest(args.stamp_ns)
     print(f"stamp {args.stamp_ns} -> svo frame {frame_index}")
 
-    K = read_camera_matrix(args.old_mcap)
-    print("K =", np.round(K, 2).tolist())
+    camera_matrix = read_camera_matrix(args.old_mcap)
+    print("camera_matrix =", np.round(camera_matrix, 2).tolist())
 
     old_track = read_opponent_track(args.old_mcap)
     sample = old_track.nearest(args.stamp_ns, tolerance_ns=100_000_000)
@@ -90,8 +88,8 @@ def main() -> int:
         canvas = frame.copy()
         tf = sample.tf_field_from_camera.copy()
         tf[:3, :3] = tf[:3, :3] @ fix.T
-        sq, sq_ok = project_field_points(square, tf, K)
-        rg, rg_ok = project_field_points(ring, tf, K)
+        sq, sq_ok = project_field_points(square, tf, camera_matrix)
+        rg, rg_ok = project_field_points(ring, tf, camera_matrix)
         h, w = frame.shape[:2]
         inside = sum(1 for p, ok in zip(sq, sq_ok) if ok and 0 <= p[0] < w and 0 <= p[1] < h)
         print(f"{name:8s} square corners in frame: {inside}/4  px={np.round(sq, 1).tolist()}")

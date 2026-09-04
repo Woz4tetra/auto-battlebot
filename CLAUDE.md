@@ -50,6 +50,29 @@ source scripts/activate_python.sh   # activates venv/ (create it first with scri
 
 Do not use `uv run` or create a `uv.lock`. The venv is the intended environment for `scripts/`, `playground/`, `training/`, and `simulation/`.
 
+### Where Python code goes
+
+`auto_battlebot/` and `playground/` are installed packages (`pip install -e .`), so their
+modules import as `auto_battlebot.<module>` and `playground.<subpackage>.<module>` from
+anywhere. `training/`, `scripts/`, `simulation/`, and `logo/` are not packages.
+
+- **Shared library code goes in `auto_battlebot/`.** It is the only directory that is both
+  importable and type-checked. Anything two callers need lives here, `playground/calibration/`
+  drivers included (`auto_battlebot/calibration/`).
+- `playground/` holds runnable analysis scripts: one CLI per file. It is formatted and linted
+  by ruff like the rest of the tree, but stays out of mypy. When a helper in there grows a
+  second caller, move it to `auto_battlebot/` rather than importing across script directories.
+- `training/` is standalone scripts and is deliberately **not** a package, so a `training/`
+  module can never be a shared dependency. Code that `playground/` or `simulation/` needs from
+  there moves to `auto_battlebot/` first.
+- No `sys.path` manipulation to reach first-party code, and therefore no `# noqa: E402`. The
+  only legitimate `sys.path` writes are for build artifacts under `build/` (import them lazily
+  inside the function that needs them) and for Blender's embedded Python, which ignores
+  `PYTHONPATH`.
+
+Adding a new package directory means adding it to `[tool.setuptools.packages.find]` in
+`pyproject.toml` and re-running `pip install -e .`.
+
 ## Architecture
 
 Config-driven factory pattern. The active TOML config selects which implementation of each interface gets instantiated at startup. Main loop in `Runner`:

@@ -33,7 +33,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -42,11 +41,9 @@ import numpy as np
 from scipy.optimize import nnls
 from scipy.stats import chi2
 
-
 DEFAULT_CALIBRATION = Path(__file__).resolve().parent / "jig_calibration.toml"
 
-from calib_lib.jig_fit import build_windows, load_all
-
+from auto_battlebot.calibration.jig_fit import build_windows, load_all
 from auto_battlebot.plant import (
     MODEL_LADDER,
     ModelStructure,
@@ -175,7 +172,9 @@ class ProcessNoise:
         return "\n".join(lines) + "\n"
 
 
-def build_q(fits: dict[str, GrowthFit], median_speed: float, median_yaw_rate: float) -> ProcessNoise:
+def build_q(
+    fits: dict[str, GrowthFit], median_speed: float, median_yaw_rate: float
+) -> ProcessNoise:
     """Map the fitted coefficients onto the EKF's continuous-time noise terms.
 
     sigma_p^2 = q h^3 / 3 is the standard position variance under white-noise acceleration, so
@@ -340,7 +339,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("sessions", type=Path, nargs="+", help="session directories written by velocity_jig_drive.py")
+    parser.add_argument(
+        "sessions",
+        type=Path,
+        nargs="+",
+        help="session directories written by velocity_jig_drive.py",
+    )
     parser.add_argument("--calibration", type=Path, default=DEFAULT_CALIBRATION)
     parser.add_argument("--params", type=Path, required=True, help="plant TOML from fit_jig_plant")
     parser.add_argument("--out", type=Path, default=None)
@@ -356,7 +360,6 @@ def main() -> None:
         help="also use the runs the plant was fit on (they flatter the noise model)",
     )
     args = parser.parse_args()
-
 
     calib = JigCalibration.from_toml(args.calibration)
     params = PlantParams.from_toml(args.params)

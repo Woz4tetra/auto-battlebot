@@ -274,7 +274,7 @@ that is a finding, not a nuisance.
 This is the single most likely way to get a wrong answer, so it gets its own section.
 
 **The problem.** Commands are logged on the host with `CLOCK_MONOTONIC`
-(`playground/calibration/calib_lib/drive_protocol.py`). The jig logs `time_us_64()`, microseconds
+(`auto_battlebot/calibration/drive_protocol.py`). The jig logs `time_us_64()`, microseconds
 since RP2040 boot. The two clocks have an unknown offset and an unknown relative rate.
 
 **The identifiability trap.** The obvious approach is to cross-correlate command edges against
@@ -365,7 +365,7 @@ than assumed.
 
 Safety: the trainer link adds to stick input, so the human driver's sticks stay centered; the runner
 zeroes channels and disarms on every exit path including timeout and Ctrl-C. That behavior already
-exists in `calib_lib/drive_protocol.py` and gets reused.
+exists in `auto_battlebot/calibration/drive_protocol.py` and gets reused.
 
 ## 1.5 Identification methodology
 

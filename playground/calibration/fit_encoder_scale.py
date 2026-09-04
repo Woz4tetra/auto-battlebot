@@ -227,16 +227,27 @@ def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) ->
     for i, dist in enumerate(distances):
         for j, p in enumerate(by_distance[dist]):
             ax.plot(
-                p.t, p.count * fit.meters_per_count, lw=1.0, color=f"C{i}",
-                alpha=0.8, label=f"{dist:g} m" if j == 0 else None,
+                p.t,
+                p.count * fit.meters_per_count,
+                lw=1.0,
+                color=f"C{i}",
+                alpha=0.8,
+                label=f"{dist:g} m" if j == 0 else None,
             )
             for d in p.dwells:
                 used = d.count in (p.origin, p.far)
                 y = d.count * fit.meters_per_count
-                ax.plot([d.t0, d.t1], [y] * 2, lw=4.0 if used else 2.0, color=f"C{i}",
-                        alpha=0.9 if used else 0.3, solid_capstyle="butt")
                 ax.plot(
-                    [0.5 * (d.t0 + d.t1)], [y],
+                    [d.t0, d.t1],
+                    [y] * 2,
+                    lw=4.0 if used else 2.0,
+                    color=f"C{i}",
+                    alpha=0.9 if used else 0.3,
+                    solid_capstyle="butt",
+                )
+                ax.plot(
+                    [0.5 * (d.t0 + d.t1)],
+                    [y],
                     marker="o" if used else "x",
                     ms=7 if used else 6,
                     mfc=f"C{i}" if used else "none",
@@ -268,13 +279,24 @@ def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) ->
         sel = x == dist
         ax.plot(x[sel], y[sel], "o", ms=6, color=f"C{i}")
     xs = np.linspace(0, x.max() * 1.05, 10)
-    ax.plot(xs, fit.counts_per_m * xs, "--", lw=1.0, color="0.6",
-            label=f"through origin: {fit.counts_per_m:,.0f} counts/m")
+    ax.plot(
+        xs,
+        fit.counts_per_m * xs,
+        "--",
+        lw=1.0,
+        color="0.6",
+        label=f"through origin: {fit.counts_per_m:,.0f} counts/m",
+    )
     if fit.distances > 1:
-        ax.plot(xs, fit.slope_counts_per_m * xs + fit.intercept_counts, "-", lw=1.4,
-                color="0.2",
-                label=f"with offset: {fit.slope_counts_per_m:,.0f} counts/m "
-                      f"{fit.intercept_counts:+,.0f}")
+        ax.plot(
+            xs,
+            fit.slope_counts_per_m * xs + fit.intercept_counts,
+            "-",
+            lw=1.4,
+            color="0.2",
+            label=f"with offset: {fit.slope_counts_per_m:,.0f} counts/m "
+            f"{fit.intercept_counts:+,.0f}",
+        )
     ax.set_xlabel("marked distance (m)", fontsize=9)
     ax.set_ylabel("encoder counts", fontsize=9)
     ax.legend(fontsize=8)
@@ -292,8 +314,13 @@ def make_plot(path: Path, passes: list[Pass], fit: Fit, mark_error_mm: float) ->
         sel = x == dist
         ax.plot(x[sel], resid_mm[sel], "o", ms=6, color=f"C{i}")
     ax.axhline(0.0, color="0.5", lw=1.0)
-    ax.axhspan(-mark_error_mm, mark_error_mm, color="0.85", zorder=0,
-               label=f"+/-{mark_error_mm:g} mm marking error")
+    ax.axhspan(
+        -mark_error_mm,
+        mark_error_mm,
+        color="0.85",
+        zorder=0,
+        label=f"+/-{mark_error_mm:g} mm marking error",
+    )
     ax.set_xlabel("marked distance (m)", fontsize=9)
     ax.set_ylabel("residual (mm)", fontsize=9)
     ax.legend(fontsize=8)
@@ -350,8 +377,10 @@ def main() -> None:
 
     fit = fit_scale(passes)
 
-    print(f"{'log':<14}{'dist m':>8}{'counts':>10}{'counts/m':>11}{'closure mm':>12}"
-          f"{'dwell drift mm':>16}")
+    print(
+        f"{'log':<14}{'dist m':>8}{'counts':>10}{'counts/m':>11}{'closure mm':>12}"
+        f"{'dwell drift mm':>16}"
+    )
     for p in sorted(passes, key=lambda q: (q.distance_m, q.path.name)):
         print(
             f"{p.path.name:<14}{p.distance_m:>8.3f}{p.span:>10.0f}"
@@ -361,15 +390,21 @@ def main() -> None:
         )
 
     print(f"\nfit over {fit.n} passes at {fit.distances} distance(s):")
-    print(f"  through the origin : {fit.counts_per_m:>10,.1f} +/- {fit.stderr:>6,.1f} counts/m"
-          f"   -> {1.0 / fit.counts_per_m:.6e} m/count")
+    print(
+        f"  through the origin : {fit.counts_per_m:>10,.1f} +/- {fit.stderr:>6,.1f} counts/m"
+        f"   -> {1.0 / fit.counts_per_m:.6e} m/count"
+    )
     if fit.distances > 1:
-        print(f"  allowing an offset : {fit.slope_counts_per_m:>10,.1f} "
-              f"+/- {fit.slope_stderr:>6,.1f} counts/m"
-              f"   -> {1.0 / fit.slope_counts_per_m:.6e} m/count")
+        print(
+            f"  allowing an offset : {fit.slope_counts_per_m:>10,.1f} "
+            f"+/- {fit.slope_stderr:>6,.1f} counts/m"
+            f"   -> {1.0 / fit.slope_counts_per_m:.6e} m/count"
+        )
         offset_mm = fit.intercept_counts / fit.slope_counts_per_m * 1e3
-        print(f"  fixed offset       : {fit.intercept_counts:>+10,.0f} "
-              f"+/- {fit.intercept_stderr:>6,.0f} counts   ({offset_mm:+.1f} mm per pass)")
+        print(
+            f"  fixed offset       : {fit.intercept_counts:>+10,.0f} "
+            f"+/- {fit.intercept_stderr:>6,.0f} counts   ({offset_mm:+.1f} mm per pass)"
+        )
         if fit.intercept_real:
             gap = fit.counts_per_m / fit.slope_counts_per_m - 1.0
             print(
@@ -379,11 +414,15 @@ def main() -> None:
                 f" into the scale and comes out {gap:+.1%} off, worst at the shortest push."
             )
         else:
-            print("\n  The offset is consistent with zero, so the line goes through the"
-                  " origin and no fixed per-pass error is inflating the scale.")
+            print(
+                "\n  The offset is consistent with zero, so the line goes through the"
+                " origin and no fixed per-pass error is inflating the scale."
+            )
     else:
-        print("  Only one distance, so a fixed per-pass offset cannot be told apart from the"
-              " scale. Push over a second distance to test for one.")
+        print(
+            "  Only one distance, so a fixed per-pass offset cannot be told apart from the"
+            " scale. Push over a second distance to test for one."
+        )
 
     print(f"\nmeters_per_count = {fit.meters_per_count:.6e}  +/- {fit.rel_stderr:.2%}")
 
@@ -392,13 +431,17 @@ def main() -> None:
 
     longest = max(p.distance_m for p in passes)
     mark_frac = (args.mark_error_mm * 1e-3) / longest
-    print(f"marking error of {args.mark_error_mm:g} mm over the longest push ({longest:g} m)"
-          f" is {mark_frac:.2%}")
+    print(
+        f"marking error of {args.mark_error_mm:g} mm over the longest push ({longest:g} m)"
+        f" is {mark_frac:.2%}"
+    )
     total = max(fit.rel_stderr, mark_frac)
-    print(f"\nuse {total:.2%} as the honest uncertainty on every fitted speed"
-          + (", set by the marks rather than the spread" if mark_frac > fit.rel_stderr else ""))
+    print(
+        f"\nuse {total:.2%} as the honest uncertainty on every fitted speed"
+        + (", set by the marks rather than the spread" if mark_frac > fit.rel_stderr else "")
+    )
     if total > 0.003:
-        print(f"  Over the runbook's 0.3% bar. Push over a longer line to get under it.")
+        print("  Over the runbook's 0.3% bar. Push over a longer line to get under it.")
 
     if args.plot:
         make_plot(args.plot, passes, fit, args.mark_error_mm)

@@ -28,32 +28,28 @@ now say: the tool cannot see the wall the robot hit.
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import Any
 
 import tomllib
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from calib_lib import drive_protocol as dp  # noqa: E402
-from calib_lib import jig_link as jl  # noqa: E402
-from velocity_jig_drive import (  # noqa: E402
-    COMMAND_PREAMBLE,
-    command_row,
-    gates,
-    log_gates,
-    mix_from_args,
-    write_run_toml,
-)
-
-from auto_battlebot.velocity_jig import (  # noqa: E402
+from auto_battlebot.calibration import drive_protocol as dp
+from auto_battlebot.calibration import jig_link as jl
+from auto_battlebot.velocity_jig import (
     ClockFit,
     ClockProbe,
     PauseWindow,
     ProtocolSegment,
     pause_windows_from_commands,
     read_command_log,
+)
+from playground.calibration.velocity_jig_drive import (
+    COMMAND_PREAMBLE,
+    command_row,
+    gates,
+    log_gates,
+    mix_from_args,
+    write_run_toml,
 )
 
 OPERATOR_PREFIX = "operator:"

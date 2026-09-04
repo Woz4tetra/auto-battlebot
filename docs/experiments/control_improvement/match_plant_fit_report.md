@@ -62,7 +62,7 @@ python playground/calibration/fit_match_plant.py \
   --report-dir playground/calibration/out/match_fit
 ```
 
-The loader is `playground/calibration/calib_lib/match_windows.py`, next to the
+The loader is `auto_battlebot/calibration/match_windows.py`, next to the
 jig loader. The fit machinery is shared with the jig fit: `plant.py` model
 ladder scored by `predict_windows`, `jig_fit.joint_fit` with match bounds. I
 did not register match data as a `fit_jig_plant.py` catalog entry as the plan

@@ -232,7 +232,7 @@ latency = 0.052
 deadzone = 0.0     # unchanged, see below
 ```
 
-Leave `deadzone` at 0. The jig drove the ESCs raw (`calib_lib/drive_protocol.py` sends commands
+Leave `deadzone` at 0. The jig drove the ESCs raw (`auto_battlebot/calibration/drive_protocol.py` sends commands
 with no lifted deadzone, by design, so the physical deadzone could be measured rather than
 pre-compensated), and it measured 1.10% forward and 2.53% reverse. The deployed transmitter
 already lifts wheel commands past `lifted_deadzone_percent = 5`. Pasting the jig deadzone into

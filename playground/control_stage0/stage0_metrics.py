@@ -12,7 +12,8 @@ re-run (laptop results differ from the Jetson).
 Run (activate the project venv first):
 
     source scripts/activate_python.sh
-    python playground/control_stage0/stage0_metrics.py <file.mcap> [...] --plots docs/experiments/control_improvement/assets
+    python playground/control_stage0/stage0_metrics.py <file.mcap> [...] \
+        --plots docs/experiments/control_improvement/assets
 
 Reuses playground/analyze_nav_diagnostics.py helpers for time-to-contact, and
 playground/control_stage0/diag_io.py for all loading.
@@ -25,15 +26,16 @@ import sys
 from pathlib import Path
 
 import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
-matplotlib.use("Agg")  # headless: render plots to files, no display
-import diag_io  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+from auto_battlebot import diag_io
 
 # Reuse the sibling analyzer's contact metric.
-from analyze_nav_diagnostics import compute_time_to_target  # noqa: E402
+from playground.analyze_nav_diagnostics import compute_time_to_target
+
+matplotlib.use("Agg")  # headless: render plots to files, no display
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -130,7 +132,8 @@ def report_latency(df: pd.DataFrame) -> None:
     if "pipeline/latency_ms" in df.columns:
         s = _stats(df["pipeline/latency_ms"])
         print(
-            f"  end-to-end   mean {s['mean']:6.1f}  p50 {s['p50']:6.1f}  p95 {s['p95']:6.1f}  max {s['max']:6.1f}  ms"
+            f"  end-to-end   mean {s['mean']:6.1f}  p50 {s['p50']:6.1f}  p95 {s['p95']:6.1f}  max "
+            f"{s['max']:6.1f}  ms"
         )
     for col in sorted(
         c for c in df.columns if c.startswith("stage/") and c.endswith("/elapsed_ms")
@@ -149,12 +152,13 @@ def report_reliability(df: pd.DataFrame, duration_s: float) -> None:
         eps = _episodes(sub, df["t"])
         durs = [e - s for s, e in eps]
         print(
-            f"  cache substituted (lost a critical robot): {_pct(int(sub.sum()), n):5.1f}% of frames, "
-            f"{len(eps)} dropout episodes"
+            f"  cache substituted (lost a critical robot): "
+            f"{_pct(int(sub.sum()), n):5.1f}% of frames, {len(eps)} dropout episodes"
         )
         if durs:
             print(
-                f"    dropout episode duration: median {np.median(durs) * 1000:.0f} ms  max {max(durs) * 1000:.0f} ms"
+                f"    dropout episode duration: median {np.median(durs) * 1000:.0f} ms  max "
+                f"{max(durs) * 1000:.0f} ms"
             )
     if "n_their" in df.columns:
         present = df["n_their"].fillna(0) > 0
@@ -200,7 +204,8 @@ def report_overshoot(df: pd.DataFrame, field_size, wall_margin: float, contact_d
     eps = _episodes(near, df["t"])
     total = sum(e - s for s, e in eps)
     print(
-        f"  field size: {field_size[0]:.2f} x {field_size[1]:.2f} m (half {half_x:.2f}, {half_y:.2f})"
+        f"  field size: {field_size[0]:.2f} x {field_size[1]:.2f} m (half {half_x:.2f}, "
+        f"{half_y:.2f})"
     )
     print(
         f"  near-wall (< {wall_margin:.2f} m): {len(eps)} episodes, {total:.1f} s total, "
@@ -214,8 +219,8 @@ def report_overshoot(df: pd.DataFrame, field_size, wall_margin: float, contact_d
         )
         print(
             f"  target distance: median {df['distance'].median():.2f} m; "
-            f"within contact ({contact_dist:.2f} m): {_pct(int(reached.sum()), len(df)):.1f}% of frames; "
-            f"{ttc_str}"
+            f"within contact ({contact_dist:.2f} m): "
+            f"{_pct(int(reached.sum()), len(df)):.1f}% of frames; {ttc_str}"
         )
     print()
     return df
@@ -237,7 +242,8 @@ def report_projection_error(
     s = _stats(df["proj_err"])
     print(f"  camera height above field: median {cz.median():.2f} m")
     print(
-        f"  position error: median {s['p50'] * 100:.1f}  p95 {s['p95'] * 100:.1f}  max {s['max'] * 100:.1f}  cm"
+        f"  position error: median {s['p50'] * 100:.1f}  p95 {s['p95'] * 100:.1f}  max "
+        f"{s['max'] * 100:.1f}  cm"
     )
 
     if field_size is not None:
@@ -264,7 +270,8 @@ def report_projection_error(
                 f"(+1 = error points into the wall)"
             )
     print(
-        "  -> upper bound on wall-collision contribution; height compensation would remove most of this."
+        "  -> upper bound on wall-collision contribution; height compensation would remove most of "
+        "this."
     )
     print()
 

@@ -126,7 +126,11 @@ cpp_files() {
 }
 
 # Python dirs for ruff format / ruff check (mypy uses mypy.ini scope instead).
+# auto_battlebot/ and playground/ are installed packages; playground is linted and
+# formatted here but excluded from mypy (see pyproject.toml and mypy.ini).
 PY_FMT_DIRS=(
+    "$PROJECT_ROOT/auto_battlebot"
+    "$PROJECT_ROOT/playground"
     "$PROJECT_ROOT/scripts"
     "$PROJECT_ROOT/simulation"
     "$PROJECT_ROOT/training"

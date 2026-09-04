@@ -8,7 +8,8 @@ self-contained HTML report.
 Runs reach the right fit by the waveform kind, channel and role their sidecar declares, so a
 new excitation needs a catalog entry rather than a change here.
 
-The fit machinery lives in `calib_lib/jig_fit.py`; this file is the command line over it.
+The fit machinery lives in `auto_battlebot/calibration/jig_fit.py`; this file is the command line
+over it.
 
 Usage:
     source scripts/activate_python.sh
@@ -22,11 +23,9 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import sys
 from pathlib import Path
 
 import numpy as np
-
 
 from auto_battlebot.plant import (
     FULL_MODEL,
@@ -35,9 +34,10 @@ from auto_battlebot.plant import (
     predict_windows,
 )
 from auto_battlebot.velocity_jig import CALIBRATION_TEMPLATE, JigCalibration
+
 DEFAULT_CALIBRATION = Path(__file__).resolve().parent / "jig_calibration.toml"
 
-from calib_lib.jig_fit import (
+from auto_battlebot.calibration.jig_fit import (
     DelayProfile,
     FitWeights,
     HorizonReport,
@@ -189,7 +189,11 @@ def main() -> None:
     print(f"calibration: {calib.meters_per_count:.8g} m/count, gyro scale {calib.gyro_scale:.4f}")
 
     loaded = load_all(
-        args.sessions, calib, args.fit_hz, args.keep_bad, args.smooth_ms / 1000.0,
+        args.sessions,
+        calib,
+        args.fit_hz,
+        args.keep_bad,
+        args.smooth_ms / 1000.0,
         commands=args.commands,
         max_saturation=args.max_saturation,
     )

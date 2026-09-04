@@ -28,7 +28,6 @@ experiment ids, so a new excitation reaches the right fit without editing this f
 from __future__ import annotations
 
 import math
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
@@ -36,14 +35,13 @@ from typing import Sequence
 import numpy as np
 from scipy.optimize import least_squares
 
-
 from auto_battlebot.plant import (
     FULL_MODEL,
-    MODEL_LADDER,
     PARAM_BOUNDS,
     ModelStructure,
     PlantParams,
     WindowErrors,
+    WindowSet,
     concat_windows,
     effective_command,
     make_windows,
@@ -123,9 +121,7 @@ class Loaded:
         roles: Sequence[str] | None = None,
     ) -> list[Run]:
         """Runs matching a routing selector. None means any."""
-        return [
-            r for r in self.runs if r.spec.matches(kinds=kinds, channels=channels, roles=roles)
-        ]
+        return [r for r in self.runs if r.spec.matches(kinds=kinds, channels=channels, roles=roles)]
 
     def by_waveform(self) -> dict[str, list[Run]]:
         out: dict[str, list[Run]] = {}
@@ -458,6 +454,51 @@ def fit_gain(
     return Estimate(slope, float(np.std(ratios)), len(used)), used
 
 
+def _coupling_cells(
+    runs: Sequence[Run], p: PlantParams
+) -> list[tuple[float, float, float, float, float]]:
+    """One cell per held linear segment of the E13 grid.
+
+    Each is (u_lin_eff, u_ang_eff, v_ss, w_ss, angular command as issued). The last one is
+    what mirror matching keys on: the effective command has the per-side deadzone removed,
+    and those two deadzones are not equal, so +0.08 and -0.08 come out at +0.0650 and
+    -0.0573 and never match. The grid is symmetric in what was commanded, never in what is
+    left after deadzone removal.
+    """
+    cells: list[tuple[float, float, float, float, float]] = []
+    for run in runs:
+        for seg in held_segments(run, "lin"):
+            lin_eff = float(effective_command(np.array(seg.level), p.dz_lin_fwd, p.dz_lin_rev))
+            if seg.other <= 0.02:
+                cells.append((lin_eff, 0.0, seg.v_ss, 0.0, 0.0))
+                continue
+            ang_eff = float(effective_command(np.array(seg.other_signed), p.dz_ang_l, p.dz_ang_r))
+            # The angular steady state over the same window, from the run's yaw rate.
+            # Signed, not absolute: the sign is what separates angular droop from
+            # straight-line drift, since droop flips with the turn and drift does not.
+            mask = (run.t >= seg.t0) & (run.t < seg.t0 + seg.n * run.dt)
+            w_ss = float(np.median(run.w[mask])) if np.count_nonzero(mask) else 0.0
+            cells.append((lin_eff, ang_eff, seg.v_ss, w_ss, float(seg.other_signed)))
+    return cells
+
+
+def _steer_brake_points(
+    cells: Sequence[tuple[float, float, float, float, float]], p: PlantParams
+) -> tuple[list[float], list[float]]:
+    """(|u_ang_eff|, fractional speed loss) for every cell that turns and drives at once."""
+    xs: list[float] = []
+    ys: list[float] = []
+    for lin_eff, ang_eff, v_ss, _w_ss, _cmd in cells:
+        if abs(lin_eff) <= 1e-3 or abs(ang_eff) <= 1e-3:
+            continue
+        k = p.k_fwd if lin_eff > 0 else p.k_rev
+        v0 = k * abs(lin_eff)
+        if v0 > 1e-3:
+            xs.append(abs(ang_eff))
+            ys.append(1.0 - v_ss / v0)
+    return xs, ys
+
+
 def fit_coupling(
     runs: Sequence[Run], p: PlantParams
 ) -> tuple[Estimate, Estimate, list[tuple[float, float, float, float, float]]]:
@@ -469,37 +510,10 @@ def fit_coupling(
     Both are regressed through the origin on fractional loss. A coefficient whose spread covers
     zero does not go in the model: three terms that are all real beat six where two are noise.
     """
-    # u_lin_eff, u_ang_eff, v_ss, w_ss, and the angular command as issued. The last one is
-    # what mirror matching keys on: the effective command has the per-side deadzone removed,
-    # and those two deadzones are not equal, so +0.08 and -0.08 come out at +0.0650 and
-    # -0.0573 and never match. The grid is symmetric in what was commanded, never in what is
-    # left after deadzone removal.
-    cells: list[tuple[float, float, float, float, float]] = []
-    for run in runs:
-        for seg in held_segments(run, "lin"):
-            if seg.other <= 0.02:
-                lin_eff = float(effective_command(np.array(seg.level), p.dz_lin_fwd, p.dz_lin_rev))
-                cells.append((lin_eff, 0.0, seg.v_ss, 0.0, 0.0))
-                continue
-            lin_eff = float(effective_command(np.array(seg.level), p.dz_lin_fwd, p.dz_lin_rev))
-            ang_eff = float(
-                effective_command(np.array(seg.other_signed), p.dz_ang_l, p.dz_ang_r)
-            )
-            # The angular steady state over the same window, from the run's yaw rate.
-            # Signed, not absolute: the sign is what separates angular droop from
-            # straight-line drift, since droop flips with the turn and drift does not.
-            mask = (run.t >= seg.t0) & (run.t < seg.t0 + seg.n * run.dt)
-            w_ss = float(np.median(run.w[mask])) if np.count_nonzero(mask) else 0.0
-            cells.append((lin_eff, ang_eff, seg.v_ss, w_ss, float(seg.other_signed)))
-
-    sb_x, sb_y, ad_x, ad_y = [], [], [], []
-    for lin_eff, ang_eff, v_ss, w_ss, _cmd in cells:
-        if abs(lin_eff) > 1e-3 and abs(ang_eff) > 1e-3:
-            k = p.k_fwd if lin_eff > 0 else p.k_rev
-            v0 = k * abs(lin_eff)
-            if v0 > 1e-3:
-                sb_x.append(abs(ang_eff))
-                sb_y.append(1.0 - v_ss / v0)
+    cells = _coupling_cells(runs, p)
+    sb_x, sb_y = _steer_brake_points(cells, p)
+    ad_x: list[float] = []
+    ad_y: list[float] = []
 
     # Angular droop and straight-line drift both make yaw depend on the linear command, so
     # a grid that only ever turns one way cannot tell them apart. They separate on turn
@@ -860,7 +874,7 @@ def build_windows(
     stride_s: float,
     max_windows: int,
     require_encoder: bool = True,
-):  # -> WindowSet | None
+) -> WindowSet | None:
     """Cut windows out of every run and stack them into one batch.
 
     Runs with a detached encoder carry no linear truth, so they are excluded from the position
@@ -927,11 +941,12 @@ def residual_vector(err: WindowErrors, weights: FitWeights) -> np.ndarray:
 
 
 def joint_fit(
-    windows,
+    windows: WindowSet,
     start: PlantParams,
     structure: ModelStructure,
     weights: FitWeights,
     max_nfev: int | None = None,
+    bounds: dict[str, tuple[float, float]] | None = None,
 ) -> tuple[PlantParams, float]:
     """Minimize windowed open-loop error over the structure's free parameters.
 
@@ -939,11 +954,16 @@ def joint_fit(
     thing standing between a bad window and the fit, so keep the capture-time verdict honest.
     Delay is fixed here and profiled outside: the objective is not smooth in it at the
     millisecond resolution that matters.
+
+    `bounds` overrides `PARAM_BOUNDS` per parameter. The match fit uses it to hold gains and
+    time constants inside the jig error bars widened 3x, so match data refines the jig answer
+    instead of wandering to a new one on weaker excitation.
     """
     names = structure.free_names()
     x0 = start.to_vector(names)
-    lo = np.array([PARAM_BOUNDS[n][0] for n in names])
-    hi = np.array([PARAM_BOUNDS[n][1] for n in names])
+    table = {**PARAM_BOUNDS, **(bounds or {})}
+    lo = np.array([table[n][0] for n in names])
+    hi = np.array([table[n][1] for n in names])
     x0 = np.clip(x0, lo + 1e-9, hi - 1e-9)
 
     def objective(x: np.ndarray) -> np.ndarray:
@@ -1168,4 +1188,3 @@ def write_params(
         lines.append(f'{name} = "{est}"')
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"\nwrote {path}")
-

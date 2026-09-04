@@ -36,8 +36,16 @@ SIGNATURES: list[tuple[str, int, re.Pattern[str]]] = [
     ("oops", 84, re.compile(r"\bOops:\b", re.IGNORECASE)),
     ("kernel_bug", 82, re.compile(r"\bBUG:\s+kernel\b", re.IGNORECASE)),
     ("general_protection_fault", 80, re.compile(r"general protection fault", re.IGNORECASE)),
-    ("null_deref", 80, re.compile(r"unable to handle kernel (null )?pointer dereference", re.IGNORECASE)),
-    ("oom_killer", 75, re.compile(r"out of memory|oom-killer|killed process .* out of memory", re.IGNORECASE)),
+    (
+        "null_deref",
+        80,
+        re.compile(r"unable to handle kernel (null )?pointer dereference", re.IGNORECASE),
+    ),
+    (
+        "oom_killer",
+        75,
+        re.compile(r"out of memory|oom-killer|killed process .* out of memory", re.IGNORECASE),
+    ),
     ("machine_check", 72, re.compile(r"machine check|mce:", re.IGNORECASE)),
     ("tainted", 40, re.compile(r"tainted:", re.IGNORECASE)),
 ]

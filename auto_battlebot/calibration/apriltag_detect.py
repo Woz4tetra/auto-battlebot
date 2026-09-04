@@ -1,15 +1,17 @@
 """AprilTag detection and field-plane pose geometry, shared by capture and analysis.
 
-apriltag_track.py uses this live (to guide the operator in the preview); analyze_apriltag_mcap.py uses it
-to re-detect the recorded camera images after the fact. Keeping detection in one module means the offline
-poses are solved with the exact detector, gamma correction, and PnP the operator saw on screen.
+apriltag_track.py uses this live (to guide the operator in the preview); analyze_apriltag_mcap.py
+uses it to re-detect the recorded camera images after the fact. Keeping detection in one module
+means the offline poses are solved with the exact detector, gamma correction, and PnP the operator
+saw on screen.
 
 Two PnP solves, same as the original single-script flow:
-  1. solve_floor_extrinsic locks the camera pose relative to a flat AprilTag GridBoard, defining the field
-     frame (z = 0 on the floor). Solved once from several frames in which the board is visible.
-  2. tag_pose_field solves the robot tag's 3D pose each frame and expresses its (x, y, yaw) in that frame.
-     Because the pose is solved in 3D, the tag's height above the floor does not bias (x, y) the way a
-     floor homography would.
+  1. solve_floor_extrinsic locks the camera pose relative to a flat AprilTag GridBoard, defining the
+     field frame (z = 0 on the floor). Solved once from several frames in which the board is
+     visible.
+  2. tag_pose_field solves the robot tag's 3D pose each frame and expresses its (x, y, yaw) in that
+     frame. Because the pose is solved in 3D, the tag's height above the floor does not bias (x, y)
+     the way a floor homography would.
 """
 
 from __future__ import annotations
@@ -24,21 +26,23 @@ import numpy as np
 def make_detector() -> cv2.aruco.ArucoDetector:
     """ArucoDetector tuned for small/distant 36h11 tags (markers ~20-40 px from a 1-1.5 m mount).
 
-    The hard limit is pixels-on-target: face-on, 36h11 decodes reliably only above ~18 px edge, and no
-    parameter recovers a marker below ~15 px (that is what the 1080p default buys). Within that budget these
+    The hard limit is pixels-on-target: face-on, 36h11 decodes reliably only above ~18 px edge, and
+    no parameter recovers a marker below ~15 px (that is what the 1080p default buys). Within that
+    budget these
     settings squeeze out the margin and sharpen pose:
-      - a tight adaptive-threshold window range (5..21, step 8 -> 3 passes). The big windows (>21) were the
-        cost driver at 1080p (33 ms -> ~11 ms per frame, the difference between ~30 and ~60 fps) and added
-        no detections once auto_gamma normalizes brightness, so they are dropped. Verified 15/15 on both a
-        face-on render and an oblique 1080p frame.
-      - lower perimeter gate so small markers are not pre-rejected; looser polygon approx tolerates the
-        rougher quads low-res markers produce.
-      - max error correction: 36h11's Hamming distance (11) leaves plenty of headroom, so accepting more
-        corrected bits recovers borderline reads without inviting false positives.
-      - subpixel corner refinement: tighter corners -> lower (x, y, yaw) noise, which the plant fit needs.
-        It is cheap here (~0-4 ms) so it stays.
-    minMarkerDistanceRate is left at its default: lowering it interacts with subpixel refinement to drop a
-    valid marker (it merged duplicate candidates), verified on the board photo (15/15 only at the default).
+      - a tight adaptive-threshold window range (5..21, step 8 -> 3 passes). The big windows (>21)
+        were the cost driver at 1080p (33 ms -> ~11 ms per frame, the difference between ~30 and ~60
+        fps) and added no detections once auto_gamma normalizes brightness, so they are dropped.
+        Verified 15/15 on both a face-on render and an oblique 1080p frame.
+      - lower perimeter gate so small markers are not pre-rejected; looser polygon approx tolerates
+        the rougher quads low-res markers produce.
+      - max error correction: 36h11's Hamming distance (11) leaves plenty of headroom, so accepting
+        more corrected bits recovers borderline reads without inviting false positives.
+      - subpixel corner refinement: tighter corners -> lower (x, y, yaw) noise, which the plant fit
+        needs. It is cheap here (~0-4 ms) so it stays.
+    minMarkerDistanceRate is left at its default: lowering it interacts with subpixel refinement to
+    drop a valid marker (it merged duplicate candidates), verified on the board photo (15/15 only at
+    the default).
     """
     aruco = cv2.aruco
     dictionary = aruco.getPredefinedDictionary(aruco.DICT_APRILTAG_36h11)
@@ -60,12 +64,12 @@ def auto_gamma(
 ) -> np.ndarray:
     """Brighten an underexposed frame via a gamma curve that lifts its mean toward target_mean.
 
-    Arena lighting is often dim and the camera underexposes: a raw frame at mean ~52/255 detects 0 tags
-    because the black/white marker contrast is crushed into the shadows. A power-law stretch recovers it
-    (0 -> ~10 tags on a real dim frame). Well-lit frames (mean >= min_mean) are returned untouched, so this
-    never hurts a good exposure. The transform is monotonic and applied per channel, so marker corner
-    geometry (hence the recovered pose) is unchanged. Applied at detection time, not when recording, so the
-    MCAP keeps the raw frames and the gamma can be retuned offline.
+    Arena lighting is often dim and the camera underexposes: a raw frame at mean ~52/255 detects 0
+    tags because the black/white marker contrast is crushed into the shadows. A power-law stretch
+    recovers it (0 -> ~10 tags on a real dim frame). Well-lit frames (mean >= min_mean) are returned
+    untouched, so this never hurts a good exposure. The transform is monotonic and applied per
+    channel, so marker corner geometry (hence the recovered pose) is unchanged. Applied at detection
+    time, not when recording, so the MCAP keeps the raw frames and the gamma can be retuned offline.
     """
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
     mean = float(gray.mean())
@@ -77,7 +81,9 @@ def auto_gamma(
     return cv2.LUT(frame, lut)
 
 
-def detect_markers(detector: cv2.aruco.ArucoDetector, frame: np.ndarray, scale: float = 1.0):
+def detect_markers(
+    detector: cv2.aruco.ArucoDetector, frame: np.ndarray, scale: float = 1.0
+) -> tuple[np.ndarray, tuple[np.ndarray, ...], np.ndarray | None]:
     """Auto-brighten then detect. Returns (display_frame, corners, ids) where display_frame is the
     original-resolution gamma frame, so a preview draws markers on the same pixels it detected.
 
@@ -95,22 +101,25 @@ def detect_markers(detector: cv2.aruco.ArucoDetector, frame: np.ndarray, scale: 
         if scale == 1.0
         else cv2.resize(disp, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     )
-    corners, ids, _ = detector.detectMarkers(img)
+    raw_corners, ids, _ = detector.detectMarkers(img)
+    corners = tuple(np.asarray(c, dtype=np.float32) for c in raw_corners)
     if scale != 1.0 and corners:
         corners = tuple(c / scale for c in corners)
-    return disp, corners, ids
+    return disp, corners, None if ids is None else np.asarray(ids)
 
 
 def make_floor_board(
     cols: int, rows: int, marker_size: float, marker_sep: float, first_id: int
 ) -> cv2.aruco.GridBoard:
-    """AprilTag GridBoard for the floor reference. Its frame is the field frame (z = 0 on the floor).
+    """AprilTag GridBoard for the floor reference. Its frame is the field frame (z = 0 on the
+    floor).
 
-    The manufactured board numbers its markers right-to-left within each row (verified by detecting the
-    board photo: with first_id=160 the top-left tag is 162, top-right is 160). cv2's GridBoard fills ids
-    left-to-right, so each row is reversed to match the physical layout. Without this, matchImagePoints
-    pairs each id with a horizontally-mirrored object point and solvePnP returns a garbage extrinsic
-    (a reflection is not a rotation: ~440 px reprojection error vs ~16 px when correct).
+    The manufactured board numbers its markers right-to-left within each row (verified by detecting
+    the board photo: with first_id=160 the top-left tag is 162, top-right is 160). cv2's GridBoard
+    fills ids left-to-right, so each row is reversed to match the physical layout. Without this,
+    matchImagePoints pairs each id with a horizontally-mirrored object point and solvePnP returns a
+    garbage extrinsic (a reflection is not a rotation: ~440 px reprojection error vs ~16 px when
+    correct).
     """
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
     ids = np.arange(first_id, first_id + cols * rows).reshape(rows, cols)[:, ::-1].reshape(-1)
@@ -125,14 +134,15 @@ def solve_floor_extrinsic(
     d: np.ndarray,
     min_markers: int = 4,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Lock the camera pose relative to the floor grid by PnP over the frames in which the board is visible.
+    """Lock the camera pose relative to the floor grid by PnP over the frames in which the board is
+    visible.
 
-    Returns (R_fc, t_fc) mapping a floor point X_f to camera coords: X_c = R_fc @ X_f + t_fc. The board is
-    static, so correspondences from several frames are stacked into one solve to average detection noise.
-    Frames are raw camera images (gamma is applied internally), so this works identically on the live lock
-    burst and on the /floor/image frames replayed from a recording.
+    Returns (R_fc, t_fc) mapping a floor point X_f to camera coords: X_c = R_fc @ X_f + t_fc. The
+    board is static, so correspondences from several frames are stacked into one solve to average
+    detection noise. Frames are raw camera images (gamma is applied internally), so this works
+    identically on the live lock burst and on the /floor/image frames replayed from a recording.
     """
-    board_ids = set(board.getIds().flatten().tolist())
+    board_ids = set(np.asarray(board.getIds()).flatten().tolist())
     obj_all: list[np.ndarray] = []
     img_all: list[np.ndarray] = []
     used = 0
@@ -151,8 +161,10 @@ def solve_floor_extrinsic(
         used += 1
     if used == 0:
         raise SystemExit(
-            "Floor grid not detected in the floor frames. Make sure the grid board was flat and fully in "
-            "view at lock time, and that --floor-cols/--floor-rows/--floor-first-id match it (default 3x5, "
+            "Floor grid not detected in the floor frames. Make sure the grid board was flat and "
+            "fully in "
+            "view at lock time, and that --floor-cols/--floor-rows/--floor-first-id match it "
+            "(default 3x5, "
             "ids 160..174)."
         )
     ok, rvec, tvec = cv2.solvePnP(np.vstack(obj_all), np.vstack(img_all), k, d)

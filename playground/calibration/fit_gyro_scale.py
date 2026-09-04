@@ -33,7 +33,6 @@ from pathlib import Path
 import numpy as np
 
 from auto_battlebot.velocity_jig import (
-    JigLog,
     find_still_segments,
     read_jig_log,
     still_stats,
@@ -157,8 +156,9 @@ def make_plot(path: Path, turns: list[Turn], scale: float) -> None:
     ax.axhline(0.0, color="0.5", lw=1.0)
     ax.set_xlabel("time (s)", fontsize=9)
     ax.set_ylabel("integrated angle (deg)", fontsize=9)
-    ax.set_title("Integrated angle. Dotted is the true rotation, dot is what the gyro read.",
-                 fontsize=10)
+    ax.set_title(
+        "Integrated angle. Dotted is the true rotation, dot is what the gyro read.", fontsize=10
+    )
     ax.legend(fontsize=8)
 
     # Measured against true, with the fitted scale through the origin.
@@ -191,8 +191,9 @@ def make_plot(path: Path, turns: list[Turn], scale: float) -> None:
         [f"{n}\n{t.reference_deg:+.0f} deg" for n, t in zip(names, turns)], fontsize=8
     )
     ax.set_ylabel("gyro error (%)", fontsize=9)
-    ax.set_title("Error per run. A difference between directions is a sign problem, not a "
-                 "scale.", fontsize=9)
+    ax.set_title(
+        "Error per run. A difference between directions is a sign problem, not a scale.", fontsize=9
+    )
     ax.legend(fontsize=8)
 
     fig.suptitle(f"Gyro scale: {scale:.4f}  ({len(turns)} rotations)", fontsize=12)
@@ -227,8 +228,10 @@ def main() -> None:
         for name in group[1:]:
             turns.append(solve_turn(Path(name), reference))
 
-    print(f"{'log':<14}{'true deg':>10}{'gyro deg':>10}{'error deg':>11}"
-          f"{'error %':>9}{'scale':>8}{'peak dps':>10}{'holds':>7}{'drift dps':>11}")
+    print(
+        f"{'log':<14}{'true deg':>10}{'gyro deg':>10}{'error deg':>11}"
+        f"{'error %':>9}{'scale':>8}{'peak dps':>10}{'holds':>7}{'drift dps':>11}"
+    )
     for t in turns:
         print(
             f"{t.path.name:<14}{t.reference_deg:>10.1f}{t.measured_deg:>10.1f}"
@@ -250,24 +253,34 @@ def main() -> None:
     if ccw and cw:
         a = float(np.mean([t.scale for t in ccw]))
         b = float(np.mean([t.scale for t in cw]))
-        print(f"\ndirection check: counter-clockwise {a:.4f}, clockwise {b:.4f}, "
-              f"{abs(a - b) / max(abs(a), 1e-9):.2%} apart")
+        print(
+            f"\ndirection check: counter-clockwise {a:.4f}, clockwise {b:.4f}, "
+            f"{abs(a - b) / max(abs(a), 1e-9):.2%} apart"
+        )
         if abs(a - b) > 0.01 * max(abs(a), 1e-9):
-            print("  Over 1%. That points at a mounting or axis-sign problem rather than a"
-                  " scale factor. Sort that before accepting either number.")
+            print(
+                "  Over 1%. That points at a mounting or axis-sign problem rather than a"
+                " scale factor. Sort that before accepting either number."
+            )
         else:
             print("  Under 1%, so the two directions agree and this is a scale factor.")
     else:
-        print("\nOnly one direction was run. A scale that differs between directions is a"
-              " sign problem, and one direction cannot show it. Run the other way too.")
+        print(
+            "\nOnly one direction was run. A scale that differs between directions is a"
+            " sign problem, and one direction cannot show it. Run the other way too."
+        )
 
     worst = max(abs(t.error / t.reference_deg) for t in turns)
-    print(f"\nworst single-run error {worst:.2%}"
-          + ("  (over the runbook's 1% bar)" if worst > 0.01 else "  (under the 1% bar)"))
+    print(
+        f"\nworst single-run error {worst:.2%}"
+        + ("  (over the runbook's 1% bar)" if worst > 0.01 else "  (under the 1% bar)")
+    )
     for t in turns:
         if t.stills < 2:
-            print(f"  {t.path.name}: only {t.stills} still hold, so the bias is a constant"
-                  " rather than ramped. Hold still at both ends of the next one.")
+            print(
+                f"  {t.path.name}: only {t.stills} still hold, so the bias is a constant"
+                " rather than ramped. Hold still at both ends of the next one."
+            )
         if t.saturated:
             print(f"  {t.path.name}: SATURATED on {', '.join(t.saturated)}")
 

@@ -14,14 +14,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-sys.path.append(str(Path(__file__).resolve().parents[1] / "control_stage0"))
-from diag_io import load_field_size, load_robot_positions  # noqa: E402
+from auto_battlebot.diag_io import load_field_size, load_robot_positions
 
 MAX_OPPONENTS = 3
 
@@ -61,9 +59,7 @@ def build_trace(recording: Path) -> pd.DataFrame | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("recordings", nargs="+", type=Path)
-    parser.add_argument(
-        "--out-dir", type=Path, default=Path(__file__).resolve().parent / "traces"
-    )
+    parser.add_argument("--out-dir", type=Path, default=Path(__file__).resolve().parent / "traces")
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)

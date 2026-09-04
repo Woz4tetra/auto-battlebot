@@ -50,11 +50,16 @@ py-modules = []
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["auto_battlebot*"]
+include = ["auto_battlebot*", "playground*"]
+# playground/calibration/venv is a populated DepthAI venv (depthai 2.32 with its own cv2),
+# gitignored but present on disk. Without this every package under its site-packages is
+# discovered as playground.calibration.venv.lib...
+exclude = ["playground.calibration.venv*"]
 
 # --- tooling (style + typing rules; mirrors Pickle-Robot conventions) ---------
-# The playground/ directory is intentionally excluded: it holds throwaway analysis
-# scripts that are not held to the project style/typing bar.
+# playground/ is linted and formatted like the rest of the tree but stays out of mypy:
+# it holds analysis scripts, not shipped code, and is not held to the typing bar.
+# Anything in there that two callers share belongs in auto_battlebot/ instead.
 
 [tool.ruff]
 line-length = 100
@@ -68,7 +73,6 @@ exclude = [
   "build-test",
   "dist",
   "data",
-  "playground",
 ]
 lint.select = ["C9", "E", "F", "N", "Q", "W", "I", "INP"]
 lint.ignore = [
@@ -85,6 +89,10 @@ lint.unfixable = [
 "scripts/*" = ["INP"]
 "simulation/*.py" = ["INP"]
 "training/**/*.py" = ["INP"]
+# Analysis scripts: one long linear main() per file, reading a recording and writing
+# plots. Splitting them to satisfy the complexity limit costs more than it buys. The
+# library code they call does not get this exemption; it lives in auto_battlebot/.
+"playground/**/*.py" = ["C901"]
 
 [tool.ruff.lint.flake8-quotes]
 multiline-quotes = "double"

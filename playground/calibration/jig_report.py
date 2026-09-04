@@ -19,7 +19,8 @@ Sections, in reading order:
   9  Per run                 measured against predicted, with residuals
  10  Excluded and provenance
 
-Imported by `fit_jig_plant.py --report`. It imports from `calib_lib`, never from a CLI.
+Imported by `fit_jig_plant.py --report`. It imports from `auto_battlebot.calibration`, never from a
+CLI.
 """
 
 from __future__ import annotations
@@ -27,7 +28,6 @@ from __future__ import annotations
 import base64
 import html
 import io
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
@@ -37,17 +37,15 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from calib_lib.jig_fit import (
+
+from auto_battlebot.calibration.jig_fit import (
     PARAM_SOURCES,
-    Estimate,
     FitWeights,
     Loaded,
     build_windows,
     joint_fit,
-    score,
     window_delay,
 )
-
 from auto_battlebot.plant import (
     PARAM_BOUNDS,
     ModelStructure,
@@ -282,7 +280,7 @@ def param_status(loaded: Loaded, stage) -> list[ParamStatus]:
                 commanded_s_now=float(sum(r.quality.commanded_s for r in unique)),
             )
         )
-    out.sort(key=lambda s: (-s.rel if np.isfinite(s.rel) else -1e18))
+    out.sort(key=lambda s: -s.rel if np.isfinite(s.rel) else -1e18)
     return out
 
 
@@ -309,7 +307,9 @@ def section_next(statuses: Sequence[ParamStatus], curves: dict[str, float]) -> S
         # hundreds and the base is below 1. Fall back to the root-N estimate there.
         usable_slope = bool(slope) and slope < -1e-3
         if usable_slope and np.isfinite(s.rel) and s.rel > TARGET_REL:
-            need = max(1, int(np.ceil(s.runs_now * (TARGET_REL / s.rel) ** (1.0 / slope))) - s.runs_now)
+            need = max(
+                1, int(np.ceil(s.runs_now * (TARGET_REL / s.rel) ** (1.0 / slope))) - s.runs_now
+            )
         basis = "measured slope" if usable_slope else "root-N estimate"
         advice = f"+{need} runs of {_source_label(s.sources)}" if need else "hold"
         if s.runs_now <= 1:
@@ -334,8 +334,15 @@ def section_next(statuses: Sequence[ParamStatus], curves: dict[str, float]) -> S
     else:
         sec.add(
             table_html(
-                ["parameter", "value", "rel. spread", "status", "constrained by", "data now",
-                 "collect"],
+                [
+                    "parameter",
+                    "value",
+                    "rel. spread",
+                    "status",
+                    "constrained by",
+                    "data now",
+                    "collect",
+                ],
                 rows,
                 row_cls=cls,
                 numeric=(1, 2),
@@ -372,8 +379,7 @@ def section_inventory(loaded: Loaded, window_counts: dict[str, int]) -> Section:
         )
     sec.add(
         table_html(
-            ["waveform", "kind", "channel", "role", "runs", "duration s", "commanded s",
-             "windows"],
+            ["waveform", "kind", "channel", "role", "runs", "duration s", "commanded s", "windows"],
             rows,
             numeric=(4, 5, 6, 7),
         )
@@ -410,8 +416,19 @@ def section_quality(loaded: Loaded) -> Section:
         cls.append("bad" if problems else "ok")
     sec.add(
         table_html(
-            ["run", "verdict", "duration s", "dropped", "malformed", "gyro sat",
-             "bias drift", "clock resid", "commanded s", "commands", "gates"],
+            [
+                "run",
+                "verdict",
+                "duration s",
+                "dropped",
+                "malformed",
+                "gyro sat",
+                "bias drift",
+                "clock resid",
+                "commanded s",
+                "commands",
+                "gates",
+            ],
             rows,
             row_cls=cls,
             numeric=(2, 3, 4, 5, 6, 7, 8),
@@ -466,7 +483,11 @@ def section_evidence(stage, params: PlantParams, profile) -> Section:
     # Gain scatters, each with the residual from its own fitted line underneath. A number
     # alone cannot show a scatter that curves; a residual panel can.
     for segs, label, gains in (
-        (stage.lin_segments, "linear", (("forward", params.k_fwd, 1), ("reverse", params.k_rev, -1))),
+        (
+            stage.lin_segments,
+            "linear",
+            (("forward", params.k_fwd, 1), ("reverse", params.k_rev, -1)),
+        ),
         (stage.ang_segments, "angular", (("left", params.k_ang, 1), ("right", params.k_ang, -1))),
     ):
         pts = [(s.u_eff, s.v_ss) for s in segs if np.isfinite(s.u_eff)]
@@ -581,9 +602,7 @@ def section_evidence(stage, params: PlantParams, profile) -> Section:
         ax.legend(fontsize=8)
         note = f"{delay.count} edges, SNR {delay.snr:.1f}."
         if not delay.clock_measured:
-            note += (
-                " The clock was never probed, so this is offset plus delay, not delay."
-            )
+            note += " The clock was never probed, so this is offset plus delay, not delay."
         sec.add(figure_html(fig, "Transport delay onset stack. " + note))
 
     if profile is not None:
@@ -749,8 +768,11 @@ def section_convergence(
             )
         )
         rows = [
-            [f"<code>{esc(n)}</code>", f"{s:+.2f}",
-             "sampling-limited" if s < -0.3 else "excitation-limited"]
+            [
+                f"<code>{esc(n)}</code>",
+                f"{s:+.2f}",
+                "sampling-limited" if s < -0.3 else "excitation-limited",
+            ]
             for n, s in sorted(slopes.items(), key=lambda kv: kv[1])
         ]
         sec.add(table_html(["parameter", "log-log slope", "reading"], rows, numeric=(1,)))
@@ -1082,8 +1104,9 @@ def run_trace_figure(run: Run, params: PlantParams, structure: ModelStructure, r
     starts = ws.starts
     t = run.t - run.t[0]
 
-    fig, axes = plt.subplots(4, 1, figsize=(10, 7), sharex=True,
-                             gridspec_kw={"height_ratios": [1, 1.4, 1.4, 1]})
+    fig, axes = plt.subplots(
+        4, 1, figsize=(10, 7), sharex=True, gridspec_kw={"height_ratios": [1, 1.4, 1.4, 1]}
+    )
     ax = axes[0]
     ax.plot(t, run.cmd_lin, lw=1, label="linear")
     ax.plot(t, run.cmd_ang, lw=1, label="angular")
@@ -1142,8 +1165,11 @@ def section_per_run(
         chips = "".join(chip(p, "bad") for p in problems) or chip("clean", "ok")
         sec.add(
             f"<details><summary>{esc(run.name)} {chips}</summary>"
-            + figure_html(fig, "Model reinitialized from truth every 500 ms. Red shading is "
-                               "uncommanded time, which the fit ignores.")
+            + figure_html(
+                fig,
+                "Model reinitialized from truth every 500 ms. Red shading is "
+                "uncommanded time, which the fit ignores.",
+            )
             + "</details>"
         )
     return sec
@@ -1154,9 +1180,7 @@ def section_tail(loaded: Loaded, params: PlantParams, extra: Sequence[str]) -> S
     if loaded.excluded:
         sec.add("<h3>Excluded</h3>")
         sec.add(
-            table_html(
-                ["run", "why"], [[esc(name), esc(why)] for name, why in loaded.excluded]
-            )
+            table_html(["run", "why"], [[esc(name), esc(why)] for name, why in loaded.excluded])
         )
     for line in extra:
         sec.add(f'<p class="note">{esc(line)}</p>')
@@ -1165,8 +1189,14 @@ def section_tail(loaded: Loaded, params: PlantParams, extra: Sequence[str]) -> S
         table_html(
             ["session", "name", "robot", "operator", "floor", "runs"],
             [
-                [esc(s.session_id), esc(s.name), esc(s.robot), esc(s.operator),
-                 esc(s.floor_surface), len(s.runs)]
+                [
+                    esc(s.session_id),
+                    esc(s.name),
+                    esc(s.robot),
+                    esc(s.operator),
+                    esc(s.floor_surface),
+                    len(s.runs),
+                ]
                 for s in loaded.sessions
             ],
             numeric=(5,),
@@ -1214,14 +1244,25 @@ def render_report(
     statuses = param_status(loaded, stage)
 
     labels, shifts = jackknife(
-        loaded, params, structure, weights, horizons,
-        stride_s=stride_s, max_windows=max_windows,
+        loaded,
+        params,
+        structure,
+        weights,
+        horizons,
+        stride_s=stride_s,
+        max_windows=max_windows,
     )
     counts, curves = (np.array([]), {})
     if bootstrap > 0 and len(fit_runs) >= 2:
         counts, curves = learning_curve(
-            fit_runs, params, structure, weights, horizons,
-            stride_s=stride_s, max_windows=max_windows, n_boot=bootstrap,
+            fit_runs,
+            params,
+            structure,
+            weights,
+            horizons,
+            stride_s=stride_s,
+            max_windows=max_windows,
+            n_boot=bootstrap,
         )
     convergence, slopes = section_convergence(labels, shifts, counts, curves, statuses)
 
@@ -1235,7 +1276,7 @@ def render_report(
     if not test_runs:
         extra.append(
             "No holdout runs. Residual diagnostics are computed on the training runs, which "
-            "flatters the model: record a waveform with role = \"holdout\"."
+            'flatters the model: record a waveform with role = "holdout".'
         )
 
     sections = [

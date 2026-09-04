@@ -264,7 +264,7 @@ everywhere rather than on a subset.
 The split:
 
 - **Python** reads MCAP, builds the trace, calls into C++, aggregates results, writes
-  figures. Uses `auto_battlebot.mcap_io` and `control_stage0/diag_io.py` rather than
+  figures. Uses `auto_battlebot.mcap_io` and `auto_battlebot/diag_io.py` rather than
   new MCAP decoding.
 - **C++** holds the four solvers, runs them over the trace, and does all timing.
 

@@ -30,8 +30,6 @@ import numpy as np
 import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.append(str(REPO_ROOT / "build" / "python"))
-import run_away_solver_ext as ext  # noqa: E402
 
 MAX_OPPONENTS = 3
 BRUTE_RESOLUTION_M = 0.001
@@ -43,12 +41,31 @@ BRUTE_ERROR_BOUND_M = BRUTE_RESOLUTION_M / np.sqrt(2.0)
 # rate: a best radius below this means no spot on the field clears walls and opponents.
 ROBOT_HALF_DIAGONAL_M = 0.113
 
-METHODS: dict[str, tuple[object, float]] = {
-    "brute": (ext.Method.BRUTE_FORCE, BRUTE_RESOLUTION_M),
-    "grid": (ext.Method.COARSE_GRID, GRID_RESOLUTION_M),
-    "exact": (ext.Method.EXACT, 0.0),
-    "bnb": (ext.Method.BRANCH_AND_BOUND, BNB_TOLERANCE_M),
+# Solver name -> (attribute on ext.Method, tolerance argument). The enum values themselves
+# come from the extension module, which is loaded lazily by load_extension().
+METHODS: dict[str, tuple[str, float]] = {
+    "brute": ("BRUTE_FORCE", BRUTE_RESOLUTION_M),
+    "grid": ("COARSE_GRID", GRID_RESOLUTION_M),
+    "exact": ("EXACT", 0.0),
+    "bnb": ("BRANCH_AND_BOUND", BNB_TOLERANCE_M),
 }
+
+
+def load_extension():
+    """Import the compiled solver from build/python.
+
+    It is a build artifact, not an installed package, so the path is added here rather
+    than at module import: importing this file should not depend on a build existing.
+    """
+    sys.path.append(str(REPO_ROOT / "build" / "python"))
+    try:
+        import run_away_solver_ext
+    except ImportError as error:
+        raise SystemExit(
+            f"run_away_solver_ext not importable from {REPO_ROOT / 'build' / 'python'}: "
+            f"{error}. The bindings were removed at b2f37a0; check that commit out to build them."
+        ) from error
+    return run_away_solver_ext
 
 
 def flatten_opponents(trace: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
@@ -70,18 +87,18 @@ def flatten_opponents(trace: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
 
 
 def run_trace(trace: pd.DataFrame, recording: str, repeats: int) -> pd.DataFrame:
+    ext = load_extension()
     field_w = float(trace["field_w"].iloc[0])
     field_h = float(trace["field_h"].iloc[0])
     opponents, counts = flatten_opponents(trace)
 
     frames = []
-    for name, (method, parameter) in METHODS.items():
+    for name, (method_name, parameter) in METHODS.items():
+        method = getattr(ext.Method, method_name)
         out = ext.run_batch(field_w, field_h, opponents, counts, method, parameter, 1)
         frame = pd.DataFrame({key: np.asarray(value) for key, value in out.items()})
         if repeats > 1 and name != "brute":
-            warm = ext.run_batch(
-                field_w, field_h, opponents, counts, method, parameter, repeats
-            )
+            warm = ext.run_batch(field_w, field_h, opponents, counts, method, parameter, repeats)
             frame["elapsed_ns_warm"] = np.asarray(warm["elapsed_ns"])
         else:
             frame["elapsed_ns_warm"] = frame["elapsed_ns"]
@@ -124,9 +141,7 @@ def summarize(results: pd.DataFrame) -> pd.DataFrame:
             steps = []
             for _, rec in part.groupby("recording"):
                 rec = rec.sort_values("timestamp_ns")
-                steps.append(
-                    np.hypot(rec["center_x"].diff(), rec["center_y"].diff()).dropna()
-                )
+                steps.append(np.hypot(rec["center_x"].diff(), rec["center_y"].diff()).dropna())
             jitter = pd.concat(steps).abs() if steps else pd.Series(dtype=float)
             rows.append(
                 {
@@ -144,9 +159,7 @@ def summarize(results: pd.DataFrame) -> pd.DataFrame:
                     # signal navigation actually feels.
                     "jitter_mean_mm": jitter.mean() * 1e3 if len(jitter) else np.nan,
                     "jitter_p95_mm": jitter.quantile(0.95) * 1e3 if len(jitter) else np.nan,
-                    "jitter_hop_over_10cm_rate": (
-                        (jitter > 0.1).mean() if len(jitter) else np.nan
-                    ),
+                    "jitter_hop_over_10cm_rate": ((jitter > 0.1).mean() if len(jitter) else np.nan),
                     "evaluations_mean": part["evaluations"].mean(),
                     "time_p50_us": part["elapsed_ns"].median() / 1e3,
                     "time_p95_us": part["elapsed_ns"].quantile(0.95) / 1e3,
@@ -187,9 +200,7 @@ def main() -> int:
         type=Path,
         default=sorted((Path(__file__).resolve().parent / "traces").glob("*.csv")),
     )
-    parser.add_argument(
-        "--out-dir", type=Path, default=Path(__file__).resolve().parent / "out"
-    )
+    parser.add_argument("--out-dir", type=Path, default=Path(__file__).resolve().parent / "out")
     parser.add_argument(
         "--repeats",
         type=int,

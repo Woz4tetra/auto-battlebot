@@ -111,9 +111,7 @@ class _Builder:
     def hold(self, duration: float, linear: float, angular: float, label: str) -> None:
         if duration <= 0.0:
             return
-        self.segments.append(
-            ProtocolSegment(self.t, self.t + duration, linear, angular, label)
-        )
+        self.segments.append(ProtocolSegment(self.t, self.t + duration, linear, angular, label))
         self.t += duration
 
     def coast(self, duration: float, label: str) -> None:
@@ -218,7 +216,7 @@ def _build_staircase(d: WaveformDecl) -> Program:
     step = float(p.get("step", 0.01))
     hold = max(float(p.get("hold_s", MIN_HOLD_S)), MIN_HOLD_S)
     b = _Builder()
-    for sign in ((1.0, -1.0) if bool(p.get("both_directions", True)) else (1.0,)):
+    for sign in (1.0, -1.0) if bool(p.get("both_directions", True)) else (1.0,):
         level = start
         while level <= stop + 1e-9:
             lin, ang = _axes(d.channel, sign * level)

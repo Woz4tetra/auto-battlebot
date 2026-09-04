@@ -13,7 +13,7 @@ from __future__ import annotations
 import bisect
 import json
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Any, Iterator
 
 import numpy as np
 from mcap.reader import make_reader
@@ -38,7 +38,7 @@ def quat_to_matrix(x: float, y: float, z: float, w: float) -> np.ndarray:
     )
 
 
-def transform_matrix(translation, rotation) -> np.ndarray:
+def transform_matrix(translation: Any, rotation: Any) -> np.ndarray:
     out = np.eye(4)
     out[:3, :3] = quat_to_matrix(rotation[0], rotation[1], rotation[2], rotation[3])
     out[:3, 3] = translation
@@ -63,7 +63,7 @@ class TimeSeries:
         self.stamps = [stamps[i] for i in order]
         self.values = [values[i] for i in order]
 
-    def nearest(self, stamp_ns: int, tolerance_ns: int | None = None):
+    def nearest(self, stamp_ns: int, tolerance_ns: int | None = None) -> Any | None:
         if not self.stamps:
             return None
         i = bisect.bisect_left(self.stamps, stamp_ns)
@@ -77,7 +77,7 @@ class TimeSeries:
             return None
         return best[1]
 
-    def latest_at(self, stamp_ns: int):
+    def latest_at(self, stamp_ns: int) -> Any | None:
         i = bisect.bisect_right(self.stamps, stamp_ns) - 1
         return self.values[i] if i >= 0 else None
 
@@ -125,7 +125,7 @@ def read_transforms(path: str) -> tuple[TimeSeries, TimeSeries]:
     return TimeSeries(st_t, st_v), TimeSeries(dy_t, dy_v)
 
 
-def read_opponent_track(path: str, to_raw_stamp=None) -> TimeSeries:
+def read_opponent_track(path: str, to_raw_stamp: TimeSeries | None = None) -> TimeSeries:
     """Opponent samples keyed on the raw SVO clock.
 
     `to_raw_stamp` converts a replay's wall-clock-rebased log_time back to the raw SVO
@@ -141,8 +141,7 @@ def read_opponent_track(path: str, to_raw_stamp=None) -> TimeSeries:
         bounds = [
             mk
             for mk in dec.markers
-            if mk.ns == "robot_bounds"
-            and labelled.get(mk.id, "").startswith(OPPONENT_LABEL_PREFIX)
+            if mk.ns == "robot_bounds" and labelled.get(mk.id, "").startswith(OPPONENT_LABEL_PREFIX)
         ]
         if not bounds:
             continue
@@ -166,7 +165,9 @@ def read_opponent_track(path: str, to_raw_stamp=None) -> TimeSeries:
     return TimeSeries(stamps, samples)
 
 
-def project_field_points(points: np.ndarray, tf_field_from_camera: np.ndarray, K: np.ndarray):
+def project_field_points(
+    points: np.ndarray, tf_field_from_camera: np.ndarray, camera_matrix: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     """Field-frame points -> pixels. Returns (pixels, valid mask)."""
     cam_from_field = np.linalg.inv(tf_field_from_camera)
     homogeneous = np.hstack([points, np.ones((len(points), 1))])
@@ -174,7 +175,7 @@ def project_field_points(points: np.ndarray, tf_field_from_camera: np.ndarray, K
     depth = in_camera[:, 2]
     valid = depth > 1e-6
     safe = np.where(valid[:, None], in_camera, np.array([0.0, 0.0, 1.0]))
-    pixels = (K @ (safe / safe[:, 2:3]).T).T[:, :2]
+    pixels = (camera_matrix @ (safe / safe[:, 2:3]).T).T[:, :2]
     return pixels, valid
 
 

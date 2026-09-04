@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -86,7 +87,7 @@ _NUMERIC_DIAG_COLS = [
 ]
 
 
-def _log_time_ns(m) -> int:
+def _log_time_ns(m: Any) -> int:
     """Normalize an mcap_ros1 message log_time (datetime or int) to int ns,
     matching the raw mcap reader used for /diagnostics."""
     lt = m.log_time
@@ -116,84 +117,95 @@ def group_of(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Runner sub-status name -> column prefix. Anything else the runner publishes with an
+# elapsed_ms is a FunctionTimer stage and is namespaced by its own name instead.
+_RUNNER_PREFIXES = {"pipeline": "pipeline", "navigation": "nav", "perception": "perc"}
+
+# Transmitter channel -> column. values/15 is the auto switch; values/0 and values/1 are the
+# actual transmitted drive command (post trainer-mode mix of navigation and driver sticks),
+# which is the true plant input.
+_TRANSMITTER_COLUMNS = (
+    ("values/0", "ch_linear"),
+    ("values/1", "ch_angular"),
+    ("values/15", "ch15"),
+)
+
+
+def _merge_status(rows: dict[int, dict[str, Any]], ts: int, status: dict[str, Any]) -> None:
+    """Fold one DiagnosticStatus into the row for its tick.
+
+    `rows` is a defaultdict, so it is indexed only where this status actually contributes a
+    column. Touching it unconditionally would mint an all-NaN row for every message that
+    carries nothing this loader wants.
+    """
+    hw = status["hardware_id"]
+    name = status["name"]
+    kv = status["values"]
+
+    if hw in NAV_HW_IDS:
+        rows[ts].update(kv)
+    elif hw == RUNNER_HW_ID:
+        prefix = _RUNNER_PREFIXES.get(name)
+        if prefix is not None:
+            for key, value in kv.items():
+                rows[ts][f"{prefix}/{key}"] = value
+        elif "elapsed_ms" in kv:
+            # FunctionTimer stage (tick, camera.get, robot_filter.update, ...)
+            rows[ts][f"stage/{name}/elapsed_ms"] = kv["elapsed_ms"]
+    elif hw == TRANSMITTER_HW_ID and name == "channels":
+        for src, dst in _TRANSMITTER_COLUMNS:
+            if src in kv:
+                rows[ts][dst] = kv[src]
+
+
 def load_diagnostics(path: Path) -> pd.DataFrame:
     """One row per tick (keyed on message log_time), columns drawn from
     pursuit_nav, runner/pipeline, runner/navigation, runner/perception, the
     runner stage timers, and the transmitter auto channel."""
-    rows: dict[int, dict[str, str]] = defaultdict(dict)
+    rows: dict[int, dict[str, Any]] = defaultdict(dict)
 
     with open(path, "rb") as f:
         reader = make_reader(f)
         for _schema, channel, message in reader.iter_messages():
             if channel.topic != DIAGNOSTICS_TOPIC:
                 continue
-            ts = message.log_time
             for status in _decode_diagnostic_array(message.data):
-                hw = status["hardware_id"]
-                name = status["name"]
-                kv = status["values"]
-                if hw in NAV_HW_IDS:
-                    rows[ts].update(kv)
-                elif hw == RUNNER_HW_ID:
-                    if name == "pipeline":
-                        for k, v in kv.items():
-                            rows[ts][f"pipeline/{k}"] = v
-                    elif name == "navigation":
-                        for k, v in kv.items():
-                            rows[ts][f"nav/{k}"] = v
-                    elif name == "perception":
-                        for k, v in kv.items():
-                            rows[ts][f"perc/{k}"] = v
-                    elif "elapsed_ms" in kv:
-                        # FunctionTimer stage (tick, camera.get, robot_filter.update, ...)
-                        rows[ts][f"stage/{name}/elapsed_ms"] = kv["elapsed_ms"]
-                elif hw == TRANSMITTER_HW_ID and name == "channels":
-                    # values/15 = auto switch. values/0,1 = the actual transmitted drive command
-                    # (post trainer-mode mix of navigation + driver sticks), the true plant input.
-                    for src, dst in (
-                        ("values/0", "ch_linear"),
-                        ("values/1", "ch_angular"),
-                        ("values/15", "ch15"),
-                    ):
-                        if src in kv:
-                            rows[ts][dst] = kv[src]
+                _merge_status(rows, message.log_time, status)
 
     if not rows:
         raise SystemExit(f"No /diagnostics found in {path}")
 
-    timestamps = sorted(rows)
-    records = []
-    for ts in timestamps:
-        row = rows[ts]
-        row["timestamp_ns"] = ts
-        records.append(row)
-    df = pd.DataFrame(records)
-
-    for col in _NUMERIC_DIAG_COLS:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    # Any stage timer columns are numeric too.
-    for col in df.columns:
-        if col.startswith("stage/") and col.endswith("/elapsed_ms"):
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    # The auto switch channel is logged only on a fraction of ticks. It is a
-    # latched physical state, so forward-fill it across the gaps; defaulting the
-    # gaps to "not auto" would invent spurious auto<->manual transitions.
-    if "ch15" in df.columns:
-        ch15 = df["ch15"].ffill()
-    else:
-        ch15 = pd.Series(index=df.index, dtype=object)
-    df["is_auto"] = ch15.astype(str).str.strip() == "1024"
-
-    # Drive command channels are also logged only on change; forward-fill them.
-    for col in ("ch_linear", "ch_angular"):
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").ffill()
+    df = pd.DataFrame([{**rows[ts], "timestamp_ns": ts} for ts in sorted(rows)])
+    _coerce_numeric(df)
+    _fill_latched_channels(df)
 
     t0 = df["timestamp_ns"].iloc[0]
     df["t"] = (df["timestamp_ns"] - t0) / 1e9
     return df
+
+
+def _coerce_numeric(df: pd.DataFrame) -> None:
+    """Diagnostics values arrive as strings; convert the numeric columns in place."""
+    stage_cols = [
+        col for col in df.columns if col.startswith("stage/") and col.endswith("/elapsed_ms")
+    ]
+    for col in list(_NUMERIC_DIAG_COLS) + stage_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+
+def _fill_latched_channels(df: pd.DataFrame) -> None:
+    """Forward-fill the transmitter channels, which are logged only on change.
+
+    They are latched physical state. Defaulting the gaps instead would invent spurious
+    auto<->manual transitions and zero-command ticks.
+    """
+    ch15 = df["ch15"].ffill() if "ch15" in df.columns else pd.Series(index=df.index, dtype=object)
+    df["is_auto"] = ch15.astype(str).str.strip() == "1024"
+
+    for col in ("ch_linear", "ch_angular"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").ffill()
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +308,7 @@ def load_robot_positions(path: Path) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-def _tf_matrix(translation, rotation) -> np.ndarray:
+def _tf_matrix(translation: Any, rotation: Any) -> np.ndarray:
     x, y, z, w = rotation.x, rotation.y, rotation.z, rotation.w
     n = x * x + y * y + z * z + w * w
     if n < 1e-12:
@@ -328,9 +340,7 @@ def load_camera_in_field(path: Path) -> pd.DataFrame:
     for m in read_ros1_messages(str(path), topics=[TF_STATIC_TOPIC]):
         for tr in m.ros_msg.transforms:
             if tr.header.frame_id == "field" and tr.child_frame_id == "camera_world":
-                field_from_world = _tf_matrix(
-                    tr.transform.translation, tr.transform.rotation
-                )
+                field_from_world = _tf_matrix(tr.transform.translation, tr.transform.rotation)
     if field_from_world is None:
         return pd.DataFrame(columns=["timestamp_ns", "cam_x", "cam_y", "cam_z"])
 
@@ -339,9 +349,7 @@ def load_camera_in_field(path: Path) -> pd.DataFrame:
         ts = _log_time_ns(m)
         for tr in m.ros_msg.transforms:
             if tr.header.frame_id == "camera_world" and tr.child_frame_id == "camera":
-                world_from_cam = _tf_matrix(
-                    tr.transform.translation, tr.transform.rotation
-                )
+                world_from_cam = _tf_matrix(tr.transform.translation, tr.transform.rotation)
                 cam_in_field = field_from_world @ world_from_cam
                 records.append(
                     {

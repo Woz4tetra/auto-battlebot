@@ -27,15 +27,14 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from mcap.reader import make_reader
+
+from auto_battlebot.mcap_io import decode_diagnostic_array
 
 matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-from mcap.reader import make_reader  # noqa: E402
-
-from auto_battlebot.mcap_io import decode_diagnostic_array  # noqa: E402
 
 DIAGNOSTICS_TOPIC = "/diagnostics"
 NAV_HW_ID = "motion_profile_nav"
@@ -186,12 +185,12 @@ def score_segment(seg: pd.DataFrame, name: str) -> dict[str, Any]:
         measured = seg["speed_is_measured"].fillna(0)
         out["open_loop_pct"] = round(100.0 * float((measured < 0.5).mean()), 1)
         gaps = (measured < 0.5).astype(int)
-        edges = int(((gaps.diff() == 1)).sum())
+        edges = int((gaps.diff() == 1).sum())
         out["open_loop_runs"] = edges
     if "facing_target" in seg.columns:
         facing = seg["facing_target"].fillna(0)
         out["gate_off_pct"] = round(100.0 * float((facing < 0.5).mean()), 1)
-        out["gate_reentries"] = int(((facing.diff() == 1)).sum())
+        out["gate_reentries"] = int((facing.diff() == 1).sum())
     if {"v_ref", "v_actual"}.issubset(seg.columns):
         err = _finite(seg["v_ref"] - seg["v_actual"])
         if err.size:
@@ -287,7 +286,9 @@ def plot_segment(seg: pd.DataFrame, title: str, out_path: Path) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("recordings", type=Path, nargs="+")
     ap.add_argument("--out", type=Path, default=Path("playground/control_stage0/run_away_out"))
     ap.add_argument("--min-ticks", type=int, default=15)

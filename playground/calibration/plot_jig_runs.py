@@ -27,7 +27,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import Sequence
 
@@ -204,7 +203,10 @@ def plot_run(
     regions = excluded_regions(log, t, record)
 
     fig, axes = plt.subplots(
-        6, 1, figsize=(13, 12.5), sharex=True,
+        6,
+        1,
+        figsize=(13, 12.5),
+        sharex=True,
         gridspec_kw={"height_ratios": [1.0, 1.0, 1.5, 1.5, 1.2, 1.0]},
     )
 
@@ -221,8 +223,15 @@ def plot_run(
         ax.legend(fontsize=8, ncol=2, loc="upper right")
         ax.set_ylabel("commanded", fontsize=9)
     else:
-        ax.text(0.5, 0.5, "no sidecar, so no command log",
-                ha="center", va="center", transform=ax.transAxes, color="0.5")
+        ax.text(
+            0.5,
+            0.5,
+            "no sidecar, so no command log",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            color="0.5",
+        )
         ax.set_ylabel("commanded", fontsize=9)
 
     # 2. The radio's own report, in the units it actually measures. For a tank robot the two
@@ -247,14 +256,24 @@ def plot_run(
         )
         if _channels_opposed(ch_a, ch_b) and not inverted:
             ax.text(
-                0.01, 0.06,
+                0.01,
+                0.06,
                 "channels move opposite while a straight command is held: one is reversed "
                 "on the radio (see --check-radio)",
-                transform=ax.transAxes, fontsize=7.5, color="C3",
+                transform=ax.transAxes,
+                fontsize=7.5,
+                color="C3",
             )
     else:
-        ax.text(0.5, 0.5, "no radio readback in this run",
-                ha="center", va="center", transform=ax.transAxes, color="0.5")
+        ax.text(
+            0.5,
+            0.5,
+            "no radio readback in this run",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            color="0.5",
+        )
         ax.set_ylabel("radio reported", fontsize=9)
 
     # 3 and 4. Measured against commanded.
@@ -288,8 +307,7 @@ def plot_run(
     for i, axis in enumerate(("x", "y", "z")):
         ax.plot(t, log.accel[:, i] / G_MPS2, lw=0.7, label=f"a{axis}")
     ax.axhline(limit, color="C3", ls="--", lw=0.9)
-    ax.axhline(-limit, color="C3", ls="--", lw=0.9,
-               label=f"clip at +/-{limit:.1f} g")
+    ax.axhline(-limit, color="C3", ls="--", lw=0.9, label=f"clip at +/-{limit:.1f} g")
     ax.set_ylabel("accel (g)", fontsize=9)
 
     # Marked, not shaded, and only on this panel. Where it lands on the time axis is the
@@ -305,9 +323,15 @@ def plot_run(
         for lo, hi in marks:
             ax.axvspan(lo, hi, color=ACCEL_CLIP_COLOUR, alpha=0.3, lw=0, zorder=2)
         ax.plot(
-            [0.5 * (lo + hi) for lo, hi in marks], [0.94] * len(marks),
-            marker="v", ls="none", ms=5, color=ACCEL_CLIP_COLOUR,
-            transform=ax.get_xaxis_transform(), clip_on=False, zorder=5,
+            [0.5 * (lo + hi) for lo, hi in marks],
+            [0.94] * len(marks),
+            marker="v",
+            ls="none",
+            ms=5,
+            color=ACCEL_CLIP_COLOUR,
+            transform=ax.get_xaxis_transform(),
+            clip_on=False,
+            zorder=5,
         )
         peak = float(np.max(np.abs(log.accel[clip])) / G_MPS2)
         # Boxed and off the axis floor, so it does not read as struck through by the
@@ -315,7 +339,9 @@ def plot_run(
         ax.annotate(
             f"clipped on {', '.join(clip_axes)}: {int(clip.sum())} samples, peak {peak:.1f} g"
             "   (not a discard, and not excluded from the fit)",
-            xy=(0.01, 0.13), xycoords="axes fraction", fontsize=7.5,
+            xy=(0.01, 0.13),
+            xycoords="axes fraction",
+            fontsize=7.5,
             color=ACCEL_CLIP_COLOUR,
             bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1.5},
         )
@@ -333,8 +359,9 @@ def plot_run(
         ax.plot(t, log.count, lw=1.0, color="C4", label="encoder count")
         ax.set_ylabel("enc count", fontsize=9)
     ax.axhline(0.0, color="0.55", lw=1.0, zorder=1)
-    ax.set_xlabel("time (s, from the first command)" if have_cmd else "time (s, jig clock)",
-                  fontsize=10)
+    ax.set_xlabel(
+        "time (s, from the first command)" if have_cmd else "time (s, jig clock)", fontsize=10
+    )
 
     # Heading, zeroed at the first command so the run's own net rotation reads straight off
     # the axis rather than having to be subtracted from wherever the log happened to start.
@@ -345,9 +372,7 @@ def plot_run(
     twin.plot(t, heading, lw=1.2, color="C5", label="heading")
     twin.set_ylabel("heading (deg)", fontsize=8, color="C5")
     twin.tick_params(axis="y", labelcolor="C5", labelsize=8)
-    aligned = align_zero(
-        ax, twin, lo=float(heading.min()) * 1.05, hi=float(heading.max()) * 1.05
-    )
+    aligned = align_zero(ax, twin, lo=float(heading.min()) * 1.05, hi=float(heading.max()) * 1.05)
     if not aligned:
         # The shared line is not zero for heading here, so heading gets its own marker.
         twin.axhline(0.0, color="C5", ls=":", lw=1.0)
@@ -359,7 +384,11 @@ def plot_run(
         net = float(heading[min(end, len(heading) - 1)])
         twin.annotate(
             f"net {net:+.1f} deg over the commanded stretch",
-            xy=(0.99, 0.06), xycoords="axes fraction", ha="right", fontsize=8, color="C5",
+            xy=(0.99, 0.06),
+            xycoords="axes fraction",
+            ha="right",
+            fontsize=8,
+            color="C5",
         )
     lines = ax.get_lines()[:1] + twin.get_lines()[:1]
     ax.legend(lines, [ln.get_label() for ln in lines], fontsize=8, loc="upper left")
@@ -374,8 +403,14 @@ def plot_run(
                 a.axvspan(lo, hi, color=colour, alpha=alpha, lw=0, zorder=0)
         handles.append(Patch(facecolor=colour, alpha=alpha, label=f"{name} (not fitted)"))
     if handles:
-        fig.legend(handles=handles, loc="lower center", ncol=len(handles),
-                   fontsize=8, frameon=False, bbox_to_anchor=(0.5, 0.0))
+        fig.legend(
+            handles=handles,
+            loc="lower center",
+            ncol=len(handles),
+            fontsize=8,
+            frameon=False,
+            bbox_to_anchor=(0.5, 0.0),
+        )
 
     title = log_path.name
     if record is not None:
@@ -436,9 +471,7 @@ def _channels_opposed(a: np.ndarray, b: np.ndarray) -> bool:
     return bool(np.mean(np.sign(a[moving]) * np.sign(b[moving])) < -0.8)
 
 
-def from_rest(
-    t: np.ndarray, *series: np.ndarray, lead_s: float = 0.05
-) -> tuple[np.ndarray, ...]:
+def from_rest(t: np.ndarray, *series: np.ndarray, lead_s: float = 0.05) -> tuple[np.ndarray, ...]:
     """Anchor a command trace at zero just before it starts, and again after it ends.
 
     The tool only samples while a program is playing, so a trace drawn from its own first
@@ -609,11 +642,15 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
-        "sessions", type=Path, nargs="*",
+        "sessions",
+        type=Path,
+        nargs="*",
         help="session directories, or individual LOG-N.TXT files (default: newest session)",
     )
     parser.add_argument(
-        "--calibration", type=Path, default=DEFAULT_CALIBRATION,
+        "--calibration",
+        type=Path,
+        default=DEFAULT_CALIBRATION,
         help=(
             "jig calibration TOML. Plots in m/s when it has a real meters_per_count;"
             " falls back to encoder counts/s when it does not."

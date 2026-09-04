@@ -13,8 +13,8 @@ class ChannelStreamingParser:
 
     def process_data(self, data: bytes) -> list[list[int]]:
         """
-        Process incoming serial data and return list of channel arrays. Return any excess bytes that do not form a
-        complete packet.
+        Process incoming serial data and return list of channel arrays. Return any excess bytes that
+        do not form a complete packet.
         """
         self.buffer.extend(data)
 
@@ -76,7 +76,9 @@ class ChannelStreamingParser:
         # Expected: 16 channels * 2 bytes + 1 checksum = 33 bytes
         expected_length = (self.channels_per_packet * 2) + 1
         if length != expected_length:
-            print(f"Invalid packet length for phase {phase}: got {length}, expected {expected_length}")
+            print(
+                f"Invalid packet length for phase {phase}: got {length}, expected {expected_length}"
+            )
             return None
 
         if len(packet_data) < 2 + length:
@@ -91,7 +93,8 @@ class ChannelStreamingParser:
 
         if expected_checksum != received_checksum:
             print(
-                f"Checksum mismatch in phase {phase}: expected 0x{expected_checksum:02X}, got 0x{received_checksum:02X}"
+                f"Checksum mismatch in phase {phase}: expected 0x{expected_checksum:02X}, got "
+                f"0x{received_checksum:02X}"
             )
             return None
 

@@ -36,9 +36,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from auto_battlebot.background_subtraction import (  # noqa: E402
+from auto_battlebot.background_subtraction import (
     Blob,
     SubtractionParams,
     build_median_background,
@@ -46,7 +44,7 @@ from auto_battlebot.background_subtraction import (  # noqa: E402
     subtract,
     warp_forward,
 )
-from auto_battlebot.mcap_io import (  # noqa: E402
+from auto_battlebot.mcap_io import (
     decode_camera_info,
     decode_compressed_image,
     decode_image_stamp_ns,

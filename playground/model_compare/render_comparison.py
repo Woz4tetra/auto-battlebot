@@ -15,21 +15,19 @@ from __future__ import annotations
 
 import argparse
 import subprocess
-import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from track_overlay import (  # noqa: E402
+from auto_battlebot.track_overlay import (
+    _iter,
     footprint_circle,
     project_field_points,
     read_camera_matrix,
     read_frame_meta,
     read_opponent_track,
     read_transforms,
-    _iter,
 )
 
 OLD_COLOR = (60, 200, 255)  # amber, BGR
@@ -40,20 +38,24 @@ FIELD_HALF_M = 2.44 / 2.0
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
-def draw_track(canvas, sample, K, color, label, dashed=False, label_above=True):
+def draw_track(canvas, sample, camera_matrix, color, label, dashed=False, label_above=True):
     """Draw one run's opponent footprint. Returns the centre pixel, or None."""
     ring = footprint_circle(sample.position, sample.radius)
-    pixels, ok = project_field_points(ring, sample.tf_field_from_camera, K)
+    pixels, ok = project_field_points(ring, sample.tf_field_from_camera, camera_matrix)
     if not ok.all():
         return None
     poly = pixels.astype(np.int32)
     if dashed:
         for i in range(0, len(poly), 2):
-            cv2.line(canvas, tuple(poly[i]), tuple(poly[(i + 1) % len(poly)]), color, 3, cv2.LINE_AA)
+            cv2.line(
+                canvas, tuple(poly[i]), tuple(poly[(i + 1) % len(poly)]), color, 3, cv2.LINE_AA
+            )
     else:
         cv2.polylines(canvas, [poly], True, color, 3, cv2.LINE_AA)
 
-    centre, centre_ok = project_field_points(sample.position[None, :], sample.tf_field_from_camera, K)
+    centre, centre_ok = project_field_points(
+        sample.position[None, :], sample.tf_field_from_camera, camera_matrix
+    )
     if not centre_ok[0]:
         return None
     cx, cy = int(centre[0][0]), int(centre[0][1])
@@ -92,7 +94,7 @@ def read_keypoints(path: str, to_raw_stamp=None):
             continue
         stamps.append(int(raw))
         values.append((np.array(pts), static @ dynamic))
-    from track_overlay import TimeSeries
+    from auto_battlebot.track_overlay import TimeSeries
 
     return TimeSeries(stamps, values)
 
@@ -146,8 +148,8 @@ def main() -> int:
     old_track = read_opponent_track(args.old_mcap)
     new_track = read_opponent_track(args.new_mcap, to_raw_stamp=log_to_raw)
     keypoints = read_keypoints(args.new_mcap, to_raw_stamp=log_to_raw)
-    K_old = read_camera_matrix(args.old_mcap)
-    K_new = read_camera_matrix(args.new_mcap)
+    camera_matrix_old = read_camera_matrix(args.old_mcap)
+    camera_matrix_new = read_camera_matrix(args.new_mcap)
     print(f"  old samples {len(old_track.stamps)}, new samples {len(new_track.stamps)}")
 
     first = stamp_to_index.nearest(args.start_ns)
@@ -170,10 +172,29 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     encoder = subprocess.Popen(
         [
-            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", "1280x720",
-            "-r", str(args.fps), "-i", "-",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-s",
+            "1280x720",
+            "-r",
+            str(args.fps),
+            "-i",
+            "-",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
             str(out_path),
         ],
         stdin=subprocess.PIPE,
@@ -206,24 +227,28 @@ def main() -> int:
         new_sample = new_track.nearest(stamp_ns, tolerance_ns=tolerance_ns)
 
         if args.draw_field and old_sample is not None:
-            sq, ok = project_field_points(square, old_sample.tf_field_from_camera, K_old)
+            sq, ok = project_field_points(
+                square, old_sample.tf_field_from_camera, camera_matrix_old
+            )
             if ok.all():
                 cv2.polylines(canvas, [sq.astype(np.int32)], True, FIELD_COLOR, 1, cv2.LINE_AA)
 
         kp = keypoints.nearest(stamp_ns, tolerance_ns=tolerance_ns)
         if kp is not None:
             pts, tf = kp
-            px, ok = project_field_points(pts, tf, K_new)
+            px, ok = project_field_points(pts, tf, camera_matrix_new)
             for p, good in zip(px, ok):
                 if good:
                     cv2.circle(canvas, (int(p[0]), int(p[1])), 4, KEYPOINT_COLOR, -1, cv2.LINE_AA)
 
         old_centre = new_centre = None
         if old_sample is not None:
-            old_centre = draw_track(canvas, old_sample, K_old, OLD_COLOR, "old", dashed=True)
+            old_centre = draw_track(
+                canvas, old_sample, camera_matrix_old, OLD_COLOR, "old", dashed=True
+            )
         if new_sample is not None:
             new_centre = draw_track(
-                canvas, new_sample, K_new, NEW_COLOR, "new", label_above=False
+                canvas, new_sample, camera_matrix_new, NEW_COLOR, "new", label_above=False
             )
 
         gap = None

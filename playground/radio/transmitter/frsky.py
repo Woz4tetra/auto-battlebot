@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 from typing import Optional
 
-import serial
 from bw_shared.radio.channels.channels_parser import ChannelStreamingParser
 from bw_shared.radio.crsf.crsf_packet import CrsfPacket
 from bw_shared.radio.crsf.crsf_parser import CrsfParser
 from serial.tools.list_ports import comports
+
+import serial
 
 
 @dataclass

@@ -17,10 +17,9 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+import genesis as gs
 import numpy as np
 from scipy.spatial.transform import Rotation
-
-import genesis as gs
 
 WHEEL_R = 0.025
 TRACK_L = 0.128
@@ -142,14 +141,14 @@ URDF_TEMPLATE = textwrap.dedent("""\
 
 
 class DiffDrive:
-    def __init__(self, r: float, l: float):
-        self._r = r
-        self._l = l
+    def __init__(self, wheel_radius: float, track_width: float):
+        self._wheel_radius = wheel_radius
+        self._track_width = track_width
 
     def __call__(self, v: float, w: float):
-        c1 = 1.0 / (2.0 * self._r)
+        c1 = 1.0 / (2.0 * self._wheel_radius)
         c2 = 2.0 * v
-        c3 = w * self._l
+        c3 = w * self._track_width
         w_r = c1 * (c2 + c3)
         w_l = c1 * (c2 - c3)
         return np.array([w_r, w_l])
@@ -167,7 +166,7 @@ def write_urdf(path: Path) -> None:
 
 
 gs.init(backend=gs.gpu)
-controller = DiffDrive(r=WHEEL_R, l=TRACK_L)
+controller = DiffDrive(wheel_radius=WHEEL_R, track_width=TRACK_L)
 
 scene = gs.Scene(
     sim_options=gs.options.SimOptions(dt=0.01, substeps=10, requires_grad=False),
@@ -220,10 +219,8 @@ prev_quat = None
 prev_pos = None
 
 print(f"Wheel radius: {WHEEL_R}, Track width: {TRACK_L}")
-print(
-    f"DOF indices: right={dofs_idx[0]}, left={dofs_idx[1]}, total n_dofs={robot.n_dofs}"
-)
-print(f"COM at (0,0,0) over wheel axis, pitch stabilizer casters (near-zero load)")
+print(f"DOF indices: right={dofs_idx[0]}, left={dofs_idx[1]}, total n_dofs={robot.n_dofs}")
+print("COM at (0,0,0) over wheel axis, pitch stabilizer casters (near-zero load)")
 print(f"Command: v={cmd_v:.2f} m/s, w={np.rad2deg(cmd_w):.1f} deg/s")
 print(f"Wheel targets: right={action[0]:.2f} rad/s, left={action[1]:.2f} rad/s")
 print(
@@ -272,5 +269,6 @@ for i in range(10000):
 
         print(
             f"{i:6d} | {action[0]:8.2f} {act_wr:8.2f} {action[1]:8.2f} {act_wl:8.2f} | "
-            f"{cmd_v:7.3f} {meas_v:7.3f} {np.rad2deg(cmd_w):8.1f} {np.rad2deg(meas_w):8.1f} {np.rad2deg(yaw):7.1f}"
+            f"{cmd_v:7.3f} {meas_v:7.3f} {np.rad2deg(cmd_w):8.1f} {np.rad2deg(meas_w):8.1f} "
+            f"{np.rad2deg(yaw):7.1f}"
         )

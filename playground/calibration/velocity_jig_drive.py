@@ -46,11 +46,11 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from auto_battlebot.calibration import drive_protocol as dp
+from auto_battlebot.calibration import excitation as ex
+from auto_battlebot.calibration import jig_link as jl
 from auto_battlebot.plant import PlantParams, simulate
 from auto_battlebot.velocity_jig import SIDECAR_SCHEMA, ClockFit, ClockProbe, PauseWindow
-from calib_lib import drive_protocol as dp
-from calib_lib import excitation as ex
-from calib_lib import jig_link as jl
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CATALOG = Path(__file__).resolve().parent / "waveforms.toml"
@@ -66,6 +66,8 @@ def _repo_relative(path: Path) -> Path:
         return path.resolve().relative_to(REPO_ROOT)
     except ValueError:
         return path
+
+
 DEFAULT_OUT_ROOT = Path(__file__).resolve().parent / "out"
 # Long enough to bound the gyro bias estimate, short enough that an operator will actually
 # stand still for it. The fit needs two of these per run to bracket the bias drift.
@@ -208,8 +210,7 @@ def preview(program: ex.Program, pause_at: Sequence[float], index: int) -> list[
 
     def fmt(seg: Any) -> str:
         return (
-            f"{seg.t1 - seg.t0:5.2f} s  lin {seg.linear:+.3f}  "
-            f"ang {seg.angular:+.3f}   {seg.label}"
+            f"{seg.t1 - seg.t0:5.2f} s  lin {seg.linear:+.3f}  ang {seg.angular:+.3f}   {seg.label}"
         )
 
     if len(cells) <= PREVIEW_LINES:
@@ -308,9 +309,7 @@ def predict_footprint(program: ex.Program, params: PlantParams, dt: float = 0.00
 
     import numpy as np
 
-    _, traj = simulate(
-        np.array(lin)[None, :], np.array(ang)[None, :], dt, params
-    )
+    _, traj = simulate(np.array(lin)[None, :], np.array(ang)[None, :], dt, params)
     x = traj["x"][0]
     y = traj["y"][0]
     v = traj["v"][0]
@@ -461,8 +460,7 @@ def write_run_toml(
 
 
 COMMAND_COLUMNS = (
-    "t_host_s,linear,angular,trim,meas_ch_a,meas_ch_b,"
-    "meas_linear,meas_angular,meas_weapon,meas_arm"
+    "t_host_s,linear,angular,trim,meas_ch_a,meas_ch_b,meas_linear,meas_angular,meas_weapon,meas_arm"
 )
 COMMAND_PREAMBLE = [
     "# auto-battlebot velocity jig command log",
@@ -564,9 +562,7 @@ def reopen_after_replug(link: jl.JigLink, timeout: float = 300.0) -> jl.JigLink:
     link.close()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        info = (
-            jl.find_port_by_serial(serial_number) if serial_number else jl.find_jig_port()
-        )
+        info = jl.find_port_by_serial(serial_number) if serial_number else jl.find_jig_port()
         if info is not None:
             time.sleep(0.5)  # let the CDC endpoint settle before opening it
             try:
@@ -654,7 +650,7 @@ def run_one(
             for line in first:
                 say(f"        {line}")
         prompt("Type Enter to ARM and play (Ctrl-C aborts and disarms):")
-        with dp.armed(trainer):
+        with dp.Armed(trainer):
             result = dp.play(
                 trainer,
                 program,
@@ -1048,7 +1044,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--check-amplitude", type=float, default=0.5)
     parser.add_argument("--list-waveforms", action="store_true")
     parser.add_argument("--list-ports", action="store_true")
-    parser.add_argument("--dry-run", action="store_true", help="inspect programs, touch no hardware")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="inspect programs, touch no hardware"
+    )
     return parser
 
 
@@ -1067,7 +1065,7 @@ def do_list_ports() -> None:
     if found is not None and found.usb_id not in jl.JIG_USB_IDS:
         say(
             f"\nNOTE: the jig matched by name, not by usb id. Add {found.usb_id} to "
-            "JIG_USB_IDS in calib_lib/jig_link.py so it is matched exactly."
+            "JIG_USB_IDS in auto_battlebot/calibration/jig_link.py so it is matched exactly."
         )
 
 
@@ -1101,7 +1099,7 @@ def do_check_radio(link: dp.TrainerLink, amplitude: float = 0.5) -> None:
     say(f"Sending {len(probes)} known commands at amplitude {amplitude:g}.\n")
 
     rows: list[tuple[float, float, list[float]]] = []
-    with dp.armed(link):
+    with dp.Armed(link):
         for lin, ang in probes:
             deadline = time.monotonic() + 0.6
             while time.monotonic() < deadline:
@@ -1163,7 +1161,8 @@ def do_check_radio(link: dp.TrainerLink, amplitude: float = 0.5) -> None:
     say(f"  read_linear = {a_ch}, read_angular = {b_ch}")
     say(f"  read_invert_a = {str(invert_a).lower()}, read_invert_b = {str(invert_b).lower()}")
     say(
-        "\nThese live in MixConfig (calib_lib/drive_protocol.py). Set them before recording, "
+        "\nThese live in MixConfig (auto_battlebot/calibration/drive_protocol.py). Set them before "
+        "recording, "
         "or the contamination gate will discard good runs."
     )
 

@@ -55,7 +55,9 @@ def discover_splits(input_dir: Path, requested_splits: list[str]) -> dict[str, t
     )
 
 
-def build_class_mapping(categories: list[dict], keep_classes: list[str] | None) -> tuple[dict[int, int], list[str]]:
+def build_class_mapping(
+    categories: list[dict], keep_classes: list[str] | None
+) -> tuple[dict[int, int], list[str]]:
     # Roboflow COCO exports category ids; keep deterministic order by category id.
     categories_sorted = sorted(categories, key=lambda c: int(c["id"]))
 
@@ -69,10 +71,7 @@ def build_class_mapping(categories: list[dict], keep_classes: list[str] | None) 
                 f"Requested classes not found: {missing}. Available classes: {available}"
             )
         class_names = keep_classes
-        old_to_new = {
-            int(c["id"]): class_names.index(c["name"])
-            for c in filtered
-        }
+        old_to_new = {int(c["id"]): class_names.index(c["name"]) for c in filtered}
         return old_to_new, class_names
 
     class_names = [c["name"] for c in categories_sorted]
@@ -189,7 +188,9 @@ def convert_split(
     return processed_images, written_labels, skipped_images
 
 
-def write_data_yaml(output_dir: Path, class_names: list[str], num_keypoints: int, split_map: dict[str, str]) -> None:
+def write_data_yaml(
+    output_dir: Path, class_names: list[str], num_keypoints: int, split_map: dict[str, str]
+) -> None:
     # YOLO expects "val" key in yaml; map Roboflow's "valid" split to it.
     yaml_lines = [f"path: {output_dir.resolve()}"]
     if "train" in split_map:

@@ -27,14 +27,15 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from camera_geometry import (
+from score import BACK_IDX, FRONT_IDX, load_gt
+
+from auto_battlebot.camera_geometry import (
     NOMINAL_FIELD_SIZE_M,
     field_to_pixels,
     height_for_label,
     load_frame_geometry,
     pixels_to_floor,
 )
-from score import BACK_IDX, FRONT_IDX, load_gt
 
 TILE_W, TILE_H = 640, 360
 PAD = 6

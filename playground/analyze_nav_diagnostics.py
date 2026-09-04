@@ -21,7 +21,6 @@ from mcap.reader import make_reader
 # Keep the underscored alias: sibling scripts import it from here.
 from auto_battlebot.mcap_io import decode_diagnostic_array as _decode_diagnostic_array
 
-
 PURSUIT_NAV_HW_ID = "pursuit_nav"
 RUNNER_HW_ID = "runner"
 SIM_CAMERA_HW_ID = "sim_camera"
@@ -121,9 +120,7 @@ def _wrap_deg(d: pd.Series) -> pd.Series:
     return (d + 180) % 360 - 180
 
 
-def classify_yaw_jumps(
-    df: pd.DataFrame, jump_threshold_deg: float = 90.0
-) -> pd.DataFrame:
+def classify_yaw_jumps(df: pd.DataFrame, jump_threshold_deg: float = 90.0) -> pd.DataFrame:
     """For each detected yaw jump, classify as identity swap (H2) or front/back flip (H4).
 
     Compares detected our_pose to ground truth poses of our robot and all opponents.
@@ -140,15 +137,9 @@ def classify_yaw_jumps(
     if not jumps.any():
         return pd.DataFrame()
 
-    opp_yaw_cols = [
-        c for c in df.columns if c.startswith("gt/opp") and c.endswith("_yaw_deg")
-    ]
-    opp_pos_cols_x = [
-        c for c in df.columns if c.startswith("gt/opp") and c.endswith("_x")
-    ]
-    opp_pos_cols_y = [
-        c for c in df.columns if c.startswith("gt/opp") and c.endswith("_y")
-    ]
+    opp_yaw_cols = [c for c in df.columns if c.startswith("gt/opp") and c.endswith("_yaw_deg")]
+    opp_pos_cols_x = [c for c in df.columns if c.startswith("gt/opp") and c.endswith("_x")]
+    opp_pos_cols_y = [c for c in df.columns if c.startswith("gt/opp") and c.endswith("_y")]
 
     records = []
     for idx in df.index[jumps]:
@@ -314,9 +305,7 @@ def compute_time_to_target(df: pd.DataFrame, threshold_m: float = 0.15) -> float
 def plot_diagnostics(df: pd.DataFrame, save_path: str | None, no_show: bool) -> None:
     gt = has_ground_truth(df)
     n_panels = 6 if gt else 5
-    fig, axes = plt.subplots(
-        n_panels, 1, figsize=(14, 3.6 * n_panels), constrained_layout=True
-    )
+    fig, axes = plt.subplots(n_panels, 1, figsize=(14, 3.6 * n_panels), constrained_layout=True)
     fig.suptitle("Pursuit Navigation Diagnostics", fontsize=14)
 
     t = df["t"]
@@ -454,18 +443,12 @@ def plot_diagnostics(df: pd.DataFrame, save_path: str | None, no_show: bool) -> 
                     label=f"{cls} ({len(subset)})",
                     zorder=5,
                 )
-            ax.axhline(
-                y=120, color="tab:purple", linestyle="--", alpha=0.4, linewidth=0.8
-            )
-            ax.axhline(
-                y=45, color="tab:green", linestyle="--", alpha=0.4, linewidth=0.8
-            )
+            ax.axhline(y=120, color="tab:purple", linestyle="--", alpha=0.4, linewidth=0.8)
+            ax.axhline(y=45, color="tab:green", linestyle="--", alpha=0.4, linewidth=0.8)
             ax.legend(loc="upper right", fontsize=8)
         ax.set_ylabel("|detected - GT our| yaw (deg)")
         ax.set_xlabel("time (s)")
-        ax.set_title(
-            "Yaw Jump Classification: Identity Swap (H2) vs Front/Back Flip (H4)"
-        )
+        ax.set_title("Yaw Jump Classification: Identity Swap (H2) vs Front/Back Flip (H4)")
         ax.grid(True, alpha=0.3)
     else:
         axes[-1].set_xlabel("time (s)")
@@ -486,7 +469,7 @@ def plot_diagnostics(df: pd.DataFrame, save_path: str | None, no_show: bool) -> 
 def print_summary(df: pd.DataFrame) -> None:
     duration = df["t"].iloc[-1] - df["t"].iloc[0]
     print(f"\n{'=' * 60}")
-    print(f"  Navigation Diagnostics Summary")
+    print("  Navigation Diagnostics Summary")
     print(f"{'=' * 60}")
     print(f"  Recording duration:  {duration:.1f} s  ({len(df)} ticks)")
 
@@ -499,13 +482,13 @@ def print_summary(df: pd.DataFrame) -> None:
     if settling is not None:
         print(f"  Settling time (<10 deg for 1s): {settling:.1f} s")
     else:
-        print(f"  Settling time (<10 deg for 1s): NEVER")
+        print("  Settling time (<10 deg for 1s): NEVER")
 
     ttt = compute_time_to_target(df)
     if ttt is not None:
         print(f"  Time to target (<0.15m):  {ttt:.1f} s")
     else:
-        print(f"  Time to target (<0.15m):  NEVER")
+        print("  Time to target (<0.15m):  NEVER")
 
     yaw_jumps = detect_yaw_jumps(df)
     print(f"  Yaw jumps (>90 deg): {yaw_jumps.sum()}")
@@ -515,9 +498,7 @@ def print_summary(df: pd.DataFrame) -> None:
         if not jump_df.empty:
             counts = jump_df["classification"].value_counts()
             print(f"    -> identity swaps (H2):   {counts.get('identity_swap_H2', 0)}")
-            print(
-                f"    -> front/back flips (H4): {counts.get('front_back_flip_H4', 0)}"
-            )
+            print(f"    -> front/back flips (H4): {counts.get('front_back_flip_H4', 0)}")
             print(f"    -> correct detections:    {counts.get('correct_detection', 0)}")
             print(f"    -> ambiguous:             {counts.get('ambiguous', 0)}")
 
@@ -529,16 +510,14 @@ def print_summary(df: pd.DataFrame) -> None:
     if "target_frame_id" in df.columns:
         print(f"  Target switches:     {n_switches}")
     else:
-        print(f"  Target switches:     (target_frame_id not logged)")
+        print("  Target switches:     (target_frame_id not logged)")
 
     spins = count_full_spins(df)
     print(f"  Cumulative rotations (cmd): ~{spins:.1f}")
 
     spin_events = detect_spin_events(df)
     total_spin_s = sum(e - s for s, e in spin_events)
-    print(
-        f"  Spin events (|az|>0.8, >0.5s): {len(spin_events)}  ({total_spin_s:.1f} s total)"
-    )
+    print(f"  Spin events (|az|>0.8, >0.5s): {len(spin_events)}  ({total_spin_s:.1f} s total)")
 
     if "pipeline/latency_ms" in df.columns:
         lat = df["pipeline/latency_ms"].dropna()
@@ -560,12 +539,8 @@ def main() -> None:
         description="Analyze pursuit_nav diagnostics from an MCAP recording."
     )
     parser.add_argument("file", type=Path, help="Path to MCAP recording")
-    parser.add_argument(
-        "--save", type=str, default=None, help="Save figure to this path (PNG)"
-    )
-    parser.add_argument(
-        "--no-show", action="store_true", help="Don't open interactive plot window"
-    )
+    parser.add_argument("--save", type=str, default=None, help="Save figure to this path (PNG)")
+    parser.add_argument("--no-show", action="store_true", help="Don't open interactive plot window")
     args = parser.parse_args()
 
     if not args.file.exists():

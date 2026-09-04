@@ -106,10 +106,10 @@ training data.
 - Optimizer: `scipy.optimize.least_squares` from the seed; CMA-ES fallback if the coupling
   terms stall in a local minimum. Bootstrap over windows for parameter error bars, written to
   `[plant.provenance]` in the output TOML in the existing format.
-- Code: a match-window loader next to the jig loader in `playground/calibration/calib_lib/`,
+- Code: a match-window loader next to the jig loader in `auto_battlebot/calibration/`,
   registered as a new catalog entry in `fit_jig_plant.py` (the docstring already prescribes
   this for new excitation sources). Decoding reuses `auto_battlebot/mcap_io.py` and
-  `playground/control_stage0/diag_io.py`. The earlier per-axis AR fit in
+  `auto_battlebot/diag_io.py`. The earlier per-axis AR fit in
   `playground/control_stage0/fit_plant.py` stays as prior art; it fits a simpler model class
   and does not use the ladder or `predict_windows`.
 

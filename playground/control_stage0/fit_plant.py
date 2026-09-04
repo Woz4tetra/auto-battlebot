@@ -19,8 +19,8 @@ Caveats:
  - Poses are perception output (noisy, with the flat-plane bias); the velocity finite-difference
    adds noise, which biases the AR coefficient `a` slightly low (tau slightly short). Treat the fit
    as a calibrated starting point, not ground truth.
- - The kinematic plant clips |command| to 1. linear_x stays within that, but angular_z can exceed
-   it on the real robot, so set max_angular_command in the nav config (or widen the plant clip) for the
+ - The kinematic plant clips |command| to 1. linear_x stays within that, but angular_z can exceed it
+   on the real robot, so set max_angular_command in the nav config (or widen the plant clip) for the
    fit to apply faithfully at large angular commands.
 
 Run:
@@ -38,11 +38,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+
+from auto_battlebot import diag_io
 
 matplotlib.use("Agg")
-import diag_io  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
 
 DT_MIN, DT_MAX = 0.025, 0.08  # accept ~12-40 Hz steps
 TELEPORT_M = 0.12  # reject pose jumps > this between frames (~3 m/s; perception spike/track switch)

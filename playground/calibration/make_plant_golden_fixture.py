@@ -68,7 +68,9 @@ def fmt(value: float) -> str:
 
 
 def emit_array(name: str, values: list[float]) -> str:
-    body = ",\n    ".join(", ".join(fmt(v) for v in values[i : i + 4]) for i in range(0, len(values), 4))
+    body = ",\n    ".join(
+        ", ".join(fmt(v) for v in values[i : i + 4]) for i in range(0, len(values), 4)
+    )
     return f"inline constexpr double {name}[] = {{\n    {body},\n}};\n"
 
 

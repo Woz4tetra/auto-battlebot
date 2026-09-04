@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Find the max forward acceleration a robot tolerates before it flips (trainer link ONLY, no tracking).
+"""Find the max forward acceleration a robot tolerates before it flips (trainer link ONLY, no
+tracking).
 
 A torque-happy rammer (e.g. Mr Stabs) backflips when you slam the throttle from rest: it is the
 acceleration (how fast the command rises), not the top speed, that pitches it over. This ramps the
@@ -7,12 +8,12 @@ forward command 0 -> target at an escalating slew rate and stops at the rate tha
 result is the safe forward command slew rate, so scripted excitation and the deployed
 controller slew-limit every motion to stay upright, instead of blindly capping speed.
 
-No camera, no MCAP, no AprilTag. The measurement is operator-in-the-loop: you watch the robot and answer
-whether it flipped. Ctrl-C during a ramp aborts that trial and zeroes the link.
+No camera, no MCAP, no AprilTag. The measurement is operator-in-the-loop: you watch the robot and
+answer whether it flipped. Ctrl-C during a ramp aborts that trial and zeroes the link.
 
 SAFETY
-- Guard plates ON, competition battery, surface matched to the NHRL arena floor (plate friction is part
-  of the plant, see am32_tuning.md).
+- Guard plates ON, competition battery, surface matched to the NHRL arena floor (plate friction is
+  part of the plant, see am32_tuning.md).
 - Clear, bounded lane several metres long: each trial ramps to full speed and coasts.
 - Driver sticks CENTERED: in trainer mode the radio ADDS stick input to the command.
 - The link is zeroed and disarmed on every exit (normal, Ctrl-C, exception, per-trial hard timeout).
@@ -29,10 +30,10 @@ import signal
 import sys
 import time
 
-from calib_lib import drive_protocol as dp
+from auto_battlebot.calibration import drive_protocol as dp
 
 
-class _TrialTimeout(Exception):
+class _TrialTimeoutError(Exception):
     """Raised by the SIGALRM handler to break a trial that overran its time budget."""
 
 
@@ -59,7 +60,7 @@ def run_ramp(
             link.send(target, 0.0)
             time.sleep(dt)
         return True
-    except (KeyboardInterrupt, _TrialTimeout):
+    except (KeyboardInterrupt, _TrialTimeoutError):
         return False
     finally:
         link.disarm()
@@ -136,7 +137,7 @@ def main() -> None:
     if input("Type 'go' to ARM and begin: ").strip() != "go":
         raise SystemExit("Aborted (not armed).")
 
-    signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(_TrialTimeout()))
+    signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(_TrialTimeoutError()))
     link = dp.TrainerLink(
         tx_port, dp.MixConfig(reverse_angular=not args.no_reverse_angular), read_back=False
     )
@@ -148,11 +149,13 @@ def main() -> None:
         while accel <= args.max_accel + 1e-9:
             ramp_time = args.target / accel
             print(
-                f"\nTrial: ramp to {args.target:.2f} at {accel:.2f}/s{in_ms2(accel)}, reached in {ramp_time:.2f}s."
+                f"\nTrial: ramp to {args.target:.2f} at {accel:.2f}/s{in_ms2(accel)}, reached in "
+                f"{ramp_time:.2f}s."
             )
             resp = (
                 input(
-                    "Reset robot upright at the lane start, clear space, Enter to run ('q' to stop): "
+                    "Reset robot upright at the lane start, clear space, Enter to run ('q' to "
+                    "stop): "
                 )
                 .strip()
                 .lower()
@@ -182,9 +185,7 @@ def main() -> None:
         print(f"flipped at   {flipped_at:.2f} command/s{in_ms2(flipped_at)}")
     if last_safe is not None:
         print(f"max safe     {last_safe:.2f} command/s{in_ms2(last_safe)}")
-        print(
-            f"Safe forward command slew: {last_safe:.2f} /s (leave headroom)."
-        )
+        print(f"Safe forward command slew: {last_safe:.2f} /s (leave headroom).")
     else:
         print("No safe ramp rate recorded (flipped on the gentlest trial? lower --start-accel).")
 

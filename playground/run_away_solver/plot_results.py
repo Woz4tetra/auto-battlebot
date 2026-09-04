@@ -11,11 +11,11 @@ import argparse
 from pathlib import Path
 
 import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ASSETS = REPO_ROOT / "docs" / "experiments" / "control_improvement" / "assets"
@@ -57,9 +57,7 @@ def plot_jitter(results: pd.DataFrame, out: Path) -> None:
             steps = []
             for _, rec in part.groupby("recording"):
                 rec = rec.sort_values("timestamp_ns")
-                steps.append(
-                    np.hypot(rec["center_x"].diff(), rec["center_y"].diff()).dropna()
-                )
+                steps.append(np.hypot(rec["center_x"].diff(), rec["center_y"].diff()).dropna())
             jitter = pd.concat(steps).abs() if steps else pd.Series(dtype=float)
             # Median is always zero (stale tracks repeat positions); the mean carries the
             # signal.

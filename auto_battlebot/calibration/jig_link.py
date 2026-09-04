@@ -33,9 +33,9 @@ from pathlib import Path
 from typing import Callable, Iterator
 
 import numpy as np
-import serial
 from serial.tools.list_ports import comports
 
+import serial
 from auto_battlebot.velocity_jig import ClockProbe
 
 # The jig's USB ids under the arduino-pico core. CONFIRM ON HARDWARE with --list-ports:
@@ -55,7 +55,7 @@ GYRO_DPS_PER_LSB = 0.070
 ACCEL_G_PER_LSB = 0.000244
 
 
-class JigBusy(RuntimeError):
+class JigBusyError(RuntimeError):
     """The jig is recording, so it answered BUSY. Only TIME works in that state."""
 
 
@@ -225,7 +225,7 @@ class JigLink:
         self._send(cmd)
         line = self._read_line(timeout)
         if line == "BUSY":
-            raise JigBusy(f"{cmd!r} refused: the jig is recording")
+            raise JigBusyError(f"{cmd!r} refused: the jig is recording")
         return line
 
     # -- console commands --------------------------------------------------
@@ -238,7 +238,7 @@ class JigLink:
             if line is None or line == "END":
                 return out
             if line == "BUSY":
-                raise JigBusy("LIST refused: the jig is recording")
+                raise JigBusyError("LIST refused: the jig is recording")
             if line.startswith("F "):
                 parts = line.split()
                 if len(parts) >= 3:
@@ -250,7 +250,7 @@ class JigLink:
         self._send(f"GET {name}")
         header = self._read_line(10.0)
         if header == "BUSY":
-            raise JigBusy("GET refused: the jig is recording")
+            raise JigBusyError("GET refused: the jig is recording")
         if header is None or not header.startswith("SIZE "):
             raise OSError(f"GET {name}: expected SIZE, got {header!r}")
         size = int(header.split()[1])
@@ -307,7 +307,7 @@ class JigLink:
                 if line is None:
                     continue
                 if line == "BUSY":
-                    raise JigBusy("STREAM refused: the jig is recording")
+                    raise JigBusyError("STREAM refused: the jig is recording")
                 row = _parse_stream_row(line)
                 if row is not None:
                     yield row

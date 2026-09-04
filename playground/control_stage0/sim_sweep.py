@@ -29,14 +29,15 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import tomli_w
+import tomllib
+
+from auto_battlebot import diag_io
 
 matplotlib.use("Agg")  # headless: render plots to files
-import diag_io  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-import tomli_w  # noqa: E402
-import tomllib  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BINARY = REPO_ROOT / "build" / "auto_battlebot"
@@ -186,7 +187,10 @@ def add_time_lost(rows: list[dict[str, Any]], runs: list[Run]) -> None:
         base = by_name.get(run.baseline)
         if base is None:
             continue
-        for metric, column in (("t_to_goal_s", "time_lost_s"), ("t_contact_s", "time_lost_contact_s")):
+        for metric, column in (
+            ("t_to_goal_s", "time_lost_s"),
+            ("t_contact_s", "time_lost_contact_s"),
+        ):
             mine, theirs = by_name[run.name].get(metric), base.get(metric)
             if mine is None or theirs is None:
                 continue
@@ -284,9 +288,13 @@ def run_once(
 
 
 def latest_mcap(run_name: str, after: float) -> Path | None:
-    """Newest recording written after `after`. The recorder names files by the (sanitized) config path,
-    which for a sweep overlay is a mangled slug, not the run name, so match on `run_name` appearing before
-    the timestamp when possible and otherwise fall back to the newest recording (runs are sequential)."""
+    """Newest recording written after `after`. The recorder names files by the (sanitized) config
+    path,
+    which for a sweep overlay is a mangled slug, not the run name, so match on `run_name` appearing
+    before
+    the timestamp when possible and otherwise fall back to the newest recording (runs are
+    sequential).
+    """
     fresh = [p for p in RECORDINGS.glob("auto_battlebot_*.mcap") if p.stat().st_mtime >= after]
     if not fresh:
         return None
@@ -337,8 +345,9 @@ def score_run(
             dy = df["our_y"].iloc[i] - df["our_y"].iloc[i - 1]
             result["impact_speed_mps"] = round(float((dx**2 + dy**2) ** 0.5) / dt, 2)
 
-    # Stop-mission metrics: a static target is a "go to X and stop" goal. Terminal velocity is derived
-    # from pose deltas (the sim sends no velocity), averaged over the last few ticks to reject noise.
+    # Stop-mission metrics: a static target is a "go to X and stop" goal. Terminal velocity is
+    # derived from pose deltas (the sim sends no velocity), averaged over the last few ticks to
+    # reject noise.
     static_goal = not _opponent_moves(df) and {"our_x", "our_y", "target_x", "target_y"}.issubset(
         df.columns
     )
@@ -432,8 +441,9 @@ def plot_run(
 ) -> None:
     """Per-run physical view: top-down path (time-coloured) plus distance, heading, speed.
 
-    When the target is static the run is a "go to X and stop" mission, so the goal-tolerance ring, the
-    goal-distance panel, and the terminal speed are drawn to show whether the robot stopped on the goal.
+    When the target is static the run is a "go to X and stop" mission, so the goal-tolerance ring,
+    the goal-distance panel, and the terminal speed are drawn to show whether the robot stopped on
+    the goal.
     """
     t = np.arange(len(df)) * dt
     static_goal = not _opponent_moves(df) and {"target_x", "target_y"}.issubset(df.columns)
@@ -548,7 +558,8 @@ def load_sweep(path: Path) -> tuple[Path | None, list[Run]]:
     """Parse a sweep TOML. Returns (base sim-config override or None, runs).
 
     A top-level `sim_config` key selects the per-robot kinematic config (path relative to the repo
-    root), e.g. `sim_config = "simulation/kinematic_sim_mr_stabs_mk2.toml"`. Omit it to use the default.
+    root), e.g. `sim_config = "simulation/kinematic_sim_mr_stabs_mk2.toml"`. Omit it to use the
+    default.
     """
     raw = _load_toml(path)
     sim_config_key = raw.get("sim_config")
@@ -595,7 +606,7 @@ def main() -> None:
         "--goal-tolerance",
         type=float,
         default=0.10,
-        help="stop-mission goal radius (m); terminal error and time-to-goal are measured against it",
+        help="stop-mission goal radius (m); terminal error and time-to-goal measure against it",
     )
     args = ap.parse_args()
 

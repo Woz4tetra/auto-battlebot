@@ -22,7 +22,6 @@ from pathlib import Path
 
 from mcap.reader import make_reader
 
-
 DIAGNOSTICS_TOPIC = "/diagnostics"
 
 
@@ -270,9 +269,7 @@ def print_summary(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Analyze MCAP for likely runtime failure events."
-    )
+    parser = argparse.ArgumentParser(description="Analyze MCAP for likely runtime failure events.")
     parser.add_argument("file", type=Path, help="Path to MCAP recording")
     parser.add_argument(
         "--min-gap-s",

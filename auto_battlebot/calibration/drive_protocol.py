@@ -22,7 +22,7 @@ SAFETY
 - The robot moves fast. Run in a clear, bounded space with guard plates on.
 - Keep the human driver's sticks centered: in trainer mode the radio ADDS stick input.
 - Zero the channels and disarm on every exit path: normal return, Ctrl-C, exception, and a
-  hard wall-clock timeout. `armed()` is a context manager that does this.
+  hard wall-clock timeout. `Armed()` is a context manager that does this.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ import struct
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 from serial.tools.list_ports import comports
 
@@ -59,7 +59,7 @@ _PACKET_LEN = _CHANNELS_PER_PACKET * 2 + 1
 def find_transmitter_port() -> str | None:
     for p in comports():
         if p.vid == OPENTX_VID and p.pid == OPENTX_PID:
-            return p.device
+            return str(p.device)
     return None
 
 
@@ -397,7 +397,7 @@ class PlayResult:
 
 def play(
     link: TrainerLink,
-    program,
+    program: Any,
     *,
     rate_hz: float = 50.0,
     trim: float = 0.0,
@@ -484,16 +484,16 @@ def play(
     return result
 
 
-def _label_at(program, t: float) -> str:
+def _label_at(program: Any, t: float) -> str:
     if not getattr(program, "segments", None):
-        return program.kind
+        return str(program.kind)
     for seg in program.segments:
         if seg.t0 <= t < seg.t1:
-            return seg.label
+            return str(seg.label)
     return "idle"
 
 
-class armed:
+class Armed:
     """Context manager that guarantees a disarm.
 
     Every exit path goes through __exit__: normal return, exception, and Ctrl-C, since

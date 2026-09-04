@@ -30,10 +30,10 @@ from pathlib import Path
 
 import cv2
 import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 SYNTH_DIR = REPO / "training/data/meshy_grade"

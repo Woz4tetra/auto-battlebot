@@ -12,11 +12,9 @@ from __future__ import annotations
 
 import argparse
 import re
-import statistics
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-
 
 MONTHS = {
     "Jan": 1,
@@ -58,9 +56,17 @@ FAILURE_SIGNATURES: list[tuple[str, int, re.Pattern[str]]] = [
     ("rcu_stall", 88, re.compile(r"rcu.*stall", re.IGNORECASE)),
     ("hung_task", 85, re.compile(r"task .* blocked for more than .* seconds", re.IGNORECASE)),
     ("oops_bug", 82, re.compile(r"\bOops:|\bBUG:", re.IGNORECASE)),
-    ("oom", 80, re.compile(r"out of memory|oom-killer|killed process .* out of memory", re.IGNORECASE)),
+    (
+        "oom",
+        80,
+        re.compile(r"out of memory|oom-killer|killed process .* out of memory", re.IGNORECASE),
+    ),
     ("nv_gpu_error", 70, re.compile(r"\bNVRM\b|Xid|gpu fault|gr3d", re.IGNORECASE)),
-    ("usb_camera_error", 65, re.compile(r"usb .* reset|xusb|zed|camera.*(error|fail)", re.IGNORECASE)),
+    (
+        "usb_camera_error",
+        65,
+        re.compile(r"usb .* reset|xusb|zed|camera.*(error|fail)", re.IGNORECASE),
+    ),
     ("app_error", 60, re.compile(r"auto_battlebot.*\[(error|fatal)\]", re.IGNORECASE)),
 ]
 
@@ -194,8 +200,9 @@ def find_clean_shutdown_reason(lines: list[LogLine]) -> tuple[bool, str, int]:
     return False, "no shutdown markers detected", activity_count
 
 
-def summarize_cycle(lines: list[LogLine], reboot_idxs: list[int], cycle_idx: int,
-                    window_lines: int) -> CycleSummary:
+def summarize_cycle(
+    lines: list[LogLine], reboot_idxs: list[int], cycle_idx: int, window_lines: int
+) -> CycleSummary:
     start = reboot_idxs[cycle_idx]
     end = reboot_idxs[cycle_idx + 1]
     cycle_lines = lines[start:end]
@@ -213,7 +220,7 @@ def summarize_cycle(lines: list[LogLine], reboot_idxs: list[int], cycle_idx: int
             top_findings=[],
         )
 
-    tail = cycle_lines[-min(len(cycle_lines), 5000):]
+    tail = cycle_lines[-min(len(cycle_lines), 5000) :]
     clean, reason, activity_count = find_clean_shutdown_reason(tail)
 
     pre_reboot_window_start = max(start, end - window_lines)
@@ -248,10 +255,7 @@ def print_cycle_summary(cycle: CycleSummary, *, show_findings: bool) -> None:
         f"boot_start_ts={cycle.boot_start.ts_prefix or 'n/a'} "
         f"reboot_ts={cycle.reboot_marker.ts_prefix or 'n/a'}"
     )
-    print(
-        f"clean_shutdown={'yes' if cycle.clean_shutdown else 'no'} "
-        f"reason={cycle.clean_reason}"
-    )
+    print(f"clean_shutdown={'yes' if cycle.clean_shutdown else 'no'} reason={cycle.clean_reason}")
     if cycle.last_auto_battlebot:
         print(
             f"last_auto_battlebot_line={cycle.last_auto_battlebot.idx} "
@@ -332,13 +336,13 @@ def main() -> None:
         print(f"  [{i}] line={ll.idx} ts={ts} :: {ll.raw[:120]}")
 
     cycle_count = len(reboot_idxs) - 1
-    cycles = [
-        summarize_cycle(lines, reboot_idxs, i, args.window_lines) for i in range(cycle_count)
-    ]
+    cycles = [summarize_cycle(lines, reboot_idxs, i, args.window_lines) for i in range(cycle_count)]
 
     if args.event_index is not None:
         if args.event_index < 0 or args.event_index >= cycle_count:
-            raise SystemExit(f"Invalid --event-index {args.event_index}; valid range: 0..{cycle_count - 1}")
+            raise SystemExit(
+                f"Invalid --event-index {args.event_index}; valid range: 0..{cycle_count - 1}"
+            )
         print_cycle_summary(cycles[args.event_index], show_findings=True)
         return
 

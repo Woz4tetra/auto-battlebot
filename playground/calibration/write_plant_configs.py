@@ -29,9 +29,10 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIT = REPO_ROOT / "playground" / "calibration" / "out" / "plant_stageA.toml"
@@ -72,12 +73,27 @@ SIM_FIELDS = {
 # is not derived from the fit. `c_drift`/`c_drift_bias` are absent because model M4 disables them.
 # The [plant] table uses the fit's own names, so this mapping is the identity. Listed explicitly
 # so a field added to the fit does not silently skip the table.
-PLANT_FIELDS = {name: name for name in (
-    "dz_lin_fwd", "dz_lin_rev", "dz_ang_l", "dz_ang_r",
-    "k_fwd", "k_rev", "k_ang",
-    "tau_lin_a", "tau_lin_d", "tau_ang_a", "tau_ang_d",
-    "delay_s", "c_sb", "c_ad", "c_drift", "c_drift_bias",
-)}
+PLANT_FIELDS = {
+    name: name
+    for name in (
+        "dz_lin_fwd",
+        "dz_lin_rev",
+        "dz_ang_l",
+        "dz_ang_r",
+        "k_fwd",
+        "k_rev",
+        "k_ang",
+        "tau_lin_a",
+        "tau_lin_d",
+        "tau_ang_a",
+        "tau_ang_d",
+        "delay_s",
+        "c_sb",
+        "c_ad",
+        "c_drift",
+        "c_drift_bias",
+    )
+}
 
 
 @dataclass

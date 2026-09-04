@@ -1,28 +1,32 @@
 """Solve field-plane robot poses from an apriltag_track.py image recording.
 
-Replays the recorded camera images, re-runs the AprilTag detection (apriltag_detect, the same code the
-live preview used), and solves the (t, x, y, yaw, visible) truth CSV that fit_plant_calib.py consumes.
+Replays the recorded camera images, re-runs the AprilTag detection (apriltag_detect, the same code
+the live preview used), and solves the (t, x, y, yaw, visible) truth CSV that fit_plant_calib.py
+consumes.
 Two solves, mirroring capture:
   1. The floor extrinsic from the /floor/image lock burst (board visible).
   2. The robot tag pose in that floor frame, per /camera/image frame.
 
-Because the images are recorded raw, the floor lock, detector tuning, intrinsics, and yaw offset can all
-be corrected here and re-run without re-driving the robot.
+Because the images are recorded raw, the floor lock, detector tuning, intrinsics, and yaw offset can
+all be corrected here and re-run without re-driving the robot.
 
-Transmitter data recorded alongside the frames is carried through to the truth CSV as extra columns, so
+Transmitter data recorded alongside the frames is carried through to the truth CSV as extra columns,
+so
 the commanded input stays aligned with the solved ground-truth pose:
-  - a read-only stick capture (radio connected, no --drive) adds tx_sample_t, ch0..chN, joined per frame
-    by timestamp.
+  - a read-only stick capture (radio connected, no --drive) adds tx_sample_t, ch0..chN, joined per
+    frame by timestamp.
   - an apriltag_track.py --drive excitation adds the active scripted command (cmd_lin, cmd_ang,
-    trainer_lin, trainer_ang, label), zero-order-held onto each frame time. fit_plant_calib.py fits the
-    plant directly from this single CSV, so no separate command log is needed.
+    trainer_lin, trainer_ang, label), zero-order-held onto each frame time. fit_plant_calib.py fits
+    the plant directly from this single CSV, so no separate command log is needed.
 
 Usage:
     source scripts/activate_python.sh
     python playground/calibration/analyze_apriltag_mcap.py \
-        playground/calibration/out/apriltag_track.mcap --out playground/calibration/out/truth_log.csv
+        playground/calibration/out/apriltag_track.mcap \
+        --out playground/calibration/out/truth_log.csv
     # Re-solve with a corrected yaw offset (overrides the value recorded at capture):
-    python playground/calibration/analyze_apriltag_mcap.py rec.mcap --yaw-offset-deg 90 --plot fit.png
+    python playground/calibration/analyze_apriltag_mcap.py rec.mcap \
+        --yaw-offset-deg 90 --plot fit.png
     # Also emit a Foxglove overlay (camera frames + solved pose markers via TF) to eyeball the fit:
     python playground/calibration/analyze_apriltag_mcap.py rec.mcap --overlay-mcap overlay.mcap
 """
@@ -35,8 +39,9 @@ import math
 from pathlib import Path
 
 import numpy as np
-from calib_lib import apriltag_detect as ad
-from calib_lib import apriltag_mcap as amcap
+
+from auto_battlebot.calibration import apriltag_detect as ad
+from auto_battlebot.calibration import apriltag_mcap as amcap
 
 # Sentinel for --overlay-mcap given with no argument: write next to the recording.
 OVERLAY_DEFAULT = object()
@@ -65,10 +70,11 @@ def solve_floor(metadata: dict, path: Path, detector, k: np.ndarray, d: np.ndarr
 
 
 def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
-    """Detect the robot tag in each /camera/image frame and solve its field-plane (t, x, y, yaw, visible).
+    """Detect the robot tag in each /camera/image frame and solve its field-plane (t, x, y, yaw,
+    visible).
 
-    Returns (rows, r_fc, t_fc): the per-frame poses plus the floor extrinsic, which the overlay writer
-    needs to place the camera in the field frame.
+    Returns (rows, r_fc, t_fc): the per-frame poses plus the floor extrinsic, which the overlay
+    writer needs to place the camera in the field frame.
     """
     k = np.asarray(metadata["camera_matrix"], dtype=np.float64).reshape(3, 3)
     d = np.asarray(metadata["dist_coeffs"], dtype=np.float64).reshape(-1, 1)
@@ -76,14 +82,16 @@ def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
     r_fc, t_fc = solve_floor(metadata, path, detector, k, d)
     obj = ad.tag_object_points(float(metadata["tag_size"]))
 
-    # Carry the driver's stick axes through to the truth CSV. apriltag_track.py stamped each channels
-    # message with its frame's time, so this joins back onto the frame by the exact same `t`. Empty when
-    # the recording has no transmitter topic; per-frame None when the radio had not yet streamed a packet.
+    # Carry the driver's stick axes through to the truth CSV. apriltag_track.py stamped each
+    # channels message with its frame's time, so this joins back onto the frame by the exact same
+    # `t`. Empty when the recording has no transmitter topic; per-frame None when the radio had not
+    # yet streamed a packet.
     channels_by_t = amcap.read_channels(path)
 
-    # Carry the scripted excitation commands through to the truth CSV (--drive recordings). Commands run on
-    # their own ~50 Hz clock, so zero-order-hold them onto each frame: the active command is the most recent
-    # one sent at or before the frame's time. Empty when the recording has no command topic.
+    # Carry the scripted excitation commands through to the truth CSV (--drive recordings). Commands
+    # run on their own ~50 Hz clock, so zero-order-hold them onto each frame: the active command is
+    # the most recent one sent at or before the frame's time. Empty when the recording has no
+    # command topic.
     commands = amcap.read_commands(path)
     cmd_t = np.array([c["t"] for c in commands], dtype=np.float64)
 
@@ -95,21 +103,23 @@ def solve_poses(metadata: dict, path: Path, tag_id: int, yaw_offset: float):
             idx = int(np.where(ids.flatten() == tag_id)[0][0])
             pose = ad.tag_pose_field(corners[idx], obj, k, d, r_fc, t_fc, yaw_offset)
         if pose is not None:
-            # pose is (x, y, yaw, rvec, tvec); recover the tag's field-frame height (z) from tvec so the
-            # overlay can draw markers at the tag's true 3D position instead of flat on z=0. z is not
-            # written to the truth CSV (write_csv only emits x, y, yaw), only used by the overlay.
+            # pose is (x, y, yaw, rvec, tvec); recover the tag's field-frame height (z) from tvec so
+            # the overlay can draw markers at the tag's true 3D position instead of flat on z=0. z
+            # is not written to the truth CSV (write_csv only emits x, y, yaw), only used by the
+            # overlay.
             tvec = np.asarray(pose[4], dtype=np.float64).reshape(3)
             z = float((r_fc.T @ (tvec - t_fc))[2])
             row = {"t": t, "x": pose[0], "y": pose[1], "yaw": pose[2], "z": z, "visible": 1}
         else:
             row = {"t": t, "x": None, "y": None, "yaw": None, "z": None, "visible": 0}
-        # Sticks are valid whether or not the tag was solved this frame, so attach them on every row.
+        # Sticks are valid whether or not the tag was solved this frame, so attach them on every
+        # row.
         tx = channels_by_t.get(t)
         if tx is not None:
             row["sample_t"] = tx["sample_t"]
             row["channels"] = tx["channels"]
-        # The active --drive command is the most recent one sent at or before this frame (ZOH). Frames
-        # before the first command (the brief gap at recording start) get none.
+        # The active --drive command is the most recent one sent at or before this frame (ZOH).
+        # Frames before the first command (the brief gap at recording start) get none.
         if cmd_t.size:
             ci = int(np.searchsorted(cmd_t, t, side="right")) - 1
             if ci >= 0:
@@ -129,11 +139,13 @@ CMD_COLUMNS = ["cmd_lin", "cmd_ang", "trainer_lin", "trainer_ang", "label"]
 def write_csv(path: Path, rows: list[dict]) -> None:
     """Write the truth CSV in fit_plant_calib.py's expected (t, x, y, yaw, visible) format.
 
-    When the recording carried transmitter data, extra columns are appended per frame (fit_plant_calib.py
+    When the recording carried transmitter data, extra columns are appended per frame
+    (fit_plant_calib.py
     reads by column name) and omitted entirely if absent:
       - read-only stick capture: the driver's stick axes (tx_sample_t, ch0..chN).
-      - --drive excitation: the scripted command active at that frame (cmd_lin, cmd_ang, trainer_lin,
-        trainer_ang, label), zero-order-held onto the frame time. fit_plant_calib.py fits from these.
+      - --drive excitation: the scripted command active at that frame (cmd_lin, cmd_ang,
+        trainer_lin, trainer_ang, label), zero-order-held onto the frame time. fit_plant_calib.py
+        fits from these.
     The two are mutually exclusive (a recording is either driven or read-only).
     """
     n_ch = max((len(r["channels"]) for r in rows if "channels" in r), default=0)
@@ -178,7 +190,8 @@ def print_summary(rows: list[dict], tag_id: int) -> None:
         raise SystemExit("recording contained no /camera/image frames")
     span = rows[-1]["t"] - rows[0]["t"]
     print(
-        f"robot tag id {tag_id}: {len(seen)}/{n} frames ({100.0 * len(seen) / n:.1f}%) over {span:.1f} s"
+        f"robot tag id {tag_id}: {len(seen)}/{n} frames ({100.0 * len(seen) / n:.1f}%) over "
+        f"{span:.1f} s"
     )
     if not seen:
         print("WARNING: tag never solved; check --tag-id and that the robot was in view.")
@@ -197,8 +210,8 @@ def print_timing(rows: list[dict]) -> None:
     """Report frame-rate consistency over every recorded frame, to surface recording hitches.
 
     Uses all frame timestamps (not just solved ones), since hitches are a camera/recording issue
-    independent of whether the tag was detected. A "hitch" is a gap longer than 1.5x the median period;
-    dropped frames are estimated by how many nominal periods each gap overran.
+    independent of whether the tag was detected. A "hitch" is a gap longer than 1.5x the median
+    period; dropped frames are estimated by how many nominal periods each gap overran.
     """
     ts = np.array([r["t"] for r in rows], dtype=np.float64)
     if len(ts) < 2:
@@ -224,7 +237,8 @@ def print_timing(rows: list[dict]) -> None:
     if hitches:
         worst_t = float(ts[worst_i + 1] - ts[0])
         print(
-            f"  hitches (dt > 1.5x median): {hitches} ({100.0 * hitches / dt.size:.1f}% of frames)   "
+            f"  hitches (dt > 1.5x median): {hitches} "
+            f"({100.0 * hitches / dt.size:.1f}% of frames)   "
             f"est. dropped frames: {dropped}"
         )
         print(

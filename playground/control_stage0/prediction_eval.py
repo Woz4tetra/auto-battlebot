@@ -32,18 +32,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from mcap_ros1.reader import read_ros1_messages
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-from diag_io import (  # noqa: E402
+from auto_battlebot.diag_io import (
     ROBOT_MARKERS_TOPIC,
     _log_time_ns,
     frame_name,
     load_diagnostics,
 )
-from mcap_ros1.reader import read_ros1_messages  # noqa: E402
+
+matplotlib.use("Agg")
 
 PRESENT_COL = "perc/our_present_live"
 USING_PREV_COL = "nav/using_previous_robots"
@@ -87,18 +88,28 @@ def _per_tick(path: Path) -> pd.DataFrame:
     df = load_diagnostics(path)
     if PRESENT_COL not in df.columns:
         raise SystemExit(f"{path}: missing required diagnostics column '{PRESENT_COL}'")
-    diag = pd.DataFrame(
-        {
-            "timestamp_ns": df["timestamp_ns"].astype("int64").to_numpy(),
-            "t": df["t"].to_numpy(),
-            "present": pd.to_numeric(df[PRESENT_COL], errors="coerce").fillna(0).astype(int).to_numpy(),
-            "using_prev": (
-                pd.to_numeric(df[USING_PREV_COL], errors="coerce").fillna(0).astype(int).to_numpy()
-                if USING_PREV_COL in df.columns
-                else 0
-            ),
-        }
-    ).sort_values("timestamp_ns").reset_index(drop=True)
+    diag = (
+        pd.DataFrame(
+            {
+                "timestamp_ns": df["timestamp_ns"].astype("int64").to_numpy(),
+                "t": df["t"].to_numpy(),
+                "present": pd.to_numeric(df[PRESENT_COL], errors="coerce")
+                .fillna(0)
+                .astype(int)
+                .to_numpy(),
+                "using_prev": (
+                    pd.to_numeric(df[USING_PREV_COL], errors="coerce")
+                    .fillna(0)
+                    .astype(int)
+                    .to_numpy()
+                    if USING_PREV_COL in df.columns
+                    else 0
+                ),
+            }
+        )
+        .sort_values("timestamp_ns")
+        .reset_index(drop=True)
+    )
 
     markers = _load_our_marker_pose(path)
     markers["timestamp_ns"] = markers["timestamp_ns"].astype("int64")
@@ -119,7 +130,9 @@ def _per_tick(path: Path) -> pd.DataFrame:
 
 def _gaps(ticks: pd.DataFrame) -> pd.DataFrame:
     """Extract dropout gaps bounded by live ticks. A gap is a maximal run of present==0 that has at
-    least one live tick before it (frozen/predicted reference) and after it (resume ground truth)."""
+    least one live tick before it (frozen/predicted reference) and after it (resume ground
+    truth).
+    """
     present = ticks["present"].to_numpy()
     n = len(present)
     rows = []
@@ -137,13 +150,18 @@ def _gaps(ticks: pd.DataFrame) -> pd.DataFrame:
                 if not any(
                     pd.isna(v)
                     for v in (
-                        pre["our_x"], pre["our_y"],
-                        last_gap["our_x"], last_gap["our_y"],
-                        resume["our_x"], resume["our_y"],
+                        pre["our_x"],
+                        pre["our_y"],
+                        last_gap["our_x"],
+                        last_gap["our_y"],
+                        resume["our_x"],
+                        resume["our_y"],
                     )
                 ):
                     resume_err = float(
-                        np.hypot(last_gap["our_x"] - resume["our_x"], last_gap["our_y"] - resume["our_y"])
+                        np.hypot(
+                            last_gap["our_x"] - resume["our_x"], last_gap["our_y"] - resume["our_y"]
+                        )
                     )
                     frozen_err = float(
                         np.hypot(pre["our_x"] - resume["our_x"], pre["our_y"] - resume["our_y"])
@@ -183,9 +201,7 @@ def write_report(on: ArmResult, off: ArmResult, out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     # Per-gap CSV (both arms).
-    per_gap = pd.concat(
-        [on.gaps.assign(arm="on"), off.gaps.assign(arm="off")], ignore_index=True
-    )
+    per_gap = pd.concat([on.gaps.assign(arm="on"), off.gaps.assign(arm="off")], ignore_index=True)
     per_gap.to_csv(out / "gaps.csv", index=False)
 
     # Summary CSV.
@@ -200,8 +216,12 @@ def write_report(on: ArmResult, off: ArmResult, out: Path) -> None:
             "mean_gap_ms": float(g["gap_len_ms"].mean()) if len(g) else float("nan"),
             "median_gap_ms": float(g["gap_len_ms"].median()) if len(g) else float("nan"),
             "mean_resume_error_m": float(g["resume_error_m"].mean()) if len(g) else float("nan"),
-            "median_resume_error_m": float(g["resume_error_m"].median()) if len(g) else float("nan"),
-            "mean_frozen_ref_error_m": float(g["frozen_ref_error_m"].mean()) if len(g) else float("nan"),
+            "median_resume_error_m": float(g["resume_error_m"].median())
+            if len(g)
+            else float("nan"),
+            "mean_frozen_ref_error_m": float(g["frozen_ref_error_m"].mean())
+            if len(g)
+            else float("nan"),
             "mean_tick_jump_m": r.mean_jump_m,
         }
 
@@ -242,12 +262,16 @@ def write_report(on: ArmResult, off: ArmResult, out: Path) -> None:
             )
             lines.append("")
             lines.append(
-                "Because prediction also changes data association (it advances last_position), the two "
-                "arms do not have identical gap sets, so the table below bins by gap length to compare "
+                "Because prediction also changes data association (it advances last_position), the "
+                "two "
+                "arms do not have identical gap sets, so the table below bins by gap length to "
+                "compare "
                 "at matched dropout durations."
             )
             lines.append("")
-            lines.append("| gap length (ms) | n ON | n OFF | resume err ON (m) | resume err OFF (m) |")
+            lines.append(
+                "| gap length (ms) | n ON | n OFF | resume err ON (m) | resume err OFF (m) |"
+            )
             lines.append("| --- | --- | --- | --- | --- |")
             bins = [0, 40, 80, 120, 200, 400, 2000]
             on_b = on.gaps.assign(bin=pd.cut(on.gaps["gap_len_ms"], bins))
@@ -259,7 +283,8 @@ def write_report(on: ArmResult, off: ArmResult, out: Path) -> None:
                     continue
                 lines.append(
                     f"| {int(b.left)}–{int(b.right)} | {len(o)} | {len(f)} | "
-                    f"{_fmt(o.mean()) if len(o) else 'n/a'} | {_fmt(f.mean()) if len(f) else 'n/a'} |"
+                    f"{_fmt(o.mean()) if len(o) else 'n/a'} | "
+                    f"{_fmt(f.mean()) if len(f) else 'n/a'} |"
                 )
     (out / "summary.md").write_text("\n".join(lines) + "\n")
 
@@ -268,8 +293,12 @@ def write_report(on: ArmResult, off: ArmResult, out: Path) -> None:
     for r, color in ((off, "tab:red"), (on, "tab:blue")):
         if len(r.gaps):
             ax.scatter(
-                r.gaps["gap_len_ms"], r.gaps["resume_error_m"], s=18, alpha=0.5,
-                color=color, label=f"{r.name} (n={len(r.gaps)})",
+                r.gaps["gap_len_ms"],
+                r.gaps["resume_error_m"],
+                s=18,
+                alpha=0.5,
+                color=color,
+                label=f"{r.name} (n={len(r.gaps)})",
             )
             # binned mean
             g = r.gaps.copy()
@@ -295,8 +324,14 @@ def write_report(on: ArmResult, off: ArmResult, out: Path) -> None:
         jumps = r.ticks["jump_m"].dropna().to_numpy()
         jumps = jumps[jumps > 1e-4]
         if len(jumps):
-            ax.hist(jumps, bins=60, range=(0, np.percentile(jumps, 99)), histtype="step",
-                    color=color, label=f"{r.name} (mean={r.mean_jump_m:.4f} m)")
+            ax.hist(
+                jumps,
+                bins=60,
+                range=(0, np.percentile(jumps, 99)),
+                histtype="step",
+                color=color,
+                label=f"{r.name} (mean={r.mean_jump_m:.4f} m)",
+            )
     ax.set_xlabel("frame-to-frame OUR_ROBOT_1 position jump (m)")
     ax.set_ylabel("count")
     ax.set_title("Pose smoothness (lower/tighter is smoother)")
@@ -306,7 +341,10 @@ def write_report(on: ArmResult, off: ArmResult, out: Path) -> None:
     fig.savefig(out / "pose_jump_hist.png", dpi=120)
     plt.close(fig)
 
-    print(f"Wrote {out}/summary.md, summary.csv, gaps.csv, resume_error_vs_gap.png, pose_jump_hist.png")
+    print(
+        f"Wrote {out}/summary.md, summary.csv, gaps.csv, resume_error_vs_gap.png, "
+        f"pose_jump_hist.png"
+    )
     print((out / "summary.md").read_text())
 
 
