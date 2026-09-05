@@ -16,6 +16,13 @@ needs before it stops clipping annotated robots, and how much zoom survives that
 crop tight enough to zoom is a crop that cuts robots in half; a crop loose enough to keep
 them is a crop that covers the frame.
 
+With `--tensors`, it reports what the crop is worth once it is letterboxed into a real
+engine input, against not cropping at all. This is the version that decides the arm, because
+a letterbox scale is set by whichever axis binds first, and the field box spans nearly the
+full frame width on both corpora. Cropping removes rows the width-bound scale was going to
+apply anyway, so it buys no zoom at any tensor shape that is 16:9 or squarer -- it only
+spends the freed rows on padding.
+
     python training/deeplab/field_fraction_gate.py \
         --model data/models/field_deeplabv3p_r50_2026-07-29.pth \
         --train-images training/data/nhrl_robots_bbox_2class/train/images \
@@ -145,6 +152,67 @@ def margin_retention(
     return out
 
 
+def crop_dims(
+    box: tuple[float, float, float, float], margin: float, src_w: float, src_h: float
+) -> tuple[float, float]:
+    """Pixel size of the field box grown by `margin` per side and clamped to the frame."""
+    x0, y0, x1, y1 = box
+    mx, my = (x1 - x0) * margin, (y1 - y0) * margin
+    cx0, cy0 = max(x0 - mx, 0.0), max(y0 - my, 0.0)
+    cx1, cy1 = min(x1 + mx, 1.0), min(y1 + my, 1.0)
+    return (cx1 - cx0) * src_w, (cy1 - cy0) * src_h
+
+
+def tensor_tradeoff(
+    rows: list[dict[str, float]],
+    tensors: list[tuple[int, int]],
+    margin: float,
+    src_w: float = 1280.0,
+    src_h: float = 720.0,
+) -> list[dict[str, object]]:
+    """Zoom and padding for each engine input shape, cropped and uncropped.
+
+    Zoom is the letterbox scale relative to arm A's 640x640, which is what sets how many
+    pixels a robot lands on. The source resolution cancels out of that ratio for a 16:9
+    frame, so 1280x720 stands in for both corpora.
+    """
+    base = min(640.0 / src_h, 640.0 / src_w)
+    boxes = [r["field_box"] for r in rows if r.get("field_box")]
+    out: list[dict[str, object]] = []
+    for th, tw in tensors:
+        plain = min(th / src_h, tw / src_w)
+        out.append(
+            {
+                "tensor": f"{th}x{tw}",
+                "pixels": th * tw,
+                "cropped": False,
+                "zoom": plain / base,
+                "padding": 1.0 - (round(src_w * plain) * round(src_h * plain)) / (tw * th),
+                "aspect": None,
+            }
+        )
+        zooms, pads, aspects = [], [], []
+        for box in boxes:
+            cw, ch = crop_dims(box, margin, src_w, src_h)  # type: ignore[arg-type]
+            scale = min(th / ch, tw / cw)
+            zooms.append(scale / base)
+            pads.append(1.0 - (round(cw * scale) * round(ch * scale)) / (tw * th))
+            aspects.append(cw / ch)
+        if not zooms:
+            continue
+        out.append(
+            {
+                "tensor": f"{th}x{tw}",
+                "pixels": th * tw,
+                "cropped": True,
+                "zoom": float(np.median(zooms)),
+                "padding": float(np.median(pads)),
+                "aspect": float(np.median(aspects)),
+            }
+        )
+    return out
+
+
 def sample_images(root: Path, n: int, rng: random.Random) -> list[Path]:
     files = [p for p in sorted(root.rglob("*")) if p.suffix.lower() in IMAGE_SUFFIXES]
     if len(files) <= n:
@@ -202,6 +270,37 @@ def run_corpus(
     return summarize(name, rows), rows
 
 
+def report_crop_tradeoffs(
+    per_frame: dict[str, list[dict[str, float]]],
+    margins: tuple[float, ...],
+    tensor_specs: list[str],
+) -> None:
+    """Print the two tables that decide arm E: margin vs. labels, and crop vs. tensor shape."""
+    tensors = [(int(t.split("x")[0]), int(t.split("x")[1])) for t in tensor_specs]
+    corpora = (
+        ("train", per_frame["train"]),
+        ("eval", [r for k, v in per_frame.items() if k != "train" for r in v]),
+    )
+    for name, rows in corpora:
+        print(f"\n{name}: crop margin vs. labels kept and zoom remaining")
+        print(f"  {'margin':>7} {'kept':>7} {'whole':>7} {'zoom':>7}")
+        for r in margin_retention(rows, margins):
+            print(
+                f"  {r['margin']:>7.2f} {r['kept'] * 100:>6.1f}% {r['whole'] * 100:>6.1f}% "
+                f"{r['zoom']:>6.2f}x"
+            )
+
+    for name, rows in corpora:
+        print(f"\n{name}: what the crop is worth once letterboxed into a real engine input")
+        print(f"  {'tensor':>9} {'px':>9} {'zoom vs A':>10} {'padding':>9}  source")
+        for r in tensor_tradeoff(rows, tensors, margin=0.20):
+            label = "field crop" if r["cropped"] else "no crop"
+            print(
+                f"  {r['tensor']:>9} {r['pixels']:>9,} {r['zoom']:>9.2f}x "
+                f"{r['padding'] * 100:>8.1f}%  {label}"
+            )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", type=Path, required=True)
@@ -222,6 +321,13 @@ def main() -> None:
         nargs="+",
         default=[0.0, 0.1, 0.2, 0.35, 0.5],
         help="crop margins to evaluate, as a fraction of the field box per side",
+    )
+    parser.add_argument(
+        "--tensors",
+        nargs="+",
+        default=["640x640", "384x640", "576x1024", "320x1024"],
+        metavar="HxW",
+        help="engine input shapes to price the crop against, as HxW",
     )
     parser.add_argument("--output", type=Path, default=None, help="write JSON here")
     args = parser.parse_args()
@@ -270,17 +376,7 @@ def main() -> None:
         )
 
     if args.labels:
-        for name, rows in (
-            ("train", per_frame["train"]),
-            ("eval", [r for k, v in per_frame.items() if k != "train" for r in v]),
-        ):
-            print(f"\n{name}: crop margin vs. labels kept and zoom remaining")
-            print(f"  {'margin':>7} {'kept':>7} {'whole':>7} {'zoom':>7}")
-            for r in margin_retention(rows, tuple(args.margins)):
-                print(
-                    f"  {r['margin']:>7.2f} {r['kept'] * 100:>6.1f}% {r['whole'] * 100:>6.1f}% "
-                    f"{r['zoom']:>6.2f}x"
-                )
+        report_crop_tradeoffs(per_frame, tuple(args.margins), args.tensors)
 
     if args.output:
         args.output.write_text(json.dumps({"summary": results, "frames": per_frame}, indent=2))

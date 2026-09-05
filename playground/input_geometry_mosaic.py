@@ -40,6 +40,7 @@ GEOMETRIES = (
     ("C  576x1024 letterbox", 576, 1024, "letterbox"),
     ("D  640x640 stretch", 640, 640, "stretch"),
     ("E  640x640 field crop", 640, 640, "crop"),
+    ("E'  384x640 field crop", 384, 640, "crop"),
 )
 # Field box measured for the default figure frame by the DeepLab model the arm would use
 # (`field_deeplabv3p_r50_2026-07-29`), as normalized (x0, y0, x1, y1). Override with

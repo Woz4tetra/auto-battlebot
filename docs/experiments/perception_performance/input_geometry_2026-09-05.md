@@ -28,6 +28,7 @@ tabulated. On this eval frame:
 | C `576x1024` letterbox | 589,824 px | 0.0% | 40 px |
 | D `640x640` stretch | 409,600 px | 0.0% | 34 px |
 | E `640x640` field crop | 409,600 px | 65.5% | 25 px |
+| E′ `384x640` field crop | 245,760 px | 42.4% | 25 px |
 
 Two things fall out of the picture that the plan's table did not predict.
 
@@ -39,10 +40,11 @@ geometries address, and D addresses it without spending anything. The cost is a
 preprocessing fork, and an unverified interaction with the `degrees=45.0` rotation
 augmentation.
 
-**The field crop makes the padding worse.** Panel E uses the box the DeepLab model
-actually predicts for that frame, not the label boxes. The field is wide and short, so
-squeezing it into a square tensor pads more than the uncropped frame does and leaves the
-robot at exactly arm A's scale. See "Arm E is cut" below.
+**The field crop only spends its winnings on padding.** Panels E and E′ use the box the
+DeepLab model actually predicts for that frame, not the label boxes. The field is wide and
+short, so the crop pads more than the uncropped frame does and leaves the robot at exactly
+arm A's scale. Putting it in a rectangular tensor instead of a square one does not rescue
+it: E′ gets A2's robot scale with arm A's padding. See "Arm E is cut" below.
 
 ## The trap that would have invalidated A2, B and C
 
@@ -113,14 +115,36 @@ slicing robots in half, and how much zoom survives that margin:
 | 0.35 | 100.0% | 99.9% | 1.00x | 100.0% | 96.8% | 1.12x |
 
 At margin 0 the crop zooms, but clips 39% of training robots. At the margin that keeps
-them whole, the crop covers the median training frame outright and zooms it 1.03x. Arm E
-is a no-op on the corpus it would be trained on. It narrows the 1.5x train/deploy
-object-scale gap only to 1.29x, and the figure above shows the square tensor giving that
-back as extra padding.
+them whole, the crop already covers the median training frame. Those zoom numbers are an
+upper bound: they assume the crop fills the tensor, which no fixed engine input does.
 
-Against that: a DeepLab pass over 32,487 images in dataset prep, a crop branch in both the
-C++ and Python preprocessors, and a new runtime dependency of the detector on the field
-estimate. Arm C buys 1.6x more pixels per robot with a drop-in engine swap. E is cut.
+Pricing the crop against real engine inputs kills the arm outright. Letterbox scale is set
+by whichever axis binds first, and the field box spans nearly the full frame width on both
+corpora, so the crop removes rows that the width-bound scale was going to apply anyway.
+Median over the same frames, at margin 0.20:
+
+| tensor | px | train zoom / pad, no crop | train zoom / pad, cropped | eval zoom / pad, no crop | eval zoom / pad, cropped |
+|---|---:|---:|---:|---:|---:|
+| 640x640 | 409,600 | 1.00x / 43.8% | 1.00x / 44.7% | 1.00x / 43.8% | 1.00x / 58.4% |
+| 384x640 | 245,760 | 1.00x / 6.2% | 1.00x / 7.8% | 1.00x / 6.2% | 1.00x / 30.7% |
+| 576x1024 | 589,824 | 1.60x / 0.0% | 1.60x / 4.4% | 1.60x / 0.0% | 1.60x / 26.1% |
+| 320x1024 | 327,680 | 0.89x / 44.4% | 0.91x / 43.6% | 0.89x / 44.4% | 1.25x / 24.8% |
+
+**The crop buys exactly zero zoom at every 16:9-or-squarer tensor, and pays padding for
+it.** A square tensor is not what makes it fail, so a rectangular one does not fix it:
+384x640 cropped is the same 1.00x as 384x640 uncropped, with padding up from 6.2% to 30.7%
+on eval. Panel E′ in the figure is that row.
+
+The only shape where cropping helps is one far wider than the frame, and that is where the
+plan's domain-gap worry finally shows up: at 320x1024 the crop gives eval 1.25x but
+training 0.91x, because the crops have different aspect ratios in the two corpora (median
+2.41 on eval against 1.81 on training). A tensor tuned to the deployment camera's crop
+would train the detector at a scale the training corpus never delivers.
+
+Against all that: a DeepLab pass over 32,487 images in dataset prep, a crop branch in both
+the C++ and Python preprocessors, and a new runtime dependency of the detector on the field
+estimate. Arm C buys 1.6x more pixels per robot on both corpora with a drop-in engine swap.
+E is cut.
 
 `training/deeplab/build_field_crop_dataset.py` is kept so the arm is one command away if
 that call is wrong: `masks` caches a field box per frame, `crop` rewrites images and
