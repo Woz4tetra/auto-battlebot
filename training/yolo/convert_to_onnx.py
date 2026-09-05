@@ -28,10 +28,23 @@ def main() -> None:
     parser.add_argument(
         "--imgsz",
         type=int,
-        default=640,
-        help="Image size for export (default: 640)",
+        nargs="+",
+        default=[640],
+        metavar="N",
+        help="Input size: one value for square, or 'H W' for rectangular (default: 640). "
+        "Both must be multiples of 32. A 16:9 source letterboxed into a square 640x640 wastes "
+        "44%% of the tensor on grey padding; '--imgsz 384 640' cuts that to 6%% at the same "
+        "detection scale. The C++ model reads the shape from the engine, so a rectangular "
+        "engine is a drop-in swap.",
     )
     args = parser.parse_args()
+
+    if len(args.imgsz) not in (1, 2):
+        raise SystemExit("--imgsz takes one value (square) or two (H W)")
+    imgsz = args.imgsz[0] if len(args.imgsz) == 1 else list(args.imgsz)
+    for dim in args.imgsz:
+        if dim % 32:
+            raise SystemExit(f"--imgsz values must be multiples of 32, got {dim}")
 
     model_path = Path(args.model)
     if not model_path.exists():
@@ -67,9 +80,9 @@ def main() -> None:
         output_path = model_path.parent / f"{model_path.stem}.onnx"
 
     print("Converting to ONNX format...")
-    print(f"Image size: {args.imgsz}")
+    print(f"Image size: {imgsz}")
 
-    exported_path = model.export(format="onnx", imgsz=args.imgsz, device="cpu")
+    exported_path = model.export(format="onnx", imgsz=imgsz, device="cpu")
 
     print(f"Model successfully exported to: {exported_path}")
 
