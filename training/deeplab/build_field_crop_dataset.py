@@ -132,11 +132,20 @@ def transform_labels(lines: list[str], x0: float, y0: float, cw: float, ch: floa
     return out
 
 
-def crop_one(job: tuple[str, str, str, str, list[float] | None, float]) -> tuple[int, int]:
-    img_path, lbl_path, img_out, lbl_out, box, margin = job
+def crop_one(
+    job: tuple[str, str, str, str, list[float] | None, float, bool],
+) -> tuple[int, int, int]:
+    """Write one cropped image and its labels. Returns (labels in, labels out, frames dropped).
+
+    A frame whose crop discarded a label is skipped entirely when `drop_clipped` is set.
+    Keeping it would leave a robot visible in the image with no box on it, which trains a
+    false negative -- the one case where an unlabelled image is not a useful background
+    negative. It costs 0.3% of frames at margin 0.20.
+    """
+    img_path, lbl_path, img_out, lbl_out, box, margin, drop_clipped = job
     frame = cv2.imread(img_path)
     if frame is None:
-        return 0, 0
+        return 0, 0, 0
     h, w = frame.shape[:2]
 
     if box is None:
@@ -150,12 +159,19 @@ def crop_one(job: tuple[str, str, str, str, list[float] | None, float]) -> tuple
 
     px0, py0 = int(round(x0 * w)), int(round(y0 * h))
     px1, py1 = max(int(round(x1 * w)), px0 + 1), max(int(round(y1 * h)), py0 + 1)
-    cv2.imwrite(img_out, frame[py0:py1, px0:px1], [cv2.IMWRITE_JPEG_QUALITY, 95])
 
-    lines = Path(lbl_path).read_text().splitlines() if Path(lbl_path).exists() else []
+    lines = [
+        ln
+        for ln in (Path(lbl_path).read_text().splitlines() if Path(lbl_path).exists() else [])
+        if ln.split()
+    ]
     kept = transform_labels(lines, px0 / w, py0 / h, (px1 - px0) / w, (py1 - py0) / h)
+    if drop_clipped and len(kept) < len(lines):
+        return len(lines), 0, 1
+
+    cv2.imwrite(img_out, frame[py0:py1, px0:px1], [cv2.IMWRITE_JPEG_QUALITY, 95])
     Path(lbl_out).write_text("\n".join(kept) + ("\n" if kept else ""))
-    return len(lines), len(kept)
+    return len(lines), len(kept), 0
 
 
 def stage_crop(args: argparse.Namespace) -> None:
@@ -174,15 +190,20 @@ def stage_crop(args: argparse.Namespace) -> None:
                     str(lbl_dst / f"{img.stem}.txt"),
                     boxes.get(f"{split}/{img.name}"),
                     args.margin,
+                    not args.keep_clipped,
                 )
             )
 
-    before = after = 0
+    before = after = skipped = 0
     with ProcessPoolExecutor(args.workers) as ex:
-        for b, a in tqdm(ex.map(crop_one, jobs, chunksize=64), total=len(jobs), desc="crop"):
+        for b, a, s in tqdm(ex.map(crop_one, jobs, chunksize=64), total=len(jobs), desc="crop"):
             before += b
             after += a
-    print(f"{len(jobs)} frames, labels {before} -> {after} ({before - after} dropped by the crop)")
+            skipped += s
+    print(
+        f"{len(jobs)} frames, {len(jobs) - skipped} written ({skipped} skipped for a clipped "
+        f"label), labels {before} -> {after}"
+    )
 
     (args.dst / "data.yml").write_text(
         f"path: {args.dst.resolve()}\ntrain: train/images\nval: val/images\n"
@@ -214,6 +235,12 @@ def main() -> None:
     crop.add_argument("--boxes", type=Path, required=True)
     crop.add_argument("--margin", type=float, default=0.10, help="fraction of the box, per side")
     crop.add_argument("--workers", type=int, default=16)
+    crop.add_argument(
+        "--keep-clipped",
+        action="store_true",
+        help="keep frames where the crop discarded a label. Off by default: such a frame shows "
+        "a robot with no box on it and trains a false negative.",
+    )
     crop.set_defaults(func=stage_crop)
 
     args = parser.parse_args()
