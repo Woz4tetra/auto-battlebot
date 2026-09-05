@@ -1,8 +1,0 @@
-name,our_robot.start_pos,our_robot.start_yaw_deg,opponents,navigation.type,navigation.stop_distance,navigation.terminal_velocity,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,wall_contacts,impact_speed_mps,terminal_pos_err_m,terminal_vel_mps,overshoot_m,t_to_goal_s,navigation.steer_brake_coeff,navigation.angular_droop_coeff,navigation.max_linear_speed_rev
-turn90_full,"[-0.8, -0.8]",135.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",MotionProfileNavigation,0.15,0.0,True,900,0.008,True,1.03,3.4,39.9,0.0,0,0.78,0.008,0.0,0.0,1.1,,,
-turn90_no_steer_brake,"[-0.8, -0.8]",135.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",MotionProfileNavigation,0.15,0.0,True,900,0.009,True,1.03,3.4,39.9,0.0,0,0.78,0.009,0.0,0.0,1.1,0.0,,
-turn90_with_droop,"[-0.8, -0.8]",135.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",MotionProfileNavigation,0.15,0.0,True,900,0.067,True,2.7,9.0,25.7,0.0,0,0.28,0.067,0.0,0.0,2.83,,0.463423,
-turn90_no_rev_gain,"[-0.8, -0.8]",135.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",MotionProfileNavigation,0.15,0.0,True,900,0.009,True,1.03,3.4,39.9,0.0,0,0.76,0.009,0.0,0.0,1.1,,,4.88002
-stop_full,"[-0.9, -0.9]",,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",MotionProfileNavigation,0.15,0.0,True,900,0.005,True,0.67,2.2,0.0,0.0,0,1.04,0.005,0.0,0.0,0.73,,,
-stop_no_rev_gain,"[-0.9, -0.9]",,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",MotionProfileNavigation,0.15,0.0,True,900,0.005,True,0.67,2.2,0.0,0.0,0,0.97,0.005,0.0,0.0,0.73,,,4.88002
-stop_no_steer_brake,"[-0.9, -0.9]",,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",MotionProfileNavigation,0.15,0.0,True,900,0.005,True,0.67,2.2,0.0,0.0,0,1.04,0.005,0.0,0.0,0.73,0.0,,

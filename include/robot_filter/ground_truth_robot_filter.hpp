@@ -25,8 +25,8 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
     bool initialize(int opponent_count) override;
 
     /** Reads the latest ground-truth poses from SimConnection. Perception inputs are ignored. */
-    void correct(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info,
-                 KeypointsStamped robot_blob_keypoints) override;
+    void correct(ModelResultStamped keypoints, FieldDescription field, CameraInfo camera_info,
+                 ModelResultStamped robot_blob_keypoints) override;
 
     RobotDescriptionsStamped state() const override { return state_; }
 

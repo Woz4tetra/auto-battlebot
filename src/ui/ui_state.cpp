@@ -101,12 +101,12 @@ void UIState::get_robots(RobotDescriptionsStamped &out) const {
     out = robots_;
 }
 
-void UIState::set_keypoints(const KeypointsStamped &keypoints) {
+void UIState::set_keypoints(const ModelResultStamped &model_results) {
     std::lock_guard<std::mutex> lock(status_mutex_);
-    keypoints_ = keypoints;
+    keypoints_ = model_results;
 }
 
-void UIState::get_keypoints(KeypointsStamped &out) const {
+void UIState::get_keypoints(ModelResultStamped &out) const {
     std::lock_guard<std::mutex> lock(status_mutex_);
     out = keypoints_;
 }

@@ -29,7 +29,7 @@ class ZedSvoPlaybackCamera : public RgbdCameraInterface {
 
     bool initialize() override;
     void cancel_initialize() override;
-    bool get(CameraData &data, bool get_depth) override;
+    bool get(CameraData &data) override;
     bool should_close() override { return should_close_; }
 
     /** Recording an SVO while replaying one is meaningless; always refuses. */

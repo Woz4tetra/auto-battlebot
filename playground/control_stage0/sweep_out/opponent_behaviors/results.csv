@@ -1,5 +1,0 @@
-name,latency.command_ms,opponents,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,impact_speed_mps,sim.seed
-static,60.0,"[{'behavior': 'static', 'start_pos': [0.5, 0.5]}]",True,900,0.013,True,1.27,62.7,89.1,0.0,1.9,
-straight,60.0,"[{'behavior': 'straight', 'start_pos': [-0.8, 0.6], 'heading_deg': 0.0, 'speed': 1.0}]",True,900,0.04,True,2.0,83.7,49.0,22.3,1.65,
-circle,60.0,"[{'behavior': 'circle', 'radius': 0.6, 'speed': 1.2}]",True,900,0.502,False,,100.0,47.4,0.0,,
-randomwalk,60.0,"[{'behavior': 'random_walk', 'speed': 1.0}]",True,900,0.006,True,3.33,82.2,49.9,2.6,1.67,1.0

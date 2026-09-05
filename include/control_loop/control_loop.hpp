@@ -22,8 +22,8 @@ namespace auto_battlebot {
 
 /** One perception result handed from the camera thread to the control loop. */
 struct ControlMeasurement {
-    KeypointsStamped keypoints;
-    KeypointsStamped robot_blob_keypoints;
+    ModelResultStamped keypoints;
+    ModelResultStamped robot_blob_keypoints;
     FieldDescription field_description;
     CameraInfo camera_info;
 };

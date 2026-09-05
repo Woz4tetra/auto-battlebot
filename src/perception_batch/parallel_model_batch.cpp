@@ -62,8 +62,8 @@ ParallelModelBatch::~ParallelModelBatch() {
 }
 
 void ParallelModelBatch::worker_loop(
-    const std::function<KeypointsStamped(const RgbImage &)> &run_model, uint64_t &done_id,
-    KeypointsStamped &result_slot, double &elapsed_slot, std::atomic<bool> &exited_flag) {
+    const std::function<ModelResultStamped(const RgbImage &)> &run_model, uint64_t &done_id,
+    ModelResultStamped &result_slot, double &elapsed_slot, std::atomic<bool> &exited_flag) {
     uint64_t last_seen_id = 0;
     while (true) {
         RgbImage image;
@@ -77,7 +77,7 @@ void ParallelModelBatch::worker_loop(
             image = shared_image_;
         }
         const auto start = std::chrono::steady_clock::now();
-        KeypointsStamped output = run_model(image);
+        ModelResultStamped output = run_model(image);
         const double elapsed_ms =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
                 .count();

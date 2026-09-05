@@ -48,7 +48,7 @@ class FrontBackKeypointConverterTest : public ::testing::Test {
 
 TEST_F(FrontBackKeypointConverterTest, EmitsOnlyCompleteFrontBackAssignments) {
     FrontBackKeypointConverter converter(config_);
-    KeypointsStamped keypoints;
+    ModelResultStamped keypoints;
     keypoints.header.frame_id = FrameId::CAMERA;
 
     keypoints.keypoints.push_back(
@@ -66,7 +66,7 @@ TEST_F(FrontBackKeypointConverterTest, EmitsOnlyCompleteFrontBackAssignments) {
 
 TEST_F(FrontBackKeypointConverterTest, UsesFirstKeypointConfidenceForAssignment) {
     FrontBackKeypointConverter converter(config_);
-    KeypointsStamped keypoints;
+    ModelResultStamped keypoints;
     keypoints.header.frame_id = FrameId::CAMERA;
 
     keypoints.keypoints.push_back(

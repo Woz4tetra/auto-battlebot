@@ -1,9 +1,0 @@
-extends = "simulation/kinematic_sim"
-
-[mcap]
-enable = true
-
-[navigation]
-type = "MotionProfileNavigation"
-terminal_velocity = 4.5
-max_angular_command = 0.25

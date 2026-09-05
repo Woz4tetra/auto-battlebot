@@ -1,5 +1,0 @@
-name,latency.command_ms,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,impact_speed_mps
-lat0,0.0,True,900,0.026,True,1.17,98.4,90.4,0.0,1.94
-lat30,30.0,True,900,0.013,True,1.2,78.8,89.9,0.0,1.91
-lat60,60.0,True,900,0.013,True,1.27,62.7,89.1,0.0,1.9
-lat90,90.0,True,900,0.024,True,1.33,58.3,87.1,0.0,1.9

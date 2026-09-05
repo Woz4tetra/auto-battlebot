@@ -33,13 +33,13 @@ class FrontBackKeypointConverter {
 
     /**
      * @brief Convert keypoints to front/back 3D positions in camera frame
-     * @param keypoints Input 2D keypoints (grouped by label and detection_index)
+     * @param model_results Input 2D keypoints (grouped by label and detection_index)
      * @param field Field description with plane transform
      * @param camera_info Camera intrinsics
      * @return Map of label to list of (front/back assignment, confidence) per instance
      */
     std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>> convert(
-        const KeypointsStamped &keypoints, const FieldDescription &field,
+        const ModelResultStamped &model_results, const FieldDescription &field,
         const CameraInfo &camera_info);
 
     /**

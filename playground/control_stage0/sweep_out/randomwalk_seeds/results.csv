@@ -1,5 +1,0 @@
-name,latency.command_ms,sim.seed,opponents,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,impact_speed_mps
-seed0,60.0,0,"[{'behavior': 'random_walk', 'speed': 1.0}]",True,900,0.045,True,4.8,83.9,52.1,2.4,1.86
-seed1,60.0,1,"[{'behavior': 'random_walk', 'speed': 1.0}]",True,900,0.006,True,3.33,82.2,49.9,2.6,1.67
-seed2,60.0,2,"[{'behavior': 'random_walk', 'speed': 1.0}]",True,900,0.019,True,0.7,82.1,56.8,1.4,1.73
-seed3,60.0,3,"[{'behavior': 'random_walk', 'speed': 1.0}]",True,900,0.05,True,0.73,88.0,49.7,0.8,1.7

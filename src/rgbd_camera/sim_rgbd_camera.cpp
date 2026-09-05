@@ -16,7 +16,7 @@ SimRgbdCamera::SimRgbdCamera(const SimRgbdCameraConfiguration &config)
 
 bool SimRgbdCamera::initialize() { return connection_->connect(); }
 
-bool SimRgbdCamera::get(CameraData &data, [[maybe_unused]] bool get_depth) {
+bool SimRgbdCamera::get(CameraData &data) {
     if (!connection_->is_connected()) return false;
     if (!connection_->step_and_receive(data)) return false;
 

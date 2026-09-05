@@ -2,9 +2,11 @@
 
 #include <spdlog/spdlog.h>
 
-#include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <string>
+
+#include "config/config_parser.hpp"
 
 namespace auto_battlebot {
 
@@ -63,14 +65,21 @@ bool ZedSvoPlaybackCamera::initialize() {
 
     if (svo_start_frame_ > 0) {
         const int n_frames = device_.svo_frame_count();
+        // Clamping here used to seek to the last frame instead, which grabs once and then reports
+        // END OF SVO FILE REACHED before the first heartbeat. That reads as a corrupt recording or
+        // a broken build, not as a config mismatch, so it is worth an explicit failure. It happens
+        // whenever a config overrides svo_file_path but inherits svo_start_frame from the base it
+        // extends, and the new recording is shorter than the old one.
+        if (n_frames > 0 && svo_start_frame_ >= n_frames) {
+            throw ConfigValidationError(
+                "rgbd_camera.svo_start_frame is " + std::to_string(svo_start_frame_) + " but " +
+                svo_path_ + " has only " + std::to_string(n_frames) +
+                " frames. A config that overrides svo_file_path must set svo_start_frame too; it "
+                "is inherited from the config being extended otherwise.");
+        }
         if (n_frames > 0) {
-            const int frame = std::clamp(svo_start_frame_, 0, n_frames - 1);
-            if (frame != svo_start_frame_) {
-                spdlog::warn("svo_start_frame {} out of range for this SVO ({} frames), using {}",
-                             svo_start_frame_, n_frames, frame);
-            }
-            spdlog::info("SVO starting at frame {} of {}", frame, n_frames);
-            device_.set_svo_position(frame);
+            spdlog::info("SVO starting at frame {} of {}", svo_start_frame_, n_frames);
+            device_.set_svo_position(svo_start_frame_);
         }
     }
 
@@ -81,7 +90,7 @@ bool ZedSvoPlaybackCamera::initialize() {
     return true;
 }
 
-bool ZedSvoPlaybackCamera::get(CameraData &data, bool get_depth) {
+bool ZedSvoPlaybackCamera::get(CameraData &data) {
     if (!is_initialized_ || should_close_) return false;
 
     // Grab on the caller's thread. Every frame reaches the pipeline, in order, and depth is
@@ -99,7 +108,7 @@ bool ZedSvoPlaybackCamera::get(CameraData &data, bool get_depth) {
         return false;
     }
 
-    if (!device_.retrieve(get_depth, latest_data_)) return false;
+    if (!device_.retrieve(latest_data_)) return false;
 
     // getSVOPosition() counts frames already read, so the one just grabbed is one behind it.
     const int svo_position = device_.svo_position();

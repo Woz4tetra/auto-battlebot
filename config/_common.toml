@@ -43,6 +43,59 @@ keypoints = ["HOUSE_BOT_FRONT", "HOUSE_BOT_BACK"]
 label = "OPPONENT"
 keypoints = ["OPPONENT_FRONT", "OPPONENT_BACK"]
 
+# Geometry gates between perception and the control loop. The static gate runs first, so it sees
+# every detection; the height gate runs after and annotates what survives.
+#
+# height: measures each detection's relief against the floor immediately around it, as the 90th
+# percentile of depth inside its box's inscribed circle minus the 25th percentile of a ring around
+# it. Local relief, not absolute height: comparing a detection with its own surroundings cancels
+# field-plane fit error, plane drift and depth bias. On the 2026-08-29 MassD recording that
+# separates arena-logo detections from moving ones at AUC 0.928, against 0.903 for absolute height.
+#
+# End-to-end sweep on that recording, scoring logo detections (persistent field-frame clusters)
+# against moving ones (logo removed / moving kept / frames with a detection kept):
+#   0.025 -> 71.0% / 95.2% / 96.0%
+#   0.030 -> 88.4% / 89.6% / 91.6%
+#   0.035 -> 91.1% / 89.8% / 91.1%   <- default; beats 0.030 on both axes
+#   0.040 -> 94.2% / 85.6% / 88.0%
+#   0.045 -> 96.4% / 75.3% / 79.8%
+#
+# Survivors carry their measured height, which replaces robot_filter.keypoint_height_meters when
+# projecting them onto the field. That measurement is always on and has no false-negative risk.
+[keypoint_filter.height]
+reject_enable = true
+min_elevation_meters = 0.035
+max_height_meters = 0.40
+top_percentile = 0.90
+floor_percentile = 0.25
+ring_inner_scale = 1.4
+ring_outer_scale = 2.4
+sample_radius_px = 5
+min_valid_samples = 8
+max_circle_samples = 1024
+
+# static: suppresses robot-blob detections that hold the same field position. Off by default: on
+# this recording it is a worse trade than the height gate at every setting tried, and stacks badly
+# on top of it (adding it at 0.08 m / 4 s takes logo removal to 95.1% but drops moving detections
+# kept to 75.5%). Its own best standalone points are 57.5% removed / 89.3% kept at 0.06 m / 4 s,
+# and 34.7% / 95.9% at 0.05 m / 8 s.
+#
+# The radii come from the same recording: the two logo blobs sit a median 0.043 m and 0.049 m from
+# their own centre, while a moving detection travels 0.127 m over 4 s even at the 10th percentile.
+# static_radius_meters is compared against a cluster's mean deviation, not its worst frame.
+#
+# This gate cannot tell an immobilised robot from a painted one. A robot driving into a suppressed
+# cluster raises its spread and switches suppression off there until it leaves, which is the safe
+# direction to fail.
+[keypoint_filter.static]
+enable = false
+match_radius_meters = 0.20
+static_radius_meters = 0.080
+min_dwell_seconds = 4.0
+min_observations = 30
+responsiveness_window = 60
+forget_seconds = 2.0
+
 [robot_filter]
 type = "RobotFrontBackFilter"
 default_frame_id = "OUR_ROBOT_1"

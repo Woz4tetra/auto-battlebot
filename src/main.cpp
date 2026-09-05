@@ -17,6 +17,8 @@
 #include "diagnostics_logger/ros_diagnostics_backend.hpp"
 #include "directories.hpp"
 #include "health/health_logger.hpp"
+#include "keypoint_filter/height_gate.hpp"
+#include "keypoint_filter/static_gate.hpp"
 #include "logging/logging.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "perception_batch/parallel_model_batch.hpp"
@@ -139,6 +141,9 @@ int main(int argc, char** argv) {
     auto navigation = make_navigation(*class_config.navigation, clock);
     auto transmitter = make_transmitter(*class_config.transmitter, clock);
     auto health_logger = std::make_shared<HealthLogger>(class_config.health);
+    auto height_gate = std::make_shared<KeypointHeightGate>(class_config.keypoint_filter.height);
+    auto static_gate =
+        std::make_shared<StaticDetectionGate>(class_config.keypoint_filter.static_gate);
 
     // The control loop owns the filter/target/navigation/transmit half. A threaded driver runs it
     // on its own thread, so nothing else may touch those components after Runner::initialize().
@@ -150,7 +155,8 @@ int main(int argc, char** argv) {
 
     Runner runner(
         class_config.runner, camera, health_logger, field_model, robot_mask_model, field_filter,
-        keypoint_model, perception_batch, control_loop, publisher, handle_system_action,
+        keypoint_model, height_gate, static_gate, perception_batch, control_loop, publisher,
+        handle_system_action,
         [profile_selector](const std::string& name) {
             write_selection_file(profile_selector, name);
         },

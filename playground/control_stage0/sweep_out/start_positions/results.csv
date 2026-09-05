@@ -1,6 +1,0 @@
-name,latency.command_ms,our_robot.start_pos,our_robot.start_yaw_deg,opponents,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,impact_speed_mps
-sw_corner,60.0,"[-0.9, -0.9]",45.0,"[{'behavior': 'static', 'start_pos': [0.5, 0.5]}]",True,900,0.02,True,1.7,63.2,87.8,0.0,1.91
-nw_corner,60.0,"[-0.9, 0.9]",-45.0,"[{'behavior': 'static', 'start_pos': [0.5, 0.5]}]",True,900,0.034,True,1.27,62.9,89.5,0.0,1.82
-se_corner,60.0,"[0.9, -0.9]",135.0,"[{'behavior': 'static', 'start_pos': [0.5, 0.5]}]",True,900,0.034,True,1.27,62.9,89.5,0.0,1.82
-west_edge,60.0,"[-0.9, 0.5]",0.0,"[{'behavior': 'static', 'start_pos': [0.5, 0.5]}]",True,900,0.025,True,1.1,62.4,89.6,0.0,1.91
-near_behind,60.0,"[0.5, -0.4]",90.0,"[{'behavior': 'static', 'start_pos': [0.5, 0.5]}]",True,900,0.013,True,0.63,61.9,90.9,0.0,1.88

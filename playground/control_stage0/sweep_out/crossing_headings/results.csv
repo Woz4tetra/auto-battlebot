@@ -1,5 +1,0 @@
-name,latency.command_ms,opponents,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,impact_speed_mps
-head000,60.0,"[{'behavior': 'straight', 'start_pos': [-0.9, 0.0], 'heading_deg': 0.0, 'speed': 1.2}]",True,900,0.034,True,1.73,80.2,44.5,1.9,1.82
-head090,60.0,"[{'behavior': 'straight', 'start_pos': [0.0, -0.9], 'heading_deg': 90.0, 'speed': 1.2}]",True,900,0.034,True,1.73,80.2,44.5,1.9,1.82
-head135,60.0,"[{'behavior': 'straight', 'start_pos': [0.9, -0.9], 'heading_deg': 135.0, 'speed': 1.2}]",True,900,0.007,True,2.5,85.7,35.1,8.8,1.78
-head225,60.0,"[{'behavior': 'straight', 'start_pos': [0.9, 0.9], 'heading_deg': 225.0, 'speed': 1.2}]",True,900,0.001,True,0.93,84.2,35.3,4.7,1.78

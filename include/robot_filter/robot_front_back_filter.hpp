@@ -37,8 +37,8 @@ class RobotFrontBackFilter : public RobotFilterInterface {
      * Runs one filter cycle: converts keypoints and blob detections to field-frame measurements,
      * merges them, applies temporal prediction, and stores stamped robot descriptions.
      */
-    void correct(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info,
-                 KeypointsStamped robot_blob_keypoints) override;
+    void correct(ModelResultStamped keypoints, FieldDescription field, CameraInfo camera_info,
+                 ModelResultStamped robot_blob_keypoints) override;
 
     RobotDescriptionsStamped state() const override { return state_; }
 
@@ -98,7 +98,7 @@ class RobotFrontBackFilter : public RobotFilterInterface {
      * Clears stale last-positions for single-FrameId labels with no detections this frame.
      */
     std::vector<RobotDescription> convert_keypoints_to_measurements(
-        const KeypointsStamped &keypoints, const FieldDescription &field,
+        const ModelResultStamped &model_results, const FieldDescription &field,
         const CameraInfo &camera_info, const Eigen::Matrix4d &tf_fieldcenter_from_camera);
 
     /**
@@ -159,7 +159,7 @@ class RobotFrontBackFilter : public RobotFilterInterface {
      * `all_measurements`. The global assignment makes the output independent of `Label` enum
      * order, which previously decided which label got first claim on shared OPPONENT slots.
      */
-    void merge_blob_detections(const KeypointsStamped &robot_blob_keypoints,
+    void merge_blob_detections(const ModelResultStamped &robot_blob_keypoints,
                                const std::vector<RobotDescription> &keypoint_measurements,
                                const FieldDescription &field, const CameraInfo &camera_info,
                                const Eigen::Matrix4d &tf_fieldcenter_from_camera, double stamp,

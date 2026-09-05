@@ -18,7 +18,7 @@ void RobotKeypointTracker::set_robot_configs(
 }
 
 std::vector<RobotDescription> RobotKeypointTracker::detect(
-    const KeypointsStamped &robot_blob_keypoints, const FieldDescription &field,
+    const ModelResultStamped &robot_blob_keypoints, const FieldDescription &field,
     const CameraInfo &camera_info) {
     auto detections = detect_with_confidence(robot_blob_keypoints, field, camera_info);
     std::vector<RobotDescription> descriptions;
@@ -30,14 +30,14 @@ std::vector<RobotDescription> RobotKeypointTracker::detect(
 }
 
 std::vector<RobotKeypointDetection> RobotKeypointTracker::detect_with_confidence(
-    const KeypointsStamped &robot_blob_keypoints, const FieldDescription &field,
+    const ModelResultStamped &robot_blob_keypoints, const FieldDescription &field,
     const CameraInfo &camera_info) {
     auto candidates = extract_candidates(robot_blob_keypoints, field, camera_info);
     return to_detections_with_confidence(candidates);
 }
 
 std::vector<RobotKeypointCandidate> RobotKeypointTracker::extract_candidates(
-    const KeypointsStamped &robot_blob_keypoints, const FieldDescription &field,
+    const ModelResultStamped &robot_blob_keypoints, const FieldDescription &field,
     const CameraInfo &camera_info) const {
     std::vector<RobotKeypointCandidate> candidates;
     if (robot_blob_keypoints.keypoints.empty() || field.child_frame_id == FrameId::EMPTY) {
@@ -69,11 +69,17 @@ std::vector<RobotKeypointCandidate> RobotKeypointTracker::extract_candidates(
 
         Eigen::Vector3d point_a;
         Eigen::Vector3d point_b;
-        const double keypoint_height = config_.keypoint_heights.height_for(group_key.first);
-        if (!project_keypoint_onto_plane(kp_a, plane_center, plane_normal, camera_info,
-                                         keypoint_height, point_a) ||
-            !project_keypoint_onto_plane(kp_b, plane_center, plane_normal, camera_info,
-                                         keypoint_height, point_b)) {
+        // Prefer the height KeypointHeightGate measured from depth; the configured constant is
+        // the fallback for keypoints it could not measure.
+        const double configured_height = config_.keypoint_heights.height_for(group_key.first);
+        const double height_a =
+            std::isfinite(kp_a.height_above_plane) ? kp_a.height_above_plane : configured_height;
+        const double height_b =
+            std::isfinite(kp_b.height_above_plane) ? kp_b.height_above_plane : configured_height;
+        if (!project_keypoint_onto_plane(kp_a, plane_center, plane_normal, camera_info, height_a,
+                                         point_a) ||
+            !project_keypoint_onto_plane(kp_b, plane_center, plane_normal, camera_info, height_b,
+                                         point_b)) {
             continue;
         }
 

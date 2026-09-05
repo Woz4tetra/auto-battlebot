@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <cmath>
 #include <magic_enum.hpp>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
@@ -15,7 +16,7 @@ FrontBackKeypointConverter::FrontBackKeypointConverter(
 }
 
 std::map<Label, std::vector<std::pair<FrontBackAssignment, double>>>
-FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
+FrontBackKeypointConverter::convert(const ModelResultStamped &model_results,
                                     const FieldDescription &field, const CameraInfo &camera_info) {
     Eigen::Vector3d plane_center = Eigen::Vector3d::Zero();
     Eigen::Vector3d plane_normal = Eigen::Vector3d::UnitZ();
@@ -25,18 +26,22 @@ FrontBackKeypointConverter::convert(const KeypointsStamped &keypoints,
         return {};
     }
 
-    // Group keypoints by (label, detection_index), each group becomes one FrontBackAssignment with
-    // confidence
+    // Group model_results by (label, detection_index), each group becomes one FrontBackAssignment
+    // with confidence
     using GroupKey = std::pair<Label, int>;
     std::map<GroupKey, FrontBackAssignment> group_assignments;
     std::map<GroupKey, double> group_confidence;
     std::map<GroupKey, bool> group_has_front;
     std::map<GroupKey, bool> group_has_back;
 
-    for (const Keypoint &keypoint : keypoints.keypoints) {
+    for (const Keypoint &keypoint : model_results.keypoints) {
         Eigen::Vector3d projected_keypoint;
-        if (!project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info,
-                                         config_.keypoint_heights.height_for(keypoint.label),
+        // Prefer the height KeypointHeightGate measured from depth; the configured constant is
+        // the fallback for model_results it could not measure.
+        const double height = std::isfinite(keypoint.height_above_plane)
+                                  ? keypoint.height_above_plane
+                                  : config_.keypoint_heights.height_for(keypoint.label);
+        if (!project_keypoint_onto_plane(keypoint, plane_center, plane_normal, camera_info, height,
                                          projected_keypoint)) {
             continue;
         }

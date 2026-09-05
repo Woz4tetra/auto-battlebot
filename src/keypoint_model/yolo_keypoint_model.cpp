@@ -44,7 +44,7 @@ bool YoloKeypointModel::initialize() {
     return true;
 }
 
-KeypointsStamped YoloKeypointModel::update(RgbImage image) {
+ModelResultStamped YoloKeypointModel::update(RgbImage image) {
     FunctionTimer timer(diagnostics_logger_, "update", 1000.0);
 
     last_detections_ = DetectionsStamped{};
@@ -54,12 +54,12 @@ KeypointsStamped YoloKeypointModel::update(RgbImage image) {
 
     if (!initialized_) {
         diagnostics_logger_->error({}, "Model not initialized");
-        return KeypointsStamped{};
+        return ModelResultStamped{};
     }
     const std::vector<int64_t> in_shape = engine_.getInputShape();
     if (in_shape.size() < 4 || in_shape[0] != 1 || in_shape[1] != 3) {
         diagnostics_logger_->error({}, "YOLO engine input shape invalid");
-        return KeypointsStamped{};
+        return ModelResultStamped{};
     }
     const cv::Size input_image_size(static_cast<int>(in_shape[3]), static_cast<int>(in_shape[2]));
     const cv::Size original_image_size(image.image.cols, image.image.rows);
@@ -71,7 +71,7 @@ KeypointsStamped YoloKeypointModel::update(RgbImage image) {
     }
     if (static_cast<int64_t>(input_buffer.size()) != engine_.getInputNumElements()) {
         diagnostics_logger_->error({}, "YOLO input buffer size mismatch");
-        return KeypointsStamped{};
+        return ModelResultStamped{};
     }
 
     std::vector<float> output_buffer(static_cast<size_t>(engine_.getOutputNumElements()));
@@ -79,7 +79,7 @@ KeypointsStamped YoloKeypointModel::update(RgbImage image) {
         FunctionTimer stage_timer(diagnostics_logger_, "inference");
         if (!engine_.execute(input_buffer.data(), output_buffer.data())) {
             diagnostics_logger_->error({}, "YOLO inference failed");
-            return KeypointsStamped{};
+            return ModelResultStamped{};
         }
     }
 
@@ -395,10 +395,26 @@ int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<Detec
                                                          const Header &header,
                                                          cv::Size original_image_size,
                                                          cv::Size input_image_size,
-                                                         KeypointsStamped &result) {
+                                                         ModelResultStamped &result) {
     const int num_classes = static_cast<int>(label_indices_.size());
     const int keypoint_start_idx = 6;
     int valid_detections = 0;
+
+    // Box per detection, in original-image pixels, indexed the same way detection_index is (by
+    // position in `keep`). KeypointHeightGate samples depth inside these rather than at the
+    // keypoint pixels. Filled for every row so the index stays aligned.
+    {
+        std::vector<DetectionRow> scaled = keep;
+        scale_boxes(scaled, original_image_size, input_image_size);
+        result.boxes.reserve(scaled.size());
+        for (const auto &row : scaled) {
+            if (row.size() < 4) {
+                result.boxes.push_back(BoundingBox{});
+                continue;
+            }
+            result.boxes.push_back(BoundingBox{row[0], row[1], row[2], row[3]});
+        }
+    }
 
     for (int i = 0; i < static_cast<int>(keep.size()); i++) {
         const DetectionRow &row = keep[i];
@@ -444,11 +460,11 @@ int YoloKeypointModel::extract_keypoints_from_detections(const std::vector<Detec
     return valid_detections;
 }
 
-KeypointsStamped YoloKeypointModel::postprocess_output(const float *output, const Header &header,
-                                                       cv::Size original_image_size,
-                                                       cv::Size input_image_size,
-                                                       const cv::Mat &original_image) {
-    KeypointsStamped result;
+ModelResultStamped YoloKeypointModel::postprocess_output(const float *output, const Header &header,
+                                                         cv::Size original_image_size,
+                                                         cv::Size input_image_size,
+                                                         const cv::Mat &original_image) {
+    ModelResultStamped result;
     result.header = header;
 
     int num_features = 0;
@@ -501,14 +517,14 @@ KeypointsStamped YoloKeypointModel::postprocess_output(const float *output, cons
 }
 
 void YoloKeypointModel::visualize_output(const cv::Mat &original_image,
-                                         const KeypointsStamped &keypoints,
+                                         const ModelResultStamped &model_results,
                                          const std::vector<DetectionRow> &detections) {
     if (original_image.empty()) return;
 
     cv::Mat vis_img = original_image.clone();
 
     std::map<Label, std::vector<cv::Point>> keypoints_by_label;
-    for (const auto &kp : keypoints.keypoints) {
+    for (const auto &kp : model_results.keypoints) {
         const int x = static_cast<int>(std::round(kp.x));
         const int y = static_cast<int>(std::round(kp.y));
         keypoints_by_label[kp.label].push_back(cv::Point(x, y));
@@ -585,7 +601,7 @@ void YoloKeypointModel::visualize_output(const cv::Mat &original_image,
         }
     }
 
-    for (const auto &kp : keypoints.keypoints) {
+    for (const auto &kp : model_results.keypoints) {
         const int x = static_cast<int>(std::round(kp.x));
         const int y = static_cast<int>(std::round(kp.y));
         auto [b, g, r_val] = get_color_for_index(kp.label).to_bgr_255();

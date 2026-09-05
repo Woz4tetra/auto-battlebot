@@ -106,13 +106,17 @@ class ZedDevice {
     GrabStatus grab();
 
     /**
-     * Fills image, depth (when requested), pose, tracking_ok, and the raw capture stamp.
+     * Fills image, depth, pose, tracking_ok, and the raw capture stamp.
+     *
+     * Depth comes back on every frame. grab() computes it regardless (RuntimeParameters
+     * ::enable_depth is always on), so retrieving it conditionally saved only the measure copy
+     * while costing the callers a flag to get wrong.
      *
      * Leaves frame_identity.svo_frame_index and svo_path alone: a live camera takes them from the
      * file it is writing, a replay from the file it is reading. Stamps are the original capture
      * time, so any rebasing is the caller's business.
      */
-    bool retrieve(bool want_depth, CameraData &out);
+    bool retrieve(CameraData &out);
 
     bool is_svo_input() const;
     int svo_frame_count() { return zed_.getSVONumberOfFrames(); }

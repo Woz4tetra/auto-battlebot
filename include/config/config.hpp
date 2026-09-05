@@ -16,6 +16,7 @@
 #include "field_filter/config.hpp"
 #include "field_filter/field_filter_interface.hpp"
 #include "health/config.hpp"
+#include "keypoint_filter/config.hpp"
 #include "keypoint_model/config.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
 #include "mask_model/config.hpp"
@@ -49,6 +50,7 @@ struct ClassConfiguration {
     std::unique_ptr<RobotBlobModelConfiguration> robot_mask_model;
     std::unique_ptr<FieldFilterConfiguration> field_filter;
     std::unique_ptr<KeypointModelConfiguration> keypoint_model;
+    KeypointFilterConfiguration keypoint_filter;
     std::unique_ptr<RobotFilterConfiguration> robot_filter;
     std::unique_ptr<TargetSelectorConfiguration> target_selector;
     std::unique_ptr<NavigationConfiguration> navigation;

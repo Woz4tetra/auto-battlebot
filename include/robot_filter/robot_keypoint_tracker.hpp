@@ -38,9 +38,9 @@ class RobotKeypointTracker {
 
     void set_robot_configs(const std::unordered_map<Label, RobotConfig> &robot_configs);
     std::vector<RobotKeypointDetection> detect_with_confidence(
-        const KeypointsStamped &robot_blob_keypoints, const FieldDescription &field,
+        const ModelResultStamped &robot_blob_keypoints, const FieldDescription &field,
         const CameraInfo &camera_info);
-    std::vector<RobotDescription> detect(const KeypointsStamped &robot_blob_keypoints,
+    std::vector<RobotDescription> detect(const ModelResultStamped &robot_blob_keypoints,
                                          const FieldDescription &field,
                                          const CameraInfo &camera_info);
 
@@ -49,7 +49,7 @@ class RobotKeypointTracker {
     std::unordered_map<Label, RobotConfig> robot_configs_;
 
     std::vector<RobotKeypointCandidate> extract_candidates(
-        const KeypointsStamped &robot_blob_keypoints, const FieldDescription &field,
+        const ModelResultStamped &robot_blob_keypoints, const FieldDescription &field,
         const CameraInfo &camera_info) const;
     static std::vector<RobotKeypointDetection> to_detections_with_confidence(
         const std::vector<RobotKeypointCandidate> &candidates);

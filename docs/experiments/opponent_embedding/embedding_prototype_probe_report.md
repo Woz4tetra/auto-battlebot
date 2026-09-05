@@ -1,5 +1,10 @@
 # Embedding prototype probe report: kill
 
+> Retired 2026-09-05. The `embedding_probe_*.py` tools and the crops under
+> `training/data/embedding_probe/` are deleted. Recover them with
+> `git checkout 8b0c239 -- training/model_eval`. This document is the record.
+
+
 Frozen off-the-shelf embedders cannot carry opponent identity from a pre-match
 seed through the rest of a match at our crop quality. Per the plan's criterion
 (every embedder below AUC 0.8 on at least one core recording), this is a kill

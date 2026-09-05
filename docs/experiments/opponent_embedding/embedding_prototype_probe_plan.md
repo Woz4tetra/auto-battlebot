@@ -1,5 +1,10 @@
 # Embedding prototype probe plan: seed-and-propagate on NHRL May 2026 eval recordings
 
+> Retired 2026-09-05. The `embedding_probe_*.py` tools and the crops under
+> `training/data/embedding_probe/` are deleted. Recover them with
+> `git checkout 8b0c239 -- training/model_eval`. This document is the record.
+
+
 Test whether a frozen off-the-shelf embedder, seeded with a handful of opponent
 crops from the start of a match, can identify that opponent for the rest of the
 match. This is the go/kill gate before building anything real (metric-learned

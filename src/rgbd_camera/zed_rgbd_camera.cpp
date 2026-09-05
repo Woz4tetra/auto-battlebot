@@ -67,7 +67,6 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
       stop_thread_(false),
       camera_connected_(false),
       frame_counter_(0),
-      depth_frame_counter_(0),
       last_returned_frame_counter_(0),
       grab_health_(kGrabErrorWindow, kGrabErrorExitThreshold) {
     diagnostics_logger_ = DiagnosticsLogger::get_logger("zed_rgbd_camera");
@@ -182,15 +181,10 @@ void ZedRgbdCamera::reset_runtime_state() {
     camera_connected_ = true;
     capture_thread_done_.store(false, std::memory_order_release);
     frame_counter_ = 0;
-    depth_frame_counter_ = 0;
     last_returned_frame_counter_ = 0;
     grab_health_.reset();
     device_.reset_runtime_state();
     reset_capture_timing_stats();
-    {
-        std::lock_guard<std::mutex> lock(data_mutex_);
-        depth_requested_ = false;
-    }
 }
 
 void ZedRgbdCamera::reset_capture_timing_stats() const {
@@ -219,13 +213,6 @@ bool ZedRgbdCamera::capture_frame() {
     }
 
     auto capture_start = std::chrono::steady_clock::now();
-
-    bool need_depth = false;
-    {
-        std::lock_guard<std::mutex> lock(data_mutex_);
-        need_depth = depth_requested_;
-        depth_requested_ = false;
-    }
 
     const ZedDevice::GrabStatus grab_status = device_.grab();
 
@@ -265,8 +252,10 @@ bool ZedRgbdCamera::capture_frame() {
     const auto lock_hold_start = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(data_mutex_);
 
-    if (!device_.retrieve(need_depth, latest_data_)) {
-        if (need_depth) depth_requested_ = true;  // re-request depth for the next frame
+    // Depth is retrieved for every frame. The ZED already computes it on every grab
+    // (RuntimeParameters::enable_depth is always on), so this only adds the measure retrieve and
+    // its copy, and it happens here on the capture thread rather than on the pipeline's.
+    if (!device_.retrieve(latest_data_)) {
         return false;
     }
 
@@ -275,12 +264,9 @@ bool ZedRgbdCamera::capture_frame() {
     // timestamp alone cannot join recorded output back to SVO frames after the fact.
     latest_data_.frame_identity.svo_frame_index = svo_frame.index;
     latest_data_.frame_identity.svo_path = svo_frame.path;
-    // Publish the frame while holding data_mutex_: bump frame_counter_ (and depth_frame_counter_
-    // when this frame carries depth) so waiting get() calls observe a fully populated frame.
+    // Publish the frame while holding data_mutex_: bump frame_counter_ so waiting get() calls
+    // observe a fully populated frame.
     frame_counter_++;
-    if (need_depth) {
-        depth_frame_counter_ = frame_counter_;
-    }
 
     auto capture_end = std::chrono::steady_clock::now();
     double capture_time_ms =
@@ -293,38 +279,27 @@ bool ZedRgbdCamera::capture_frame() {
 
     const double lock_hold_ms = elapsed_ms(lock_hold_start);
     if (lock_hold_ms > kCaptureLockWarnMs) {
-        spdlog::warn("validation: capture_data_mutex_hold slow elapsed_ms={:.2f} need_depth={}",
-                     lock_hold_ms, need_depth);
+        spdlog::warn("validation: capture_data_mutex_hold slow elapsed_ms={:.2f}", lock_hold_ms);
     }
 
     return true;
 }
 
-bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
+bool ZedRgbdCamera::get(CameraData &data) {
     if (!is_initialized_) return false;
     const auto get_start = std::chrono::steady_clock::now();
     int wait_loops = 0;
     std::unique_lock<std::mutex> lock(data_mutex_);
 
-    if (get_depth) {
-        // Request depth for the next frame and wait for a new frame that carries it.
-        depth_requested_ = true;
-        const uint64_t requested_after_frame = frame_counter_;
-        const uint64_t requested_after_depth = depth_frame_counter_;
-        if (!wait_for_new_frame(lock, wait_loops, [&]() {
-                return frame_counter_ > requested_after_frame &&
-                       depth_frame_counter_ > requested_after_depth;
-            })) {
+    // Every published frame carries depth, so there is one path: take the prefetched frame
+    // immediately, otherwise wait for the next one. Requesting depth and waiting for a frame that
+    // honoured the request used to cost up to two frame periods, because the capture thread reads
+    // the request before grab() and so an in-flight grab could never satisfy it. That halved the
+    // pipeline's frame rate while leaving per-tick latency looking healthy.
+    if (!(frame_counter_ > last_returned_frame_counter_)) {
+        if (!wait_for_new_frame(lock, wait_loops,
+                                [&]() { return frame_counter_ > last_returned_frame_counter_; })) {
             return false;
-        }
-    } else {
-        // Return a prefetched frame immediately; otherwise wait for the next one.
-        if (!(frame_counter_ > last_returned_frame_counter_)) {
-            if (!wait_for_new_frame(lock, wait_loops, [&]() {
-                    return frame_counter_ > last_returned_frame_counter_;
-                })) {
-                return false;
-            }
         }
     }
 
@@ -349,8 +324,8 @@ bool ZedRgbdCamera::get(CameraData &data, bool get_depth) {
 
     const double get_wait_ms = elapsed_ms(get_start);
     if (wait_loops > 0 && get_wait_ms > kGetWaitWarnMs) {
-        spdlog::warn("validation: zed_get_wait slow elapsed_ms={:.2f} wait_loops={} get_depth={}",
-                     get_wait_ms, wait_loops, get_depth);
+        spdlog::warn("validation: zed_get_wait slow elapsed_ms={:.2f} wait_loops={}", get_wait_ms,
+                     wait_loops);
     }
     return true;
 }

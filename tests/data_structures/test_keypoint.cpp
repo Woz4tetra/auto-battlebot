@@ -25,16 +25,16 @@ TEST(KeypointTest, ValueAssignment) {
     EXPECT_FLOAT_EQ(kp.y, 240.5f);
 }
 
-TEST(KeypointsStampedTest, DefaultConstruction) {
-    KeypointsStamped stamped;
+TEST(ModelResultStampedTest, DefaultConstruction) {
+    ModelResultStamped stamped;
 
     EXPECT_EQ(stamped.header.stamp, 0.0);
     EXPECT_EQ(stamped.header.frame_id, FrameId::EMPTY);
     EXPECT_TRUE(stamped.keypoints.empty());
 }
 
-TEST(KeypointsStampedTest, AddKeypoint) {
-    KeypointsStamped stamped;
+TEST(ModelResultStampedTest, AddKeypoint) {
+    ModelResultStamped stamped;
     stamped.header.stamp = 123.456;
     stamped.header.frame_id = FrameId::CAMERA;
 
@@ -53,8 +53,8 @@ TEST(KeypointsStampedTest, AddKeypoint) {
     EXPECT_FLOAT_EQ(stamped.keypoints[0].y, 240.0f);
 }
 
-TEST(KeypointsStampedTest, MultipleKeypoints) {
-    KeypointsStamped stamped;
+TEST(ModelResultStampedTest, MultipleKeypoints) {
+    ModelResultStamped stamped;
 
     Keypoint kp1;
     kp1.label = Label::MR_STABS_MK1;

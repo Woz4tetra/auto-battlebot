@@ -7,6 +7,8 @@ class NoopRobotBlobModel : public RobotBlobModelInterface {
    public:
     bool initialize() override { return true; }
 
-    KeypointsStamped update([[maybe_unused]] RgbImage image) override { return KeypointsStamped{}; }
+    ModelResultStamped update([[maybe_unused]] RgbImage image) override {
+        return ModelResultStamped{};
+    }
 };
 }  // namespace auto_battlebot

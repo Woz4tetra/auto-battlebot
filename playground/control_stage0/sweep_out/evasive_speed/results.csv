@@ -1,5 +1,0 @@
-name,latency.command_ms,opponents,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,impact_speed_mps
-spd0p5,60.0,"[{'behavior': 'circle', 'radius': 0.6, 'speed': 0.5}]",True,900,0.059,True,2.26,66.8,88.8,0.0,1.3
-spd1p0,60.0,"[{'behavior': 'circle', 'radius': 0.6, 'speed': 1.0}]",True,900,0.005,True,18.65,98.0,45.7,0.0,1.3
-spd1p5,60.0,"[{'behavior': 'circle', 'radius': 0.6, 'speed': 1.5}]",True,900,0.496,False,,100.0,58.9,0.0,
-spd2p0,60.0,"[{'behavior': 'circle', 'radius': 0.6, 'speed': 2.0}]",True,900,0.426,False,,98.7,78.4,0.0,
