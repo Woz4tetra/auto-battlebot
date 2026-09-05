@@ -9,6 +9,7 @@ within a priority. Agents submit and poll rather than launching training directl
         venv/bin/python training/yolo/train.py training/data/... yolo26s -d 0 1 2 -b 96
     training/gpu_queue.py status
     training/gpu_queue.py logs 3 --tail 40
+    training/gpu_queue.py logs -f            # follow whatever is training, across jobs
 
 A worker process pops jobs; `submit` starts one if none is alive. The worker waits
 for the GPUs to go idle before each job, so a run launched outside the queue (by
@@ -389,11 +390,121 @@ def cmd_wait(args: argparse.Namespace) -> int:
         time.sleep(POLL_SECONDS)
 
 
+def running_job(state: dict[str, Any]) -> dict[str, Any] | None:
+    return next((job for job in state["jobs"] if job["state"] == "running"), None)
+
+
+def latest_job_with_log(state: dict[str, Any]) -> dict[str, Any] | None:
+    """Most recently started job that produced a log, running or not."""
+    started = [job for job in state["jobs"] if job.get("log") and job.get("started_at")]
+    if not started:
+        return None
+    return max(started, key=lambda job: (job["started_at"], job["id"]))
+
+
+def tail_offset(path: Path, lines: int) -> int:
+    """Byte offset `lines` newlines back from the end of the file.
+
+    Counts only real newlines: Ultralytics redraws its progress bar with carriage
+    returns, so a `\\r`-aware split would rewind thousands of redraws of one epoch."""
+    data = path.read_bytes()
+    idx = len(data)
+    for _ in range(lines):
+        newline = data.rfind(b"\n", 0, idx)
+        if newline < 0:
+            return 0
+        idx = newline
+    return idx + 1
+
+
+def follow_log(job: dict[str, Any], tail: int, pinned: bool) -> int:
+    """Stream a job's log until it ends, then roll onto whatever runs next.
+
+    The rollover is the point. The queue runs one job at a time for hours, so the
+    log path worth watching changes several times over a sweep, and a plain
+    `tail -f` on one path goes quiet exactly when the next arm starts. With an
+    explicit job id (`pinned`) it stops when that job does instead.
+
+    Bytes are copied straight through rather than line-buffered, so the progress
+    bar's carriage returns still redraw in place."""
+    current = job
+    handle: Any = None
+    try:
+        while True:
+            handle = _open_log(current, handle, tail)
+            _drain(handle)
+            time.sleep(1.0)
+
+            state = read_state()
+            fresh = find_job(state, current["id"]) or current
+            if fresh["state"] not in TERMINAL_STATES:
+                current = fresh
+                continue
+
+            _drain(handle)  # what the job wrote between the last read and its exit
+            print(
+                f"\njob {fresh['id']} {fresh['state']} (exit {fresh['exit_code']})",
+                file=sys.stderr,
+            )
+            if pinned:
+                return 0 if fresh["state"] == "done" else 1
+
+            nxt = running_job(state)
+            if nxt is None or nxt["id"] == current["id"]:
+                continue  # nothing running yet; wait for the worker to pop the next job
+            if handle is not None:
+                handle.close()
+            handle = None
+            current = nxt
+    except KeyboardInterrupt:
+        print(file=sys.stderr)
+        return 0
+    finally:
+        if handle is not None:
+            handle.close()
+
+
+def _open_log(job: dict[str, Any], handle: Any, tail: int) -> Any:
+    """Open the job's log once it exists, seeked `tail` lines back. Idempotent."""
+    if handle is not None or not job["log"]:
+        return handle
+    path = Path(job["log"])
+    if not path.exists():
+        return None
+    print(f"==> {path} (job {job['id']} {job['name']})", file=sys.stderr)
+    opened = path.open("rb")
+    opened.seek(tail_offset(path, tail))
+    return opened
+
+
+def _drain(handle: Any) -> None:
+    """Copy everything written since the last read straight to stdout."""
+    if handle is None:
+        return
+    chunk = handle.read()
+    if chunk:
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+
+
 def cmd_logs(args: argparse.Namespace) -> int:
-    job = find_job(read_state(), args.job_id)
-    if job is None or not job["log"]:
-        print(f"no log for job {args.job_id}", file=sys.stderr)
-        return 1
+    state = read_state()
+    if args.job_id is None:
+        # No id means "whatever is training now"; fall back to the last job that ran so
+        # the command still shows something in the gap between two jobs.
+        job = running_job(state) or latest_job_with_log(state)
+        if job is None:
+            print("no job has produced a log yet", file=sys.stderr)
+            return 1
+    else:
+        job = find_job(state, args.job_id)
+        if job is None or not job["log"]:
+            print(f"no log for job {args.job_id}", file=sys.stderr)
+            return 1
+
+    if args.follow:
+        return follow_log(job, args.tail, pinned=args.job_id is not None)
+
     print(job["log"], file=sys.stderr)
     lines = Path(job["log"]).read_text().splitlines()
     print("\n".join(lines[-args.tail :]))
@@ -442,9 +553,22 @@ def build_parser() -> argparse.ArgumentParser:
     wait.add_argument("--timeout", type=int, default=0, help="give up after N seconds")
     wait.set_defaults(func=cmd_wait)
 
-    logs = sub.add_parser("logs", help="tail a job log")
-    logs.add_argument("job_id", type=int)
+    logs = sub.add_parser("logs", help="tail a job log (default: the running job)")
+    logs.add_argument(
+        "job_id",
+        type=int,
+        nargs="?",
+        help="job to read; omit for the running job, or the last one that ran",
+    )
     logs.add_argument("--tail", type=int, default=20)
+    logs.add_argument(
+        "-f",
+        "--follow",
+        action="store_true",
+        help="stream new output as it is written. Without JOB_ID this follows the queue: "
+        "when the running job ends it rolls onto the next one, so a whole sweep can be "
+        "watched with one command. With JOB_ID it stops when that job does.",
+    )
     logs.set_defaults(func=cmd_logs)
 
     stop = sub.add_parser("stop", help="stop the worker after the current job")
