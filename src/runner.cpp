@@ -131,7 +131,11 @@ bool Runner::handle_system_action_request() {
     if (system_action_callback_) {
         system_action_callback_(requested_action);
     }
-    return true;
+    // Every action here reboots or powers off the host, so stop the loop instead of
+    // ticking on. The host teardown kills the X server and the Argus camera daemon, and
+    // a loop still driving the UI and the ZED through that dies on the dead connections.
+    // The caller runs the actual host command once the process has torn down.
+    return false;
 }
 
 void Runner::handle_profile_switch_request() {

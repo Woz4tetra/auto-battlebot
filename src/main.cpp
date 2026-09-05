@@ -35,6 +35,103 @@ std::size_t g_quittables_count = 0;
 void signal_quit(int) {
     for (std::size_t i = 0; i < g_quittables_count; ++i) g_quittables[i]->request_quit();
 }
+
+// Owns every component's lifetime. main runs the host reboot/poweroff only after this
+// returns, so the UI thread, the camera and the MCAP writer are all torn down first.
+int run_application(const auto_battlebot::ClassConfiguration& class_config,
+                    const std::string& active_profile,
+                    const std::vector<std::string>& available_profiles,
+                    const auto_battlebot::ProfileSelectorConfig& profile_selector, bool no_ui,
+                    auto_battlebot::UISystemAction& pending_system_action) {
+    using namespace auto_battlebot;
+
+    auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, active_profile);
+    setup_logging(mcap_recorder);
+    std::map<std::string, std::string> remappings;
+    miniros::init(remappings, "auto_battlebot");
+    miniros::NodeHandle nh;
+    setup_rosout_publisher(nh);
+
+    std::unique_ptr<UIManager> ui_manager;
+    std::vector<std::shared_ptr<DiagnosticsBackend>> backends;
+
+    if (no_ui) {
+        spdlog::info("--no-ui: skipping the UI regardless of config.");
+    }
+    if (!no_ui && class_config.ui && class_config.ui->enable) {
+        ui_manager =
+            std::make_unique<UIManager>(*class_config.ui, class_config.runner.max_loop_rate,
+                                        available_profiles, active_profile);
+        backends.push_back(ui_manager->diagnostics_backend());
+    }
+
+    if (class_config.publisher->uses_ros()) {
+        auto ros_diag_publisher = std::make_shared<miniros::Publisher>(
+            nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 100));
+        backends.push_back(
+            std::make_shared<RosDiagnosticsBackend>(ros_diag_publisher, mcap_recorder));
+    }
+
+    DiagnosticsLogger::initialize(backends);
+
+    auto publisher = make_publisher(nh, *class_config.publisher, mcap_recorder);
+    auto camera = make_rgbd_camera(*class_config.camera);
+    auto field_model = make_mask_model(*class_config.field_model);
+    auto robot_mask_model = make_robot_blob_model(*class_config.robot_mask_model);
+    auto field_filter = make_field_filter(*class_config.field_filter);
+    auto keypoint_model = make_keypoint_model(*class_config.keypoint_model);
+    // TODO make a NoopModelBatch that is set when parallel_models is false.
+    auto perception_batch = std::make_shared<ParallelModelBatch>(keypoint_model, robot_mask_model);
+    auto clock = make_clock(*class_config.clock);
+    auto robot_filter = make_robot_filter(*class_config.robot_filter, clock);
+    auto target_selector = make_target_selector(*class_config.target_selector);
+    auto navigation = make_navigation(*class_config.navigation, clock);
+    auto transmitter = make_transmitter(*class_config.transmitter, clock);
+    auto health_logger = std::make_shared<HealthLogger>(class_config.health);
+    auto height_gate = std::make_shared<KeypointHeightGate>(class_config.keypoint_filter.height);
+    auto static_gate =
+        std::make_shared<StaticDetectionGate>(class_config.keypoint_filter.static_gate);
+
+    // The control loop owns the filter/target/navigation/transmit half. A threaded driver runs it
+    // on its own thread, so nothing else may touch those components after Runner::initialize().
+    auto hazard_assembler = make_hazard_assembler(*class_config.field_filter, clock);
+    auto control_loop_body = std::make_shared<ControlLoop>(
+        robot_filter, target_selector, navigation, transmitter, clock,
+        ui_manager ? ui_manager->ui_state() : nullptr, hazard_assembler);
+    auto control_loop = make_control_loop(*class_config.control_loop, control_loop_body);
+
+    Runner runner(
+        class_config.runner, camera, health_logger, field_model, robot_mask_model, field_filter,
+        keypoint_model, height_gate, static_gate, perception_batch, control_loop, publisher,
+        [&pending_system_action](UISystemAction action) { pending_system_action = action; },
+        [profile_selector](const std::string& name) {
+            write_selection_file(profile_selector, name);
+        },
+        ui_manager ? ui_manager->ui_state() : nullptr, mcap_recorder, clock);
+
+    runner.initialize();
+
+    // The runner is registered unconditionally. Registering only the UI manager left
+    // ui.enable = false with no quittables at all, so SIGINT and SIGTERM did nothing and
+    // the process could only be stopped with SIGKILL.
+    g_quittables[g_quittables_count++] = &runner;
+    // TODO: bound size and fail with a log instead of segfault
+    if (ui_manager) g_quittables[g_quittables_count++] = ui_manager.get();
+
+    std::signal(SIGINT, signal_quit);
+    std::signal(SIGTERM, signal_quit);
+
+    if (ui_manager) ui_manager->start();
+
+    int result = runner.run();
+    spdlog::warn("Runner returned with code {}", result);
+
+    std::signal(SIGINT, SIG_DFL);
+    std::signal(SIGTERM, SIG_DFL);
+    g_quittables_count = 0;
+    // ui_manager destructor: request_stop + join
+    return result;
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -98,90 +195,14 @@ int main(int argc, char** argv) {
 
     ClassConfiguration class_config = load_classes_from_config(config_path);
 
-    auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, active_profile);
-    setup_logging(mcap_recorder);
-    std::map<std::string, std::string> remappings;
-    miniros::init(remappings, "auto_battlebot");
-    miniros::NodeHandle nh;
-    setup_rosout_publisher(nh);
+    // Set by the Runner when the UI asks to reboot or power off the host.
+    UISystemAction pending_system_action = UISystemAction::NONE;
+    int result = run_application(class_config, active_profile, available_profiles, profile_selector,
+                                 no_ui, pending_system_action);
 
-    std::unique_ptr<UIManager> ui_manager;
-    std::vector<std::shared_ptr<DiagnosticsBackend>> backends;
-
-    if (no_ui) {
-        spdlog::info("--no-ui: skipping the UI regardless of config.");
-    }
-    if (!no_ui && class_config.ui && class_config.ui->enable) {
-        ui_manager =
-            std::make_unique<UIManager>(*class_config.ui, class_config.runner.max_loop_rate,
-                                        available_profiles, active_profile);
-        backends.push_back(ui_manager->diagnostics_backend());
-    }
-
-    if (class_config.publisher->uses_ros()) {
-        auto ros_diag_publisher = std::make_shared<miniros::Publisher>(
-            nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 100));
-        backends.push_back(
-            std::make_shared<RosDiagnosticsBackend>(ros_diag_publisher, mcap_recorder));
-    }
-
-    DiagnosticsLogger::initialize(backends);
-
-    auto publisher = make_publisher(nh, *class_config.publisher, mcap_recorder);
-    auto camera = make_rgbd_camera(*class_config.camera);
-    auto field_model = make_mask_model(*class_config.field_model);
-    auto robot_mask_model = make_robot_blob_model(*class_config.robot_mask_model);
-    auto field_filter = make_field_filter(*class_config.field_filter);
-    auto keypoint_model = make_keypoint_model(*class_config.keypoint_model);
-    // TODO make a NoopModelBatch that is set when parallel_models is false.
-    auto perception_batch = std::make_shared<ParallelModelBatch>(keypoint_model, robot_mask_model);
-    auto clock = make_clock(*class_config.clock);
-    auto robot_filter = make_robot_filter(*class_config.robot_filter, clock);
-    auto target_selector = make_target_selector(*class_config.target_selector);
-    auto navigation = make_navigation(*class_config.navigation, clock);
-    auto transmitter = make_transmitter(*class_config.transmitter, clock);
-    auto health_logger = std::make_shared<HealthLogger>(class_config.health);
-    auto height_gate = std::make_shared<KeypointHeightGate>(class_config.keypoint_filter.height);
-    auto static_gate =
-        std::make_shared<StaticDetectionGate>(class_config.keypoint_filter.static_gate);
-
-    // The control loop owns the filter/target/navigation/transmit half. A threaded driver runs it
-    // on its own thread, so nothing else may touch those components after Runner::initialize().
-    auto hazard_assembler = make_hazard_assembler(*class_config.field_filter, clock);
-    auto control_loop_body = std::make_shared<ControlLoop>(
-        robot_filter, target_selector, navigation, transmitter, clock,
-        ui_manager ? ui_manager->ui_state() : nullptr, hazard_assembler);
-    auto control_loop = make_control_loop(*class_config.control_loop, control_loop_body);
-
-    Runner runner(
-        class_config.runner, camera, health_logger, field_model, robot_mask_model, field_filter,
-        keypoint_model, height_gate, static_gate, perception_batch, control_loop, publisher,
-        handle_system_action,
-        [profile_selector](const std::string& name) {
-            write_selection_file(profile_selector, name);
-        },
-        ui_manager ? ui_manager->ui_state() : nullptr, mcap_recorder, clock);
-
-    runner.initialize();
-
-    // The runner is registered unconditionally. Registering only the UI manager left
-    // ui.enable = false with no quittables at all, so SIGINT and SIGTERM did nothing and
-    // the process could only be stopped with SIGKILL.
-    g_quittables[g_quittables_count++] = &runner;
-    // TODO: bound size and fail with a log instead of segfault
-    if (ui_manager) g_quittables[g_quittables_count++] = ui_manager.get();
-
-    std::signal(SIGINT, signal_quit);
-    std::signal(SIGTERM, signal_quit);
-
-    if (ui_manager) ui_manager->start();
-
-    int result = runner.run();
-    spdlog::warn("Runner returned with code {}", result);
-
-    std::signal(SIGINT, SIG_DFL);
-    std::signal(SIGTERM, SIG_DFL);
-    g_quittables_count = 0;
-    // ui_manager destructor: request_stop + join
+    // The UI thread is joined, the camera is closed and the MCAP is finalized by here, so
+    // the host can tear down the X server and the Argus daemon without taking a live
+    // perception loop down with it.
+    handle_system_action(pending_system_action);
     return result;
 }
