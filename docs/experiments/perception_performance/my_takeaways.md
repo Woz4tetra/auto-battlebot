@@ -119,24 +119,12 @@ docs/experiments/perception_performance/category_addition_2026-07-25.md
 
 # Does model size matter for my application? Is the latency trade off worth the improved performance?
 
-Yes, size matters, and more than the data experiments did. Every arm bigger than yolo26n
-gained significant agnostic recall on the eval set: s +0.059, m +0.057, l +0.057, x +0.088.
-That's a bigger effect than dropping 25% of the corpus or adding synthetic data. On a fixed
-71-scene corpus, capacity was the limit, not data volume.
+Yes, size matters. On my dataset, s, m, and l perform similarly. The runs were seeded but it's possible retrainings
+on different seeds will spread the results differently. x showed a significant improvement in recall.
+s +0.059, m +0.057, l +0.057, x +0.088. At this point data variety matters more than data size.
 
-The gain isn't monotonic in parameters. s and l land on the same recall; only x breaks past
-it. m and l are dominated by s outright: same recall, no significant precision gain where s
-has one, and 1.4-1.7x the inference time. Never pick them.
-
-Val mis-ordered the arms. On val, recall peaks at m and never recovers; on eval it's flat
-from s to l and jumps at x. Ranking on val would have picked the one arm both agree is not
-worth its cost. Score on nhrl_keypoints_eval_test before believing anything about a model
-change.
-
-The latency half is not answered yet. On the dev box s costs +0.46 ms and x costs +3.5 ms,
-so per millisecond s is ~3x the better deal. But the Jetson is where it's decided, and the
-perception batch there has ~1 ms of headroom before the tick crosses the 33.3 ms frame
-period -- and crossing it costs ~25 ms end-to-end, which no recall delta here pays for.
-s is plausibly affordable, m/l/x probably aren't. Measure it before deploying anything.
+Latency needs to be tested on the Jetson. s is an easy choice since it has similar latency, but x shows the best performance.
+Looking at x run on massD playback data, it was far better at ignoring the arena logo. But if the latency exceeds the camera capture rate,
+the runner could drop an image which costs ~30 ms.
 
 docs/experiments/perception_performance/model_size_2026-09-04.md
