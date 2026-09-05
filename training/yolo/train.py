@@ -51,6 +51,24 @@ def reclaim_stale_caches(dataset_yaml: str, max_age_days: float) -> None:
         print(f"reclaimed {freed / 1e9:.1f} GB of stale image cache ({removed} files)")
 
 
+def resolve_dataset(dataset: str) -> str:
+    """Accept a dataset directory and return the yaml inside it.
+
+    Ultralytics wants the yaml file: handed a directory it falls through to its archive
+    check and dies with `IsADirectoryError`, several seconds into a job that has already
+    claimed all three GPUs. The directory form is what CLAUDE.md and the experiment plans
+    document, so resolve it here rather than fixing every command line.
+    """
+    path = Path(dataset)
+    if not path.is_dir():
+        return dataset
+    for name in ("data.yml", "data.yaml"):
+        candidate = path / name
+        if candidate.exists():
+            return str(candidate)
+    raise SystemExit(f"No data.yml or data.yaml in dataset directory {path}")
+
+
 def main() -> None:
     configs = {
         "yolo11n-pose": {
@@ -278,7 +296,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    dataset = args.dataset
+    dataset = resolve_dataset(args.dataset)
     models = args.models
     epochs = args.epochs
     checkpoint_path = args.checkpoint
