@@ -76,6 +76,38 @@ Only the train split is filtered. Validation runs with `rect=True` and `shuffle=
 regardless, so its 113 odd frames are harmless, and leaving val byte-identical keeps val
 metrics comparable with arm A.
 
+### The mosaic question, answered
+
+The plan's other open question was whether mosaic, which composites four images onto a
+square canvas, survives `rect=True` or quietly turns the batches into distorted composites.
+Building the real training dataset with the full augmentation config and collating a batch
+by hand answers it without spending a GPU:
+
+```
+rect  640: batch (16, 3,  384,  640)
+rect 1024: batch (16, 3,  576, 1024)
+square 640: batch (16, 3, 640,  640)
+```
+
+The rectangular batches come out at exactly the geometries the plan predicted, through the
+real dataloader with mosaic, mixup and copy-paste enabled.
+
+![a rect=True training batch at 384x640](assets/2026-09-05_input_geometry/rect_train_batch.jpg)
+
+Every tile is one 16:9 scene, not a four-way composite squeezed into a square. The mosaic
+worry does not apply.
+
+The picture shows something else worth carrying into the results. `degrees=45.0`,
+`scale=0.5` and `translate=0.5` leave the scene sitting rotated inside a grey border in
+nearly every tile, often occupying well under half of it. This experiment is arguing about
+43.8% of the tensor being grey; augmentation already hands the network grey borders of the
+same order on every training image. That is a plausible mechanism for the scouting result
+the plan reports, that removing 44% of the tensor moved recall by 0.002.
+
+All sixteen tiles come from one recording because the figure indexes the dataset directly
+and bypasses the sampler. It is not evidence about shuffling; the batch-shape check above
+is.
+
 **This does put A2, B and C on 25,875 training images against arm A's 25,914.** The 0.15%
 difference is three orders of magnitude below the ~0.048 run-to-run recall spread
 `data_epoch_min` measured, so it cannot carry a result, but it is a difference and it is

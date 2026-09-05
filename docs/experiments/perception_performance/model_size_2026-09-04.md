@@ -252,3 +252,122 @@ budget. `--after-field-init` is required for comparability with the reports in
 - Runs: `runs/projects/auto_battlebots_2026-09-04_00-56-05_yolo26{n,s,m,l,x}/` (`results.csv`, `weights/{best,last,epoch0,epoch25,epoch50,epoch75}.pt`)
 - Models: `data/models/yolo26{n,s,m,l,x}_nhrl_robots_bbox_2class_2026-09-04.{pt,onnx,_x86_64_sm86.engine}`
 - Benchmark tool: `training/model_eval/benchmark_engines.py`
+
+## Addendum 2026-09-05 - does `yolo26s` still gain from synthetic data?
+
+The sweep above trained on `nhrl_robots_bbox_2class` (real only). The deployed `yolo26n` is
+the `mixed` arm from `synthetic_arms_2026-07-31.md`, real plus 17,995 synthetic renders. This
+addendum trains `yolo26s` on that same `mixed_2class` corpus with the sweep recipe, to check
+whether the candidate upgrade should be trained the way the deployed model is.
+
+Same recipe as the sweep: 100 epochs, batch 96 (effective weight decay 0.00075), imgsz 640,
+seed 0, 3x A6000 DDP, `--save-period 25`. Corpus: 43,909 train (25,914 real + 17,995
+synthetic), the same 6,573-frame real scene-disjoint val. The synthetic frames contain
+`robot` boxes only, no `house_bot`. Wall clock 3.91 h against 2.34 h for real-only `s`.
+Scored with the same `score.py` invocation, same 688 eval frames, baseline `s` (real-only).
+
+```bash
+NCCL_P2P_DISABLE=1 venv/bin/python training/yolo/train.py \
+  training/data/mixed_2class/data.yml yolo26s -e 100 -b 96 -d 0 1 2 --save-period 25
+```
+
+### Headline
+
+1. **At the full schedule, `mixed` trades recall for precision and gains nothing net.**
+   `s_mixed` (best.pt, epoch 97) scores +0.049 precision (`better`) and -0.048 recall
+   (`worse`) against real-only `s`; F1 delta is -0.005, `ns`. The 2026-07-31 `yolo26n`
+   result had the same shape (+0.049 precision, -0.017 recall), but here the recall loss
+   clears significance.
+2. **Step-matched, `mixed` is a wash.** Real `s` at 100 epochs is 2.59 M frame-presentations.
+   `mixed` at epoch 75 (3.29 M) is `ns` on every metric at every level. At epoch 50
+   (2.20 M) it is +0.025 recall (`better`) and -0.020 precision (`worse`), F1 `ns`.
+3. **Recall falls monotonically along the `mixed` schedule** on the eval set: 0.864 at
+   epoch 50, 0.842 at 75, 0.791 at 100, while precision rises 0.871 -> 0.904 -> 0.939.
+   Val picks epoch 97 as best. This is the late external-eval decline from
+   `category_addition_2026-07-25.md`, and val misses it again.
+4. **Synthetic data hurts `house_bot`.** Archetype AP50-95 on `house_bot` drops from 0.762
+   (`s`) to 0.684 (`s_mixed`). The renders contain no house bots, so house-bot frames are
+   59% of the per-epoch share they hold in the real corpus. Opponent AP is flat (0.500 vs
+   0.494).
+5. **The sweep's `s` recommendation stands.** Nothing here beats real-only `s` on F1 at any
+   checkpoint with significance. Train the candidate upgrade on the real corpus.
+
+### Results - eval set, agnostic level
+
+| arm | frame-presentations | precision | recall | F1 | mAP50 | mAP50-95 |
+|---|---:|---:|---:|---:|---:|---:|
+| n (real) | 2.59 M | 0.858 | 0.780 | 0.817 | 0.754 | 0.481 |
+| s (real) | 2.59 M | 0.891 | 0.839 | 0.864 | 0.815 | 0.563 |
+| s_mixed @ep50 | 2.20 M | 0.871 | **0.864** | **0.867** | **0.847** | **0.574** |
+| s_mixed @ep75 | 3.29 M | 0.904 | 0.842 | 0.872 | 0.830 | 0.569 |
+| s_mixed (best, ep97) | 4.26 M | **0.939** | 0.791 | 0.859 | 0.784 | 0.538 |
+
+### Paired bootstrap vs real-only `s`
+
+| arm | metric | s | arm | delta | 95% CI | verdict |
+|---|---|---:|---:|---:|---|---|
+| s_mixed | recall | 0.839 | 0.791 | -0.048 | [-0.062, -0.034] | **worse** |
+| s_mixed | precision | 0.891 | 0.939 | +0.049 | [+0.032, +0.065] | better |
+| s_mixed | F1 | 0.864 | 0.859 | -0.005 | [-0.018, +0.007] | ns |
+| s_mixed @ep50 | recall | 0.839 | 0.864 | +0.025 | [+0.011, +0.039] | better |
+| s_mixed @ep50 | precision | 0.891 | 0.871 | -0.020 | [-0.034, -0.006] | **worse** |
+| s_mixed @ep50 | F1 | 0.864 | 0.867 | +0.003 | [-0.008, +0.015] | ns |
+| s_mixed @ep75 | recall | 0.839 | 0.842 | +0.003 | [-0.009, +0.015] | ns |
+| s_mixed @ep75 | precision | 0.891 | 0.904 | +0.013 | [-0.001, +0.026] | ns |
+| s_mixed @ep75 | F1 | 0.864 | 0.872 | +0.007 | [-0.004, +0.018] | ns |
+
+### Results - eval set, archetype level
+
+| arm | precision | recall | F1 | wrong_class_rate | AP50-95 opponent | AP50-95 house_bot |
+|---|---:|---:|---:|---:|---:|---:|
+| s (real) | 0.890 | 0.839 | 0.864 | 0.001 | 0.500 | 0.762 |
+| s_mixed @ep50 | 0.868 | 0.860 | 0.864 | 0.004 | 0.519 | 0.740 |
+| s_mixed @ep75 | 0.901 | 0.839 | 0.869 | 0.003 | 0.517 | 0.733 |
+| s_mixed (best) | 0.936 | 0.789 | 0.856 | 0.003 | 0.494 | 0.684 |
+
+### Val
+
+| arm | best val mAP50-95 | at epoch | val recall |
+|---|---:|---:|---:|
+| s (real) | 0.7039 | 96-100 | 0.8252 |
+| s_mixed | 0.7124 | 97 | 0.8203 |
+
+Val prefers `mixed` by 0.0085 mAP50-95 and prefers its epoch-97 checkpoint over epoch 50
+(0.7000) and 75 (0.7001). On the eval set epoch 97 is the worst of the three on recall by
+0.05-0.07. Same verdict as the size sweep: do not rank on val.
+
+### Reading the ep50 result
+
+`s_mixed @ep50` recall (0.864) is within 0.004 of `x` (0.868) at `s` latency, and its mAP50
+(0.847) is the best of any `s` checkpoint. It is tempting to call it the winner. Three
+reasons not to:
+
+- It is one of three checkpoints from a ladder, picked after seeing the eval. The registered
+  comparison in `synthetic_arms_plan.md` was step-matched, which points at ep75, and ep75 is
+  `ns` everywhere.
+- Its precision is significantly *worse* than `s` (-0.020), and F1 is `ns`. It moves along
+  the precision-recall trade-off, it does not shift the frontier.
+- Single seed. `data_epoch_min` put run-to-run recall spread near 0.048. The +0.025 recall
+  clears the bootstrap CI but not that bar.
+
+If a recall-heavy operating point is wanted, lowering `conf` on real-only `s` is the cheaper
+experiment and does not cost 1.7x the training time.
+
+### Caveats
+
+- Single seed, single arm. The `n` result on 2026-07-31 and this `s` result agree on the
+  direction (precision up, recall down at full schedule), which is two seeds' worth of
+  evidence for the shape, not for the magnitude.
+- The step confound cuts the other way here. On 2026-07-31 `mixed @ep50` beat `real_only` on
+  precision and F1; here it loses precision and ties F1. The two runs differ in model size,
+  batch (128 vs 96), and eval set (372 vs 688 frames), so this is not a contradiction that
+  can be attributed to any one cause.
+- Latency is unchanged. Same architecture as the sweep's `s`, so the latency table above
+  applies as-is.
+
+### Artifacts
+
+- Scores: `training/data/nhrl_keypoints_eval_test/scores_model_size_mixed/{summary.csv, significance.csv, headline.png, confusion_*.png}` (`n`, `s`, `s_mixed`, `s_mixed_ep50`, `s_mixed_ep75`)
+- Run: `runs/projects/auto_battlebots_2026-09-05_00-17-01_yolo26s/` (`results.csv`, `weights/{best,last,epoch0,epoch25,epoch50,epoch75}.pt`)
+- Log: `training/projects/model_size_mixed_logs/yolo26s_mixed.log`, scoring script `post_train.sh` alongside
+- Models: `data/models/yolo26s_mixed_2class_2026-09-05{,_ep50,_ep75}.{pt,onnx,_x86_64_sm86.engine}`

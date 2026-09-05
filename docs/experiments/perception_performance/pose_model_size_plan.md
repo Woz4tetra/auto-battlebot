@@ -87,7 +87,7 @@ gate on it, and at ~2.6 h it is the cheapest way to find a corpus problem before
 
 ```bash
 Q="venv/bin/python training/gpu_queue.py"
-D="training/data/all_robot_keypoints"
+D="training/data/all_robot_keypoints/data.yml"   # the yaml, not the directory
 
 $Q submit --name A_n_pose --by <agent> -- \
   venv/bin/python training/yolo/train.py $D yolo26n-pose -d 0 1 2 -b 96 -e 200 --save-period 50
