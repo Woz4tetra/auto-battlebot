@@ -134,8 +134,9 @@ void RobotFrontBackFilter::predict(double now, CommandFeedback command_feedback)
     }
 }
 
-void RobotFrontBackFilter::correct(KeypointsStamped keypoints, FieldDescription field,
-                                   CameraInfo camera_info, KeypointsStamped robot_blob_keypoints) {
+void RobotFrontBackFilter::correct(ModelResultStamped keypoints, FieldDescription field,
+                                   CameraInfo camera_info,
+                                   ModelResultStamped robot_blob_keypoints) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = keypoints.header.stamp;
@@ -302,7 +303,7 @@ std::vector<FrameId> RobotFrontBackFilter::get_assignment_frame_ids(
 }
 
 void RobotFrontBackFilter::merge_blob_detections(
-    const KeypointsStamped &robot_blob_keypoints,
+    const ModelResultStamped &robot_blob_keypoints,
     const std::vector<RobotDescription> &keypoint_measurements, const FieldDescription &field,
     const CameraInfo &camera_info, const Eigen::Matrix4d &tf_fieldcenter_from_camera, double stamp,
     std::vector<RobotDescription> &all_measurements) {
@@ -420,10 +421,10 @@ void RobotFrontBackFilter::merge_blob_detections(
 }
 
 std::vector<RobotDescription> RobotFrontBackFilter::convert_keypoints_to_measurements(
-    const KeypointsStamped &keypoints, const FieldDescription &field, const CameraInfo &camera_info,
-    const Eigen::Matrix4d &tf_fieldcenter_from_camera) {
+    const ModelResultStamped &model_results, const FieldDescription &field,
+    const CameraInfo &camera_info, const Eigen::Matrix4d &tf_fieldcenter_from_camera) {
     std::vector<RobotDescription> filter_measurements;
-    auto front_back_mapping = keypoint_converter_->convert(keypoints, field, camera_info);
+    auto front_back_mapping = keypoint_converter_->convert(model_results, field, camera_info);
     diagnostics_logger_->debug(
         {{"num_labels_with_front_back_assignments", static_cast<int>(front_back_mapping.size())}});
 

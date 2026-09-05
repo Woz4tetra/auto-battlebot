@@ -26,7 +26,7 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     ~ZedRgbdCamera();
     bool initialize() override;
     void cancel_initialize() override;
-    bool get(CameraData &data, bool get_depth) override;
+    bool get(CameraData &data) override;
     bool should_close() override;
     bool set_recording_enabled(bool enabled) override;
     bool is_recording_enabled() const override;
@@ -64,10 +64,10 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     std::atomic<bool> camera_connected_;
 
     // Frame handoff between capture thread and get(). Counters guarded by data_mutex_.
+    // Every captured frame carries depth, so get() never has to request one and wait: it takes
+    // whatever the capture thread last published, same as it does for RGB.
     std::atomic<uint64_t> frame_counter_;
-    uint64_t depth_frame_counter_;
     mutable uint64_t last_returned_frame_counter_;
-    bool depth_requested_ = false;
 
     GrabHealthMonitor grab_health_;
 

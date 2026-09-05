@@ -15,6 +15,8 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
                std::shared_ptr<FieldFilterInterface> field_filter,
                std::shared_ptr<KeypointModelInterface> keypoint_model,
+               std::shared_ptr<KeypointHeightGate> height_gate,
+               std::shared_ptr<StaticDetectionGate> static_gate,
                std::shared_ptr<ParallelModelBatch> perception_batch,
                std::shared_ptr<ControlLoopInterface> control_loop,
                std::shared_ptr<PublisherInterface> publisher,
@@ -27,6 +29,8 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       robot_mask_model_(robot_mask_model),
       field_filter_(field_filter),
       keypoint_model_(keypoint_model),
+      height_gate_(std::move(height_gate)),
+      static_gate_(std::move(static_gate)),
       perception_batch_(std::move(perception_batch)),
       control_loop_(std::move(control_loop)),
       publisher_(publisher),
@@ -264,6 +268,9 @@ void Runner::initialize_field(const CameraData &camera_data) {
     publisher_->publish_initial_field_description(*initial_field_description_);
 
     control_loop_->request_filter_reinit(runtime_opponent_count_);
+    // Static-gate clusters are stored in field coordinates. A re-init moves the field origin, so
+    // every stored position now refers to somewhere else. Start over.
+    static_gate_->reset();
     initialized_ = true;
     spdlog::info("Field initialized");
 }
@@ -349,7 +356,7 @@ bool Runner::tick() {
     bool is_camera_ok;
     {
         FunctionTimer timer(diagnostics_logger_, "camera.get");
-        is_camera_ok = camera_->get(camera_data, should_reinit_field);
+        is_camera_ok = camera_->get(camera_data);
     }
 
     if (!is_camera_ok) {
@@ -384,8 +391,8 @@ bool Runner::tick() {
                                                        initial_field_description_);
     }
 
-    KeypointsStamped keypoints;
-    KeypointsStamped robot_blob_keypoints;
+    ModelResultStamped keypoints;
+    ModelResultStamped robot_blob_keypoints;
     if (runner_config_.parallel_models) {
         FunctionTimer timer(diagnostics_logger_, "perception_batch.update");
         BatchResult batch = perception_batch_->update(camera_data.rgb);
@@ -408,6 +415,29 @@ bool Runner::tick() {
             FunctionTimer timer(diagnostics_logger_, "robot_mask_model.update");
             robot_blob_keypoints = robot_mask_model_->update(camera_data.rgb);
         }
+    }
+
+    // Gate perception against the field geometry before anything downstream sees it.
+    //
+    // The static gate runs first, and on robot blobs only. It has to see every detection to learn
+    // which field positions never move, so putting the height gate ahead of it would starve it of
+    // the floor-graphic detections it exists to catch. Our own robot comes from a different model
+    // and the filter tracks it regardless, so suppressing it for holding still would be wrong.
+    //
+    // The height gate then measures how far above the field plane each detection stands and
+    // records it on every keypoint, so projection stops assuming every robot is exactly
+    // keypoint_height_meters tall. It rejects on that measurement only when reject_enable is set:
+    // the height distributions of real robots and floor graphics overlap enough that rejecting
+    // costs real detections. See KeypointHeightGateConfiguration.
+    {
+        FunctionTimer timer(diagnostics_logger_, "keypoint_filter");
+        robot_blob_keypoints =
+            static_gate_->filter(robot_blob_keypoints, camera_data.camera_info, field_description,
+                                 camera_data.rgb.header.stamp);
+        keypoints = height_gate_->filter(keypoints, camera_data.depth, camera_data.camera_info,
+                                         field_description);
+        robot_blob_keypoints = height_gate_->filter(robot_blob_keypoints, camera_data.depth,
+                                                    camera_data.camera_info, field_description);
     }
 
     // Hand perception to the control loop and let the driver decide when cycles run. The stepped

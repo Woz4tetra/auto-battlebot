@@ -19,6 +19,8 @@
 #include "field_filter/field_filter_interface.hpp"
 #include "health/config.hpp"
 #include "health/health_logger.hpp"
+#include "keypoint_filter/height_gate.hpp"
+#include "keypoint_filter/static_gate.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
 #include "mask_model/mask_model_interface.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
@@ -50,6 +52,8 @@ class Runner : public Quittable {
            std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
            std::shared_ptr<FieldFilterInterface> field_filter,
            std::shared_ptr<KeypointModelInterface> keypoint_model,
+           std::shared_ptr<KeypointHeightGate> height_gate,
+           std::shared_ptr<StaticDetectionGate> static_gate,
            std::shared_ptr<ParallelModelBatch> perception_batch,
            std::shared_ptr<ControlLoopInterface> control_loop,
            std::shared_ptr<PublisherInterface> publisher,
@@ -77,6 +81,10 @@ class Runner : public Quittable {
     std::shared_ptr<RobotBlobModelInterface> robot_mask_model_;
     std::shared_ptr<FieldFilterInterface> field_filter_;
     std::shared_ptr<KeypointModelInterface> keypoint_model_;
+    // Depth-based height gate, applied to both keypoint streams; static-position gate, applied to
+    // robot blobs only. Both sit between perception and the control loop.
+    std::shared_ptr<KeypointHeightGate> height_gate_;
+    std::shared_ptr<StaticDetectionGate> static_gate_;
     // Runs keypoint_model_ and robot_mask_model_ in parallel each tick.
     std::shared_ptr<ParallelModelBatch> perception_batch_;
     /** Owns the filter/target/navigation/transmit half. The Runner reaches the transmitter through

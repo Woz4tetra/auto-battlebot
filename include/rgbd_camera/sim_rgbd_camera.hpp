@@ -14,7 +14,7 @@ class SimRgbdCamera : public RgbdCameraInterface {
     explicit SimRgbdCamera(const SimRgbdCameraConfiguration &config);
 
     bool initialize() override;
-    bool get(CameraData &data, bool get_depth) override;
+    bool get(CameraData &data) override;
     bool should_close() override;
 
    private:

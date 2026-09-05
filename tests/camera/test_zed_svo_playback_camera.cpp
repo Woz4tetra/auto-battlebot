@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <memory>
 
+#include "config/config_parser.hpp"
 #include "data_structures.hpp"
 #include "rgbd_camera/config.hpp"
 #include "rgbd_camera/zed_svo_playback_camera.hpp"
@@ -49,12 +50,26 @@ class ZedSvoPlaybackCameraTest : public ::testing::Test {
 std::unique_ptr<ZedSvoPlaybackCamera> ZedSvoPlaybackCameraTest::shared_camera_;
 ZedSvoPlaybackCameraConfiguration ZedSvoPlaybackCameraTest::shared_config_;
 
+TEST_F(ZedSvoPlaybackCameraTest, RejectsAStartFrameBeyondTheEndOfTheFile) {
+    // A config that overrides svo_file_path but inherits svo_start_frame from the config it
+    // extends used to seek to the last frame, grab once, and report END OF SVO FILE REACHED
+    // before the first heartbeat. That looks like a corrupt recording, so it fails loudly instead.
+    ASSERT_NE(shared_camera_, nullptr)
+        << "Shared ZED camera not available (SVO missing or init failed)";
+
+    ZedSvoPlaybackCameraConfiguration config = shared_config_;
+    config.svo_start_frame = 1000000;
+    ZedSvoPlaybackCamera camera(config);
+
+    EXPECT_THROW(camera.initialize(), ConfigValidationError);
+}
+
 TEST_F(ZedSvoPlaybackCameraTest, FullDataPipeline) {
     ASSERT_NE(shared_camera_, nullptr)
         << "Shared ZED camera not available (SVO missing or init failed)";
 
     CameraData data;
-    ASSERT_TRUE(shared_camera_->get(data, true));
+    ASSERT_TRUE(shared_camera_->get(data));
 
     // Verify camera info
     EXPECT_GT(data.camera_info.width, 0);
@@ -87,11 +102,11 @@ TEST_F(ZedSvoPlaybackCameraTest, MultipleFrameProcessing) {
         << "Shared ZED camera not available (SVO missing or init failed)";
 
     CameraData data1;
-    ASSERT_TRUE(shared_camera_->get(data1, true));
+    ASSERT_TRUE(shared_camera_->get(data1));
     double timestamp1 = data1.tf_visodom_from_camera.header.stamp;
 
     CameraData data2;
-    ASSERT_TRUE(shared_camera_->get(data2, true));
+    ASSERT_TRUE(shared_camera_->get(data2));
     double timestamp2 = data2.tf_visodom_from_camera.header.stamp;
 
     // Camera info should remain constant
@@ -110,10 +125,10 @@ TEST_F(ZedSvoPlaybackCameraTest, DataIndependence) {
         << "Shared ZED camera not available (SVO missing or init failed)";
 
     CameraData data_ref;
-    ASSERT_TRUE(shared_camera_->get(data_ref, true));
+    ASSERT_TRUE(shared_camera_->get(data_ref));
 
     CameraData data_copy;
-    ASSERT_TRUE(shared_camera_->get(data_copy, true));
+    ASSERT_TRUE(shared_camera_->get(data_copy));
     data_copy.rgb.image = data_ref.rgb.image.clone();
     data_copy.depth.image = data_ref.depth.image.clone();
 
@@ -144,7 +159,7 @@ TEST_F(ZedSvoPlaybackCameraTest, SvoEndOfFile) {
     int max_frames = 1000;  // Safety limit
     int frame_count = 0;
     while (!camera.should_close() && frame_count < max_frames) {
-        camera.get(data, true);
+        camera.get(data);
         frame_count++;
     }
 

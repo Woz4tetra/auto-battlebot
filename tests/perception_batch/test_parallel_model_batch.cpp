@@ -11,8 +11,8 @@
 namespace auto_battlebot {
 namespace {
 
-KeypointsStamped make_tagged_result(double tag) {
-    KeypointsStamped result;
+ModelResultStamped make_tagged_result(double tag) {
+    ModelResultStamped result;
     Keypoint keypoint;
     keypoint.x = tag;
     result.keypoints.push_back(keypoint);
@@ -22,7 +22,7 @@ KeypointsStamped make_tagged_result(double tag) {
 class FakeKeypointModel : public KeypointModelInterface {
    public:
     bool initialize() override { return true; }
-    KeypointsStamped update(RgbImage /*image*/) override {
+    ModelResultStamped update(RgbImage /*image*/) override {
         ++call_count;
         if (on_update) on_update();
         return make_tagged_result(kKeypointTag);
@@ -36,7 +36,7 @@ class FakeKeypointModel : public KeypointModelInterface {
 class FakeRobotBlobModel : public RobotBlobModelInterface {
    public:
     bool initialize() override { return true; }
-    KeypointsStamped update(RgbImage /*image*/) override {
+    ModelResultStamped update(RgbImage /*image*/) override {
         ++call_count;
         if (on_update) on_update();
         return make_tagged_result(kBlobTag);

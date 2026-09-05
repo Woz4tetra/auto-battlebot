@@ -31,8 +31,8 @@ class RobotFilterInterface {
      * Fold in one perception measurement. `keypoints.header.stamp` is the capture time, which is
      * older than the most recent predict() time, since the control loop outruns perception.
      */
-    virtual void correct(KeypointsStamped keypoints, FieldDescription field, CameraInfo camera_info,
-                         KeypointsStamped robot_blob_keypoints) = 0;
+    virtual void correct(ModelResultStamped keypoints, FieldDescription field,
+                         CameraInfo camera_info, ModelResultStamped robot_blob_keypoints) = 0;
 
     /** Best estimate as of the most recent predict() or correct(), whichever ran last. */
     virtual RobotDescriptionsStamped state() const = 0;

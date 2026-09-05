@@ -12,9 +12,9 @@ namespace {
  * Runs one full filter cycle the way the Runner does: predict, then correct, then read state.
  * Tests exercise that sequence rather than a shortcut so they cover the real call pattern.
  */
-RobotDescriptionsStamped run_filter(RobotFrontBackFilter &filter, KeypointsStamped keypoints,
+RobotDescriptionsStamped run_filter(RobotFrontBackFilter &filter, ModelResultStamped keypoints,
                                     const FieldDescription &field, const CameraInfo &camera_info,
-                                    KeypointsStamped robot_blob_keypoints,
+                                    ModelResultStamped robot_blob_keypoints,
                                     const CommandFeedback &command_feedback) {
     filter.predict(keypoints.header.stamp, command_feedback);
     filter.correct(std::move(keypoints), field, camera_info, std::move(robot_blob_keypoints));
@@ -45,8 +45,8 @@ FieldDescription make_field() {
     return field;
 }
 
-KeypointsStamped make_opponent_keypoints(double stamp, double front_x, double back_x) {
-    KeypointsStamped keypoints;
+ModelResultStamped make_opponent_keypoints(double stamp, double front_x, double back_x) {
+    ModelResultStamped keypoints;
     keypoints.header.frame_id = FrameId::CAMERA;
     keypoints.header.stamp = stamp;
 
@@ -67,9 +67,10 @@ KeypointsStamped make_opponent_keypoints(double stamp, double front_x, double ba
     return keypoints;
 }
 
-void append_keypoint_pair(KeypointsStamped &keypoints, Label label, KeypointLabel front_kp_label,
-                          KeypointLabel back_kp_label, int detection_index, double front_x,
-                          double back_x, double y, double confidence) {
+void append_keypoint_pair(ModelResultStamped &model_results, Label label,
+                          KeypointLabel front_kp_label, KeypointLabel back_kp_label,
+                          int detection_index, double front_x, double back_x, double y,
+                          double confidence) {
     Keypoint front;
     front.label = label;
     front.keypoint_label = front_kp_label;
@@ -77,26 +78,26 @@ void append_keypoint_pair(KeypointsStamped &keypoints, Label label, KeypointLabe
     front.y = y;
     front.confidence = confidence;
     front.detection_index = detection_index;
-    keypoints.keypoints.push_back(front);
+    model_results.keypoints.push_back(front);
 
     Keypoint back = front;
     back.keypoint_label = back_kp_label;
     back.x = back_x;
     back.confidence = confidence;
-    keypoints.keypoints.push_back(back);
+    model_results.keypoints.push_back(back);
 }
 
 // Empty keypoint frame carrying a timestamp, so a keypoint-dropout frame still advances the
 // filter clock (the output stamp is taken from keypoints.header.stamp).
-KeypointsStamped make_empty_keypoints(double stamp) {
-    KeypointsStamped keypoints;
+ModelResultStamped make_empty_keypoints(double stamp) {
+    ModelResultStamped keypoints;
     keypoints.header.frame_id = FrameId::CAMERA;
     keypoints.header.stamp = stamp;
     return keypoints;
 }
 
-KeypointsStamped make_our_keypoints(double stamp, double front_x, double back_x, double y) {
-    KeypointsStamped keypoints;
+ModelResultStamped make_our_keypoints(double stamp, double front_x, double back_x, double y) {
+    ModelResultStamped keypoints;
     keypoints.header.frame_id = FrameId::CAMERA;
     keypoints.header.stamp = stamp;
     append_keypoint_pair(keypoints, Label::MRS_BUFF_MK3, KeypointLabel::MRS_BUFF_MK3_FRONT,
@@ -104,8 +105,8 @@ KeypointsStamped make_our_keypoints(double stamp, double front_x, double back_x,
     return keypoints;
 }
 
-KeypointsStamped make_opponent_blob(double stamp, double front_x, double back_x, double y) {
-    KeypointsStamped blob;
+ModelResultStamped make_opponent_blob(double stamp, double front_x, double back_x, double y) {
+    ModelResultStamped blob;
     blob.header.frame_id = FrameId::CAMERA;
     blob.header.stamp = stamp;
     append_keypoint_pair(blob, Label::OPPONENT, KeypointLabel::OPPONENT_FRONT,
@@ -146,7 +147,7 @@ TEST(RobotFrontBackFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped empty_blob_keypoints;
+    const ModelResultStamped empty_blob_keypoints;
     const CommandFeedback command_feedback;
 
     const auto first = run_filter(filter, make_opponent_keypoints(1.0, 300.0, 340.0), field,
@@ -198,12 +199,12 @@ TEST(RobotFrontBackFilterTest, BlobFallbackToOpponentRelabelsToOpponent) {
     const CommandFeedback command_feedback;
 
     // OPPONENT keypoint claims THEIR_ROBOT_1 (the only slot MRS_BUFF_MK1 is configured for).
-    const KeypointsStamped opponent_keypoints = make_opponent_keypoints(1.0, 280.0, 320.0);
+    const ModelResultStamped opponent_keypoints = make_opponent_keypoints(1.0, 280.0, 320.0);
 
     // MRS_BUFF_MK1 blob, spatially separated from the keypoint detection so it survives the
     // is_blob_suppressed_by_keypoint filter. It can only land in THEIR_ROBOT_2 via the
     // THEIRS-fallback to OPPONENT slots.
-    KeypointsStamped blob_keypoints;
+    ModelResultStamped blob_keypoints;
     blob_keypoints.header.frame_id = FrameId::CAMERA;
     blob_keypoints.header.stamp = 1.0;
     append_keypoint_pair(blob_keypoints, Label::MRS_BUFF_MK1, KeypointLabel::MRS_BUFF_MK1_FRONT,
@@ -257,10 +258,10 @@ TEST(RobotFrontBackFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlob) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped empty_keypoints;
+    const ModelResultStamped empty_keypoints;
     const CommandFeedback command_feedback;
 
-    KeypointsStamped blob_keypoints;
+    ModelResultStamped blob_keypoints;
     blob_keypoints.header.frame_id = FrameId::CAMERA;
     blob_keypoints.header.stamp = 1.0;
     // Two generic OPPONENT blobs (could each take any of {THEIR_ROBOT_1, THEIR_ROBOT_2}).
@@ -308,7 +309,7 @@ TEST(RobotFrontBackFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped no_blob;
+    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     // Frame 1: our robot measured by keypoints, no blob. Establishes the held pose; not a leak.
@@ -334,14 +335,14 @@ TEST(RobotFrontBackFilterTest, NoLeakFlagWhenBlobFarFromHeldPose) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped no_blob;
+    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
                command_feedback);
 
     // Keypoint miss, but the blob is well away from the held pose (far in image y).
-    const KeypointsStamped no_keypoints;
+    const ModelResultStamped no_keypoints;
     run_filter(filter, no_keypoints, field, camera_info,
                make_opponent_blob(1.1, 300.0, 340.0, 380.0), command_feedback);
     EXPECT_FALSE(filter.last_our_blob_present_no_keypoint());
@@ -355,7 +356,7 @@ TEST(RobotFrontBackFilterTest, NoLeakFlagWhenOurKeypointPresent) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped no_blob;
+    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
@@ -379,7 +380,7 @@ TEST(RobotFrontBackFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped no_blob;
+    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     // Frame 1: our robot measured by keypoints -> OUR_ROBOT_1 tracked.
@@ -411,7 +412,7 @@ TEST(RobotFrontBackFilterTest, HoldsStaleOurRobotWhenDecayDisabled) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped no_blob;
+    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
@@ -444,7 +445,7 @@ TEST(RobotFrontBackFilterTest, SuppressesBlobOnOurHeldPoseDuringKeypointDropout)
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped no_blob;
+    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     // Frame 1: keypoints see our robot, establishing the held pose.
@@ -469,7 +470,7 @@ TEST(RobotFrontBackFilterTest, EmitsBlobOnOurHeldPoseAfterWindowExpires) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped no_blob;
+    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
@@ -492,7 +493,7 @@ TEST(RobotFrontBackFilterTest, KeepsBlobOutsideRadiusDuringKeypointDropout) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped no_blob;
+    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,
@@ -515,7 +516,7 @@ TEST(RobotFrontBackFilterTest, ZeroRadiusDisablesDropoutSuppression) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const KeypointsStamped no_blob;
+    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     run_filter(filter, make_our_keypoints(1.0, 300.0, 340.0, 220.0), field, camera_info, no_blob,

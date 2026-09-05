@@ -56,9 +56,9 @@ bool YoloSegRobotBlobModel::initialize() {
     return true;
 }
 
-KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
+ModelResultStamped YoloSegRobotBlobModel::update(RgbImage image) {
     FunctionTimer timer(diagnostics_logger_, "update", 1000.0);
-    KeypointsStamped result;
+    ModelResultStamped result;
     result.header = image.header;
     last_detections_ = DetectionsStamped{};
     last_detections_.header = image.header;
@@ -169,6 +169,21 @@ KeypointsStamped YoloSegRobotBlobModel::update(RgbImage image) {
 
         if (render_debug) {
             render_detection_debug(debug_vis, det, instance_mask, original_size, input_size);
+        }
+
+        // Record the box for every detection, whether or not it yielded keypoints, so
+        // result.boxes stays indexed by detection_index. KeypointHeightGate samples depth inside
+        // this box rather than at the midline endpoints, which sit on the floor beside a robot.
+        {
+            int mapped_x1 = 0;
+            int mapped_y1 = 0;
+            int mapped_x2 = 0;
+            int mapped_y2 = 0;
+            map_detection_box_to_original(det, original_size, input_size, mapped_x1, mapped_y1,
+                                          mapped_x2, mapped_y2);
+            result.boxes.push_back(
+                BoundingBox{static_cast<double>(mapped_x1), static_cast<double>(mapped_y1),
+                            static_cast<double>(mapped_x2), static_cast<double>(mapped_y2)});
         }
 
         append_detection_keypoints(det, instance_mask, original_size, input_size, detection_index,
@@ -291,8 +306,8 @@ void YoloSegRobotBlobModel::render_detection_debug(cv::Mat &debug_vis, const Det
 }
 
 void YoloSegRobotBlobModel::render_keypoints_debug(cv::Mat &debug_vis,
-                                                   const KeypointsStamped &keypoints) {
-    for (const auto &kp : keypoints.keypoints) {
+                                                   const ModelResultStamped &model_results) {
+    for (const auto &kp : model_results.keypoints) {
         const int x = static_cast<int>(std::round(kp.x));
         const int y = static_cast<int>(std::round(kp.y));
         cv::circle(debug_vis, cv::Point(x, y), 5, cv::Scalar(255, 255, 255), -1);
@@ -532,7 +547,7 @@ void YoloSegRobotBlobModel::append_detection_keypoints(const Detection &det,
                                                        const cv::Mat &instance_mask,
                                                        cv::Size original_size, cv::Size input_size,
                                                        int detection_index,
-                                                       KeypointsStamped &output) const {
+                                                       ModelResultStamped &output) const {
     if (det.class_id < 0 || det.class_id >= static_cast<int>(label_indices_.size())) return;
     const Label class_label = label_indices_[static_cast<size_t>(det.class_id)];
     const Category category = classify_category(class_label);

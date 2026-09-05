@@ -24,7 +24,7 @@ class YoloBboxRobotBlobModel : public RobotBlobModelInterface {
                            std::shared_ptr<EngineSelector> engine_selector);
 
     bool initialize() override;
-    KeypointsStamped update(RgbImage image) override;
+    ModelResultStamped update(RgbImage image) override;
     DetectionsStamped last_detections() const override { return last_detections_; }
 
    private:
@@ -73,11 +73,11 @@ class YoloBboxRobotBlobModel : public RobotBlobModelInterface {
     cv::Scalar debug_color_for_detection(const Detection &det) const;
     void render_detection_debug(cv::Mat &debug_vis, const Detection &det, cv::Size original_size,
                                 cv::Size input_size) const;
-    static void render_keypoints_debug(cv::Mat &debug_vis, const KeypointsStamped &keypoints);
+    static void render_keypoints_debug(cv::Mat &debug_vis, const ModelResultStamped &model_results);
     Category classify_category(Label label) const;
 
     void append_detection_keypoints(const Detection &det, cv::Size original_size,
                                     cv::Size input_size, int detection_index,
-                                    KeypointsStamped &output) const;
+                                    ModelResultStamped &output) const;
 };
 }  // namespace auto_battlebot

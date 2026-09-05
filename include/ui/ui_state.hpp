@@ -92,8 +92,8 @@ class UIState {
     void get_robots(RobotDescriptionsStamped &out) const;
 
     /** Keypoints from detection. UI draws these on the debug image. */
-    void set_keypoints(const KeypointsStamped &keypoints);
-    void get_keypoints(KeypointsStamped &out) const;
+    void set_keypoints(const ModelResultStamped &model_results);
+    void get_keypoints(ModelResultStamped &out) const;
 
     /** Stick positions the transmitter read back this cycle, normalized to [-1, 1]. The UI draws
      *  our robot's as bars on the autonomy tile. */
@@ -164,7 +164,7 @@ class UIState {
     std::vector<DiagnosticStatusSnapshot> diagnostic_snapshots_;
     cv::Mat debug_image_;
     RobotDescriptionsStamped robots_;
-    KeypointsStamped keypoints_;
+    ModelResultStamped keypoints_;
     std::optional<NavigationPathSegment> navigation_path_;
     CommandFeedback command_feedback_{};
     std::optional<TargetSelection> manual_target_;

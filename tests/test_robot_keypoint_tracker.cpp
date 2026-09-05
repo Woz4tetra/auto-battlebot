@@ -36,8 +36,8 @@ class RobotKeypointTrackerTest : public ::testing::Test {
         field_.tf_camera_from_fieldcenter.tf = tf;
     }
 
-    KeypointsStamped make_blob_keypoints() const {
-        KeypointsStamped keypoints;
+    ModelResultStamped make_blob_keypoints() const {
+        ModelResultStamped keypoints;
         keypoints.header.frame_id = FrameId::CAMERA;
         keypoints.header.stamp = 1.0;
 
@@ -61,7 +61,7 @@ class RobotKeypointTrackerTest : public ::testing::Test {
 
 TEST_F(RobotKeypointTrackerTest, EmptyInputReturnsNothing) {
     RobotKeypointTracker tracker(config_);
-    KeypointsStamped empty;
+    ModelResultStamped empty;
     auto detections = tracker.detect(empty, field_, camera_info_);
     EXPECT_TRUE(detections.empty());
 }
@@ -78,7 +78,7 @@ TEST_F(RobotKeypointTrackerTest, BlobPairProducesDetection) {
 TEST_F(RobotKeypointTrackerTest, UsesTwoHighestConfidenceKeypointsPerGroup) {
     RobotKeypointTracker tracker(config_);
 
-    KeypointsStamped keypoints;
+    ModelResultStamped keypoints;
     keypoints.header.frame_id = FrameId::CAMERA;
     keypoints.header.stamp = 1.0;
 
@@ -115,7 +115,7 @@ TEST_F(RobotKeypointTrackerTest, UsesInjectedRobotConfigForGroupMapping) {
     robot_configs[Label::MRS_BUFF_MK1] = RobotConfig{Label::MRS_BUFF_MK1, Group::THEIRS};
     tracker.set_robot_configs(robot_configs);
 
-    KeypointsStamped keypoints;
+    ModelResultStamped keypoints;
     keypoints.header.frame_id = FrameId::CAMERA;
     keypoints.header.stamp = 1.0;
 
@@ -141,7 +141,7 @@ TEST_F(RobotKeypointTrackerTest, UsesInjectedRobotConfigForGroupMapping) {
 TEST_F(RobotKeypointTrackerTest, DetectWithConfidenceReturnsSortedConfidence) {
     RobotKeypointTracker tracker(config_);
 
-    KeypointsStamped keypoints;
+    ModelResultStamped keypoints;
     keypoints.header.frame_id = FrameId::CAMERA;
     keypoints.header.stamp = 1.0;
 

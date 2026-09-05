@@ -148,20 +148,17 @@ ZedDevice::GrabStatus ZedDevice::grab() {
     return GrabStatus::Fatal;
 }
 
-bool ZedDevice::retrieve(bool want_depth, CameraData &out) {
+bool ZedDevice::retrieve(CameraData &out) {
     sl::ERROR_CODE retrieve_status = zed_.retrieveImage(zed_rgb_, sl::VIEW::LEFT);
     if (retrieve_status != sl::ERROR_CODE::SUCCESS) {
         spdlog::error("Failed to retrieve RGB image: {}", sl::toString(retrieve_status).c_str());
         return false;
     }
 
-    if (want_depth) {
-        retrieve_status = zed_.retrieveMeasure(zed_depth_, sl::MEASURE::DEPTH);
-        if (retrieve_status != sl::ERROR_CODE::SUCCESS) {
-            spdlog::error("Failed to retrieve depth image: {}",
-                          sl::toString(retrieve_status).c_str());
-            return false;
-        }
+    retrieve_status = zed_.retrieveMeasure(zed_depth_, sl::MEASURE::DEPTH);
+    if (retrieve_status != sl::ERROR_CODE::SUCCESS) {
+        spdlog::error("Failed to retrieve depth image: {}", sl::toString(retrieve_status).c_str());
+        return false;
     }
 
     // TIME_REFERENCE::IMAGE is the capture instant live, and the original recording time in
@@ -207,15 +204,11 @@ bool ZedDevice::retrieve(bool want_depth, CameraData &out) {
     cv::cvtColor(zed_rgb_mat, rgb_frame, cv::COLOR_BGRA2BGR);
     out.rgb.image = rgb_frame;
 
-    if (want_depth) {
-        cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1,
-                              zed_depth_.getPtr<sl::uchar1>());
-        cv::Mat depth_frame;
-        zed_depth_mat.copyTo(depth_frame);
-        out.depth.image = depth_frame;
-    } else {
-        out.depth.image.release();
-    }
+    cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1,
+                          zed_depth_.getPtr<sl::uchar1>());
+    cv::Mat depth_frame;
+    zed_depth_mat.copyTo(depth_frame);
+    out.depth.image = depth_frame;
 
     Header header;
     header.stamp = stamp;

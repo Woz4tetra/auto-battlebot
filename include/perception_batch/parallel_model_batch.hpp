@@ -17,8 +17,8 @@ namespace auto_battlebot {
 // Result of one parallel perception tick: both model outputs plus the per-model wall
 // times measured inside the workers, so the caller can still attribute latency per model.
 struct BatchResult {
-    KeypointsStamped keypoints;
-    KeypointsStamped robot_blob_keypoints;
+    ModelResultStamped keypoints;
+    ModelResultStamped robot_blob_keypoints;
     double keypoint_model_elapsed_ms = 0.0;
     double robot_blob_model_elapsed_ms = 0.0;
 };
@@ -49,8 +49,8 @@ class ParallelModelBatch {
     BatchResult update(const RgbImage &image);
 
    private:
-    void worker_loop(const std::function<KeypointsStamped(const RgbImage &)> &run_model,
-                     uint64_t &done_id, KeypointsStamped &result_slot, double &elapsed_slot,
+    void worker_loop(const std::function<ModelResultStamped(const RgbImage &)> &run_model,
+                     uint64_t &done_id, ModelResultStamped &result_slot, double &elapsed_slot,
                      std::atomic<bool> &exited_flag);
 
     std::shared_ptr<KeypointModelInterface> keypoint_model_;

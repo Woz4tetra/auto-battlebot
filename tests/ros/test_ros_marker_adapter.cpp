@@ -69,7 +69,7 @@ class RosMarkerAdapterTest : public ::testing::Test {
 
     Header test_header;
     FieldDescriptionWithInlierPoints field_desc;
-    KeypointsStamped keypoints;
+    ModelResultStamped keypoints;
     RobotDescriptionsStamped robots;
 };
 

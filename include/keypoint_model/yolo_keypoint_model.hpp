@@ -32,7 +32,7 @@ class YoloKeypointModel : public KeypointModelInterface {
                       std::shared_ptr<EngineSelector> engine_selector);
 
     bool initialize() override;
-    KeypointsStamped update(RgbImage image) override;
+    ModelResultStamped update(RgbImage image) override;
     DetectionsStamped last_detections() const override { return last_detections_; }
 
    protected:
@@ -85,12 +85,12 @@ class YoloKeypointModel : public KeypointModelInterface {
     // appends them to result, and returns the number of detections that passed the threshold.
     int extract_keypoints_from_detections(const std::vector<DetectionRow> &keep,
                                           const Header &header, cv::Size original_image_size,
-                                          cv::Size input_image_size, KeypointsStamped &result);
+                                          cv::Size input_image_size, ModelResultStamped &result);
 
-    KeypointsStamped postprocess_output(const float *output, const Header &header,
-                                        cv::Size original_image_size, cv::Size input_image_size,
-                                        const cv::Mat &original_image);
-    void visualize_output(const cv::Mat &original_image, const KeypointsStamped &keypoints,
+    ModelResultStamped postprocess_output(const float *output, const Header &header,
+                                          cv::Size original_image_size, cv::Size input_image_size,
+                                          const cv::Mat &original_image);
+    void visualize_output(const cv::Mat &original_image, const ModelResultStamped &model_results,
                           const std::vector<DetectionRow> &detections);
 };
 

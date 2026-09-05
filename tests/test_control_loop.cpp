@@ -124,7 +124,7 @@ FieldDescription make_field() {
     return field;
 }
 
-void append_pair(KeypointsStamped &kp, Label label, KeypointLabel front_label,
+void append_pair(ModelResultStamped &kp, Label label, KeypointLabel front_label,
                  KeypointLabel back_label, int detection_index, double front_x, double back_x,
                  double y, double confidence) {
     Keypoint front;
