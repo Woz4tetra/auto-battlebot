@@ -211,6 +211,13 @@ seed 0, three GPUs, submitted through `training/gpu_queue.py`.
 D and E were originally gated on the A2/B/C verdict. Ben asked for every arm to run, so
 both are queued now instead.
 
+E's corpus comes from a DeepLab pass over all 32,487 images, which found a field in all but
+3. Cropping to the field box plus a 0.20 margin drops a label on 1.1% of training frames
+(284 of 25,914) and 1.7% of val, and those frames are skipped rather than written: a frame
+that keeps the robot in the picture but loses its box trains a false negative. Cropped
+images span aspect ratios from 1.3 to 6.4, so E letterboxes them into 640x640 with
+`rect=False`, which is also what keeps it a single-variable comparison against arm A.
+
 D trains on the full 25,914-image corpus, not the uniform-aspect view: it is square and
 needs no `rect=True`, so it varies preprocessing alone against arm A. Its labels are
 byte-identical to the source, since normalized `cx cy w h` are fractions of width and
