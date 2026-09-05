@@ -268,11 +268,12 @@ paired.
 Scored on the full 688-frame eval set, `--conf 0.5`, paired bootstrap 1000x against arm A.
 Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
 
-| arm | model | input | agnostic recall | precision | f1 | mAP50 | mAP50-95 | tensor px |
-|---|---|---|---:|---:|---:|---:|---:|---:|
-| A | yolo26n | 640x640 | 0.780 | 0.858 | 0.817 | 0.754 | 0.481 | 409,600 |
-| A2 | yolo26n | 384x640 | 0.784 | 0.861 | 0.820 | 0.758 | 0.480 | 245,760 |
-| B | yolo26s | 384x640 | **0.830** | 0.857 | 0.843 | 0.796 | 0.541 | 245,760 |
+| arm | model | input | robot px | agnostic recall | precision | f1 | mAP50 | mAP50-95 | tensor px |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| A | yolo26n | 640x640 letterbox | 1.00x | 0.780 | 0.858 | 0.817 | 0.754 | 0.481 | 409,600 |
+| A2 | yolo26n | 384x640 letterbox | 1.00x | 0.784 | 0.861 | 0.820 | 0.758 | 0.480 | 245,760 |
+| B | yolo26s | 384x640 letterbox | 1.00x | **0.830** | 0.857 | 0.843 | 0.796 | 0.541 | 245,760 |
+| D | yolo26n | 640x640 stretch | 1.33x | **0.811** | 0.866 | 0.838 | 0.773 | 0.501 | 409,600 |
 
 | arm | metric | delta vs A | 95% CI | verdict |
 |---|---|---:|---|---|
@@ -281,16 +282,31 @@ Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
 | B | **recall** | **+0.050** | **0.035 to 0.064** | **better** |
 | B | precision | -0.001 | -0.014 to 0.012 | ns |
 | B | f1 | +0.026 | 0.014 to 0.038 | better |
+| D | **recall** | **+0.031** | **0.016 to 0.047** | **better** |
+| D | precision | +0.008 | -0.006 to 0.021 | ns |
+| D | f1 | +0.020 | 0.008 to 0.033 | better |
 
-**Geometry is free, and the freed budget buys a bigger model.** A2 ties arm A on every
-metric at 40% fewer tensor pixels. B, the same geometry with `yolo26s` instead of
-`yolo26n`, gains 0.050 recall over the deployed baseline at no cost in precision, still on
-40% fewer tensor pixels than A.
+Three arms, three separate findings, and the design lets each one be attributed.
 
-A2 is what makes that interpretable, and it is the reason the plan added it. Comparing B
-against A alone varies model size and geometry at once. A2 pins the geometry term at +0.003
-and nothing, so B's +0.050 is the model-size term. This is a `yolo26s` result, not a
-384x640 result.
+**Padding is worth nothing.** A2 ties arm A on every metric at 40% fewer tensor pixels.
+Geometry alone moves recall by +0.003, inside noise.
+
+**Object scale is worth a lot.** D is arm A's model at arm A's tensor size. The only
+difference is that it fills the tensor by stretching instead of padding, which lands a robot
+at 1.33x the pixels. That buys +0.031 recall with precision unchanged. The plan's closing
+caveat says "none of this addresses object scale" and lists D as an also-ran below the
+rectangular arms; object scale turns out to be the thing worth having, and D is how you get
+it for free.
+
+**Model size is worth more.** B gains +0.050, and A2 is what proves that is the model-size
+term rather than the geometry: comparing B against A alone varies both at once, while A2
+pins geometry at nothing. This is a `yolo26s` result, not a 384x640 result. It is also the
+most expensive of the three.
+
+The three stack in a way that suggests the obvious follow-up. Padding contributes nothing
+(+0.003), 1.33x object scale contributes +0.031, and 3.4x the parameters contributes +0.050.
+Nobody has yet run `yolo26s` *and* stretched input, which on this evidence is the arm most
+likely to win, and it costs one more training run.
 
 Two caveats on the magnitude, neither of which touches the sign:
 
@@ -307,13 +323,26 @@ mAP50-95, reported separately and not driving the decision: A2 0.480 against A's
 0.541. B's localization is tighter, which `mask_centroid_vs_box_2026-08-03.md` established
 is not what limits this application since targeting uses the centroid.
 
-C, D and E are still training. Latency is deliberately not measured yet: the GPUs are
-running the remaining arms, and a contended `benchmark_engines.py` number is worthless. All
-engines get timed together once the box is idle.
+E and C are still training. Latency is deliberately not measured yet: the GPUs are running
+the remaining arms, and a contended `benchmark_engines.py` number is worthless. All engines
+get timed together once the box is idle.
 
-A2 trained in 1.87 h, B in 2.41 h. Neither log carries a single `'rect=True' is incompatible
-with DataLoader shuffle` warning, confirming on the real three-GPU runs what the batch-shape
-check predicted.
+A2 trained in 1.87 h, B in 2.41 h, D in 1.87 h. No log carries a single `'rect=True' is
+incompatible with DataLoader shuffle` warning, confirming on the real three-GPU runs what
+the batch-shape check predicted.
+
+### Arm C monopolizes the machine
+
+Worth recording against C before its recall arrives. `cache="ram"` holds every image resized
+to the training geometry, so its size scales with the tensor. At `imgsz=640` that is
+640x360x3 = 691 KB an image, about 18 GB per DDP process and 54 GB across three. At
+`imgsz=1024` it is 1024x576x3 = 1.77 MB, **about 46 GB per process and 204 GB across three**,
+which left 4 GB free on a 251 GB box and started getting unrelated processes killed.
+
+C was restarted with `--cache false`. With the RAM freed the page cache holds the whole 12 GB
+corpus, so re-reading JPEGs each epoch costs little. But the cost is real and it is C's
+alone: 1.6x the resolution for 2.6x the training memory, on the one arm that cannot share
+the machine with anything else.
 
 ## Decision rule, registered before looking
 
