@@ -161,7 +161,9 @@ def iter_left_jpegs(
         "mjpeg",
         "-q:v",
         str(quality),
-        "-fps_mode",
+        # `-vsync passthrough` rather than `-fps_mode`: the distro ffmpeg on 22.04 is 4.4,
+        # which predates `-fps_mode`, and newer builds still accept the old spelling.
+        "-vsync",
         "passthrough",
         "pipe:1",
     ]

@@ -1,0 +1,34 @@
+{
+ "svo": "data/svo/2026-05-02T15-35-04.svo2",
+ "start_s": 116.0,
+ "seconds": 10.0,
+ "fps": 29.973323741869734,
+ "frames": 299,
+ "frame_size": [
+  1280,
+  720
+ ],
+ "params": {
+  "threshold": 208,
+  "min_area": 1600,
+  "overlap": 0.9
+ },
+ "detections_total": 225,
+ "detections_per_frame": {
+  "mean": 0.7525083612040134,
+  "min": 0,
+  "max": 4
+ },
+ "frames_where_count_changed": 62,
+ "count_change_rate": 0.2080536912751678,
+ "carried_over_from_previous_frame": 161,
+ "new_this_frame": 64,
+ "persistence_rate": 0.7155555555555555,
+ "rembg_timing": {
+  "1280x720": {
+   "median_ms": 91.52747600455768,
+   "p90_ms": 96.82273258222267,
+   "count": 299
+  }
+ }
+}

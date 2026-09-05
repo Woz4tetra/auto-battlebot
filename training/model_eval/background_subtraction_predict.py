@@ -44,6 +44,7 @@ from score import reviewed_stems
 
 from auto_battlebot.background_subtraction import (
     SubtractionParams,
+    build_median_background,
     find_blobs,
     subtract,
     warp_forward,
@@ -145,6 +146,28 @@ def write_contact_sheet(tiles: list[np.ndarray], path: Path, columns: int = 5) -
     cv2.imwrite(str(path), np.vstack(rows))
 
 
+def build_gt_frame_background(
+    usable: list[Path], geometries: dict, raster: FloorRaster
+) -> tuple[np.ndarray, np.ndarray]:
+    """Median floor from the sub dataset's own posed GT frames, for when the MCAP is absent.
+
+    Weaker than the recording median: the GT frames are seconds apart and robots dwell near
+    the centre, so with ~100 of them the centre of the floor can carry a robot ghost. Use it
+    as a floor on what the tuned method does, not as the method itself."""
+    samples = []
+    warps = []
+    masks = []
+    for path in usable:
+        image = cv2.imread(str(path))
+        if image is None:
+            continue
+        homography = raster.image_from_raster(geometries[path])
+        samples.append(image)
+        warps.append(homography)
+        masks.append(raster.in_front_mask(homography, (image.shape[1], image.shape[0])))
+    return build_median_background(samples, warps, raster.size, masks)
+
+
 def predict_subdataset(
     subdataset: Path,
     roots: list[Path],
@@ -153,7 +176,6 @@ def predict_subdataset(
     reviewed: set[str],
 ) -> dict[str, list[dict]]:
     data = yaml.safe_load((subdataset / "data.yaml").read_text())
-    recording = read_recording(find_recording(str(data["source_mcap"]), roots))
 
     images = sorted((subdataset / "images").glob("*.png"))
     geometries = {path: load_frame_geometry(path) for path in images}
@@ -168,9 +190,16 @@ def predict_subdataset(
     image_size = (sample.shape[1], sample.shape[0])
 
     raster = FloorRaster(NOMINAL_FIELD_SIZE_M, args.raster_px_per_m, args.floor_margin_m)
-    background, coverage = build_floor_background(
-        recording, raster, args.background_samples, intrinsics
-    )
+    if args.background_from_gt_frames:
+        background, coverage = build_gt_frame_background(usable, geometries, raster)
+    else:
+        recording = read_recording(find_recording(str(data["source_mcap"]), roots))
+        background, coverage = build_floor_background(
+            recording, raster, args.background_samples, intrinsics
+        )
+    if args.background_dir is not None:
+        args.background_dir.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(args.background_dir / f"{subdataset.name}.jpg"), background)
     compare_mask = cv2.bitwise_and(raster.floor_mask, coverage)
 
     names = list(data.get("names", []))
@@ -248,6 +277,18 @@ def main() -> int:
     parser.add_argument(
         "--background-samples", type=int, default=160, help="recording frames in the floor median"
     )
+    parser.add_argument(
+        "--background-from-gt-frames",
+        action="store_true",
+        help="build the floor median from the sub dataset's own posed frames instead of the "
+        "source MCAP (weaker; for when the recording is not on this machine)",
+    )
+    parser.add_argument(
+        "--background-dir",
+        type=Path,
+        default=None,
+        help="also write each sub dataset's median floor raster here, for eyeballing",
+    )
     parser.add_argument("--raster-px-per-m", type=float, default=RASTER_PX_PER_M)
     parser.add_argument("--floor-margin-m", type=float, default=FLOOR_MARGIN_M)
     parser.add_argument("--threshold", type=int, default=35)
@@ -299,6 +340,7 @@ def main() -> int:
                     "min_area": args.min_area,
                     "illumination": args.illumination,
                     "background_samples": args.background_samples,
+                    "background_from_gt_frames": args.background_from_gt_frames,
                 },
                 "frames": frames,
             },

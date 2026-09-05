@@ -93,6 +93,13 @@ default in both).
 - `confusion_<candidate>_<level>.png`: right-box-wrong-class matrix at the IoU threshold.
 - `significance.csv` (two or more candidates): paired-bootstrap deltas and verdicts.
 
+## Saliency experiment
+
+`rembg_field.py`, `rembg_field_predict.py`, `rembg_field_render.py` and `rembg_field_stability.py`
+grade `rembg` (a salient-object matting network) as a robot detector, in three field-masking
+arms. Write-up: `docs/experiments/perception_performance/rembg_field_2026-09-04.md`. The
+answer was no; the DeepLab convex-hull field mask in `rembg_field.py` is the reusable part.
+
 ## Camera geometry
 
 `export_camera_transforms.py` adds camera pose and intrinsics to an eval dataset without
