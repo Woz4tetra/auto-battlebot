@@ -90,7 +90,44 @@ produces `input [1, 3, 384, 640] -> output [1, 6, 5040]`, and
 `yolo_bbox_robot_blob_model.cpp:73` reads the input size from the engine, so a rectangular
 engine is a drop-in swap.
 
-## Arm E is cut
+## Scouting the preprocessing on arm A's weights
+
+Before any arm was trained, both new preprocessing modes were run through arm A's
+square-trained weights on the full 688-frame eval set. These are a floor, not a
+prediction: the weights never saw a stretched or cropped image.
+
+| candidate | agnostic recall | precision | f1 | mAP50 | mAP50-95 |
+|---|---:|---:|---:|---:|---:|
+| A letterbox (baseline) | 0.780 | 0.858 | 0.817 | 0.754 | 0.481 |
+| A stretched | 0.777 | 0.845 | 0.810 | 0.737 | 0.457 |
+| A field-cropped | 0.791 | 0.890 | 0.838 | 0.774 | 0.503 |
+
+Paired bootstrap, 1000 resamples, against A letterbox:
+
+| candidate | metric | delta | 95% CI | verdict |
+|---|---|---:|---|---|
+| A stretched | recall | -0.003 | -0.018 to 0.011 | ns |
+| A stretched | precision | -0.013 | -0.026 to 0.000 | ns |
+| A field-cropped | recall | +0.011 | -0.002 to 0.025 | ns |
+| A field-cropped | **precision** | **+0.032** | **0.019 to 0.044** | **better** |
+| A field-cropped | f1 | +0.020 | 0.010 to 0.031 | better |
+
+The stretch result says nothing about arm D: feeding letterbox-trained weights a stretched
+frame shows them the wrong aspect ratio, and losing 0.003 recall for it is a mild result,
+not a bad one. D has to be trained stretched to mean anything.
+
+The field-crop result does say something, and it contradicts the reasoning below. Cropping
+lifts precision by 0.032 with a CI clear of zero, on weights that never trained on a crop.
+Recall does not move. The next section prices the crop's *zoom* correctly and finds none;
+what it never priced is that a crop also deletes the crowd, the cage exterior and the
+lights, and that is where the gain is. False positives, not object scale.
+
+Numbers live in `training/data/nhrl_keypoints_eval_test/scores_input_geometry_scouting/`.
+A single recording had suggested recall 0.835 to 0.873; on the full set that shrank to
+0.780 to 0.791 and lost significance, which is the same lesson the plan records about the
+one frame where the rectangular engine found three boxes and the square one found none.
+
+## Arm E: cut on zoom, reinstated on false positives
 
 The plan's gate asked whether the field occupies a similar fraction of the frame in both
 corpora, on the theory that NHRL's overhead cage cameras are framed tight on the cage and
@@ -141,14 +178,21 @@ training 0.91x, because the crops have different aspect ratios in the two corpor
 2.41 on eval against 1.81 on training). A tensor tuned to the deployment camera's crop
 would train the detector at a scale the training corpus never delivers.
 
-Against all that: a DeepLab pass over 32,487 images in dataset prep, a crop branch in both
-the C++ and Python preprocessors, and a new runtime dependency of the detector on the field
-estimate. Arm C buys 1.6x more pixels per robot on both corpora with a drop-in engine swap.
-E is cut.
+On zoom alone that is a dead arm, and it was cut on 2026-09-05 for exactly that reason.
+**That call was wrong, and the scouting pass above is why.** Every number in this section
+prices what a crop does to object scale. None of them price what it does to the background:
+a crop deletes the crowd, the cage exterior, the neighbouring cage and the overhead lights,
+and those are what a false positive is made of. Cropping lifts precision 0.032 with a CI
+clear of zero on weights that never trained on a crop.
 
-`training/deeplab/build_field_crop_dataset.py` is kept so the arm is one command away if
-that call is wrong: `masks` caches a field box per frame, `crop` rewrites images and
-labels against it.
+The arm is running, at 640x640 as the plan specifies, which keeps it a single-variable
+comparison against arm A: same model, same tensor size, crop or no crop.
+
+Its cost stands as described: a DeepLab pass over 32,487 images in dataset prep, a crop
+branch in the C++ preprocessor if it is adopted, and a runtime dependency of the detector
+on the field estimate. What has changed is that there is now a measured gain to weigh
+against it. `training/deeplab/build_field_crop_dataset.py` builds the corpus: `masks`
+caches a field box per frame, `crop` rewrites images and labels against it.
 
 ## Arms
 
@@ -161,8 +205,24 @@ seed 0, three GPUs, submitted through `training/gpu_queue.py`.
 | A2 | yolo26n | 384x640 letterbox | 0.50 | 6.3% | 245,760 | queued |
 | B | yolo26s | 384x640 letterbox | 0.50 | 6.3% | 245,760 | queued |
 | C | yolo26n | 576x1024 letterbox | 0.80 | 0% | 589,824 | queued |
-| D | yolo26n | 640x640 anisotropic | 0.50 x / 0.89 y | 0% | 409,600 | waits on A2/B/C |
-| E | yolo26n | 640x640 field-cropped | variable | varies | 409,600 | cut, see above |
+| D | yolo26n | 640x640 anisotropic | 0.50 x / 0.89 y | 0% | 409,600 | queued |
+| E | yolo26n | 640x640 field-cropped | variable | varies | 409,600 | queued |
+
+D and E were originally gated on the A2/B/C verdict. Ben asked for every arm to run, so
+both are queued now instead.
+
+D trains on the full 25,914-image corpus, not the uniform-aspect view: it is square and
+needs no `rect=True`, so it varies preprocessing alone against arm A. Its labels are
+byte-identical to the source, since normalized `cx cy w h` are fractions of width and
+height and survive an anisotropic resize untouched.
+
+Scoring each arm the way it was trained needed work on the eval path, since `score.py`
+letterboxed unconditionally. `TrtYoloModel` now carries a preprocessing mode and returns
+per-axis scales, so a stretched detection inverts through two scales instead of one; the
+round trip is exact at both geometries. `FieldCropDetector` crops at inference and shifts
+detections back rather than pre-cropping the eval set, which leaves GT in full-frame
+coordinates so every arm is scored against the same boxes and the paired bootstrap stays
+paired.
 
 ## Results
 
