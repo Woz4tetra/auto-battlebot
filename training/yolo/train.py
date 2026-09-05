@@ -98,6 +98,19 @@ def main() -> None:
             "imgsz": 640,
             "cache": "ram",
         },
+        # Size-sweep arms (model_size_2026-09-04). The sweep held batch at 96 via `--batch`,
+        # not the 64 below: 96 splits evenly over 3 GPUs (32/GPU, measured at 32.4 GB for
+        # yolo26x) while 64 and 128 do not. 64 is the safe per-model default for a single-GPU
+        # run -- yolo26x at 96 on one GPU needs ~93 GB and yolo26m/l do not fit either. Same
+        # epochs and `cache: "ram"` rationale as yolo26n above.
+        #
+        # Batch also silently scales weight decay (trainer.py: wd * batch * accumulate / nbs,
+        # nbs=64), so changing it changes regularization: 0.0005 at batch 64, 0.00075 at 96,
+        # 0.0010 at the deployed yolo26n's 128.
+        "yolo26s": {"batch": 64, "epochs": 100, "imgsz": 640, "cache": "ram"},
+        "yolo26m": {"batch": 64, "epochs": 100, "imgsz": 640, "cache": "ram"},
+        "yolo26l": {"batch": 64, "epochs": 100, "imgsz": 640, "cache": "ram"},
+        "yolo26x": {"batch": 64, "epochs": 100, "imgsz": 640, "cache": "ram"},
     }
 
     parser = argparse.ArgumentParser()
@@ -140,6 +153,15 @@ def main() -> None:
         default=12,
         type=int,
         help="Number of worker threads",
+    )
+    parser.add_argument(
+        "-b",
+        "--batch",
+        default=0,
+        type=int,
+        help="Override the model's configured batch size (total across GPUs, as Ultralytics "
+        "defines it). Default 0 keeps the per-model config. Needed to hold batch constant across "
+        "a model-size sweep without mutating the canonical per-model recipes.",
     )
     parser.add_argument(
         "--cache",
@@ -302,6 +324,8 @@ def main() -> None:
         settings = dict(configs[model_key])
         if epochs > 0:
             settings["epochs"] = epochs
+        if args.batch > 0:
+            settings["batch"] = args.batch
         # model.train() already receives `cache=` explicitly below, so it cannot also ride along
         # in **settings. Precedence: explicit --cache > the model's config > DEFAULT_CACHE.
         model_cache = settings.pop("cache", DEFAULT_CACHE)
