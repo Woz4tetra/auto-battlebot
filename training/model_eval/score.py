@@ -253,6 +253,75 @@ class EngineDetector:
         return self._model.infer(image)
 
 
+class FieldCropDetector:
+    """Crops each frame to its field box before inference, then maps detections back.
+
+    Arm E of `input_geometry_2026-09-05` trains on field-cropped images, so it has to be
+    evaluated on field-cropped frames. Cropping here rather than pre-cropping the eval set
+    leaves the GT in full-frame coordinates, so every candidate is scored against the same
+    boxes and the paired bootstrap stays paired.
+
+    Boxes come from a JSON keyed by frame stem, as written by
+    `training/deeplab/build_field_crop_dataset.py masks --recursive`. A frame with no field
+    detected passes through uncropped, matching what the dataset builder does.
+    """
+
+    def __init__(
+        self,
+        inner: EngineDetector,
+        boxes_path: Path,
+        images: dict[int, Path],
+        margin: float,
+    ) -> None:
+        self._inner = inner
+        self._margin = margin
+        payload = json.loads(boxes_path.read_text())
+        self._by_stamp: dict[int, tuple[float, float, float, float]] = {}
+        for stamp, path in images.items():
+            box = payload.get(path.stem)
+            if box:
+                self._by_stamp[stamp] = tuple(box)
+        missing = len(images) - len(self._by_stamp)
+        if missing:
+            print(f"  {missing} of {len(images)} frames have no field box; passed through whole")
+
+    def describe(self) -> str:
+        return f"{self._inner.describe()}, field crop (margin {self._margin:.2f})"
+
+    def _crop(self, image: np.ndarray, stamp_ns: int) -> tuple[int, int, int, int] | None:
+        box = self._by_stamp.get(stamp_ns)
+        if box is None:
+            return None
+        height, width = image.shape[:2]
+        x0, y0, x1, y1 = box
+        mx, my = (x1 - x0) * self._margin, (y1 - y0) * self._margin
+        px0 = int(round(max(x0 - mx, 0.0) * width))
+        py0 = int(round(max(y0 - my, 0.0) * height))
+        px1 = max(int(round(min(x1 + mx, 1.0) * width)), px0 + 1)
+        py1 = max(int(round(min(y1 + my, 1.0) * height)), py0 + 1)
+        return px0, py0, px1, py1
+
+    def detect(self, image: np.ndarray, stamp_ns: int) -> list:
+        crop = self._crop(image, stamp_ns)
+        if crop is None:
+            return self._inner.detect(image, stamp_ns)
+        px0, py0, px1, py1 = crop
+        detections = self._inner.detect(image[py0:py1, px0:px1], stamp_ns)
+        shifted = []
+        for xyxy, conf, cls_id, kps in detections:
+            xyxy = np.asarray(xyxy, dtype=np.float64).copy()
+            kps = np.asarray(kps, dtype=np.float64).copy()
+            xyxy[0] += px0
+            xyxy[2] += px0
+            xyxy[1] += py0
+            xyxy[3] += py0
+            if kps.size:
+                kps[:, 0] += px0
+                kps[:, 1] += py0
+            shifted.append((xyxy, conf, cls_id, kps))
+        return shifted
+
+
 class PrecomputedDetector:
     """Detections read from a JSON file instead of produced by an engine.
 
@@ -526,7 +595,7 @@ def keypoint_metrics_from_stats(stats: dict[str, np.ndarray]) -> dict[str, float
     err_cnt = float(stats["err_cnt"].sum())
     if err_cnt == 0:
         return {}
-    metrics = {
+    metrics: dict[str, float] = {
         "kp_err_px": float(stats["err_sum"].sum()) / err_cnt,
         PCK_KEY: float(stats["pck_cnt"].sum()) / err_cnt,
     }
@@ -534,6 +603,12 @@ def keypoint_metrics_from_stats(stats: dict[str, np.ndarray]) -> dict[str, float
     if head_cnt > 0:
         metrics["kp_heading_err_deg"] = float(stats["head_err_sum"].sum()) / head_cnt
         metrics[HEADING_ACC_KEY] = float(stats["head_correct"].sum()) / head_cnt
+    # Sample sizes behind the ratios above. On an eval set where only a few classes carry
+    # keypoints these are small enough to decide whether a delta is worth believing, so
+    # they are reported next to the metric rather than left in the stats dict. Excluded
+    # from KEYPOINT_METRICS: they are counts, not scores, and are not bootstrapped.
+    metrics["kp_matched_kps"] = err_cnt
+    metrics["kp_matched_boxes"] = head_cnt
     return metrics
 
 
@@ -695,6 +770,40 @@ def parse_candidates(entries: list[str]) -> dict[str, Path]:
     return candidates
 
 
+def build_detector(
+    name: str,
+    engine_path: Path,
+    class_labels: list[str],
+    images: dict[int, Path],
+    args: argparse.Namespace,
+) -> EngineDetector | PrecomputedDetector | FieldCropDetector:
+    """The detector for one candidate, with any preprocessing that candidate was trained on.
+
+    Geometry arms differ in how the frame reaches the tensor, and an engine fed the wrong
+    preprocessing fails quietly rather than loudly: a stretch-trained engine handed a
+    letterboxed frame simply sees the wrong aspect ratio. Both modes are opt-in per
+    candidate so a mixed run scores each arm the way it was trained.
+    """
+    if not engine_path.exists():
+        raise SystemExit(f"Candidate not found: {engine_path}")
+    if engine_path.suffix == ".json":
+        return PrecomputedDetector(engine_path, args.conf)
+
+    inner = EngineDetector(
+        TrtYoloModel(
+            str(engine_path),
+            conf_threshold=args.conf,
+            nms_iou_threshold=args.nms_iou,
+            num_classes=len(class_labels),
+            preprocess="stretch" if name in set(args.stretch or []) else "letterbox",
+        )
+    )
+    boxes = parse_candidates(args.field_boxes or []).get(name)
+    if boxes is None:
+        return inner
+    return FieldCropDetector(inner, boxes, images, args.crop_margin)
+
+
 def score_candidate(
     name: str,
     engine_path: Path,
@@ -705,20 +814,7 @@ def score_candidate(
     args: argparse.Namespace,
 ) -> tuple[list[dict], dict]:
     """Return (summary rows, per-frame stats). Stats feed the paired bootstrap."""
-    if not engine_path.exists():
-        raise SystemExit(f"Candidate not found: {engine_path}")
-    detector: EngineDetector | PrecomputedDetector
-    if engine_path.suffix == ".json":
-        detector = PrecomputedDetector(engine_path, args.conf)
-    else:
-        detector = EngineDetector(
-            TrtYoloModel(
-                str(engine_path),
-                conf_threshold=args.conf,
-                nms_iou_threshold=args.nms_iou,
-                num_classes=len(class_labels),
-            )
-        )
+    detector = build_detector(name, engine_path, class_labels, images, args)
     print(f"  {detector.describe()}")
     frames = infer_frames(gt_frames, images, detector, class_labels, taxonomy)
     kp_stats = keypoint_per_frame(frames, args.iou)
@@ -757,6 +853,30 @@ def main() -> None:
         "--labels",
         required=True,
         help="comma-separated GT label per engine class index (the C++ label_indices map)",
+    )
+    parser.add_argument(
+        "--stretch",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="candidate trained on anisotropically-resized images; fit frames to the tensor "
+        "by stretching instead of letterboxing. Repeatable.",
+    )
+    parser.add_argument(
+        "--field-boxes",
+        action="append",
+        default=[],
+        metavar="NAME=JSON",
+        help="candidate trained on field-cropped images; crop each frame to the box for its "
+        "stem in JSON before inference. Written by build_field_crop_dataset.py masks "
+        "--recursive. Repeatable.",
+    )
+    parser.add_argument(
+        "--crop-margin",
+        type=float,
+        default=0.20,
+        help="margin around the field box for --field-boxes candidates, as a fraction of the "
+        "box per side. Must match the margin the arm's training corpus was built with.",
     )
     parser.add_argument("--taxonomy", type=Path, help="label -> archetype mapping yaml")
     parser.add_argument("--iou", type=float, default=0.5, help="IoU match threshold")
