@@ -268,33 +268,52 @@ paired.
 Scored on the full 688-frame eval set, `--conf 0.5`, paired bootstrap 1000x against arm A.
 Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
 
-| arm | agnostic recall | precision | f1 | mAP50 | mAP50-95 | tensor px |
-|---|---:|---:|---:|---:|---:|---:|
-| A `640x640` | 0.780 | 0.858 | 0.817 | 0.754 | 0.481 | 409,600 |
-| A2 `384x640` | 0.784 | 0.861 | 0.820 | 0.758 | 0.480 | 245,760 |
+| arm | model | input | agnostic recall | precision | f1 | mAP50 | mAP50-95 | tensor px |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| A | yolo26n | 640x640 | 0.780 | 0.858 | 0.817 | 0.754 | 0.481 | 409,600 |
+| A2 | yolo26n | 384x640 | 0.784 | 0.861 | 0.820 | 0.758 | 0.480 | 245,760 |
+| B | yolo26s | 384x640 | **0.830** | 0.857 | 0.843 | 0.796 | 0.541 | 245,760 |
 
 | arm | metric | delta vs A | 95% CI | verdict |
 |---|---|---:|---|---|
 | A2 | recall | +0.003 | -0.009 to 0.017 | ns |
 | A2 | precision | +0.003 | -0.010 to 0.014 | ns |
-| A2 | f1 | +0.003 | -0.007 to 0.013 | ns |
+| B | **recall** | **+0.050** | **0.035 to 0.064** | **better** |
+| B | precision | -0.001 | -0.014 to 0.012 | ns |
+| B | f1 | +0.026 | 0.014 to 0.038 | better |
 
-**A2 ties arm A on every metric while spending 40% fewer tensor pixels.** This is the
-outcome the plan predicted, now measured with the model *trained* at the geometry rather
-than a square-trained engine exported to it. The scouting pass had 384x640 at -0.002 recall
-against square; training at the geometry moved that to +0.003. Both are noise, and that is
-the point: geometry is free.
+**Geometry is free, and the freed budget buys a bigger model.** A2 ties arm A on every
+metric at 40% fewer tensor pixels. B, the same geometry with `yolo26s` instead of
+`yolo26n`, gains 0.050 recall over the deployed baseline at no cost in precision, still on
+40% fewer tensor pixels than A.
 
-Every delta sits inside the ~0.048 run-to-run spread `data_epoch_min` measured on a single
-seed, so this establishes parity, not a win. It cannot be read as A2 being better.
+A2 is what makes that interpretable, and it is the reason the plan added it. Comparing B
+against A alone varies model size and geometry at once. A2 pins the geometry term at +0.003
+and nothing, so B's +0.050 is the model-size term. This is a `yolo26s` result, not a
+384x640 result.
 
-B, C, D and E are still training. Latency is deliberately not measured yet: the GPUs are
-running the remaining arms, and a contended `benchmark_engines.py` number is worthless.
-All engines get timed together once the box is idle.
+Two caveats on the magnitude, neither of which touches the sign:
 
-Arm A2 trained in 1.87 h. Its log carries zero `'rect=True' is incompatible with DataLoader
-shuffle` warnings, confirming on the real three-GPU run what the batch-shape check
-predicted.
+- The paired bootstrap resamples eval *frames*, so its CI describes sampling noise on this
+  688-frame set. It says nothing about training-seed variance, and `data_epoch_min` measured
+  a ~0.048 run-to-run spread on a single seed. +0.050 is the same size. What supports the
+  effect being real is not the CI alone but that it agrees with the plan's scouting, where
+  square-trained `s` also beat `n` by about this much at both geometries.
+- Training at the geometry did not beat exporting a square-trained model to it. Scouting had
+  `s` at 384x640 at 0.837 recall; B, trained there, came in at 0.830. Inside noise, but it
+  means the "train at the geometry you deploy at" premise bought nothing measurable here.
+
+mAP50-95, reported separately and not driving the decision: A2 0.480 against A's 0.481, B
+0.541. B's localization is tighter, which `mask_centroid_vs_box_2026-08-03.md` established
+is not what limits this application since targeting uses the centroid.
+
+C, D and E are still training. Latency is deliberately not measured yet: the GPUs are
+running the remaining arms, and a contended `benchmark_engines.py` number is worthless. All
+engines get timed together once the box is idle.
+
+A2 trained in 1.87 h, B in 2.41 h. Neither log carries a single `'rect=True' is incompatible
+with DataLoader shuffle` warning, confirming on the real three-GPU runs what the batch-shape
+check predicted.
 
 ## Decision rule, registered before looking
 
