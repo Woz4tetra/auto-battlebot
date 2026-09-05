@@ -162,7 +162,7 @@ class ControlLoop
 RgbdCameraInterface
 	bool initialize()
 	void cancel_initialize()
-	bool get(CameraData& data, bool get_depth=false)
+	bool get(CameraData& data)
 	bool should_close()
 	bool set_svo_recording_enabled(bool enabled)
 	bool is_svo_recording_enabled() const

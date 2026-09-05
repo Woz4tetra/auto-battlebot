@@ -29,9 +29,10 @@ debug_visualization = false
 
 [robot_mask_model.engine]
 candidates = [
-  "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_x86_64_sm89.engine",
-  # sm86 (RTX A6000, megamind). Same trained model as the sm89 build above.
-  "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_x86_64_sm86.engine",
+  #   "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_x86_64_sm89.engine",
+  #   "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_x86_64_sm86.engine",
+  "data/models/yolo26s_nhrl_robots_bbox_2class_2026-09-04_x86_64_sm89.engine",
+  "data/models/yolo26s_nhrl_robots_bbox_2class_2026-09-04_x86_64_sm86.engine",
 ]
 
 [keypoint_model]
