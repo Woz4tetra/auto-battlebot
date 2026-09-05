@@ -21,8 +21,6 @@ MCAP_DEST="$PROJECT_ROOT/data/recordings"
 
 # Skip remote files touched in the last N minutes so an in-progress recording is
 # not pulled half-written and then treated as already downloaded next run.
-MIN_AGE_MIN="${MIN_AGE_MIN:-2}"
-
 # Only consider remote recordings modified within this many hours. 0 means no limit.
 HOURS="${HOURS:-24}"
 
@@ -45,7 +43,6 @@ Environment:
   JETSON_USER     Remote user (default: ben)
   JETSON_PATH     Remote project root (default: auto-battlebot)
   HOURS           Same as --hours (default: 24)
-  MIN_AGE_MIN     Ignore remote files newer than this many minutes (default: 2)
 EOF
 }
 
@@ -73,10 +70,12 @@ REMOTE="${JETSON_USER}@${JETSON_HOST}"
 
 echo "Indexing local recordings under ${PROJECT_ROOT}/data ..."
 LOCAL_INDEX="$(mktemp)"
+RAW_LIST="$(mktemp)"
 REMOTE_LIST="$(mktemp)"
+SKIP_LIST="$(mktemp)"
 SVO_LIST="$(mktemp)"
 MCAP_LIST="$(mktemp)"
-trap 'rm -f "$LOCAL_INDEX" "$REMOTE_LIST" "$SVO_LIST" "$MCAP_LIST"' EXIT
+trap 'rm -f "$LOCAL_INDEX" "$RAW_LIST" "$REMOTE_LIST" "$SKIP_LIST" "$SVO_LIST" "$MCAP_LIST"' EXIT
 
 local_dirs=()
 for dir in "${SEARCH_DIRS[@]}"; do
@@ -96,11 +95,11 @@ else
 fi
 # Runs remotely: skip search directories that do not exist there, so a missing
 # one does not make find exit non-zero and abort this script under pipefail.
-ssh "$REMOTE" "sh -s '${JETSON_PATH}' '${MIN_AGE_MIN}' '${MAX_AGE_MIN}' ${SEARCH_DIRS[*]}" <<'REMOTE_EOF' | sort > "$REMOTE_LIST"
+ssh "$REMOTE" "sh -s '${JETSON_PATH}' '${MAX_AGE_MIN}' ${SEARCH_DIRS[*]}" <<'REMOTE_EOF' | sort > "$RAW_LIST"
 root=$1; shift
-min_age=$1; shift
 max_age=$1; shift
 cd "$root" || { echo "ERROR: remote path '$root' not found" >&2; exit 3; }
+command -v lsof >/dev/null || { echo "ERROR: lsof not installed on remote" >&2; exit 4; }
 dirs=
 for d in "$@"; do
     [ -d "$d" ] && dirs="$dirs $d"
@@ -108,10 +107,28 @@ done
 [ -n "$dirs" ] || exit 0
 window=
 [ "$max_age" -gt 0 ] && window="-mmin -$max_age"
-find $dirs -type f \( -name '*.svo2' -o -name '*.mcap' \) \
-    -mmin +"$min_age" $window 2>/dev/null || true
+
+# Absolute paths of every file any process currently holds open.
+open_paths=$(mktemp)
+trap 'rm -f "$open_paths"' EXIT
+lsof -F n 2>/dev/null | sed -n 's/^n//p' | sort -u > "$open_paths"
+
+find $dirs -type f \( -name '*.svo2' -o -name '*.mcap' \) $window 2>/dev/null |
+while IFS= read -r f; do
+    if grep -Fxq "$PWD/$f" "$open_paths"; then
+        echo "O $f"
+    else
+        echo "R $f"
+    fi
+done
 REMOTE_EOF
+sed -n 's/^R //p' "$RAW_LIST" > "$REMOTE_LIST"
+sed -n 's/^O //p' "$RAW_LIST" > "$SKIP_LIST"
 echo "  $(wc -l < "$REMOTE_LIST") remote recording(s) found"
+if [ -s "$SKIP_LIST" ]; then
+    echo "  ignoring $(wc -l < "$SKIP_LIST") file(s) still open by a running process:"
+    sed 's|^|    |' "$SKIP_LIST"
+fi
 
 # Select remote paths whose basename is not present locally, one per basename.
 awk -v svo_out="$SVO_LIST" -v mcap_out="$MCAP_LIST" '
@@ -134,8 +151,18 @@ if [ "$((svo_count + mcap_count))" -eq 0 ]; then
     exit 0
 fi
 
+show_new() {
+    local list="$1" dest="$2" path
+    [ -s "$list" ] || return 0
+    while IFS= read -r path; do
+        printf '  %s\n    -> %s/%s\n' "$path" "$dest" "${path##*/}"
+    done < "$list"
+}
+
+show_new "$SVO_LIST" "$SVO_DEST"
+show_new "$MCAP_LIST" "$MCAP_DEST"
+
 if [ "$LIST_ONLY" -eq 1 ]; then
-    cat "$SVO_LIST" "$MCAP_LIST"
     exit 0
 fi
 
