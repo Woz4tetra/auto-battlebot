@@ -32,6 +32,16 @@ DetectionTuple = tuple[np.ndarray, float, int, np.ndarray]
 # round(pad + 0.1)), which biases odd padding to the bottom/right side.
 CPP_LETTERBOX_PADDING = 0.1
 
+# How a frame is fitted to the input tensor. Must match how the engine's weights were
+# trained: a stretch-trained engine fed a letterboxed frame sees the wrong aspect ratio.
+PREPROCESS_MODES = ("letterbox", "stretch")
+
+
+def check_preprocess_mode(mode: str) -> str:
+    if mode not in PREPROCESS_MODES:
+        raise ValueError(f"unknown preprocess mode {mode!r}, expected one of {PREPROCESS_MODES}")
+    return mode
+
 
 def letterbox(
     image: np.ndarray,
@@ -68,19 +78,46 @@ def letterbox(
     return out, scale, float(left), float(top)
 
 
+def stretch(image: np.ndarray, target_h: int, target_w: int) -> tuple[np.ndarray, float, float]:
+    """Resize to the target ignoring aspect ratio. Returns (resized, scale_x, scale_y).
+
+    The alternative to letterboxing. Squeezing 16:9 into a square costs 0.5x horizontally
+    but only 0.89x vertically, so a robot lands 1.33x larger than a letterbox puts it at
+    the same tensor size, and no pixels go to padding. Detections come back through two
+    scales instead of one.
+    """
+    height, width = image.shape[:2]
+    resized = cv2.resize(image, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    return resized, target_w / width, target_h / height
+
+
 def preprocess_frame(
     frame: np.ndarray,
     input_h: int,
     input_w: int,
     letterbox_padding: float = 0.0,
-) -> tuple[np.ndarray, float, float, float]:
-    """BGR frame -> NCHW float32 [0,1] RGB, plus scale and pad for inverse transform."""
+    mode: str = "letterbox",
+) -> tuple[np.ndarray, float, float, float, float]:
+    """BGR frame -> NCHW float32 [0,1] RGB, plus per-axis scale and pad for the inverse.
+
+    Returns (blob, scale_x, scale_y, pad_left, pad_top). The two scales are equal in
+    letterbox mode and differ in stretch mode, which is the whole point of the latter.
+    """
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    padded, scale, pad_left, pad_top = letterbox(rgb, input_h, input_w, padding=letterbox_padding)
-    blob = padded.astype(np.float32) / 255.0
+    if mode == "stretch":
+        fitted, scale_x, scale_y = stretch(rgb, input_h, input_w)
+        pad_left = pad_top = 0.0
+    elif mode == "letterbox":
+        fitted, scale, pad_left, pad_top = letterbox(
+            rgb, input_h, input_w, padding=letterbox_padding
+        )
+        scale_x = scale_y = scale
+    else:
+        raise ValueError(f"unknown preprocess mode {mode!r}, expected one of {PREPROCESS_MODES}")
+    blob = fitted.astype(np.float32) / 255.0
     blob = np.transpose(blob, (2, 0, 1))
     blob = np.expand_dims(blob, axis=0)
-    return blob, scale, pad_left, pad_top
+    return blob, scale_x, scale_y, pad_left, pad_top
 
 
 def sigmoid(x: np.ndarray) -> np.ndarray:
@@ -299,11 +336,18 @@ def scale_detections_to_frame(
     pad_top: float,
     input_w: int = 0,
     input_h: int = 0,
+    scale_y: float | None = None,
 ) -> list[DetectionTuple]:
-    """Map box and keypoint coords from letterbox input space back to original frame.
+    """Map box and keypoint coords from input space back to the original frame.
+
+    `scale` is the x scale; `scale_y` defaults to it, which is the letterbox case. A
+    stretched input has two different scales and needs both.
     If input_w/input_h are set and box coords are in [0,1], scale from normalized to pixel first."""
     if not detections:
         return []
+    scale_x = scale
+    if scale_y is None:
+        scale_y = scale
     result = []
     xyxy0 = detections[0][0]
     need_scale = input_w > 0 and input_h > 0 and np.max(xyxy0) <= 1.0 and np.min(xyxy0) >= 0.0
@@ -317,12 +361,12 @@ def scale_detections_to_frame(
             xyxy[3] *= input_h
             kps[:, 0] *= input_w
             kps[:, 1] *= input_h
-        xyxy[0] = (xyxy[0] - pad_left) / scale
-        xyxy[2] = (xyxy[2] - pad_left) / scale
-        xyxy[1] = (xyxy[1] - pad_top) / scale
-        xyxy[3] = (xyxy[3] - pad_top) / scale
-        kps[:, 0] = (kps[:, 0] - pad_left) / scale
-        kps[:, 1] = (kps[:, 1] - pad_top) / scale
+        xyxy[0] = (xyxy[0] - pad_left) / scale_x
+        xyxy[2] = (xyxy[2] - pad_left) / scale_x
+        xyxy[1] = (xyxy[1] - pad_top) / scale_y
+        xyxy[3] = (xyxy[3] - pad_top) / scale_y
+        kps[:, 0] = (kps[:, 0] - pad_left) / scale_x
+        kps[:, 1] = (kps[:, 1] - pad_top) / scale_y
         result.append((xyxy, conf, cls_id, kps))
     return result
 
@@ -418,6 +462,7 @@ class TrtYoloModel:
         bbox_half_wh: bool = False,
         swap_wh: bool = False,
         bbox_xyxy: bool = False,
+        preprocess: str = "letterbox",
     ) -> None:
         import pycuda.autoinit  # noqa: F401
         import pycuda.driver as cuda
@@ -430,6 +475,7 @@ class TrtYoloModel:
         self.bbox_half_wh = bbox_half_wh
         self.swap_wh = swap_wh
         self.bbox_xyxy = bbox_xyxy
+        self.preprocess = check_preprocess_mode(preprocess)
 
         self.engine, self.context = load_engine(engine_path)
         input_name = None
@@ -485,7 +531,7 @@ class TrtYoloModel:
         if not self.is_end2end:
             detail += f", num_classes={self.num_classes}"
         return (
-            f"input [1, 3, {self.input_h}, {self.input_w}], "
+            f"input [1, 3, {self.input_h}, {self.input_w}] ({self.preprocess}), "
             f"output [1, {int(self.output_shape[1])}, {int(self.output_shape[2])}] ({fmt}), "
             f"{detail}"
         )
@@ -506,8 +552,8 @@ class TrtYoloModel:
     def infer(self, frame_bgr: np.ndarray) -> list[DetectionTuple]:
         """Detect on one BGR frame; returns detections in frame pixel coordinates."""
         orig_h, orig_w = frame_bgr.shape[:2]
-        blob, scale, pad_left, pad_top = preprocess_frame(
-            frame_bgr, self.input_h, self.input_w, self.letterbox_padding
+        blob, scale_x, scale_y, pad_left, pad_top = preprocess_frame(
+            frame_bgr, self.input_h, self.input_w, self.letterbox_padding, self.preprocess
         )
         prediction = self._run(blob)
         if self.is_end2end:
@@ -531,9 +577,10 @@ class TrtYoloModel:
             detections,
             orig_h,
             orig_w,
-            scale,
+            scale_x,
             pad_left,
             pad_top,
             input_w=self.input_w,
             input_h=self.input_h,
+            scale_y=scale_y,
         )

@@ -43,8 +43,9 @@ SPLITS = ("train", "val")
 MIN_VISIBLE_AREA = 0.25
 
 
-def list_images(root: Path) -> list[Path]:
-    return [p for p in sorted(root.iterdir()) if p.suffix.lower() in IMAGE_SUFFIXES]
+def list_images(root: Path, recursive: bool = False) -> list[Path]:
+    walk = root.rglob("*") if recursive else root.iterdir()
+    return [p for p in sorted(walk) if p.suffix.lower() in IMAGE_SUFFIXES]
 
 
 def field_box(mask: np.ndarray) -> tuple[float, float, float, float] | None:
@@ -61,21 +62,30 @@ def field_box(mask: np.ndarray) -> tuple[float, float, float, float] | None:
     )
 
 
+def key_for(path: Path, split: str, recursive: bool) -> str:
+    return path.stem if recursive else f"{split}/{path.name}"
+
+
 def stage_masks(args: argparse.Namespace) -> None:
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model, cfg = load_model(args.model, device)
     transform = common_transforms(pad_size=cfg.pad_size)
     boxes: dict[str, list[float] | None] = {}
 
-    for split in SPLITS:
-        images = list_images(args.src / split / "images")
-        for start in tqdm(range(0, len(images), args.batch), desc=split):
+    # Recursive mode walks an eval root of per-recording directories and keys each frame by
+    # its stem, which is the capture timestamp and unique across recordings. The split mode
+    # keys by "<split>/<filename>", which is what the crop stage reads.
+    groups = [("", args.src)] if args.recursive else [(s, args.src / s / "images") for s in SPLITS]
+
+    for split, root in groups:
+        images = list_images(root, args.recursive)
+        for start in tqdm(range(0, len(images), args.batch), desc=split or "frames"):
             chunk = images[start : start + args.batch]
             tensors, kept = [], []
             for path in chunk:
                 frame = cv2.imread(str(path))
                 if frame is None:
-                    boxes[f"{split}/{path.name}"] = None
+                    boxes[key_for(path, split, args.recursive)] = None
                     continue
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 resized = cv2.resize(
@@ -92,7 +102,7 @@ def stage_masks(args: argparse.Namespace) -> None:
                 pred = pred[:, cfg.pad_size : -cfg.pad_size, cfg.pad_size : -cfg.pad_size]
             for path, single in zip(kept, pred):
                 box = field_box((single == FLOOR_CLASS).astype(np.uint8))
-                boxes[f"{split}/{path.name}"] = list(box) if box else None
+                boxes[key_for(path, split, args.recursive)] = list(box) if box else None
 
     args.out.write_text(json.dumps(boxes))
     missing = sum(1 for v in boxes.values() if v is None)
@@ -190,6 +200,12 @@ def main() -> None:
     masks.add_argument("--out", type=Path, required=True)
     masks.add_argument("--batch", type=int, default=32)
     masks.add_argument("--device", default="")
+    masks.add_argument(
+        "--recursive",
+        action="store_true",
+        help="walk SRC for images instead of expecting train/val splits, and key each box by "
+        "the image stem. Use this for the eval set, whose frames are grouped by recording.",
+    )
     masks.set_defaults(func=stage_masks)
 
     crop = sub.add_parser("crop", help="crop images and rewrite labels")
