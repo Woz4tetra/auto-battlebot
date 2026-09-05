@@ -73,6 +73,14 @@ def main() -> None:
             "epochs": 500,
             "imgsz": 640,
         },
+        # Pose size-sweep arm (pose_model_size). Sits between yolo26n-pose and yolo26x-pose;
+        # the sweep holds batch at 96 and epochs at 200 via --batch/--epochs, so the values
+        # here are only the single-GPU default. Batch 64 keeps it in one A6000's memory.
+        "yolo26s-pose": {
+            "batch": 64,
+            "epochs": 500,
+            "imgsz": 640,
+        },
         "yolo26n-seg": {
             "batch": 32,
             "epochs": 500,
@@ -162,6 +170,21 @@ def main() -> None:
         help="Override the model's configured batch size (total across GPUs, as Ultralytics "
         "defines it). Default 0 keeps the per-model config. Needed to hold batch constant across "
         "a model-size sweep without mutating the canonical per-model recipes.",
+    )
+    parser.add_argument(
+        "--imgsz",
+        default=0,
+        type=int,
+        help="Override the model's configured input size (a single int; Ultralytics' "
+        "check_imgsz rejects a [h, w] pair for training). Combine with --rect to train "
+        "rectangular: the long side becomes IMGSZ and the short side rounds to stride 32.",
+    )
+    parser.add_argument(
+        "--rect",
+        action="store_true",
+        help="Rectangular training: size each batch to the images' own aspect ratio instead of "
+        "letterboxing to a square. On this uniformly-16:9 corpus --imgsz 640 gives 384x640 and "
+        "--imgsz 1024 gives 576x1024, cutting the 43.8%% of a square tensor that is grey padding.",
     )
     parser.add_argument(
         "--cache",
@@ -326,6 +349,8 @@ def main() -> None:
             settings["epochs"] = epochs
         if args.batch > 0:
             settings["batch"] = args.batch
+        if args.imgsz > 0:
+            settings["imgsz"] = args.imgsz
         # model.train() already receives `cache=` explicitly below, so it cannot also ride along
         # in **settings. Precedence: explicit --cache > the model's config > DEFAULT_CACHE.
         model_cache = settings.pop("cache", DEFAULT_CACHE)
@@ -346,6 +371,7 @@ def main() -> None:
             save_period=save_period,
             fraction=fraction,
             seed=seed,
+            rect=args.rect,
             **hyper_params,
             **settings,
         )
