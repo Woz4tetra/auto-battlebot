@@ -73,6 +73,27 @@ anywhere. `training/`, `scripts/`, `simulation/`, and `logo/` are not packages.
 Adding a new package directory means adding it to `[tool.setuptools.packages.find]` in
 `pyproject.toml` and re-running `pip install -e .`.
 
+## GPU training queue
+
+Several agents share the three A6000s. Every training arm runs DDP across all three, so
+the box runs one job at a time. Do not launch training directly; submit it:
+
+```bash
+venv/bin/python training/gpu_queue.py submit --name B_s384x640 --by <agent> -- \
+  venv/bin/python training/yolo/train.py training/data/nhrl_robots_bbox_2class yolo26s \
+  -d 0 1 2 -b 96 -e 100
+venv/bin/python training/gpu_queue.py status          # --json for parsing
+venv/bin/python training/gpu_queue.py logs 3 --tail 40
+```
+
+`submit` starts the worker if none is running and sets `NCCL_P2P_DISABLE=1` for
+multi-GPU jobs. The worker waits for the GPUs to go idle before each job, so a run
+started outside the queue delays it rather than colliding with it. Check `status`
+before submitting, and never kill a job you did not submit -- use `cancel <id>`.
+
+State and logs live in `runs/queue/` (gitignored). Use `--priority` to put a short
+scoring or export job ahead of a queued multi-hour train.
+
 ## Architecture
 
 Config-driven factory pattern. The active TOML config selects which implementation of each interface gets instantiated at startup. Main loop in `Runner`:
