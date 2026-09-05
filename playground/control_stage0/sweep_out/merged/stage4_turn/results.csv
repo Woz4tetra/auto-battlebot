@@ -1,9 +1,0 @@
-name,our_robot.start_pos,our_robot.start_yaw_deg,opponents,navigation.stop_distance,navigation.max_angular_command,navigation.brake_distance,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,wall_contacts,impact_speed_mps,terminal_pos_err_m,terminal_vel_mps,overshoot_m,t_to_goal_s,navigation.type,navigation.terminal_velocity
-turn45_baseline,"[-0.8, -0.8]",90.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,0.25,0.8,True,900,0.029,True,0.97,3.2,164.5,0.0,0,1.58,0.149,0.0,0.113,1.0,,
-turn45_tracker,"[-0.8, -0.8]",90.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,,,True,900,0.001,True,0.8,2.7,21.5,0.0,0,0.89,0.001,0.0,0.0,0.87,MotionProfileNavigation,0.0
-turn90_baseline,"[-0.8, -0.8]",135.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,0.25,0.8,True,900,0.077,True,1.13,4.3,31.0,0.0,0,1.93,0.139,0.0,0.107,1.17,,
-turn90_tracker,"[-0.8, -0.8]",135.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,,,True,900,0.008,True,1.03,3.4,39.9,0.0,0,0.78,0.008,0.0,0.0,1.1,MotionProfileNavigation,0.0
-turn135_baseline,"[-0.8, -0.8]",180.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,0.25,0.8,True,900,0.098,True,1.27,3.2,124.7,0.0,0,1.77,0.133,0.0,0.084,1.37,,
-turn135_tracker,"[-0.8, -0.8]",180.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",0.15,,,True,900,0.003,True,1.1,2.7,49.8,0.0,0,0.8,0.022,0.0,0.022,1.13,MotionProfileNavigation,0.0
-arc_baseline,"[0.0, -0.9]",90.0,"[{'behavior': 'static', 'start_pos': [0.7, -0.2]}]",0.15,0.25,0.8,True,900,0.031,True,0.9,3.0,122.8,0.0,0,0.81,0.038,0.0,0.0,0.97,,
-arc_tracker,"[0.0, -0.9]",90.0,"[{'behavior': 'static', 'start_pos': [0.7, -0.2]}]",0.15,,,True,900,0.002,True,0.77,2.6,22.9,0.0,0,0.76,0.006,0.0,0.004,0.83,MotionProfileNavigation,0.0

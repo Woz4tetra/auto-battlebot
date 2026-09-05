@@ -1,5 +1,10 @@
 # Open-set detector probe report: proposals yes, identity no
 
+> Retired 2026-09-05. `openset_probe_predict.py`, `openset_probe_score.py` and the
+> outputs under `training/data/openset_probe/` are deleted. Recover the tools with
+> `git checkout 8b0c239 -- training/model_eval`. This document is the record.
+
+
 Zero-shot promptable detectors see the robots the deployed engine is blind to.
 OWLv2-large with the fixed text prompt "robot" proposes a box for 97.1% of core
 GT opponents (deployed engine ceiling at conf 0.05: 86.1%), and its per-recording

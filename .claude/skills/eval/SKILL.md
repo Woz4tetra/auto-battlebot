@@ -58,10 +58,13 @@ Related: perception reliability over a fight uses
 
 ---
 
-## Mode B: navigation / control (sim sweep)
+## Mode B: navigation / control (sim sweep) - RETIRED
 
-Batch-drives the headless kinematic sim: builds a per-run config overlay, launches sim +
-`build/auto_battlebot`, scores the produced MCAP, tabulates `results.csv`.
+`playground/control_stage0/` was deleted on 2026-09-05. There is no sim-sweep tool in the
+tree right now. Do not tell the user a sweep ran; say the harness is retired and offer to
+restore it.
+
+Restore with `git checkout 5af3d75 -- playground/control_stage0`, then:
 
 ```bash
 source scripts/activate_python.sh
@@ -71,6 +74,8 @@ python playground/control_stage0/sim_sweep.py --sweep my_sweep.toml --out sweep_
 
 - Output: `<out>/results.csv` (default `playground/control_stage0/sweep_out/`).
 - Metrics are sim-time (tick index x `[sim].dt`), not wall-clock, since runs are accelerated.
+- What the harness and its eighteen sweep specs did:
+  `docs/experiments/control_improvement/control_stage0_retired.md`.
 
 **Gotcha:** only nav implementations in `diag_io.NAV_HW_IDS` (currently PursuitNavigation
 and MotionProfileNavigation) have their diagnostics scored. A brand-new nav impl scores

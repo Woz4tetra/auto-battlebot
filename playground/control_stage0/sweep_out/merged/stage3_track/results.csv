@@ -1,5 +1,0 @@
-name,our_robot.start_pos,opponents,navigation.stop_distance,navigation.max_angular_command,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,wall_contacts,impact_speed_mps,track_err_mean_m,track_err_rms_m,navigation.type,navigation.terminal_velocity
-circle_slow_baseline,"[-0.9, -0.9]","[{'behavior': 'circle', 'radius': 0.6, 'speed': 0.8}]",0.15,0.25,True,900,0.003,True,1.86,66.2,50.7,0.0,0,1.28,0.224,0.263,,
-circle_slow_tracker,"[-0.9, -0.9]","[{'behavior': 'circle', 'radius': 0.6, 'speed': 0.8}]",0.15,0.25,True,900,0.008,True,1.3,67.3,71.3,0.0,0,2.11,0.216,0.267,MotionProfileNavigation,1.5
-circle_fast_baseline,"[-0.9, -0.9]","[{'behavior': 'circle', 'radius': 0.6, 'speed': 1.5}]",0.15,0.25,True,900,0.196,False,,91.8,36.2,0.0,0,,0.663,0.693,,
-circle_fast_tracker,"[-0.9, -0.9]","[{'behavior': 'circle', 'radius': 0.6, 'speed': 1.5}]",0.15,0.25,True,900,0.087,True,2.43,100.0,19.8,0.0,0,2.31,0.103,0.105,MotionProfileNavigation,1.5

@@ -1,6 +1,0 @@
-extends = "simulation/headless_sim"
-
-[navigation]
-type = "MotionProfileNavigation"
-terminal_velocity = 3.0
-max_angular_command = 0.25

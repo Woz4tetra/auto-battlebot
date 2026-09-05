@@ -1,2 +1,0 @@
-segment,ticks,duration_s,goal_changes,goal_hz,median_epoch_s,max_epoch_s,open_loop_pct,open_loop_runs,gate_off_pct,gate_reentries,speed_err_p90,speed_err_med,wall_reverse_pct,solver_top,solver_sources,overshoot_events,max_overshoot_m,median_overshoot_m,min_approach_m,recording
-auto_battlebot_mrs_buff_mk3_jetson_2026-08-23_22-07-22#0,327,10.87,0,0.0,10.89,10.89,19.0,11,56.6,9,2.241,0.507,4.6,three_wall:312,2,1,0.467,0.467,0.021,auto_battlebot_mrs_buff_mk3_jetson_2026-08-23_22-07-22.mcap

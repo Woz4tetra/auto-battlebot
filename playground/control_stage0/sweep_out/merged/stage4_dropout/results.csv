@@ -1,6 +1,0 @@
-name,our_robot.start_pos,perception.our_dropout_prob,opponents,navigation.type,navigation.stop_distance,navigation.terminal_velocity,ok,ticks,min_dist_m,reached,t_contact_s,facing_pct,mean_abs_ang_deg,nearwall_pct,wall_contacts,impact_speed_mps,terminal_pos_err_m,terminal_vel_mps,overshoot_m,t_to_goal_s,navigation.max_angular_command,navigation.brake_distance
-dropout_00_tracker,"[-0.9, -0.9]",0.0,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",MotionProfileNavigation,0.15,0.0,True,900,0.005,True,0.67,2.2,0.0,0.0,0,1.04,0.005,0.0,0.0,0.73,,
-dropout_50_tracker,"[-0.9, -0.9]",0.5,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",MotionProfileNavigation,0.15,0.0,True,900,0.0,True,0.0,2.3,63.2,0.0,0,,0.013,0.0,,0.0,,
-dropout_80_tracker,"[-0.9, -0.9]",0.8,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",MotionProfileNavigation,0.15,0.0,True,900,0.0,True,0.0,41.0,90.9,43.8,77,,0.024,0.0,,0.0,,
-dropout_50_baseline,"[-0.9, -0.9]",0.5,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",,0.15,,True,900,0.0,True,0.0,4.2,41.5,0.0,0,,0.072,0.0,,0.0,0.25,0.8
-dropout_80_baseline,"[-0.9, -0.9]",0.8,"[{'behavior': 'static', 'start_pos': [0.0, 0.0]}]",,0.15,,True,900,0.0,True,0.0,38.6,71.0,39.6,73,,0.254,1.381,,0.0,0.25,0.8
