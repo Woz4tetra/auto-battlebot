@@ -265,7 +265,36 @@ paired.
 
 ## Results
 
-Pending. Arms A2, B and C are queued behind other work on the shared GPUs.
+Scored on the full 688-frame eval set, `--conf 0.5`, paired bootstrap 1000x against arm A.
+Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
+
+| arm | agnostic recall | precision | f1 | mAP50 | mAP50-95 | tensor px |
+|---|---:|---:|---:|---:|---:|---:|
+| A `640x640` | 0.780 | 0.858 | 0.817 | 0.754 | 0.481 | 409,600 |
+| A2 `384x640` | 0.784 | 0.861 | 0.820 | 0.758 | 0.480 | 245,760 |
+
+| arm | metric | delta vs A | 95% CI | verdict |
+|---|---|---:|---|---|
+| A2 | recall | +0.003 | -0.009 to 0.017 | ns |
+| A2 | precision | +0.003 | -0.010 to 0.014 | ns |
+| A2 | f1 | +0.003 | -0.007 to 0.013 | ns |
+
+**A2 ties arm A on every metric while spending 40% fewer tensor pixels.** This is the
+outcome the plan predicted, now measured with the model *trained* at the geometry rather
+than a square-trained engine exported to it. The scouting pass had 384x640 at -0.002 recall
+against square; training at the geometry moved that to +0.003. Both are noise, and that is
+the point: geometry is free.
+
+Every delta sits inside the ~0.048 run-to-run spread `data_epoch_min` measured on a single
+seed, so this establishes parity, not a win. It cannot be read as A2 being better.
+
+B, C, D and E are still training. Latency is deliberately not measured yet: the GPUs are
+running the remaining arms, and a contended `benchmark_engines.py` number is worthless.
+All engines get timed together once the box is idle.
+
+Arm A2 trained in 1.87 h. Its log carries zero `'rect=True' is incompatible with DataLoader
+shuffle` warnings, confirming on the real three-GPU run what the batch-shape check
+predicted.
 
 ## Decision rule, registered before looking
 
