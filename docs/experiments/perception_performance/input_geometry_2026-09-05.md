@@ -240,8 +240,16 @@ seed 0, three GPUs, submitted through `training/gpu_queue.py`.
 | D | yolo26n | 640x640 anisotropic | 0.50 x / 0.89 y | 0% | 409,600 | queued |
 | E | yolo26n | 640x640 field-cropped | variable | varies | 409,600 | queued |
 
+| F | yolo26s | 640x640 anisotropic | 0.50 x / 0.89 y | 0% | 409,600 | queued, added after D reported |
+
 D and E were originally gated on the A2/B/C verdict. Ben asked for every arm to run, so
 both are queued now instead.
+
+**F is not in the plan.** It was added once B and D reported, because they turned out to
+move different levers: B has 3.4x the parameters at 1.00x object scale, D has 1.33x object
+scale at `n` size, and the plan contains no arm that has both. Neither component adds a
+runtime dependency, which is what makes the combination worth a run where a cropped
+high-resolution arm is not.
 
 E's corpus comes from a DeepLab pass over all 32,487 images, which found a field in all but
 3. Cropping to the field box plus a 0.20 margin drops a label on 1.1% of training frames
