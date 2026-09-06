@@ -268,8 +268,8 @@ stay byte-identical for `config/_desktop.toml` and `config/_jetson.toml`, and th
 `_<arch>_sm<XX>.engine` shape the candidate lists match on is unchanged:
 
 ```
-yolo26s_rect384x640_2026-09-05_x86_64_sm86.engine        # unchanged
-yolo26s_rect384x640_2026-09-05_int8_x86_64_sm86.engine   # new
+yolo26s_nhrl_robots_bbox_2class_rect384x640_2026-09-05_x86_64_sm86.engine        # unchanged
+yolo26s_nhrl_robots_bbox_2class_rect384x640_2026-09-05_int8_x86_64_sm86.engine   # new
 ```
 
 Build times, cold INT8 tactic search against a timing cache that already held FP16 entries:
@@ -400,7 +400,7 @@ $Q submit --name int8_build --by claude-int8 -d 0 -- \
   venv/bin/python training/yolo/convert_to_tensorrt.py \
     $M/yolo26n_nhrl_robots_bbox_2class_2026-09-04.onnx \
     $M/yolo26s_nhrl_robots_bbox_2class_2026-09-04.onnx \
-    $M/yolo26s_rect384x640_2026-09-05.onnx \
+    $M/yolo26s_nhrl_robots_bbox_2class_rect384x640_2026-09-05.onnx \
     --int8 --calib-dir "$CALIB" --calib-count 1000 --calib-partition 0/2
 
 # Arm S: same weights as s8, disjoint calibration sample, distinct engine name

@@ -150,7 +150,7 @@ def check_cache_header(cache_path: Path, algo: str, have_frames: bool) -> None:
     calibrated on nothing -- and the batch-count check cannot catch it, because a cache was read.
     Carrying caches to a Jetson is exactly the case this protects.
     """
-    header = cache_path.read_text(errors="replace").splitlines()[0].strip()
+    header = cache_path.read_text(encoding="utf-8", errors="replace").splitlines()[0].strip()
     expected = expected_cache_header(algo)
     if header == expected:
         return
@@ -417,7 +417,12 @@ def resolve_int8_config(model_path: Path, args: argparse.Namespace) -> Int8Confi
         # a second sample really is disjoint from the first.
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         manifest = cache_path.with_suffix(".frames.txt")
-        manifest.write_text("".join(f"{path}\n" for path in frames))
+        # Explicit utf-8: 86 of the corpus filenames carry non-ASCII characters (a fullwidth
+        # question mark, from the YouTube titles the scenes are named after), and write_text
+        # otherwise encodes with whatever locale the process has by then. Building on the Orin,
+        # the second model of a multi-model run wrote a 0-byte manifest and died on
+        # UnicodeEncodeError where the first had succeeded in the same process.
+        manifest.write_text("".join(f"{path}\n" for path in frames), encoding="utf-8")
     elif not cache_path.is_file():
         raise SystemExit(
             f"--int8 needs --calib-dir or an existing calibration cache at {cache_path}"

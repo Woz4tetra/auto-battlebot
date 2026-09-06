@@ -23,9 +23,18 @@ debug_visualization = false
 
 [robot_mask_model.engine]
 candidates = [
+  # "data/models/yolo26s_nhrl_robots_bbox_2class_rect384x640_2026-09-05_int8_aarch64_sm87.engine",
+  # "data/models/yolo26n_nhrl_robots_bbox_2class_2026-09-04_int8_aarch64_sm87.engine",
+  # "data/models/yolo26s_nhrl_robots_bbox_2class_2026-09-04_int8_aarch64_sm87.engine",
+  # "data/models/yolo26x_nhrl_robots_bbox_2class_2026-09-04_int8_aarch64_sm87.engine",
+  #
+  # FP16 baselines. Each INT8 arm is read against its own FP16 engine, never across models.
+  # The rect384x640 arm is B16, the arm the report's verdict keeps.
+  # "data/models/yolo26s_nhrl_robots_bbox_2class_rect384x640_2026-09-05_aarch64_sm87.engine",
+  # "data/models/yolo26n_nhrl_robots_bbox_2class_2026-09-04_aarch64_sm87.engine",
+  # "data/models/yolo26x_nhrl_robots_bbox_2class_2026-09-04_aarch64_sm87.engine",
   # "data/models/yolo26n_nhrl_robots_bbox_2class_mixed_2026-07-31_aarch64_sm87.engine",
   "data/models/yolo26s_nhrl_robots_bbox_2class_2026-09-04_aarch64_sm87.engine",
-  # "data/models/yolo26x_nhrl_robots_bbox_2class_2026-09-04_aarch64_sm87.engine",
 ]
 
 [keypoint_model]
