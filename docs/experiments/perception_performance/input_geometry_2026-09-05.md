@@ -281,6 +281,7 @@ Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
 | A | yolo26n | 640x640 letterbox | 1.00x | 0.780 | 0.858 | 0.817 | 0.754 | 0.481 | 409,600 |
 | A2 | yolo26n | 384x640 letterbox | 1.00x | 0.784 | 0.861 | 0.820 | 0.758 | 0.480 | 245,760 |
 | B | yolo26s | 384x640 letterbox | 1.00x | **0.830** | 0.857 | 0.843 | 0.796 | 0.541 | 245,760 |
+| C | yolo26n | 576x1024 letterbox | 1.60x | 0.793 | 0.860 | 0.825 | 0.771 | 0.538 | 589,824 |
 | D | yolo26n | 640x640 stretch | 1.33x | **0.811** | 0.866 | 0.838 | 0.773 | 0.501 | 409,600 |
 | E | yolo26n | 640x640 field crop | 1.00x | **0.808** | **0.870** | 0.838 | 0.781 | 0.508 | 409,600 |
 
@@ -297,6 +298,7 @@ Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
 | E | **recall** | **+0.028** | **0.015 to 0.043** | **better** |
 | E | precision | +0.012 | -0.002 to 0.026 | ns |
 | E | f1 | +0.021 | 0.010 to 0.032 | better |
+| C | recall | +0.013 | -0.003 to 0.027 | ns |
 
 Three arms, three separate findings, and the design lets each one be attributed.
 
@@ -334,11 +336,34 @@ the same amount within overlapping CIs, but D needs a stretch branch in the prep
 while E needs a DeepLab field estimate feeding the detector every frame plus a crop branch.
 **D dominates E on cost at equal benefit.**
 
+**Resolution buys localization, not detection, exactly as pre-registered.** C has more object
+scale than any other arm at 1.60x, and 1.44x arm A's tensor pixels. It gains +0.013 recall
+with a CI spanning zero. What it does gain is mAP50-95: 0.538 against A's 0.481, nearly
+matching B's 0.541. Tighter boxes, not more robots.
+
+The plan called this in advance. It recorded C's scouting result as "+0.027 mAP50-95 for
++0.003 recall - that is localization tightness", ruled that mAP50-95 must not drive the
+decision, and cited `mask_centroid_vs_box_2026-08-03.md` for why: targeting uses the
+centroid, so box tightness is not what limits this application. Training at the geometry
+changed nothing about that. **Registering the decision rule before looking is what makes
+this a clean result rather than an invitation to promote C on its mAP.**
+
+C is also the most expensive arm to train, by a distance. See "Arm C monopolizes the
+machine" below.
+
+That C loses to D is the sharpest thing in the table. C has *more* object scale than D, 1.60x
+against 1.33x, and 44% more tensor pixels, and it gains less recall. Their CIs overlap, so
+this is not a significant difference between the two arms and a single seed cannot settle it.
+But it does mean scale alone is not a clean explanation for D. Whatever D is doing -- filling
+the tensor, or the anisotropy itself acting on the augmentation pipeline -- more pixels
+spent isotropically does not reproduce it.
+
 The arms stack in a way that suggests the obvious follow-up. Padding contributes nothing
-(+0.003), 1.33x object scale contributes +0.031, cropping the background contributes +0.028,
-and 3.4x the parameters contributes +0.050. Nobody has yet run `yolo26s` *and* stretched
-input, which on this evidence is the arm most likely to win, and it costs one more training
-run.
+(+0.003), resolution contributes nothing to recall (+0.013), 1.33x object scale by stretching
+contributes +0.031, cropping the background contributes +0.028, and 3.4x the parameters
+contributes +0.050. Nobody has yet run `yolo26s` *and* stretched input, which on this
+evidence is the arm most likely to win, and it costs one more training run. It is queued as
+arm F.
 
 Two caveats on the magnitude, neither of which touches the sign:
 
