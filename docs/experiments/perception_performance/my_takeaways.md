@@ -128,3 +128,33 @@ Looking at x run on massD playback data, it was far better at ignoring the arena
 the runner could drop an image which costs ~30 ms.
 
 docs/experiments/perception_performance/model_size_2026-09-04.md
+
+# Does model size matter for the keypoint model?
+
+No. This is the opposite of the bounding box answer, and the contrast is the useful part.
+
+yolo26s-pose has 4x the parameters of yolo26n-pose and places keypoints no better at any
+confidence I tried. Pixel error and PCK came back ns at 0.05, 0.3, 0.5 and 0.6. The only
+significant heading result went the wrong way: s was 2.5 deg worse at conf 0.5, the operating
+point I actually run. What s did buy was box recall, +0.087 at conf 0.5, which is the same
+gain the bbox sweep found and lands on the metric the keypoint model isn't responsible for.
+
+The deployed our_robots model, which is older, smaller and only knows 2 classes, still beats
+both arms on keypoint placement. That plus the corpus mosaic convinced me the problem is
+data, not capacity. all_robot_keypoints is 97.8% synthetic renders of robots on grass, ice
+and cobblestone, and 497 real frames shot in a plywood box in the garage. The eval set is the
+ZED looking across an NHRL cage. Nothing in training looks like the thing I deploy into. A
+bigger backbone learns the same missing thing more expensively.
+
+Two process lessons worth keeping. First, always score a pose ladder at a low confidence
+floor as well as the operating point. At conf 0.5 my ep100 to ep200 heading error looked like
+it halved; at conf 0.05, where the checkpoints keep comparable detection counts, it was flat.
+The later checkpoint is just more confident, so a fixed gate keeps its easy detections and
+the metric improves on the subset instead of the model. Second, check the val split before
+trusting anything: all_robot_keypoints is a random frame split, every val scene is also in
+train, and val ranked s above n on every metric while the eval set ranked them the other way.
+
+Next pose experiment should be a data experiment. Add real cage footage with keypoint labels,
+retrain n alone, and see if keypoint error moves more than 4x the parameters did.
+
+docs/experiments/perception_performance/pose_model_size_2026-09-05.md

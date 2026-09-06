@@ -388,6 +388,25 @@ A2 trained in 1.87 h, B in 2.41 h, D in 1.87 h. No log carries a single `'rect=T
 incompatible with DataLoader shuffle` warning, confirming on the real three-GPU runs what
 the batch-shape check predicted.
 
+### What the disagreements look like
+
+![the same robots as each arm sees them](assets/2026-09-05_input_geometry/detections.png)
+
+Of 1,730 readable GT robots, the arms disagree on 314. Rows lead with those, smallest first,
+since that is where geometry is expected to matter. The top two rows are the shape of the
+whole result: a small, low-contrast robot that arm A misses outright and that B and D both
+find. The recall deltas are not spread thinly over the eval set, they are concentrated on
+robots near the detection threshold.
+
+Row three is worth keeping honest about. E misses a robot the other three find, which is a
+reminder that its +0.028 is a net figure over an arm that also introduces its own failures:
+when the DeepLab field box is wrong, the crop takes the robot with it.
+
+Every arm is drawn through the preprocessing it was trained with. The first render of this
+figure did not do that: it built its own engines and quietly ran D through a letterbox, which
+is exactly the silent failure `TrtYoloModel.describe()` now prints the mode to catch. The
+figure and `score.py` share one detector builder so they cannot diverge again.
+
 ### Arm C monopolizes the machine
 
 Worth recording against C before its recall arrives. `cache="ram"` holds every image resized
