@@ -158,3 +158,55 @@ Next pose experiment should be a data experiment. Add real cage footage with key
 retrain n alone, and see if keypoint error moves more than 4x the parameters did.
 
 docs/experiments/perception_performance/pose_model_size_2026-09-05.md
+
+# How should the frame reach the network? Is the letterbox padding costing me anything?
+
+The padding costs nothing in accuracy and about a fifth of the GPU time. Object scale is what
+actually moves detection, and the cheapest way to buy it is to stop preserving aspect ratio.
+
+Letterboxing 16:9 into 640x640 fills 43.8% of the tensor with grey. Training at 384x640
+instead moved recall by +0.003, CI -0.009 to 0.017. Nearly half the input tensor was doing
+nothing, and I can have those pixels back for free.
+
+What to do with them is the interesting part. Four things I tried, all against the deployed
+yolo26n at 640x640, agnostic recall on the eval set:
+
+- 3.4x the parameters (yolo26s at 384x640): +0.050. Biggest single lever, and it fits in
+  fewer tensor pixels than what I deploy today.
+- Stretch the frame to fill the tensor: +0.031. Same model, same tensor size, no padding.
+  Squeezing 16:9 into a square costs 0.5x horizontally but only 0.89x vertically, so a robot
+  lands on 1.33x the pixels. This is free accuracy and I nearly did not run it.
+- Crop to the field first: +0.028. Works, but it makes the detector depend on the field
+  estimate every frame and needs a crop branch in the C++ and Python preprocessors. Same
+  benefit as the stretch for much more machinery, so the stretch wins.
+- More resolution (576x1024): +0.013, CI spanning zero. It gained +0.057 mAP50-95 instead.
+  Tighter boxes, not more robots, which is worth nothing to me because targeting uses the
+  centroid. It also needs 204 GB of RAM to train and cannot share the box.
+
+The one that surprised me is that 576x1024 lost to the stretch despite having more object
+scale (1.60x against 1.33x) and 44% more pixels. Their CIs overlap so a single seed cannot
+settle it, but scale alone does not explain what the stretch is doing.
+
+Deployment answer: yolo26s at 384x640. It beats what I run now by 0.050 recall on 40% fewer
+tensor pixels. Then add the stretch, which is one branch in the preprocessor for another
++0.031 if the effects add. That combination is training as arm F.
+
+Three process lessons worth more than the numbers.
+
+`rect=True` silently turns off shuffling. Ultralytics only warns, and only when per-batch
+tensor shapes differ. My corpus is 99.85% 1920x1080 and the other 0.15% was enough: 39
+pre-letterboxed YouTube frames gave one batch out of 810 a different shape, which would have
+fed the optimizer recording-ordered batches for the whole run. Check `batch_shapes` before
+trusting any rectangular arm.
+
+Registering the decision rule before looking is what made the resolution arm a clean result.
+576x1024 posts the second-best mAP50-95 in the table. If I had not written down beforehand
+that mAP50-95 must not drive the decision, and why, I would have promoted the most expensive
+arm on a metric that does not matter for aim assist.
+
+I cut the field-crop arm on analysis and the analysis was wrong. I proved a crop buys no
+zoom, which is true and holds at every tensor shape, then treated the absence of that
+mechanism as the absence of any effect. The crop wins by deleting the crowd and the cage
+exterior, which I never priced. Measure the arm.
+
+docs/experiments/perception_performance/input_geometry_2026-09-05.md

@@ -1,8 +1,13 @@
 # Input geometry: how should the frame reach the network?
 
-Status: **arms A2, B and C are queued and not yet trained.** Everything below the
-"Arms" heading is measured; the arm results section is empty until they run. Plan:
-`input_resolution_plan.md`.
+All five planned arms are trained and scored. Arm F, added after D reported, is still
+training, and Jetson latency is still outstanding. Plan: `input_resolution_plan.md`.
+
+**Answer: deploy `yolo26s` at 384x640.** It beats the current `yolo26n` at 640x640 by 0.050
+recall on 40% fewer tensor pixels. The padding a letterbox spends is worth nothing (+0.003),
+so the geometry is free; what the freed budget buys is a bigger model. Separately, filling
+the tensor by stretching rather than padding is worth +0.031 on its own, because it lands a
+robot on 1.33x the pixels for nothing. See "Verdict" at the end.
 
 ## Question
 
@@ -44,7 +49,8 @@ augmentation.
 DeepLab model actually predicts for that frame, not the label boxes. The field is wide and
 short, so the crop pads more than the uncropped frame does and leaves the robot at exactly
 arm A's scale. Putting it in a rectangular tensor instead of a square one does not rescue
-it: E′ gets A2's robot scale with arm A's padding. See "Arm E is cut" below.
+it: E′ gets A2's robot scale with arm A's padding. E′ was never trained; see
+"Arm E: cut on zoom, reinstated on false positives" below for what the trained arm did.
 
 ## The trap that would have invalidated A2, B and C
 
@@ -432,3 +438,55 @@ limits this application, since targeting uses the centroid.
 Single seed per arm. The scouting deltas between geometries were 0.002-0.005 recall,
 far below the ~0.048 run-to-run spread `data_epoch_min` measured, so this experiment can
 establish parity and not a small win. A 0.003 difference is not a result.
+
+## Verdict
+
+Applying the rule above to the measured arms:
+
+| arm | recall vs A | verdict | tensor px | what it costs to adopt |
+|---|---:|---|---:|---|
+| A2 `384x640` | +0.003 ns | recall-neutral | 245,760 | nothing, drop-in engine swap |
+| **B** `s` `384x640` | **+0.050 better** | **adopt** | 245,760 | nothing, drop-in engine swap |
+| C `576x1024` | +0.013 ns | reject | 589,824 | 1.44x the tensor, 204 GB to train |
+| **D** stretch | **+0.031 better** | **adopt with B** | 409,600 | a stretch branch in two preprocessors |
+| E field crop | +0.028 better | reject | 409,600 | a per-frame field estimate feeding the detector |
+
+**Deploy `yolo26s` at 384x640.** It beats the current `yolo26n` at 640x640 by 0.050 recall
+with precision unchanged, on 40% fewer tensor pixels, and the C++ blob model reads its input
+size from the engine so the swap needs no code change. This is the deployment question the
+plan set out to answer and the answer is yes: `s` quality at `n` cost.
+
+**Then add the stretch.** It is worth +0.031 on its own for one branch in
+`YoloBboxRobotBlobModel::letterbox` and one in `trt_yolo.py::preprocess_frame`, plus a config
+flag. Whether it stacks on B is what arm F is training to find out; do not build the
+preprocessing fork until F reports.
+
+**Reject C and E**, for different reasons. C fails the rule outright: recall-neutral, so its
+mAP50-95 cannot buy adoption, and it is the most expensive arm to train and to run. E passes
+the rule but loses to D on cost at equal benefit, and coupling the detector to the field
+estimate is a failure mode the current pipeline does not have. The figure above shows E
+missing a robot the other three arms find, which is what that coupling looks like when the
+field box is wrong.
+
+The plan's closing caveat needs revising. It said "none of this addresses object scale ...
+only arm C and arm E change the scale at all" and expected geometry to be a latency lever and
+not an accuracy one. Geometry is indeed not an accuracy lever, +0.003. But arm D changes the
+scale as well, by 1.33x, for nothing, and it is the second-largest accuracy effect measured.
+The arm the plan ranked below the rectangular ones and gated behind them is the one worth
+building.
+
+## What is still missing
+
+- **Jetson latency.** `benchmark_engines.py` is queued to run on an idle box for the
+  x86 numbers. The Jetson sequence from `model_size_2026-09-04.md` still has to be run on the
+  Orin, and the decision rule requires a measured reduction in
+  `runner.perception_batch.update` before anything is adopted. The accuracy case for B is
+  made; the latency half of the rule is not yet evidenced on the target.
+- **Arm F**, `yolo26s` with stretched input, queued. If the effects add it should land near
+  0.86 recall.
+- **Single seed everywhere.** Every delta here is one training run against one training run,
+  and `data_epoch_min` measured ~0.048 run-to-run spread on this corpus. B's +0.050 and D's
+  +0.031 are supported by agreeing with the scouting pass, not by their CIs, which cover
+  eval-frame sampling and not seed variance. A second seed on B and D would settle it.
+- **The keypoint model and DeepLab still take their own input sizes.** A rectangular blob
+  engine does not change that, and nothing here should be read as a shared resize.
