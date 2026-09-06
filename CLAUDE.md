@@ -84,6 +84,8 @@ venv/bin/python training/gpu_queue.py submit --name B_s384x640 --by <agent> -- \
   -d 0 1 2 -b 96 -e 100
 venv/bin/python training/gpu_queue.py status          # --json for parsing
 venv/bin/python training/gpu_queue.py logs 3 --tail 40
+venv/bin/python training/gpu_queue.py logs -f         # follow the running job, rolling
+                                                      # onto the next when it finishes
 ```
 
 `submit` starts the worker if none is running and sets `NCCL_P2P_DISABLE=1` for
@@ -91,8 +93,9 @@ multi-GPU jobs. The worker waits for the GPUs to go idle before each job, so a r
 started outside the queue delays it rather than colliding with it. Check `status`
 before submitting, and never kill a job you did not submit -- use `cancel <id>`.
 
-State and logs live in `runs/queue/` (gitignored). Use `--priority` to put a short
-scoring or export job ahead of a queued multi-hour train.
+State and logs live in `runs/queue/` (gitignored). Jobs run in submission order;
+`status` lists them in that order with an estimated finish time for each, taken from
+the running job's own progress and from what past jobs took.
 
 ## Architecture
 

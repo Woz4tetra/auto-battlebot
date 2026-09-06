@@ -128,3 +128,39 @@ Looking at x run on massD playback data, it was far better at ignoring the arena
 the runner could drop an image which costs ~30 ms.
 
 docs/experiments/perception_performance/model_size_2026-09-04.md
+
+# Does model size matter for the keypoint model?
+
+Yes, but only at yolo26x. s is a dead end and I nearly stopped there.
+
+yolo26s-pose has 4x the parameters of n and buys nothing on keypoints at any confidence I
+tried. Pixel error and PCK came back ns everywhere, and heading was 2.5 deg *worse* at conf
+0.5, the point I actually run. yolo26x-pose is a different story: better pixel error and PCK
+at all four confidences, heading significantly better at conf 0.05 and 0.3, and it is the
+first model trained on all_robot_keypoints that beats the deployed our_robots model on
+keypoint placement. 9.57 px and 9.09 deg at conf 0.5 against the deployed 9.85 and 10.43.
+
+So the curve is flat from n to s and then jumps at x, same shape as the bbox sweep. Sizing a
+pose model by interpolating between n and x would be wrong at every point in between.
+
+I can't deploy it. x costs 2.52x n's inference time, +3.3 ms of GPU time on the dev box, and
+the keypoint model is already the slower of the two parallel branches with about 1 ms of tick
+headroom. That's roughly triple the budget, and going over the frame period costs ~25 ms
+end to end. x is now the thing to buy tick time for, not a thing to reject. An l arm is the
+obvious next run: it would say whether any of the gain comes cheaper than 2.52x.
+
+Two process lessons. First, always score a pose ladder at a low confidence floor as well as
+the operating point. My ep100 to ep200 heading error looked like it halved at conf 0.5 and was
+flat at conf 0.05 - the later checkpoint is just more confident, so a fixed gate keeps its
+easy detections and the metric improves on the subset instead of the model. That same check is
+what proved x's gain is real, because x improved keypoints while matching *more* boxes.
+Second, val on this corpus is worthless and actively misleading: it's a random frame split,
+every val scene is also in train, and it ranked s a clear second when the eval set puts s
+last.
+
+The corpus is still the reason the absolute numbers are bad. 23x the parameters recovers part
+of the gap between 0.965 pose mAP50-95 on val and 0.765 PCK on the eval set; none of it closes
+it. Real cage footage is still the cheapest lever and now the more attractive one, since x
+can't ship.
+
+docs/experiments/perception_performance/pose_model_size_2026-09-05.md

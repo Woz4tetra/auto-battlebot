@@ -1,8 +1,13 @@
 # Input geometry: how should the frame reach the network?
 
-Status: **arms A2, B and C are queued and not yet trained.** Everything below the
-"Arms" heading is measured; the arm results section is empty until they run. Plan:
-`input_resolution_plan.md`.
+All five planned arms are trained and scored. Arm F, added after D reported, is still
+training, and Jetson latency is still outstanding. Plan: `input_resolution_plan.md`.
+
+**Answer: deploy `yolo26s` at 384x640.** It beats the current `yolo26n` at 640x640 by 0.050
+recall on 40% fewer tensor pixels. The padding a letterbox spends is worth nothing (+0.003),
+so the geometry is free; what the freed budget buys is a bigger model. Separately, filling
+the tensor by stretching rather than padding is worth +0.031 on its own, because it lands a
+robot on 1.33x the pixels for nothing. See "Verdict" at the end.
 
 ## Question
 
@@ -44,7 +49,8 @@ augmentation.
 DeepLab model actually predicts for that frame, not the label boxes. The field is wide and
 short, so the crop pads more than the uncropped frame does and leaves the robot at exactly
 arm A's scale. Putting it in a rectangular tensor instead of a square one does not rescue
-it: E′ gets A2's robot scale with arm A's padding. See "Arm E is cut" below.
+it: E′ gets A2's robot scale with arm A's padding. E′ was never trained; see
+"Arm E: cut on zoom, reinstated on false positives" below for what the trained arm did.
 
 ## The trap that would have invalidated A2, B and C
 
@@ -240,8 +246,16 @@ seed 0, three GPUs, submitted through `training/gpu_queue.py`.
 | D | yolo26n | 640x640 anisotropic | 0.50 x / 0.89 y | 0% | 409,600 | queued |
 | E | yolo26n | 640x640 field-cropped | variable | varies | 409,600 | queued |
 
+| F | yolo26s | 640x640 anisotropic | 0.50 x / 0.89 y | 0% | 409,600 | queued, added after D reported |
+
 D and E were originally gated on the A2/B/C verdict. Ben asked for every arm to run, so
 both are queued now instead.
+
+**F is not in the plan.** It was added once B and D reported, because they turned out to
+move different levers: B has 3.4x the parameters at 1.00x object scale, D has 1.33x object
+scale at `n` size, and the plan contains no arm that has both. Neither component adds a
+runtime dependency, which is what makes the combination worth a run where a cropped
+high-resolution arm is not.
 
 E's corpus comes from a DeepLab pass over all 32,487 images, which found a field in all but
 3. Cropping to the field box plus a 0.20 margin drops a label on 1.1% of training frames
@@ -265,7 +279,185 @@ paired.
 
 ## Results
 
-Pending. Arms A2, B and C are queued behind other work on the shared GPUs.
+Scored on the full 688-frame eval set, `--conf 0.5`, paired bootstrap 1000x against arm A.
+Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
+
+| arm | model | input | robot px | agnostic recall | precision | f1 | mAP50 | mAP50-95 | tensor px |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| A | yolo26n | 640x640 letterbox | 1.00x | 0.780 | 0.858 | 0.817 | 0.754 | 0.481 | 409,600 |
+| A2 | yolo26n | 384x640 letterbox | 1.00x | 0.784 | 0.861 | 0.820 | 0.758 | 0.480 | 245,760 |
+| B | yolo26s | 384x640 letterbox | 1.00x | **0.830** | 0.857 | 0.843 | 0.796 | 0.541 | 245,760 |
+| C | yolo26n | 576x1024 letterbox | 1.60x | 0.793 | 0.860 | 0.825 | 0.771 | 0.538 | 589,824 |
+| D | yolo26n | 640x640 stretch | 1.33x | **0.811** | 0.866 | 0.838 | 0.773 | 0.501 | 409,600 |
+| E | yolo26n | 640x640 field crop | 1.00x | **0.808** | **0.870** | 0.838 | 0.781 | 0.508 | 409,600 |
+| F | yolo26s | 640x640 stretch | 1.33x | **0.841** | 0.853 | 0.847 | 0.811 | **0.576** | 409,600 |
+
+| arm | metric | delta vs A | 95% CI | verdict |
+|---|---|---:|---|---|
+| A2 | recall | +0.003 | -0.009 to 0.017 | ns |
+| A2 | precision | +0.003 | -0.010 to 0.014 | ns |
+| B | **recall** | **+0.050** | **0.035 to 0.064** | **better** |
+| B | precision | -0.001 | -0.014 to 0.012 | ns |
+| B | f1 | +0.026 | 0.014 to 0.038 | better |
+| D | **recall** | **+0.031** | **0.016 to 0.047** | **better** |
+| D | precision | +0.008 | -0.006 to 0.021 | ns |
+| D | f1 | +0.020 | 0.008 to 0.033 | better |
+| E | **recall** | **+0.028** | **0.015 to 0.043** | **better** |
+| E | precision | +0.012 | -0.002 to 0.026 | ns |
+| E | f1 | +0.021 | 0.010 to 0.032 | better |
+| C | recall | +0.013 | -0.003 to 0.027 | ns |
+| F | **recall** | **+0.060** | **0.045 to 0.078** | **better** |
+| F | precision | -0.005 | -0.016 to 0.008 | ns |
+
+Three arms, three separate findings, and the design lets each one be attributed.
+
+**Padding is worth nothing.** A2 ties arm A on every metric at 40% fewer tensor pixels.
+Geometry alone moves recall by +0.003, inside noise.
+
+**Object scale is worth a lot.** D is arm A's model at arm A's tensor size. The only
+difference is that it fills the tensor by stretching instead of padding, which lands a robot
+at 1.33x the pixels. That buys +0.031 recall with precision unchanged. The plan's closing
+caveat says "none of this addresses object scale" and lists D as an also-ran below the
+rectangular arms; object scale turns out to be the thing worth having, and D is how you get
+it for free.
+
+**Model size is worth more.** B gains +0.050, and A2 is what proves that is the model-size
+term rather than the geometry: comparing B against A alone varies both at once, while A2
+pins geometry at nothing. This is a `yolo26s` result, not a 384x640 result. It is also the
+most expensive of the three.
+
+**Cropping away the background is worth about the same as scale.** E gains +0.028 recall and
+posts the highest precision of any arm at 0.870, though that precision gain does not clear
+significance on its own. Notably it is *not* the effect the scouting pass predicted: running
+a crop through square-trained weights gained precision (+0.032, significant) and no recall,
+while training on crops gained recall and left precision short of significance. The crop
+helps either way; the mechanism moved when the model got to learn on cropped images.
+
+E also settles the argument I had with myself about whether to run it at all. I cut the arm
+on the grounds that a field crop buys no zoom, which is true and measured. Then the scouting
+pass showed it winning on false positives instead, and Ben overruled the cut. The trained arm
+gains +0.028 recall. **The cut was wrong**, and the reason it was wrong is worth keeping: the
+analysis priced the one mechanism it had a model for, and treated the absence of that
+mechanism as the absence of an effect.
+
+The practical conclusion still lands where the cut did, for a different reason. D and E gain
+the same amount within overlapping CIs, but D needs a stretch branch in the preprocessor
+while E needs a DeepLab field estimate feeding the detector every frame plus a crop branch.
+**D dominates E on cost at equal benefit.**
+
+**Resolution buys localization, not detection, exactly as pre-registered.** C has more object
+scale than any other arm at 1.60x, and 1.44x arm A's tensor pixels. It gains +0.013 recall
+with a CI spanning zero. What it does gain is mAP50-95: 0.538 against A's 0.481, nearly
+matching B's 0.541. Tighter boxes, not more robots.
+
+The plan called this in advance. It recorded C's scouting result as "+0.027 mAP50-95 for
++0.003 recall - that is localization tightness", ruled that mAP50-95 must not drive the
+decision, and cited `mask_centroid_vs_box_2026-08-03.md` for why: targeting uses the
+centroid, so box tightness is not what limits this application. Training at the geometry
+changed nothing about that. **Registering the decision rule before looking is what makes
+this a clean result rather than an invitation to promote C on its mAP.**
+
+C is also the most expensive arm to train, by a distance. See "Arm C monopolizes the
+machine" below.
+
+That C loses to D is the sharpest thing in the table. C has *more* object scale than D, 1.60x
+against 1.33x, and 44% more tensor pixels, and it gains less recall. Their CIs overlap, so
+this is not a significant difference between the two arms and a single seed cannot settle it.
+But it does mean scale alone is not a clean explanation for D. Whatever D is doing -- filling
+the tensor, or the anisotropy itself acting on the augmentation pipeline -- more pixels
+spent isotropically does not reproduce it.
+
+### The effects do not add, which kills the stretch fork
+
+Measured against arm A the levers looked separable and additive: padding +0.003, resolution
++0.013, object scale by stretching +0.031, background removal +0.028, 3.4x the parameters
++0.050. That reading predicted `yolo26s` with stretched input at about 0.780 + 0.050 + 0.031
+= 0.861 recall. Arm F was run to check it.
+
+F is the best arm in the table at 0.841 recall, +0.060 against A, and it posts the highest
+mAP50-95 anywhere at 0.576. But the prediction was wrong, and the comparison that matters is
+not against A:
+
+| comparison | delta | 95% CI | verdict |
+|---|---:|---|---|
+| F vs A | +0.060 | 0.045 to 0.078 | better |
+| **F vs B** | **+0.011** | **-0.003 to 0.025** | **ns** |
+| D vs B | -0.019 | -0.034 to -0.004 | worse |
+
+**Stacked on a bigger model, the stretch buys nothing that can be measured.** D's +0.031
+over arm A shrinks to +0.011 with a CI spanning zero once `yolo26s` is underneath it. Roughly
+a third of the effect survives, and not enough of it to claim.
+
+The natural reading is that the two levers are buying the same thing. Both help the detector
+find small, low-contrast robots near the threshold, which is exactly what the detections
+figure shows arm A missing. More capacity and more pixels-per-robot are two routes to that
+one outcome, and having taken one route the second is largely redundant.
+
+**This overturns the recommendation this report carried until F reported.** "Adopt B, then
+add the stretch for another +0.031" is not supported. The stretch costs a branch in
+`YoloBboxRobotBlobModel::letterbox`, a branch in `trt_yolo.py::preprocess_frame`, a config
+flag to select it, and a permanent second preprocessing path that every future engine has to
+declare correctly -- a failure mode this experiment hit twice, once in the detections figure
+and once in the latency run. Paying that for +0.011 ns is not a trade worth making.
+
+Arm D keeps its value as an explanation rather than a product: it is what isolates object
+scale from model size and proves the padding is not the thing that matters. It is just not
+something to build once B is in place.
+
+Two caveats on the magnitude, neither of which touches the sign:
+
+- The paired bootstrap resamples eval *frames*, so its CI describes sampling noise on this
+  688-frame set. It says nothing about training-seed variance, and `data_epoch_min` measured
+  a ~0.048 run-to-run spread on a single seed. +0.050 is the same size. What supports the
+  effect being real is not the CI alone but that it agrees with the plan's scouting, where
+  square-trained `s` also beat `n` by about this much at both geometries.
+- Training at the geometry did not beat exporting a square-trained model to it. Scouting had
+  `s` at 384x640 at 0.837 recall; B, trained there, came in at 0.830. Inside noise, but it
+  means the "train at the geometry you deploy at" premise bought nothing measurable here.
+
+mAP50-95, reported separately and not driving the decision: A2 0.480 against A's 0.481, B
+0.541. B's localization is tighter, which `mask_centroid_vs_box_2026-08-03.md` established
+is not what limits this application since targeting uses the centroid.
+
+E and C are still training. Latency is deliberately not measured yet: the GPUs are running
+the remaining arms, and a contended `benchmark_engines.py` number is worthless. All engines
+get timed together once the box is idle.
+
+A2 trained in 1.87 h, B in 2.41 h, D in 1.87 h. No log carries a single `'rect=True' is
+incompatible with DataLoader shuffle` warning, confirming on the real three-GPU runs what
+the batch-shape check predicted.
+
+### What the disagreements look like
+
+![the same robots as each arm sees them](assets/2026-09-05_input_geometry/detections.png)
+
+Of 1,730 readable GT robots, the arms disagree on 314. Rows lead with those, smallest first,
+since that is where geometry is expected to matter. The top two rows are the shape of the
+whole result: a small, low-contrast robot that arm A misses outright and that B and D both
+find. The recall deltas are not spread thinly over the eval set, they are concentrated on
+robots near the detection threshold.
+
+Row three is worth keeping honest about. E misses a robot the other three find, which is a
+reminder that its +0.028 is a net figure over an arm that also introduces its own failures:
+when the DeepLab field box is wrong, the crop takes the robot with it.
+
+Every arm is drawn through the preprocessing it was trained with. The first render of this
+figure did not do that: it built its own engines and quietly ran D through a letterbox, which
+is exactly the silent failure `TrtYoloModel.describe()` now prints the mode to catch. The
+figure and `score.py` share one detector builder so they cannot diverge again.
+
+### Arm C monopolizes the machine
+
+Worth recording against C before its recall arrives. `cache="ram"` holds every image resized
+to the training geometry, so its size scales with the tensor. At `imgsz=640` that is
+640x360x3 = 691 KB an image, about 18 GB per DDP process and 54 GB across three. At
+`imgsz=1024` it is 1024x576x3 = 1.77 MB, **about 46 GB per process and 204 GB across three**,
+which left 4 GB free on a 251 GB box and started getting unrelated processes killed.
+
+C was restarted with `--cache false`. With the RAM freed the page cache holds the whole 12 GB
+corpus, so re-reading JPEGs each epoch costs little. But the cost is real and it is C's
+alone: 1.6x the resolution for 2.6x the training memory, on the one arm that cannot share
+the machine with anything else.
 
 ## Decision rule, registered before looking
 
@@ -279,3 +471,160 @@ limits this application, since targeting uses the centroid.
 Single seed per arm. The scouting deltas between geometries were 0.002-0.005 recall,
 far below the ~0.048 run-to-run spread `data_epoch_min` measured, so this experiment can
 establish parity and not a small win. A 0.003 difference is not a result.
+
+## Preprocessing audit
+
+Three arms are scored through preprocessing that differs from the default letterbox, and a
+mismatch there fails silently: the engine still runs, still returns boxes, and simply scores
+worse for a reason nothing reports. This experiment hit that failure twice, once in the
+detections figure and once in the latency run, so the results were audited rather than
+assumed.
+
+**Every arm got the mode it was trained with.** Re-running `build_detector` with the exact
+flags used for the final scoring run:
+
+| arm | engine input | mode applied |
+|---|---|---|
+| A | `[1, 3, 640, 640]` | letterbox |
+| A2 | `[1, 3, 384, 640]` | letterbox |
+| B | `[1, 3, 384, 640]` | letterbox |
+| C | `[1, 3, 576, 1024]` | letterbox |
+| D | `[1, 3, 640, 640]` | stretch |
+| E | `[1, 3, 640, 640]` | letterbox + field crop |
+| F | `[1, 3, 640, 640]` | stretch |
+
+**The flags demonstrably change the result**, so a number in this report cannot have come
+from a silent fallback to letterbox. Scoring the same engines both ways on the full eval set:
+
+| arm | correct mode | wrong mode | recall delta |
+|---|---:|---:|---|
+| D | stretch 0.811 | letterbox 0.746 | +0.065 |
+| F | stretch 0.841 | letterbox 0.809 | +0.032, CI 0.019 to 0.046 |
+
+The mismatch signature is worth recognising: `F` under a letterbox posts *higher* precision
+(0.905 against 0.853) and much lower recall. Fed the wrong aspect ratio the model finds fewer
+robots and is more confident about the ones it finds, so any metric that rewards precision
+alone will look fine while recall quietly drops.
+
+One caution from doing this audit. On a single recording, `F` scored *better* letterboxed
+(0.878 against 0.868), which reversed on the full 688-frame set. That is the third time in
+this experiment a single-recording result has failed to generalise, after the field-crop
+recall gain and the plan's own note about one frame where a rectangular engine found three
+boxes and a square one found none.
+
+**Train and inference match by construction**, checked arm by arm. D and F train on images
+pre-stretched from 1920x1080 to 640x640 and infer by stretching 1280x720 to 640x640: the
+same 16:9-to-square mapping. E trains on cropped images letterboxed to 640x640 by ultralytics
+and infers by cropping then letterboxing, with the same 0.20 margin and the same DeepLab
+model on both sides. A2, B and C train with `rect=True` at 1920x1080 and infer at 1280x720;
+both letterbox to the same content aspect and the same 6.2% padding, because the scale is
+width-bound in both cases.
+
+**The known remaining gap is the latency table**, not the accuracy results.
+`benchmark_engines.py` constructs engines without a preprocessing mode, so D, E and F were
+timed through a letterbox and E without its crop. That is called out in that section: the
+timings are still valid as engine costs since the tensor sizes are unchanged, but they do not
+include E's crop or its field estimate.
+
+## Latency
+
+`benchmark_engines.py`, 300 timed iterations after 50 warmup, one real eval frame, on an
+idle box. Submitted through the queue at priority 2 precisely so the worker's idle-GPU check
+would guarantee no contention: every earlier attempt would have been taken while three GPUs
+were saturated with training.
+
+| arm | GPU ms | total ms | vs A GPU | vs A total | tensor px |
+|---|---:|---:|---:|---:|---:|
+| A `640x640` | 1.228 | 2.293 | — | — | 409,600 |
+| A2 `384x640` | **1.050** | **1.816** | **-14.5%** | **-20.8%** | 245,760 |
+| B `s` `384x640` | 1.226 | 1.982 | -0.2% | -13.6% | 245,760 |
+| C `576x1024` | 1.509 | 3.215 | +22.9% | +40.2% | 589,824 |
+| D stretch | 1.222 | 2.249 | -0.5% | -1.9% | 409,600 |
+| E field crop | 1.218 | 2.301 | -0.8% | +0.3% | 409,600 |
+
+**B costs the same GPU time as the model it replaces.** 1.226 ms against arm A's 1.228 ms,
+for +0.050 recall. That is the deployment claim the plan set out to test, stated as "the
+bigger model at nano cost", confirmed on the trained engines rather than on scouting
+exports. Total time is 13.6% lower because the smaller input also cuts preprocessing.
+
+A2 is the clean geometry result: same accuracy as A, 14.5% less GPU time and 20.8% less
+total. Nobody should deploy A2 when B is available at the same tensor size, but it is the
+number that proves the padding was pure waste.
+
+C fails the second half of the rule as decisively as the first: +22.9% GPU and +40.2% total
+for a recall delta whose CI spans zero.
+
+D and E are the same tensor size as A and time the same, so their recall gains cost nothing
+at inference. Two caveats on those two rows. `benchmark_engines.py` builds its engines
+without a preprocessing mode, so D was timed through a letterbox and E without its crop; a
+stretch is one `cv2.resize` against a resize plus a `copyMakeBorder`, so if anything D is
+slightly cheaper than shown. E's row does **not** include the DeepLab field estimate, which
+`runner.cpp:382` already computes before perception, nor the crop itself.
+
+The `dets` column is worth reading: D scores 0 detections on this frame. That is not a bug in
+the arm, it is the preprocessing mismatch showing up directly -- a stretch-trained engine fed
+a letterboxed frame finds nothing. It is the same failure the detections figure hit, and the
+reason `TrtYoloModel.describe()` prints the mode.
+
+## Verdict
+
+Applying the rule above to the measured arms:
+
+| arm | recall vs A | vs B | GPU ms vs A | verdict | what it costs to adopt |
+|---|---:|---:|---:|---|---|
+| A2 `384x640` | +0.003 ns | — | -14.5% | recall-neutral | nothing, drop-in engine swap |
+| **B** `s` `384x640` | **+0.050 better** | — | **-0.2%** | **adopt** | nothing, drop-in engine swap |
+| C `576x1024` | +0.013 ns | — | +22.9% | reject | 1.44x the tensor, 204 GB to train |
+| D stretch | +0.031 better | -0.019 worse | -0.5% | reject | a stretch branch in two preprocessors |
+| E field crop | +0.028 better | — | -0.8% | reject | a per-frame field estimate feeding the detector |
+| F `s` stretch | +0.060 better | +0.011 ns | -0.5% | reject | the same stretch branch, for no measurable gain |
+
+**Deploy `yolo26s` at 384x640.** It beats the current `yolo26n` at 640x640 by 0.050 recall
+with precision unchanged, on 40% fewer tensor pixels, and the C++ blob model reads its input
+size from the engine so the swap needs no code change. This is the deployment question the
+plan set out to answer and the answer is yes: `s` quality at `n` cost.
+
+**Do not build the stretch fork.** Arm F tested whether the stretch stacks on B and it does
+not: +0.011 recall with a CI spanning zero. The +0.031 that D wins against arm A is largely
+the same thing `yolo26s` already buys, so paying for a permanent second preprocessing path
+gets nothing measurable. If someone wants to revisit it, the way in is a second seed on B and
+F, not a bigger single-seed delta.
+
+**Reject C and E**, for different reasons. C fails the rule outright: recall-neutral, so its
+mAP50-95 cannot buy adoption, and it is the most expensive arm to train and to run. E passes
+the rule but loses to D on cost at equal benefit, and coupling the detector to the field
+estimate is a failure mode the current pipeline does not have. The figure above shows E
+missing a robot the other three arms find, which is what that coupling looks like when the
+field box is wrong.
+
+The plan's closing caveat half survives. It said "none of this addresses object scale ...
+only arm C and arm E change the scale at all" and expected geometry to be a latency lever and
+not an accuracy one. Geometry is indeed not an accuracy lever, +0.003, and the plan was right
+that the remaining headroom is in the corpus rather than in preprocessing. It missed that
+arm D changes object scale too, by 1.33x for free, which made D look like the find of the
+experiment for about a day. Arm F then showed that gain does not survive contact with a
+bigger model. **The plan's ranking of D below the rectangular arms turns out to be correct,
+for a reason the plan did not give.**
+
+That sequence is the methodological point of this report. D against A was a real, significant
++0.031 with a clean CI, and it was still the wrong thing to build, because the comparison that
+governs the decision is against the arm you would otherwise ship, not against the arm you
+happen to be running today.
+
+## What is still missing
+
+- **Jetson latency.** The x86 numbers are measured and B clears the rule on them. The Jetson
+  sequence from `model_size_2026-09-04.md` still has to be run on the Orin: an A6000 result
+  does not establish a reduction in `runner.perception_batch.update` on the deployment
+  hardware, which is what the rule actually names and what the 60 ms budget is set by. B is
+  ready to adopt pending that measurement, not before it.
+- **A second seed on B and F.** F is +0.011 over B with a CI of -0.003 to 0.025. That is the
+  one comparison in this report where a second seed would actually change a decision: if the
+  stretch really is worth 0.011 on top of `s`, a paired pair of seeds would show it, and if it
+  is not, the fork stays unbuilt on firmer ground than one run each.
+- **Single seed everywhere.** Every delta here is one training run against one training run,
+  and `data_epoch_min` measured ~0.048 run-to-run spread on this corpus. B's +0.050 and D's
+  +0.031 are supported by agreeing with the scouting pass, not by their CIs, which cover
+  eval-frame sampling and not seed variance. A second seed on B and D would settle it.
+- **The keypoint model and DeepLab still take their own input sizes.** A rectangular blob
+  engine does not change that, and nothing here should be read as a shared resize.

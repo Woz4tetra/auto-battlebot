@@ -32,16 +32,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 from score import (
-    EngineDetector,
     Taxonomy,
+    build_detector,
     infer_frames,
     iou_matrix,
     load_gt,
     match_indices,
     parse_candidates,
 )
-
-from auto_battlebot.trt_yolo import TrtYoloModel
 
 TILE = 300
 PAD = 6
@@ -166,21 +164,18 @@ def is_truncated(box: np.ndarray, width: int, height: int) -> bool:
 
 
 def infer_all_arms(args: argparse.Namespace, gt_frames: dict, images: dict, taxonomy: Taxonomy):
+    """Run every candidate, each through the preprocessing it was trained with.
+
+    Shares `score.build_detector` rather than constructing engines here, so a stretch- or
+    crop-trained arm is drawn the same way it is scored. Building detectors locally is how
+    the first version of this figure silently drew arm D through a letterbox.
+    """
     class_labels = [label.strip() for label in args.labels.split(",")]
     candidates = parse_candidates(args.candidate)
     per_arm: dict[str, list] = {}
     for name, engine_path in candidates.items():
-        if not engine_path.exists():
-            raise SystemExit(f"Candidate not found: {engine_path}")
         print(f"Inferring {name}: {engine_path}")
-        detector = EngineDetector(
-            TrtYoloModel(
-                str(engine_path),
-                conf_threshold=args.conf,
-                nms_iou_threshold=args.nms_iou,
-                num_classes=len(class_labels),
-            )
-        )
+        detector = build_detector(name, engine_path, class_labels, images, args)
         print(f"  {detector.describe()}")
         per_arm[name] = infer_frames(gt_frames, images, detector, class_labels, taxonomy)
     return list(candidates), per_arm
@@ -297,10 +292,12 @@ def render(arms: list[str], picked: list[dict]) -> np.ndarray:
         for arm in arms:
             hit = row["found"][arm]
             tile = draw_tile(image, row["gt_box"], hit["box"] if hit else None)
+            # The column header already names the arm; repeating it here only pushed the
+            # numbers off the edge of a 300 px tile.
             if hit is None:
-                caption, emphasis = f"{arm}: missed", False
+                caption, emphasis = "missed", False
             else:
-                caption = f"{arm}: IoU {hit['iou']:.2f}  conf {hit['score']:.2f}"
+                caption = f"IoU {hit['iou']:.2f}   conf {hit['score']:.2f}"
                 emphasis = abs(hit["iou"] - best) < 1e-9
             tiles.append(caption_tile(tile, caption, emphasis))
         strip = np.full((tiles[0].shape[0] + PAD, grid_w, 3), SURFACE, dtype=np.uint8)
@@ -324,6 +321,26 @@ def main() -> None:
         help="candidate TensorRT engine, repeatable; the first is the baseline column",
     )
     parser.add_argument("--labels", required=True, help="GT label per engine class index")
+    parser.add_argument(
+        "--stretch",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="candidate trained on stretched images; fit frames by stretching. Repeatable.",
+    )
+    parser.add_argument(
+        "--field-boxes",
+        action="append",
+        default=[],
+        metavar="NAME=JSON",
+        help="candidate trained on field crops; crop each frame to its box first. Repeatable.",
+    )
+    parser.add_argument(
+        "--crop-margin",
+        type=float,
+        default=0.20,
+        help="margin around the field box for --field-boxes candidates",
+    )
     parser.add_argument("--taxonomy", type=Path, help="label -> archetype mapping yaml")
     parser.add_argument("--iou", type=float, default=0.5, help="IoU match threshold")
     parser.add_argument("--conf", type=float, default=0.5, help="inference confidence threshold")

@@ -69,7 +69,7 @@ trained at batch 96 / 100 epochs / seed 0, which is exactly this design.
 ## Running the arms
 
 A2, B and C are independent and can all be queued at once; the worker runs them one at a
-time in priority then submission order.
+time in submission order.
 
 **Two flags in the commands below do not exist yet.** `train.py` has no `--rect` (called
 out under "Implementation per arm") and **no `--imgsz` either** - `imgsz` is baked into the
@@ -93,8 +93,8 @@ $Q logs <id> --tail 40     # check the first epochs for the shuffle and mosaic q
 ```
 
 Do not queue D or E yet. D waits on the A2/B/C verdict, and E waits on its go/no-go field
-fraction check - which is cheap enough to submit with `--priority 1` so it jumps ahead of a
-queued multi-hour train.
+fraction check. The queue is first-come first-served, so a cheap check submitted behind a
+multi-hour train waits for it; `$Q status` says how long that will be.
 
 The `train_batch*.jpg` and shuffle checks below need the run to have started. Poll
 `$Q status` rather than assuming a submitted job is running; another agent's arm or the
