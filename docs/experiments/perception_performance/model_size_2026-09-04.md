@@ -256,6 +256,10 @@ retained if an earlier checkpoint ever needs scoring.
   152.8 ms end-to-end. Revisit only after buying back tick time elsewhere. The named
   candidates in `parallel_yolo_batch/comparison.md` are moving `publish_camera_data` after
   the command send (~10 ms) and merging the two YOLOs into one multi-head engine.
+  **INT8 quantization was the third candidate and is now ruled out**:
+  `int8_quantization_2026-09-06.md` measured it at -0.054 recall on `x`, which is more than
+  the +0.038 by which `x` beats the arm actually being shipped, so quantized `x` is no better
+  than `yolo26s` at 384x640 while costing 2.4x its GPU time.
 - **Fix the 60 ms end-to-end budget separately.** `n` misses it at 69.7 ms p95 today, so
   the budget is not a reason to hold `s` back.
 - **Stop tuning the detector on val.** It mis-ordered the arms here. Score on

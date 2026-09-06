@@ -351,7 +351,10 @@ well as the operating point, or the calibration shift will read as an accuracy g
   heading at the operating point. It is dominated on both axes.
 - **Treat `yolo26x-pose` as the model to buy tick time for.** It is a real improvement and the
   only arm that beats the deployed model. Measure it on the Jetson before committing, and pair
-  that with a plan for where the ~3.3 ms comes from.
+  that with a plan for where the ~3.3 ms comes from. **Not from quantizing the detector**:
+  `int8_quantization_2026-09-06.md` registered that funding case as its clause (c), requiring
+  a recall-neutral INT8 detector, and no arm was recall-neutral. The deployment detector lost
+  0.032 recall at 8 bits, so the 3.3 ms has to come from somewhere else.
 - **Add real cage footage with keypoint labels.** Still the cheapest lever, and now the only
   one that helps the model actually running on the robot.
 - **Re-split `all_robot_keypoints` by scene**, or keep grading exclusively on the eval set.
