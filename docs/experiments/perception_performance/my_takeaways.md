@@ -171,8 +171,9 @@ nothing, and I can have those pixels back for free.
 What to do with them is the interesting part. Four things I tried, all against the deployed
 yolo26n at 640x640, agnostic recall on the eval set:
 
-- 3.4x the parameters (yolo26s at 384x640): +0.050. Biggest single lever, and it fits in
-  fewer tensor pixels than what I deploy today.
+- 3.4x the parameters (yolo26s at 384x640): +0.050, for the same GPU time as the yolo26n I
+  run today. 1.226 ms against 1.228 ms, measured on an idle box. Biggest single lever and it
+  is free, because the padding I stop spending pays for the bigger model.
 - Stretch the frame to fill the tensor: +0.031. Same model, same tensor size, no padding.
   Squeezing 16:9 into a square costs 0.5x horizontally but only 0.89x vertically, so a robot
   lands on 1.33x the pixels. This is free accuracy and I nearly did not run it.
@@ -187,8 +188,9 @@ The one that surprised me is that 576x1024 lost to the stretch despite having mo
 scale (1.60x against 1.33x) and 44% more pixels. Their CIs overlap so a single seed cannot
 settle it, but scale alone does not explain what the stretch is doing.
 
-Deployment answer: yolo26s at 384x640. It beats what I run now by 0.050 recall on 40% fewer
-tensor pixels. Then add the stretch, which is one branch in the preprocessor for another
+Deployment answer: yolo26s at 384x640. It beats what I run now by 0.050 recall at the same
+GPU cost, on 40% fewer tensor pixels. Still needs the Jetson number before I actually swap
+it: an A6000 says nothing about the Orin, and the 60 ms budget is set there. Then add the stretch, which is one branch in the preprocessor for another
 +0.031 if the effects add. That combination is training as arm F.
 
 Three process lessons worth more than the numbers.

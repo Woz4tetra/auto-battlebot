@@ -439,17 +439,57 @@ Single seed per arm. The scouting deltas between geometries were 0.002-0.005 rec
 far below the ~0.048 run-to-run spread `data_epoch_min` measured, so this experiment can
 establish parity and not a small win. A 0.003 difference is not a result.
 
+## Latency
+
+`benchmark_engines.py`, 300 timed iterations after 50 warmup, one real eval frame, on an
+idle box. Submitted through the queue at priority 2 precisely so the worker's idle-GPU check
+would guarantee no contention: every earlier attempt would have been taken while three GPUs
+were saturated with training.
+
+| arm | GPU ms | total ms | vs A GPU | vs A total | tensor px |
+|---|---:|---:|---:|---:|---:|
+| A `640x640` | 1.228 | 2.293 | — | — | 409,600 |
+| A2 `384x640` | **1.050** | **1.816** | **-14.5%** | **-20.8%** | 245,760 |
+| B `s` `384x640` | 1.226 | 1.982 | -0.2% | -13.6% | 245,760 |
+| C `576x1024` | 1.509 | 3.215 | +22.9% | +40.2% | 589,824 |
+| D stretch | 1.222 | 2.249 | -0.5% | -1.9% | 409,600 |
+| E field crop | 1.218 | 2.301 | -0.8% | +0.3% | 409,600 |
+
+**B costs the same GPU time as the model it replaces.** 1.226 ms against arm A's 1.228 ms,
+for +0.050 recall. That is the deployment claim the plan set out to test, stated as "the
+bigger model at nano cost", confirmed on the trained engines rather than on scouting
+exports. Total time is 13.6% lower because the smaller input also cuts preprocessing.
+
+A2 is the clean geometry result: same accuracy as A, 14.5% less GPU time and 20.8% less
+total. Nobody should deploy A2 when B is available at the same tensor size, but it is the
+number that proves the padding was pure waste.
+
+C fails the second half of the rule as decisively as the first: +22.9% GPU and +40.2% total
+for a recall delta whose CI spans zero.
+
+D and E are the same tensor size as A and time the same, so their recall gains cost nothing
+at inference. Two caveats on those two rows. `benchmark_engines.py` builds its engines
+without a preprocessing mode, so D was timed through a letterbox and E without its crop; a
+stretch is one `cv2.resize` against a resize plus a `copyMakeBorder`, so if anything D is
+slightly cheaper than shown. E's row does **not** include the DeepLab field estimate, which
+`runner.cpp:382` already computes before perception, nor the crop itself.
+
+The `dets` column is worth reading: D scores 0 detections on this frame. That is not a bug in
+the arm, it is the preprocessing mismatch showing up directly -- a stretch-trained engine fed
+a letterboxed frame finds nothing. It is the same failure the detections figure hit, and the
+reason `TrtYoloModel.describe()` prints the mode.
+
 ## Verdict
 
 Applying the rule above to the measured arms:
 
-| arm | recall vs A | verdict | tensor px | what it costs to adopt |
-|---|---:|---|---:|---|
-| A2 `384x640` | +0.003 ns | recall-neutral | 245,760 | nothing, drop-in engine swap |
-| **B** `s` `384x640` | **+0.050 better** | **adopt** | 245,760 | nothing, drop-in engine swap |
-| C `576x1024` | +0.013 ns | reject | 589,824 | 1.44x the tensor, 204 GB to train |
-| **D** stretch | **+0.031 better** | **adopt with B** | 409,600 | a stretch branch in two preprocessors |
-| E field crop | +0.028 better | reject | 409,600 | a per-frame field estimate feeding the detector |
+| arm | recall vs A | GPU ms vs A | verdict | what it costs to adopt |
+|---|---:|---:|---|---|
+| A2 `384x640` | +0.003 ns | -14.5% | recall-neutral | nothing, drop-in engine swap |
+| **B** `s` `384x640` | **+0.050 better** | **-0.2%** | **adopt** | nothing, drop-in engine swap |
+| C `576x1024` | +0.013 ns | +22.9% | reject | 1.44x the tensor, 204 GB to train |
+| **D** stretch | **+0.031 better** | -0.5% | **adopt with B** | a stretch branch in two preprocessors |
+| E field crop | +0.028 better | -0.8% | reject | a per-frame field estimate feeding the detector |
 
 **Deploy `yolo26s` at 384x640.** It beats the current `yolo26n` at 640x640 by 0.050 recall
 with precision unchanged, on 40% fewer tensor pixels, and the C++ blob model reads its input
@@ -477,11 +517,11 @@ building.
 
 ## What is still missing
 
-- **Jetson latency.** `benchmark_engines.py` is queued to run on an idle box for the
-  x86 numbers. The Jetson sequence from `model_size_2026-09-04.md` still has to be run on the
-  Orin, and the decision rule requires a measured reduction in
-  `runner.perception_batch.update` before anything is adopted. The accuracy case for B is
-  made; the latency half of the rule is not yet evidenced on the target.
+- **Jetson latency.** The x86 numbers are measured and B clears the rule on them. The Jetson
+  sequence from `model_size_2026-09-04.md` still has to be run on the Orin: an A6000 result
+  does not establish a reduction in `runner.perception_batch.update` on the deployment
+  hardware, which is what the rule actually names and what the 60 ms budget is set by. B is
+  ready to adopt pending that measurement, not before it.
 - **Arm F**, `yolo26s` with stretched input, queued. If the effects add it should land near
   0.86 recall.
 - **Single seed everywhere.** Every delta here is one training run against one training run,
