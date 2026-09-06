@@ -13,31 +13,34 @@ finding this experiment reproduces and explains.
 
 ## Headline
 
-1. **Capacity does not buy keypoint accuracy here.** `yolo26s-pose` has 4x the parameters of
-   `yolo26n-pose` and is not better at placing keypoints at any confidence: pixel error and
-   PCK@0.1 are `ns` at all four thresholds, with `s` marginally *worse* on both point
-   estimates.
-2. **The registered decision rule fails.** Criterion (a) required `kp_heading_err_deg` to
-   improve with a 95% CI excluding 0. The CI excludes 0 at exactly one threshold - conf 0.5,
-   the deployed operating point - and in the **wrong direction**: `s` is +2.475 deg worse
-   [+0.400, +4.683]. **Do not adopt `yolo26s-pose`.**
-3. **What capacity does buy is detection.** `s` gains agnostic recall at every threshold
-   (+0.052 / +0.097 / +0.087 / +0.039) with equal or better precision, every one significant.
-   That is the same effect the bbox sweep measured - it just lands on the metric the keypoint
-   model is not responsible for.
-4. **The answer is data-limited, not capacity-limited.** This is the outcome the plan's risk
-   section flagged as possible, and it is what happened. The deployed 2-class `our_robots`
-   model, trained on a smaller and older corpus, still localizes keypoints **better** than
-   either arm at matched confidence (conf 0.5: 9.85 px / PCK 0.704 against `n`'s 11.47 /
-   0.691 on a near-identical 502 vs 492 matched boxes).
-5. **The 200-epoch gain is confidence calibration, not keypoint quality.** Scored at conf 0.5
+1. **Model size matters for keypoints, but only at the top of the range.** `yolo26x-pose`
+   improves keypoint pixel error and PCK@0.1 against `yolo26n-pose` significantly at all four
+   confidences (conf 0.5: 9.57 px / 0.765 against 11.47 / 0.691). `yolo26s-pose`, at 4x the
+   baseline's parameters, improves neither at any confidence. The gain is non-monotonic in
+   parameters, the same shape `model_size_2026-09-04.md` found on the box head.
+2. **The registered decision rule is split.** Criterion (a) required `kp_heading_err_deg` to
+   improve with a 95% CI excluding 0. `x` clears it at conf 0.05 (-5.07 deg,
+   [-7.57, -2.47]) and conf 0.3 (-4.17 deg, [-6.74, -1.84]); at conf 0.5 and 0.6 heading
+   favours `x` but the CI includes 0. `s` fails everywhere and is significantly **worse** at
+   conf 0.5 (+2.48 deg, [+0.40, +4.68]).
+3. **`x`'s gain is not the threshold artifact that fools this metric.** At conf 0.05 `x`
+   matches *more* boxes than `n` (1042 against 977) and scores better on all of them. That is
+   the opposite signature to the epoch ladder in the next section, where later checkpoints
+   improved heading only by discarding their hard detections.
+4. **`x` is the first all-robots pose model to beat the deployed `our_robots` model.** At conf
+   0.5 it reaches 9.57 px / 0.765 PCK / 9.09 deg on 699 matched boxes against the deployed
+   model's 9.85 / 0.704 / 10.43 on 502. `all_robots_pose_2026-07-14.md` found the opposite for
+   `yolo26n-pose` on this corpus, and this experiment reproduces that for `n` and `s`.
+5. **Criterion (b) is what stops it.** `x` costs 2.52x `n`'s inference time on the dev box
+   (+3.58 ms total, +3.29 ms of GPU time). The Jetson perception batch has roughly 1 ms of
+   tick headroom, so the GPU-time increase alone exceeds the budget several times over.
+6. **The 200-epoch gain is confidence calibration, not keypoint quality.** Scored at conf 0.5
    the ep100 -> ep200 heading improvement looks enormous (16.87 -> 10.45 deg). At conf 0.05,
    where the checkpoints retain comparable detection counts, keypoint placement is flat:
-   14.52 / 14.54 / 14.56 px. Later checkpoints are more confident, so a fixed threshold keeps
-   only their easy detections and heading improves by selection.
-6. **Val is useless on this corpus and says the opposite.** Both arms score pose mAP50 above
-   0.94 on val while managing PCK@0.1 near 0.52 on the eval set. The val split is a random
-   frame-level split of a 97.8% synthetic corpus.
+   14.52 / 14.54 / 14.56 px.
+7. **Val is useless on this corpus.** It ranks the arms `n` < `s` < `x` monotonically on every
+   metric, including the `n` -> `s` step the eval set says does not exist. The split is a
+   random frame-level split of a 97.8% synthetic corpus.
 
 ## Setup
 

@@ -101,8 +101,9 @@ $Q logs <id> --tail 40
 ```
 
 At ~16 h these three arms hold the box for most of a day, so check `$Q status` before
-queueing and give a short scoring or export job `--priority 1` rather than waiting behind
-`x`. The val-split check needs no GPU and should not be queued at all.
+queueing: it prints the run order and when each job should finish, and a short scoring or
+export job queued behind `x` waits for it. The val-split check needs no GPU and should not
+be queued at all.
 
 ## Decision rule - register before looking
 

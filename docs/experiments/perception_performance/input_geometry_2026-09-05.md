@@ -290,6 +290,7 @@ Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
 | C | yolo26n | 576x1024 letterbox | 1.60x | 0.793 | 0.860 | 0.825 | 0.771 | 0.538 | 589,824 |
 | D | yolo26n | 640x640 stretch | 1.33x | **0.811** | 0.866 | 0.838 | 0.773 | 0.501 | 409,600 |
 | E | yolo26n | 640x640 field crop | 1.00x | **0.808** | **0.870** | 0.838 | 0.781 | 0.508 | 409,600 |
+| F | yolo26s | 640x640 stretch | 1.33x | **0.841** | 0.853 | 0.847 | 0.811 | **0.576** | 409,600 |
 
 | arm | metric | delta vs A | 95% CI | verdict |
 |---|---|---:|---|---|
@@ -305,6 +306,8 @@ Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
 | E | precision | +0.012 | -0.002 to 0.026 | ns |
 | E | f1 | +0.021 | 0.010 to 0.032 | better |
 | C | recall | +0.013 | -0.003 to 0.027 | ns |
+| F | **recall** | **+0.060** | **0.045 to 0.078** | **better** |
+| F | precision | -0.005 | -0.016 to 0.008 | ns |
 
 Three arms, three separate findings, and the design lets each one be attributed.
 
@@ -364,12 +367,42 @@ But it does mean scale alone is not a clean explanation for D. Whatever D is doi
 the tensor, or the anisotropy itself acting on the augmentation pipeline -- more pixels
 spent isotropically does not reproduce it.
 
-The arms stack in a way that suggests the obvious follow-up. Padding contributes nothing
-(+0.003), resolution contributes nothing to recall (+0.013), 1.33x object scale by stretching
-contributes +0.031, cropping the background contributes +0.028, and 3.4x the parameters
-contributes +0.050. Nobody has yet run `yolo26s` *and* stretched input, which on this
-evidence is the arm most likely to win, and it costs one more training run. It is queued as
-arm F.
+### The effects do not add, which kills the stretch fork
+
+Measured against arm A the levers looked separable and additive: padding +0.003, resolution
++0.013, object scale by stretching +0.031, background removal +0.028, 3.4x the parameters
++0.050. That reading predicted `yolo26s` with stretched input at about 0.780 + 0.050 + 0.031
+= 0.861 recall. Arm F was run to check it.
+
+F is the best arm in the table at 0.841 recall, +0.060 against A, and it posts the highest
+mAP50-95 anywhere at 0.576. But the prediction was wrong, and the comparison that matters is
+not against A:
+
+| comparison | delta | 95% CI | verdict |
+|---|---:|---|---|
+| F vs A | +0.060 | 0.045 to 0.078 | better |
+| **F vs B** | **+0.011** | **-0.003 to 0.025** | **ns** |
+| D vs B | -0.019 | -0.034 to -0.004 | worse |
+
+**Stacked on a bigger model, the stretch buys nothing that can be measured.** D's +0.031
+over arm A shrinks to +0.011 with a CI spanning zero once `yolo26s` is underneath it. Roughly
+a third of the effect survives, and not enough of it to claim.
+
+The natural reading is that the two levers are buying the same thing. Both help the detector
+find small, low-contrast robots near the threshold, which is exactly what the detections
+figure shows arm A missing. More capacity and more pixels-per-robot are two routes to that
+one outcome, and having taken one route the second is largely redundant.
+
+**This overturns the recommendation this report carried until F reported.** "Adopt B, then
+add the stretch for another +0.031" is not supported. The stretch costs a branch in
+`YoloBboxRobotBlobModel::letterbox`, a branch in `trt_yolo.py::preprocess_frame`, a config
+flag to select it, and a permanent second preprocessing path that every future engine has to
+declare correctly -- a failure mode this experiment hit twice, once in the detections figure
+and once in the latency run. Paying that for +0.011 ns is not a trade worth making.
+
+Arm D keeps its value as an explanation rather than a product: it is what isolates object
+scale from model size and proves the padding is not the thing that matters. It is just not
+something to build once B is in place.
 
 Two caveats on the magnitude, neither of which touches the sign:
 
@@ -483,23 +516,25 @@ reason `TrtYoloModel.describe()` prints the mode.
 
 Applying the rule above to the measured arms:
 
-| arm | recall vs A | GPU ms vs A | verdict | what it costs to adopt |
-|---|---:|---:|---|---|
-| A2 `384x640` | +0.003 ns | -14.5% | recall-neutral | nothing, drop-in engine swap |
-| **B** `s` `384x640` | **+0.050 better** | **-0.2%** | **adopt** | nothing, drop-in engine swap |
-| C `576x1024` | +0.013 ns | +22.9% | reject | 1.44x the tensor, 204 GB to train |
-| **D** stretch | **+0.031 better** | -0.5% | **adopt with B** | a stretch branch in two preprocessors |
-| E field crop | +0.028 better | -0.8% | reject | a per-frame field estimate feeding the detector |
+| arm | recall vs A | vs B | GPU ms vs A | verdict | what it costs to adopt |
+|---|---:|---:|---:|---|---|
+| A2 `384x640` | +0.003 ns | — | -14.5% | recall-neutral | nothing, drop-in engine swap |
+| **B** `s` `384x640` | **+0.050 better** | — | **-0.2%** | **adopt** | nothing, drop-in engine swap |
+| C `576x1024` | +0.013 ns | — | +22.9% | reject | 1.44x the tensor, 204 GB to train |
+| D stretch | +0.031 better | -0.019 worse | -0.5% | reject | a stretch branch in two preprocessors |
+| E field crop | +0.028 better | — | -0.8% | reject | a per-frame field estimate feeding the detector |
+| F `s` stretch | +0.060 better | +0.011 ns | -0.5% | reject | the same stretch branch, for no measurable gain |
 
 **Deploy `yolo26s` at 384x640.** It beats the current `yolo26n` at 640x640 by 0.050 recall
 with precision unchanged, on 40% fewer tensor pixels, and the C++ blob model reads its input
 size from the engine so the swap needs no code change. This is the deployment question the
 plan set out to answer and the answer is yes: `s` quality at `n` cost.
 
-**Then add the stretch.** It is worth +0.031 on its own for one branch in
-`YoloBboxRobotBlobModel::letterbox` and one in `trt_yolo.py::preprocess_frame`, plus a config
-flag. Whether it stacks on B is what arm F is training to find out; do not build the
-preprocessing fork until F reports.
+**Do not build the stretch fork.** Arm F tested whether the stretch stacks on B and it does
+not: +0.011 recall with a CI spanning zero. The +0.031 that D wins against arm A is largely
+the same thing `yolo26s` already buys, so paying for a permanent second preprocessing path
+gets nothing measurable. If someone wants to revisit it, the way in is a second seed on B and
+F, not a bigger single-seed delta.
 
 **Reject C and E**, for different reasons. C fails the rule outright: recall-neutral, so its
 mAP50-95 cannot buy adoption, and it is the most expensive arm to train and to run. E passes
@@ -508,12 +543,19 @@ estimate is a failure mode the current pipeline does not have. The figure above 
 missing a robot the other three arms find, which is what that coupling looks like when the
 field box is wrong.
 
-The plan's closing caveat needs revising. It said "none of this addresses object scale ...
+The plan's closing caveat half survives. It said "none of this addresses object scale ...
 only arm C and arm E change the scale at all" and expected geometry to be a latency lever and
-not an accuracy one. Geometry is indeed not an accuracy lever, +0.003. But arm D changes the
-scale as well, by 1.33x, for nothing, and it is the second-largest accuracy effect measured.
-The arm the plan ranked below the rectangular ones and gated behind them is the one worth
-building.
+not an accuracy one. Geometry is indeed not an accuracy lever, +0.003, and the plan was right
+that the remaining headroom is in the corpus rather than in preprocessing. It missed that
+arm D changes object scale too, by 1.33x for free, which made D look like the find of the
+experiment for about a day. Arm F then showed that gain does not survive contact with a
+bigger model. **The plan's ranking of D below the rectangular arms turns out to be correct,
+for a reason the plan did not give.**
+
+That sequence is the methodological point of this report. D against A was a real, significant
++0.031 with a clean CI, and it was still the wrong thing to build, because the comparison that
+governs the decision is against the arm you would otherwise ship, not against the arm you
+happen to be running today.
 
 ## What is still missing
 
@@ -522,8 +564,10 @@ building.
   does not establish a reduction in `runner.perception_batch.update` on the deployment
   hardware, which is what the rule actually names and what the 60 ms budget is set by. B is
   ready to adopt pending that measurement, not before it.
-- **Arm F**, `yolo26s` with stretched input, queued. If the effects add it should land near
-  0.86 recall.
+- **A second seed on B and F.** F is +0.011 over B with a CI of -0.003 to 0.025. That is the
+  one comparison in this report where a second seed would actually change a decision: if the
+  stretch really is worth 0.011 on top of `s`, a paired pair of seeds would show it, and if it
+  is not, the fork stays unbuilt on firmer ground than one run each.
 - **Single seed everywhere.** Every delta here is one training run against one training run,
   and `data_epoch_min` measured ~0.048 run-to-run spread on this corpus. B's +0.050 and D's
   +0.031 are supported by agreeing with the scouting pass, not by their CIs, which cover

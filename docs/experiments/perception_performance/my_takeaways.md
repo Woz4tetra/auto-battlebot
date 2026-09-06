@@ -176,7 +176,8 @@ yolo26n at 640x640, agnostic recall on the eval set:
   is free, because the padding I stop spending pays for the bigger model.
 - Stretch the frame to fill the tensor: +0.031. Same model, same tensor size, no padding.
   Squeezing 16:9 into a square costs 0.5x horizontally but only 0.89x vertically, so a robot
-  lands on 1.33x the pixels. This is free accuracy and I nearly did not run it.
+  lands on 1.33x the pixels. Looked like free accuracy until I stacked it on yolo26s, where
+  it added +0.011 with a CI spanning zero. Both levers are finding the same small robots.
 - Crop to the field first: +0.028. Works, but it makes the detector depend on the field
   estimate every frame and needs a crop branch in the C++ and Python preprocessors. Same
   benefit as the stretch for much more machinery, so the stretch wins.
@@ -188,10 +189,17 @@ The one that surprised me is that 576x1024 lost to the stretch despite having mo
 scale (1.60x against 1.33x) and 44% more pixels. Their CIs overlap so a single seed cannot
 settle it, but scale alone does not explain what the stretch is doing.
 
-Deployment answer: yolo26s at 384x640. It beats what I run now by 0.050 recall at the same
-GPU cost, on 40% fewer tensor pixels. Still needs the Jetson number before I actually swap
-it: an A6000 says nothing about the Orin, and the 60 ms budget is set there. Then add the stretch, which is one branch in the preprocessor for another
-+0.031 if the effects add. That combination is training as arm F.
+Deployment answer: yolo26s at 384x640, and nothing else. It beats what I run now by 0.050
+recall at the same GPU cost, on 40% fewer tensor pixels, and the C++ blob model reads its
+input size from the engine so the swap needs no code change. Still needs the Jetson number
+before I actually do it: an A6000 says nothing about the Orin, and the 60 ms budget is set
+there.
+
+I nearly built the stretch on top of it. Arm F, yolo26s with stretched input, is the best arm
+I have at 0.841 recall, but against B rather than against what I deploy today it is +0.011
+with a CI spanning zero. The stretch and the bigger model are finding the same small robots,
+so a second preprocessing path in C++ and Python buys nothing I can measure. Compare against
+the thing you would otherwise ship, not against the thing you happen to be running.
 
 Three process lessons worth more than the numbers.
 
