@@ -2,8 +2,8 @@
 """Serial GPU job queue, so several agents can share megamind's three A6000s.
 
 Every training arm in the experiment plans runs DDP across all three GPUs, so the
-scheduling unit is the whole box: one job at a time, highest priority first, FIFO
-within a priority. Agents submit and poll rather than launching training directly.
+scheduling unit is the whole box: one job at a time, in submission order. Agents
+submit and poll rather than launching training directly.
 
     training/gpu_queue.py submit --name B_s384x640 -- \\
         venv/bin/python training/yolo/train.py training/data/... yolo26s -d 0 1 2 -b 96
@@ -22,13 +22,15 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import shlex
 import signal
+import statistics
 import subprocess
 import sys
 import time
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +46,19 @@ LOG_DIR = QUEUE_DIR / "logs"
 BUSY_MIB = int(os.environ.get("AB_GPU_QUEUE_BUSY_MIB", "1024"))
 POLL_SECONDS = 10
 TERMINAL_STATES = ("done", "failed", "cancelled")
+ACTIVE_STATES = ("running", "claimed")
+# Ultralytics' epoch counter ("  46/100      12.7G  ...") and its batch bar
+# ("111/270 2.5it/s"), which together say how far a running train job has got.
+EPOCH_RE = re.compile(r"\s(\d+)/(\d+)\s+[\d.]+G\s")
+BATCH_RE = re.compile(r"(\d+)/(\d+)\s+[\d.]+it/s")
+LOG_TAIL_BYTES = 256 * 1024
+# How far up the parent chain to look when deciding which job owns a GPU process.
+PROC_DEPTH = 12
+# Fraction of a job that must be done before its own log beats the historical estimate.
+PROGRESS_TRUST = 0.15
+# A run this short is a smoke test or an export, not a training arm to learn from.
+MIN_HISTORY_SECONDS = 300
+SMOKE_EPOCHS = 10
 # Never inherited from the agent that started the worker; see job_env.
 UNSAFE_ENV = frozenset(
     {
@@ -160,7 +175,6 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "cwd": str(Path(args.cwd).resolve()),
             "env": env,
             "devices": devices,
-            "priority": args.priority,
             "submitted_by": args.by or os.environ.get("CLAUDE_AGENT_NAME", "unknown"),
             "submitted_at": now(),
             "state": "queued",
@@ -185,11 +199,16 @@ def cmd_submit(args: argparse.Namespace) -> int:
     return 0
 
 
+def queued_in_order(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Queued jobs in the order the worker will pop them: FIFO by id."""
+    return sorted(
+        (job for job in state["jobs"] if job["state"] == "queued"), key=lambda job: job["id"]
+    )
+
+
 def next_queued(state: dict[str, Any]) -> dict[str, Any] | None:
-    queued = [job for job in state["jobs"] if job["state"] == "queued"]
-    if not queued:
-        return None
-    return sorted(queued, key=lambda job: (-job["priority"], job["id"]))[0]
+    queued = queued_in_order(state)
+    return queued[0] if queued else None
 
 
 def job_env(job: dict[str, Any]) -> dict[str, str]:
@@ -256,8 +275,8 @@ def wait_for_gpus(job_id: int) -> bool:
         if not busy:
             return True
         if not announced:
-            pids = ", ".join(f"pid {pid} ({mib} MiB)" for pid, mib in busy)
-            print(f"[{now()}] job {job_id} waiting on GPUs held by {pids}", flush=True)
+            held = "; ".join(describe_busy(busy, read_state()))
+            print(f"[{now()}] job {job_id} waiting on GPUs held by {held}", flush=True)
             announced = True
         time.sleep(POLL_SECONDS)
 
@@ -316,44 +335,424 @@ def cmd_worker(args: argparse.Namespace) -> int:
         print(f"[{now()}] job {job['id']} {final['state'] if final else 'gone'}", flush=True)
 
 
-def format_row(job: dict[str, Any]) -> str:
-    when = job["started_at"] or job["submitted_at"]
-    extra = "" if job["exit_code"] is None else f" exit={job['exit_code']}"
-    return (
-        f"{job['id']:>4}  {job['state']:<9} {job['name']:<28} "
-        f"{job['submitted_by']:<12} {when}{extra}"
+def parent_pid(pid: int) -> int:
+    try:
+        for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+            if line.startswith("PPid:"):
+                return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
+def process_ancestry(pid: int) -> set[int]:
+    """A pid and everything that spawned it.
+
+    A job owns its GPU processes at a distance: Ultralytics re-launches itself under
+    torchrun, which puts one child per GPU two levels below the pid the queue recorded.
+    """
+    seen = {pid}
+    for _ in range(PROC_DEPTH):
+        pid = parent_pid(pid)
+        if pid <= 1:
+            break
+        seen.add(pid)
+    return seen
+
+
+def process_command(pid: int) -> str:
+    """What a process outside the queue is, e.g. "python train.py" or "sunshine"."""
+    try:
+        parts = [
+            part
+            for part in Path(f"/proc/{pid}/cmdline")
+            .read_bytes()
+            .decode("utf-8", "replace")
+            .split("\0")
+            if part
+        ]
+    except OSError:
+        return "exited"
+    if not parts:
+        return "unknown"
+    script = next((Path(part).name for part in parts[1:] if part.endswith(".py")), "")
+    return f"{Path(parts[0]).name} {script}".strip()
+
+
+def gpu_owner(pid: int, state: dict[str, Any]) -> str:
+    ancestry = process_ancestry(pid)
+    for job in state["jobs"]:
+        if job.get("pid") and job["pid"] in ancestry:
+            return f"job {job['id']} {job['name']}"
+    command = process_command(pid)
+    # A process that died between the nvidia-smi read and now has nothing to name.
+    return command if command in ("exited", "unknown") else f"{command} (outside the queue)"
+
+
+def format_mib(mib: int) -> str:
+    return f"{mib / 1024:.1f} GiB" if mib >= 1024 else f"{mib} MiB"
+
+
+def describe_busy(busy: list[tuple[int, int]], state: dict[str, Any]) -> list[str]:
+    """Who is holding the GPUs, in words: one line per owner, memory summed per owner."""
+    if busy == [(-1, -1)]:
+        return ["nvidia-smi unreadable, so the queue assumes the GPUs are in use"]
+    owners: dict[str, list[tuple[int, int]]] = {}
+    for pid, mib in busy:
+        owners.setdefault(gpu_owner(pid, state), []).append((pid, mib))
+    lines = []
+    for label, procs in owners.items():
+        memory = format_mib(sum(mib for _, mib in procs))
+        detail = f"{len(procs)} processes, {memory}" if len(procs) > 1 else memory
+        pids = ", ".join(str(pid) for pid, _ in procs)
+        lines.append(f"{label}, {detail} (pid {pids})")
+    return lines
+
+
+def parse_time(text: str | None) -> datetime | None:
+    return datetime.fromisoformat(text) if text else None
+
+
+def job_epochs(job: dict[str, Any]) -> int | None:
+    """Epoch count from a training command's -e/--epochs flag, if it has one."""
+    value = flag_value(job["command"], "-e", "--epochs")
+    try:
+        return int(value) if value is not None else None
+    except ValueError:
+        return None
+
+
+def script_name(job: dict[str, Any]) -> str:
+    """The script a job runs, so a 3-minute export is never averaged with a train."""
+    scripts = [part for part in job["command"] if part.endswith(".py")]
+    return Path(scripts[-1] if scripts else job["command"][0]).name
+
+
+def log_progress(job: dict[str, Any]) -> tuple[float, str] | None:
+    """How far a running job has got, read from its Ultralytics epoch counter.
+
+    Returns (fraction done, "46/100"), or None for a job whose log does not carry
+    one -- the caller then falls back to what past jobs took.
+    """
+    if not job.get("log"):
+        return None
+    path = Path(job["log"])
+    if not path.exists():
+        return None
+    with path.open("rb") as handle:
+        handle.seek(max(0, path.stat().st_size - LOG_TAIL_BYTES))
+        tail = handle.read().decode("utf-8", "replace")
+    # The progress bar redraws with carriage returns, so split on those too.
+    for line in reversed(tail.replace("\r", "\n").splitlines()):
+        epoch_match = EPOCH_RE.search(line)
+        if not epoch_match:
+            continue
+        epoch, epochs = int(epoch_match.group(1)), int(epoch_match.group(2))
+        if epochs <= 0 or not 0 < epoch <= epochs:
+            return None
+        done = float(epoch - 1)
+        batch_match = BATCH_RE.search(line)
+        if batch_match:
+            batch, batches = int(batch_match.group(1)), int(batch_match.group(2))
+            if batches > 0:
+                done += min(batch / batches, 1.0)
+        return done / epochs, f"{epoch}/{epochs}"
+    return None
+
+
+def flag_value(command: list[str], *flags: str) -> str | None:
+    """The argument following the first of `flags` present in a command."""
+    for flag in flags:
+        if flag in command:
+            index = command.index(flag)
+            if index + 1 < len(command):
+                return command[index + 1]
+    return None
+
+
+def job_shape(job: dict[str, Any]) -> dict[str, str]:
+    """What makes two jobs comparable: same script, model, input size, dataset.
+
+    An `s` model costs about a third more per epoch than an `n` at the same input
+    size, and 1024 costs more than 640, so pooling them all gave F_s_stretch an
+    estimate 34 minutes short. Matching on the shape is what makes each finished
+    job sharpen the next prediction instead of blurring it.
+    """
+    command = job["command"]
+    data = next((part for part in command if "training/data/" in part), "")
+    if data.endswith(".yml") or data.endswith(".yaml"):
+        data = str(Path(data).parent)
+    return {
+        "script": script_name(job),
+        "model": next((part for part in command if part.startswith("yolo")), ""),
+        "imgsz": flag_value(command, "--imgsz") or "default",
+        "data": Path(data).name,
+    }
+
+
+# Coarsest match last: a prediction from three same-shape runs beats one from any
+# five jobs that happen to have run.
+MATCH_TIERS = (
+    ("script", "model", "imgsz", "data"),
+    ("script", "model", "imgsz"),
+    ("script", "model"),
+    ("script",),
+)
+
+
+def describe_match(shape: dict[str, str], keys: tuple[str, ...], count: int) -> str:
+    """Name the jobs an estimate leans on, e.g. "2 past yolo26s @640 runs"."""
+    if "model" in keys and shape["model"]:
+        size = "" if shape["imgsz"] == "default" or "imgsz" not in keys else f" @{shape['imgsz']}"
+        what = f"{shape['model']}{size}"
+    else:
+        what = shape["script"]
+    return f"{count} past {what} run{'s' if count > 1 else ''}"
+
+
+def past_durations(state: dict[str, Any]) -> list[tuple[dict[str, Any], float]]:
+    """Every job that ran to completion, with how long it took."""
+    out = []
+    for job in state["jobs"]:
+        if job["state"] != "done":
+            continue
+        started, finished = parse_time(job["started_at"]), parse_time(job["finished_at"])
+        if started and finished and finished > started:
+            out.append((job, (finished - started).total_seconds()))
+    return out
+
+
+def usable_history(
+    state: dict[str, Any], job: dict[str, Any]
+) -> list[tuple[dict[str, Any], float]]:
+    """Finished jobs worth learning from when predicting this one.
+
+    smoke_rect ran one epoch in a minute, nearly all of it startup, so its
+    seconds-per-epoch is nothing like a real arm's -- and being the only other
+    yolo26n @640 run at the time, it dragged A2's estimate 30 minutes low. When the
+    job being predicted is a real training run, the minute-long jobs are dropped.
+    """
+    history = [
+        (past, seconds) for past, seconds in past_durations(state) if past["id"] != job["id"]
+    ]
+    epochs = job_epochs(job)
+    if epochs is None or epochs < SMOKE_EPOCHS:
+        return history
+    return [pair for pair in history if pair[1] >= MIN_HISTORY_SECONDS] or history
+
+
+def matching_history(
+    state: dict[str, Any], job: dict[str, Any]
+) -> tuple[list[tuple[dict[str, Any], float]], str]:
+    """The finished jobs most like this one, and a phrase naming what they are."""
+    history = usable_history(state, job)
+    shape = job_shape(job)
+    for keys in MATCH_TIERS:
+        matches = [
+            pair for pair in history if all(job_shape(pair[0])[key] == shape[key] for key in keys)
+        ]
+        if matches:
+            return matches, describe_match(shape, keys, len(matches))
+    # Nothing has run this script before. Averaging in unrelated jobs is where the
+    # wild misses came from -- bench_geometry, ten seconds long, inherited 1h53m from
+    # the training arms -- so the queue says it does not know instead.
+    return [], "no comparable runs yet"
+
+
+def typical_seconds(state: dict[str, Any], job: dict[str, Any]) -> tuple[float | None, str]:
+    """What a job that has not started should take, learned from the jobs like it.
+
+    Scales the median seconds-per-epoch of the closest matches by this job's epoch
+    count, which is what separates a 30-epoch probe from a 100-epoch arm. Falls back
+    to their median wall time when either side has no epoch flag.
+    """
+    history, basis = matching_history(state, job)
+    if not history:
+        return None, basis
+    epochs = job_epochs(job)
+    if epochs:
+        rates = [
+            seconds / past_epochs
+            for past, seconds in history
+            if (past_epochs := job_epochs(past)) is not None and past_epochs > 0
+        ]
+        if rates:
+            return statistics.median(rates) * epochs, basis
+    return statistics.median([seconds for _, seconds in history]), basis
+
+
+def run_order(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Unfinished jobs in the order they will run: whatever holds the GPUs, then FIFO."""
+    active = sorted(
+        (job for job in state["jobs"] if job["state"] in ACTIVE_STATES), key=lambda job: job["id"]
     )
+    return active + queued_in_order(state)
+
+
+def forecast(state: dict[str, Any], ref: datetime) -> dict[int, dict[str, Any]]:
+    """Predicted duration and finish time for each unfinished job, in run order.
+
+    The running job is timed from its own progress where the log reports it, and
+    every queued job is stacked on the one ahead of it. One unknown duration makes
+    everything behind it unknown too, which is honest: the queue is serial.
+    """
+    plan: dict[int, dict[str, Any]] = {}
+    cursor: datetime | None = ref
+    for job in run_order(state):
+        history, basis = typical_seconds(state, job)
+        seconds, measured, progress = history, False, None
+        if job["state"] in ACTIVE_STATES:
+            started = parse_time(job["started_at"]) or ref
+            elapsed = max((ref - started).total_seconds(), 0.0)
+            reading = log_progress(job)
+            progress = reading[1] if reading else None
+            fraction = reading[0] if reading else 0.0
+            # The first epochs carry the dataset scan and warmup, so extrapolating from
+            # them overshoots badly: F_s_stretch read 3h13m at epoch 3, against the 1h53m
+            # its sibling arm took. Past runs win until a job's own rate has settled.
+            if fraction >= PROGRESS_TRUST or (history is None and fraction > 0.02):
+                seconds, measured, basis = elapsed / fraction, True, ""
+            if seconds is not None:
+                seconds = max(seconds, elapsed)
+            cursor = started + timedelta(seconds=seconds) if seconds is not None else None
+            if cursor is not None and cursor < ref:
+                cursor = ref
+        elif cursor is not None and seconds is not None:
+            cursor = cursor + timedelta(seconds=seconds)
+        else:
+            cursor = None
+        plan[job["id"]] = {
+            "seconds": seconds,
+            "finish": cursor,
+            "measured": measured,
+            "progress": progress,
+            "basis": "" if measured else basis,
+        }
+    return plan
+
+
+def format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "?"
+    minutes = int(round(seconds / 60))
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m" if hours else f"{minutes}m"
+
+
+def format_clock(when: datetime | None, ref: datetime) -> str:
+    """Local time, dated only when it is not today."""
+    if when is None:
+        return "?"
+    return when.strftime("%H:%M") if when.date() == ref.date() else when.strftime("%m-%d %H:%M")
+
+
+ACTIVE_HEADER = (
+    f"{'id':>4}  {'run':>3}  {'state':<9} {'name':<28} {'by':<22} {'finish':<12} {'est':<7} note"
+)
+RECENT_HEADER = f"{'id':>4}  {'':>3}  {'state':<9} {'name':<28} {'by':<22} {'finished':<12} took"
+
+
+def format_active_row(job: dict[str, Any], slot: str, plan: dict[str, Any], ref: datetime) -> str:
+    mark = "" if plan["measured"] else "~"
+    finish = format_clock(plan["finish"], ref)
+    duration = format_duration(plan["seconds"])
+    if plan["finish"] is not None:
+        finish, duration = mark + finish, mark + duration
+    note = ", ".join(part for part in (plan["progress"], plan["basis"]) if part)
+    return (
+        f"{job['id']:>4}  {slot:>3}  {job['state']:<9} {job['name']:<28} "
+        f"{job['submitted_by']:<22} {finish:<12} {duration:<7} {note}".rstrip()
+    )
+
+
+def format_recent_row(job: dict[str, Any], ref: datetime) -> str:
+    started, finished = parse_time(job["started_at"]), parse_time(job["finished_at"])
+    took = (finished - started).total_seconds() if started and finished else None
+    when = format_clock(finished or parse_time(job["submitted_at"]), ref)
+    exit_code = "" if job["exit_code"] is None else f"  exit={job['exit_code']}"
+    return (
+        f"{job['id']:>4}  {'':>3}  {job['state']:<9} {job['name']:<28} "
+        f"{job['submitted_by']:<22} {when:<12} {format_duration(took)}{exit_code}"
+    )
+
+
+def print_machines(state: dict[str, Any]) -> None:
+    print(f"worker: {'alive' if worker_alive() else 'not running'}")
+    busy = gpu_busy_processes(ignore_pids=set())
+    if not busy:
+        print("gpus:   idle")
+    for index, line in enumerate(describe_busy(busy, state)):
+        print(f"gpus:   busy - {line}" if index == 0 else f"{'':14}{line}")
+
+
+def print_queue(
+    ordered: list[dict[str, Any]], plan: dict[int, dict[str, Any]], ref: datetime
+) -> None:
+    """The unfinished jobs, top to bottom in the order the worker will run them."""
+    if not ordered:
+        print("queue is empty")
+        return
+    last = plan[ordered[-1]["id"]]["finish"]
+    print(f"\nqueue ({len(ordered)} unfinished, empty by {format_clock(last, ref)}):")
+    print(ACTIVE_HEADER)
+    position = 0
+    for job in ordered:
+        if job["state"] in ACTIVE_STATES:
+            slot = "now"
+        else:
+            position += 1
+            slot = str(position)
+        print(format_active_row(job, slot, plan[job["id"]], ref))
+    if any(plan[job["id"]]["finish"] and not plan[job["id"]]["measured"] for job in ordered):
+        print("~ estimated from what past jobs took, not from this job's own progress")
+
+
+def print_finished(recent: list[dict[str, Any]], ref: datetime, everything: bool) -> None:
+    if not recent:
+        return
+    print(f"\nfinished ({'all' if everything else f'last {len(recent)}'}):")
+    print(RECENT_HEADER)
+    for job in recent:
+        print(format_recent_row(job, ref))
 
 
 def cmd_status(args: argparse.Namespace) -> int:
     state = read_state()
-    jobs = state["jobs"]
+    ref = datetime.now()
+    ordered = run_order(state)
+    plan = forecast(state, ref)
+    recent = [job for job in state["jobs"] if job["state"] in TERMINAL_STATES]
     if not args.all:
-        jobs = [job for job in jobs if job["state"] not in TERMINAL_STATES][:] + [
-            job for job in jobs if job["state"] in TERMINAL_STATES
-        ][-5:]
+        recent = recent[-5:]
     if args.json:
         print(
             json.dumps(
                 {
                     "worker_alive": worker_alive(),
                     "gpu_busy": gpu_busy_processes(ignore_pids=set()),
-                    "jobs": jobs,
+                    "run_order": [job["id"] for job in ordered],
+                    "jobs": [job | json_forecast(plan[job["id"]]) for job in ordered] + recent,
                 },
                 indent=2,
             )
         )
         return 0
-    busy = gpu_busy_processes(ignore_pids=set())
-    print(f"worker: {'alive' if worker_alive() else 'not running'}")
-    print(f"gpus:   {'busy - ' + str(busy) if busy else 'idle'}")
-    if not jobs:
-        print("queue is empty")
-        return 0
-    print(f"{'id':>4}  {'state':<9} {'name':<28} {'by':<12} when")
-    for job in jobs:
-        print(format_row(job))
+    print_machines(state)
+    print_queue(ordered, plan, ref)
+    print_finished(recent, ref, args.all)
     return 0
+
+
+def json_forecast(plan: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "estimated_seconds": None if plan["seconds"] is None else round(plan["seconds"]),
+        "estimated_finish": None
+        if plan["finish"] is None
+        else plan["finish"].isoformat(timespec="seconds"),
+        "estimate_from_progress": plan["measured"],
+        "estimate_basis": plan["basis"],
+        "progress": plan["progress"],
+    }
 
 
 def cmd_cancel(args: argparse.Namespace) -> int:
@@ -525,7 +924,6 @@ def build_parser() -> argparse.ArgumentParser:
     submit = sub.add_parser("submit", help="add a job to the queue")
     submit.add_argument("--name", required=True, help="short label, used for the log filename")
     submit.add_argument("--by", default="", help="who submitted this (agent or person)")
-    submit.add_argument("--priority", type=int, default=0, help="higher runs first")
     submit.add_argument("--cwd", default=str(REPO_ROOT), help="working directory for the job")
     submit.add_argument(
         "-d", "--devices", nargs="+", type=int, default=[0, 1, 2], help="GPUs the job will use"
@@ -533,7 +931,7 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("command", nargs=argparse.REMAINDER, help="command after --")
     submit.set_defaults(func=cmd_submit)
 
-    status = sub.add_parser("status", help="show the queue")
+    status = sub.add_parser("status", help="show the queue in run order, with finish estimates")
     status.add_argument("--json", action="store_true", help="machine-readable output")
     status.add_argument("--all", action="store_true", help="include every finished job")
     status.set_defaults(func=cmd_status)
