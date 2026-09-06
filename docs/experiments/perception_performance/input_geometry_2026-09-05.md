@@ -472,6 +472,60 @@ Single seed per arm. The scouting deltas between geometries were 0.002-0.005 rec
 far below the ~0.048 run-to-run spread `data_epoch_min` measured, so this experiment can
 establish parity and not a small win. A 0.003 difference is not a result.
 
+## Preprocessing audit
+
+Three arms are scored through preprocessing that differs from the default letterbox, and a
+mismatch there fails silently: the engine still runs, still returns boxes, and simply scores
+worse for a reason nothing reports. This experiment hit that failure twice, once in the
+detections figure and once in the latency run, so the results were audited rather than
+assumed.
+
+**Every arm got the mode it was trained with.** Re-running `build_detector` with the exact
+flags used for the final scoring run:
+
+| arm | engine input | mode applied |
+|---|---|---|
+| A | `[1, 3, 640, 640]` | letterbox |
+| A2 | `[1, 3, 384, 640]` | letterbox |
+| B | `[1, 3, 384, 640]` | letterbox |
+| C | `[1, 3, 576, 1024]` | letterbox |
+| D | `[1, 3, 640, 640]` | stretch |
+| E | `[1, 3, 640, 640]` | letterbox + field crop |
+| F | `[1, 3, 640, 640]` | stretch |
+
+**The flags demonstrably change the result**, so a number in this report cannot have come
+from a silent fallback to letterbox. Scoring the same engines both ways on the full eval set:
+
+| arm | correct mode | wrong mode | recall delta |
+|---|---:|---:|---|
+| D | stretch 0.811 | letterbox 0.746 | +0.065 |
+| F | stretch 0.841 | letterbox 0.809 | +0.032, CI 0.019 to 0.046 |
+
+The mismatch signature is worth recognising: `F` under a letterbox posts *higher* precision
+(0.905 against 0.853) and much lower recall. Fed the wrong aspect ratio the model finds fewer
+robots and is more confident about the ones it finds, so any metric that rewards precision
+alone will look fine while recall quietly drops.
+
+One caution from doing this audit. On a single recording, `F` scored *better* letterboxed
+(0.878 against 0.868), which reversed on the full 688-frame set. That is the third time in
+this experiment a single-recording result has failed to generalise, after the field-crop
+recall gain and the plan's own note about one frame where a rectangular engine found three
+boxes and a square one found none.
+
+**Train and inference match by construction**, checked arm by arm. D and F train on images
+pre-stretched from 1920x1080 to 640x640 and infer by stretching 1280x720 to 640x640: the
+same 16:9-to-square mapping. E trains on cropped images letterboxed to 640x640 by ultralytics
+and infers by cropping then letterboxing, with the same 0.20 margin and the same DeepLab
+model on both sides. A2, B and C train with `rect=True` at 1920x1080 and infer at 1280x720;
+both letterbox to the same content aspect and the same 6.2% padding, because the scale is
+width-bound in both cases.
+
+**The known remaining gap is the latency table**, not the accuracy results.
+`benchmark_engines.py` constructs engines without a preprocessing mode, so D, E and F were
+timed through a letterbox and E without its crop. That is called out in that section: the
+timings are still valid as engine costs since the tensor sizes are unchanged, but they do not
+include E's crop or its field estimate.
+
 ## Latency
 
 `benchmark_engines.py`, 300 timed iterations after 50 warmup, one real eval frame, on an

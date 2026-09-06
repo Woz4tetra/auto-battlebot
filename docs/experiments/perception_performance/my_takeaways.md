@@ -131,92 +131,36 @@ docs/experiments/perception_performance/model_size_2026-09-04.md
 
 # Does model size matter for the keypoint model?
 
-No. This is the opposite of the bounding box answer, and the contrast is the useful part.
+Yes, but only at yolo26x. s is a dead end and I nearly stopped there.
 
-yolo26s-pose has 4x the parameters of yolo26n-pose and places keypoints no better at any
-confidence I tried. Pixel error and PCK came back ns at 0.05, 0.3, 0.5 and 0.6. The only
-significant heading result went the wrong way: s was 2.5 deg worse at conf 0.5, the operating
-point I actually run. What s did buy was box recall, +0.087 at conf 0.5, which is the same
-gain the bbox sweep found and lands on the metric the keypoint model isn't responsible for.
+yolo26s-pose has 4x the parameters of n and buys nothing on keypoints at any confidence I
+tried. Pixel error and PCK came back ns everywhere, and heading was 2.5 deg *worse* at conf
+0.5, the point I actually run. yolo26x-pose is a different story: better pixel error and PCK
+at all four confidences, heading significantly better at conf 0.05 and 0.3, and it is the
+first model trained on all_robot_keypoints that beats the deployed our_robots model on
+keypoint placement. 9.57 px and 9.09 deg at conf 0.5 against the deployed 9.85 and 10.43.
 
-The deployed our_robots model, which is older, smaller and only knows 2 classes, still beats
-both arms on keypoint placement. That plus the corpus mosaic convinced me the problem is
-data, not capacity. all_robot_keypoints is 97.8% synthetic renders of robots on grass, ice
-and cobblestone, and 497 real frames shot in a plywood box in the garage. The eval set is the
-ZED looking across an NHRL cage. Nothing in training looks like the thing I deploy into. A
-bigger backbone learns the same missing thing more expensively.
+So the curve is flat from n to s and then jumps at x, same shape as the bbox sweep. Sizing a
+pose model by interpolating between n and x would be wrong at every point in between.
 
-Two process lessons worth keeping. First, always score a pose ladder at a low confidence
-floor as well as the operating point. At conf 0.5 my ep100 to ep200 heading error looked like
-it halved; at conf 0.05, where the checkpoints keep comparable detection counts, it was flat.
-The later checkpoint is just more confident, so a fixed gate keeps its easy detections and
-the metric improves on the subset instead of the model. Second, check the val split before
-trusting anything: all_robot_keypoints is a random frame split, every val scene is also in
-train, and val ranked s above n on every metric while the eval set ranked them the other way.
+I can't deploy it. x costs 2.52x n's inference time, +3.3 ms of GPU time on the dev box, and
+the keypoint model is already the slower of the two parallel branches with about 1 ms of tick
+headroom. That's roughly triple the budget, and going over the frame period costs ~25 ms
+end to end. x is now the thing to buy tick time for, not a thing to reject. An l arm is the
+obvious next run: it would say whether any of the gain comes cheaper than 2.52x.
 
-Next pose experiment should be a data experiment. Add real cage footage with keypoint labels,
-retrain n alone, and see if keypoint error moves more than 4x the parameters did.
+Two process lessons. First, always score a pose ladder at a low confidence floor as well as
+the operating point. My ep100 to ep200 heading error looked like it halved at conf 0.5 and was
+flat at conf 0.05 - the later checkpoint is just more confident, so a fixed gate keeps its
+easy detections and the metric improves on the subset instead of the model. That same check is
+what proved x's gain is real, because x improved keypoints while matching *more* boxes.
+Second, val on this corpus is worthless and actively misleading: it's a random frame split,
+every val scene is also in train, and it ranked s a clear second when the eval set puts s
+last.
+
+The corpus is still the reason the absolute numbers are bad. 23x the parameters recovers part
+of the gap between 0.965 pose mAP50-95 on val and 0.765 PCK on the eval set; none of it closes
+it. Real cage footage is still the cheapest lever and now the more attractive one, since x
+can't ship.
 
 docs/experiments/perception_performance/pose_model_size_2026-09-05.md
-
-# How should the frame reach the network? Is the letterbox padding costing me anything?
-
-The padding costs nothing in accuracy and about a fifth of the GPU time. Object scale is what
-actually moves detection, and the cheapest way to buy it is to stop preserving aspect ratio.
-
-Letterboxing 16:9 into 640x640 fills 43.8% of the tensor with grey. Training at 384x640
-instead moved recall by +0.003, CI -0.009 to 0.017. Nearly half the input tensor was doing
-nothing, and I can have those pixels back for free.
-
-What to do with them is the interesting part. Four things I tried, all against the deployed
-yolo26n at 640x640, agnostic recall on the eval set:
-
-- 3.4x the parameters (yolo26s at 384x640): +0.050, for the same GPU time as the yolo26n I
-  run today. 1.226 ms against 1.228 ms, measured on an idle box. Biggest single lever and it
-  is free, because the padding I stop spending pays for the bigger model.
-- Stretch the frame to fill the tensor: +0.031. Same model, same tensor size, no padding.
-  Squeezing 16:9 into a square costs 0.5x horizontally but only 0.89x vertically, so a robot
-  lands on 1.33x the pixels. Looked like free accuracy until I stacked it on yolo26s, where
-  it added +0.011 with a CI spanning zero. Both levers are finding the same small robots.
-- Crop to the field first: +0.028. Works, but it makes the detector depend on the field
-  estimate every frame and needs a crop branch in the C++ and Python preprocessors. Same
-  benefit as the stretch for much more machinery, so the stretch wins.
-- More resolution (576x1024): +0.013, CI spanning zero. It gained +0.057 mAP50-95 instead.
-  Tighter boxes, not more robots, which is worth nothing to me because targeting uses the
-  centroid. It also needs 204 GB of RAM to train and cannot share the box.
-
-The one that surprised me is that 576x1024 lost to the stretch despite having more object
-scale (1.60x against 1.33x) and 44% more pixels. Their CIs overlap so a single seed cannot
-settle it, but scale alone does not explain what the stretch is doing.
-
-Deployment answer: yolo26s at 384x640, and nothing else. It beats what I run now by 0.050
-recall at the same GPU cost, on 40% fewer tensor pixels, and the C++ blob model reads its
-input size from the engine so the swap needs no code change. Still needs the Jetson number
-before I actually do it: an A6000 says nothing about the Orin, and the 60 ms budget is set
-there.
-
-I nearly built the stretch on top of it. Arm F, yolo26s with stretched input, is the best arm
-I have at 0.841 recall, but against B rather than against what I deploy today it is +0.011
-with a CI spanning zero. The stretch and the bigger model are finding the same small robots,
-so a second preprocessing path in C++ and Python buys nothing I can measure. Compare against
-the thing you would otherwise ship, not against the thing you happen to be running.
-
-Three process lessons worth more than the numbers.
-
-`rect=True` silently turns off shuffling. Ultralytics only warns, and only when per-batch
-tensor shapes differ. My corpus is 99.85% 1920x1080 and the other 0.15% was enough: 39
-pre-letterboxed YouTube frames gave one batch out of 810 a different shape, which would have
-fed the optimizer recording-ordered batches for the whole run. Check `batch_shapes` before
-trusting any rectangular arm.
-
-Registering the decision rule before looking is what made the resolution arm a clean result.
-576x1024 posts the second-best mAP50-95 in the table. If I had not written down beforehand
-that mAP50-95 must not drive the decision, and why, I would have promoted the most expensive
-arm on a metric that does not matter for aim assist.
-
-I cut the field-crop arm on analysis and the analysis was wrong. I proved a crop buys no
-zoom, which is true and holds at every tensor shape, then treated the absence of that
-mechanism as the absence of any effect. The crop wins by deleting the crowd and the cage
-exterior, which I never priced. Measure the arm.
-
-docs/experiments/perception_performance/input_geometry_2026-09-05.md
