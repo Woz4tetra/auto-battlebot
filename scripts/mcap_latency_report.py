@@ -7,6 +7,10 @@ the loop rate. Prints a per-stage timing table plus an end-to-end summary
 checked against the 60 ms latency budget. Writes a markdown report and a plot
 to docs/experiments/ by default.
 
+Startup is trimmed: the report covers the ticks strictly after field
+initialization, so the one-shot field computation does not skew the stats. Pass
+--include-field-init to report the whole recording.
+
 Usage (inside the venv, see scripts/activate_python.sh):
     python scripts/mcap_latency_report.py data/recordings/<file>.mcap
 
@@ -65,20 +69,21 @@ def _window_after_field_init(
     rate_t_ns: list[int],
     rate_hz: list[float],
     first_ns: int,
-) -> tuple[int, list[float], str]:
+) -> tuple[int, list[float], str | None]:
     """Trim samples to those strictly after the first field-init sample, in place.
 
     The first field-init sample belongs to the tick that ran the field computation, so its
     own timings (inflated by that computation) are excluded along with everything before it.
-    Returns (t0, trimmed rate_hz, window note). Exits if the field never initialized.
+    Returns (t0, trimmed rate_hz, window note). Leaves the samples untouched and returns no
+    note if the field never initialized, so a recording without a field still reports.
     """
     if not stage_t_ns.get(FIELD_INIT_STAGE):
         print(
-            f"--after-field-init: no {FIELD_INIT_STAGE} samples in {path}; "
-            "the field was never initialized",
+            f"No {FIELD_INIT_STAGE} samples in {path}: the field never initialized, "
+            "so the whole recording is reported.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return first_ns, rate_hz, None
     t0 = stage_t_ns[FIELD_INIT_STAGE][0]
     for stage in list(stage_t_ns):
         kept = [(t, ms) for t, ms in zip(stage_t_ns[stage], stage_ms[stage], strict=True) if t > t0]
@@ -93,7 +98,7 @@ def _window_after_field_init(
     return t0, rate_hz, window_note
 
 
-def extract_latency_samples(path: Path, after_field_init: bool = False) -> LatencySamples:
+def extract_latency_samples(path: Path, include_field_init: bool = False) -> LatencySamples:
     """Collect elapsed_ms per stage, pipeline latency, and loop rate from an MCAP file."""
     stage_t_ns: dict[str, list[int]] = defaultdict(list)
     stage_ms: dict[str, list[float]] = defaultdict(list)
@@ -128,7 +133,7 @@ def extract_latency_samples(path: Path, after_field_init: bool = False) -> Laten
 
     t0 = first_ns
     window_note = None
-    if after_field_init:
+    if not include_field_init:
         t0, rate_hz, window_note = _window_after_field_init(
             path, stage_t_ns, stage_ms, rate_t_ns, rate_hz, first_ns
         )
@@ -391,10 +396,11 @@ def main() -> None:
         help="Comma-separated substrings; only report stages matching one of them",
     )
     parser.add_argument(
-        "--after-field-init",
+        "--include-field-init",
         action="store_true",
-        help="Only include samples after the first successful field initialization "
-        f"(first {FIELD_INIT_STAGE} sample)",
+        help="Report the whole recording. By default the startup ticks up to and including "
+        f"field initialization (first {FIELD_INIT_STAGE} sample) are trimmed, because the "
+        "one-shot field computation costs hundreds of ms and skews every summary stat.",
     )
     args = parser.parse_args()
 
@@ -403,7 +409,7 @@ def main() -> None:
         sys.exit(1)
 
     print(f"Reading {args.file} ...")
-    samples = extract_latency_samples(args.file, after_field_init=args.after_field_init)
+    samples = extract_latency_samples(args.file, include_field_init=args.include_field_init)
 
     stage_filter = args.stages.split(",") if args.stages else None
     stats = aggregate(samples, stage_filter)

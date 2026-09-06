@@ -154,11 +154,11 @@ venv/bin/python training/model_eval/benchmark_engines.py \
   --frame <an eval frame> --iterations 300
 ```
 
-Dev box gives ordering only. The Jetson steps are the same as
-`model_size_2026-09-04.md` "What is still missing": build `aarch64_sm87` engines on the
-Orin, `sudo jetson_clocks`, `trtexec` plus `benchmark_engines.py`, then swap into
-`config/_jetson.toml` `[keypoint_model.engine] candidates` and read
-`mcap_latency_report.py --after-field-init`.
+Dev box gives ordering only. The Jetson steps are the same as the ones in
+`model_size_2026-09-04.md` "How the Jetson numbers were produced": build `aarch64_sm87`
+engines on the Orin, `sudo jetson_clocks`, `trtexec` plus `benchmark_engines.py`, then
+swap into `config/_jetson.toml` `[keypoint_model.engine] candidates` and read
+`mcap_latency_report.py` (it trims to after field init by default).
 
 ## Cost
 

@@ -25,5 +25,12 @@
         "**/docs/**": true,
         "**/*.egg-info/**": true
     },
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    "[toml]": {
+        "editor.defaultFormatter": "tamasfe.even-better-toml",
+        "editor.tabSize": 2
+    },
+    "evenBetterToml.formatter.indentString": "  ",
+    "evenBetterToml.taplo.bundled": false,
+    "evenBetterToml.taplo.path": "/usr/local/bin/taplo"
 }

@@ -4,8 +4,8 @@ Five yolo26 detect sizes (n/s/m/l/x) trained 100 epochs on `nhrl_robots_bbox_2cl
 (25,914 train / 6,573 val, scene-disjoint, zero synthetic), batch 96, then scored on the
 expanded `nhrl_keypoints_eval_test` (688 frames, 8 scenes) with `score.py`,
 `--labels "opponent,house_bot"`, `taxonomy_merged.yaml`, conf 0.5, paired bootstrap
-1000x, baseline `n`. Latency measured on the dev A6000; the Jetson numbers this question
-actually turns on are **not yet measured** - the commands are in "What is still missing".
+1000x, baseline `n`. Latency measured on the dev A6000 and then live on the Jetson for
+`n`, `s`, and `x`.
 
 Predecessor: `data_scaling_2026-07-27.md` (corpus floor), `synthetic_arms_2026-07-31.md`
 (the `mixed` arm currently deployed).
@@ -22,15 +22,18 @@ Predecessor: `data_scaling_2026-07-27.md` (corpus floor), `synthetic_arms_2026-0
    their precision gain over `n` is `ns` where `s` is `better`, and they cost 1.4x and
    1.7x `s`'s inference time. There is no configuration in which either is the right
    choice on this corpus.
-4. **`yolo26x` is the accuracy winner and is probably unaffordable.** +0.088 recall and
-   +0.052 precision, but 2.57x `n`'s inference time. On the Jetson the perception batch
-   has roughly 1 ms of headroom before `runner.tick` crosses the camera frame period, and
-   crossing it costs ~25 ms of end-to-end latency - far more than 0.088 recall buys.
-5. **Val and eval disagree about *where* the gain is, not whether there is one.** On val,
+4. **`yolo26x` is the accuracy winner and is unaffordable.** +0.088 recall and +0.052
+   precision, but on the Jetson it puts `runner.tick` at 58.22 ms against a 33.3 ms frame
+   period. The loop drops to 17.0 Hz and end-to-end latency to 152.8 ms mean.
+5. **`s` costs no tick time on the Jetson.** `runner.tick` is 32.67 ms for `n` and 32.72
+   ms for `s`. The extra 3.72 ms of perception work comes out of the block in
+   `runner.camera.get`, which falls from 17.52 ms to 13.32 ms. End-to-end still rises
+   +6.8 ms mean, so the work is not free, it just does not cost frame rate.
+6. **Val and eval disagree about *where* the gain is, not whether there is one.** On val,
    recall saturates at `m` and never recovers. On eval, recall saturates from `s` through
    `l` and then jumps again at `x`. Ranking arms on val would have picked `m`, which the
    eval shows is a strictly worse choice than `s`.
-6. **The 100-epoch stopping point still holds.** Every arm peaked at epoch 96-100 on val;
+7. **The 100-epoch stopping point still holds.** Every arm peaked at epoch 96-100 on val;
    none was overfitting within the schedule.
 
 ## Setup
@@ -113,7 +116,7 @@ one arm both agree is not worth its cost. This is the same val/eval divergence
 `category_addition_2026-07-25.md` recorded, in a new form: here val does not just
 mis-scale the gain, it mis-orders the arms.
 
-## Latency - dev box only
+## Latency - dev box
 
 `benchmark_engines.py`, 300 iterations after 50 warmup, one real 1280x720 eval frame,
 A6000 sm86, FP16 engines. `gpu` is H2D + `execute_async_v3` + D2H + sync; `total` adds
@@ -131,6 +134,48 @@ letterbox preprocess and NMS, and is the number that maps onto the C++ `update()
 here and ~9.5-11 ms inside the Jetson pipeline, and that gap is not a constant across
 sizes. The ordering transfers; the magnitudes do not.
 
+## Latency - Jetson
+
+Three live runs on the Jetson with `mr_stabs_mk2`, roughly two minutes each on the same
+scene, same keypoint engine (`yolo26n-pose_our_robots_2026-05-01`), swapping only
+`[robot_mask_model.engine]`. Reported by `scripts/mcap_latency_report.py` over the window
+after field init. `m` and `l` were not run: the eval already dominated them with `s`.
+
+| arm | tick mean | tick p95 | batch mean | bbox inference mean | `camera.get` mean | loop rate | e2e mean | e2e p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| n (deployed `mixed`) | 32.67 ms | 37.34 ms | 14.27 ms | 7.95 ms | 17.52 ms | 30.4 Hz | 64.4 ms | 69.7 ms |
+| s | 32.72 ms | 37.55 ms | 17.99 ms | 11.98 ms | 13.32 ms | 30.3 Hz | 71.2 ms | 74.9 ms |
+| x | 58.22 ms | 62.97 ms | 56.63 ms | 49.96 ms | 0.11 ms | 17.0 Hz | 152.8 ms | 177.5 ms |
+
+Decision rule (b) - the arm must keep `runner.tick` under 33.3 ms - passes for `s` at
+32.72 ms and fails for `x` at 58.22 ms.
+
+`s` adds 3.72 ms to the perception batch and 0.05 ms to the tick. The loop is frame-period
+bound, so the added work is absorbed by the block in `runner.camera.get`. That block is
+the headroom, and `s` spends about a quarter of it. End-to-end latency does move, +6.8 ms
+mean and +5.2 ms p95, because `pipeline.latency` measures capture to command send and does
+not care where in the tick the time went.
+
+`x` behaves the way `parallel_yolo_batch/comparison.md` predicted for crossing the frame
+period. `camera.get` collapses to 0.11 ms because a frame is always already waiting, the
+loop runs at 17.0 Hz, and end-to-end lands at 152.8 ms mean / 177.5 ms p95, 2.4x the `n`
+baseline.
+
+The Jetson magnitudes are nothing like the A6000 table. Dev box `n` -> `s` is +0.31 ms of
+GPU time and `n` -> `x` is +3.06 ms; the Jetson gives +4.03 ms and +42.01 ms on the same
+inference stage. Cross-arm ordering transferred and the per-arm cost did not.
+
+The keypoint model was identical across all three runs, but its measured inference time
+rose with the detector: 8.15 ms, 11.72 ms, 32.81 ms. The two models share the GPU in the
+parallel batch, so a heavier detector slows the co-running keypoint pass. Budget a size
+change against the whole batch, not against the detector row alone.
+
+Per-run tables and plots are in `assets/2026-09-04_model_size/`:
+
+- `n`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-05_11-13-33_latency.{md,png}`
+- `s`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-05_12-00-59_latency.{md,png}`
+- `x`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-05_12-14-44_latency.{md,png}`
+
 ## Answers
 
 ### Does model size matter for my application? - **strong**
@@ -145,22 +190,23 @@ capacity was the binding constraint, not data volume.
 The shape matters as much as the size. The gain is not monotonic in parameters: `s`
 (9.95 M) and `l` (26.18 M) reach the same recall, and only `x` (58.81 M) breaks past it.
 
-### Is the latency trade-off worth it? - **weak, pending the Jetson**
+### Is the latency trade-off worth it? - **strong**, for `s` and only `s`
 
-On the dev box, `s` costs +0.46 ms for +0.059 recall and `x` costs +3.5 ms for +0.088.
-Per-millisecond, `s` is roughly 3x the better deal.
+Yes for `s`. It holds `runner.tick` at 32.72 ms inside the 33.3 ms frame period, keeps the
+loop at 30.3 Hz, and buys +0.059 agnostic recall for +6.8 ms of end-to-end latency.
 
-The real answer needs the Jetson, and the arithmetic there is unforgiving.
-`parallel_yolo_batch/comparison.md` measured the parallel perception batch at 12.86 ms of
-a 33.17 ms tick with ~20.3 ms of non-perception work against a 33.3 ms camera frame
-period - about **1 ms of headroom**. That report also measured what happens when the tick
-crosses the frame period: end-to-end goes from 75.4 ms to 99.9 ms. No recall delta in this
-experiment is worth 25 ms.
+No for `x`. It puts the tick at 58.22 ms, the loop at 17.0 Hz, and end-to-end at 152.8 ms
+mean. +0.088 recall does not buy 88 ms.
 
-So the honest position is: `s` is plausibly affordable and `m`, `l`, `x` are probably not,
-but "plausibly" is doing real work in that sentence and only a Jetson measurement settles
-it. Registered decision rule (b) - the arm must keep `runner.tick` under 33.3 ms - is
-**not yet evaluated for any arm**.
+The `parallel_yolo_batch/comparison.md` prediction held in shape: crossing the frame period
+is a cliff, not a slope. It was wrong about where the headroom is. That report put it at
+~1 ms of tick slack, which would have ruled `s` out. The real slack is the 17.52 ms the
+loop spends blocked in `camera.get`, and `s` spends 4 ms of it.
+
+What `s` does not fix is the 60 ms end-to-end budget, which `n` already misses at 69.7 ms
+p95. That is a pipeline problem, not a model problem, and the candidates are unchanged:
+move `publish_camera_data` after the command send (~10 ms) and merge the two YOLOs into
+one multi-head engine.
 
 ### When do I stop training YOLO? - **moderate**, unchanged
 
@@ -175,7 +221,16 @@ retained if an earlier checkpoint ever needs scoring.
   The claim that `m` and `l` tie `s` is therefore a claim that they are *indistinguishable*,
   not that they are equal. The `n` -> `s` (+0.059) and `n` -> `x` (+0.088) gaps clear that
   bar; nothing else in the table does.
-- **No Jetson latency.** Half the question is unanswered. See below.
+- **Jetson latency covers three arms, one run each.** `n`, `s`, `x` only, two minutes
+  per arm, one scene. Enough to separate 32.7 ms from 58.2 ms; not enough to resolve the
+  0.05 ms between `n` and `s`, which should be read as "no tick cost", not as a measured
+  difference.
+- **The Jetson `n` is the deployed `mixed` engine**, `yolo26n_..._mixed_2026-07-31`, not
+  the sweep's real-only `n`. Same architecture, so the latency comparison holds; the
+  recall numbers in the tables above do not come from that engine.
+- **The `x` run re-initialized the field at 7.0 s**, after the report window opened at
+  4.6 s, so its table carries one-shot `point_cloud_field_filter.*` rows and its 488 ms
+  `pipeline.latency` max is that re-init. The mean and p95 over 2,335 ticks are unaffected.
 - **Batch 96, not the deployed 128.** Effective weight decay is 0.00075 here against
   0.0010 for the deployed `yolo26n`, so the `n` arm is not a reproduction of the deployed
   model. It is an internally consistent baseline for this sweep only.
@@ -195,20 +250,22 @@ retained if an earlier checkpoint ever needs scoring.
 ## Recommendation
 
 - **Do not deploy `m` or `l`.** They are dominated by `s` on the eval set at every level.
-- **Treat `yolo26s` as the candidate upgrade** and measure it on the Jetson first. It is
-  the only arm with a realistic chance of fitting the frame-period budget.
-- **Do not deploy `x` on the current pipeline** without first buying back tick time
-  elsewhere. The named candidates in `parallel_yolo_batch/comparison.md` are moving
-  `publish_camera_data` after the command send (~10 ms) and merging the two YOLOs into one
-  multi-head engine.
+- **Deploy `yolo26s`.** On the Jetson it costs no tick time and no frame rate, and it is
+  the only arm besides `n` that stays inside the frame period.
+- **Do not deploy `x` on the current pipeline.** Measured, not extrapolated: 17.0 Hz and
+  152.8 ms end-to-end. Revisit only after buying back tick time elsewhere. The named
+  candidates in `parallel_yolo_batch/comparison.md` are moving `publish_camera_data` after
+  the command send (~10 ms) and merging the two YOLOs into one multi-head engine.
+- **Fix the 60 ms end-to-end budget separately.** `n` misses it at 69.7 ms p95 today, so
+  the budget is not a reason to hold `s` back.
 - **Stop tuning the detector on val.** It mis-ordered the arms here. Score on
   `nhrl_keypoints_eval_test` before drawing any conclusion about a model change.
 - **Revisit `x` if the corpus grows.** Capacity is currently the binding constraint, so
   more scenes and a bigger model are complementary, not alternatives.
 
-## What is still missing - Jetson latency
+## How the Jetson numbers were produced
 
-Run on the Jetson; the engines must be built there (`aarch64_sm87`).
+The engines must be built on the Jetson (`aarch64_sm87`).
 
 ```bash
 # dev box: ship the ONNX files (deploy_to_jetson.sh rsyncs data/models/ separately)
@@ -234,17 +291,18 @@ venv/bin/python training/model_eval/benchmark_engines.py \
   --frame <an eval frame> --iterations 300
 ```
 
-Then, for any arm still under the frame period, swap it into `config/_jetson.toml`
-`[robot_mask_model.engine] candidates` (a one-line change - the output layout is
-`[1, 6, 8400]` for every arm) and run live with `[mcap] enable = true`:
+Swap the arm into `config/_jetson.toml` `[robot_mask_model.engine] candidates` (a
+one-line change - the output layout is `[1, 6, 8400]` for every arm) and run live with
+`[mcap] enable = true`:
 
 ```bash
-venv/bin/python scripts/mcap_latency_report.py data/recordings/<run>.mcap --after-field-init --csv
+venv/bin/python scripts/mcap_latency_report.py data/recordings/<run>.mcap --csv
 ```
 
 Read `runner.tick` mean against 33.3 ms and `pipeline.latency` p95 against the 60 ms
-budget. `--after-field-init` is required for comparability with the reports in
-`docs/experiments/parallel_yolo_batch/jetson/`.
+budget. The report trims everything up to field init by default, which is what makes it
+comparable to the reports in `docs/experiments/parallel_yolo_batch/jetson/`; pass
+`--include-field-init` to see the startup ticks instead.
 
 ## Artifacts
 
@@ -252,6 +310,8 @@ budget. `--after-field-init` is required for comparability with the reports in
 - Runs: `runs/projects/auto_battlebots_2026-09-04_00-56-05_yolo26{n,s,m,l,x}/` (`results.csv`, `weights/{best,last,epoch0,epoch25,epoch50,epoch75}.pt`)
 - Models: `data/models/yolo26{n,s,m,l,x}_nhrl_robots_bbox_2class_2026-09-04.{pt,onnx,_x86_64_sm86.engine}`
 - Benchmark tool: `training/model_eval/benchmark_engines.py`
+- Jetson latency runs: `assets/2026-09-04_model_size/auto_battlebot_mr_stabs_mk2_jetson_2026-09-05_{11-13-33,12-00-59,12-14-44}_latency.{md,png}` (`n`, `s`, `x`)
+- Jetson recordings: `data/recordings/auto_battlebot_mr_stabs_mk2_jetson_2026-09-05_{11-13-33,12-00-59,12-14-44}.mcap`
 
 ## Addendum 2026-09-05 - does `yolo26s` still gain from synthetic data?
 
@@ -362,8 +422,8 @@ experiment and does not cost 1.7x the training time.
   precision and F1; here it loses precision and ties F1. The two runs differ in model size,
   batch (128 vs 96), and eval set (372 vs 688 frames), so this is not a contradiction that
   can be attributed to any one cause.
-- Latency is unchanged. Same architecture as the sweep's `s`, so the latency table above
-  applies as-is.
+- Latency is unchanged. Same architecture as the sweep's `s`, so both latency tables
+  above apply as-is, Jetson included.
 
 ### Artifacts
 

@@ -192,7 +192,7 @@ need their preprocessing mode plumbed into `TrtYoloModel` before their numbers m
 anything. Score A/A2/B/C together first; add D and E once their preprocessing exists.
 
 Latency: `benchmark_engines.py`, 300 iterations, one real eval frame, both levels. Then the
-Jetson sequence from `model_size_2026-09-04.md` "What is still missing".
+Jetson sequence from `model_size_2026-09-04.md` "How the Jetson numbers were produced".
 
 ## Cost
 
