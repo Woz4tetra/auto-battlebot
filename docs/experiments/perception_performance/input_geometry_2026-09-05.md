@@ -274,6 +274,7 @@ Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
 | A2 | yolo26n | 384x640 letterbox | 1.00x | 0.784 | 0.861 | 0.820 | 0.758 | 0.480 | 245,760 |
 | B | yolo26s | 384x640 letterbox | 1.00x | **0.830** | 0.857 | 0.843 | 0.796 | 0.541 | 245,760 |
 | D | yolo26n | 640x640 stretch | 1.33x | **0.811** | 0.866 | 0.838 | 0.773 | 0.501 | 409,600 |
+| E | yolo26n | 640x640 field crop | 1.00x | **0.808** | **0.870** | 0.838 | 0.781 | 0.508 | 409,600 |
 
 | arm | metric | delta vs A | 95% CI | verdict |
 |---|---|---:|---|---|
@@ -285,6 +286,9 @@ Numbers in `training/data/nhrl_keypoints_eval_test/scores_input_geometry/`.
 | D | **recall** | **+0.031** | **0.016 to 0.047** | **better** |
 | D | precision | +0.008 | -0.006 to 0.021 | ns |
 | D | f1 | +0.020 | 0.008 to 0.033 | better |
+| E | **recall** | **+0.028** | **0.015 to 0.043** | **better** |
+| E | precision | +0.012 | -0.002 to 0.026 | ns |
+| E | f1 | +0.021 | 0.010 to 0.032 | better |
 
 Three arms, three separate findings, and the design lets each one be attributed.
 
@@ -303,10 +307,30 @@ term rather than the geometry: comparing B against A alone varies both at once, 
 pins geometry at nothing. This is a `yolo26s` result, not a 384x640 result. It is also the
 most expensive of the three.
 
-The three stack in a way that suggests the obvious follow-up. Padding contributes nothing
-(+0.003), 1.33x object scale contributes +0.031, and 3.4x the parameters contributes +0.050.
-Nobody has yet run `yolo26s` *and* stretched input, which on this evidence is the arm most
-likely to win, and it costs one more training run.
+**Cropping away the background is worth about the same as scale.** E gains +0.028 recall and
+posts the highest precision of any arm at 0.870, though that precision gain does not clear
+significance on its own. Notably it is *not* the effect the scouting pass predicted: running
+a crop through square-trained weights gained precision (+0.032, significant) and no recall,
+while training on crops gained recall and left precision short of significance. The crop
+helps either way; the mechanism moved when the model got to learn on cropped images.
+
+E also settles the argument I had with myself about whether to run it at all. I cut the arm
+on the grounds that a field crop buys no zoom, which is true and measured. Then the scouting
+pass showed it winning on false positives instead, and Ben overruled the cut. The trained arm
+gains +0.028 recall. **The cut was wrong**, and the reason it was wrong is worth keeping: the
+analysis priced the one mechanism it had a model for, and treated the absence of that
+mechanism as the absence of an effect.
+
+The practical conclusion still lands where the cut did, for a different reason. D and E gain
+the same amount within overlapping CIs, but D needs a stretch branch in the preprocessor
+while E needs a DeepLab field estimate feeding the detector every frame plus a crop branch.
+**D dominates E on cost at equal benefit.**
+
+The arms stack in a way that suggests the obvious follow-up. Padding contributes nothing
+(+0.003), 1.33x object scale contributes +0.031, cropping the background contributes +0.028,
+and 3.4x the parameters contributes +0.050. Nobody has yet run `yolo26s` *and* stretched
+input, which on this evidence is the arm most likely to win, and it costs one more training
+run.
 
 Two caveats on the magnitude, neither of which touches the sign:
 
