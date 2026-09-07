@@ -31,6 +31,14 @@ it was compared against.
    fine-tuned from a lost parent, annealed to `lrf 0.01`, and trained with `flipud 0.5`.
 5. **Criterion (c) fails under both scorings**, so the registered rule says do not switch the
    corpus on this evidence.
+6. **The size effect is corpus-dependent, which answers the secondary question.** `n` -> `s`
+   is a real gain on `our_robot_keypoints`, significant on pixel error at all four
+   confidences and on PCK at three. On `all_robot_keypoints` the same step is mostly `ns`.
+   "`s` does nothing" was a property of that corpus, not of the size step.
+7. **Arm E is the best model that could plausibly fit the tick budget.** On our robots at
+   conf 0.5 it reaches 8.75 px / 0.747 PCK / 5.38 deg on 471 boxes at recall 0.703, beating
+   arm D on every metric including recall, and beating arm A on both recall (+0.091) and
+   heading (-1.81 deg). Only arm C is better, at 2.52x `n` against E's 1.29x.
 
 ## Setup
 
@@ -96,6 +104,43 @@ rather than empirical, and it does not favour arm D. It favours arm C.
 Precision is not comparable in the ours-only scoring. A 3-class arm's opponent detections
 become false positives once opponent ground truth is excluded, so A/B/C read artificially
 low. Recall, matched-box count and the keypoint metrics are comparable; precision is not.
+
+## The grid - our robots only
+
+Every arm at every confidence, `taxonomy_keypoint_ours.yaml`. `boxes` is the IoU-matched
+count the keypoint metrics average over. Best per group in bold; `deployed` is a reference,
+not an arm.
+
+| conf | arm | boxes | kp_err_px | PCK@0.1 | heading deg | head acc@10deg | recall |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 0.05 | A `n`/all | 536 | 9.906 | 0.662 | 10.000 | 0.769 | 0.800 |
+| 0.05 | B `s`/all | 569 | 9.346 | 0.686 | 8.375 | 0.852 | 0.849 |
+| 0.05 | **C `x`/all** | **591** | **7.257** | **0.804** | **6.191** | **0.892** | **0.882** |
+| 0.05 | D `n`/our | 546 | 11.010 | 0.644 | 11.122 | 0.815 | 0.815 |
+| 0.05 | E `s`/our | 566 | 9.506 | 0.693 | 8.494 | 0.841 | 0.845 |
+| 0.05 | deployed | 580 | 10.904 | 0.650 | 15.084 | 0.743 | 0.866 |
+| 0.30 | A | 473 | 9.403 | 0.700 | 8.334 | 0.808 | 0.706 |
+| 0.30 | B | 525 | 8.882 | 0.708 | 6.852 | 0.872 | 0.784 |
+| 0.30 | **C** | **569** | **6.944** | **0.823** | **5.447** | **0.903** | **0.849** |
+| 0.30 | D | 483 | 9.867 | 0.683 | 7.783 | 0.859 | 0.721 |
+| 0.30 | E | 524 | 8.950 | 0.722 | 6.614 | 0.872 | 0.782 |
+| 0.30 | deployed | 537 | 10.269 | 0.685 | 11.617 | 0.786 | 0.801 |
+| 0.50 | A | 410 | 9.134 | 0.727 | 7.194 | 0.834 | 0.612 |
+| 0.50 | B | 458 | 8.442 | 0.747 | 6.728 | 0.876 | 0.684 |
+| 0.50 | **C** | **541** | **6.744** | **0.835** | **5.075** | **0.909** | **0.807** |
+| 0.50 | D | 403 | 9.196 | 0.716 | 5.726 | 0.893 | 0.601 |
+| 0.50 | E | 471 | 8.751 | 0.747 | 5.383 | 0.902 | 0.703 |
+| 0.50 | deployed | 494 | 9.677 | 0.713 | 9.535 | 0.818 | 0.737 |
+| 0.60 | A | 343 | 8.878 | 0.754 | 6.045 | 0.857 | 0.512 |
+| 0.60 | B | 372 | 8.078 | 0.792 | 5.502 | 0.895 | 0.555 |
+| 0.60 | **C** | **505** | **6.714** | **0.850** | 4.869 | 0.919 | **0.754** |
+| 0.60 | D | 299 | 9.221 | 0.744 | **4.679** | **0.923** | 0.446 |
+| 0.60 | E | 421 | 8.690 | 0.760 | 4.704 | 0.922 | 0.628 |
+| 0.60 | deployed | 451 | 9.209 | 0.738 | 7.062 | 0.851 | 0.673 |
+
+`x` on the old corpus wins every group. Within the size sweep the ordering on heading at conf
+0.5 is C 5.08 < E 5.38 < D 5.73 < B 6.73 < A 7.19 < deployed 9.54, and on recall it is
+C 0.807 > E 0.703 > B 0.684 > A 0.612 > D 0.601, with the deployed model at 0.737.
 
 ## The primary question - arm D against arm A
 
@@ -165,6 +210,60 @@ All three were required. **The registered verdict is: do not switch the keypoint
 `our_robot_keypoints` on this evidence.** The heading gain is real at the operating point and
 small, it disappears at lower thresholds, keypoint placement does not improve, and the
 matched-box count moves the wrong way.
+
+## The secondary question - does the size effect reproduce on the new corpus?
+
+The plan asked for this as a comparison of deltas, not of absolute numbers. `n` -> `s` on each
+corpus, our robots only:
+
+| conf | metric | E - D (`our_robot_keypoints`) | B - A (`all_robot_keypoints`) |
+|---|---|---|---|
+| 0.05 | kp_err_px | **-1.504** [-2.386, -0.725] | -0.560 [-1.203, +0.009] ns |
+| 0.05 | kp_pck@0.1 | **+0.049** [+0.023, +0.077] | +0.024 [-0.003, +0.054] ns |
+| 0.05 | kp_heading_err_deg | **-2.628** [-4.718, -0.500] | -1.624 [-3.492, +0.093] ns |
+| 0.30 | kp_err_px | **-0.917** [-1.584, -0.379] | -0.522 [-1.186, +0.078] ns |
+| 0.30 | kp_pck@0.1 | **+0.039** [+0.013, +0.066] | +0.008 [-0.022, +0.039] ns |
+| 0.30 | kp_heading_err_deg | -1.170 ns | **-1.482** [-3.047, -0.076] |
+| 0.50 | kp_err_px | **-0.445** [-0.808, -0.105] | **-0.693** [-1.291, -0.193] |
+| 0.50 | kp_pck@0.1 | **+0.031** [+0.005, +0.059] | +0.020 ns |
+| 0.50 | kp_heading_err_deg | -0.343 ns | -0.466 ns |
+| 0.60 | kp_err_px | **-0.531** [-0.889, -0.131] | **-0.800** [-1.270, -0.373] |
+| 0.60 | kp_pck@0.1 | +0.016 ns | **+0.038** [+0.008, +0.071] |
+| 0.60 | kp_heading_err_deg | +0.025 ns | -0.543 ns |
+
+**The size effect does not reproduce, it gets stronger.** On `our_robot_keypoints` the
+`n` -> `s` step is significant on pixel error at all four confidences and on PCK at three. On
+`all_robot_keypoints` the same step is `ns` on both at the two lower thresholds. Both corpora
+agree that `s` does little for mean heading, and both show the gain concentrated in keypoint
+placement rather than heading.
+
+That is the answer to the previous report's "`yolo26s-pose` does nothing": it did nothing
+*on that corpus*. Change the corpus and the same size step buys a real, if small, improvement.
+
+### Arm E against arm A - the comparison that matters for deployment
+
+E is the only new arm that is both better than the incumbent training recipe and cheap enough
+to consider. Our robots only:
+
+| conf | metric | A | E | delta | 95% CI | verdict |
+|---|---|---:|---:|---:|---|---|
+| 0.05 | recall | 0.800 | 0.845 | +0.045 | [+0.018, +0.074] | better |
+| 0.05 | kp_heading_err_deg | 10.000 | 8.494 | -1.506 | [-3.437, +0.359] | ns |
+| 0.30 | recall | 0.706 | 0.782 | +0.076 | [+0.045, +0.107] | better |
+| 0.30 | kp_heading_err_deg | 8.334 | 6.614 | -1.720 | [-3.483, -0.068] | better |
+| 0.50 | recall | 0.612 | 0.703 | +0.091 | [+0.061, +0.122] | better |
+| 0.50 | kp_heading_err_deg | 7.194 | 5.383 | -1.811 | [-3.177, -0.572] | better |
+| 0.60 | recall | 0.512 | 0.628 | +0.116 | [+0.085, +0.149] | better |
+| 0.60 | kp_heading_err_deg | 6.045 | 4.704 | -1.340 | [-2.659, -0.305] | better |
+
+E improves recall at every threshold and heading at three of four, and it does it while
+matching more boxes than A rather than fewer. That is the signature the previous report used
+to argue arm C's gain was real, and it is the signature arm D lacks. Arm D bought heading by
+tightening; arm E bought it by getting better.
+
+**E is not on the deployable list under the previous sweep's latency finding**, which measured
+`s` at 1.29x `n`. Whether 1.29x fits is a Jetson question, not a dev-box question, and it has
+never been measured for the pose branch. It is the measurement worth taking next.
 
 ## What the fix does to the previous report
 
