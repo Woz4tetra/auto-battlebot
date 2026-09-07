@@ -10,6 +10,7 @@ void handle_system_action(UISystemAction action) {
     int rc = 0;
     switch (action) {
         case UISystemAction::REBOOT_HOST:
+            spdlog::warn("Rebooting the host now.");
             rc = std::system("systemctl reboot");
             if (rc != 0) {
                 spdlog::warn("systemctl reboot failed (rc={}); trying sudo fallback", rc);
@@ -20,6 +21,7 @@ void handle_system_action(UISystemAction action) {
             }
             break;
         case UISystemAction::POWEROFF_HOST:
+            spdlog::warn("Powering off the host now.");
             rc = std::system("systemctl poweroff");
             if (rc != 0) {
                 spdlog::warn("systemctl poweroff failed (rc={}); trying sudo fallback", rc);

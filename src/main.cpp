@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "config/config.hpp"
@@ -36,14 +37,17 @@ void signal_quit(int) {
     for (std::size_t i = 0; i < g_quittables_count; ++i) g_quittables[i]->request_quit();
 }
 
-// Owns every component's lifetime. main runs the host reboot/poweroff only after this
-// returns, so the UI thread, the camera and the MCAP writer are all torn down first.
+// Owns every component's lifetime. A UI reboot/poweroff request stops the runner loop,
+// and the host command runs here, once the loop and the UI are down but before the
+// remaining components are destroyed.
 int run_application(const auto_battlebot::ClassConfiguration& class_config,
                     const std::string& active_profile,
                     const std::vector<std::string>& available_profiles,
-                    const auto_battlebot::ProfileSelectorConfig& profile_selector, bool no_ui,
-                    auto_battlebot::UISystemAction& pending_system_action) {
+                    const auto_battlebot::ProfileSelectorConfig& profile_selector, bool no_ui) {
     using namespace auto_battlebot;
+
+    // Set by the Runner when the UI asks to reboot or power off the host.
+    UISystemAction pending_system_action = UISystemAction::NONE;
 
     auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, active_profile);
     setup_logging(mcap_recorder);
@@ -129,7 +133,17 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     std::signal(SIGINT, SIG_DFL);
     std::signal(SIGTERM, SIG_DFL);
     g_quittables_count = 0;
-    // ui_manager destructor: request_stop + join
+
+    // Stop the UI before the host command. The reboot takes the X server with it, and an
+    // LVGL thread still drawing into a dead display faults. (request_stop + join.)
+    ui_manager.reset();
+
+    // Run the host command here rather than after this function returns. The camera and
+    // model destructors run on the way out, and a ZED close or a TensorRT teardown that
+    // blocks or faults would swallow the reboot entirely. The loop is stopped and both
+    // recordings are closed by now, so there is nothing left to lose if systemd tears the
+    // process down in the middle of those destructors.
+    handle_system_action(pending_system_action);
     return result;
 }
 }  // namespace
@@ -193,16 +207,15 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    ClassConfiguration class_config = load_classes_from_config(config_path);
-
-    // Set by the Runner when the UI asks to reboot or power off the host.
-    UISystemAction pending_system_action = UISystemAction::NONE;
-    int result = run_application(class_config, active_profile, available_profiles, profile_selector,
-                                 no_ui, pending_system_action);
-
-    // The UI thread is joined, the camera is closed and the MCAP is finalized by here, so
-    // the host can tear down the X server and the Argus daemon without taking a live
-    // perception loop down with it.
-    handle_system_action(pending_system_action);
-    return result;
+    try {
+        ClassConfiguration class_config = load_classes_from_config(config_path);
+        return run_application(class_config, active_profile, available_profiles, profile_selector,
+                               no_ui);
+    } catch (const std::exception& e) {
+        // Startup failures that leave the stack unusable (a bad config, a model whose engine
+        // does not load) throw. Catching here exits with a message and a nonzero code instead
+        // of terminating on the uncaught exception.
+        spdlog::error("Fatal: {}", e.what());
+        return 1;
+    }
 }
