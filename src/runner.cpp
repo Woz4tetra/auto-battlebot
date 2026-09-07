@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <opencv2/core.hpp>
+#include <stdexcept>
 
 #include "time_utils.hpp"
 
@@ -227,14 +228,18 @@ void Runner::initialize() {
     if (!camera_->initialize()) {
         spdlog::error("Failed to initialize camera");
     }
+    // A model that fails to load is fatal. Continuing produced a process that looked healthy
+    // but published nothing usable, and the real cause (a missing or mismatched TensorRT
+    // engine) scrolled past in the startup log. The component logs the diagnosis before it
+    // returns false; these throws stop the run on it.
     if (!field_model_->initialize()) {
-        spdlog::error("Failed to initialize field model");
+        throw std::runtime_error("Failed to initialize field model");
     }
     if (!robot_mask_model_->initialize()) {
-        spdlog::error("Failed to initialize robot blob model");
+        throw std::runtime_error("Failed to initialize robot blob model");
     }
     if (!keypoint_model_->initialize()) {
-        spdlog::error("Failed to initialize keypoint model.");
+        throw std::runtime_error("Failed to initialize keypoint model");
     }
     control_loop_->set_autonomy_enabled(autonomy_enabled_);
     // Brings up the transmitter, then starts the thread for threaded drivers (a no-op for stepped
@@ -253,12 +258,10 @@ void Runner::initialize_field(const CameraData &camera_data) {
     MaskStamped field_mask = field_model_->update(camera_data.rgb);
 
     // Check before publishing. Publishing first put an empty /field_mask in the recording on
-    // every failed init, so a run whose field model never loaded looked like one that ran and
-    // found nothing, and the missing field markers read as a publisher problem instead.
+    // every failed init, so a run that found nothing looked the same as one that never got a
+    // mask, and the missing field markers read as a publisher problem instead.
     if (field_mask.mask.mask.empty()) {
-        spdlog::error(
-            "Field model returned an empty mask; skipping field initialization. The model "
-            "usually failed to load at startup, so check for earlier engine errors.");
+        spdlog::error("Field model returned an empty mask; skipping field initialization.");
         return;
     }
 
