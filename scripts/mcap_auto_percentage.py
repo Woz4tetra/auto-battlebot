@@ -2,17 +2,16 @@
 """
 Report what percentage of a match recording the robot spent in autonomous mode.
 
-The match window runs from the first time values/15 == "1024" (auto engaged)
-to the last auto→manual transition.  Auto mode is detected from the
-/diagnostics topic: opentx_transmitter / channels / values/15 == "1024".
+The match window runs from the first time values/15 == 1024 (auto engaged)
+to the last auto->manual transition.  Auto mode is detected from the
+diagnostics: opentx_transmitter / channels / values/15 == 1024.
 """
 
 import argparse
 import sys
-from datetime import datetime
 from pathlib import Path
 
-from mcap_ros1.reader import read_ros1_messages
+from auto_battlebot.diag_io import iter_diagnostic_statuses
 
 
 def analyze(path: Path) -> None:
@@ -21,20 +20,12 @@ def analyze(path: Path) -> None:
     raw: list[tuple[float, bool]] = []
 
     try:
-        for msg in read_ros1_messages(str(path), topics=["/diagnostics"]):
-            diag = msg.ros_msg
-            ts: datetime = msg.log_time
-
-            for status in diag.status:
-                if status.hardware_id != "opentx_transmitter" or status.name != "channels":
-                    continue
-
-                ch15 = next(
-                    (kv.value for kv in status.values if kv.key == "values/15"),
-                    None,
-                )
-                is_auto = ch15 is not None and ch15.strip() == "1024"
-                raw.append((ts.timestamp(), is_auto))
+        for log_time_ns, status in iter_diagnostic_statuses(path):
+            if status["hardware_id"] != "opentx_transmitter" or status["name"] != "channels":
+                continue
+            ch15 = status["values"].get("values/15")
+            is_auto = ch15 == 1024
+            raw.append((log_time_ns / 1e9, is_auto))
 
     except Exception as e:
         print(f"  warning: error reading {path.name}: {e}", file=sys.stderr)
@@ -53,7 +44,7 @@ def analyze(path: Path) -> None:
         if raw[i - 1][1] and not raw[i][1]:
             last_switch_to_manual_ts = raw[i][0]
 
-    # Match window: first auto → last switch to manual (or last auto if still in auto at end).
+    # Match window: first auto -> last switch to manual (or last auto if still in auto at end).
     match_end = last_switch_to_manual_ts if last_switch_to_manual_ts is not None else last_auto_ts
     duration_s = (match_end - first_auto_ts) if (first_auto_ts and match_end) else 0.0
 

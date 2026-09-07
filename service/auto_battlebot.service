@@ -1,13 +1,14 @@
 [Unit]
 Description=Auto BattleBot autonomous robot control
-After=network.target
+# After= only, never Requires= or ExecStartPre=: the app must start whether or not the relay is
+# up. It connects to the relay's unix socket on its own and reconnects when the relay restarts.
+After=network.target viz_relay.service
 
 [Service]
 Type=simple
 # Binary from 'make install' (default prefix ~/.local). Override with:
 #   systemctl edit auto_battlebot.service  and set ExecStart=
 # Uses same layout as scripts/build_and_install.sh (default prefix ~/.local)
-ExecStartPre=/home/__USER__/auto-battlebot/scripts/run_ros_connector.sh
 # Kiosk setup (screen blanking off, GNOME on-screen keyboard off). "-" prefix:
 # ignore failures on early-boot attempts when X/dbus is not up yet; the main
 # process fails then too and Restart= retries the whole unit.

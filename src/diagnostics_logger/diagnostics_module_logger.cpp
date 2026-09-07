@@ -4,7 +4,7 @@
 
 namespace auto_battlebot {
 DiagnosticsModuleLogger::DiagnosticsModuleLogger(const std::string &logger_name)
-    : logger_name_(logger_name), level_(diagnostic_msgs::DiagnosticStatus::OK) {}
+    : logger_name_(logger_name), level_(DiagnosticLevel::OK) {}
 
 void DiagnosticsModuleLogger::log(int8_t level, const std::string &subsection_name,
                                   const DiagnosticsData &data) {
@@ -58,7 +58,7 @@ void DiagnosticsModuleLogger::debug(const std::string &subsection_name,
 }
 void DiagnosticsModuleLogger::debug(const std::string &subsection_name, const DiagnosticsData &data,
                                     const std::string &message) {
-    log(diagnostic_msgs::DiagnosticStatus::OK, subsection_name, data, message);
+    log(DiagnosticLevel::OK, subsection_name, data, message);
 }
 
 void DiagnosticsModuleLogger::info(const DiagnosticsData &data) { info("", data, ""); }
@@ -72,7 +72,7 @@ void DiagnosticsModuleLogger::info(const std::string &subsection_name, const std
 }
 void DiagnosticsModuleLogger::info(const std::string &subsection_name, const DiagnosticsData &data,
                                    const std::string &message) {
-    log(diagnostic_msgs::DiagnosticStatus::OK, subsection_name, data, message);
+    log(DiagnosticLevel::OK, subsection_name, data, message);
 }
 
 void DiagnosticsModuleLogger::warning(const DiagnosticsData &data) { warning("", data, ""); }
@@ -87,7 +87,7 @@ void DiagnosticsModuleLogger::warning(const std::string &subsection_name,
 }
 void DiagnosticsModuleLogger::warning(const std::string &subsection_name,
                                       const DiagnosticsData &data, const std::string &message) {
-    log(diagnostic_msgs::DiagnosticStatus::WARN, subsection_name, data, message);
+    log(DiagnosticLevel::WARN, subsection_name, data, message);
 }
 
 void DiagnosticsModuleLogger::error(const DiagnosticsData &data) { error("", data, ""); }
@@ -102,12 +102,12 @@ void DiagnosticsModuleLogger::error(const std::string &subsection_name,
 }
 void DiagnosticsModuleLogger::error(const std::string &subsection_name, const DiagnosticsData &data,
                                     const std::string &message) {
-    log(diagnostic_msgs::DiagnosticStatus::ERROR, subsection_name, data, message);
+    log(DiagnosticLevel::ERROR, subsection_name, data, message);
 }
 
 void DiagnosticsModuleLogger::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
-    level_ = diagnostic_msgs::DiagnosticStatus::OK;
+    level_ = DiagnosticLevel::OK;
     messages_.clear();
     data_.clear();
 }
@@ -115,29 +115,6 @@ void DiagnosticsModuleLogger::clear() {
 bool DiagnosticsModuleLogger::has_status() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return !messages_.empty() || !data_.empty();
-}
-
-std::vector<diagnostic_msgs::DiagnosticStatus> DiagnosticsModuleLogger::get_status() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::vector<diagnostic_msgs::DiagnosticStatus> diagnostics;
-    for (const auto &[subsection_name, data_map] : data_) {
-        // Join messages for this subsection with " | " separator
-        std::string combined_message;
-        auto messages_it = messages_.find(subsection_name);
-        if (messages_it != messages_.end()) {
-            const auto &subsection_messages = messages_it->second;
-            for (size_t i = 0; i < subsection_messages.size(); ++i) {
-                if (i > 0) {
-                    combined_message += " | ";
-                }
-                combined_message += subsection_messages[i];
-            }
-        }
-
-        diagnostics.push_back(
-            dict_to_diagnostics(data_map, level_, subsection_name, combined_message, logger_name_));
-    }
-    return diagnostics;
 }
 
 std::vector<DiagnosticStatusSnapshot> DiagnosticsModuleLogger::get_snapshots() const {

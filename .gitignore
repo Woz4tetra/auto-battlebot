@@ -18,6 +18,9 @@ htmlcov/
 *.cover
 .hypothesis/
 
+# Prebuilt SDKs unpacked by install/ (Foxglove SDK)
+third_party/
+
 # CMake and C++ build artifacts
 build/
 build-test/

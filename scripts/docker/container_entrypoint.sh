@@ -6,9 +6,8 @@
 # Compiles into build-docker/ (AUTO_BATTLEBOT_BUILD_DIR is set by docker_common.sh) and
 # execs the binary. Arguments are forwarded straight through to auto_battlebot.
 #
-# scripts/run.sh is not reused here because it starts the ros-connector container via
-# docker compose. That runs on the host instead, launched by run_playback.sh, so the
-# container needs no docker socket.
+# The Foxglove relay runs inside this container next to the app (host networking exposes
+# ws://0.0.0.0:8765 to the desktop), so no second container or docker socket is needed.
 
 set -e
 
@@ -17,6 +16,7 @@ PROJECT_ROOT="$(dirname "$(dirname "${SCRIPT_DIR}")")"
 BUILD_DIR="${PROJECT_ROOT}/${AUTO_BATTLEBOT_BUILD_DIR:-build-docker}"
 
 "${PROJECT_ROOT}/scripts/build.sh"
+"${PROJECT_ROOT}/scripts/run_viz_relay.sh"
 
 echo ""
 echo "Starting auto_battlebot..."

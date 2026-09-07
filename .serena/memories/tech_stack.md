@@ -4,9 +4,13 @@
 - Language server: clangd (`/usr/bin/clangd`). Needs `compile_commands.json`; a root
   symlink -> `build-test/compile_commands.json` exists (gitignored).
 - Build: CMake. GoogleTest for tests.
-- miniroscpp (NOT full ROS). ZED SDK, TensorRT, CUDA, DepthAI (OAK) for calibration.
-- CMake globs sources but is NOT CONFIGURE_DEPENDS: re-run `cmake -S . -B build` after
-  adding a new .cpp.
+- No ROS. Live viz + recordings use Foxglove schemas via the Foxglove C++ SDK
+  (`third_party/foxglove`, unpacked by `install/install_foxglove_sdk.sh`, gitignored).
+  `viz_relay` (src/viz_relay) owns the WebSocket server on :8765; the app talks to it over
+  a unix socket (`include/viz/`). Format contract: `docs/foxglove_recording_format.md`.
+  ZED SDK, TensorRT, CUDA, DepthAI (OAK) for calibration.
+- CMake globs sources with CONFIGURE_DEPENDS; new .cpp files are picked up automatically.
+- Debug builds do not define `-DDEBUG` (collides with foxglove Log::LogLevel::DEBUG).
 
 ## Python
 - Runs in the project venv at `venv/` (create with scripts/setup_python.sh, activate with

@@ -49,6 +49,11 @@ If there is interest, I can release the BOM and parts list.
 
 The application uses **Foxglove** for visualization, **MCAP** for replay debugging, and ZED SDK's **SVO** format for video playback.
 
+Live viewing goes through `viz_relay`, a small process that owns the Foxglove WebSocket server
+on port 8765 and stays up across app restarts (`scripts/run_viz_relay.sh`, or the
+`viz_relay.service` unit on the Jetson). Recordings use Foxglove protobuf and JSON schemas;
+the layout is documented in `docs/foxglove_recording_format.md`.
+
 [![Foxglove demo](docs/media/foxglove-demo.gif)](https://youtu.be/qqPpfk3PQDA)
 
 ## Simulation and Playback Testing

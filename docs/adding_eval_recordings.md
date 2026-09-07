@@ -140,7 +140,7 @@ rather than a bad argument.
 ## Requirements on the recording
 
 Step 5 needs `/tf`, `/tf_static`, `/field_markers`, and `/camera/camera_info` in the MCAP. A
-recording made with the ROS publisher disabled has none of these and cannot get transforms.
+recording made with the publisher disabled has none of these and cannot get transforms.
 
 Recordings made after 2026-08-04 also carry `/camera/frame_meta`, giving the SVO frame index
 per processed frame directly. Older recordings, including all of the 2026-05 NHRL set, predate

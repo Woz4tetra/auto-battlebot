@@ -10,26 +10,14 @@
 
 name: auto-battlebot
 
-# Pulls in the Foxglove bridge service so `compose run playback` starts it as a
-# dependency. Path is relative to this file.
-#
-# Requires Compose v2.20+. Older versions reject this file outright with
-# "(root) Additional property include is not allowed".
-# install/install_docker_ubuntu.sh checks for it.
-include:
-    - docker-compose.ros-connector.yml
-
 services:
     playback:
         image: auto-battlebot-playback:latest
         build:
             context: ..
             dockerfile: docker/playback.Dockerfile
-        depends_on:
-            - auto-battlebot-ros
-
-        # Host networking keeps the Foxglove websocket and the ros-connector container
-        # reachable with no port mapping, and avoids docker-in-docker.
+        # Host networking exposes the viz_relay WebSocket (ws://0.0.0.0:8765, started by
+        # container_entrypoint.sh) with no port mapping, and avoids docker-in-docker.
         network_mode: "host"
 
         # Shared IPC covers two things: X shared memory for the LVGL window, and the

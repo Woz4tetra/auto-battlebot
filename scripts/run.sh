@@ -6,8 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="${PROJECT_ROOT}/build"
 
-# Launch roscore
-${SCRIPT_DIR}/run_ros_connector.sh
+# Start the Foxglove relay if it is not already up. The app does not wait on it.
+${SCRIPT_DIR}/run_viz_relay.sh
 
 # Run the executable with any additional arguments passed to this script
 ${BUILD_DIR}/auto_battlebot "$@"

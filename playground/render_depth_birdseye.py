@@ -60,6 +60,7 @@ import cv2
 import numpy as np
 
 from auto_battlebot.mcap_io import (
+    decode_scene_update,
     decode_string,
     decode_tf_message,
     iter_messages,
@@ -203,20 +204,17 @@ def assign_svo_indices(
 
 def load_field_markers(mcap_path: Path) -> list[tuple[int, np.ndarray]]:
     """(log_time_ns, (4, 3) border corners in camera_world) for every field re-init, in order."""
-    # mcap_ros1 handles the visualization_msgs decoding; imported here so the rest of the
-    # script works without it (the border overlay is then skipped).
-    try:
-        from mcap_ros1.reader import read_ros1_messages
-    except ImportError:
-        return []
     markers: list[tuple[int, np.ndarray]] = []
-    for msg in read_ros1_messages(source=str(mcap_path), topics=[FIELD_MARKERS_TOPIC]):
-        for marker in msg.ros_msg.markers:
-            if marker.ns != "field" or len(marker.points) < 4:
+    for _topic, log_time_ns, data in iter_messages(mcap_path, [FIELD_MARKERS_TOPIC]):
+        for entity in decode_scene_update(data).entities:
+            if entity.namespace != "field" or not entity.lines:
+                continue
+            points = entity.lines[0].points
+            if len(points) < 4:
                 continue
             # The border is a closed LINE_STRIP whose first four points are the corners.
-            corners = np.array([[p.x, p.y, p.z] for p in marker.points[:4]], dtype=np.float64)
-            markers.append((msg.log_time_ns, corners))
+            corners = np.array(points[:4], dtype=np.float64)
+            markers.append((log_time_ns, corners))
     return markers
 
 

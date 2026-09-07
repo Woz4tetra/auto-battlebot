@@ -206,7 +206,10 @@ TEST(SafestPointTargetTest, LogsSolverSourceForTheChosenPoint) {
 
     std::map<std::string, std::string> solver_values;
     for (const auto &snapshot : logger->get_snapshots()) {
-        if (snapshot.subsection == "solver") solver_values = snapshot.values;
+        if (snapshot.subsection != "solver") continue;
+        for (const auto &[key, value] : snapshot.values) {
+            solver_values[key] = diagnostic_scalar_to_string(value);
+        }
     }
 
     ASSERT_FALSE(solver_values.empty()) << "no solver subsection in the selector diagnostics";

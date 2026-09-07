@@ -13,7 +13,7 @@ source "$PROJECT_ROOT/install/install_llvm_toolchain.sh"
 source "$PROJECT_ROOT/install/install_opencv_jetson.sh"
 source "$PROJECT_ROOT/install/install_pytorch_jetson.sh"
 source "$PROJECT_ROOT/install/install_python_environment.sh"
-source "$PROJECT_ROOT/install/install_ros_connector.sh"
+source "$PROJECT_ROOT/install/install_foxglove_sdk.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
 source "$PROJECT_ROOT/install/install_mcap_cli.sh"
 source "$PROJECT_ROOT/install/install_taplo.sh"
@@ -34,7 +34,7 @@ install_opencv_jetson
 install_python_environment -n
 # PyTorch for Jetson (NVIDIA wheel into project venv)
 install_pytorch_jetson
-install_ros_connector
+install_foxglove_sdk
 install_mcap_cli
 install_taplo
 build_cpp_project "$@"

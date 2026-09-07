@@ -151,10 +151,10 @@ TEST(UiPresenterTest, DiagnosticsSectionsRemainOrderedAndStale) {
     DiagnosticStatusSnapshot snap_a;
     snap_a.name = "camera";
     snap_a.subsection = "get";
-    snap_a.values["fps"] = "120";
+    snap_a.values["fps"] = 120;
     DiagnosticStatusSnapshot snap_b;
     snap_b.name = "navigation";
-    snap_b.values["target"] = "opponent";
+    snap_b.values["target"] = std::string("opponent");
 
     const auto now = std::chrono::steady_clock::now();
     ui_internal::merge_diag_snapshots(order, cache, {snap_a, snap_b}, now);

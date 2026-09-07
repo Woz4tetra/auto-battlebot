@@ -31,6 +31,8 @@ dependencies = [
   "natsort",
   "gdown",
   "mcap",
+  "foxglove-sdk",
+  "mcap-protobuf-support",
   "trimesh",
   "shapely",
   "pyserial",                                                     # playground/calibration: drives the OpenTX trainer link for drivetrain characterization

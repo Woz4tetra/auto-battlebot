@@ -1,7 +1,5 @@
 #pragma once
 
-#include <miniros/ros.h>
-
 #include <atomic>
 #include <functional>
 #include <iostream>

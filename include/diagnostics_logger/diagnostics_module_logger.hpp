@@ -1,6 +1,5 @@
 #pragma once
 
-#include <diagnostic_msgs/DiagnosticStatus.hxx>
 #include <map>
 #include <mutex>
 #include <string>
@@ -98,14 +97,7 @@ class DiagnosticsModuleLogger {
     std::string get_name() const;
 
     /**
-     * @brief Get the accumulated diagnostic status
-     *
-     * @return std::vector<diagnostic_msgs::DiagnosticStatus>
-     */
-    std::vector<diagnostic_msgs::DiagnosticStatus> get_status() const;
-
-    /**
-     * @brief Get backend-agnostic snapshots (no ROS types)
+     * @brief Get the accumulated status, one snapshot per subsection, with typed values
      */
     std::vector<DiagnosticStatusSnapshot> get_snapshots() const;
 

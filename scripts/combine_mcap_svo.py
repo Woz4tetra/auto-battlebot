@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Combine an MCAP recording with the SVO2 files it references.
 
-For every SVO2 file an input MCAP references (in /rosout or /camera/frame_meta),
+For every SVO2 file an input MCAP references (in /log or /camera/frame_meta),
 produce one combined MCAP <input_mcap_stem>__<svo_stem>.mcap that contains:
 
   * One cropped left-eye image per SVO frame, decoded straight out of the
@@ -35,7 +35,6 @@ import json
 import logging
 import re
 import shutil
-import struct
 import sys
 import tempfile
 from contextlib import ExitStack, closing, contextmanager, suppress
@@ -49,13 +48,13 @@ from mcap.stream_reader import StreamReader
 from mcap.writer import Writer
 from tqdm import tqdm
 
-from auto_battlebot import svo2
+from auto_battlebot import mcap_io, mcap_write, svo2
 
 logger = logging.getLogger("combine_mcap_svo")
 
 # The SVO stores a horizontally concatenated [left | right] H.264 frame. We
-# decode it, crop to the left half, attach a proper ROS1 header, and publish
-# as sensor_msgs/CompressedImage on TARGET_LEFT_IMAGE_TOPIC.
+# decode it, crop to the left half, and publish it as a foxglove.CompressedImage
+# on TARGET_LEFT_IMAGE_TOPIC, stamped with the frame's own time.
 TARGET_LEFT_IMAGE_TOPIC = "/camera/image"
 # One message per frame, alongside the image it describes, carrying where that image came
 # from. It is the export-side companion to /camera/frame_meta, which the pipeline itself
@@ -74,23 +73,15 @@ SVO_FRAME_TOPIC = "/camera/svo_frame"
 CAMERA_INFO_TOPIC = "/camera/camera_info"
 # Written per frame by the pipeline with the SVO file and index it came from.
 FRAME_META_TOPIC = "/camera/frame_meta"
+# Where the pipeline logs the SVO path it opened.
+LOG_TOPIC = "/log"
 
-# ros1msg schema for sensor_msgs/CompressedImage. Foxglove handles this
-# natively for image overlays / projections.
-SENSOR_MSGS_COMPRESSED_IMAGE_SCHEMA = (
-    b"std_msgs/Header header\n"
-    b"string format\n"
-    b"uint8[] data\n"
-    b"\n"
-    b"================================================================================\n"
-    b"MSG: std_msgs/Header\n"
-    b"uint32 seq\n"
-    b"time stamp\n"
-    b"string frame_id\n"
+# JSON schema of the per-frame provenance message on SVO_FRAME_TOPIC.
+SVO_FRAME_SCHEMA = (
+    "auto_battlebot.SvoFrame",
+    '{"type":"object","title":"auto_battlebot.SvoFrame","properties":{"svo_file":{"type":"string"},'
+    '"svo_frame_index":{"type":"integer"},"svo_stamp_ns":{"type":"integer"}}}',
 )
-
-# ros1msg schema for std_msgs/String, matching how the pipeline publishes JSON payloads.
-STD_MSGS_STRING_SCHEMA = b"string data\n"
 
 # Where a repaired copy of a damaged input MCAP lands, under the output directory.
 RECOVERED_SUBDIR = "recovered"
@@ -103,21 +94,15 @@ DEFAULT_SEARCH_DIRS = [
 ]
 
 # spdlog::info("Resolved SVO path: {}", ...) and "SVO recording started: {}".
-# Path is plain ASCII; the next ROS1 string field's length prefix is
-# non-printable, so a greedy \S+ capture is naturally bounded.
-SVO_PATH_REGEX = re.compile(rb"(?:Resolved SVO path|SVO recording started):\s+(\S+\.svo2)")
+SVO_PATH_REGEX = re.compile(r"(?:Resolved SVO path|SVO recording started):\s+(\S+\.svo2)")
 
 
 def _frame_meta_svo_path(data: bytes) -> Optional[Path]:
-    """Return the svo_path from a /camera/frame_meta std_msgs/String payload."""
-    if len(data) < 4:
-        return None
-    (length,) = struct.unpack_from("<I", data, 0)
+    """Return the svo_path from a /camera/frame_meta payload."""
     try:
-        meta = json.loads(data[4 : 4 + length])
-    except (json.JSONDecodeError, UnicodeDecodeError):
+        raw = mcap_io.decode_frame_meta(data).svo_path
+    except (json.JSONDecodeError, UnicodeDecodeError, KeyError, ValueError):
         return None
-    raw = meta.get("svo_path")
     if not raw:  # live-camera frames carry an empty path
         return None
     return Path(raw)
@@ -126,8 +111,8 @@ def _frame_meta_svo_path(data: bytes) -> Optional[Path]:
 def extract_svo_paths(mcap_path: Path) -> List[Path]:
     """Return the SVO paths this recording used, in first-seen order.
 
-    Both /rosout and /camera/frame_meta are read, because neither is complete
-    on its own. /rosout logs the SVO the recorder opened but not the ones it
+    Both /log and /camera/frame_meta are read, because neither is complete
+    on its own. /log logs the SVO the recorder opened but not the ones it
     rotates to mid-run: auto_battlebot_..._2026-08-28_20-57-33 logs only
     2026-08-28T20-57-35.svo2 and never mentions the 2026-08-28T21-03-09.svo2
     that holds all but the first 123 of its frames. /camera/frame_meta names
@@ -135,19 +120,14 @@ def extract_svo_paths(mcap_path: Path) -> List[Path]:
     2026-08 on publish it.
     """
     seen: "dict[Path, None]" = {}
-    with open(mcap_path, "rb") as f:
-        reader = make_reader(f)
-        for _schema, channel, message in reader.iter_messages(
-            topics=["/rosout", FRAME_META_TOPIC],
-            log_time_order=True,
-        ):
-            if channel.topic == FRAME_META_TOPIC:
-                path = _frame_meta_svo_path(message.data)
-                if path is not None:
-                    seen.setdefault(path, None)
-                continue
-            for match in SVO_PATH_REGEX.finditer(message.data):
-                seen.setdefault(Path(match.group(1).decode("utf-8", errors="ignore")), None)
+    for topic, _log_time, data in mcap_io.iter_messages(mcap_path, [LOG_TOPIC, FRAME_META_TOPIC]):
+        if topic == FRAME_META_TOPIC:
+            path = _frame_meta_svo_path(data)
+            if path is not None:
+                seen.setdefault(path, None)
+            continue
+        for match in SVO_PATH_REGEX.finditer(mcap_io.decode_log(data).message):
+            seen.setdefault(Path(match.group(1)), None)
     return list(seen.keys())
 
 
@@ -234,68 +214,28 @@ def _iter_with_source(
             yield (message.log_time, source_idx, schema, channel, message)
 
 
-def _make_ros1_compressed_image(jpeg: bytes, stamp_ns: int, frame_id: Optional[str]) -> bytes:
-    """Wrap a JPEG as a ROS1 sensor_msgs/CompressedImage.
-
-    The std_msgs/Header is properly formed so Foxglove can do TF-aware image
-    annotations. `stamp_ns` is the SVO frame's own timestamp.
-    """
-    sec = stamp_ns // 1_000_000_000
-    nsec = stamp_ns - sec * 1_000_000_000
-
-    fid = (frame_id or "").encode("utf-8")
-    fmt_bytes = b"jpeg"
-
-    parts = [
-        struct.pack("<I", 0),  # header.seq
-        struct.pack("<II", sec, nsec),  # header.stamp
-        struct.pack("<I", len(fid)) + fid,  # header.frame_id
-        struct.pack("<I", len(fmt_bytes)) + fmt_bytes,  # format
-        struct.pack("<I", len(jpeg)) + jpeg,  # data
-    ]
-    return b"".join(parts)
+def _make_left_image(jpeg: bytes, stamp_ns: int, frame_id: Optional[str]) -> Any:
+    """Wrap a JPEG as foxglove.CompressedImage. `stamp_ns` is the SVO frame's own timestamp."""
+    return mcap_write.compressed_image(stamp_ns, frame_id or "", jpeg)
 
 
-def _make_ros1_string(payload: str) -> bytes:
-    """Serialize a std_msgs/String: a length-prefixed UTF-8 blob."""
-    encoded = payload.encode("utf-8")
-    return struct.pack("<I", len(encoded)) + encoded
-
-
-def _make_svo_frame_message(svo_name: str, frame_index: int, stamp_ns: int) -> bytes:
-    """Describe one frame: which SVO it came from, its index, and its timestamp.
+def _make_svo_frame_payload(svo_name: str, frame_index: int, stamp_ns: int) -> str:
+    """One /camera/svo_frame message: which SVO file and frame the image beside it came from.
 
     `svo_frame_index` counts frames from zero in file order, which is the index the SDK reports
-    as the SVO position, because every frame in the recording is read and emitted. `svo_stamp_ns`
-    matches the image header stamp exactly. /camera/frame_meta from the pipeline carries the same
-    index and is the cross-check.
+    to the pipeline and the pipeline writes to /camera/frame_meta, so the two join directly.
     """
-    payload = json.dumps(
+    return json.dumps(
         {"svo_file": svo_name, "svo_frame_index": frame_index, "svo_stamp_ns": stamp_ns},
         separators=(",", ":"),
     )
-    return _make_ros1_string(payload)
 
 
 def read_first_header_frame_id(mcap_path: Path, topic: str) -> Optional[str]:
-    """Return the std_msgs/Header.frame_id of the first message on `topic`.
-
-    Assumes the message starts with a ROS1-serialized std_msgs/Header
-    (uint32 seq + time stamp + string frame_id). All ROS1 messages whose
-    schemas start with `Header header` have this layout.
-    """
-    header_fixed_bytes = 12  # 4 (seq) + 4 (sec) + 4 (nsec)
-    with open(mcap_path, "rb") as f:
-        reader = make_reader(f)
-        for _schema, _channel, message in reader.iter_messages(topics=[topic]):
-            data = message.data
-            if len(data) < header_fixed_bytes + 4:
-                return None
-            (length,) = struct.unpack_from("<I", data, header_fixed_bytes)
-            end = header_fixed_bytes + 4 + length
-            if length == 0 or end > len(data):
-                return None
-            return data[header_fixed_bytes + 4 : end].decode("utf-8", errors="replace")
+    """Return the frame_id of the first calibration message on `topic`."""
+    for _topic, _log_time, data in mcap_io.iter_messages(mcap_path, [topic]):
+        frame_id = mcap_io.decode_camera_info(data).frame_id
+        return frame_id or None
     return None
 
 
@@ -306,20 +246,11 @@ def read_header_stamp_samples(
 
     Used to map the original MCAP's wall-clock-stamped log_times back to the
     camera-frame-stamped timeline that the SVO MCAP uses, fixing the ~50 ms
-    lag between capture and `mcap_recorder->write()` in
-    src/publisher/ros_publisher.cpp.
+    lag between capture and the recorder write in the C++ publisher.
     """
     samples: List[Tuple[int, int]] = []
-    with open(mcap_path, "rb") as f:
-        reader = make_reader(f)
-        for _schema, _channel, message in reader.iter_messages(topics=[topic]):
-            data = message.data
-            # Layout: uint32 seq, uint32 sec, uint32 nsec, ...
-            if len(data) < 12:
-                continue
-            sec, nsec = struct.unpack_from("<II", data, 4)
-            stamp_ns = sec * 1_000_000_000 + nsec
-            samples.append((message.log_time, stamp_ns))
+    for _topic, log_time, data in mcap_io.iter_messages(mcap_path, [topic]):
+        samples.append((log_time, mcap_io.decode_camera_info(data).stamp_ns))
     samples.sort()
     return samples
 
@@ -461,7 +392,6 @@ def merge_mcaps(
     frame_count: int,
     output_path: Path,
     time_range_ns: Tuple[int, int],
-    profile: str,
     ffmpeg_bin: str,
 ) -> None:
     """Stream-merge `original` (sliced) and the SVO's frames into `output_path`."""
@@ -479,67 +409,17 @@ def merge_mcaps(
     # SVO's time range. tqdm handles that gracefully.
     total_messages = _summary_message_count(original_path) + frame_count
 
-    # Per-source maps: source_schema_id -> writer_schema_id, same for channels.
-    # Source idx 0 = original, 1 = svo.
-    schema_remap: List["dict[int, int]"] = [{}, {}]
-    channel_remap: List["dict[int, int]"] = [{}, {}]
+    metadata = {}
+    with open(original_path, "rb") as f:
+        for record in make_reader(f).iter_metadata():
+            metadata[record.name] = dict(record.metadata)
 
-    with open(output_path, "wb") as out_f:
-        writer = Writer(out_f)
-        writer.start(profile=profile, library="combine_mcap_svo")
-
-        # Pre-register a single sensor_msgs/CompressedImage channel for the
-        # cropped left frames so they get a proper ROS1 schema and header.
-        left_image_schema_id = writer.register_schema(
-            name="sensor_msgs/CompressedImage",
-            encoding="ros1msg",
-            data=SENSOR_MSGS_COMPRESSED_IMAGE_SCHEMA,
-        )
-        left_image_channel_id = writer.register_channel(
-            topic=TARGET_LEFT_IMAGE_TOPIC,
-            message_encoding="ros1",
-            schema_id=left_image_schema_id,
-        )
-
-        svo_frame_schema_id = writer.register_schema(
-            name="std_msgs/String",
-            encoding="ros1msg",
-            data=STD_MSGS_STRING_SCHEMA,
-        )
-        svo_frame_channel_id = writer.register_channel(
-            topic=SVO_FRAME_TOPIC,
-            message_encoding="ros1",
-            schema_id=svo_frame_schema_id,
-        )
+    # JPEG-heavy: zstd chunks, as the mcap Writer default this script used before.
+    with mcap_write.McapWriter(
+        output_path, allow_overwrite=True, compression="zstd", metadata=metadata
+    ) as writer:
         svo_name = svo_path.stem
         frame_index = 0
-
-        def get_writer_channel_id(source_idx: int, schema: Any, channel: Any) -> int:
-            cmap = channel_remap[source_idx]
-            if channel.id in cmap:
-                return cmap[channel.id]
-
-            writer_schema_id = 0
-            if schema is not None and schema.id != 0:
-                smap = schema_remap[source_idx]
-                if schema.id in smap:
-                    writer_schema_id = smap[schema.id]
-                else:
-                    writer_schema_id = writer.register_schema(
-                        name=schema.name,
-                        encoding=schema.encoding,
-                        data=schema.data,
-                    )
-                    smap[schema.id] = writer_schema_id
-
-            writer_channel_id = writer.register_channel(
-                topic=channel.topic,
-                message_encoding=channel.message_encoding,
-                schema_id=writer_schema_id,
-                metadata=dict(channel.metadata or {}),
-            )
-            cmap[channel.id] = writer_channel_id
-            return writer_channel_id
 
         # When retiming, we have to load the original messages, shift their
         # log_times to camera-frame time, filter to the SVO range, and re-sort
@@ -577,32 +457,29 @@ def merge_mcaps(
                             f"ffmpeg produced fewer frames than the {frame_count} in "
                             f"{svo_path}: ran out at frame {frame_index}"
                         )
-                    data = _make_ros1_compressed_image(jpeg, log_time, camera_frame_id)
-                    writer.add_message(
-                        channel_id=left_image_channel_id,
-                        log_time=log_time,
-                        data=data,
-                        publish_time=log_time,
-                        sequence=message.sequence,
+                    writer.log(
+                        TARGET_LEFT_IMAGE_TOPIC,
+                        _make_left_image(jpeg, log_time, camera_frame_id),
+                        log_time,
                     )
-                    writer.add_message(
-                        channel_id=svo_frame_channel_id,
-                        log_time=log_time,
-                        data=_make_svo_frame_message(svo_name, frame_index, log_time),
-                        publish_time=log_time,
-                        sequence=message.sequence,
+                    writer.log_json(
+                        SVO_FRAME_TOPIC,
+                        _make_svo_frame_payload(svo_name, frame_index, log_time),
+                        log_time,
+                        schema=SVO_FRAME_SCHEMA,
                     )
                     frame_index += 1
                     merge_bar.update(1)
                     continue
 
-                writer_channel_id = get_writer_channel_id(source_idx, schema, channel)
-                writer.add_message(
-                    channel_id=writer_channel_id,
-                    log_time=log_time,
-                    data=message.data,
-                    publish_time=log_time,
-                    sequence=message.sequence,
+                writer.log_raw(
+                    channel.topic,
+                    channel.message_encoding,
+                    schema.name if schema is not None else None,
+                    schema.encoding if schema is not None else None,
+                    schema.data if schema is not None else None,
+                    message.data,
+                    log_time,
                 )
                 merge_bar.update(1)
 
@@ -611,13 +488,11 @@ def merge_mcaps(
                     f"ffmpeg produced more frames than the {frame_count} in {svo_path}"
                 )
 
-        writer.add_metadata(
+        writer.write_metadata(
             "svo_export",
             {"svo_file": svo_name, "frame_count": str(frame_index)},
         )
         logger.info("Wrote %d SVO frames to %s", frame_index, SVO_FRAME_TOPIC)
-
-        writer.finish()
 
 
 def get_input_profile(mcap_path: Path) -> str:
@@ -853,6 +728,13 @@ def _combine_svos(
         return 0, 0
 
     profile = get_input_profile(input_mcap)
+    if profile == "ros1":
+        logger.error(
+            "%s is a legacy ros1 recording; convert it with the converter kept in git history "
+            "(git show 4b5a95a082a9e662d44c0a2216799b03fc652cb9:scripts/convert_ros1_mcap.py)",
+            input_mcap,
+        )
+        return 0, 0
     written = 0
     missing = 0
     # Two references can name one file (/rosout and /camera/frame_meta spell the
@@ -933,7 +815,6 @@ def _combine_svos(
             frame_count,
             combined_path,
             (start_ns, end_ns),
-            profile,
             ffmpeg_bin,
         )
         logger.info("Wrote %s", combined_path)
@@ -968,7 +849,7 @@ def main() -> int:
         default=None,
         help=(
             "Additional directory to search recursively for SVOs by basename if the "
-            "path logged in /rosout is missing. Repeatable. Defaults: data/svo, "
+            "path logged in /log is missing. Repeatable. Defaults: data/svo, "
             "data/temp_svo (under the project root)."
         ),
     )

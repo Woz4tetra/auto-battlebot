@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-Print /rosout messages from an MCAP file in journalctl-style format.
+Print /log messages from an MCAP file in journalctl-style format.
+
+Reads the ``foxglove.Log`` channel on ``/log``.
 
 Output format mirrors journalctl --no-pager:
   MMM DD HH:MM:SS.mmm <node> [LEVEL]: <message>
@@ -11,16 +13,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mcap_ros1.reader import read_ros1_messages
+from auto_battlebot.mcap_io import decode_log, iter_messages
 
-# ROS1 rosgraph_msgs/Log level constants
-_LEVEL_NAME = {
-    1: "DEBUG",
-    2: "INFO",
-    4: "WARN",
-    8: "ERROR",
-    16: "FATAL",
-}
+_LEVEL_RANK = {"DEBUG": 0, "INFO": 1, "WARN": 2, "ERROR": 3, "FATAL": 4}
 
 # ANSI colour codes (disabled when not a tty)
 _COLOURS = {
@@ -40,16 +35,16 @@ def format_ts(secs: int, nsecs: int) -> str:
 
 def print_log(path: Path, use_colour: bool, min_level: int) -> None:
     try:
-        for msg in read_ros1_messages(str(path), topics=["/rosout"]):
-            m = msg.ros_msg
-            if m.level < min_level:
+        for _topic, _log_time, data in iter_messages(path, ["/log"]):
+            m = decode_log(data)
+            level_name = m.level
+            if _LEVEL_RANK.get(level_name, 1) < min_level:
                 continue
 
-            level_name = _LEVEL_NAME.get(m.level, f"LEVEL{m.level}")
-            ts = format_ts(m.header.stamp.secs, m.header.stamp.nsecs)
+            ts = format_ts(m.stamp_ns // 1_000_000_000, m.stamp_ns % 1_000_000_000)
             node = m.name or "?"
 
-            line = f"{ts} {node} [{level_name}]: {m.msg}"
+            line = f"{ts} {node} [{level_name}]: {m.message}"
 
             if use_colour:
                 colour = _COLOURS.get(level_name, "")
@@ -62,7 +57,7 @@ def print_log(path: Path, use_colour: bool, min_level: int) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Print /rosout from an MCAP file like journalctl.")
+    parser = argparse.ArgumentParser(description="Print /log from an MCAP file like journalctl.")
     parser.add_argument("files", nargs="+", type=Path, help="MCAP file(s) to read")
     parser.add_argument(
         "--level",
@@ -77,8 +72,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    level_map = {"debug": 1, "info": 2, "warn": 4, "error": 8, "fatal": 16}
-    min_level = level_map[args.level]
+    min_level = _LEVEL_RANK[args.level.upper()]
     use_colour = not args.no_colour and sys.stdout.isatty()
 
     for path in args.files:

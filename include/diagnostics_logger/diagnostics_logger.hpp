@@ -14,8 +14,8 @@ namespace auto_battlebot {
  * @brief A singleton class that manages diagnostics loggers and forwards to backends.
  *
  * Example usage:
- *     // Initialize once at startup with one or more backends (e.g. UI, ROS)
- *     DiagnosticsLogger::initialize({ ui_backend, ros_backend });
+ *     // Initialize once at startup with one or more backends (e.g. UI, Foxglove)
+ *     DiagnosticsLogger::initialize({ ui_backend, foxglove_backend });
  *
  *     // Get a logger for a module
  *     auto logger = DiagnosticsLogger::get_logger("module_name");
@@ -35,7 +35,7 @@ class DiagnosticsLogger {
     /**
      * @brief Initialize the diagnostics logger system with backends
      *
-     * @param backends List of backends to receive diagnostic snapshots (e.g. UI, ROS)
+     * @param backends List of backends to receive diagnostic snapshots (e.g. UI, Foxglove)
      */
     static void initialize(std::vector<std::shared_ptr<DiagnosticsBackend>> backends);
 

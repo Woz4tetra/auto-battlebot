@@ -53,9 +53,15 @@ from typing import Any
 
 import numpy as np
 import yaml
-from mcap.reader import make_reader
-from mcap_ros1.decoder import DecoderFactory
 from scipy.spatial.transform import Rotation, Slerp
+
+from auto_battlebot.mcap_io import (
+    decode_camera_info,
+    decode_image_stamp_ns,
+    decode_scene_update,
+    decode_tf_message,
+    iter_messages,
+)
 
 _HERE = Path(__file__).parent
 DEFAULT_DATASET_DIR = _HERE.parent / "data" / "nhrl_keypoints_eval_test"
@@ -72,16 +78,6 @@ CAMERA_WORLD_FRAME = "camera_world"
 # Interpolating across a long dropout says more about the gap than the frame. Beyond this many
 # camera frames between the bracketing processed frames, report unavailable instead.
 MAX_INTERP_GAP_FRAMES = 8
-
-
-def transform_matrix(translation: Any, rotation: Any) -> np.ndarray:
-    """Build a 4x4 homogeneous matrix from a ROS translation and xyzw quaternion."""
-    matrix = np.eye(4)
-    matrix[:3, :3] = Rotation.from_quat(
-        [rotation.x, rotation.y, rotation.z, rotation.w]
-    ).as_matrix()
-    matrix[:3, 3] = [translation.x, translation.y, translation.z]
-    return matrix
 
 
 def decompose(matrix: np.ndarray) -> dict[str, Any]:
@@ -103,6 +99,36 @@ def decompose(matrix: np.ndarray) -> dict[str, Any]:
     }
 
 
+def _camera_info_dict(data: bytes) -> dict[str, Any]:
+    info = decode_camera_info(data)
+    return {
+        "width": int(info.width),
+        "height": int(info.height),
+        "distortion_model": info.distortion_model,
+        "D": [float(v) for v in info.distortion.reshape(-1)],
+        "K": [float(v) for v in info.intrinsics.reshape(-1)],
+        "R": [float(v) for v in info.rectification.reshape(-1)],
+        "P": [float(v) for v in info.projection.reshape(-1)],
+    }
+
+
+def _field_sizes(data: bytes) -> list[tuple[int, float, float]]:
+    """(stamp_ns, width, height) per field border in one /field_markers message."""
+    sizes: list[tuple[int, float, float]] = []
+    for entity in decode_scene_update(data).entities:
+        if entity.namespace != "field" or not entity.lines:
+            continue
+        points = entity.lines[0].points
+        if len(points) < 4:
+            continue
+        # The border is a closed LINE_STRIP whose first four points are the corners. Opposite
+        # edges give the fitted extents.
+        corners = np.array(points[:4], dtype=np.float64)
+        edges = [float(np.linalg.norm(corners[(i + 1) % 4] - corners[i])) for i in range(4)]
+        sizes.append((entity.stamp_ns, (edges[0] + edges[2]) / 2.0, (edges[1] + edges[3]) / 2.0))
+    return sizes
+
+
 def read_recording(mcap_path: Path) -> dict[str, Any]:
     """Pull image stamps, intrinsics, and both transform streams out of one recording."""
     image_stamps: list[int] = []
@@ -111,57 +137,28 @@ def read_recording(mcap_path: Path) -> dict[str, Any]:
     field_from_cameraworld: list[tuple[int, np.ndarray]] = []
     field_sizes: list[tuple[int, float, float]] = []
 
-    with open(mcap_path, "rb") as handle:
-        reader = make_reader(handle, decoder_factories=[DecoderFactory()])
-        topics = [
-            IMAGE_TOPIC,
-            CAMERA_INFO_TOPIC,
-            TF_TOPIC,
-            TF_STATIC_TOPIC,
-            FIELD_MARKERS_TOPIC,
-        ]
-        for _schema, channel, _message, decoded in reader.iter_decoded_messages(topics=topics):
-            if channel.topic == IMAGE_TOPIC:
-                image_stamps.append(decoded.header.stamp.to_nsec())
-            elif channel.topic == CAMERA_INFO_TOPIC:
-                camera_infos.append(
-                    {
-                        "width": int(decoded.width),
-                        "height": int(decoded.height),
-                        "distortion_model": decoded.distortion_model,
-                        "D": [float(v) for v in decoded.D],
-                        "K": [float(v) for v in decoded.K],
-                        "R": [float(v) for v in decoded.R],
-                        "P": [float(v) for v in decoded.P],
-                    }
-                )
-            elif channel.topic == FIELD_MARKERS_TOPIC:
-                for marker in decoded.markers:
-                    if marker.ns != "field" or len(marker.points) < 4:
-                        continue
-                    # The border is a closed LINE_STRIP whose first four points are the
-                    # corners. Opposite edges give the fitted extents.
-                    corners = np.array([[p.x, p.y, p.z] for p in marker.points[:4]])
-                    edges = [
-                        float(np.linalg.norm(corners[(i + 1) % 4] - corners[i])) for i in range(4)
-                    ]
-                    field_sizes.append(
-                        (
-                            marker.header.stamp.to_nsec(),
-                            (edges[0] + edges[2]) / 2.0,
-                            (edges[1] + edges[3]) / 2.0,
-                        )
-                    )
-            else:
-                for tf in decoded.transforms:
-                    stamp = tf.header.stamp.to_nsec()
-                    matrix = transform_matrix(tf.transform.translation, tf.transform.rotation)
-                    if tf.header.frame_id == FIELD_FRAME:
-                        # Recordings made before the edge moved carry it once on /tf_static;
-                        # newer ones repeat it on /tf every cycle. Both land here.
-                        field_from_cameraworld.append((stamp, matrix))
-                    elif channel.topic == TF_TOPIC and tf.header.frame_id == CAMERA_WORLD_FRAME:
-                        dynamic.append((stamp, matrix))
+    topics = [
+        IMAGE_TOPIC,
+        CAMERA_INFO_TOPIC,
+        TF_TOPIC,
+        TF_STATIC_TOPIC,
+        FIELD_MARKERS_TOPIC,
+    ]
+    for topic, _log_time, data in iter_messages(mcap_path, topics):
+        if topic == IMAGE_TOPIC:
+            image_stamps.append(decode_image_stamp_ns(data))
+        elif topic == CAMERA_INFO_TOPIC:
+            camera_infos.append(_camera_info_dict(data))
+        elif topic == FIELD_MARKERS_TOPIC:
+            field_sizes.extend(_field_sizes(data))
+        else:
+            for tf in decode_tf_message(data):
+                if tf.parent_frame_id == FIELD_FRAME:
+                    # Recordings made before the edge moved carry it once on /tf_static;
+                    # newer ones repeat it on /tf every cycle. Both land here.
+                    field_from_cameraworld.append((tf.stamp_ns, tf.matrix))
+                elif topic == TF_TOPIC and tf.parent_frame_id == CAMERA_WORLD_FRAME:
+                    dynamic.append((tf.stamp_ns, tf.matrix))
 
     image_stamps.sort()
     dynamic.sort(key=lambda item: item[0])

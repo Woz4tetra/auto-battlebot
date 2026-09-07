@@ -12,11 +12,10 @@ copied into the image, so editing code never triggers a rebuild.
 
 `docker/docker-compose.playback.yml` owns the container configuration. The scripts in
 `scripts/docker/` are thin wrappers that export the variables it interpolates and call
-`docker compose`. It pulls in `docker-compose.ros-connector.yml` with `include`, so
-`run_playback.sh` starts the Foxglove bridge as a `depends_on` dependency, and both
-services carry a `build:` stanza so a fresh machine builds them on first use. Both files
-declare `name: auto-battlebot`; they have to agree, or the fixed `container_name`
-collides across compose projects.
+`docker compose`. The playback service carries a `build:` stanza so a fresh machine
+builds the image on first use. Foxglove connects to `ws://localhost:8765`, served by
+`viz_relay`, which `container_entrypoint.sh` starts inside the container; host networking
+exposes it with no port mapping.
 
 Running `docker compose -f docker/docker-compose.playback.yml ...` by hand fails on the
 empty `${REPO}` and `${HOST_UID}` interpolations. Go through the scripts, or source
@@ -30,8 +29,10 @@ Rebuild the image only when one of these changes:
 - `.llvm-version`
 - the `TENSORRT_VERSION` pin or base image in `docker/playback.Dockerfile`
 
-The `FetchContent` dependency tree (miniroscpp, tomlplusplus, CLI11, magic_enum, lvgl,
-mcap, spdlog) lands in `build-docker/_deps` on the host, so it survives image rebuilds.
+The `FetchContent` dependency tree (tomlplusplus, CLI11, magic_enum, lvgl, spdlog) lands
+in `build-docker/_deps` on the host, so it survives image rebuilds. The Foxglove SDK is
+unpacked into `third_party/foxglove` on the host by `install/install_foxglove_sdk.sh` and
+reaches the container through the repo bind mount.
 
 ## Host requirements
 
@@ -64,8 +65,8 @@ Ubuntu ships PCL as a single `libpcl-dev` package, so this cannot be trimmed wit
 
 That cost is paid once. Editing code afterwards rebuilds nothing.
 
-`run_playback.sh` builds either image if it is missing, starts the ros-connector
-container, compiles into `build-docker/`, and replays the SVO named in
+`run_playback.sh` builds the image if it is missing, compiles into `build-docker/`,
+starts `viz_relay`, and replays the SVO named in
 `config/playback/_playback.toml`. Pass arguments through to the binary:
 
 ```bash

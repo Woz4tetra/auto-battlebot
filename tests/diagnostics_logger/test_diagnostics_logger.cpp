@@ -6,48 +6,40 @@ namespace auto_battlebot {
 class DiagnosticsLoggerTest : public ::testing::Test {
    protected:
     void SetUp() override {
-        miniros::Time::init();
-
-        // Enable test mode to skip actual ROS publishing
+        // Enable test mode to skip calling backends
         TestDiagnosticsLogger::enable_test_mode();
 
-        // Create a mock publisher (casted to the base type for DiagnosticsLogger)
-        mock_publisher_ = std::make_shared<MockPublisher>();
+        backend_ = std::make_shared<RecordingBackend>();
     }
 
     void TearDown() override {
         // Reset the singleton state for next test using test-only subclass
         TestDiagnosticsLogger::reset();
-        mock_publisher_.reset();
+        backend_.reset();
     }
 
-    std::shared_ptr<MockPublisher> mock_publisher_;
+    std::shared_ptr<RecordingBackend> backend_;
 };
 
 // Test initialization
 TEST_F(DiagnosticsLoggerTest, Initialization) {
     EXPECT_FALSE(DiagnosticsLogger::is_initialized());
 
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     EXPECT_TRUE(DiagnosticsLogger::is_initialized());
 }
 
 // Test double initialization throws
 TEST_F(DiagnosticsLoggerTest, DoubleInitializationThrows) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
-    EXPECT_THROW(DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-                     std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))}),
-                 std::runtime_error);
+    EXPECT_THROW(DiagnosticsLogger::initialize({backend_}), std::runtime_error);
 }
 
 // Test get_logger creates new logger
 TEST_F(DiagnosticsLoggerTest, GetLoggerCreatesNew) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger1 = DiagnosticsLogger::get_logger("module1");
     EXPECT_NE(logger1, nullptr);
@@ -60,8 +52,7 @@ TEST_F(DiagnosticsLoggerTest, GetLoggerCreatesNew) {
 
 // Test get_logger returns same instance
 TEST_F(DiagnosticsLoggerTest, GetLoggerReturnsSameInstance) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger1 = DiagnosticsLogger::get_logger("module1");
     auto logger2 = DiagnosticsLogger::get_logger("module1");
@@ -71,8 +62,7 @@ TEST_F(DiagnosticsLoggerTest, GetLoggerReturnsSameInstance) {
 
 // Test remove_logger
 TEST_F(DiagnosticsLoggerTest, RemoveLogger) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger = DiagnosticsLogger::get_logger("module1");
     logger->info("", {{"value", 1}}, "Test");
@@ -92,8 +82,7 @@ TEST_F(DiagnosticsLoggerTest, PublishWithoutInitializationThrows) {
 
 // Test publish with no statuses doesn't crash
 TEST_F(DiagnosticsLoggerTest, PublishWithNoStatuses) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     // Should not throw
     EXPECT_NO_THROW(DiagnosticsLogger::publish());
@@ -101,8 +90,7 @@ TEST_F(DiagnosticsLoggerTest, PublishWithNoStatuses) {
 
 // Test publish clears loggers
 TEST_F(DiagnosticsLoggerTest, PublishClearsLoggers) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger1 = DiagnosticsLogger::get_logger("module1");
     auto logger2 = DiagnosticsLogger::get_logger("module2");
@@ -114,8 +102,6 @@ TEST_F(DiagnosticsLoggerTest, PublishClearsLoggers) {
     EXPECT_TRUE(logger2->has_status());
 
     // Publish should clear all loggers
-    // Note: This won't actually publish without a real ROS node
-    // but it will process the loggers
     EXPECT_NO_THROW(DiagnosticsLogger::publish());
 
     EXPECT_FALSE(logger1->has_status());
@@ -124,8 +110,7 @@ TEST_F(DiagnosticsLoggerTest, PublishClearsLoggers) {
 
 // Test multiple modules with different levels
 TEST_F(DiagnosticsLoggerTest, MultipleModulesDifferentLevels) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger1 = DiagnosticsLogger::get_logger("sensors");
     auto logger2 = DiagnosticsLogger::get_logger("motors");
@@ -150,8 +135,7 @@ TEST_F(DiagnosticsLoggerTest, MultipleModulesDifferentLevels) {
 
 // Test logger accumulates across multiple calls
 TEST_F(DiagnosticsLoggerTest, LoggerAccumulatesData) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger = DiagnosticsLogger::get_logger("test");
 
@@ -159,12 +143,12 @@ TEST_F(DiagnosticsLoggerTest, LoggerAccumulatesData) {
     logger->warning("", {{"value2", 2}}, "Message 2");
     logger->error("", {{"value3", 3}}, "Message 3");
 
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
 
     ASSERT_EQ(statuses.size(), 1);
 
     // Should have highest level
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::ERROR);
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::ERROR);
 
     // Should have concatenated messages
     EXPECT_EQ(statuses[0].message, "Message 1 | Message 2 | Message 3");
@@ -175,8 +159,7 @@ TEST_F(DiagnosticsLoggerTest, LoggerAccumulatesData) {
 
 // Test empty logger doesn't publish
 TEST_F(DiagnosticsLoggerTest, EmptyLoggerDoesntPublish) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger = DiagnosticsLogger::get_logger("test");
 
@@ -188,8 +171,7 @@ TEST_F(DiagnosticsLoggerTest, EmptyLoggerDoesntPublish) {
 
 // Test mixed empty and non-empty loggers
 TEST_F(DiagnosticsLoggerTest, MixedEmptyAndNonEmptyLoggers) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger1 = DiagnosticsLogger::get_logger("module1");
     auto logger2 = DiagnosticsLogger::get_logger("module2");
@@ -213,8 +195,7 @@ TEST_F(DiagnosticsLoggerTest, MixedEmptyAndNonEmptyLoggers) {
 
 // Test publish cycle
 TEST_F(DiagnosticsLoggerTest, PublishCycle) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger = DiagnosticsLogger::get_logger("test");
 
@@ -238,8 +219,7 @@ TEST_F(DiagnosticsLoggerTest, PublishCycle) {
 
 // Test logger persistence across publish
 TEST_F(DiagnosticsLoggerTest, LoggerPersistenceAcrossPublish) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger1 = DiagnosticsLogger::get_logger("module1");
     auto logger2 = DiagnosticsLogger::get_logger("module2");
@@ -257,16 +237,14 @@ TEST_F(DiagnosticsLoggerTest, LoggerPersistenceAcrossPublish) {
 
 // Test remove non-existent logger doesn't crash
 TEST_F(DiagnosticsLoggerTest, RemoveNonExistentLogger) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     EXPECT_NO_THROW(DiagnosticsLogger::remove_logger("non_existent"));
 }
 
 // Test multiple sequential publishes
 TEST_F(DiagnosticsLoggerTest, MultipleSequentialPublishes) {
-    DiagnosticsLogger::initialize({std::make_shared<RosDiagnosticsBackend>(
-        std::reinterpret_pointer_cast<miniros::Publisher>(mock_publisher_))});
+    DiagnosticsLogger::initialize({backend_});
 
     auto logger = DiagnosticsLogger::get_logger("test");
 

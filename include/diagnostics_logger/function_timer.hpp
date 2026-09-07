@@ -1,7 +1,6 @@
 #pragma once
 
 #include <chrono>
-#include <diagnostic_msgs/DiagnosticStatus.hxx>
 #include <iomanip>
 #include <memory>
 #include <sstream>

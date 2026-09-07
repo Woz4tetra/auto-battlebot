@@ -15,22 +15,29 @@ subsections and topics Stage 0 needs:
 All data here comes straight from existing Jetson recordings; nothing requires
 re-running the stack (laptop results differ from the Jetson).
 
-Dependencies: mcap, mcap_ros1, numpy, pandas
+Reads both recording layouts (``docs/foxglove_recording_format.md``): the per-module
+``/diagnostics/<module>`` JSON channels with typed values, and the legacy single
+``/diagnostics`` DiagnosticArray whose values are all strings and get coerced here.
+
+Dependencies: mcap, numpy, pandas
 """
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import pandas as pd
-from mcap.reader import make_reader
-from mcap_ros1.reader import read_ros1_messages
 
-# Canonical decoder lives in the shared package (install with `pip install -e .`).
-from auto_battlebot.mcap_io import decode_diagnostic_array as _decode_diagnostic_array
+from auto_battlebot.mcap_io import (
+    decode_diagnostic_array,
+    decode_scene_update,
+    decode_tf_message,
+    iter_messages,
+)
 
 DIAGNOSTICS_TOPIC = "/diagnostics"
 ROBOT_MARKERS_TOPIC = "/robot_markers"
@@ -85,15 +92,6 @@ _NUMERIC_DIAG_COLS = [
     "perc/their_count_total",
     "perc/our_present_live",
 ]
-
-
-def _log_time_ns(m: Any) -> int:
-    """Normalize an mcap_ros1 message log_time (datetime or int) to int ns,
-    matching the raw mcap reader used for /diagnostics."""
-    lt = m.log_time
-    if isinstance(lt, (int, np.integer)):
-        return int(lt)
-    return int(round(lt.timestamp() * 1e9))
 
 
 def frame_name(marker_id: int) -> str:
@@ -158,19 +156,25 @@ def _merge_status(rows: dict[int, dict[str, Any]], ts: int, status: dict[str, An
                 rows[ts][dst] = kv[src]
 
 
+def iter_diagnostic_statuses(path: Path | str) -> Iterator[tuple[int, dict[str, Any]]]:
+    """Every diagnostic status in a recording as (log_time_ns, status dict), in log order.
+
+    Status dicts are ``{level, name, message, hardware_id, values}`` for both layouts. Legacy
+    recordings carry every value as a string; the per-module layout carries typed values.
+    """
+    for _topic, log_time_ns, data in iter_messages(path, [DIAGNOSTICS_TOPIC]):
+        for status in decode_diagnostic_array(data):
+            yield log_time_ns, status
+
+
 def load_diagnostics(path: Path) -> pd.DataFrame:
     """One row per tick (keyed on message log_time), columns drawn from
     pursuit_nav, runner/pipeline, runner/navigation, runner/perception, the
     runner stage timers, and the transmitter auto channel."""
     rows: dict[int, dict[str, Any]] = defaultdict(dict)
 
-    with open(path, "rb") as f:
-        reader = make_reader(f)
-        for _schema, channel, message in reader.iter_messages():
-            if channel.topic != DIAGNOSTICS_TOPIC:
-                continue
-            for status in _decode_diagnostic_array(message.data):
-                _merge_status(rows, message.log_time, status)
+    for log_time_ns, status in iter_diagnostic_statuses(path):
+        _merge_status(rows, log_time_ns, status)
 
     if not rows:
         raise SystemExit(f"No /diagnostics found in {path}")
@@ -184,8 +188,37 @@ def load_diagnostics(path: Path) -> pd.DataFrame:
     return df
 
 
+_INT_PATTERN = re.compile(r"^[+-]?\d+$")
+
+
+def coerce_value(value: Any) -> Any:
+    """The legacy string-to-number rule, one value at a time.
+
+    Legacy recordings stringified every diagnostic value (``std::to_string``), so an integer
+    became ``"1"`` and a double ``"12.500000"``. The C++ stack now emits typed values; this is
+    the same judgement applied to old bytes: an integer literal becomes ``int``, anything
+    ``float()`` accepts becomes ``float`` (``nan``/``inf`` included), and everything else stays
+    a string. Already-typed values pass through untouched.
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if _INT_PATTERN.match(text):
+        try:
+            return int(text)
+        except ValueError:
+            return value
+    try:
+        return float(text)
+    except ValueError:
+        return value
+
+
 def _coerce_numeric(df: pd.DataFrame) -> None:
-    """Diagnostics values arrive as strings; convert the numeric columns in place."""
+    """Legacy diagnostics values arrive as strings; convert the numeric columns in place.
+
+    A no-op on columns that are already numeric (the per-module layout).
+    """
     stage_cols = [
         col for col in df.columns if col.startswith("stage/") and col.endswith("/elapsed_ms")
     ]
@@ -201,7 +234,7 @@ def _fill_latched_channels(df: pd.DataFrame) -> None:
     auto<->manual transitions and zero-command ticks.
     """
     ch15 = df["ch15"].ffill() if "ch15" in df.columns else pd.Series(index=df.index, dtype=object)
-    df["is_auto"] = ch15.astype(str).str.strip() == "1024"
+    df["is_auto"] = pd.to_numeric(ch15, errors="coerce") == 1024
 
     for col in ("ch_linear", "ch_angular"):
         if col in df.columns:
@@ -226,11 +259,14 @@ def load_field_size(path: Path) -> tuple[float, float] | None:
     """
     best: tuple[float, float] | None = None
     best_area = -1.0
-    for m in read_ros1_messages(str(path), topics=[FIELD_MARKERS_TOPIC]):
-        for mk in m.ros_msg.markers:
-            if mk.ns != "field" or len(mk.points) < 4:
+    for _topic, _ts, data in iter_messages(path, [FIELD_MARKERS_TOPIC]):
+        for entity in decode_scene_update(data).entities:
+            if entity.namespace != "field" or not entity.lines:
                 continue
-            pts = [np.array([p.x, p.y, p.z]) for p in mk.points[:4]]
+            points = entity.lines[0].points
+            if len(points) < 4:
+                continue
+            pts = [np.array(p) for p in points[:4]]
             width = float(np.linalg.norm(pts[1] - pts[0]))
             height = float(np.linalg.norm(pts[2] - pts[1]))
             if width * height > best_area:
@@ -250,13 +286,12 @@ def load_robot_tracks(path: Path) -> pd.DataFrame:
     Uses the CUBE body markers (ns == "robot_bounds"); marker.id maps to the
     FrameId enum index. Does not carry is_stale (markers do not encode it)."""
     records = []
-    for m in read_ros1_messages(str(path), topics=[ROBOT_MARKERS_TOPIC]):
-        ts = _log_time_ns(m)
+    for _topic, ts, data in iter_messages(path, [ROBOT_MARKERS_TOPIC]):
         their, ours, neutral = [], [], []
-        for mk in m.ros_msg.markers:
-            if mk.ns != "robot_bounds":
+        for entity in decode_scene_update(data).entities:
+            if entity.namespace != "robot_bounds":
                 continue
-            name = frame_name(mk.id)
+            name = frame_name(entity.index)
             grp = group_of(name)
             if grp == "THEIRS":
                 their.append(name)
@@ -285,19 +320,19 @@ def load_robot_positions(path: Path) -> pd.DataFrame:
     presence. Positions are in the marker's own frame (field-center for these
     recordings). Columns: timestamp_ns, frame, group, x, y."""
     records = []
-    for m in read_ros1_messages(str(path), topics=[ROBOT_MARKERS_TOPIC]):
-        ts = _log_time_ns(m)
-        for mk in m.ros_msg.markers:
-            if mk.ns != "robot_bounds":
+    for _topic, ts, data in iter_messages(path, [ROBOT_MARKERS_TOPIC]):
+        for entity in decode_scene_update(data).entities:
+            if entity.namespace != "robot_bounds" or not entity.cubes:
                 continue
-            name = frame_name(mk.id)
+            name = frame_name(entity.index)
+            position = entity.cubes[0].pose.position
             records.append(
                 {
                     "timestamp_ns": ts,
                     "frame": name,
                     "group": group_of(name),
-                    "x": float(mk.pose.position.x),
-                    "y": float(mk.pose.position.y),
+                    "x": float(position[0]),
+                    "y": float(position[1]),
                 }
             )
     return pd.DataFrame(records)
@@ -306,26 +341,6 @@ def load_robot_positions(path: Path) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # /tf + /tf_static -> camera position in the field frame
 # ---------------------------------------------------------------------------
-
-
-def _tf_matrix(translation: Any, rotation: Any) -> np.ndarray:
-    x, y, z, w = rotation.x, rotation.y, rotation.z, rotation.w
-    n = x * x + y * y + z * z + w * w
-    if n < 1e-12:
-        r = np.eye(3)
-    else:
-        s = 2.0 / n
-        r = np.array(
-            [
-                [1 - s * (y * y + z * z), s * (x * y - z * w), s * (x * z + y * w)],
-                [s * (x * y + z * w), 1 - s * (x * x + z * z), s * (y * z - x * w)],
-                [s * (x * z - y * w), s * (y * z + x * w), 1 - s * (x * x + y * y)],
-            ]
-        )
-    m = np.eye(4)
-    m[:3, :3] = r
-    m[:3, 3] = [translation.x, translation.y, translation.z]
-    return m
 
 
 def load_camera_in_field(path: Path) -> pd.DataFrame:
@@ -337,19 +352,18 @@ def load_camera_in_field(path: Path) -> pd.DataFrame:
     coordinates. Returns columns timestamp_ns, cam_x, cam_y, cam_z.
     """
     field_from_world: np.ndarray | None = None
-    for m in read_ros1_messages(str(path), topics=[TF_STATIC_TOPIC]):
-        for tr in m.ros_msg.transforms:
-            if tr.header.frame_id == "field" and tr.child_frame_id == "camera_world":
-                field_from_world = _tf_matrix(tr.transform.translation, tr.transform.rotation)
+    for _topic, _ts, data in iter_messages(path, [TF_STATIC_TOPIC]):
+        for tr in decode_tf_message(data):
+            if tr.key == ("field", "camera_world"):
+                field_from_world = tr.matrix
     if field_from_world is None:
         return pd.DataFrame(columns=["timestamp_ns", "cam_x", "cam_y", "cam_z"])
 
     records = []
-    for m in read_ros1_messages(str(path), topics=[TF_TOPIC]):
-        ts = _log_time_ns(m)
-        for tr in m.ros_msg.transforms:
-            if tr.header.frame_id == "camera_world" and tr.child_frame_id == "camera":
-                world_from_cam = _tf_matrix(tr.transform.translation, tr.transform.rotation)
+    for _topic, ts, data in iter_messages(path, [TF_TOPIC]):
+        for tr in decode_tf_message(data):
+            if tr.key == ("camera_world", "camera"):
+                world_from_cam = tr.matrix
                 cam_in_field = field_from_world @ world_from_cam
                 records.append(
                     {

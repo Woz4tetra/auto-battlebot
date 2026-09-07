@@ -48,8 +48,8 @@ if [ "${config_given}" = false ]; then
     BINARY_ARGS=(-c "${PLAYBACK_CONFIG}" "${BINARY_ARGS[@]}")
 fi
 
-# compose builds the playback and ros-connector images if they are missing, so a fresh
-# machine needs no separate install step. depends_on starts the Foxglove bridge.
+# compose builds the playback image if it is missing, so a fresh machine needs no separate
+# install step. The Foxglove relay starts inside the container (container_entrypoint.sh).
 # Not exec'd: compose is a shell function from docker_common.sh, and exec needs a binary.
 compose run --rm --build playback \
     ./scripts/docker/container_entrypoint.sh "${BINARY_ARGS[@]}"

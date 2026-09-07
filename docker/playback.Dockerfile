@@ -28,7 +28,7 @@ SHELL ["/bin/bash", "-c"]
 # --- Layer 1: bootstrap -------------------------------------------------------------
 # The base image ships sudo, cmake, wget, gcc, and make but not git or
 # apt-add-repository. git is required: CMakeLists.txt pulls eight dependencies
-# (miniroscpp, tomlplusplus, CLI11, magic_enum, lvgl, mcap, spdlog, googletest) with
+# (tomlplusplus, CLI11, magic_enum, lvgl, spdlog, googletest) with
 # FetchContent over git, so the build fails at configure without it.
 # apt-add-repository comes from software-properties-common and is used by
 # install/install_packages.sh. This layer never changes.
@@ -181,8 +181,9 @@ ENV PATH=/opt/venv/bin:${PATH}
 ENV VIRTUAL_ENV=/opt/venv
 
 # Deliberately absent, and why:
-#   install_docker_ubuntu      - no docker-in-docker; ros-connector runs on the host
-#   install_ros_connector      - host-side container, reachable over --network host
+#   install_docker_ubuntu      - no docker-in-docker
+#   install_foxglove_sdk       - unpacks into third_party/ on the bind-mounted repo, so the
+#                                host install covers the container (same x86_64 build)
 #   install_python_environment - creates venv/ in the repo; layers 6-7 do the same job
 #                                against the pinned TensorRT instead
 #   install_platformio         - firmware toolchain

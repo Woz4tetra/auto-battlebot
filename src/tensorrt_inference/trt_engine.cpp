@@ -33,7 +33,7 @@ class TrtLogger : public nvinfer1::ILogger {
         if (severity > Severity::kWARNING) return;
         if (g_quiet_depth.load(std::memory_order_relaxed) > 0) {
             // Probing a candidate engine. A rejection here is an expected outcome, not a
-            // fault, so keep it out of the error stream and the mcap /rosout topic.
+            // fault, so keep it out of the error stream and the mcap /log topic.
             spdlog::debug("[TensorRT] {}", msg);
             return;
         }

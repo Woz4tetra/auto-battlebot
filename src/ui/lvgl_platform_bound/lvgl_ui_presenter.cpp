@@ -251,7 +251,9 @@ std::vector<DiagnosticsSectionViewModel> present_diagnostics_sections(
         section.title = snap.name;
         if (!snap.subsection.empty()) section.title += ": " + snap.subsection;
         if (!snap.message.empty()) section.rows.push_back({"message", snap.message});
-        for (const auto &[k, v] : snap.values) section.rows.push_back({k, v});
+        for (const auto &[k, v] : snap.values) {
+            section.rows.push_back({k, diagnostic_scalar_to_string(v)});
+        }
         sections.push_back(std::move(section));
     }
     return sections;

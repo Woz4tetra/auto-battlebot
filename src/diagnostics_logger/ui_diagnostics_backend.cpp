@@ -19,7 +19,7 @@ void UIDiagnosticsBackend::receive(const std::vector<DiagnosticStatusSnapshot> &
                 ? ""
                 : (snap.name + (snap.subsection.empty() ? "." : "." + snap.subsection + "."));
         for (const auto &[key, value] : snap.values) {
-            merged[prefix + key] = value;
+            merged[prefix + key] = diagnostic_scalar_to_string(value);
         }
         if (!snap.message.empty()) {
             merged[prefix + "message"] = snap.message;

@@ -165,7 +165,7 @@ loop. When it does not converge, the velocity barrier covers it.
 
 ## Diagnostics
 
-- `/diagnostics` `hazards` channel, every cycle: count, per-hazard centre, inflated and hard
+- `/diagnostics/hazards` channel, every cycle: count, per-hazard centre, inflated and hard
   radii, source, and the our-robot half-diagonal the inflation used. Lets a replay tell "the
   controller did not know" from "the controller knew and drove in anyway".
 - Both navigations log `hazard_count`, `hazard_waypoint`, `hazard_side` and the steered target.

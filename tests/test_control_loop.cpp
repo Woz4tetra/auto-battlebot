@@ -445,7 +445,7 @@ TEST(ControlLoopTest, BehaviorModeIsLoggedEveryCycle) {
         auto it = snapshot.values.find("behavior_mode");
         if (it == snapshot.values.end()) continue;
         found = true;
-        EXPECT_EQ(it->second, "RUN_AWAY");
+        EXPECT_EQ(diagnostic_scalar_to_string(it->second), "RUN_AWAY");
     }
     EXPECT_TRUE(found) << "no behavior_mode value in the runner/navigation diagnostics";
     runner_logger->clear();

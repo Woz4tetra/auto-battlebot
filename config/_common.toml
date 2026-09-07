@@ -266,7 +266,7 @@ max_linear_command = 0.8               # 0 = no limit
 max_angular_command = 1.0              # 0 = no limit
 
 [publisher]
-type = "RosPublisher"
+type = "FoxglovePublisher"
 
 [runner]
 max_loop_rate = 60.0               # set to double of camera FPS

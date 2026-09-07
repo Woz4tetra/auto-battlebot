@@ -1,0 +1,18 @@
+[Unit]
+Description=Foxglove WebSocket relay for auto_battlebot
+After=network.target
+
+[Service]
+Type=simple
+# Installed by 'make install' next to auto_battlebot (default prefix ~/.local).
+ExecStart=/home/__USER__/.local/bin/viz_relay
+WorkingDirectory=/home/__USER__/auto-battlebot
+Restart=always
+RestartSec=2
+User=__USER__
+SyslogIdentifier=viz_relay
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

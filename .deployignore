@@ -22,3 +22,6 @@
 /build/
 /build-test/
 /build-docker/
+# Foxglove SDK is architecture-specific; the Jetson installs its own via
+# scripts/install_jetson.sh.
+/third_party/

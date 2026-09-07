@@ -2,21 +2,17 @@
 
 #include <memory>
 
-namespace miniros {
-class NodeHandle;
-}
-
 namespace auto_battlebot {
 
 class McapRecorder;
+class VizSink;
 
-// Initialize spdlog with a stdout color sink and an MCAP sink.
+// Initialize spdlog with a stdout color sink and an MCAP sink writing foxglove.Log on /log.
 // Must be called before any spdlog::info/warn/error calls.
 void setup_logging(std::shared_ptr<McapRecorder> recorder);
 
-// Wire up a /rosout publisher so spdlog messages are also visible on the
-// live ROS topic (e.g. in Foxglove when connected directly to the node).
-// Must be called after miniros::init() and NodeHandle creation.
-void setup_rosout_publisher(miniros::NodeHandle& nh);
+// Also stream /log to the viz relay so spdlog messages show up live in Foxglove's Log panel.
+// Call once the sink exists; earlier messages are only recorded.
+void attach_log_viz_sink(std::shared_ptr<VizSink> sink);
 
 }  // namespace auto_battlebot

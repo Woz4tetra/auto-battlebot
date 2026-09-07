@@ -18,8 +18,8 @@ startup. All code in namespace `auto_battlebot`.
 ## Modules (`include/*`)
 channels, config, crsf, data_structures, diagnostics_logger, enums, field_filter, health,
 keypoint_model, logging, mask_model, mcap_recorder, navigation, publisher, rgbd_camera,
-robot_blob_model, robot_filter, ros, serial, simulation, target_selector,
-tensorrt_inference, time, transmitter, ui
+robot_blob_model, robot_filter, serial, simulation, target_selector,
+tensorrt_inference, time, transmitter, ui, viz, foxglove_adapters
 
 ## Other top-level dirs
 - `tests/` — GoogleTest (build with build-test/)
@@ -32,7 +32,8 @@ tensorrt_inference, time, transmitter, ui
 - `data/` — MCAP recordings, SVO files, TensorRT engines. DO NOT MODIFY.
 
 ## Invariants
-- No full ROS: uses `miniroscpp` intentionally. Do not add package.xml or full ROS deps.
+- No ROS at all (removed 2026-09-07). Viz/recording go through the Foxglove SDK; see
+  `docs/foxglove_recording_format.md` and `viz_relay`.
 - No blocking calls in the perception loop (tight latency budget).
 - Prefer TOML config over compile-time switches.
 - Compiler flags: -Wall -Wextra -Werror. Fix warnings, never suppress.

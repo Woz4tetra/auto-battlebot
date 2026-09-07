@@ -11,20 +11,17 @@ import argparse
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from mcap.reader import make_reader
 
-# Canonical decoder lives in the shared package (install with `pip install -e .`).
-# Keep the underscored alias: sibling scripts import it from here.
-from auto_battlebot.mcap_io import decode_diagnostic_array as _decode_diagnostic_array
+from auto_battlebot.diag_io import iter_diagnostic_statuses
 
 PURSUIT_NAV_HW_ID = "pursuit_nav"
 RUNNER_HW_ID = "runner"
 SIM_CAMERA_HW_ID = "sim_camera"
-DIAGNOSTICS_TOPIC = "/diagnostics"
 
 
 # ---------------------------------------------------------------------------
@@ -36,30 +33,21 @@ def extract_diagnostics(path: Path) -> pd.DataFrame:
     """Read an MCAP file and return a DataFrame of pursuit_nav + runner/pipeline
     diagnostics, one row per tick (keyed on message timestamp)."""
 
-    rows_by_ts: dict[int, dict[str, str]] = defaultdict(dict)
+    rows_by_ts: dict[int, dict[str, Any]] = defaultdict(dict)
 
-    with open(path, "rb") as f:
-        reader = make_reader(f)
-        for schema, channel, message in reader.iter_messages():
-            if channel.topic != DIAGNOSTICS_TOPIC:
-                continue
+    for ts_ns, status in iter_diagnostic_statuses(path):
+        hw_id = status["hardware_id"]
+        name = status["name"]
+        kv = status["values"]
 
-            ts_ns = message.log_time
-            statuses = _decode_diagnostic_array(message.data)
-
-            for status in statuses:
-                hw_id = status["hardware_id"]
-                name = status["name"]
-                kv = status["values"]
-
-                if hw_id == PURSUIT_NAV_HW_ID:
-                    rows_by_ts[ts_ns].update(kv)
-                elif hw_id == RUNNER_HW_ID and name == "pipeline":
-                    for k, v in kv.items():
-                        rows_by_ts[ts_ns][f"pipeline/{k}"] = v
-                elif hw_id == SIM_CAMERA_HW_ID and name == "ground_truth":
-                    for k, v in kv.items():
-                        rows_by_ts[ts_ns][f"gt/{k}"] = v
+        if hw_id == PURSUIT_NAV_HW_ID:
+            rows_by_ts[ts_ns].update(kv)
+        elif hw_id == RUNNER_HW_ID and name == "pipeline":
+            for k, v in kv.items():
+                rows_by_ts[ts_ns][f"pipeline/{k}"] = v
+        elif hw_id == SIM_CAMERA_HW_ID and name == "ground_truth":
+            for k, v in kv.items():
+                rows_by_ts[ts_ns][f"gt/{k}"] = v
 
     if not rows_by_ts:
         print("No pursuit_nav diagnostics found in the recording.", file=sys.stderr)

@@ -12,7 +12,7 @@ source "$PROJECT_ROOT/install/install_packages.sh"
 source "$PROJECT_ROOT/install/install_llvm_toolchain.sh"
 source "$PROJECT_ROOT/install/install_tensorrt_runtime_ubuntu.sh"
 source "$PROJECT_ROOT/install/install_docker_ubuntu.sh"
-source "$PROJECT_ROOT/install/install_ros_connector.sh"
+source "$PROJECT_ROOT/install/install_foxglove_sdk.sh"
 source "$PROJECT_ROOT/install/install_mcap_cli.sh"
 source "$PROJECT_ROOT/install/install_taplo.sh"
 source "$PROJECT_ROOT/install/install_python_environment.sh"
@@ -27,7 +27,7 @@ install_packages "$PROJECT_ROOT/install/base_packages.txt"
 install_packages "$PROJECT_ROOT/install/ubuntu_22_packages.txt"
 install_llvm_toolchain
 install_docker_ubuntu
-install_ros_connector
+install_foxglove_sdk
 install_mcap_cli
 install_taplo
 install_python_environment -n

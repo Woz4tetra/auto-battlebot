@@ -1,40 +1,27 @@
 #pragma once
 
-#include <diagnostic_msgs/DiagnosticArray.hxx>
+#include <vector>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
-#include "diagnostics_logger/ros_diagnostics_backend.hpp"
 
 namespace auto_battlebot {
 /**
- * @brief Mock publisher for testing that matches miniros::Publisher interface
- *
- * This mock doesn't require ROS initialization and simply records
- * publish calls for verification in tests.
+ * @brief Backend that records every snapshot batch it receives, for verifying the logger fans
+ * out without a relay or recorder.
  */
-class MockPublisher {
+class RecordingBackend : public DiagnosticsBackend {
    public:
-    MockPublisher() = default;
-
-    void publish(const diagnostic_msgs::DiagnosticArray &msg) {
-        last_published_message_ = msg;
-        publish_count_++;
+    void receive(const std::vector<DiagnosticStatusSnapshot> &snapshots) override {
+        last_snapshots_ = snapshots;
+        receive_count_++;
     }
 
-    const diagnostic_msgs::DiagnosticArray &get_last_message() const {
-        return last_published_message_;
-    }
-
-    int get_publish_count() const { return publish_count_; }
-
-    void reset() {
-        publish_count_ = 0;
-        last_published_message_ = diagnostic_msgs::DiagnosticArray();
-    }
+    const std::vector<DiagnosticStatusSnapshot> &last_snapshots() const { return last_snapshots_; }
+    int receive_count() const { return receive_count_; }
 
    private:
-    diagnostic_msgs::DiagnosticArray last_published_message_;
-    int publish_count_ = 0;
+    std::vector<DiagnosticStatusSnapshot> last_snapshots_;
+    int receive_count_ = 0;
 };
 
 /**
@@ -61,10 +48,7 @@ class TestDiagnosticsLogger : public DiagnosticsLogger {
     }
 
     /**
-     * @brief Enable test mode to skip actual ROS publishing
-     *
-     * Call this before initialize() in tests to avoid needing
-     * a real ROS publisher.
+     * @brief Enable test mode to skip calling backends
      */
     static void enable_test_mode() { test_mode_ = true; }
 };

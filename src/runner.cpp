@@ -184,7 +184,6 @@ bool Runner::recover_camera_after_failure() {
 
     spdlog::error("Failed to get camera data. Reinitializing.");
     auto is_running = [this]() {
-        if (!miniros::ok()) return false;
         if (quit_requested_.load()) return false;
         if (ui_state_ && ui_state_->quit_requested.load()) return false;
         return true;
@@ -206,7 +205,6 @@ bool Runner::recover_camera_after_failure() {
     }
 
     if (!is_running()) {
-        if (!miniros::ok()) miniros::shutdown();
         return false;
     }
     return true;
@@ -339,12 +337,6 @@ bool Runner::tick() {
     if (quit_requested_.load()) {
         spdlog::warn("Quit requested via signal; shutting down runner.");
         stop_recordings_for_shutdown();
-        return false;
-    }
-
-    if (!miniros::ok()) {
-        spdlog::warn("miniros reported not ok; shutting down runner.");
-        miniros::shutdown();
         return false;
     }
 

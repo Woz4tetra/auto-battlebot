@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 
-#include <diagnostic_msgs/DiagnosticStatus.hxx>
-
 #include "diagnostics_logger/diagnostics_module_logger.hpp"
 
 namespace auto_battlebot {
@@ -22,10 +20,10 @@ TEST_F(DiagnosticsModuleLoggerTest, DebugLogging) {
     logger->debug("subsection", {{"temp", 25}}, "Debug message");
 
     EXPECT_TRUE(logger->has_status());
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::OK);
-    EXPECT_EQ(statuses[0].name, "subsection");
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::OK);
+    EXPECT_EQ(statuses[0].subsection, "subsection");
     EXPECT_EQ(statuses[0].message, "Debug message");
 }
 
@@ -34,9 +32,9 @@ TEST_F(DiagnosticsModuleLoggerTest, InfoLogging) {
     logger->info("subsection", {{"value", 100}}, "Info message");
 
     EXPECT_TRUE(logger->has_status());
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::OK);
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::OK);
     EXPECT_EQ(statuses[0].message, "Info message");
 }
 
@@ -45,9 +43,9 @@ TEST_F(DiagnosticsModuleLoggerTest, WarningLogging) {
     logger->warning("subsection", {{"temp", 85}}, "Temperature high");
 
     EXPECT_TRUE(logger->has_status());
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::WARN);
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::WARN);
     EXPECT_EQ(statuses[0].message, "Temperature high");
 }
 
@@ -56,33 +54,33 @@ TEST_F(DiagnosticsModuleLoggerTest, ErrorLogging) {
     logger->error("subsection", {{"error_code", 123}}, "Hardware failure");
 
     EXPECT_TRUE(logger->has_status());
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::ERROR);
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::ERROR);
     EXPECT_EQ(statuses[0].message, "Hardware failure");
 }
 
 // Test level escalation
 TEST_F(DiagnosticsModuleLoggerTest, LevelEscalation) {
     logger->debug("sub", {}, "Debug");
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::OK);
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::OK);
     logger->clear();
 
     logger->info("sub", {}, "Info");
     logger->warning("sub", {}, "Warning");
-    statuses = logger->get_status();
+    statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::WARN);
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::WARN);
     logger->clear();
 
     logger->debug("sub", {}, "Debug");
     logger->warning("sub", {}, "Warning");
     logger->error("sub", {}, "Error");
-    statuses = logger->get_status();
+    statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::ERROR);
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::ERROR);
 }
 
 // Test message concatenation within a subsection
@@ -90,10 +88,10 @@ TEST_F(DiagnosticsModuleLoggerTest, MessageConcatenation) {
     logger->warning("sub", {}, "Low battery");
     logger->error("sub", {}, "GPS signal lost");
 
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
     EXPECT_EQ(statuses[0].message, "Low battery | GPS signal lost");
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::ERROR);
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::ERROR);
 }
 
 // Test duplicate messages are allowed
@@ -102,7 +100,7 @@ TEST_F(DiagnosticsModuleLoggerTest, DuplicateMessagesAllowed) {
     logger->warning("sub", {}, "Duplicate message");
     logger->warning("sub", {}, "Duplicate message");
 
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
     EXPECT_EQ(statuses[0].message, "Duplicate message | Duplicate message | Duplicate message");
 }
@@ -112,7 +110,7 @@ TEST_F(DiagnosticsModuleLoggerTest, DataAccumulation) {
     logger->info("sub", {{"temp", 25}});
     logger->info("sub", {{"voltage", 12.5}});
 
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
     EXPECT_EQ(statuses[0].values.size(), 2);
 }
@@ -122,18 +120,12 @@ TEST_F(DiagnosticsModuleLoggerTest, DataOverwriting) {
     logger->info("sub", {{"temp", 25}});
     logger->info("sub", {{"temp", 30}});  // Should overwrite
 
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
 
     // Find temp value
-    bool found = false;
-    for (const auto &kv : statuses[0].values) {
-        if (kv.key == "temp") {
-            EXPECT_EQ(kv.value, "30");
-            found = true;
-        }
-    }
-    EXPECT_TRUE(found);
+    ASSERT_TRUE(statuses[0].values.count("temp"));
+    EXPECT_EQ(std::get<int>(statuses[0].values.at("temp")), 30);
 }
 
 // Test clear functionality
@@ -149,7 +141,7 @@ TEST_F(DiagnosticsModuleLoggerTest, ClearFunctionality) {
 TEST_F(DiagnosticsModuleLoggerTest, EmptyMessage) {
     logger->info("sub", {{"value", 1}});
 
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
     EXPECT_EQ(statuses[0].message, "");
     EXPECT_EQ(statuses[0].values.size(), 1);
@@ -159,7 +151,7 @@ TEST_F(DiagnosticsModuleLoggerTest, EmptyMessage) {
 TEST_F(DiagnosticsModuleLoggerTest, EmptyData) {
     logger->info("sub", {}, "Message only");
 
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
     EXPECT_EQ(statuses[0].message, "Message only");
     EXPECT_EQ(statuses[0].values.size(), 0);
@@ -177,9 +169,9 @@ TEST_F(DiagnosticsModuleLoggerTest, ComplexDataWithArrays) {
     DiagnosticsData data = {{"temperatures", std::vector<int>{95, 94, 90}}, {"voltage", 12.5}};
     logger->error("sub", data, "Multiple issues");
 
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::ERROR);
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::ERROR);
     EXPECT_GE(statuses[0].values.size(), 4);  // 3 temps + 1 voltage
 }
 
@@ -191,17 +183,17 @@ TEST_F(DiagnosticsModuleLoggerTest, MultipleLoggers) {
     logger1->info("sub", {{"value", 1}}, "Logger 1");
     logger2->error("sub", {{"value", 2}}, "Logger 2");
 
-    auto statuses1 = logger1->get_status();
-    auto statuses2 = logger2->get_status();
+    auto statuses1 = logger1->get_snapshots();
+    auto statuses2 = logger2->get_snapshots();
 
     ASSERT_EQ(statuses1.size(), 1);
     ASSERT_EQ(statuses2.size(), 1);
-    EXPECT_EQ(statuses1[0].name, "sub");
-    EXPECT_EQ(statuses1[0].level, diagnostic_msgs::DiagnosticStatus::OK);
+    EXPECT_EQ(statuses1[0].subsection, "sub");
+    EXPECT_EQ(statuses1[0].level, DiagnosticLevel::OK);
     EXPECT_EQ(logger1->get_name(), "module1");
 
-    EXPECT_EQ(statuses2[0].name, "sub");
-    EXPECT_EQ(statuses2[0].level, diagnostic_msgs::DiagnosticStatus::ERROR);
+    EXPECT_EQ(statuses2[0].subsection, "sub");
+    EXPECT_EQ(statuses2[0].level, DiagnosticLevel::ERROR);
     EXPECT_EQ(logger2->get_name(), "module2");
 }
 
@@ -210,7 +202,7 @@ TEST_F(DiagnosticsModuleLoggerTest, StatusPersistsUntilClear) {
     logger->info("sub", {{"value", 1}}, "Test");
 
     EXPECT_TRUE(logger->has_status());
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     EXPECT_TRUE(logger->has_status());  // Still has status
 
     logger->clear();
@@ -223,9 +215,9 @@ TEST_F(DiagnosticsModuleLoggerTest, MixedMessageTypes) {
     logger->info("sub", {{"i1", 2}}, "Info msg");
     logger->warning("sub", {{"w1", 3}}, "Warning msg");
 
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 1);
-    EXPECT_EQ(statuses[0].level, diagnostic_msgs::DiagnosticStatus::WARN);
+    EXPECT_EQ(statuses[0].level, DiagnosticLevel::WARN);
     EXPECT_EQ(statuses[0].message, "Debug msg | Info msg | Warning msg");
     EXPECT_EQ(statuses[0].values.size(), 3);
 }
@@ -236,15 +228,15 @@ TEST_F(DiagnosticsModuleLoggerTest, MultipleSubsections) {
     logger->warning("subsection2", {{"value2", 2}}, "Message 2");
     logger->error("subsection1", {{"value3", 3}}, "Message 3");
 
-    auto statuses = logger->get_status();
+    auto statuses = logger->get_snapshots();
     ASSERT_EQ(statuses.size(), 2);
 
     // Find each subsection
     for (const auto &status : statuses) {
-        if (status.name == "test_module:subsection1") {
+        if (status.subsection == "test_module:subsection1") {
             EXPECT_EQ(status.message, "Message 1 | Message 3");
             EXPECT_EQ(status.values.size(), 2);
-        } else if (status.name == "test_module:subsection2") {
+        } else if (status.subsection == "test_module:subsection2") {
             EXPECT_EQ(status.message, "Message 2");
             EXPECT_EQ(status.values.size(), 1);
         }

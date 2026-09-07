@@ -111,7 +111,7 @@ All code is in namespace `auto_battlebot`. Interfaces live in `include/<module>/
 
 - New component: add interface to `include/<module>/`, implementation to `src/<module>/`, register in the factory
 - Prefer TOML config over compile-time switches for behavior changes
-- No full ROS. The project uses `miniroscpp` intentionally. Do not add `package.xml` or full ROS dependencies
+- No ROS. Live viz and recordings use Foxglove schemas over the Foxglove SDK (`docs/foxglove_recording_format.md`); the relay is `viz_relay`. Do not add ROS dependencies
 - Compiler flags are `-Wall -Wextra -Werror`. Fix warnings, do not suppress them
 
 ## Testing

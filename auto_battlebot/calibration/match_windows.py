@@ -39,6 +39,7 @@ import numpy as np
 
 from auto_battlebot.mcap_io import (
     decode_diagnostic_array,
+    decode_scene_update,
     decode_string,
     iter_messages,
 )
@@ -115,14 +116,8 @@ def _load_live_by_tick(replay_path: Path, meta_log: np.ndarray) -> dict[int, boo
             if status["hardware_id"] == "runner" and status["name"] == "perception":
                 tick = int(np.searchsorted(meta_log, ts)) - 1
                 if tick >= 0:
-                    live[tick] = status["values"].get("our_present_live") == "1"
+                    live[tick] = status["values"].get("our_present_live") in ("1", 1)
     return live
-
-
-def _log_time_ns(log_time: Any) -> int:
-    if isinstance(log_time, (int, np.integer)):
-        return int(log_time)
-    return int(round(log_time.timestamp() * 1e9))
 
 
 def _load_marker_poses(
@@ -133,44 +128,38 @@ def _load_marker_poses(
     tuple[float, float] | None,
 ]:
     """Per-tick our-robot pose (x, y, yaw, header stamp), opponent xy, and the field size."""
-    # mcap_ros1 handles the visualization_msgs decoding; imported here so the module can be
-    # imported without it when only command loading is needed.
-    from mcap_ros1.reader import read_ros1_messages
-
     ours: dict[int, tuple[float, float, float, int]] = {}
     opps: dict[int, tuple[float, float]] = {}
     field_size: tuple[float, float] | None = None
 
-    for message in read_ros1_messages(
-        str(replay_path), topics=["/robot_markers", "/field_markers"]
-    ):
-        log_ns = _log_time_ns(message.log_time)
-        for marker in message.ros_msg.markers:
-            if marker.ns == "field" and len(marker.points) >= 4:
-                field_size = _wider_field(field_size, marker.points[:4])
+    for _topic, log_ns, data in iter_messages(replay_path, ["/robot_markers", "/field_markers"]):
+        for entity in decode_scene_update(data).entities:
+            if entity.namespace == "field" and entity.lines and len(entity.lines[0].points) >= 4:
+                field_size = _wider_field(field_size, entity.lines[0].points[:4])
                 continue
-            if marker.ns != "robot_bounds":
+            if entity.namespace != "robot_bounds" or not entity.cubes:
                 continue
             tick = int(np.searchsorted(meta_log, log_ns)) - 1
             if tick < 0:
                 continue
-            pose = marker.pose
-            if marker.id == OUR_ROBOT_MARKER_ID:
-                stamp = marker.header.stamp
-                stamp_ns = int(stamp.secs) * 1_000_000_000 + int(stamp.nsecs)
-                yaw = _quat_yaw(
-                    pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w
+            pose = entity.cubes[0].pose
+            if entity.index == OUR_ROBOT_MARKER_ID:
+                yaw = _quat_yaw(*pose.orientation)
+                ours[tick] = (
+                    float(pose.position[0]),
+                    float(pose.position[1]),
+                    yaw,
+                    entity.stamp_ns,
                 )
-                ours[tick] = (float(pose.position.x), float(pose.position.y), yaw, stamp_ns)
-            elif marker.id in THEIR_ROBOT_MARKER_IDS:
-                opps[tick] = (float(pose.position.x), float(pose.position.y))
+            elif entity.index in THEIR_ROBOT_MARKER_IDS:
+                opps[tick] = (float(pose.position[0]), float(pose.position[1]))
 
     return ours, opps, field_size
 
 
 def _wider_field(current: tuple[float, float] | None, points: Any) -> tuple[float, float]:
     """Keep the largest field border seen: early inits can fit an undersized square."""
-    corners = [np.array([p.x, p.y]) for p in points]
+    corners = [np.array([p[0], p[1]]) for p in points]
     width = float(np.linalg.norm(corners[1] - corners[0]))
     height = float(np.linalg.norm(corners[2] - corners[1]))
     if current is None or width * height > current[0] * current[1]:

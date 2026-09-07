@@ -31,7 +31,7 @@ class EngineSelector {
     // returns its path. Returns nullopt when no candidate works, after logging every
     // candidate and why it was rejected.
     //
-    // Logs the outcome exactly once. spdlog fans out to stdout and the mcap /rosout
+    // Logs the outcome exactly once. spdlog fans out to stdout and the mcap /log
     // topic (see setup_logging in src/logging/logging.cpp), so one call covers both.
     std::optional<std::string> select(TrtEngine &engine);
 

@@ -1,10 +1,8 @@
-#include <miniros/ros.h>
 #include <spdlog/spdlog.h>
 #include <toml++/toml.h>
 
 #include <CLI/CLI.hpp>
 #include <csignal>
-#include <diagnostic_msgs/DiagnosticArray.hxx>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -15,7 +13,7 @@
 #include "config/profile_selection.hpp"
 #include "control_loop/config.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
-#include "diagnostics_logger/ros_diagnostics_backend.hpp"
+#include "diagnostics_logger/foxglove_diagnostics_backend.hpp"
 #include "directories.hpp"
 #include "health/health_logger.hpp"
 #include "keypoint_filter/height_gate.hpp"
@@ -23,6 +21,7 @@
 #include "logging/logging.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "perception_batch/parallel_model_batch.hpp"
+#include "publisher/config.hpp"
 #include "quittable.hpp"
 #include "runner.hpp"
 #include "ui/system_actions.hpp"
@@ -51,10 +50,6 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, active_profile);
     setup_logging(mcap_recorder);
-    std::map<std::string, std::string> remappings;
-    miniros::init(remappings, "auto_battlebot");
-    miniros::NodeHandle nh;
-    setup_rosout_publisher(nh);
 
     std::unique_ptr<UIManager> ui_manager;
     std::vector<std::shared_ptr<DiagnosticsBackend>> backends;
@@ -69,16 +64,17 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
         backends.push_back(ui_manager->diagnostics_backend());
     }
 
-    if (class_config.publisher->uses_ros()) {
-        auto ros_diag_publisher = std::make_shared<miniros::Publisher>(
-            nh.advertise<diagnostic_msgs::DiagnosticArray>("/diagnostics", 100));
-        backends.push_back(
-            std::make_shared<RosDiagnosticsBackend>(ros_diag_publisher, mcap_recorder));
+    // The viz sink comes after the UI so a relay problem is visible on screen. It never blocks:
+    // a missing relay just means no live viz until it comes back.
+    auto viz_sink = make_viz_sink(*class_config.publisher);
+    if (viz_sink) attach_log_viz_sink(viz_sink);
+    if (viz_sink || mcap_recorder) {
+        backends.push_back(std::make_shared<FoxgloveDiagnosticsBackend>(viz_sink, mcap_recorder));
     }
 
     DiagnosticsLogger::initialize(backends);
 
-    auto publisher = make_publisher(nh, *class_config.publisher, mcap_recorder);
+    auto publisher = make_publisher(*class_config.publisher, viz_sink, mcap_recorder);
     auto camera = make_rgbd_camera(*class_config.camera);
     auto field_model = make_mask_model(*class_config.field_model);
     auto robot_mask_model = make_robot_blob_model(*class_config.robot_mask_model);

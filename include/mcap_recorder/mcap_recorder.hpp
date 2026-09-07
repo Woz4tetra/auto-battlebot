@@ -1,25 +1,35 @@
 #pragma once
 
-#include <miniros/rostime.h>
-#include <miniros/serialization.h>
-#include <miniros/traits/message_traits.h>
-
-#include <cstring>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
-#include <mcap/writer.hpp>
+#include <foxglove/channel.hpp>
+#include <foxglove/context.hpp>
+#include <foxglove/mcap.hpp>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "mcap_recorder/config.hpp"
+#include "viz/schema.hpp"
 
 namespace auto_battlebot {
 
+/**
+ * Writes already-encoded messages to an MCAP file with the Foxglove SDK writer.
+ *
+ * Callers open a channel once per topic and then write bytes against it. The recorder is the
+ * single gate on what lands in the file: `enabled_` (toggled from the UI) and the configured
+ * ignored topics. Producers can ask `records_topic()` before doing expensive encoding.
+ */
 class McapRecorder {
    public:
+    using ChannelId = uint32_t;
+
     // `active_profile` is the resolved config profile id; it is embedded in the recording
     // filename and written into the file as an `active_profile` metadata record.
     explicit McapRecorder(const std::string& active_profile);
@@ -34,98 +44,43 @@ class McapRecorder {
     }
     bool set_enabled(bool enabled);
     bool is_enabled() const;
-    // True when a write() for this topic would actually be recorded. Lets producers skip
+    // True when a write() on the topic would actually be recorded. Lets producers skip
     // expensive serialization for topics nobody records.
     bool records_topic(const std::string& topic) const {
         std::lock_guard<std::mutex> lock(mutex_);
-        return writer_open_ && enabled_ && ignored_topics_.count(topic) == 0;
+        return records_topic_locked(topic);
     }
     void close();
 
-    // Write a ROS message to the MCAP file using current time
-    template <typename T>
-    void write(const std::string& topic, const T& msg) {
-        uint64_t time_ns = miniros::Time::now().toNSec();
-        write(topic, msg, time_ns);
-    }
+    /** Register a topic. Idempotent per topic; returns 0 when the writer is not open. */
+    ChannelId open_channel(const std::string& topic, const std::string& message_encoding,
+                           const VizSchema& schema);
 
-    // Write a ROS message to the MCAP file with explicit timestamp
-    template <typename T>
-    void write(const std::string& topic, const T& msg, uint64_t time_ns) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!writer_open_ || !enabled_) return;
-        if (ignored_topics_.count(topic)) return;
+    void write(ChannelId channel, const std::byte* data, size_t len, uint64_t log_time_ns);
 
-        mcap::ChannelId channel_id = get_or_create_channel<T>(topic);
-
-        uint32_t serialized_len = miniros::serialization::serializationLength(msg);
-        std::vector<uint8_t> buf(serialized_len);
-        miniros::serialization::OStream ostream(buf.data(), serialized_len);
-        miniros::serialization::serialize(ostream, msg);
-
-        mcap::Message mcap_msg;
-        mcap_msg.channelId = channel_id;
-        mcap_msg.sequence = sequence_++;
-        mcap_msg.logTime = time_ns;
-        mcap_msg.publishTime = time_ns;
-        mcap_msg.data = reinterpret_cast<const std::byte*>(buf.data());
-        mcap_msg.dataSize = serialized_len;
-
-        auto status = writer_.write(mcap_msg);
-        if (!status.ok()) {
-            // Avoid recursive logging here; write to stderr directly
-            std::fprintf(stderr, "[McapRecorder] write failed: %s\n", status.message.c_str());
-        }
-    }
-
-    std::filesystem::path file_path() const { return file_path_; }
+    const std::filesystem::path& file_path() const { return file_path_; }
 
    private:
-    template <typename T>
-    mcap::ChannelId get_or_create_channel(const std::string& topic) {
-        auto it = channel_ids_.find(topic);
-        if (it != channel_ids_.end()) {
-            return it->second;
-        }
+    struct Channel {
+        std::string topic;
+        std::unique_ptr<foxglove::RawChannel> channel;
+    };
 
-        // Register schema
-        const char* datatype = miniros::message_traits::DataType<T>::value();
-        const char* definition = miniros::message_traits::Definition<T>::value();
-
-        mcap::Schema schema;
-        schema.name = datatype;
-        schema.encoding = "ros1msg";
-        const auto* def_bytes = reinterpret_cast<const std::byte*>(definition);
-        schema.data = mcap::ByteArray(def_bytes, def_bytes + std::strlen(definition));
-        writer_.addSchema(schema);
-
-        // Register channel
-        mcap::Channel channel;
-        channel.topic = topic;
-        channel.messageEncoding = "ros1";
-        channel.schemaId = schema.id;
-        // Include connection header metadata that Foxglove expects
-        channel.metadata["callerid"] = "auto_battlebot";
-        channel.metadata["md5sum"] = miniros::message_traits::MD5Sum<T>::value();
-        channel.metadata["type"] = datatype;
-        channel.metadata["message_definition"] = definition;
-        writer_.addChannel(channel);
-
-        channel_ids_[topic] = channel.id;
-        return channel.id;
+    bool records_topic_locked(const std::string& topic) const {
+        return writer_open_ && enabled_ && ignored_topics_.count(topic) == 0;
     }
-
     static std::filesystem::path make_file_path(const std::string& active_profile);
 
-    mcap::McapWriter writer_;
+    foxglove::Context context_;
+    std::optional<foxglove::McapWriter> writer_;
     std::string active_profile_;
     std::filesystem::path file_path_;
     bool writer_open_{false};
     bool enabled_{false};
     mutable std::mutex mutex_;
-    std::unordered_map<std::string, mcap::ChannelId> channel_ids_;
+    std::vector<Channel> channels_;
+    std::unordered_map<std::string, ChannelId> channel_by_topic_;
     std::unordered_set<std::string> ignored_topics_;
-    uint32_t sequence_{0};
 };
 
 std::shared_ptr<McapRecorder> make_mcap_recorder(const McapRecorderConfig& config,

@@ -26,14 +26,6 @@ endif()
 include(FetchContent)
 
 FetchContent_Declare(
-    miniroscpp
-    GIT_REPOSITORY https://github.com/dkargin/miniroscpp.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
-    UPDATE_DISCONNECTED TRUE # Don't try to update if already fetched
-)
-
-FetchContent_Declare(
     tomlplusplus
     GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
     GIT_TAG v3.4.0
@@ -66,14 +58,6 @@ FetchContent_Declare(
 )
 
 FetchContent_Declare(
-    mcap
-    GIT_REPOSITORY https://github.com/foxglove/mcap.git
-    GIT_TAG releases/cpp/v1.4.0
-    GIT_SHALLOW TRUE
-    UPDATE_DISCONNECTED TRUE
-)
-
-FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
     GIT_TAG v1.14.1
@@ -101,14 +85,10 @@ if(BUILD_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl spdlog mcap googletest)
+    FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum lvgl spdlog googletest)
 else()
-    FetchContent_MakeAvailable(miniroscpp tomlplusplus cli11 magic_enum lvgl spdlog mcap)
+    FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum lvgl spdlog)
 endif()
-
-# mcap is header-only; expose its cpp/ include directory
-FetchContent_GetProperties(mcap SOURCE_DIR mcap_SOURCE_DIR)
-set(MCAP_INCLUDE_DIR "${mcap_SOURCE_DIR}/cpp/mcap/include")
 
 # Find required packages
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -144,9 +124,33 @@ include_directories(SYSTEM ${PCL_INCLUDE_DIRS})
 include_directories(SYSTEM ${OpenCV_INCLUDE_DIRS})
 include_directories(SYSTEM ${EIGEN3_INCLUDE_DIRS})
 
+# Foxglove SDK: C++ wrapper sources compiled here on top of the prebuilt Rust static
+# library. install/install_foxglove_sdk.sh unpacks the release for this architecture into
+# third_party/foxglove. The SDK's own headers trip -Wdeprecated-declarations under C++20, so
+# they are system headers and the wrapper compiles with warnings off; nothing of ours is in it.
+set(FOXGLOVE_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/foxglove")
+if(NOT EXISTS "${FOXGLOVE_SDK_DIR}/include/foxglove/schemas.hpp")
+    message(FATAL_ERROR
+        "Foxglove SDK not found at ${FOXGLOVE_SDK_DIR}. Run install/install_foxglove_sdk.sh")
+endif()
+file(GLOB FOXGLOVE_SDK_SOURCES CONFIGURE_DEPENDS
+    "${FOXGLOVE_SDK_DIR}/src/*.cpp"
+    "${FOXGLOVE_SDK_DIR}/src/server/*.cpp"
+)
+add_library(foxglove_sdk STATIC ${FOXGLOVE_SDK_SOURCES})
+set_target_properties(foxglove_sdk PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(foxglove_sdk SYSTEM PUBLIC "${FOXGLOVE_SDK_DIR}/include")
+target_compile_options(foxglove_sdk PRIVATE -w -O2)
+target_link_libraries(foxglove_sdk PUBLIC
+    "${FOXGLOVE_SDK_DIR}/lib/libfoxglove.a"
+    Threads::Threads
+    ${CMAKE_DL_LIBS}
+    m
+)
+
 # Include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-# Note: miniroscpp and tomlplusplus include directories are handled automatically by FetchContent
+# Note: tomlplusplus include directories are handled automatically by FetchContent
 
 # Link directories
 link_directories(${ZED_LIBRARY_DIR})
@@ -234,13 +238,9 @@ set_target_properties(auto_battlebot_lib PROPERTIES
 target_include_directories(auto_battlebot_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-target_include_directories(auto_battlebot_lib SYSTEM PUBLIC
-    ${MCAP_INCLUDE_DIR}
-)
-
 # Link libraries to shared library
 target_link_libraries(auto_battlebot_lib PUBLIC
-    miniros::roscxx
+    foxglove_sdk
     tomlplusplus::tomlplusplus
     magic_enum::magic_enum
     Eigen3::Eigen
@@ -261,9 +261,10 @@ set(COMMON_COMPILE_FLAGS
     -O2
 )
 
+# No -DDEBUG: nothing in the tree tests it, and the macro collides with
+# foxglove::schemas::Log::LogLevel::DEBUG in the SDK headers.
 set(DEBUG_COMPILE_FLAGS
     -g
-    -DDEBUG
 )
 
 set(RELEASE_COMPILE_FLAGS
@@ -309,6 +310,19 @@ target_link_libraries(auto_battlebot
     ${SDL2_TARGET}
 )
 
+# Foxglove relay: owns the WebSocket server so Foxglove stays connected across app restarts.
+# Links only the SDK and CLI11, never auto_battlebot_lib, so it starts without the ZED SDK.
+add_executable(viz_relay
+    src/viz_relay/main.cpp
+)
+target_include_directories(viz_relay PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(viz_relay
+    foxglove_sdk
+    CLI11::CLI11
+    spdlog::spdlog
+    Threads::Threads
+)
+
 # Compiler flags for executable
 if(BUILD_DEBUG)
     target_compile_options(auto_battlebot_ui PRIVATE
@@ -319,12 +333,20 @@ if(BUILD_DEBUG)
         ${COMMON_COMPILE_FLAGS}
         ${DEBUG_COMPILE_FLAGS}
     )
+    target_compile_options(viz_relay PRIVATE
+        ${COMMON_COMPILE_FLAGS}
+        ${DEBUG_COMPILE_FLAGS}
+    )
 else()
     target_compile_options(auto_battlebot_ui PRIVATE
         ${COMMON_COMPILE_FLAGS}
         ${RELEASE_COMPILE_FLAGS}
     )
     target_compile_options(auto_battlebot PRIVATE
+        ${COMMON_COMPILE_FLAGS}
+        ${RELEASE_COMPILE_FLAGS}
+    )
+    target_compile_options(viz_relay PRIVATE
         ${COMMON_COMPILE_FLAGS}
         ${RELEASE_COMPILE_FLAGS}
     )
@@ -360,7 +382,7 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
 set_target_properties(auto_battlebot PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib;\$ORIGIN/../lib64")
 
 # Install targets
-install(TARGETS auto_battlebot auto_battlebot_lib
+install(TARGETS auto_battlebot auto_battlebot_lib viz_relay
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
 )

@@ -16,25 +16,32 @@ fi
 
 "$PROJECT_ROOT/scripts/build_and_install.sh" "$@"
 
-SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-SOURCE_FILE="$SCRIPT_DIR/${SERVICE_NAME}.service"
-
 # Resolve the real user even when the script is invoked with sudo.
 REAL_USER="${SUDO_USER:-$USER}"
 
-# Expand __USER__ placeholder into the invoking user's name.
-STAGED_FILE="$(mktemp)"
-sed "s/__USER__/${REAL_USER}/g" "$SOURCE_FILE" > "$STAGED_FILE"
+# Install a unit from service/<name>.service if it isn't present or is out of date,
+# expanding the __USER__ placeholder into the invoking user's name.
+install_unit() {
+    local name="$1"
+    local service_file="/etc/systemd/system/${name}.service"
+    local source_file="$SCRIPT_DIR/${name}.service"
+    local staged_file
+    staged_file="$(mktemp)"
+    sed "s/__USER__/${REAL_USER}/g" "$source_file" > "$staged_file"
+    if [ ! -f "$service_file" ] || ! diff -q "$staged_file" "$service_file" > /dev/null 2>&1; then
+        echo "Installing $name service (User=${REAL_USER})..."
+        sudo cp "$staged_file" "$service_file"
+        sudo systemctl daemon-reload
+        sudo systemctl enable "$name"
+        echo "Service installed and enabled."
+    fi
+    rm -f "$staged_file"
+}
 
-# Install the service unit if it isn't present or is out of date.
-if [ ! -f "$SERVICE_FILE" ] || ! diff -q "$STAGED_FILE" "$SERVICE_FILE" > /dev/null 2>&1; then
-    echo "Installing $SERVICE_NAME service (User=${REAL_USER})..."
-    sudo cp "$STAGED_FILE" "$SERVICE_FILE"
-    sudo systemctl daemon-reload
-    sudo systemctl enable "$SERVICE_NAME"
-    echo "Service installed and enabled."
-fi
-rm -f "$STAGED_FILE"
+# The relay owns the Foxglove WebSocket server and restarts on its own; the app unit only
+# orders After= it and never waits on it.
+install_unit viz_relay
+install_unit "$SERVICE_NAME"
 
 # Ensure journald keeps logs on disk so service logs survive reboot.
 if [ ! -f "$JOURNALD_FILE" ] || ! rg -q '^Storage=persistent$' "$JOURNALD_FILE"; then
@@ -50,6 +57,7 @@ EOF
     sudo systemctl restart systemd-journald
 fi
 
-echo "Restarting $SERVICE_NAME service..."
+echo "Restarting viz_relay and $SERVICE_NAME services..."
+sudo systemctl restart viz_relay
 sudo systemctl restart "$SERVICE_NAME"
-echo "Service restarted."
+echo "Services restarted."
