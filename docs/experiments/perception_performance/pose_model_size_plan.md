@@ -136,10 +136,16 @@ A, B and C are reused as trained. Their engines are
 their scores are under `training/data/nhrl_keypoints_eval_test/scores_pose_size_abc/`. Do
 not retrain them; the schedule below is theirs.
 
-**F is conditional.** `x` cannot deploy at the current tick budget whatever it is trained on,
-so at 19.3 h its only value is telling us whether the `n` -> `x` jump is a corpus property or
-a size property. Queue it only if D or E shows the corpus matters at all. If D and E both
-land on top of A and B, the corpus factor is null and F answers nothing worth 19 h.
+**F was conditional and is no longer.** `x` cannot deploy at the current tick budget whatever
+it is trained on, so at 19.3 h its only value is telling us whether the `n` -> `x` jump is a
+corpus property or a size property. The plan gated it on D or E showing a corpus effect.
+
+Ungated 2026-09-07, before any of D, E or F had a result, on the grounds that `x` has twice
+now broken the size pattern the smaller arms establish: `model_size_2026-09-04.md` found `s`
+through `l` tied and only `x` moved, and `pose_model_size_2026-09-05.md` found `s` no better
+than `n` and `x` better than both on every keypoint metric. A gate that reads D and E as
+evidence about F assumes the very monotonicity those two reports found absent. F is queued
+with D and E.
 
 **G separates vocabulary from volume.** `--fraction 0.578` subsamples `our_robot_keypoints`
 to 18,447 train frames, matching A. If D beats A and G does not, the win is training volume
@@ -309,9 +315,9 @@ Scaling the previous sweep's measured times by the corpus ratio, 31,912 / 18,447
 | F | ~19.3 h, conditional |
 | G | ~3.5 h, optional |
 
-D and E together are ~13 h. The full grid with F is ~33 h, which is why F is gated on D and
-E showing a corpus effect. Engine builds add ~10 min per arm. Reusing A, B and C saves the
-18.9 h they cost.
+D and E together are ~13 h. The full grid with F is ~33 h; all three are queued (see the arms
+table for why F is no longer gated). Engine builds add ~10 min per arm. Reusing A, B and C
+saves the 18.9 h they cost.
 
 ## Risks / caveats
 
