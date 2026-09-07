@@ -1,191 +1,357 @@
-# Does model size matter for the keypoint model?
+# Does model size matter for the keypoint model - or does the corpus?
 
-Companion to `model_size_2026-09-04.md`, which answered the question for the bounding-box
-detector. That sweep found capacity was the binding constraint on a fixed corpus: every
-arm above `yolo26n` gained significant eval recall, and `yolo26s` captured most of it at
-1.21x the inference time. The keypoint model has never been sized at all - every pose
-report uses `yolo26n-pose`.
+Supersedes the version of this plan executed as `pose_model_size_2026-09-05.md`. That sweep
+trained `yolo26{n,s,x}-pose` on `all_robot_keypoints` and scored the deployed keypoint model
+beside them as a reference. It found `x` better than `n` on every keypoint metric and the
+first all-robots pose model to beat the deployed one, and it rejected `x` on latency.
 
-The keypoint model matters differently. It feeds aim assist, so the metric that decides it
-is **heading error**, not box recall. `experiment_runbook.md` records 9.0 deg as the good
-dedicated-model figure and 38.5 deg as unusable. A box-recall win that leaves heading
-unchanged buys nothing.
+The reference is the problem. `yolo26n-pose_our_robots_2026-05-01` was not trained on
+`all_robot_keypoints`. Its checkpoint records `data: training/data/our_robot_keypoints/data.yml`,
+a 2-class corpus that was not in the repo when that sweep ran. So the one comparison the
+report leaned on for "which pose model should ship" varied model size, class vocabulary,
+corpus size, epoch count and fine-tune lineage at once. This revision holds size and
+schedule fixed and adds the corpus as a factor.
 
-## Question
+## What changed and why
 
-Does a larger pose backbone reduce keypoint heading error enough to justify its latency,
-given the keypoint model is the *other* half of the parallel perception batch and competes
-for the same ~1 ms of Jetson headroom?
+`x` is out on latency: `+3.29 ms` of dev-box GPU time against roughly 1 ms of Jetson tick
+headroom, and the keypoint model is already the slower of the two parallel branches. That
+verdict does not depend on the corpus. So the deployable question is no longer "how big",
+it is **which corpus produces the best `n`-sized pose model**, and the size sweep becomes
+the secondary axis rather than the primary one.
 
-## Dataset - `all_robot_keypoints`
+## Questions
+
+1. **Primary.** At `yolo26n-pose`, the only size that fits the tick budget, does training on
+   `our_robot_keypoints` give lower `kp_heading_err_deg` than training on
+   `all_robot_keypoints`? This is arm D against arm A, matched on everything but corpus.
+2. **Secondary.** Does the size effect the previous sweep measured on `all_robot_keypoints`
+   (nothing at `s`, a large gain at `x`) reproduce on `our_robot_keypoints`, or is it a
+   property of that corpus? This is the D/E/F row against the A/B/C row.
+3. **Control.** How much of the deployed model's standing is its corpus, and how much is its
+   500-epoch schedule and its fine-tune lineage? Arm D is the matched-schedule counterpart
+   the previous report lacked.
+
+## Datasets
+
+### `our_robot_keypoints` - what the deployed model was trained on
 
 | | |
 |---|---|
-| Path | `training/data/all_robot_keypoints` |
-| Size | 18,447 train / 2,049 val |
-| Classes | `mr_stabs_mk2` (10,814), `mrs_buff_mk3` (16,447), `nhrl_robot` (36,108) |
-| Keypoints | `kpt_shape: [2, 3]`, `flip_idx: [0, 1]` - front and back |
+| Path | `training/data/our_robot_keypoints`, 6.9 GB - restored from `/media/storage/auto-battlebots-archive` |
+| Size | 31,912 train / 3,530 val / 1 test frame; 46,878 boxes |
+| Classes | `mr_stabs_mk2` (16,474 boxes), `mrs_buff_mk3` (30,404) - `nc: 2` |
+| Keypoints | `kpt_shape: [2, 3]`, `flip_idx: [0, 1]` - front and back, same as the other corpus |
+| Composition | 98.7% synthetic by box count; 497 real frames / 605 real boxes |
+| Visibility flags | 61.1% flag `2`, 34.9% flag `1`, 4.0% flag `0` |
 
-Class balance is skewed 3.3:1 toward `nhrl_robot`. That is fine here (it is the same for
-every arm) but it means per-class keypoint metrics on `mr_stabs_mk2` rest on the fewest
-instances and will be the noisiest column.
+Class balance is 1.85:1 toward `mrs_buff_mk3`, against 3.3:1 toward `nhrl_robot` in
+`all_robot_keypoints`, so the minority class carries 16,474 boxes here against 12,011 there.
+Per-class `mr_stabs_mk2` metrics are less noisy on this corpus, not more.
 
-**Check before training:** this dataset has no README and its split provenance is
-unrecorded. Confirm the val split is scene-disjoint the way `nhrl_robots_bbox_2class` is.
-If it was split randomly, val is near-duplicate frames and every val number is
-meaningless - the bbox corpus had exactly this defect before 2026-07-29. Grading is on the
-external eval set either way, so a bad val split degrades monitoring, not the verdict.
+### The two corpora share every real frame
 
-## Arms
+The same 497 real frames appear in both, and they are the only real frames in either. The
+2026-05-01 recording is named `2026-05-01T14-17-26-*` here and
+`mrs-buff-mk3-keypoints-part-2__2026-05-01T14-17-26-*` in `all_robot_keypoints`, which is
+why a plain filename join finds only 362 of them.
 
-| arm | model | role |
-|---|---|---|
-| A | `yolo26n-pose` | baseline, matches the deployed keypoint model family |
-| B | `yolo26s-pose` | the bbox sweep's efficient point, tested on pose |
-| C | `yolo26x-pose` | ceiling |
+That pins down what the corpus contrast actually varies:
 
-`m` and `l` are deliberately skipped: the bbox sweep found both dominated by `s` - equal
-recall, no significant precision gain, 1.4-1.7x the cost. Re-testing them here would cost
-~9 h to re-derive a result we already have. If `s` and `x` bracket the pose answer
-differently than they did the bbox answer, add them then.
+| | `our_robot_keypoints` | `all_robot_keypoints` |
+|---|---:|---:|
+| classes | 2 | 3 |
+| synthetic frames | 34,945 | 19,999 |
+| real frames | 497 | 497 |
+| train frames | 31,912 | 18,447 |
 
-`train.py` already carries `yolo26n-pose` and `yolo26x-pose`; **`yolo26s-pose` needs
-adding**.
+Two things move together, class vocabulary and synthetic volume, and 1.73x more training
+frames could account for a win on its own. Arm G below separates them.
+
+### Both val splits are random frame-level splits
+
+Checked for this plan. The `our_robot_keypoints` val synthetic indices run 34 to 34,943,
+interleaved throughout the train range 0 to 34,945, with no index reused. That is the same
+carve `all_robot_keypoints` has, and the previous report showed it ranks `s` second where
+the eval set ranks it last.
+
+**Do not rank arms on val, and do not use `best.pt`,** which is selected by val fitness.
+Grade on `nhrl_keypoints_eval_test` with `score.py`, as before. Write a `README.md` for
+`our_robot_keypoints` recording the carve, the way `all_robot_keypoints` now has one.
+
+## The corpus is restored
+
+`training/data/our_robot_keypoints` now holds the copy from
+`/media/storage/auto-battlebots-archive`: 6.9 GB, 31,912 train / 3,530 val / 1 test frame,
+images and labels paired in every split. `check_det_dataset` loads it from the new location
+and reports `nc: 2`, `names {0: mr_stabs_mk2, 1: mrs_buff_mk3}`, `kpt_shape [2, 3]`,
+`flip_idx [0, 1]`. Nothing further is needed before queueing arm D.
+
+Three things about the restored tree worth knowing:
+
+- **The `data.yml` looks broken and is not.** It has no `path:` key and uses the Roboflow
+  `train: ../train/images` form, unlike `all_robot_keypoints`, which carries an absolute
+  `path:`. Ultralytics strips the leading `../` and resolves against the yaml's own
+  directory. Leave it alone.
+- **Keep the copied `labels.cache` files.** They were written in May 2026 when the corpus
+  last lived at this path, so their stored `im_file` entries already point at
+  `/home/ben/auto-battlebot/training/data/our_robot_keypoints/...`, their format is the
+  current `DATASET_CACHE_VERSION` 1.0.3, and the hash check passes for both splits. Verified
+  with `get_hash(img2label_paths(im) + im)` against each cache. Ultralytics will reuse them
+  and skip a 35,442-file label scan. An earlier draft of this plan said to delete them as
+  stale; that was wrong.
+- **`mrs-buff-mk3-keypoints-part-2/` and its 86 MB zip came along**, 171 MB in total. That is
+  the Roboflow staging export for the 135 real frames already merged into `train/` and
+  `val/`, and no training or scoring path reads it. It carries its own nested `data.yaml`,
+  so do not point `train.py` or `score.py` at that subdirectory by mistake;
+  `resolve_dataset` only looks for `data.yml`/`data.yaml` at the top level, so the directory
+  form in the commands below is safe.
+
+**Disk is the remaining constraint.** `train.py` defaults to `cache="disk"`, which writes one
+2,764,928-byte `.npy` per frame. 35,442 frames is **98 GB of cache**, against 172 GB free on
+`/` after the copy. `all_robot_keypoints` is holding 48 GB of `.npy` next to its images and
+its arms are finished, so reclaim that before queueing:
+
+```bash
+venv/bin/python training/yolo/clear_image_cache.py --older-than 0 --dry-run   # then drop --dry-run
+```
+
+`train.py` sweeps caches unused for 7 days automatically and spares the dataset it is about
+to train on, but the 2026-09-05 caches are not yet old enough for that to fire.
+
+## Arms - a 2x3 grid, half of it already run
+
+| arm | model | corpus | status |
+|---|---|---|---|
+| A | `yolo26n-pose` | `all_robot_keypoints` | done, `2026-09-05` |
+| B | `yolo26s-pose` | `all_robot_keypoints` | done, `2026-09-05` |
+| C | `yolo26x-pose` | `all_robot_keypoints` | done, `2026-09-06` |
+| **D** | `yolo26n-pose` | `our_robot_keypoints` | **new, run first** |
+| **E** | `yolo26s-pose` | `our_robot_keypoints` | **new** |
+| **F** | `yolo26x-pose` | `our_robot_keypoints` | **new, conditional** |
+| G | `yolo26n-pose` | `our_robot_keypoints`, `--fraction 0.578` | optional, see below |
+
+A, B and C are reused as trained. Their engines are
+`data/models/yolo26{n,s,x}-pose_all_robot_keypoints_2026-09-05_last_x86_64_sm86.engine` and
+their scores are under `training/data/nhrl_keypoints_eval_test/scores_pose_size_abc/`. Do
+not retrain them; the schedule below is theirs.
+
+**F was conditional and is no longer.** `x` cannot deploy at the current tick budget whatever
+it is trained on, so at 19.3 h its only value is telling us whether the `n` -> `x` jump is a
+corpus property or a size property. The plan gated it on D or E showing a corpus effect.
+
+Ungated 2026-09-07, before any of D, E or F had a result, on the grounds that `x` has twice
+now broken the size pattern the smaller arms establish: `model_size_2026-09-04.md` found `s`
+through `l` tied and only `x` moved, and `pose_model_size_2026-09-05.md` found `s` no better
+than `n` and `x` better than both on every keypoint metric. A gate that reads D and E as
+evidence about F assumes the very monotonicity those two reports found absent. F is queued
+with D and E.
+
+**G separates vocabulary from volume.** `--fraction 0.578` subsamples `our_robot_keypoints`
+to 18,447 train frames, matching A. If D beats A and G does not, the win is training volume
+and the fix is more synthetic data on either corpus rather than a class-vocabulary change.
+Note `--fraction` cuts real and synthetic frames alike, so G keeps about 287 of the 497 real
+frames; it is a volume control, not a real:synthetic control.
+
+`train.py` already carries all three pose sizes. `yolo26s-pose` was added for the previous
+sweep and needs nothing further.
 
 ## Design
 
 | | |
 |---|---|
-| Epochs | 200, `--save-period 50` |
-| Batch | 96 constant (`-b 96`, 32/GPU across 3 GPUs) |
+| Epochs | 200, `--save-period 50`, matching A/B/C exactly |
+| Batch | 96 (`-b 96`, 32/GPU across 3 GPUs) |
 | imgsz | 640 |
-| Devices | `-d 0 1 2`, submitted through `training/gpu_queue.py` (see "Running the arms") |
+| Devices | `-d 0 1 2`, submitted through `training/gpu_queue.py` |
 | Seed | 0, single seed |
+| Endpoint | epoch 200 (`last.pt`) for every arm |
 
-**Why 200 epochs, not the bbox sweep's 100.** The existing pose configs use 500 where the
-detect config uses 100, and `experiment_runbook.md` notes box and pose metrics plateau at
-different epochs. 200 with a save-period-50 ladder covers the range without committing to
-500. Score the baseline's ep100/150/200 checkpoints first to locate the pose plateau, then
-use the same endpoint for all three arms. Do not pick a different endpoint per arm on eval
-metrics - that is selection on the test set.
+**Do not shorten the schedule for the new arms.** The previous report found keypoint
+placement plateaus by epoch 100 and that a 100-epoch run would have reached the same PCK,
+which is a fair argument for 100 epochs in a fresh experiment. It is not available here: A,
+B and C ran to 200, and a corpus contrast between a 100-epoch arm and a 200-epoch arm would
+reintroduce exactly the confound this revision exists to remove. Score D's ep100 checkpoint
+as well, at a low confidence floor and at the operating point, to re-test the plateau claim
+on the new corpus for free.
 
-**Why batch 96.** Same reasoning as the bbox sweep: it divides evenly across 3 GPUs, and
-`yolo26x` was measured at 32.4 GB/GPU at 32 img/GPU with a detect head. The pose head adds
-little. Note batch scales weight decay (`trainer.py`: `wd * batch * accumulate / nbs`), so
-96 gives an effective 0.00075.
+Effective weight decay is 0.00075, since `trainer.py` scales the declared 0.0005 by
+`batch/nbs`. Same as A/B/C.
+
+## Required tooling change - per-candidate `--labels`
+
+`score.py` takes one global `--labels` list and passes `num_classes=len(class_labels)` to
+`TrtYoloModel` (`score.py:797`), which is what splits the raw tensor into class scores and
+keypoint values. A 2-class engine scored with three labels misparses to `num_keypoints=0`
+and returns ~0 recall while looking like a broken engine. This bit `deploy_keypoints_2026-07-16.md`
+once already.
+
+D, E and F are 2-class. A, B and C are 3-class. So **the grid cannot be scored in one
+invocation as `score.py` stands**, and scoring the two rows separately gives no paired
+bootstrap across corpora, which is the CI the decision rule below asks for.
+
+Add a repeatable per-candidate override, mirroring the existing `--stretch` flag
+(`score.py:858`), which already exists so that "a mixed run scores each arm the way it was
+trained":
+
+```
+--candidate-labels D=mr_stabs_mk2,mrs_buff_mk3
+```
+
+Candidates without an override keep the global `--labels`. Build the detector for each
+candidate with its own list rather than the shared one. This is a small change in
+`build_detector` and it removes a footgun that has now cost two experiments.
+
+Sanity check after the change: every engine must print its own
+`num_keypoints=2 num_classes=N` line, `N` of 2 for D/E/F and 3 for A/B/C.
 
 ## Running the arms
 
-Several agents share the three GPUs and each arm takes all of them, so submit through
-`training/gpu_queue.py` instead of running `train.py` directly. The queue sets
-`NCCL_P2P_DISABLE=1` for multi-device jobs - it stays mandatory, it is just no longer
-something to remember.
-
-Queue arm A first. The val-split check above and the ep100/150/200 plateau scoring both
-gate on it, and at ~2.6 h it is the cheapest way to find a corpus problem before spending
-`x`'s ~9.9 h. B needs `yolo26s-pose` added to `train.py` first.
-
 ```bash
 Q="venv/bin/python training/gpu_queue.py"
-D="training/data/all_robot_keypoints/data.yml"   # the yaml, not the directory
+D="training/data/our_robot_keypoints"      # train.py resolves the directory to data.yml
 
-$Q submit --name A_n_pose --by <agent> -- \
+$Q submit --name D_n_our --by <agent> -- \
   venv/bin/python training/yolo/train.py $D yolo26n-pose -d 0 1 2 -b 96 -e 200 --save-period 50
-$Q submit --name B_s_pose --by <agent> -- \
+$Q submit --name E_s_our --by <agent> -- \
   venv/bin/python training/yolo/train.py $D yolo26s-pose -d 0 1 2 -b 96 -e 200 --save-period 50
-$Q submit --name C_x_pose --by <agent> -- \
-  venv/bin/python training/yolo/train.py $D yolo26x-pose -d 0 1 2 -b 96 -e 200 --save-period 50
 
 $Q status
 $Q logs <id> --tail 40
 ```
 
-At ~16 h these three arms hold the box for most of a day, so check `$Q status` before
-queueing: it prints the run order and when each job should finish, and a short scoring or
-export job queued behind `x` waits for it. The val-split check needs no GPU and should not
-be queued at all.
+Queue D alone and score it before submitting anything else. It answers question 1 by itself,
+it is the cheapest arm at ~6 h, and it is where a restore problem or a disk-space problem
+will show up. E follows, F only if the corpus factor survives D and E.
+
+Several agents share the three GPUs and each arm takes all of them, so check `$Q status`
+before queueing: it prints the run order and an estimated finish for each job.
 
 ## Decision rule - register before looking
 
-Adopt a larger pose model only if **both** hold:
+The previous report recorded that criterion (a) was under-specified: it named a metric and a
+CI but not the confidence, and the verdict for `x` changed with the choice. Fixing that here.
 
-- (a) `kp_heading_err_deg` on the eval set improves against `yolo26n-pose` by a margin
-  whose paired-bootstrap 95% CI excludes 0;
-- (b) its measured Jetson time keeps `runner.perception_batch.update` from pushing
-  `runner.tick` over the 33.3 ms camera frame period.
+**Primary, question 1.** Train the deployed pose model on `our_robot_keypoints` instead of
+`all_robot_keypoints` only if, comparing D against A:
 
-Heading error is primary. `kp_pck@0.1` and `kp_err_px` are secondary and reported but do
-not decide. Box recall on our robots is tertiary - the bbox model already handles finding
-robots.
+- (a) `kp_heading_err_deg` **at conf 0.5**, the deployed operating point, improves with a
+  paired-bootstrap 95% CI excluding 0; **and**
+- (b) `kp_pck@0.1` at conf 0.5 does not get worse by a CI excluding 0; **and**
+- (c) the matched-box count at conf 0.5 does not fall. A heading gain bought by discarding
+  hard detections is the artifact the previous report caught in the epoch ladder, where
+  ep100 -> ep200 halved apparent heading error at conf 0.5 and changed nothing at conf 0.05.
 
-Criterion (b) is tighter here than in the bbox sweep. The two models run **concurrently**
-in `ParallelModelBatch`, so batch time is roughly the slower of the two: on the Jetson,
-keypoint 7.33 ms and blob 7.05 ms produce a 12.86 ms batch. Growing the keypoint model
-raises the batch immediately, because it is already the slower branch.
+Report conf 0.05 / 0.3 / 0.5 / 0.6 for every arm regardless, and say plainly when the ranking
+flips between them.
+
+**Secondary, question 2.** The size effect reproduces on `our_robot_keypoints` if E - D has
+the same sign and rough magnitude as B - A, and F - D as C - A. State this as a comparison of
+deltas, not of absolute numbers; the two corpora need not produce comparable absolute scores
+for the interaction to be readable.
+
+**Latency does not re-open.** Criterion (b) of the previous plan stands as measured: the
+keypoint branch runs at 7.33 ms against the blob model's 7.05 in a 12.86 ms parallel batch
+inside a 33.17 ms tick, leaving about 1 ms. `s` costs 1.29x and `x` 2.52x `n` on the dev box.
+No corpus changes an engine's inference time, so **D is the only new arm that could deploy**,
+and E and F are measurements rather than candidates. Benchmark the new engines anyway, as a
+check that a 2-class head does not change the cost.
 
 ## Scoring
 
+One invocation over the whole grid, once `--candidate-labels` exists:
+
 ```bash
 venv/bin/python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
-  --candidate n=data/models/yolo26n-pose_all_robot_keypoints_<date>_x86_64_sm86.engine \
-  --candidate s=data/models/yolo26s-pose_all_robot_keypoints_<date>_x86_64_sm86.engine \
-  --candidate x=data/models/yolo26x-pose_all_robot_keypoints_<date>_x86_64_sm86.engine \
-  --labels "mr_stabs_mk2,mrs_buff_mk3,nhrl_robot" \
+  --candidate A=data/models/yolo26n-pose_all_robot_keypoints_2026-09-05_last_x86_64_sm86.engine \
+  --candidate B=data/models/yolo26s-pose_all_robot_keypoints_2026-09-05_last_x86_64_sm86.engine \
+  --candidate C=data/models/yolo26x-pose_all_robot_keypoints_2026-09-05_last_x86_64_sm86.engine \
+  --candidate D=data/models/yolo26n-pose_our_robot_keypoints_<date>_last_x86_64_sm86.engine \
+  --candidate E=data/models/yolo26s-pose_our_robot_keypoints_<date>_last_x86_64_sm86.engine \
+  --candidate deployed=data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm86.engine \
+  --labels "mr_stabs_mk2,mrs_buff_mk3,opponent" \
+  --candidate-labels D=mr_stabs_mk2,mrs_buff_mk3 \
+  --candidate-labels E=mr_stabs_mk2,mrs_buff_mk3 \
+  --candidate-labels deployed=mr_stabs_mk2,mrs_buff_mk3 \
   --taxonomy training/model_eval/taxonomy_keypoint.yaml \
-  --conf 0.5 --baseline n --bootstrap 1000 \
-  --output training/data/nhrl_keypoints_eval_test/scores_pose_size
+  --conf 0.5 --baseline A --bootstrap 1000 \
+  --output training/data/nhrl_keypoints_eval_test/scores_pose_corpus/conf0.5
 ```
 
-- **`--labels` must have exactly 3 entries** to match `nc: 3`. A wrong count misparses the
-  tensor to `num_keypoints=0` and returns ~0 recall while looking like a broken engine -
-  this bit the first `our_robots` run (`deploy_keypoints_2026-07-16.md`). Check the printed
-  `num_keypoints=N num_classes=M` line.
-- `taxonomy_keypoint.yaml` excludes `house_bot` and `object`, so metrics reflect our robots
-  only.
-- Report keypoint metrics **at several confidences (0.05 / 0.3 / 0.5 / 0.6)**, following
-  `all_robots_pose_2026-07-14.md`. That report found the ranking between two pose models
-  flipped on heading between conf 0.5 and 0.6, purely because the weaker model discarded
-  three quarters of its detections. A single-confidence table can invert the conclusion.
+- The global `--labels` is the 3-class list for A/B/C. Class 2 `nhrl_robot` maps to the eval
+  GT's `opponent`; the eval vocabulary has no `nhrl_robot`, so the literal training name
+  would score every third-class detection as a false positive. Keypoint matching in
+  `score.py` is class-blind, so this affects box metrics only.
+- `--baseline A` makes every delta read "against the corpus the previous sweep used". Re-run
+  with `--baseline D` for the size comparisons within the new corpus.
+- `taxonomy_keypoint.yaml` excludes `house_bot` and `object`, so metrics cover our robots only.
+- Repeat at `--conf 0.05 / 0.3 / 0.5 / 0.6`.
+- Score D's ep100 checkpoint in a separate run against D's ep200, at conf 0.05 and 0.5.
 
 ## Latency
 
 ```bash
 venv/bin/python training/model_eval/benchmark_engines.py \
-  --candidate n=... --candidate s=... --candidate x=... \
+  --candidate A=... --candidate D=... --candidate E=... --candidate deployed=... \
   --frame <an eval frame> --iterations 300
 ```
 
-Dev box gives ordering only. The Jetson steps are the same as the ones in
-`model_size_2026-09-04.md` "How the Jetson numbers were produced": build `aarch64_sm87`
-engines on the Orin, `sudo jetson_clocks`, `trtexec` plus `benchmark_engines.py`, then
-swap into `config/_jetson.toml` `[keypoint_model.engine] candidates` and read
-`mcap_latency_report.py` (it trims to after field init by default).
+Run it on an idle box. The previous sweep discarded a latency table taken while another
+agent's job held the GPUs, which reported `n` slower than `s`. Dev-box numbers give ordering
+only; `yolo26n` runs ~1.3 ms here and ~9.5-11 ms inside the Jetson pipeline.
+
+Only if D wins: build `aarch64_sm87` engines on the Orin, `sudo jetson_clocks`, `trtexec`
+plus `benchmark_engines.py`, swap into `config/_jetson.toml` `[keypoint_model.engine]
+candidates` and read `mcap_latency_report.py`, which trims to after field init by default.
 
 ## Cost
 
-Scaling the measured bbox arm times by the corpus ratio (18,447 / 25,914 = 0.71) and by
-2x for 200 epochs: **n ~2.6 h, s ~3.3 h, x ~9.9 h, about 16 h total** on 3 GPUs. Engine
-builds add ~10 min. If that is too long, cutting to 100 epochs halves it, at the cost of
-possibly stopping a pose model before it plateaus.
+Scaling the previous sweep's measured times by the corpus ratio, 31,912 / 18,447 = 1.73:
+
+| arm | est. time |
+|---|---:|
+| D | ~6.0 h |
+| E | ~7.3 h |
+| F | ~19.3 h, conditional |
+| G | ~3.5 h, optional |
+
+D and E together are ~13 h. The full grid with F is ~33 h; all three are queued (see the arms
+table for why F is no longer gated). Engine builds add ~10 min per arm. Reusing A, B and C
+saves the 18.9 h they cost.
 
 ## Risks / caveats
 
-- **Single seed.** `data_epoch_min` measured ~0.048 run-to-run recall spread. The
-  equivalent spread for heading error is unmeasured, which makes small heading deltas hard
-  to call. If `s` beats `n` by less than a couple of degrees, the honest verdict is `ns`.
-- **Unverified val split** on `all_robot_keypoints` (see above).
-- **The eval set has few of our robots.** `taxonomy_keypoint.yaml` excludes `house_bot` and
-  `object`, so the keypoint metrics rest on the `mr_stabs_mk2` and `mrs_buff_mk3` boxes
-  only - a much smaller sample than the 688-frame agnostic figures. Report the matched-box
-  count alongside every keypoint metric.
-- **The keypoint model is already the slower parallel branch**, so any size increase costs
-  tick time directly rather than hiding behind the blob model.
-- **A pose win may not be a size win.** `all_robots_pose_2026-07-14.md` found a model
-  trained on more classes localized keypoints worse than a dedicated one. If `s` and `x`
-  both fail to beat `n` on heading, the answer is that pose accuracy is data-limited, not
-  capacity-limited - the opposite of the bbox result, and worth reporting as such.
+- **The corpus contrast varies two things**, class vocabulary and 1.73x the training frames.
+  Arm G is the control that separates them and is worth running before writing a conclusion
+  that names the vocabulary as the cause.
+- **Single seed.** `data_epoch_min` measured ~0.048 run-to-run recall spread; the equivalent
+  for heading is still unmeasured. A D-against-A heading gap under a couple of degrees is
+  `ns` in practice whatever the CI says on one seed each.
+- **Neither val split is scene-disjoint.** Both are random frame-level carves of
+  synthetic-dominated corpora, now checked and recorded for both. Every val number in this
+  experiment measures fit to a renderer.
+- **The eval set holds few of our robots.** With `house_bot` and `object` excluded, the
+  keypoint metrics rest on the `mr_stabs_mk2` and `mrs_buff_mk3` boxes only, a few hundred to
+  about a thousand depending on threshold. Report the matched-box count beside every metric.
+- **The deployed model still is not a controlled comparison,** even with arm D. It ran 500
+  epochs and fine-tuned from `yolo26n-pose_our_robots_2026-04-24.pt`, which is on neither the
+  repo nor the archive drive, so its full lineage cannot be reproduced. Arm D is the control
+  for its corpus, not for its schedule or its parent. Say so rather than reading D - deployed
+  as a schedule effect.
+- **Its training run directory is also gone.** `runs/projects/` only goes back to July 2026,
+  so there are no curves or `results.csv` for the deployed model. Everything known about how
+  it was trained comes from `train_args` inside the `.pt`.
+- **98 GB of disk cache** for the new corpus, against 172 GB free. Reclaim the finished
+  arms' caches first and check `df` before queueing E.
+- **A null result is a real result.** If D lands on top of A, the deployed model's edge in
+  the previous report was its schedule or its lineage rather than its corpus, and the answer
+  is that the two corpora are interchangeable at `n`. That would make real cage footage the
+  only remaining lever, which is already the standing recommendation.
 
 ## Deliverable
 
-`docs/experiments/perception_performance/pose_model_size_<date>.md`, structured like
-`model_size_2026-09-04.md`, plus an answer under a new heading in `my_takeaways.md`.
+`docs/experiments/perception_performance/pose_model_size_corpus_<date>.md`, structured like
+`model_size_2026-09-04.md`, reporting the 2x3 grid with A/B/C carried over from
+`pose_model_size_2026-09-05.md`. Add `README.md` to `training/data/our_robot_keypoints`
+recording its composition and val carve, and update the answer in `my_takeaways.md` that
+`pose_model_size_2026-09-05.md` wrote.

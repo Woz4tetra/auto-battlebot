@@ -220,22 +220,32 @@ def is_truncated(box: np.ndarray, keypoints: np.ndarray, width: int, height: int
 def infer_all_arms(args: argparse.Namespace, gt_frames: dict, images: dict, taxonomy: Taxonomy):
     """Run every candidate engine over the whole GT set. Returns (arm names, per-arm frames)."""
     class_labels = [label.strip() for label in args.labels.split(",")]
+    overrides = {}
+    for entry in args.candidate_labels:
+        name, sep, labels = entry.partition("=")
+        if not sep or not labels.strip():
+            raise SystemExit(f"--candidate-labels wants NAME=LABELS, got {entry!r}")
+        overrides[name] = [label.strip() for label in labels.split(",")]
     candidates = parse_candidates(args.candidate)
+    stray = sorted(set(overrides) - set(candidates))
+    if stray:
+        raise SystemExit(f"--candidate-labels {stray} are not candidates: {list(candidates)}")
     per_arm: dict[str, list] = {}
     for name, engine_path in candidates.items():
         if not engine_path.exists():
             raise SystemExit(f"Candidate not found: {engine_path}")
         print(f"Inferring {name}: {engine_path}")
+        labels_for_arm = overrides.get(name, class_labels)
         detector = EngineDetector(
             TrtYoloModel(
                 str(engine_path),
                 conf_threshold=args.conf,
                 nms_iou_threshold=args.nms_iou,
-                num_classes=len(class_labels),
+                num_classes=len(labels_for_arm),
             )
         )
         print(f"  {detector.describe()}")
-        per_arm[name] = infer_frames(gt_frames, images, detector, class_labels, taxonomy)
+        per_arm[name] = infer_frames(gt_frames, images, detector, labels_for_arm, taxonomy)
     return list(candidates), per_arm
 
 
@@ -373,6 +383,15 @@ def main() -> None:
         help="candidate TensorRT engine, repeatable; the first is the baseline column",
     )
     parser.add_argument("--labels", required=True, help="GT label per engine class index")
+    parser.add_argument(
+        "--candidate-labels",
+        action="append",
+        default=[],
+        metavar="NAME=LABELS",
+        help="GT label per engine class index for one candidate, overriding --labels. Needed "
+        "for a mosaic that mixes engines with different class counts, since the label count "
+        "sets num_classes and so where the keypoint values start. Repeatable.",
+    )
     parser.add_argument("--taxonomy", type=Path, help="label -> archetype mapping yaml")
     parser.add_argument("--iou", type=float, default=0.5, help="IoU match threshold")
     parser.add_argument("--conf", type=float, default=0.5, help="inference confidence threshold")
