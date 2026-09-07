@@ -863,6 +863,16 @@ def main() -> None:
         "by stretching instead of letterboxing. Repeatable.",
     )
     parser.add_argument(
+        "--candidate-labels",
+        action="append",
+        default=[],
+        metavar="NAME=LABELS",
+        help="comma-separated GT label per engine class index for one candidate, overriding "
+        "--labels. A grid that mixes 2-class and 3-class engines needs this: the label count "
+        "sets num_classes, which is what splits the raw tensor into scores and keypoints, so "
+        "a 2-class engine read with three labels parses to num_keypoints=0. Repeatable.",
+    )
+    parser.add_argument(
         "--field-boxes",
         action="append",
         default=[],
@@ -910,16 +920,33 @@ def main() -> None:
     print(f"GT: {len(gt_frames)} frames, classes: {names}")
 
     class_labels = [label.strip() for label in args.labels.split(",")]
-    unknown = sorted(set(class_labels) - set(names) - set(taxonomy.exclude))
-    if unknown:
-        print(f"Warning: --labels {unknown} not in GT classes; they can only score as FP")
+    label_overrides = {}
+    for entry in args.candidate_labels:
+        name, sep, labels = entry.partition("=")
+        if not sep or not labels.strip():
+            raise SystemExit(f"--candidate-labels wants NAME=LABELS, got {entry!r}")
+        label_overrides[name] = [label.strip() for label in labels.split(",")]
+    candidates = parse_candidates(args.candidate)
+    stray = sorted(set(label_overrides) - set(candidates))
+    if stray:
+        raise SystemExit(f"--candidate-labels {stray} are not candidates: {list(candidates)}")
+    for labels in [class_labels, *label_overrides.values()]:
+        unknown = sorted(set(labels) - set(names) - set(taxonomy.exclude))
+        if unknown:
+            print(f"Warning: labels {unknown} not in GT classes; they can only score as FP")
 
     rows = []
     stats_by_candidate: dict[str, dict] = {}
-    for name, engine_path in parse_candidates(args.candidate).items():
+    for name, engine_path in candidates.items():
         print(f"Scoring {name}: {engine_path}")
         candidate_rows, stats = score_candidate(
-            name, engine_path, gt_frames, images, class_labels, taxonomy, args
+            name,
+            engine_path,
+            gt_frames,
+            images,
+            label_overrides.get(name, class_labels),
+            taxonomy,
+            args,
         )
         rows.extend(candidate_rows)
         stats_by_candidate[name] = stats
