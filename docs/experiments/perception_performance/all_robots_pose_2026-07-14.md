@@ -62,6 +62,15 @@ computable. Box instances: 359 mrs_buff_mk3, 461 opponent, 206 house_bot (house_
 keypoint taxonomy), and no mr_stabs_mk2 instances. Our robot in this GT is therefore mrs_buff_mk3
 only. The opponent boxes are the generic-opponent class; the baseline has no class for them.
 
+**[Correction, 2026-09-07.]** `taxonomy_keypoint.yaml` excludes `house_bot` but keeps
+`opponent`, so the 461 opponent boxes counted above are scored. Keypoint matching in
+`score.py` is class-blind, so the 3-class new model earns keypoint matches on opponents that
+the 2-class baseline structurally cannot, and the headline comparison below averages the two
+models over different target sets. `pose_model_size_corpus_2026-09-07.md` rescored the same
+class of comparison with `taxonomy_keypoint_ours.yaml`, which also excludes `opponent`, and
+the sign of the equivalent result reversed. **Treat this report's negative result for the
+all-robots pose model as unresolved rather than established.**
+
 Scored with `--conf` sweep and `--taxonomy training/model_eval/taxonomy_keypoint.yaml`. `score.py`
 auto-adds the keypoint metrics for pose engines: `kp_err_px` (mean keypoint pixel error on matched
 boxes), `kp_pck@0.1` (fraction of keypoints within 0.1*box-size), `kp_heading_err_deg`, and
