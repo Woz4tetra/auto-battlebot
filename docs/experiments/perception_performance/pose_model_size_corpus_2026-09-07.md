@@ -240,6 +240,36 @@ placement rather than heading.
 That is the answer to the previous report's "`yolo26s-pose` does nothing": it did nothing
 *on that corpus*. Change the corpus and the same size step buys a real, if small, improvement.
 
+### The corpus contrast replicates at `s`, and it is narrow
+
+E against B is the same contrast as D against A one size up. Our robots only:
+
+| conf | metric | B (`s`/all) | E (`s`/our) | delta | 95% CI | verdict |
+|---|---|---:|---:|---:|---|---|
+| 0.05 | kp_heading_err_deg | 8.375 | 8.494 | +0.118 | [-1.408, +1.753] | ns |
+| 0.05 | kp_err_px | 9.346 | 9.506 | +0.160 | [-0.370, +0.710] | ns |
+| 0.30 | kp_heading_err_deg | 6.852 | 6.614 | -0.238 | [-1.449, +0.990] | ns |
+| 0.50 | kp_heading_err_deg | 6.728 | 5.383 | **-1.345** | [-2.549, -0.206] | better |
+| 0.50 | kp_err_px | 8.442 | 8.751 | +0.309 | [-0.127, +0.717] | ns |
+| 0.50 | kp_pck@0.1 | 0.747 | 0.747 | +0.001 | [-0.028, +0.030] | ns |
+| 0.50 | recall | 0.684 | 0.703 | +0.019 | [-0.010, +0.051] | ns |
+| 0.60 | kp_err_px | 8.078 | 8.690 | +0.611 | [+0.232, +1.031] | **worse** |
+| 0.60 | kp_pck@0.1 | 0.792 | 0.760 | -0.032 | [-0.062, -0.004] | **worse** |
+
+Almost all `ns`, with the same -1.3 deg heading gain at conf 0.5 that D showed over A, and
+two `worse` cells on keypoint placement at conf 0.6.
+
+**That is the clearest statement of what the corpus does.** At both sizes it buys roughly
+1.4 deg of heading at the operating point and nothing else. It never improves keypoint
+placement: `kp_err_px` and `kp_pck@0.1` are `ns` or worse at every confidence at both sizes.
+Since heading is derived from the two keypoints, a heading gain with no placement gain is a
+gain in the tail rather than the core, or a difference in which detections clear the gate.
+
+This also disposes of arm G. `--fraction 0.578` was planned to separate class vocabulary from
+training volume as the cause of a corpus win. There is about 1.4 deg to attribute, it does not
+appear in the metric heading is computed from, and it is absent at three of four confidences.
+Attributing it is not worth 3.5 h of GPU.
+
 ### Arm E against arm A - the comparison that matters for deployment
 
 E is the only new arm that is both better than the incumbent training recipe and cheap enough
