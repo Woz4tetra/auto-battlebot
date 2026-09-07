@@ -153,29 +153,12 @@ Running a field crop on each image doesn't buy much. The image is
 width bound, so the field crop just adds more padding compared to
 384x640.
 
-
 docs/experiments/perception_performance/input_geometry_2026-09-05.md
 
-# Don't quantize the detector to INT8
+# Does quantization help?
 
-Post-training INT8 costs too much recall on every model I tried. yolo26s at 384x640, the arm I'm
-shipping, loses 0.032. yolo26n at 640x640, the arm on the robot right now, loses 0.138 and is
-basically broken. The smaller the model, the worse quantization hurts it, so the cheap models I
-would most want to speed up are the ones that survive it least.
-
-The speed is real. INT8 cuts 31.8% of yolo26x's GPU time on the A6000 and halves every engine file.
-It just isn't worth what it charges. yolo26x only beat my deployment arm by 0.038 recall to begin
-with, and quantization took 0.054 off it, so quantized x is no better than the s model I already
-have and costs 2.4x the GPU time. That closes the "buy back tick time and revisit x" idea by this
-route. Moving publish_camera_data after the command send and merging the two YOLOs into one engine
-are the levers left.
-
-I expected small robots to vanish first, since they make weak activations that round to zero. That
-happened on n, where the damage is severe everywhere anyway, and it's backwards on s and x: those
-lose most on the biggest robots in the corpus. Worth remembering that I can't reason about where a
-quantized model fails from the mechanism alone.
-
-This was post-training quantization only. Quantization-aware training is untested and much more
-expensive.
+No. It seems the latency benefits are counteracted by the recall losses. The better tradeoff is yolo26s at 384x640.
+There's no recall compromise and the latency is good. yolo26x INT8 quantized loses the recall benefit the original FP16
+model provides and doesn't save enough latency to be worth it on the Orin Nano.
 
 docs/experiments/perception_performance/int8_quantization_2026-09-06.md
