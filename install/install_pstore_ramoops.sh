@@ -36,6 +36,7 @@ install_pstore_ramoops() {
         && rg -q '^Storage=persistent$' "$journald_file" \
         && rg -q '^SystemMaxUse=200M$' "$journald_file" \
         && rg -q '^RuntimeMaxUse=50M$' "$journald_file" \
+        && rg -q '^SyncIntervalSec=5s$' "$journald_file" \
         && [ -d /var/log/journal ]; then
         journald_ready=true
     fi
@@ -97,6 +98,10 @@ EOF
 Storage=persistent
 SystemMaxUse=200M
 RuntimeMaxUse=50M
+# journald's 5 minute default sync discards up to 5 minutes of log when power is
+# cut. That erased the evidence for both 2026-08-29 startup hangs, where the app
+# never reached its UI and the machine was power cycled. 5s bounds the loss.
+SyncIntervalSec=5s
 EOF
     sudo mkdir -p /var/log/journal
     sudo systemctl restart systemd-journald
