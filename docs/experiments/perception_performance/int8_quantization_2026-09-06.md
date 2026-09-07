@@ -1,7 +1,7 @@
 # INT8 quantization: what does 8-bit cost, and what does it buy?
 
-All nine arms are built and scored. Jetson latency is outstanding and is the half the
-deployment decision needs. Plan: `int8_quantization_plan.md`.
+All nine arms are built and scored, and Jetson latency was measured on 2026-09-06. Plan:
+`int8_quantization_plan.md`.
 
 **Answer: implicit post-training INT8 is dead for this detector.** Every arm loses recall
 significantly, from -0.032 on the shipping model to -0.138 on the one running on the robot
@@ -94,14 +94,17 @@ this is recorded and not weighed.
 - **(a) INT8 on the shipping model.** Adopt B8 only if its recall against B16 is neutral.
   **Fails.** -0.032, CI [-0.043, -0.022], excludes 0. Do not quantize the deployment model.
 - **(b) INT8 on `x`.** Adopt only if `x8` beats B16 significantly **and** Jetson
-  `runner.tick` lands under 33.3 ms. **Fails on the first half.** `x8` scores 0.814 against
+  `runner.tick` lands under 33.3 ms. **Fails on both halves.** `x8` scores 0.814 against
   B16's 0.830, delta -0.016, CI [-0.034, +0.002], not significant and point-worse. The
   budget was arithmetic set before the measurement: `x16` beats B16 by +0.038, and INT8 cost
-  `x` 0.054. It spent more than it had. The Jetson tick was never reached, and the phase 2
-  training run is not started.
+  `x` 0.054. It spent more than it had. The Jetson tick was then measured at 41.80 ms, 8.5 ms
+  over the frame period, so the arm fails the latency half on its own. The phase 2 training
+  run is not started.
 - **(c) The pose funding case.** INT8 on the detector is worth adopting if it is
-  recall-neutral and frees at least 3.3 ms of Jetson tick. **Fails.** No arm is
-  recall-neutral, so the clause cannot open regardless of what the Orin would have measured.
+  recall-neutral and frees at least 3.3 ms of Jetson tick. **Fails twice.** No arm is
+  recall-neutral, so the clause cannot open. The Orin measurement then showed it could not
+  have paid anyway: B8 frees 1.30 ms of perception batch and 0.00 ms of tick, since the loop
+  is frame-period bound.
 
 **Verdict: keep B16, `yolo26s` at 384x640 in FP16. Implicit PTQ is rejected for every arm
 in this experiment, and `yolo26x` stays out of this pipeline.**
@@ -200,34 +203,98 @@ its time moving weights. Engine files roughly halve.
 **The x86 number does not answer the deployment question and is not quoted as if it does.**
 The A6000 has roughly 768 GB/s of memory bandwidth against the Orin Nano's ~102 GB/s, so the
 detector is far closer to bandwidth-bound on the Jetson and the Orin might well gain more.
-That was a hypothesis for the Jetson run to test, and it is now moot: the accuracy clauses
-close before latency is consulted.
+The Jetson section below tested that: the Orin gains a little more on `n` and `s` (-7.1% and
+-17.3% of batch against -6.6% and -14.8% of A6000 GPU time) and a little less on `x` and B.
+The bandwidth argument does not show up as a systematic bonus, and the x86 ordering
+transfers.
 
-For the record, the arithmetic the Jetson run would have started from.
+The arithmetic the Jetson run started from, kept here because it turned out accurate.
 `model_size_2026-09-04.md` measured `x`'s detector inference at 49.96 ms inside a 58.22 ms
 tick, needing 24.9 ms removed to fit the frame period. A 31.8% cut takes 49.96 ms to about
-34 ms and the tick to roughly 42 ms, still over. Extrapolation, not measurement, and it does
-not decide anything here.
+34 ms and the tick to roughly 42 ms, still over. Measured on the Orin: 33.19 ms and
+41.80 ms.
 
-## Latency - Jetson, not measured
+## Latency - Jetson, measured 2026-09-06
 
 Decision rules (b) and (c) both need Jetson `runner.tick`, and the plan says so directly:
-"An x86 latency number cannot satisfy (b) or (c). Only the Jetson can." The Orin is not
-reachable from megamind (`ssh jetson` does not resolve), so this half is outstanding.
+"An x86 latency number cannot satisfy (b) or (c). Only the Jetson can." The engines were
+built on the Orin and run live on `mr_stabs_mk2` the night of 2026-09-06, eight runs of
+65-110 s on one scene, same keypoint engine
+(`yolo26n-pose_our_robots_2026-05-01`), swapping only `[robot_mask_model.engine]`. The four
+FP16 runs are the same batch reported in `model_size_2026-09-04.md` and
+`input_geometry_2026-09-05.md`.
 
-It no longer changes the verdict. (b) requires `x8` to beat B16 on recall **and** fit the
-tick; the recall half already failed. (c) requires recall neutrality, which no arm has. A
-Jetson measurement could only have confirmed a rejection that accuracy already decided.
+| arm | tick mean | tick p95 | batch mean | bbox inference | keypoint inference | `camera.get` | loop rate | e2e mean | e2e p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| n16 | 32.65 ms | 36.34 ms | 14.13 ms | 8.19 ms | 8.31 ms | 17.21 ms | 30.2 Hz | 66.4 ms | 70.1 ms |
+| n8 | 32.66 ms | 36.32 ms | 13.13 ms | 7.05 ms | 7.37 ms | 18.05 ms | 30.2 Hz | 65.3 ms | 68.9 ms |
+| s16 | 32.72 ms | 37.51 ms | 18.45 ms | 12.42 ms | 12.09 ms | 12.98 ms | 30.3 Hz | 71.8 ms | 75.6 ms |
+| s8 | 32.70 ms | 37.13 ms | 15.25 ms | 8.86 ms | 9.29 ms | 16.00 ms | 30.3 Hz | 68.0 ms | 74.1 ms |
+| x16 | 59.08 ms | 63.75 ms | 57.59 ms | 50.89 ms | 33.68 ms | 0.12 ms | 16.7 Hz | 154.1 ms | 178.4 ms |
+| x8 | **41.80 ms** | 45.81 ms | 39.78 ms | 33.19 ms | 25.29 ms | 0.54 ms | 23.7 Hz | 119.4 ms | 141.3 ms |
+| B16 | 32.68 ms | 36.39 ms | 12.80 ms | 7.93 ms | 7.17 ms | 18.48 ms | 30.2 Hz | 64.6 ms | 68.2 ms |
+| B8 | 32.70 ms | 35.54 ms | **11.50 ms** | 5.78 ms | 5.98 ms | 19.83 ms | 30.2 Hz | **63.2 ms** | 65.6 ms |
 
-If it is run later, the sequence from `model_size_2026-09-04.md` is unchanged:
+INT8 against FP16 within each arm, on `runner.perception_batch.update`, the stage the rules
+name:
+
+| arm | FP16 batch | INT8 batch | delta | x86 GPU delta |
+|---|---:|---:|---:|---:|
+| n | 14.13 ms | 13.13 ms | -7.1% | -6.6% |
+| s | 18.45 ms | 15.25 ms | -17.3% | -14.8% |
+| x | 57.59 ms | 39.78 ms | -30.9% | -31.8% |
+| B | 12.80 ms | 11.50 ms | -10.2% | -15.2% |
+
+**The x86 table transferred.** Three of four arms land within 2.5 points of the A6000 GPU
+delta, and the scaling with model capacity holds on the Orin as well: 7.1% on `n` against
+30.9% on `x`. B is the one arm that gains less on the Jetson than on the A6000, 10.2% against
+15.2%, which is enough to swap it with `s` in the ranking but not enough to change any
+decision. The bandwidth argument in the dev-box section predicted the Orin would gain more
+across the board, and it does not.
+
+**The extrapolation for `x` was also close, and it was still a rejection.** This report
+guessed that a 31.8% cut would take `x`'s detector from 49.96 ms to about 34 ms and the tick
+to roughly 42 ms. Measured: 33.19 ms of detector inference and 41.80 ms of tick. Rule (b)
+needs the tick under 33.3 ms. `x8` misses by 8.5 ms, so the arm fails the latency half on its
+own, independent of the recall half that already failed. Loop rate recovers from 16.7 Hz to
+23.7 Hz and end-to-end from 154.1 ms to 119.4 ms, both still far outside the 60 ms budget.
+`yolo26x` does not fit this pipeline in either precision.
+
+**Rule (c) fails on its own budget too.** The clause asked for at least 3.3 ms of freed
+Jetson tick, to fund a pose model. On the arm that would ship, B8 frees 1.30 ms of perception
+batch against B16 and no tick at all: 32.70 ms against 32.68 ms, inside run-to-run spread.
+The loop is frame-period bound at 30.2 Hz, so the freed GPU time is absorbed by the block in
+`runner.camera.get`, which grows from 18.48 ms to 19.83 ms. Even at a recall cost of zero,
+quantizing the deployment model would cover about 40% of the budget the clause named, and
+none of it as tick. Accuracy decided this verdict first, and the latency measurement now
+agrees with it rather than merely failing to contradict it.
+
+Two smaller readings. The keypoint pass gets faster on every quantized run even though its
+engine never changes, 8.31 ms to 7.37 ms on `n` and 7.17 ms to 5.98 ms on B, because both
+models share the GPU in one parallel batch and a lighter detector stops crowding the
+co-running pass. Budget any engine swap against the whole batch and not against the detector
+row. And B8 is the cheapest configuration measured on this rig, 11.50 ms of batch and 63.2 ms
+end-to-end, which is what makes its 0.032 recall loss the only genuinely tempting trade in
+the set. It is still a trade this report rejects.
+
+Per-run tables and plots in `assets/2026-09-06_int8_quantization/`:
+
+- `x8`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-06_22-49-39_latency.{md,png,csv}`
+- `s8`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-06_22-51-44_latency.{md,png,csv}`
+- `n8`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-06_22-54-55_latency.{md,png,csv}`
+- `B8`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-06_22-57-25_latency.{md,png,csv}`
+
+The FP16 rows come from `assets/2026-09-04_model_size/` (`22-44-23` n16, `22-32-21` s16,
+`22-38-52` x16) and `assets/2026-09-05_input_geometry/` (`22-47-16` B16).
+
+The sequence that produced these, following `model_size_2026-09-04.md`:
 
 1. Copy the ONNX files, plus the `.calib` caches from `.cache/tensorrt/int8/` (18 KB each).
    If the Orin's TensorRT is not 10.14 the builder refuses the cache by its header rather
    than calibrating on nothing, and the 1000 frames listed in the `.frames.txt` manifest
    beside each cache have to come over instead: 264 MB.
-2. Build on the Orin, producing `_int8_aarch64_sm87.engine`. Note that
-   `config/_jetson.toml` still names `yolo26s_nhrl_robots_bbox_2class_2026-09-04` at
-   640x640, so arm B has never been built for aarch64 and its FP16 engine is needed too.
+2. Build on the Orin, producing `_int8_aarch64_sm87.engine`. Arm B had never been built for
+   aarch64 before this, so its FP16 engine was built here too.
 3. `sudo jetson_clocks`, swap the engine into `config/_jetson.toml`
    `[robot_mask_model.engine] candidates`, run live with `[mcap] enable = true`.
 4. `scripts/mcap_latency_report.py data/recordings/<run>.mcap --csv`, read the window after
@@ -320,17 +387,22 @@ cheapest arm to quantize rather than a safe one.
 
 ### Does the tick time it frees pay for anything? - **no**
 
-It frees real time, up to 31.8% of `x`'s GPU cost on the A6000. Both spending plans in the
-plan need recall neutrality to open, and neither gets it. `yolo26x` needed to arrive under
-0.038 of loss and arrived at 0.054.
+It frees real time, up to 31.8% of `x`'s GPU cost on the A6000 and 30.9% of its perception
+batch on the Orin. Both spending plans in the plan need recall neutrality to open, and
+neither gets it. `yolo26x` needed to arrive under 0.038 of loss and arrived at 0.054. On the
+arm that would actually ship the freed time is 1.30 ms of batch and no tick at all, since the
+loop is frame-period bound, so the pose funding case had nothing to spend even before
+accuracy closed it.
 
 ### Is `yolo26x` reachable? - **not by this route**
 
 `model_size_2026-09-04.md` said revisit `x` only after buying back tick time elsewhere.
-Quantization is the cheapest such lever and it does not buy enough, because it charges the
-recall that made `x` worth wanting. The other two named candidates - moving
-`publish_camera_data` after the command send, and merging the two YOLOs into one multi-head
-engine - are untouched by this result and are now the remaining ones.
+Quantization is the cheapest such lever and it does not buy enough, on either axis. It charges
+the recall that made `x` worth wanting, and the Orin run puts `x8` at 41.80 ms of tick against
+a 33.3 ms frame period, so even a free 0.054 of recall would leave the arm 8.5 ms short. The
+other two named candidates, moving `publish_camera_data` after the command send and merging
+the two YOLOs into one multi-head engine, are untouched by this result and are now the
+remaining ones.
 
 ### Where does quantization hurt? - **moderate, and not where the plan said**
 
@@ -344,9 +416,13 @@ than a law.
 - **Post-training quantization only.** If PTQ is dead for this model that does not make INT8
   dead. Quantization-aware training and explicit Q/DQ export are a different and much more
   expensive path, and nothing here rules them in or out.
-- **The Jetson half is missing.** It cannot change the verdict, since both latency clauses
-  are gated behind accuracy conditions that failed, but the deployment latency claim is
-  unmeasured.
+- **The Jetson half is one run per arm.** Eight runs, one pass each, 65-110 s on a single
+  scene. Enough to separate 41.80 ms from 32.70 ms of tick; the 1.30 ms of batch B8 frees
+  against B16 sits near the run-to-run spread the `model_size_2026-09-04.md` repeat measured,
+  so read it as "about a millisecond", not as a resolved figure.
+- **The `x8` run re-initialized the field inside the report window**, which is where its
+  347 ms tick max and 434 ms `pipeline.latency` max come from. The mean and p95 over 1,963
+  ticks are unaffected. The FP16 `x` run from the first pass had the same thing happen.
 - **A version-mismatched calibration cache used to be a silent failure.** TensorRT rejects a
   cache whose header does not match the running build and then asks the calibrator for
   batches; with a cache but no `--calib-dir` there are none, and the batch-count check cannot
@@ -370,10 +446,12 @@ Keep `yolo26s` at 384x640 in FP16. Do not quantize it, do not quantize the `yolo
 the robot, and stop treating `yolo26x` as one lever away from deployable. The three clauses
 were registered before the measurement and all three fail; the one that came closest,
 `x8` against B16 at -0.016 with a CI spanning zero, fails by being indistinguishable from the
-model it was supposed to replace while costing 2.4x its GPU time.
+model it was supposed to replace while costing 2.4x its GPU time on the A6000 and 3.1x its
+perception batch on the Orin. The Jetson runs, added 2026-09-06, took both latency clauses
+from "gated behind an accuracy failure" to independently failed.
 
 The build path is worth keeping even though the result is a rejection. It is nine flags and
-one calibrator, the cache transports to the Orin, and the next model that wants testing at
+one calibrator, the engines build on the Orin, and the next model that wants testing at
 8 bits costs one queue submission instead of a day.
 
 ## Artifacts
@@ -386,6 +464,12 @@ one calibrator, the cache transports to the Orin, and the next model that wants 
 - Calibration caches and frame manifests: `.cache/tensorrt/int8/`
 - Size-split figures for all three model pairs:
   `assets/2026-09-06_int8_quantization/recall_by_size_{B,x,n}.png`
+- Jetson latency, INT8 arms: `assets/2026-09-06_int8_quantization/`
+  `auto_battlebot_mr_stabs_mk2_jetson_2026-09-06_{22-49-39,22-51-44,22-54-55,22-57-25}_latency.{md,png,csv}`
+  for `x8`, `s8`, `n8`, `B8`
+- Jetson latency, FP16 comparisons: `assets/2026-09-04_model_size/` for n16, s16, x16 and
+  `assets/2026-09-05_input_geometry/` for B16, all recorded 2026-09-06
+- Aarch64 engines: `data/models/*_int8_aarch64_sm87.engine`
 - Queue jobs 32-37, logs in `runs/queue/logs/`
 
 ## Reproduce

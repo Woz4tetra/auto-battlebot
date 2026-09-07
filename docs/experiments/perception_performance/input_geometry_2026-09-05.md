@@ -1,7 +1,8 @@
 # Input geometry: how should the frame reach the network?
 
 All five planned arms are trained and scored. Arm F, added after D reported, is still
-training, and Jetson latency is still outstanding. Plan: `input_resolution_plan.md`.
+training. Jetson latency was measured on 2026-09-06 and arm B clears the decision rule on the
+deployment hardware. Plan: `input_resolution_plan.md`.
 
 **Answer: deploy `yolo26s` at 384x640.** It beats the current `yolo26n` at 640x640 by 0.050
 recall on 40% fewer tensor pixels. The padding a letterbox spends is worth nothing (+0.003),
@@ -520,7 +521,7 @@ model on both sides. A2, B and C train with `rect=True` at 1920x1080 and infer a
 both letterbox to the same content aspect and the same 6.2% padding, because the scale is
 width-bound in both cases.
 
-**The known remaining gap is the latency table**, not the accuracy results.
+**The remaining gap was the latency table**, not the accuracy results.
 `benchmark_engines.py` constructs engines without a preprocessing mode, so D, E and F were
 timed through a letterbox and E without its crop. That is called out in that section: the
 timings are still valid as engine costs since the tensor sizes are unchanged, but they do not
@@ -565,6 +566,47 @@ The `dets` column is worth reading: D scores 0 detections on this frame. That is
 the arm, it is the preprocessing mismatch showing up directly -- a stretch-trained engine fed
 a letterboxed frame finds nothing. It is the same failure the detections figure hit, and the
 reason `TrtYoloModel.describe()` prints the mode.
+
+### Jetson, arm B against the engine it replaces
+
+The decision rule names measured Jetson `runner.perception_batch.update`, so the x86 table
+above cannot settle adoption on its own. Arm B was run live on `mr_stabs_mk2` on 2026-09-06,
+82 s on one scene, same keypoint engine, next to the two 640x640 arms from
+`model_size_2026-09-04.md` recorded the same night on the same scene.
+
+| arm | tick mean | batch mean | bbox inference | bbox preprocess | keypoint inference | `camera.get` | loop rate | e2e mean |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| deployed `n` `640x640` | 32.68 ms | 14.17 ms | 8.18 ms | 5.19 ms | 8.36 ms | 17.35 ms | 30.2 Hz | 66.4 ms |
+| `s` `640x640` | 32.72 ms | 18.45 ms | 12.42 ms | 5.24 ms | 12.09 ms | 12.98 ms | 30.3 Hz | 71.8 ms |
+| **B** `s` `384x640` | 32.68 ms | **12.80 ms** | 7.93 ms | 3.33 ms | 7.17 ms | 18.48 ms | 30.2 Hz | 64.6 ms |
+
+The `n` row is the engine on the robot today, `yolo26n_..._mixed_2026-07-31`. A fourth run that
+night timed the `2026-09-04` `n` at 14.13 ms of batch, so the two are interchangeable here.
+
+**B clears the rule on the hardware the rule names.** `runner.perception_batch.update` drops
+from 14.17 ms to 12.80 ms against the deployed `n`, a 9.7% reduction, while the accuracy tables
+above put it +0.050 recall ahead. Against `s` at 640x640, the same weights on the padded square,
+the batch falls 5.65 ms.
+
+The x86 table said B costs the same GPU time as arm A and 13.6% less total. The Jetson agrees on
+direction and lands close on magnitude: detector inference is 3.1% cheaper than the deployed `n`
+and the batch is 9.7% cheaper, with most of the difference in preprocessing, 3.33 ms against
+5.19 ms, since the smaller tensor is cheaper to letterbox as well as to run.
+
+Two effects the x86 benchmark could not show. The keypoint pass gets faster too, 7.17 ms against
+8.36 ms, because both models share the GPU inside one parallel batch and a lighter detector stops
+crowding the co-running keypoint engine. And the tick does not move at all: 32.68 ms against
+32.68 ms, because the loop is frame-period bound at 30.2 Hz and the freed time is absorbed by
+`runner.camera.get`, which grows from 17.35 ms to 18.48 ms. The saving is real headroom rather
+than a faster loop. End-to-end latency does improve, 64.6 ms against 66.4 ms, since
+`pipeline.latency` measures capture to command send.
+
+Per-run table and plot: `assets/2026-09-05_input_geometry/auto_battlebot_mr_stabs_mk2_jetson_2026-09-06_22-47-16_latency.{md,png,csv}`.
+The 640x640 comparison runs are in `assets/2026-09-04_model_size/` under the same date.
+
+An INT8 build of B was timed the same night and is reported in `int8_quantization_2026-09-06.md`:
+11.50 ms of batch and 63.2 ms end-to-end, the cheapest arm measured on this rig. Its recall is
+0.032 below B, CI [-0.043, -0.022], which is why B and not B8 is the arm being adopted.
 
 ## Verdict
 
@@ -613,11 +655,15 @@ happen to be running today.
 
 ## What is still missing
 
-- **Jetson latency.** The x86 numbers are measured and B clears the rule on them. The Jetson
-  sequence from `model_size_2026-09-04.md` still has to be run on the Orin: an A6000 result
-  does not establish a reduction in `runner.perception_batch.update` on the deployment
-  hardware, which is what the rule actually names and what the 60 ms budget is set by. B is
-  ready to adopt pending that measurement, not before it.
+- **Jetson latency: measured 2026-09-06, gap closed.** B cuts
+  `runner.perception_batch.update` from 14.17 ms to 12.80 ms against the deployed `n`, which
+  is the reduction the rule names on the hardware the rule names. See "Jetson, arm B against
+  the engine it replaces" above. What the run also shows is that the tick does not improve,
+  32.68 ms either way, because the loop is frame-period bound; the gain is headroom, and
+  end-to-end goes 66.4 ms to 64.6 ms.
+- **A single Jetson run per arm.** One 82 s pass on one scene for B, compared against one
+  pass each for the two 640x640 arms. The 2026-09-06 repeat in `model_size_2026-09-04.md` puts
+  run-to-run tick spread under 1 ms, which covers the 1.37 ms batch delta but not by much.
 - **A second seed on B and F.** F is +0.011 over B with a CI of -0.003 to 0.025. That is the
   one comparison in this report where a second seed would actually change a decision: if the
   stretch really is worth 0.011 on top of `s`, a paired pair of seeds would show it, and if it

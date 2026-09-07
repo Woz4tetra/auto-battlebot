@@ -176,6 +176,39 @@ Per-run tables and plots are in `assets/2026-09-04_model_size/`:
 - `s`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-05_12-00-59_latency.{md,png}`
 - `x`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-05_12-14-44_latency.{md,png}`
 
+### Repeat runs, 2026-09-06
+
+Four more runs on the same rig, same scene, same keypoint engine, roughly 70-105 s each.
+This pass adds the sweep's own `n` (`yolo26n_nhrl_robots_bbox_2class_2026-09-04`) next to the
+deployed `mixed` engine the first pass used.
+
+| arm | tick mean | tick p95 | batch mean | bbox inference mean | `camera.get` mean | loop rate | e2e mean | e2e p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| n (deployed `mixed`) | 32.68 ms | 36.09 ms | 14.17 ms | 8.18 ms | 17.35 ms | 30.2 Hz | 66.4 ms | 69.4 ms |
+| n (sweep, `2026-09-04`) | 32.65 ms | 36.34 ms | 14.13 ms | 8.19 ms | 17.21 ms | 30.2 Hz | 66.4 ms | 70.1 ms |
+| s | 32.72 ms | 37.51 ms | 18.45 ms | 12.42 ms | 12.98 ms | 30.3 Hz | 71.8 ms | 75.6 ms |
+| x | 59.08 ms | 63.75 ms | 57.59 ms | 50.89 ms | 0.12 ms | 16.7 Hz | 154.1 ms | 178.4 ms |
+
+The repeat reproduces the first pass. `s` ticks at 32.72 ms both times, `x` at 59.08 ms against
+58.22 ms, and the arm ordering and the pass/fail on rule (b) are unchanged. Run-to-run spread on
+this rig is under 1 ms of tick for the frame-period-bound arms and about 0.9 ms for `x`.
+
+The deployed `mixed` `n` and the sweep's real-only `n` time the same: 14.17 ms against 14.13 ms
+of batch, 8.18 ms against 8.19 ms of detector inference, 66.4 ms end-to-end for both. That closes
+the caveat that the Jetson `n` row came from an engine the accuracy tables never scored. The two
+engines are interchangeable for latency, so the earlier row can be read as the sweep's `n`.
+
+Per-run tables and plots in `assets/2026-09-04_model_size/`:
+
+- `n` deployed `mixed`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-06_22-36-01_latency.{md,png,csv}`
+- `n` sweep: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-06_22-44-23_latency.{md,png,csv}`
+- `s`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-06_22-32-21_latency.{md,png,csv}`
+- `x`: `auto_battlebot_mr_stabs_mk2_jetson_2026-09-06_22-38-52_latency.{md,png,csv}`
+
+INT8 builds of these three arms were timed on the same rig the same night. Those runs live in
+`int8_quantization_2026-09-06.md`; the short version is that INT8 takes `x` from 59.08 ms of tick
+to 41.80 ms, still over the 33.3 ms frame period.
+
 ## Answers
 
 ### Does model size matter for my application? - **strong**
@@ -221,13 +254,16 @@ retained if an earlier checkpoint ever needs scoring.
   The claim that `m` and `l` tie `s` is therefore a claim that they are *indistinguishable*,
   not that they are equal. The `n` -> `s` (+0.059) and `n` -> `x` (+0.088) gaps clear that
   bar; nothing else in the table does.
-- **Jetson latency covers three arms, one run each.** `n`, `s`, `x` only, two minutes
-  per arm, one scene. Enough to separate 32.7 ms from 58.2 ms; not enough to resolve the
-  0.05 ms between `n` and `s`, which should be read as "no tick cost", not as a measured
-  difference.
-- **The Jetson `n` is the deployed `mixed` engine**, `yolo26n_..._mixed_2026-07-31`, not
-  the sweep's real-only `n`. Same architecture, so the latency comparison holds; the
-  recall numbers in the tables above do not come from that engine.
+- **Jetson latency covers three arms, two runs each.** `n`, `s`, `x` only, one scene,
+  one pass on 2026-09-05 and a repeat on 2026-09-06. Enough to separate 32.7 ms from
+  58.2 ms; not enough to resolve the 0.05 ms between `n` and `s`, which should be read as
+  "no tick cost", not as a measured difference. The repeat puts run-to-run spread under
+  1 ms of tick, so that reading holds.
+- **The Jetson `n` in the first pass is the deployed `mixed` engine**,
+  `yolo26n_..._mixed_2026-07-31`, rather than the sweep's real-only `n`. The 2026-09-06
+  repeat ran both and they time the same to 0.04 ms of batch, so the substitution costs
+  nothing. The recall numbers in the tables above still do not come from the `mixed`
+  engine.
 - **The `x` run re-initialized the field at 7.0 s**, after the report window opened at
   4.6 s, so its table carries one-shot `point_cloud_field_filter.*` rows and its 488 ms
   `pipeline.latency` max is that re-init. The mean and p95 over 2,335 ticks are unaffected.
