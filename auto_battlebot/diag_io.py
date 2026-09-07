@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Loaders for Stage 0 control metrics.
 
-Reuses the diagnostic_msgs/DiagnosticArray byte decoder from the shared
-``auto_battlebot.mcap_io`` package and adds extraction of the extra
-subsections and topics Stage 0 needs:
+Reuses the diagnostics decoder from the shared ``auto_battlebot.mcap_io`` package and
+adds extraction of the extra subsections and topics Stage 0 needs:
 
 - runner/navigation/using_previous_robots  (reliability / dropout proxy)
 - runner/perception/*                      (future-run detection counts, when present)
@@ -15,16 +14,14 @@ subsections and topics Stage 0 needs:
 All data here comes straight from existing Jetson recordings; nothing requires
 re-running the stack (laptop results differ from the Jetson).
 
-Reads both recording layouts (``docs/foxglove_recording_format.md``): the per-module
-``/diagnostics/<module>`` JSON channels with typed values, and the legacy single
-``/diagnostics`` DiagnosticArray whose values are all strings and get coerced here.
+Reads the per-module ``/diagnostics/<module>`` JSON channels with typed values
+(``docs/foxglove_recording_format.md``).
 
 Dependencies: mcap, numpy, pandas
 """
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterator
@@ -69,28 +66,6 @@ FRAME_IDS = [
     "NEUTRAL_ROBOT_1",
     "NEUTRAL_ROBOT_2",
     "FIELD",
-]
-
-# Numeric columns to coerce after assembling the diagnostics DataFrame.
-_NUMERIC_DIAG_COLS = [
-    "our_x",
-    "our_y",
-    "our_yaw_deg",
-    "target_x",
-    "target_y",
-    "distance",
-    "angle_to_target_deg",
-    "angle_error_deg",
-    "threshold_deg",
-    "facing_target",
-    "turn_commit",
-    "linear_x",
-    "angular_z",
-    "pipeline/latency_ms",
-    "nav/using_previous_robots",
-    "perc/their_count_live",
-    "perc/their_count_total",
-    "perc/our_present_live",
 ]
 
 
@@ -159,8 +134,7 @@ def _merge_status(rows: dict[int, dict[str, Any]], ts: int, status: dict[str, An
 def iter_diagnostic_statuses(path: Path | str) -> Iterator[tuple[int, dict[str, Any]]]:
     """Every diagnostic status in a recording as (log_time_ns, status dict), in log order.
 
-    Status dicts are ``{level, name, message, hardware_id, values}`` for both layouts. Legacy
-    recordings carry every value as a string; the per-module layout carries typed values.
+    Status dicts are ``{level, name, message, hardware_id, values}`` with typed values.
     """
     for _topic, log_time_ns, data in iter_messages(path, [DIAGNOSTICS_TOPIC]):
         for status in decode_diagnostic_array(data):
@@ -180,51 +154,11 @@ def load_diagnostics(path: Path) -> pd.DataFrame:
         raise SystemExit(f"No /diagnostics found in {path}")
 
     df = pd.DataFrame([{**rows[ts], "timestamp_ns": ts} for ts in sorted(rows)])
-    _coerce_numeric(df)
     _fill_latched_channels(df)
 
     t0 = df["timestamp_ns"].iloc[0]
     df["t"] = (df["timestamp_ns"] - t0) / 1e9
     return df
-
-
-_INT_PATTERN = re.compile(r"^[+-]?\d+$")
-
-
-def coerce_value(value: Any) -> Any:
-    """The legacy string-to-number rule, one value at a time.
-
-    Legacy recordings stringified every diagnostic value (``std::to_string``), so an integer
-    became ``"1"`` and a double ``"12.500000"``. The C++ stack now emits typed values; this is
-    the same judgement applied to old bytes: an integer literal becomes ``int``, anything
-    ``float()`` accepts becomes ``float`` (``nan``/``inf`` included), and everything else stays
-    a string. Already-typed values pass through untouched.
-    """
-    if not isinstance(value, str):
-        return value
-    text = value.strip()
-    if _INT_PATTERN.match(text):
-        try:
-            return int(text)
-        except ValueError:
-            return value
-    try:
-        return float(text)
-    except ValueError:
-        return value
-
-
-def _coerce_numeric(df: pd.DataFrame) -> None:
-    """Legacy diagnostics values arrive as strings; convert the numeric columns in place.
-
-    A no-op on columns that are already numeric (the per-module layout).
-    """
-    stage_cols = [
-        col for col in df.columns if col.startswith("stage/") and col.endswith("/elapsed_ms")
-    ]
-    for col in list(_NUMERIC_DIAG_COLS) + stage_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
 
 
 def _fill_latched_channels(df: pd.DataFrame) -> None:

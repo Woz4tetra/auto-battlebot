@@ -5,17 +5,14 @@ schemas and ``json`` channels carrying the project's own payloads. The C++ stack
 the Foxglove SDK; ``auto_battlebot.mcap_write`` writes them from Python.
 
 ``iter_messages`` tags every payload it yields with the channel's message encoding, schema name
-and topic, and every ``decode_*`` function dispatches on that tag. Untagged bytes are treated as
-the legacy ROS 1 wire format, which older recordings still hold until they go through
-``scripts/convert_ros1_mcap.py``. The legacy decoders sit together at the bottom of this file so
-they can be deleted as one block once the corpus is converted.
+and topic, and every ``decode_*`` function dispatches on that tag. Recordings from before the
+Foxglove migration are refused; ``scripts/convert_ros1_mcap.py`` rewrites them into this layout.
 """
 
 from __future__ import annotations
 
 import json
 import math
-import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -38,9 +35,7 @@ FIELD_MARKERS_TOPIC = "/field_markers"
 FIELD_POINTS_TOPIC = "/field_points"
 ROBOT_MARKERS_TOPIC = "/robot_markers"
 LOG_TOPIC = "/log"
-LEGACY_LOG_TOPIC = "/rosout"
 
-ENCODING_ROS1 = "ros1"
 ENCODING_PROTOBUF = "protobuf"
 ENCODING_JSON = "json"
 
@@ -50,8 +45,8 @@ _NS = 1_000_000_000
 class MessageBytes(bytes):
     """Raw message payload tagged with how to decode it.
 
-    ``iter_messages`` yields these; the tag is what lets one ``decode_*`` call serve every
-    recording format. Plain ``bytes`` decode as legacy ROS 1.
+    ``iter_messages`` yields these; the tag is what lets one ``decode_*`` call serve both the
+    protobuf and the JSON channels.
     """
 
     encoding: str
@@ -67,7 +62,19 @@ class MessageBytes(bytes):
 
 
 def encoding_of(data: bytes) -> str:
-    return getattr(data, "encoding", ENCODING_ROS1)
+    return getattr(data, "encoding", "")
+
+
+def _require_current_format(data: bytes) -> None:
+    """Refuse payloads that are untagged or carry a pre-migration encoding."""
+    encoding = encoding_of(data)
+    if encoding in (ENCODING_PROTOBUF, ENCODING_JSON):
+        return
+    raise ValueError(
+        f"Message encoding {encoding or 'untagged'!r} is not readable: only the layout in "
+        "docs/foxglove_recording_format.md is supported. A recording from before the Foxglove "
+        "migration must be rewritten with scripts/convert_ros1_mcap.py first."
+    )
 
 
 def topic_of(data: bytes) -> str:
@@ -104,8 +111,8 @@ def _proto(data: bytes) -> Any:
 def _expand_topics(reader: Any, topics: list[str] | None) -> list[str] | None:
     """Map requested topics onto the channels a file has.
 
-    ``/diagnostics`` selects every per-module ``/diagnostics/<module>`` channel as well as the
-    legacy single topic, and ``/rosout`` also selects ``/log``, so callers keep one name.
+    ``/diagnostics`` selects every per-module ``/diagnostics/<module>`` channel, so callers keep
+    one name.
     """
     if topics is None:
         return None
@@ -119,8 +126,6 @@ def _expand_topics(reader: Any, topics: list[str] | None) -> list[str] | None:
             selected.append(topic)
         if topic == DIAGNOSTICS_TOPIC:
             selected.extend(t for t in present if t.startswith(DIAGNOSTICS_TOPIC_PREFIX))
-        if topic == LEGACY_LOG_TOPIC and LOG_TOPIC in present:
-            selected.append(LOG_TOPIC)
     return selected
 
 
@@ -179,9 +184,8 @@ def stamp_to_ns(stamp_seconds: float) -> int:
 
 
 def decode_string(data: bytes) -> str:
-    """The text of a JSON channel message (or a legacy ``std_msgs/String``)."""
-    if encoding_of(data) == ENCODING_ROS1:
-        return _ros1_decode_string(data)
+    """The text of a JSON channel message."""
+    _require_current_format(data)
     return bytes(data).decode("utf-8")
 
 
@@ -216,11 +220,8 @@ def decode_diagnostic_array(data: bytes) -> list[dict]:
     """One dict per diagnostic status: ``{level, name, message, hardware_id, values}``.
 
     For a ``/diagnostics/<module>`` JSON message ``hardware_id`` is the module (from the topic),
-    ``name`` is the section key and ``values`` are typed. For a legacy ``DiagnosticArray`` every
-    value is a string, as it was on the wire.
+    ``name`` is the section key and ``values`` are typed.
     """
-    if encoding_of(data) == ENCODING_ROS1:
-        return _ros1_decode_diagnostic_array(data)
     topic = topic_of(data)
     module = (
         topic[len(DIAGNOSTICS_TOPIC_PREFIX) :] if topic.startswith(DIAGNOSTICS_TOPIC_PREFIX) else ""
@@ -257,25 +258,21 @@ def decode_image_stamp_ns(data: bytes) -> int:
     The recorded log_time is wall clock; the header stamp is the frame stamp. Use this to align
     images with detections without decoding every frame.
     """
-    if encoding_of(data) == ENCODING_ROS1:
-        stamp_ns, _frame_id, _off = _ros1_read_header(data, 0)
-        return stamp_ns
+    _require_current_format(data)
     return _proto_stamp_ns(_proto(data).timestamp)
 
 
 def decode_compressed_image_bytes(data: bytes) -> tuple[int, str, str, bytes]:
     """(stamp_ns, frame_id, format, encoded bytes) without decoding the image."""
-    if encoding_of(data) == ENCODING_ROS1:
-        return _ros1_decode_compressed_image_bytes(data)
+    _require_current_format(data)
     msg = _proto(data)
     return _proto_stamp_ns(msg.timestamp), str(msg.frame_id), str(msg.format), bytes(msg.data)
 
 
 def decode_raw_image_bytes(data: bytes) -> tuple[int, str, np.ndarray, str]:
-    """(stamp_ns, frame_id, HxWxC uint8 array, encoding) of a ``foxglove.RawImage`` (or legacy
-    ``sensor_msgs/Image``). Only 8-bit encodings are supported."""
-    if encoding_of(data) == ENCODING_ROS1:
-        return _ros1_decode_raw_image_bytes(data)
+    """(stamp_ns, frame_id, HxWxC uint8 array, encoding) of a ``foxglove.RawImage``. Only 8-bit
+    encodings are supported."""
+    _require_current_format(data)
     msg = _proto(data)
     height, width, step = int(msg.height), int(msg.width), int(msg.step)
     encoding = str(msg.encoding)
@@ -319,8 +316,7 @@ class CameraInfo:
 
 
 def decode_camera_info(data: bytes) -> CameraInfo:
-    if encoding_of(data) == ENCODING_ROS1:
-        return _ros1_decode_camera_info(data)
+    _require_current_format(data)
     msg = _proto(data)
     k = np.asarray(list(msg.K), dtype=np.float64)
     p = np.asarray(list(msg.P), dtype=np.float64)
@@ -375,9 +371,8 @@ def _transform_matrix(
 
 
 def decode_tf_message(data: bytes) -> list[Transform]:
-    """Decode a ``FrameTransforms`` (or legacy ``tf2_msgs/TFMessage``) into 4x4 matrices."""
-    if encoding_of(data) == ENCODING_ROS1:
-        return _ros1_decode_tf_message(data)
+    """Decode a ``foxglove.FrameTransforms`` message into 4x4 matrices."""
+    _require_current_format(data)
     msg = _proto(data)
     return [
         Transform(
@@ -688,22 +683,8 @@ def _proto_entity(e: Any) -> SceneEntity:
 
 
 def decode_scene_update(data: bytes) -> SceneUpdate:
-    """``foxglove.SceneUpdate`` to entities and deletions.
-
-    Legacy ``visualization_msgs/MarkerArray`` messages are mapped onto the same shape with the
-    marker-to-entity rules from ``docs/foxglove_recording_format.md`` (``POINTS`` markers are
-    skipped; use ``decode_marker_array`` to reach them).
-    """
-    if encoding_of(data) == ENCODING_ROS1:
-        update = SceneUpdate()
-        for marker in _ros1_decode_marker_array(data):
-            mapped = marker_to_scene_entity(marker)
-            if isinstance(mapped, SceneEntity):
-                update.entities.append(mapped)
-            elif isinstance(mapped, SceneEntityDeletion):
-                update.deletions.append(mapped)
-        return update
-
+    """``foxglove.SceneUpdate`` to entities and deletions."""
+    _require_current_format(data)
     msg = _proto(data)
     update = SceneUpdate()
     for e in msg.entities:
@@ -735,13 +716,11 @@ class LogMessage:
 
 
 _FOXGLOVE_LOG_LEVELS = {0: "UNKNOWN", 1: "DEBUG", 2: "INFO", 3: "WARN", 4: "ERROR", 5: "FATAL"}
-_ROS1_LOG_LEVELS = {1: "DEBUG", 2: "INFO", 4: "WARN", 8: "ERROR", 16: "FATAL"}
 
 
 def decode_log(data: bytes) -> LogMessage:
-    """``foxglove.Log`` (or legacy ``rosgraph_msgs/Log``)."""
-    if encoding_of(data) == ENCODING_ROS1:
-        return _ros1_decode_log(data)
+    """``foxglove.Log``."""
+    _require_current_format(data)
     msg = _proto(data)
     return LogMessage(
         stamp_ns=_proto_stamp_ns(msg.timestamp),
@@ -782,367 +761,3 @@ def match_stamps(
         if best is not None and abs(best - ref) <= tolerance_ns:
             matches[ref] = best
     return matches
-
-
-# ===========================================================================
-# Legacy ROS 1 wire format
-#
-# Everything below decodes the recordings the C++ stack wrote before the Foxglove migration.
-# ``scripts/convert_ros1_mcap.py`` is the last consumer that needs it on purpose; once the corpus
-# is converted this whole section goes.
-#
-# All little-endian. Header: uint32 seq, uint32 stamp_secs, uint32 stamp_nsecs, string frame_id.
-# string: uint32 length + raw bytes (no null terminator).
-# ===========================================================================
-
-
-@dataclass
-class Marker:
-    """One ``visualization_msgs/Marker``, as the legacy recordings hold it."""
-
-    stamp_ns: int
-    frame_id: str
-    ns: str
-    id: int
-    type: int
-    action: int
-    pose: Pose
-    scale: tuple[float, float, float]
-    color: Color
-    lifetime_ns: int
-    frame_locked: bool
-    points: list[tuple[float, float, float]]
-    colors: list[Color]
-    text: str
-
-
-MARKER_ARROW = 0
-MARKER_CUBE = 1
-MARKER_SPHERE = 2
-MARKER_LINE_STRIP = 4
-MARKER_LINE_LIST = 5
-MARKER_POINTS = 8
-MARKER_TEXT_VIEW_FACING = 9
-MARKER_ACTION_ADD = 0
-MARKER_ACTION_DELETE = 2
-MARKER_ACTION_DELETEALL = 3
-
-
-def _rotation_x_onto(direction: np.ndarray) -> tuple[float, float, float, float]:
-    """Quaternion (x, y, z, w) rotating +x onto ``direction``."""
-    norm = float(np.linalg.norm(direction))
-    if norm < 1e-12:
-        return (0.0, 0.0, 0.0, 1.0)
-    d = direction / norm
-    x_axis = np.array([1.0, 0.0, 0.0])
-    dot = float(np.dot(x_axis, d))
-    if dot < -1.0 + 1e-9:
-        return (0.0, 0.0, 1.0, 0.0)  # 180 degrees about z
-    axis = np.cross(x_axis, d)
-    w = 1.0 + dot
-    q = np.array([axis[0], axis[1], axis[2], w])
-    q /= np.linalg.norm(q)
-    return (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
-
-
-def marker_to_scene_entity(marker: Marker) -> SceneEntity | SceneEntityDeletion | None:
-    """The marker-to-entity rules from ``docs/foxglove_recording_format.md``.
-
-    Returns None for ``POINTS`` markers, which have no SceneEntity form.
-    """
-    entity_id = f"{marker.ns}/{marker.id}"
-    if marker.action == MARKER_ACTION_DELETEALL:
-        return SceneEntityDeletion(type="ALL", id="", stamp_ns=marker.stamp_ns)
-    if marker.action == MARKER_ACTION_DELETE:
-        return SceneEntityDeletion(type="MATCHING_ID", id=entity_id, stamp_ns=marker.stamp_ns)
-    if marker.type == MARKER_POINTS:
-        return None
-
-    entity = SceneEntity(
-        id=entity_id,
-        frame_id=marker.frame_id,
-        stamp_ns=marker.stamp_ns,
-        lifetime_ns=marker.lifetime_ns,
-        frame_locked=marker.frame_locked,
-    )
-    sx, sy, sz = marker.scale
-    if marker.type in (MARKER_LINE_STRIP, MARKER_LINE_LIST):
-        entity.lines.append(
-            LinePrimitive(
-                type="LINE_STRIP" if marker.type == MARKER_LINE_STRIP else "LINE_LIST",
-                pose=marker.pose,
-                thickness=sx,
-                scale_invariant=False,
-                points=list(marker.points),
-                color=marker.color,
-            )
-        )
-    elif marker.type == MARKER_CUBE:
-        entity.cubes.append(CubePrimitive(pose=marker.pose, size=marker.scale, color=marker.color))
-    elif marker.type == MARKER_SPHERE:
-        entity.spheres.append(
-            SpherePrimitive(pose=marker.pose, size=marker.scale, color=marker.color)
-        )
-    elif marker.type == MARKER_ARROW:
-        if len(marker.points) >= 2:
-            start = np.asarray(marker.points[0], dtype=np.float64)
-            end = np.asarray(marker.points[1], dtype=np.float64)
-            length = float(np.linalg.norm(end - start))
-            head_length = sz if sz > 0.0 else 0.23 * length
-            entity.arrows.append(
-                ArrowPrimitive(
-                    pose=Pose(
-                        position=(float(start[0]), float(start[1]), float(start[2])),
-                        orientation=_rotation_x_onto(end - start),
-                    ),
-                    shaft_length=max(length - head_length, 0.0),
-                    shaft_diameter=sx,
-                    head_length=head_length,
-                    head_diameter=sy,
-                    color=marker.color,
-                )
-            )
-        else:
-            entity.arrows.append(
-                ArrowPrimitive(
-                    pose=marker.pose,
-                    shaft_length=0.77 * sx,
-                    shaft_diameter=sy,
-                    head_length=0.23 * sx,
-                    head_diameter=sz,
-                    color=marker.color,
-                )
-            )
-    elif marker.type == MARKER_TEXT_VIEW_FACING:
-        entity.texts.append(
-            TextPrimitive(
-                pose=marker.pose,
-                billboard=True,
-                font_size=sz,
-                scale_invariant=False,
-                color=marker.color,
-                text=marker.text,
-            )
-        )
-    else:
-        raise ValueError(f"Unsupported legacy marker type {marker.type} in ns {marker.ns!r}")
-    return entity
-
-
-def decode_marker_array(data: bytes) -> list[Marker]:
-    """Every marker of a legacy ``visualization_msgs/MarkerArray`` message."""
-    if encoding_of(data) != ENCODING_ROS1:
-        raise ValueError("decode_marker_array only reads legacy ros1 MarkerArray messages")
-    return _ros1_decode_marker_array(data)
-
-
-def _ros1_read_string(data: bytes, offset: int) -> tuple[str, int]:
-    (length,) = struct.unpack_from("<I", data, offset)
-    offset += 4
-    s = data[offset : offset + length].decode("utf-8", errors="replace")
-    return s, offset + length
-
-
-def _ros1_read_uint32(data: bytes, offset: int) -> tuple[int, int]:
-    (v,) = struct.unpack_from("<I", data, offset)
-    return v, offset + 4
-
-
-def _ros1_read_int8(data: bytes, offset: int) -> tuple[int, int]:
-    (v,) = struct.unpack_from("<b", data, offset)
-    return v, offset + 1
-
-
-def _ros1_read_header(data: bytes, offset: int) -> tuple[int, str, int]:
-    """Read a std_msgs/Header; returns (stamp_ns, frame_id, new_offset)."""
-    _seq, offset = _ros1_read_uint32(data, offset)
-    secs, offset = _ros1_read_uint32(data, offset)
-    nsecs, offset = _ros1_read_uint32(data, offset)
-    frame_id, offset = _ros1_read_string(data, offset)
-    return secs * _NS + nsecs, frame_id, offset
-
-
-def _ros1_decode_string(data: bytes) -> str:
-    s, _ = _ros1_read_string(data, 0)
-    return s
-
-
-def _ros1_decode_diagnostic_array(data: bytes) -> list[dict]:
-    off = 0
-    _stamp_ns, _frame_id, off = _ros1_read_header(data, off)
-    status_count, off = _ros1_read_uint32(data, off)
-    statuses = []
-    for _ in range(status_count):
-        level, off = _ros1_read_int8(data, off)
-        name, off = _ros1_read_string(data, off)
-        message, off = _ros1_read_string(data, off)
-        hardware_id, off = _ros1_read_string(data, off)
-        values_count, off = _ros1_read_uint32(data, off)
-        values: dict[str, str] = {}
-        for _ in range(values_count):
-            key, off = _ros1_read_string(data, off)
-            value, off = _ros1_read_string(data, off)
-            values[key] = value
-        statuses.append(
-            {
-                "level": level,
-                "name": name,
-                "message": message,
-                "hardware_id": hardware_id,
-                "values": values,
-            }
-        )
-    return statuses
-
-
-def _ros1_decode_compressed_image_bytes(data: bytes) -> tuple[int, str, str, bytes]:
-    stamp_ns, frame_id, off = _ros1_read_header(data, 0)
-    fmt, off = _ros1_read_string(data, off)
-    length, off = _ros1_read_uint32(data, off)
-    return stamp_ns, frame_id, fmt, bytes(data[off : off + length])
-
-
-def _ros1_decode_raw_image_bytes(data: bytes) -> tuple[int, str, np.ndarray, str]:
-    stamp_ns, frame_id, off = _ros1_read_header(data, 0)
-    height, off = _ros1_read_uint32(data, off)
-    width, off = _ros1_read_uint32(data, off)
-    encoding, off = _ros1_read_string(data, off)
-    off += 1  # is_bigendian
-    step, off = _ros1_read_uint32(data, off)
-    length, off = _ros1_read_uint32(data, off)
-    channels = max(step // max(width, 1), 1)
-    frame = np.frombuffer(data, dtype=np.uint8, count=length, offset=off).reshape(height, step)
-    return (
-        stamp_ns,
-        frame_id,
-        frame[:, : width * channels].reshape(height, width, channels),
-        encoding,
-    )
-
-
-def _ros1_decode_camera_info(data: bytes) -> CameraInfo:
-    stamp_ns, frame_id, off = _ros1_read_header(data, 0)
-    height, off = _ros1_read_uint32(data, off)
-    width, off = _ros1_read_uint32(data, off)
-    distortion_model, off = _ros1_read_string(data, off)
-
-    distortion_count, off = _ros1_read_uint32(data, off)
-    distortion = np.frombuffer(data, dtype="<f8", count=distortion_count, offset=off)
-    off += 8 * distortion_count
-
-    intrinsics = np.frombuffer(data, dtype="<f8", count=9, offset=off).reshape(3, 3)
-    off += 72
-    rectification = np.frombuffer(data, dtype="<f8", count=9, offset=off).reshape(3, 3)
-    off += 72
-    projection = np.frombuffer(data, dtype="<f8", count=12, offset=off).reshape(3, 4)
-    off += 96
-
-    return CameraInfo(
-        stamp_ns=stamp_ns,
-        frame_id=frame_id,
-        width=width,
-        height=height,
-        distortion_model=distortion_model,
-        distortion=distortion.copy(),
-        intrinsics=intrinsics.copy(),
-        projection=projection.copy(),
-        rectification=rectification.copy(),
-    )
-
-
-def _ros1_decode_tf_message(data: bytes) -> list[Transform]:
-    count, off = _ros1_read_uint32(data, 0)
-    transforms = []
-    for _ in range(count):
-        stamp_ns, parent_frame_id, off = _ros1_read_header(data, off)
-        child_frame_id, off = _ros1_read_string(data, off)
-        tx, ty, tz, qx, qy, qz, qw = struct.unpack_from("<7d", data, off)
-        off += 56
-        transforms.append(
-            Transform(
-                stamp_ns=stamp_ns,
-                parent_frame_id=parent_frame_id,
-                child_frame_id=child_frame_id,
-                matrix=_transform_matrix(tx, ty, tz, qx, qy, qz, qw),
-            )
-        )
-    return transforms
-
-
-def _ros1_decode_tf_raw(data: bytes) -> list[tuple[int, str, str, tuple[float, ...]]]:
-    """(stamp_ns, parent, child, (tx, ty, tz, qx, qy, qz, qw)) per transform, no matrix math."""
-    count, off = _ros1_read_uint32(data, 0)
-    out = []
-    for _ in range(count):
-        stamp_ns, parent_frame_id, off = _ros1_read_header(data, off)
-        child_frame_id, off = _ros1_read_string(data, off)
-        values = struct.unpack_from("<7d", data, off)
-        off += 56
-        out.append((stamp_ns, parent_frame_id, child_frame_id, values))
-    return out
-
-
-def _ros1_decode_marker_array(data: bytes) -> list[Marker]:
-    count, off = _ros1_read_uint32(data, 0)
-    markers = []
-    for _ in range(count):
-        stamp_ns, frame_id, off = _ros1_read_header(data, off)
-        ns, off = _ros1_read_string(data, off)
-        marker_id, marker_type, action = struct.unpack_from("<iii", data, off)
-        off += 12
-        px, py, pz, qx, qy, qz, qw = struct.unpack_from("<7d", data, off)
-        off += 56
-        sx, sy, sz = struct.unpack_from("<3d", data, off)
-        off += 24
-        cr, cg, cb, ca = struct.unpack_from("<4f", data, off)
-        off += 16
-        life_sec, life_nsec = struct.unpack_from("<ii", data, off)
-        off += 8
-        frame_locked = data[off] != 0
-        off += 1
-        point_count, off = _ros1_read_uint32(data, off)
-        points_arr = np.frombuffer(data, dtype="<f8", count=3 * point_count, offset=off)
-        off += 24 * point_count
-        color_count, off = _ros1_read_uint32(data, off)
-        colors_arr = np.frombuffer(data, dtype="<f4", count=4 * color_count, offset=off)
-        off += 16 * color_count
-        text, off = _ros1_read_string(data, off)
-        _mesh_resource, off = _ros1_read_string(data, off)
-        off += 1  # mesh_use_embedded_materials
-        markers.append(
-            Marker(
-                stamp_ns=stamp_ns,
-                frame_id=frame_id,
-                ns=ns,
-                id=marker_id,
-                type=marker_type,
-                action=action,
-                pose=Pose(position=(px, py, pz), orientation=(qx, qy, qz, qw)),
-                scale=(sx, sy, sz),
-                color=Color(r=cr, g=cg, b=cb, a=ca),
-                lifetime_ns=life_sec * _NS + life_nsec,
-                frame_locked=frame_locked,
-                points=[tuple(p) for p in points_arr.reshape(-1, 3).tolist()],
-                colors=[Color(*c) for c in colors_arr.reshape(-1, 4).tolist()],
-                text=text,
-            )
-        )
-    return markers
-
-
-def _ros1_decode_log(data: bytes) -> LogMessage:
-    stamp_ns, _frame_id, off = _ros1_read_header(data, 0)
-    level, off = _ros1_read_int8(data, off)
-    name, off = _ros1_read_string(data, off)
-    message, off = _ros1_read_string(data, off)
-    file, off = _ros1_read_string(data, off)
-    _function, off = _ros1_read_string(data, off)
-    line, off = _ros1_read_uint32(data, off)
-    return LogMessage(
-        stamp_ns=stamp_ns,
-        level=_ROS1_LOG_LEVELS.get(level & 0xFF, "UNKNOWN"),
-        name=name,
-        message=message,
-        file=file,
-        line=line,
-    )

@@ -353,7 +353,6 @@ def scene_update(update: mcap_io.SceneUpdate) -> fg.SceneUpdate:
     )
 
 
-
 def log_message(entry: mcap_io.LogMessage) -> fg.Log:
     return fg.Log(
         timestamp=timestamp_from_ns(entry.stamp_ns),

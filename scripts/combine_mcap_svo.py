@@ -730,8 +730,8 @@ def _combine_svos(
     profile = get_input_profile(input_mcap)
     if profile == "ros1":
         logger.error(
-            "%s is a legacy ros1 recording; convert it with the converter kept in git history "
-            "(git show 4b5a95a082a9e662d44c0a2216799b03fc652cb9:scripts/convert_ros1_mcap.py)",
+            "%s is a recording from before the Foxglove migration; rewrite it with "
+            "scripts/convert_ros1_mcap.py first",
             input_mcap,
         )
         return 0, 0

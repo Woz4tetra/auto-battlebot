@@ -304,11 +304,18 @@ def test_diagnostics(recording: Path) -> None:
 
 
 def test_log(recording: Path) -> None:
-    entries = [
-        mcap_io.decode_log(d) for _t, _ts, d in mcap_io.iter_messages(recording, ["/log"])
-    ]
+    entries = [mcap_io.decode_log(d) for _t, _ts, d in mcap_io.iter_messages(recording, ["/log"])]
     assert len(entries) == 1
     assert entries[0].level == "WARN"
     assert entries[0].message == "hello"
     assert entries[0].file == "main.cpp" and entries[0].line == 7
     assert entries[0].stamp_ns == STAMP_NS
+
+
+def test_untagged_or_legacy_payload_is_refused() -> None:
+    """Readers only understand the Foxglove layout; anything else must fail loudly."""
+    with pytest.raises(ValueError, match="convert_ros1_mcap"):
+        mcap_io.decode_camera_info(b"\x00\x01\x02")
+    legacy = mcap_io.MessageBytes(b"{}", "ros1", "std_msgs/String", "/x")
+    with pytest.raises(ValueError, match="convert_ros1_mcap"):
+        mcap_io.decode_string(legacy)
