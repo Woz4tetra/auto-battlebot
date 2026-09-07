@@ -10,11 +10,11 @@
     "cmake.configureOnOpen": false,
     "files.exclude": {
         "**/*.csproj": true,
-        "**/build*": true,
+        "build*/": true,
         "**/*.egg-info": true,
         "**/venv": true,
-        "**/training/data": true,
-        "**/data": true
+        "training/data": true,
+        "data/": true
     },
     "C_Cpp.files.exclude": {
         "**/training/data/**": true,
