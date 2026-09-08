@@ -25,25 +25,6 @@ struct NoopRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
     )
 };
 
-struct YoloSegRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
-    EngineSelectorConfiguration engine;
-    float confidence_threshold = 0.5f;
-    float iou_threshold = 0.45f;
-    float mask_threshold = 0.5f;
-    float letterbox_padding = 0.1f;
-    int image_size = 640;
-    int max_detections = 32;
-    bool debug_visualization = false;
-    std::vector<Label> label_indices;
-    std::vector<Label> their_robot_labels;
-    std::vector<Label> neutral_robot_labels;
-    std::vector<Label> field_labels;
-
-    YoloSegRobotBlobModelConfiguration() { type = "YoloSegRobotBlobModel"; }
-
-    void parse_fields(ConfigParser &parser) override;
-};
-
 struct YoloBboxRobotBlobModelConfiguration : public RobotBlobModelConfiguration {
     EngineSelectorConfiguration engine;
     float confidence_threshold = 0.5f;
