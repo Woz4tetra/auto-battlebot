@@ -57,7 +57,7 @@ import torch
 import yaml
 from torchmetrics.detection import MeanAveragePrecision
 
-from auto_battlebot.trt_yolo import TrtYoloModel
+from auto_battlebot.perception.trt_yolo import TrtYoloModel
 
 LEVELS = ("agnostic", "archetype", "instance")
 AGNOSTIC_LABEL = "robot"

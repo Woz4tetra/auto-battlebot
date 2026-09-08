@@ -2,7 +2,7 @@
 
 Recordings follow ``docs/foxglove_recording_format.md``: ``protobuf`` channels carrying Foxglove
 schemas and ``json`` channels carrying the project's own payloads. The C++ stack writes them with
-the Foxglove SDK; ``auto_battlebot.mcap_write`` writes them from Python.
+the Foxglove SDK; ``auto_battlebot.recording.mcap_write`` writes them from Python.
 
 ``iter_messages`` tags every payload it yields with the channel's message encoding, schema name
 and topic, and every ``decode_*`` function dispatches on that tag. Recordings from before the

@@ -36,7 +36,7 @@ import numpy as np
 from serial.tools.list_ports import comports
 
 import serial
-from auto_battlebot.velocity_jig import ClockProbe
+from auto_battlebot.calibration.jig.velocity_jig import ClockProbe
 
 # The jig's USB ids under the arduino-pico core. CONFIRM ON HARDWARE with --list-ports:
 # the core takes these from the board variant, and a wrong guess here silently falls back

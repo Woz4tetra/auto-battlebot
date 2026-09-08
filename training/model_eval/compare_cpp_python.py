@@ -3,7 +3,7 @@
 
 The C++ path is detections the perception stack recorded during playback
 (/blob_detections or /keypoint_detections in one or more MCAPs). The Python path is
-direct TensorRT inference on the GT images (auto_battlebot.trt_yolo, as score.py uses).
+direct TensorRT inference on the GT images (auto_battlebot.perception.trt_yolo, as score.py uses).
 Both are scored with score.py's machinery on exactly the GT frames the recordings cover,
 so the two columns are frame-for-frame comparable.
 
@@ -41,14 +41,14 @@ from score import (
     pr_per_frame,
 )
 
-from auto_battlebot.mcap_io import (
+from auto_battlebot.perception.trt_yolo import TrtYoloModel
+from auto_battlebot.recording.mcap_io import (
     BLOB_DETECTIONS_TOPIC,
     KEYPOINT_DETECTIONS_TOPIC,
     Detections,
     match_stamps,
     read_detections,
 )
-from auto_battlebot.trt_yolo import TrtYoloModel
 
 TOPICS = {"blob": BLOB_DETECTIONS_TOPIC, "keypoint": KEYPOINT_DETECTIONS_TOPIC}
 STAMP_TOLERANCE_NS = 1_000_000

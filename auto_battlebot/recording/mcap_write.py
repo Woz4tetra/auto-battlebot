@@ -23,7 +23,7 @@ import foxglove.messages as fg
 import numpy as np
 from foxglove.mcap import MCAPCompression, MCAPWriteOptions
 
-from auto_battlebot import mcap_io
+from auto_battlebot.recording import mcap_io
 
 _NS = 1_000_000_000
 

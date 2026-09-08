@@ -33,14 +33,14 @@ import numpy as np
 from matplotlib import animation
 from matplotlib.patches import Circle, Polygon, Rectangle
 
-from auto_battlebot.calibration.match_windows import (
+from auto_battlebot.calibration.match.match_windows import (
     MatchRun,
     _fill_grid,
     build_match_run,
     load_commands,
     load_replay_track,
 )
-from auto_battlebot.plant import (
+from auto_battlebot.control.plant import (
     FULL_MODEL,
     ModelStructure,
     PlantParams,

@@ -45,7 +45,7 @@ import numpy as np
 import tensorrt as trt
 import torch
 
-from auto_battlebot.trt_yolo import CPP_LETTERBOX_PADDING, preprocess_frame
+from auto_battlebot.perception.trt_yolo import CPP_LETTERBOX_PADDING, preprocess_frame
 
 # Every engine in a sweep is the same architecture with different weights, so TensorRT's tactic
 # timings are reusable. Persisting them turns each build after the first from a kernel-autotuning

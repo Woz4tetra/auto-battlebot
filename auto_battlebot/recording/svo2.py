@@ -29,7 +29,7 @@ from typing import IO, Generator, Iterator
 
 from mcap.reader import make_reader
 
-from auto_battlebot.mcap_io import iter_messages
+from auto_battlebot.recording.mcap_io import iter_messages
 
 SIDE_BY_SIDE_SUFFIX = "/side_by_side"
 FOOTER_TOPIC = "svo_footer"

@@ -41,8 +41,8 @@ from typing import Any
 import numpy as np
 from mcap.reader import make_reader
 
-from auto_battlebot import mcap_io, mcap_write
-from auto_battlebot.mcap_io import (
+from auto_battlebot.recording import mcap_io, mcap_write
+from auto_battlebot.recording.mcap_io import (
     ArrowPrimitive,
     CameraInfo,
     Color,

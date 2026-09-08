@@ -39,7 +39,7 @@ from matplotlib.patches import Patch
 
 DEFAULT_CALIBRATION = Path(__file__).resolve().parent / "jig_calibration.toml"
 
-from auto_battlebot.velocity_jig import (
+from auto_battlebot.calibration.jig.velocity_jig import (
     G_MPS2,
     RAW_SATURATION,
     ClockFit,
@@ -685,7 +685,7 @@ def main() -> None:
     records: dict[Path, RunRecord] = {}
     for directory in {p.parent for p in logs}:
         try:
-            from auto_battlebot.velocity_jig import load_session_dir
+            from auto_battlebot.calibration.jig.velocity_jig import load_session_dir
 
             for record in load_session_dir(directory).runs:
                 if record.log_file:

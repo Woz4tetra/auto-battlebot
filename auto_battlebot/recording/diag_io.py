@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Loaders for Stage 0 control metrics.
 
-Reuses the diagnostics decoder from the shared ``auto_battlebot.mcap_io`` package and
+Reuses the diagnostics decoder from the shared ``auto_battlebot.recording.mcap_io`` package and
 adds extraction of the extra subsections and topics Stage 0 needs:
 
 - runner/navigation/using_previous_robots  (reliability / dropout proxy)
@@ -29,7 +29,7 @@ from typing import Any, Iterator
 import numpy as np
 import pandas as pd
 
-from auto_battlebot.mcap_io import (
+from auto_battlebot.recording.mcap_io import (
     decode_diagnostic_array,
     decode_scene_update,
     decode_tf_message,

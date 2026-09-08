@@ -2,7 +2,7 @@
 
 Joins regenerated replay poses to the original transmitted commands for one NHRL
 recording, resamples both onto the SVO frame grid, and cuts open-loop scoring
-windows with `auto_battlebot.plant.make_windows`. The sibling of the jig loader
+windows with `auto_battlebot.control.plant.make_windows`. The sibling of the jig loader
 in `jig_fit.py`: same window machinery, different excitation source (match
 driving instead of jig protocols).
 
@@ -37,13 +37,13 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from auto_battlebot.mcap_io import (
+from auto_battlebot.control.plant import WindowSet, concat_windows, make_windows
+from auto_battlebot.recording.mcap_io import (
     decode_diagnostic_array,
     decode_scene_update,
     decode_string,
     iter_messages,
 )
-from auto_battlebot.plant import WindowSet, concat_windows, make_windows
 
 OUR_ROBOT_MARKER_ID = 4  # FrameId enum index of OUR_ROBOT_1
 THEIR_ROBOT_MARKER_IDS = (6, 7, 8)
@@ -54,7 +54,7 @@ THEIR_ROBOT_MARKER_IDS = (6, 7, 8)
 AUTO_SWITCH_VALUE = 1024.0
 
 # Full scale of the radio channel readback stream, same as
-# auto_battlebot.calibration.drive_protocol.MixConfig.channel_scale.
+# auto_battlebot.calibration.jig.drive_protocol.MixConfig.channel_scale.
 CHANNEL_SCALE = 2048.0  # (ch0 - ch1) spans 2 * 1024 at full stick
 
 # Contact gates. A window overlapping any gated sample is dropped; contact

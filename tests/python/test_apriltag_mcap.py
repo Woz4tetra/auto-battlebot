@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from auto_battlebot import mcap_io
-from auto_battlebot.calibration import apriltag_mcap as amcap
+from auto_battlebot.calibration.apriltag import apriltag_mcap as amcap
+from auto_battlebot.recording import mcap_io
 
 K = [800.0, 0.0, 320.0, 0.0, 800.0, 240.0, 0.0, 0.0, 1.0]
 D = [0.01, -0.02, 0.0, 0.0, 0.0]

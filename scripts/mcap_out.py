@@ -13,7 +13,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from auto_battlebot.mcap_io import decode_log, iter_messages
+from auto_battlebot.recording.mcap_io import decode_log, iter_messages
 
 _LEVEL_RANK = {"DEBUG": 0, "INFO": 1, "WARN": 2, "ERROR": 3, "FATAL": 4}
 

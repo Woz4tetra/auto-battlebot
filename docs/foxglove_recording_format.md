@@ -2,8 +2,8 @@
 
 Every MCAP the C++ app records, every MCAP the Python tools write, and every converted legacy
 recording follows this layout. The C++ publisher (`src/foxglove_adapters/`), the Python readers
-(`auto_battlebot/mcap_io.py`, `auto_battlebot/diag_io.py`), the Python writers
-(`auto_battlebot/mcap_write.py`) and the legacy converter (`scripts/convert_ros1_mcap.py`) are
+(`auto_battlebot/recording/mcap_io.py`, `auto_battlebot/recording/diag_io.py`), the Python writers
+(`auto_battlebot/recording/mcap_write.py`) and the legacy converter (`scripts/convert_ros1_mcap.py`) are
 all written against this document. Change it here first.
 
 ## File level
@@ -44,7 +44,7 @@ all written against this document. Change it here first.
 Protobuf schemas are the ones shipped with the Foxglove SDK (schema data is the serialized
 `FileDescriptorSet`, exactly what `foxglove::schemas::X::schema()` in C++ and
 `foxglove.schemas.X` in Python emit). The jsonschema texts live in
-`include/foxglove_adapters/json_schemas.hpp` (C++) and `auto_battlebot/mcap_write.py` (Python)
+`include/foxglove_adapters/json_schemas.hpp` (C++) and `auto_battlebot/recording/mcap_write.py` (Python)
 and must stay byte-identical.
 
 Latched topics (the relay re-sends the last message to a newly subscribed client):

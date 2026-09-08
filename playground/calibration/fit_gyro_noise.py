@@ -38,7 +38,7 @@ from pathlib import Path
 
 import numpy as np
 
-from auto_battlebot.velocity_jig import JigLog, read_jig_log
+from auto_battlebot.calibration.jig.velocity_jig import JigLog, read_jig_log
 
 # Clusters longer than this fraction of the record average too few independent samples to
 # mean anything: at tau = T/3 there are three clusters, and the curve turns into noise about

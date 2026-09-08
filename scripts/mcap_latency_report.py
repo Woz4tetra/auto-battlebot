@@ -28,7 +28,11 @@ from pathlib import Path
 
 import numpy as np
 
-from auto_battlebot.mcap_io import DIAGNOSTICS_TOPIC, decode_diagnostic_array, iter_messages
+from auto_battlebot.recording.mcap_io import (
+    DIAGNOSTICS_TOPIC,
+    decode_diagnostic_array,
+    iter_messages,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_DIR = REPO_ROOT / "docs" / "experiments"

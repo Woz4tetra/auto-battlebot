@@ -40,8 +40,8 @@ from pathlib import Path
 
 import numpy as np
 
-from auto_battlebot.calibration import apriltag_detect as ad
-from auto_battlebot.calibration import apriltag_mcap as amcap
+from auto_battlebot.calibration.apriltag import apriltag_detect as ad
+from auto_battlebot.calibration.apriltag import apriltag_mcap as amcap
 
 # Sentinel for --overlay-mcap given with no argument: write next to the recording.
 OVERLAY_DEFAULT = object()

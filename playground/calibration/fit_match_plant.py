@@ -5,7 +5,8 @@ original transmitted commands to regenerated replay poses, cut open-loop windows
 climb the model ladder from the jig stage A seed, and score three plants (jig
 seed, match fit, current sim values) on identical windows.
 
-The loader lives in `auto_battlebot/calibration/match_windows.py` next to the jig loader; the fit
+The loader lives in `auto_battlebot/calibration/match/match_windows.py` next to the jig
+loader; the fit
 machinery is shared with the jig fit (`plant.predict_windows`, `jig_fit.joint_fit`
 with match bounds, `jig_fit.score`).
 
@@ -35,7 +36,7 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
-from auto_battlebot.calibration.jig_fit import (
+from auto_battlebot.calibration.jig.jig_fit import (
     FitWeights,
     HorizonReport,
     joint_fit,
@@ -43,7 +44,7 @@ from auto_battlebot.calibration.jig_fit import (
     residual_vector,
     score,
 )
-from auto_battlebot.calibration.match_windows import (
+from auto_battlebot.calibration.match.match_windows import (
     MatchRun,
     MatchWindows,
     build_match_run,
@@ -52,7 +53,7 @@ from auto_battlebot.calibration.match_windows import (
     load_replay_track,
     split_run,
 )
-from auto_battlebot.plant import (
+from auto_battlebot.control.plant import (
     MODEL_LADDER,
     PARAM_BOUNDS,
     ModelStructure,
@@ -452,7 +453,7 @@ def write_match_params(
     note: str,
 ) -> None:
     params = structure.apply(params)
-    from auto_battlebot.plant import FULL_MODEL
+    from auto_battlebot.control.plant import FULL_MODEL
 
     disabled = sorted(set(FULL_MODEL.free_names()) - set(structure.free_names()))
     lines = [

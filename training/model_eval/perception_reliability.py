@@ -42,7 +42,7 @@ from typing import Any
 
 import numpy as np
 
-from auto_battlebot.mcap_io import (
+from auto_battlebot.recording.mcap_io import (
     DIAGNOSTICS_TOPIC,
     decode_diagnostic_array,
     iter_messages,

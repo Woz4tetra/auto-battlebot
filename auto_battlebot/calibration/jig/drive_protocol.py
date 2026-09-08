@@ -35,7 +35,7 @@ from typing import Any, Callable, Iterator, Sequence
 
 from serial.tools.list_ports import comports
 
-from auto_battlebot.velocity_jig import PauseWindow
+from auto_battlebot.calibration.jig.velocity_jig import PauseWindow
 
 # Matches kChannelMax / kTrainerMax in opentx_transmitter.cpp.
 TRAINER_MAX = 500

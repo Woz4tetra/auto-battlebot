@@ -80,7 +80,7 @@ python playground/control_stage0/sim_sweep.py --sweep my_sweep.toml --out sweep_
 **Gotcha:** only nav implementations in `diag_io.NAV_HW_IDS` (currently PursuitNavigation
 and MotionProfileNavigation) have their diagnostics scored. A brand-new nav impl scores
 **empty** in `results.csv` until its hardware id is added to `NAV_HW_IDS` in
-`auto_battlebot/diag_io.py`. If a new nav's rows are blank, check that first.
+`auto_battlebot/recording/diag_io.py`. If a new nav's rows are blank, check that first.
 
 ---
 

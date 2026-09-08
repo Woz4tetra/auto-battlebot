@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from auto_battlebot import mcap_write
+from auto_battlebot.recording import mcap_write
 
 HEADER = Path(__file__).resolve().parents[2] / "include" / "foxglove_adapters" / "json_schemas.hpp"
 

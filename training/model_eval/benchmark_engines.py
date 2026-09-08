@@ -1,7 +1,7 @@
 """Per-engine inference latency, reported the same way on the dev box and the Jetson.
 
 `trtexec` is not available everywhere -- on megamind TensorRT comes from the pip wheel,
-which ships no binary -- so this reuses `auto_battlebot.trt_yolo.TrtYoloModel`, the same
+which ships no binary -- so this reuses `auto_battlebot.perception.trt_yolo.TrtYoloModel`, the same
 class `score.py` scores with. That also makes the numbers directly comparable to the
 accuracy run instead of measuring a differently-configured engine.
 
@@ -28,7 +28,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from auto_battlebot.trt_yolo import TrtYoloModel
+from auto_battlebot.perception.trt_yolo import TrtYoloModel
 
 
 def _percentile(values: list[float], q: float) -> float:

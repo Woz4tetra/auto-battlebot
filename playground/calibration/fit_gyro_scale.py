@@ -32,7 +32,7 @@ from pathlib import Path
 
 import numpy as np
 
-from auto_battlebot.velocity_jig import (
+from auto_battlebot.calibration.jig.velocity_jig import (
     find_still_segments,
     read_jig_log,
     still_stats,

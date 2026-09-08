@@ -42,7 +42,7 @@ from typing import Any, Iterator
 import cv2
 import numpy as np
 
-from auto_battlebot import mcap_io, mcap_write
+from auto_battlebot.recording import mcap_io, mcap_write
 
 TOPIC_METADATA = "/calibration/metadata"
 TOPIC_FLOOR_IMAGE = "/floor/image"

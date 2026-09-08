@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from auto_battlebot.velocity_jig import (
+from auto_battlebot.calibration.jig.velocity_jig import (
     CHANNELS,
     ROLES,
     WAVEFORM_KINDS,

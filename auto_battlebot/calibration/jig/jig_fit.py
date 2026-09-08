@@ -35,7 +35,14 @@ from typing import Sequence
 import numpy as np
 from scipy.optimize import least_squares
 
-from auto_battlebot.plant import (
+from auto_battlebot.calibration.jig.velocity_jig import (
+    JigCalibration,
+    Run,
+    Session,
+    load_runs,
+    load_session_dir,
+)
+from auto_battlebot.control.plant import (
     FULL_MODEL,
     PARAM_BOUNDS,
     ModelStructure,
@@ -46,13 +53,6 @@ from auto_battlebot.plant import (
     effective_command,
     make_windows,
     predict_windows,
-)
-from auto_battlebot.velocity_jig import (
-    JigCalibration,
-    Run,
-    Session,
-    load_runs,
-    load_session_dir,
 )
 
 # Per-sample motion floors. Below these the measurement is noise, whatever the command says.

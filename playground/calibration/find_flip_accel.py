@@ -30,7 +30,7 @@ import signal
 import sys
 import time
 
-from auto_battlebot.calibration import drive_protocol as dp
+from auto_battlebot.calibration.jig import drive_protocol as dp
 
 
 class _TrialTimeoutError(Exception):

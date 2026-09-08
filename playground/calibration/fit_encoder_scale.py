@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from auto_battlebot.velocity_jig import read_jig_log
+from auto_battlebot.calibration.jig.velocity_jig import read_jig_log
 
 
 @dataclass(frozen=True)

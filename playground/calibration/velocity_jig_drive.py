@@ -46,11 +46,16 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from auto_battlebot.calibration import drive_protocol as dp
-from auto_battlebot.calibration import excitation as ex
-from auto_battlebot.calibration import jig_link as jl
-from auto_battlebot.plant import PlantParams, simulate
-from auto_battlebot.velocity_jig import SIDECAR_SCHEMA, ClockFit, ClockProbe, PauseWindow
+from auto_battlebot.calibration.jig import drive_protocol as dp
+from auto_battlebot.calibration.jig import excitation as ex
+from auto_battlebot.calibration.jig import jig_link as jl
+from auto_battlebot.calibration.jig.velocity_jig import (
+    SIDECAR_SCHEMA,
+    ClockFit,
+    ClockProbe,
+    PauseWindow,
+)
+from auto_battlebot.control.plant import PlantParams, simulate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CATALOG = Path(__file__).resolve().parent / "waveforms.toml"
@@ -857,7 +862,7 @@ def log_gates(
     anyway, so the clip is worth seeing and never worth discarding a recording over.
     """
     try:
-        from auto_battlebot.velocity_jig import pause_mask, read_jig_log
+        from auto_battlebot.calibration.jig.velocity_jig import pause_mask, read_jig_log
 
         log = read_jig_log(log_path)
     except (OSError, ValueError) as err:
@@ -1065,7 +1070,7 @@ def do_list_ports() -> None:
     if found is not None and found.usb_id not in jl.JIG_USB_IDS:
         say(
             f"\nNOTE: the jig matched by name, not by usb id. Add {found.usb_id} to "
-            "JIG_USB_IDS in auto_battlebot/calibration/jig_link.py so it is matched exactly."
+            "JIG_USB_IDS in auto_battlebot/calibration/jig/jig_link.py so it is matched exactly."
         )
 
 
@@ -1161,7 +1166,8 @@ def do_check_radio(link: dp.TrainerLink, amplitude: float = 0.5) -> None:
     say(f"  read_linear = {a_ch}, read_angular = {b_ch}")
     say(f"  read_invert_a = {str(invert_a).lower()}, read_invert_b = {str(invert_b).lower()}")
     say(
-        "\nThese live in MixConfig (auto_battlebot/calibration/drive_protocol.py). Set them before "
+        "\nThese live in MixConfig (auto_battlebot/calibration/jig/drive_protocol.py). "
+        "Set them before "
         "recording, "
         "or the contamination gate will discard good runs."
     )
