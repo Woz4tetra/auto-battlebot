@@ -1,5 +1,7 @@
 #include "control_loop/threaded_control_loop.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <utility>
 
 namespace auto_battlebot {
@@ -72,6 +74,10 @@ void ThreadedControlLoop::thread_main() {
                  {"deadline_misses", static_cast<int>(report_misses)},
                  {"cycle_us_avg", report_cycles > 0 ? busy_us_sum / report_cycles : 0.0},
                  {"cycle_us_max", busy_us_max}});
+            spdlog::debug(
+                "control loop heartbeat: cycles={} rate_hz={:.1f} cycle_ms_max={:.2f} "
+                "deadline_misses={}",
+                report_cycles, report_cycles / elapsed_s, busy_us_max / 1000.0, report_misses);
             last_report = cycle_end;
             report_cycles = 0;
             report_misses = 0;

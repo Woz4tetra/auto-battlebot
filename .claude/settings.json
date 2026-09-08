@@ -2,7 +2,23 @@
   "permissions": {
     "allow": [
       "Bash(ruff check *)",
-      "Bash(mypy *)"
+      "Bash(mypy *)",
+      "Bash(./scripts/no_ai_slop_check.sh)",
+      "Bash(bash scripts/no_ai_slop_check.sh)",
+      "Bash(nvidia-smi --query-gpu=*)",
+      "Bash(nvidia-smi --query-compute-apps=*)",
+      "Bash(journalctl -b *)",
+      "Bash(journalctl -u *)",
+      "Bash(ffprobe *)",
+      "Bash(venv/bin/python training/gpu_queue.py status*)",
+      "Bash(tar tf *)",
+      "Bash(./scripts/lint --dry-run *)",
+      "Bash(./scripts/lint --quick --dry-run *)",
+      "mcp__firecrawl__firecrawl_scrape",
+      "mcp__context7__query-docs",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__find_symbol",
+      "mcp__serena__initial_instructions"
     ]
   },
   "hooks": {
