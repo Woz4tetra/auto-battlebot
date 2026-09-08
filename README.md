@@ -94,8 +94,9 @@ The project focuses on end-to-end autonomy under real-time and real-world constr
 - `src/`, `include/`: Core C++ runtime and interfaces
 - `simulation/`: Genesis server and protocol bridge
 - `config/`: Mode-specific TOML configurations
-- `training/`: Synthetic data and model training utilities
-- `scripts/`, `install/`: Setup, build, and run workflows
+- `auto_battlebot/`: Shared Python library, the only importable and type-checked tree
+- `training/`: Dataset building, model training, and offline scoring, one CLI per file
+- `scripts/`, `install/`: Setup, build, and run workflows ([scripts/README.md](scripts/README.md))
 - `firmware/`: Robot-side firmware experiments and support code
 - `playground/`: Experimental work
 
@@ -197,7 +198,7 @@ python training/yolo/convert_to_tensorrt.py <path to onnx file>
 For DeepLabV3:
 
 ```bash
-python training/deeplabv3/convert_to_tensorrt.py <path to pt file>
+python training/deeplab/convert_to_tensorrt.py <path to pt file>
 ```
 
 ## Running the Application

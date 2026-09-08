@@ -1,8 +1,8 @@
 """TensorRT YOLO inference matching the C++ perception pipeline.
 
 Shared by training/yolo/test_tensorrt_video.py (video visualization) and
-training/model_eval/score.py (detector evaluation). Mirrors the C++ YoloKeypointModel /
-YoloSegRobotBlobModel pipeline: same letterbox preprocessing (114 padding, configurable
+auto_battlebot/eval (detector scoring). Mirrors the C++ YoloKeypointModel and
+YoloBboxRobotBlobModel pipeline: same letterbox preprocessing (114 padding, configurable
 sub-pixel padding nudge), same output decode, and same per-class NMS.
 
 Supports both head types:

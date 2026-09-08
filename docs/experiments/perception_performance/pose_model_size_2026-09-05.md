@@ -1,5 +1,8 @@
 # Does model size matter for the keypoint model? - 2026-09-05
 
+> The mosaic script cited below was deleted on 2026-09-08; the figure it produced is
+> committed alongside this report. See [retired_tooling.md](../retired_tooling.md).
+
 Three yolo26 pose sizes (`n`, `s`, `x`) trained 200 epochs on `all_robot_keypoints` (18,447
 train / 2,049 val), batch 96, imgsz 640, seed 0, then scored on `nhrl_keypoints_eval_test`
 (688 frames, 8 recordings) with `score.py`, `--labels "mr_stabs_mk2,mrs_buff_mk3,opponent"`,

@@ -1,7 +1,7 @@
 digraph RobotFilterPipeline {
   graph [
     rankdir=TB
-    label="Robot Filter Pipeline  (RobotFrontBackSimpleFilter::update)"
+    label="Robot Filter Pipeline  (RobotFrontBackFilter::correct)"
     labelloc=t
     fontsize=22
     fontname="Helvetica"

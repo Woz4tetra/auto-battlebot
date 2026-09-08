@@ -1,5 +1,8 @@
 # Mask centroid vs box center — 2026-08-03
 
+> The mosaic script cited below was deleted on 2026-09-08; the figure it produced is
+> committed alongside this report. See [retired_tooling.md](../retired_tooling.md).
+
 Question for the blog post: when the YOLO-seg blob model emits a mask and a box for the same
 robot, does the mask centroid tell the pipeline anything the box center does not? It does not.
 The centroid sits 2.75 px from its own box center at the median, 2.5 % of the robot's own
