@@ -40,7 +40,7 @@ import cv2
 import numpy as np
 import yaml
 
-from playground.cache_gt_depth import gt_frame_indices, resolve_svo
+from playground.depth_cache.cache_gt_depth import gt_frame_indices, resolve_svo
 
 # Fraction of sampled frames whose best-matching SVO index must be the claimed one.
 DEFAULT_ARGMIN_PASS = 0.8
