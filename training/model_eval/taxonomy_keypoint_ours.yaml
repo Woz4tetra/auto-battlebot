@@ -1,0 +1,17 @@
+# Taxonomy for comparing keypoint models with different class vocabularies.
+#
+# taxonomy_keypoint.yaml excludes house_bot and object but keeps `opponent`, and every
+# opponent box in nhrl_keypoints_eval_test carries keypoints. That is fine for grading one
+# 3-class model against another, and unfair the moment a 2-class model is in the grid: it
+# cannot emit an opponent detection at all, so its matched-box count and recall are capped
+# by its class list rather than by its keypoint quality.
+#
+# Excluding opponent scores every arm on our own robots, which is the deployment task -- the
+# keypoint model estimates our robot's heading, and the opponent is the other branch's job.
+# In this eval set that leaves 670 mrs_buff_mk3 boxes and no mr_stabs_mk2 at all.
+archetypes: {}
+
+exclude:
+  - house_bot
+  - object
+  - opponent

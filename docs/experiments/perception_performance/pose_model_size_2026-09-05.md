@@ -11,6 +11,28 @@ Companion to `model_size_2026-09-04.md`, which asked the same question of the bo
 detector. Predecessor: `all_robots_pose_2026-07-14.md`, which found a `yolo26n-pose` trained
 on this corpus localized keypoints worse than the dedicated `our_robots` model.
 
+> **Correction, 2026-09-07.** Every number in this report was produced with
+> `taxonomy_keypoint.yaml`, which excludes `house_bot` and `object` but keeps `opponent`.
+> 763 of the eval set's 1,433 scoreable boxes are `opponent`, all of them carrying keypoints,
+> and keypoint matching is class-blind, so every arm here was graded on a set that is 53%
+> opponent robots. That is not the keypoint branch's job, and a 2-class model cannot emit an
+> opponent detection at all, which is what made the reference comparison unfair.
+>
+> Rescoring these same engines on our own robots
+> (`taxonomy_keypoint_ours.yaml`) overturns three conclusions below. They are marked
+> **[corrected]** where they appear. `pose_model_size_corpus_2026-09-07.md` has the rescored
+> tables; the raw numbers in this report are left as they were measured.
+>
+> - `yolo26s-pose` is **not** worse than `yolo26n-pose` on heading. The +2.48 deg at conf 0.5
+>   becomes -0.47 deg `ns`, and `s` is `better` than `n` on pixel error at conf 0.5 and 0.6.
+> - `yolo26x-pose` **passes criterion (a) at all four confidences**, not two. On our robots
+>   the conf 0.5 delta is -2.12 deg [-3.57, -0.93] rather than `ns`. The verdict for `x` is
+>   unchanged, but it now rests on latency alone.
+> - `yolo26x-pose` is **not** the first all-robots pose model to beat the deployed model.
+>   Plain `yolo26n-pose` already beats it, 7.19 against 9.54 deg, CI excluding 0. This also
+>   puts `all_robots_pose_2026-07-14.md`'s negative result in question, since it graded the
+>   same way.
+
 ## Headline
 
 1. **Model size matters for keypoints, but only at the top of the range.** `yolo26x-pose`
@@ -18,18 +40,20 @@ on this corpus localized keypoints worse than the dedicated `our_robots` model.
    confidences (conf 0.5: 9.57 px / 0.765 against 11.47 / 0.691). `yolo26s-pose`, at 4x the
    baseline's parameters, improves neither at any confidence. The gain is non-monotonic in
    parameters, the same shape `model_size_2026-09-04.md` found on the box head.
-2. **The registered decision rule is split.** Criterion (a) required `kp_heading_err_deg` to
-   improve with a 95% CI excluding 0. `x` clears it at conf 0.05 (-5.07 deg, [-7.57, -2.47])
-   and conf 0.3 (-4.17 deg, [-6.74, -1.84]); at conf 0.5 and 0.6 heading favours `x` but the
-   CI includes 0. `s` fails everywhere and is significantly **worse** at conf 0.5 (+2.48 deg,
-   [+0.40, +4.68]).
+2. **The registered decision rule is split.** **[corrected]** Criterion (a) required
+   `kp_heading_err_deg` to improve with a 95% CI excluding 0. `x` clears it at conf 0.05
+   (-5.07 deg, [-7.57, -2.47]) and conf 0.3 (-4.17 deg, [-6.74, -1.84]); at conf 0.5 and 0.6
+   heading favours `x` but the CI includes 0. `s` fails everywhere and is significantly
+   **worse** at conf 0.5 (+2.48 deg, [+0.40, +4.68]). Scored on our robots only, `x` clears
+   (a) at all four confidences and `s` is `ns` rather than worse.
 3. **`x`'s gain is not the threshold artifact that fools this metric.** At conf 0.05 `x`
    matches *more* boxes than `n` (1042 against 977) and scores better on all of them. That is
    the opposite signature to the epoch ladder below, where later checkpoints improved heading
    only by discarding their hard detections.
-4. **`x` is the first all-robots pose model to beat the deployed `our_robots` model.** At conf
-   0.5 it reaches 9.57 px / 0.765 PCK / 9.09 deg on 699 matched boxes against the deployed
-   model's 9.85 / 0.704 / 10.43 on 502. This experiment reproduces
+4. **`x` is the first all-robots pose model to beat the deployed `our_robots` model.**
+   **[corrected: `n` already beat it on our robots; this comparison is 53% opponent boxes.]**
+   At conf 0.5 it reaches 9.57 px / 0.765 PCK / 9.09 deg on 699 matched boxes against the
+   deployed model's 9.85 / 0.704 / 10.43 on 502. This experiment reproduces
    `all_robots_pose_2026-07-14.md`'s negative result for `n` and `s`, and breaks it at `x`.
 5. **Criterion (b) is what stops it.** `x` costs 2.52x `n`'s inference time on the dev box
    (+3.58 ms total, +3.29 ms of GPU time). The Jetson perception batch has roughly 1 ms of
@@ -80,6 +104,12 @@ positive and leave every `opponent` box unmatched. Class 2 `nhrl_robot` -> GT `o
 the mapping `all_robots_pose_2026-07-14.md` used for this same 3-class model. Keypoint
 matching in `score.py` is class-blind, so this choice moves the box metrics and not the
 keypoint ones. Every engine parsed as `num_keypoints=2 num_classes=3`.
+
+**[corrected]** This section reasoned about the mapping of class 2 and missed the exclusion
+list. `taxonomy_keypoint.yaml` keeps `opponent`, so the keypoint metrics below average over
+763 opponent boxes as well as 670 of ours. The claim that this choice "moves the box metrics
+and not the keypoint ones" is wrong: keypoint matching is class-blind, so a 3-class arm earns
+keypoint matches on opponents that a 2-class arm cannot.
 
 ## Where the pose plateau is - and why one confidence would have lied
 
@@ -185,6 +215,11 @@ cells, so the core of the distribution has improved even where the mean has not.
 `s` buys nothing on keypoints and costs at the operating point. Had the sweep stopped at `s`,
 as it nearly did, the conclusion would have been that capacity does not help keypoints at all.
 
+**[corrected]** The single `worse` cell here does not survive rescoring on our robots: the
+conf 0.5 heading delta becomes -0.47 deg [-1.81, +0.79] `ns`, and `s` is `better` than `n` on
+pixel error at conf 0.5 and 0.6 and on PCK at 0.6. `s` is still not worth 1.29x the latency,
+but it is not dominated.
+
 ![n, s and x heading on the same robots](assets/2026-09-05_pose_size/heading_mosaic.png)
 
 Six robots all three arms detected at conf 0.5, one row each, sampled across `n`'s
@@ -280,6 +315,10 @@ runs ~1.3 ms here and ~9.5-11 ms inside the Jetson pipeline.
   rule asks whether heading improves at all, `x` meets it at the two thresholds with the
   largest matched samples. Both readings are recorded here rather than resolved after the
   fact, because the rule was under-specified and picking now would be choosing the answer.
+
+  **[corrected]** The ambiguity is moot once `opponent` is excluded from the scoring: `x`
+  clears (a) at all four confidences, so both readings agree and (a) is met. `s` still fails
+  (a), but by being `ns` rather than worse.
 - **(b) Jetson tick stays under 33.3 ms.** **Not measured on the Jetson, and the arithmetic
   says no for `x`.** `parallel_yolo_batch/comparison.md` measured the keypoint branch at
   7.33 ms against the blob model's 7.05, a 12.86 ms batch inside a 33.17 ms tick with about
@@ -299,7 +338,9 @@ the first model trained on `all_robot_keypoints` to beat the deployed `our_robot
 keypoint placement, which is the negative result `all_robots_pose_2026-07-14.md` reported and
 this sweep reverses.
 
-`yolo26s-pose` does nothing. The shape is the same non-monotonic one the bbox sweep found,
+`yolo26s-pose` does nothing. **[corrected]** On our robots `s` is a small, mostly `ns`
+improvement over `n` rather than nothing, but not one worth 1.29x the latency. The shape is
+the same non-monotonic one the bbox sweep found,
 where `s` through `l` tied and only `x` broke past - except here the tie extends all the way
 down to `n`, so the useful range is narrower still. **Sizing a pose model by interpolating
 between `n` and `x` would give the wrong answer at every point in between.**
@@ -339,16 +380,22 @@ well as the operating point, or the calibration shift will read as an accuracy g
 - **The deployed model is not a controlled comparison.** It is a 2-class model on a different
   corpus with a different synthetic generator, scored as a reference point for achievable
   keypoint quality on this eval set, not as an arm.
-- **Keypoint metrics rest on a few hundred to a thousand boxes**, from the two of our robots
-  the taxonomy keeps. Matched-box counts are reported beside every metric for that reason;
-  `score.py` did not emit them before this experiment and now does.
+- **Keypoint metrics rest on a few hundred to a thousand boxes.** Matched-box counts are
+  reported beside every metric for that reason; `score.py` did not emit them before this
+  experiment and now does. **[corrected]** "from the two of our robots the taxonomy keeps" is
+  wrong twice over: the taxonomy also keeps `opponent`, which is 763 of the 1,433 scoreable
+  boxes, and the eval set contains no `mr_stabs_mk2` at all, so our share is 670
+  `mrs_buff_mk3` boxes.
 - **Engines are sm86**, built and scored on megamind, not the sm89 dev box or the Jetson.
 
 ## Recommendation
 
 - **Keep `yolo26n-pose` deployed.** Nothing that fits the current tick budget beats it.
-- **Do not deploy `yolo26s-pose` under any circumstances.** It costs 1.29x `n` and is worse on
-  heading at the operating point. It is dominated on both axes.
+- **Do not deploy `yolo26s-pose`.** It costs 1.29x `n` and buys nothing that matters.
+  **[corrected]** The original wording was "under any circumstances ... dominated on both
+  axes", which the rescoring does not support: on our robots `s` is `ns` on heading and
+  `better` on pixel error at the two higher thresholds. The recommendation stands on cost,
+  not on dominance.
 - **Treat `yolo26x-pose` as the model to buy tick time for.** It is a real improvement and the
   only arm that beats the deployed model. Measure it on the Jetson before committing, and pair
   that with a plan for where the ~3.3 ms comes from. **Not from quantizing the detector**:
