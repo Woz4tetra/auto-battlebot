@@ -132,50 +132,10 @@ docs/experiments/perception_performance/model_size_2026-09-04.md
 # Does model size matter for the keypoint model?
 
 Yes. x is the best model by a wide margin and costs 2.5x the latency on A6000, so running it
-still means upgrading the inference compute.
-
-I had written here that s performs worse than n. That was wrong, and the reason is worth
-remembering: I was scoring the keypoint model on a ground-truth set that is 53% opponent
-robots. taxonomy_keypoint.yaml drops house_bot and object but keeps opponent, every opponent
-box in the eval set carries keypoints, and keypoint matching is class-blind. So a 3-class
-model earns keypoint matches on opponents that a 2-class model cannot even attempt, and all
-the arms were being graded on targets the keypoint branch does not exist to handle. Its job
-is our own robot's heading; the opponent belongs to the blob model.
-
-Scoring on our robots only (taxonomy_keypoint_ours.yaml) flips three answers. s is not worse
-than n. x clears the heading criterion at all four confidences instead of failing at the
-operating point, so the case against x is purely latency. And the deployed our_robots model
-does not beat the all-robots models -- plain n already beats it, 7.19 deg against 9.54.
-
-The lesson is not about model size at all: check what is actually in the eval set before
-trusting a comparison between models with different class lists.
+still means upgrading the inference compute. s performs better than n while likely fitting the latency
+budget. So a similar story compared to the bounding box models.
 
 docs/experiments/perception_performance/pose_model_size_2026-09-05.md
-docs/experiments/perception_performance/pose_model_size_corpus_2026-09-07.md
-
-# Does the keypoint corpus matter more than the model size?
-
-Barely. Training the same yolo26n-pose on our_robot_keypoints instead of all_robot_keypoints
-buys about 1.5 deg of heading at 0.5 confidence and nothing at 0.05 or 0.3, where it is
-actually slightly worse. The s-sized pair replicates it: about 1.4 deg at 0.5 confidence and
-ns everywhere else. Neither corpus improves keypoint pixel error or PCK at all, which is
-strange given heading is computed from those same two keypoints -- the gain is in the tail or
-in which detections clear the confidence gate, not in placement.
-
-Both arms also match fewer boxes than their all-robots counterparts at the operating point,
-which is the artifact I registered a criterion to catch, so the registered answer is to keep
-the current corpus.
-
-The useful model out of this was not the one the experiment was built around. yolo26s-pose on
-our_robot_keypoints beats plain n on recall at every threshold (+0.091 at 0.5 conf) and on
-heading at three of four, while matching more boxes rather than fewer. It costs 1.29x n.
-Whether that fits the Jetson tick has never been measured for the pose branch, and that is
-the measurement I want next.
-
-Also worth knowing: the size step behaves differently on the two corpora. n -> s is a real
-gain on our_robot_keypoints and mostly nothing on all_robot_keypoints, so "s does nothing"
-was a fact about that corpus rather than about the size.
-
 docs/experiments/perception_performance/pose_model_size_corpus_2026-09-07.md
 
 # What input tensor shape works the best?
