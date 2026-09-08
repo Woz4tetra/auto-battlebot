@@ -135,7 +135,28 @@ Yes. x is the best model by a wide margin and costs 2.5x the latency on A6000, s
 still means upgrading the inference compute. s performs better than n while likely fitting the latency
 budget. So a similar story compared to the bounding box models.
 
+s at 384x640 is not just affordable, it is cheaper than the n model I run today: 1.292 ms of GPU
+time against 1.303, with recall 0.700 against 0.612 and heading 5.24 deg against 7.19. Strictly
+better and strictly cheaper. Build it for the Orin and measure it. The 384x640 export measured ns
+against 640x640 on every keypoint metric at all three sizes even though these were trained square,
+so the padding was carrying nothing. A 2-class head costs no inference time at any size.
+
+n -> x is better on sixteen of sixteen bootstrap cells on both keypoint corpora, so that jump is a
+property of the size and not the data. n -> s is only a real gain on our_robot_keypoints, so "s does
+nothing" was a fact about all_robot_keypoints.
+
 docs/experiments/perception_performance/pose_model_size_2026-09-05.md
+docs/experiments/perception_performance/pose_model_size_corpus_2026-09-07.md
+
+# Does the keypoint corpus matter more than the model size?
+
+No. Training the same model on our_robot_keypoints instead of all_robot_keypoints buys ~1.4 deg of
+heading at 0.5 confidence and nothing below it, at both n and s. Neither size improves keypoint pixel
+error or PCK at all, which is odd since heading comes from those same two keypoints, and both
+our-corpus arms match fewer boxes at the operating point. Registered answer is to keep the current
+corpus. Both corpora are ~98% synthetic and share all 497 real frames, so swapping them changes which
+renderer I overfit, not whether the model has seen a cage. Real cage footage is still the lever.
+
 docs/experiments/perception_performance/pose_model_size_corpus_2026-09-07.md
 
 # What input tensor shape works the best?

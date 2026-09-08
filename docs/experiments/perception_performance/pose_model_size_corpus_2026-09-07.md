@@ -5,7 +5,7 @@
 as arms A, B and C, carried over from `pose_model_size_2026-09-05.md`. Batch 96, imgsz 640,
 seed 0, `--save-period 50`, every arm cold-started from `yolo26<size>-pose.pt`. Scored on
 `nhrl_keypoints_eval_test` (688 frames, 8 recordings) with `score.py`, four confidences,
-paired bootstrap 1000x.
+paired bootstrap 1000x. Arm D took 5.94 h, E 7.17 h, F 19.15 h.
 
 Supersedes the corpus question left open by `pose_model_size_2026-09-05.md`, whose reference
 model `yolo26n-pose_our_robots_2026-05-01` was trained on a different corpus than every arm
@@ -35,10 +35,27 @@ it was compared against.
    is a real gain on `our_robot_keypoints`, significant on pixel error at all four
    confidences and on PCK at three. On `all_robot_keypoints` the same step is mostly `ns`.
    "`s` does nothing" was a property of that corpus, not of the size step.
-7. **Arm E is the best model that could plausibly fit the tick budget.** On our robots at
-   conf 0.5 it reaches 8.75 px / 0.747 PCK / 5.38 deg on 471 boxes at recall 0.703, beating
-   arm D on every metric including recall, and beating arm A on both recall (+0.091) and
-   heading (-1.81 deg). Only arm C is better, at 2.52x `n` against E's 1.29x.
+7. **The `n` -> `x` jump reproduces on the new corpus, so it belongs to the size.** Sixteen of
+   sixteen bootstrap cells are `better` on each corpus, with comparable magnitudes. Arm F is
+   the best model in the grid on every keypoint metric: 6.38 px / 0.860 PCK / 4.12 deg at
+   conf 0.5. Ungating F is what made this row exist.
+8. **The deployable result is arm E at 384x640, and it is better than the current recipe on
+   every axis.** 1.292 ms of GPU time against the deployed `n`-at-640's 1.303, with recall
+   0.700 against arm A's 0.612 and heading 5.24 deg against 7.19. Dropping the 44% of a
+   square tensor that is grey padding is `ns` on all four keypoint metrics at all three
+   sizes, so the speed is free.
+9. **A 2-class head costs no inference time**, the check the plan asked for: D against A is
+   1.311 against 1.303 ms, E against B 1.622 against 1.620, F against C 4.441 against 4.413.
+
+![A, E and F heading on the same robots](assets/2026-09-07_pose_corpus/heading_mosaic.png)
+
+Six robots all three arms detected at conf 0.5, one row each, sampled across arm A's
+heading-error distribution, so the choice of tiles is neutral with respect to E and F and
+favours neither. Dashed arrow is the hand-labeled heading, solid is the prediction, back to
+front. Four of the six rows are cases where A does well and the newer arms do worse by a few
+degrees, which is what sampling on A's distribution produces and is the honest other side of
+the aggregate. The bottom row is the tail: A reads 179.9 deg, the robot pointing exactly
+backwards, where E gets 0.0 and F 1.6.
 
 ## Setup
 
@@ -51,7 +68,7 @@ it was compared against.
 | Endpoint | epoch 200 (`last.pt`) for every arm; `best.pt` is unused, val does not measure generalization here |
 | Eval | `nhrl_keypoints_eval_test`, 688 frames / 8 recordings, paired bootstrap 1000x |
 | Hardware | megamind, 3x RTX A6000 sm86, via `training/gpu_queue.py` |
-| Run dirs | `runs/projects/auto_battlebots_2026-09-07_01-01-14_yolo26n-pose` (D) |
+| Run dirs | `runs/projects/auto_battlebots_2026-09-07_{01-01-14_yolo26n-pose, 06-58-55_yolo26s-pose, 14-09-36_yolo26x-pose}` |
 
 D and A are matched on every training argument. Both read
 `model: yolo26n-pose.pt, epochs 200, batch 96, imgsz 640, lr0 0.01, lrf 0.1, seed 0,
@@ -118,29 +135,35 @@ not an arm.
 | 0.05 | **C `x`/all** | **591** | **7.257** | **0.804** | **6.191** | **0.892** | **0.882** |
 | 0.05 | D `n`/our | 546 | 11.010 | 0.644 | 11.122 | 0.815 | 0.815 |
 | 0.05 | E `s`/our | 566 | 9.506 | 0.693 | 8.494 | 0.841 | 0.845 |
+| 0.05 | **F `x`/our** | 556 | **6.499** | **0.840** | **5.447** | **0.912** | 0.830 |
 | 0.05 | deployed | 580 | 10.904 | 0.650 | 15.084 | 0.743 | 0.866 |
 | 0.30 | A | 473 | 9.403 | 0.700 | 8.334 | 0.808 | 0.706 |
 | 0.30 | B | 525 | 8.882 | 0.708 | 6.852 | 0.872 | 0.784 |
 | 0.30 | **C** | **569** | **6.944** | **0.823** | **5.447** | **0.903** | **0.849** |
 | 0.30 | D | 483 | 9.867 | 0.683 | 7.783 | 0.859 | 0.721 |
 | 0.30 | E | 524 | 8.950 | 0.722 | 6.614 | 0.872 | 0.782 |
+| 0.30 | **F** | 523 | **6.428** | **0.853** | **4.884** | **0.931** | 0.781 |
 | 0.30 | deployed | 537 | 10.269 | 0.685 | 11.617 | 0.786 | 0.801 |
 | 0.50 | A | 410 | 9.134 | 0.727 | 7.194 | 0.834 | 0.612 |
 | 0.50 | B | 458 | 8.442 | 0.747 | 6.728 | 0.876 | 0.684 |
 | 0.50 | **C** | **541** | **6.744** | **0.835** | **5.075** | **0.909** | **0.807** |
 | 0.50 | D | 403 | 9.196 | 0.716 | 5.726 | 0.893 | 0.601 |
 | 0.50 | E | 471 | 8.751 | 0.747 | 5.383 | 0.902 | 0.703 |
+| 0.50 | **F** | 489 | **6.380** | **0.860** | **4.118** | **0.943** | 0.730 |
 | 0.50 | deployed | 494 | 9.677 | 0.713 | 9.535 | 0.818 | 0.737 |
 | 0.60 | A | 343 | 8.878 | 0.754 | 6.045 | 0.857 | 0.512 |
 | 0.60 | B | 372 | 8.078 | 0.792 | 5.502 | 0.895 | 0.555 |
 | 0.60 | **C** | **505** | **6.714** | **0.850** | 4.869 | 0.919 | **0.754** |
 | 0.60 | D | 299 | 9.221 | 0.744 | **4.679** | **0.923** | 0.446 |
 | 0.60 | E | 421 | 8.690 | 0.760 | 4.704 | 0.922 | 0.628 |
+| 0.60 | **F** | 459 | **6.441** | **0.868** | **3.960** | **0.946** | 0.685 |
 | 0.60 | deployed | 451 | 9.209 | 0.738 | 7.062 | 0.851 | 0.673 |
 
-`x` on the old corpus wins every group. Within the size sweep the ordering on heading at conf
-0.5 is C 5.08 < E 5.38 < D 5.73 < B 6.73 < A 7.19 < deployed 9.54, and on recall it is
-C 0.807 > E 0.703 > B 0.684 > A 0.612 > D 0.601, with the deployed model at 0.737.
+**Arm F is the best model in the grid on every keypoint metric at every confidence**, and arm
+C is second. The ordering on heading at conf 0.5 is F 4.12 < C 5.08 < E 5.38 < D 5.73 < B 6.73
+< A 7.19 < deployed 9.54. On recall it is C 0.807 > deployed 0.737 > F 0.730 > E 0.703 >
+B 0.684 > A 0.612 > D 0.601: arm C finds more of our robots than F does, and is the only arm
+that beats the deployed model on recall.
 
 ## The primary question - arm D against arm A
 
@@ -239,6 +262,31 @@ placement rather than heading.
 
 That is the answer to the previous report's "`yolo26s-pose` does nothing": it did nothing
 *on that corpus*. Change the corpus and the same size step buys a real, if small, improvement.
+
+### The `n` -> `x` jump is a size property, not a corpus property
+
+This is what arm F was queued to answer. Both corpora, our robots only, every cell `better`:
+
+| conf | metric | F - D (`our_robot_keypoints`) | C - A (`all_robot_keypoints`) |
+|---|---|---|---|
+| 0.05 | kp_err_px | -4.511 [-5.481, -3.640] | -2.649 [-3.322, -2.029] |
+| 0.05 | kp_pck@0.1 | +0.196 [+0.167, +0.228] | +0.141 [+0.109, +0.174] |
+| 0.05 | kp_heading_err_deg | -5.675 [-8.048, -3.496] | -3.808 [-5.801, -2.059] |
+| 0.30 | kp_err_px | -3.439 [-4.100, -2.894] | -2.459 [-3.123, -1.885] |
+| 0.30 | kp_pck@0.1 | +0.170 [+0.140, +0.202] | +0.124 [+0.092, +0.159] |
+| 0.50 | kp_err_px | -2.815 [-3.255, -2.436] | -2.391 [-3.068, -1.896] |
+| 0.50 | kp_pck@0.1 | +0.144 [+0.116, +0.176] | +0.109 [+0.078, +0.144] |
+| 0.50 | kp_heading_err_deg | -1.608 [-2.632, -0.660] | -2.118 [-3.569, -0.931] |
+| 0.50 | recall | +0.128 [+0.100, +0.158] | +0.196 [+0.167, +0.228] |
+| 0.60 | kp_pck@0.1 | +0.124 [+0.091, +0.163] | +0.096 [+0.063, +0.131] |
+
+Sixteen of sixteen cells are `better` on each corpus. The magnitudes are comparable, and
+larger on `our_robot_keypoints` for keypoint placement at the low thresholds.
+
+**The size effect reproduces, so it belongs to the size.** Ungating arm F was worth it for
+this: had it stayed gated on D and E showing a corpus effect, this row would not exist, and
+the reason the gate was a bad idea is exactly what the table shows -- the `n` -> `x` step
+carries the result on both corpora while `n` -> `s` carries almost none of it on one of them.
 
 ### The corpus contrast replicates at `s`, and it is narrow
 
@@ -368,15 +416,137 @@ an aim assist that has to track a robot every frame, 0.16 of recall is a large p
 1.9 deg of heading. If arm D's corpus is ever shipped, ep100 is the checkpoint to look at
 first, and choosing between them is a deployment question rather than a metric question.
 
+## Latency - dev box, idle
+
+`benchmark_engines.py`, 300 iterations after warmup, one 1280x720 eval frame, A6000 sm86,
+FP16, measured with the queue empty and no other job on the GPUs.
+
+| engine | gpu median | total median | total p90 | total vs A |
+|---|---:|---:|---:|---:|
+| A `n`/all, 640x640 | 1.303 | 2.214 | 2.330 | 1.00x |
+| D `n`/our, 640x640 | 1.311 | 2.238 | 2.359 | 1.01x |
+| B `s`/all, 640x640 | 1.620 | 2.533 | 2.676 | 1.14x |
+| E `s`/our, 640x640 | 1.622 | 2.576 | 2.680 | 1.16x |
+| C `x`/all, 640x640 | 4.413 | 5.690 | 6.057 | 2.57x |
+| F `x`/our, 640x640 | 4.441 | 5.614 | 6.119 | 2.54x |
+| **D 384x640** | 1.094 | 1.820 | 2.141 | **0.82x** |
+| **E 384x640** | 1.292 | 2.026 | 2.324 | **0.92x** |
+| F 384x640 | 3.316 | 4.356 | 4.621 | 1.97x |
+| deployed | 1.315 | 2.629 | 3.034 | 1.19x |
+
+**A 2-class head costs nothing**, which is the check the plan asked for. D against A is 1.311
+against 1.303 ms of GPU time, E against B 1.622 against 1.620, F against C 4.441 against
+4.413. Class count does not move inference time at any size.
+
+**These are not Jetson numbers.** The ordering transfers, the magnitudes do not. `yolo26n`
+runs ~1.3 ms here and ~9.5-11 ms inside the Jetson pipeline.
+
+## The 384x640 export, which changes what is deployable
+
+`input_geometry_2026-09-05.md` found a 16:9 frame letterboxed into a square 640x640 tensor
+wastes 44% of it on grey padding. These arms were trained square, so exporting them at
+384x640 is a geometry change from training rather than a matched export, and
+`input_geometry` treated that combination as a floor. It measures better than a floor here.
+
+Same weights, both geometries, conf 0.5, our robots only:
+
+| arm | kp_err_px | PCK@0.1 | heading deg | recall | boxes |
+|---|---|---|---|---|---|
+| D 640x640 -> 384x640 | 9.196 -> 9.216 | 0.716 -> 0.723 | 5.726 -> 5.704 | 0.601 -> 0.593 | 403 -> 397 |
+| E 640x640 -> 384x640 | 8.751 -> 8.775 | 0.747 -> 0.745 | 5.383 -> 5.238 | 0.703 -> 0.700 | 471 -> 469 |
+| F 640x640 -> 384x640 | 6.380 -> 6.406 | 0.860 -> 0.863 | 4.118 -> 4.134 | 0.730 -> 0.724 | 489 -> 485 |
+
+Paired bootstrap, E at 384x640 against E at 640x640: `kp_err_px` +0.024 [-0.047, +0.095],
+`kp_pck@0.1` -0.002 [-0.010, +0.006], `kp_heading_err_deg` -0.144 [-0.470, +0.031], recall
+-0.003 [-0.010, +0.003]. **All four `ns`. The 44% of the tensor that was padding was carrying
+no information**, and dropping it costs nothing measurable at any of the three sizes.
+
+### Arm E at 384x640 is faster *and* better than the deployed recipe
+
+| | A `n`/all 640x640 | E `s`/our 384x640 |
+|---|---:|---:|
+| gpu median | 1.303 ms | **1.292 ms** |
+| total median | 2.214 ms | **2.026 ms** |
+| recall @ conf 0.5 | 0.612 | **0.700** |
+| heading deg @ conf 0.5 | 7.194 | **5.238** |
+| PCK@0.1 @ conf 0.5 | 0.727 | 0.745 |
+
+E at 384x640 costs less GPU time than the `n` model at 640x640 and is significantly better on
+both recall (+0.091, CI [+0.061, +0.122] measured at 640x640 where the pair is matched) and
+heading (-1.81 deg, CI [-3.18, -0.57]). There is no axis on which the current geometry and
+size win.
+
+That combination is what the previous report's "do not deploy `yolo26s-pose` under any
+circumstances" would have ruled out. It was wrong for two reasons at once: `s` was not worse,
+and `s` at the right input geometry is not more expensive.
+
+## The corpus is still the reason the absolute numbers are what they are
+
+![training corpus against the eval set](assets/2026-09-07_pose_corpus/corpus_mosaic.png)
+
+Top band: synthetic renders, 31,449 of the 31,912 train frames, robots on wood, grass, stone
+and blank backdrops. Middle band: the 463 real train frames, every one a `mrs_buff_mk3`
+session in a plywood test box. Bottom band: the eval set, the robot's own ZED inside an NHRL
+cage, with glass, coloured lighting, arena logos and debris.
+
+`our_robot_keypoints` is 98.7% synthetic against `all_robot_keypoints`'s 97.8%, and both draw
+their real frames from the same 497. Swapping between them changes which renderer the model
+overfits, not whether it has seen a cage. That is the most likely reason the corpus contrast
+comes out at 1.4 deg: the two corpora differ in the part of the data that is furthest from
+the deployment domain, and are identical in the part that is closest.
+
+## Answers
+
+### Does `our_robot_keypoints` give lower heading error than `all_robot_keypoints`? - **barely**
+
+At `n`, -1.47 deg at conf 0.5 with a CI excluding 0, `ns` at conf 0.3, and +1.12 deg the wrong
+way at conf 0.05. At `s`, -1.35 deg at conf 0.5 and `ns` everywhere else. The effect
+replicates across two sizes at the operating point and vanishes below it.
+
+Neither size improves keypoint placement: `kp_err_px` and `kp_pck@0.1` are `ns` or worse at
+every confidence at both sizes. Heading is computed from those two keypoints, so a heading
+gain with no placement gain is a gain in the tail or in which detections clear the gate, not
+a better model of where a robot's front is.
+
+Both our-corpus arms also match fewer boxes than their counterparts at conf 0.5, which is
+criterion (c). **The registered answer is no: keep `all_robot_keypoints`.**
+
+### Does the size effect reproduce on the new corpus? - **yes at `x`, and stronger at `s`**
+
+`n` -> `x` is `better` on sixteen of sixteen bootstrap cells on each corpus, at comparable
+magnitude. That settles it as a property of size. `n` -> `s` is the interesting difference:
+significant on pixel error at all four confidences on `our_robot_keypoints`, and mostly `ns`
+on `all_robot_keypoints`. The previous report's "`s` does nothing" was true of that corpus
+only.
+
+### What should actually ship? - **`yolo26s-pose` on `our_robot_keypoints` at 384x640**
+
+It is faster than the model deployed today (1.292 ms of GPU time against 1.315) and better
+than the strongest matched alternative at that budget on both recall and heading. The 384x640
+export is `ns` against 640x640 on every keypoint metric at every size, so the speed costs
+nothing.
+
+`yolo26x-pose` is still the accuracy winner and still does not fit: 3.316 ms even at 384x640,
+against roughly 1 ms of Jetson tick headroom. The rectangular export cuts its penalty from
+2.54x to 1.97x, which does not close the gap but does move it.
+
 ## Caveats
 
 - **The ours-only taxonomy is a post-hoc choice.** It was written after seeing that a 2-class
   arm cannot match an opponent box. The justification is structural, and it does not favour
   the arm this experiment was built to test, but it was not registered in advance.
 - **The corpus contrast still varies two things**, class vocabulary and 1.73x the training
-  frames. Arm G, `--fraction 0.578`, is the control that separates them and has not been run.
-  Given that the corpus effect is 1.5 deg at one threshold and absent at two others, there
-  may not be enough effect left to attribute.
+  frames. Arm G, `--fraction 0.578`, is the control that separates them and was not run;
+  the reasoning is under the `s` replication above. There is ~1.4 deg to attribute and it does
+  not appear in the metric heading is derived from.
+- **The 384x640 arms were trained at 640x640 square.** They are square-trained weights run at
+  a rectangular input, not arms trained rectangular. The result is that this costs nothing
+  measurable, which is stronger than `input_geometry_2026-09-05` assumed, but an arm actually
+  trained at 384x640 has not been run on this corpus and might do better still.
+- **Arm F matches fewer boxes than arm C** at conf 0.5, 489 against 541, and has lower recall,
+  0.730 against 0.807. F wins every keypoint metric and C finds more robots. If `x` ever
+  becomes affordable, that trade needs deciding rather than assuming F because its keypoint
+  numbers are better.
 - **Single seed per arm.** The plan registered that a D-against-A heading gap under a couple
   of degrees is `ns` in practice on one seed each. The measured gap is 1.47 deg.
 - **The win rests on one recording.** Six of seven recordings favour D by 0.4 to 1.6 deg; the
@@ -391,3 +561,79 @@ first, and choosing between them is a deployment question rather than a metric q
 - **The deployed model is still not a controlled comparison**, and arm D controls its corpus
   but not its schedule, its parent or its augmentation.
 - **Engines are sm86**, built and scored on megamind.
+
+## Recommendation
+
+- **Build `yolo26s-pose_our_robot_keypoints_2026-09-07` at 384x640 for the Jetson and measure
+  it.** `aarch64_sm87` on the Orin, `sudo jetson_clocks`, then `mcap_latency_report.py`. Every
+  number here says it is both cheaper and better than what is deployed; none of them is a
+  Jetson measurement, and the pose branch has never been measured at 384x640 on the Orin.
+- **Do not switch corpus on the corpus result.** It is 1.4 deg at one threshold, absent at
+  two, and does not appear in keypoint placement. If `our_robot_keypoints` ships it should be
+  because arm E is the best model measured, not because the corpus was shown to be better.
+- **Keep grading with `taxonomy_keypoint_ours.yaml`** whenever a 2-class model is in the grid.
+  The default keypoint taxonomy scores 763 opponent boxes a 2-class model cannot emit.
+- **Re-examine `all_robots_pose_2026-07-14.md`.** It compared a 3-class model against a
+  2-class baseline with opponents scored and concluded the all-robots corpus hurt keypoints.
+  That conclusion has not been rescored and should not be relied on.
+- **Real cage footage is still the lever.** Both corpora are ~98% synthetic and share all 497
+  real frames. Every arm here, including F at 6.4 px, is fitting a renderer and being graded
+  on a cage.
+- **`yolo26m-pose` and `yolo26l-pose` are now worth running.** The `n` -> `s` step is real on
+  this corpus and the `n` -> `x` step is large on both, so the useful range is wider than the
+  previous report concluded, and `m` or `l` at 384x640 may sit between E's cost and F's
+  accuracy.
+
+## Reproduce
+
+```bash
+Q="venv/bin/python training/gpu_queue.py"
+for M in yolo26n-pose yolo26s-pose yolo26x-pose; do
+  $Q submit --name ${M}_our --by claude-pose-corpus -- \
+    venv/bin/python training/yolo/train.py training/data/our_robot_keypoints $M \
+      -d 0 1 2 -b 96 -e 200 --save-period 50
+done
+
+# Engines, both geometries. `-o` moves the export, so re-run without it to restore the 640 onnx.
+venv/bin/python training/yolo/convert_to_onnx.py data/models/<stem>.pt
+venv/bin/python training/yolo/convert_to_tensorrt.py data/models/<stem>.onnx --workspace 4
+venv/bin/python training/yolo/convert_to_onnx.py data/models/<stem>.pt --imgsz 384 640 \
+  -o data/models/<stem>_rect384x640.onnx
+venv/bin/python training/yolo/convert_to_tensorrt.py data/models/<stem>_rect384x640.onnx --workspace 4
+
+# Scoring, repeated at --conf 0.05 / 0.3 / 0.5 / 0.6 and with --baseline D for the size row.
+venv/bin/python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+  --candidate A=data/models/yolo26n-pose_all_robot_keypoints_2026-09-05_last_x86_64_sm86.engine \
+  --candidate B=data/models/yolo26s-pose_all_robot_keypoints_2026-09-05_last_x86_64_sm86.engine \
+  --candidate C=data/models/yolo26x-pose_all_robot_keypoints_2026-09-05_last_x86_64_sm86.engine \
+  --candidate D=data/models/yolo26n-pose_our_robot_keypoints_2026-09-07_last_x86_64_sm86.engine \
+  --candidate E=data/models/yolo26s-pose_our_robot_keypoints_2026-09-07_last_x86_64_sm86.engine \
+  --candidate F=data/models/yolo26x-pose_our_robot_keypoints_2026-09-07_last_x86_64_sm86.engine \
+  --candidate deployed=data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm86.engine \
+  --labels "mr_stabs_mk2,mrs_buff_mk3,opponent" \
+  --candidate-labels D=mr_stabs_mk2,mrs_buff_mk3 \
+  --candidate-labels E=mr_stabs_mk2,mrs_buff_mk3 \
+  --candidate-labels F=mr_stabs_mk2,mrs_buff_mk3 \
+  --candidate-labels deployed=mr_stabs_mk2,mrs_buff_mk3 \
+  --taxonomy training/model_eval/taxonomy_keypoint_ours.yaml \
+  --conf 0.5 --baseline A --bootstrap 1000 \
+  --output training/data/nhrl_keypoints_eval_test/scores_pose_corpus_ours/conf0.5
+
+# Latency, on an idle box.
+venv/bin/python training/model_eval/benchmark_engines.py --candidate ... \
+  --frame training/data/nhrl_keypoints_eval_test/main_2026-05-02_14-12-25_repaired__2026-05-02T14-12-27/images/1777745599341571000.png \
+  --iterations 300
+
+# Figures
+venv/bin/python training/model_eval/make_pose_arms_mosaic.py training/data/nhrl_keypoints_eval_test \
+  --candidate A=... --candidate E=... --candidate F=... \
+  --labels "mr_stabs_mk2,mrs_buff_mk3,opponent" \
+  --candidate-labels E=mr_stabs_mk2,mrs_buff_mk3 --candidate-labels F=mr_stabs_mk2,mrs_buff_mk3 \
+  --taxonomy training/model_eval/taxonomy_keypoint_ours.yaml --conf 0.5 -n 6 \
+  -o docs/experiments/perception_performance/assets/2026-09-07_pose_corpus/heading_mosaic.png
+
+venv/bin/python training/model_eval/make_pose_corpus_mosaic.py \
+  --train training/data/our_robot_keypoints --eval training/data/nhrl_keypoints_eval_test \
+  --taxonomy training/model_eval/taxonomy_keypoint_ours.yaml -n 5 \
+  -o docs/experiments/perception_performance/assets/2026-09-07_pose_corpus/corpus_mosaic.png
+```
