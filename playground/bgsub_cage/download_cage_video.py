@@ -269,7 +269,7 @@ def build_clip(fight: dict[str, Any], api_key: str | None) -> Clip | None:
         game_id=game_id,
         player1=fight.get("player1") or "",
         player2=fight.get("player2") or "",
-        weight_class=int(fight.get("weightClass") or 0),
+        weight_class=int(fight.get("weightClass") or fight.get("WeightClass") or 0),
         camera=camera,
         cage=recording.get("cage") or "",
         match_length_s=match_length,
@@ -341,8 +341,14 @@ def write_manifest(output_dir: Path, clips: list[Clip], args: argparse.Namespace
         "",
         "```bash",
         f"venv/bin/python playground/bgsub_cage/download_cage_video.py {output_dir} \\",
-        f"    --limit {args.limit} --seed {args.seed} --since {args.since} \\",
-        f"    --per-tournament {args.per_tournament} --min-length {args.min_length}",
+        (
+            f"    --bot {args.bot}"
+            + (f" --tournament {args.tournament}" if args.tournament else "")
+            + f" --min-length {args.min_length}"
+            if args.bot
+            else f"    --limit {args.limit} --seed {args.seed} --since {args.since} \\\n"
+            f"    --per-tournament {args.per_tournament} --min-length {args.min_length}"
+        ),
         "```",
         "",
         "Source objects are 3840x2160 at 59.94 fps on",

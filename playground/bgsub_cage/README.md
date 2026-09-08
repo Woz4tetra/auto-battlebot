@@ -32,18 +32,16 @@ Pass `--skip-corpus-check` to skip that listing, which takes a few minutes over 
 
 ## Annotate
 
-`field_hull.py` needs `training/deeplab` on `PYTHONPATH` for its sibling `load_deeplabv3`
-import, the same convention `training/synthetic/README.md` documents.
 
 ```bash
 # Hulls and previews only. Look at these before committing to a full inference run.
-PYTHONPATH=training/deeplab venv/bin/python playground/bgsub_cage/annotate_cage_video.py \
+venv/bin/python playground/bgsub_cage/annotate_cage_video.py \
     data/downloads/brettzone_cage_high \
     --models data/eval_models/yolo26n_nhrl_robots_bbox_2class_2026-09-04.pt \
     -o data/downloads/brettzone_cage_high/annotated --hull-only
 
 # Both models over every clip.
-PYTHONPATH=training/deeplab venv/bin/python playground/bgsub_cage/annotate_cage_video.py \
+venv/bin/python playground/bgsub_cage/annotate_cage_video.py \
     data/downloads/brettzone_cage_high \
     --models data/eval_models/yolo26n_nhrl_robots_bbox_2class_2026-09-04.pt \
              data/eval_models/yolo26x_nhrl_robots_bbox_2class_2026-09-04.pt \

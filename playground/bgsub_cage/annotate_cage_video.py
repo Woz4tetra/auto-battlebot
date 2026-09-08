@@ -10,10 +10,10 @@ Also writes a compact per-clip stats JSON, which is where the write-up's numbers
 come from. Per-frame kept counts are what reliability is measured on: a 1v1 fight
 has two robots, so a frame with fewer than two kept `robot` boxes is a dropout.
 
-Requires PYTHONPATH=training/deeplab for the sibling DeepLab import in field_hull.
+The DeepLab loader is imported from auto_battlebot.segmentation, so no PYTHONPATH is needed.
 
 Usage:
-    PYTHONPATH=training/deeplab python annotate_cage_video.py CLIP_OR_DIR \
+    python annotate_cage_video.py CLIP_OR_DIR \
         --models a.pt b.pt -o OUT_DIR
 """
 
