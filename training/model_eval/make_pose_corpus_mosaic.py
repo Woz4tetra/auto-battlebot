@@ -112,6 +112,12 @@ def read_yolo_labels(
     return boxes, kps
 
 
+# `all_robot_keypoints` names its renders `synthetic__NNNNNN` and `our_robot_keypoints` names
+# them `synthetic_keypoints__NNNNNN`. Matching only the first silently puts every render in the
+# real-footage band and leaves the synthetic band empty.
+SYNTHETIC_PREFIXES = ("synthetic__", "synthetic_keypoints__")
+
+
 def sample_training(
     root: Path, synthetic: bool, count: int, rng: random.Random
 ) -> list[np.ndarray]:
@@ -121,7 +127,7 @@ def sample_training(
         f
         for f in images_dir.iterdir()
         if f.suffix.lower() in (".jpg", ".jpeg", ".png")
-        and f.name.startswith("synthetic__") == synthetic
+        and f.name.startswith(SYNTHETIC_PREFIXES) == synthetic
     )
     rng.shuffle(names)
     tiles = []
@@ -143,6 +149,20 @@ def sample_training(
         if len(tiles) >= count:
             break
     return tiles
+
+
+def count_training(root: Path) -> tuple[int, int]:
+    """(synthetic, real) train-frame counts, so the band captions describe the corpus passed."""
+    images_dir = root / "train" / "images"
+    synth = real = 0
+    for f in images_dir.iterdir():
+        if f.suffix.lower() not in (".jpg", ".jpeg", ".png"):
+            continue
+        if f.name.startswith(SYNTHETIC_PREFIXES):
+            synth += 1
+        else:
+            real += 1
+    return synth, real
 
 
 def sample_eval(root: Path, taxonomy: Taxonomy, count: int) -> list[np.ndarray]:
@@ -185,13 +205,15 @@ def main() -> None:
 
     rng = random.Random(args.seed)
     taxonomy = Taxonomy(args.taxonomy)
+    n_synth, n_real = count_training(args.train)
+    total = n_synth + n_real
     bands = [
         (
-            "training corpus - synthetic renders (19,999 of 20,496 frames)",
+            f"training corpus - synthetic renders ({n_synth:,} of {total:,} train frames)",
             sample_training(args.train, True, args.per_band, rng),
         ),
         (
-            "training corpus - real footage (497 frames, all mrs_buff_mk3 sessions)",
+            f"training corpus - real footage ({n_real:,} frames, all mrs_buff_mk3 sessions)",
             sample_training(args.train, False, args.per_band, rng),
         ),
         (
