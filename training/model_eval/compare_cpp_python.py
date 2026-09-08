@@ -27,7 +27,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from score import (
+
+from auto_battlebot.eval import (
     LEVELS,
     Frame,
     Taxonomy,
@@ -40,7 +41,6 @@ from score import (
     pr_from_counts,
     pr_per_frame,
 )
-
 from auto_battlebot.perception.trt_yolo import TrtYoloModel
 from auto_battlebot.recording.mcap_io import (
     BLOB_DETECTIONS_TOPIC,

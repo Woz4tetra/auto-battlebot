@@ -48,6 +48,16 @@ WALL_COLOR = (80, 140, 235)  # dropped but overlapping the hull, so pinned at th
 # A dropped box with at least this much of its area inside the hull is a robot against
 # the cage wall, not something outside the cage.
 WALL_OVERLAP_MIN = 0.10
+
+# Keypoint order is [front, back], matching auto_battlebot/eval/scoring.py. The heading
+# vector is drawn back -> front so the arrow points where the robot faces.
+FRONT_IDX = 0
+BACK_IDX = 1
+POSE_COLOR = (235, 100, 235)  # magenta, any posed robot
+TARGET_COLOR = (80, 255, 255)  # yellow, the class named by --pose-target
+KEYPOINT_MIN_CONF = 0.25
+# Arrow drawn past the front keypoint so a short front-back span is still readable.
+HEADING_EXTEND = 1.6
 TEXT_COLOR = (245, 245, 245)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
@@ -68,12 +78,86 @@ def dashed_rectangle(
         cv2.line(canvas, (x2, y), (x2, min(y + dash, y2)), color, 1)
 
 
+def parse_poses(result: Any, target_name: str | None) -> list[dict[str, Any]]:
+    """Ultralytics pose output to boxes plus a back->front heading vector.
+
+    Keypoints come as (n, 2, 3): front then back, each x, y, conf. The heading is only
+    reported when both keypoints clear KEYPOINT_MIN_CONF, because a vector built from a
+    guessed keypoint points somewhere arbitrary and would be worse than drawing nothing.
+    """
+    poses: list[dict[str, Any]] = []
+    boxes = result.boxes
+    if boxes is None or not len(boxes):
+        return poses
+
+    names = result.names
+    xyxy = boxes.xyxy.cpu().numpy()
+    confs = boxes.conf.cpu().numpy()
+    classes = boxes.cls.cpu().numpy().astype(int)
+    kpts = result.keypoints
+    data = kpts.data.cpu().numpy() if kpts is not None else None
+
+    for index, ((x1, y1, x2, y2), conf, cls) in enumerate(zip(xyxy, confs, classes)):
+        name = names.get(int(cls), str(cls))
+        entry: dict[str, Any] = {
+            "box": (int(x1), int(y1), int(x2), int(y2)),
+            "conf": float(conf),
+            "cls": int(cls),
+            "name": name,
+            "is_target": target_name is not None and name == target_name,
+            "front": None,
+            "back": None,
+            "heading_deg": None,
+        }
+        if data is not None and index < len(data) and data[index].shape[0] >= 2:
+            front = data[index][FRONT_IDX]
+            back = data[index][BACK_IDX]
+            if front[2] >= KEYPOINT_MIN_CONF and back[2] >= KEYPOINT_MIN_CONF:
+                entry["front"] = (float(front[0]), float(front[1]))
+                entry["back"] = (float(back[0]), float(back[1]))
+                dx = front[0] - back[0]
+                dy = front[1] - back[1]
+                if abs(dx) > 1e-6 or abs(dy) > 1e-6:
+                    # Screen y grows downward, so negate to report a normal CCW angle.
+                    entry["heading_deg"] = float(np.degrees(np.arctan2(-dy, dx)))
+        poses.append(entry)
+    return poses
+
+
+def draw_pose(canvas: np.ndarray, pose: dict[str, Any]) -> None:
+    """Box, keypoints and heading arrow for one posed robot."""
+    color = TARGET_COLOR if pose["is_target"] else POSE_COLOR
+    x1, y1, x2, y2 = pose["box"]
+    thickness = 3 if pose["is_target"] else 2
+    cv2.rectangle(canvas, (x1, y1), (x2, y2), color, thickness)
+
+    label = f"{pose['name']} {pose['conf']:.2f}"
+    if pose["heading_deg"] is not None:
+        label += f"  {pose['heading_deg']:+.0f}deg"
+    cv2.putText(
+        canvas, label, (x1, min(canvas.shape[0] - 6, y2 + 20)), FONT, 0.55, color, 2, cv2.LINE_AA
+    )
+
+    front, back = pose["front"], pose["back"]
+    if front is None or back is None:
+        return
+    fx, fy = front
+    bx, by = back
+    tip = (int(bx + (fx - bx) * HEADING_EXTEND), int(by + (fy - by) * HEADING_EXTEND))
+    cv2.arrowedLine(
+        canvas, (int(bx), int(by)), tip, color, thickness + 1, cv2.LINE_AA, tipLength=0.3
+    )
+    cv2.circle(canvas, (int(bx), int(by)), 5, color, -1, cv2.LINE_AA)
+    cv2.circle(canvas, (int(fx), int(fy)), 5, (255, 255, 255), -1, cv2.LINE_AA)
+
+
 def draw_frame(
     frame: np.ndarray,
     detections: list[dict[str, Any]],
     polygon: np.ndarray | None,
     names: dict[int, str],
     header: str,
+    poses: list[dict[str, Any]] | None = None,
 ) -> np.ndarray:
     canvas = frame.copy()
     if polygon is not None and len(polygon):
@@ -94,6 +178,9 @@ def draw_frame(
             cv2.putText(
                 canvas, label + suffix, (x1, max(14, y1 - 6)), FONT, 0.45, color, 1, cv2.LINE_AA
             )
+
+    for pose in poses or []:
+        draw_pose(canvas, pose)
 
     cv2.rectangle(canvas, (0, 0), (canvas.shape[1], 34), (0, 0, 0), -1)
     cv2.putText(canvas, header, (10, 23), FONT, 0.6, TEXT_COLOR, 1, cv2.LINE_AA)
@@ -272,6 +359,7 @@ def annotate(
     output_dir: Path,
     args: argparse.Namespace,
     encoder: list[str],
+    pose_model: YOLO | None = None,
 ) -> dict[str, Any]:
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
@@ -295,6 +383,9 @@ def annotate(
     kept_per_class: list[list[int]] = []
     wall_counts: list[int] = []
     off_field_counts: list[int] = []
+    target_per_frame: list[int] = []
+    heading_per_frame: list[int] = []
+    heading_values: list[float] = []
     box_dump: list[dict[str, Any]] = []
     conf_values: list[float] = []
     area_values: list[float] = []
@@ -310,6 +401,17 @@ def annotate(
         results = model.predict(
             batch, conf=args.conf, imgsz=args.imgsz, device=args.device, verbose=False
         )
+        pose_results = (
+            pose_model.predict(
+                batch,
+                conf=args.pose_conf,
+                imgsz=args.pose_imgsz,
+                device=args.device,
+                verbose=False,
+            )
+            if pose_model is not None
+            else [None] * len(batch)
+        )
         for local, (result, source_index) in enumerate(zip(results, batch_indices)):
             detections = parse_detections(result, hull_mask, integral, has_hull)
             summary = summarize_frame(detections, len(names))
@@ -321,13 +423,24 @@ def annotate(
             class_totals.update(dict(enumerate(summary.per_class)))
             maybe_dump(box_dump, source_index, detections)
 
-            header = (
-                f"{model_tag}  |  {stem[:60]}  |  frame {source_index}  |  "
-                f"kept {sum(summary.per_class)}  at-wall {summary.dropped_at_wall}  "
-                f"off-field {summary.dropped_off_field}  |  conf>={args.conf}"
+            poses = (
+                parse_poses(pose_results[local], args.pose_target) if pose_model is not None else []
             )
+            targets = [p for p in poses if p["is_target"]]
+            headed = [p for p in targets if p["heading_deg"] is not None]
+            target_per_frame.append(len(targets))
+            heading_per_frame.append(len(headed))
+            heading_values.extend(p["heading_deg"] for p in headed)
+
+            header = (
+                f"{model_tag}  |  {stem[:52]}  |  frame {source_index}  |  "
+                f"kept {sum(summary.per_class)}  at-wall {summary.dropped_at_wall}  "
+                f"off-field {summary.dropped_off_field}"
+            )
+            if pose_model is not None:
+                header += f"  |  {args.pose_target}: {len(targets)}  heading: {len(headed)}"
             writer.stdin.write(
-                draw_frame(batch[local], detections, polygon, names, header).tobytes()
+                draw_frame(batch[local], detections, polygon, names, header, poses).tobytes()
             )
         batch.clear()
         batch_indices.clear()
@@ -362,6 +475,9 @@ def annotate(
         kept_per_class=kept_per_class,
         wall_counts=wall_counts,
         off_field_counts=off_field_counts,
+        target_per_frame=target_per_frame,
+        heading_per_frame=heading_per_frame,
+        heading_values=heading_values,
         class_totals=class_totals,
         conf_values=conf_values,
         area_values=area_values,
@@ -378,6 +494,28 @@ def percentiles(values: list[float], as_int: bool = False) -> dict[str, float | 
     return {str(p): round(float(np.percentile(values, p)), 3) for p in marks}
 
 
+def pose_stats(
+    target_per_frame: list[int],
+    heading_per_frame: list[int],
+    heading_values: list[float],
+) -> dict[str, Any]:
+    """Pose coverage for the named target class. Empty when no pose model ran."""
+    if not target_per_frame:
+        return {}
+    frames = len(target_per_frame)
+    found = sum(1 for value in target_per_frame if value)
+    headed = sum(1 for value in heading_per_frame if value)
+    return {
+        "pose_frames_with_target": found,
+        "pose_target_rate": round(found / frames, 4),
+        "pose_frames_with_heading": headed,
+        "pose_heading_rate": round(headed / frames, 4),
+        "pose_heading_given_target": round(headed / found, 4) if found else 0.0,
+        "pose_target_per_frame": target_per_frame,
+        "pose_heading_deg_sample": [round(v, 1) for v in heading_values[::30]],
+    }
+
+
 def build_stats(
     *,
     video_path: Path,
@@ -392,6 +530,9 @@ def build_stats(
     kept_per_class: list[list[int]],
     wall_counts: list[int],
     off_field_counts: list[int],
+    target_per_frame: list[int],
+    heading_per_frame: list[int],
+    heading_values: list[float],
     class_totals: Counter,
     conf_values: list[float],
     area_values: list[float],
@@ -440,6 +581,7 @@ def build_stats(
         "dropped_off_field_per_frame": off_field_counts,
         "box_dump_stride": BOX_DUMP_STRIDE,
         "box_dump": box_dump,
+        **pose_stats(target_per_frame, heading_per_frame, heading_values),
     }
 
 
@@ -483,6 +625,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rebuild-hulls", action="store_true", help="Ignore cached hull JSON")
     parser.add_argument(
         "--hull-only", action="store_true", help="Build hulls and previews, no YOLO"
+    )
+    parser.add_argument(
+        "--pose-model",
+        type=Path,
+        default=None,
+        help="Optional ultralytics pose .pt drawn on top: box, keypoints and a "
+        "back-to-front heading arrow",
+    )
+    parser.add_argument(
+        "--pose-conf", type=float, default=0.25, help="Pose confidence (default 0.25)"
+    )
+    parser.add_argument(
+        "--pose-imgsz", type=int, default=640, help="Pose inference size (default 640)"
+    )
+    parser.add_argument(
+        "--pose-target",
+        default="mrs_buff_mk3",
+        help="Pose class highlighted and counted (default mrs_buff_mk3)",
     )
     return parser.parse_args()
 
@@ -528,13 +688,26 @@ def main() -> int:
         return 0
 
     encoder = pick_encoder()
+    pose_model = None
+    if args.pose_model:
+        pose_model = YOLO(str(args.pose_model))
+        print(
+            f"Pose: {args.pose_model.name}  classes={pose_model.names}  target={args.pose_target}"
+        )
+        if args.pose_target not in pose_model.names.values():
+            print(
+                f"  WARNING: '{args.pose_target}' is not a class of this model; "
+                f"no box will ever be marked as the target"
+            )
     stats: list[dict[str, Any]] = []
     for model_path in args.models:
         tag = model_path.stem.split("_")[0]
         print(f"\n=== {tag} ({model_path.name}) ===")
         model = YOLO(str(model_path))
         for video in videos:
-            record = annotate(video, model, tag, hulls[video.name], args.output, args, encoder)
+            record = annotate(
+                video, model, tag, hulls[video.name], args.output, args, encoder, pose_model
+            )
             stats.append(record)
             (args.output / f"{video.stem}_{tag}.dets.json").write_text(
                 json.dumps(record, separators=(",", ":")) + "\n"
@@ -545,6 +718,12 @@ def main() -> int:
                 f"wall-drops {record['dropped_at_wall_total']}  "
                 f"off-field {record['dropped_off_field_total']}  "
                 f"longest blind {record['longest_blind_frames']}f"
+                + (
+                    f"  |  {args.pose_target} {record['pose_target_rate'] * 100:.1f}%"
+                    f"  heading {record['pose_heading_rate'] * 100:.1f}%"
+                    if "pose_target_rate" in record
+                    else ""
+                )
             )
 
     summary = [
@@ -557,6 +736,7 @@ def main() -> int:
                 "dropped_at_wall_per_frame",
                 "dropped_off_field_per_frame",
                 "box_dump",
+                "pose_target_per_frame",
             )
         }
         for record in stats

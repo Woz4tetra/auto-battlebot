@@ -32,7 +32,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from score import Taxonomy, build_detector, infer_frames, load_gt, match_indices, parse_candidates
+
+from auto_battlebot.eval import (
+    Taxonomy,
+    build_detector,
+    infer_frames,
+    load_gt,
+    match_indices,
+    parse_candidates,
+)
 
 DEFAULT_EDGES = "16,24,32,48,64"
 

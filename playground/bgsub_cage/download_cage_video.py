@@ -136,6 +136,32 @@ def select_fights(
     return fights
 
 
+def bot_fights(
+    bot: str,
+    api_key: str | None,
+    tournament_prefix: str | None,
+    min_length_s: int,
+) -> list[dict[str, Any]]:
+    """Every public fight for one bot, newest first, optionally one event.
+
+    The bot endpoint keys the game as `gameID` where the tournament endpoint uses `id`;
+    `build_clip` accepts either. `cams` is not filtered here: a bot's own fights are the
+    whole point of the run, so a thin camera list is reported rather than dropped.
+    """
+    payload = api_get(f"/bots/{bot}/fights", api_key)
+    fights = payload.get("fights", []) if isinstance(payload, dict) else payload
+    kept = []
+    for fight in fights:
+        tournament_id = fight.get("tournamentID") or ""
+        if tournament_prefix and not tournament_id.startswith(tournament_prefix):
+            continue
+        if (fight.get("matchLength") or 0) < min_length_s:
+            continue
+        fight["_tournamentName"] = fight.get("tournamentName", "")
+        kept.append(fight)
+    return kept
+
+
 def sample_fights(
     fights: list[dict[str, Any]], limit: int, per_tournament: int, seed: int
 ) -> list[dict[str, Any]]:
@@ -215,7 +241,7 @@ def download_clip(clip: Clip, destination: Path, encoder: list[str]) -> bool:
 def build_clip(fight: dict[str, Any], api_key: str | None) -> Clip | None:
     """Resolve one fight to an overhead recording and a fight-window clip spec."""
     tournament_id = fight["tournamentID"]
-    game_id = fight["id"]
+    game_id = fight.get("id") or fight["gameID"]
     try:
         detail = api_get(f"/tournaments/{tournament_id}/fights/{game_id}", api_key)["fight"]
     except (requests.HTTPError, KeyError) as error:
@@ -417,6 +443,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--min-cams", type=int, default=10, help="Skip fights with fewer cameras (default 10)"
     )
+    parser.add_argument(
+        "--bot",
+        default=None,
+        help="BrettZone cleanName (e.g. mrsbuff). Takes every fight this bot appears in "
+        "instead of sampling tournaments, so --limit/--seed/--per-tournament are ignored",
+    )
+    parser.add_argument(
+        "--tournament",
+        default=None,
+        help="Restrict to tournament IDs starting with this (e.g. nhrl_may26)",
+    )
     parser.add_argument("--brettzone-api-key", default=None, help="Optional X-API-Key header")
     parser.add_argument(
         "--corpus-tarball",
@@ -440,19 +477,32 @@ def main() -> int:
         print("ffmpeg not found on PATH")
         return 1
 
-    print(f"Listing tournaments since {args.since}...")
-    tournaments = select_tournaments(args.brettzone_api_key, args.since)
-    print(f"{len(tournaments)} public tournaments")
-    if not tournaments:
-        print("Nothing to do. Try an earlier --since.")
-        return 1
+    if args.bot:
+        print(
+            f"Listing fights for {args.bot}" + (f" in {args.tournament}" if args.tournament else "")
+        )
+        candidates = bot_fights(args.bot, args.brettzone_api_key, args.tournament, args.min_length)
+        print(f"{len(candidates)} fights")
+        if not candidates:
+            print("No fights matched. Check the cleanName with /search?q=<name>.")
+            return 1
+        # Every one of them is wanted, so the caps that shape a random sample do not apply.
+        args.limit = len(candidates)
+        args.per_tournament = len(candidates)
+    else:
+        print(f"Listing tournaments since {args.since}...")
+        tournaments = select_tournaments(args.brettzone_api_key, args.since)
+        print(f"{len(tournaments)} public tournaments")
+        if not tournaments:
+            print("Nothing to do. Try an earlier --since.")
+            return 1
 
-    fights = select_fights(tournaments, args.brettzone_api_key, args.min_length, args.min_cams)
-    print(f"{len(fights)} eligible fights across {len(tournaments)} tournaments")
+        fights = select_fights(tournaments, args.brettzone_api_key, args.min_length, args.min_cams)
+        print(f"{len(fights)} eligible fights across {len(tournaments)} tournaments")
 
-    # Oversample so fights whose overhead recording is missing can be replaced without
-    # a second pass over the API.
-    candidates = sample_fights(fights, args.limit * 3, args.per_tournament * 3, args.seed)
+        # Oversample so fights whose overhead recording is missing can be replaced without
+        # a second pass over the API.
+        candidates = sample_fights(fights, args.limit * 3, args.per_tournament * 3, args.seed)
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)

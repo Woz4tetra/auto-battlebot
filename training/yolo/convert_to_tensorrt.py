@@ -32,8 +32,6 @@ through the network to measure them.
 """
 
 import argparse
-import ctypes
-import platform
 import time
 import warnings
 from dataclasses import dataclass
@@ -46,6 +44,14 @@ import tensorrt as trt
 import torch
 
 from auto_battlebot.perception.trt_yolo import CPP_LETTERBOX_PADDING, preprocess_frame
+from auto_battlebot.tensorrt_build import (
+    DEFAULT_TIMING_CACHE,
+    REPO_ROOT,
+    engine_path_with_platform_tag,
+    has_lean_runtime,
+    load_timing_cache,
+    save_timing_cache,
+)
 
 # Every engine in a sweep is the same architecture with different weights, so TensorRT's tactic
 # timings are reusable. Persisting them turns each build after the first from a kernel-autotuning
@@ -59,8 +65,6 @@ from auto_battlebot.perception.trt_yolo import CPP_LETTERBOX_PADDING, preprocess
 # Repo-local so the cache travels with the checkout and is obviously disposable; `.cache/` is
 # already gitignored. Not in $HOME, where it would silently outlive the project and be easy to
 # forget when a TensorRT or driver upgrade invalidates it.
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_TIMING_CACHE = REPO_ROOT / ".cache" / "tensorrt" / "timing.cache"
 
 # The calibration cache holds one scale per tensor plus a version header, and nothing about the
 # GPU: no architecture, no sm tag, no CPU arch. So it transports to another machine, which is
@@ -74,40 +78,6 @@ CALIB_ALGOS = ("entropy2", "minmax")
 # cache can be carried to another machine safely.
 CALIB_CACHE_ALGO_NAMES = {"entropy2": "EntropyCalibration2", "minmax": "MinMaxCalibration"}
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png")
-
-
-def _has_lean_runtime() -> bool:
-    """Check if the TensorRT lean runtime is available (needed for VERSION_COMPATIBLE)."""
-    try:
-        ctypes.CDLL("libnvinfer_lean.so.10")
-        return True
-    except OSError:
-        return False
-
-
-def _get_compute_capability() -> tuple[int, int]:
-    """Query GPU compute capability of device 0."""
-    if torch.cuda.is_available():
-        return torch.cuda.get_device_capability(0)
-    raise RuntimeError("CUDA not available — cannot determine GPU compute capability")
-
-
-def engine_path_with_platform_tag(path: Path, precision_tag: str | None = None) -> Path:
-    """Append platform + GPU compute capability tag so incompatible engines are distinct.
-
-    Produces filenames like ``model_x86_64_sm89.engine`` — the ``sm`` tag
-    prevents silently loading an engine built for a different GPU architecture.
-    A precision tag goes ahead of it (``model_int8_x86_64_sm89.engine``) so the trailing
-    ``_<arch>_sm<XX>.engine`` shape the config candidate lists match on is unchanged, and
-    so FP16 filenames stay byte-identical to what ``config/_jetson.toml`` already names.
-    """
-    arch = platform.machine()
-    major, minor = _get_compute_capability()
-    tag = f"{arch}_sm{major}{minor}"
-    if precision_tag:
-        tag = f"{precision_tag}_{tag}"
-    suffix = path.suffix if path.suffix else ".engine"
-    return path.parent / f"{path.stem}_{tag}{suffix}"
 
 
 def _scene_of(path: Path) -> str:
@@ -271,29 +241,6 @@ def _make_calibrator(int8: Int8Config, input_h: int, input_w: int) -> Any:
     return _FrameCalibrator()
 
 
-def _load_timing_cache(config: "trt.IBuilderConfig", path: Path | None) -> None:
-    """Seed the builder with previously measured tactic timings, if any."""
-    if path is None:
-        return
-    blob = path.read_bytes() if path.is_file() else b""
-    cache = config.create_timing_cache(blob)
-    if cache is not None:
-        config.set_timing_cache(cache, ignore_mismatch=False)
-
-
-def _save_timing_cache(config: "trt.IBuilderConfig", path: Path | None) -> None:
-    """Persist tactic timings so the next build can skip the autotuning search."""
-    if path is None:
-        return
-    cache = config.get_timing_cache()
-    if cache is None:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Last writer wins. Concurrent builders may race here; the cache is advisory, and a lost
-    # update only costs the next build some re-timing.
-    path.write_bytes(memoryview(cache.serialize()))
-
-
 def _configure_int8(
     config: "trt.IBuilderConfig", network: "trt.INetworkDefinition", int8: Int8Config | None
 ) -> Any:
@@ -362,12 +309,12 @@ def build_engine_from_onnx(
 
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_gib << 30)
-    _load_timing_cache(config, timing_cache)
+    load_timing_cache(config, timing_cache)
     if fp16 and builder.platform_has_fast_fp16:
         config.set_flag(trt.BuilderFlag.FP16)
     calibrator = _configure_int8(config, network, int8)
     if version_compatible:
-        if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE") and _has_lean_runtime():
+        if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE") and has_lean_runtime():
             config.set_flag(trt.BuilderFlag.VERSION_COMPATIBLE)
         else:
             print(
@@ -379,7 +326,7 @@ def build_engine_from_onnx(
     if serialized is None:
         raise RuntimeError("Failed to build TensorRT engine")
     _check_calibration_ran(calibrator, int8)
-    _save_timing_cache(config, timing_cache)
+    save_timing_cache(config, timing_cache)
     engine_path = Path(engine_path)
     engine_path.parent.mkdir(parents=True, exist_ok=True)
     with open(engine_path, "wb") as f:

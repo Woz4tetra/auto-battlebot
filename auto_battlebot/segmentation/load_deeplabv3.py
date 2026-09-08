@@ -1,16 +1,18 @@
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
-from model_config import ModelConfig, load_model_config
 from torchvision import transforms
 from torchvision.models.segmentation import (
     deeplabv3_mobilenet_v3_large,
     deeplabv3_resnet50,
     deeplabv3_resnet101,
 )
+
+from auto_battlebot.segmentation.model_config import ModelConfig, load_model_config
 
 TORCHVISION_BACKBONE_BUILDERS = {
     "mbv3": deeplabv3_mobilenet_v3_large,
@@ -41,7 +43,7 @@ class SegModelWrapper(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         out = self.model(x)
-        return out["out"] if self.dict_output else out
+        return cast(torch.Tensor, out["out"] if self.dict_output else out)
 
 
 def seed_everything(seed_value: int) -> None:
@@ -71,7 +73,9 @@ def _build_torchvision(backbone: str, num_classes: int) -> nn.Module:
         raise ValueError(
             f"Unknown backbone '{backbone}'. Must be one of: {list(TORCHVISION_BACKBONE_BUILDERS)}"
         )
-    return TORCHVISION_BACKBONE_BUILDERS[backbone](num_classes=num_classes, aux_loss=True)
+    return cast(
+        nn.Module, TORCHVISION_BACKBONE_BUILDERS[backbone](num_classes=num_classes, aux_loss=True)
+    )
 
 
 def _build_smp(backbone: str, num_classes: int) -> nn.Module:
@@ -80,10 +84,13 @@ def _build_smp(backbone: str, num_classes: int) -> nn.Module:
         raise ValueError(
             f"Unknown backbone '{backbone}' for SMP. Must be one of: {list(SMP_ENCODER_NAMES)}"
         )
-    return smp.DeepLabV3Plus(
-        encoder_name=encoder,
-        encoder_weights="imagenet",
-        classes=num_classes,
+    return cast(
+        nn.Module,
+        smp.DeepLabV3Plus(
+            encoder_name=encoder,
+            encoder_weights="imagenet",
+            classes=num_classes,
+        ),
     )
 
 

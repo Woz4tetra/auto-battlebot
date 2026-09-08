@@ -15,17 +15,23 @@ are not loaded by accident.
 """
 
 import argparse
-import ctypes
 import os
-import platform
 import shutil
 import tempfile
 from pathlib import Path
 
 import tensorrt as trt
 import torch
-from load_deeplabv3 import SegModelWrapper, build_model
-from model_config import config_path_for, load_model_config
+
+from auto_battlebot.segmentation.load_deeplabv3 import SegModelWrapper, build_model
+from auto_battlebot.segmentation.model_config import config_path_for, load_model_config
+from auto_battlebot.tensorrt_build import (
+    DEFAULT_TIMING_CACHE,
+    engine_path_with_platform_tag,
+    has_lean_runtime,
+    load_timing_cache,
+    save_timing_cache,
+)
 
 # TensorRT's tactic timings are keyed by layer shape and type, so they are reusable across builds
 # of the same architecture with different weights. Persisting them turns each build after the first
@@ -35,60 +41,6 @@ from model_config import config_path_for, load_model_config
 # already gitignored. Not in $HOME, where it would silently outlive the project and be easy to
 # forget when a TensorRT or driver upgrade invalidates it. Shared with the YOLO converter: entries
 # are content-keyed, so unrelated architectures coexist in one file without colliding.
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_TIMING_CACHE = REPO_ROOT / ".cache" / "tensorrt" / "timing.cache"
-
-
-def _has_lean_runtime() -> bool:
-    """Check if the TensorRT lean runtime is available (needed for VERSION_COMPATIBLE)."""
-    try:
-        ctypes.CDLL("libnvinfer_lean.so.10")
-        return True
-    except OSError:
-        return False
-
-
-def _get_compute_capability() -> tuple[int, int]:
-    """Query GPU compute capability of device 0."""
-    if torch.cuda.is_available():
-        return torch.cuda.get_device_capability(0)
-    raise RuntimeError("CUDA not available — cannot determine GPU compute capability")
-
-
-def engine_path_with_platform_tag(path: Path) -> Path:
-    """Append platform + GPU compute capability tag so incompatible engines are distinct.
-
-    Produces filenames like ``model_x86_64_sm89.engine`` — the ``sm`` tag
-    prevents silently loading an engine built for a different GPU architecture.
-    """
-    arch = platform.machine()
-    major, minor = _get_compute_capability()
-    tag = f"{arch}_sm{major}{minor}"
-    suffix = path.suffix if path.suffix else ".engine"
-    return path.parent / f"{path.stem}_{tag}{suffix}"
-
-
-def _load_timing_cache(config: "trt.IBuilderConfig", path: Path | None) -> None:
-    """Seed the builder with previously measured tactic timings, if any."""
-    if path is None:
-        return
-    blob = path.read_bytes() if path.is_file() else b""
-    cache = config.create_timing_cache(blob)
-    if cache is not None:
-        config.set_timing_cache(cache, ignore_mismatch=False)
-
-
-def _save_timing_cache(config: "trt.IBuilderConfig", path: Path | None) -> None:
-    """Persist tactic timings so the next build can skip the autotuning search."""
-    if path is None:
-        return
-    cache = config.get_timing_cache()
-    if cache is None:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Last writer wins. Concurrent builders may race here; the cache is advisory, and a lost
-    # update only costs the next build some re-timing.
-    path.write_bytes(memoryview(cache.serialize()))
 
 
 def export_onnx(
@@ -145,16 +97,16 @@ def build_tensorrt_engine(
 
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_gib << 30)
-    _load_timing_cache(config, timing_cache)
+    load_timing_cache(config, timing_cache)
     if fp16 and builder.platform_has_fast_fp16:
         config.set_flag(trt.BuilderFlag.FP16)
-    if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE") and _has_lean_runtime():
+    if hasattr(trt.BuilderFlag, "VERSION_COMPATIBLE") and has_lean_runtime():
         config.set_flag(trt.BuilderFlag.VERSION_COMPATIBLE)
 
     serialized = builder.build_serialized_network(network, config)
     if serialized is None:
         raise RuntimeError("Failed to build TensorRT engine")
-    _save_timing_cache(config, timing_cache)
+    save_timing_cache(config, timing_cache)
     engine_path = Path(engine_path)
     engine_path.parent.mkdir(parents=True, exist_ok=True)
     with open(engine_path, "wb") as f:

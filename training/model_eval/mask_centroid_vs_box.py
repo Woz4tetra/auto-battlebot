@@ -38,8 +38,8 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from score import BACK_IDX, FRONT_IDX, Frame, Taxonomy, load_gt, match_indices
 
+from auto_battlebot.eval import BACK_IDX, FRONT_IDX, Frame, Taxonomy, load_gt, match_indices
 from auto_battlebot.perception.camera_geometry import (
     ground_range_m,
     height_for_label,

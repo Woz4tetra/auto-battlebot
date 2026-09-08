@@ -194,7 +194,6 @@ JETSON_ACTIVATE_EOF
     SITE_PACKAGES="$("$VENV_DIR/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
     cat >"$SITE_PACKAGES/auto_battlebot.pth" <<EOF
 $PROJECT_ROOT/logo
-$PROJECT_ROOT/training/deeplab
 $PROJECT_ROOT/training/synthetic
 EOF
 

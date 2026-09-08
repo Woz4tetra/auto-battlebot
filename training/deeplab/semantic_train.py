@@ -14,22 +14,27 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-from constants import IMAGE_SIZE, NUM_CLASSES, PAD_SIZE
 from livelossplot import PlotLosses
 from livelossplot.outputs.matplotlib_plot import MatplotlibPlot
-from load_deeplabv3 import (
-    VALID_DECODERS,
-    build_model,
-    common_transforms,
-    seed_everything,
-)
-from model_config import ModelConfig, load_model_config, save_model_config
 from PIL import Image
 from torch.nn import functional
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics import MeanMetric
 from torchvision.transforms import functional as tv_functional
 from tqdm import tqdm
+
+from auto_battlebot.segmentation.constants import IMAGE_SIZE, NUM_CLASSES, PAD_SIZE
+from auto_battlebot.segmentation.load_deeplabv3 import (
+    VALID_DECODERS,
+    build_model,
+    common_transforms,
+    seed_everything,
+)
+from auto_battlebot.segmentation.model_config import (
+    ModelConfig,
+    load_model_config,
+    save_model_config,
+)
 
 matplotlib.use("agg")
 

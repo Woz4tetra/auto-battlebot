@@ -17,12 +17,13 @@ so the values stay in sync.
 from __future__ import annotations
 
 import dataclasses
+import sys
 from pathlib import Path
 
-try:
+if sys.version_info >= (3, 11):
     import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib  # type: ignore[no-redef]
+else:
+    import tomli as tomllib
 
 import tomli_w
 

@@ -38,7 +38,8 @@ class FieldSegmenter:
     def __init__(self, checkpoint: Path = DEEPLAB_CHECKPOINT) -> None:
         try:
             import torch
-            from load_deeplabv3 import common_transforms, load_model
+
+            from auto_battlebot.segmentation.load_deeplabv3 import common_transforms, load_model
         except ImportError as error:  # pragma: no cover - environment problem, not logic
             raise ImportError(
                 "DeepLab helpers not importable. Run with PYTHONPATH=training/deeplab "

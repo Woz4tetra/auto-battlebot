@@ -27,8 +27,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from score import BACK_IDX, FRONT_IDX, load_gt
 
+from auto_battlebot.eval import BACK_IDX, FRONT_IDX, load_gt
 from auto_battlebot.perception.camera_geometry import (
     NOMINAL_FIELD_SIZE_M,
     field_to_pixels,
