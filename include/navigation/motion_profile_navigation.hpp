@@ -92,8 +92,7 @@ class MotionProfileNavigation : public NavigationInterface {
      * @brief Reference forward speed (m/s) from the distance-to-go coast-aware brake schedule,
      * rate-limited on ramp-up. Read-only (uses prev_v_ref_ as last tick's reference).
      */
-    double compute_reference_speed(double distance, double v_actual, double dt,
-                                   double terminal_velocity) const;
+    double compute_reference_speed(double distance, double dt, double terminal_velocity) const;
 
     /**
      * @brief Map a reference speed (m/s) to a normalized linear command via inverse-plant

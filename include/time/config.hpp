@@ -31,6 +31,14 @@ struct ManualClockConfiguration : public ClockConfiguration {
     )
 };
 
+struct CameraFollowingClockConfiguration : public ClockConfiguration {
+    CameraFollowingClockConfiguration() { type = "CameraFollowingClock"; }
+
+    PARSE_CONFIG_FIELDS(
+        // No additional fields
+    )
+};
+
 std::shared_ptr<ClockInterface> make_clock(const ClockConfiguration &config);
 std::unique_ptr<ClockConfiguration> parse_clock_config(ConfigParser &parser);
 std::unique_ptr<ClockConfiguration> load_clock_from_toml(toml::table const &toml_data,

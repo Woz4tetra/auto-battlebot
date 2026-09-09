@@ -55,13 +55,21 @@ class MotionEstimatorInterface {
                                                  const MotionEstimatorContext &context) = 0;
 
     /**
-     * Descriptions advanced to `now` without folding a measurement, for control-rate coasting
-     * between perception frames. Returns nullopt when the estimator's output only moves on
-     * measurements (dead reckoning), in which case the caller keeps the last update() result.
+     * Descriptions advanced to `now + render_lead_s()` without folding a measurement, for
+     * control-rate coasting between perception frames. Returns nullopt when the estimator's
+     * output only moves on measurements (dead reckoning), in which case the caller keeps the
+     * last update() result.
      */
     virtual std::optional<std::vector<RobotDescription>> coast([[maybe_unused]] double now) {
         return std::nullopt;
     }
+
+    /**
+     * How far past `now` coast() renders. Consumers steer by a state that has to describe the
+     * field at the moment the command they are about to compute actually reaches the wheels, not
+     * at the moment the shutter closed. Returning 0 means coast() renders at `now`.
+     */
+    virtual double render_lead_s() const { return 0.0; }
 };
 
 }  // namespace auto_battlebot

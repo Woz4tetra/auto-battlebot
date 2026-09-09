@@ -1,5 +1,7 @@
 #include "robot_filter/kalman_motion_estimator.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cmath>
 #include <magic_enum.hpp>
@@ -45,6 +47,8 @@ void KalmanMotionEstimator::reset() {
     last_field_ = FieldDescription{};
     has_field_ = false;
     last_field_margin_ = 0.0;
+    last_clock_gap_warning_ = -std::numeric_limits<double>::infinity();
+    min_coast_span_s_ = 0.0;
 }
 
 void KalmanMotionEstimator::predict(double now, const CommandFeedback &command_feedback) {
@@ -583,7 +587,8 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
          {"num_gated", num_gated},
          {"num_reinit", num_reinit},
          {"num_rewind_missed", num_rewind_missed},
-         {"num_heading_flips", num_heading_flips}});
+         {"num_heading_flips", num_heading_flips},
+         {"min_coast_span_s", min_coast_span_s_}});
     return outputs;
 }
 
@@ -592,13 +597,41 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
     outputs.reserve(our_tracks_.size() + our_ekf_tracks_.size() + opponent_tracks_.size() +
                     held_opponent_tracks_.size());
 
+    // Two lags separate the shutter from the wheels, and the render has to cover both. `now` is
+    // already past the frame stamp by the perception latency, and a command computed from this
+    // render bites another plant.delay_s later. Rendering at `now + delay_s` puts every track
+    // where it will be when the command lands, which is the only state target selection and
+    // navigation can steer by without aiming at the past.
+    //
+    // The extra span is not extrapolation into unknown commands: JigPlantModel reads each
+    // substep's command at t - delay_s, so integrating to now + delay_s consumes exactly the
+    // commands already issued up to `now`, the ones in flight.
+    const double target = now + render_lead_s();
+    // The smallest span any track is propagated over. Both failure modes below emit an estimate
+    // frozen at the shutter while looking exactly like a healthy filter that is not moving, so
+    // this is worth naming rather than inferring: a span past kMaxIntegrationStepS short-circuits
+    // to "hold position", and a non-positive span propagates nothing at all. Both mean the
+    // control clock and the frame stamps are not on the same timeline, which is what SVO playback
+    // does under SystemClock. The minimum is the right reducer for that question, and it goes out
+    // in update()'s diagnostics so a recording answers "did anything propagate, and by how much"
+    // without needing a rebuild. It is not the render lead: opponent tracks commit every control
+    // tick and so report one tick, while the our-robot track only commits in update() and so
+    // reports a whole frame period plus the lead.
+    double worst_span = std::numeric_limits<double>::infinity();
+    // Staleness stays on the wall clock: it answers "how long since a real measurement", which
+    // the lead does not change.
+    const auto is_stale = [&](double last_measured_stamp) {
+        return (now - last_measured_stamp) > kCoastStaleAgeS;
+    };
+
     // Rendered on a copy, like the dead-reckoning arm: the committed state only advances in
     // update(), so measurements always fold in at or after the track stamp and the our-robot
     // arm needs no snapshot rewind. propagate_unwrapped skips the finite-difference Jacobian
     // (10 extra plant integrations) that a covariance-free render never uses.
     for (const auto &[frame_id, track] : our_ekf_tracks_) {
         PlantState state = track.state;
-        const double dt = now - track.stamp;
+        const double dt = target - track.stamp;
+        worst_span = std::min(worst_span, dt);
         const double age = track.stamp - track.last_measured_stamp;
         const double allowed = std::max(0.0, config_.max_coast_s - age);
         const double move = dt > kMaxIntegrationStepS ? 0.0 : std::min(dt, allowed);
@@ -610,15 +643,14 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
                 plant_model_->propagate_unwrapped(state, commands, track.stamp, track.stamp + move);
             state.theta = ekf::wrap_angle(state.theta);
         }
-        const bool stale =
-            track.output_stale || (now - track.last_measured_stamp) > kCoastStaleAgeS;
+        const bool stale = track.output_stale || is_stale(track.last_measured_stamp);
         outputs.push_back(render_our_ekf(track, state, stale));
     }
 
     for (const auto &[frame_id, track] : our_tracks_) {
         RobotDescription output = track.description;
         const auto cmd_it = command_feedback_.stick_commands.find(frame_id);
-        const double dt = now - track.stamp;
+        const double dt = target - track.stamp;
         if (cmd_it != command_feedback_.stick_commands.end() && dt > 0.0 &&
             dt <= kMaxIntegrationStepS) {
             // The same dead-reckoning step update() will commit at the next perception frame,
@@ -633,21 +665,36 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
             output.pose = pose2d_to_pose(predicted_pose);
             clip_to_field_bounds(output.pose.position, last_field_, last_field_margin_);
         }
-        output.is_stale = track.output_stale || (now - track.last_measured_stamp) > kCoastStaleAgeS;
+        output.is_stale = track.output_stale || is_stale(track.last_measured_stamp);
         outputs.push_back(std::move(output));
     }
 
     for (auto &[frame_id, track] : opponent_tracks_) {
-        advance_opponent(track, now);
-        const bool stale =
-            track.output_stale || (now - track.last_measured_stamp) > kCoastStaleAgeS;
+        worst_span = std::min(worst_span, target - track.stamp);
+        advance_opponent(track, target);
+        const bool stale = track.output_stale || is_stale(track.last_measured_stamp);
         outputs.push_back(render_opponent(track, last_field_, stale));
     }
 
     for (const auto &[frame_id, track] : held_opponent_tracks_) {
         RobotDescription output = track.description;
-        output.is_stale = track.output_stale || (now - track.last_measured_stamp) > kCoastStaleAgeS;
+        output.is_stale = track.output_stale || is_stale(track.last_measured_stamp);
         outputs.push_back(std::move(output));
+    }
+
+    if (std::isfinite(worst_span)) {
+        min_coast_span_s_ = worst_span;
+        const bool too_far = worst_span > kMaxIntegrationStepS;
+        const bool no_span = worst_span <= 0.0;
+        if ((too_far || no_span) && now - last_clock_gap_warning_ > kClockGapWarnPeriodS) {
+            last_clock_gap_warning_ = now;
+            spdlog::warn(
+                "Coast span is {:.3f}s ({}): no forward propagation is happening, so the emitted "
+                "estimate sits at the shutter instead of leading it. The control clock and the "
+                "frame stamps are not on the same timeline; SVO playback needs [clock] type = "
+                "'CameraFollowingClock'.",
+                worst_span, too_far ? "past the integration cap" : "not positive");
+        }
     }
     return outputs;
 }

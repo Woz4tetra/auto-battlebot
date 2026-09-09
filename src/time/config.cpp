@@ -4,6 +4,7 @@
 #include <toml++/toml.h>
 
 #include "config/config_parser.hpp"
+#include "time/camera_following_clock.hpp"
 #include "time/manual_clock.hpp"
 #include "time/system_clock.hpp"
 
@@ -11,6 +12,7 @@ namespace auto_battlebot {
 // Automatic registration of config types
 REGISTER_CONFIG(ClockConfiguration, SystemClockConfiguration, "SystemClock")
 REGISTER_CONFIG(ClockConfiguration, ManualClockConfiguration, "ManualClock")
+REGISTER_CONFIG(ClockConfiguration, CameraFollowingClockConfiguration, "CameraFollowingClock")
 
 std::unique_ptr<ClockConfiguration> parse_clock_config(ConfigParser &parser) {
     return ConfigFactory<ClockConfiguration>::instance().create_and_parse(parser);
@@ -37,6 +39,9 @@ std::shared_ptr<ClockInterface> make_clock(const ClockConfiguration &config) {
     }
     if (config.type == "ManualClock") {
         return std::make_shared<ManualClock>();
+    }
+    if (config.type == "CameraFollowingClock") {
+        return std::make_shared<CameraFollowingClock>();
     }
     throw std::invalid_argument("Failed to load Clock of type " + config.type);
 }

@@ -128,7 +128,10 @@ void RobotFrontBackFilter::predict(double now, CommandFeedback command_feedback)
     motion_estimator_->predict(now, command_feedback);
     if (auto coasted = motion_estimator_->coast(now)) {
         state_.header.frame_id = FrameId::FIELD;
-        state_.header.stamp = now;
+        // The stamp names the time the state describes, which is past `now` by the estimator's
+        // render lead. Stamping it `now` would under-report the emitted state's age by the
+        // transport delay to anything that reasons about these stamps.
+        state_.header.stamp = now + motion_estimator_->render_lead_s();
         state_.descriptions = std::move(*coasted);
         apply_size_overrides(state_.descriptions);
     }

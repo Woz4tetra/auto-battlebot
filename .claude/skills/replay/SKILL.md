@@ -45,8 +45,15 @@ takes `-c/--config` and `--print-config`).
 
    [rgbd_camera]
    svo_file_path = "data/svo/tests/<recording>.svo2"
-   svo_real_time_mode = false   # true = wall-clock speed; false = as fast as possible
    ```
+
+   Leave `svo_real_time_mode` and `rebase_stamps` alone. Both default to true, and both have to
+   stay true for the replay to reproduce field timing. `rebase_stamps = false` leaves frame
+   stamps on the recording's clock while the control loop reads the wall clock, and
+   `svo_real_time_mode = false` decodes as fast as the machine allows; either one breaks the
+   filter's latency compensation, so the emitted estimate sits at the shutter position instead of
+   leading it. Both log a warning at startup. Set `svo_real_time_mode = false` only for a
+   throughput run where timing does not matter, and say so in the write-up.
 
 4. **(Optional) verify resolution** before a long run:
    `./scripts/run.sh -c config/_replay_scratch.toml --print-config` (dumps the merged

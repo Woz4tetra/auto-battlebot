@@ -214,9 +214,9 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     prev_speed_timestamp_ = now_s;
 
     // Without a measurement, carry the last measured speed forward rather than reporting zero. A
-    // zero here would tell the brake schedule there is no latency lead to subtract and tell the
-    // speed feedback the robot is stopped, so the controller would command MORE thrust in exactly
-    // the stretch where it is blind.
+    // zero here would tell the speed feedback the robot is stopped and tell the hazard barrier
+    // there is no momentum to arrest, so the controller would command MORE thrust in exactly the
+    // stretch where it is blind.
     const bool speed_is_measured = measured_speed.has_value();
     if (speed_is_measured) last_measured_speed_ = *measured_speed;
     const double v_actual = last_measured_speed_;
@@ -229,7 +229,7 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
         return VelocityCommand{0.0, 0.0, 0.0};
     }
 
-    const double v_ref = compute_reference_speed(distance, v_actual, dt, terminal_velocity);
+    const double v_ref = compute_reference_speed(distance, dt, terminal_velocity);
     const double dvdt = (dt > 0.0) ? (v_ref - prev_v_ref_) / dt : 0.0;
 
     VelocityCommand cmd{0.0, 0.0, 0.0};
@@ -306,19 +306,26 @@ double MotionProfileNavigation::compensate_coupling(double command, double effec
     return command / authority;
 }
 
-double MotionProfileNavigation::compute_reference_speed(double distance, double v_actual, double dt,
+double MotionProfileNavigation::compute_reference_speed(double distance, double dt,
                                                         double terminal_velocity) const {
-    // Coast-aware brake schedule for a first-order plant. Two measured effects set where braking
-    // must begin:
-    //   - Latency lead: the brake command bites `latency` seconds late, after the robot has already
-    //     travelled v*latency, so the schedule is evaluated at that future distance.
-    //   - Coast horizon: after the command bites, the residual travel to shed to v_term is ~
-    //     v*tau_decel, so keeping v <= v_term + d_eff/tau_decel guarantees arrival at v_term.
-    // Together: v_ref = v_term + max(0, d - v*latency) / tau_decel. This is the inverse of the
-    // measured plant, not a hand-set brake distance.
-    const double d_eff = std::max(0.0, distance - std::abs(v_actual) * latency_);
+    // Coast-aware brake schedule for a first-order plant: after the brake command bites, the
+    // residual travel to shed to v_term is ~ v*tau_decel, so keeping v <= v_term + d/brake_horizon
+    // guarantees arrival at v_term. The inverse of the measured plant, not a hand-set brake
+    // distance.
+    //
+    // `distance` needs no latency lead of its own. The motion estimator renders every track at
+    // now + plant.delay_s, so the pose this distance is measured from is already the pose the
+    // robot will hold when this command reaches the wheels. Subtracting v*latency here as well
+    // double-counted that travel and braked early: 10.4 cm at 2 m/s, against a 0.15 m
+    // stop_distance. BrakeScheduleDoesNotSubtractALatencyLead guards it.
+    //
+    // The horizon keeps latency_ on top of tau_decel_, which by that same argument is one delay
+    // too many: the decay starts at the state's own time, so tau_decel_ alone is the derived
+    // value. It stays as margin. Dropping it takes the horizon from 0.252 s to 0.200 s and
+    // raises the reference speed 26% at every distance, and nothing here has been measured
+    // against a stop since. Change it with a field or replay check, not on the algebra.
     const double brake_horizon = std::max(tau_decel_ + latency_, 1e-3);
-    double v_ref = terminal_velocity + d_eff / brake_horizon;
+    double v_ref = terminal_velocity + distance / brake_horizon;
     v_ref = std::clamp(v_ref, 0.0, max_linear_speed_fwd_);
 
     // Rate-limit ramp-up only, for a clean launch and a bounded feedforward derivative. Braking

@@ -15,7 +15,7 @@ namespace {
 // Per-mode terminal velocity: ATTACK drives through the opponent, RUN_AWAY arrives stopped at the
 // safe point. The mode rides on TargetSelection, stamped by ControlLoop::resolve_target.
 
-RobotDescriptionsStamped make_our_robot(double x, double y, double yaw) {
+RobotDescriptionsStamped make_our_robot(double x, double y, double yaw, double vx = 0.0) {
     RobotDescription robot;
     robot.label = Label::MRS_BUFF_MK3;
     robot.frame_id = FrameId::OUR_ROBOT_1;
@@ -23,7 +23,7 @@ RobotDescriptionsStamped make_our_robot(double x, double y, double yaw) {
     robot.pose.position.x = x;
     robot.pose.position.y = y;
     robot.pose.rotation = euler_to_quaternion(0.0, 0.0, yaw);
-    robot.velocity = Velocity2D{0.0, 0.0, 0.0};
+    robot.velocity = Velocity2D{vx, 0.0, 0.0};
 
     RobotDescriptionsStamped robots;
     robots.descriptions.push_back(robot);
@@ -57,9 +57,9 @@ class MotionProfileModeTest : public ::testing::Test {
 
     // One tick with our robot at the origin facing +x and the target straight ahead.
     VelocityCommand tick(MotionProfileNavigation &nav, double distance, BehaviorMode mode,
-                         double time_s) {
+                         double time_s, double vx = 0.0) {
         clock_->set(time_s);
-        return nav.update(make_our_robot(0.0, 0.0, 0.0), make_field(),
+        return nav.update(make_our_robot(0.0, 0.0, 0.0, vx), make_field(),
                           make_target(distance, 0.0, mode));
     }
 
@@ -109,6 +109,28 @@ TEST_F(MotionProfileModeTest, AttackDoesNotBrakeWhereRunAwayDoes) {
 
     EXPECT_GT(attack_cmd, run_away_cmd);
     EXPECT_GT(run_away_cmd, 0.0);  // still approaching, just slower
+}
+
+TEST_F(MotionProfileModeTest, BrakeScheduleDoesNotSubtractALatencyLead) {
+    // The motion estimator already renders our robot at now + plant.delay_s, so the distance
+    // reaching the brake schedule is measured from where the robot will be when this command
+    // reaches the wheels. Subtracting v*delay_s again here double-counted that travel and braked
+    // early. With the speed feedback disabled the command is a pure function of the reference
+    // speed, so a robot barrelling in at 2 m/s must be commanded exactly like a stationary one at
+    // the same distance.
+    config_.speed_kp = 0.0;
+    config_.speed_ki = 0.0;
+
+    auto stationary = make_nav(config_);
+    auto moving = make_nav(config_);
+    const double distance = 0.5;
+
+    const double stationary_cmd =
+        tick(*stationary, distance, BehaviorMode::RUN_AWAY, 1.0, 0.0).linear_x;
+    const double moving_cmd = tick(*moving, distance, BehaviorMode::RUN_AWAY, 1.0, 2.0).linear_x;
+
+    EXPECT_GT(stationary_cmd, 0.0);
+    EXPECT_DOUBLE_EQ(moving_cmd, stationary_cmd);
 }
 
 // --- how the configured numbers are read ---

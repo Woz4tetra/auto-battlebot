@@ -132,11 +132,16 @@ void ControlLoop::run_cycle() {
     RobotDescriptionsStamped robots;
     {
         FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
-        robot_filter_->predict(clock_->now(), command_feedback_);
+        // Correct first, predict second. correct() folds the measurement in at the shutter stamp
+        // and leaves the emitted state there; predict() is what carries it forward to the control
+        // clock and past it by the transport delay. Running predict first threw that lead away on
+        // every cycle that carried a measurement, which is every cycle the publisher samples, so
+        // the estimate rendered and steered by sat a full perception latency behind the field.
         if (measurement) {
             robot_filter_->correct(measurement->keypoints, measurement->field_description,
                                    measurement->camera_info, measurement->robot_blob_keypoints);
         }
+        robot_filter_->predict(clock_->now(), command_feedback_);
         robots = robot_filter_->state();
     }
 

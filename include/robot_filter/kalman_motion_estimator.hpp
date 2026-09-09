@@ -2,6 +2,7 @@
 
 #include <Eigen/Dense>
 #include <array>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -34,8 +35,9 @@ namespace auto_battlebot {
  * pi/2 falls back to the position rows: the front/back keypoint converter can flip, and folding a
  * flipped heading in would spin the whole state.
  *
- * coast() renders every track advanced to the control-loop clock, so the emitted state moves
- * between perception frames instead of freezing at the last correct().
+ * coast() renders every track advanced to the control-loop clock plus render_lead_s(), so the
+ * emitted state moves between perception frames instead of freezing at the last correct(), and
+ * describes where each robot will be when the command computed from it reaches the wheels.
  */
 class KalmanMotionEstimator : public MotionEstimatorInterface {
    public:
@@ -52,8 +54,20 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
 
     std::optional<std::vector<RobotDescription>> coast(double now) override;
 
+    /**
+     * The plant's transport delay. A command computed from this render reaches the wheels
+     * `delay_s` later, so the render has to describe the field at that moment. Config validation
+     * guarantees the plant table is present, so this is always the fitted value.
+     */
+    double render_lead_s() const override { return config_.plant->delay_s; }
+
    private:
-    /** 64 snapshots cover well over a second of control ticks, past any perception latency. */
+    /**
+     * At the 250 Hz control rate this is roughly 240 ms of rewind history: coast() commits an
+     * opponent snapshot every tick, so a 30 Hz frame burns about nine slots. That covers the
+     * measured 63 ms perception latency with room to spare, and num_rewind_missed reports when
+     * it does not.
+     */
     static constexpr size_t kSnapshotCapacity = 64;
     /** A single propagation step longer than this freezes position: a clock gap that large is
      * not motion to integrate. Covariance still grows, capped at this step. */
@@ -64,6 +78,8 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
      * dropout reads as stale even though correct() never ran to say so.
      */
     static constexpr double kCoastStaleAgeS = 0.1;
+    /** Throttle on the clock-gap warning: it fires every tick once tripped. */
+    static constexpr double kClockGapWarnPeriodS = 5.0;
 
     struct Snapshot {
         double stamp = 0.0;
@@ -178,6 +194,12 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     FieldDescription last_field_;
     bool has_field_ = false;
     double last_field_margin_ = 0.0;
+    /** Control-clock time of the last clock-gap warning. -inf so the first one always fires,
+     * whatever epoch the clock is on. */
+    double last_clock_gap_warning_ = -std::numeric_limits<double>::infinity();
+    /** Smallest span the last coast() propagated any track over, reported in update()'s
+     * diagnostics. Positive and under kMaxIntegrationStepS means propagation is really running. */
+    double min_coast_span_s_ = 0.0;
 };
 
 }  // namespace auto_battlebot

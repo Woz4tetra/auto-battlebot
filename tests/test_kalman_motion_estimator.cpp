@@ -12,6 +12,9 @@ namespace {
 
 constexpr double kDt = 1.0 / 30.0;
 constexpr double kStartTime = 100.0;
+/** coast(now) renders at now + this, so a command computed from it lands where the robot will
+ * be. Every coast expectation below is written against that target, not against `now`. */
+constexpr double kLead = plant_golden::kParam_delay_s;
 
 FieldDescription make_field() {
     FieldDescription field;
@@ -105,15 +108,44 @@ TEST(KalmanMotionEstimatorTest, ConvergesToConstantVelocityAndPredictsAhead) {
     EXPECT_FALSE((*coasted)[0].is_stale);
     EXPECT_NEAR((*coasted)[0].velocity.vx, vx, 0.2);
     EXPECT_NEAR((*coasted)[0].velocity.vy, vy, 0.2);
-    EXPECT_NEAR((*coasted)[0].pose.position.x, x, 0.05);
-    EXPECT_NEAR((*coasted)[0].pose.position.y, y, 0.05);
+    // Rendered at the measurement stamp, the output already leads it by the transport delay.
+    EXPECT_NEAR((*coasted)[0].pose.position.x, x + vx * kLead, 0.05);
+    EXPECT_NEAR((*coasted)[0].pose.position.y, y + vy * kLead, 0.05);
 
     // Coasting 100 ms ahead of the last measurement tracks the constant-velocity truth.
     auto ahead = estimator.coast(last_t + 0.1);
     ASSERT_TRUE(ahead.has_value());
     ASSERT_EQ(ahead->size(), 1u);
-    EXPECT_NEAR((*ahead)[0].pose.position.x, x + vx * 0.1, 0.06);
-    EXPECT_NEAR((*ahead)[0].pose.position.y, y + vy * 0.1, 0.06);
+    EXPECT_NEAR((*ahead)[0].pose.position.x, x + vx * (0.1 + kLead), 0.06);
+    EXPECT_NEAR((*ahead)[0].pose.position.y, y + vy * (0.1 + kLead), 0.06);
+}
+
+TEST(KalmanMotionEstimatorTest, CoastLeadsTheMeasurementByTheTransportDelay) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    const double vx = 2.0;
+    double x = 0.0;
+    double y = 0.0;
+    const double last_t =
+        run_constant_velocity(estimator, assigner, field, context, 60, x, y, vx, 0.0);
+
+    // The whole point of the lead: at the instant the measurement lands, the emitted state is
+    // already ahead of it, because the command it feeds will not reach the wheels until later.
+    estimator.predict(last_t, CommandFeedback{});
+    auto outputs =
+        estimator.update({make_opponent_measurement(x, y)}, last_t, assigner, field, context);
+    ASSERT_EQ(outputs.size(), 1u);
+    EXPECT_NEAR(outputs[0].pose.position.x, x, 0.02) << "update() renders at the shutter stamp";
+
+    auto coasted = estimator.coast(last_t);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 1u);
+    const double lead_distance = (*coasted)[0].pose.position.x - outputs[0].pose.position.x;
+    EXPECT_NEAR(lead_distance, vx * kLead, 0.02);
+    EXPECT_GT(lead_distance, 0.0);
 }
 
 TEST(KalmanMotionEstimatorTest, CoastHoldsPositionPastMaxCoast) {
@@ -217,7 +249,7 @@ TEST(KalmanMotionEstimatorTest, LateMeasurementRetrodictsInsteadOfCorruptingTrac
     // The next coast picks up from the corrected state and keeps tracking.
     auto coasted = estimator.coast(last_t + 0.1);
     ASSERT_TRUE(coasted.has_value());
-    EXPECT_NEAR((*coasted)[0].pose.position.x, x + vx * 0.1, 0.06);
+    EXPECT_NEAR((*coasted)[0].pose.position.x, x + vx * (0.1 + kLead), 0.06);
 }
 
 TEST(KalmanMotionEstimatorTest, OurRobotMatchesDeadReckoningEstimator) {

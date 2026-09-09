@@ -67,6 +67,14 @@ svo_start_frame = 3000
 svo_real_time_mode = true
 
 # Type change -> replaces main's OpenTxTransmitter wholesale.
+# Playback frame stamps are not wall-clock, so the default SystemClock cannot say how old the
+# newest frame is: unrebased they sit on the recording's clock, and rebased they carry a fixed
+# offset captured during the startup transient. Either way the filter's forward propagation sees a
+# nonsense dt and holds every prediction. This clock anchors to each frame and advances with the
+# wall clock between them, so `now - frame_stamp` is the real processing age on this machine.
+[clock]
+type = "CameraFollowingClock"
+
 [transmitter]
 type = "PlaybackTransmitter"
 init_delay_seconds = 0.4

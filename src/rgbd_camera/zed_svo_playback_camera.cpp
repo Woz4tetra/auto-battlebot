@@ -21,6 +21,26 @@ ZedSvoPlaybackCamera::ZedSvoPlaybackCamera(ZedSvoPlaybackCameraConfiguration &co
     spdlog::info("Resolved SVO path: {}", svo_abs_path.string());
     svo_path_ = svo_abs_path.string();
 
+    // Both of these change what the replay measures, and neither shows up as an error. Say so at
+    // startup so a replay run is not read as if it reproduced field timing.
+    //
+    // Without rebasing, frame stamps stay on the recording's clock while the control loop reads
+    // the wall clock, so everything that compares the two degrades quietly: the filter's latency
+    // compensation holds every prediction instead of leading, and the pipeline latency
+    // diagnostic reports the age of the recording rather than the age of the frame.
+    if (!rebase_stamps_) {
+        spdlog::warn(
+            "rebase_stamps = false: SVO frame stamps stay on the recording's clock, which does "
+            "not match the control clock. Latency compensation and any stamp-difference "
+            "diagnostic are invalid for this run.");
+    }
+    if (!config.svo_real_time_mode) {
+        spdlog::warn(
+            "svo_real_time_mode = false: frames are decoded as fast as the pipeline allows, so "
+            "the wall-clock gap between shutter and control tick is a property of this machine, "
+            "not of the robot. Field timing, including latency compensation, is not reproduced.");
+    }
+
     sl::InitParameters params;
     params.camera_fps = config.camera_fps;
     params.camera_resolution = get_zed_resolution(config.camera_resolution);

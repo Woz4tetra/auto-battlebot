@@ -121,6 +121,13 @@ All code is in namespace `auto_battlebot`. Interfaces live in `include/<module>/
 
 - New component: add interface to `include/<module>/`, implementation to `src/<module>/`, register in the factory
 - Prefer TOML config over compile-time switches for behavior changes
+- Config constants are enums, never strings. Any field with a fixed set of valid values gets an
+  `enum class` in `include/enums/<name>.hpp`, an include in `include/enums.hpp`, and
+  `PARSE_ENUM`/`PARSE_ENUM_REQUIRED` in the config struct. A typo then fails at parse with the
+  valid values listed, instead of reaching a runtime string compare. Free-form strings are for
+  paths, ids, and names only: `svo_file_path`, `hazards_file`, `active_profile`, label keys.
+  The `type` field selecting a factory implementation is the one exception, since `REGISTER_CONFIG`
+  keys on it
 - No ROS. Live viz and recordings use Foxglove schemas over the Foxglove SDK (`docs/foxglove_recording_format.md`); the relay is `viz_relay`. Do not add ROS dependencies
 - Compiler flags are `-Wall -Wextra -Werror`. Fix warnings, do not suppress them
 
