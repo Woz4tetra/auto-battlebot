@@ -227,8 +227,13 @@ elif [ ! -f "$BUILD_DIR/compile_commands.json" ]; then
     echo -e "${RED}    ✗ clang-tidy (no build/compile_commands.json — run scripts/build.sh)${NC}"
     FAILED+=("clang-tidy")
 else
+    # clang-tidy exits 0 when it only reports warnings, so without
+    # -warnings-as-errors the step prints diagnostics and still scores a pass.
+    # Promoting every check to an error makes run-clang-tidy exit non-zero on
+    # any reported problem. The flag is part of the ctcache digest, so changing
+    # it costs one cold pass and then caches as before.
     "$RUN_CLANG_TIDY" -p "$BUILD_DIR" -clang-tidy-binary "$TIDY_BINARY" \
-        "^${PROJECT_ROOT}/src/"
+        -warnings-as-errors='*' "^${PROJECT_ROOT}/src/"
     record "clang-tidy" $?
 fi
 
