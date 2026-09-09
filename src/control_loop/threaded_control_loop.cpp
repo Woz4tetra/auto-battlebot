@@ -15,14 +15,16 @@ ThreadedControlLoop::ThreadedControlLoop(std::shared_ptr<ControlLoop> loop, doub
           std::chrono::microseconds(static_cast<int64_t>(watchdog_timeout_ms * 1000))),
       diagnostics_logger_(DiagnosticsLogger::get_logger("control_loop")) {}
 
-ThreadedControlLoop::~ThreadedControlLoop() { stop(); }
+ThreadedControlLoop::~ThreadedControlLoop() { join_thread(); }
 
 void ThreadedControlLoop::start_driver() {
     if (running_.exchange(true)) return;
     thread_ = std::thread(&ThreadedControlLoop::thread_main, this);
 }
 
-void ThreadedControlLoop::stop() {
+void ThreadedControlLoop::stop() { join_thread(); }
+
+void ThreadedControlLoop::join_thread() {
     if (!running_.exchange(false)) return;
     if (thread_.joinable()) thread_.join();
 }

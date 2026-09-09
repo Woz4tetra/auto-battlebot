@@ -20,11 +20,9 @@ constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
 constexpr double kOpenWaitWarnMs = 2000.0;
 constexpr double kJoinWaitWarnMs = 1000.0;
-constexpr double kGrabWarnMs = 250.0;
 constexpr double kCaptureLockWarnMs = 150.0;
 constexpr double kGetWaitWarnMs = 500.0;
 constexpr auto kJoinHardTimeout = std::chrono::seconds(10);
-constexpr auto kOpenHardTimeout = std::chrono::seconds(30);
 
 double elapsed_ms(const std::chrono::steady_clock::time_point &start) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)

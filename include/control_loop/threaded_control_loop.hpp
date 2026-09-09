@@ -35,6 +35,12 @@ class ThreadedControlLoop : public ControlLoopInterface {
 
    private:
     void thread_main();
+    /**
+     * Clears the run flag and joins. Non-virtual so the destructor can call it: a virtual stop()
+     * there would resolve to this class's override anyway, and the thread is this class's to join
+     * whatever a subclass wants stop() to mean.
+     */
+    void join_thread();
 
     std::chrono::microseconds period_;
     std::chrono::microseconds watchdog_timeout_;
