@@ -45,7 +45,17 @@ bool YoloBboxRobotBlobModel::initialize() {
             return false;
         }
     }
-    spdlog::info("YoloBboxRobotBlobModel initialized");
+    if (their_robot_labels_.empty() && neutral_robot_labels_.empty()) {
+        // Every detection is classified OTHER and dropped in append_detection_keypoints, so
+        // nothing reaches the filter however confident the model is. debug_visualization draws
+        // the raw detections, which makes this look like a filter bug rather than a config gap.
+        spdlog::warn(
+            "YoloBboxRobotBlobModel: their_robot_labels and neutral_robot_labels are both empty, "
+            "so every detection will be dropped before it reaches the filter. Set "
+            "robot_mask_model.their_robot_labels to the labels that count as opponents.");
+    }
+    spdlog::info("YoloBboxRobotBlobModel initialized (their={}, neutral={}, field={})",
+                 their_robot_labels_.size(), neutral_robot_labels_.size(), field_labels_.size());
 
     initialized_ = true;
     diagnostics_logger_->info({}, "YoloBboxRobotBlobModel initialized successfully");

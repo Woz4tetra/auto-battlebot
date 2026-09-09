@@ -1,3 +1,4 @@
+#ifdef BUILD_WITH_ZED
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -192,3 +193,4 @@ TEST_F(ZedSvoPlaybackCameraTest, InvalidSvoFile) {
 }
 
 }  // namespace auto_battlebot
+#endif  // BUILD_WITH_ZED

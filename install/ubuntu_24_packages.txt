@@ -2,7 +2,6 @@
 # One package per line, lines starting with # are ignored
 # TensorRT runtime (libnvinfer-dev) is installed in step 0; listed here so apt install runs after repo is added.
 
-libopencv-dev
 libnvinfer-dev
 
 # clang-tidy (installed by install/install_llvm_toolchain.sh) auto-selects the

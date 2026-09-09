@@ -132,8 +132,7 @@ bool ZedSvoPlaybackCamera::get(CameraData &data) {
 
     // getSVOPosition() counts frames already read, so the one just grabbed is one behind it.
     const int svo_position = device_.svo_position();
-    latest_data_.frame_identity.svo_frame_index = svo_position > 0 ? svo_position - 1 : -1;
-    latest_data_.frame_identity.svo_path = svo_path_;
+    latest_data_.frame_identity.video_frame_index = svo_position > 0 ? svo_position - 1 : -1;
 
     if (rebase_stamps_) {
         const double raw_stamp =

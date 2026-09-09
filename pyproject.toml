@@ -25,6 +25,7 @@ dependencies = [
   "pycocotools",                                                  # torchmetrics MeanAveragePrecision backend (training/model_eval)
   "segmentation-models-pytorch",
   "opencv-python>=4.5.0",
+  "av",                                                           # H.264 decode for /camera/video (auto_battlebot.recording.mcap_io)
   "pyyaml>=6.0",
   "pandas",
   "onnxscript",

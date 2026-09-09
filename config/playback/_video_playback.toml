@@ -1,0 +1,40 @@
+# Replay of an MCAP recording that carries /camera/video. Sibling of _playback, which replays a
+# separate SVO file; here the video and the pipeline output are one file.
+extends = "_desktop"
+
+[rgbd_camera]
+type = "VideoPlaybackCamera"
+# video_file_path = "data/recordings/auto_battlebot_mrs_buff_mk3_2026-09-09_10-00-00.mcap"
+start_frame = 0
+real_time_mode = true
+# Empty means rectify with whatever calibration_id the recording names. Set it to re-rectify old
+# footage against a revised calibration.
+calibration_file = ""
+
+[field_filter]
+type = "FiducialFieldFilter"
+
+[keypoint_filter.height]
+reject_enable = false
+
+[keypoint_filter.static]
+enable = true
+
+# Playback frame stamps are not wall-clock, so the default SystemClock cannot say how old the
+# newest frame is. This clock anchors to each frame and advances with the wall clock between them.
+[clock]
+type = "CameraFollowingClock"
+
+[transmitter]
+type = "PlaybackTransmitter"
+init_delay_seconds = 0.4
+lifted_deadzone_percent = 10
+zero_deadzone_percent = 2
+
+[mcap]
+# Off. A replay reads one file and would record another; McapRecorder refuses to open the file the
+# camera reserved, but there is no reason to write a second one during replay iteration anyway.
+enable = false
+
+[ui]
+splash = false

@@ -10,11 +10,13 @@ all written against this document. Change it here first.
 
 - MCAP profile string is empty. The C++ recorder writes uncompressed chunks (it records on the
   Jetson at 60 Hz; zstd on the hot path is not free). Python-written files (calibration
-  captures, `combine_mcap_svo.py` outputs) use zstd chunks; readers do not care.
-- `combine_mcap_svo.py` outputs add one JSON channel, `/camera/svo_frame`
-  (`auto_battlebot.SvoFrame`), mapping each image to its SVO frame index.
+  captures) use zstd chunks; readers do not care.
 - One metadata record named `auto_battlebot` with key `active_profile` holding the config
-  profile id (or empty when the app was run with an explicit `-c`).
+  profile id (or empty when the app was run with an explicit `-c`), and, on RGB-camera
+  recordings, `calibration_id` naming the lens calibration the frames were rectified with.
+- The RGB camera rolls the file over past `mcap.max_size_gb`. Each segment repeats the metadata
+  and re-creates every channel, so it is independently readable; segments after the first are
+  named `..._partNN.mcap`.
 - `log_time` and `publish_time` are equal, wall clock nanoseconds at the moment of writing.
   Message stamps inside the payloads are the pipeline stamps (double seconds converted to
   `sec`/`nsec`), which can differ from `log_time`.
@@ -23,6 +25,7 @@ all written against this document. Change it here first.
 
 | Topic | Message encoding | Schema name | Schema encoding | Recorded |
 | --- | --- | --- | --- | --- |
+| `/camera/video` | `protobuf` | `foxglove.CompressedVideo` | `protobuf` | yes |
 | `/camera/image` | `protobuf` | `foxglove.CompressedImage` | `protobuf` | yes (config may ignore) |
 | `/camera/camera_info` | `protobuf` | `foxglove.CameraCalibration` | `protobuf` | yes |
 | `/camera/frame_meta` | `json` | `auto_battlebot.FrameMeta` | `jsonschema` | yes |
@@ -62,16 +65,41 @@ Latched topics (the relay re-sends the last message to a newly subscribed client
 `sec = floor(stamp)`, `nsec = round((stamp - sec) * 1e9)` clamped to `[0, 999999999]`.
 The Python readers return `stamp_ns = sec * 1_000_000_000 + nsec`.
 
+## `/camera/video` (protobuf)
+
+One Annex-B H.264 access unit per frame, IDR every 30 frames, encoded with `max_b_frames = 0`.
+No B-frames means decode order equals capture order, so the nth message is the nth captured
+frame; `start_frame` on playback and `export_camera_transforms.py` matching dataset images by
+position in the stream both depend on that.
+
+Frames are recorded **before** rectification, so a revised lens calibration can be applied to
+footage already shot. `calibration_id` in the file metadata names the calibration that was in
+use. `log_time` is the capture instant the encoder carried through from the V4L2 buffer, not the
+moment the packet was written.
+
+Seek to the last IDR at or before the target and decode forward, discarding until you reach it.
+Seeking into the middle of a GOP returns smeared frames; this is the same failure
+`sl::Camera::setSVOPosition` has, and it applies to any inter-coded stream.
+
 ## `/camera/frame_meta` (JSON)
 
 ```json
-{"image_stamp_ns": "1788011445339499712", "svo_frame_index": 1234, "svo_path": "data/svo/x.svo2"}
+{"image_stamp_ns": "1788011445339499712", "video_frame_index": 1234}
 ```
 
 `image_stamp_ns` is a **string** holding the decimal `uint64`. It is above 2^53, so a JSON
 number would be rounded by every JavaScript consumer (Foxglove's Raw Messages panel included).
-Python readers convert it with `int()`. `svo_frame_index` is an integer, `-1` when SVO
-recording is off. `svo_path` is a string, empty when SVO recording is off.
+Python readers convert it with `int()`. `video_frame_index` is an integer, `-1` when video
+recording is off.
+
+Join frame_meta to `/camera/video` on `video_frame_index`, never on the timestamp. The two
+channels are written by different threads: the video message's `log_time` is the capture instant
+the encoder carried through, while frame_meta is logged when the publisher reaches it, so
+pairing them by iteration order runs ahead by however far the encoder is behind.
+
+Recordings written before 2026-09-09 carry `svo_frame_index` and `svo_path` instead, from when
+the video lived in a separate `.svo2` file. `auto_battlebot.recording.mcap_io` reads the old
+names and reports the index as `video_frame_index`, which is what it always was.
 
 ## `/blob_detections`, `/keypoint_detections` (JSON)
 

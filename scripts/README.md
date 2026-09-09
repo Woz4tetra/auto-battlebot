@@ -43,8 +43,9 @@ here so they read as tools rather than as dead files.
 | Script | When to run it |
 | --- | --- |
 | `download_recordings.sh` | Pull SVO and MCAP recordings off the Jetson, skipping any basename already present under `data/`. Set `JETSON_HOST` to target a different machine. |
-| `combine_mcap_svo.py` | Merge an MCAP with its SVO into one eval recording. The first step in `docs/adding_eval_recordings.md`. |
 | `convert_ros1_mcap.py` | One-way migration for recordings made before ROS was removed. `auto_battlebot/recording/mcap_io.py` raises an error naming this script when it meets a legacy file. |
+| `nhrl_to_recordings.py` | NHRL fixed-cage fight video to a replayable recording set: fetch, convert, land in `data/saved_recordings/<set>/`, write the playback config. Re-runs skip what is already converted. |
+| `video_to_mcap.py` | The primitive under it: one or more videos to one MCAP each, shaped like the RGB camera's output. Use `nhrl_to_recordings.py` for NHRL footage. |
 | `mcap_latency_report.py` | Per-tick and per-stage latency report from a recording. The source of the latency numbers in `docs/experiments/`. |
 | `mcap_out.py` | Print `/log` messages in journalctl style. Reach for it when a run misbehaved and you want the log without opening Foxglove. |
 | `mcap_topic_sizes.py` | Total size, average message size, and KB/s per topic. Use it when a recording is unexpectedly large. |

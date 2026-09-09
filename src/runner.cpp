@@ -277,6 +277,7 @@ void Runner::initialize_field(const CameraData &camera_data) {
     // every stored position now refers to somewhere else. Start over.
     static_gate_->reset();
     initialized_ = true;
+    field_init_attempts_remaining_ = 0;
     spdlog::info("Field initialized");
 }
 
@@ -374,8 +375,19 @@ bool Runner::tick() {
     }
 
     if (should_reinit_field) {
+        // An init request means "keep trying", not "try exactly this frame". A fiducial board
+        // stacks correspondences over several frames before its pose latches, and a mask fit can
+        // lose one frame to a robot sitting on the field edge. Bounded, because the retry runs the
+        // field-mask model each frame and a request that will never succeed has to stop somewhere.
+        field_init_attempts_remaining_ = kFieldInitAttempts;
+    }
+    if (field_init_attempts_remaining_ > 0) {
         if (camera_data.tracking_ok) {
+            --field_init_attempts_remaining_;
             initialize_field(camera_data);
+            if (field_init_attempts_remaining_ == 0 && !initialized_) {
+                spdlog::error("Field initialization gave up after {} frames.", kFieldInitAttempts);
+            }
         } else {
             spdlog::warn("Skipping field initialization because camera tracking is not ready.");
         }

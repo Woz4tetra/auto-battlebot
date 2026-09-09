@@ -260,8 +260,7 @@ bool ZedRgbdCamera::capture_frame() {
     // Record which camera frame this is, independent of the stamp. TIME_REFERENCE::IMAGE runs
     // about half a frame ahead of what the SVO recorder writes for the same grab, so a
     // timestamp alone cannot join recorded output back to SVO frames after the fact.
-    latest_data_.frame_identity.svo_frame_index = svo_frame.index;
-    latest_data_.frame_identity.svo_path = svo_frame.path;
+    latest_data_.frame_identity.video_frame_index = svo_frame.index;
     // Publish the frame while holding data_mutex_: bump frame_counter_ so waiting get() calls
     // observe a fully populated frame.
     frame_counter_++;

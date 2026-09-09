@@ -8,7 +8,7 @@ driving instead of jig protocols).
 
 The join (docs/experiments/control_improvement/match_plant_fit_plan.md step 2):
 
-1. Replay mcap `/camera/frame_meta` carries `svo_frame_index` and the raw
+1. Replay mcap `/camera/frame_meta` carries `video_frame_index` and the raw
    original-clock `image_stamp_ns` per tick, so the SVO frame index is the join
    key and the grid at once. No timestamp matching against the SVO file is
    needed; `image_stamp_ns` never went through the replay's stamp rebase.
@@ -98,11 +98,12 @@ def _quat_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
 
 
 def _load_frame_meta(replay_path: Path) -> list[tuple[int, int, int]]:
-    """(log_time, image_stamp_ns, svo_frame_index) per tick, in log order."""
+    """(log_time, image_stamp_ns, video_frame_index) per tick, in log order."""
     metas: list[tuple[int, int, int]] = []
     for _topic, ts, data in iter_messages(replay_path, ["/camera/frame_meta"]):
         payload = json.loads(decode_string(data))
-        metas.append((ts, int(payload["image_stamp_ns"]), int(payload["svo_frame_index"])))
+        index = payload.get("video_frame_index", payload.get("svo_frame_index", -1))
+        metas.append((ts, int(payload["image_stamp_ns"]), int(index)))
     if not metas:
         raise ValueError(f"{replay_path} has no /camera/frame_meta; re-record the replay")
     return metas
@@ -205,7 +206,7 @@ def load_replay_track(replay_path: Path | str) -> ReplayTrack:
             )
         )
     if not rows:
-        raise ValueError(f"{replay_path}: no frames with a valid svo_frame_index")
+        raise ValueError(f"{replay_path}: no frames with a valid video_frame_index")
 
     svo_indices = np.array([r[0] for r in rows], dtype=np.int64)
     order = np.argsort(svo_indices)

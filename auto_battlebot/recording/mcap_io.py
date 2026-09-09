@@ -28,6 +28,7 @@ DIAGNOSTICS_TOPIC_PREFIX = "/diagnostics/"
 BLOB_DETECTIONS_TOPIC = "/blob_detections"
 KEYPOINT_DETECTIONS_TOPIC = "/keypoint_detections"
 CAMERA_IMAGE_TOPIC = "/camera/image"
+CAMERA_VIDEO_TOPIC = "/camera/video"
 CAMERA_INFO_TOPIC = "/camera/camera_info"
 FRAME_META_TOPIC = "/camera/frame_meta"
 TF_TOPIC = "/tf"
@@ -152,6 +153,28 @@ def iter_messages(
             )
 
 
+def recording_topics(path: Path | str) -> set[str]:
+    """Every topic the recording carries, from its summary."""
+    with open(path, "rb") as file:
+        summary = make_reader(file).get_summary()
+        if summary is None:
+            return set()
+        return {channel.topic for channel in summary.channels.values()}
+
+
+def message_counts(path: Path | str) -> dict[str, int]:
+    """Messages per topic, from the summary. Does not read the message data."""
+    with open(path, "rb") as file:
+        summary = make_reader(file).get_summary()
+        if summary is None or summary.statistics is None:
+            return {}
+        counts = summary.statistics.channel_message_counts
+        return {
+            channel.topic: int(counts.get(channel_id, 0))
+            for channel_id, channel in summary.channels.items()
+        }
+
+
 def read_active_profile(path: Path | str) -> str | None:
     """The config profile id stored in the ``auto_battlebot`` metadata record, if any."""
     with open(path, "rb") as file:
@@ -196,18 +219,23 @@ def decode_json(data: bytes) -> Any:
 @dataclass
 class FrameMeta:
     image_stamp_ns: int
-    svo_frame_index: int
-    svo_path: str
+    video_frame_index: int
 
 
 def decode_frame_meta(data: bytes) -> FrameMeta:
     """``/camera/frame_meta``. ``image_stamp_ns`` is a decimal string on the wire (it is above
-    2^53); the legacy bare-number form is accepted too."""
+    2^53); the legacy bare-number form is accepted too.
+
+    Recordings written before video moved into the MCAP carry ``svo_frame_index`` and ``svo_path``
+    instead. The index reads back as ``video_frame_index``, which is what it always was: the
+    ordinal of the frame in whatever video stream the run was writing. The path is dropped, since
+    with one file there is no second file to join to.
+    """
     payload = decode_json(data)
+    index = payload.get("video_frame_index", payload.get("svo_frame_index", -1))
     return FrameMeta(
         image_stamp_ns=int(payload["image_stamp_ns"]),
-        svo_frame_index=int(payload.get("svo_frame_index", -1)),
-        svo_path=str(payload.get("svo_path", "")),
+        video_frame_index=int(index),
     )
 
 
@@ -295,6 +323,96 @@ def decode_compressed_image(data: bytes) -> CompressedImage:
     if image is None:
         raise ValueError(f"Failed to decode compressed image (format={fmt!r})")
     return CompressedImage(stamp_ns=stamp_ns, frame_id=frame_id, format=fmt, image=image)
+
+
+# ---------------------------------------------------------------------------
+# Compressed video
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CompressedVideo:
+    stamp_ns: int
+    frame_id: str
+    format: str
+    image: np.ndarray
+
+
+def decode_compressed_video_bytes(data: bytes) -> tuple[int, str, str, bytes]:
+    """(stamp_ns, frame_id, format, Annex-B access unit) without decoding the frame."""
+    _require_current_format(data)
+    msg = _proto(data)
+    return _proto_stamp_ns(msg.timestamp), str(msg.frame_id), str(msg.format), bytes(msg.data)
+
+
+class VideoStreamDecoder:
+    """Decodes ``/camera/video`` into BGR frames.
+
+    Stateful where ``cv2.imdecode`` was not: H.264 frames reference the ones before them, so the
+    decoder holds one context per file and has to be fed in stream order. Every caller already
+    iterates a whole recording in order. Seeking means starting from a keyframe, never from the
+    middle of a GOP.
+
+    The C++ encoder writes with ``max_b_frames = 0``, so decode order equals capture order and the
+    nth frame out is the nth frame captured. ``export_camera_transforms.py`` matches dataset images
+    by position in the stream and depends on that.
+    """
+
+    def __init__(self) -> None:
+        import av
+
+        self._codec = av.CodecContext.create("h264", "r")
+
+    def decode(self, packet_bytes: bytes) -> list[np.ndarray]:
+        """BGR frames produced by one access unit. Usually one; empty while the decoder primes."""
+        import av
+
+        packets = [av.packet.Packet(packet_bytes)]
+        frames = []
+        for packet in packets:
+            for frame in self._codec.decode(packet):
+                frames.append(frame.to_ndarray(format="bgr24"))
+        return frames
+
+    def flush(self) -> list[np.ndarray]:
+        frames = []
+        for frame in self._codec.decode(None):
+            frames.append(frame.to_ndarray(format="bgr24"))
+        return frames
+
+
+def iter_video_frames(path: Path | str) -> Iterator[tuple[int, np.ndarray]]:
+    """(stamp_ns, BGR frame) for every frame on ``/camera/video``, in capture order."""
+    decoder = VideoStreamDecoder()
+    for _topic, _log_time, payload in iter_messages(path, [CAMERA_VIDEO_TOPIC]):
+        stamp_ns, _frame_id, _fmt, access_unit = decode_compressed_video_bytes(payload)
+        for image in decoder.decode(access_unit):
+            yield stamp_ns, image
+    for image in decoder.flush():
+        yield 0, image
+
+
+def iter_camera_frames(
+    path: Path | str, prefer_video: bool = True
+) -> Iterator[tuple[int, np.ndarray]]:
+    """Frames from whichever camera topic the recording carries.
+
+    A label run records ``/camera/image`` because its config clears ``ignored_topics``; an ordinary
+    match recording carries ``/camera/video`` and no JPEG at all. Tools that used to need
+    ``scripts/combine_mcap_svo.py`` to reach match frames can point straight at the recording.
+    """
+    topics = recording_topics(path)
+    if prefer_video and CAMERA_VIDEO_TOPIC in topics:
+        yield from iter_video_frames(path)
+        return
+    if CAMERA_IMAGE_TOPIC not in topics:
+        raise ValueError(
+            f"{path} carries neither {CAMERA_VIDEO_TOPIC} nor {CAMERA_IMAGE_TOPIC}; there are no "
+            "camera frames in it"
+        )
+    for _topic, _log_time, payload in iter_messages(path, [CAMERA_IMAGE_TOPIC]):
+        image = decode_compressed_image(payload)
+        yield image.stamp_ns, image.image
 
 
 # ---------------------------------------------------------------------------

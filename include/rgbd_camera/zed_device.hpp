@@ -112,7 +112,7 @@ class ZedDevice {
      * ::enable_depth is always on), so retrieving it conditionally saved only the measure copy
      * while costing the callers a flag to get wrong.
      *
-     * Leaves frame_identity.svo_frame_index and svo_path alone: a live camera takes them from the
+     * Leaves frame_identity.video_frame_index alone: a live camera takes it from the
      * file it is writing, a replay from the file it is reading. Stamps are the original capture
      * time, so any rebasing is the caller's business.
      */

@@ -48,6 +48,9 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     // Set by the Runner when the UI asks to reboot or power off the host.
     UISystemAction pending_system_action = UISystemAction::NONE;
 
+    // Before the recorder picks a path: a replay must not be able to record over the file it
+    // is reading.
+    reserve_camera_input_paths(*class_config.camera);
     auto mcap_recorder = make_mcap_recorder(class_config.mcap_recorder, active_profile);
     setup_logging(mcap_recorder);
 
@@ -75,7 +78,7 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     DiagnosticsLogger::initialize(backends);
 
     auto publisher = make_publisher(*class_config.publisher, viz_sink, mcap_recorder);
-    auto camera = make_rgbd_camera(*class_config.camera);
+    auto camera = make_rgbd_camera(*class_config.camera, mcap_recorder);
     auto field_model = make_mask_model(*class_config.field_model);
     auto robot_mask_model = make_robot_blob_model(*class_config.robot_mask_model);
     auto field_filter = make_field_filter(*class_config.field_filter);

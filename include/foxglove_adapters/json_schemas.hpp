@@ -8,7 +8,7 @@ namespace foxglove_adapters {
 
 constexpr const char *kFrameMetaSchemaName = "auto_battlebot.FrameMeta";
 constexpr const char *kFrameMetaSchema =
-    R"({"type":"object","title":"auto_battlebot.FrameMeta","properties":{"image_stamp_ns":{"type":"string","description":"Raw camera image stamp in nanoseconds as a decimal string; above 2^53 so not a JSON number"},"svo_frame_index":{"type":"integer","description":"Frame index within svo_path, -1 when SVO recording is off"},"svo_path":{"type":"string","description":"Active SVO file, empty when SVO recording is off"}},"required":["image_stamp_ns","svo_frame_index","svo_path"]})";
+    R"({"type":"object","title":"auto_battlebot.FrameMeta","properties":{"image_stamp_ns":{"type":"string","description":"Raw camera image stamp in nanoseconds as a decimal string; above 2^53 so not a JSON number"},"video_frame_index":{"type":"integer","description":"Frame index within the /camera/video stream, -1 when video recording is off"}},"required":["image_stamp_ns","video_frame_index"]})";
 
 constexpr const char *kDetectionsSchemaName = "auto_battlebot.Detections";
 constexpr const char *kDetectionsSchema =

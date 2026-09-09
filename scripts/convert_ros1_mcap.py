@@ -149,10 +149,10 @@ def _convert_frame_meta(
     payload = json.loads(_ros1_decode_string(data))
     before = int(payload["image_stamp_ns"])
     payload["image_stamp_ns"] = str(before)
-    payload.setdefault("svo_frame_index", -1)
-    payload.setdefault("svo_path", "")
-    payload["svo_frame_index"] = int(payload["svo_frame_index"])
-    payload["svo_path"] = str(payload["svo_path"])
+    # ROS1 bags predate both the SVO join and the video channel, so the index is -1 either way.
+    index = payload.pop("svo_frame_index", payload.get("video_frame_index", -1))
+    payload.pop("svo_path", None)
+    payload["video_frame_index"] = int(index)
     if int(payload["image_stamp_ns"]) != before:
         raise ConversionError(f"{topic}: image_stamp_ns changed value on re-encode")
     writer.log_json(topic, payload, log_time)
@@ -270,7 +270,7 @@ def convert_file(src: Path, dst: Path, *, overwrite: bool = False) -> Stats:
         reader = make_reader(handle)
         metadata = {record.name: dict(record.metadata) for record in reader.iter_metadata()}
         # Keep the source's chunk compression: the C++ recorder writes none, the JPEG-heavy
-        # combine_mcap_svo outputs write zstd, and rewriting those uncompressed would grow them.
+        # Python-written captures use zstd chunks, and rewriting those uncompressed would grow them.
         compression = mcap_write.read_chunk_compression(src)
         with mcap_write.McapWriter(partial, compression=compression, metadata=metadata) as writer:
             for schema, channel, message in reader.iter_messages(log_time_order=True):

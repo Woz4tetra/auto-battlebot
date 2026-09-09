@@ -1,0 +1,11 @@
+# Placeholder. Written by the cage calibration tool from a clean empty-cage frame with the fixture
+# seated, not by hand. field_size is the floor mat measured at that venue, not the nominal cage:
+# 8 ft (2.4384 m) runs about 6% long against measured mats of 2.30 to 2.40 m, and the size enters
+# the pose linearly.
+calibration_id = "example_cage"
+field_size_x = 2.35
+field_size_y = 2.35
+# Field centre in camera coordinates.
+translation = [0.0, 0.0, 2.0]
+# Row-major 3x3.
+rotation = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]

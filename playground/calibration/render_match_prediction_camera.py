@@ -74,8 +74,10 @@ def load_camera_track(replay_path: Path | str) -> CameraTrack:
             (
                 ts,
                 int(payload["image_stamp_ns"]),
-                int(payload["svo_frame_index"]),
-                payload["svo_path"],
+                int(payload.get("video_frame_index", payload.get("svo_frame_index", -1))),
+                # Only pre-2026-09 recordings name a separate SVO. Video now lives on
+                # /camera/video inside the recording itself, so there is no path to follow.
+                payload.get("svo_path", ""),
             )
         )
     meta_lt = np.array([m[0] for m in metas], dtype=np.int64)
@@ -185,6 +187,12 @@ def main() -> None:
             commands.t_ns = commands.t_ns - int(args.cmd_lead_ms * 1e6)
         run = build_match_run(track, commands, name=name, role="video")
         cam = load_camera_track(replay)
+        if str(cam.svo_path) in ("", "."):
+            raise SystemExit(
+                "This recording names no SVO. Recordings written after video moved onto "
+                "/camera/video carry their frames inline; this tool still needs the separate-SVO "
+                "layout."
+            )
         if not cam.svo_path.exists():
             raise SystemExit(f"SVO not found: {cam.svo_path} (recorded in frame_meta)")
 

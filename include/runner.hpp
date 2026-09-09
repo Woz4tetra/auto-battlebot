@@ -98,6 +98,11 @@ class Runner : public Quittable {
     int runtime_opponent_count_;
 
     bool initialized_;
+    /** Frames left in the current field-init attempt. See handle_tick. */
+    int field_init_attempts_remaining_ = 0;
+    /** One second at 60 Hz. Long enough for a fiducial board to accumulate, short enough that a
+     *  request with no board in frame stops running the mask model. */
+    static constexpr int kFieldInitAttempts = 60;
     bool autonomy_enabled_;
     std::shared_ptr<FieldDescriptionWithInlierPoints> initial_field_description_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;

@@ -46,12 +46,11 @@ std::string to_frame_meta_json(const FrameIdentity &identity) {
     std::snprintf(buffer, sizeof(buffer), "%llu",
                   static_cast<unsigned long long>(identity.image_stamp_ns));
     json += buffer;
-    json += "\",\"svo_frame_index\":";
-    std::snprintf(buffer, sizeof(buffer), "%lld", static_cast<long long>(identity.svo_frame_index));
+    json += "\",\"video_frame_index\":";
+    std::snprintf(buffer, sizeof(buffer), "%lld",
+                  static_cast<long long>(identity.video_frame_index));
     json += buffer;
-    json += ",\"svo_path\":\"";
-    json += json_escape(identity.svo_path);
-    json += "\"}";
+    json += "}";
     return json;
 }
 

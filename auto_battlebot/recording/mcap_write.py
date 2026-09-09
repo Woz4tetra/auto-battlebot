@@ -31,7 +31,7 @@ FRAME_META_SCHEMA_NAME = "auto_battlebot.FrameMeta"
 DETECTIONS_SCHEMA_NAME = "auto_battlebot.Detections"
 DIAGNOSTICS_SCHEMA_NAME = "auto_battlebot.Diagnostics"
 
-FRAME_META_JSON_SCHEMA = """{"type":"object","title":"auto_battlebot.FrameMeta","properties":{"image_stamp_ns":{"type":"string","description":"Raw camera image stamp in nanoseconds as a decimal string; above 2^53 so not a JSON number"},"svo_frame_index":{"type":"integer","description":"Frame index within svo_path, -1 when SVO recording is off"},"svo_path":{"type":"string","description":"Active SVO file, empty when SVO recording is off"}},"required":["image_stamp_ns","svo_frame_index","svo_path"]}"""  # noqa: E501
+FRAME_META_JSON_SCHEMA = """{"type":"object","title":"auto_battlebot.FrameMeta","properties":{"image_stamp_ns":{"type":"string","description":"Raw camera image stamp in nanoseconds as a decimal string; above 2^53 so not a JSON number"},"video_frame_index":{"type":"integer","description":"Frame index within the /camera/video stream, -1 when video recording is off"}},"required":["image_stamp_ns","video_frame_index"]}"""  # noqa: E501
 
 DETECTIONS_JSON_SCHEMA = """{"type":"object","title":"auto_battlebot.Detections","properties":{"stamp":{"type":"number","description":"Frame stamp in seconds"},"w":{"type":"integer","description":"Image width in pixels"},"h":{"type":"integer","description":"Image height in pixels"},"dets":{"type":"array","items":{"type":"object","properties":{"x1":{"type":"number"},"y1":{"type":"number"},"x2":{"type":"number"},"y2":{"type":"number"},"conf":{"type":"number"},"class_id":{"type":"integer"},"label":{"type":"string"},"kps":{"type":"array","description":"Keypoints as [x, y, confidence] in image pixels","items":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}},"required":["x1","y1","x2","y2","conf","class_id","label"]}}},"required":["stamp","w","h","dets"]}"""  # noqa: E501
 
@@ -380,6 +380,7 @@ def json_number(value: Any) -> Any:
 
 _PROTOBUF_CHANNEL_CLASSES: dict[str, Callable[..., Any]] = {
     "foxglove.CompressedImage": fg_channels.CompressedImageChannel,
+    "foxglove.CompressedVideo": fg_channels.CompressedVideoChannel,
     "foxglove.CameraCalibration": fg_channels.CameraCalibrationChannel,
     "foxglove.FrameTransforms": fg_channels.FrameTransformsChannel,
     "foxglove.SceneUpdate": fg_channels.SceneUpdateChannel,
@@ -391,6 +392,7 @@ _PROTOBUF_CHANNEL_CLASSES: dict[str, Callable[..., Any]] = {
 
 _MESSAGE_SCHEMA_NAMES: dict[type, str] = {
     fg.CompressedImage: "foxglove.CompressedImage",
+    fg.CompressedVideo: "foxglove.CompressedVideo",
     fg.CameraCalibration: "foxglove.CameraCalibration",
     fg.FrameTransforms: "foxglove.FrameTransforms",
     fg.SceneUpdate: "foxglove.SceneUpdate",

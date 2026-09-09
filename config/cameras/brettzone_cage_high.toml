@@ -1,0 +1,26 @@
+# NHRL's fixed `Cage-N-Overhead-High` feed, as re-wrapped by scripts/video_to_mcap.py.
+#
+# Measured, not assumed. Computed with cv2.calibrateCamera over a fiducial board in the
+# true_battlebot repo (ros_ws/bw_camera_calibration/.../intrinsic_calibration.py) and stored there
+# as perception/configs/metrics_tool/nhrl_camera_intrinsics.toml at 1280x720. That calibration is a
+# 3x downscale of the same 3840x2160 source feed, so the values below are the 1280x720 result scaled
+# by 1.5 to 1080p. Distortion coefficients are in normalized coordinates and carry over unscaled.
+#
+# The lens is wide: fx = 876.5 at 1920 px is a 95.2 degree horizontal field of view, about a 16 mm
+# equivalent. An earlier guess of 24 mm equivalent (fx = 1331) was wrong by half; the overhead frame
+# shows the crowd on both sides of an 8 ft cage from 1.7 m up, which no 72 degree lens can cover.
+#
+# Caveat: the calibration comes from 2024-10-26 footage. If NHRL has swapped the phone since, these
+# drift. Re-run the board calibration or fall back to FiducialFieldFilter if a field pose looks off.
+calibration_id = "brettzone_cage_high"
+width = 1920
+height = 1080
+fx = 876.548
+fy = 875.808
+cx = 959.142
+cy = 536.139
+k1 = 0.0025881850439413517
+k2 = 0.004893928671963269
+p1 = -0.0005971923639874631
+p2 = 0.0006597477814370171
+k3 = -0.005115212019411672

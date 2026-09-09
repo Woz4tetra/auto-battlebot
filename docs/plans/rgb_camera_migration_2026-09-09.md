@@ -1,6 +1,7 @@
 # Migrating to an RGB-only camera
 
-Status: **plan** (2026-09-09). Companion to `docs/plans/field_transform_cpp_migration_2026-09-09.md`,
+Status: **implemented, apart from what needs the hardware** (2026-09-09). See "What landed" at the
+bottom. Companion to `docs/plans/field_transform_cpp_migration_2026-09-09.md`,
 which removes the depth dependency from field fitting. This document covers the rest: getting
 `e-CAM25_CUONX_H01R1` frames into `CameraData`, replacing SVO recording and playback, and
 everything that breaks when `CameraData::depth` is empty.
@@ -320,9 +321,9 @@ list even though `calib3d` is already used transitively.
   `libopencv-dev` would cascade. Installing to `/usr/local`, which CMake searches first, plus the
   version assertion above, is enough.
 
-Worth deciding at the same time: the Jetson default of 4.10.0 can drop to 4.8.0 for exactly one
-version across the fleet. Both are past the API break so it changes nothing for section 2, but one
-version is one fewer thing to reason about when a build behaves differently on the two machines.
+**Decided: 4.10.0 across the fleet**, rather than dropping the Jetson to 4.8.0. Both are past the
+API break so it changes nothing for section 2, and taking the version the Jetson already built
+means the deploy target does not move.
 
 ## 3. What else breaks without depth
 
@@ -754,3 +755,62 @@ Steps 1 through 5 and 7 are all testable without the camera in hand. Only 6 bloc
    clipped 2024-10-26 recording that the companion plan already found trips the border guard.
 4. Land `BUILD_WITH_ZED` and confirm both build configurations.
 5. Benchmark `imgsz 1280` on Orin Nano and Orin NX 16 GB before ordering the compute upgrade.
+
+## What landed
+
+Implemented 2026-09-09 against OpenCV 4.10.0, built from source into `/usr/local` on every
+platform by `install/install_opencv.sh` (the generalized `install_opencv_jetson.sh`).
+
+| Step | State |
+| --- | --- |
+| 1. Field transform, section 1a and 1b | done. `HomographyFieldFilter`, `CalibratedFieldFilter`, the shared `CameraWorldFieldFilter` base, `field_outline.cpp`, `field_pose.cpp`, `cage_calibration.cpp`, 14 unit tests |
+| 2. OpenCV 4.10 | done. Installed, `find_package(OpenCV 4.10 REQUIRED ... objdetect calib3d)`, clean-built |
+| 3. `FiducialFieldFilter` | done, including the mirrored-id test |
+| 4. `BUILD_WITH_ZED` | done. Both configurations build and link |
+| 5. Camera calibration path | done. `camera_calibration.cpp`, TOML loader, `initUndistortRectifyMap` at open |
+| 6. `V4l2RgbCamera` | written, **never run**. Needs the camera |
+| 7. H.264 into `McapRecorder` | done. Encoder thread, rollover, `/camera/video`, `FrameIdentity` change |
+| 8. `VideoPlaybackCamera` | done. Nine tests, including the ported SVO cases |
+| 9. `StaticDetectionGate` | wired on in `_orin_rgb.toml`, **not measured**. See below |
+| 10. RGB corpus and retraining | blocked on the camera |
+
+### Three things the plan got wrong
+
+**The coverage guard is close to dead once the corners are refined.** The companion plan's
+"mask over quad area above 1.05" caught the *inscribed* quad, before the edge refinement existed.
+With refinement in place the fitted quad circumscribes the mask, so the ratio never rises above 1
+on its own: a convex pentagon measures 0.936, an ellipse 0.874, a good mat 0.96 to 0.98. Verified
+against `playground/field_transform/field_methods.py`, which gives the same numbers. The guard is
+kept because it still catches a refinement that fails and falls back, and it is now measured
+against the quad clipped to the image so a clipped field does not read as a bad outline. What it
+cannot do is reject a convex outline that is not the mat.
+
+**Three lines determine the pose, but not on their own.** A rectangle mirrored about either of its
+own axes is the same rectangle, so a mirrored field frame satisfies all three fitted lines
+exactly and the residual cannot tell it from the right answer. It came out 2.35 m wrong, one field
+width. The winding of the projected quad is the discriminator, and `pose_from_three_lines` takes
+the observed corners for that reason alone.
+
+**`/camera/frame_meta` cannot be paired with `/camera/video` by iteration order.** The two are
+written by different threads and carry different clocks: the video message's `log_time` is the
+capture instant the encoder carried through, while frame_meta is logged when the publisher reaches
+it. Pairing them in stream order ran eleven frames ahead. They are joined on
+`video_frame_index` instead, which is exact.
+
+### What is not done
+
+- **Step 9's measurement.** The static gate is on in the RGB configs, but the honest number the
+  plan asks for, what the loss of the height gate costs on the MassD and AER recordings, is not
+  measured. It needs the logo-versus-moving scoring harness those `_common.toml` comments came
+  from, which is not in the tree.
+- **Anything needing the camera**: `V4l2RgbCamera` compiles and is wired end to end but has never
+  seen a frame, the lens is not calibrated, `config/cameras/ecam25_example.toml` holds spec-sheet
+  estimates, and no RGB corpus exists to retrain against.
+- **`imgsz 1280` on Orin Nano** is not benchmarked.
+
+### One consequence worth knowing
+
+`FrameIdentity` lost `svo_path` along with the separate-file join it existed for. New ZED
+recordings still record which frame of their SVO each tick came from, as `video_frame_index`, but
+no longer which file. `scripts/combine_mcap_svo.py` is deleted; `docs/adding_eval_recordings.md`
+says how to recover it from git history for the SVO corpus.

@@ -94,6 +94,132 @@ struct PointCloudFieldFilterConfiguration : public FieldFilterConfiguration {
     // clang-format on
 };
 
+/** Shared by every filter that fits the field outline in RGB. */
+struct FieldOutlineFieldFilterConfiguration : public FieldFilterConfiguration {
+    /** The floor mat, measured per venue with the depth path, not read off a rulebook. Nominal
+     *  8 ft (2.4384 m) runs about 6% long against measured mats of 2.30 to 2.40 m, and the size
+     *  enters the pose linearly. */
+    double field_size_x = 2.35;
+    double field_size_y = 2.35;
+    /** Mask area over quad area. Above this the outline is not a quadrilateral, so at least one
+     *  side is not a field edge. Structural, because the residual cannot see it. */
+    double max_quad_coverage = 1.05;
+    /** Contour points this close to the frame edge are dropped before the edge fit. */
+    int border_margin_px = 2;
+    int refine_iterations = 4;
+    double corner_skip_fraction = 0.20;
+    int min_side_points = 20;
+
+    // clang-format off
+    void parse_outline_fields(ConfigParser &parser) {
+        PARSE_FIELD_DOUBLE(field_size_x)
+        PARSE_FIELD_DOUBLE(field_size_y)
+        PARSE_FIELD_DOUBLE(max_quad_coverage)
+        PARSE_FIELD(border_margin_px)
+        PARSE_FIELD(refine_iterations)
+        PARSE_FIELD_DOUBLE(corner_skip_fraction)
+        PARSE_FIELD(min_side_points)
+    }
+    // clang-format on
+};
+
+struct HomographyFieldFilterConfiguration : public FieldOutlineFieldFilterConfiguration {
+    HomographyFieldFilterConfiguration() { type = "HomographyFieldFilter"; }
+
+    PARSE_CONFIG_FIELDS(parse_outline_fields(parser);)
+};
+
+/**
+ * A cage measured once, then replayed unchanged at match time.
+ *
+ * The line fit still runs every start as a seating check: a static camera cannot otherwise tell
+ * that the fixture did not seat or that the cage got bumped, because there is no visual odometry
+ * left to notice. Above `max_seating_error_px` it warns and keeps publishing the stored
+ * calibration, which is the answer we trust.
+ */
+struct CalibratedFieldFilterConfiguration : public FieldOutlineFieldFilterConfiguration {
+    /** Per-cage calibration, relative to the config directory: config/cages/<venue>_<cage>.toml */
+    std::string calibration_file;
+    bool seating_check = true;
+    double max_seating_error_px = 5.0;
+
+    CalibratedFieldFilterConfiguration() { type = "CalibratedFieldFilter"; }
+
+    // clang-format off
+    PARSE_CONFIG_FIELDS(
+        parse_outline_fields(parser);
+        PARSE_FIELD_STRING(calibration_file)
+        PARSE_FIELD_BOOL(seating_check)
+        PARSE_FIELD_DOUBLE(max_seating_error_px)
+    )
+    // clang-format on
+};
+
+/**
+ * Field pose from an AprilTag board on the floor, ignoring the mask entirely.
+ *
+ * This is the mode for a venue nobody has surveyed: it depends on nothing we have to segment and
+ * on no assumed mat size. Put the board at a *near* corner. A 65 mm marker needs about 18 px of
+ * edge to decode; at the far mat corner foreshortening leaves it 8 px, and scaling the markers
+ * does not rescue that. The near corners are also exactly the ones a cage-mounted camera cannot
+ * resolve as mat corners, so the board covers the weak spot.
+ */
+struct FiducialFieldFilterConfiguration : public FieldFilterConfiguration {
+    // Board geometry. Defaults match the manufactured board.
+    int board_cols = 3;
+    int board_rows = 5;
+    double marker_size = 0.065;  // metres, printed edge
+    double marker_separation = 0.015;
+    int first_marker_id = 160;
+
+    // Where the board sits. `corner` names which field corner it marks; the offsets are the board
+    // origin measured from that corner, in the field frame, because the board cannot physically
+    // sit in the corner itself.
+    FieldCorner corner = FieldCorner::NEG_X_NEG_Y;
+    double board_offset_x = 0.0;
+    double board_offset_y = 0.0;
+    double board_offset_z = 0.0;  // non-zero for a wall-mounted board
+    double board_yaw_deg = 0.0;
+    double board_pitch_deg = 0.0;  // 90 for a board hung flat on a wall
+
+    // Field extent measured from that corner.
+    double field_size_x = 2.35;
+    double field_size_y = 2.35;
+
+    int min_markers = 4;
+    /** Correspondences are stacked across this many frames before the pose latches, so detection
+     *  noise averages out. */
+    int accumulate_frames = 10;
+    /** A real guard here, unlike the four-corner homography: 15 markers give 60 correspondences
+     *  against 6 unknowns, so the residual measures something. It catches a mis-measured
+     *  marker_size, a board printed at "fit to page", a mirrored id mapping, and a board that
+     *  was not flat. */
+    double max_reprojection_error_px = 3.0;
+
+    FiducialFieldFilterConfiguration() { type = "FiducialFieldFilter"; }
+
+    // clang-format off
+    PARSE_CONFIG_FIELDS(
+        PARSE_FIELD(board_cols)
+        PARSE_FIELD(board_rows)
+        PARSE_FIELD_DOUBLE(marker_size)
+        PARSE_FIELD_DOUBLE(marker_separation)
+        PARSE_FIELD(first_marker_id)
+        PARSE_ENUM(corner, FieldCorner)
+        PARSE_FIELD_DOUBLE(board_offset_x)
+        PARSE_FIELD_DOUBLE(board_offset_y)
+        PARSE_FIELD_DOUBLE(board_offset_z)
+        PARSE_FIELD_DOUBLE(board_yaw_deg)
+        PARSE_FIELD_DOUBLE(board_pitch_deg)
+        PARSE_FIELD_DOUBLE(field_size_x)
+        PARSE_FIELD_DOUBLE(field_size_y)
+        PARSE_FIELD(min_markers)
+        PARSE_FIELD(accumulate_frames)
+        PARSE_FIELD_DOUBLE(max_reprojection_error_px)
+    )
+    // clang-format on
+};
+
 std::shared_ptr<FieldFilterInterface> make_field_filter(const FieldFilterConfiguration &config);
 std::shared_ptr<HazardAssembler> make_hazard_assembler(const FieldFilterConfiguration &config,
                                                        std::shared_ptr<ClockInterface> clock);

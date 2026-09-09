@@ -10,20 +10,24 @@ Every command runs from the repo root with the venv active:
 source scripts/activate_python.sh
 ```
 
-## 1. Build the combined MCAP
+## 1. Get a recording that carries frames
 
-Skip this if you already have a `<raw>__<svo_stem>.mcap`.
+An RGB-camera recording already does: it carries H.264 on `/camera/video` in the same file as
+the pipeline output, and `make_eval_dataset.py` reads it directly. Skip to step 2.
+
+A ZED-era recording does not. The frames live in a separate `.svo2` and the MCAP carries neither
+JPEG nor video. `scripts/combine_mcap_svo.py` used to merge the two; it was deleted when video
+moved into the recording, and it is still reachable in git history for the SVO corpus:
 
 ```bash
-python scripts/combine_mcap_svo.py data/recordings/<raw>.mcap
+git log --diff-filter=D -1 --format=%H -- scripts/combine_mcap_svo.py   # the commit that removed it
+git show <that commit>^:scripts/combine_mcap_svo.py > /tmp/combine_mcap_svo.py
+python /tmp/combine_mcap_svo.py data/recordings/<raw>.mcap
 ```
 
-The raw MCAP from a fight carries no images. This merges in the SVO's frames on
-`/camera/image` and writes `data/recordings/<raw>__<svo_stem>.mcap`. Requires
-`ZED_SVO_Editor` on PATH.
-
-`ZED_SVO_Editor` prompts for its output path and defaults to a file next to its input, so if
-you ever run it by hand, pipe the path you want on stdin or it writes into `data/svo/`.
+That writes `data/recordings/<raw>__<svo_stem>.mcap` and requires `ZED_SVO_Editor` on PATH.
+`ZED_SVO_Editor` prompts for its output path and defaults to a file next to its input, so if you
+run it by hand, pipe the path you want on stdin or it writes into `data/svo/`.
 
 ## 2. Register the SVO in the playback config
 

@@ -15,6 +15,10 @@ McapRecorderConfig load_mcap_config_from_toml(const toml::table& toml_data,
     ConfigParser parser(*section, "mcap");
     config.enable = parser.get_optional_bool("enable", config.enable);
     config.ignored_topics = parser.get_optional_vector<std::string>("ignored_topics");
+    config.max_size_gb = static_cast<uint64_t>(
+        parser.get_optional_int("max_size_gb", static_cast<int64_t>(config.max_size_gb)));
+    config.holding_dir_max_size_gb = static_cast<uint64_t>(parser.get_optional_int(
+        "holding_dir_max_size_gb", static_cast<int64_t>(config.holding_dir_max_size_gb)));
     parser.validate_no_extra_fields();
 
     parsed_sections.push_back("mcap");

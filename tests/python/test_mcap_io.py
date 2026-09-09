@@ -44,7 +44,7 @@ def recording(tmp_path_factory: pytest.TempPathFactory) -> Path:
         )
         writer.log_json(
             "/camera/frame_meta",
-            {"image_stamp_ns": str(IMAGE_STAMP_NS), "svo_frame_index": 42, "svo_path": "x.svo2"},
+            {"image_stamp_ns": str(IMAGE_STAMP_NS), "video_frame_index": 42},
             LOG_TIME,
         )
         matrix = np.eye(4)
@@ -215,11 +215,10 @@ def test_frame_meta(recording: Path) -> None:
     data = _one(recording, "/camera/frame_meta")
     meta = mcap_io.decode_frame_meta(data)
     assert meta.image_stamp_ns == IMAGE_STAMP_NS
-    assert meta.svo_frame_index == 42
-    assert meta.svo_path == "x.svo2"
+    assert meta.video_frame_index == 42
     # The wire form is a string; a JSON number would have lost precision in JavaScript.
     assert json.loads(mcap_io.decode_string(data))["image_stamp_ns"] == str(IMAGE_STAMP_NS)
-    bare = json.dumps({"image_stamp_ns": IMAGE_STAMP_NS, "svo_frame_index": -1, "svo_path": ""})
+    bare = json.dumps({"image_stamp_ns": IMAGE_STAMP_NS, "video_frame_index": -1})
     tagged = mcap_io.MessageBytes(bare.encode(), "json", "", "/camera/frame_meta")
     assert mcap_io.decode_frame_meta(tagged).image_stamp_ns == IMAGE_STAMP_NS
 

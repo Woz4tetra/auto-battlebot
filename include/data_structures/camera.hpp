@@ -20,21 +20,19 @@ struct CameraInfo {
 };
 
 /**
- * @brief Which camera frame a pipeline output came from.
+ * @brief Which camera frame a piece of pipeline output came from.
  *
- * Header::stamp is a double holding sl::TIME_REFERENCE::IMAGE, which sits roughly half a frame
- * off the timestamp the SVO recorder writes for the same grab. That makes it impossible to join
- * recorded pipeline output back to SVO frames after the fact by timestamp alone. Recording the
- * SVO file and the frame's index within it gives an exact key instead. `image_stamp_ns` keeps
- * the raw integer timestamp so the join can be validated without the double's rounding.
+ * `Header::stamp` is a double, so it cannot carry a nanosecond stamp losslessly; `image_stamp_ns`
+ * keeps the raw integer, which is what relates a video frame to the pipeline messages around it
+ * without decoding anything. `video_frame_index` is the ordinal of the frame within the video
+ * stream, so `start_frame` on playback has an unambiguous meaning across a rollover boundary.
+ *
+ * There is no path field. Video now lives on `/camera/video` inside the same MCAP as the pipeline
+ * output, so there is no second file to join to.
  */
 struct FrameIdentity {
-    /// Raw sl::TIME_REFERENCE::IMAGE nanoseconds, before any conversion to double seconds.
     uint64_t image_stamp_ns = 0;
-    /// Index of this frame within svo_path, or -1 when SVO recording is off.
-    int64_t svo_frame_index = -1;
-    /// Active SVO file, or empty when SVO recording is off. Resets index on rollover.
-    std::string svo_path;
+    int64_t video_frame_index = -1;
 };
 
 struct CameraData {

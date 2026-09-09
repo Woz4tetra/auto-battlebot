@@ -76,18 +76,16 @@ TEST_F(CameraCalibrationAdapterTest, EncodesToProtobuf) {
 TEST(FrameMetaJsonTest, StampIsStringAndPathIsEscaped) {
     FrameIdentity identity;
     identity.image_stamp_ns = 1788011445339499712ull;
-    identity.svo_frame_index = 42;
-    identity.svo_path = "data/svo/a \"b\".svo2";
+    identity.video_frame_index = 42;
     EXPECT_EQ(foxglove_adapters::to_frame_meta_json(identity),
-              "{\"image_stamp_ns\":\"1788011445339499712\",\"svo_frame_index\":42,"
-              "\"svo_path\":\"data/svo/a \\\"b\\\".svo2\"}");
+              "{\"image_stamp_ns\":\"1788011445339499712\",\"video_frame_index\":42}");
 }
 
 TEST(FrameMetaJsonTest, NoSvoRecording) {
     FrameIdentity identity;
     identity.image_stamp_ns = 7;
     EXPECT_EQ(foxglove_adapters::to_frame_meta_json(identity),
-              "{\"image_stamp_ns\":\"7\",\"svo_frame_index\":-1,\"svo_path\":\"\"}");
+              "{\"image_stamp_ns\":\"7\",\"video_frame_index\":-1}");
 }
 
 }  // namespace auto_battlebot

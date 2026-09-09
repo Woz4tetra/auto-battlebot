@@ -57,6 +57,16 @@ FetchContent_Declare(
     UPDATE_DISCONNECTED TRUE
 )
 
+# MCAP reader. The Foxglove SDK writes but does not read, and VideoPlaybackCamera has to read
+# /camera/video back out of a recording.
+FetchContent_Declare(
+    mcap
+    GIT_REPOSITORY https://github.com/foxglove/mcap.git
+    GIT_TAG releases/cpp/v1.4.0
+    GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
@@ -90,6 +100,17 @@ else()
     FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum lvgl spdlog)
 endif()
 
+# mcap ships no CMake target, just headers plus a single-TU implementation define.
+FetchContent_MakeAvailable(mcap)
+add_library(mcap_reader STATIC "${CMAKE_CURRENT_SOURCE_DIR}/src/rgbd_camera/mcap_impl.cpp")
+set_target_properties(mcap_reader PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(mcap_reader SYSTEM PUBLIC "${mcap_SOURCE_DIR}/cpp/mcap/include")
+target_compile_options(mcap_reader PRIVATE -w)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LZ4 REQUIRED IMPORTED_TARGET liblz4)
+pkg_check_modules(ZSTD REQUIRED IMPORTED_TARGET libzstd)
+target_link_libraries(mcap_reader PUBLIC PkgConfig::LZ4 PkgConfig::ZSTD)
+
 # Find required packages
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(Threads REQUIRED)
@@ -107,17 +128,37 @@ if(NOT SDL2_FOUND)
 else()
     set(SDL2_TARGET SDL2::SDL2)
 endif()
-find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui dnn)
+# 4.10 asserted, not preferred: cv::aruco moved from contrib into core opencv_objdetect at 4.7
+# and the API changed with it, so FiducialFieldFilter needs 4.7+ everywhere or it needs version
+# guards it would never shed. apt ships 4.5.4 on jammy and 4.6.0 on noble, both too old;
+# install/install_opencv.sh builds 4.10.0 into /usr/local on every platform, which is what the
+# Jetson already ran. If this fails after that install, build/CMakeCache.txt still pins the old
+# OpenCV_DIR: run ./scripts/clean_build.sh.
+find_package(OpenCV 4.10 REQUIRED COMPONENTS core imgproc highgui dnn objdetect calib3d)
 find_package(Eigen3 REQUIRED)
+# PCL is only reachable from PointCloudFieldFilter and data_structures/point_cloud.hpp. It stays
+# unconditional while FieldDescriptionWithInlierPoints carries a cloud; it goes when the depth
+# field filter does.
 find_package(PCL REQUIRED COMPONENTS common sample_consensus)
 
-# Find ZED SDK
-find_package(ZED 5 REQUIRED)
+# H.264 for /camera/video: encode on the RGB camera, decode on playback. One dependency covering
+# h264_nvenc on the desktop, h264_nvv4l2m2m on the Jetson, and libx264 as the fallback.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
+
+# ZED SDK. Off on the RGB-camera box, which has no SDK to install; on everywhere else, because
+# every SVO in data/svo/, the keypoint corpora, and the eval ground truth are tied to this path.
+option(BUILD_WITH_ZED "Build the ZED camera and SVO playback backends" ON)
+if(BUILD_WITH_ZED)
+    find_package(ZED 5 REQUIRED)
+endif()
 find_package(CUDA REQUIRED)
 find_package(TensorRT REQUIRED)
 
 # Mark SDK headers as system headers to suppress their warnings
-include_directories(SYSTEM ${ZED_INCLUDE_DIRS})
+if(BUILD_WITH_ZED)
+    include_directories(SYSTEM ${ZED_INCLUDE_DIRS})
+endif()
 include_directories(SYSTEM ${CUDA_INCLUDE_DIRS})
 include_directories(SYSTEM ${TensorRT_INCLUDE_DIRS})
 include_directories(SYSTEM ${PCL_INCLUDE_DIRS})
@@ -153,7 +194,9 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 # Note: tomlplusplus include directories are handled automatically by FetchContent
 
 # Link directories
-link_directories(${ZED_LIBRARY_DIR})
+if(BUILD_WITH_ZED)
+    link_directories(${ZED_LIBRARY_DIR})
+endif()
 link_directories(${CUDA_LIBRARY_DIRS})
 
 # Create shared library with core auto_battlebot functionality
@@ -164,6 +207,15 @@ file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES CONFIGURE_DEPENDS
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
 # Keep LVGL/SDL UI units out of the shared library.
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*lvgl_ui.*\\.cpp$")
+list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/mcap_impl\\.cpp$")
+# The glob is recursive, so dropping the ZED backends means filtering them out here rather than
+# wrapping an explicit list. PointCloudFieldFilter goes with them: it needs a depth image, and
+# outside simulation the ZED is the only camera that produces one.
+if(NOT BUILD_WITH_ZED)
+    list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/zed_.*\\.cpp$")
+    list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/rgbd_camera/svo_recorder\\.cpp$")
+    list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/field_filter/point_cloud_.*\\.cpp$")
+endif()
 
 add_library(auto_battlebot_lib SHARED
     ${AUTO_BATTLEBOT_SOURCES}
@@ -246,6 +298,8 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     Eigen3::Eigen
     ${OpenCV_LIBS}
     Threads::Threads
+    PkgConfig::FFMPEG
+    mcap_reader
     ${ZED_LIBRARIES}
     ${CUDA_LIBRARIES}
     ${TensorRT_LIBRARIES}
@@ -271,6 +325,10 @@ set(RELEASE_COMPILE_FLAGS
     -DNDEBUG
 )
 
+if(BUILD_WITH_ZED)
+    target_compile_definitions(auto_battlebot_lib PUBLIC BUILD_WITH_ZED)
+endif()
+
 # Compiler flags for the library
 if(BUILD_DEBUG)
     target_compile_options(auto_battlebot_lib PRIVATE
@@ -285,7 +343,7 @@ else()
 endif()
 
 # ZED SDK doesn't support debug builds - override flags for ZED-related source files
-if(BUILD_DEBUG)
+if(BUILD_DEBUG AND BUILD_WITH_ZED)
     set_source_files_properties(
         src/rgbd_camera/zed_rgbd_camera.hpp
         src/rgbd_camera/zed_rgbd_camera.cpp

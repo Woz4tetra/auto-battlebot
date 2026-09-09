@@ -1,0 +1,39 @@
+# RGB-camera box: e-CAM25_CUONX over V4L2, no ZED, no depth. Built with -DBUILD_WITH_ZED=OFF, so
+# ZedRgbdCamera and PointCloudFieldFilter are not registered and naming either fails at parse.
+#
+# Everything that read depth changes with it:
+#   - the field filter fits the mat outline in RGB, or reads a per-cage calibration, or solves off
+#     a fiducial board. PointCloudFieldFilter is gone.
+#   - the height gate abstains on an empty depth image, so its rejection stops. The static gate
+#     takes over: it is the only candidate left, and 91% of MassD false positives sit in fixed
+#     field-frame clusters, which is what it is built for.
+#   - /field_points stops publishing. to_field_point_cloud already returns nullopt on an empty
+#     cloud and the publisher handles that.
+extends = "_jetson"
+
+[rgbd_camera]
+type = "V4l2RgbCamera"
+device = "/dev/video0"
+camera_resolution = "RES_1920x1200"
+camera_fps = 60
+calibration_file = "config/cameras/ecam25_example.toml"
+
+[field_filter]
+# The mode for a venue nobody has surveyed: it depends on nothing we have to segment and on no
+# assumed mat size. Swap to CalibratedFieldFilter once a cage has been measured and the
+# quick-connect fixture is repeatable, and to HomographyFieldFilter to fit the outline live.
+type = "FiducialFieldFilter"
+corner = "NEG_X_NEG_Y"
+board_offset_x = 0.2
+board_offset_y = 0.2
+field_size_x = 2.35
+field_size_y = 2.35
+
+[keypoint_filter.height]
+# No depth to measure relief against. It abstains on its own; this says so out loud.
+reject_enable = false
+
+[keypoint_filter.static]
+# On, because it is what is left. The end-to-end cost against the height gate is measured on the
+# ZED recordings, not assumed: see docs/plans/rgb_camera_migration_2026-09-09.md section 3.
+enable = true

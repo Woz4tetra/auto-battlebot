@@ -1,0 +1,21 @@
+# Placeholder until the lens is calibrated. Every number here is backed out of e-con's spec sheet,
+# whose three field-of-view figures imply three different focal lengths (741, 1006 and 550 px), so
+# none of them is measured. The vertical figure sits closest to the axis and is least inflated by
+# barrel distortion, which is why fx starts at 1006.
+#
+# Replace this file with a real checkerboard run, shot through an offcut of the cage panel at the
+# mounted standoff. A flat sheet in the optical path refracts increasingly toward the frame edges,
+# which is exactly where the field boundary sits, and calibrating in free air folds that error into
+# the field pose where no reprojection residual will show it.
+calibration_id = "ecam25_example"
+width = 1920
+height = 1200
+fx = 1006.0
+fy = 1006.0
+cx = 960.0
+cy = 600.0
+k1 = 0.0
+k2 = 0.0
+p1 = 0.0
+p2 = 0.0
+k3 = 0.0
