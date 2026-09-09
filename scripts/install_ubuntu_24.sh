@@ -15,6 +15,7 @@ source "$PROJECT_ROOT/install/install_docker_ubuntu.sh"
 source "$PROJECT_ROOT/install/install_foxglove_sdk.sh"
 source "$PROJECT_ROOT/install/install_mcap_cli.sh"
 source "$PROJECT_ROOT/install/install_taplo.sh"
+source "$PROJECT_ROOT/install/install_clang_tidy_cache.sh"
 source "$PROJECT_ROOT/install/install_python_environment.sh"
 source "$PROJECT_ROOT/install/install_platformio.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
@@ -30,6 +31,7 @@ install_docker_ubuntu
 install_foxglove_sdk
 install_mcap_cli
 install_taplo
+install_clang_tidy_cache
 install_python_environment -n
 install_platformio
 build_cpp_project "$@"

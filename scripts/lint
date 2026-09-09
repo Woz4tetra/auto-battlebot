@@ -10,7 +10,7 @@
 #   2. taplo          TOML under config/                  (apply, or --dry-run check)
 #   3. ruff format    Python under scripts/ etc.          (apply, or --dry-run check)
 #   4. ruff check     Python lint                         (report)
-#   5. clang-tidy     C/C++ lint over src/  [slow]        (report; needs build/)
+#   5. clang-tidy     C/C++ lint over src/  [cached]      (report; needs build/)
 #   6. mypy           Python type check (scope from mypy.ini)  [slow]
 #
 # Options:
@@ -106,6 +106,32 @@ fi
 
 LLVM_HINT="run install/install_llvm_toolchain.sh"
 
+# ---- clang-tidy result cache (ctcache) ----
+# clang-tidy re-parses every translation unit from scratch, so a full pass over
+# src/ costs ~48s. ctcache keys on a hash of the preprocessed TU and replays the
+# stored diagnostics on a hit, which brings an unchanged run down to ~11s. The
+# hash is taken after preprocessing, so comment- and whitespace-only edits stay
+# cache hits.
+#
+# Upstream's wrapper takes the real binary from CTCACHE_CLANG_TIDY, which is how
+# the pinned clang-tidy still gets used. Install it with
+# install/install_clang_tidy_cache.sh; without it lint still runs, just uncached.
+CTCACHE_WRAPPER="$HOME/.local/share/ctcache/clang-tidy"
+if [ -n "$CLANG_TIDY" ] && [ -x "$CTCACHE_WRAPPER" ]; then
+    # The wrapper execs this path directly and defaults to /usr/bin/clang-tidy,
+    # so it needs the resolved binary, not the bare name.
+    export CTCACHE_CLANG_TIDY="$(command -v "$CLANG_TIDY")"
+    # Cache translation units that emit warnings too, and store their output for
+    # replay. Without this only clean TUs are cached, so anything currently
+    # warning is re-analysed on every run.
+    export CTCACHE_SAVE_OUTPUT=1
+    # Default is /tmp/ctcache-$USER, which a reboot wipes.
+    export CTCACHE_DIR="${CTCACHE_DIR:-$HOME/.cache/ctcache}"
+    TIDY_BINARY="$CTCACHE_WRAPPER"
+else
+    TIDY_BINARY="$CLANG_TIDY"
+fi
+
 # mode-label: "check" under --dry-run, else "apply", for formatter headers.
 mode_label() { [ "$DRY_RUN" = true ] && echo "check" || echo "apply"; }
 
@@ -191,7 +217,7 @@ else
     missing "ruff check" "ruff"
 fi
 
-# ---- 5. clang-tidy (C/C++ lint) — slow ----
+# ---- 5. clang-tidy (C/C++ lint) — slow when the ctcache entries are cold ----
 header "clang-tidy"
 if [ "$QUICK" = true ]; then
     skipped_quick "clang-tidy"
@@ -201,7 +227,7 @@ elif [ ! -f "$BUILD_DIR/compile_commands.json" ]; then
     echo -e "${RED}    ✗ clang-tidy (no build/compile_commands.json — run scripts/build.sh)${NC}"
     FAILED+=("clang-tidy")
 else
-    "$RUN_CLANG_TIDY" -p "$BUILD_DIR" -clang-tidy-binary "$CLANG_TIDY" \
+    "$RUN_CLANG_TIDY" -p "$BUILD_DIR" -clang-tidy-binary "$TIDY_BINARY" \
         "^${PROJECT_ROOT}/src/"
     record "clang-tidy" $?
 fi

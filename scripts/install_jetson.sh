@@ -17,6 +17,7 @@ source "$PROJECT_ROOT/install/install_foxglove_sdk.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
 source "$PROJECT_ROOT/install/install_mcap_cli.sh"
 source "$PROJECT_ROOT/install/install_taplo.sh"
+source "$PROJECT_ROOT/install/install_clang_tidy_cache.sh"
 source "$PROJECT_ROOT/install/install_udev_rules.sh"
 source "$PROJECT_ROOT/install/install_ds3231_rtc.sh"
 source "$PROJECT_ROOT/install/install_pstore_ramoops.sh"
@@ -37,6 +38,7 @@ install_pytorch_jetson
 install_foxglove_sdk
 install_mcap_cli
 install_taplo
+install_clang_tidy_cache
 build_cpp_project "$@"
 install_udev_rules
 install_ds3231_rtc

@@ -144,6 +144,19 @@ without modifying files and `--quick` to skip the slow checks.
 
 Hooks run `./scripts/lint --quick` automatically on every stop.
 
+The clang-tidy step is cached by [ctcache](https://github.com/matus-chochlik/ctcache),
+pinned and installed by `install/install_clang_tidy_cache.sh` to
+`~/.local/share/ctcache`. It hashes the preprocessed translation unit and replays
+stored diagnostics on a hit, so a full run drops from ~50s to ~7s; comment- and
+whitespace-only edits stay cache hits. Entries live in `~/.cache/ctcache`.
+
+```bash
+rm -rf ~/.cache/ctcache        # drop the cache
+CTCACHE_DISABLE=1 ./scripts/lint  # one uncached run, to check the cache is honest
+```
+
+Lint still works without it installed, just uncached.
+
 ## Writing
 
 Applies to everything generated in this repo: reports, analysis write-ups,
