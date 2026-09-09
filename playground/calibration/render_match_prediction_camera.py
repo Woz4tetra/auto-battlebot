@@ -32,19 +32,19 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from auto_battlebot import svo2
-from auto_battlebot.calibration.match_windows import (
+from auto_battlebot.calibration.match.match_windows import (
     build_match_run,
     load_commands,
     load_replay_track,
 )
-from auto_battlebot.mcap_io import (
+from auto_battlebot.control.plant import FULL_MODEL, PlantParams, wrap_angle
+from auto_battlebot.recording import svo2
+from auto_battlebot.recording.mcap_io import (
     decode_camera_info,
     decode_string,
     decode_tf_message,
     iter_messages,
 )
-from auto_battlebot.plant import FULL_MODEL, PlantParams, wrap_angle
 from playground.calibration.render_match_prediction import ROBOT_HALF_M, predict_track
 
 BLUE = (200, 100, 30)  # BGR

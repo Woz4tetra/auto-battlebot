@@ -14,8 +14,7 @@ from a per-pixel median over sampled frames: robots are absent from any given pi
 in most samples, so the median has no robots on it and the hull has no holes to
 repair.
 
-Requires ``training/deeplab`` on PYTHONPATH for the sibling ``load_deeplabv3``
-import, the same convention ``training/synthetic`` documents in its README.
+The DeepLab loader lives in ``auto_battlebot.segmentation``, so this imports normally.
 """
 
 from __future__ import annotations
@@ -38,11 +37,12 @@ class FieldSegmenter:
     def __init__(self, checkpoint: Path = DEEPLAB_CHECKPOINT) -> None:
         try:
             import torch
-            from load_deeplabv3 import common_transforms, load_model
+
+            from auto_battlebot.segmentation.load_deeplabv3 import common_transforms, load_model
         except ImportError as error:  # pragma: no cover - environment problem, not logic
             raise ImportError(
-                "DeepLab helpers not importable. Run with PYTHONPATH=training/deeplab "
-                f"from the repo root. Original error: {error}"
+                "DeepLab helpers not importable. Install the project with "
+                f"`pip install -e .` so auto_battlebot resolves. Original error: {error}"
             ) from error
 
         self._torch = torch

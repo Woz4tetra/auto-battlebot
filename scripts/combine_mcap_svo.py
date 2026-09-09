@@ -48,7 +48,7 @@ from mcap.stream_reader import StreamReader
 from mcap.writer import Writer
 from tqdm import tqdm
 
-from auto_battlebot import mcap_io, mcap_write, svo2
+from auto_battlebot.recording import mcap_io, mcap_write, svo2
 
 logger = logging.getLogger("combine_mcap_svo")
 

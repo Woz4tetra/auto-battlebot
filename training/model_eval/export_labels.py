@@ -37,7 +37,7 @@ import cv2
 import yaml
 from tqdm import tqdm
 
-from auto_battlebot.mcap_io import (
+from auto_battlebot.recording.mcap_io import (
     BLOB_DETECTIONS_TOPIC,
     CAMERA_IMAGE_TOPIC,
     KEYPOINT_DETECTIONS_TOPIC,

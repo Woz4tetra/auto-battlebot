@@ -43,17 +43,17 @@ from scipy.stats import chi2
 
 DEFAULT_CALIBRATION = Path(__file__).resolve().parent / "jig_calibration.toml"
 
-from auto_battlebot.calibration.jig_fit import build_windows, load_all
-from auto_battlebot.plant import (
+from auto_battlebot.calibration.jig.jig_fit import build_windows, load_all
+from auto_battlebot.calibration.jig.velocity_jig import (
+    JigCalibration,
+)
+from auto_battlebot.control.plant import (
     MODEL_LADDER,
     ModelStructure,
     PlantParams,
     WindowErrors,
     predict_windows,
     toml_float,
-)
-from auto_battlebot.velocity_jig import (
-    JigCalibration,
 )
 
 # Horizon grid for the noise model. Denser than the fit grid because the covariance has to be

@@ -12,11 +12,11 @@
 #include "tensorrt_inference/trt_engine.hpp"
 
 namespace auto_battlebot {
-// Bounding-box-only variant of YoloSegRobotBlobModel. Runs a plain YOLO detect
-// engine (output [1, 4 + num_classes, num_predictions]) with no mask-prototype
-// branch, so it is narrower and faster on the same images. Downstream consumers
-// only need box centers and the front/back midline, both of which come straight
-// from the box, so dropping the segmentation head costs nothing they read.
+// Runs a plain YOLO detect engine (output [1, 4 + num_classes, num_predictions])
+// with no mask-prototype branch, so it is narrower and faster than a segmentation
+// engine on the same images. Downstream consumers only need box centers and the
+// front/back midline, both of which come straight from the box, so dropping the
+// segmentation head costs nothing they read.
 // See docs/experiments/perception_performance/seg_vs_bbox_2026-07-18.md.
 class YoloBboxRobotBlobModel : public RobotBlobModelInterface {
    public:

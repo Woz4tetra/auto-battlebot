@@ -49,10 +49,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-from field_labels import UNCLASSIFIED
-from load_deeplabv3 import common_transforms, load_model
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+
+from auto_battlebot.segmentation.field_labels import UNCLASSIFIED
+from auto_battlebot.segmentation.load_deeplabv3 import common_transforms, load_model
 
 FIELD_CLASS = 1  # channel 1 of the model head is the field; channel 0 is background
 UNKNOWN_FIELD = "unknown"

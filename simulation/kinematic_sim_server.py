@@ -70,9 +70,9 @@ Pose = tuple[float, float, float]  # x, y, yaw in the field frame
 # ---------------------------------------------------------------------------
 
 
-# Internal integration substep. Mirrors auto_battlebot/plant.py. At the calibrated 31.7 rad/s
-# top yaw rate this is 0.06 rad of rotation per substep; a whole 33 ms tick is 1.05 rad, where
-# straight-line integration of an arc is wrong by tens of degrees of heading.
+# Internal integration substep. Mirrors auto_battlebot/control/plant.py. At the calibrated
+# 31.7 rad/s top yaw rate this is 0.06 rad of rotation per substep; a whole 33 ms tick is
+# 1.05 rad, where straight-line integration of an arc is wrong by tens of degrees of heading.
 SUBSTEP_S = 0.002
 # Below this yaw rate the arc radius v/w blows up, so fall back to the straight-line form.
 STRAIGHT_W = 1e-6
@@ -81,7 +81,8 @@ STRAIGHT_W = 1e-6
 class Plant:
     """Unicycle with first-order velocity lag (coast) and wall clamping.
 
-    Term for term the same drivetrain model as auto_battlebot/plant.py, which is what the
+    Term for term the same drivetrain model as auto_battlebot/control/plant.py, which is
+    what the
     velocity jig fits: per-sign deadzone and gain, steer-brake and angular-droop coupling on the
     steady-state target, asymmetric first-order lag, exact arc integration on 2 ms substeps. The
     transport delay lives outside this class, in the server's command ring buffer.

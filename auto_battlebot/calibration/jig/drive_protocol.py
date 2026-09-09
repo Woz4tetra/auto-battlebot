@@ -1,0 +1,546 @@
+"""Trainer link to the OpenTX/EdgeTX radio: writes commands, reads back what was sent.
+
+Mirrors the trainer protocol in `src/transmitter/opentx_transmitter.cpp`. The radio is a USB
+CDC device (VID 0x0483, PID 0x5740) primed once with `telemetry on` + `channels on`, then
+driven with `trainer <channel> <value>` at 50 Hz, value in [-500, 500].
+
+**One port, both directions.** The same serial port that accepts `trainer` writes also
+streams the radio's mixer output back once primed. Reading that back matters because
+trainer mode *adds* to the human driver's sticks: the mixer output is the command the robot
+actually received, not the one this process asked for. Two consequences:
+
+- A hand-driven run has a real command log. Without the readback it has a column of zeros
+  and is unusable for fitting.
+- A scripted run gets a contamination check. If the driver's stick is not centered, measured
+  diverges from commanded and the run can be flagged instead of quietly poisoning the fit.
+
+Commands are sent RAW. The deployed transmitter applies `DifferentialDriveProcessor`'s
+lifted and zero deadzones; this does not, because the physical deadzone is exactly what is
+being measured and pre-compensating it here would measure the compensation.
+
+SAFETY
+- The robot moves fast. Run in a clear, bounded space with guard plates on.
+- Keep the human driver's sticks centered: in trainer mode the radio ADDS stick input.
+- Zero the channels and disarm on every exit path: normal return, Ctrl-C, exception, and a
+  hard wall-clock timeout. `Armed()` is a context manager that does this.
+"""
+
+from __future__ import annotations
+
+import struct
+import threading
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable, Iterator, Sequence
+
+from serial.tools.list_ports import comports
+
+from auto_battlebot.calibration.jig.velocity_jig import PauseWindow
+
+# Matches kChannelMax / kTrainerMax in opentx_transmitter.cpp.
+TRAINER_MAX = 500
+OPENTX_VID = 0x0483
+OPENTX_PID = 0x5740
+TRANSMITTER_USB_IDS = frozenset({(OPENTX_VID, OPENTX_PID)})
+
+# The two trainer channels this writes. What they MEAN depends on the mix: under "direct"
+# they are linear and angular, under "tank" they are left and right wheel.
+CHANNEL_A = 0
+CHANNEL_B = 1
+
+# Radio channel-stream framing: sync, phase byte (0 = channels 1..16, 1 = 17..32), length
+# byte, 16 little-endian int16, then a checksum equal to phase ^ length ^ every data byte.
+_SYNC = bytes([0xA3, 0xA4, 0xA5])
+_CHANNELS_PER_PACKET = 16
+_NUM_CHANNELS = 32
+_PACKET_LEN = _CHANNELS_PER_PACKET * 2 + 1
+
+
+def find_transmitter_port() -> str | None:
+    for p in comports():
+        if p.vid == OPENTX_VID and p.pid == OPENTX_PID:
+            return str(p.device)
+    return None
+
+
+def to_trainer(value: float) -> int:
+    """Normalized [-1, 1] to the radio's integer range, clamped."""
+    return max(-TRAINER_MAX, min(TRAINER_MAX, round(value * TRAINER_MAX)))
+
+
+@dataclass(frozen=True)
+class MixConfig:
+    """How body command maps onto the two trainer channels, and how to read it back.
+
+    `mode` is "tank" when the robot runs TankDriveProcessor and the radio must carry left
+    and right wheel, or "direct" when the robot's own processor mixes and the channels carry
+    linear and angular. Getting this backwards makes the robot arc on a straight command and
+    spin on a turn, which is why the polarity check exists as a session abort gate.
+    """
+
+    mode: str = "tank"
+    reverse_angular: bool = True
+    channel_scale: float = 1024.0  # full scale of the readback stream
+    # Slots into the radio's channel stream, which is 0-based: slot 0 is what the radio's own
+    # screen calls CH1. The named ones on this model are CH1/CH2 drive, CH3 weapon throttle,
+    # CH5 weapon arm. CH4 is unused and is not logged.
+    read_linear: int = 0
+    read_angular: int = 1
+    read_weapon: int = 2
+    read_arm: int = 4
+    # Per-channel sign on the READ path only. A radio with servo-reverse set on one drive
+    # channel reports it negated while the ESC on that side compensates, so the robot moves
+    # correctly and only the readback disagrees. Without these, a straight command un-mixes
+    # into a pure turn and the contamination gate fires on a perfectly good run. Find them
+    # with `velocity_jig_drive.py --check-radio`.
+    read_invert_a: bool = False
+    # True for this radio, measured with --check-radio: channel B comes back negated.
+    read_invert_b: bool = True
+
+    def to_channels(self, linear: float, angular: float) -> tuple[int, int]:
+        ang = -angular if self.reverse_angular else angular
+        if self.mode != "tank":
+            return to_trainer(linear), to_trainer(ang)
+        # Angular has priority: saturate it first, then give the forward command whatever
+        # authority is left. A turn that gets clipped instead is a turn the fit sees as
+        # commanded but never delivered.
+        ang = max(-1.0, min(1.0, ang))
+        room = 1.0 - abs(ang)
+        lin = max(-room, min(room, linear))
+        return to_trainer(lin + ang), to_trainer(lin - ang)
+
+    def deliverable(self, linear: float, angular: float) -> tuple[float, float]:
+        """What `to_channels` will actually send, back in body units.
+
+        `to_channels` clips before it mixes: angular gets priority and linear is left with
+        `1 - |angular|` of authority. A cell that asks for more than that comes back short
+        through no fault of the driver, so the contamination check has to compare the
+        readback against this rather than against the request. It cost LOG-71: every cell
+        over the bar had `tgt_lin = 1.0` against the 0.24 angular cap, so the mix sent 0.76
+        and the check read the 0.24 clip as a leaning stick.
+
+        Sign does not enter it. `to_channels` negates angular under `reverse_angular` before
+        clipping, and the clip depends only on the magnitude.
+        """
+        ang = max(-1.0, min(1.0, angular))
+        if self.mode != "tank":
+            return max(-1.0, min(1.0, linear)), ang
+        room = 1.0 - abs(ang)
+        return max(-room, min(room, linear)), ang
+
+    def from_channels(self, a: float, b: float) -> tuple[float, float]:
+        """Inverse of `to_channels`, so the log is in body units whatever the mix."""
+        if self.read_invert_a:
+            a = -a
+        if self.read_invert_b:
+            b = -b
+        if self.mode != "tank":
+            lin, ang = a, b
+        else:
+            lin, ang = 0.5 * (a + b), 0.5 * (a - b)
+        return lin, (-ang if self.reverse_angular else ang)
+
+
+@dataclass
+class CommandSample:
+    """One tick: what was asked for, what was sent, and what the radio said it sent."""
+
+    t: float  # time.monotonic()
+    linear: float
+    angular: float
+    trim: float
+    channel_a: int
+    channel_b: int
+    # As reported by the radio. The channels are the measurement; linear and angular are
+    # derived from them through the mix, and are kept only for convenience.
+    meas_ch_a: float = float("nan")
+    meas_ch_b: float = float("nan")
+    meas_linear: float = float("nan")
+    meas_angular: float = float("nan")
+    # Weapon throttle and the weapon arm switch, CH3 and CH5 on the radio. Neither drives
+    # the plant, and both explain a run: the arm says whether the bot was live, and the
+    # throttle says whether the disc was spun up when the gyro saw something it should not.
+    meas_weapon: float = float("nan")
+    meas_arm: float = float("nan")
+    label: str = ""
+
+
+class _ChannelDecoder:
+    """Frames the radio's channel stream. Silent on corruption: a noisy link should not
+    spam the console during a run."""
+
+    def __init__(self) -> None:
+        self._buf = bytearray()
+
+    def feed(self, data: bytes) -> list[tuple[int, list[int]]]:
+        self._buf.extend(data)
+        out: list[tuple[int, list[int]]] = []
+        while True:
+            i = self._buf.find(_SYNC)
+            if i < 0:
+                # Keep the last two bytes: a three-byte sync can straddle two reads.
+                if len(self._buf) > 2:
+                    del self._buf[: len(self._buf) - 2]
+                break
+            if i > 0:
+                del self._buf[:i]
+            if len(self._buf) < len(_SYNC) + 2 + _PACKET_LEN:
+                break
+            phase = self._buf[len(_SYNC)]
+            length = self._buf[len(_SYNC) + 1]
+            if length != _PACKET_LEN:
+                del self._buf[:1]  # bad framing; resync on the next sync word
+                continue
+            start = len(_SYNC) + 2
+            payload = bytes(self._buf[start : start + _PACKET_LEN])
+            del self._buf[: start + _PACKET_LEN]
+            chk = phase ^ length
+            for b in payload[:-1]:
+                chk ^= b
+            if chk != payload[-1] or phase not in (0, 1):
+                continue
+            out.append(
+                (
+                    phase,
+                    [
+                        struct.unpack_from("<h", payload, j)[0]
+                        for j in range(0, _CHANNELS_PER_PACKET * 2, 2)
+                    ],
+                )
+            )
+        return out
+
+
+@dataclass(frozen=True)
+class Measured:
+    """One tick of the named channels, as the radio reported them.
+
+    A record rather than a tuple: this is unpacked at three call sites and the drive pair
+    reads the same as any other pair of floats, so a widening tuple is a silent reordering
+    waiting to happen.
+    """
+
+    ch_a: float = float("nan")
+    ch_b: float = float("nan")
+    weapon: float = float("nan")
+    arm: float = float("nan")
+
+
+class TrainerLink:
+    """Serial link to the radio. Writes trainer commands, decodes the channel stream."""
+
+    def __init__(self, port: str, mix: MixConfig | None = None, *, read_back: bool = True):
+        import serial  # lazy so --dry-run needs no pyserial
+
+        self.mix = mix or MixConfig()
+        self._serial = serial.Serial(port, baudrate=115200, timeout=0.1)
+        self._channels = [0] * _NUM_CHANNELS
+        self._packets = 0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        # Re-prime, same as OpenTxTransmitter::initialize().
+        self._serial.write(b"telemetry on\r\n")
+        self._serial.write(b"channels on\r\n")
+        self._reader: threading.Thread | None = None
+        if read_back:
+            self._reader = threading.Thread(target=self._run, name="trainer-reader", daemon=True)
+            self._reader.start()
+
+    def _run(self) -> None:
+        decoder = _ChannelDecoder()
+        while not self._stop.is_set():
+            try:
+                n = self._serial.in_waiting or 1
+                data = self._serial.read(n)
+            except Exception:
+                break
+            if not data:
+                continue
+            for phase, channels in decoder.feed(data):
+                base = phase * _CHANNELS_PER_PACKET
+                with self._lock:
+                    self._channels[base : base + _CHANNELS_PER_PACKET] = channels
+                    self._packets += 1
+
+    @property
+    def packets(self) -> int:
+        with self._lock:
+            return self._packets
+
+    def measured_raw(self) -> list[float]:
+        """Every channel, normalized by channel_scale and otherwise untouched.
+
+        `measured()` applies the mix and the read inversions; this is what they are inferred
+        from, so it must stay raw.
+        """
+        with self._lock:
+            if self._packets == 0:
+                return []
+            raw = list(self._channels)
+        scale = self.mix.channel_scale or 1.0
+        return [v / scale for v in raw]
+
+    def measured(self) -> Measured:
+        """Latest named channels from the radio, normalized.
+
+        Deliberately the raw channels rather than body units. The radio measures channels;
+        linear and angular are an interpretation that depends on the mix and the per-channel
+        signs, and getting those wrong should be fixable offline rather than costing a
+        re-record. `to_body()` applies the interpretation when one is wanted.
+        """
+        with self._lock:
+            if self._packets == 0:
+                return Measured()
+            raw = list(self._channels)
+        scale = self.mix.channel_scale or 1.0
+        return Measured(
+            ch_a=raw[self.mix.read_linear] / scale,
+            ch_b=raw[self.mix.read_angular] / scale,
+            weapon=raw[self.mix.read_weapon] / scale,
+            arm=raw[self.mix.read_arm] / scale,
+        )
+
+    def to_body(self, a: float, b: float) -> tuple[float, float]:
+        """Two drive channels to (linear, angular), under the configured mix."""
+        if a != a or b != b:  # NaN in, NaN out
+            return float("nan"), float("nan")
+        return self.mix.from_channels(a, b)
+
+    def send(self, linear: float, angular: float) -> tuple[int, int]:
+        a, b = self.mix.to_channels(linear, angular)
+        self._serial.write(f"trainer {CHANNEL_A} {a}\r\n".encode())
+        self._serial.write(f"trainer {CHANNEL_B} {b}\r\n".encode())
+        return a, b
+
+    def disarm(self) -> None:
+        try:
+            self._serial.write(f"trainer {CHANNEL_A} 0\r\n".encode())
+            self._serial.write(f"trainer {CHANNEL_B} 0\r\n".encode())
+            self._serial.flush()
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        self.disarm()
+        self._stop.set()
+        if self._reader:
+            self._reader.join(timeout=0.5)
+        try:
+            self._serial.close()
+        except Exception:
+            pass
+
+
+@dataclass
+class PlayResult:
+    commands: list[CommandSample] = field(default_factory=list)
+    completed: bool = False
+    aborted_reason: str = ""
+    # Every operator pause, in host seconds. The robot is handled inside these windows, so
+    # every gate and every duration downstream drops them; without them a pause reads as one
+    # very long coast tail.
+    pauses: list[PauseWindow] = field(default_factory=list)
+    # The mix the run was played through. Needed to know what the radio could have sent, not
+    # only what it was asked for. Optional so an old caller still builds a usable result,
+    # with the pre-2026-08-23 behaviour of comparing against the raw request.
+    mix: MixConfig | None = None
+    # True for a hand-driven run. The contamination check asks whether the radio sent
+    # something other than what was scripted, and on a manual run nothing is scripted: the
+    # divergence between the zero target and the human's sticks IS the recording. Checking it
+    # reports 1.000 every time and discards the one run that tests real driving.
+    manual: bool = False
+
+    # Ticks to ignore after the command changes. The radio reports its mixer output on its
+    # own schedule, so `measured` lags `commanded` by a tick or two. At a step edge that lag
+    # makes the two differ by the full step height, which has nothing to do with the driver.
+    SETTLE_TICKS = 4
+
+    @property
+    def contamination(self) -> float:
+        """How far the radio's own report of what it sent diverges from what we asked for.
+
+        Trainer mode sums the scripted command with the human's sticks, so a persistent gap
+        means a second, unlogged input is in the run. Anything above roughly 0.05 is worth
+        discarding over.
+
+        Measured over held stretches only, and reported as a high percentile rather than the
+        maximum. Both matter: comparing sample-by-sample across a step edge measures the
+        radio's reporting lag, and a single outlying tick is not evidence of a leaning stick.
+
+        The comparison is against what the mix could deliver, not against what was asked for.
+        A grid cell that asks for more authority than the mix has left gets clipped on the
+        way out, and calling that clip a leaning stick discarded LOG-71 on 2026-08-20.
+        """
+        if self.manual:
+            return 0.0
+        diffs = []
+        settle = 0
+        prev: tuple[float, float] | None = None
+        for c in self.commands:
+            asked = (c.linear, c.angular + c.trim)
+            target = self.mix.deliverable(*asked) if self.mix is not None else asked
+            if prev is not None and target != prev:
+                settle = self.SETTLE_TICKS
+            prev = target
+            if settle > 0:
+                settle -= 1
+                continue
+            if c.meas_linear != c.meas_linear:  # NaN: no readback yet
+                continue
+            diffs.append(max(abs(c.meas_linear - target[0]), abs(c.meas_angular - target[1])))
+        if not diffs:
+            return 0.0
+        import numpy as np
+
+        return float(np.percentile(diffs, 95))
+
+
+def play(
+    link: TrainerLink,
+    program: Any,
+    *,
+    rate_hz: float = 50.0,
+    trim: float = 0.0,
+    stop_event: threading.Event | None = None,
+    timeout_s: float | None = None,
+    on_tick: Callable[[CommandSample], None] | None = None,
+    pause_at: Sequence[float] | None = None,
+    on_pause: Callable[[int, int], None] | None = None,
+) -> PlayResult:
+    """Play one excitation program, logging every tick on CLOCK_MONOTONIC.
+
+    `trim` is added to the angular channel and recorded in its own column. It is never a
+    hidden offset: a trimmed straight run is a two-input excitation, and a fit that does not
+    know about the second input attributes its effect to the first.
+
+    `pause_at` lists program times to stop at, and `on_pause(index, count)` blocks there
+    until the operator is done. The channels are zeroed first, the program clock and the
+    timeout both stop for the duration, and the excitation resumes on the exact command it
+    was about to send. Nothing is logged while stopped, so the command log has a gap that a
+    zero-order hold reads as the zero command it was: the last tick before a pause always
+    lands in a rest cell.
+
+    The caller owns disarm. This returns on completion, on `stop_event`, or on the hard
+    timeout, and in every case the last thing it sends is a zero command.
+    """
+    result = PlayResult(mix=link.mix)
+    period = 1.0 / rate_hz
+    pending = sorted(float(p) for p in pause_at) if (pause_at and on_pause) else []
+    count = len(pending)
+    t0 = time.monotonic()
+    deadline = t0 + (timeout_s if timeout_s is not None else program.duration_s + 10.0)
+    try:
+        while True:
+            now = time.monotonic()
+            elapsed = now - t0
+            if elapsed >= program.duration_s:
+                result.completed = True
+                break
+            if now >= deadline:
+                result.aborted_reason = "hard wall-clock timeout"
+                break
+            if stop_event is not None and stop_event.is_set():
+                result.aborted_reason = "stop requested"
+                break
+            if on_pause is not None and pending and elapsed >= pending[0]:
+                at = pending.pop(0)
+                # Zero the channels before anyone walks up to the robot. The check sits ahead
+                # of the send below, so the cell after the pause has not started yet and no
+                # drive command reaches the robot while a hand is on it.
+                link.disarm()
+                held = time.monotonic()
+                on_pause(count - len(pending), count)
+                gap = time.monotonic() - held
+                result.pauses.append(PauseWindow(t_start=held, t_end=held + gap, program_t=at))
+                t0 += gap
+                deadline += gap
+                continue
+
+            linear, angular = program.at(elapsed)
+            a, b = link.send(linear, angular + trim)
+            m = link.measured()
+            meas_lin, meas_ang = link.to_body(m.ch_a, m.ch_b)
+            sample = CommandSample(
+                t=now,
+                linear=linear,
+                angular=angular,
+                trim=trim,
+                channel_a=a,
+                channel_b=b,
+                meas_ch_a=m.ch_a,
+                meas_ch_b=m.ch_b,
+                meas_linear=meas_lin,
+                meas_angular=meas_ang,
+                meas_weapon=m.weapon,
+                meas_arm=m.arm,
+                label=_label_at(program, elapsed),
+            )
+            result.commands.append(sample)
+            if on_tick:
+                on_tick(sample)
+            time.sleep(max(0.0, period - (time.monotonic() - now)))
+    finally:
+        link.send(0.0, 0.0)
+    return result
+
+
+def _label_at(program: Any, t: float) -> str:
+    if not getattr(program, "segments", None):
+        return str(program.kind)
+    for seg in program.segments:
+        if seg.t0 <= t < seg.t1:
+            return str(seg.label)
+    return "idle"
+
+
+class Armed:
+    """Context manager that guarantees a disarm.
+
+    Every exit path goes through __exit__: normal return, exception, and Ctrl-C, since
+    KeyboardInterrupt is an exception. The runbook asks the operator to verify this once per
+    session with a deliberate Ctrl-C before trusting the rest of the day.
+    """
+
+    def __init__(self, link: TrainerLink) -> None:
+        self._link = link
+
+    def __enter__(self) -> TrainerLink:
+        return self._link
+
+    def __exit__(self, *exc: object) -> None:
+        self._link.disarm()
+
+
+def stream_measured(
+    link: TrainerLink, seconds: float, rate_hz: float = 50.0
+) -> Iterator[CommandSample]:
+    """Ticks from the radio alone, nothing commanded.
+
+    This is how a hand-driven run gets a command log: the tool sends nothing, the operator
+    drives, and the radio reports what it sent. `linear` and `angular` stay zero because
+    nothing was asked for; the measured channels are the whole record of the run, which is
+    why the weapon pair rides along with the drive pair here.
+    """
+    period = 1.0 / rate_hz
+    t0 = time.monotonic()
+    while True:
+        now = time.monotonic()
+        if now - t0 >= seconds:
+            return
+        m = link.measured()
+        lin, ang = link.to_body(m.ch_a, m.ch_b)
+        yield CommandSample(
+            t=now,
+            linear=0.0,
+            angular=0.0,
+            trim=0.0,
+            channel_a=0,
+            channel_b=0,
+            meas_ch_a=m.ch_a,
+            meas_ch_b=m.ch_b,
+            meas_linear=lin,
+            meas_angular=ang,
+            meas_weapon=m.weapon,
+            meas_arm=m.arm,
+        )
+        time.sleep(max(0.0, period - (time.monotonic() - now)))

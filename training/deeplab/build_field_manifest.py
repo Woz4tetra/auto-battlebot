@@ -38,8 +38,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from field_labels import parse_name
 from tqdm import tqdm
+
+from auto_battlebot.segmentation.field_labels import parse_name
 
 MANIFEST_VERSION = 1
 SPLIT_DIRS = ("train", "val", "test")

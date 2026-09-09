@@ -23,7 +23,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from auto_battlebot.svo2 import find_side_by_side_topic, iter_access_units, sample_fps
+from auto_battlebot.recording.svo2 import find_side_by_side_topic, iter_access_units, sample_fps
 
 _EYES = {0: "left", 1: "right"}
 

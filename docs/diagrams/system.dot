@@ -36,7 +36,7 @@ digraph AutoBattlebotSystem {
   segmentation_keypoints [label="Segmentation / Keypoints"];
   robot_pose_estimation [label="Robot Pose Estimation"];
   transmitter_publisher [label="Transmitter / Publisher"];
-  pursuit_command [label="Pursuit Command"];
+  navigation_command [label="Navigation Command"];
   target_selection [label="Target Selection"];
   real_world [
     label="Real World"
@@ -58,7 +58,7 @@ digraph AutoBattlebotSystem {
     rank=same;
     real_world;
     transmitter_publisher;
-    pursuit_command;
+    navigation_command;
     target_selection;
   }
 
@@ -67,14 +67,14 @@ digraph AutoBattlebotSystem {
   segmentation_keypoints -> robot_pose_estimation [style=invis, weight=10];
   robot_pose_estimation -> row1_pad_right [style=invis, weight=10];
   real_world -> transmitter_publisher [style=invis, weight=10];
-  transmitter_publisher -> pursuit_command [style=invis, weight=10];
-  pursuit_command -> target_selection [style=invis, weight=10];
+  transmitter_publisher -> navigation_command [style=invis, weight=10];
+  navigation_command -> target_selection [style=invis, weight=10];
 
   rgbd_input -> segmentation_keypoints;
   segmentation_keypoints -> robot_pose_estimation;
   robot_pose_estimation -> target_selection [minlen=2];
-  pursuit_command -> transmitter_publisher;
-  target_selection -> pursuit_command;
+  navigation_command -> transmitter_publisher;
+  target_selection -> navigation_command;
   transmitter_publisher -> real_world;
   real_world -> rgbd_input [
     label="feedback"

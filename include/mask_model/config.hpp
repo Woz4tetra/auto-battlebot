@@ -59,23 +59,6 @@ struct FreeRoamMaskModelConfiguration : public MaskModelConfiguration {
     void parse_fields(ConfigParser &parser) override;
 };
 
-struct YoloSegMaskModelConfiguration : public MaskModelConfiguration {
-    EngineSelectorConfiguration engine;
-    std::vector<Label> label_indices;
-    Label output_label = Label::FIELD;
-    float confidence_threshold = 0.5f;
-    float iou_threshold = 0.45f;
-    float mask_threshold = 0.5f;
-    float letterbox_padding = 0.1f;
-    int image_size = 640;
-    int max_detections = 32;
-    bool debug_visualization = false;
-
-    YoloSegMaskModelConfiguration() { type = "YoloSegMaskModel"; }
-
-    void parse_fields(ConfigParser &parser) override;
-};
-
 std::shared_ptr<MaskModelInterface> make_mask_model(const MaskModelConfiguration &config);
 std::unique_ptr<MaskModelConfiguration> parse_mask_model_config(ConfigParser &parser);
 std::unique_ptr<MaskModelConfiguration> load_field_model_from_toml(

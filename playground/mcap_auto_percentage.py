@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from auto_battlebot.diag_io import iter_diagnostic_statuses
+from auto_battlebot.recording.diag_io import iter_diagnostic_statuses
 
 
 def analyze(path: Path) -> None:

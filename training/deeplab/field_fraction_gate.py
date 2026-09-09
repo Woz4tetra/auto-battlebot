@@ -38,7 +38,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 import torch
-from load_deeplabv3 import common_transforms, load_model
+
+from auto_battlebot.segmentation.load_deeplabv3 import common_transforms, load_model
 
 FLOOR_CLASS = 1
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}

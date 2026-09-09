@@ -1,5 +1,8 @@
 # Synthetic + real bbox opponent detector, 2026-07-22
 
+> The mosaic script cited below was deleted on 2026-09-08; the figure it produced is
+> committed alongside this report. See [retired_tooling.md](../retired_tooling.md).
+
 > # ⛔ INVALID — do not cite. Retracted 2026-07-31.
 >
 > **The `real_bbox` baseline was not real.** 16,997 of its 49,086 train frames (34.6 %) are BlenderProc

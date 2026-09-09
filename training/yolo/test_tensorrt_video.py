@@ -1,6 +1,6 @@
 """Run YOLO pose inference on a video using a TensorRT engine file.
 
-Thin CLI around auto_battlebot.trt_yolo (shared with training/model_eval/score.py).
+Thin CLI around auto_battlebot.perception.trt_yolo (shared with training/model_eval/score.py).
 Matches the C++ YoloKeypointModel pipeline: same preprocessing (letterbox, BGR->RGB,
 normalize), same output layout [1, num_features, num_predictions], and same NMS/postprocess.
 
@@ -27,7 +27,7 @@ import numpy as np
 import yaml
 from tqdm import tqdm
 
-from auto_battlebot.trt_yolo import DetectionTuple, TrtYoloModel
+from auto_battlebot.perception.trt_yolo import DetectionTuple, TrtYoloModel
 
 
 def load_class_names(spec: str) -> list[str] | None:

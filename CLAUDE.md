@@ -53,12 +53,22 @@ Do not use `uv run` or create a `uv.lock`. The venv is the intended environment 
 ### Where Python code goes
 
 `auto_battlebot/` and `playground/` are installed packages (`pip install -e .`), so their
-modules import as `auto_battlebot.<module>` and `playground.<subpackage>.<module>` from
-anywhere. `training/`, `scripts/`, `simulation/`, and `logo/` are not packages.
+modules import as `auto_battlebot.<subpackage>.<module>` and `playground.<subpackage>.<module>`
+from anywhere. `training/`, `scripts/`, `simulation/`, and `logo/` are not packages.
 
 - **Shared library code goes in `auto_battlebot/`.** It is the only directory that is both
-  importable and type-checked. Anything two callers need lives here, `playground/calibration/`
-  drivers included (`auto_battlebot/calibration/`).
+  importable and type-checked. Anything two callers need lives here. Its subpackages:
+
+  | Subpackage | Holds |
+  | --- | --- |
+  | `recording/` | Foxglove MCAP read and write, ZED SVO, diagnostics loaders |
+  | `perception/` | Python mirrors of the C++ detector path (`trt_yolo`, `camera_geometry`) |
+  | `segmentation/` | DeepLab field-mask builder, checkpoint metadata, label parsing |
+  | `control/` | The grey-box drivetrain plant the C++ filter mirrors |
+  | `eval/` | Detector scoring: GT loading, detectors, metrics, bootstrap, plots |
+  | `calibration/` | `jig/`, `apriltag/`, `match/`: the three plant-fit paths |
+  | `tensorrt_build` | Engine builder scaffolding shared by both export CLIs |
+
 - `playground/` holds runnable analysis scripts: one CLI per file. It is formatted and linted
   by ruff like the rest of the tree, but stays out of mypy. When a helper in there grows a
   second caller, move it to `auto_battlebot/` rather than importing across script directories.

@@ -55,7 +55,7 @@ import numpy as np
 import yaml
 from scipy.spatial.transform import Rotation, Slerp
 
-from auto_battlebot.mcap_io import (
+from auto_battlebot.recording.mcap_io import (
     decode_camera_info,
     decode_image_stamp_ns,
     decode_scene_update,

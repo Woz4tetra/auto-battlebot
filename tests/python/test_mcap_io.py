@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 import pytest
 
-from auto_battlebot import diag_io, mcap_io, mcap_write
+from auto_battlebot.recording import diag_io, mcap_io, mcap_write
 
 STAMP = 1788011445.339499712
 STAMP_NS = mcap_io.stamp_to_ns(STAMP)

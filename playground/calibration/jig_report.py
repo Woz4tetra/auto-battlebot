@@ -38,7 +38,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from auto_battlebot.calibration.jig_fit import (
+from auto_battlebot.calibration.jig.jig_fit import (
     PARAM_SOURCES,
     FitWeights,
     Loaded,
@@ -46,7 +46,8 @@ from auto_battlebot.calibration.jig_fit import (
     joint_fit,
     window_delay,
 )
-from auto_battlebot.plant import (
+from auto_battlebot.calibration.jig.velocity_jig import Run
+from auto_battlebot.control.plant import (
     PARAM_BOUNDS,
     ModelStructure,
     PlantParams,
@@ -54,7 +55,6 @@ from auto_battlebot.plant import (
     effective_command,
     predict_windows,
 )
-from auto_battlebot.velocity_jig import Run
 
 # Relative spread below which a parameter counts as measured. 10% is the point where the
 # parameter stops being the thing limiting the model.

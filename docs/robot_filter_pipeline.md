@@ -1,8 +1,19 @@
 # Robot filter pipeline
 
-The robot filter turns per-frame perception output into stable, identified robot tracks for navigation.
-The active implementation is `RobotFrontBackSimpleFilter` (`src/robot_filter/robot_front_back_simple_filter.cpp`),
-selected by `[robot_filter] type` in the TOML config. One `update()` call runs per main-loop tick.
+The robot filter turns per-frame perception output into stable, identified robot tracks for
+navigation. The active implementation is `RobotFrontBackFilter`
+(`src/robot_filter/robot_front_back_filter.cpp`), selected by `[robot_filter] type` in the
+TOML config.
+
+It runs on two clocks. `correct()` runs once per perception frame with new detections.
+`predict()` runs every control-loop tick, at 250 Hz, and advances tracks between frames.
+Both are called from `src/control_loop/control_loop.cpp`.
+
+How `predict()` propagates is a swappable `MotionEstimatorInterface`, chosen by
+`[robot_filter.motion_estimator] type`. `DeadReckoningMotionEstimator` coasts along the
+last commanded velocity and only moves our robot, which is the only one with command
+feedback. `KalmanMotionEstimator` is what `config/_common.toml` selects; it coasts
+opponents too, from their estimated velocity.
 
 ![Robot filter pipeline](diagrams/robot_filter.svg)
 
@@ -51,5 +62,6 @@ The output `velocity` field is unused downstream (target selection and navigatio
 load-bearing path is the position prediction (indigo loop in the diagram): during a detection dropout it
 both gives navigation an extrapolated pose instead of a frozen one, and advances the association
 `last_position` (`set_last_position`) so the reappearing detection still matches inside the jump gate.
-This helps the common short dropouts and drifts on rare long ones. See
-`playground/control_stage0/prediction_eval.py` for the playback A/B that measures the effect.
+This helps the common short dropouts and drifts on rare long ones. The playback A/B that
+measured it lived in `playground/control_stage0/`, retired in `9246cc64`; see
+`docs/experiments/control_improvement/control_stage0_retired.md`.

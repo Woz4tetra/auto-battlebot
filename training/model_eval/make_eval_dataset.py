@@ -40,7 +40,7 @@ import yaml
 from mcap.reader import make_reader
 from tqdm import tqdm
 
-from auto_battlebot.mcap_io import (
+from auto_battlebot.recording.mcap_io import (
     CAMERA_IMAGE_TOPIC,
     decode_compressed_image,
     iter_messages,

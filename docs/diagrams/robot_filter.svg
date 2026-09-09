@@ -9,7 +9,7 @@
 <g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 782.93)">
 <title>RobotFilterPipeline</title>
 <polygon fill="white" stroke="transparent" points="-21.6,21.6 -21.6,-782.93 905.6,-782.93 905.6,21.6 -21.6,21.6"/>
-<text text-anchor="middle" x="442" y="-739.73" font-family="Helvetica,sans-Serif" font-size="22.00">Robot Filter Pipeline &#160;(RobotFrontBackSimpleFilter::update)</text>
+<text text-anchor="middle" x="442" y="-739.73" font-family="Helvetica,sans-Serif" font-size="22.00">Robot Filter Pipeline &#160;(RobotFrontBackFilter::correct)</text>
 <!-- field -->
 <g id="node1" class="node">
 <title>field</title>

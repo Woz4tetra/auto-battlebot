@@ -33,9 +33,9 @@ from typing import Any
 
 import tomllib
 
-from auto_battlebot.calibration import drive_protocol as dp
-from auto_battlebot.calibration import jig_link as jl
-from auto_battlebot.velocity_jig import (
+from auto_battlebot.calibration.jig import drive_protocol as dp
+from auto_battlebot.calibration.jig import jig_link as jl
+from auto_battlebot.calibration.jig.velocity_jig import (
     ClockFit,
     ClockProbe,
     PauseWindow,

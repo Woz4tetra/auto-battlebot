@@ -5,8 +5,9 @@ import shutil
 from pathlib import Path
 
 import torch
-from load_deeplabv3 import build_model
-from model_config import config_path_for, load_model_config
+
+from auto_battlebot.segmentation.load_deeplabv3 import build_model
+from auto_battlebot.segmentation.model_config import config_path_for, load_model_config
 
 
 def main() -> None:

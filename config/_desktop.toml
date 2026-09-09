@@ -38,8 +38,10 @@ type = "YoloKeypointModel"
 
 [keypoint_model.engine]
 candidates = [
-  "data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm89.engine",
-  "data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm86.engine",
+  # "data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm89.engine",
+  # "data/models/yolo26n-pose_our_robots_2026-05-01_x86_64_sm86.engine",
+  "data/models/yolo26s-pose_our_robot_keypoints_rect384x640_2026-09-07_x86_64_sm89.engine",
+  "data/models/yolo26s-pose_our_robot_keypoints_rect384x640_2026-09-07_x86_64_sm86.engine",
 ]
 
 [ui]
