@@ -2,6 +2,11 @@
 
 Analysis date: 2026-07-16. Model: `yolo26n-pose_meshy_grade_2026-07-16` (interim best.pt, ~epoch 120, still training).
 
+> Partly superseded by `meshy_grade_yolo26x_2026-09-10.md`, which reruns this on yolo26x-pose.
+> The per-opponent ordering below tracks model capacity more than mesh fidelity: ironwarrior
+> triples and sphinx nearly doubles on the same meshes. The frame counts here also come from
+> `.edit_state.json` (372 of 688 frames), which is not a valid selection.
+
 ## Summary
 
 Meshy fidelity is per-model, not a blanket pass or fail. Graded per opponent (each eval recording is a single opponent), transfer ranges from the real-trained ceiling to a total failure:
