@@ -198,6 +198,7 @@ FieldOutline extract_field_outline(const cv::Mat &contour_mask, const FieldOutli
     std::array<cv::Point2d, 4> quad = order_corners(seed);
     std::array<cv::Vec3d, 4> lines{};
     std::array<bool, 4> supported{};
+    std::array<double, 4> rms_px{-1.0, -1.0, -1.0, -1.0};
     for (size_t i = 0; i < 4; ++i) {
         lines[i] = line_through(quad[i], quad[(i + 1) % 4]);
     }
@@ -270,6 +271,17 @@ FieldOutline extract_field_outline(const cv::Mat &contour_mask, const FieldOutli
             if (kept.size() >= static_cast<size_t>(params.min_side_points)) {
                 line = fit_line(kept);
             }
+            // How straight this side actually is, about its own fitted line. A curved boundary
+            // still produces a line fit and still counts hundreds of points; only the scatter
+            // says the line is not an edge.
+            double sum_squares = 0.0;
+            for (const auto &point : kept) {
+                const double distance = point_line_distance(line, point);
+                sum_squares += distance * distance;
+            }
+            const double rms =
+                kept.empty() ? 0.0 : std::sqrt(sum_squares / static_cast<double>(kept.size()));
+            rms_px[i] = rms;
             lines[i] = line;
             supported[i] = true;
         }
@@ -288,6 +300,7 @@ FieldOutline extract_field_outline(const cv::Mat &contour_mask, const FieldOutli
     outline.corners = quad;
     outline.lines = lines;
     outline.side_supported = supported;
+    outline.side_rms_px = rms_px;
     outline.supported_sides =
         static_cast<int>(std::count(supported.begin(), supported.end(), true));
 
@@ -310,8 +323,13 @@ FieldOutline extract_field_outline(const cv::Mat &contour_mask, const FieldOutli
     outline.mask_over_quad_area = cv::countNonZero(binary) / std::max(1.0, quad_area);
 
     if (outline.supported_sides < 3) {
+        std::string detail;
+        for (size_t i = 0; i < 4; ++i) {
+            detail += (i == 0 ? "" : ", ") + std::to_string(i) + ": ";
+            detail += supported[i] ? "ok" : "no points";
+        }
         outline.failure = "only " + std::to_string(outline.supported_sides) +
-                          " field side(s) have support away from the frame edge";
+                          " straight field side(s) (" + detail + ")";
         return outline;
     }
     outline.ok = true;

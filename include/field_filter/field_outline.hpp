@@ -39,6 +39,10 @@ struct FieldOutline {
     /** Homogeneous image line for each side. Side i runs corners[i] -> corners[i+1]. */
     std::array<cv::Vec3d, 4> lines{};
     std::array<bool, 4> side_supported{};
+    /** Scatter of each side's own points about its fitted line, or -1 for a side that was never
+     *  fitted because it had too few points. Reported, not acted on: a curved side still counts
+     *  as support. It is the number that says a fit should be distrusted. */
+    std::array<double, 4> side_rms_px{-1.0, -1.0, -1.0, -1.0};
     int supported_sides = 0;
     /** Mask area over quad area. Above ~1.05 the outline is not the quadrilateral the fit
      *  assumes, so at least one side is not a field edge. Reprojection error cannot see this. */

@@ -13,12 +13,19 @@ struct FieldPoseResult {
     std::string failure;
     /** Field centre expressed in camera coordinates. */
     Eigen::Matrix4d tf_camera_from_fieldcenter = Eigen::Matrix4d::Identity();
-    /** Mean reprojection residual, in pixels. Both solves are exactly determined, so this is a
-     *  numerical sanity check and not a quality guard: the four-corner homography fits whatever
-     *  corners it is handed at 0.0 px however wrong they are, and the three-line solve puts six
-     *  constraints against six degrees of freedom. The structural guards in FieldOutline are
-     *  what catch a bad fit here. FiducialFieldFilter is the one place a residual measures
-     *  something, because 15 markers give 60 correspondences against the same six unknowns. */
+    /** Mean reprojection residual, in pixels.
+     *
+     * On the four-corner path this measures something real. The homography itself is exact, but
+     * it carries eight degrees of freedom against a pose that has six, and the two spare ones show
+     * up when K is applied: r1 and r2 come back non-orthonormal, orthonormalizing them moves the
+     * pose, and the corners no longer reproject onto themselves. So a large value means the
+     * outline is not the image of a rectangle under these intrinsics. Measured on NHRL cage
+     * footage: 13 to 18 px on fits that look right, 61 px on one whose mask followed a sloped
+     * wall.
+     *
+     * On the three-line path it measures nothing: that solve builds an orthonormal rotation by
+     * construction and lands on ~0 whatever it was handed. FieldOutline's structural guards, the
+     * per-side straightness test above all, are what catch a bad fit there. */
     double residual_px = 0.0;
 };
 
