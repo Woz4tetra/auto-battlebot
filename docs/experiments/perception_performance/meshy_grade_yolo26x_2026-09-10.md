@@ -42,8 +42,9 @@ with `reviewed: []`, which kills the run with `No scoreable labels found`. A per
 today against the 80 July reported.
 
 Together these mean **no number here is line-comparable with the July document**. The July
-`scores_meshy` output directory was deleted along with the dataset, so rather than cite it, this run
-re-scores the original `yolo26n-pose_meshy_grade_2026-07-16` engine on the current 688 frames as
+`scores_meshy` output survives only on pathfinder
+(`~/auto-battlebot/training/data/eval_results/scores_meshy`, 372 frames), so rather than cite it, this
+run re-scores the original `yolo26n-pose_meshy_grade_2026-07-16` engine on the current 688 frames as
 `n_july`. Every comparison below is between candidates measured in the same run on the same frames.
 
 ## Setup
@@ -101,6 +102,15 @@ Agnostic recall moves with it: sphinx 0.412 -> 0.511, ironwarrior 0.297 -> 0.422
 Recording -> opponent: `05-02_10-06` clyde, `05-02_11-45` sphinx, `05-02_14-12` wreckcreation,
 `05-02_15-35` ironwarrior (provided by the operator; the eval GT labels only a generic `opponent`).
 
+### What the camera sees
+
+![Sharpest real captures of each robot](assets/2026-09-10_meshy_x/robot_captures_mosaic.png)
+
+One row per robot, the eight sharpest ground-truth crops from the eval frames, at least 4 s
+apart within a recording (`training/model_eval/make_robot_capture_mosaic.py`). mr_stabs_mk2 has
+no eval frames and is omitted. Opponents are named by recording, as above. clyde's row is the
+whole recording: 22 boxes, two of them on fire.
+
 ## What this does to July's conclusion
 
 July concluded that Meshy fidelity is per-model and traced the spread to stale NHRL thumbnails: the
@@ -144,11 +154,12 @@ near-saturated synthetic keypoints.
   is the strongest opponent detector actually measured in this run.
 - **clyde's sample is small**, 22 opponent boxes against 97-99 for the others. Its direction is
   clear; its exact AP is noisy.
-- **The dataset cannot be regenerated.** The four Meshy GLBs and the whole BlenderProc asset library
-  (`objaverse/`, `hdris/`, `cc_textures/`, `distractor_models/`) are absent from this machine and the
-  archive. `config_meshy_grade.toml` is still checked in but cannot be run. The archived rendered
-  frames are the only surviving copy, so any follow-up that needs new renders is blocked until those
-  assets are rebuilt.
+- **The dataset cannot be regenerated on this machine.** The four Meshy GLBs and the BlenderProc
+  asset library (`objaverse/`, `hdris/`, `cc_textures/`, `distractor_models/`) are absent here and
+  from `/media/storage`. They exist on pathfinder under `~/auto-battlebot/training/data/`: all 146
+  Meshy GLBs in `distractor_models/robots/` (3.9 GB) plus `hdris/` 4.5 GB, `cc_textures/` 7.8 GB and
+  `distractor_models/objaverse/` 9.9 GB. Any follow-up that needs new renders starts by syncing those,
+  or by rendering on pathfinder.
 - **Two runs, one seed each.** `data_epoch_min` Exp 1 measured run-to-run recall variance around
   0.05, which is comparable to the wreckcreation delta of +0.012 but well under the ironwarrior and
   sphinx gains.

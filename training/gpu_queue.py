@@ -15,6 +15,12 @@ A worker process pops jobs; `submit` starts one if none is alive. The worker wai
 for the GPUs to go idle before each job, so a run launched outside the queue (by
 hand or by an agent that has not adopted it) delays the queue instead of colliding
 with it.
+
+Long-lived GPU tenants step aside while the queue has work. Every executable in
+~/.config/gpu_queue/yield.d/ runs with `pause` before each job, and with `resume`
+once the queue has sat empty for the idle timeout. megamind's model server is one:
+
+    ln -s ~/home-apps/megamind/extractor.sh ~/.config/gpu_queue/yield.d/megamind
 """
 
 import argparse
@@ -45,6 +51,14 @@ LOG_DIR = QUEUE_DIR / "logs"
 # Sunshine's desktop streamer sits at ~260 MiB and must not count as busy.
 BUSY_MIB = int(os.environ.get("AB_GPU_QUEUE_BUSY_MIB", "1024"))
 POLL_SECONDS = 10
+# Tenant hooks live in a fixed directory, not an env var: the worker's environment is
+# whatever the agent that spawned it had (see job_env), so an env setting would come
+# and go depending on who submitted first.
+YIELD_DIR = Path.home() / ".config" / "gpu_queue" / "yield.d"
+# A pause can sit through a container's full stop grace period (60 s for vLLM).
+HOOK_TIMEOUT = 300
+# When to resume the tenants if the worker never exits (--idle-exit 0).
+YIELD_RESUME_SECONDS = 600
 TERMINAL_STATES = ("done", "failed", "cancelled")
 ACTIVE_STATES = ("running", "claimed")
 # Ultralytics' epoch counter ("  46/100      12.7G  ...") and its batch bar
@@ -281,6 +295,33 @@ def wait_for_gpus(job_id: int) -> bool:
         time.sleep(POLL_SECONDS)
 
 
+def run_yield_hooks(action: str) -> None:
+    """Run every tenant hook with `pause` or `resume`; output lands in the worker log.
+
+    A failing hook is reported and skipped. wait_for_gpus still refuses to start a job
+    while anything holds the GPUs, so the worst a broken pause can do is the wait the
+    queue would have had without hooks.
+    """
+    if not YIELD_DIR.is_dir():
+        return
+    for hook in sorted(YIELD_DIR.iterdir()):
+        if not (hook.is_file() and os.access(hook, os.X_OK)):
+            continue
+        print(f"[{now()}] {action} {hook.name}", flush=True)
+        try:
+            code = subprocess.run(
+                [str(hook), action],
+                stdin=subprocess.DEVNULL,
+                timeout=HOOK_TIMEOUT,
+                check=False,
+            ).returncode
+        except (OSError, subprocess.SubprocessError) as err:
+            print(f"[{now()}] {action} {hook.name} failed: {err}", flush=True)
+            continue
+        if code != 0:
+            print(f"[{now()}] {action} {hook.name} exited {code}", flush=True)
+
+
 def exit_if_idle() -> None:
     """Exit the worker if the queue is still empty, holding the state lock until death.
 
@@ -297,6 +338,21 @@ def exit_if_idle() -> None:
         os._exit(0)
 
 
+def idle_tick(args: argparse.Namespace, idle: float, yielded: bool) -> bool:
+    """One poll of an empty queue. Returns whether the tenants are still paused.
+
+    Resumes the tenants once the queue has sat empty long enough, then exits the
+    worker if its idle timeout has passed -- resume first, never after: a worker
+    that is gone cannot give the GPUs back.
+    """
+    if yielded and idle > (args.idle_exit or YIELD_RESUME_SECONDS):
+        run_yield_hooks("resume")
+        yielded = False
+    if args.idle_exit and idle > args.idle_exit:
+        exit_if_idle()
+    return yielded
+
+
 def cmd_worker(args: argparse.Namespace) -> int:
     QUEUE_DIR.mkdir(parents=True, exist_ok=True)
     lock = open(WORKER_LOCK, "w")
@@ -307,18 +363,24 @@ def cmd_worker(args: argparse.Namespace) -> int:
         return 0
     print(f"[{now()}] worker up (pid {os.getpid()})", flush=True)
     idle_since = time.monotonic()
+    yielded = False
     while True:
         state = read_state()
         if state.get("worker_stop"):
             print(f"[{now()}] worker stopping on request", flush=True)
+            if yielded:
+                run_yield_hooks("resume")
             return 0
         job = next_queued(state)
         if job is None:
-            if args.idle_exit and time.monotonic() - idle_since > args.idle_exit:
-                exit_if_idle()
+            yielded = idle_tick(args, time.monotonic() - idle_since, yielded)
             time.sleep(POLL_SECONDS)
             continue
         idle_since = time.monotonic()
+        # Every job, not once per sweep: a tenant restarted by hand mid-sweep would
+        # otherwise hold the GPUs and park the queue in wait_for_gpus indefinitely.
+        run_yield_hooks("pause")
+        yielded = True
         if not wait_for_gpus(job["id"]):
             continue
         with locked_state() as fresh:
@@ -331,6 +393,10 @@ def cmd_worker(args: argparse.Namespace) -> int:
             record["state"] = "claimed"
         print(f"[{now()}] job {job['id']} ({job['name']}) starting", flush=True)
         run_job(job)
+        # Idle time counts from the end of the last job, not its start. Otherwise the
+        # worker exits (and resumes the tenants) the moment a long job finishes, and an
+        # agent that resubmits a minute later pays for a full model reload.
+        idle_since = time.monotonic()
         final = find_job(read_state(), job["id"])
         print(f"[{now()}] job {job['id']} {final['state'] if final else 'gone'}", flush=True)
 

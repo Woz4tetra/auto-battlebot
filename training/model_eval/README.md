@@ -164,3 +164,6 @@ so only 38 of its 100 images resolve exactly.
   systematic offset against live-labeled GT. See
   `docs/experiments/perception_performance/baseline_2026-07-07.md`.
 - Related: perception reliability over a full fight uses `perception_reliability.py`.
+- `make_robot_capture_mosaic.py` renders the sharpest GT crops of each robot in an eval
+  dataset, one row per robot, with opponents named by recording (`--opponent name=prefix`).
+  Supporting figure for the Meshy fidelity grades.
