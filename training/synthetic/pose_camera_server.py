@@ -38,6 +38,7 @@ import json
 import shutil
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -454,11 +455,14 @@ def handle_command(
         mailbox.set_status("rendering at full quality...")
         glass.update(cam2world[:3, 3])
         name = str(command.payload.get("name", "full")) or "full"
+        # Timestamped, so repeated renders of the same name accumulate instead of overwriting each
+        # other. Same format the training scripts use for session directories.
+        stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         path, elapsed_ms = renderer.render_full(
             cam2world,
             current.view,
             current.alpha,
-            out_dir / f"{name}_{current.view}_alpha{current.alpha:g}.png",
+            out_dir / f"{name}_{stamp}_{current.view}_alpha{current.alpha:g}.png",
         )
         mailbox.set_status(f"wrote {path.name} in {elapsed_ms / 1000:.1f} s")
         logger.info("full render: %s (%.1f s)", path, elapsed_ms / 1000)

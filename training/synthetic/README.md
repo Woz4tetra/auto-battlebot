@@ -338,7 +338,7 @@ a saved pose comes straight out of the page. Under `--out` you get:
 | `<name>.toml` | One pose in `CageCalibration` form, for `render_cage_view.py --pose` |
 | `camera_rect.json`, `<name>_camera.toml` | The rectified K and the calibration behind it, so the pose re-renders exactly |
 | `<name>_render_command.txt` | The `render_cage_view.py` command line that reproduces the full artifact set |
-| `<name>_<view>_alpha<a>.png` | Whatever `F` rendered, at full resolution and the spec's sample count |
+| `<name>_<timestamp>_<view>_alpha<a>.png` | Whatever `F` rendered, at full resolution and the spec's sample count. Timestamped, so repeated renders accumulate rather than overwrite |
 
 #### Running a detector over the renders
 
@@ -349,6 +349,8 @@ engine from the project venv instead, against the full-resolution PNGs the tool 
 ```bash
 source scripts/activate_python.sh
 python - <<'EOF'
+from pathlib import Path
+
 import cv2
 from auto_battlebot.perception.trt_yolo import TrtYoloModel
 
@@ -359,7 +361,9 @@ model = TrtYoloModel(
     conf_threshold=0.25,
     num_classes=2,
 )
-frame = cv2.imread("training/data/cage_pose/bots_rectified_alpha1.png")
+# Full renders are timestamped, so take the most recent rectified one.
+renders = Path("training/data/cage_pose").glob("*_rectified_*.png")
+frame = cv2.imread(str(max(renders, key=lambda path: path.stat().st_mtime)))
 for box, conf, class_id, keypoints in model.infer(frame):
     x1, y1, x2, y2 = box
     print(f"class {class_id} conf {conf:.2f} {x2 - x1:.0f}x{y2 - y1:.0f} px")
