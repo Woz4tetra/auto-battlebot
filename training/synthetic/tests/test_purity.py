@@ -21,6 +21,8 @@ PURE_MODULES = [
     "synthgen.geometry",
     "synthgen.colorspec",
     "synthgen.asset_index",
+    "synthgen.cage_spec",
+    "synthgen.cage_mount",
 ]
 
 

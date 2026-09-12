@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Any
 
 import cv2
 import numpy as np
+from scipy.optimize import least_squares
 
 # Defaults mirror config/_common.toml and include/field_filter/config.hpp.
 DISTANCE_THRESHOLD_M = 0.05
@@ -46,7 +48,7 @@ class FieldResult:
     plane_normal: np.ndarray | None = None
     inlier_count: int = 0
     notes: str = ""
-    extra: dict = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -107,7 +109,7 @@ def rectangle_angle(corners: np.ndarray) -> float:
 
 
 def rectangle_centroid(corners: np.ndarray) -> np.ndarray:
-    return corners.mean(axis=0)
+    return np.asarray(corners.mean(axis=0))
 
 
 def transform_from_position_and_euler(position: np.ndarray, yaw: float) -> np.ndarray:
@@ -321,6 +323,58 @@ def _fit_line(points: np.ndarray) -> tuple[np.ndarray, float]:
     return normal, float(np.dot(normal, centroid))
 
 
+def _fit_side_lines(
+    points: np.ndarray, quad: np.ndarray, corner_skip: float
+) -> list[tuple[np.ndarray, float]] | None:
+    """One line per quad side, fitted to the contour points nearest that side."""
+    edges = [(quad[i], quad[(i + 1) % 4]) for i in range(4)]
+    units, lengths = [], []
+    for a, b in edges:
+        edge = b - a
+        length = float(np.linalg.norm(edge))
+        if length < 1e-6:
+            return None
+        units.append(edge / length)
+        lengths.append(length)
+
+    # Perpendicular distance to each edge's infinite line, and position along it.
+    perp = np.empty((len(points), 4))
+    along = np.empty((len(points), 4))
+    for i, (a, _) in enumerate(edges):
+        rel = points - a
+        along[:, i] = rel @ units[i] / lengths[i]
+        perp[:, i] = np.abs(rel @ np.array([-units[i][1], units[i][0]]))
+    owner = np.argmin(perp, axis=1)
+
+    lines = []
+    for i in range(4):
+        mine = (owner == i) & (along[:, i] > corner_skip) & (along[:, i] < 1.0 - corner_skip)
+        if mine.sum() < 20:
+            return None
+        selected = points[mine]
+        normal, offset = _fit_line(selected)
+        # One robust pass so a robot resting on the floor edge cannot pull the line in.
+        residual = np.abs(selected @ normal - offset)
+        keep = residual <= max(2.0, 2.5 * float(np.median(residual)))
+        if keep.sum() >= 20:
+            selected = selected[keep]
+        lines.append(_fit_line(selected))
+    return lines
+
+
+def _intersect_side_lines(lines: list[tuple[np.ndarray, float]]) -> np.ndarray | None:
+    """Corners of the quad whose sides are `lines`, in `order_corners` order."""
+    corners = []
+    for i in range(4):
+        (n1, d1), (n2, d2) = lines[i], lines[(i + 1) % 4]
+        matrix = np.stack([n1, n2])
+        if abs(np.linalg.det(matrix)) < 1e-9:
+            return None
+        corners.append(np.linalg.solve(matrix, np.array([d1, d2])))
+    # Intersections land in edge order, so corner i sits between edges i-1 and i.
+    return np.roll(np.array(corners), 1, axis=0)
+
+
 def refine_quad_by_edges(
     boundary: np.ndarray, seed: np.ndarray, iterations: int = 4, corner_skip: float = 0.20
 ) -> np.ndarray | None:
@@ -344,48 +398,13 @@ def refine_quad_by_edges(
 
     quad = order_corners(seed)
     for _ in range(iterations):
-        edges = [(quad[i], quad[(i + 1) % 4]) for i in range(4)]
-        units, lengths = [], []
-        for a, b in edges:
-            edge = b - a
-            length = float(np.linalg.norm(edge))
-            if length < 1e-6:
-                return None
-            units.append(edge / length)
-            lengths.append(length)
-
-        # Perpendicular distance to each edge's infinite line, and position along it.
-        perp = np.empty((len(points), 4))
-        along = np.empty((len(points), 4))
-        for i, (a, b) in enumerate(edges):
-            rel = points - a
-            along[:, i] = rel @ units[i] / lengths[i]
-            perp[:, i] = np.abs(rel @ np.array([-units[i][1], units[i][0]]))
-        owner = np.argmin(perp, axis=1)
-
-        lines = []
-        for i in range(4):
-            mine = (owner == i) & (along[:, i] > corner_skip) & (along[:, i] < 1.0 - corner_skip)
-            if mine.sum() < 20:
-                return None
-            selected = points[mine]
-            normal, offset = _fit_line(selected)
-            # One robust pass so a robot resting on the floor edge cannot pull the line in.
-            residual = np.abs(selected @ normal - offset)
-            keep = residual <= max(2.0, 2.5 * float(np.median(residual)))
-            if keep.sum() >= 20:
-                selected = selected[keep]
-            lines.append(_fit_line(selected))
-
-        corners = []
-        for i in range(4):
-            (n1, d1), (n2, d2) = lines[i], lines[(i + 1) % 4]
-            matrix = np.stack([n1, n2])
-            if abs(np.linalg.det(matrix)) < 1e-9:
-                return None
-            corners.append(np.linalg.solve(matrix, np.array([d1, d2])))
-        # Intersections land in edge order, so corner i sits between edges i-1 and i.
-        quad = np.roll(np.array(corners), 1, axis=0)
+        lines = _fit_side_lines(points, quad, corner_skip)
+        if lines is None:
+            return None
+        refined = _intersect_side_lines(lines)
+        if refined is None:
+            return None
+        quad = refined
     return quad
 
 
@@ -419,6 +438,73 @@ def quad_from_mask(contour_mask: np.ndarray) -> np.ndarray | None:
     return None
 
 
+def field_object_corners(field_size_xy: tuple[float, float]) -> np.ndarray:
+    """Field corners on the z = 0 plane, wound to match `order_corners`.
+
+    Image y grows downward, so object -y binds to the top of the frame. The same winding
+    as `field_object_corners` in `src/field_filter/field_pose.cpp`, so a pose solved here
+    is the pose the C++ filters would solve from the same corners.
+    """
+    half_w, half_h = field_size_xy[0] / 2.0, field_size_xy[1] / 2.0
+    return np.array([[-half_w, -half_h], [-half_w, half_h], [half_w, half_h], [half_w, -half_h]])
+
+
+def pose_from_corners(
+    image_corners: np.ndarray,
+    field_size_xy: tuple[float, float],
+    intrinsics: np.ndarray,
+) -> tuple[np.ndarray, float] | None:
+    """Decompose the corner homography into tf_camera_from_field.
+
+    H = K [r1 r2 t] up to scale, so K^-1 H recovers two rotation columns and the
+    translation, and the third column is their cross product. The result is
+    orthonormalized because measured corners never satisfy the constraint exactly.
+    Returns (4x4 transform, mean corner reprojection error in px), or None when
+    findHomography fails. Field z points toward the camera when the camera looks down
+    at the field from above: r3 . t is negative for every pose this returns.
+    """
+    object_corners = field_object_corners(field_size_xy)
+    homography, _ = cv2.findHomography(object_corners, np.asarray(image_corners), method=0)
+    if homography is None or homography.shape != (3, 3):
+        return None
+
+    k_inv = np.linalg.inv(intrinsics)
+    h = k_inv @ homography
+    # One scale for both rotation columns; averaging the two norms is less sensitive to
+    # corner noise than trusting either alone.
+    lambda_ = 2.0 / (np.linalg.norm(h[:, 0]) + np.linalg.norm(h[:, 1]))
+    r1, r2, t = h[:, 0] * lambda_, h[:, 1] * lambda_, h[:, 2] * lambda_
+    if t[2] < 0:  # field must sit in front of the camera
+        r1, r2, t = -r1, -r2, -t
+    r3 = np.cross(r1, r2)
+    u, _, vh = np.linalg.svd(np.stack([r1, r2, r3], axis=1))
+    rotation = u @ vh
+    if np.linalg.det(rotation) < 0:
+        rotation = u @ np.diag([1.0, 1.0, -1.0]) @ vh
+
+    tf = np.eye(4)
+    tf[:3, :3] = rotation
+    tf[:3, 3] = t
+
+    # z = 0 plane, so the homography columns apply directly.
+    projected = homography @ np.c_[object_corners, np.ones(4)].T
+    projected = (projected[:2] / projected[2]).T
+    reprojection_px = float(np.linalg.norm(projected - image_corners, axis=1).mean())
+    return tf, reprojection_px
+
+
+def project_field_corners(
+    tf_camera_from_field: np.ndarray,
+    field_size_xy: tuple[float, float],
+    intrinsics: np.ndarray,
+) -> np.ndarray:
+    """Image positions (4x2) of the field corners under a pose, same order as above."""
+    corners = field_object_corners(field_size_xy)
+    points = np.c_[corners, np.zeros(4), np.ones(4)] @ tf_camera_from_field.T
+    pixels = intrinsics @ points[:, :3].T
+    return np.asarray((pixels[:2] / pixels[2]).T)
+
+
 def homography_field(
     mask: np.ndarray,
     intrinsics: np.ndarray,
@@ -427,9 +513,7 @@ def homography_field(
     """Pose from the field outline in RGB plus known metric dimensions. No depth.
 
     The mask's outline gives four image corners; the known field size gives the matching
-    object corners. H = K [r1 r2 t] up to scale, so K^-1 H recovers two rotation columns
-    and the translation, and the third column is their cross product. The result is
-    orthonormalized because the measured corners never satisfy the constraint exactly.
+    object corners; `pose_from_corners` does the decomposition.
     """
     contour_mask = largest_contour_mask(mask)
     if not contour_mask.any():
@@ -456,34 +540,11 @@ def homography_field(
         fallback = True
     image_corners = order_corners(quad)
 
-    width, height = field_size_xy
-    half_w, half_h = width / 2.0, height / 2.0
-    # Same winding as order_corners: image y grows downward, so -y is the top of the frame.
-    object_corners = np.array(
-        [[-half_w, -half_h], [-half_w, half_h], [half_w, half_h], [half_w, -half_h]]
-    )
-
-    homography, _ = cv2.findHomography(object_corners, image_corners, method=0)
-    if homography is None:
+    solved = pose_from_corners(image_corners, field_size_xy, intrinsics)
+    if solved is None:
         return FieldResult("homography", None, None, notes="findHomography failed")
-
-    k_inv = np.linalg.inv(intrinsics)
-    h = k_inv @ homography
-    # One scale for both rotation columns; averaging the two norms is less sensitive to
-    # corner noise than trusting either alone.
-    lambda_ = 2.0 / (np.linalg.norm(h[:, 0]) + np.linalg.norm(h[:, 1]))
-    r1, r2, t = h[:, 0] * lambda_, h[:, 1] * lambda_, h[:, 2] * lambda_
-    if t[2] < 0:  # field must sit in front of the camera
-        r1, r2, t = -r1, -r2, -t
-    r3 = np.cross(r1, r2)
-    u, _, vh = np.linalg.svd(np.stack([r1, r2, r3], axis=1))
-    rotation = u @ vh
-    if np.linalg.det(rotation) < 0:
-        rotation = u @ np.diag([1.0, 1.0, -1.0]) @ vh
-
-    tf = np.eye(4)
-    tf[:3, :3] = rotation
-    tf[:3, 3] = t
+    tf, reprojection_px = solved
+    width, height = field_size_xy
 
     notes = ["size assumed, not measured"]
     if fallback:
@@ -496,19 +557,12 @@ def homography_field(
             "outline is not a clean quadrilateral"
         )
 
-    projected = (
-        intrinsics @ np.c_[object_corners, np.zeros(4), np.ones(4)][:, [0, 1, 3]].T
-    )  # z = 0 plane, so the homography columns apply directly
-    projected = homography @ np.c_[object_corners, np.ones(4)].T
-    projected = (projected[:2] / projected[2]).T
-    reprojection_px = float(np.linalg.norm(projected - image_corners, axis=1).mean())
-
     return FieldResult(
         "homography",
         tf,
         (float(width), float(height)),
         corners_image=image_corners,
-        plane_normal=rotation[:, 2],
+        plane_normal=tf[:3, 2],
         notes="; ".join(notes),
         extra={
             "reprojection_px": reprojection_px,
@@ -516,6 +570,161 @@ def homography_field(
             "mask_over_quad_area": coverage,
         },
     )
+
+
+# ------------------------------------------------------------------ partial outlines
+
+
+def contour_points_off_border(mask: np.ndarray, border_margin_px: int = 4) -> np.ndarray:
+    """Dense outline points of the largest blob, minus those lying along the image border.
+
+    Where the field runs off the frame the contour follows the image edge, and those points
+    describe the sensor, not the field. Dropping them leaves only real edge support.
+    """
+    binary = (mask > 0).astype(np.uint8)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return np.empty((0, 2))
+    points = max(contours, key=cv2.contourArea).reshape(-1, 2).astype(np.float64)
+    height, width = mask.shape[:2]
+    keep = (
+        (points[:, 0] >= border_margin_px)
+        & (points[:, 0] <= width - 1 - border_margin_px)
+        & (points[:, 1] >= border_margin_px)
+        & (points[:, 1] <= height - 1 - border_margin_px)
+    )
+    return np.asarray(points[keep])
+
+
+def side_lines_from_points(
+    points: np.ndarray,
+    seed_quad: np.ndarray,
+    corner_skip: float = 0.15,
+    min_points: int = 40,
+) -> list[tuple[np.ndarray, float] | None]:
+    """One fitted line per side of `seed_quad`, or None where the outline gives no support.
+
+    Points are assigned to the nearest seed side, the ends of each side are skipped as
+    corner rounding, and a robust total-least-squares line is fitted to the rest. The seed
+    may have corners far outside the image (a pose prior projected into the frame): only the
+    assignment depends on it, not the fitted lines.
+    """
+    if len(points) < min_points:
+        return [None] * 4
+    quad = order_corners(np.asarray(seed_quad, dtype=np.float64))
+    edges = [(quad[i], quad[(i + 1) % 4]) for i in range(4)]
+    units, lengths = [], []
+    for a, b in edges:
+        edge = b - a
+        length = float(np.linalg.norm(edge))
+        if length < 1e-6:
+            return [None] * 4
+        units.append(edge / length)
+        lengths.append(length)
+    perp = np.empty((len(points), 4))
+    along = np.empty((len(points), 4))
+    for i, (a, _) in enumerate(edges):
+        rel = points - a
+        along[:, i] = rel @ units[i] / lengths[i]
+        perp[:, i] = np.abs(rel @ np.array([-units[i][1], units[i][0]]))
+    owner = np.argmin(perp, axis=1)
+
+    lines: list[tuple[np.ndarray, float] | None] = []
+    for i in range(4):
+        mine = (owner == i) & (along[:, i] > corner_skip) & (along[:, i] < 1.0 - corner_skip)
+        if mine.sum() < min_points:
+            lines.append(None)
+            continue
+        selected = points[mine]
+        normal, offset = _fit_line(selected)
+        residual = np.abs(selected @ normal - offset)
+        keep = residual <= max(2.0, 2.5 * float(np.median(residual)))
+        if keep.sum() >= min_points:
+            selected = selected[keep]
+        lines.append(_fit_line(selected))
+    return lines
+
+
+def project_points(
+    tf_camera_from_field: np.ndarray, points_field: np.ndarray, intrinsics: np.ndarray
+) -> np.ndarray:
+    """Field-frame points (n, 3) to pixels (n, 2)."""
+    homogeneous = np.c_[points_field, np.ones(len(points_field))] @ tf_camera_from_field.T
+    pixels = intrinsics @ homogeneous[:, :3].T
+    return np.asarray((pixels[:2] / pixels[2]).T)
+
+
+def pose_from_lines(
+    lines: list[tuple[np.ndarray, float] | None],
+    field_size_xy: tuple[float, float],
+    intrinsics: np.ndarray,
+    tf_init: np.ndarray,
+) -> tuple[np.ndarray, float] | None:
+    """tf_camera_from_field from three or four observed field edge lines.
+
+    Each supported side contributes two residuals: the signed pixel distance of its two
+    projected field corners from the observed line. Three sides give six equations for the
+    six pose parameters, which is the clipped-near-edge case the cage-high camera presents;
+    four sides overdetermine and refine. `tf_init` seeds the solve and must be on the right
+    side of the field (a prior pose or a four-corner fit). Returns (4x4, RMS residual px).
+    """
+    supported = [i for i, line in enumerate(lines) if line is not None]
+    if len(supported) < 3:
+        return None
+    object_corners = field_object_corners(field_size_xy)
+    corners_3d = np.c_[object_corners, np.zeros(4)]
+
+    def unpack(params: np.ndarray) -> np.ndarray:
+        tf = np.eye(4)
+        tf[:3, :3], _ = cv2.Rodrigues(params[:3].reshape(3, 1))
+        tf[:3, 3] = params[3:]
+        return tf
+
+    def residuals(params: np.ndarray) -> np.ndarray:
+        pixels = project_points(unpack(params), corners_3d, intrinsics)
+        out = []
+        for i in supported:
+            line = lines[i]
+            assert line is not None
+            normal, offset = line
+            for corner in (pixels[i], pixels[(i + 1) % 4]):
+                out.append(float(corner @ normal - offset))
+        return np.asarray(out, dtype=np.float64)
+
+    rvec0, _ = cv2.Rodrigues(np.asarray(tf_init[:3, :3], dtype=np.float64))
+    x0 = np.r_[rvec0.ravel(), tf_init[:3, 3]]
+    solution = least_squares(residuals, x0, method="trf", x_scale="jac", max_nfev=2000)
+    tf = np.asarray(unpack(solution.x))
+    if tf[2, 3] <= 0:  # field centre behind the camera
+        return None
+    rms = float(np.sqrt(np.mean(solution.fun**2)))
+    return tf, rms
+
+
+def pixels_to_field_plane(
+    pixels: np.ndarray,
+    tf_camera_from_field: np.ndarray,
+    intrinsics: np.ndarray,
+    plane_height_m: float = 0.0,
+) -> np.ndarray:
+    """(n, 2) rectified pixels to (n, 3) field-frame points on the plane z = plane_height_m.
+
+    Rays that miss the plane in front of the camera come back as NaN.
+    """
+    tf_field_from_camera = np.linalg.inv(tf_camera_from_field)
+    origin = tf_field_from_camera[:3, 3]
+    k_inv = np.linalg.inv(intrinsics)
+    homogeneous = np.c_[np.asarray(pixels, dtype=np.float64).reshape(-1, 2), np.ones(len(pixels))]
+    directions = (tf_field_from_camera[:3, :3] @ (k_inv @ homogeneous.T)).T
+    out = np.full((len(pixels), 3), np.nan)
+    for i, direction in enumerate(directions):
+        if abs(direction[2]) < 1e-9:
+            continue
+        t = (plane_height_m - origin[2]) / direction[2]
+        if t <= 0:
+            continue
+        out[i] = origin + t * direction
+    return out
 
 
 # ----------------------------------------------------------------------- comparison
@@ -535,13 +744,14 @@ def yaw_difference_deg(tf_a: np.ndarray, tf_b: np.ndarray, square: bool) -> floa
     return min(folded, period - folded)
 
 
-def compare(a: FieldResult, b: FieldResult, square: bool) -> dict:
+def compare(a: FieldResult, b: FieldResult, square: bool) -> dict[str, Any]:
     """Translation, normal and yaw agreement between two methods on one frame."""
-    if not (a.ok and b.ok):
+    if a.tf_camera_from_field is None or b.tf_camera_from_field is None:
         return {"ok": False, "notes": f"{a.method}: {a.notes} | {b.method}: {b.notes}"}
-    ta, tb = a.tf_camera_from_field[:3, 3], b.tf_camera_from_field[:3, 3]
-    na = a.tf_camera_from_field[:3, :3] @ np.array([0.0, 0.0, 1.0])
-    nb = b.tf_camera_from_field[:3, :3] @ np.array([0.0, 0.0, 1.0])
+    tf_a, tf_b = a.tf_camera_from_field, b.tf_camera_from_field
+    ta, tb = tf_a[:3, 3], tf_b[:3, 3]
+    na = tf_a[:3, :3] @ np.array([0.0, 0.0, 1.0])
+    nb = tf_b[:3, :3] @ np.array([0.0, 0.0, 1.0])
     cos = float(np.clip(abs(np.dot(na, nb)), -1.0, 1.0))
     return {
         "ok": True,
@@ -550,7 +760,7 @@ def compare(a: FieldResult, b: FieldResult, square: bool) -> dict:
         "range_b_m": float(np.linalg.norm(tb)),
         "range_diff_m": float(np.linalg.norm(ta) - np.linalg.norm(tb)),
         "normal_angle_deg": math.degrees(math.acos(cos)),
-        "yaw_diff_deg": yaw_difference_deg(a.tf_camera_from_field, b.tf_camera_from_field, square),
+        "yaw_diff_deg": yaw_difference_deg(tf_a, tf_b, square),
         "size_a_m": a.size_xy_m,
         "size_b_m": b.size_xy_m,
     }

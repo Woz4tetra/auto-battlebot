@@ -67,7 +67,7 @@ class FieldSegmenter:
 
         mask = (prediction == FLOOR_CLASS).astype(np.uint8) * 255
         height, width = bgr.shape[:2]
-        return cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
+        return np.asarray(cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST))
 
 
 def largest_component_hull(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
@@ -122,7 +122,7 @@ def median_frame(video_path: Path, samples: int = MEDIAN_SAMPLES) -> np.ndarray:
 
     if not frames:
         raise RuntimeError(f"No frames read from {video_path}")
-    return np.median(np.stack(frames), axis=0).astype(np.uint8)
+    return np.asarray(np.median(np.stack(frames), axis=0)).astype(np.uint8)
 
 
 def compute_hull(
@@ -161,4 +161,5 @@ def save_hull(record: dict[str, Any], destination: Path) -> None:
 
 
 def load_hull(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text())
+    record: dict[str, Any] = json.loads(path.read_text())
+    return record

@@ -15,6 +15,7 @@ from synthgen.annotations import (
     check_keypoint_visibility,
 )
 from synthgen.constants import (
+    HOUSE_BOT_CATEGORY_ID,
     MIN_KEYPOINT_BBOX_DIM_PX,
     NHRL_DISTRACTOR_INSTANCE_ID_BASE,
     ROBOT_CATEGORY_ID,
@@ -172,6 +173,38 @@ def build_robot_keypoint_annotations(
         )
         annotations.append((robot.class_id, bbox, keypoints_2d))
     return annotations, verdicts
+
+
+def build_house_bot_annotation(
+    cat_seg: np.ndarray,
+    depth_map: np.ndarray,
+    img_w: int,
+    img_h: int,
+    class_id: int,
+    world_mat: np.ndarray,
+    kp_front: np.ndarray,
+    kp_back: np.ndarray,
+    ignore_occlusion: bool,
+) -> YoloAnnotation | None:
+    """Annotate the cage's house bot, boxed from the pixels of its own category.
+
+    There is exactly one house bot in a scene and it never moves, so it is boxed from the
+    category segmap rather than an instance id. A robot standing in front of it shrinks the
+    box to what is still visible, and hides it entirely once nothing is left.
+
+    Returns:
+        The annotation, or None when the house bot is out of frame or too small to label.
+    """
+    bbox = bbox_from_category_segmap(cat_seg, HOUSE_BOT_CATEGORY_ID, img_w, img_h)
+    if bbox is None:
+        return None
+    _cx, _cy, bw, bh = bbox
+    if int(bw * img_w) < MIN_KEYPOINT_BBOX_DIM_PX or int(bh * img_h) < MIN_KEYPOINT_BBOX_DIM_PX:
+        return None
+    keypoints_2d = _project_keypoint_pair(
+        kp_front, kp_back, world_mat, depth_map, img_w, img_h, ignore_occlusion
+    )
+    return (class_id, bbox, keypoints_2d)
 
 
 def build_distractor_keypoint_annotations(

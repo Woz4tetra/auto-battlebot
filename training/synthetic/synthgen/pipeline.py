@@ -20,7 +20,7 @@ import argparse
 import gc
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -47,10 +47,16 @@ from synthgen.asset_index import (
     resolve_start_index,
     setup_segmentation_labels,
 )
-from synthgen.camera import setup_scene_cameras
+from synthgen.cage_scene import CageStage, HouseBot, build_cage_stage
+from synthgen.camera import (
+    clear_poses_blocking_keypoints,
+    robot_centroid,
+    setup_scene_cameras,
+)
 from synthgen.configuration import ConfigError, RenderConfig, load_render_config
 from synthgen.constants import (
     BACKGROUND_CATEGORY_ID,
+    HOUSE_BOT_CLASS_NAME,
     MAX_CONSECUTIVE_FAILED_SCENES,
     MAX_SCENE_ATTEMPTS_FACTOR,
     NHRL_ROBOT_CLASS_NAME,
@@ -70,11 +76,13 @@ from synthgen.environment import (
     log_category_distribution,
     randomize_environment,
     randomize_lights,
+    set_ground_visible,
 )
 from synthgen.gating import decide_keypoint_frame, decide_seg_frame
 from synthgen.imaging import apply_object_motion_blur
 from synthgen.keypoints import (
     build_distractor_keypoint_annotations,
+    build_house_bot_annotation,
     build_robot_keypoint_annotations,
 )
 from synthgen.logsetup import fmt_ctx, get_logger
@@ -100,6 +108,7 @@ class AnnotationScheme:
     seg_robot_class_ids: dict[int, int]
     seg_label_names: dict[int, str]
     nhrl_class_id: int | None
+    house_bot_class_id: int | None
     assigner: DistractorClassIdAssigner
 
 
@@ -131,6 +140,7 @@ class SceneAssets:
     lights: list[bproc.types.Light]
     hdri_paths: list[Any]
     cc_textures: list[bproc.types.Material]
+    cage: CageStage | None = None
 
 
 @dataclass
@@ -143,6 +153,7 @@ class SceneState:
     robot_positions: list[list[float]]
     active_distractors: list[DistractorInstance]
     cam_count: int
+    house_bot: HouseBot | None = None
 
 
 @dataclass
@@ -169,6 +180,7 @@ def build_annotation_scheme(cfg: RenderConfig) -> AnnotationScheme:
     # generic class, but only in keypoint mode and only when a CAD distractor
     # source is configured.
     nhrl_class_id: int | None = None
+    house_bot_class_id: int | None = None
     if not is_segmentation:
         class_ids = []
         for i, rc in enumerate(cfg.robots):
@@ -177,8 +189,13 @@ def build_annotation_scheme(cfg: RenderConfig) -> AnnotationScheme:
                     f"robots[{i}] ({rc.name}): 'class_id' is required in keypoint mode"
                 )
             class_ids.append(rc.class_id)
+        next_class_id = max(class_ids, default=-1) + 1
         if cfg.distractors.has_cad_source():
-            nhrl_class_id = max(class_ids, default=-1) + 1
+            nhrl_class_id = next_class_id
+            next_class_id += 1
+        # Only cage scenes contain a house bot, so the class exists only when they do.
+        if cfg.cage.enabled and cfg.cage.probability > 0:
+            house_bot_class_id = next_class_id
 
     return AnnotationScheme(
         mode=cfg.output.annotation_mode,
@@ -186,6 +203,7 @@ def build_annotation_scheme(cfg: RenderConfig) -> AnnotationScheme:
         seg_robot_class_ids=seg_robot_class_ids,
         seg_label_names=seg_label_names,
         nhrl_class_id=nhrl_class_id,
+        house_bot_class_id=house_bot_class_id,
         assigner=assigner,
     )
 
@@ -208,6 +226,8 @@ def _write_keypoint_data_yml(
             keypoint_label_names.setdefault(rcfg.class_id, rcfg.name)
     if scheme.nhrl_class_id is not None:
         keypoint_label_names[scheme.nhrl_class_id] = NHRL_ROBOT_CLASS_NAME
+    if scheme.house_bot_class_id is not None:
+        keypoint_label_names[scheme.house_bot_class_id] = HOUSE_BOT_CLASS_NAME
     write_data_yml(
         layout.data_yml_path,
         layout.dataset_root,
@@ -386,6 +406,20 @@ def _extract_frame_annotations(
                 stats=stats,
             )
         )
+    if scheme.house_bot_class_id is not None and scene.house_bot is not None:
+        house_bot = build_house_bot_annotation(
+            cat_seg,
+            depth_map,
+            img_w,
+            img_h,
+            scheme.house_bot_class_id,
+            scene.house_bot.world_mat,
+            scene.house_bot.kp_front,
+            scene.house_bot.kp_back,
+            ignore_occlusion=cfg.output.ignore_obstructions,
+        )
+        if house_bot is not None:
+            keypoint_annotations.append(house_bot)
     decision = decide_keypoint_frame(gate_verdicts, len(keypoint_annotations))
     robot_skips = {
         v.stats.instance_id: v.skip_reason for v in gate_verdicts if v.skip_reason is not None
@@ -486,6 +520,53 @@ def _process_scene_frames(
     return global_idx - start_global_idx
 
 
+def _arrange_environment(cfg: RenderConfig, assets: SceneAssets, cage: CageStage | None) -> float:
+    """Set up the floor, world and lighting for one scene; returns its arena radius."""
+    if cage is not None:
+        # The mat is the floor, the cage rig is the lighting, and the arena is the mat.
+        cage.activate(assets.lights)
+        set_ground_visible(assets.ground, False)
+        return cage.arena_radius
+
+    if assets.cage is not None:
+        assets.cage.deactivate()
+    ground_size = random.uniform(*cfg.scene.ground_size_range)
+    assets.ground.blender_obj.scale = (ground_size, ground_size, 1)
+    bpy.context.view_layer.update()
+    randomize_environment(assets.ground, assets.hdri_paths, assets.cc_textures, cfg.scene)
+    return random.uniform(*cfg.scene.arena_radius_range)
+
+
+def _scene_camera_poses(
+    cfg: RenderConfig,
+    cage: CageStage | None,
+    scene_robots: list[RobotInstance],
+    robot_positions: list[list[float]],
+    active_distractors: list[DistractorInstance],
+    remaining: int,
+    scene_idx: int,
+) -> tuple[list[np.ndarray], int, int]:
+    """Camera poses for one scene: sampled cage mounts, or the shell around the robots."""
+    if cage is None:
+        return setup_scene_cameras(
+            scene_robots,
+            cfg.camera,
+            cfg.output.images_per_scene,
+            remaining,
+            active_distractors,
+            robot_positions,
+            cfg.output.ignore_obstructions,
+        )
+    cam_count = min(cfg.output.images_per_scene, remaining)
+    cam_poses, mounts, fallback_count = cage.sample_camera_poses(
+        cam_count, robot_centroid(robot_positions)
+    )
+    logger.debug("%s: cage mounts %s", fmt_ctx(scene_idx), mounts)
+    if not cfg.output.ignore_obstructions:
+        clear_poses_blocking_keypoints(cam_poses, scene_robots, active_distractors)
+    return cam_poses, cam_count, fallback_count
+
+
 def render_scene(
     cfg: RenderConfig,
     assets: SceneAssets,
@@ -496,17 +577,14 @@ def render_scene(
     stats: RunStats,
     scene_idx: int,
     global_idx: int,
+    in_cage: bool = False,
 ) -> RenderResult:
     """Arrange, render, and write one scene."""
     bproc.utility.reset_keyframes()
 
     # -- Per-scene randomized dimensions --
-    ground_size = random.uniform(*cfg.scene.ground_size_range)
-    arena_radius = random.uniform(*cfg.scene.arena_radius_range)
-    assets.ground.blender_obj.scale = (ground_size, ground_size, 1)
-    bpy.context.view_layer.update()
-
-    randomize_environment(assets.ground, assets.hdri_paths, assets.cc_textures, cfg.scene)
+    cage = assets.cage if in_cage else None
+    arena_radius = _arrange_environment(cfg, assets, cage)
 
     scene_robots = select_and_show_robots(assets.robots, cfg.scene.max_robots_per_scene)
     robot_positions = pose_scene_robots(scene_robots, cfg.randomization, arena_radius)
@@ -519,7 +597,10 @@ def render_scene(
         pool_mgr.pool, cfg.distractors, cfg.randomization, arena_radius
     )
 
-    randomize_lights(assets.lights, cfg.randomization)
+    if cage is not None:
+        cage.jitter_lights()
+    else:
+        randomize_lights(assets.lights, cfg.randomization)
 
     for robot in scene_robots:
         jitter_materials(
@@ -527,14 +608,14 @@ def render_scene(
         )
 
     # -- Camera poses (look at centroid of all placed robots) --
-    cam_poses, cam_count, fallback_count = setup_scene_cameras(
+    cam_poses, cam_count, fallback_count = _scene_camera_poses(
+        cfg,
+        cage,
         scene_robots,
-        cfg.camera,
-        cfg.output.images_per_scene,
-        budget.remaining(global_idx),
-        active_distractors,
         robot_positions,
-        cfg.output.ignore_obstructions,
+        active_distractors,
+        budget.remaining(global_idx),
+        scene_idx,
     )
     for _ in range(fallback_count):
         stats.record_anomaly(RunAnomaly.CAMERA_TARGET_FALLBACK)
@@ -578,6 +659,7 @@ def render_scene(
         robot_positions=robot_positions,
         active_distractors=active_distractors,
         cam_count=cam_count,
+        house_bot=None if cage is None else cage.house_bot,
     )
     written = _process_scene_frames(
         cfg, scheme, layout, scene, data, clean_inst_seg_maps, stats, global_idx
@@ -587,8 +669,9 @@ def render_scene(
     if completed % PROGRESS_LOG_SCENE_INTERVAL == 0:
         names = [r.name for r in scene_robots]
         logger.info(
-            "Scene %d (%s) — %d/%d images generated",
+            "Scene %d in the %s (%s) — %d/%d images generated",
             completed,
+            "cage" if in_cage else "arena",
             names,
             global_idx + written - budget.start_index,
             budget.num_images,
@@ -614,9 +697,33 @@ def _periodic_memory_cleanup(completed_scenes: int, memory_cleanup_interval: int
                 bpy.data.images.remove(img)
 
 
+def _build_cage(cfg: RenderConfig, scheme: AnnotationScheme) -> CageStage | None:
+    """Build the cage when the config asks for cage scenes, otherwise nothing."""
+    if not (cfg.cage.enabled and cfg.cage.probability > 0):
+        return None
+    return build_cage_stage(
+        cfg.cage,
+        cfg.output,
+        cfg.environment,
+        cfg.resolver.resolve,
+        cfg.resolver.project_root,
+        scheme.is_segmentation,
+    )
+
+
+def _apply_cli_overrides(cfg: RenderConfig, args: argparse.Namespace) -> RenderConfig:
+    """Fold the run-shaping CLI flags into the config."""
+    output = cfg.output
+    if args.out is not None:
+        output = replace(output, image_dir=args.out / "images", label_dir=args.out / "labels")
+    if args.images_per_scene is not None:
+        output = replace(output, images_per_scene=args.images_per_scene)
+    return replace(cfg, output=output)
+
+
 def run(args: argparse.Namespace) -> None:
     """Execute a full rendering run from parsed CLI arguments."""
-    cfg = load_render_config(Path(args.config))
+    cfg = _apply_cli_overrides(load_render_config(Path(args.config)), args)
     scheme = build_annotation_scheme(cfg)
 
     num_images = args.num_images if args.num_images is not None else cfg.output.num_images
@@ -666,6 +773,10 @@ def run(args: argparse.Namespace) -> None:
     hdri_paths, cc_textures = load_environment_assets(cfg.environment, cfg.resolver.resolve)
     ground = create_ground_plane(scheme.is_segmentation)
 
+    # ------- The NHRL cage, for the cage half of the scene mix -------
+
+    cage = _build_cage(cfg, scheme)
+
     # Enable segmentation AFTER all mesh objects are in the scene, because
     # enable_segmentation_output assigns pass_index to every mesh at call time.
     _enable_segmentation()
@@ -674,7 +785,12 @@ def run(args: argparse.Namespace) -> None:
     log_category_distribution(scheme.is_segmentation, scheme.seg_label_names)
 
     assets = SceneAssets(
-        robots=robots, ground=ground, lights=lights, hdri_paths=hdri_paths, cc_textures=cc_textures
+        robots=robots,
+        ground=ground,
+        lights=lights,
+        hdri_paths=hdri_paths,
+        cc_textures=cc_textures,
+        cage=cage,
     )
     pool_mgr = DistractorPoolManager(
         cfg.distractors,
@@ -691,14 +807,20 @@ def run(args: argparse.Namespace) -> None:
     stats = RunStats()
     global_idx = start_index
     scene_idx = 0
+    cage_images = 0
     consecutive_failures = 0
     logger.info("Rendering %d images...", num_images)
 
     try:
         while global_idx < budget.target_index and scene_idx < budget.max_scenes:
-            result = render_scene(
-                cfg, assets, scheme, layout, pool_mgr, budget, stats, scene_idx, global_idx
+            in_cage = cage is not None and cfg.cage.wants_scene(
+                global_idx - start_index, cage_images
             )
+            result = render_scene(
+                cfg, assets, scheme, layout, pool_mgr, budget, stats, scene_idx, global_idx, in_cage
+            )
+            if in_cage:
+                cage_images += result.frames_written
             global_idx += result.frames_written
             pool_mgr.note_images_written(result.frames_written)
             scene_idx += 1
@@ -728,5 +850,13 @@ def run(args: argparse.Namespace) -> None:
             )
         for line in stats.summary_lines(num_images, written, scene_idx):
             logger.info("%s", line)
+        if cage is not None:
+            logger.info(
+                "Scene mix: %d cage images, %d arena images (%.0f%% cage, target %.0f%%)",
+                cage_images,
+                written - cage_images,
+                100.0 * cage_images / max(written, 1),
+                100.0 * cfg.cage.probability,
+            )
 
     logger.info("Done. Generated %d images in %s", written, layout.image_dir)

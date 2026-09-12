@@ -56,6 +56,12 @@ def create_lights(max_lights: int) -> list[bproc.types.Light]:
     return lights
 
 
+def set_ground_visible(ground: bproc.types.MeshObject, visible: bool) -> None:
+    """Show or hide the ground plane (a cage scene brings its own floor: the mat)."""
+    ground.blender_obj.hide_render = not visible
+    ground.blender_obj.hide_viewport = not visible
+
+
 def randomize_environment(
     ground: bproc.types.MeshObject,
     hdri_paths: list[Path],
@@ -67,8 +73,7 @@ def randomize_environment(
         bproc.world.set_world_background_hdr_img(str(random.choice(hdri_paths)))
 
     show_ground = random.random() < scene_cfg.ground_visibility
-    ground.blender_obj.hide_render = not show_ground
-    ground.blender_obj.hide_viewport = not show_ground
+    set_ground_visible(ground, show_ground)
 
     if show_ground and cc_textures:
         ground.replace_materials(random.choice(cc_textures))

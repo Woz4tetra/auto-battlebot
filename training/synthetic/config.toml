@@ -308,7 +308,7 @@ cc_texture = "Foil002" # gold foil
 # UV-mapped PBR textures loaded from a directory (Color, Roughness, Metalness,
 # NormalGL, Displacement).  Unlike cc_texture, this preserves the model's UV
 # layout instead of tiling with generated coordinates.
-texture_dir = "../data/cc_textures/HouseBot"
+texture_dir = "../data/environments/nhrl_3lb_cage/house_bot"
 
 [materials.mrs_buff_mk3_top_sticker]
 texture_dir = "../data/cc_textures/mrs_buff_mk3_top_sticker"
@@ -892,6 +892,56 @@ ground_visibility = 0.9
 # Each scene randomly picks between 1 and this value, weighted by each robot's
 # `weight` field.  Clamped to the number of [[robots]] entries.
 max_robots_per_scene = 10
+
+# The NHRL cage half of the scene mix. A cage scene replaces the HDRI arena with the
+# Blender cage that docs/experiments/perception_performance/cage_scene_render_match_2026-09-11.md
+# graded against Cage-2-Overhead-High footage: the mat is the floor, the LED tube rig is the
+# light, and the camera sits on a wall instead of on a sampled shell. The [[robots]],
+# [distractors], [materials] and blur settings are the same in both halves.
+# Enabling this appends a `house_bot` class to the label set: the NHRL house bot parked on a
+# cage rail is robot-shaped scenery that shows up in real cage footage, so it is labelled with
+# front/back keypoints (its LED face is the front) instead of left for the detector to guess.
+[cage]
+enabled = true
+# Fraction of written images that are cage scenes. Tracked, not coin-flipped: each scene goes
+# to whichever half is behind its share, so even a 100-image run lands on this ratio.
+probability = 0.5
+# Cage geometry, materials, lights and the exposure solved against footage.
+spec = "cage/cage2_overhead_high.toml"
+# Measured intrinsics for the cage camera, rectified (alpha 1.0) the way the C++ Rectifier
+# does it and scaled to [output].image_width/height. 95 degrees horizontal, much wider than
+# the arena half's default Blender lens.
+camera_calibration = "../../config/cameras/brettzone_cage_high.toml"
+# Cage scenes are darker and shoot through polycarbonate, so they need more samples than the
+# arena half's --render-samples. Leave unset to use the run's value for both.
+render_samples = 128
+# Per-scene jitter on the LED tube emission strength (+- this fraction), so the set is not a
+# single lighting state.
+tube_jitter = 0.25
+# Metres of mat kept clear of its edge when placing robots.
+mat_margin_m = 0.20
+
+# Where a camera can be clamped on the cage, and where it then looks. The defaults bracket the
+# eleven poses fit_cage_camera.py solved for NHRL's own phone (1.16 m up, 0.11 m inside the
+# wall plane, 32 to 38 degrees off straight down, within 1.7 degrees of square to the wall);
+# the wall is drawn at random because which wall ours goes on depends on the match. Restrict
+# `walls` to ["near"] to reproduce the graded framing only.
+[cage.mount]
+walls = ["near", "far", "left", "right"]
+# Along the wall from its centre, metres.
+along_m = [-0.45, 0.45]
+# Above the mat surface, metres. The polycarbonate wall tops out at 1.22 m.
+height_m = [1.00, 1.45]
+# Inside the wall plane, metres. Kept clear of the 12 mm polycarbonate: the segmentation pass
+# stops at the glass, so a mount shooting through it loses its labels. The fitted phone sits
+# 0.11 m inside.
+inset_m = [0.02, 0.25]
+# Optical axis off straight down, degrees.
+tilt_deg = [26.0, 42.0]
+# Heading off square-to-the-wall, degrees.
+yaw_deg = [-9.0, 9.0]
+# Camera roll about the optical axis, degrees.
+roll_deg = [-3.0, 3.0]
 
 [randomization]
 roughness_jitter = 0.5

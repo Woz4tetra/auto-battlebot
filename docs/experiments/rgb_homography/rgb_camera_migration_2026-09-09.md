@@ -751,7 +751,7 @@ Steps 1 through 5 and 7 are all testable without the camera in hand. Only 6 bloc
 2. With the calibrated `fx`, shoot an NHRL cage through the polycarb at 1.2 m and at 1.3 m, and
    confirm how much mat boundary is actually visible at each. That settles the mount height, the
    downtilt, and how much of section 1a is needed.
-3. Implement section 1a against `playground/field_transform/field_methods.py` and test it on the
+3. Implement section 1a against `auto_battlebot/perception/field_pose.py` and test it on the
    clipped 2024-10-26 recording that the companion plan already found trips the border guard.
 4. Land `BUILD_WITH_ZED` and confirm both build configurations.
 5. Benchmark `imgsz 1280` on Orin Nano and Orin NX 16 GB before ordering the compute upgrade.
@@ -780,7 +780,7 @@ platform by `install/install_opencv.sh` (the generalized `install_opencv_jetson.
 "mask over quad area above 1.05" caught the *inscribed* quad, before the edge refinement existed.
 With refinement in place the fitted quad circumscribes the mask, so the ratio never rises above 1
 on its own: a convex pentagon measures 0.936, an ellipse 0.874, a good mat 0.96 to 0.98. Verified
-against `playground/field_transform/field_methods.py`, which gives the same numbers. The guard is
+against `auto_battlebot/perception/field_pose.py`, which gives the same numbers. The guard is
 kept because it still catches a refinement that fails and falls back, and it is now measured
 against the quad clipped to the image so a clipped field does not read as a bad outline. What it
 cannot do is reject a convex outline that is not the mat.

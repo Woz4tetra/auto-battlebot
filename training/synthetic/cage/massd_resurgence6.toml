@@ -1,0 +1,120 @@
+# The MassDestruction arena (Charles River Museum, Resurgence Six) as seen by the Omega
+# broadcast camera. Metres, W frame: floor centre origin, z up, +y away from the camera.
+#
+# Dimensions that are measured: the 2.26 m plywood floor (an 8 ft wall interior less a 2x4
+# rail each side, confirmed against our own metric ZED recording of the same arena), and the
+# two 0.43 m hazard squares at (0, +-0.88) read straight off the rectified floor texture.
+# Everything else started as a guess and was moved by the grade sweeps.
+
+[mat]
+size = 2.26
+thickness = 0.019
+# Built by training/synthetic/build_cage_floor_texture.py from the empty frame 8140 of
+# r1_beeroll_vs_mrsbuff; hfield frame, see the .json beside it. 89% of the floor observed,
+# the near corner filled with the floor mean.
+albedo = "training/data/environments/massd_arena/mat_albedo/massd_resurgence6_albedo.png"
+# The albedo is a photo of the lit plywood, so as a reflectance it is far too bright. Below
+# 1 the lights carry the floor brightness instead and the robots come out lit to match. 0.50
+# is fitted: it puts the rendered MRS BUFF's brightness on the real one over 17 hand-labelled
+# frames of this clip (Lab dL -0.3, against +9.4 at 0.35 and -6.7 at 0.90).
+albedo_gain = 0.50
+roughness = 0.8
+specular = 0.2
+
+[cage]
+interior = 2.336
+wall_height = 0.66
+# Small: the riser under the arena is drawn `post_size` wider than the wall, and anything
+# wider than the kick rail shows up as a lit ledge the real arena does not have.
+post_size = 0.02
+side_posts = []
+
+# The rail is a wooden kick board standing on edge at the floor line, not a ledge: the far
+# side of the picture shows its inner face, the near side only its top edge. 0.095 m tall is
+# solved from how far that bright band reaches above the floor edge, and it reads the same
+# within 5 px at four points along the far edge. Carriage bolts every 16 in through the face.
+[frame]
+height_above_mat = 0.095
+bolt_pitch = 0.406
+bolt_face = "inner"
+bolt_height_above_mat = 0.052
+bolt_head_diameter = 0.024
+bolt_head_height = 0.008
+cc_texture = "Wood027"
+color = [0.62, 0.55, 0.42]
+roughness = 0.75
+
+# The near pit is the one the camera looks into; the far square reads flat in this footage
+# (dark grey with a red chevron painted on it) so it stays part of the floor texture.
+# Depth 0.13 m is solved from how much of the pit floor the near wall hides.
+[[pits]]
+center = [-0.883, -0.015]
+size = [0.436, 0.424]
+depth = 0.13
+wall_color = [0.38, 0.28, 0.18]
+wall_roughness = 0.85
+floor_color = [0.015, 0.015, 0.015]
+
+# Scratched polycarbonate: the crowd behind it reads darker and greyer than the room.
+# The broadcast camera is outside the cage, past the near and left walls, so those two are
+# left unglazed: BlenderProc's segmentation stops at glass and everything behind a pane
+# loses its label. Only the two walls the camera sees across the arena are built.
+[panel]
+walls = ["far", "right"]
+thickness = 0.009
+ior = 1.586
+roughness = 0.06
+tint = [0.72, 0.72, 0.74]
+
+[venue]
+floor_drop = 0.75
+floor_extent = 12.0
+floor_cc_texture = "none"
+floor_color = [0.02, 0.02, 0.02]
+floor_roughness = 0.8
+
+[house_bot_box]
+enabled = false
+
+# Almost no flat ambient. The grade wants the light to come from above and nowhere else:
+# raising the ambient lights the outward-facing faces of the near rail, which the real
+# picture shows almost black, and costs 10 points of outside L1 for nothing inside.
+[world]
+background_color = [0.10, 0.10, 0.10]
+ambient_strength = 1.0
+
+# Overhead hall fixtures, swept against the target: 2x2 at 1.4 m beat every rig from 1.2 to
+# 3.0 m and every count from 2x2 to 3x3 (full L1 13.3 against 13.4 to 19.8).
+[lights.grid]
+enabled = true
+rows = 2
+cols = 2
+spacing_x = 1.8
+spacing_y = 1.8
+height = 1.4
+length = 1.2
+radius = 0.04
+color = [1.0, 0.98, 0.94]
+strength = 90.0
+
+# Standing crowd and the rest of the hall, close in behind the glass on every side.
+[backdrop]
+radius = 4.0
+height = 3.2
+color = [0.24, 0.22, 0.21]
+strip_height = 1.4
+strip_thickness = 0.9
+strip_color = [0.55, 0.48, 0.45]
+strip_strength = 1.6
+
+# Solved by render_cage_view.py --auto-exposure against the r1 target (floor-region means).
+# This is the whole exposure, not a base.
+[exposure]
+gain = 0.7223
+color_gain = [0.9971, 1.0000, 1.0067]
+
+[render]
+samples = 256
+denoiser = "OPTIX"
+transmission_bounces = 8
+glossy_bounces = 4

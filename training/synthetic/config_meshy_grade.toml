@@ -377,7 +377,7 @@ cc_texture = "Foil002" # gold foil
 # UV-mapped PBR textures loaded from a directory (Color, Roughness, Metalness,
 # NormalGL, Displacement).  Unlike cc_texture, this preserves the model's UV
 # layout instead of tiling with generated coordinates.
-texture_dir = "../data/cc_textures/HouseBot"
+texture_dir = "../data/environments/nhrl_3lb_cage/house_bot"
 
 [materials.mrs_buff_mk3_top_sticker]
 texture_dir = "../data/cc_textures/mrs_buff_mk3_top_sticker"

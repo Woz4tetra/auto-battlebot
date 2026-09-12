@@ -208,12 +208,22 @@ Options:
 
 ```text
 --num-images 5000       Override image count from config
---render-samples 128    Path-tracing samples per pixel
+--images-per-scene 4    Camera viewpoints per robot arrangement
+--out DIR               Write DIR/images and DIR/labels instead of the config's paths
+--render-samples 128    Path-tracing samples per pixel (the cage half has its own count)
 --start-index 10000     Resume from a specific frame index
 --seed 42               Seed Python/numpy RNGs for reproducible debugging runs
 -v / --verbose          Debug logging (per-robot skip detail, asset decisions)
 -q / --quiet            Warnings and the run summary only
 ```
+
+Half the images come out of the NHRL cage when `[cage].enabled` is set: same robots,
+distractors and label pipeline, but the mat is the floor, the LED tube rig is the light, and
+the camera is clamped to a cage wall instead of sampled on a shell around the robots. The
+other half is the HDRI arena, and the cage's house bot is labelled as its own `house_bot`
+class with keypoints. The run summary reports the realized split. See
+`docs/experiments/perception_performance/cage_scene_render_match_2026-09-11.md` for how the
+cage was fitted to footage, and `training/data/environments/nhrl_3lb_cage/` for its assets.
 
 Every dropped frame is logged with a machine-readable reason
 (`DROPPED KP_PROMINENT_ROBOT_UNLABELED — robot 2 ...`), and the run ends with a
@@ -272,6 +282,10 @@ python train.py path/to/data.yaml yolo11n-pose
 | `synthgen/` | imported | Rendering pipeline implementation (pure + Blender-side modules) |
 | `tests/` | `pytest` | Unit tests for the pure `synthgen` modules (no Blender needed) |
 | `coco_to_yolo.py` | `python` | Convert COCO-style labels to YOLO format |
+| `cage/*.toml` | -- | NHRL cage scene specs (geometry, materials, lights, exposure) |
+| `render_cage_view.py` | `blenderproc run` | Render the empty cage from fitted poses, for grading against footage |
+| `render_cage_samples.py` | `blenderproc run` | Cage-only labelled sample set from the fitted poses |
+| `build_cage_floor_texture.py` | `venv/bin/python` | Build the mat albedo the cage spec loads, from rectified targets |
 
 ## Directory Structure
 
@@ -299,5 +313,6 @@ See `config.toml` for all options. Key sections:
 - `[materials.*]` PBR properties and texture sources
 - `[distractors]` source directories, count range, scale range
 - `[environment]` HDRI and texture paths
-- `[camera]` distance/height/noise parameters
+- `[camera]` distance/height/noise parameters for the HDRI-arena half
+- `[cage]` cage scene fraction, spec, camera calibration, and `[cage.mount]` sampling ranges
 - `[randomization]` material and lighting jitter

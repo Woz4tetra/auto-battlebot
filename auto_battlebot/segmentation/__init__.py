@@ -7,4 +7,5 @@ load_deeplabv3  model builder, weights loading, and the shared input transforms
 model_config    read and write the TOML metadata beside a checkpoint
 constants       input geometry and class count the trained model was built with
 field_labels    parse a floor-mask filename into field type, scene, and source frame
+field_hull      fixed-camera floor region: median frame, DeepLab mask, convex hull cache
 """

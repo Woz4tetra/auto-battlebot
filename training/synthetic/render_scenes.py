@@ -2,10 +2,14 @@ import blenderproc as bproc  # noqa: F401  # isort: skip  # must be first import
 
 """Render synthetic YOLO training scenes with BlenderProc.
 
-Usage (run from training/synthetic/ so synthgen is importable; the docker
-wrapper training/synthetic/docker/run_synthetic.sh sets PYTHONPATH for you):
-    PYTHONPATH="$PWD" blenderproc run render_scenes.py -- config.toml [--num-images N]
-        [--render-samples N] [--start-index N] [--seed N] [-v | -q]
+Usage (the docker wrapper training/synthetic/docker/run_synthetic.sh starts in
+training/synthetic, so the paths below are relative to it):
+    blenderproc run render_scenes.py -- config.toml [--num-images N]
+        [--images-per-scene N] [--out DIR] [--render-samples N] [--start-index N]
+        [--seed N] [-v | -q]
+
+Half the scenes are rendered inside the NHRL cage when ``[cage].enabled`` is set; see
+that section of config.toml.
 
 All the actual work lives in the ``synthgen`` package next to this script; this
 entry point only parses arguments and hands off to ``synthgen.pipeline.run``.
@@ -19,11 +23,15 @@ from pathlib import Path
 
 import numpy as np
 
-# synthgen is imported by its top-level package name. blenderproc re-executes
-# this script from a temp dir with its own Python (not the venv), so it must be
-# launched with PYTHONPATH including training/synthetic (set by the docker
-# wrapper; see the module docstring for manual runs).
-from synthgen import logsetup
+# Blender's embedded Python ignores PYTHONPATH (BlenderProc clears it before launching
+# Blender), so the two first-party roots this script imports from go on sys.path here, the
+# way render_cage_samples.py does it: training/synthetic for `synthgen`, and the repo root for
+# `auto_battlebot.perception`, which the cage half reads the camera calibration through.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_SCRIPT_DIR))
+sys.path.insert(0, str(_SCRIPT_DIR.parents[1]))
+
+from synthgen import logsetup  # noqa: E402
 
 
 def _parse_render_args() -> argparse.Namespace:
@@ -32,6 +40,21 @@ def _parse_render_args() -> argparse.Namespace:
     parser.add_argument("config", type=Path, help="Path to config.toml")
     parser.add_argument("--num-images", type=int, default=None)
     parser.add_argument("--render-samples", type=int, default=64)
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help=(
+            "Dataset directory, overriding [output].image_dir/label_dir with"
+            " <out>/images and <out>/labels."
+        ),
+    )
+    parser.add_argument(
+        "--images-per-scene",
+        type=int,
+        default=None,
+        help="Override [output].images_per_scene (camera viewpoints per arrangement).",
+    )
     parser.add_argument(
         "--start-index",
         type=int,

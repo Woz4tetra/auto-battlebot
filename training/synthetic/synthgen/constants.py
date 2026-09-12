@@ -12,6 +12,10 @@ ANNOTATION_MODE_SEGMENTATION_BBOX = "segmentation_bbox"
 BACKGROUND_CATEGORY_ID = 0
 ROBOT_CATEGORY_ID = 1
 DISTRACTOR_CATEGORY_ID = 2
+# The NHRL house bot parked on a cage rail. It is scenery, not a competitor, but it is
+# robot-shaped and sits in frame in real cage footage, so it gets its own category and its own
+# YOLO class rather than being left unlabelled for the detector to guess at.
+HOUSE_BOT_CATEGORY_ID = 3
 
 # Class ids used in segmentation mode. Per-robot classes are appended after
 # SEG_ROBOT_CLASS_ID. This scheme is consumed downstream by
@@ -23,6 +27,7 @@ SEG_ROBOT_CLASS_ID = 3
 # Generic YOLO class + instance-id base for CAD (NHRL robot) distractors that
 # carry keypoint sidecars; only used in keypoints_bbox annotation mode.
 NHRL_ROBOT_CLASS_NAME = "nhrl_robot"
+HOUSE_BOT_CLASS_NAME = "house_bot"
 NHRL_DISTRACTOR_INSTANCE_ID_BASE = 1000
 
 MODEL_EXTENSIONS = {".glb", ".gltf", ".obj", ".ply"}

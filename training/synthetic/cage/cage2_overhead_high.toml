@@ -1,0 +1,124 @@
+# NHRL 3 lb cage (Cage 2) as seen by the fixed Cage-2-Overhead-High iPhone.
+# Metres, W frame: mat centre origin, z up, +y away from the camera, +x to its right.
+# Unknown dimensions start as guesses and are tuned by playground/cage_scene/grade_render.py
+# sweeps; the values here are the current best, not measurements.
+
+[mat]
+size = 2.35
+thickness = 0.012
+# Built by training/synthetic/build_cage_floor_texture.py; hfield frame, see the .json beside it.
+albedo = "training/data/environments/nhrl_3lb_cage/mat_albedo/cage2_nhrl_may26_albedo.png"
+# Linear multiplier on the albedo photo; below 1 the lights carry more of the mat brightness
+# and the robots come out brighter for the same mat match (see the robot-frame sweep).
+albedo_gain = 0.35
+roughness = 0.7
+specular = 0.3
+
+[cage]
+interior = 2.4384
+wall_height = 1.22
+post_size = 0.05
+side_posts = []
+
+[frame]
+height_above_mat = 0.02
+bolt_pitch = 0.20
+bolt_head_diameter = 0.019
+bolt_head_height = 0.008
+cc_texture = "Metal030"
+color = [0.02, 0.02, 0.022]
+roughness = 0.55
+
+# Tint and roughness below clear glass: the real panels are scratched and dusty, and what the
+# camera sees through them is darker than the venue lighting alone would make it.
+[panel]
+thickness = 0.012
+ior = 1.586
+roughness = 0.08
+tint = [0.6, 0.6, 0.62]
+
+[venue]
+floor_drop = 0.70
+floor_extent = 12.0
+# "none" keeps the flat floor_color; a cc_textures set name swaps in its PBR maps.
+floor_cc_texture = "none"
+floor_color = [0.02, 0.018, 0.022]
+floor_roughness = 0.8
+
+# The May 2026 framing shows the house bot parked on the far-right rail; June has it near-left.
+# The textured GLB is scaled so its footprint's longer side is size[0] (size[0] = 0 keeps the
+# model's own 0.25 x 0.23 x 0.33 m); color/roughness are the fallback flat box when it is missing.
+[house_bot_box]
+enabled = true
+size = [0.36, 0.36, 0.30]
+position = [0.92, 1.02]
+# The model ships on its side: roll -90 about its x (LED-face normal) stands it up. The face is the
+# +x side; yaw -90 turns it toward the camera, -80 matches the real angle.
+roll_deg = -90.0
+yaw_deg = -80.0
+# Camera-side area light on the box so its vertical face is lit like the real one.
+front_fill = 40.0
+model = "training/data/environments/nhrl_3lb_cage/house_bot/HOUSE BOT.glb"
+texture_dir = "training/data/environments/nhrl_3lb_cage/house_bot"
+albedo_gain = 1.4
+led_emission = 1.3
+color = [0.22, 0.30, 0.20]
+roughness = 0.6
+
+[world]
+background_color = [0.20, 0.19, 0.22]
+ambient_strength = 1.0
+
+# Overhead LED tubes: the key light. A rows x cols rig of identical tubes running along x.
+# The rig footprint (spacing, height) sets where the cage casts its shadows; the tube size
+# (length, radius) sets how crisp the robot shadows are: shorter, thinner tubes, sharper
+# edges. Explicit extra tubes can still be added as [[lights.tubes]] entries.
+[lights.grid]
+enabled = true
+rows = 3
+cols = 2
+spacing_x = 1.6
+spacing_y = 0.8
+height = 2.2
+length = 0.3
+radius = 0.015
+color = [1.0, 1.0, 1.0]
+strength = 80.0
+
+# Coloured wash behind the panels: magenta on the camera's left, cyan on its right.
+[[lights.wash]]
+position = [-4.0, 0.0, 2.5]
+look_at = [-1.3, 0.0, 0.3]
+size = 1.5
+color = [0.8, 0.2, 1.0]
+strength = 10.0
+[[lights.wash]]
+position = [4.0, 0.0, 2.5]
+look_at = [1.3, 0.0, 0.3]
+size = 1.5
+color = [0.2, 0.8, 1.0]
+strength = 10.0
+
+[backdrop]
+radius = 6.0
+height = 4.0
+color = [0.006, 0.005, 0.008]
+strip_height = 2.6
+strip_thickness = 0.08
+strip_color = [0.7, 0.3, 1.0]
+strip_strength = 4.0
+
+# Solved by render_cage_view.py --auto-exposure against the May 2026 targets (mat-region
+# means). This is the whole exposure, not a base: --auto-exposure multiplies it by what it
+# solves, so a run without it renders the graded look. Anything that applies the spec as-is
+# (render_cage_samples.py, the [cage] half of render_scenes.py) depends on that, and the LED
+# emission is divided by this gain so the house bot lands at the same output brightness.
+[exposure]
+gain = 7.895
+color_gain = [0.9175, 1.0, 0.9247]
+
+[render]
+samples = 256
+denoiser = "OPTIX"
+transmission_bounces = 8
+glossy_bounces = 4

@@ -23,13 +23,13 @@ from typing import Any
 import cv2
 import numpy as np
 
-from playground.bgsub_cage.field_hull import FieldSegmenter
-from playground.field_transform.field_methods import (
+from auto_battlebot.perception.field_pose import (
     FieldResult,
     compare,
     depth_plane_field,
     homography_field,
 )
+from auto_battlebot.segmentation.field_hull import FieldSegmenter
 
 RGB_HINTS = ("rgb/image_rect_color", "left/image_rect_color", "rgb/image_raw", "left/image_raw")
 DEPTH_HINTS = ("depth/depth_registered", "depth/image_raw", "depth_registered")

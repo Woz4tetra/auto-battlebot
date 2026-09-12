@@ -62,8 +62,8 @@ from anywhere. `training/`, `scripts/`, `simulation/`, and `logo/` are not packa
   | Subpackage | Holds |
   | --- | --- |
   | `recording/` | Foxglove MCAP read and write, ZED SVO, diagnostics loaders |
-  | `perception/` | Python mirrors of the C++ detector path (`trt_yolo`, `camera_geometry`) |
-  | `segmentation/` | DeepLab field-mask builder, checkpoint metadata, label parsing |
+  | `perception/` | Python mirrors of the C++ detector path (`trt_yolo`, `camera_geometry`), camera and cage calibration loaders, field pose fits (`field_pose`) |
+  | `segmentation/` | DeepLab field-mask builder, checkpoint metadata, label parsing, fixed-camera floor hull (`field_hull`) |
   | `control/` | The grey-box drivetrain plant the C++ filter mirrors |
   | `eval/` | Detector scoring: GT loading, detectors, metrics, bootstrap, plots |
   | `calibration/` | `jig/`, `apriltag/`, `match/`: the three plant-fit paths |
@@ -290,3 +290,4 @@ drafts if they clearly beat commas, periods, or parentheses.
 
 - No blocking calls in the main perception loop. The latency budget is tight.
 - Do not modify files under `data/` (MCAP recordings, SVO files, TensorRT engines).
+- `runs/` holds model training outputs only. Put analysis results, scratch output, and anything else somewhere else.

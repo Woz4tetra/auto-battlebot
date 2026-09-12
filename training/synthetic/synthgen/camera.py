@@ -49,8 +49,12 @@ def _pose_toward(cam_pos: np.ndarray, target: np.ndarray) -> np.ndarray:
     return np.asarray(bproc.math.build_transformation_mat(cam_pos, rotation))
 
 
-def _target_in_frame(cam2world: np.ndarray, point: list[float]) -> bool:
-    """True when *point* projects inside the camera frame for this pose."""
+def target_in_frame(cam2world: np.ndarray, point: list[float]) -> bool:
+    """True when *point* projects inside the camera frame for this pose.
+
+    Moves the scene camera to *cam2world* as a side effect; callers that care about the
+    camera's pose afterwards set it themselves.
+    """
     camera = bpy.context.scene.camera
     camera.matrix_world = mathutils.Matrix(cam2world.tolist())
     bpy.context.view_layer.update()
@@ -114,7 +118,7 @@ def sample_camera_pose(
                 ]
             )
             cam2world = _pose_toward(cam_pos, target)
-            if _target_in_frame(cam2world, robot_center):
+            if target_in_frame(cam2world, robot_center):
                 return cam2world, False
 
     # Deterministic fallback: aim straight at the target with zero noise. The
@@ -143,6 +147,25 @@ def scene_bounding_radius(scene_robots: list[RobotInstance], centroid: list[floa
     return math.sqrt(max_r2)
 
 
+def robot_centroid(robot_positions: list[list[float]]) -> list[float]:
+    """Mean of the placed robot positions: what the cameras aim at."""
+    return [sum(p[i] for p in robot_positions) / len(robot_positions) for i in range(3)]
+
+
+def clear_poses_blocking_keypoints(
+    cam_poses: list[np.ndarray],
+    scene_robots: list[RobotInstance],
+    active_distractors: list[DistractorInstance],
+) -> None:
+    """Move distractors that sit between any of *cam_poses* and a robot keypoint."""
+    all_keypoints_world: list[mathutils.Vector] = []
+    for robot in scene_robots:
+        wmat = np.array(robot.parent.matrix_world)
+        for kp in [robot.kp_front, robot.kp_back]:
+            all_keypoints_world.append(mathutils.Vector((wmat @ np.append(kp, 1.0))[:3]))
+    clear_blocking_distractors(cam_poses, all_keypoints_world, active_distractors)
+
+
 def setup_scene_cameras(
     scene_robots: list[RobotInstance],
     cam_cfg: CameraConfig,
@@ -158,7 +181,7 @@ def setup_scene_cameras(
         ``(cam_poses, cam_count, fallback_count)`` where fallback_count is the
         number of poses that needed the deterministic zero-noise fallback.
     """
-    centroid = [sum(p[i] for p in robot_positions) / len(robot_positions) for i in range(3)]
+    centroid = robot_centroid(robot_positions)
     cam_count = min(images_per_scene, remaining)
 
     # Push the camera back far enough that the robots' bounding sphere can never
@@ -188,13 +211,6 @@ def setup_scene_cameras(
             logger.warning("Camera target retries exhausted; using deterministic centered pose")
         cam_poses.append(pose)
 
-    if ignore_obstructions:
-        return cam_poses, cam_count, fallback_count
-
-    all_keypoints_world: list[mathutils.Vector] = []
-    for robot in scene_robots:
-        wmat = np.array(robot.parent.matrix_world)
-        for kp in [robot.kp_front, robot.kp_back]:
-            all_keypoints_world.append(mathutils.Vector((wmat @ np.append(kp, 1.0))[:3]))
-    clear_blocking_distractors(cam_poses, all_keypoints_world, active_distractors)
+    if not ignore_obstructions:
+        clear_poses_blocking_keypoints(cam_poses, scene_robots, active_distractors)
     return cam_poses, cam_count, fallback_count

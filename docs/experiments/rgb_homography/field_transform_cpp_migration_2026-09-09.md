@@ -2,7 +2,7 @@
 
 Status: **plan** (2026-09-09). Findings this rests on:
 `field_transform_homography_2026-09-08.md`. Reference implementation:
-`playground/field_transform/field_methods.py`.
+`auto_battlebot/perception/field_pose.py`.
 
 I am replacing the depth plane fit in `PointCloudFieldFilter::compute_field` with a
 homography solved from the field outline in RGB and the known mat dimensions. This document
@@ -65,7 +65,7 @@ the outer 20% of each side as belonging to the rounding, fit the survivors with 
 squares, and intersect adjacent lines. Four iterations. Mask area over quad area went from
 1.24 to 0.97, and the range disagreement went from 22 cm to 5 cm.
 
-`refine_quad_by_edges` in `playground/field_transform/field_methods.py` is the reference.
+`refine_quad_by_edges` in `auto_battlebot/perception/field_pose.py` is the reference.
 
 ### 3. Two guards, because residuals cannot see either failure
 

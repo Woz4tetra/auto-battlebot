@@ -32,7 +32,7 @@ import numpy as np
 from tqdm import tqdm
 from ultralytics import YOLO
 
-from playground.bgsub_cage.field_hull import (
+from auto_battlebot.segmentation.field_hull import (
     FieldSegmenter,
     compute_hull,
     hull_mask_from_polygon,

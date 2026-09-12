@@ -17,6 +17,7 @@ import numpy as np
 import tomllib
 
 from synthgen.annotations import normalize_annotation_mode
+from synthgen.cage_mount import WALLS, CageMountRanges
 from synthgen.colorspec import ColorMappingEntry
 from synthgen.constants import ANNOTATION_MODE_SEGMENTATION_BBOX
 from synthgen.geometry import model_to_blender_local
@@ -185,6 +186,33 @@ class SceneConfig:
 
 
 @dataclass(frozen=True)
+class CageConfig:
+    """``[cage]`` section: the NHRL cage half of the scene mix."""
+
+    enabled: bool = False
+    probability: float = 0.5
+    spec: Path = Path("cage/cage2_overhead_high.toml")
+    camera_calibration: Path = Path("config/cameras/brettzone_cage_high.toml")
+    # None keeps the run's --render-samples; the cage is darker and has glass, so it usually
+    # wants more.
+    render_samples: int | None = None
+    tube_jitter: float = 0.25
+    mat_margin_m: float = 0.20
+    mount: CageMountRanges = CageMountRanges()
+
+    def wants_scene(self, images_written: int, cage_images: int) -> bool:
+        """Whether the next scene should be a cage scene.
+
+        The split is tracked rather than coin-flipped: a scene goes to the cage whenever the
+        cage is behind its share of the images written so far, so even a 100-image run lands
+        on ``probability`` instead of somewhere in its binomial spread.
+        """
+        if not self.enabled or self.probability <= 0.0:
+            return False
+        return cage_images <= self.probability * images_written
+
+
+@dataclass(frozen=True)
 class RandomizationConfig:
     """``[randomization]`` section."""
 
@@ -210,6 +238,7 @@ class RenderConfig:
     camera: CameraConfig = CameraConfig()
     scene: SceneConfig = SceneConfig()
     randomization: RandomizationConfig = RandomizationConfig()
+    cage: CageConfig = CageConfig()
     resolver: PathResolver = PathResolver(Path("."), Path("."), _PROJECT_ROOT)
 
 
@@ -439,6 +468,55 @@ def _parse_scene(section: dict[str, Any]) -> SceneConfig:
     )
 
 
+def _parse_mount(section: dict[str, Any]) -> CageMountRanges:
+    context = "[cage.mount]"
+    defaults = CageMountRanges()
+    walls = tuple(str(w) for w in section.get("walls", defaults.walls))
+    if not walls:
+        raise ConfigError(f"{context}.walls: at least one wall is required")
+    unknown = [w for w in walls if w not in WALLS]
+    if unknown:
+        raise ConfigError(f"{context}.walls: unknown {unknown}; valid walls are {list(WALLS)}")
+    return CageMountRanges(
+        walls=walls,
+        along_m=_as_pair(section.get("along_m", defaults.along_m), f"{context}.along_m"),
+        height_m=_as_pair(section.get("height_m", defaults.height_m), f"{context}.height_m"),
+        inset_m=_as_pair(section.get("inset_m", defaults.inset_m), f"{context}.inset_m"),
+        tilt_deg=_as_pair(section.get("tilt_deg", defaults.tilt_deg), f"{context}.tilt_deg"),
+        yaw_deg=_as_pair(section.get("yaw_deg", defaults.yaw_deg), f"{context}.yaw_deg"),
+        roll_deg=_as_pair(section.get("roll_deg", defaults.roll_deg), f"{context}.roll_deg"),
+    )
+
+
+def _parse_cage(section: dict[str, Any]) -> CageConfig:
+    context = "[cage]"
+    defaults = CageConfig()
+    probability = _as_float(
+        section.get("probability", defaults.probability), f"{context}.probability"
+    )
+    if not 0.0 <= probability <= 1.0:
+        raise ConfigError(f"{context}.probability: expected 0.0 to 1.0, got {probability}")
+    render_samples = section.get("render_samples")
+    return CageConfig(
+        enabled=bool(section.get("enabled", defaults.enabled)),
+        probability=probability,
+        spec=Path(str(section.get("spec", defaults.spec))),
+        camera_calibration=Path(
+            str(section.get("camera_calibration", defaults.camera_calibration))
+        ),
+        render_samples=(
+            None if render_samples is None else _as_int(render_samples, f"{context}.render_samples")
+        ),
+        tube_jitter=_as_float(
+            section.get("tube_jitter", defaults.tube_jitter), f"{context}.tube_jitter"
+        ),
+        mat_margin_m=_as_float(
+            section.get("mat_margin_m", defaults.mat_margin_m), f"{context}.mat_margin_m"
+        ),
+        mount=_parse_mount(section.get("mount", {})),
+    )
+
+
 def _parse_randomization(section: dict[str, Any]) -> RandomizationConfig:
     context = "[randomization]"
     return RandomizationConfig(
@@ -522,5 +600,6 @@ def load_render_config(
         camera=_parse_camera(raw.get("camera", {})),
         scene=_parse_scene(raw.get("scene", {})),
         randomization=_parse_randomization(raw.get("randomization", {})),
+        cage=_parse_cage(raw.get("cage", {})),
         resolver=resolver,
     )
