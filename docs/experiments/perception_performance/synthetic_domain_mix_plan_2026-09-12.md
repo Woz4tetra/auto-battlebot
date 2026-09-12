@@ -6,6 +6,164 @@ budget, one eval set.
 
 Writeup lands in `docs/experiments/perception_performance/synthetic_domain_mix_<date>.md`.
 
+## Status, 2026-09-12
+
+Steps 0, 1 and 2 are done. Step 3 has not started. The 100-frame inspection renders for both
+venues are queue jobs 42 and 43 on megamind, writing `training/data/_probe_nhrl_2026-09-12`
+and `training/data/_probe_massd_2026-09-12`.
+
+| Step | State |
+| --- | --- |
+| 0a lens | Done, and it changed the answer |
+| 0b timing | Local only: 9.3 s per written frame at 128 samples on an RTX 4080 Laptop. No A6000 number yet |
+| 0c schema | Done. `nc: 4` lowercase, straight out of the renderer |
+| 1 megamind | Assets, image and code staged. 61 GB free on `/` |
+| 2 damage | Done, with three changes to the design |
+| 3 render | Not started. Needs `render_shards.sh` and the `CUDA_VISIBLE_DEVICES` passthrough |
+
+### What 0a settled
+
+The deployed ZED reads 1280x720, fx = fy = 527.528, cx 644.906, cy 369.885, zero distortion,
+across 17 saved MCAPs from MassD_2026-08-29 and NHRL_2026-05-02. That is in
+`config/cameras/zed2i_720p.toml`, and it is 101.0 degrees horizontal against the phone's 95.2:
+a 10 percent difference in normalized focal length, so the two lenses are not interchangeable
+and the question was worth asking.
+
+Both venues render through `config/cameras/ecam25_h01r1_estimated.toml` anyway, because the
+e-CAM25 is the camera the mounts are for and the lens they were judged through.
+`zed2i_720p.toml` stands as the measured record for a ZED-matched set later.
+
+HD720 is not a scaled HD1080. The one 1080p recording in the corpus reports fx/width 0.554
+against 0.412 here, so the sensor crops where HD720 bins. Do not rescale that file.
+
+### Mount ranges
+
+`[cages.mount]` for `nhrl_cage` now comes from 12 poses flown in `pose_camera_server.py` and
+covers the near-glass eight of them:
+
+```toml
+walls = ["near", "far", "left", "right"]
+along_m = [-0.55, 0.55]
+height_m = [0.60, 1.25]
+inset_m = [-0.20, -0.01]
+aim = "centre"
+tilt_offset_deg = [-22.0, -10.0]
+yaw_deg = [-23.0, 23.0]
+roll_deg = [-13.0, 13.0]
+```
+
+Every marked pose sits outside the polycarbonate, which is why inset is negative where the
+phone-fitted block was positive. That is the cheaper side to shoot from: a pane the camera
+looks through from outside is hidden for that frame and costs no labels.
+
+Two things went wrong on the way here, both worth not repeating.
+
+- Bug: the marks only existed in the running server's memory. The render directory under
+  `--out` is not evidence they were saved.
+- Fix: `curl -s -X POST -d '{"name":"..."}' http://127.0.0.1:8770/save` writes
+  `mount_ranges.toml`, and `GET /state` reads the live marks out of a server still up.
+
+- Bug: the first ranges took the envelope of all 12 marks and sampled each axis independently.
+  That rendered a camera too far back and aimed too high, filling 24.9 percent of the frame
+  with mat against the marks' 31.8. Uniform draws over `inset [-0.75, -0.01]` land past
+  -0.17 m in 78 percent of frames where the marks are there in 33, and independent axes paired
+  heights and setbacks nothing was flown at into a derived tilt of up to 67 degrees.
+- Fix: the ranges above, which cover the near-glass eight. Over 2000 samples they fill 38.9
+  percent of the frame with mat, median tilt 39.0 degrees, 98.9 percent of the mat in frame.
+  The far-back four framed worst of all twelve at 12 to 33 percent.
+
+A negative `tilt_offset_deg` is steeper, aimed short of the field centre, because tilt is
+measured off straight down. Every mark is aimed short of the centre by 5.1 to 18.8 degrees.
+
+### Damage, as built
+
+`synthgen/damage.py` holds the draws and stays out of Blender, so the purity guard covers it
+and 33 unit tests do. `synthgen/damage_scene.py` applies a draw and reverts it. Three changes
+from the design above:
+
+- **Nothing is deleted.** `load_robots` and the distractor pool load each model once and reuse
+  it for every later scene, so a deleted part would stay deleted for the rest of the run. Part
+  removal hides parts from the render, which hands both passes the same silhouette; chunk
+  removal attaches a boolean difference modifier and takes a cutter from a pool built at
+  startup, before `_enable_segmentation` arms the meshes that exist. A `DamageSession` reverts
+  both in a `finally` after the scene's frames are written.
+- **`separate loose parts` is not used.** Mesh count picks the mechanism: more than one mesh
+  goes to part removal, one fused mesh goes to the cutter. Splitting a Meshy mesh is
+  destructive, which the reuse rule forbids.
+- **The scene split is tracked, not flipped.** Damage has to be drawn per scene, since one
+  render call covers every camera pose in the scene. Rolling only per instance at 0.35 left 0
+  of 30 frames fully clean on the first probe, not the 40 to 50 percent this plan assumed: a
+  frame carries 4.1 robot-like instances, so `0.65^4` is 15 percent before the binomial spread
+  of ten scenes. `[damage].scene_probability` now sizes the clean pool directly, and
+  `DamageBudget` tracks it the way `choose_cage` tracks the scene mix, so the ratio holds to
+  within one scene at any run length.
+
+The two mechanisms measure geometry in different frames, on purpose. The cutter is an
+unparented world object, so chunk removal works in world space: a distractor's parent carries
+a per-scene scale, and a radius measured in the parent frame comes out wrong by that factor.
+Part removal works in the parent frame, because that is where the parts and keypoints were
+modelled, so protection does not depend on which way the robot faces. Measured over three
+poses, one robot's protected set held at 9 and 36 parts in its own frame while world-space
+boxes wobbled between 6 and 71.
+
+At `scene_probability = 0.5` the first 100-frame pair came out 60 percent clean (NHRL) and 50
+percent (MassD). NHRL runs high because a scheduled damaged scene can still roll every
+instance clean. A 20k render therefore yields 10k to 12k clean frames, so a damage-off arm
+cannot match a 20k damage-on arm at the same count. Drop `scene_probability` or accept the
+mismatch.
+
+Grading the mechanism: part removal on the CAD robots reads as missing armour with internals
+showing. The cutter takes a plausible bite out of a Meshy shell, but the cut exposes unshaded
+backfaces that render bright white, which no real robot looks like. A dark interior material
+on cut faces would fix it. At 34 to 70 px it may not matter.
+
+### Findings that affect later steps
+
+- **The domain frames put our robots at roughly half the pixels the randomized pool does.**
+  Longest bbox edge at 1280x720, median: `mr_stabs_mk2` 39 px (NHRL) and 34 px (MassD) against
+  58 px randomized; `mrs_buff_mk3` 70 and 52 against 96. That is faithful to what a cage mount
+  sees, but step 4 pins `imgsz 640` for every arm, and 34 to 39 px is the size range that
+  already starved the cage-high detector. A domain arm can lose on resolution and read as
+  losing on domain. Pre-register imgsz as a factor or record the confound.
+- **Keypoint visibility did not move.** 3.9 percent flag-0 on the NHRL domain probe against
+  5.2 percent in the randomized pool, so the outside-the-glass mounts and the one-way panes
+  are not eating keypoints.
+- **`validate_yolo_integrity.py --strict` cannot pass on a MassD render.** It reports zero
+  errors and one warning, `house_bot` with zero instances, which is correct: that spec has
+  `[house_bot_box] enabled = false`. The step 3 gate needs this written in as an exception.
+- **Each written frame costs two render passes.** The clean distractor-free pass doubles every
+  render. `[output].ignore_obstructions = true` halves the render cost and drops the occlusion
+  gate with it, which is the biggest single lever on a multi-day render.
+- **Output is smaller than budgeted.** 130 to 140 KB per frame, so 40,000 frames is about 5.4
+  GB rather than 8.
+
+### Two config mechanisms added
+
+`extends` and `only_cage`, both in `synthgen/configuration.py`. A per-venue config is three
+keys different from the shared one, and copying 1000 lines twice would mean editing every
+`[[robots]]` change three times. `config_cage_nhrl.toml` is six lines:
+
+```toml
+extends = "config.toml"
+only_cage = "nhrl_cage"
+
+[output]
+num_images = 20000
+```
+
+Tables merge key by key; arrays, including `[[robots]]`, replace wholesale. `extends` must name
+a file in the same directory, because relative paths inside the inherited config resolve
+against the loaded file. `only_cage` puts the named cage at probability 1.0 and disables the
+rest, so no scene lands in the HDRI arena or the other venue.
+
+### Left to do
+
+1. The A6000 timing probe, at 128 and 64 samples. It needs a per-cage `render_samples`
+   override, not `--render-samples`.
+2. Decide on the white interior faces the cutter exposes.
+3. Decide imgsz for step 4, given the pixel-size gap above.
+4. `render_shards.sh` and the `CUDA_VISIBLE_DEVICES` passthrough, then step 3.
+
 ## Questions
 
 1. **Amount.** How many domain-synthetic frames before the eval curve flattens? Is 20k per
@@ -62,6 +220,13 @@ Write the result to `config/cameras/zed2i_1080p.toml` in the same schema
 `[cage].camera_calibration` to it. If the ZED numbers land within a few percent of the phone,
 record that and move on.
 
+**Done 2026-09-12, with two corrections.** The MassD MCAPs are already in the current format,
+so `convert_ros1_mcap.py` skips them with `profile '' is not ros1`; read them straight through
+`auto_battlebot.recording.mcap_io.iter_messages`, which yields `(topic, log_time, payload)`
+and tags the payload so `decode_camera_info` accepts it. And the camera runs HD720, not 1080p,
+so the file is `config/cameras/zed2i_720p.toml`. See the status section for what it says and
+why the renders use the e-CAM25 regardless.
+
 ### 0b. Timing probe
 
 Nothing in the repo records seconds per frame for a cage scene, and the render is the schedule
@@ -80,6 +245,12 @@ CUDA_VISIBLE_DEVICES=0 bash training/synthetic/docker/run_synthetic.sh --require
 Record wall clock, peak VRAM, and the drop rate (`scenes_attempted` vs `images_written`).
 Repeat at `--render-samples 64`. If 64 grades the same on a spot check, take it: the cage
 config asks for 128 because the glass is noisy, and halving samples halves a multi-day render.
+
+**Two corrections, 2026-09-12.** `--render-samples` never reaches a cage scene: each
+`[[cages]]` entry sets its own `render_samples = 128`, which overrides the run value. Testing
+64 means a variant config that overrides the per-cage key. And `--require-gpu` used to set only
+a flag, leaving the GPU arguments empty, so the command above took the CPU path silently
+without even reaching the GPU probe. It now implies `--gpu`.
 
 From seconds per frame, compute the full render cost three ways and pick the shard count:
 40,000 frames on one A6000, on two, on all three. That number decides how long the queue is
@@ -167,9 +338,11 @@ rsync -a --info=progress2 \
 rsync -a --info=progress2 training/data/environments/ \
   megamind:/home/ben/auto-battlebot/training/data/environments/
 
-# 3. Only the referenced texture sets.
+# 3. Only the referenced texture sets. The `./` marks where the preserved path starts, so it
+#    belongs at the repo root, not inside cc_textures: with the marker after cc_textures these
+#    landed as /home/ben/auto-battlebot/Concrete035 and had to be moved by hand.
 rsync -a --info=progress2 --relative \
-  training/data/cc_textures/./{Concrete035,Foil002,Foil003,Metal012,Metal030,Paper001,Plastic007,Plastic007_blue,Plastic007_yellow,Rubber001,Wood027,mrs_buff_mk3_top_sticker,mrs_buff_mk3_bottom_sticker} \
+  ./training/data/cc_textures/{Concrete035,Foil002,Foil003,Metal012,Metal030,Paper001,Plastic007,Plastic007_blue,Plastic007_yellow,Rubber001,Wood027,mrs_buff_mk3_top_sticker,mrs_buff_mk3_bottom_sticker} \
   megamind:/home/ben/auto-battlebot/
 
 # 4. Confirm the robot models already there are the ones the config names.
@@ -269,6 +442,12 @@ count if the clean pool comes out too thin to match the damage-on arm.
 
 Sanity gate before the full render: render 200 damaged frames and page through
 `sheet.png`. Reject the mechanism if robots come out unrecognizable rather than chewed.
+
+**Correction, 2026-09-12.** `render_scenes.py` writes no `sheet.png`; that comes from
+`render_cage_samples.py`. Page the output with `training/yolo/validate_yolo_dataset.py
+<dataset>`, which draws boxes and keypoints on a grid, and crop in on the largest damaged
+instance from `manifest.jsonl` before grading. At the cage mount our robots run 34 to 70 px,
+where damage is not visible at all.
 
 ## Step 3: render
 
@@ -522,26 +701,27 @@ not actually save time, say so and drop it.
 - **Eleven arms of `yolo26x-pose`** will not fit a reasonable week. The `yolo26s-pose` shaping
   pass is not optional.
 - **Segmentation stops at glass.** Any mount rendering through polycarbonate loses its labels.
-  `[cage.mount].inset_m` already keeps the camera inside; confirm on the probe that the drop
-  rate does not spike for particular walls.
+  This is no longer handled by keeping the camera inside: every marked mount sits outside, and
+  `apply_one_way_glass` hides the pane a camera looks through from outside, per frame. That is
+  why `inset_m` stays strictly negative, so the hiding always applies. The 2026-09-12 probe
+  found keypoint visibility unchanged against the randomized pool, 3.9 percent flag-0 against
+  5.2, so the mechanism holds.
 
 ## Next steps
 
-1. Convert one MassD MCAP, read `/camera/camera_info`, write `config/cameras/zed2i_1080p.toml`,
-   repoint `[cage].camera_calibration`.
-2. Write the per-venue configs (`config_cage_nhrl.toml`, `config_cage_massd.toml`) with
-   `[cage].probability = 1.0` and the class schema normalized to `nc: 4` lowercase, and bump
-   `all_robot_keypoints/data.yml` to match.
-3. Check `gpu_queue.py status`, then upload the four asset payloads to megamind (about 16
-   minutes at the measured 4.2 MB/s) and build `auto-battlebot-synthetic` there.
-4. Run the 200-frame timing probes at 128 and 64 samples on both specs. Confirm the log says
-   `0 HDRIs available` and 13 ground textures, and record seconds per frame, VRAM, and drop
-   rate.
-5. Write `synthgen/damage.py` plus the `[damage]` config block and the per-frame manifest, and
-   gate it on 200 rendered frames.
-6. Add the `CUDA_VISIBLE_DEVICES` passthrough to `run_synthetic.sh` and write
+Items 1, 2, 3 and 5 are done; see the status section. What is left:
+
+1. Grade the 100-frame inspection renders on megamind (jobs 42 and 43). Reject or keep the
+   cutter mechanism, given the white interior faces it exposes.
+2. Run the timing probes at 128 and 64 samples on both specs, on one A6000. Overriding samples
+   means a variant config, since `--render-samples` does not reach a cage scene. Confirm the
+   log says 13 ground textures rather than failing, and record seconds per frame, VRAM, and
+   drop rate.
+3. Settle `imgsz` for step 4. The domain frames run our robots at roughly half the pixels the
+   randomized pool does, and 640 is what starved the cage-high detector.
+4. Add the `CUDA_VISIBLE_DEVICES` passthrough to `run_synthetic.sh` and write
    `docker/render_shards.sh`.
-7. Submit the NHRL 20k render to the queue. Gate it, move it to `/media/storage`, then submit
-   MassD when the integration lands.
-8. Extend `make_scaling_splits.py` to multi-source counts, build the eleven arm lists, and
+5. Submit the NHRL 20k render to the queue. Gate it, allowing the `house_bot` warning on the
+   MassD half, move it to `/media/storage`, then submit MassD.
+6. Extend `make_scaling_splits.py` to multi-source counts, build the eleven arm lists, and
    submit the `yolo26s-pose` shaping grid to `gpu_queue.py`.

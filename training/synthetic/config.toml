@@ -28,13 +28,20 @@ tube_jitter = 0.25
 mat_margin_m = 0.20
 
 # Where a camera can be clamped on the cage, and where it then looks. Read off 12 poses flown
-# by hand in pose_camera_server.py on 2026-09-12 through the e-CAM25 lens, then widened. The
-# marks span along -0.94 to 0.75 m, height 0.58 to 1.26 m, inset -0.73 to -0.005 m, tilt 34.3
-# to 66.6 deg, yaw -22.6 to 22.4 deg, roll -8.6 to 15.4 deg. The quantities a wall swap mirrors
-# (along, yaw, roll) are symmetrized here, since their asymmetry says more about twelve
-# hand-flown samples than about the mount. The earlier block bracketed the eleven poses
-# fit_cage_camera.py solved for NHRL's own phone, which is a different camera on a different
-# side of the glass; playground/cage_scene/fit_cage_camera.py still has those.
+# by hand in pose_camera_server.py on 2026-09-12 through the e-CAM25 lens. Eight of them sit
+# within 0.17 m of the glass and four sit 0.35 to 0.70 m back, and these ranges cover the near
+# eight only. The far four frame worst of all twelve, filling 12 to 33 percent of the picture
+# with mat against 24 to 44 for the near ones, and including them cost more than their own
+# share: sampling each axis independently over the full envelope drew past -0.17 m in 78
+# percent of frames where the marks are there in 33, and paired heights and setbacks that
+# nothing was ever flown at into a derived tilt of up to 67 degrees. That rendered a camera too
+# far back and aimed too high, filling 24.9 percent of frame against the marks' 31.8. Over the
+# ranges below it is 38.9 percent, median tilt 39.0 degrees, 98.9 percent of the mat in frame.
+#
+# The quantities a wall swap mirrors (along, yaw, roll) are symmetrized, since their asymmetry
+# says more about twelve hand-flown samples than about the mount. The earlier block bracketed
+# the eleven poses fit_cage_camera.py solved for NHRL's own phone, which is a different camera
+# on a different side of the glass; playground/cage_scene/fit_cage_camera.py still has those.
 #
 # Every marked pose sits OUTSIDE the polycarbonate, which is why inset is negative where the
 # phone-fitted block was positive. That is the cheaper side to shoot from: a pane the camera
@@ -51,15 +58,16 @@ mat_margin_m = 0.20
 [cages.mount]
 walls = ["near", "far", "left", "right"]
 # Along the wall from its centre, metres.
-along_m = [-0.90, 0.90]
+along_m = [-0.55, 0.55]
 # Above the mat surface, metres. Not capped by the 1.22 m polycarbonate top, since the mount is
 # outside it.
-height_m = [0.55, 1.30]
-# Inside the wall plane, metres. Negative is outside the cage; see above.
-inset_m = [-0.75, -0.01]
+height_m = [0.60, 1.25]
+# Inside the wall plane, metres. Negative is outside the cage; see above. Kept close to the
+# glass: this is the axis that pushed the camera too far back.
+inset_m = [-0.20, -0.01]
 aim = "centre"
 # Degrees added to the aim-at-centre tilt. Negative is steeper, aimed short of the centre.
-tilt_offset_deg = [-19.0, -5.0]
+tilt_offset_deg = [-22.0, -10.0]
 # Heading off square-to-the-wall, degrees.
 yaw_deg = [-23.0, 23.0]
 # Camera roll about the optical axis, degrees.
