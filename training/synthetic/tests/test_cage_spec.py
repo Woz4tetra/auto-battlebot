@@ -16,6 +16,7 @@ from synthgen.cage_spec import (
     load_cage_spec,
     mat_boxes,
     panels,
+    panels_outside_camera,
     pit_boxes,
     posts,
     spec_to_dict,
@@ -24,6 +25,7 @@ from synthgen.cage_spec import (
 )
 
 SPEC = Path(__file__).resolve().parents[1] / "cage" / "cage2_overhead_high.toml"
+MASSD_SPEC = Path(__file__).resolve().parents[1] / "cage" / "massd_resurgence6.toml"
 
 
 def test_spec_loads_and_overrides_apply() -> None:
@@ -169,3 +171,28 @@ def test_panel_walls_can_be_left_out() -> None:
     assert [box.name for box in panels(spec)] == ["panel_far", "panel_right"]
     with pytest.raises(ValueError, match="unknown walls"):
         panels(load_cage_spec(SPEC, ['panel.walls=["top"]']))
+
+
+def test_one_way_glass_hides_only_the_walls_the_camera_is_behind() -> None:
+    spec = load_cage_spec(SPEC, [])
+    half = spec.cage.interior / 2
+    # Inside the cage nothing is hidden: panes seen across the arena are what the real
+    # picture shows on the far side.
+    assert panels_outside_camera(spec, (0.0, 0.0)) == ()
+    assert panels_outside_camera(spec, (half - 0.01, half - 0.01)) == ()
+    # Past a wall plane, that wall's pane sits between the camera and the mat.
+    assert panels_outside_camera(spec, (0.0, -half - 0.5)) == ("near",)
+    assert panels_outside_camera(spec, (0.0, half + 0.5)) == ("far",)
+    assert panels_outside_camera(spec, (-half - 0.5, 0.0)) == ("left",)
+    assert panels_outside_camera(spec, (half + 0.5, 0.0)) == ("right",)
+    # A corner mount is outside two of them at once, always in wall order.
+    assert panels_outside_camera(spec, (half + 0.5, -half - 0.5)) == ("near", "right")
+
+
+def test_one_way_glass_covers_the_broadcast_camera_and_the_picked_mounts() -> None:
+    spec = load_cage_spec(MASSD_SPEC, [])
+    # The fitted MassD broadcast camera sits past the near wall but inside the left one.
+    assert panels_outside_camera(spec, (-1.132, -1.621)) == ("near",)
+    # The mount distances picked off the sweep are all outside the near wall.
+    for distance in (1.49, 1.71, 1.93):
+        assert panels_outside_camera(spec, (0.0, -distance)) == ("near",)

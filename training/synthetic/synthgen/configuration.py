@@ -498,8 +498,15 @@ def _parse_mount(section: dict[str, Any], parent_context: str = "[[cages]]") -> 
     unknown = [w for w in walls if w not in WALLS]
     if unknown:
         raise ConfigError(f"{context}.walls: unknown {unknown}; valid walls are {list(WALLS)}")
+    aim = str(section.get("aim", defaults.aim))
+    if aim not in ("fixed", "centre"):
+        raise ConfigError(f"{context}.aim: expected 'fixed' or 'centre', got {aim!r}")
     return CageMountRanges(
         walls=walls,
+        aim=aim,
+        tilt_offset_deg=_as_pair(
+            section.get("tilt_offset_deg", defaults.tilt_offset_deg), f"{context}.tilt_offset_deg"
+        ),
         along_m=_as_pair(section.get("along_m", defaults.along_m), f"{context}.along_m"),
         height_m=_as_pair(section.get("height_m", defaults.height_m), f"{context}.height_m"),
         inset_m=_as_pair(section.get("inset_m", defaults.inset_m), f"{context}.inset_m"),

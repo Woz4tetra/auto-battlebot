@@ -20,6 +20,7 @@ import numpy as np
 
 from auto_battlebot.perception.cage_calibration import blender_cam2world, load_cage_calibration
 from synthgen.cage_spec import (
+    PANEL_WALLS,
     Box,
     CageSceneSpec,
     Cylinder,
@@ -30,6 +31,7 @@ from synthgen.cage_spec import (
     mat_boxes,
     mat_image_uv,
     panels,
+    panels_outside_camera,
     pit_boxes,
     posts,
     stage_riser_boxes,
@@ -199,6 +201,32 @@ def _tinted_cc_material(
         material.set_principled_shader_value("Base Color", _linear_rgba(color))
         material.set_principled_shader_value("Roughness", float(roughness))
     return material
+
+
+def panels_by_wall(
+    objects: dict[str, bproc.types.MeshObject],
+) -> dict[str, bproc.types.MeshObject]:
+    """The built panes keyed by the wall they glaze, for the one-way-glass pass."""
+    return {wall: objects[f"panel_{wall}"] for wall in PANEL_WALLS if f"panel_{wall}" in objects}
+
+
+def set_one_way_glass(
+    spec: CageSceneSpec,
+    panels_by_wall: dict[str, bproc.types.MeshObject],
+    camera_positions: list[np.ndarray],
+) -> None:
+    """Keyframe each pane out of the frames whose camera stands outside it.
+
+    Visibility has to be animated rather than set once: one scene renders several camera
+    poses in a single pass, and they can sit on different sides of the cage.
+    """
+    for wall, obj in panels_by_wall.items():
+        blender_obj = obj.blender_obj
+        blender_obj.animation_data_clear()
+        for frame, position in enumerate(camera_positions):
+            hidden = wall in panels_outside_camera(spec, (float(position[0]), float(position[1])))
+            blender_obj.hide_render = hidden
+            blender_obj.keyframe_insert("hide_render", frame=frame)
 
 
 def make_pit_materials(
@@ -594,22 +622,25 @@ def render_poses(
     width: int,
     height: int,
     category_ids: tuple[int, ...] | None = None,
+    spec: CageSceneSpec | None = None,
+    objects: dict[str, bproc.types.MeshObject] | None = None,
 ) -> tuple[list[np.ndarray], list[Any]]:
     """Render every pose in one BlenderProc pass.
 
     Returns (RGB frames, masks). With `category_ids` None each mask is the mat mask; otherwise
-    each entry is a list of one mask per requested category id.
+    each entry is a list of one mask per requested category id. Pass `spec` and the object dict
+    from `build_cage` to get one-way glass: panes a pose looks through from outside the cage
+    are hidden for that frame.
     """
     bproc.utility.reset_keyframes()
+    positions = []
     for i, pose_path in enumerate(poses):
         calibration = load_cage_calibration(pose_path)
-        set_camera(
-            k_rect,
-            width,
-            height,
-            blender_cam2world(calibration.tf_camera_from_fieldcenter),
-            frame=i,
-        )
+        cam2world = blender_cam2world(calibration.tf_camera_from_fieldcenter)
+        positions.append(cam2world[:3, 3])
+        set_camera(k_rect, width, height, cam2world, frame=i)
+    if spec is not None and objects is not None:
+        set_one_way_glass(spec, panels_by_wall(objects), positions)
     data = bproc.renderer.render()
     colors = [np.asarray(frame)[:, :, :3] for frame in data["colors"]]
     segmaps = [np.asarray(seg) for seg in data["category_id_segmaps"]]

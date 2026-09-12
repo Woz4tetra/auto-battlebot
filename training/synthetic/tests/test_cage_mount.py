@@ -97,7 +97,7 @@ def test_samples_stay_inside_their_ranges() -> None:
     random.seed(0)
     ranges = CageMountRanges(walls=("near", "right"))
     for _ in range(200):
-        mount = sample_cage_mount(ranges)
+        mount = sample_cage_mount(ranges, 1.2192)
         assert mount.wall in ranges.walls
         for value, (lo, hi) in (
             (mount.along_m, ranges.along_m),

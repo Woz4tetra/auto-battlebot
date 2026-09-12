@@ -56,11 +56,11 @@ wall_roughness = 0.85
 floor_color = [0.015, 0.015, 0.015]
 
 # Scratched polycarbonate: the crowd behind it reads darker and greyer than the room.
-# The broadcast camera is outside the cage, past the near and left walls, so those two are
-# left unglazed: BlenderProc's segmentation stops at glass and everything behind a pane
-# loses its label. Only the two walls the camera sees across the arena are built.
+# All four walls are glazed. A pane the camera looks through from outside the cage is hidden
+# for that frame (see panels_outside_camera): BlenderProc's segmentation stops at glass, so a
+# pane in front of the mat would cost every label behind it. Panes seen from inside, across the
+# arena, render normally.
 [panel]
-walls = ["far", "right"]
 thickness = 0.009
 ior = 1.586
 roughness = 0.06

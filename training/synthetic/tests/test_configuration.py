@@ -97,9 +97,14 @@ class TestRealConfig:
         assert nhrl.mount.walls == ("near", "far", "left", "right")
         assert nhrl.mount.height_m == (1.00, 1.45)
         assert massd.probability == pytest.approx(0.25)
-        # The MassD wall is half the height of NHRL's, so a mount clamped to it sits lower.
-        assert massd.mount.walls == ("far", "right")
-        assert massd.mount.height_m == (0.50, 0.64)
+        # The MassD floor does not fit in frame from the wall itself, so its mounts stand
+        # outside the cage: negative inset, with tilt derived from where they land.
+        assert massd.mount.inset_m[1] < 0.0
+        assert massd.mount.aim == "centre"
+        assert massd.mount.height_m == (0.49, 1.46)
+        # NHRL keeps its fitted mounts, sampled the old way.
+        assert nhrl.mount.aim == "fixed"
+        assert nhrl.mount.inset_m == (0.02, 0.25)
         # Every spec and camera calibration resolves against the config directory.
         for cage in cfg.cages:
             assert cfg.resolver.resolve(cage.spec).exists()

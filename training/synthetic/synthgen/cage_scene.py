@@ -31,9 +31,16 @@ import numpy as np
 
 from auto_battlebot.perception.camera_calibration import load_camera_calibration, rectify_maps
 from synthgen.asset_index import PathResolveFn
-from synthgen.cage import add_lights, apply_exposure, build_cage, house_bot_keypoints, set_world
+from synthgen.cage import (
+    add_lights,
+    apply_exposure,
+    build_cage,
+    house_bot_keypoints,
+    set_one_way_glass,
+    set_world,
+)
 from synthgen.cage_mount import CageMount, mount_cam2world, sample_cage_mount
-from synthgen.cage_spec import CageSceneSpec, all_tubes, load_cage_spec
+from synthgen.cage_spec import PANEL_WALLS, CageSceneSpec, all_tubes, load_cage_spec
 from synthgen.camera import target_in_frame
 from synthgen.configuration import CageConfig, EnvironmentConfig, OutputConfig
 from synthgen.constants import (
@@ -179,6 +186,7 @@ class CageStage:
         height: int,
         collection: bpy.types.Collection,
         tubes: list[Any],
+        panels_by_wall: dict[str, Any],
         house_bot: HouseBot | None,
         generic_state: RenderState,
     ) -> None:
@@ -189,6 +197,7 @@ class CageStage:
         self._height = height
         self._collection = collection
         self._tubes = tubes
+        self._panels_by_wall = panels_by_wall
         self.house_bot = house_bot
         self._generic_state = generic_state
         self._tube_strengths = [_tube_strength(tube) for tube in tubes]
@@ -199,6 +208,10 @@ class CageStage:
             for obj in collection.objects
             if obj.type == "LIGHT" and obj.name.startswith(CAGE_LIGHT_PREFIXES)
         ]
+
+    def apply_one_way_glass(self, cam2worlds: list[np.ndarray]) -> None:
+        """Hide, per frame, any pane the camera of that frame is looking through from outside."""
+        set_one_way_glass(self._spec, self._panels_by_wall, [pose[:3, 3] for pose in cam2worlds])
 
     @property
     def name(self) -> str:
@@ -276,12 +289,12 @@ class CageStage:
 
     def _draw_framed_mount(self, look_at: list[float]) -> tuple[CageMount, np.ndarray, bool]:
         """Draw mounts until one frames *look_at*; the last draw is kept if none does."""
-        mount = sample_cage_mount(self._cfg.mount)
+        mount = sample_cage_mount(self._cfg.mount, self.wall_half)
         cam2world = mount_cam2world(mount, self.wall_half)
         for _ in range(MOUNT_FRAMING_RETRIES):
             if target_in_frame(cam2world, look_at):
                 return mount, cam2world, True
-            mount = sample_cage_mount(self._cfg.mount)
+            mount = sample_cage_mount(self._cfg.mount, self.wall_half)
             cam2world = mount_cam2world(mount, self.wall_half)
         return mount, cam2world, False
 
@@ -321,7 +334,7 @@ def build_cage_stage(
     cc_dir = None if env_cfg.cc_textures_dir is None else resolve(env_cfg.cc_textures_dir)
 
     before = set(bpy.data.objects)
-    build_cage(
+    objects = build_cage(
         spec,
         project_root,
         cc_dir,
@@ -342,8 +355,20 @@ def build_cage_stage(
         spec.mat.size,
         spec.mat.size / 2 - cage_cfg.mat_margin_m,
     )
+    panels_by_wall = {
+        wall: objects[f"panel_{wall}"] for wall in PANEL_WALLS if f"panel_{wall}" in objects
+    }
     stage = CageStage(
-        cage_cfg, spec, k_rect, width, height, collection, tubes, house_bot, generic_state
+        cage_cfg,
+        spec,
+        k_rect,
+        width,
+        height,
+        collection,
+        tubes,
+        panels_by_wall,
+        house_bot,
+        generic_state,
     )
     stage.deactivate()
     return stage

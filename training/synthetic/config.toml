@@ -61,17 +61,22 @@ render_samples = 128
 tube_jitter = 0.25
 mat_margin_m = 0.20
 
-# The MassD wall is only 0.66 m tall and its kick rail stands 0.095 m proud of the floor, so
-# a mount sits lower and clears less than in the NHRL cage. The polycarbonate is on the far
-# and right walls only (see panel.walls in the spec), so a camera on the near or left wall
-# would have nothing to shoot through; it is clamped to the two glazed walls to keep the
-# geometry honest.
+# Read off the 2026-09-12 coverage sweeps rather than guessed. A camera on the MassD wall
+# itself cannot contain the 2.26 m floor with this lens at any height: the largest block of
+# sweep frames judged good runs 1.49 to 1.93 m from the field centre and 0.49 to 1.46 m up.
+# The wall plane is at 1.168 m, so that is 0.32 to 0.76 m OUTSIDE the cage, hence the negative
+# inset. The near pane then sits between the camera and the mat and is hidden for that frame.
+#
+# `aim = "centre"` derives tilt from where the mount landed instead of drawing it
+# independently: the sweep varied tilt with distance and height, and the frames that were
+# judged good all sit on that curve. Over this block it works out at 46 to 76 degrees.
 [cages.mount]
-walls = ["far", "right"]
+walls = ["near", "far", "left", "right"]
 along_m = [-0.45, 0.45]
-height_m = [0.50, 0.64]
-inset_m = [0.02, 0.20]
-tilt_deg = [26.0, 46.0]
+height_m = [0.49, 1.46]
+inset_m = [-0.76, -0.32]
+aim = "centre"
+tilt_offset_deg = [-4.0, 4.0]
 yaw_deg = [-9.0, 9.0]
 roll_deg = [-3.0, 3.0]
 

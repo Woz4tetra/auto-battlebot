@@ -62,10 +62,16 @@ class CageMountRanges:
     walls: tuple[str, ...] = WALLS
     along_m: tuple[float, float] = (-0.45, 0.45)
     height_m: tuple[float, float] = (1.00, 1.45)
-    # Clear of the 12 mm panel, so the view never passes through it: BlenderProc's
-    # segmentation pass stops at the glass, and a robot behind it goes unlabelled.
+    # Distance inside the wall plane. Negative puts the mount outside the cage, which is
+    # allowed: a pane the camera looks through from outside is hidden for that frame, so it
+    # costs no labels (see `panels_outside_camera`).
     inset_m: tuple[float, float] = (0.02, 0.25)
+    # "fixed" samples `tilt_deg` directly. "centre" derives tilt so the optical axis meets the
+    # field centre and samples `tilt_offset_deg` on top, which keeps tilt tied to how far out
+    # and how high the mount landed instead of drawing the three independently.
+    aim: str = "fixed"
     tilt_deg: tuple[float, float] = (26.0, 42.0)
+    tilt_offset_deg: tuple[float, float] = (0.0, 0.0)
     yaw_deg: tuple[float, float] = (-9.0, 9.0)
     roll_deg: tuple[float, float] = (-3.0, 3.0)
 
@@ -91,14 +97,33 @@ def wall_axes(wall: str) -> tuple[np.ndarray, np.ndarray]:
     return normal, along
 
 
-def sample_cage_mount(ranges: CageMountRanges) -> CageMount:
-    """Draw one mount, uniform in every range and in the wall choice."""
+def aim_tilt_deg(height_m: float, distance_m: float) -> float:
+    """Tilt off straight down whose optical axis meets the field centre."""
+    return math.degrees(math.atan2(distance_m, height_m))
+
+
+def sample_cage_mount(ranges: CageMountRanges, wall_half_m: float) -> CageMount:
+    """Draw one mount, uniform in every range and in the wall choice.
+
+    `wall_half_m` is half the cage interior, needed only when `aim` is "centre": the tilt then
+    follows from how far the drawn mount ended up from the field centre.
+    """
+    if ranges.aim not in ("fixed", "centre"):
+        raise ValueError(f"mount aim is {ranges.aim!r}; use 'fixed' or 'centre'")
+    along = random.uniform(*ranges.along_m)
+    height = random.uniform(*ranges.height_m)
+    inset = random.uniform(*ranges.inset_m)
+    if ranges.aim == "centre":
+        distance = math.hypot(wall_half_m - inset, along)
+        tilt = aim_tilt_deg(height, distance) + random.uniform(*ranges.tilt_offset_deg)
+    else:
+        tilt = random.uniform(*ranges.tilt_deg)
     return CageMount(
         wall=random.choice(list(ranges.walls)),
-        along_m=random.uniform(*ranges.along_m),
-        height_m=random.uniform(*ranges.height_m),
-        inset_m=random.uniform(*ranges.inset_m),
-        tilt_deg=random.uniform(*ranges.tilt_deg),
+        along_m=along,
+        height_m=height,
+        inset_m=inset,
+        tilt_deg=tilt,
         yaw_deg=random.uniform(*ranges.yaw_deg),
         roll_deg=random.uniform(*ranges.roll_deg),
     )

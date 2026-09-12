@@ -164,7 +164,12 @@ def place_robot(robot: Any, x_m: float, y_m: float, yaw_deg: float) -> None:
 
 
 def render_robot_frames(
-    args: argparse.Namespace, spec: CageSceneSpec, k_rect: np.ndarray, width: int, height: int
+    args: argparse.Namespace,
+    spec: CageSceneSpec,
+    k_rect: np.ndarray,
+    width: int,
+    height: int,
+    cage_objects: dict[str, Any],
 ) -> list[Path]:
     """One render per real frame, MRS BUFF at the recovered pose, from that clip's camera."""
     frames = load_robot_frames(args.robot_frames)
@@ -190,7 +195,13 @@ def render_robot_frames(
         if not pose_path.is_absolute():
             pose_path = REPO_ROOT / pose_path
         colors, masks = render_poses(
-            [pose_path], k_rect, width, height, category_ids=(MAT_CATEGORY_ID, ROBOT_CATEGORY_ID)
+            [pose_path],
+            k_rect,
+            width,
+            height,
+            category_ids=(MAT_CATEGORY_ID, ROBOT_CATEGORY_ID),
+            spec=spec,
+            objects=cage_objects,
         )
         cv2.imwrite(str(args.out / f"{frame['name']}.png"), colors[0][:, :, ::-1])
         cv2.imwrite(str(args.out / f"{frame['name']}_matmask.png"), masks[0][0])
@@ -215,7 +226,7 @@ def main() -> None:
     configure_renderer(spec, samples)
     color_gain = tuple(float(v) for v in spec.exposure.color_gain)
     cc_dir = args.cc_textures if args.cc_textures.exists() else None
-    build_cage(spec, REPO_ROOT, cc_dir)
+    cage_objects = build_cage(spec, REPO_ROOT, cc_dir)
     set_led_emission(spec, spec.exposure.gain)
     lights = add_lights(spec, color_gain)  # type: ignore[arg-type]
     set_world(spec, color_gain)  # type: ignore[arg-type]
@@ -230,9 +241,9 @@ def main() -> None:
         )
 
     if args.robot_frames is not None:
-        render_robot_frames(args, spec, k_rect, width, height)
+        render_robot_frames(args, spec, k_rect, width, height, cage_objects)
     else:
-        colors, masks = render_poses(poses, k_rect, width, height)
+        colors, masks = render_poses(poses, k_rect, width, height, spec=spec, objects=cage_objects)
         for pose_path, rgb, mask in zip(poses, colors, masks):
             cv2.imwrite(str(args.out / f"{pose_path.stem}.png"), rgb[:, :, ::-1])
             cv2.imwrite(str(args.out / f"{pose_path.stem}_matmask.png"), mask)

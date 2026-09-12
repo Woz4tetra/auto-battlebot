@@ -535,10 +535,38 @@ def panels(spec: CageSceneSpec) -> list[Box]:
         "left": Box("panel_left", (-half, 0.0, z), (p.thickness, length, height), "panel"),
         "right": Box("panel_right", (half, 0.0, z), (p.thickness, length, height), "panel"),
     }
-    unknown = set(p.walls) - set(built)
+    unknown = set(p.walls) - set(PANEL_WALLS)
     if unknown:
         raise ValueError(f"panel.walls has unknown walls {sorted(unknown)}; use {sorted(built)}")
     return [built[name] for name in built if name in p.walls]
+
+
+PANEL_WALLS: tuple[str, ...] = ("near", "far", "left", "right")
+
+
+def panels_outside_camera(spec: CageSceneSpec, camera_xy: tuple[float, float]) -> tuple[str, ...]:
+    """Which walls the camera stands outside of, so their glass is between it and the mat.
+
+    One-way glass: a pane the camera looks through from outside the cage is hidden, because
+    BlenderProc's segmentation stops at glass and everything behind it loses its label. Panes
+    the camera sees from inside, across the arena, are untouched: they are what the real
+    picture shows on the far side.
+
+    The test is the wall plane, not the line of sight. A camera outside a wall but aimed away
+    from it does not see that pane, and hiding it changes nothing.
+    """
+    half = spec.cage.interior / 2
+    x, y = camera_xy
+    outside = []
+    if y < -half:
+        outside.append("near")
+    if y > half:
+        outside.append("far")
+    if x < -half:
+        outside.append("left")
+    if x > half:
+        outside.append("right")
+    return tuple(name for name in PANEL_WALLS if name in outside)
 
 
 def venue_floor(spec: CageSceneSpec) -> Box:

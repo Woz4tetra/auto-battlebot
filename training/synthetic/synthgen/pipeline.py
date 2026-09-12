@@ -572,6 +572,21 @@ def _scene_camera_poses(
     return cam_poses, cam_count, fallback_count
 
 
+def _stage_cameras(
+    cam_poses: list[np.ndarray],
+    cage: CageStage | None,
+    fallback_count: int,
+    stats: RunStats,
+) -> None:
+    """Register one scene's camera poses, hiding any glass they look through from outside."""
+    for _ in range(fallback_count):
+        stats.record_anomaly(RunAnomaly.CAMERA_TARGET_FALLBACK)
+    if cage is not None:
+        cage.apply_one_way_glass(cam_poses)
+    for pose in cam_poses:
+        bproc.camera.add_camera_pose(pose)
+
+
 def render_scene(
     cfg: RenderConfig,
     assets: SceneAssets,
@@ -621,10 +636,7 @@ def render_scene(
         budget.remaining(global_idx),
         scene_idx,
     )
-    for _ in range(fallback_count):
-        stats.record_anomaly(RunAnomaly.CAMERA_TARGET_FALLBACK)
-    for pose in cam_poses:
-        bproc.camera.add_camera_pose(pose)
+    _stage_cameras(cam_poses, cage, fallback_count, stats)
 
     data = bproc.renderer.render()
 

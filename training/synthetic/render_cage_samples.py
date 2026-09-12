@@ -48,9 +48,11 @@ from synthgen.cage import (  # noqa: E402
     add_lights,
     build_cage,
     house_bot_keypoints,
+    panels_by_wall,
     set_camera,
     set_color_management,
     set_led_emission,
+    set_one_way_glass,
     set_world,
     solve_exposure,
 )
@@ -293,7 +295,7 @@ def main() -> None:
 
     cc_dir = args.cc_textures if args.cc_textures.exists() else None
     color_gain = tuple(float(v) for v in spec.exposure.color_gain)
-    build_cage(spec, REPO_ROOT, cc_dir, mat_category_id=BACKGROUND_CATEGORY_ID)
+    cage_objects = build_cage(spec, REPO_ROOT, cc_dir, mat_category_id=BACKGROUND_CATEGORY_ID)
     set_led_emission(spec, spec.exposure.gain)
     lights = add_lights(spec, color_gain)  # type: ignore[arg-type]
     set_world(spec, color_gain)  # type: ignore[arg-type]
@@ -362,7 +364,9 @@ def main() -> None:
                 keepouts,
             )
             jitter_tubes(tubes, base_strengths, args.tube_jitter)
-            set_camera(k_rect, width, height, random.choice(cam2worlds), frame=0)
+            cam2world = random.choice(cam2worlds)
+            set_one_way_glass(spec, panels_by_wall(cage_objects), [cam2world[:3, 3]])
+            set_camera(k_rect, width, height, cam2world, frame=0)
 
             data = bproc.renderer.render()
             if not data.get("category_id_segmaps"):
