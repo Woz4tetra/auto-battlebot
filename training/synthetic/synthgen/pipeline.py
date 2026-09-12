@@ -522,14 +522,19 @@ def _process_scene_frames(
 
 def _arrange_environment(cfg: RenderConfig, assets: SceneAssets, cage: CageStage | None) -> float:
     """Set up the floor, world and lighting for one scene; returns its arena radius."""
+    # Every cage the scene is not using goes away first. Two cages share the world origin, so
+    # leaving one showing puts its mat coplanar with the other's and its light rig on top of
+    # the other's: the floor renders as both textures blended and washed out.
+    for stage in assets.cages:
+        if stage is not cage:
+            stage.deactivate()
+
     if cage is not None:
         # The mat is the floor, the cage rig is the lighting, and the arena is the mat.
         cage.activate(assets.lights)
         set_ground_visible(assets.ground, False)
         return cage.arena_radius
 
-    for stage in assets.cages:
-        stage.deactivate()
     ground_size = random.uniform(*cfg.scene.ground_size_range)
     assets.ground.blender_obj.scale = (ground_size, ground_size, 1)
     bpy.context.view_layer.update()
