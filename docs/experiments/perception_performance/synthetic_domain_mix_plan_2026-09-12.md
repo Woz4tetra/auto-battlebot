@@ -67,9 +67,13 @@ record that and move on.
 Nothing in the repo records seconds per frame for a cage scene, and the render is the schedule
 driver. Run 200 frames per spec and measure.
 
+The probe runs on megamind, on one A6000, after step 1 has staged the assets there.
+
 ```bash
-bash training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic \
-  blenderproc run render_scenes.py -- config.toml \
+ssh megamind
+cd /home/ben/auto-battlebot
+CUDA_VISIBLE_DEVICES=0 bash training/synthetic/docker/run_synthetic.sh --require-gpu \
+  auto-battlebot-synthetic blenderproc run render_scenes.py -- config_cage_nhrl.toml \
   --num-images 200 --out ../data/_probe_nhrl --render-samples 128 --seed 0
 ```
 
@@ -77,13 +81,9 @@ Record wall clock, peak VRAM, and the drop rate (`scenes_attempted` vs `images_w
 Repeat at `--render-samples 64`. If 64 grades the same on a spot check, take it: the cage
 config asks for 128 because the glass is noisy, and halving samples halves a multi-day render.
 
-Decide where to render from the probe:
-
-- pathfinder (one RTX 4080 Laptop, 12 GB) renders without blocking training.
-- megamind (3x A6000) is 3 to 6 times faster sharded, but every render hour is a training hour
-  lost, and heavy IO there evicts a running job's page cache.
-
-Default: render on pathfinder in tmux, shard by `--start-index` only if a second GPU appears.
+From seconds per frame, compute the full render cost three ways and pick the shard count:
+40,000 frames on one A6000, on two, on all three. That number decides how long the queue is
+blocked, which is the real cost of rendering on the training box.
 
 ### 0c. One class schema for every arm
 
@@ -105,7 +105,125 @@ arm:
 The MassD arena has no house bot, so `house_bot` rows come only from the NHRL half. Expect its
 AP to move with the NHRL fraction and read it separately.
 
-## Step 1: damage as a random variable
+## Step 1: stage the render on megamind
+
+Rendering moves to megamind, where the training is. That buys three A6000s and drops the
+dataset transfer entirely, since the render output is already on the training box. It costs
+queue time: the render has to own the GPUs while it runs, so it goes through `gpu_queue.py`
+like any arm.
+
+### What megamind has and does not have
+
+Checked 2026-09-12:
+
+| Path | megamind | Action |
+| --- | --- | --- |
+| `training/data/models` | present, 82 MB | verify the two robot files match, do not re-send |
+| `training/data/distractor_models/robots` | **missing**, 3.9 GB local (146 Meshy GLBs) | upload |
+| `training/data/distractor_models/distractor_gpu_audit.csv` | **missing**, 224 KB | upload |
+| `training/data/environments` | **missing**, 25 MB | upload |
+| `training/data/cc_textures` | **missing**, 7.8 GB local across 524 sets | upload **13 sets only**, 151 MB |
+| `training/data/hdris` | **missing**, 4.5 GB local | skip |
+| `training/data/distractor_models/objaverse` | **missing**, 9.9 GB local | skip |
+| `training/data/distractor_models/robots_backup` | **missing**, 2.8 GB local | skip |
+| `auto-battlebot-synthetic` docker image | **missing** (playback image is there) | build on megamind |
+| NVIDIA container runtime | working, `--gpus all` sees all three A6000s | nothing |
+| `/media/storage/auto-battlebots-archive` | present, 1.3 TB free | render output goes here when done |
+
+Three of those skips need justifying, because each one is a multi-GB transfer avoided:
+
+- **HDRIs.** `[cage].probability = 1.0` means no scene ever takes the HDRI arena path.
+  `load_environment_assets` globs the HDRI dir only `if hdri_dir.exists()` and returns an
+  empty list otherwise, so an absent dir degrades instead of raising. Confirm on the 200-frame
+  probe that the log says `0 HDRIs available` and every frame still renders.
+- **objaverse.** Its `[[distractors.sources]]` block is commented out in `config.toml`. The
+  only live source is `../data/distractor_models/robots`.
+- **Most of cc_textures.** Robot and cage materials load through
+  `bproc.loader.load_ccmaterials(dir, used_assets=[...])`, so only named sets are read. The
+  named sets across `config.toml`, both cage specs, and the `cage_spec.py` dataclass defaults
+  are: `Concrete035`, `Foil002`, `Foil003`, `Metal012`, `Metal030`, `Paper001`, `Plastic007`,
+  `Plastic007_blue`, `Plastic007_yellow`, `Rubber001`, `Wood027`, plus the two sticker dirs
+  `mrs_buff_mk3_top_sticker` and `mrs_buff_mk3_bottom_sticker`. That is 151 MB, not 7.8 GB.
+
+The one path that loads the **whole** texture dir is `load_environment_assets`, which calls
+`load_ccmaterials` with no `used_assets` to build the ground-plane material list. In a
+cage-only run those ground materials are never applied, so a pruned dir just yields a shorter
+list. Watch the `N CC textures available for ground` line on the probe and confirm it says 13
+rather than failing.
+
+### Upload
+
+Measured link: 100 MB in 24 s, about 4.2 MB/s. The 4.1 GB payload is roughly 16 minutes.
+No `-z`, since GLBs and PNGs are already compressed.
+
+```bash
+# 1. Meshy opponent pool and the VRAM audit it is gated by.
+rsync -a --info=progress2 \
+  training/data/distractor_models/robots \
+  training/data/distractor_models/distractor_gpu_audit.csv \
+  megamind:/home/ben/auto-battlebot/training/data/distractor_models/
+
+# 2. Cage and arena environments: mat albedos, house bot textures, camera metadata.
+rsync -a --info=progress2 training/data/environments/ \
+  megamind:/home/ben/auto-battlebot/training/data/environments/
+
+# 3. Only the referenced texture sets.
+rsync -a --info=progress2 --relative \
+  training/data/cc_textures/./{Concrete035,Foil002,Foil003,Metal012,Metal030,Paper001,Plastic007,Plastic007_blue,Plastic007_yellow,Rubber001,Wood027,mrs_buff_mk3_top_sticker,mrs_buff_mk3_bottom_sticker} \
+  megamind:/home/ben/auto-battlebot/
+
+# 4. Confirm the robot models already there are the ones the config names.
+ssh megamind 'cd /home/ben/auto-battlebot && ls -l "training/data/models/MR STABS MK2.gltf" "training/data/models/MRS BUFF MK3.glb"'
+```
+
+Everything else the render needs is tracked in git: `synthgen/`, the per-venue configs, the
+cage specs, the Dockerfile, `run_synthetic.sh`. Push the branch and pull it on megamind.
+
+### Build the image on megamind
+
+```bash
+ssh megamind 'cd /home/ben/auto-battlebot && \
+  docker build -f training/synthetic/Dockerfile -t auto-battlebot-synthetic training/synthetic'
+```
+
+The local image is 11.3 GB and bakes Blender 4.2.1 plus both pip trees, so expect a similar
+size and a 20 to 40 minute build. megamind's docker root is `/var/lib/docker` on `/`, which
+has 76 GB free, so the build fits and leaves about 60 GB.
+
+Build rather than transfer. `docker save | ssh megamind docker load` moves 11.3 GB at
+4.2 MB/s, which is 45 minutes, and the Dockerfile pins its pip versions, so a rebuild is
+reproducible. Fall back to save-and-load only if the build resolves different apt packages.
+
+### Assets must live inside the repo tree
+
+`run_synthetic.sh` mounts exactly one host path, `-v "${repo_root}:/workspace"`. A symlink
+from `training/data/...` out to `/media/storage` dangles inside the container, because the
+link target is not mounted. So on megamind the render assets and the render output are real
+directories under `/home/ben/auto-battlebot`, not symlinks into `/media/storage`.
+
+`/` on megamind is at 92 percent with 76 GB free. The budget: 4.1 GB of assets, about 11 GB
+for the image, and about 8 GB of render output. That fits, with roughly 50 GB to spare.
+
+When a venue's render finishes and passes its gates, move it to the archive and point the
+training `data.yml` `path:` at the new location. Training reads through the venv, not through
+docker, so it does not care where the dataset lives:
+
+```bash
+ssh megamind 'mv /home/ben/auto-battlebot/training/data/synth_cage_nhrl_<date> \
+  /media/storage/auto-battlebots-archive/'
+```
+
+### Check before uploading anything
+
+```bash
+timeout 60 venv/bin/python training/gpu_queue.py status
+```
+
+An upload is not a GPU job and does not need the queue, but a 4 GB rsync during a training run
+evicts its page cache and spikes epoch time about 30x until it recovers. Upload while the
+queue is empty, or accept that you just slowed someone else's arm down.
+
+## Step 2: damage as a random variable
 
 New module `training/synthetic/synthgen/damage.py`, new `[damage]` block in `config.toml`,
 applied per robot instance after load and before the segmentation pass, so bboxes and keypoint
@@ -152,7 +270,7 @@ count if the clean pool comes out too thin to match the damage-on arm.
 Sanity gate before the full render: render 200 damaged frames and page through
 `sheet.png`. Reject the mechanism if robots come out unrecognizable rather than chewed.
 
-## Step 2: render
+## Step 3: render
 
 Two datasets, flat, no split. Splits are image lists later.
 
@@ -161,27 +279,57 @@ training/data/synth_cage_nhrl_<date>/{images,labels,manifest.jsonl,data.yml}
 training/data/synth_cage_massd_<date>/{images,labels,manifest.jsonl,data.yml}
 ```
 
-```bash
-# NHRL. probability 1.0 forces every scene into the cage; spec picks the venue.
-tmux new-session -d -s render_nhrl -c /home/ben/auto-battlebot \
-  'bash training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic \
-     blenderproc run render_scenes.py -- config.toml --num-images 20000 \
-     --out ../data/synth_cage_nhrl_<date> --seed 100 \
-     2>&1 | tee /tmp/render_nhrl.log'
-```
-
 `[cage].probability = 1.0` and `[cage].spec` go in per-venue copies of `config.toml`
 (`config_cage_nhrl.toml`, `config_cage_massd.toml`) rather than being passed on the command
-line, so the render is reproducible from a file. The MassD run is the same command against
-the MassD config, seed 200, once the other agent's integration lands.
+line, so the render is reproducible from a file.
 
-Budget: about 200 KB per 1280x720 JPEG, so 40,000 frames is roughly 8 GB. pathfinder has 99 GB
-free. Fine.
+### Shard across the three A6000s
+
+The queue is strictly serial: one job at a time, whatever `-d` says. So three shards submitted
+as three jobs would run one after another. To use all three GPUs the render is **one** queue
+job that launches three containers and waits.
+
+Two small changes make that work:
+
+1. `run_synthetic.sh` hardcodes `--gpus all` and forwards no CUDA env. Add a
+   `CUDA_VISIBLE_DEVICES` passthrough to `docker_env_args` so a shard can be pinned to one
+   GPU while the container still sees all three devices.
+2. New `training/synthetic/docker/render_shards.sh <config> <out> <total> <shards>`: launches
+   one container per shard with disjoint `--start-index` and distinct `--seed`, each writing
+   to its own `<out>_shard<i>`, waits on all of them, then hardlink-merges the shards into one
+   flat `<out>`. Use `os.link`, not a forking `cp` loop, which is pathologically slow at this
+   scale.
+
+Separate shard directories rather than one shared `--out`: `--start-index` keeps image
+filenames disjoint, but `data.yml`, `sheet.png` and `manifest.jsonl` are written per run and
+would race.
+
+```bash
+ssh megamind
+cd /home/ben/auto-battlebot
+venv/bin/python training/gpu_queue.py submit --name render_cage_nhrl --by <agent> -d 0 1 2 -- \
+  bash training/synthetic/docker/render_shards.sh \
+    config_cage_nhrl.toml ../data/synth_cage_nhrl_<date> 20000 3
+
+venv/bin/python training/gpu_queue.py status
+venv/bin/python training/gpu_queue.py logs -f
+```
+
+MassD is the same command against `config_cage_massd.toml`, seed base 200, once the other
+agent's integration lands. Submit NHRL first so the render starts while MassD is still landing.
+
+Check `status` before submitting. A render that owns all three GPUs for many hours pushes every
+queued training arm back by that much, so submit it with a name that says what it is and tell
+whoever else is queued.
+
+Budget: about 200 KB per 1280x720 JPEG, so 40,000 frames is roughly 8 GB. megamind's `/` has
+76 GB free. Fine, and step 1 covers moving the finished datasets to `/media/storage`.
 
 Gates after each render:
 
 ```bash
-venv/bin/python training/yolo/validate_yolo_integrity.py training/data/synth_cage_nhrl_<date> --strict
+ssh megamind 'cd /home/ben/auto-battlebot && venv/bin/python \
+  training/yolo/validate_yolo_integrity.py training/data/synth_cage_nhrl_<date> --strict'
 ```
 
 - Zero errors, zero warnings.
@@ -192,7 +340,7 @@ venv/bin/python training/yolo/validate_yolo_integrity.py training/data/synth_cag
   mat margin or the distractor count needs a look before burning the rest of the budget.
 - Eyeball `sheet.png` and 50 random frames.
 
-## Step 3: arms
+## Step 4: arms
 
 Every arm is a `.txt` image list, built by extending `make_scaling_splits.py` to draw from
 multiple source datasets with per-source counts. Frames are drawn by a single fixed shuffle
@@ -241,7 +389,7 @@ look better on it for reasons that have nothing to do with the field. Use it for
 bookkeeping and early-stopping only. Every claim in the writeup comes from `score.py` on
 `nhrl_keypoints_eval_test`.
 
-## Step 4: score
+## Step 5: score
 
 ```bash
 venv/bin/python training/yolo/convert_to_onnx.py data/models/yolo26x-pose_<arm>_<date>.pt
@@ -285,7 +433,7 @@ Write these down before the first score run and do not move them afterwards.
   drives a deployment decision. `synthetic_arms_2026-07-31` pre-registered recall, got a
   precision win, and had to label it unregistered. Same discipline here.
 
-## Step 5: grow the eval set with pre-labels
+## Step 6: grow the eval set with pre-labels
 
 The 98 MassD frames are the weak point. Any per-venue claim about MassD rests on them, and 98
 frames gives a wide CI no amount of bootstrap resampling fixes. The fix is more labeled
@@ -343,9 +491,26 @@ not actually save time, say so and drop it.
 
 ## Risks
 
-- **Render throughput is unmeasured.** Everything downstream is scheduled off step 0b. If a
-  cage frame costs 10 seconds, 40,000 frames is 111 hours on one GPU and the render count has
-  to come down or move to megamind between training jobs.
+- **Render throughput is unmeasured.** Everything downstream is scheduled off step 0b. At 10
+  seconds per frame, 40,000 frames is 111 GPU-hours, which is 37 wall-clock hours sharded
+  three ways. That is 37 hours of no training for anyone. If the probe lands near that, cut
+  the render to 10,000 per venue and spend the saved time on the amount curve instead of its
+  tail.
+- **The render blocks the queue.** Rendering on the training box is the whole point of step 1,
+  and the cost is that other agents' arms wait. Announce the submission, and do not start the
+  MassD render until the NHRL dataset has passed its gates, so a bad spec does not cost two
+  slots.
+- **megamind `/` is at 92 percent.** 4.1 GB of assets, 11 GB of docker image and 8 GB of
+  render output fit in the 76 GB free, but nothing else large does. Move each finished dataset
+  to `/media/storage` before starting the next render.
+- **Docker mounts only the repo root.** Assets symlinked out to `/media/storage` dangle inside
+  the container. Keep render inputs and outputs as real directories under the repo on
+  megamind.
+- **Pruned assets are a bet on two code paths.** Skipping the HDRIs and 511 of 524 texture sets
+  rests on `[cage].probability = 1.0` never taking the arena path and on `load_ccmaterials`
+  honoring `used_assets`. The 200-frame probe is what confirms it. If the probe logs missing
+  textures or falls back to a default world, upload the rest before committing to 40,000
+  frames.
 - **Intrinsics mismatch.** Covered by 0a, and it is the single item most likely to make the
   domain arms underperform for a reason unrelated to the hypothesis.
 - **MassD integration is in flight.** The MassD render cannot start until the other agent's
@@ -364,12 +529,19 @@ not actually save time, say so and drop it.
 
 1. Convert one MassD MCAP, read `/camera/camera_info`, write `config/cameras/zed2i_1080p.toml`,
    repoint `[cage].camera_calibration`.
-2. Run the 200-frame timing probes at 128 and 64 samples on both specs, record seconds per
-   frame, VRAM, and drop rate.
-3. Write `synthgen/damage.py` plus the `[damage]` config block and the per-frame manifest, and
+2. Write the per-venue configs (`config_cage_nhrl.toml`, `config_cage_massd.toml`) with
+   `[cage].probability = 1.0` and the class schema normalized to `nc: 4` lowercase, and bump
+   `all_robot_keypoints/data.yml` to match.
+3. Check `gpu_queue.py status`, then upload the four asset payloads to megamind (about 16
+   minutes at the measured 4.2 MB/s) and build `auto-battlebot-synthetic` there.
+4. Run the 200-frame timing probes at 128 and 64 samples on both specs. Confirm the log says
+   `0 HDRIs available` and 13 ground textures, and record seconds per frame, VRAM, and drop
+   rate.
+5. Write `synthgen/damage.py` plus the `[damage]` config block and the per-frame manifest, and
    gate it on 200 rendered frames.
-4. Normalize the class schema to `nc: 4` lowercase across `all_robot_keypoints` and both cage
-   configs.
-5. Start the NHRL 20k render in tmux. Start MassD when the integration lands.
-6. Extend `make_scaling_splits.py` to multi-source counts, build the eleven arm lists, and
+6. Add the `CUDA_VISIBLE_DEVICES` passthrough to `run_synthetic.sh` and write
+   `docker/render_shards.sh`.
+7. Submit the NHRL 20k render to the queue. Gate it, move it to `/media/storage`, then submit
+   MassD when the integration lands.
+8. Extend `make_scaling_splits.py` to multi-source counts, build the eleven arm lists, and
    submit the `yolo26s-pose` shaping grid to `gpu_queue.py`.
