@@ -1,0 +1,46 @@
+# Estimated, not measured. The e-CAM25_CUONX_H01R1 is a fisheye-class M12 lens approximated here
+# by the 5-coefficient plumb_bob model the C++ `Rectifier` uses, fitted to the only three numbers
+# e-con publishes: 104.6 deg horizontal, 61.6 deg vertical and 128.2 deg diagonal field of view.
+# No vendor calibration exists for this module, and no comparable AR0234 M12 module (Arducam USB3,
+# TechNexion TEVS-AR0234) publishes one either.
+#
+# How the numbers were derived, on the sensor's native 1920x1200 mode (AR0234CS, 3 um pixels, so a
+# 5.76 x 3.6 mm active area, half-extents 960 / 600 / 1132.08 px):
+#
+#   1. The three quoted fields fit an odd fisheye polynomial f(t + a3 t^3 + a5 t^5) exactly, at
+#      f = 1156.2 px, a3 = -0.1259, a5 = +0.0209. That curve is the best available description of
+#      the real lens.
+#   2. `fx`, `k1` and `k2` below then pass through all three quoted fields exactly (residual under
+#      0.06 px) while `r_d(r)` stays monotonic out to the 64.1 deg image corner.
+#
+# A k1/k2/k3 least-squares fit tracks the fisheye curve three times better (18.8 px worst error
+# against 54.5 px here) and is unusable: `r_d(r)` turns over at 63.3 deg, just inside the corner, so
+# `initUndistortRectifyMap` folds exactly the corners a field fit needs. Do not swap in the lower
+# residual.
+#
+# Written for the 1920x1080 mode (70 fps) the camera will run in. Same `f` and same distortion as
+# the 1920x1200 fit, with `cy` recenterd, because 16:9 is a crop of the sensor, not a squash:
+# `CameraCalibration.scaled` scales `fx` and `fy` independently, so handing a 16:10 calibration to a
+# 16:9 render would stretch the image instead of cropping it.
+#
+# Rectified at alpha 1.0 this gives fx 576.4, a 118.0 deg horizontal field, and a 36.2% black
+# border. `tests/python/test_ecam25_calibration.py` pins all of it.
+#
+# Replace this file with a real checkerboard run when the camera arrives, shot through an offcut of
+# the cage panel at the mounted standoff. A flat sheet in the optical path refracts increasingly
+# toward the frame edges, which is exactly where the field boundary sits, so calibrating in free air
+# folds that error into the field pose where no reprojection residual will show it. Check the
+# reprojection residual at that point: if plumb_bob will not converge below about half a pixel,
+# `cv::fisheye` is the correct model and `camera_calibration.cpp` needs a second code path.
+calibration_id = "ecam25_h01r1_estimated"
+width = 1920
+height = 1080
+fx = 1097.0
+fy = 1097.0
+cx = 960.0
+cy = 540.0
+k1 = -0.24271
+k2 = 0.02949
+p1 = 0.0
+p2 = 0.0
+k3 = 0.0
