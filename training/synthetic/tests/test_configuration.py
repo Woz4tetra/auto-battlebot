@@ -95,18 +95,22 @@ class TestRealConfig:
         assert nhrl.probability == pytest.approx(0.5)
         assert nhrl.render_samples == 128
         assert nhrl.mount.walls == ("near", "far", "left", "right")
-        assert nhrl.mount.height_m == (0.55, 1.30)
+        assert nhrl.mount.height_m == (0.60, 1.25)
         assert massd.probability == pytest.approx(0.25)
-        # Neither venue fits its floor in frame from the wall itself, so the mounts stand
-        # outside the cage: negative inset, with tilt derived from where they land. NHRL's
-        # come from the 12 poses flown in pose_camera_server.py on 2026-09-12, MassD's from
-        # the coverage sweeps.
-        assert massd.mount.inset_m[1] < 0.0
-        assert massd.mount.aim == "centre"
-        assert massd.mount.height_m == (0.49, 1.46)
-        assert nhrl.mount.aim == "centre"
-        assert nhrl.mount.inset_m == (-0.75, -0.01)
-        assert nhrl.mount.tilt_offset_deg == (-19.0, -5.0)
+        # Both mounts stand outside the wall, close to it, with tilt derived from where they
+        # land and aimed short of the field centre. NHRL's come from the 12 poses flown in
+        # pose_camera_server.py on 2026-09-12; MassD's come from the coverage sweeps, pulled
+        # in once the half moved to the wider e-CAM25 lens.
+        for mount in (nhrl.mount, massd.mount):
+            assert mount.aim == "centre"
+            # Strictly outside, so the pane the camera looks through is always hidden.
+            assert mount.inset_m[0] < 0.0 and mount.inset_m[1] < 0.0
+            # Aimed short of the centre, never past it.
+            assert mount.tilt_offset_deg[0] < 0.0 and mount.tilt_offset_deg[1] < 0.0
+        assert nhrl.mount.inset_m == (-0.10, -0.01)
+        assert nhrl.mount.tilt_offset_deg == (-22.0, -10.0)
+        assert massd.mount.inset_m == (-0.20, -0.05)
+        assert massd.mount.height_m == (0.45, 1.10)
         # Both halves stand in for our own camera, so both render through its lens.
         assert nhrl.camera_calibration == massd.camera_calibration
         # Every spec and camera calibration resolves against the config directory.

@@ -36,7 +36,7 @@ mat_margin_m = 0.20
 # percent of frames where the marks are there in 33, and paired heights and setbacks that
 # nothing was ever flown at into a derived tilt of up to 67 degrees. That rendered a camera too
 # far back and aimed too high, filling 24.9 percent of frame against the marks' 31.8. Over the
-# ranges below it is 38.9 percent, median tilt 39.0 degrees, 98.9 percent of the mat in frame.
+# ranges below it is 39.3 percent, median tilt 38.7 degrees, 98.8 percent of the mat in frame.
 #
 # The quantities a wall swap mirrors (along, yaw, roll) are symmetrized, since their asymmetry
 # says more about twelve hand-flown samples than about the mount. The earlier block bracketed
@@ -62,9 +62,10 @@ along_m = [-0.55, 0.55]
 # Above the mat surface, metres. Not capped by the 1.22 m polycarbonate top, since the mount is
 # outside it.
 height_m = [0.60, 1.25]
-# Inside the wall plane, metres. Negative is outside the cage; see above. Kept close to the
-# glass: this is the axis that pushed the camera too far back.
-inset_m = [-0.20, -0.01]
+# Inside the wall plane, metres. Negative is outside the cage; see above. Kept tight against
+# the glass: this is the axis that pushed the camera too far back, and pulling the far end in
+# from -0.20 to -0.10 takes the mat from 36.7 to 39.3 percent of the frame.
+inset_m = [-0.10, -0.01]
 aim = "centre"
 # Degrees added to the aim-at-centre tilt. Negative is steeper, aimed short of the centre.
 tilt_offset_deg = [-22.0, -10.0]
@@ -89,22 +90,30 @@ render_samples = 128
 tube_jitter = 0.25
 mat_margin_m = 0.20
 
-# Read off the 2026-09-12 coverage sweeps rather than guessed. A camera on the MassD wall
-# itself cannot contain the 2.26 m floor with this lens at any height: the largest block of
-# sweep frames judged good runs 1.49 to 1.93 m from the field centre and 0.49 to 1.46 m up.
-# The wall plane is at 1.168 m, so that is 0.32 to 0.76 m OUTSIDE the cage, hence the negative
-# inset. The near pane then sits between the camera and the mat and is hidden for that frame.
+# The 2026-09-12 coverage sweeps put this mount 0.32 to 0.76 m outside the wall, because a
+# camera on the MassD wall could not contain the 2.26 m floor at any height. That held for the
+# lens the sweeps ran, NHRL's 95.2 degree phone. It does not hold for the e-CAM25 this half now
+# renders through, which is 118 degrees rectified: sampled over the block below, the phone
+# holds a median 91.2 percent of the floor and never the whole of it, while the e-CAM25 holds
+# 99.0 percent and fits the whole floor in 27 percent of frames. So the camera comes in.
+#
+# That setback was what made the arena a third of the picture. Over the sweep block the floor
+# filled 17.7 percent of the frame with the mount aimed 60 degrees off straight down; over the
+# block below it is 39.9 percent at 46.4 degrees, which matches the NHRL half. The wall plane
+# is at 1.168 m and the kick rail is only 0.66 m tall, so a mount above that height looks over
+# the rail rather than through the pane.
 #
 # `aim = "centre"` derives tilt from where the mount landed instead of drawing it
 # independently: the sweep varied tilt with distance and height, and the frames that were
-# judged good all sit on that curve. Over this block it works out at 46 to 76 degrees.
+# judged good all sit on that curve. The offset is negative for the same reason it is on the
+# NHRL half, to aim short of the centre rather than past it.
 [cages.mount]
 walls = ["near", "far", "left", "right"]
 along_m = [-0.45, 0.45]
-height_m = [0.49, 1.46]
-inset_m = [-0.76, -0.32]
+height_m = [0.45, 1.10]
+inset_m = [-0.20, -0.05]
 aim = "centre"
-tilt_offset_deg = [-4.0, 4.0]
+tilt_offset_deg = [-18.0, -8.0]
 yaw_deg = [-9.0, 9.0]
 roll_deg = [-3.0, 3.0]
 
