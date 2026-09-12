@@ -114,7 +114,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VALUE")
     parser.add_argument(
-        "--robots", nargs="+", default=["MRS_BUFF_MK3"], help="[[robots]] names to keep"
+        "--robots", nargs="+", default=["mrs_buff_mk3"], help="[[robots]] names to keep"
     )
     parser.add_argument("--opponents", type=int, nargs=2, default=[1, 2], metavar=("MIN", "MAX"))
     parser.add_argument("--air-probability", type=float, default=0.1)

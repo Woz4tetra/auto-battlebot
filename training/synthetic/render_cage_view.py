@@ -174,9 +174,8 @@ def render_robot_frames(
     """One render per real frame, MRS BUFF at the recovered pose, from that clip's camera."""
     frames = load_robot_frames(args.robot_frames)
     cfg = load_render_config(args.config)
-    robot_name = {"mrs_buff_mk3": "MRS_BUFF_MK3", "mr_stabs_mk2": "MR_STABS_MK2"}[
-        frames[0]["robot"]
-    ]
+    # The frame file and the [[robots]] entries now use the same lowercase class names.
+    robot_name = str(frames[0]["robot"])
     cfg_robots = tuple(r for r in cfg.robots if r.name == robot_name)
     cc_materials = load_cc_materials(
         cfg.materials, cfg.environment.cc_textures_dir, cfg.resolver.resolve

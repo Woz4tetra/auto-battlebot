@@ -35,6 +35,7 @@ python training/yolo/convert_to_tensorrt.py <run>/weights/best.onnx
 | `convert_to_onnx.py` | `.pt` to ONNX. |
 | `convert_to_tensorrt.py` | ONNX to a TensorRT engine, including INT8 calibration. Shares its builder scaffolding with the DeepLab converter via `auto_battlebot/tensorrt_build.py`. |
 | `test_tensorrt_video.py` | Run an engine over a video to eyeball it. |
+| `test_tensorrt_image.py` | Run an engine over still images, directories, or globs. |
 | `plot_results.py` | Plot a run's `results.csv`. |
 | `clear_image_cache.py` | Delete ultralytics `cache="disk"` caches, keeping recent ones. Epoch speed depends on the `.npy` cache fitting in the page cache. |
 

@@ -243,9 +243,9 @@ class RobotToggle:
     def _load(self) -> None:
         self._loaded = True
         config = load_render_config(self._config_path)
-        entries = tuple(r for r in config.robots if r.name == "MRS_BUFF_MK3")
+        entries = tuple(r for r in config.robots if r.name == "mrs_buff_mk3")
         if not entries:
-            logger.warning("no MRS_BUFF_MK3 in %s; robot toggle does nothing", self._config_path)
+            logger.warning("no mrs_buff_mk3 in %s; robot toggle does nothing", self._config_path)
             return
         cc_materials = load_cc_materials(
             config.materials, config.environment.cc_textures_dir, config.resolver.resolve

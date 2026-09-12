@@ -1,0 +1,30 @@
+# The deployed ZED 2i at HD720, read straight off the robot's own recordings.
+#
+# Source: /camera/camera_info in 17 saved MCAPs from MassD_2026-08-29 and NHRL_2026-05-02.
+# Every one reports 1280x720 with identical principal point and zero distortion, because the
+# ZED SDK hands us an already-rectified image. fx spans 526.858 to 528.247 across recordings
+# (0.26 percent, the SDK's temperature-dependent focal readout); the values below are the mean.
+#
+# This is 101.0 degrees horizontal, wider than the 95.2 degree Cage-N-Overhead-High phone in
+# brettzone_cage_high.toml. Normalized focal length differs by 10 percent, so the two are not
+# interchangeable: synthetic cage frames meant to stand in for our own camera render through
+# this file, and only footage actually shot on NHRL's phone renders through that one.
+#
+# HD720 is not a scaled HD1080. The one 1080p recording in the corpus reports fx = 1064.4,
+# which is fx/width 0.554 against 0.412 here: HD1080 crops the sensor where HD720 bins the
+# full width. Do not rescale this file to 1080p.
+#
+# Distortion is zero by construction. Rectification through auto_battlebot.perception's
+# rectify_maps is therefore a no-op at any alpha, which is what the cage renderer wants.
+calibration_id = "zed2i_720p"
+width = 1280
+height = 720
+fx = 527.528
+fy = 527.528
+cx = 644.906
+cy = 369.885
+k1 = 0.0
+k2 = 0.0
+p1 = 0.0
+p2 = 0.0
+k3 = 0.0

@@ -37,7 +37,11 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     --require-gpu)
+      # Implies --gpu. Without it the GPU args stayed empty and the run took the CPU path
+      # without ever reaching the probe below, so a run that demanded a GPU silently got
+      # none: a multi-day render instead of a failure.
       require_gpu=1
+      docker_gpu_args=(--gpus all)
       shift
       ;;
     *)

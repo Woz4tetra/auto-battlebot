@@ -82,14 +82,14 @@ class SpriteSpec:
 
 
 SPRITES = (
-    SpriteSpec(name="mrs_buff_mk3", robot="MRS_BUFF_MK3"),
-    SpriteSpec(name="mr_stabs_mk2", robot="MR_STABS_MK2"),
+    SpriteSpec(name="mrs_buff_mk3", robot="mrs_buff_mk3"),
+    SpriteSpec(name="mr_stabs_mk2", robot="mr_stabs_mk2"),
     # Mrs Buff MK2 is not in the training set, but it shares the MK3's OnShape palette, so the
     # MK3's colour mapping textures it correctly. Its CAD origin sits at the back rather than the
     # front, hence the explicit front direction.
     SpriteSpec(
         name="mrs_buff_mk2",
-        robot="MRS_BUFF_MK3",
+        robot="mrs_buff_mk3",
         model_path=REPO_ROOT / "simulation/assets/robots/mrs_buff_mk2.glb",
         front_model=(0.0, -1.0, 0.0),
     ),
@@ -97,7 +97,7 @@ SPRITES = (
     # replace and leaves them alone. Its painted face points +X.
     SpriteSpec(
         name="house_bot",
-        robot="MRS_BUFF_MK3",
+        robot="mrs_buff_mk3",
         model_path=REPO_ROOT / "simulation/assets/robots/house_bot.glb",
         front_model=(1.0, 0.0, 0.0),
     ),

@@ -10,7 +10,7 @@ them.
 
 import os
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,7 @@ from synthgen.annotations import normalize_annotation_mode
 from synthgen.cage_mount import WALLS, CageMountRanges
 from synthgen.colorspec import ColorMappingEntry
 from synthgen.constants import ANNOTATION_MODE_SEGMENTATION_BBOX
+from synthgen.damage import CUTTER_SHAPES
 from synthgen.geometry import model_to_blender_local
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -248,6 +249,37 @@ class RandomizationConfig:
 
 
 @dataclass(frozen=True)
+class DamageConfig:
+    """``[damage]`` section: battle damage drawn per robot instance per scene.
+
+    Applied by ``synthgen.damage_scene`` and reverted when the scene's frames are written,
+    then recorded per instance in ``manifest.jsonl`` so damage-on and damage-off arms are
+    two filters over one render rather than two renders.
+    """
+
+    enabled: bool = False
+    # Chance a scene is a damaged scene at all. Damage is drawn per scene, because one
+    # render call covers all of a scene's camera poses, so this is what sets the size of
+    # the fully clean pool: it is exactly 1 - scene_probability, whatever a scene holds.
+    scene_probability: float = 0.5
+    # Chance each robot instance inside a damaged scene is damaged.
+    probability: float = 0.35
+    # Fraction of a part robot's removable parts to hide.
+    part_severity: tuple[float, float] = (0.05, 0.30)
+    # Fraction of a fused mesh's bounding volume the cutter is sized to take.
+    chunk_volume_fraction: tuple[float, float] = (0.03, 0.20)
+    # Parts holding more than this share of the summed part bounding volumes never go.
+    max_part_volume_fraction: float = 0.45
+    # Keypoint anchors are protected with this much clearance.
+    keypoint_clearance_m: float = 0.02
+    # Lowercase substrings of Blender object names that must survive.
+    protected_name_patterns: tuple[str, ...] = ()
+    cutter_shapes: tuple[str, ...] = CUTTER_SHAPES
+    # Cutters pre-built at startup. One scene can need one per robot-like instance.
+    cutter_pool_size: int = 16
+
+
+@dataclass(frozen=True)
 class RenderConfig:
     """The full parsed config plus the path resolver used to load it."""
 
@@ -260,6 +292,7 @@ class RenderConfig:
     scene: SceneConfig = SceneConfig()
     randomization: RandomizationConfig = RandomizationConfig()
     cages: tuple[CageConfig, ...] = ()
+    damage: DamageConfig = DamageConfig()
     resolver: PathResolver = PathResolver(Path("."), Path("."), _PROJECT_ROOT)
 
 
@@ -595,6 +628,121 @@ def _parse_randomization(section: dict[str, Any]) -> RandomizationConfig:
     )
 
 
+def _parse_damage(section: dict[str, Any]) -> DamageConfig:
+    context = "[damage]"
+    defaults = DamageConfig()
+    shapes = tuple(str(s) for s in section.get("cutter_shapes", defaults.cutter_shapes))
+    unknown = [s for s in shapes if s not in CUTTER_SHAPES]
+    if unknown:
+        raise ConfigError(
+            f"{context}.cutter_shapes: unknown {unknown}; valid are {list(CUTTER_SHAPES)}"
+        )
+    if not shapes:
+        raise ConfigError(f"{context}.cutter_shapes: at least one shape is required")
+    return DamageConfig(
+        enabled=bool(section.get("enabled", defaults.enabled)),
+        scene_probability=_as_float(
+            section.get("scene_probability", defaults.scene_probability),
+            f"{context}.scene_probability",
+        ),
+        probability=_as_float(
+            section.get("probability", defaults.probability), f"{context}.probability"
+        ),
+        part_severity=_as_pair(
+            section.get("part_severity", defaults.part_severity), f"{context}.part_severity"
+        ),
+        chunk_volume_fraction=_as_pair(
+            section.get("chunk_volume_fraction", defaults.chunk_volume_fraction),
+            f"{context}.chunk_volume_fraction",
+        ),
+        max_part_volume_fraction=_as_float(
+            section.get("max_part_volume_fraction", defaults.max_part_volume_fraction),
+            f"{context}.max_part_volume_fraction",
+        ),
+        keypoint_clearance_m=_as_float(
+            section.get("keypoint_clearance_m", defaults.keypoint_clearance_m),
+            f"{context}.keypoint_clearance_m",
+        ),
+        protected_name_patterns=tuple(
+            str(pattern).lower()
+            for pattern in section.get("protected_name_patterns", defaults.protected_name_patterns)
+        ),
+        cutter_shapes=shapes,
+        cutter_pool_size=_as_int(
+            section.get("cutter_pool_size", defaults.cutter_pool_size),
+            f"{context}.cutter_pool_size",
+        ),
+    )
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """*override* laid over *base*. Tables merge key by key; anything else replaces."""
+    merged = dict(base)
+    for key, value in override.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _load_raw(config_path: Path, seen: tuple[Path, ...] = ()) -> dict[str, Any]:
+    """Parse a config file, following ``extends`` so a variant need not copy the whole thing.
+
+    A per-venue config is three keys different from the shared one, so it says what differs
+    and inherits the rest. Tables merge key by key, so a variant can override
+    ``[output].num_images`` without restating ``[output]``; arrays, including arrays of
+    tables like ``[[robots]]``, replace wholesale, because half-merging a robot list by
+    index would be a trap.
+
+    Raises:
+        ConfigError: On a cycle, a missing parent, or a parent in another directory.
+    """
+    resolved = config_path.resolve()
+    if resolved in seen:
+        chain = " -> ".join(p.name for p in (*seen, resolved))
+        raise ConfigError(f"extends cycle: {chain}")
+    with open(resolved, "rb") as handle:
+        raw = tomllib.load(handle)
+    parent_name = raw.pop("extends", None)
+    if parent_name is None:
+        return raw
+    parent = resolved.parent / str(parent_name)
+    if Path(str(parent_name)).parent != Path("."):
+        raise ConfigError(
+            f"extends must name a file in the same directory, got {parent_name!r}: relative"
+            " paths inside the inherited config resolve against the loaded file's directory"
+        )
+    if not parent.exists():
+        raise ConfigError(f"extends target not found: {parent}")
+    return _deep_merge(_load_raw(parent, (*seen, resolved)), raw)
+
+
+def _apply_only_cage(cages: tuple[CageConfig, ...], name: Any) -> tuple[CageConfig, ...]:
+    """Narrow the scene mix to one cage, which then takes every scene.
+
+    This is how a per-venue render is pinned in a file rather than on the command line:
+    the named cage goes to probability 1.0 and every other cage is disabled, so no scene
+    lands in the HDRI arena or the other venue.
+
+    Raises:
+        ConfigError: When no ``[[cages]]`` entry carries *name*.
+    """
+    if name is None:
+        return cages
+    wanted = str(name)
+    if wanted not in [cage.name for cage in cages]:
+        raise ConfigError(
+            f"only_cage is {wanted!r}; no [[cages]] entry has that name"
+            f" (have {[cage.name for cage in cages]})"
+        )
+    return tuple(
+        replace(cage, enabled=cage.name == wanted, probability=1.0 if cage.name == wanted else 0.0)
+        for cage in cages
+    )
+
+
 def load_render_config(
     config_path: Path,
     launch_cwd: Path | None = None,
@@ -626,8 +774,7 @@ def load_render_config(
         raise ConfigError(f"Config file not found: {config_path}")
     resolver = PathResolver(resolved_config.parent, launch_cwd, project_root)
 
-    with open(resolved_config, "rb") as f:
-        raw = tomllib.load(f)
+    raw = _load_raw(resolved_config)
 
     if "output" not in raw:
         raise ConfigError("missing required section [output]")
@@ -647,6 +794,7 @@ def load_render_config(
         camera=_parse_camera(raw.get("camera", {})),
         scene=_parse_scene(raw.get("scene", {})),
         randomization=_parse_randomization(raw.get("randomization", {})),
-        cages=_parse_cages(raw.get("cages", [])),
+        cages=_apply_only_cage(_parse_cages(raw.get("cages", [])), raw.get("only_cage")),
+        damage=_parse_damage(raw.get("damage", {})),
         resolver=resolver,
     )

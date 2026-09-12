@@ -10,10 +10,14 @@ enabled = true
 probability = 0.5
 # Cage geometry, materials, lights and the exposure solved against footage.
 spec = "cage/cage2_overhead_high.toml"
-# Measured intrinsics for the cage camera, rectified (alpha 1.0) the way the C++ Rectifier
-# does it and scaled to [output].image_width/height. 95 degrees horizontal, much wider than
-# the arena half's default Blender lens.
-camera_calibration = "../../config/cameras/brettzone_cage_high.toml"
+# Our own camera, rectified (alpha 1.0) the way the C++ Rectifier does it and scaled to
+# [output].image_width/height. The e-CAM25 is the camera these mounts are for, and it is the
+# lens the mount ranges below were judged through in pose_camera_server.py, so it is the lens
+# the domain frames render through. Not NHRL's own phone (brettzone_cage_high.toml, 95.2 deg
+# horizontal): that belongs only on footage actually shot from the broadcast mount. The
+# deployed ZED is in config/cameras/zed2i_720p.toml, measured at 101.0 deg, if a ZED-matched
+# set is ever wanted.
+camera_calibration = "../../config/cameras/ecam25_h01r1_estimated.toml"
 # Cage scenes are darker and shoot through polycarbonate, so they need more samples than the
 # arena half's --render-samples. Leave unset to use the run's value for both.
 render_samples = 128
@@ -23,27 +27,43 @@ tube_jitter = 0.25
 # Metres of mat kept clear of its edge when placing robots.
 mat_margin_m = 0.20
 
-# Where a camera can be clamped on the cage, and where it then looks. The defaults bracket the
-# eleven poses fit_cage_camera.py solved for NHRL's own phone (1.16 m up, 0.11 m inside the
-# wall plane, 32 to 38 degrees off straight down, within 1.7 degrees of square to the wall);
-# the wall is drawn at random because which wall ours goes on depends on the match. Restrict
-# `walls` to ["near"] to reproduce the graded framing only.
+# Where a camera can be clamped on the cage, and where it then looks. Read off 12 poses flown
+# by hand in pose_camera_server.py on 2026-09-12 through the e-CAM25 lens, then widened. The
+# marks span along -0.94 to 0.75 m, height 0.58 to 1.26 m, inset -0.73 to -0.005 m, tilt 34.3
+# to 66.6 deg, yaw -22.6 to 22.4 deg, roll -8.6 to 15.4 deg. The quantities a wall swap mirrors
+# (along, yaw, roll) are symmetrized here, since their asymmetry says more about twelve
+# hand-flown samples than about the mount. The earlier block bracketed the eleven poses
+# fit_cage_camera.py solved for NHRL's own phone, which is a different camera on a different
+# side of the glass; playground/cage_scene/fit_cage_camera.py still has those.
+#
+# Every marked pose sits OUTSIDE the polycarbonate, which is why inset is negative where the
+# phone-fitted block was positive. That is the cheaper side to shoot from: a pane the camera
+# looks through from outside is hidden for that frame and costs no labels, while a mount inside
+# the cage shooting through a far pane loses them, because the segmentation pass stops at the
+# glass. Kept strictly negative so the hiding always applies.
+#
+# `aim = "centre"` derives tilt from where the mount landed and jitters it, rather than drawing
+# tilt independently. The marks earn it: each sits 5.1 to 18.8 degrees steeper than a straight
+# aim at field centre (mean 10.9, sd 3.9), so every one of them is aimed short of the centre,
+# which puts the far edge of the mat high in the frame and leaves foreground below it. Tilt is
+# measured off straight down, so a negative offset here is steeper, aimed nearer the camera.
+# Sampling the offset keeps tilt tied to where the mount landed.
 [cages.mount]
 walls = ["near", "far", "left", "right"]
 # Along the wall from its centre, metres.
-along_m = [-0.45, 0.45]
-# Above the mat surface, metres. The polycarbonate wall tops out at 1.22 m.
-height_m = [1.00, 1.45]
-# Inside the wall plane, metres. Kept clear of the 12 mm polycarbonate: the segmentation pass
-# stops at the glass, so a mount shooting through it loses its labels. The fitted phone sits
-# 0.11 m inside.
-inset_m = [0.02, 0.25]
-# Optical axis off straight down, degrees.
-tilt_deg = [26.0, 42.0]
+along_m = [-0.90, 0.90]
+# Above the mat surface, metres. Not capped by the 1.22 m polycarbonate top, since the mount is
+# outside it.
+height_m = [0.55, 1.30]
+# Inside the wall plane, metres. Negative is outside the cage; see above.
+inset_m = [-0.75, -0.01]
+aim = "centre"
+# Degrees added to the aim-at-centre tilt. Negative is steeper, aimed short of the centre.
+tilt_offset_deg = [-19.0, -5.0]
 # Heading off square-to-the-wall, degrees.
-yaw_deg = [-9.0, 9.0]
+yaw_deg = [-23.0, 23.0]
 # Camera roll about the optical axis, degrees.
-roll_deg = [-3.0, 3.0]
+roll_deg = [-13.0, 13.0]
 
 # The MassDestruction arena (Charles River Museum), fitted from one broadcast clip in
 # docs/experiments/perception_performance/massd_arena_scene_2026-09-11.md. A 2.26 m plywood
@@ -56,7 +76,7 @@ spec = "cage/massd_resurgence6.toml"
 # The same wide lens as the NHRL half, on purpose: this stands in for our own camera clamped
 # to the arena, not for the 62-degree broadcast camera the scene was fitted from. That one is
 # in training/data/environments/massd_arena/camera/ and is what render_cage_view.py grades.
-camera_calibration = "../../config/cameras/brettzone_cage_high.toml"
+camera_calibration = "../../config/cameras/ecam25_h01r1_estimated.toml"
 render_samples = 128
 tube_jitter = 0.25
 mat_margin_m = 0.20
@@ -112,7 +132,7 @@ memory_cleanup_interval = 1000
 # Per scene, 1..max_robots_per_scene robots are selected using weighted
 # sampling without replacement.  See [scene].max_robots_per_scene.
 [[robots]]
-name = "MR_STABS_MK2"
+name = "mr_stabs_mk2"
 model_path = "../data/models/MR STABS MK2.gltf"
 class_id = 0
 # Scale factor applied to the imported model (1.0 = no scaling).
@@ -166,7 +186,7 @@ material = "paper"
 
 
 [[robots]]
-name = "MRS_BUFF_MK3"
+name = "mrs_buff_mk3"
 model_path = "../data/models/MRS BUFF MK3.glb"
 class_id = 1
 scale = 1.0
@@ -975,56 +995,6 @@ ground_visibility = 0.9
 # `weight` field.  Clamped to the number of [[robots]] entries.
 max_robots_per_scene = 10
 
-# The NHRL cage half of the scene mix. A cage scene replaces the HDRI arena with the
-# Blender cage that docs/experiments/perception_performance/cage_scene_render_match_2026-09-11.md
-# graded against Cage-2-Overhead-High footage: the mat is the floor, the LED tube rig is the
-# light, and the camera sits on a wall instead of on a sampled shell. The [[robots]],
-# [distractors], [materials] and blur settings are the same in both halves.
-# Enabling this appends a `house_bot` class to the label set: the NHRL house bot parked on a
-# cage rail is robot-shaped scenery that shows up in real cage footage, so it is labelled with
-# front/back keypoints (its LED face is the front) instead of left for the detector to guess.
-[cage]
-enabled = true
-# Fraction of written images that are cage scenes. Tracked, not coin-flipped: each scene goes
-# to whichever half is behind its share, so even a 100-image run lands on this ratio.
-probability = 0.5
-# Cage geometry, materials, lights and the exposure solved against footage.
-spec = "cage/cage2_overhead_high.toml"
-# Measured intrinsics for the cage camera, rectified (alpha 1.0) the way the C++ Rectifier
-# does it and scaled to [output].image_width/height. 95 degrees horizontal, much wider than
-# the arena half's default Blender lens.
-camera_calibration = "../../config/cameras/brettzone_cage_high.toml"
-# Cage scenes are darker and shoot through polycarbonate, so they need more samples than the
-# arena half's --render-samples. Leave unset to use the run's value for both.
-render_samples = 128
-# Per-scene jitter on the LED tube emission strength (+- this fraction), so the set is not a
-# single lighting state.
-tube_jitter = 0.25
-# Metres of mat kept clear of its edge when placing robots.
-mat_margin_m = 0.20
-
-# Where a camera can be clamped on the cage, and where it then looks. The defaults bracket the
-# eleven poses fit_cage_camera.py solved for NHRL's own phone (1.16 m up, 0.11 m inside the
-# wall plane, 32 to 38 degrees off straight down, within 1.7 degrees of square to the wall);
-# the wall is drawn at random because which wall ours goes on depends on the match. Restrict
-# `walls` to ["near"] to reproduce the graded framing only.
-[cage.mount]
-walls = ["near", "far", "left", "right"]
-# Along the wall from its centre, metres.
-along_m = [-0.45, 0.45]
-# Above the mat surface, metres. The polycarbonate wall tops out at 1.22 m.
-height_m = [1.00, 1.45]
-# Inside the wall plane, metres. Kept clear of the 12 mm polycarbonate: the segmentation pass
-# stops at the glass, so a mount shooting through it loses its labels. The fitted phone sits
-# 0.11 m inside.
-inset_m = [0.02, 0.25]
-# Optical axis off straight down, degrees.
-tilt_deg = [26.0, 42.0]
-# Heading off square-to-the-wall, degrees.
-yaw_deg = [-9.0, 9.0]
-# Camera roll about the optical axis, degrees.
-roll_deg = [-3.0, 3.0]
-
 [randomization]
 roughness_jitter = 0.5
 hue_jitter_degrees = 10
@@ -1049,3 +1019,47 @@ air_height_range = [0.02, 1.0]
 motion_blur_probability = 0.3
 # Blur kernel size range in pixels (randomly chosen per frame).
 motion_blur_strength_range = [5, 15]
+
+# Battle damage, drawn per robot instance per scene. A real robot two minutes into a match
+# is missing parts; every synthetic robot before this was factory fresh. Drawn by
+# synthgen/damage.py, applied and reverted by synthgen/damage_scene.py, and recorded per
+# instance in manifest.jsonl beside images/ and labels/.
+#
+# The manifest is what makes this free: damage-on and damage-off arms are two filters over
+# one render, not two renders. A damage-off arm keeps the frames whose every instance
+# reports damage == 0, and scene_probability is what sizes that pool.
+#
+# Annotations need no special handling. Damage is applied before both render passes, so
+# bboxes and keypoint visibility are computed from the damaged silhouette.
+[damage]
+enabled = true
+# Chance a scene is a damaged scene at all, which fixes the fully clean pool at 1 minus
+# this. Damage has to be drawn per scene, since one render call covers every camera pose in
+# the scene, and that is why this gate exists: a 100-frame probe on 2026-09-12 rolled 4.33
+# robot-like instances per frame, so rolling only per instance at 0.35 left 15 percent of
+# frames fully clean, not the half the damage-off arm needs. At 0.5 the split is exact.
+scene_probability = 0.5
+# Chance each robot instance inside a damaged scene is damaged. Robot-like distractors (the
+# Meshy opponent pool) are rolled for too; scenery distractors are not, since a cut-up
+# traffic cone teaches the detector nothing about a battlebot.
+probability = 0.35
+# CAD robots arrive split into parts, so damage hides a fraction of the removable ones.
+part_severity = [0.05, 0.30]
+# Fused Meshy meshes have no parts to hide, so a cutter primitive seeded on the surface
+# takes this fraction of the bounding volume instead.
+chunk_volume_fraction = [0.03, 0.20]
+# A part holding more than this share of the summed part bounding volumes never goes, so
+# one draw cannot remove most of the robot.
+max_part_volume_fraction = 0.45
+# Keypoint anchors are protected with this much clearance. [robots.keypoints] are
+# model-frame offsets, so removing the part a keypoint sits on would leave the label
+# pointing at thin air.
+keypoint_clearance_m = 0.02
+# Blender object-name substrings that must survive, for anything the geometry test misses.
+# Empty means the geometric protection above is the only rule.
+protected_name_patterns = []
+cutter_shapes = ["cube", "icosphere"]
+# Cutters pre-built at startup, before the segmentation pass is armed. One scene needs at
+# most one per robot-like instance: [scene].max_robots_per_scene plus the distractor pool's
+# robot-like share.
+cutter_pool_size = 16

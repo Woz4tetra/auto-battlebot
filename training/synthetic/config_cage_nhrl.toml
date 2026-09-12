@@ -1,0 +1,16 @@
+# The NHRL 3 lb cage render, for the domain-mix experiment in
+# docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md.
+#
+# Everything comes from config.toml: the robots, the distractor pool, the materials, the
+# damage block and the mount ranges read off the 12 hand-flown poses. Only the scene mix
+# differs, and it is pinned here rather than passed on the command line so the render is
+# reproducible from a file.
+extends = "config.toml"
+
+# Every scene renders in the NHRL cage: no HDRI arena scenes, no MassD scenes. The two
+# venues render separately so an arm can draw from one or both.
+only_cage = "nhrl_cage"
+
+[output]
+# The experiment asks for 20,000 per venue. --num-images overrides this for probes.
+num_images = 20000

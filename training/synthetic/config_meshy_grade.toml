@@ -47,7 +47,7 @@ memory_cleanup_interval = 1000
 # Per scene, 1..max_robots_per_scene robots are selected using weighted
 # sampling without replacement.  See [scene].max_robots_per_scene.
 [[robots]]
-name = "MR_STABS_MK2"
+name = "mr_stabs_mk2"
 model_path = "../data/models/MR STABS MK2.gltf"
 class_id = 0
 # Scale factor applied to the imported model (1.0 = no scaling).
@@ -101,7 +101,7 @@ material = "paper"
 
 
 [[robots]]
-name = "MRS_BUFF_MK3"
+name = "mrs_buff_mk3"
 model_path = "../data/models/MRS BUFF MK3.glb"
 class_id = 1
 scale = 1.0

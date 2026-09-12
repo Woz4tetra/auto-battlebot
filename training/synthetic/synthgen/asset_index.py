@@ -48,6 +48,7 @@ class OutputLayout:
     label_dir: Path
     dataset_root: Path
     data_yml_path: Path
+    manifest_path: Path
 
 
 def discover_model_files(
@@ -231,6 +232,7 @@ def resolve_output_layout(output: OutputConfig, resolve: PathResolveFn) -> Outpu
         label_dir=label_dir,
         dataset_root=dataset_root,
         data_yml_path=dataset_root / "data.yml",
+        manifest_path=dataset_root / "manifest.jsonl",
     )
 
 

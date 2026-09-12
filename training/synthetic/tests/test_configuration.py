@@ -58,13 +58,13 @@ class TestRealConfig:
 
         assert len(cfg.robots) == 2
         stabs, buff = cfg.robots
-        assert stabs.name == "MR_STABS_MK2"
+        assert stabs.name == "mr_stabs_mk2"
         assert stabs.class_id == 0
         assert stabs.weight == pytest.approx(0.5)
         assert stabs.ground_roll_upright == pytest.approx(9.587585)
         # Keypoints are converted to Blender axes: (x, y, z) -> (x, -z, y).
         np.testing.assert_allclose(stabs.keypoints.front, [0.1115, 0.00313, 0.0])
-        assert buff.name == "MRS_BUFF_MK3"
+        assert buff.name == "mrs_buff_mk3"
         assert buff.class_id == 1
         assert buff.ground_roll_inverted == pytest.approx(-30.0)
         assert len(buff.color_mapping) > len(stabs.color_mapping)
@@ -95,16 +95,20 @@ class TestRealConfig:
         assert nhrl.probability == pytest.approx(0.5)
         assert nhrl.render_samples == 128
         assert nhrl.mount.walls == ("near", "far", "left", "right")
-        assert nhrl.mount.height_m == (1.00, 1.45)
+        assert nhrl.mount.height_m == (0.55, 1.30)
         assert massd.probability == pytest.approx(0.25)
-        # The MassD floor does not fit in frame from the wall itself, so its mounts stand
-        # outside the cage: negative inset, with tilt derived from where they land.
+        # Neither venue fits its floor in frame from the wall itself, so the mounts stand
+        # outside the cage: negative inset, with tilt derived from where they land. NHRL's
+        # come from the 12 poses flown in pose_camera_server.py on 2026-09-12, MassD's from
+        # the coverage sweeps.
         assert massd.mount.inset_m[1] < 0.0
         assert massd.mount.aim == "centre"
         assert massd.mount.height_m == (0.49, 1.46)
-        # NHRL keeps its fitted mounts, sampled the old way.
-        assert nhrl.mount.aim == "fixed"
-        assert nhrl.mount.inset_m == (0.02, 0.25)
+        assert nhrl.mount.aim == "centre"
+        assert nhrl.mount.inset_m == (-0.75, -0.01)
+        assert nhrl.mount.tilt_offset_deg == (-19.0, -5.0)
+        # Both halves stand in for our own camera, so both render through its lens.
+        assert nhrl.camera_calibration == massd.camera_calibration
         # Every spec and camera calibration resolves against the config directory.
         for cage in cfg.cages:
             assert cfg.resolver.resolve(cage.spec).exists()
@@ -267,3 +271,101 @@ class TestPathResolver:
     def test_nonexistent_returns_first_candidate(self, tmp_path: Path) -> None:
         resolver = PathResolver(tmp_path / "a", tmp_path / "b", tmp_path / "c")
         assert resolver.resolve(Path("ghost")) == (tmp_path / "a" / "ghost").resolve()
+
+
+class TestExtends:
+    """A per-venue config says what differs and inherits the rest."""
+
+    def test_child_inherits_and_overrides(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, MINIMAL_TOML)
+        child = tmp_path / "variant.toml"
+        child.write_text('extends = "config.toml"\n\n[output]\nnum_images = 250\n')
+        cfg = load_render_config(child)
+        # Overridden key takes the child's value, the rest of [output] survives the merge.
+        assert cfg.output.num_images == 250
+        assert cfg.output.image_dir.name == "images"
+        assert len(cfg.robots) == 1
+
+    def test_arrays_replace_rather_than_merge(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, MINIMAL_TOML + '\n[[cages]]\nname = "a"\nprobability = 0.5\n')
+        child = tmp_path / "variant.toml"
+        child.write_text('extends = "config.toml"\n[[cages]]\nname = "b"\nprobability = 0.25\n')
+        cfg = load_render_config(child)
+        assert [cage.name for cage in cfg.cages] == ["b"]
+
+    def test_cycle_is_an_error(self, tmp_path: Path) -> None:
+        (tmp_path / "a.toml").write_text('extends = "b.toml"\n')
+        (tmp_path / "b.toml").write_text('extends = "a.toml"\n')
+        with pytest.raises(ConfigError, match="extends cycle"):
+            load_render_config(tmp_path / "a.toml")
+
+    def test_missing_parent_is_an_error(self, tmp_path: Path) -> None:
+        child = tmp_path / "variant.toml"
+        child.write_text('extends = "nope.toml"\n')
+        with pytest.raises(ConfigError, match="extends target not found"):
+            load_render_config(child)
+
+    def test_parent_must_be_a_sibling(self, tmp_path: Path) -> None:
+        child = tmp_path / "variant.toml"
+        child.write_text('extends = "sub/config.toml"\n')
+        with pytest.raises(ConfigError, match="same directory"):
+            load_render_config(child)
+
+    def test_shipped_venue_configs_pin_one_cage_each(self) -> None:
+        for name, wanted in (
+            ("config_cage_nhrl.toml", "nhrl_cage"),
+            ("config_cage_massd.toml", "massd_arena"),
+        ):
+            cfg = load_render_config(REAL_CONFIG.parent / name)
+            active = [cage for cage in cfg.cages if cage.active]
+            assert [cage.name for cage in active] == [wanted]
+            assert active[0].probability == pytest.approx(1.0)
+            # Inherited from config.toml rather than restated.
+            assert [robot.name for robot in cfg.robots] == ["mr_stabs_mk2", "mrs_buff_mk3"]
+            assert cfg.damage.enabled is True
+
+
+class TestOnlyCage:
+    def test_unknown_name_is_an_error(self, tmp_path: Path) -> None:
+        # only_cage is a top-level key, so it goes before the first table header.
+        toml = 'only_cage = "nope"\n' + MINIMAL_TOML + '\n[[cages]]\nname = "a"\n'
+        with pytest.raises(ConfigError, match="no \\[\\[cages\\]\\] entry"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_other_cages_are_disabled(self, tmp_path: Path) -> None:
+        toml = (
+            'only_cage = "b"\n'
+            + MINIMAL_TOML
+            + '\n[[cages]]\nname = "a"\nenabled = true\nprobability = 0.5\n'
+            + '\n[[cages]]\nname = "b"\nenabled = false\nprobability = 0.25\n'
+        )
+        cfg = load_render_config(_write_config(tmp_path, toml))
+        by_name = {cage.name: cage for cage in cfg.cages}
+        assert by_name["b"].enabled and by_name["b"].probability == pytest.approx(1.0)
+        assert not by_name["a"].enabled
+
+
+class TestDamage:
+    def test_defaults_are_off(self, tmp_path: Path) -> None:
+        cfg = load_render_config(_write_config(tmp_path, MINIMAL_TOML))
+        assert cfg.damage.enabled is False
+
+    def test_shipped_config_enables_damage(self) -> None:
+        damage = load_render_config(REAL_CONFIG).damage
+        assert damage.enabled is True
+        assert damage.probability == pytest.approx(0.35)
+        # The clean pool a damage-off arm draws from is 1 - scene_probability.
+        assert damage.scene_probability == pytest.approx(0.5)
+        assert damage.part_severity == (0.05, 0.30)
+        assert damage.chunk_volume_fraction == (0.03, 0.20)
+        assert damage.cutter_pool_size >= 1
+
+    def test_unknown_cutter_shape_is_an_error(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + '\n[damage]\ncutter_shapes = ["torus"]\n'
+        with pytest.raises(ConfigError, match="cutter_shapes"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_name_patterns_are_lowercased(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + '\n[damage]\nprotected_name_patterns = ["Chassis"]\n'
+        cfg = load_render_config(_write_config(tmp_path, toml))
+        assert cfg.damage.protected_name_patterns == ("chassis",)
