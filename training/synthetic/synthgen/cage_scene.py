@@ -46,7 +46,7 @@ from synthgen.logsetup import get_logger
 
 logger = get_logger(__name__)
 
-CAGE_COLLECTION = "cage"
+CAGE_COLLECTION_PREFIX = "cage_"
 # Mounts resampled before a scene settles for one that frames the robots anyway.
 MOUNT_FRAMING_RETRIES = 40
 # Lights the cage owns but that live outside its mesh collection as Blender lights.
@@ -192,11 +192,22 @@ class CageStage:
         self.house_bot = house_bot
         self._generic_state = generic_state
         self._tube_strengths = [_tube_strength(tube) for tube in tubes]
+        # This cage's own lights, not every cage's: a run with more than one cage would
+        # otherwise have each stage switch all of them on.
         self._lights = [
             (obj, float(obj.data.energy))
-            for obj in bpy.data.objects
+            for obj in collection.objects
             if obj.type == "LIGHT" and obj.name.startswith(CAGE_LIGHT_PREFIXES)
         ]
+
+    @property
+    def name(self) -> str:
+        """The cage's name from the config, used in logs and for its Blender collection."""
+        return self._cfg.name
+
+    @property
+    def config(self) -> CageConfig:
+        return self._cfg
 
     @property
     def arena_radius(self) -> float:
@@ -319,12 +330,13 @@ def build_cage_stage(
     )
     lights = add_lights(spec, tuple(float(v) for v in spec.exposure.color_gain))
     created = [obj for obj in bpy.data.objects if obj not in before]
-    collection = _isolate(created, CAGE_COLLECTION)
+    collection = _isolate(created, CAGE_COLLECTION_PREFIX + cage_cfg.name)
 
     tubes = [light for light in lights if not hasattr(light, "set_color")]
-    house_bot = _house_bot(is_segmentation_mode)
+    house_bot = _house_bot(is_segmentation_mode, created)
     logger.info(
-        "cage stage: %d objects, %d LED tubes, mat %.2f m, arena radius %.2f m",
+        "cage stage %s: %d objects, %d LED tubes, mat %.2f m, arena radius %.2f m",
+        cage_cfg.name,
         len(created),
         len(all_tubes(spec)),
         spec.mat.size,
@@ -337,9 +349,13 @@ def build_cage_stage(
     return stage
 
 
-def _house_bot(is_segmentation_mode: bool) -> HouseBot | None:
-    """The house bot record, or None when it is disabled, absent, or not a detector class."""
-    parent = bpy.data.objects.get("house_bot")
+def _house_bot(is_segmentation_mode: bool, created: list[bpy.types.Object]) -> HouseBot | None:
+    """The house bot record, or None when it is disabled, absent, or not a detector class.
+
+    Looked up among the objects this build made, not by name across the file: a run with more
+    than one cage has more than one candidate, and only one of them belongs to this stage.
+    """
+    parent = next((obj for obj in created if obj.name == "house_bot"), None)
     if parent is None or is_segmentation_mode:
         return None
     keypoints = house_bot_keypoints(parent)

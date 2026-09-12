@@ -210,20 +210,22 @@ Options:
 --num-images 5000       Override image count from config
 --images-per-scene 4    Camera viewpoints per robot arrangement
 --out DIR               Write DIR/images and DIR/labels instead of the config's paths
---render-samples 128    Path-tracing samples per pixel (the cage half has its own count)
+--render-samples 128    Path-tracing samples per pixel (each cage has its own count)
 --start-index 10000     Resume from a specific frame index
 --seed 42               Seed Python/numpy RNGs for reproducible debugging runs
 -v / --verbose          Debug logging (per-robot skip detail, asset decisions)
 -q / --quiet            Warnings and the run summary only
 ```
 
-Half the images come out of the NHRL cage when `[cage].enabled` is set: same robots,
-distractors and label pipeline, but the mat is the floor, the LED tube rig is the light, and
-the camera is clamped to a cage wall instead of sampled on a shell around the robots. The
-other half is the HDRI arena, and the cage's house bot is labelled as its own `house_bot`
-class with keypoints. The run summary reports the realized split. See
-`docs/experiments/perception_performance/cage_scene_render_match_2026-09-11.md` for how the
-cage was fitted to footage, and `training/data/environments/nhrl_3lb_cage/` for its assets.
+Some images come out of a real arena rather than the HDRI arena: one `[[cages]]` entry per
+arena, each with its own share of the run. Same robots, distractors and label pipeline, but
+the mat is the floor, the arena's own light rig is the light, and the camera is clamped to a
+wall instead of sampled on a shell around the robots. The shipped config ships two, the NHRL
+3 lb cage at 50% and the MassDestruction arena at 25%, leaving 25% HDRI arena; the NHRL
+cage's house bot is labelled as its own `house_bot` class with keypoints. The run summary
+reports the realized split per arena. See
+`docs/experiments/perception_performance/cage_scene_render_match_2026-09-11.md` and
+`massd_arena_scene_2026-09-11.md` for how each was fitted to footage, and `training/data/environments/nhrl_3lb_cage/` for its assets.
 
 Every dropped frame is logged with a machine-readable reason
 (`DROPPED KP_PROMINENT_ROBOT_UNLABELED — robot 2 ...`), and the run ends with a
@@ -314,5 +316,5 @@ See `config.toml` for all options. Key sections:
 - `[distractors]` source directories, count range, scale range
 - `[environment]` HDRI and texture paths
 - `[camera]` distance/height/noise parameters for the HDRI-arena half
-- `[cage]` cage scene fraction, spec, camera calibration, and `[cage.mount]` sampling ranges
+- `[[cages]]` one real arena per entry: its share of the run, spec, camera calibration, and `[cages.mount]` sampling ranges
 - `[randomization]` material and lighting jitter

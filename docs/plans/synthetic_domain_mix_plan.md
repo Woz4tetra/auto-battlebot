@@ -1,0 +1,375 @@
+# Synthetic domain mix: how much cage data, and does randomized still earn its place
+
+Plan for generating 20,000 NHRL-cage and 20,000 MassD-arena synthetic frames, then training
+`yolo26x-pose` on ratios of those against the existing corpus. Four questions, one render
+budget, one eval set.
+
+Writeup lands in `docs/experiments/perception_performance/synthetic_domain_mix_<date>.md`.
+
+## Questions
+
+1. **Amount.** How many domain-synthetic frames before the eval curve flattens? Is 20k per
+   venue overkill or not enough?
+2. **Domain vs randomized.** At a matched frame count, does cage-domain synthetic beat
+   randomized HDRI scenes?
+3. **Do I need randomized at all?** Once domain data is in, does deleting all 17,995
+   randomized frames cost anything?
+4. **Damage.** Does randomized part loss on our robot and on opponent meshes improve recall
+   on real damaged robots?
+
+Question 4 rides along at no extra render cost: damage is sampled per instance and recorded
+per frame, so damage-on and damage-off arms are filters over the same render, not two renders.
+
+## What already exists
+
+| Piece | State |
+| --- | --- |
+| `training/data/all_robot_keypoints` | 18,447 train (17,995 randomized synthetic + 452 real), 2,049 val. `nc: 3` `[mr_stabs_mk2, mrs_buff_mk3, nhrl_robot]`, `kpt_shape [2, 3]` |
+| `training/data/synthetic` | the flat 20,001-frame randomized pool the above was split from |
+| `training/synthetic/render_scenes.py` | generic pipeline, `[cage]` section renders a tracked fraction of scenes inside a cage spec at 1280x720. Has `--num-images`, `--start-index`, `--seed`, `--out`, `--render-samples` |
+| `training/synthetic/cage/cage2_overhead_high.toml` | NHRL 3 lb cage, graded in `cage_scene_render_match_2026-09-11.md` |
+| `training/synthetic/cage/massd_resurgence6.toml` | MassD arena, graded in `massd_arena_scene_2026-09-11.md`. Generic-pipeline integration in flight by another agent |
+| `synthgen/cage_mount.py` | samples wall mounts (1.00 to 1.45 m up, 26 to 42 deg tilt, 0.02 to 0.25 m inside the glass), bracketing where our camera goes |
+| `training/data/nhrl_keypoints_eval_test` | 688 `pass` frames over 8 recordings: 590 NHRL May, 98 MassD Aug. `nc: 4` `[mr_stabs_mk2, mrs_buff_mk3, opponent, house_bot]` |
+| `training/yolo/make_scaling_splits.py` | writes arms as image-list `.txt` files, so arms cost kilobytes and share one disk cache |
+| `training/model_eval/{score.py, edit_labels.py, make_eval_dataset.py}` | scoring against TensorRT engines, the label editor, the empty-label dataset builder |
+
+`render_cage_samples.py` is the other cage renderer. It uses the fitted broadcast-camera poses
+and belongs to the scene-grading loop, not to this experiment. Everything here goes through
+`render_scenes.py` so the mount varies.
+
+## Step 0: settle three things before rendering 40,000 frames
+
+These are cheap and each one can invalidate the render.
+
+### 0a. Point the cage camera at our own intrinsics
+
+`[cage].camera_calibration` is `config/cameras/brettzone_cage_high.toml`, NHRL's phone at
+95.2 deg horizontal. Our deployed camera is the ZED. If the two fields of view differ, every
+domain frame is rendered through the wrong lens and the whole premise of question 2 is
+weakened.
+
+```bash
+# The saved MCAPs predate the Foxglove migration, so convert one first.
+venv/bin/python scripts/convert_ros1_mcap.py \
+  data/saved_recordings/MassD_2026-08-29/auto_battlebot_mrs_buff_mk3_massd_ns_jetson_2026-08-29_13-08-16__2026-08-29T13-20-08.mcap \
+  /tmp/massd_converted.mcap
+# Then read /camera/camera_info (auto_battlebot.recording.mcap_io.decode_camera_info).
+```
+
+Write the result to `config/cameras/zed2i_1080p.toml` in the same schema
+(`calibration_id`, `width`, `height`, `fx`, `fy`, `cx`, `cy`, `k1..k3`, `p1`, `p2`) and set
+`[cage].camera_calibration` to it. If the ZED numbers land within a few percent of the phone,
+record that and move on.
+
+### 0b. Timing probe
+
+Nothing in the repo records seconds per frame for a cage scene, and the render is the schedule
+driver. Run 200 frames per spec and measure.
+
+```bash
+bash training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic \
+  blenderproc run render_scenes.py -- config.toml \
+  --num-images 200 --out ../data/_probe_nhrl --render-samples 128 --seed 0
+```
+
+Record wall clock, peak VRAM, and the drop rate (`scenes_attempted` vs `images_written`).
+Repeat at `--render-samples 64`. If 64 grades the same on a spot check, take it: the cage
+config asks for 128 because the glass is noisy, and halving samples halves a multi-day render.
+
+Decide where to render from the probe:
+
+- pathfinder (one RTX 4080 Laptop, 12 GB) renders without blocking training.
+- megamind (3x A6000) is 3 to 6 times faster sharded, but every render hour is a training hour
+  lost, and heavy IO there evicts a running job's page cache.
+
+Default: render on pathfinder in tmux, shard by `--start-index` only if a second GPU appears.
+
+### 0c. One class schema for every arm
+
+Three schemas are live right now and they do not agree:
+
+- `all_robot_keypoints`: `nc: 3`, lowercase, no `house_bot`
+- cage renders: `nc: 4`, uppercase `MR_STABS_MK2`, includes `house_bot`
+- eval set: `nc: 4`, `opponent` where the training sets say `nhrl_robot`
+
+Pick `nc: 4` `[mr_stabs_mk2, mrs_buff_mk3, nhrl_robot, house_bot]` for training, lowercase
+throughout. `all_robot_keypoints` needs a `data.yml` bump only, since its class ids 0 to 2
+already match and no frame carries a house bot. The score call is then one string for every
+arm:
+
+```
+--labels "mr_stabs_mk2,mrs_buff_mk3,opponent,house_bot"
+```
+
+The MassD arena has no house bot, so `house_bot` rows come only from the NHRL half. Expect its
+AP to move with the NHRL fraction and read it separately.
+
+## Step 1: damage as a random variable
+
+New module `training/synthetic/synthgen/damage.py`, new `[damage]` block in `config.toml`,
+applied per robot instance after load and before the segmentation pass, so bboxes and keypoint
+visibility are computed on the damaged silhouette with no annotation changes.
+
+### Two mechanisms, chosen by mesh structure
+
+**Part removal (CAD robots).** `import_gltf_as_robot` returns the GLB's mesh objects as a
+list, so our robots arrive already split into parts. Delete a random subset.
+
+- `severity ~ U(0.05, 0.30)` as a fraction of removable parts.
+- Protect the chassis and any part that anchors a keypoint. `[robots.keypoints]` front and
+  back are model-frame offsets, so deleting the part under one leaves the keypoint floating in
+  air and the label becomes a lie. Protected set is a name-pattern list per robot plus a
+  geometric fallback: any part whose bounding box contains a keypoint.
+- Protect parts above a volume fraction so a single delete cannot remove most of the robot.
+
+**Chunk removal (Meshy opponents).** Those GLBs are usually one fused textured mesh, so part
+removal does nothing.
+
+- First try `separate loose parts`. If it yields more than one island, fall back to part
+  removal above.
+- Otherwise apply a boolean difference with a randomly placed cutter (cube or icosphere)
+  seeded on the mesh surface, scaled to remove `U(0.03, 0.20)` of the bounding volume.
+- Reject and resample if the cut leaves the mesh non-manifold in a way that breaks the
+  segmentation pass, or removes a keypoint anchor region.
+
+Cosmetic-only damage (scorch marks, roughness patches, darkened albedo) is a third mechanism
+and is out of scope for the first pass. Note it as a follow-up.
+
+### Sampling and bookkeeping
+
+- Per instance: `p_damage = 0.35`. Roughly a third of robots in a frame are damaged, which is
+  about what a late-round fight looks like.
+- Write `manifest.jsonl` beside `images/` and `labels/`, one row per frame:
+  `{"image": "000123.jpg", "venue": "nhrl", "mount": {...}, "instances": [{"class": "mrs_buff_mk3", "damage": 0.18, "mechanism": "parts"}]}`.
+
+The manifest is what makes question 4 free. Damage-off arms filter to frames where every
+instance has `damage == 0`, damage-on arms take everything. At `p_damage = 0.35` and one to
+three robots per frame, roughly 40 to 50 percent of frames are fully undamaged, so a 20k
+render yields an 8k to 10k clean pool. Confirm that split on the probe and raise the render
+count if the clean pool comes out too thin to match the damage-on arm.
+
+Sanity gate before the full render: render 200 damaged frames and page through
+`sheet.png`. Reject the mechanism if robots come out unrecognizable rather than chewed.
+
+## Step 2: render
+
+Two datasets, flat, no split. Splits are image lists later.
+
+```
+training/data/synth_cage_nhrl_<date>/{images,labels,manifest.jsonl,data.yml}
+training/data/synth_cage_massd_<date>/{images,labels,manifest.jsonl,data.yml}
+```
+
+```bash
+# NHRL. probability 1.0 forces every scene into the cage; spec picks the venue.
+tmux new-session -d -s render_nhrl -c /home/ben/auto-battlebot \
+  'bash training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic \
+     blenderproc run render_scenes.py -- config.toml --num-images 20000 \
+     --out ../data/synth_cage_nhrl_<date> --seed 100 \
+     2>&1 | tee /tmp/render_nhrl.log'
+```
+
+`[cage].probability = 1.0` and `[cage].spec` go in per-venue copies of `config.toml`
+(`config_cage_nhrl.toml`, `config_cage_massd.toml`) rather than being passed on the command
+line, so the render is reproducible from a file. The MassD run is the same command against
+the MassD config, seed 200, once the other agent's integration lands.
+
+Budget: about 200 KB per 1280x720 JPEG, so 40,000 frames is roughly 8 GB. pathfinder has 99 GB
+free. Fine.
+
+Gates after each render:
+
+```bash
+venv/bin/python training/yolo/validate_yolo_integrity.py training/data/synth_cage_nhrl_<date> --strict
+```
+
+- Zero errors, zero warnings.
+- Per-class counts printed and recorded. Our robots must not be rare.
+- Keypoint visibility distribution: how many rows carry vis-0 keypoints. A jump against the
+  randomized pool means the mount or the glass is eating keypoints.
+- Drop rate from `min_robot_visibility`. If more than 25 percent of scenes are discarded, the
+  mat margin or the distractor count needs a look before burning the rest of the budget.
+- Eyeball `sheet.png` and 50 random frames.
+
+## Step 3: arms
+
+Every arm is a `.txt` image list, built by extending `make_scaling_splits.py` to draw from
+multiple source datasets with per-source counts. Frames are drawn by a single fixed shuffle
+per source so arms nest: the 10k domain arm is a prefix of the 20k one, and a drop in accuracy
+cannot be blamed on which frames got picked.
+
+Constants across arms: `yolo26x-pose`, imgsz 640, batch and epochs fixed, seed 0, 3x A6000 DDP
+through the queue, `--save-period 25`.
+
+`R` = randomized frames from `training/data/synthetic`. `D` = domain frames, split evenly
+between the two venues unless noted. The 452 real frames are in every arm.
+
+| Arm | R | D | Answers |
+| --- | --- | --- | --- |
+| `base` | 17,995 | 0 | baseline, the corpus today |
+| `d2500` | 17,995 | 2,500 | Q1 |
+| `d5000` | 17,995 | 5,000 | Q1 |
+| `d10000` | 17,995 | 10,000 | Q1 |
+| `d20000` | 17,995 | 20,000 | Q1 |
+| `d40000` | 17,995 | 40,000 | Q1, the whole render |
+| `swap_half` | 10,000 | 10,000 | Q2, total synthetic held at 20,000 |
+| `swap_all` | 0 | 20,000 | Q2 and Q3 |
+| `nhrl_only` | 0 | 20,000 NHRL | Q2, venue transfer |
+| `massd_only` | 0 | 20,000 MassD | Q2, venue transfer |
+| `nodamage` | best mix | same count, damage-free frames only | Q4 |
+
+`base`, `swap_all` at 20k and `d20000` share three points on the amount curve, so the grid is
+eleven arms, not sixteen.
+
+Eleven `yolo26x-pose` runs is a lot of queue time. Run the grid on `yolo26s-pose` first to
+shape the curves, then confirm the three or four arms that matter on `yolo26x-pose`. That is
+what `model_size` and `meshy_grade` did, and it is the difference between a week and a month.
+
+### The step-count confound
+
+`d40000` sees 3.2 times the frames of `base`, so at fixed epochs it also gets 3.2 times the
+gradient steps and part of any win is just more training. Handle it the way
+`synthetic_arms_2026-07-31` did: keep epochs fixed at 100 for the headline table, and use the
+`--save-period 25` checkpoints to read every arm again at matched frame-presentations. Report
+both. If the win survives at matched steps it is the data.
+
+### The val set is not a decision surface
+
+`all_robot_keypoints/val` is 2,004 synthetic and 45 real. Arms trained on more synthetic will
+look better on it for reasons that have nothing to do with the field. Use it for training
+bookkeeping and early-stopping only. Every claim in the writeup comes from `score.py` on
+`nhrl_keypoints_eval_test`.
+
+## Step 4: score
+
+```bash
+venv/bin/python training/yolo/convert_to_onnx.py data/models/yolo26x-pose_<arm>_<date>.pt
+venv/bin/python training/yolo/convert_to_tensorrt.py data/models/yolo26x-pose_<arm>_<date>.onnx --workspace 4
+
+venv/bin/python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
+  --candidate base=data/models/yolo26x-pose_base_<date>_x86_64_sm89.engine \
+  --candidate d20000=data/models/yolo26x-pose_d20000_<date>_x86_64_sm89.engine \
+  --labels "mr_stabs_mk2,mrs_buff_mk3,opponent,house_bot" \
+  --taxonomy training/model_eval/taxonomy.yaml --conf 0.5 --baseline base \
+  --output training/data/nhrl_keypoints_eval_test/scores_domain_mix
+```
+
+Build engines on pathfinder (sm89), not megamind (sm86). Check the printed
+`num_keypoints=2 num_classes=4` line on every run: a wrong `--labels` length misparses the
+tensor and returns near-zero recall that looks like a broken engine.
+
+Score three ways:
+
+1. **Pooled**, all 688 frames, paired bootstrap against `base`.
+2. **Per venue.** NHRL May (590 frames) against MassD Aug (98). This is the direct read on
+   question 2: NHRL-cage synthetic should move the May recordings and MassD synthetic should
+   move the August one. If `nhrl_only` lifts MassD as much as `massd_only` does, then the win
+   is generic cage-ness, not venue match, and there is no reason to build a scene per venue.
+3. **Per recording.** Each recording is one opponent, so per-recording recall is per-opponent
+   grade. Pooled AP understates the good cases.
+
+Keypoint metrics go through `taxonomy_keypoint_ours.yaml`, which excludes opponents so heading
+error reflects our robot.
+
+### Pre-registered criteria
+
+Write these down before the first score run and do not move them afterwards.
+
+- **Adopt** a domain mix if agnostic opponent recall on the pooled eval rises by at least 0.03
+  with a 95 percent CI excluding zero, and our-robot heading error does not get worse by more
+  than 1 degree.
+- **Drop randomized** if `swap_all` is within 0.01 recall of `d20000` on both venues.
+- **Damage helps** if `damage-on` beats `nodamage` on opponent recall with a CI excluding zero.
+- Anything else that moves is an unregistered finding and needs a confirmatory run before it
+  drives a deployment decision. `synthetic_arms_2026-07-31` pre-registered recall, got a
+  precision win, and had to label it unregistered. Same discipline here.
+
+## Step 5: grow the eval set with pre-labels
+
+The 98 MassD frames are the weak point. Any per-venue claim about MassD rests on them, and 98
+frames gives a wide CI no amount of bootstrap resampling fixes. The fix is more labeled
+frames, and the pre-label loop is what makes that affordable.
+
+**Assumption to confirm:** `nhrl_keypoints_eval_test` is already fully labeled (688 `pass`
+frames, no empty label files), so "hand label the NHRL eval test set" means growing it, mostly
+on the MassD side, plus finishing `nhrl_cage_high_eval` (650 frames, 201 still empty). Both
+use the identical loop below. Say which one comes first and I will order the steps.
+
+### The loop
+
+1. **Sample frames.** `make_eval_dataset.py` at a higher `--per-video` over the MCAPs, writing
+   empty labels.
+
+```bash
+venv/bin/python training/model_eval/make_eval_dataset.py \
+  'data/saved_recordings/MassD_2026-08-29/*.mcap' \
+  --output-dir training/data/nhrl_keypoints_eval_test --per-video 250 \
+  --extra-classes opponent house_bot
+```
+
+2. **Pre-label.** New script `training/model_eval/prelabel_dataset.py`: runs a `.pt` over each
+   subdataset's `images/` and writes YOLO pose rows into `labels/`. `export_labels.py` cannot
+   do this, since it reads detection topics out of a `label_playback` MCAP and these frames
+   have none.
+
+   Run it at `--conf 0.15`, not 0.5. Deleting a spurious box in `edit_labels.py` is one
+   keypress; drawing a missing box plus two keypoints is a dozen actions. Bias the pre-labeler
+   toward over-detection.
+
+3. **Correct** in `edit_labels.py`, `space` to mark reviewed and jump.
+
+4. **Merge** the review state with `merge_validation_state.py`.
+
+5. **Second round.** The first pre-labeler is whichever arm is best today. Once `d20000` or
+   `swap_all` exists, re-pre-label the frames not yet reviewed with it. A model trained on
+   MassD-domain synthetic should pre-label MassD frames better than anything trained without
+   it, which is the practical payoff of this experiment independent of the deployment result.
+
+### Two guards, because pre-labeled GT can poison the eval
+
+- **Miss bias.** A frame where the pre-labeler sees nothing arrives empty, and an empty frame
+  looks reviewed at a glance. Every frame gets opened at fixed zoom, and no frame is marked
+  reviewed from the thumbnail.
+- **Blind audit.** Hold out 10 percent of frames, label them from empty with no pre-labels,
+  and compare box counts against the pre-labeled population. That number is the measured bias
+  the eval carries, and it goes in the writeup. If the pre-labeled set has systematically
+  fewer boxes, the eval flatters every model, including the one that did the pre-labeling.
+- **Never pre-label with an arm and then score that arm as the headline** without the audit
+  number beside it.
+
+Also measure the speedup: time 50 frames pre-labeled and 50 from empty. If pre-labeling does
+not actually save time, say so and drop it.
+
+## Risks
+
+- **Render throughput is unmeasured.** Everything downstream is scheduled off step 0b. If a
+  cage frame costs 10 seconds, 40,000 frames is 111 hours on one GPU and the render count has
+  to come down or move to megamind between training jobs.
+- **Intrinsics mismatch.** Covered by 0a, and it is the single item most likely to make the
+  domain arms underperform for a reason unrelated to the hypothesis.
+- **MassD integration is in flight.** The MassD render cannot start until the other agent's
+  generic-pipeline work lands. Start the NHRL render first.
+- **Damage can make labels wrong.** A keypoint on a deleted part is a false label that trains
+  the heading head toward noise. The protected-part rule and the 200-frame visual gate are the
+  defense; if either is shaky, ship damage as a separate small dataset instead of mixing it
+  into the main render.
+- **Eleven arms of `yolo26x-pose`** will not fit a reasonable week. The `yolo26s-pose` shaping
+  pass is not optional.
+- **Segmentation stops at glass.** Any mount rendering through polycarbonate loses its labels.
+  `[cage.mount].inset_m` already keeps the camera inside; confirm on the probe that the drop
+  rate does not spike for particular walls.
+
+## Next steps
+
+1. Convert one MassD MCAP, read `/camera/camera_info`, write `config/cameras/zed2i_1080p.toml`,
+   repoint `[cage].camera_calibration`.
+2. Run the 200-frame timing probes at 128 and 64 samples on both specs, record seconds per
+   frame, VRAM, and drop rate.
+3. Write `synthgen/damage.py` plus the `[damage]` config block and the per-frame manifest, and
+   gate it on 200 rendered frames.
+4. Normalize the class schema to `nc: 4` lowercase across `all_robot_keypoints` and both cage
+   configs.
+5. Start the NHRL 20k render in tmux. Start MassD when the integration lands.
+6. Extend `make_scaling_splits.py` to multi-source counts, build the eleven arm lists, and
+   submit the `yolo26s-pose` shaping grid to `gpu_queue.py`.

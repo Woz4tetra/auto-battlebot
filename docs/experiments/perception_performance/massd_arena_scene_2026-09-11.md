@@ -1,9 +1,10 @@
 # A MassDestruction arena scene, built from one broadcast clip
 
-Status: **built** (2026-09-11). Code: `playground/massd_scene/`, spec
-`training/synthetic/cage/massd_resurgence6.toml`, geometry in
-`training/synthetic/synthgen/cage_spec.py` and `synthgen/cage.py`. Outputs under
-`runs/massd_scene/` (gitignored). Figures: `assets/2026-09-11_massd_scene/`.
+Status: **built and wired into the generic pipeline** (2026-09-11). Code:
+`playground/massd_scene/`, spec `training/synthetic/cage/massd_resurgence6.toml`, geometry in
+`training/synthetic/synthgen/cage_spec.py` and `synthgen/cage.py`. The floor albedo and the
+fitted camera live in `training/data/environments/massd_arena/`; the fit's own scratch goes
+to `runs/massd_scene/` (gitignored). Figures: `assets/2026-09-11_massd_scene/`.
 
 The NHRL cage-high scene (`cage_scene_render_match_2026-09-11.md`) was built from thirteen
 clips of a camera with a measured calibration. This one has neither. The source is a single
@@ -264,8 +265,31 @@ distance.
   weathered navy and maroon, and the real one is motion-blurred where the render is sharp.
   Robot-box SSIM stays at 0.27.
 
+## In the generic generator
+
+`render_cage_samples.py` stays the cage-only renderer from the fitted broadcast pose; the
+generic pipeline renders this arena too, so one dataset carries all three backdrops. `[cage]`
+became `[[cages]]`, an array with one entry per real arena and its own share of the run:
+
+| entry | share of the run |
+| --- | --- |
+| `nhrl_cage` | 50% |
+| `massd_arena` | 25% |
+| HDRI arena (what is left) | 25% |
+
+The split is tracked rather than coin-flipped, per arena: each scene goes to whichever arena
+is furthest behind its share, so a 200-image run lands on 100 / 50 / 50 exactly. Two cages now
+coexist in one Blender file, so each stage owns a named collection, and its lights and house
+bot are looked up among the objects it built rather than by name across the whole file.
+
+The mount ranges differ from NHRL's because the arena does: the MassD wall is 0.66 m against
+NHRL's 1.22 m, so a camera clamped to it sits at 0.50 to 0.64 m, and it is restricted to the
+far and right walls, the two the spec glazes. The `camera_calibration` for this half is the
+same wide lens as the NHRL half on purpose: it stands in for our own camera on the arena, not
+for the 62-degree broadcast camera the scene was fitted from.
+
 ## Next steps
 
 1. Re-render the NHRL cage sample sets: they carry the 17.5% floor-texture stretch.
-2. Add the arena to the generic pipeline's `[cage]` half so one dataset can carry NHRL and
-   MassD scenes, which needs a camera mount sampler like `synthgen/cage_mount.py`.
+2. Grade a mixed run's MassD half the way the cage-only set was graded, to check the mount
+   sampler does not put the camera somewhere the real one could never go.

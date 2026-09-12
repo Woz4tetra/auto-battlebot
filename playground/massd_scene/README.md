@@ -36,12 +36,17 @@ venv/bin/python playground/massd_scene/fit_massd_camera.py runs/massd_scene
 venv/bin/python training/synthetic/build_cage_floor_texture.py runs/massd_scene \
     --px-per-m 1024 --name massd --out training/data/environments/massd_arena/mat_albedo
 
+# 3b. The scene loads its camera from training/data, not from runs/: copy the fit across.
+cp runs/massd_scene/poses/r1_beeroll_vs_mrsbuff.toml \
+    training/data/environments/massd_arena/camera/massd_resurgence6_broadcast.toml
+cp runs/massd_scene/camera_rect.json training/data/environments/massd_arena/camera/
+
 # 4. Render the empty arena from the fitted pose.
 training/synthetic/docker/run_synthetic.sh --gpu auto-battlebot-synthetic blenderproc run \
     /workspace/training/synthetic/render_cage_view.py -- \
     --spec /workspace/training/synthetic/cage/massd_resurgence6.toml \
-    --pose /workspace/runs/massd_scene/poses --pose-glob "r1_*.toml" \
-    --camera-rect /workspace/runs/massd_scene/camera_rect.json \
+    --pose /workspace/training/data/environments/massd_arena/camera/massd_resurgence6_broadcast.toml \
+    --camera-rect /workspace/training/data/environments/massd_arena/camera/camera_rect.json \
     --out /workspace/runs/massd_scene/renders/final --samples 256
 
 # 5. Grade it (the cage-high grader, unchanged).
@@ -69,8 +74,9 @@ training/synthetic/docker/run_synthetic.sh --gpu auto-battlebot-synthetic blende
     /workspace/training/synthetic/render_cage_samples.py -- \
     --spec /workspace/training/synthetic/cage/massd_resurgence6.toml \
     --config /workspace/training/synthetic/config.toml \
-    --poses /workspace/runs/massd_scene/poses --pose-glob "r1_*.toml" \
-    --camera-rect /workspace/runs/massd_scene/camera_rect.json \
+    --poses /workspace/training/data/environments/massd_arena/camera \
+    --pose-glob "massd_*.toml" \
+    --camera-rect /workspace/training/data/environments/massd_arena/camera/camera_rect.json \
     --out /workspace/runs/massd_scene/samples --num-images 100 --samples 128 --seed 0
 ```
 
@@ -92,6 +98,9 @@ Checks worth trusting more than the (zero) residual:
 - The fitted floor comes out square to 1.2% when the aspect is not constrained.
 - The bright band above the far floor edge, which is the kick rail's inner face, reads the
   same height within 5 px at four points spread along that edge.
+
+Steps 1 and 2 write to `runs/massd_scene`, which is scratch. What the Blender scene actually
+loads lives in `training/data/environments/massd_arena/`; step 3 and 3b put it there.
 
 ## Scene spec
 

@@ -9,6 +9,7 @@ them.
 """
 
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -187,29 +188,49 @@ class SceneConfig:
 
 @dataclass(frozen=True)
 class CageConfig:
-    """``[cage]`` section: the NHRL cage half of the scene mix."""
+    """One ``[[cages]]`` entry: a real arena the scene mix renders some of its images in."""
 
+    name: str = "nhrl_cage"
     enabled: bool = False
     probability: float = 0.5
     spec: Path = Path("cage/cage2_overhead_high.toml")
     camera_calibration: Path = Path("config/cameras/brettzone_cage_high.toml")
-    # None keeps the run's --render-samples; the cage is darker and has glass, so it usually
+    # None keeps the run's --render-samples; a cage is darker and has glass, so it usually
     # wants more.
     render_samples: int | None = None
     tube_jitter: float = 0.25
     mat_margin_m: float = 0.20
     mount: CageMountRanges = CageMountRanges()
 
-    def wants_scene(self, images_written: int, cage_images: int) -> bool:
-        """Whether the next scene should be a cage scene.
+    @property
+    def active(self) -> bool:
+        return self.enabled and self.probability > 0.0
 
-        The split is tracked rather than coin-flipped: a scene goes to the cage whenever the
-        cage is behind its share of the images written so far, so even a 100-image run lands
-        on ``probability`` instead of somewhere in its binomial spread.
-        """
-        if not self.enabled or self.probability <= 0.0:
+    def is_behind(self, images_written: int, own_images: int) -> bool:
+        """Whether this cage owes the run images at its configured share."""
+        if not self.active:
             return False
-        return cage_images <= self.probability * images_written
+        return own_images <= self.probability * images_written
+
+
+def choose_cage(
+    cages: Sequence[CageConfig], images_written: int, images_per_cage: Sequence[int]
+) -> int | None:
+    """Index of the cage the next scene belongs to, or None for the HDRI arena.
+
+    The split is tracked rather than coin-flipped: a scene goes to whichever cage is furthest
+    behind its share of the images written so far, so even a 100-image run lands on the
+    configured ratios instead of somewhere in their binomial spread. When no cage is behind,
+    the scene goes to the arena, which is what is left over.
+    """
+    behind = [
+        # Ties go to the larger share, which matters on the first scene of a run where every
+        # cage is equally (and entirely) behind.
+        (cage.probability * images_written - own, cage.probability, index)
+        for index, (cage, own) in enumerate(zip(cages, images_per_cage))
+        if cage.is_behind(images_written, own)
+    ]
+    return max(behind)[2] if behind else None
 
 
 @dataclass(frozen=True)
@@ -238,7 +259,7 @@ class RenderConfig:
     camera: CameraConfig = CameraConfig()
     scene: SceneConfig = SceneConfig()
     randomization: RandomizationConfig = RandomizationConfig()
-    cage: CageConfig = CageConfig()
+    cages: tuple[CageConfig, ...] = ()
     resolver: PathResolver = PathResolver(Path("."), Path("."), _PROJECT_ROOT)
 
 
@@ -468,8 +489,8 @@ def _parse_scene(section: dict[str, Any]) -> SceneConfig:
     )
 
 
-def _parse_mount(section: dict[str, Any]) -> CageMountRanges:
-    context = "[cage.mount]"
+def _parse_mount(section: dict[str, Any], parent_context: str = "[[cages]]") -> CageMountRanges:
+    context = f"{parent_context}.mount"
     defaults = CageMountRanges()
     walls = tuple(str(w) for w in section.get("walls", defaults.walls))
     if not walls:
@@ -488,9 +509,27 @@ def _parse_mount(section: dict[str, Any]) -> CageMountRanges:
     )
 
 
+def _parse_cages(entries: Any) -> tuple[CageConfig, ...]:
+    """``[[cages]]``: one entry per real arena the run can render in."""
+    if not isinstance(entries, list):
+        raise ConfigError(f"[[cages]]: expected an array of tables, got {type(entries).__name__}")
+    cages = tuple(_parse_cage(entry) for entry in entries)
+    names = [cage.name for cage in cages]
+    if len(set(names)) != len(names):
+        raise ConfigError(f"[[cages]]: names must be unique, got {names}")
+    total = sum(cage.probability for cage in cages if cage.active)
+    if total > 1.0 + 1e-9:
+        raise ConfigError(
+            f"[[cages]]: enabled probabilities sum to {total:.2f}; they share the run with the "
+            "HDRI arena, so they cannot exceed 1.0"
+        )
+    return cages
+
+
 def _parse_cage(section: dict[str, Any]) -> CageConfig:
-    context = "[cage]"
     defaults = CageConfig()
+    name = str(section.get("name", defaults.name))
+    context = f"[[cages]] {name}"
     probability = _as_float(
         section.get("probability", defaults.probability), f"{context}.probability"
     )
@@ -498,6 +537,7 @@ def _parse_cage(section: dict[str, Any]) -> CageConfig:
         raise ConfigError(f"{context}.probability: expected 0.0 to 1.0, got {probability}")
     render_samples = section.get("render_samples")
     return CageConfig(
+        name=name,
         enabled=bool(section.get("enabled", defaults.enabled)),
         probability=probability,
         spec=Path(str(section.get("spec", defaults.spec))),
@@ -513,7 +553,7 @@ def _parse_cage(section: dict[str, Any]) -> CageConfig:
         mat_margin_m=_as_float(
             section.get("mat_margin_m", defaults.mat_margin_m), f"{context}.mat_margin_m"
         ),
-        mount=_parse_mount(section.get("mount", {})),
+        mount=_parse_mount(section.get("mount", {}), context),
     )
 
 
@@ -600,6 +640,6 @@ def load_render_config(
         camera=_parse_camera(raw.get("camera", {})),
         scene=_parse_scene(raw.get("scene", {})),
         randomization=_parse_randomization(raw.get("randomization", {})),
-        cage=_parse_cage(raw.get("cage", {})),
+        cages=_parse_cages(raw.get("cages", [])),
         resolver=resolver,
     )

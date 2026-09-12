@@ -1,3 +1,80 @@
+# Real arenas the run renders some of its images in, alongside the HDRI arena scenes. Each
+# entry is an independent scene: its own geometry spec, camera, lighting and mount ranges.
+# The probabilities are fractions of the whole run and share it with the HDRI arena, so they
+# must sum to at most 1.0; what is left over is arena scenes. The split is tracked, not
+# coin-flipped, so even a 100-image run lands on these ratios.
+
+[[cages]]
+name = "nhrl_cage"
+enabled = true
+probability = 0.5
+# Cage geometry, materials, lights and the exposure solved against footage.
+spec = "cage/cage2_overhead_high.toml"
+# Measured intrinsics for the cage camera, rectified (alpha 1.0) the way the C++ Rectifier
+# does it and scaled to [output].image_width/height. 95 degrees horizontal, much wider than
+# the arena half's default Blender lens.
+camera_calibration = "../../config/cameras/brettzone_cage_high.toml"
+# Cage scenes are darker and shoot through polycarbonate, so they need more samples than the
+# arena half's --render-samples. Leave unset to use the run's value for both.
+render_samples = 128
+# Per-scene jitter on the LED tube emission strength (+- this fraction), so the set is not a
+# single lighting state.
+tube_jitter = 0.25
+# Metres of mat kept clear of its edge when placing robots.
+mat_margin_m = 0.20
+
+# Where a camera can be clamped on the cage, and where it then looks. The defaults bracket the
+# eleven poses fit_cage_camera.py solved for NHRL's own phone (1.16 m up, 0.11 m inside the
+# wall plane, 32 to 38 degrees off straight down, within 1.7 degrees of square to the wall);
+# the wall is drawn at random because which wall ours goes on depends on the match. Restrict
+# `walls` to ["near"] to reproduce the graded framing only.
+[cages.mount]
+walls = ["near", "far", "left", "right"]
+# Along the wall from its centre, metres.
+along_m = [-0.45, 0.45]
+# Above the mat surface, metres. The polycarbonate wall tops out at 1.22 m.
+height_m = [1.00, 1.45]
+# Inside the wall plane, metres. Kept clear of the 12 mm polycarbonate: the segmentation pass
+# stops at the glass, so a mount shooting through it loses its labels. The fitted phone sits
+# 0.11 m inside.
+inset_m = [0.02, 0.25]
+# Optical axis off straight down, degrees.
+tilt_deg = [26.0, 42.0]
+# Heading off square-to-the-wall, degrees.
+yaw_deg = [-9.0, 9.0]
+# Camera roll about the optical axis, degrees.
+roll_deg = [-3.0, 3.0]
+
+# The MassDestruction arena (Charles River Museum), fitted from one broadcast clip in
+# docs/experiments/perception_performance/massd_arena_scene_2026-09-11.md. A 2.26 m plywood
+# floor with a 0.43 m pit in it, wooden kick rails and a much brighter room than NHRL's cage.
+[[cages]]
+name = "massd_arena"
+enabled = true
+probability = 0.25
+spec = "cage/massd_resurgence6.toml"
+# The same wide lens as the NHRL half, on purpose: this stands in for our own camera clamped
+# to the arena, not for the 62-degree broadcast camera the scene was fitted from. That one is
+# in training/data/environments/massd_arena/camera/ and is what render_cage_view.py grades.
+camera_calibration = "../../config/cameras/brettzone_cage_high.toml"
+render_samples = 128
+tube_jitter = 0.25
+mat_margin_m = 0.20
+
+# The MassD wall is only 0.66 m tall and its kick rail stands 0.095 m proud of the floor, so
+# a mount sits lower and clears less than in the NHRL cage. The polycarbonate is on the far
+# and right walls only (see panel.walls in the spec), so a camera on the near or left wall
+# would have nothing to shoot through; it is clamped to the two glazed walls to keep the
+# geometry honest.
+[cages.mount]
+walls = ["far", "right"]
+along_m = [-0.45, 0.45]
+height_m = [0.50, 0.64]
+inset_m = [0.02, 0.20]
+tilt_deg = [26.0, 46.0]
+yaw_deg = [-9.0, 9.0]
+roll_deg = [-3.0, 3.0]
+
 [output]
 image_dir = "../data/synthetic/images"
 label_dir = "../data/synthetic/labels"

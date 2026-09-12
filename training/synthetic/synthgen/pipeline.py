@@ -53,7 +53,7 @@ from synthgen.camera import (
     robot_centroid,
     setup_scene_cameras,
 )
-from synthgen.configuration import ConfigError, RenderConfig, load_render_config
+from synthgen.configuration import ConfigError, RenderConfig, choose_cage, load_render_config
 from synthgen.constants import (
     BACKGROUND_CATEGORY_ID,
     HOUSE_BOT_CLASS_NAME,
@@ -140,7 +140,7 @@ class SceneAssets:
     lights: list[bproc.types.Light]
     hdri_paths: list[Any]
     cc_textures: list[bproc.types.Material]
-    cage: CageStage | None = None
+    cages: tuple[CageStage, ...] = ()
 
 
 @dataclass
@@ -194,7 +194,7 @@ def build_annotation_scheme(cfg: RenderConfig) -> AnnotationScheme:
             nhrl_class_id = next_class_id
             next_class_id += 1
         # Only cage scenes contain a house bot, so the class exists only when they do.
-        if cfg.cage.enabled and cfg.cage.probability > 0:
+        if any(cage.active for cage in cfg.cages):
             house_bot_class_id = next_class_id
 
     return AnnotationScheme(
@@ -528,8 +528,8 @@ def _arrange_environment(cfg: RenderConfig, assets: SceneAssets, cage: CageStage
         set_ground_visible(assets.ground, False)
         return cage.arena_radius
 
-    if assets.cage is not None:
-        assets.cage.deactivate()
+    for stage in assets.cages:
+        stage.deactivate()
     ground_size = random.uniform(*cfg.scene.ground_size_range)
     assets.ground.blender_obj.scale = (ground_size, ground_size, 1)
     bpy.context.view_layer.update()
@@ -577,13 +577,12 @@ def render_scene(
     stats: RunStats,
     scene_idx: int,
     global_idx: int,
-    in_cage: bool = False,
+    cage: CageStage | None = None,
 ) -> RenderResult:
     """Arrange, render, and write one scene."""
     bproc.utility.reset_keyframes()
 
     # -- Per-scene randomized dimensions --
-    cage = assets.cage if in_cage else None
     arena_radius = _arrange_environment(cfg, assets, cage)
 
     scene_robots = select_and_show_robots(assets.robots, cfg.scene.max_robots_per_scene)
@@ -671,7 +670,7 @@ def render_scene(
         logger.info(
             "Scene %d in the %s (%s) — %d/%d images generated",
             completed,
-            "cage" if in_cage else "arena",
+            cage.name if cage is not None else "arena",
             names,
             global_idx + written - budget.start_index,
             budget.num_images,
@@ -697,17 +696,35 @@ def _periodic_memory_cleanup(completed_scenes: int, memory_cleanup_interval: int
                 bpy.data.images.remove(img)
 
 
-def _build_cage(cfg: RenderConfig, scheme: AnnotationScheme) -> CageStage | None:
-    """Build the cage when the config asks for cage scenes, otherwise nothing."""
-    if not (cfg.cage.enabled and cfg.cage.probability > 0):
-        return None
-    return build_cage_stage(
-        cfg.cage,
-        cfg.output,
-        cfg.environment,
-        cfg.resolver.resolve,
-        cfg.resolver.project_root,
-        scheme.is_segmentation,
+def _log_scene_mix(cages: tuple[CageStage, ...], cage_images: list[int], written: int) -> None:
+    """What each cage and the arena actually got, against what the config asked for."""
+    if not cages:
+        return
+    for stage, count in zip(cages, cage_images):
+        logger.info(
+            "Scene mix: %d %s images (%.0f%%, target %.0f%%)",
+            count,
+            stage.name,
+            100.0 * count / max(written, 1),
+            100.0 * stage.config.probability,
+        )
+    arena = written - sum(cage_images)
+    logger.info("Scene mix: %d arena images (%.0f%%)", arena, 100.0 * arena / max(written, 1))
+
+
+def _build_cages(cfg: RenderConfig, scheme: AnnotationScheme) -> tuple[CageStage, ...]:
+    """Every cage the config asks for, built hidden. Empty when the run is arena-only."""
+    return tuple(
+        build_cage_stage(
+            cage_cfg,
+            cfg.output,
+            cfg.environment,
+            cfg.resolver.resolve,
+            cfg.resolver.project_root,
+            scheme.is_segmentation,
+        )
+        for cage_cfg in cfg.cages
+        if cage_cfg.active
     )
 
 
@@ -773,9 +790,9 @@ def run(args: argparse.Namespace) -> None:
     hdri_paths, cc_textures = load_environment_assets(cfg.environment, cfg.resolver.resolve)
     ground = create_ground_plane(scheme.is_segmentation)
 
-    # ------- The NHRL cage, for the cage half of the scene mix -------
+    # ------- The real arenas, for the cage share of the scene mix -------
 
-    cage = _build_cage(cfg, scheme)
+    cages = _build_cages(cfg, scheme)
 
     # Enable segmentation AFTER all mesh objects are in the scene, because
     # enable_segmentation_output assigns pass_index to every mesh at call time.
@@ -790,7 +807,7 @@ def run(args: argparse.Namespace) -> None:
         lights=lights,
         hdri_paths=hdri_paths,
         cc_textures=cc_textures,
-        cage=cage,
+        cages=cages,
     )
     pool_mgr = DistractorPoolManager(
         cfg.distractors,
@@ -807,20 +824,29 @@ def run(args: argparse.Namespace) -> None:
     stats = RunStats()
     global_idx = start_index
     scene_idx = 0
-    cage_images = 0
+    cage_images = [0] * len(assets.cages)
     consecutive_failures = 0
     logger.info("Rendering %d images...", num_images)
 
     try:
         while global_idx < budget.target_index and scene_idx < budget.max_scenes:
-            in_cage = cage is not None and cfg.cage.wants_scene(
-                global_idx - start_index, cage_images
+            chosen = choose_cage(
+                [stage.config for stage in assets.cages], global_idx - start_index, cage_images
             )
             result = render_scene(
-                cfg, assets, scheme, layout, pool_mgr, budget, stats, scene_idx, global_idx, in_cage
+                cfg,
+                assets,
+                scheme,
+                layout,
+                pool_mgr,
+                budget,
+                stats,
+                scene_idx,
+                global_idx,
+                None if chosen is None else assets.cages[chosen],
             )
-            if in_cage:
-                cage_images += result.frames_written
+            if chosen is not None:
+                cage_images[chosen] += result.frames_written
             global_idx += result.frames_written
             pool_mgr.note_images_written(result.frames_written)
             scene_idx += 1
@@ -850,13 +876,6 @@ def run(args: argparse.Namespace) -> None:
             )
         for line in stats.summary_lines(num_images, written, scene_idx):
             logger.info("%s", line)
-        if cage is not None:
-            logger.info(
-                "Scene mix: %d cage images, %d arena images (%.0f%% cage, target %.0f%%)",
-                cage_images,
-                written - cage_images,
-                100.0 * cage_images / max(written, 1),
-                100.0 * cfg.cage.probability,
-            )
+        _log_scene_mix(assets.cages, cage_images, written)
 
     logger.info("Done. Generated %d images in %s", written, layout.image_dir)

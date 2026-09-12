@@ -8,6 +8,8 @@ from synthgen.configuration import (
     CageConfig,
     ConfigError,
     PathResolver,
+    _parse_cages,
+    choose_cage,
     load_render_config,
 )
 
@@ -87,36 +89,53 @@ class TestRealConfig:
         assert cfg.randomization.air_probability == pytest.approx(0.3)
         assert cfg.randomization.motion_blur_strength_range == (5, 15)
 
-        assert cfg.cage.enabled is True
-        assert cfg.cage.probability == pytest.approx(0.5)
-        assert cfg.cage.render_samples == 128
-        assert cfg.cage.mount.walls == ("near", "far", "left", "right")
-        assert cfg.cage.mount.height_m == (1.00, 1.45)
-        # The spec and the camera calibration both resolve against the config directory.
-        assert cfg.resolver.resolve(cfg.cage.spec).exists()
-        assert cfg.resolver.resolve(cfg.cage.camera_calibration).exists()
+        assert [cage.name for cage in cfg.cages] == ["nhrl_cage", "massd_arena"]
+        nhrl, massd = cfg.cages
+        assert nhrl.enabled is True
+        assert nhrl.probability == pytest.approx(0.5)
+        assert nhrl.render_samples == 128
+        assert nhrl.mount.walls == ("near", "far", "left", "right")
+        assert nhrl.mount.height_m == (1.00, 1.45)
+        assert massd.probability == pytest.approx(0.25)
+        # The MassD wall is half the height of NHRL's, so a mount clamped to it sits lower.
+        assert massd.mount.walls == ("far", "right")
+        assert massd.mount.height_m == (0.50, 0.64)
+        # Every spec and camera calibration resolves against the config directory.
+        for cage in cfg.cages:
+            assert cfg.resolver.resolve(cage.spec).exists()
+            assert cfg.resolver.resolve(cage.camera_calibration).exists()
 
-    def test_cage_split_tracks_the_ratio(self) -> None:
-        cage = CageConfig(enabled=True, probability=0.5)
-        written = cage_images = 0
-        for _ in range(200):
-            if cage.wants_scene(written, cage_images):
-                cage_images += 1
-            written += 1
-        assert cage_images == 100
-
-        quarter = CageConfig(enabled=True, probability=0.25)
-        written = cage_images = 0
-        for _ in range(200):
-            if quarter.wants_scene(written, cage_images):
-                cage_images += 1
-            written += 1
-        assert cage_images == 50
+    def test_cage_split_tracks_every_ratio_at_once(self) -> None:
+        cages = [
+            CageConfig(name="half", enabled=True, probability=0.5),
+            CageConfig(name="quarter", enabled=True, probability=0.25),
+        ]
+        counts = [0, 0]
+        for written in range(200):
+            chosen = choose_cage(cages, written, counts)
+            if chosen is not None:
+                counts[chosen] += 1
+        # The leftover is the HDRI arena's share, and no cage steals from the other.
+        assert counts == [100, 50]
 
     def test_cage_split_is_off_when_disabled_or_zero(self) -> None:
-        assert CageConfig(enabled=False, probability=1.0).wants_scene(0, 0) is False
-        assert CageConfig(enabled=True, probability=0.0).wants_scene(0, 0) is False
-        assert CageConfig(enabled=True, probability=1.0).wants_scene(10, 10) is True
+        assert choose_cage([CageConfig(enabled=False, probability=1.0)], 0, [0]) is None
+        assert choose_cage([CageConfig(enabled=True, probability=0.0)], 0, [0]) is None
+        assert choose_cage([CageConfig(enabled=True, probability=1.0)], 10, [10]) == 0
+
+    def test_cage_probabilities_may_not_exceed_the_whole_run(self) -> None:
+        raw = {
+            "cages": [
+                {"name": "a", "enabled": True, "probability": 0.8},
+                {"name": "b", "enabled": True, "probability": 0.5},
+            ]
+        }
+        with pytest.raises(ConfigError, match="sum to 1.30"):
+            _parse_cages(raw["cages"])
+
+    def test_cage_names_must_be_unique(self) -> None:
+        with pytest.raises(ConfigError, match="unique"):
+            _parse_cages([{"name": "a"}, {"name": "a"}])
 
     def test_resolver_points_at_config_dir(self) -> None:
         cfg = load_render_config(REAL_CONFIG)

@@ -8,8 +8,9 @@ training/synthetic, so the paths below are relative to it):
         [--images-per-scene N] [--out DIR] [--render-samples N] [--start-index N]
         [--seed N] [-v | -q]
 
-Half the scenes are rendered inside the NHRL cage when ``[cage].enabled`` is set; see
-that section of config.toml.
+Some of the scenes are rendered inside a real arena instead of the HDRI arena: one
+``[[cages]]`` entry per arena, each with its own share of the run. See that section of
+config.toml.
 
 All the actual work lives in the ``synthgen`` package next to this script; this
 entry point only parses arguments and hands off to ``synthgen.pipeline.run``.
