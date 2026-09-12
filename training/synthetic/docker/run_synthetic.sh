@@ -4,7 +4,7 @@ set -euo pipefail
 if [ $# -lt 1 ]; then
   cat <<'EOF'
 Usage:
-  training/synthetic/docker/run_synthetic.sh [--gpu] [--require-gpu] [--cpu] <image_name> [args...]
+  training/synthetic/docker/run_synthetic.sh [--gpu] [--require-gpu] [--cpu] [--port N] <image_name> [args...]
 
 Examples:
   training/synthetic/docker/run_synthetic.sh auto-battlebot-synthetic
@@ -13,14 +13,21 @@ Examples:
   training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic
   training/synthetic/docker/run_synthetic.sh auto-battlebot-synthetic python training/synthetic/download_objaverse.py --help
   training/synthetic/docker/run_synthetic.sh auto-battlebot-synthetic blenderproc run training/synthetic/render_scenes.py -- training/synthetic/config.toml --num-images 4
+  training/synthetic/docker/run_synthetic.sh --gpu --port 8770 auto-battlebot-synthetic blenderproc run pose_camera_server.py -- --spec cage/cage2_overhead_high.toml
 EOF
   exit 1
 fi
 
 docker_gpu_args=()
+docker_port_args=()
 require_gpu=0
 while [ $# -gt 0 ]; do
   case "${1:-}" in
+    --port)
+      # Published on the loopback interface only: this is a dev tool, not a service.
+      docker_port_args+=(-p "127.0.0.1:${2}:${2}")
+      shift 2
+      ;;
     --gpu)
       docker_gpu_args=(--gpus all)
       shift
@@ -77,6 +84,7 @@ docker_env_args=(-e PYTHONPATH=/workspace/training/synthetic)
 run_cmd=(
   docker run "${docker_gpu_args[@]}" --rm "${docker_tty_args[@]}"
   "${docker_id_args[@]}"
+  "${docker_port_args[@]}"
   "${docker_env_args[@]}"
   -v "${repo_root}:/workspace"
   -v "${hf_cache_host}:/opt/hf"
@@ -108,6 +116,7 @@ if [ $gpu_probe_exit -ne 0 ]; then
   echo "Tip: install/configure NVIDIA Container Toolkit for GPU runs." >&2
   docker run --rm "${docker_tty_args[@]}" \
     "${docker_id_args[@]}" \
+    "${docker_port_args[@]}" \
     "${docker_env_args[@]}" \
     -v "${repo_root}:/workspace" \
     -v "${hf_cache_host}:/opt/hf" \

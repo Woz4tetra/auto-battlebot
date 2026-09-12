@@ -136,32 +136,52 @@ def mount_position(mount: CageMount, wall_half_m: float) -> np.ndarray:
     return np.asarray(horizontal + _UP * mount.height_m)
 
 
+def mount_heading(mount: CageMount) -> np.ndarray:
+    """Unit horizontal direction the mount faces: the wall's inward normal turned by its yaw."""
+    normal, along = wall_axes(mount.wall)
+    yaw = math.radians(mount.yaw_deg)
+    return np.asarray(normal * math.cos(yaw) + along * math.sin(yaw))
+
+
 def mount_forward(mount: CageMount) -> np.ndarray:
     """Unit optical axis in the W frame: tilted off straight down, yawed off the wall normal."""
-    normal, along = wall_axes(mount.wall)
-    yaw = math.radians(mount.yaw_deg)
     tilt = math.radians(mount.tilt_deg)
-    heading = normal * math.cos(yaw) + along * math.sin(yaw)
-    return np.asarray(_unit(heading * math.sin(tilt) + _DOWN * math.cos(tilt)))
+    return np.asarray(_unit(mount_heading(mount) * math.sin(tilt) + _DOWN * math.cos(tilt)))
 
 
-def mount_cam2world(mount: CageMount, wall_half_m: float) -> np.ndarray:
-    """The 4x4 cam2world matrix for *mount* (Blender camera: -z forward, +y up)."""
-    forward = mount_forward(mount)
-    normal, along = wall_axes(mount.wall)
-    yaw = math.radians(mount.yaw_deg)
-    heading = normal * math.cos(yaw) + along * math.sin(yaw)
+def camera_basis_cam2world(
+    position: np.ndarray, forward: np.ndarray, heading: np.ndarray, roll_rad: float
+) -> np.ndarray:
+    """A 4x4 cam2world for a Blender camera (-z forward, +y up) at *position* facing *forward*.
+
+    *heading* is the horizontal direction the image's up axis falls back to when the optical axis
+    is within `_DEGENERATE_COS` of vertical, where world up cannot define the image axes. A cage
+    camera looking near-straight-down hits that case, so the fallback is not academic.
+
+    `synthgen.freefly` calls this too, which is what keeps a flown pose and a `CageMount` pose on
+    one convention.
+    """
     reference = heading if abs(float(np.dot(_UP, forward))) > _DEGENERATE_COS else _UP
     up = _unit(reference - float(np.dot(reference, forward)) * forward)
     right = _unit(np.cross(up, -forward))
-    right, up = _roll(right, up, forward, math.radians(mount.roll_deg))
+    right, up = _roll(right, up, forward, roll_rad)
 
     cam2world = np.eye(4)
     cam2world[:3, 0] = right
     cam2world[:3, 1] = up
     cam2world[:3, 2] = -forward
-    cam2world[:3, 3] = mount_position(mount, wall_half_m)
+    cam2world[:3, 3] = position
     return cam2world
+
+
+def mount_cam2world(mount: CageMount, wall_half_m: float) -> np.ndarray:
+    """The 4x4 cam2world matrix for *mount* (Blender camera: -z forward, +y up)."""
+    return camera_basis_cam2world(
+        mount_position(mount, wall_half_m),
+        mount_forward(mount),
+        mount_heading(mount),
+        math.radians(mount.roll_deg),
+    )
 
 
 def _unit(vector: np.ndarray) -> np.ndarray:

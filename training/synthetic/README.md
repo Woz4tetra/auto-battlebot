@@ -271,6 +271,109 @@ cd ../../yolo
 python train.py path/to/data.yaml yolo11n-pose
 ```
 
+### Choosing where the cage camera goes
+
+`render_scenes.py` draws each cage camera pose from the `[cages.mount]` ranges in `config.toml`.
+To pick those ranges by eye rather than by editing numbers, fly the camera around the built cage:
+
+```bash
+training/synthetic/docker/run_synthetic.sh --gpu --port 8770 \
+  auto-battlebot-synthetic blenderproc run pose_camera_server.py -- \
+  --spec cage/cage2_overhead_high.toml \
+  --camera-calibration ../../config/cameras/ecam25_h01r1_estimated.toml \
+  --out ../data/cage_pose
+```
+
+Wait for `serving on port 8770` (about 10 seconds: the cage build plus one throwaway frame that
+pays the OptiX kernel compile up front), then open <http://127.0.0.1:8770> and click the preview to
+take the mouse.
+
+| Key | Does |
+| --- | --- |
+| `W` `A` `S` `D` | move, level with the mat: the heading comes from yaw alone, so looking down does not fly you into the floor |
+| `Space` / `Shift` | rise / fall |
+| `Ctrl` | hold for fine movement |
+| `Z` `X` | roll about the optical axis |
+| `V` | cycle `pinhole` -> `distorted` -> `rectified` |
+| `R` | rectification alpha, 1.0 or 0.0 |
+| `B` | show the MRS BUFF MK3 mesh at the mat center and all eight compass directions (the first press stalls while it loads) |
+| `N` | snap onto the nearest mount the sampler could actually draw |
+| `M` / `C` | mark the current pose / clear every mark |
+| `F` | render the current pose at full resolution and the spec's sample count |
+| `Enter` | write the outputs |
+| `Esc` | give the mouse back |
+
+View, alpha, robots and full render are also buttons in the Controls panel, for when the mouse is
+not captured. Each button shows the current value.
+
+`R` switches the rectification alpha, the same `getOptimalNewCameraMatrix` alpha the C++
+`Rectifier` passes. At 1.0 every source pixel is kept, so the frame is wider than the lens and
+carries a black border; at 0.0 it is cropped to the largest all-valid rectangle, with no border and
+a narrower field. On the estimated e-CAM25 calibration at 1280x720 that is fx 384, 118 x 86 deg and
+a 36% border against fx 514, 102 x 56 deg and no border, which is a third more apparent robot size.
+The shipped `Rectifier` uses 1.0; the toggle is there to see what 0.0 would buy before changing it.
+
+The three views answer different questions. `pinhole` is what the batch pipeline renders today, at
+the rectified matrix, and it is the one fast enough to fly in (about 15 fps at 640x360). `distorted`
+is what the sensor sees, through the lens distortion in the calibration. `rectified` is that
+distorted frame put back through the same `initUndistortRectifyMap` the C++ `Rectifier` builds on
+the robot, so it shows what perception receives, black border included. Both distorted views render
+about 4 fps because the distortion pass renders an enlarged frame and maps it down; pass
+`--preview-percentage 25` to put every view above 11 fps at half the preview resolution.
+
+The panel on the right reads out the live `CageMount`, flags each field red when it falls outside
+the ranges in `config.toml`, says which pane the one-way glass will hide (a mount flown past a wall
+plane loses that pane, because BlenderProc's segmentation stops at the polycarbonate), and projects
+a robot-sized box at the mat center and at all eight compass directions. Those pixel widths are
+what decides the `imgsz` question, so they are worth watching while choosing a mount rather than
+discovering after a 40,000-frame render.
+
+Fly to a pose worth using, press `M`, repeat for the spread you want, then press `Enter`. Every
+file written shows up in the Marks and outputs panel as a download link, so a full-quality render or
+a saved pose comes straight out of the page. Under `--out` you get:
+
+| File | For |
+| --- | --- |
+| `mount_ranges.toml` | The `[cages.mount]` block covering every mark, to paste under the matching `[[cages]]` entry in `config.toml`. This is what the batch render consumes. |
+| `<name>.toml` | One pose in `CageCalibration` form, for `render_cage_view.py --pose` |
+| `camera_rect.json`, `<name>_camera.toml` | The rectified K and the calibration behind it, so the pose re-renders exactly |
+| `<name>_render_command.txt` | The `render_cage_view.py` command line that reproduces the full artifact set |
+| `<name>_<view>_alpha<a>.png` | Whatever `F` rendered, at full resolution and the spec's sample count |
+
+#### Running a detector over the renders
+
+The render server cannot do this itself: it is Blender's embedded Python, which ships no TensorRT
+or CUDA bindings, and adding them would put gigabytes into an image whose job is rendering. Run the
+engine from the project venv instead, against the full-resolution PNGs the tool writes.
+
+```bash
+source scripts/activate_python.sh
+python - <<'EOF'
+import cv2
+from auto_battlebot.perception.trt_yolo import TrtYoloModel
+
+# num_classes must match the engine. Getting it wrong misparses the output tensor into zero
+# keypoints and near-zero recall, which looks exactly like a broken engine.
+model = TrtYoloModel(
+    "data/models/yolo26s_nhrl_robots_bbox_2class_rect384x640_2026-09-05_x86_64_sm89.engine",
+    conf_threshold=0.25,
+    num_classes=2,
+)
+frame = cv2.imread("training/data/cage_pose/bots_rectified_alpha1.png")
+for box, conf, class_id, keypoints in model.infer(frame):
+    x1, y1, x2, y2 = box
+    print(f"class {class_id} conf {conf:.2f} {x2 - x1:.0f}x{y2 - y1:.0f} px")
+EOF
+```
+
+`TrtYoloModel` is the same decode path `training/model_eval/score.py` and the C++ pipeline use, so
+the boxes are directly comparable to deployed numbers. Render in the `rectified` view for this: it
+is the frame the perception stack actually receives, black border included.
+
+To score renders against ground truth rather than eyeball them, they need labels; see
+`training/model_eval/README.md`. For a sequence rather than a still,
+`training/yolo/test_tensorrt_video.py` draws boxes onto a video.
+
 ## File Overview
 
 | File | Runs via | Purpose |
@@ -287,6 +390,8 @@ python train.py path/to/data.yaml yolo11n-pose
 | `cage/*.toml` | -- | NHRL cage scene specs (geometry, materials, lights, exposure) |
 | `render_cage_view.py` | `blenderproc run` | Render the empty cage from fitted poses, for grading against footage |
 | `render_cage_samples.py` | `blenderproc run` | Cage-only labelled sample set from the fitted poses |
+| `pose_camera_server.py` | `blenderproc run` | Fly the cage camera with WASD in a browser, and save the mount ranges a batch render draws from |
+| `web/pose_camera.html` | -- | The page `pose_camera_server.py` serves; edit it and reload, no rebuild needed |
 | `build_cage_floor_texture.py` | `venv/bin/python` | Build the mat albedo the cage spec loads, from rectified targets |
 
 ## Directory Structure

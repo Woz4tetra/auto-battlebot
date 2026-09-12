@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cage camera positioning</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1d2026; --line: #2c313a;
+    --text: #d8dde5; --dim: #8a93a3; --good: #6ec97a; --bad: #e07a5f; --accent: #62a8ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .wrap { display: flex; gap: 16px; padding: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .stage { position: relative; flex: 1 1 640px; min-width: 320px; background: #000;
+           border: 1px solid var(--line); border-radius: 6px; overflow: hidden; cursor: crosshair; }
+  .stage img, .stage canvas { display: block; width: 100%; height: auto; }
+  .stage canvas { position: absolute; inset: 0; pointer-events: none; }
+  .banner { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+            background: rgba(16,18,22,.82); border: 1px solid var(--line); border-radius: 999px;
+            padding: 5px 14px; white-space: nowrap; color: var(--text); }
+  .banner.hidden { display: none; }
+  aside { flex: 0 0 340px; display: flex; flex-direction: column; gap: 12px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  h2 { margin: 0 0 8px; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 1px 0; vertical-align: top; }
+  td:first-child { color: var(--dim); padding-right: 10px; white-space: nowrap; }
+  td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .out { color: var(--bad); }
+  .in { color: var(--good); }
+  .keys td:last-child { text-align: right; color: var(--dim); }
+  .status { color: var(--accent); min-height: 1.45em; }
+  .note { color: var(--dim); margin: 6px 0 0; }
+  .viewtag { display: inline-block; padding: 1px 6px; border: 1px solid var(--line);
+             border-radius: 3px; color: var(--accent); }
+  .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  button { font: inherit; color: var(--text); background: #262b33; border: 1px solid var(--line);
+           border-radius: 4px; padding: 6px 8px; cursor: pointer; text-align: left; }
+  button:hover { background: #2f3641; }
+  button:active { background: #383f4b; }
+  button .k { color: var(--dim); }
+  button .v { color: var(--accent); }
+  .files { list-style: none; margin: 6px 0 0; padding: 0; max-height: 190px; overflow-y: auto; }
+  .files li { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
+  .files a { color: var(--accent); text-decoration: none; overflow: hidden;
+             text-overflow: ellipsis; white-space: nowrap; }
+  .files a:hover { text-decoration: underline; }
+  .files span { color: var(--dim); font-variant-numeric: tabular-nums; flex: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stage" id="stage">
+    <img id="frame" alt="cage preview">
+    <canvas id="overlay"></canvas>
+    <div class="banner" id="banner">Click to fly &middot; WASD, Space up, Shift down &middot; Esc releases</div>
+  </div>
+  <aside>
+    <section>
+      <h2>View <span class="viewtag" id="view">pinhole</span></h2>
+      <table>
+        <tr><td>preview</td><td id="rate">--</td></tr>
+        <tr><td>rectified FOV</td><td id="fovRect">--</td></tr>
+        <tr><td>calibrated FOV</td><td id="fovCal">--</td></tr>
+        <tr><td>calibration</td><td id="calId">--</td></tr>
+      </table>
+      <p class="note" id="overlayNote"></p>
+    </section>
+
+    <section>
+      <h2>Controls</h2>
+      <div class="buttons">
+        <button id="btnView"><span class="k">V</span> view: <span class="v" id="btnViewValue">pinhole</span></button>
+        <button id="btnRobots"><span class="k">B</span> robots: <span class="v" id="btnRobotsValue">off</span></button>
+        <button id="btnAlpha"><span class="k">R</span> alpha: <span class="v" id="btnAlphaValue">1.0</span></button>
+        <button id="btnFull"><span class="k">F</span> full render</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Mount</h2>
+      <table id="mount">
+        <tr><td>wall</td><td data-k="wall">--</td></tr>
+        <tr><td>along_m</td><td data-k="along_m">--</td></tr>
+        <tr><td>height_m</td><td data-k="height_m">--</td></tr>
+        <tr><td>inset_m</td><td data-k="inset_m">--</td></tr>
+        <tr><td>tilt_deg</td><td data-k="tilt_deg">--</td></tr>
+        <tr><td>yaw_deg</td><td data-k="yaw_deg">--</td></tr>
+        <tr><td>roll_deg</td><td data-k="roll_deg">--</td></tr>
+      </table>
+      <p class="note" id="residual"></p>
+      <p class="note" id="glass"></p>
+    </section>
+
+    <section>
+      <h2>Robot pixel width</h2>
+      <table id="robots"></table>
+      <p class="note">Robot-sized boxes projected through the rectified K. This is the number the
+        imgsz choice turns on.</p>
+    </section>
+
+    <section>
+      <h2>Marks and outputs</h2>
+      <table>
+        <tr><td>marked poses</td><td id="markCount">0</td></tr>
+        <tr><td>output directory</td><td id="outDir">--</td></tr>
+      </table>
+      <p class="status" id="status"></p>
+      <ul class="files" id="files"></ul>
+    </section>
+
+    <section>
+      <h2>Keys</h2>
+      <table class="keys">
+        <tr><td>W A S D</td><td>move, level with the mat</td></tr>
+        <tr><td>Space / Shift</td><td>rise / fall</td></tr>
+        <tr><td>Ctrl</td><td>hold for fine movement</td></tr>
+        <tr><td>Z X</td><td>roll</td></tr>
+        <tr><td>V</td><td>cycle view</td></tr>
+        <tr><td>R</td><td>rectification alpha, 1.0 or 0.0</td></tr>
+        <tr><td>B</td><td>robot meshes</td></tr>
+        <tr><td>N</td><td>snap into ranges</td></tr>
+        <tr><td>M / C</td><td>mark / clear marks</td></tr>
+        <tr><td>F</td><td>full-quality render</td></tr>
+        <tr><td>Enter</td><td>save outputs</td></tr>
+      </table>
+    </section>
+  </aside>
+</div>
+
+<script>
+"use strict";
+
+const stage = document.getElementById("stage");
+const frameImage = document.getElementById("frame");
+const overlay = document.getElementById("overlay");
+const banner = document.getElementById("banner");
+const context = overlay.getContext("2d");
+
+const VIEWS = ["pinhole", "distorted", "rectified"];
+const ALPHAS = [1.0, 0.0];
+const MOVE_SPEED = 1.2;        // meters per second
+const ROLL_SPEED = 40.0;       // degrees per second
+const LOOK_SENSITIVITY = 0.12; // degrees per mouse count
+const POSE_INTERVAL_MS = 33;   // 30 Hz; the server coalesces anything faster
+
+let scene = null;
+let pose = null;
+let view = "pinhole";
+let alpha = 1.0;
+let showRobots = false;
+let readout = null;
+let lastPoseSent = 0;
+let dirty = true;
+const held = new Set();
+
+/* ---------------------------------------------------------------- input */
+
+stage.addEventListener("click", () => stage.requestPointerLock());
+document.addEventListener("pointerlockchange", () => {
+  banner.classList.toggle("hidden", document.pointerLockElement === stage);
+});
+document.addEventListener("mousemove", (event) => {
+  if (document.pointerLockElement !== stage || !pose) return;
+  pose.yaw_deg += event.movementX * LOOK_SENSITIVITY;
+  pose.pitch_deg -= event.movementY * LOOK_SENSITIVITY;
+  pose.pitch_deg = Math.max(-89.9, Math.min(89.9, pose.pitch_deg));
+  dirty = true;
+});
+
+function cycleView() {
+  view = VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length];
+  dirty = true;
+  showControls();
+}
+
+function toggleAlpha() {
+  alpha = ALPHAS[(ALPHAS.indexOf(alpha) + 1) % ALPHAS.length];
+  dirty = true;
+  showControls();
+}
+
+function toggleRobots() {
+  showRobots = !showRobots;
+  setStatus(showRobots ? "loading robot meshes, the first toggle stalls" : "");
+  dirty = true;
+  showControls();
+}
+
+async function fullRender() {
+  setStatus("full-quality render queued");
+  await post("/render_full", {name: "preview"});
+}
+
+const ACTIONS = {
+  KeyV: cycleView,
+  KeyR: toggleAlpha,
+  KeyB: toggleRobots,
+  KeyM: () => post("/mark").then(refreshOutputs),
+  KeyC: () => post("/clear_marks"),
+  KeyF: fullRender,
+  KeyN: () => snap(),
+  Enter: () => save(),
+};
+
+// Every button is also a key, so the two cannot drift. Blur after a click or the button keeps
+// keyboard focus and the next Space or Enter re-triggers it instead of flying the camera.
+for (const [id, action] of [["btnView", cycleView], ["btnAlpha", toggleAlpha],
+                            ["btnRobots", toggleRobots], ["btnFull", fullRender]]) {
+  document.getElementById(id).addEventListener("click", (event) => {
+    event.currentTarget.blur();
+    action();
+  });
+}
+
+document.addEventListener("keydown", (event) => {
+  if (document.pointerLockElement !== stage) return;
+  const action = ACTIONS[event.code];
+  if (action) { event.preventDefault(); action(); return; }
+  if (event.code === "Space") event.preventDefault();
+  held.add(event.code);
+});
+document.addEventListener("keyup", (event) => held.delete(event.code));
+window.addEventListener("blur", () => held.clear());
+
+/* ---------------------------------------------------------------- motion */
+
+function down(...codes) { return codes.some((code) => held.has(code)); }
+
+function axis(positive, negative) {
+  return (down(positive) ? 1 : 0) - (down(negative) ? 1 : 0);
+}
+
+function step(dt) {
+  if (!pose) return;
+  const forward = axis("KeyW", "KeyS");
+  const strafe = axis("KeyD", "KeyA");
+  const rise = (down("Space") ? 1 : 0) - (down("ShiftLeft", "ShiftRight") ? 1 : 0);
+  const roll = axis("KeyX", "KeyZ");
+  if (!forward && !strafe && !rise && !roll) return;
+
+  let speed = MOVE_SPEED * dt;
+  if (down("ControlLeft", "ControlRight")) speed *= 0.25;
+
+  // WASD stays level with the mat: the heading comes from yaw alone, so looking down while
+  // flying forward does not walk the camera into the floor. Height is Space and Shift only.
+  const yaw = pose.yaw_deg * Math.PI / 180;
+  const aim = [Math.sin(yaw), Math.cos(yaw), 0];
+  const right = [Math.cos(yaw), -Math.sin(yaw), 0];
+
+  pose.x_m += (aim[0] * forward + right[0] * strafe) * speed;
+  pose.y_m += (aim[1] * forward + right[1] * strafe) * speed;
+  pose.z_m += rise * speed;
+  pose.roll_deg += roll * ROLL_SPEED * dt;
+  dirty = true;
+}
+
+let previous = performance.now();
+function tick(now) {
+  step(Math.min(0.1, (now - previous) / 1000));
+  previous = now;
+  if (dirty && now - lastPoseSent >= POSE_INTERVAL_MS) {
+    lastPoseSent = now;
+    dirty = false;
+    sendPose();
+  }
+  requestAnimationFrame(tick);
+}
+
+/* ---------------------------------------------------------------- server */
+
+async function sendPose() {
+  try {
+    const response = await fetch("/pose", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(Object.assign({}, pose, {view, alpha, show_robots: showRobots})),
+    });
+    if (response.ok) { readout = await response.json(); render(); }
+  } catch (error) { setStatus(String(error)); }
+}
+
+async function post(path, body) {
+  try {
+    await fetch(path, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body || {}),
+    });
+  } catch (error) { setStatus(String(error)); }
+}
+
+async function snap() {
+  const response = await fetch("/snap", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(pose),
+  });
+  if (!response.ok) return;
+  pose = (await response.json()).pose;
+  dirty = true;
+  setStatus("snapped onto the nearest mount the sampler could draw");
+}
+
+async function save() {
+  const name = prompt("Name for the saved pose", "cage_pose");
+  if (!name) return;
+  setStatus("saving...");
+  await post("/save", {name});
+}
+
+/* One GET /frame outstanding at a time. Re-issuing on response is the backpressure: it
+   degrades to a low frame rate instead of stalling input. */
+async function frameLoop() {
+  let since = 0;
+  for (;;) {
+    try {
+      const response = await fetch(`/frame?since=${since}`);
+      if (response.status === 200) {
+        since = Number(response.headers.get("X-Pose-Seq") || since);
+        const renderMs = Number(response.headers.get("X-Render-Ms") || 0);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const previous = frameImage.src;
+        frameImage.src = url;
+        if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+        document.getElementById("rate").textContent =
+          `${renderMs.toFixed(0)} ms  (${(1000 / Math.max(renderMs, 1)).toFixed(1)} fps)`;
+        document.getElementById("view").textContent = response.headers.get("X-View") || view;
+      } else if (response.status !== 204) {
+        setStatus(`frame request returned ${response.status}`);
+        await sleep(500);
+      }
+    } catch (error) {
+      setStatus(String(error));
+      await sleep(500);
+    }
+  }
+}
+
+async function stateLoop() {
+  let previousStatus = "";
+  for (;;) {
+    try {
+      const state = await (await fetch("/state")).json();
+      if (!scene) { scene = state.scene; showScene(); }
+      document.getElementById("markCount").textContent = String(state.marks.length);
+      if (state.status) setStatus(state.status);
+      // A changed status means the render loop finished writing something.
+      if (state.status !== previousStatus) { previousStatus = state.status; refreshOutputs(); }
+    } catch (error) { /* the render loop may be busy; try again shortly */ }
+    await sleep(600);
+  }
+}
+
+async function refreshOutputs() {
+  try {
+    const files = (await (await fetch("/outputs")).json()).files;
+    document.getElementById("files").innerHTML = files.map((file) =>
+      `<li><a href="/download?name=${encodeURIComponent(file.name)}" download ` +
+      `title="${file.name}">${file.name}</a><span>${file.size_kb.toFixed(0)} kB</span></li>`
+    ).join("") || '<li><span>Nothing written yet.</span></li>';
+  } catch (error) { /* the server will be asked again on the next status change */ }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/* ---------------------------------------------------------------- display */
+
+function showScene() {
+  const fmt = (pair) => `${pair[0].toFixed(1)} x ${pair[1].toFixed(1)} deg`;
+  document.getElementById("fovCal").textContent =
+    `${fmt(scene.calibrated_fov_deg)}  fx ${scene.k_calibrated[0][0].toFixed(0)}`;
+  document.getElementById("calId").textContent = scene.calibration_id;
+  document.getElementById("outDir").textContent = scene.out_dir.split("/").slice(-2).join("/");
+  showControls();
+}
+
+function currentKRect() { return alpha === 1.0 ? scene.k_rect_full : scene.k_rect_cropped; }
+
+function showControls() {
+  document.getElementById("btnViewValue").textContent = view;
+  document.getElementById("btnAlphaValue").textContent = alpha.toFixed(1);
+  document.getElementById("btnRobotsValue").textContent = showRobots ? "on" : "off";
+  if (!scene) return;
+  const fov = alpha === 1.0 ? scene.rectified_fov_full_deg : scene.rectified_fov_cropped_deg;
+  document.getElementById("fovRect").textContent =
+    `${fov[0].toFixed(1)} x ${fov[1].toFixed(1)} deg  fx ${currentKRect()[0][0].toFixed(0)}` +
+    (alpha === 1.0 ? "  (black border)" : "  (cropped)");
+}
+
+function setStatus(text) { document.getElementById("status").textContent = text; }
+
+function render() {
+  if (!readout) return;
+  const table = document.getElementById("mount");
+  for (const cell of table.querySelectorAll("[data-k]")) {
+    const key = cell.dataset.k;
+    const value = readout.mount[key];
+    cell.textContent = typeof value === "number" ? value.toFixed(3) : value;
+    cell.className = readout.in_ranges[key] ? "in" : "out";
+  }
+  document.getElementById("residual").textContent = readout.residual_m < 1e-6 && readout.residual_deg < 1e-6
+    ? "Inside the configured ranges."
+    : `${readout.residual_m.toFixed(3)} m and ${readout.residual_deg.toFixed(2)} deg outside the ranges. N snaps onto them.`;
+
+  const hidden = readout.glass_hidden || [];
+  document.getElementById("glass").textContent = hidden.length
+    ? `One-way glass hides the ${hidden.join(" and ")} pane: the camera is outside that wall.`
+    : "No pane hidden; the camera is inside every wall plane.";
+
+  const rows = readout.overlay.robots.map((robot) =>
+    `<tr><td>${robot.name.replace("_", " ")}</td><td>${robot.visible ? robot.width_px.toFixed(0) + " px" : "off frame"}</td></tr>`);
+  document.getElementById("robots").innerHTML = rows.join("");
+  drawOverlay();
+}
+
+function drawOverlay() {
+  const width = frameImage.clientWidth || scene?.preview_width || 0;
+  const height = frameImage.clientHeight || scene?.preview_height || 0;
+  if (!width || !height || !scene || !readout) return;
+  overlay.width = width;
+  overlay.height = height;
+  context.clearRect(0, 0, width, height);
+
+  // The overlay is projected through the rectified K, which frames the pinhole and rectified
+  // views. The distorted view is the raw sensor framing, so drawing on it would lie.
+  const note = document.getElementById("overlayNote");
+  if (view === "distorted") {
+    note.textContent = "Overlay hidden: the distorted view is the raw sensor framing.";
+    return;
+  }
+  note.textContent = "";
+  const scale = width / scene.render_width;  // overlay pixels are full-render, the image is not
+  const at = (point) => [point[0] * scale, point[1] * scale];
+
+  // The outline is already clipped to the camera's near plane on the server, so it is whatever
+  // part of the mat is actually in front of the lens: three to six points, or none at all.
+  const mat = readout.overlay.mat;
+  if (mat.outline.length >= 2) {
+    context.lineWidth = 2;
+    context.strokeStyle = "#62a8ff";
+    context.beginPath();
+    mat.outline.forEach((point, index) => {
+      const [x, y] = at(point);
+      index === 0 ? context.moveTo(x, y) : context.lineTo(x, y);
+    });
+    context.closePath();
+    context.stroke();
+  }
+  // Corner dots only where a corner has a pixel at all. A corner behind the lens has none, and
+  // drawing a guessed one is exactly the bug this avoids.
+  for (const corner of mat.corners) {
+    if (!corner.pixel) continue;
+    const [x, y] = at(corner.pixel);
+    context.fillStyle = corner.in_frame ? "#6ec97a" : "#e07a5f";
+    context.beginPath();
+    context.arc(x, y, 4, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.strokeStyle = "#ffd166";
+  context.fillStyle = "#ffd166";
+  context.lineWidth = 1.5;
+  context.font = "12px ui-monospace, monospace";
+  for (const robot of readout.overlay.robots) {
+    if (!robot.visible) continue;
+    const xs = robot.pixels.map((p) => p[0] * scale);
+    const ys = robot.pixels.map((p) => p[1] * scale);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    const y0 = Math.min(...ys), y1 = Math.max(...ys);
+    context.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    context.fillText(`${robot.width_px.toFixed(0)} px`, x0, Math.max(12, y0 - 4));
+  }
+}
+
+window.addEventListener("resize", drawOverlay);
+frameImage.addEventListener("load", drawOverlay);
+
+/* ---------------------------------------------------------------- start */
+
+(async function start() {
+  const state = await (await fetch("/state")).json();
+  scene = state.scene;
+  pose = state.pose;
+  view = state.view || "pinhole";
+  alpha = state.alpha ?? 1.0;
+  showScene();
+  frameLoop();
+  stateLoop();
+  refreshOutputs();
+  requestAnimationFrame(tick);
+  sendPose();
+})();
+</script>
+</body>
+</html>
