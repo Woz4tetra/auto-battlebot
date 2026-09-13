@@ -2,8 +2,10 @@
 
 Order-of-operations invariants (do not reorder casually):
 
-1. ``bproc.init()`` -> resolution -> samples -> ``enable_depth_output`` before
-   anything renders.
+1. ``bproc.init()`` -> devices and denoiser -> resolution -> samples ->
+   ``enable_depth_output`` before anything renders. Cycles keeps its persistent data
+   across the frames of one pass (BlenderProc's init turns it on), so the scene syncs once
+   per pass rather than once per frame.
 2. ``enable_segmentation_output`` only after all mesh objects exist, because it
    assigns pass indices at call time; it is re-armed after every distractor
    pool refresh for the same reason.
@@ -11,7 +13,8 @@ Order-of-operations invariants (do not reorder casually):
    robots -> pool refresh check -> place distractors -> lights -> material
    jitter -> cameras -> render.
 4. The clean (distractor-free) second render runs after the main render, only
-   when obstructions are not ignored and distractors are active.
+   when obstructions are not ignored and distractors are active, and at one sample:
+   only its segmap is read.
 5. ``frame_set(local_idx)`` before per-frame keypoint projection: Blender's
    ``world_to_camera_view`` reads the camera pose animated at that frame.
 """
@@ -55,8 +58,16 @@ from synthgen.camera import (
     robot_centroid,
     setup_scene_cameras,
 )
-from synthgen.configuration import ConfigError, RenderConfig, choose_cage, load_render_config
+from synthgen.configuration import (
+    ConfigError,
+    RenderConfig,
+    apply_damage_mode,
+    apply_venue,
+    choose_cage,
+    load_render_config,
+)
 from synthgen.constants import (
+    ARENA_DENOISER,
     BACKGROUND_CATEGORY_ID,
     HOUSE_BOT_CLASS_NAME,
     MAX_CONSECUTIVE_FAILED_SCENES,
@@ -72,6 +83,7 @@ from synthgen.distractors import (
     DistractorPoolManager,
     hide_distractor,
     place_scene_distractors,
+    show_distractor,
 )
 from synthgen.environment import (
     create_ground_plane,
@@ -91,6 +103,7 @@ from synthgen.keypoints import (
 )
 from synthgen.logsetup import fmt_ctx, get_logger
 from synthgen.materials import jitter_materials, load_cc_materials
+from synthgen.render_settings import occlusion_pass, set_denoiser, use_gpu_only
 from synthgen.reporting import DropReason, FrameVerdict, RunAnomaly, RunStats
 from synthgen.robots import (
     RobotInstance,
@@ -300,21 +313,32 @@ def _save_debug_frame(data: dict, layout: OutputLayout) -> None:
 def _render_clean_inst_seg_maps(
     inst_seg_maps: Any, active_distractors: list[DistractorInstance]
 ) -> Any:
-    """Render an occlusion-free instance segmentation pass with distractors hidden."""
+    """Render an occlusion-free instance segmentation pass with distractors hidden.
+
+    Only the segmap is read from this pass, so it renders under ``occlusion_pass``: one
+    sample and camera rays only. Distractors that ``clear_blocking_distractors`` already
+    hid stay hidden afterwards, which is why visibility is saved alongside the transform.
+    """
     if inst_seg_maps is None:
         return None
     if not active_distractors:
         return inst_seg_maps
 
-    saved_distractor_world = [d.parent.matrix_world.copy() for d in active_distractors]
+    saved = [
+        (d.parent.matrix_world.copy(), d.meshes[0].blender_obj.hide_render if d.meshes else True)
+        for d in active_distractors
+    ]
     for distractor in active_distractors:
         hide_distractor(distractor)
     bpy.context.view_layer.update()
 
-    clean_data = bproc.renderer.render()
+    with occlusion_pass():
+        clean_data = bproc.renderer.render()
     clean_inst_seg_maps = clean_data.get("robot_instance_id_segmaps")
 
-    for distractor, mat in zip(active_distractors, saved_distractor_world):
+    for distractor, (mat, hidden) in zip(active_distractors, saved):
+        if not hidden:
+            show_distractor(distractor)
         distractor.parent.matrix_world = mat
     bpy.context.view_layer.update()
     return clean_inst_seg_maps
@@ -815,7 +839,9 @@ def _apply_cli_overrides(cfg: RenderConfig, args: argparse.Namespace) -> RenderC
         output = replace(output, image_dir=args.out / "images", label_dir=args.out / "labels")
     if args.images_per_scene is not None:
         output = replace(output, images_per_scene=args.images_per_scene)
-    return replace(cfg, output=output)
+    cfg = replace(cfg, output=output)
+    cfg = apply_venue(cfg, getattr(args, "venue", None))
+    return apply_damage_mode(cfg, getattr(args, "damage", "config"))
 
 
 def run(args: argparse.Namespace) -> None:
@@ -836,12 +862,11 @@ def run(args: argparse.Namespace) -> None:
     # ------- Initialize BlenderProc -------
 
     bproc.init()
+    use_gpu_only()
+    set_denoiser(ARENA_DENOISER)
     bproc.camera.set_resolution(cfg.output.image_width, cfg.output.image_height)
     bproc.renderer.set_max_amount_of_samples(args.render_samples)
     bproc.renderer.enable_depth_output(activate_antialiasing=False)
-    if hasattr(bpy.context.scene, "cycles"):
-        # Prevent Cycles from keeping render data across frames/scenes.
-        bpy.context.scene.cycles.use_persistent_data = False
 
     # ------- Load target robots -------
 

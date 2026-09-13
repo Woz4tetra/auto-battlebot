@@ -65,3 +65,8 @@ DISTRACTOR_OFFSCREEN_LOCATION = (1000.0, 1000.0, 1000.0)
 
 # Progress log cadence (scenes).
 PROGRESS_LOG_SCENE_INTERVAL = 50
+
+# Denoiser for the HDRI arena half; a cage scene uses its spec's ``render.denoiser``. OptiX
+# runs on the render device, where BlenderProc's default Intel compositor node cost 6 s of
+# CPU per ten-frame scene for the same output.
+ARENA_DENOISER = "OPTIX"

@@ -18,9 +18,11 @@ spec = "cage/cage2_overhead_high.toml"
 # deployed ZED is in config/cameras/zed2i_720p.toml, measured at 101.0 deg, if a ZED-matched
 # set is ever wanted.
 camera_calibration = "../../config/cameras/ecam25_h01r1_estimated.toml"
-# Cage scenes are darker and shoot through polycarbonate, so they need more samples than the
-# arena half's --render-samples. Leave unset to use the run's value for both.
-render_samples = 128
+# Overrides the run's --render-samples for this cage. 64 with the spec's OptiX denoiser
+# scored 37.6 dB PSNR / 0.960 SSIM against a 512-sample reference on 2026-09-12, against
+# 39.9 dB / 0.972 for 128 with the compositor denoiser, and robot crops at 3x were
+# indistinguishable. 32 lost faint texture on dark surfaces. Leave unset to use the run's value.
+render_samples = 64
 # Per-scene jitter on the LED tube emission strength (+- this fraction), so the set is not a
 # single lighting state.
 tube_jitter = 0.25
@@ -97,7 +99,8 @@ spec = "cage/massd_resurgence6.toml"
 # to the arena, not for the 62-degree broadcast camera the scene was fitted from. That one is
 # in training/data/environments/massd_arena/camera/ and is what render_cage_view.py grades.
 camera_calibration = "../../config/cameras/ecam25_h01r1_estimated.toml"
-render_samples = 128
+# Same measurement basis as the NHRL cage above.
+render_samples = 64
 tube_jitter = 0.25
 mat_margin_m = 0.20
 

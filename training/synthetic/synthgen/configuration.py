@@ -743,6 +743,47 @@ def _apply_only_cage(cages: tuple[CageConfig, ...], name: Any) -> tuple[CageConf
     )
 
 
+ARENA_VENUE = "arena"
+DAMAGE_MODES = ("config", "off", "all")
+
+
+def apply_venue(cfg: RenderConfig, venue: str | None) -> RenderConfig:
+    """Pin every scene to one venue from the command line, the way ``only_cage`` does in a file.
+
+    ``venue`` is a ``[[cages]]`` name, or ``"arena"`` for the HDRI arena alone, which drops
+    every cage. None leaves the config's own mix.
+
+    Raises:
+        ConfigError: When *venue* names neither a cage nor the arena.
+    """
+    if venue is None:
+        return cfg
+    if venue == ARENA_VENUE:
+        return replace(cfg, cages=())
+    return replace(cfg, cages=_apply_only_cage(cfg.cages, venue))
+
+
+def apply_damage_mode(cfg: RenderConfig, mode: str) -> RenderConfig:
+    """Override the ``[damage]`` split from the command line.
+
+    ``"config"`` keeps the file's values. ``"off"`` disables damage. ``"all"`` damages every
+    scene and rolls every instance, for a set that is meant to show damage rather than
+    the run's tracked mix.
+
+    Raises:
+        ConfigError: When *mode* is not one of ``DAMAGE_MODES``.
+    """
+    if mode == "config":
+        return cfg
+    if mode == "off":
+        return replace(cfg, damage=replace(cfg.damage, enabled=False))
+    if mode == "all":
+        return replace(
+            cfg, damage=replace(cfg.damage, enabled=True, scene_probability=1.0, probability=1.0)
+        )
+    raise ConfigError(f"damage mode must be one of {DAMAGE_MODES}, got {mode!r}")
+
+
 def load_render_config(
     config_path: Path,
     launch_cwd: Path | None = None,

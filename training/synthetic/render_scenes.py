@@ -6,11 +6,16 @@ Usage (the docker wrapper training/synthetic/docker/run_synthetic.sh starts in
 training/synthetic, so the paths below are relative to it):
     blenderproc run render_scenes.py -- config.toml [--num-images N]
         [--images-per-scene N] [--out DIR] [--render-samples N] [--start-index N]
-        [--seed N] [-v | -q]
+        [--seed N] [--venue NAME] [--damage config|off|all] [-v | -q]
 
 Some of the scenes are rendered inside a real arena instead of the HDRI arena: one
 ``[[cages]]`` entry per arena, each with its own share of the run. See that section of
-config.toml.
+config.toml. ``--venue`` pins a run to one of them (or to ``arena``, the HDRI half) and
+``--damage`` overrides the battle-damage split, so a sample of each setting is one command
+each, for example ten frames of the NHRL cage with every instance damaged:
+
+    blenderproc run render_scenes.py -- config.toml --venue nhrl_cage --damage all \
+        --num-images 10 --images-per-scene 2 --out ../data/synthetic/sample/nhrl_damage
 
 All the actual work lives in the ``synthgen`` package next to this script; this
 entry point only parses arguments and hands off to ``synthgen.pipeline.run``.
@@ -70,6 +75,23 @@ def _parse_render_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Seed for Python and numpy RNGs (for reproducible debugging runs).",
+    )
+    parser.add_argument(
+        "--venue",
+        default=None,
+        help=(
+            "Render every scene in one venue: a [[cages]] name from the config, or 'arena'"
+            " for the HDRI arena alone. Default: the config's scene mix."
+        ),
+    )
+    parser.add_argument(
+        "--damage",
+        choices=("config", "off", "all"),
+        default="config",
+        help=(
+            "Battle damage: 'config' keeps the [damage] split, 'off' disables it, 'all'"
+            " damages every scene and rolls every instance."
+        ),
     )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(

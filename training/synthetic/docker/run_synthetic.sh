@@ -6,8 +6,14 @@ if [ $# -lt 1 ]; then
 Usage:
   training/synthetic/docker/run_synthetic.sh [--gpu] [--require-gpu] [--cpu] [--port N] <image_name> [args...]
 
+GPU selection: with --gpu or --require-gpu the container sees every GPU unless
+CUDA_VISIBLE_DEVICES is set in the calling shell, in which case only those GPUs
+(host numbering) are passed through. Cycles renders on every GPU it can see, so
+set it on a shared box to stay off GPUs another job is using.
+
 Examples:
   training/synthetic/docker/run_synthetic.sh auto-battlebot-synthetic
+  CUDA_VISIBLE_DEVICES=0 training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic
   training/synthetic/docker/run_synthetic.sh --gpu auto-battlebot-synthetic
   training/synthetic/docker/run_synthetic.sh --cpu auto-battlebot-synthetic
   training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic
@@ -16,6 +22,15 @@ Examples:
   training/synthetic/docker/run_synthetic.sh --gpu --port 8770 auto-battlebot-synthetic blenderproc run pose_camera_server.py -- --spec cage/cage2_overhead_high.toml
 EOF
   exit 1
+fi
+
+# Docker does not forward the host's CUDA_VISIBLE_DEVICES into the container, and the driver
+# inside numbers the passed-through GPUs from 0, so the variable is translated into the
+# --gpus device list here rather than exported. Without this a render silently shared
+# whichever GPU vLLM or a training job was already on.
+gpu_selector="all"
+if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
+  gpu_selector="\"device=${CUDA_VISIBLE_DEVICES}\""
 fi
 
 docker_gpu_args=()
@@ -29,7 +44,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     --gpu)
-      docker_gpu_args=(--gpus all)
+      docker_gpu_args=(--gpus "$gpu_selector")
       shift
       ;;
     --cpu)
@@ -41,7 +56,7 @@ while [ $# -gt 0 ]; do
       # without ever reaching the probe below, so a run that demanded a GPU silently got
       # none: a multi-day render instead of a failure.
       require_gpu=1
-      docker_gpu_args=(--gpus all)
+      docker_gpu_args=(--gpus "$gpu_selector")
       shift
       ;;
     *)
@@ -103,7 +118,7 @@ fi
 
 # Probe GPU runtime support first to preserve interactive behavior and signals.
 set +e
-gpu_probe_output="$(docker run --rm --gpus all --entrypoint /bin/sh "$image_name" -c "exit 0" 2>&1)"
+gpu_probe_output="$(docker run --rm --gpus "$gpu_selector" --entrypoint /bin/sh "$image_name" -c "exit 0" 2>&1)"
 gpu_probe_exit=$?
 set -e
 

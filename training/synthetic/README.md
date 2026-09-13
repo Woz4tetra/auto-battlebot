@@ -26,6 +26,14 @@ Enable GPU passthrough only when needed:
 training/synthetic/docker/run_synthetic.sh --gpu auto-battlebot-synthetic
 ```
 
+Cycles renders on every GPU the container can see. On a shared box, pick the GPUs with
+`CUDA_VISIBLE_DEVICES` (host numbering); the wrapper turns it into the docker device list,
+since docker does not forward the variable itself:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic ...
+```
+
 Or force CPU mode:
 
 ```bash
@@ -47,6 +55,22 @@ You can run synthetic tools from this container, including:
 - `python training/synthetic/download_objaverse.py ...`
 - `blenderproc run prepare_robot_model.py -- config.toml --inspect`
 - `blenderproc run render_scenes.py -- config.toml`
+
+To eyeball one setting at a time, `--venue` pins a run to a `[[cages]]` name or to `arena`
+(the HDRI half, which needs HDRIs in `training/data/hdris`) and `--damage off|all` overrides
+the battle-damage split. Ten frames of each, two per scene, into
+`training/data/synthetic/sample/<setting>/`:
+
+```bash
+r="training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic blenderproc run render_scenes.py -- config.toml --num-images 10 --images-per-scene 2"
+$r --venue nhrl_cage   --damage off --seed 0 --out ../data/synthetic/sample/nhrl_cage
+$r --venue massd_arena --damage off --seed 1 --out ../data/synthetic/sample/massd_cage
+$r --venue arena       --damage off --seed 2 --out ../data/synthetic/sample/hdri
+$r --venue nhrl_cage   --damage all --seed 3 --out ../data/synthetic/sample/nhrl_damage
+```
+
+A run into a directory that already holds frames resumes after them, so clear the
+directory first for a fresh set.
 
 ### Host setup (optional/manual)
 

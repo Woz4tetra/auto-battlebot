@@ -247,8 +247,23 @@ def unload_distractor_pool(pool: list[DistractorInstance]) -> None:
 
 
 def hide_distractor(distractor: DistractorInstance) -> None:
-    """Move a distractor far off-screen via its parent."""
+    """Take a distractor out of the render: hidden, and parked far off-screen via its parent.
+
+    Hiding is what saves the time. A parked-but-visible pool still syncs into every pass
+    (5.5M polygons and 850 MB of textures for a five-model pool), while a hidden one costs
+    nothing. The park keeps it clear of the ray casts in ``clear_blocking_distractors``.
+    """
+    for mesh in distractor.meshes:
+        mesh.blender_obj.hide_render = True
+        mesh.blender_obj.hide_viewport = True
     distractor.parent.location = mathutils.Vector(DISTRACTOR_OFFSCREEN_LOCATION)
+
+
+def show_distractor(distractor: DistractorInstance) -> None:
+    """Make a distractor renderable again; ``place_distractor`` positions it."""
+    for mesh in distractor.meshes:
+        mesh.blender_obj.hide_render = False
+        mesh.blender_obj.hide_viewport = False
 
 
 def place_distractor(
@@ -273,6 +288,7 @@ def place_distractor(
     (CAD robot) distractors sit flat with a random yaw and a 50% chance of
     being inverted, mirroring the target robots' ground poses.
     """
+    show_distractor(distractor)
     parent = distractor.parent
     desired_size = base_size * random.uniform(scale_range[0], scale_range[1])
     s = desired_size / distractor.native_size

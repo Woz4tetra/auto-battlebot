@@ -9,6 +9,8 @@ from synthgen.configuration import (
     ConfigError,
     PathResolver,
     _parse_cages,
+    apply_damage_mode,
+    apply_venue,
     choose_cage,
     load_render_config,
 )
@@ -93,7 +95,10 @@ class TestRealConfig:
         nhrl, massd = cfg.cages
         assert nhrl.enabled is True
         assert nhrl.probability == pytest.approx(0.5)
-        assert nhrl.render_samples == 128
+        # 64 with the spec's OptiX denoiser matched 128 with the compositor denoiser on
+        # 2026-09-12 (37.6 vs 39.9 dB PSNR against a 512-sample reference, crops alike).
+        assert nhrl.render_samples == 64
+        assert massd.render_samples == 64
         assert nhrl.mount.walls == ("near", "far", "left", "right")
         assert nhrl.mount.height_m == (0.60, 1.25)
         assert massd.probability == pytest.approx(0.25)
@@ -122,6 +127,34 @@ class TestRealConfig:
         for cage in cfg.cages:
             assert cfg.resolver.resolve(cage.spec).exists()
             assert cfg.resolver.resolve(cage.camera_calibration).exists()
+
+    def test_venue_flag_pins_one_venue_or_the_arena(self) -> None:
+        cfg = load_render_config(REAL_CONFIG)
+
+        nhrl = apply_venue(cfg, "nhrl_cage")
+        assert [cage.name for cage in nhrl.cages if cage.active] == ["nhrl_cage"]
+        assert [cage.probability for cage in nhrl.cages if cage.active] == [1.0]
+
+        assert apply_venue(cfg, "arena").cages == ()
+        assert apply_venue(cfg, None) is cfg
+        with pytest.raises(ConfigError, match="only_cage"):
+            apply_venue(cfg, "no_such_cage")
+
+    def test_damage_flag_overrides_the_split(self) -> None:
+        cfg = load_render_config(REAL_CONFIG)
+        assert cfg.damage.enabled is True
+        assert cfg.damage.scene_probability == pytest.approx(0.5)
+
+        assert apply_damage_mode(cfg, "config") is cfg
+        assert apply_damage_mode(cfg, "off").damage.enabled is False
+        every = apply_damage_mode(cfg, "all").damage
+        assert every.enabled is True
+        assert every.scene_probability == pytest.approx(1.0)
+        assert every.probability == pytest.approx(1.0)
+        # Everything else about the draw is the config's.
+        assert every.part_severity == cfg.damage.part_severity
+        with pytest.raises(ConfigError, match="damage mode"):
+            apply_damage_mode(cfg, "sometimes")
 
     def test_cage_split_tracks_every_ratio_at_once(self) -> None:
         cages = [

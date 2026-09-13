@@ -6,8 +6,8 @@ in what the generic pipeline needs to render cage scenes and HDRI-arena scenes i
 
 - every cage object in one Blender collection, so the whole cage hides and shows at once;
 - a snapshot of the render settings the cage look depends on (Standard view transform with the
-  solved exposure gain, glass bounces, its own sample count, the rectified camera intrinsics),
-  restored exactly when a generic scene renders;
+  solved exposure gain, glass bounces, its own sample count and denoiser, the rectified camera
+  intrinsics), restored exactly when a generic scene renders;
 - camera poses sampled from `synthgen.cage_mount` instead of the fitted event poses, so the
   mount varies the way ours would.
 
@@ -50,6 +50,7 @@ from synthgen.constants import (
     SEG_OBJECT_CLASS_ID,
 )
 from synthgen.logsetup import get_logger
+from synthgen.render_settings import set_denoiser
 
 logger = get_logger(__name__)
 
@@ -84,6 +85,8 @@ class RenderState:
     gamma: float
     display_device: str
     samples: int
+    use_denoising: bool
+    denoiser: str
     glossy_bounces: int
     transmission_bounces: int
     transparent_max_bounces: int
@@ -114,6 +117,8 @@ def snapshot_render_state() -> RenderState:
         gamma=float(scene.view_settings.gamma),
         display_device=scene.display_settings.display_device,
         samples=int(scene.cycles.samples),
+        use_denoising=bool(scene.cycles.use_denoising),
+        denoiser=str(scene.cycles.denoiser),
         glossy_bounces=int(scene.cycles.glossy_bounces),
         transmission_bounces=int(scene.cycles.transmission_bounces),
         transparent_max_bounces=int(scene.cycles.transparent_max_bounces),
@@ -143,6 +148,11 @@ def restore_render_state(state: RenderState) -> None:
     scene.view_settings.gamma = state.gamma
     scene.display_settings.display_device = state.display_device
     bproc.renderer.set_max_amount_of_samples(state.samples)
+    # The snapshot was taken after the pipeline chose a denoiser, so its value is one this
+    # device accepts; going through set_denoiser again would re-run the availability check.
+    scene.cycles.use_denoising = state.use_denoising
+    bpy.context.view_layer.cycles.use_denoising = state.use_denoising
+    scene.cycles.denoiser = state.denoiser
     bproc.renderer.set_light_bounces(
         glossy_bounces=state.glossy_bounces,
         transmission_bounces=state.transmission_bounces,
@@ -249,6 +259,7 @@ class CageStage:
         )
         if self._cfg.render_samples is not None:
             bproc.renderer.set_max_amount_of_samples(self._cfg.render_samples)
+        set_denoiser(self._spec.render.denoiser)
         bproc.camera.set_intrinsics_from_K_matrix(self._k_rect, self._width, self._height)
 
     def deactivate(self) -> None:
