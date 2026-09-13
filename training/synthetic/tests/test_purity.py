@@ -25,6 +25,7 @@ PURE_MODULES = [
     "synthgen.cage_mount",
     "synthgen.damage",
     "synthgen.lens",
+    "synthgen.shards",
     "synthgen.freefly",
     "synthgen.preview_server",
 ]

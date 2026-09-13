@@ -58,6 +58,14 @@ logger = get_logger(__name__)
 CUTTER_NAME_PREFIX = "damage_cutter"
 # Unit primitives, scaled per use: a cube of half-extent 1 and a sphere of radius 1.
 _CUTTER_UNIT_SIZE = 2.0
+# The faces a boolean cut opens take the cutter's material (material_mode TRANSFER). With
+# no material they took slot 0 of the target through the primitive's own UVs and rendered
+# near white, which no real robot's torn-open interior looks like. Dark, rough and slightly
+# metallic reads as exposed internals and frame at 34 to 70 px.
+CUT_INTERIOR_MATERIAL_NAME = "damage_cut_interior"
+_CUT_INTERIOR_BASE_COLOR = (0.035, 0.035, 0.04, 1.0)
+_CUT_INTERIOR_ROUGHNESS = 0.7
+_CUT_INTERIOR_METALLIC = 0.4
 
 
 @dataclass(frozen=True)
@@ -139,6 +147,7 @@ def build_cutter_pool(size: int) -> CutterPool:
     as everything else, and before any render so they never appear in one.
     """
     cutters: list[bpy.types.Object] = []
+    interior = _cut_interior_material() if size > 0 else None
     for index in range(max(size, 0)):
         shape = CUTTER_CUBE if index % 2 == 0 else CUTTER_ICOSPHERE
         if shape == CUTTER_CUBE:
@@ -151,9 +160,22 @@ def build_cutter_pool(size: int) -> CutterPool:
         cutter["category_id"] = BACKGROUND_CATEGORY_ID
         cutter.hide_render = True
         cutter.location = mathutils.Vector(DISTRACTOR_OFFSCREEN_LOCATION)
+        cutter.data.materials.append(interior)
         cutters.append(cutter)
     logger.info("Built %d boolean cutters for battle damage", len(cutters))
     return CutterPool(cutters)
+
+
+def _cut_interior_material() -> bpy.types.Material:
+    """The material a boolean cut's new faces render with."""
+    material = bpy.data.materials.new(CUT_INTERIOR_MATERIAL_NAME)
+    material.use_nodes = True
+    bsdf = material.node_tree.nodes.get("Principled BSDF")
+    if bsdf is not None:
+        bsdf.inputs["Base Color"].default_value = _CUT_INTERIOR_BASE_COLOR
+        bsdf.inputs["Roughness"].default_value = _CUT_INTERIOR_ROUGHNESS
+        bsdf.inputs["Metallic"].default_value = _CUT_INTERIOR_METALLIC
+    return material
 
 
 # The two mechanisms work in different frames, on purpose.
@@ -266,6 +288,8 @@ def _apply_chunk_draw(
     modifier.operation = "DIFFERENCE"
     # EXACT copes with the non-manifold Meshy meshes; FAST silently returns the input on them.
     modifier.solver = "EXACT"
+    # The cut faces take the cutter's dark interior material instead of the target's slot 0.
+    modifier.material_mode = "TRANSFER"
     modifier.object = cutter
     session.modifiers.append((target, name))
     session.cutters.append(cutter)

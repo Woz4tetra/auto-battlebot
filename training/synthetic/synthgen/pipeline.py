@@ -77,6 +77,7 @@ from synthgen.constants import (
     NHRL_ROBOT_CLASS_NAME,
     PROGRESS_LOG_SCENE_INTERVAL,
     SEG_FLOOR_CLASS_ID,
+    VIEW_PINHOLE,
 )
 from synthgen.damage import DamageBudget, InstanceDamage
 from synthgen.damage_scene import CutterPool, apply_scene_damage, build_cutter_pool
@@ -268,16 +269,19 @@ def _write_keypoint_data_yml(
 def _append_manifest_row(
     layout: OutputLayout, scene: SceneState, frame_name: str, local_idx: int
 ) -> None:
-    """One JSON line per written frame: which arena, which mount, and what was damaged.
+    """One JSON line per written frame: which arena, view, mount, and what was damaged.
 
     This is what makes the damage arms a filter rather than a second render: a damage-off
     arm keeps the frames whose every instance reports ``damage == 0``. The mount is here
-    too, so a frame can be traced back to the camera placement that produced it.
+    too, so a frame can be traced back to the camera placement that produced it. The view
+    is the only record of which lens a frame went through once per-view runs are merged
+    into one directory; the HDRI half has no lens model and is always pinhole.
     """
     mount = scene.mounts[local_idx] if local_idx < len(scene.mounts) else None
     row = {
         "image": f"{frame_name}.jpg",
         "venue": scene.venue,
+        "view": VIEW_PINHOLE if scene.lens is None else scene.lens.view,
         "scene": scene.scene_idx,
         "mount": None if mount is None else asdict(mount),
         "instances": [d.as_row() for d in scene.damage],

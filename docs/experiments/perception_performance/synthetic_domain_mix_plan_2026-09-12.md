@@ -7,6 +7,55 @@ one eval set.
 
 Writeup lands in `docs/experiments/perception_performance/synthetic_domain_mix_<date>.md`.
 
+## Status, 2026-09-13
+
+Step 3 is running. Everything it needed is built and passed a smoke render of both venues, and
+the NHRL 20k render is queue job 1.
+
+| Item | State |
+| --- | --- |
+| `"view"` in the manifest | Done, in `_append_manifest_row` (`synthgen/pipeline.py`) |
+| Cutter white faces | Fixed, mechanism kept. Cutters carry a dark interior material and the boolean runs `material_mode = "TRANSFER"`, so the faces a cut opens take it |
+| imgsz for step 4 | 640, unchanged. The deployed keypoint engine is `yolo26s-pose` at rect 384x640, so 640 is the scale the robot runs at. The pixel-size gap is what a cage mount sees; it goes in the writeup as a confound |
+| Samples | 64 with OptiX, which `config.toml` already sets from the 2026-09-12 comparison (37.6 dB PSNR against 39.9 at 128) |
+| A6000 timing probe | Dropped as a separate job. `render_shards.py` records seconds per frame for every run of the real render in `render_shards.json` |
+| `CUDA_VISIBLE_DEVICES` passthrough | Already in `run_synthetic.sh`, translated to `--gpus device=N` |
+| Sharded render | `training/synthetic/render_shards.py`, with the allocation and merge in `synthgen/shards.py` and `tests/test_shards.py` |
+| Gate report | `training/synthetic/domain_render_report.py` |
+| Arm lists | `training/yolo/make_domain_mix_arms.py` |
+| NHRL 20k render | Queue job 1, resumed from job 53's frames |
+| `base` arm, `yolo26s-pose` | Queue job 2 |
+| MassD 20k render | Waits for the NHRL gates |
+
+The tree is not committed. Each render attempt writes `source_<time>.patch` (HEAD plus the
+`training/synthetic` diff) into its parts directory. Do not edit `training/synthetic` while a render
+job runs: every container mounts the repo live, so a run that starts hours in reads the edit.
+
+A disk cleanup removed `runs/` at 08:56, `runs/queue` included, while the render ran as job 53.
+The render was stopped at 09:10 with its three pinhole runs at 788, 825 and 818 frames, each
+consistent across images, labels and manifest rows, and resubmitted to a fresh queue at 09:12 as
+job 1, which resumes one past the last frame of each run. Stopping `render_shards.py` did not stop
+its containers; they had to be stopped with `docker stop`, and resubmitting before that would have
+put two renders on the same frame indices. The job 53 log survives as
+`runs/queue/logs/0053-render_cage_nhrl_20k.recovered.log`. The same cleanup removed the smoke renders;
+the findings below were read before that.
+
+Smoke renders, jobs 51 and 52: 18 frames per venue over three GPUs, every instance damaged
+(`-- --images-per-scene 2 --damage all`).
+
+- All 18 runs exited 0 and each merge came out at 6 frames per view. The first merge refused a
+  `_debug_frame0.jpg` the pipeline writes into `images/`; the merge now takes numbered frames only.
+- `validate_yolo_integrity.py --strict`: NHRL 0 errors, 0 warnings. MassD 0 errors and the expected
+  `house_bot` zero-instance warning.
+- Damaged Meshy opponents at 3x zoom show dark cut faces and no white.
+- Two opponent boxes that cropped to black (60x15 and 25x4 px, both keypoints flag 0) are robots
+  cut off by the top edge of the frame, not labels on empty space.
+- Hidden keypoints ran 7.8 to 10.7 percent per view at NHRL and 0 to 4.2 percent at MassD, against
+  5.1 percent in the randomized pool. Six frames a view with every robot damaged is too few to read;
+  the full render's gate report is the check.
+- `make_domain_mix_arms.py --scale 0.0009` over both smoke renders built ten arms and verified the
+  nesting.
+
 ## Status, 2026-09-12
 
 Steps 0, 1 and 2 are done. Step 3 has not started. The 100-frame inspection renders for both
@@ -20,7 +69,7 @@ and `training/data/_probe_massd_2026-09-12`.
 | 0c schema | Done. `nc: 4` lowercase, straight out of the renderer |
 | 1 megamind | Assets, image and code staged. 61 GB free on `/` |
 | 2 damage | Done, with three changes to the design |
-| 3 render | Not started. Needs `render_shards.sh` and the `CUDA_VISIBLE_DEVICES` passthrough |
+| 3 render | Not started. Needs `"view"` in the manifest, `render_shards.sh` and the `CUDA_VISIBLE_DEVICES` passthrough |
 
 ### What 0a settled
 
@@ -46,7 +95,7 @@ covers the near-glass eight of them:
 walls = ["near", "far", "left", "right"]
 along_m = [-0.55, 0.55]
 height_m = [0.60, 1.25]
-inset_m = [-0.20, -0.01]
+inset_m = [-0.20, -0.08]
 aim = "centre"
 tilt_offset_deg = [-22.0, -10.0]
 yaw_deg = [-23.0, 23.0]
@@ -69,9 +118,17 @@ Two things went wrong on the way here, both worth not repeating.
   with mat against the marks' 31.8. Uniform draws over `inset [-0.75, -0.01]` land past
   -0.17 m in 78 percent of frames where the marks are there in 33, and independent axes paired
   heights and setbacks nothing was flown at into a derived tilt of up to 67 degrees.
-- Fix: the ranges above, which cover the near-glass eight. Over 2000 samples they fill 38.9
-  percent of the frame with mat, median tilt 39.0 degrees, 98.9 percent of the mat in frame.
-  The far-back four framed worst of all twelve at 12 to 33 percent.
+- Fix: the ranges above, which cover the near-glass eight. They fill 35.1 percent of the frame
+  with mat, median tilt 40.4 degrees, 99.3 percent of the mat in frame. The far-back four
+  framed worst of all twelve at 12 to 33 percent.
+
+- Bug: the first near-glass block ran `inset_m` to -0.01. A camera that close sees the panes
+  either side of the hidden one edge-on, and rough refraction through a grazing slab never
+  converges, so the sampler runs to its cap. A scene at -0.03 took 402 s per render pass at 32
+  samples, where a healthy scene takes 4 to 23 s at 128. Runs sampling -0.028 and -0.055 were
+  slow on every pass, and one sampling -0.072 to -0.172 over 11 scenes had no slow pass.
+- Fix: the near end is -0.08, margin past the cliff between -0.055 and -0.072. MassD holds
+  `[-0.25, -0.10]` for the same reason.
 
 A negative `tilt_offset_deg` is steeper, aimed short of the field centre, because tilt is
 measured off straight down. Every mark is aimed short of the centre by 5.1 to 18.8 degrees.
@@ -135,8 +192,8 @@ on cut faces would fix it. At 34 to 70 px it may not matter.
 - **Each written frame costs two render passes.** The clean distractor-free pass doubles every
   render. `[output].ignore_obstructions = true` halves the render cost and drops the occlusion
   gate with it, which is the biggest single lever on a multi-day render.
-- **Output is smaller than budgeted.** 130 to 140 KB per frame, so 40,000 frames is about 5.4
-  GB rather than 8.
+- **Output is smaller than first budgeted.** 130 to 140 KB per frame, so 40,000 frames is
+  about 5.4 GB rather than 8.
 
 ### Two config mechanisms added
 
@@ -164,9 +221,9 @@ front of the detector. So each venue's 20,000 frames split three ways:
 
 | View | Frames per venue | What it is |
 | --- | --- | --- |
-| `pinhole` | 6,667 | Rendered at the rectified matrix. What every render before 2026-09-13 was |
+| `pinhole` | 6,667 NHRL, 6,666 MassD | Rendered at the rectified matrix. What every render before 2026-09-13 was |
 | `rectified` | 6,667 | The sensor frame through the C++ `Rectifier`'s maps at alpha 1.0, black border included (36 percent of the frame for the e-CAM25) |
-| `distorted` | 6,666 | The raw sensor frame, through the calibration's OpenCV distortion model |
+| `distorted` | 6,666 NHRL, 6,667 MassD | The raw sensor frame, through the calibration's OpenCV distortion model |
 
 `synthgen/lens.py` does all three, and `pose_camera_server.py` shows its views through the same
 module. A run picks one with `--view` or `[[cages]].view`. Labels follow the view: segmentation,
@@ -222,7 +279,8 @@ is more than a third pinhole.
 
 Questions 4 and 5 ride along at no extra render cost beyond the views themselves: damage is
 sampled per instance and the view is fixed per run, both recorded per frame, so their arms are
-filters over the same render, not separate renders.
+filters over the same render, not separate renders. The view is not in the manifest yet; that
+change has to land before step 3 or the merged render cannot be split back by view.
 
 ## What already exists
 
@@ -421,7 +479,7 @@ link target is not mounted. So on megamind the render assets and the render outp
 directories under `/home/ben/auto-battlebot`, not symlinks into `/media/storage`.
 
 `/` on megamind is at 92 percent with 76 GB free. The budget: 4.1 GB of assets, about 11 GB
-for the image, and about 8 GB of render output. That fits, with roughly 50 GB to spare.
+for the image, and about 5.4 GB of render output. That fits, with roughly 55 GB to spare.
 
 When a venue's render finishes and passes its gates, move it to the archive and point the
 training `data.yml` `path:` at the new location. Training reads through the venv, not through
@@ -500,6 +558,10 @@ where damage is not visible at all.
 Two datasets, flat, no split. Splits are image lists later. Each holds a third of its frames in
 each view, recorded per frame in `manifest.jsonl`.
 
+`_append_manifest_row` does not write the view yet: a row carries `image`, `venue`, `scene`,
+`mount` and `instances`. Add `"view"` before submitting. The per-view runs are hardlinked into one
+flat directory, and after the merge nothing else in the output says which view a frame came from.
+
 ```
 training/data/synth_cage_nhrl_<date>/{images,labels,manifest.jsonl,data.yml}
 training/data/synth_cage_massd_<date>/{images,labels,manifest.jsonl,data.yml}
@@ -509,22 +571,82 @@ training/data/synth_cage_massd_<date>/{images,labels,manifest.jsonl,data.yml}
 (`config_cage_nhrl.toml`, `config_cage_massd.toml`) rather than being passed on the command
 line, so the render is reproducible from a file.
 
+### What gets rendered
+
+A scene is one arrangement of robots, opponents, lights and damage on the venue's floor, shot from
+10 sampled wall mounts (`images_per_scene = 10`). Frames dropped by `min_robot_visibility = 0.10`
+cost scenes, not frames: the run keeps drawing scenes until it has written its count.
+
+| Variable | Values | Drawn | Recorded in |
+| --- | --- | --- | --- |
+| Venue | `nhrl_cage` or `massd_arena` | per run, by config | manifest `venue` |
+| View | `pinhole`, `rectified`, `distorted` | per run, by `--view` | manifest `view`, once added |
+| Our robots | 1 or 2 of `mrs_buff_mk3` (weight 2.0) and `mr_stabs_mk2` (weight 0.5) | per scene | labels |
+| Our robot pose | 30 percent airborne with a random tumble, otherwise flat, upright or inverted, random yaw | per scene | |
+| Opponents | 1 to 5 Meshy models, 0.5x to 2x a 0.25 m beetleweight, 10 percent airborne, labelled `nhrl_robot`. Pool re-rolled every 100 images | per scene | labels |
+| House bot | in every NHRL scene, none at MassD (`[house_bot_box] enabled = false`) | per venue | labels |
+| Camera mount | wall, along, height, inset, tilt offset, yaw, roll from `[cages.mount]`. NHRL 0.60 to 1.25 m up and 8 to 20 cm outside the glass; MassD 0.45 to 1.10 m up and 10 to 25 cm outside | per frame | manifest `mount` |
+| Damaged scene | damaged or clean, tracked to 0.5 by `DamageBudget` | per scene | manifest `instances` |
+| Damaged instance | 0.35 per robot-like instance in a damaged scene. Mrs Buff loses 1 to 3 named assemblies, Mr Stabs 5 to 30 percent of its parts, a Meshy opponent a chunk of 3 to 20 percent of its bounding volume | per scene | manifest `instances` |
+| Lighting | LED tube strength +-25 percent | per scene | |
+| Materials | roughness jitter 0.5, hue +-10 degrees | per scene | |
+| Motion blur | 30 percent of frames, 5 to 15 px kernel | per frame | |
+| Fixed | e-CAM25 calibration, 1280x720 output, 64 samples, rectify alpha 1.0 | | |
+
+Frames per shard and view. Each cell is one `render_scenes.py` run. Each venue is short one frame
+of a third; NHRL takes it on `distorted` and MassD on `pinhole`, so every view reaches the 13,333
+frames its step 4 arm draws.
+
+| Shard | NHRL pinhole / rectified / distorted | MassD pinhole / rectified / distorted | Frames per shard |
+| --- | --- | --- | --- |
+| 0, GPU 0 | 2,223 / 2,222 / 2,222 | 2,222 / 2,223 / 2,222 | 6,667 |
+| 1, GPU 1 | 2,222 / 2,223 / 2,222 | 2,222 / 2,222 / 2,223 | 6,667 |
+| 2, GPU 2 | 2,222 / 2,222 / 2,222 | 2,222 / 2,222 / 2,222 | 6,666 |
+
+Frames by category:
+
+| Category | NHRL | MassD | Both venues |
+| --- | --- | --- | --- |
+| All frames | 20,000 | 20,000 | 40,000 |
+| `pinhole` | 6,667 | 6,666 | 13,333 |
+| `rectified` | 6,667 | 6,667 | 13,334 |
+| `distorted` | 6,666 | 6,667 | 13,333 |
+| Scenes written, at 10 frames each | 2,000 | 2,000 | 4,000 |
+| Both our robots in scene | ~10,000 | ~10,000 | ~20,000 |
+| Mrs Buff only | ~8,000 | ~8,000 | ~16,000 |
+| Mr Stabs only | ~2,000 | ~2,000 | ~4,000 |
+| House bot in scene | 20,000 | 0 | 20,000 |
+| Fully clean, the damage-off pool | ~11,800 | ~11,800 | ~23,500 |
+| At least one damaged instance | ~8,200 | ~8,200 | ~16,500 |
+
+The view rows are exact, set by the run counts. The rest are expectations from the draws above:
+
+- Robots: half of scenes take both, the other half take one, Mrs Buff 80 percent of the time.
+  Counts are by scene, before the visibility drop.
+- Clean pool: 0.5 + 0.5 x E[0.65^n], with n the robot-like instances in a damaged scene. One or two
+  robots plus one to five opponents from a five-model pool gives E[0.65^n] = 0.18, so 58.8 percent
+  clean. A pool the VRAM budget holds under five models raises that. The 100-frame probes read 60
+  percent (NHRL) and 50 percent (MassD) over ten scenes each. Per view that is about 3,900 clean
+  and 2,700 damaged frames.
+
 ### Shard across the three A6000s
 
 The queue is strictly serial: one job at a time, whatever `-d` says. So three shards submitted
 as three jobs would run one after another. To use all three GPUs the render is **one** queue
 job that launches three containers and waits.
 
-Two small changes make that work:
+Two pieces make that work, as built on 2026-09-13:
 
-1. `run_synthetic.sh` hardcodes `--gpus all` and forwards no CUDA env. Add a
-   `CUDA_VISIBLE_DEVICES` passthrough to `docker_env_args` so a shard can be pinned to one
-   GPU while the container still sees all three devices.
-2. New `training/synthetic/docker/render_shards.sh <config> <out> <total> <shards>`: launches
-   one container per shard with disjoint `--start-index` and distinct `--seed`, each writing
-   to its own `<out>_shard<i>`, waits on all of them, then hardlink-merges the shards into one
-   flat `<out>`. Use `os.link`, not a forking `cp` loop, which is pathologically slow at this
-   scale.
+1. `run_synthetic.sh` translates `CUDA_VISIBLE_DEVICES` into `--gpus device=N`, so a shard pinned
+   to one GPU sees only that GPU.
+2. `training/synthetic/render_shards.py`, with the allocation and merge in `synthgen/shards.py`,
+   starts one worker per GPU. Each worker renders its shard one container per view, with disjoint
+   `--start-index` and distinct `--seed`, into `<out>_parts/shard<i>_<view>/`. Once every run has
+   its full count, it hardlinks the runs into one flat `<out>` with `os.link`, rewrites
+   `data.yml`'s `path` to the host directory (each run records its container path), and writes
+   `render_shards.json` with seconds per frame per run. Rerunning the same command resumes:
+   finished runs are skipped, and a run cut short continues one past its last frame under a fresh
+   seed.
 
    Each shard renders its share as three sequential runs, one per `--view`, each a third of the
    shard's frames with its own `--start-index` and `--seed`. That is nine runs for three shards,
@@ -533,57 +655,66 @@ Two small changes make that work:
    pinhole-only GPU would sit idle for half the render.
 
 Separate shard directories rather than one shared `--out`: `--start-index` keeps image
-filenames disjoint, but `data.yml`, `sheet.png` and `manifest.jsonl` are written per run and
-would race.
+filenames disjoint, but `data.yml` and `manifest.jsonl` are written per run and would race.
 
 ```bash
 ssh megamind
 cd /home/ben/auto-battlebot
-venv/bin/python training/gpu_queue.py submit --name render_cage_nhrl --by <agent> -d 0 1 2 -- \
-  bash training/synthetic/docker/render_shards.sh \
-    config_cage_nhrl.toml ../data/synth_cage_nhrl_<date> 20000 3
+venv/bin/python training/gpu_queue.py submit --name render_cage_nhrl_20k --by <agent> -d 0 1 2 -- \
+  venv/bin/python training/synthetic/render_shards.py config_cage_nhrl.toml \
+    --out ../data/synth_cage_nhrl_2026-09-13 --total 20000 --gpus 0 1 2 --seed-base 0
 
 venv/bin/python training/gpu_queue.py status
 venv/bin/python training/gpu_queue.py logs -f
 ```
 
-MassD is the same command against `config_cage_massd.toml`, seed base 200, once the other
-agent's integration lands. Submit NHRL first so the render starts while MassD is still landing.
+MassD is the same command against `config_cage_massd.toml` with
+`--views rectified distorted pinhole --seed-base 200`, so it runs short on `pinhole` where NHRL runs
+short on `distorted`. The MassD arena is already in `config.toml`.
 
 Check `status` before submitting. A render that owns all three GPUs for many hours pushes every
 queued training arm back by that much, so submit it with a name that says what it is and tell
 whoever else is queued.
 
-Budget: about 200 KB per 1280x720 JPEG, so 40,000 frames is roughly 8 GB. megamind's `/` has
-76 GB free. Fine, and step 1 covers moving the finished datasets to `/media/storage`.
+Budget: 130 to 140 KB per 1280x720 JPEG on the 2026-09-12 probes, so 40,000 frames is about
+5.4 GB. megamind's `/` has 76 GB free. Fine, and step 1 covers moving the finished datasets to `/media/storage`.
 
 Gates after each render:
 
 ```bash
-ssh megamind 'cd /home/ben/auto-battlebot && venv/bin/python \
-  training/yolo/validate_yolo_integrity.py training/data/synth_cage_nhrl_<date> --strict'
+venv/bin/python training/yolo/validate_yolo_integrity.py training/data/synth_cage_nhrl_<date> --strict
+venv/bin/python training/synthetic/domain_render_report.py training/data/synth_cage_nhrl_<date> \
+  --baseline training/data/all_robot_keypoints/train
 ```
 
-- Zero errors, zero warnings.
+The report prints a per-view table, writes `gate_report.json` beside the manifest, and exits 1 on a
+failed gate: a view off its third, a view dropping more than 25 percent of frames, rows with no view,
+or a view with no Mrs Buff.
+
+- Zero errors, zero warnings, except MassD's `house_bot` zero-instance warning, which is correct
+  for a spec with `[house_bot_box] enabled = false`.
 - Per-class counts printed and recorded. Our robots must not be rare.
 - Keypoint visibility distribution: how many rows carry vis-0 keypoints. A jump against the
   randomized pool means the mount or the glass is eating keypoints.
 - Drop rate from `min_robot_visibility`. If more than 25 percent of scenes are discarded, the
   mat margin or the distractor count needs a look before burning the rest of the budget.
-- Per-view frame counts from `manifest.jsonl`: a third each, within one shard's rounding. Drop
+- Per-view frame counts from `manifest.jsonl`, matching the category table above. Drop
   rate and vis-0 keypoints per view as well, since the distorted and rectified views cut objects
   at the frame edge and at the border where pinhole does not.
-- Eyeball `sheet.png` and 50 random frames.
+- Page 50 random frames per view with `training/yolo/validate_yolo_dataset.py <dataset>`, which
+  draws boxes and keypoints on a grid. `render_scenes.py` writes no `sheet.png`.
 
 ## Step 4: arms
 
-Every arm is a `.txt` image list, built by extending `make_scaling_splits.py` to draw from
-multiple source datasets with per-source counts. Frames are drawn by a single fixed shuffle
+Every arm is a `.txt` image list, built by `training/yolo/make_domain_mix_arms.py`, which draws
+from the corpus and both renders with per-source counts. `make_scaling_splits.py` splits one
+dataset by scene and did not extend to several sources cleanly. Frames are drawn by a single fixed shuffle
 per source so arms nest: the 10k domain arm is a prefix of the 20k one, and a drop in accuracy
 cannot be blamed on which frames got picked.
 
 Constants across arms: `yolo26x-pose`, imgsz 640, batch and epochs fixed, seed 0, 3x A6000 DDP
-through the queue, `--save-period 25`.
+through the queue, `--save-period 25`, `--cache ram`. The default disk cache writes one
+full-resolution `.npy` per frame, about 157 GB for `d40000` against the 74 GB free on megamind.
 
 `R` = randomized frames from `training/data/synthetic`. `D` = domain frames, split evenly
 between the two venues unless noted. The 452 real frames are in every arm.
@@ -605,6 +736,10 @@ between the two venues unless noted. The 452 real frames are in every arm.
 | `view_rectified` | 0 | 13,333 rectified, both venues | Q5 |
 | `view_distorted` | 0 | 13,333 distorted, both venues | Q5 |
 | `view_mixed` | 0 | 13,333, a third of each view | Q5, the render's own mix |
+
+`nodamage` depends on which mix wins Q1 to Q3, so the builder writes both candidates,
+`nodamage_d20000` and `nodamage_swap_all`, and the one matching the better of `d20000` and
+`swap_all` gets trained.
 
 `D` in the Q1 to Q4 arms draws a third of each view, the way the render lands. The four view arms
 hold `R` at zero, because the randomized pool is all pinhole and would tilt every one of them
@@ -763,7 +898,7 @@ not actually save time, say so and drop it.
   and the cost is that other agents' arms wait. Announce the submission, and do not start the
   MassD render until the NHRL dataset has passed its gates, so a bad spec does not cost two
   slots.
-- **megamind `/` is at 92 percent.** 4.1 GB of assets, 11 GB of docker image and 8 GB of
+- **megamind `/` is at 92 percent.** 4.1 GB of assets, 11 GB of docker image and 5.4 GB of
   render output fit in the 76 GB free, but nothing else large does. Move each finished dataset
   to `/media/storage` before starting the next render.
 - **Docker mounts only the repo root.** Assets symlinked out to `/media/storage` dangle inside
@@ -793,21 +928,33 @@ not actually save time, say so and drop it.
 
 ## Next steps
 
-Items 1, 2, 3 and 5 are done; see the status section. What is left:
+As of 2026-09-13. Done: the manifest view, the cutter interior material, the imgsz decision,
+`render_shards.py`, `domain_render_report.py`, `make_domain_mix_arms.py`, `run_domain_mix_arm.sh`,
+`prelabel_dataset.py`, and a smoke render of each venue. The 100-frame probes from jobs 42 and 43
+are gone from disk; the smoke renders replaced them for grading the cutter. The ground texture
+count reads 8, not 13, and every frame still renders. What is left:
 
-1. Grade the 100-frame inspection renders on megamind (jobs 42 and 43). Reject or keep the
-   cutter mechanism, given the white interior faces it exposes.
-2. Run the timing probes at 128 and 64 samples on both specs, on one A6000. Overriding samples
-   means a variant config, since `--render-samples` does not reach a cage scene. Confirm the
-   log says 13 ground textures rather than failing, and record seconds per frame, VRAM, and
-   drop rate.
-3. Settle `imgsz` for step 4. The domain frames run our robots at roughly half the pixels the
-   randomized pool does, and 640 is what starved the cage-high detector.
-4. Add `"view"` to each `manifest.jsonl` row, so the view arms can filter a merged render.
-5. Add the `CUDA_VISIBLE_DEVICES` passthrough to `run_synthetic.sh` and write
-   `docker/render_shards.sh`, with each shard rendering a third of its frames per view.
-6. Submit the NHRL 20k render to the queue. Gate it, including the per-view counts, allowing the
-   `house_bot` warning on the MassD half, move it to `/media/storage`, then submit MassD.
-7. Extend `make_scaling_splits.py` to multi-source counts with a view filter, build the fifteen
-   arm lists, and submit the `yolo26s-pose` shaping grid to `gpu_queue.py`.
-8. Record and label e-CAM25 footage for question 5, raw and rectified.
+1. The NHRL 20k render, queue job 1, resumed at 09:12 from the 2,431 frames job 53 wrote. Pinhole
+   ran at about 2.45 s per frame per GPU. Gate it with `validate_yolo_integrity.py --strict` and `domain_render_report.py`, move it
+   to `/media/storage` if `/` runs short, then submit MassD with
+   `--views rectified distorted pinhole --seed-base 200`.
+2. Build the arm lists over both renders into `training/data/domain_mix_arms_<date>`.
+3. The `yolo26s-pose` shaping grid, one `run_domain_mix_arm.sh` queue job per arm. `nodamage` goes
+   last, once `d20000` and `swap_all` are scored.
+4. Score each arm's `last` engine three ways (pooled with bootstrap against `base`, per venue, per
+   recording), then the matched-step reads from the epoch checkpoints.
+5. Confirm the three or four arms that matter on `yolo26x-pose`.
+6. Step 6. MassD frames are sampled into `training/data/nhrl_keypoints_eval_grow_massd_2026-09-13`,
+   not into the eval set, so the set this experiment scores on does not change under it. The
+   MassD MCAPs live on pathfinder; the 11 clipped `__` segments (3.8 GB) were copied to megamind.
+   The staging set holds 2,400 frames: 250 per recording from the 10 clips not already in the eval
+   set, and 150 from the one clip that runs short. None of the ten has a `svo_start_frame` in the
+   playback config, so sampling starts at frame 0 and includes pre-match frames. Pre-labels come
+   from `yolo26x-pose_all_robot_keypoints_2026-09-05_last.pt` at conf 0.15 with
+   `--map nhrl_robot=opponent mr_stabs_mk2=opponent`, since only Mrs Buff fought at MassD, and a
+   seeded 10 percent of frames per recording stays empty for the blind audit
+   (`prelabel_holdout.json`). Correcting in `edit_labels.py` and labelling the hold-out are hand
+   work. The pre-label pass wrote 2,160 frames with 1,731 boxes and held out 240. Boxes per
+   recording run from 1 (`08-48-31`) and 4 (`09-50-45__09-52-23`) to 376 (`09-20-17__09-27-24`),
+   so a few clips are mostly empty arena or pre-match footage and review fast.
+7. Record and label e-CAM25 footage for question 5, raw and rectified. Needs the robot.
