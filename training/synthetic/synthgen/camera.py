@@ -19,6 +19,7 @@ from synthgen.configuration import CameraConfig
 from synthgen.constants import CAMERA_GEOMETRY_RESAMPLES, CAMERA_TARGET_RETRIES
 from synthgen.distractors import DistractorInstance, clear_blocking_distractors
 from synthgen.geometry import min_distance_for_frame_fraction, narrow_fov
+from synthgen.lens import LensView, render_normalized_to_output
 from synthgen.logsetup import get_logger
 from synthgen.robots import RobotInstance
 
@@ -49,8 +50,13 @@ def _pose_toward(cam_pos: np.ndarray, target: np.ndarray) -> np.ndarray:
     return np.asarray(bproc.math.build_transformation_mat(cam_pos, rotation))
 
 
-def target_in_frame(cam2world: np.ndarray, point: list[float]) -> bool:
+def target_in_frame(
+    cam2world: np.ndarray, point: list[float], lens: LensView | None = None
+) -> bool:
     """True when *point* projects inside the camera frame for this pose.
+
+    With a warped *lens* the scene camera is the wide render, so the test is whether the view
+    written from it sees the point, not whether the render does.
 
     Moves the scene camera to *cam2world* as a side effect; callers that care about the
     camera's pose afterwards set it themselves.
@@ -59,7 +65,11 @@ def target_in_frame(cam2world: np.ndarray, point: list[float]) -> bool:
     camera.matrix_world = mathutils.Matrix(cam2world.tolist())
     bpy.context.view_layer.update()
     co_2d = world_to_camera_view(bpy.context.scene, camera, mathutils.Vector(point))
-    return bool(0 <= co_2d.x <= 1 and 0 <= co_2d.y <= 1 and co_2d.z > 0)
+    if co_2d.z <= 0:
+        return False
+    if lens is not None and lens.warps:
+        return render_normalized_to_output(lens, co_2d.x, 1.0 - co_2d.y) is not None
+    return bool(0 <= co_2d.x <= 1 and 0 <= co_2d.y <= 1)
 
 
 def sample_camera_pose(

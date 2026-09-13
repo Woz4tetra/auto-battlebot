@@ -6,7 +6,8 @@ Usage (the docker wrapper training/synthetic/docker/run_synthetic.sh starts in
 training/synthetic, so the paths below are relative to it):
     blenderproc run render_scenes.py -- config.toml [--num-images N]
         [--images-per-scene N] [--out DIR] [--render-samples N] [--start-index N]
-        [--seed N] [--venue NAME] [--damage config|off|all] [-v | -q]
+        [--seed N] [--venue NAME] [--damage config|off|all] [--damage-parts PART ...]
+        [--view pinhole|distorted|rectified] [-v | -q]
 
 Some of the scenes are rendered inside a real arena instead of the HDRI arena: one
 ``[[cages]]`` entry per arena, each with its own share of the run. See that section of
@@ -91,6 +92,26 @@ def _parse_render_args() -> argparse.Namespace:
         help=(
             "Battle damage: 'config' keeps the [damage] split, 'off' disables it, 'all'"
             " damages every scene and rolls every instance."
+        ),
+    )
+    parser.add_argument(
+        "--view",
+        choices=("pinhole", "distorted", "rectified"),
+        default=None,
+        help=(
+            "Frame every cage scene writes: 'pinhole' at the rectified matrix, 'distorted' as the"
+            " sensor sees it, 'rectified' through the C++ Rectifier's maps. Overrides each"
+            " [[cages]] view; the HDRI arena half stays pinhole."
+        ),
+    )
+    parser.add_argument(
+        "--damage-parts",
+        nargs="+",
+        default=None,
+        metavar="PART",
+        help=(
+            "Named parts ([[robots.damage_parts]]) this batch may remove, e.g. weapon_disk"
+            " wheels. Overrides [damage].removable_parts."
         ),
     )
     verbosity = parser.add_mutually_exclusive_group()

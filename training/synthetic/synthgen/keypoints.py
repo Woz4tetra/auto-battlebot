@@ -26,6 +26,7 @@ from synthgen.gating import (
     RobotPixelStats,
     evaluate_robot_gate,
 )
+from synthgen.lens import LensView, render_normalized_to_output
 from synthgen.logsetup import get_logger
 from synthgen.reporting import DistractorSkipReason, RunStats
 from synthgen.robots import RobotInstance
@@ -70,8 +71,13 @@ def _project_keypoint_pair(
     img_w: int,
     img_h: int,
     ignore_occlusion: bool,
+    lens: LensView | None = None,
 ) -> list[tuple[float, float, int]]:
-    """Project a front/back keypoint pair to image space with visibility flags."""
+    """Project a front/back keypoint pair to image space with visibility flags.
+
+    Blender projects into the render. With a warped *lens* that is the wide render, so the point
+    is mapped into the written view, and one the view cannot see is out of frame.
+    """
     keypoints_2d: list[tuple[float, float, int]] = []
     for kp_local in (kp_front, kp_back):
         proj = project_keypoint_to_2d(kp_local, world_mat)
@@ -79,6 +85,12 @@ def _project_keypoint_pair(
             keypoints_2d.append((0.0, 0.0, 0))
             continue
         x_n, y_n, depth = proj
+        if lens is not None and lens.warps:
+            mapped = render_normalized_to_output(lens, x_n, y_n)
+            if mapped is None:
+                keypoints_2d.append((0.0, 0.0, 0))
+                continue
+            x_n, y_n = mapped
         vis = check_keypoint_visibility(
             x_n, y_n, depth, depth_map, img_w, img_h, ignore_occlusion=ignore_occlusion
         )
@@ -147,6 +159,7 @@ def build_robot_keypoint_annotations(
     img_h: int,
     min_vis: float,
     ignore_obstructions: bool,
+    lens: LensView | None = None,
 ) -> tuple[list[YoloAnnotation], list[RobotGateVerdict]]:
     """Build keypoint annotations for every robot that passes its gate.
 
@@ -170,6 +183,7 @@ def build_robot_keypoint_annotations(
             img_w,
             img_h,
             ignore_occlusion=ignore_obstructions,
+            lens=lens,
         )
         annotations.append((robot.class_id, bbox, keypoints_2d))
     return annotations, verdicts
@@ -185,6 +199,7 @@ def build_house_bot_annotation(
     kp_front: np.ndarray,
     kp_back: np.ndarray,
     ignore_occlusion: bool,
+    lens: LensView | None = None,
 ) -> YoloAnnotation | None:
     """Annotate the cage's house bot, boxed from the pixels of its own category.
 
@@ -202,7 +217,7 @@ def build_house_bot_annotation(
     if int(bw * img_w) < MIN_KEYPOINT_BBOX_DIM_PX or int(bh * img_h) < MIN_KEYPOINT_BBOX_DIM_PX:
         return None
     keypoints_2d = _project_keypoint_pair(
-        kp_front, kp_back, world_mat, depth_map, img_w, img_h, ignore_occlusion
+        kp_front, kp_back, world_mat, depth_map, img_w, img_h, ignore_occlusion, lens
     )
     return (class_id, bbox, keypoints_2d)
 
@@ -216,6 +231,7 @@ def build_distractor_keypoint_annotations(
     nhrl_class_id: int,
     ignore_occlusion: bool,
     stats: RunStats,
+    lens: LensView | None = None,
 ) -> list[YoloAnnotation]:
     """Keypoint+bbox annotations for CAD distractors carrying keypoint sidecars.
 
@@ -249,6 +265,7 @@ def build_distractor_keypoint_annotations(
             img_w,
             img_h,
             ignore_occlusion=ignore_occlusion,
+            lens=lens,
         )
         annotations.append((nhrl_class_id, bbox, keypoints_2d))
     return annotations

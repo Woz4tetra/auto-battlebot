@@ -23,7 +23,9 @@ specular = 0.2
 
 [cage]
 interior = 2.336
-wall_height = 0.66
+# Raised 0.75 m on 2026-09-13, from the 0.66 m fitted against the r1 footage, for taller glass
+# walls than Resurgence 6 had. Sets the corner posts and the top edge of every pane.
+wall_height = 1.41
 # Small: the riser under the arena is drawn `post_size` wider than the wall, and anything
 # wider than the kick rail shows up as a lit ledge the real arena does not have.
 post_size = 0.02

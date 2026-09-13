@@ -7,7 +7,8 @@ load every model once and reuse it for every later scene, so a deleted part woul
 deleted for the rest of the run and a boolean applied to mesh data would compound. Instead:
 
 * part removal hides the chosen parts from the render, which gives the same silhouette to
-  the colour pass and the segmentation pass as deleting them would;
+  the colour pass and the segmentation pass as deleting them would. Named part removal
+  hides the pieces ``split_damage_parts`` cut at load, the same way;
 * chunk removal borrows a cutter from a pool built once at startup and attaches a boolean
   difference modifier to the target mesh.
 
@@ -34,13 +35,17 @@ from synthgen.damage import (
     CUTTER_CUBE,
     CUTTER_ICOSPHERE,
     MECHANISM_CHUNK,
+    MECHANISM_NAMED,
     MECHANISM_NONE,
     MECHANISM_PARTS,
     ChunkDraw,
     DamageBudget,
     InstanceDamage,
+    NamedPartDraw,
     PartDraw,
+    RemovablePart,
     draw_chunk_damage,
+    draw_named_part_damage,
     draw_part_damage,
     sample_surface_points,
 )
@@ -66,6 +71,9 @@ class DamageTarget:
     parent: bpy.types.Object
     meshes: list[bpy.types.Object]
     keypoints: tuple[np.ndarray | None, ...]
+    # Named parts, for a robot with [[robots.damage_parts]]: their draw specs and pieces.
+    named_parts: tuple[RemovablePart, ...] = ()
+    named_pieces: dict[str, list[list[bpy.types.Object]]] = field(default_factory=dict)
 
 
 @dataclass
@@ -210,15 +218,31 @@ def _world_keypoints(parent: bpy.types.Object, *points: np.ndarray | None) -> li
     return world
 
 
+def _hide(session: DamageSession, obj: bpy.types.Object) -> None:
+    """Hide *obj* from both passes, remembering what its visibility was."""
+    session.hidden.append((obj, obj.hide_render, obj.hide_viewport))
+    obj.hide_render = True
+    obj.hide_viewport = True
+
+
 def _apply_part_draw(
     session: DamageSession, meshes: list[bpy.types.Object], draw: PartDraw
 ) -> None:
-    """Hide the drawn parts, remembering what their visibility was."""
+    """Hide the drawn parts."""
     for index in draw.part_indices:
-        obj = meshes[index]
-        session.hidden.append((obj, obj.hide_render, obj.hide_viewport))
-        obj.hide_render = True
-        obj.hide_viewport = True
+        _hide(session, meshes[index])
+
+
+def _apply_named_draw(
+    session: DamageSession,
+    pieces: dict[str, list[list[bpy.types.Object]]],
+    draw: NamedPartDraw,
+) -> None:
+    """Hide every object of every drawn piece."""
+    for name, indices in draw.removed:
+        for index in indices:
+            for obj in pieces[name][index]:
+                _hide(session, obj)
 
 
 def _apply_chunk_draw(
@@ -260,6 +284,22 @@ def _damage_instance(
     meshes = instance.meshes
     if not meshes:
         return undamaged
+
+    if instance.named_parts:
+        # A robot that names its parts loses whole assemblies. The random-fraction path
+        # below is what they replace, so a batch that allows none of them leaves it clean.
+        named_draw = draw_named_part_damage(
+            list(instance.named_parts), cfg.removable_parts, cfg.part_count
+        )
+        if named_draw is None:
+            return undamaged
+        _apply_named_draw(session, instance.named_pieces, named_draw)
+        return InstanceDamage(
+            class_name=class_name,
+            damage=named_draw.damage,
+            mechanism=MECHANISM_NAMED,
+            parts=named_draw.removed,
+        )
 
     if len(meshes) > 1:
         part_draw = draw_part_damage(
@@ -340,6 +380,18 @@ def apply_scene_damage(
                 parent=robot.parent,
                 meshes=[m.blender_obj for m in robot.meshes],
                 keypoints=(robot.kp_front, robot.kp_back),
+                named_parts=tuple(
+                    RemovablePart(
+                        name=part.name,
+                        pieces=len(robot.damage_pieces.get(part.name, [])),
+                        subset=part.subset,
+                        includes=part.includes,
+                        count_weights=part.count_weights,
+                        selectable=part.selectable,
+                    )
+                    for part in robot.config.damage_parts
+                ),
+                named_pieces=robot.damage_pieces,
             ),
         )
         for robot in robots

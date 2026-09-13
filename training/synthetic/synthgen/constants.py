@@ -70,3 +70,15 @@ PROGRESS_LOG_SCENE_INTERVAL = 50
 # runs on the render device, where BlenderProc's default Intel compositor node cost 6 s of
 # CPU per ten-frame scene for the same output.
 ARENA_DENOISER = "OPTIX"
+
+# Camera views a cage frame can be written in; see synthgen.lens. `pinhole` renders at the
+# rectified matrix, `distorted` is the raw sensor frame, `rectified` is that frame put back
+# through the C++ Rectifier's maps.
+VIEW_PINHOLE = "pinhole"
+VIEW_DISTORTED = "distorted"
+VIEW_RECTIFIED = "rectified"
+VIEWS: tuple[str, ...] = (VIEW_PINHOLE, VIEW_DISTORTED, VIEW_RECTIFIED)
+# The two rectification alphas the pose camera server toggles between. 1.0 keeps every source
+# pixel, so the frame is wider than the lens and carries a black border; 0.0 crops to the largest
+# all-valid rectangle, so there is no border and a narrower field. The C++ `Rectifier` ships 1.0.
+ALPHAS: tuple[float, ...] = (1.0, 0.0)

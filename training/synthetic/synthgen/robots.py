@@ -2,17 +2,25 @@
 
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import blenderproc as bproc
+import bmesh
 import bpy
 import mathutils
 import numpy as np
 
 from synthgen.asset_index import PathResolveFn
-from synthgen.configuration import ConfigError, MaterialConfig, RandomizationConfig, RobotConfig
+from synthgen.configuration import (
+    ConfigError,
+    DamagePartConfig,
+    MaterialConfig,
+    RandomizationConfig,
+    RobotConfig,
+)
 from synthgen.constants import ROBOT_CATEGORY_ID
+from synthgen.damage import FacePiece, assign_faces_to_pieces, model_box_to_blender_local
 from synthgen.logsetup import get_logger
 from synthgen.materials import apply_pbr_materials
 
@@ -39,6 +47,8 @@ class RobotInstance:
     class_id: int
     config: RobotConfig
     weight: float = 1.0
+    # Named damage part -> its pieces, each the objects the load-time split cut for it.
+    damage_pieces: dict[str, list[list[bpy.types.Object]]] = field(default_factory=dict)
 
 
 def hide_robot(robot: RobotInstance) -> None:
@@ -164,6 +174,109 @@ def import_gltf_as_robot(
     return bproc_meshes, parent, bbox_corners
 
 
+def _keep_faces(obj: bpy.types.Object, keep: np.ndarray) -> None:
+    """Delete every face of *obj* whose *keep* entry is False, with its orphaned geometry."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.faces.ensure_lookup_table()
+    doomed = [bm.faces[int(i)] for i in np.flatnonzero(~keep)]
+    bmesh.ops.delete(bm, geom=doomed, context="FACES")
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
+def _damage_face_pieces(
+    parts: tuple[DamagePartConfig, ...],
+) -> tuple[list[tuple[str, int]], list[FacePiece]]:
+    """Every piece of every part, in config order: its (part, index) key and where it is."""
+    keys: list[tuple[str, int]] = []
+    face_pieces: list[FacePiece] = []
+    for part in parts:
+        for index, boxes in enumerate(part.pieces):
+            keys.append((part.name, index))
+            face_pieces.append(
+                FacePiece(
+                    boxes=tuple(model_box_to_blender_local(box) for box in boxes),
+                    objects=part.objects,
+                    exclude_objects=part.exclude_objects,
+                )
+            )
+    return keys, face_pieces
+
+
+def _parent_face_centres(obj: bpy.types.Object) -> np.ndarray:
+    """*obj*'s face centres in its parent's frame, as an ``(n, 3)`` array.
+
+    matrix_local is relative to robot_parent, which is the frame keypoints live in.
+    """
+    count = len(obj.data.polygons)
+    raw = np.empty(count * 3, dtype=np.float32)
+    obj.data.polygons.foreach_get("center", raw)
+    local = np.array(obj.matrix_local, dtype=np.float64)
+    return raw.reshape(count, 3).astype(np.float64) @ local[:3, :3].T + local[:3, 3]
+
+
+def split_damage_parts(
+    meshes: list[bproc.types.MeshObject], parts: tuple[DamagePartConfig, ...]
+) -> tuple[list[bproc.types.MeshObject], dict[str, list[list[bpy.types.Object]]]]:
+    """Cut a robot's meshes into the named pieces its ``damage_parts`` describe.
+
+    A CAD GLB grouped by material colour holds one object per colour, so the weapon disk
+    shares objects with every other part painted the same. Faces are assigned to pieces by
+    centre, and each piece's faces move into their own object, once, before materials and
+    segmentation ids go on, so the pieces render and label like any other robot mesh.
+    Battle damage then hides whole pieces and never edits mesh data mid-run.
+
+    Returns:
+        ``(meshes, pieces)``: the robot's mesh list with the pieces in it, and per part name
+        the pieces that received faces, each a list of objects.
+    """
+    if not parts:
+        return meshes, {}
+    keys, face_pieces = _damage_face_pieces(parts)
+
+    found: list[list[bpy.types.Object]] = [[] for _ in keys]
+    kept: list[bproc.types.MeshObject] = []
+    for mesh in meshes:
+        obj = mesh.blender_obj
+        count = len(obj.data.polygons)
+        assign = assign_faces_to_pieces(_parent_face_centres(obj), obj.name, face_pieces)
+        for piece_index in np.unique(assign[assign >= 0]):
+            part_name, index = keys[int(piece_index)]
+            piece = obj.copy()
+            piece.data = obj.data.copy()
+            piece.name = f"{obj.name}_{part_name}_{index}"
+            for collection in obj.users_collection:
+                collection.objects.link(piece)
+            _keep_faces(piece, assign == piece_index)
+            found[int(piece_index)].append(piece)
+            kept.append(bproc.types.MeshObject(piece))
+        if count and np.all(assign >= 0):
+            bpy.data.objects.remove(obj, do_unlink=True)
+            continue
+        if np.any(assign >= 0):
+            _keep_faces(obj, assign < 0)
+        kept.append(mesh)
+
+    pieces: dict[str, list[list[bpy.types.Object]]] = {part.name: [] for part in parts}
+    for (part_name, index), objects in zip(keys, found):
+        if objects:
+            pieces[part_name].append(objects)
+        else:
+            logger.warning(
+                "Damage part %s piece %d holds no faces; check its boxes", part_name, index
+            )
+    logger.info(
+        "Split named damage parts (faces per piece): %s",
+        {
+            name: [sum(len(o.data.polygons) for o in objects) for objects in part_pieces]
+            for name, part_pieces in pieces.items()
+        },
+    )
+    return kept, pieces
+
+
 def compute_ground_z(
     robot_meshes: list[bproc.types.MeshObject],
     robot_parent: bpy.types.Object,
@@ -236,6 +349,7 @@ def load_robots(
         meshes, parent, bbox = import_gltf_as_robot(
             rcfg.model_path, resolve, rcfg.scale, category_id=robot_category_id
         )
+        meshes, damage_pieces = split_damage_parts(meshes, rcfg.damage_parts)
         logger.info("%d mesh parts loaded, instance_id=%d", len(meshes), ri)
         size = robot_max_dimension(bbox)
         logger.info("Robot max dimension: %.4f m", size)
@@ -259,6 +373,7 @@ def load_robots(
                 class_id=yolo_class_id,
                 config=rcfg,
                 weight=rcfg.weight,
+                damage_pieces=damage_pieces,
             )
         )
     return robots

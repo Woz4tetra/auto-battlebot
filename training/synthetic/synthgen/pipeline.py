@@ -62,7 +62,9 @@ from synthgen.configuration import (
     ConfigError,
     RenderConfig,
     apply_damage_mode,
+    apply_damage_parts,
     apply_venue,
+    apply_view,
     choose_cage,
     load_render_config,
 )
@@ -101,6 +103,7 @@ from synthgen.keypoints import (
     build_house_bot_annotation,
     build_robot_keypoint_annotations,
 )
+from synthgen.lens import LensView, warp_image, warp_label
 from synthgen.logsetup import fmt_ctx, get_logger
 from synthgen.materials import jitter_materials, load_cc_materials
 from synthgen.render_settings import occlusion_pass, set_denoiser, use_gpu_only
@@ -178,6 +181,8 @@ class SceneState:
     mounts: tuple[CageMount, ...] = ()
     # One entry per instance damage was rolled for, damaged or not.
     damage: tuple[InstanceDamage, ...] = ()
+    # The cage's view, which keypoints are projected through. None for the HDRI half.
+    lens: LensView | None = None
 
 
 @dataclass
@@ -310,8 +315,30 @@ def _save_debug_frame(data: dict, layout: OutputLayout) -> None:
     logger.info("Saved debug image: %s", debug_path)
 
 
+def _warp_render_data(lens: LensView | None, data: dict) -> dict:
+    """*data* with every per-frame map warped from the render into *lens*'s view.
+
+    Colour warps bilinear; every other map at render resolution (category, instance, depth)
+    warps nearest, so ids and depths are never blended. Unwarped views pass through untouched.
+    """
+    if lens is None or not lens.warps:
+        return data
+    render_shape = (lens.render_size[1], lens.render_size[0])
+    warped = dict(data)
+    for key, frames in data.items():
+        if isinstance(frames, np.ndarray) and frames.ndim >= 3:
+            frames = list(frames)
+        if not isinstance(frames, list) or not frames or not isinstance(frames[0], np.ndarray):
+            continue
+        if frames[0].shape[:2] != render_shape:
+            continue
+        warp = warp_image if key == "colors" else warp_label
+        warped[key] = [warp(lens, frame) for frame in frames]
+    return warped
+
+
 def _render_clean_inst_seg_maps(
-    inst_seg_maps: Any, active_distractors: list[DistractorInstance]
+    inst_seg_maps: Any, active_distractors: list[DistractorInstance], lens: LensView | None
 ) -> Any:
     """Render an occlusion-free instance segmentation pass with distractors hidden.
 
@@ -334,7 +361,7 @@ def _render_clean_inst_seg_maps(
 
     with occlusion_pass():
         clean_data = bproc.renderer.render()
-    clean_inst_seg_maps = clean_data.get("robot_instance_id_segmaps")
+    clean_inst_seg_maps = _warp_render_data(lens, clean_data).get("robot_instance_id_segmaps")
 
     for distractor, (mat, hidden) in zip(active_distractors, saved):
         if not hidden:
@@ -448,6 +475,7 @@ def _extract_frame_annotations(
         img_h,
         cfg.output.min_robot_visibility,
         cfg.output.ignore_obstructions,
+        lens=scene.lens,
     )
     if scheme.nhrl_class_id is not None:
         keypoint_annotations.extend(
@@ -460,6 +488,7 @@ def _extract_frame_annotations(
                 scheme.nhrl_class_id,
                 ignore_occlusion=cfg.output.ignore_obstructions,
                 stats=stats,
+                lens=scene.lens,
             )
         )
     if scheme.house_bot_class_id is not None and scene.house_bot is not None:
@@ -473,6 +502,7 @@ def _extract_frame_annotations(
             scene.house_bot.kp_front,
             scene.house_bot.kp_back,
             ignore_occlusion=cfg.output.ignore_obstructions,
+            lens=scene.lens,
         )
         if house_bot is not None:
             keypoint_annotations.append(house_bot)
@@ -718,7 +748,9 @@ def render_scene(
     try:
         _stage_cameras(cam_poses, cage, fallback_count, stats)
 
-        data = bproc.renderer.render()
+        # Every map comes out of Blender at render resolution; everything below works in the
+        # written view, so the warp happens once, here, before anything reads a pixel.
+        data = _warp_render_data(None if cage is None else cage.lens, bproc.renderer.render())
 
         if scene_idx == 0:
             _save_debug_frame(data, layout)
@@ -745,7 +777,9 @@ def render_scene(
         clean_inst_seg_maps = (
             None
             if cfg.output.ignore_obstructions
-            else _render_clean_inst_seg_maps(inst_seg_maps, active_distractors)
+            else _render_clean_inst_seg_maps(
+                inst_seg_maps, active_distractors, None if cage is None else cage.lens
+            )
         )
 
         scene = SceneState(
@@ -759,6 +793,7 @@ def render_scene(
             venue="arena" if cage is None else cage.name,
             mounts=mounts,
             damage=tuple(instance_damage),
+            lens=None if cage is None else cage.lens,
         )
         written = _process_scene_frames(
             cfg, scheme, layout, scene, data, clean_inst_seg_maps, stats, global_idx
@@ -841,7 +876,9 @@ def _apply_cli_overrides(cfg: RenderConfig, args: argparse.Namespace) -> RenderC
         output = replace(output, images_per_scene=args.images_per_scene)
     cfg = replace(cfg, output=output)
     cfg = apply_venue(cfg, getattr(args, "venue", None))
-    return apply_damage_mode(cfg, getattr(args, "damage", "config"))
+    cfg = apply_damage_mode(cfg, getattr(args, "damage", "config"))
+    cfg = apply_damage_parts(cfg, getattr(args, "damage_parts", None))
+    return apply_view(cfg, getattr(args, "view", None))
 
 
 def run(args: argparse.Namespace) -> None:
@@ -903,6 +940,16 @@ def run(args: argparse.Namespace) -> None:
     # ------- The real arenas, for the cage share of the scene mix -------
 
     cages = _build_cages(cfg, scheme)
+    warped_cages = [cage.name for cage in cages if cage.lens.warps]
+    arena_share = 1.0 - sum(cage.probability for cage in cfg.cages if cage.active)
+    if warped_cages and arena_share > 1e-9:
+        logger.warning(
+            "cages %s write warped frames, but the HDRI arena half (%.0f%% of images) has no"
+            " lens model and stays pinhole; pin the run to a cage (--venue or only_cage) to keep"
+            " one view",
+            warped_cages,
+            100 * arena_share,
+        )
 
     # ------- Battle damage cutters -------
 

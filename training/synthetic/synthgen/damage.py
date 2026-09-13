@@ -4,7 +4,14 @@ A real robot two minutes into a match is missing parts. Every synthetic robot so
 factory fresh, so the detector never sees a chewed one until the match does. This module
 draws the damage; ``synthgen.damage_scene`` applies it to the Blender scene and undoes it.
 
-Two mechanisms, chosen by mesh structure:
+Three mechanisms, chosen by what the robot's config and mesh structure allow:
+
+* **Named part removal**, for a robot whose ``[[robots.damage_parts]]`` names its real
+  assemblies (wheels, weapon disk, top plate). A CAD export grouped by material colour has
+  no part structure to hide, so ``synthgen.robots.split_damage_parts`` cuts the model into
+  those named pieces once at load, and a draw removes whole assemblies. The random-fraction
+  mechanism below hid a few bolts at a time, which never looked like a robot that lost a
+  fight. Named removal skips the keypoint protection: the batch asked for those parts gone.
 
 * **Part removal**, for the CAD robots. ``import_gltf_as_robot`` returns the GLB's mesh
   objects, so those robots arrive already split into parts and a subset can simply go.
@@ -39,6 +46,7 @@ import numpy as np
 MECHANISM_NONE = "none"
 MECHANISM_PARTS = "parts"
 MECHANISM_CHUNK = "chunk"
+MECHANISM_NAMED = "named"
 
 CUTTER_CUBE = "cube"
 CUTTER_ICOSPHERE = "icosphere"
@@ -58,6 +66,8 @@ class InstanceDamage:
     class_name: str
     damage: float
     mechanism: str
+    # Named removal only: (part name, removed piece indices), in draw order.
+    parts: tuple[tuple[str, tuple[int, ...]], ...] = ()
 
     @property
     def is_damaged(self) -> bool:
@@ -66,11 +76,14 @@ class InstanceDamage:
 
     def as_row(self) -> dict[str, object]:
         """The manifest form: compact, and stable across mechanisms."""
-        return {
+        row: dict[str, object] = {
             "class": self.class_name,
             "damage": round(float(self.damage), 4),
             "mechanism": self.mechanism,
         }
+        if self.parts:
+            row["parts"] = {name: list(indices) for name, indices in self.parts}
+        return row
 
 
 @dataclass
@@ -114,6 +127,161 @@ class ChunkDraw:
     centre: tuple[float, float, float]
     radius_m: float
     volume_fraction: float
+
+
+@dataclass(frozen=True)
+class RemovablePart:
+    """One named assembly a robot can lose, as the draw sees it.
+
+    ``pieces`` counts the separate pieces the load-time split produced for it: one for an
+    assembly that goes whole, one per box for a ``subset`` part such as the four wheels,
+    where a draw takes 1..pieces of them.
+    """
+
+    name: str
+    pieces: int
+    subset: bool = False
+    # Parts that go with this one, e.g. the weapon disk with the weapon module it hangs on.
+    includes: tuple[str, ...] = ()
+    # Subset parts: relative odds of losing 1, 2, ... pieces. Empty means every count is
+    # equally likely; a wheel usually comes off alone, so the wheels weight one heavily.
+    count_weights: tuple[float, ...] = ()
+    # False for a part that only goes with another (a decal with its plate): never drawn alone.
+    selectable: bool = True
+
+
+@dataclass(frozen=True)
+class NamedPartDraw:
+    """Which pieces of which named parts to hide, and what fraction of all pieces that is."""
+
+    removed: tuple[tuple[str, tuple[int, ...]], ...]
+    damage: float
+
+
+@dataclass(frozen=True)
+class FacePiece:
+    """Where one piece of a named part is, for assigning mesh faces to it at load.
+
+    Boxes are ``(x_min, y_min, z_min, x_max, y_max, z_max)`` in the robot's parent frame.
+    ``objects`` and ``exclude_objects`` filter on the Blender object name, matched by
+    ``object_name_matches``; for a GLB grouped by colour that name is the material colour.
+    """
+
+    boxes: tuple[tuple[float, float, float, float, float, float], ...]
+    objects: tuple[str, ...] = ()
+    exclude_objects: tuple[str, ...] = ()
+
+
+def model_box_to_blender_local(
+    box: tuple[float, float, float, float, float, float],
+) -> tuple[float, float, float, float, float, float]:
+    """A model-frame (glTF, Y-up) box in Blender local axes, the conversion keypoints get.
+
+    ``(x, y, z)`` maps to ``(x, -z, y)``, so the z bounds swap and negate into y.
+    """
+    x0, y0, z0, x1, y1, z1 = box
+    return (x0, -z1, y0, x1, -z0, y1)
+
+
+def base_object_name(name: str) -> str:
+    """*name* without Blender's ``.001`` duplicate suffix."""
+    head, dot, tail = name.rpartition(".")
+    return head if dot and tail.isdigit() else name
+
+
+def object_name_matches(name: str, pattern: str) -> bool:
+    """Whether Blender object *name* is *pattern*, or *pattern* plus a ``_N`` index.
+
+    A Blender glTF export splits one colour into ``mat_128_128_128``, ``mat_128_128_128_1``,
+    and so on, and a second import appends ``.001``; all of them are the pattern's colour.
+    """
+    base = base_object_name(name)
+    if base == pattern:
+        return True
+    head, underscore, tail = base.rpartition("_")
+    return bool(underscore) and head == pattern and tail.isdigit()
+
+
+def assign_faces_to_pieces(
+    centres: np.ndarray, object_name: str, pieces: list[FacePiece]
+) -> np.ndarray:
+    """Per face, the index of the first piece whose boxes hold its centre, or -1.
+
+    First match wins, so config order settles faces two parts' boxes both hold: the weapon
+    disk is listed before the weapon module that surrounds it.
+
+    Args:
+        centres: ``(n, 3)`` face centres in the parent frame.
+        object_name: The Blender object the faces belong to.
+        pieces: Every piece of every named part, in config order.
+    """
+    pts = np.asarray(centres, dtype=np.float64).reshape(-1, 3)
+    assign = np.full(len(pts), -1, dtype=np.int64)
+    for index, piece in enumerate(pieces):
+        if piece.objects and not any(object_name_matches(object_name, p) for p in piece.objects):
+            continue
+        if any(object_name_matches(object_name, p) for p in piece.exclude_objects):
+            continue
+        inside = np.zeros(len(pts), dtype=bool)
+        for x0, y0, z0, x1, y1, z1 in piece.boxes:
+            inside |= np.all((pts >= (x0, y0, z0)) & (pts <= (x1, y1, z1)), axis=1)
+        assign[inside & (assign == -1)] = index
+    return assign
+
+
+def piece_count(part: RemovablePart) -> int:
+    """How many of a subset part's pieces one draw removes, from ``count_weights``.
+
+    Weights past the part's piece count are ignored and missing ones count as zero, so a
+    wheels part that lost a box to an empty split still draws from the counts it can reach.
+    """
+    counts = list(range(1, part.pieces + 1))
+    if not part.count_weights:
+        return random.choice(counts)
+    weights = [
+        part.count_weights[i] if i < len(part.count_weights) else 0.0 for i in range(len(counts))
+    ]
+    if sum(weights) <= 0.0:
+        return random.choice(counts)
+    return random.choices(counts, weights=weights, k=1)[0]
+
+
+def draw_named_part_damage(
+    parts: list[RemovablePart],
+    allowed: tuple[str, ...],
+    count_range: tuple[int, int],
+) -> NamedPartDraw | None:
+    """Pick 1..n of the allowed named parts to remove, or None when none is allowed.
+
+    Args:
+        parts: The robot's named parts, in config order. Parts with no pieces are skipped.
+        allowed: The batch's ``[damage].removable_parts``; empty allows every part.
+        count_range: How many distinct parts one draw removes, clamped to what is allowed.
+    """
+    by_name = {part.name: part for part in parts if part.pieces > 0}
+    candidates = [
+        name for name in by_name if by_name[name].selectable and (not allowed or name in allowed)
+    ]
+    if not candidates:
+        return None
+    high = max(1, min(count_range[1], len(candidates)))
+    low = max(1, min(count_range[0], high))
+    removed: dict[str, set[int]] = {}
+    for name in random.sample(candidates, random.randint(low, high)):
+        part = by_name[name]
+        if part.subset:
+            chosen = random.sample(range(part.pieces), piece_count(part))
+            removed.setdefault(name, set()).update(chosen)
+        else:
+            removed.setdefault(name, set()).update(range(part.pieces))
+        for included in part.includes:
+            if included in by_name:
+                removed.setdefault(included, set()).update(range(by_name[included].pieces))
+    total = sum(part.pieces for part in by_name.values())
+    return NamedPartDraw(
+        removed=tuple((name, tuple(sorted(indices))) for name, indices in removed.items()),
+        damage=sum(len(indices) for indices in removed.values()) / total,
+    )
 
 
 def bbox_corner_volume(corners: np.ndarray) -> float:

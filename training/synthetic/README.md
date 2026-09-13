@@ -72,6 +72,48 @@ $r --venue nhrl_cage   --damage all --seed 3 --out ../data/synthetic/sample/nhrl
 A run into a directory that already holds frames resumes after them, so clear the
 directory first for a fresh set.
 
+Mrs Buff loses whole assemblies rather than a scatter of hidden parts. Her
+`[[robots.damage_parts]]` in `config.toml` name six a batch can choose: `weapon_disk`, `wheels`,
+`wheel_side_guards`, `weapon_module` (takes the disk with it), `top_plate` and `bottom_plate`
+(each takes its decal, `top_sticker` or `bottom_sticker`, which are `selectable = false`). The
+GLB groups faces by colour, so each part is a set of model-frame boxes, and the faces inside are
+split into their own objects once at load. A `subset` part loses 1..n of its pieces, drawn by
+`count_weights`: one wheel or one side guard is the likely loss. A piece is one box under
+`boxes`, or several under `pieces` (a guard is a side wall plus a front arm). A damaged instance
+loses `[damage].part_count` of the parts in `[damage].removable_parts` (empty allows all), and
+`--damage-parts` pins that pre-selection for one batch. The manifest records which went, as
+`"mechanism": "named"` with a `parts` map of piece indices. One set per part:
+
+```bash
+for part in weapon_disk wheels wheel_side_guards weapon_module top_plate bottom_plate; do
+  $r --venue nhrl_cage --damage all --damage-parts $part --out ../data/synthetic/sample/mrs_buff_$part
+done
+```
+
+### Camera views
+
+Cage scenes write one of three views, set per cage with `view` in `[[cages]]` or for every cage
+with `--view`. `synthgen/lens.py` owns all three, and `pose_camera_server.py` shows its `V` views
+through the same module, so a frame flown in the preview renders the same way in the batch.
+
+| `view` | Frame written | Render cost |
+| --- | --- | --- |
+| `pinhole` (default) | Rendered at the rectified matrix, no distortion and no border | 1x |
+| `distorted` | The raw sensor frame, through the calibration's OpenCV distortion model | 4x pixels (2560x1442 for 1280x720, e-CAM25) |
+| `rectified` | The sensor frame through the C++ `Rectifier`'s maps at `rectify_alpha`, black border included | 4x pixels, as `distorted` |
+
+The warped views render a pinhole frame wide enough to hold every sensor ray, at the sensor's own
+focal length, and remap it into the view. Labels follow: segmentation, instance and depth maps
+warp nearest-neighbour, so boxes come from the warped silhouettes, and keypoints are mapped through
+the same model, with visibility 0 for any the view cannot see (outside the sensor, or in the
+rectified border). The HDRI arena half has no lens model and stays pinhole, so pin a view
+experiment to a cage:
+
+```bash
+training/synthetic/docker/run_synthetic.sh --require-gpu auto-battlebot-synthetic \
+  blenderproc run render_scenes.py -- config_cage_nhrl.toml --view distorted --out ../data/synthetic/nhrl_distorted
+```
+
 ### Host setup (optional/manual)
 
 Set up an environment:

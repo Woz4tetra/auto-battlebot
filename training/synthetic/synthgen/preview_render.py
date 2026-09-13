@@ -3,12 +3,10 @@
 Owns three things the HTTP half must never touch: the render settings for each mode, the camera
 pose, and the three views a frame can be shown in.
 
-**Views.** `pinhole` renders at the rectified matrix, which is what the batch pipeline writes
-today. `distorted` renders what the sensor actually sees, through BlenderProc's own
-`set_lens_distortion`. `rectified` puts that distorted frame back through the same
-`initUndistortRectifyMap` the C++ `Rectifier` builds on the robot, black border and all. Flying in
-`pinhole` and flipping to `rectified` is the comparison that decides whether the batch render
-should carry distortion.
+**Views.** `pinhole`, `distorted` and `rectified` come from `synthgen.lens`, the same module the
+batch pipeline writes its frames through, so a pose flown here in one view renders in the batch
+exactly as it looked. `pinhole` scales with `resolution_percentage` like any render; the warped
+views build their lens at the preview size, because their maps index pixels.
 
 **Mode switching writes a complete set of properties, never deltas.** `restore_render_state` from
 `cage_scene` puts back the drift-prone half (color management, bounces, K, resolution); this
@@ -44,8 +42,10 @@ from auto_battlebot.perception.camera_calibration import CameraCalibration, rect
 from synthgen.cage import panels_by_wall
 from synthgen.cage_scene import RenderState, restore_render_state, snapshot_render_state
 from synthgen.cage_spec import CageSceneSpec, panels_outside_camera
+from synthgen.constants import ALPHAS
+from synthgen.lens import LensView, build_lens_view, warp_image
 from synthgen.logsetup import get_logger
-from synthgen.preview_server import ALPHAS, mat_sample_points
+from synthgen.preview_server import mat_sample_points
 
 logger = get_logger(__name__)
 
@@ -57,20 +57,17 @@ PREVIEW_QUALITY = 90
 
 @dataclass(frozen=True)
 class ViewSetup:
-    """Everything one view needs, cached so a key press does not redo the expensive parts.
+    """One view's lens and render settings, cached so a key press does not rebuild the maps.
 
-    `set_lens_distortion` solves the inverse distortion per output pixel and enlarges the render,
-    so both its maps and the enlarged intrinsics it chose are kept here. Switching back to a view
-    re-applies those intrinsics rather than solving again.
+    Building a warped lens solves the undistortion for every output pixel, so it is kept here,
+    and switching back to a view re-applies its intrinsics rather than solving again.
     """
 
-    name: str
+    lens: LensView
     size: tuple[int, int]
     intrinsics: np.ndarray
     intrinsics_size: tuple[int, int]
     resolution_percentage: int
-    distortion_map: tuple[np.ndarray, np.ndarray] | None = None
-    rectify_map: tuple[np.ndarray, np.ndarray] | None = None
 
 
 class OneWayGlass:
@@ -287,49 +284,27 @@ class PreviewRenderer:
         if view == "pinhole":
             # Scale with resolution_percentage, never by rescaling K: it is applied after
             # projection, so the preview frames identically to the full render by construction.
+            lens = build_lens_view(self._calibration, self._render_size, view, alpha)
             return ViewSetup(
-                name=view,
+                lens=lens,
                 size=size,
-                intrinsics=self._k_rect[alpha],
-                intrinsics_size=self._render_size,
+                intrinsics=lens.render_k,
+                intrinsics_size=lens.render_size,
                 resolution_percentage=self._preview_percentage if preview else 100,
             )
 
-        # Distorted views build the mapping at their own size, because set_lens_distortion
-        # enlarges the render and its mapping indexes that enlarged frame in pixels.
-        calibration = self._calibration.scaled(*size)
-        bproc.camera.set_intrinsics_from_K_matrix(calibration.K, size[0], size[1])
-        bpy.context.scene.render.resolution_percentage = 100
-        k1, k2, p1, p2, k3 = calibration.distortion
-        mapping = bproc.camera.set_lens_distortion(k1, k2, k3, p1, p2)
-        enlarged = bproc.camera.get_intrinsics_as_K_matrix()
-        enlarged_size = (
-            int(bpy.context.scene.render.resolution_x),
-            int(bpy.context.scene.render.resolution_y),
-        )
-        # BlenderProc applies this with scipy's map_coordinates, which costs ~100 ms at preview
-        # size. The same mapping as an OpenCV remap is sub-millisecond and bilinear either way.
-        map_y = np.ascontiguousarray(mapping[0].reshape(size[1], size[0]), dtype=np.float32)
-        map_x = np.ascontiguousarray(mapping[1].reshape(size[1], size[0]), dtype=np.float32)
+        # Warped views build the lens at their own size, because its maps index the wide render
+        # in pixels.
+        lens = build_lens_view(self._calibration, size, view, alpha)
         logger.info(
-            "%s view at %dx%d renders an enlarged %dx%d frame",
-            view,
-            size[0],
-            size[1],
-            *enlarged_size,
+            "%s view at %dx%d renders a wide %dx%d frame", view, size[0], size[1], *lens.render_size
         )
-        rectify = None
-        if view == "rectified":
-            map_rx, map_ry, _ = rectify_maps(self._calibration, size, alpha)
-            rectify = (map_rx, map_ry)
         return ViewSetup(
-            name=view,
+            lens=lens,
             size=size,
-            intrinsics=np.asarray(enlarged),
-            intrinsics_size=enlarged_size,
+            intrinsics=lens.render_k,
+            intrinsics_size=lens.render_size,
             resolution_percentage=100,
-            distortion_map=(map_x, map_y),
-            rectify_map=rectify,
         )
 
     # -- pixels ----------------------------------------------------------------------------
@@ -341,7 +316,7 @@ class PreviewRenderer:
             bpy.ops.render.render(write_still=True)
 
     def _finish(self, setup: ViewSetup, path: Path, quality: int) -> bytes:
-        if setup.distortion_map is None and setup.rectify_map is None:
+        if not setup.lens.warps:
             return path.read_bytes()  # Blender's own JPEG, already color managed
         image = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if image is None:
@@ -354,23 +329,7 @@ class PreviewRenderer:
         return bytes(encoded)
 
     def _warp(self, setup: ViewSetup, image: np.ndarray) -> np.ndarray:
-        if setup.distortion_map is not None:
-            map_x, map_y = setup.distortion_map
-            image = cv2.remap(
-                image, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
-            )
-        if setup.rectify_map is not None:
-            map_x, map_y = setup.rectify_map
-            # Constant black, not edge replication: the border is the point of this view.
-            image = cv2.remap(
-                image,
-                map_x,
-                map_y,
-                cv2.INTER_LINEAR,
-                borderMode=cv2.BORDER_CONSTANT,
-                borderValue=(0, 0, 0),
-            )
-        return image
+        return warp_image(setup.lens, image)
 
 
 class RobotField:

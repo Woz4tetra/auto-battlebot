@@ -33,6 +33,7 @@ import numpy as np
 from auto_battlebot.perception.cage_calibration import OPENCV_TO_BLENDER_CAMERA
 from synthgen.cage_mount import CageMount, CageMountRanges
 from synthgen.cage_spec import CageSceneSpec, panels_outside_camera
+from synthgen.constants import ALPHAS, VIEWS
 from synthgen.freefly import (
     FreeflyPose,
     clamp_mount_to_ranges,
@@ -47,11 +48,6 @@ from synthgen.logsetup import get_logger
 
 logger = get_logger(__name__)
 
-VIEWS: tuple[str, ...] = ("pinhole", "distorted", "rectified")
-# The two rectification alphas worth comparing. 1.0 keeps every source pixel, so the frame is
-# wider than the lens and carries a black border; 0.0 crops to the largest all-valid rectangle,
-# so there is no border and a narrower field. The C++ `Rectifier` ships 1.0.
-ALPHAS: tuple[float, ...] = (1.0, 0.0)
 FRAME_POLL_TIMEOUT_S = 2.0
 _MAX_BODY_BYTES = 64 * 1024
 

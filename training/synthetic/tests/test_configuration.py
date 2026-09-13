@@ -10,7 +10,9 @@ from synthgen.configuration import (
     PathResolver,
     _parse_cages,
     apply_damage_mode,
+    apply_damage_parts,
     apply_venue,
+    apply_view,
     choose_cage,
     load_render_config,
 )
@@ -80,7 +82,7 @@ class TestRealConfig:
         assert cfg.distractors.vram_budget_mb == pytest.approx(3500.0)
         assert cfg.distractors.base_dimension_m == pytest.approx(0.25)
         assert cfg.distractors.scale_range == (0.5, 2.0)
-        assert cfg.distractors.robot_air_probability == pytest.approx(0.3)
+        assert cfg.distractors.robot_air_probability == pytest.approx(0.1)
         assert cfg.distractors.has_cad_source() is True
         kinds = [s.effective_kind() for s in cfg.distractors.sources]
         assert "cad" in kinds
@@ -411,3 +413,164 @@ class TestDamage:
         toml = MINIMAL_TOML + '\n[damage]\nprotected_name_patterns = ["Chassis"]\n'
         cfg = load_render_config(_write_config(tmp_path, toml))
         assert cfg.damage.protected_name_patterns == ("chassis",)
+
+
+PART_TOML = """
+[[robots.damage_parts]]
+name = "disk"
+boxes = [[0.0, 0.0, 0.0, 0.1, 0.1, 0.1]]
+
+[[robots.damage_parts]]
+name = "module"
+includes = ["disk"]
+boxes = [[0.0, 0.0, 0.0, 0.2, 0.2, 0.2]]
+"""
+
+
+class TestDamageParts:
+    def test_shipped_config_names_mrs_buff_parts(self) -> None:
+        cfg = load_render_config(REAL_CONFIG)
+        buff = next(robot for robot in cfg.robots if robot.name == "mrs_buff_mk3")
+        parts = {part.name: part for part in buff.damage_parts}
+        assert list(parts) == [
+            "top_sticker",
+            "bottom_sticker",
+            "weapon_disk",
+            "wheels",
+            "wheel_side_guards",
+            "weapon_module",
+            "top_plate",
+            "bottom_plate",
+        ]
+        assert parts["wheels"].subset and len(parts["wheels"].pieces) == 4
+        # A guard is one printed piece per side, a side wall and a front arm.
+        guards = parts["wheel_side_guards"]
+        assert guards.subset and [len(piece) for piece in guards.pieces] == [2, 2]
+        # One wheel or one guard at a time is the usual loss.
+        assert parts["wheels"].count_weights[0] == max(parts["wheels"].count_weights)
+        assert guards.count_weights[0] > guards.count_weights[1]
+        assert parts["weapon_module"].includes == ("weapon_disk",)
+        assert parts["top_plate"].includes == ("top_sticker",)
+        assert not parts["top_sticker"].selectable
+        assert cfg.damage.removable_parts == ()
+        assert cfg.damage.part_count == (1, 3)
+
+    def test_parses_parts(self, tmp_path: Path) -> None:
+        cfg = load_render_config(_write_config(tmp_path, MINIMAL_TOML + PART_TOML))
+        disk, module = cfg.robots[0].damage_parts
+        assert disk.pieces == (((0.0, 0.0, 0.0, 0.1, 0.1, 0.1),),)
+        assert module.includes == ("disk",) and not module.subset
+
+    def test_unknown_include_is_an_error(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + PART_TOML.replace('includes = ["disk"]', 'includes = ["gone"]')
+        with pytest.raises(ConfigError, match="includes"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_inverted_box_is_an_error(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + PART_TOML.replace("0.1, 0.1, 0.1]", "-0.1, 0.1, 0.1]")
+        with pytest.raises(ConfigError, match="min bound"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_unknown_removable_part_is_an_error(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + PART_TOML + '\n[damage]\nremovable_parts = ["wings"]\n'
+        with pytest.raises(ConfigError, match="wings"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_part_count_must_start_at_one(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + "\n[damage]\npart_count = [0, 2]\n"
+        with pytest.raises(ConfigError, match="part_count"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_cli_override_pins_the_batch(self, tmp_path: Path) -> None:
+        cfg = load_render_config(_write_config(tmp_path, MINIMAL_TOML + PART_TOML))
+        assert apply_damage_parts(cfg, None) is cfg
+        assert apply_damage_parts(cfg, ["module"]).damage.removable_parts == ("module",)
+        with pytest.raises(ConfigError, match="--damage-parts"):
+            apply_damage_parts(cfg, ["wings"])
+
+    def test_count_weights_need_a_subset_part(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + PART_TOML.replace(
+            'name = "disk"', 'name = "disk"\ncount_weights = [1.0]'
+        )
+        with pytest.raises(ConfigError, match="count_weights"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_unselectable_part_is_not_a_valid_batch_choice(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + PART_TOML.replace(
+            'name = "disk"', 'name = "disk"\nselectable = false'
+        )
+        cfg = load_render_config(_write_config(tmp_path, toml))
+        with pytest.raises(ConfigError, match="disk"):
+            apply_damage_parts(cfg, ["disk"])
+
+    def test_pieces_group_boxes(self, tmp_path: Path) -> None:
+        toml = (
+            MINIMAL_TOML
+            + """
+[[robots.damage_parts]]
+name = "guards"
+subset = true
+count_weights = [3.0, 1.0]
+pieces = [
+  [[0.0, 0.0, 0.0, 0.1, 0.1, 0.1], [0.2, 0.2, 0.2, 0.3, 0.3, 0.3]],
+  [[-0.1, -0.1, -0.1, 0.0, 0.0, 0.0]],
+]
+"""
+        )
+        (guards,) = load_render_config(_write_config(tmp_path, toml)).robots[0].damage_parts
+        assert [len(piece) for piece in guards.pieces] == [2, 1]
+        assert guards.count_weights == (3.0, 1.0)
+
+    def test_boxes_and_pieces_are_exclusive(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + PART_TOML.replace(
+            'name = "disk"', 'name = "disk"\nsubset = true\npieces = [[[0, 0, 0, 1, 1, 1]]]'
+        )
+        with pytest.raises(ConfigError, match="exactly one"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_pieces_need_a_subset_part(self, tmp_path: Path) -> None:
+        toml = (
+            MINIMAL_TOML
+            + """
+[[robots.damage_parts]]
+name = "guards"
+pieces = [[[0.0, 0.0, 0.0, 0.1, 0.1, 0.1]]]
+"""
+        )
+        with pytest.raises(ConfigError, match="subset"):
+            load_render_config(_write_config(tmp_path, toml))
+
+
+class TestCageViews:
+    def test_default_view_is_pinhole_at_alpha_one(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + '\n[[cages]]\nname = "a"\n'
+        (cage,) = load_render_config(_write_config(tmp_path, toml)).cages
+        assert cage.view == "pinhole" and cage.rectify_alpha == 1.0
+
+    def test_parses_view_and_alpha(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + '\n[[cages]]\nname = "a"\nview = "distorted"\nrectify_alpha = 0.0\n'
+        (cage,) = load_render_config(_write_config(tmp_path, toml)).cages
+        assert cage.view == "distorted" and cage.rectify_alpha == 0.0
+
+    def test_unknown_view_is_an_error(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + '\n[[cages]]\nname = "a"\nview = "fisheye"\n'
+        with pytest.raises(ConfigError, match="view"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_alpha_outside_zero_to_one_is_an_error(self, tmp_path: Path) -> None:
+        toml = MINIMAL_TOML + '\n[[cages]]\nname = "a"\nrectify_alpha = 1.5\n'
+        with pytest.raises(ConfigError, match="rectify_alpha"):
+            load_render_config(_write_config(tmp_path, toml))
+
+    def test_cli_view_applies_to_every_cage(self, tmp_path: Path) -> None:
+        toml = (
+            MINIMAL_TOML + '\n[[cages]]\nname = "a"\n\n[[cages]]\nname = "b"\nview = "rectified"\n'
+        )
+        cfg = load_render_config(_write_config(tmp_path, toml))
+        assert apply_view(cfg, None) is cfg
+        assert {cage.view for cage in apply_view(cfg, "distorted").cages} == {"distorted"}
+        with pytest.raises(ConfigError, match="--view"):
+            apply_view(cfg, "fisheye")
+
+    def test_shipped_cages_write_pinhole(self) -> None:
+        assert {cage.view for cage in load_render_config(REAL_CONFIG).cages} == {"pinhole"}

@@ -1,8 +1,9 @@
 # Synthetic domain mix: how much cage data, and does randomized still earn its place
 
 Plan for generating 20,000 NHRL-cage and 20,000 MassD-arena synthetic frames, then training
-`yolo26x-pose` on ratios of those against the existing corpus. Four questions, one render
-budget, one eval set.
+`yolo26x-pose` on ratios of those against the existing corpus. Each venue renders a third of its
+frames in each camera view: pinhole, rectified and distorted. Five questions, one render budget,
+one eval set.
 
 Writeup lands in `docs/experiments/perception_performance/synthetic_domain_mix_<date>.md`.
 
@@ -156,13 +157,54 @@ a file in the same directory, because relative paths inside the inherited config
 against the loaded file. `only_cage` puts the named cage at probability 1.0 and disables the
 rest, so no scene lands in the HDRI arena or the other venue.
 
+### Camera views: a third each, 2026-09-13
+
+The rectification step may move later in the C++ pipeline, which would put raw sensor frames in
+front of the detector. So each venue's 20,000 frames split three ways:
+
+| View | Frames per venue | What it is |
+| --- | --- | --- |
+| `pinhole` | 6,667 | Rendered at the rectified matrix. What every render before 2026-09-13 was |
+| `rectified` | 6,667 | The sensor frame through the C++ `Rectifier`'s maps at alpha 1.0, black border included (36 percent of the frame for the e-CAM25) |
+| `distorted` | 6,666 | The raw sensor frame, through the calibration's OpenCV distortion model |
+
+`synthgen/lens.py` does all three, and `pose_camera_server.py` shows its views through the same
+module. A run picks one with `--view` or `[[cages]].view`. Labels follow the view: segmentation,
+instance and depth maps warp nearest-neighbour, and keypoints are mapped through the same model
+with visibility 0 for any the view cannot see.
+
+Cost, measured on 2026-09-13 on two A6000s at 64 samples, over 6 NHRL frames and 10 MassD frames
+per view, so treat it as a first read and not the 0b probe:
+
+| Venue | pinhole | distorted | rectified | A third each |
+| --- | --- | --- | --- | --- |
+| NHRL | 1.85 s/frame | 3.79 s (2.05x) | 3.77 s (2.03x) | 1.69x pinhole |
+| MassD | 1.94 s/frame | 4.31 s (2.22x) | 4.31 s (2.22x) | 1.81x pinhole |
+
+A warped view renders 2560x1442 to write 1280x720, four times the pixels, but the frame costs about
+twice a pinhole one because the distractor-free clean pass grows much less than the colour pass.
+
+Two gaps this opens:
+
+- **The manifest does not record the view.** `_append_manifest_row` writes venue, scene, mount and
+  instances. The three views are separate runs merged into one dataset, so the view arms in step
+  4 cannot be filtered until each row carries `"view"`.
+- **The eval set has no distorted frames.** `nhrl_keypoints_eval_test` is ZED footage, rectified
+  by the ZED with zero distortion at 101 degrees, and the e-CAM25 has not recorded a fight yet.
+  See step 5.
+
+The HDRI randomized pool `R` has no lens model and stays pinhole, so any arm mixing `R` with `D`
+is more than a third pinhole.
+
 ### Left to do
 
 1. The A6000 timing probe, at 128 and 64 samples. It needs a per-cage `render_samples`
-   override, not `--render-samples`.
+   override, not `--render-samples`. Run it per view: the table above is a first read.
 2. Decide on the white interior faces the cutter exposes.
 3. Decide imgsz for step 4, given the pixel-size gap above.
-4. `render_shards.sh` and the `CUDA_VISIBLE_DEVICES` passthrough, then step 3.
+4. Add `"view"` to each `manifest.jsonl` row.
+5. `render_shards.sh` with the per-view split and the `CUDA_VISIBLE_DEVICES` passthrough, then
+   step 3.
 
 ## Questions
 
@@ -174,9 +216,13 @@ rest, so no scene lands in the HDRI arena or the other venue.
    randomized frames cost anything?
 4. **Damage.** Does randomized part loss on our robot and on opponent meshes improve recall
    on real damaged robots?
+5. **View.** At a matched frame count, does a detector trained on distorted frames do as well
+   on distorted input as one trained on pinhole or rectified frames does on rectified input?
+   And does a mix of all three hold up on both?
 
-Question 4 rides along at no extra render cost: damage is sampled per instance and recorded
-per frame, so damage-on and damage-off arms are filters over the same render, not two renders.
+Questions 4 and 5 ride along at no extra render cost beyond the views themselves: damage is
+sampled per instance and the view is fixed per run, both recorded per frame, so their arms are
+filters over the same render, not separate renders.
 
 ## What already exists
 
@@ -451,7 +497,8 @@ where damage is not visible at all.
 
 ## Step 3: render
 
-Two datasets, flat, no split. Splits are image lists later.
+Two datasets, flat, no split. Splits are image lists later. Each holds a third of its frames in
+each view, recorded per frame in `manifest.jsonl`.
 
 ```
 training/data/synth_cage_nhrl_<date>/{images,labels,manifest.jsonl,data.yml}
@@ -478,6 +525,12 @@ Two small changes make that work:
    to its own `<out>_shard<i>`, waits on all of them, then hardlink-merges the shards into one
    flat `<out>`. Use `os.link`, not a forking `cp` loop, which is pathologically slow at this
    scale.
+
+   Each shard renders its share as three sequential runs, one per `--view`, each a third of the
+   shard's frames with its own `--start-index` and `--seed`. That is nine runs for three shards,
+   about 2,222 frames each. Splitting by view inside every shard, rather than giving each GPU one
+   view, keeps the shards the same length: a warped frame costs about twice a pinhole frame, so a
+   pinhole-only GPU would sit idle for half the render.
 
 Separate shard directories rather than one shared `--out`: `--start-index` keeps image
 filenames disjoint, but `data.yml`, `sheet.png` and `manifest.jsonl` are written per run and
@@ -517,6 +570,9 @@ ssh megamind 'cd /home/ben/auto-battlebot && venv/bin/python \
   randomized pool means the mount or the glass is eating keypoints.
 - Drop rate from `min_robot_visibility`. If more than 25 percent of scenes are discarded, the
   mat margin or the distractor count needs a look before burning the rest of the budget.
+- Per-view frame counts from `manifest.jsonl`: a third each, within one shard's rounding. Drop
+  rate and vis-0 keypoints per view as well, since the distorted and rectified views cut objects
+  at the frame edge and at the border where pinhole does not.
 - Eyeball `sheet.png` and 50 random frames.
 
 ## Step 4: arms
@@ -545,11 +601,19 @@ between the two venues unless noted. The 452 real frames are in every arm.
 | `nhrl_only` | 0 | 20,000 NHRL | Q2, venue transfer |
 | `massd_only` | 0 | 20,000 MassD | Q2, venue transfer |
 | `nodamage` | best mix | same count, damage-free frames only | Q4 |
+| `view_pinhole` | 0 | 13,333 pinhole, both venues | Q5 |
+| `view_rectified` | 0 | 13,333 rectified, both venues | Q5 |
+| `view_distorted` | 0 | 13,333 distorted, both venues | Q5 |
+| `view_mixed` | 0 | 13,333, a third of each view | Q5, the render's own mix |
+
+`D` in the Q1 to Q4 arms draws a third of each view, the way the render lands. The four view arms
+hold `R` at zero, because the randomized pool is all pinhole and would tilt every one of them
+toward it.
 
 `base`, `swap_all` at 20k and `d20000` share three points on the amount curve, so the grid is
-eleven arms, not sixteen.
+fifteen arms, not twenty.
 
-Eleven `yolo26x-pose` runs is a lot of queue time. Run the grid on `yolo26s-pose` first to
+Fifteen `yolo26x-pose` runs is a lot of queue time. Run the grid on `yolo26s-pose` first to
 shape the curves, then confirm the three or four arms that matter on `yolo26x-pose`. That is
 what `model_size` and `meshy_grade` did, and it is the difference between a week and a month.
 
@@ -598,6 +662,19 @@ Score three ways:
 
 Keypoint metrics go through `taxonomy_keypoint_ours.yaml`, which excludes opponents so heading
 error reflects our robot.
+
+### Scoring the view arms
+
+`nhrl_keypoints_eval_test` cannot answer question 5 on its own. It is ZED footage: rectified by
+the camera, zero distortion, 101 degrees, no black border. That is closest to `pinhole`, so on it
+`view_pinhole` has a home-field advantage and `view_distorted` is scored on input it was never
+meant for.
+
+- Score all four view arms on it anyway and report it as a check that no view broke the
+  detector, not as the answer.
+- The answer needs e-CAM25 footage: raw frames for the distorted arm, and the same frames through
+  `rectify_maps` for the rectified arm, labelled once in the distorted frame and mapped with
+  `undistort_points`. Record and label that before scoring question 5 for real.
 
 ### Pre-registered criteria
 
@@ -675,6 +752,13 @@ not actually save time, say so and drop it.
   three ways. That is 37 hours of no training for anyone. If the probe lands near that, cut
   the render to 10,000 per venue and spend the saved time on the amount curve instead of its
   tail.
+- **The view split raises that cost by 1.7x to 1.8x.** A warped frame costs about twice a pinhole
+  one, so a third each lands at 1.69x (NHRL) and 1.81x (MassD) the all-pinhole cost on the first
+  measurement. 37 wall-clock hours becomes about 65. The same cut applies: at 10,000 per venue the
+  split is 3,333 per view per venue, still 6,666 per view across both.
+- **Question 5 has no fair eval yet.** The eval set is ZED footage, which matches none of the
+  three views exactly and favours pinhole. Without labelled e-CAM25 frames, any view result is a
+  sanity check, not a decision.
 - **The render blocks the queue.** Rendering on the training box is the whole point of step 1,
   and the cost is that other agents' arms wait. Announce the submission, and do not start the
   MassD render until the NHRL dataset has passed its gates, so a bad spec does not cost two
@@ -719,9 +803,11 @@ Items 1, 2, 3 and 5 are done; see the status section. What is left:
    drop rate.
 3. Settle `imgsz` for step 4. The domain frames run our robots at roughly half the pixels the
    randomized pool does, and 640 is what starved the cage-high detector.
-4. Add the `CUDA_VISIBLE_DEVICES` passthrough to `run_synthetic.sh` and write
-   `docker/render_shards.sh`.
-5. Submit the NHRL 20k render to the queue. Gate it, allowing the `house_bot` warning on the
-   MassD half, move it to `/media/storage`, then submit MassD.
-6. Extend `make_scaling_splits.py` to multi-source counts, build the eleven arm lists, and
-   submit the `yolo26s-pose` shaping grid to `gpu_queue.py`.
+4. Add `"view"` to each `manifest.jsonl` row, so the view arms can filter a merged render.
+5. Add the `CUDA_VISIBLE_DEVICES` passthrough to `run_synthetic.sh` and write
+   `docker/render_shards.sh`, with each shard rendering a third of its frames per view.
+6. Submit the NHRL 20k render to the queue. Gate it, including the per-view counts, allowing the
+   `house_bot` warning on the MassD half, move it to `/media/storage`, then submit MassD.
+7. Extend `make_scaling_splits.py` to multi-source counts with a view filter, build the fifteen
+   arm lists, and submit the `yolo26s-pose` shaping grid to `gpu_queue.py`.
+8. Record and label e-CAM25 footage for question 5, raw and rectified.

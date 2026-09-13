@@ -8,18 +8,28 @@ import pytest
 from synthgen.damage import (
     CUTTER_CUBE,
     CUTTER_ICOSPHERE,
+    MECHANISM_NAMED,
     MECHANISM_NONE,
     MECHANISM_PARTS,
     DamageBudget,
+    FacePiece,
     InstanceDamage,
+    RemovablePart,
+    assign_faces_to_pieces,
+    base_object_name,
     bbox_contains,
     bbox_corner_volume,
     cutter_radius_m,
     draw_chunk_damage,
+    draw_named_part_damage,
     draw_part_damage,
+    model_box_to_blender_local,
+    object_name_matches,
+    piece_count,
     protected_part_indices,
     sample_surface_points,
 )
+from synthgen.geometry import model_to_blender_local
 
 
 def box(centre, half):
@@ -203,3 +213,119 @@ class TestDamageBudget:
         # damaged side, which is what this replaces.
         budget = DamageBudget()
         assert sum(budget.take(0.5) for _ in range(10)) == 5
+
+
+class TestNamedParts:
+    """Whole-assembly removal for robots that name their parts."""
+
+    PARTS = [
+        RemovablePart("weapon_disk", 1),
+        RemovablePart("wheels", 4, subset=True),
+        RemovablePart("weapon_module", 1, includes=("weapon_disk",)),
+        RemovablePart("top_plate", 1),
+    ]
+
+    def test_box_conversion_matches_the_keypoint_conversion(self):
+        box = (-0.1, 0.02, -0.05, 0.2, 0.18, 0.01)
+        converted = np.array(model_box_to_blender_local(box))
+        corners = [
+            model_to_blender_local([x, y, z])
+            for x in (-0.1, 0.2)
+            for y in (0.02, 0.18)
+            for z in (-0.05, 0.01)
+        ]
+        assert np.allclose(converted[:3], np.min(corners, axis=0))
+        assert np.allclose(converted[3:], np.max(corners, axis=0))
+
+    def test_base_name_strips_only_the_duplicate_suffix(self):
+        assert base_object_name("mat_59_97_180.001") == "mat_59_97_180"
+        assert base_object_name("mat_59_97_180") == "mat_59_97_180"
+        assert base_object_name("plate.v2") == "plate.v2"
+
+    def test_first_piece_to_claim_a_face_keeps_it(self):
+        centres = np.array([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [5.0, 5.0, 5.0]])
+        inner = FacePiece(boxes=((-0.1, -0.1, -0.1, 0.1, 0.1, 0.1),))
+        outer = FacePiece(boxes=((-1.0, -1.0, -1.0, 1.0, 1.0, 1.0),))
+        assert assign_faces_to_pieces(centres, "obj", [inner, outer]).tolist() == [0, 1, -1]
+
+    def test_object_filters(self):
+        centres = np.zeros((1, 3))
+        anywhere = ((-1.0, -1.0, -1.0, 1.0, 1.0, 1.0),)
+        only_a = FacePiece(boxes=anywhere, objects=("a",))
+        not_a = FacePiece(boxes=anywhere, exclude_objects=("a",))
+        assert assign_faces_to_pieces(centres, "a.003", [only_a]).tolist() == [0]
+        assert assign_faces_to_pieces(centres, "b", [only_a]).tolist() == [-1]
+        assert assign_faces_to_pieces(centres, "a", [not_a]).tolist() == [-1]
+
+    def test_nothing_allowed_yields_nothing(self):
+        assert draw_named_part_damage([RemovablePart("wheels", 0)], (), (1, 2)) is None
+        assert draw_named_part_damage(self.PARTS, ("bottom_plate",), (1, 2)) is None
+
+    def test_only_allowed_parts_go(self):
+        random.seed(1)
+        for _ in range(50):
+            draw = draw_named_part_damage(self.PARTS, ("top_plate",), (1, 3))
+            assert draw is not None
+            assert draw.removed == (("top_plate", (0,)),)
+
+    def test_subset_part_loses_one_to_all_pieces(self):
+        random.seed(2)
+        counts = set()
+        for _ in range(200):
+            draw = draw_named_part_damage(self.PARTS, ("wheels",), (1, 1))
+            assert draw is not None
+            ((name, indices),) = draw.removed
+            assert name == "wheels" and len(set(indices)) == len(indices)
+            counts.add(len(indices))
+        assert counts == {1, 2, 3, 4}
+
+    def test_includes_come_along(self):
+        random.seed(3)
+        draw = draw_named_part_damage(self.PARTS, ("weapon_module",), (1, 1))
+        assert draw is not None
+        assert dict(draw.removed) == {"weapon_module": (0,), "weapon_disk": (0,)}
+        assert draw.damage == pytest.approx(2 / 7)
+
+    def test_count_is_clamped_to_what_is_allowed(self):
+        random.seed(4)
+        draw = draw_named_part_damage(self.PARTS, ("top_plate", "weapon_disk"), (5, 9))
+        assert draw is not None
+        assert {name for name, _ in draw.removed} == {"top_plate", "weapon_disk"}
+
+    def test_manifest_row_lists_the_parts(self):
+        row = InstanceDamage(
+            "mrs_buff_mk3", 0.5, MECHANISM_NAMED, parts=(("wheels", (0, 2)), ("top_plate", (0,)))
+        ).as_row()
+        assert row["mechanism"] == "named"
+        assert row["parts"] == {"wheels": [0, 2], "top_plate": [0]}
+
+    def test_export_index_suffix_matches_its_colour(self):
+        assert object_name_matches("mat_128_128_128_3", "mat_128_128_128")
+        assert object_name_matches("mat_128_128_128_3.001", "mat_128_128_128")
+        assert object_name_matches("mat_128_128_128", "mat_128_128_128")
+        assert not object_name_matches("mat_128_128_128_3", "mat_128_128")
+        assert not object_name_matches("mat_128_128_1280", "mat_128_128_128")
+
+    def test_count_weights_favour_one_piece(self):
+        random.seed(6)
+        wheels = RemovablePart("wheels", 4, subset=True, count_weights=(8.0, 3.0, 1.0, 0.5))
+        counts = [piece_count(wheels) for _ in range(4000)]
+        shares = [counts.count(k) / len(counts) for k in (1, 2, 3, 4)]
+        assert shares[0] == pytest.approx(8 / 12.5, abs=0.03)
+        assert shares[3] == pytest.approx(0.5 / 12.5, abs=0.02)
+
+    def test_count_weights_ignore_unreachable_counts(self):
+        random.seed(7)
+        three = RemovablePart("wheels", 3, subset=True, count_weights=(1.0, 0.0, 0.0, 5.0))
+        assert {piece_count(three) for _ in range(50)} == {1}
+
+    def test_unselectable_part_only_goes_through_includes(self):
+        random.seed(8)
+        parts = [
+            RemovablePart("top_sticker", 1, selectable=False),
+            RemovablePart("top_plate", 1, includes=("top_sticker",)),
+        ]
+        assert draw_named_part_damage(parts, ("top_sticker",), (1, 1)) is None
+        draw = draw_named_part_damage(parts, (), (1, 2))
+        assert draw is not None
+        assert dict(draw.removed) == {"top_plate": (0,), "top_sticker": (0,)}

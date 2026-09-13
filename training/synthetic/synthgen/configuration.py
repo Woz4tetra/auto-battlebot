@@ -20,7 +20,7 @@ import tomllib
 from synthgen.annotations import normalize_annotation_mode
 from synthgen.cage_mount import WALLS, CageMountRanges
 from synthgen.colorspec import ColorMappingEntry
-from synthgen.constants import ANNOTATION_MODE_SEGMENTATION_BBOX
+from synthgen.constants import ANNOTATION_MODE_SEGMENTATION_BBOX, VIEWS
 from synthgen.damage import CUTTER_SHAPES
 from synthgen.geometry import model_to_blender_local
 
@@ -92,6 +92,32 @@ class KeypointPair:
 
 
 @dataclass(frozen=True)
+class DamagePartConfig:
+    """One ``[[robots.damage_parts]]`` entry: a named assembly battle damage can remove.
+
+    Faces whose centres fall in ``boxes`` are split off into their own objects at load, so
+    a draw can hide the assembly whole. Entries are matched in config order and the first
+    one to claim a face keeps it.
+    """
+
+    name: str
+    # Each piece is boxes, [x_min, y_min, z_min, x_max, y_max, z_max] in the model's native
+    # frame like keypoints. A plain part is one piece; a subset part loses 1..n of them.
+    pieces: tuple[tuple[tuple[float, float, float, float, float, float], ...], ...]
+    # Only faces of these Blender objects (``.001`` suffix ignored). Empty means any object.
+    objects: tuple[str, ...] = ()
+    exclude_objects: tuple[str, ...] = ()
+    # A draw removes 1..len(pieces) of the pieces rather than all of them (the wheels).
+    subset: bool = False
+    # Other parts of the same robot that go whenever this one does.
+    includes: tuple[str, ...] = ()
+    # Subset parts: relative odds of removing 1, 2, ... pieces. Empty means uniform.
+    count_weights: tuple[float, ...] = ()
+    # False for a part that only goes through another's ``includes``, such as a decal.
+    selectable: bool = True
+
+
+@dataclass(frozen=True)
 class RobotConfig:
     """One ``[[robots]]`` entry."""
 
@@ -107,6 +133,7 @@ class RobotConfig:
     # True for Z-up GLBs (e.g. Meshy models): sit flat at identity pitch, like distractor CAD
     # robots, instead of the +/-90 deg pitch the OnShape .gltf (Y-up) robots need.
     flat_ground: bool = False
+    damage_parts: tuple[DamagePartConfig, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -202,6 +229,11 @@ class CageConfig:
     tube_jitter: float = 0.25
     mat_margin_m: float = 0.20
     mount: CageMountRanges = CageMountRanges()
+    # The frame this cage writes: `pinhole` at the rectified matrix, `distorted` as the sensor
+    # sees it, or `rectified` through the C++ Rectifier's maps. See synthgen.lens.
+    view: str = "pinhole"
+    # getOptimalNewCameraMatrix alpha behind the rectified matrix; 1.0 keeps every sensor pixel.
+    rectify_alpha: float = 1.0
 
     @property
     def active(self) -> bool:
@@ -274,6 +306,10 @@ class DamageConfig:
     keypoint_clearance_m: float = 0.02
     # Lowercase substrings of Blender object names that must survive.
     protected_name_patterns: tuple[str, ...] = ()
+    # Named parts ([[robots.damage_parts]]) this batch may remove. Empty allows every part.
+    removable_parts: tuple[str, ...] = ()
+    # How many distinct named parts one damaged instance loses, clamped to what is allowed.
+    part_count: tuple[int, int] = (1, 2)
     cutter_shapes: tuple[str, ...] = CUTTER_SHAPES
     # Cutters pre-built at startup. One scene can need one per robot-like instance.
     cutter_pool_size: int = 16
@@ -412,7 +448,98 @@ def _parse_robot(section: dict[str, Any], index: int) -> RobotConfig:
             section.get("ground_roll_inverted", 0.0), f"{context}.ground_roll_inverted"
         ),
         flat_ground=bool(section.get("flat_ground", False)),
+        damage_parts=_parse_damage_parts(section.get("damage_parts", []), context),
     )
+
+
+def _as_box(value: Any, context: str) -> tuple[float, float, float, float, float, float]:
+    try:
+        x0, y0, z0, x1, y1, z1 = (float(v) for v in value)
+    except (TypeError, ValueError) as e:
+        raise ConfigError(
+            f"{context}: expected [x_min, y_min, z_min, x_max, y_max, z_max], got {value!r}"
+        ) from e
+    if x0 > x1 or y0 > y1 or z0 > z1:
+        raise ConfigError(f"{context}: a min bound exceeds its max in {value!r}")
+    return (x0, y0, z0, x1, y1, z1)
+
+
+def _as_count_weights(entry: dict[str, Any], piece_count: int, context: str) -> tuple[float, ...]:
+    raw = entry.get("count_weights", [])
+    weights = tuple(_as_float(w, f"{context}.count_weights[{i}]") for i, w in enumerate(raw))
+    if not weights:
+        return weights
+    if not entry.get("subset", False):
+        raise ConfigError(f"{context}.count_weights: only a subset part draws a piece count")
+    if len(weights) > piece_count or any(w < 0.0 for w in weights) or sum(weights) <= 0.0:
+        raise ConfigError(
+            f"{context}.count_weights: expected at most {piece_count} non-negative weights with"
+            f" a positive sum, got {list(weights)}"
+        )
+    return weights
+
+
+def _parse_part_pieces(
+    entry: dict[str, Any], context: str
+) -> tuple[tuple[tuple[float, float, float, float, float, float], ...], ...]:
+    """A part's pieces: ``pieces`` as given, or ``boxes`` as one piece or one per box.
+
+    ``boxes`` on a subset part makes each box its own piece, which suits a wheel. A piece
+    that needs several boxes, such as a guard with a side wall and a front arm, uses
+    ``pieces``, which only a subset part may.
+    """
+    boxes = entry.get("boxes")
+    pieces = entry.get("pieces")
+    if (boxes is None) == (pieces is None):
+        raise ConfigError(f"{context}: give exactly one of 'boxes' or 'pieces'")
+    subset = bool(entry.get("subset", False))
+    if pieces is not None:
+        if not subset:
+            raise ConfigError(f"{context}.pieces: only a subset part has separate pieces")
+        parsed = tuple(
+            tuple(_as_box(box, f"{context}.pieces[{j}][{k}]") for k, box in enumerate(piece))
+            for j, piece in enumerate(pieces)
+        )
+        if not parsed or any(not piece for piece in parsed):
+            raise ConfigError(f"{context}.pieces: every piece needs at least one box")
+        return parsed
+    flat = tuple(_as_box(box, f"{context}.boxes[{j}]") for j, box in enumerate(boxes))
+    if not flat:
+        raise ConfigError(f"{context}.boxes: at least one box is required")
+    return tuple((box,) for box in flat) if subset else (flat,)
+
+
+def _parse_damage_parts(
+    entries: list[dict[str, Any]], context: str
+) -> tuple[DamagePartConfig, ...]:
+    parts = []
+    for i, entry in enumerate(entries):
+        part_context = f"{context}.damage_parts[{i}]"
+        pieces = _parse_part_pieces(entry, part_context)
+        parts.append(
+            DamagePartConfig(
+                name=str(_require(entry, "name", part_context)),
+                pieces=pieces,
+                objects=tuple(str(o) for o in entry.get("objects", [])),
+                exclude_objects=tuple(str(o) for o in entry.get("exclude_objects", [])),
+                subset=bool(entry.get("subset", False)),
+                includes=tuple(str(n) for n in entry.get("includes", [])),
+                count_weights=_as_count_weights(entry, len(pieces), part_context),
+                selectable=bool(entry.get("selectable", True)),
+            )
+        )
+    names = [part.name for part in parts]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ConfigError(f"{context}.damage_parts: duplicate names {duplicates}")
+    for part in parts:
+        unknown = [name for name in part.includes if name not in names]
+        if unknown:
+            raise ConfigError(
+                f"{context}.damage_parts {part.name!r}.includes: unknown {unknown};"
+                f" valid are {names}"
+            )
+    return tuple(parts)
 
 
 def _parse_material(name: str, section: dict[str, Any]) -> MaterialConfig:
@@ -576,6 +703,14 @@ def _parse_cage(section: dict[str, Any]) -> CageConfig:
     if not 0.0 <= probability <= 1.0:
         raise ConfigError(f"{context}.probability: expected 0.0 to 1.0, got {probability}")
     render_samples = section.get("render_samples")
+    view = str(section.get("view", defaults.view))
+    if view not in VIEWS:
+        raise ConfigError(f"{context}.view: unknown {view!r}; valid are {list(VIEWS)}")
+    rectify_alpha = _as_float(
+        section.get("rectify_alpha", defaults.rectify_alpha), f"{context}.rectify_alpha"
+    )
+    if not 0.0 <= rectify_alpha <= 1.0:
+        raise ConfigError(f"{context}.rectify_alpha: expected 0.0 to 1.0, got {rectify_alpha}")
     return CageConfig(
         name=name,
         enabled=bool(section.get("enabled", defaults.enabled)),
@@ -594,6 +729,8 @@ def _parse_cage(section: dict[str, Any]) -> CageConfig:
             section.get("mat_margin_m", defaults.mat_margin_m), f"{context}.mat_margin_m"
         ),
         mount=_parse_mount(section.get("mount", {}), context),
+        view=view,
+        rectify_alpha=rectify_alpha,
     )
 
 
@@ -639,6 +776,11 @@ def _parse_damage(section: dict[str, Any]) -> DamageConfig:
         )
     if not shapes:
         raise ConfigError(f"{context}.cutter_shapes: at least one shape is required")
+    part_count = _as_int_pair(
+        section.get("part_count", defaults.part_count), f"{context}.part_count"
+    )
+    if part_count[0] < 1 or part_count[0] > part_count[1]:
+        raise ConfigError(f"{context}.part_count: expected 1 <= lo <= hi, got {list(part_count)}")
     return DamageConfig(
         enabled=bool(section.get("enabled", defaults.enabled)),
         scene_probability=_as_float(
@@ -672,7 +814,23 @@ def _parse_damage(section: dict[str, Any]) -> DamageConfig:
             section.get("cutter_pool_size", defaults.cutter_pool_size),
             f"{context}.cutter_pool_size",
         ),
+        removable_parts=tuple(
+            str(name) for name in section.get("removable_parts", defaults.removable_parts)
+        ),
+        part_count=part_count,
     )
+
+
+def _check_removable_parts(
+    robots: tuple[RobotConfig, ...], names: tuple[str, ...], context: str
+) -> None:
+    """Raise unless every name in *names* is a selectable damage part some robot defines."""
+    valid = sorted(
+        {part.name for robot in robots for part in robot.damage_parts if part.selectable}
+    )
+    unknown = [name for name in names if name not in valid]
+    if unknown:
+        raise ConfigError(f"{context}: unknown damage parts {unknown}; valid are {valid}")
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -784,6 +942,35 @@ def apply_damage_mode(cfg: RenderConfig, mode: str) -> RenderConfig:
     raise ConfigError(f"damage mode must be one of {DAMAGE_MODES}, got {mode!r}")
 
 
+def apply_view(cfg: RenderConfig, view: str | None) -> RenderConfig:
+    """Write every cage's frames in *view* from the command line. None keeps each cage's own.
+
+    The HDRI arena half has no lens model, so it stays pinhole whatever the view.
+
+    Raises:
+        ConfigError: When *view* is not one of ``VIEWS``.
+    """
+    if view is None:
+        return cfg
+    if view not in VIEWS:
+        raise ConfigError(f"--view: unknown {view!r}; valid are {list(VIEWS)}")
+    return replace(cfg, cages=tuple(replace(cage, view=view) for cage in cfg.cages))
+
+
+def apply_damage_parts(cfg: RenderConfig, names: list[str] | None) -> RenderConfig:
+    """Pin the named parts this batch may remove from the command line.
+
+    None keeps ``[damage].removable_parts``.
+
+    Raises:
+        ConfigError: When a name is not a ``[[robots.damage_parts]]`` entry of any robot.
+    """
+    if names is None:
+        return cfg
+    _check_removable_parts(cfg.robots, tuple(names), "--damage-parts")
+    return replace(cfg, damage=replace(cfg.damage, removable_parts=tuple(names)))
+
+
 def load_render_config(
     config_path: Path,
     launch_cwd: Path | None = None,
@@ -823,9 +1010,13 @@ def load_render_config(
     if not robots_raw:
         raise ConfigError("No [[robots]] entries found in config.")
 
+    robots = tuple(_parse_robot(r, i) for i, r in enumerate(robots_raw))
+    damage = _parse_damage(raw.get("damage", {}))
+    _check_removable_parts(robots, damage.removable_parts, "[damage].removable_parts")
+
     return RenderConfig(
         output=_parse_output(raw["output"]),
-        robots=tuple(_parse_robot(r, i) for i, r in enumerate(robots_raw)),
+        robots=robots,
         materials={
             name: _parse_material(name, section)
             for name, section in raw.get("materials", {}).items()
@@ -836,6 +1027,6 @@ def load_render_config(
         scene=_parse_scene(raw.get("scene", {})),
         randomization=_parse_randomization(raw.get("randomization", {})),
         cages=_apply_only_cage(_parse_cages(raw.get("cages", [])), raw.get("only_cage")),
-        damage=_parse_damage(raw.get("damage", {})),
+        damage=damage,
         resolver=resolver,
     )

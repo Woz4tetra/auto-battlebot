@@ -29,7 +29,7 @@ import blenderproc as bproc
 import bpy
 import numpy as np
 
-from auto_battlebot.perception.camera_calibration import load_camera_calibration, rectify_maps
+from auto_battlebot.perception.camera_calibration import load_camera_calibration
 from synthgen.asset_index import PathResolveFn
 from synthgen.cage import (
     add_lights,
@@ -49,6 +49,7 @@ from synthgen.constants import (
     SEG_FLOOR_CLASS_ID,
     SEG_OBJECT_CLASS_ID,
 )
+from synthgen.lens import LensView, build_lens_view
 from synthgen.logsetup import get_logger
 from synthgen.render_settings import set_denoiser
 
@@ -191,7 +192,7 @@ class CageStage:
         self,
         cage_cfg: CageConfig,
         spec: CageSceneSpec,
-        k_rect: np.ndarray,
+        lens: LensView,
         width: int,
         height: int,
         collection: bpy.types.Collection,
@@ -202,7 +203,8 @@ class CageStage:
     ) -> None:
         self._cfg = cage_cfg
         self._spec = spec
-        self._k_rect = k_rect
+        # The view this cage writes, and the camera Blender renders it through.
+        self.lens = lens
         self._width = width
         self._height = height
         self._collection = collection
@@ -260,7 +262,8 @@ class CageStage:
         if self._cfg.render_samples is not None:
             bproc.renderer.set_max_amount_of_samples(self._cfg.render_samples)
         set_denoiser(self._spec.render.denoiser)
-        bproc.camera.set_intrinsics_from_K_matrix(self._k_rect, self._width, self._height)
+        # A warped view renders wider than the frame it writes; synthgen.pipeline warps it back.
+        bproc.camera.set_intrinsics_from_K_matrix(self.lens.render_k, *self.lens.render_size)
 
     def deactivate(self) -> None:
         """Hide the cage and restore the settings a generic scene expects."""
@@ -303,7 +306,7 @@ class CageStage:
         mount = sample_cage_mount(self._cfg.mount, self.wall_half)
         cam2world = mount_cam2world(mount, self.wall_half)
         for _ in range(MOUNT_FRAMING_RETRIES):
-            if target_in_frame(cam2world, look_at):
+            if target_in_frame(cam2world, look_at, self.lens):
                 return mount, cam2world, True
             mount = sample_cage_mount(self._cfg.mount, self.wall_half)
             cam2world = mount_cam2world(mount, self.wall_half)
@@ -327,14 +330,18 @@ def build_cage_stage(
     spec = load_cage_spec(resolve(cage_cfg.spec))
     calibration = load_camera_calibration(resolve(cage_cfg.camera_calibration))
     width, height = output_cfg.image_width, output_cfg.image_height
-    _, _, k_rect = rectify_maps(calibration, (width, height))
+    lens = build_lens_view(calibration, (width, height), cage_cfg.view, cage_cfg.rectify_alpha)
     logger.info(
-        "cage camera %s rectified to %dx%d: fx %.1f, %.1f deg horizontal",
+        "cage camera %s writes %s %dx%d (rectified fx %.1f, %.1f deg horizontal at alpha %.1f),"
+        " rendered at %dx%d",
         calibration.calibration_id,
+        lens.view,
         width,
         height,
-        k_rect[0, 0],
-        math.degrees(2 * math.atan(width / 2 / k_rect[0, 0])),
+        lens.rect_k[0, 0],
+        math.degrees(2 * math.atan(width / 2 / lens.rect_k[0, 0])),
+        lens.alpha,
+        *lens.render_size,
     )
 
     generic_state = snapshot_render_state()
@@ -372,7 +379,7 @@ def build_cage_stage(
     stage = CageStage(
         cage_cfg,
         spec,
-        k_rect,
+        lens,
         width,
         height,
         collection,
