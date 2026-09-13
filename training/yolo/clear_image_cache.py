@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -99,8 +100,20 @@ def own_process_chain() -> set[int]:
     return chain
 
 
-def busy_datasets(candidates: list[Path]) -> set[Path]:
-    """Which candidate datasets are being used by a live process.
+def describe_process(proc: Path) -> str:
+    """Short command line for a /proc entry: program plus its first argument, basenamed."""
+    try:
+        argv = (proc / "cmdline").read_bytes().decode("utf-8", "replace").split("\0")
+    except OSError:
+        return "?"
+    words = [os.path.basename(a) if a.startswith("/") else a for a in argv[:2] if a]
+    return " ".join(words) or "?"
+
+
+def busy_datasets(candidates: list[Path]) -> dict[Path, dict[int, str]]:
+    """Which candidate datasets are being used by a live process, and by which PIDs.
+
+    Returns ``{dataset: {pid: "<command> (<signal>)"}}`` for every busy dataset.
 
     Two signals:
 
@@ -120,32 +133,72 @@ def busy_datasets(candidates: list[Path]) -> set[Path]:
     """
     resolved = {c: (str(c.resolve()), c.name) for c in candidates}
     skip = own_process_chain()
-    busy: set[Path] = set()
+    busy: dict[Path, dict[int, str]] = {}
 
     for proc in Path("/proc").iterdir():
         if not proc.name.isdigit() or int(proc.name) in skip:
             continue
-        try:
-            exe = os.path.basename(os.readlink(proc / "exe"))
-        except OSError:
-            exe = ""
-        if exe.startswith("python"):
-            try:
-                cmdline = (proc / "cmdline").read_bytes().decode("utf-8", "replace")
-                busy.update(
-                    c for c, (path, name) in resolved.items() if path in cmdline or name in cmdline
-                )
-            except OSError:
-                pass
-        try:
-            for fd in (proc / "fd").iterdir():
-                target = str(fd.resolve())
-                busy.update(
-                    c for c, (path, _) in resolved.items() if target.startswith(path + os.sep)
-                )
-        except OSError:
-            continue
+        for dataset, signal in cmdline_matches(proc, resolved) + open_file_matches(proc, resolved):
+            holders = busy.setdefault(dataset, {})
+            holders.setdefault(int(proc.name), f"{describe_process(proc)} ({signal})")
     return busy
+
+
+def cmdline_matches(proc: Path, resolved: dict[Path, tuple[str, str]]) -> list[tuple[Path, str]]:
+    """Datasets a python process names on its command line, by absolute path or by name."""
+    try:
+        if not os.path.basename(os.readlink(proc / "exe")).startswith("python"):
+            return []
+        cmdline = (proc / "cmdline").read_bytes().decode("utf-8", "replace")
+    except OSError:
+        return []
+    components = cmdline_components(cmdline)
+    matches: list[tuple[Path, str]] = []
+    for dataset, (path, name) in resolved.items():
+        if path in cmdline:
+            matches.append((dataset, "path in command line"))
+        elif name in GENERIC_SPLIT_NAMES:
+            # A split is named by its dataset: `train` alone is in every `training/...` path
+            # and `val` in every `validate_*.py`, which held caches no process was using.
+            if dataset.parent.name in components:
+                matches.append((dataset, f"name {dataset.parent.name!r} in command line"))
+        elif name in components:
+            matches.append((dataset, f"name {name!r} in command line"))
+    return matches
+
+
+# Directory names every dataset has. Matched on their own they say nothing about which dataset.
+GENERIC_SPLIT_NAMES = frozenset({"train", "val", "valid", "test", "images", "labels"})
+
+
+def cmdline_components(cmdline: str) -> set[str]:
+    """Every path component named in a NUL-separated command line.
+
+    Whole components, not substrings, so ``training/yolo/validate_yolo_dataset.py`` names
+    ``training``, ``yolo`` and ``validate_yolo_dataset.py`` and nothing called ``train`` or
+    ``val``. ``key=value`` and comma lists are split first, for ``data=../data/x.yml`` forms.
+    """
+    components: set[str] = set()
+    for arg in cmdline.split("\0"):
+        for piece in re.split(r"[=,]", arg):
+            components.update(part for part in Path(piece).parts if part not in ("/", ".", ".."))
+    return components
+
+
+def open_file_matches(proc: Path, resolved: dict[Path, tuple[str, str]]) -> list[tuple[Path, str]]:
+    """Datasets a process holds a file descriptor inside."""
+    matches: list[tuple[Path, str]] = []
+    try:
+        for fd in (proc / "fd").iterdir():
+            target = str(fd.resolve())
+            matches.extend(
+                (dataset, "open file")
+                for dataset, (path, _) in resolved.items()
+                if target.startswith(path + os.sep)
+            )
+    except OSError:
+        pass
+    return matches
 
 
 def collect(scan_root: Path, use_atime: bool) -> list[CacheGroup]:
@@ -170,14 +223,19 @@ def collect(scan_root: Path, use_atime: bool) -> list[CacheGroup]:
 
 
 def classify(
-    groups: list[CacheGroup], older_than: float, busy: set[Path]
+    groups: list[CacheGroup], older_than: float, busy: dict[Path, dict[int, str]]
 ) -> tuple[list[CacheGroup], list[tuple[CacheGroup, str]]]:
     """Split groups into (deletable, [(kept, reason)])."""
     delete: list[CacheGroup] = []
     keep: list[tuple[CacheGroup, str]] = []
     for group in groups:
         if group.dataset in busy:
-            keep.append((group, "in use by a running process"))
+            holders = busy[group.dataset]
+            if holders:
+                lines = "".join(f"\n{'':49s}pid {pid}: {desc}" for pid, desc in holders.items())
+                keep.append((group, f"in use by a running process:{lines}"))
+            else:
+                keep.append((group, "protected by caller"))
         elif group.age_days < older_than:
             keep.append((group, f"used {group.age_days:.1f}d ago (< {older_than:g}d)"))
         else:
@@ -272,8 +330,9 @@ def sweep(
     groups = collect(root, use_atime)
     if not groups:
         return 0, 0
-    protect = protect or set()
-    busy = busy_datasets([g.dataset for g in groups]) | protect
+    busy = busy_datasets([g.dataset for g in groups])
+    for dataset in protect or set():
+        busy.setdefault(dataset, {})
     delete, _ = classify(groups, older_than, busy)
 
     bytes_freed = files_removed = 0
