@@ -659,7 +659,7 @@ shuffle_interval = 100
 # airborne ones tumble with a fully random orientation. Objaverse distractors
 # keep the global [randomization] air settings instead.
 robot_air_probability = 0.1
-robot_air_height_range = [0.02, 1.0]
+robot_air_height_range = [0.02, 0.6]
 # Per-frame motion-blur probability for distractor categories (defaults to the
 # [randomization] motion_blur_probability when omitted).
 motion_blur_probability = 0.3
@@ -1216,9 +1216,9 @@ light_color_temp_range = [3500, 6500]
 
 # Probability the robot is airborne with a fully random tumbling orientation.
 # The remainder of images place the robot on the ground in a ground_pitch pose.
-air_probability = 0.3
+air_probability = 0.1
 # Height range (meters) above ground when airborne
-air_height_range = [0.02, 1.0]
+air_height_range = [0.02, 0.6]
 
 # Ground orientation: pitch (X-rotation) is fixed at +90° for right-side-up
 # and -90° for upside-down.  Roll (Y-rotation, degrees) is configurable per

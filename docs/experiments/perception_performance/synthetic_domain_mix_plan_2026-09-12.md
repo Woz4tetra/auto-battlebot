@@ -23,8 +23,8 @@ the NHRL 20k render is queue job 1.
 | Sharded render | `training/synthetic/render_shards.py`, with the allocation and merge in `synthgen/shards.py` and `tests/test_shards.py` |
 | Gate report | `training/synthetic/domain_render_report.py` |
 | Arm lists | `training/yolo/make_domain_mix_arms.py` |
-| NHRL 20k render | Queue job 1, resumed from job 53's frames |
-| `base` arm, `yolo26s-pose` | Queue job 2 |
+| NHRL 20k render | Queue job 3, into `synth_cage_nhrl_2026-09-13_v2`, with the lowered air settings below |
+| `base` arm, `yolo26s-pose` | Cancelled. Nothing else is queued until the NHRL render passes its gates |
 | MassD 20k render | Waits for the NHRL gates |
 
 The tree is not committed. Each render attempt writes `source_<time>.patch` (HEAD plus the
@@ -39,6 +39,16 @@ its containers; they had to be stopped with `docker stop`, and resubmitting befo
 put two renders on the same frame indices. The job 53 log survives as
 `runs/queue/logs/0053-render_cage_nhrl_20k.recovered.log`. The same cleanup removed the smoke renders;
 the findings below were read before that.
+
+An interim check of 3,457 pinhole frames passed every gate (0 integrity errors, 59.1 to 62.6
+percent clean, 2.4 to 2.9 percent hidden keypoints, 0.7 percent dropped), but a 12-frame sample
+showed labelled robots floating above the cage walls, Mrs Buff among them. From a wall mount, the
+1.0 m airborne ceiling reads as a robot over the glass. `config.toml` now has
+`[randomization] air_probability` 0.3 -> 0.1 and `air_height_range` and
+`[distractors] robot_air_height_range` capped at 0.6 m instead of 1.0 m. The render restarted
+from frame 0 as queue job 3 into `training/data/synth_cage_nhrl_2026-09-13_v2`. The old-config
+frames are kept, not merged, in `synth_cage_nhrl_2026-09-13_parts/` (3,797 pinhole frames across
+three consistent runs); do not resume or merge that directory into the v2 render.
 
 Smoke renders, jobs 51 and 52: 18 frames per venue over three GPUs, every instance damaged
 (`-- --images-per-scene 2 --damage all`).
@@ -934,8 +944,8 @@ As of 2026-09-13. Done: the manifest view, the cutter interior material, the img
 are gone from disk; the smoke renders replaced them for grading the cutter. The ground texture
 count reads 8, not 13, and every frame still renders. What is left:
 
-1. The NHRL 20k render, queue job 1, resumed at 09:12 from the 2,431 frames job 53 wrote. Pinhole
-   ran at about 2.45 s per frame per GPU. Gate it with `validate_yolo_integrity.py --strict` and `domain_render_report.py`, move it
+1. The NHRL 20k render, queue job 3, into `synth_cage_nhrl_2026-09-13_v2` with the lowered air
+   settings. Pinhole ran at about 2.45 s per frame per GPU on the first attempt. Gate it with `validate_yolo_integrity.py --strict` and `domain_render_report.py`, move it
    to `/media/storage` if `/` runs short, then submit MassD with
    `--views rectified distorted pinhole --seed-base 200`.
 2. Build the arm lists over both renders into `training/data/domain_mix_arms_<date>`.
