@@ -107,10 +107,15 @@ class TestRealConfig:
             assert mount.inset_m[0] < 0.0 and mount.inset_m[1] < 0.0
             # Aimed short of the centre, never past it.
             assert mount.tilt_offset_deg[0] < 0.0 and mount.tilt_offset_deg[1] < 0.0
-        assert nhrl.mount.inset_m == (-0.10, -0.01)
+        assert nhrl.mount.inset_m == (-0.20, -0.08)
         assert nhrl.mount.tilt_offset_deg == (-22.0, -10.0)
-        assert massd.mount.inset_m == (-0.20, -0.05)
+        assert massd.mount.inset_m == (-0.25, -0.10)
         assert massd.mount.height_m == (0.45, 1.10)
+        # Both mounts stay clear of the glass. A camera within 0.055 m of the wall put an
+        # adjacent pane across a 118 degree frame edge-on, and the rough refraction cost 402
+        # seconds per render pass at 32 samples where a healthy scene takes 4 to 23 at 128.
+        for mount in (nhrl.mount, massd.mount):
+            assert mount.inset_m[1] <= -0.08
         # Both halves stand in for our own camera, so both render through its lens.
         assert nhrl.camera_calibration == massd.camera_calibration
         # Every spec and camera calibration resolves against the config directory.

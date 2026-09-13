@@ -36,7 +36,10 @@ mat_margin_m = 0.20
 # percent of frames where the marks are there in 33, and paired heights and setbacks that
 # nothing was ever flown at into a derived tilt of up to 67 degrees. That rendered a camera too
 # far back and aimed too high, filling 24.9 percent of frame against the marks' 31.8. Over the
-# ranges below it is 39.3 percent, median tilt 38.7 degrees, 98.8 percent of the mat in frame.
+# ranges below it is 35.1 percent, median tilt 40.4 degrees, 99.3 percent of the mat in frame.
+# Read that fill number with care: it projects the mat and takes a convex hull, with no
+# occlusion term, so it cannot see a pane covering the view and keeps rising as the camera
+# closes on the glass. The near end of inset_m is what stops it.
 #
 # The quantities a wall swap mirrors (along, yaw, roll) are symmetrized, since their asymmetry
 # says more about twelve hand-flown samples than about the mount. The earlier block bracketed
@@ -62,10 +65,18 @@ along_m = [-0.55, 0.55]
 # Above the mat surface, metres. Not capped by the 1.22 m polycarbonate top, since the mount is
 # outside it.
 height_m = [0.60, 1.25]
-# Inside the wall plane, metres. Negative is outside the cage; see above. Kept tight against
-# the glass: this is the axis that pushed the camera too far back, and pulling the far end in
-# from -0.20 to -0.10 takes the mat from 36.7 to 39.3 percent of the frame.
-inset_m = [-0.10, -0.01]
+# Inside the wall plane, metres. Negative is outside the cage; see above.
+#
+# The near end is a render-cost limit, not a framing choice. The pane the camera looks through
+# is hidden, but the panes either side of it are not, and at this lens they fill much of a
+# 118 degree frame edge-on when the camera is close. Rough refraction through a grazing slab
+# never converges, so the adaptive sampler runs to the sample cap on most of the picture.
+# Measured on 2026-09-12: a scene at -0.03 took 402 seconds per render pass at 32 samples,
+# where a healthy scene takes 4 to 23 at 128, and the frames show an adjacent pane covering
+# half the picture. A run that sampled -0.072 to -0.172 across 11 scenes had no slow pass at
+# all, and one that sampled -0.028 and -0.055 was slow on every pass, so the cliff sits
+# between 0.055 and 0.072. -0.08 is the near end with margin on that.
+inset_m = [-0.20, -0.08]
 aim = "centre"
 # Degrees added to the aim-at-centre tilt. Negative is steeper, aimed short of the centre.
 tilt_offset_deg = [-22.0, -10.0]
@@ -97,11 +108,9 @@ mat_margin_m = 0.20
 # holds a median 91.2 percent of the floor and never the whole of it, while the e-CAM25 holds
 # 99.0 percent and fits the whole floor in 27 percent of frames. So the camera comes in.
 #
-# That setback was what made the arena a third of the picture. Over the sweep block the floor
-# filled 17.7 percent of the frame with the mount aimed 60 degrees off straight down; over the
-# block below it is 39.9 percent at 46.4 degrees, which matches the NHRL half. The wall plane
-# is at 1.168 m and the kick rail is only 0.66 m tall, so a mount above that height looks over
-# the rail rather than through the pane.
+# That setback was what made the arena a third of the picture. The wall plane is at 1.168 m and
+# the kick rail is only 0.66 m tall, so a mount above that height looks over the rail rather
+# than through the pane.
 #
 # `aim = "centre"` derives tilt from where the mount landed instead of drawing it
 # independently: the sweep varied tilt with distance and height, and the frames that were
@@ -111,7 +120,13 @@ mat_margin_m = 0.20
 walls = ["near", "far", "left", "right"]
 along_m = [-0.45, 0.45]
 height_m = [0.45, 1.10]
-inset_m = [-0.20, -0.05]
+# Held off the glass for the same reason as the NHRL half, where a camera within 0.055 m of
+# the wall cost 402 seconds per render pass instead of 20. This arena's panes are thinner at
+# 9 mm and its wall is only 0.66 m tall, so a mount above that height clears them entirely,
+# but the low half of the height range does not. Over this block the floor fills 36.1 percent
+# of the frame at a median 47.4 degrees off straight down, against 17.9 percent at 52.8 for
+# the sweep block it replaces.
+inset_m = [-0.25, -0.10]
 aim = "centre"
 tilt_offset_deg = [-18.0, -8.0]
 yaw_deg = [-9.0, 9.0]
