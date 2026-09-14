@@ -100,8 +100,14 @@ docker_id_args=(-e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)")
 # working directory (-w below).
 docker_env_args=(-e PYTHONPATH=/workspace/training/synthetic)
 
+# BlenderProc writes a scene's render passes to /dev/shm and reads them back after the render.
+# Docker's 64 MB default holds ten 1280x720 pinhole frames but not ten 2560x1442 frames for a
+# warped view: the 2026-09-13 rectified runs died reading depth_0004.exr. SYNTH_SHM_SIZE overrides.
+docker_shm_args=(--shm-size "${SYNTH_SHM_SIZE:-8g}")
+
 run_cmd=(
   docker run "${docker_gpu_args[@]}" --rm "${docker_tty_args[@]}"
+  "${docker_shm_args[@]}"
   "${docker_id_args[@]}"
   "${docker_port_args[@]}"
   "${docker_env_args[@]}"
@@ -134,6 +140,7 @@ if [ $gpu_probe_exit -ne 0 ]; then
   [ -n "${gpu_probe_output:-}" ] && echo "$gpu_probe_output" >&2
   echo "Tip: install/configure NVIDIA Container Toolkit for GPU runs." >&2
   docker run --rm "${docker_tty_args[@]}" \
+    "${docker_shm_args[@]}" \
     "${docker_id_args[@]}" \
     "${docker_port_args[@]}" \
     "${docker_env_args[@]}" \

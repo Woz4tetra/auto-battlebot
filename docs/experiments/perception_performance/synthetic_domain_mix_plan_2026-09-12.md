@@ -50,6 +50,14 @@ from frame 0 as queue job 3 into `training/data/synth_cage_nhrl_2026-09-13_v2`. 
 frames are kept, not merged, in `synth_cage_nhrl_2026-09-13_parts/` (3,797 pinhole frames across
 three consistent runs); do not resume or merge that directory into the v2 render.
 
+Job 3 finished all 6,667 pinhole frames by 11:27 at 2.92 to 3.07 s per frame per GPU, then every
+`rectified` run exited 2 within 58 s: BlenderProc could not read `depth_0004.exr` back from
+`/dev/shm`. The container's `/dev/shm` was Docker's 64 MB default, which holds a pinhole scene's
+ten 1280x720 frames and not a warped view's ten 2560x1442 frames. The smoke render passed only
+because it ran two frames per scene. `run_synthetic.sh` now gives every container
+`--shm-size 8g` (`SYNTH_SHM_SIZE` overrides), and the render resumes into the same v2 directory:
+the pinhole runs are complete and the rectified runs wrote nothing.
+
 Smoke renders, jobs 51 and 52: 18 frames per venue over three GPUs, every instance damaged
 (`-- --images-per-scene 2 --damage all`).
 
