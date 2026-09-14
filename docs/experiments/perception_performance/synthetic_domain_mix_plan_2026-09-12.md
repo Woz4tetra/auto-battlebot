@@ -1,7 +1,8 @@
 # Synthetic domain mix: how much cage data, and does randomized still earn its place
 
 Plan for generating 20,000 NHRL-cage and 20,000 MassD-arena synthetic frames, then training
-`yolo26x-pose` on ratios of those against the existing corpus. Each venue renders a third of its
+`yolo26s-pose` on ratios of those against the existing corpus, and one final `yolo26x-pose` arm on
+the dataset that wins. Each venue renders a third of its
 frames in each camera view: pinhole, rectified and distorted. Five questions, one render budget,
 one eval set.
 
@@ -23,8 +24,9 @@ the NHRL 20k render is queue job 1.
 | Sharded render | `training/synthetic/render_shards.py`, with the allocation and merge in `synthgen/shards.py` and `tests/test_shards.py` |
 | Gate report | `training/synthetic/domain_render_report.py` |
 | Arm lists | `training/yolo/make_domain_mix_arms.py` |
-| NHRL 20k render | Queue job 3, into `synth_cage_nhrl_2026-09-13_v2`, with the lowered air settings below |
-| `base` arm, `yolo26s-pose` | Cancelled. Nothing else is queued until the NHRL render passes its gates |
+| NHRL 20k render | Done 22:48, gates passed: `training/data/synth_cage_nhrl_2026-09-13_v2` |
+| MassD 20k render | Queued, into `synth_cage_massd_2026-09-13` |
+| `base` arm, `yolo26s-pose` | Queued behind the MassD render |
 | MassD 20k render | Waits for the NHRL gates |
 
 The tree is not committed. Each render attempt writes `source_<time>.patch` (HEAD plus the
@@ -57,6 +59,23 @@ ten 1280x720 frames and not a warped view's ten 2560x1442 frames. The smoke rend
 because it ran two frames per scene. `run_synthetic.sh` now gives every container
 `--shm-size 8g` (`SYNTH_SHM_SIZE` overrides), and the render resumes into the same v2 directory:
 the pinhole runs are complete and the rectified runs wrote nothing.
+
+The resumed render (queue job 4) merged 20,000 frames at 22:48, after 11.3 h from the resume.
+Per GPU, pinhole took 2.9 to 3.1 s a frame, rectified 9.0 to 9.3 and distorted 8.8 to 9.0, so a
+warped frame costs 3x a pinhole one here, not the 2x the two-GPU probe measured.
+`validate_yolo_integrity.py --strict`: 0 errors, 0 warnings, 102,302 annotations (mr_stabs_mk2
+11,386, mrs_buff_mk3 17,687, nhrl_robot 55,705, house_bot 17,524). Gate report:
+
+| View | Frames | Clean | Hidden keypoints | Dropped |
+| --- | --- | --- | --- | --- |
+| pinhole | 6,667 | 58.4% | 2.0% | 1.1% |
+| rectified | 6,667 | 60.9% | 7.4% | 0.6% |
+| distorted | 6,666 | 58.9% | 7.4% | 0.8% |
+
+The warped views hide keypoints at 7.4 percent against 5.1 in the randomized pool and 2.0 in
+pinhole, since they cut robots at the frame edge and at the rectified border. Eighteen sampled
+rectified and distorted frames showed boxes and keypoints following the warp and no robot above the
+cage walls.
 
 Smoke renders, jobs 51 and 52: 18 frames per venue over three GPUs, every instance damaged
 (`-- --images-per-scene 2 --damage all`).
@@ -730,7 +749,7 @@ dataset by scene and did not extend to several sources cleanly. Frames are drawn
 per source so arms nest: the 10k domain arm is a prefix of the 20k one, and a drop in accuracy
 cannot be blamed on which frames got picked.
 
-Constants across arms: `yolo26x-pose`, imgsz 640, batch and epochs fixed, seed 0, 3x A6000 DDP
+Constants across arms: `yolo26s-pose`, imgsz 640, batch and epochs fixed, seed 0, 3x A6000 DDP
 through the queue, `--save-period 25`, `--cache ram`. The default disk cache writes one
 full-resolution `.npy` per frame, about 157 GB for `d40000` against the 74 GB free on megamind.
 
@@ -766,9 +785,25 @@ toward it.
 `base`, `swap_all` at 20k and `d20000` share three points on the amount curve, so the grid is
 fifteen arms, not twenty.
 
-Fifteen `yolo26x-pose` runs is a lot of queue time. Run the grid on `yolo26s-pose` first to
-shape the curves, then confirm the three or four arms that matter on `yolo26x-pose`. That is
-what `model_size` and `meshy_grade` did, and it is the difference between a week and a month.
+Every arm in the grid trains `yolo26s-pose`, decided 2026-09-13 to keep the experiment fast. The
+earlier plan to confirm three or four arms on `yolo26x-pose` is dropped. `base` on the corpus took
+4 h 14 min for 200 epochs on `yolo26s-pose`, so an arm runs about 2 h (base) to 6.5 h (`d40000`)
+at 100 epochs.
+
+### The final arm: `yolo26x-pose` on the winning dataset
+
+Once every `yolo26s-pose` arm is scored, one more arm trains `yolo26x-pose` with the same constants
+on the winning dataset:
+
+1. The default winner is the arm with the highest agnostic opponent recall on the pooled eval, the
+   metric the adoption criterion below uses.
+2. The single-venue arms are then checked against `swap_all`, which has the same 20,000 domain
+   frames split across both venues: `nhrl_only` on `venue_nhrl`, and `massd_only` on
+   `venue_massd`. If a single-venue arm scores higher than `swap_all` on its own venue's eval
+   frames, the `yolo26x-pose` arm trains on that single venue's data instead.
+3. If both single-venue arms win on their own venues, ask which venue before submitting.
+
+Submit it the same way as the grid, with `yolo26x-pose` as the model key.
 
 ### The step-count confound
 
@@ -788,12 +823,12 @@ bookkeeping and early-stopping only. Every claim in the writeup comes from `scor
 ## Step 5: score
 
 ```bash
-venv/bin/python training/yolo/convert_to_onnx.py data/models/yolo26x-pose_<arm>_<date>.pt
-venv/bin/python training/yolo/convert_to_tensorrt.py data/models/yolo26x-pose_<arm>_<date>.onnx --workspace 4
+venv/bin/python training/yolo/convert_to_onnx.py data/models/yolo26s-pose_<arm>_<date>.pt
+venv/bin/python training/yolo/convert_to_tensorrt.py data/models/yolo26s-pose_<arm>_<date>.onnx --workspace 4
 
 venv/bin/python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
-  --candidate base=data/models/yolo26x-pose_base_<date>_x86_64_sm89.engine \
-  --candidate d20000=data/models/yolo26x-pose_d20000_<date>_x86_64_sm89.engine \
+  --candidate base=data/models/yolo26s-pose_base_<date>_x86_64_sm89.engine \
+  --candidate d20000=data/models/yolo26s-pose_d20000_<date>_x86_64_sm89.engine \
   --labels "mr_stabs_mk2,mrs_buff_mk3,opponent,house_bot" \
   --taxonomy training/model_eval/taxonomy.yaml --conf 0.5 --baseline base \
   --output training/data/nhrl_keypoints_eval_test/scores_domain_mix
@@ -935,8 +970,9 @@ not actually save time, say so and drop it.
   the heading head toward noise. The protected-part rule and the 200-frame visual gate are the
   defense; if either is shaky, ship damage as a separate small dataset instead of mixing it
   into the main render.
-- **Eleven arms of `yolo26x-pose`** will not fit a reasonable week. The `yolo26s-pose` shaping
-  pass is not optional.
+- **`yolo26s-pose` may not rank arms the way `yolo26x-pose` would.** The grid runs on `s` for
+  speed and only the winner is retrained on `x`, so an arm that `x` would have preferred can lose
+  on `s`. The final arm's score against the `s` winner is the only check on that.
 - **Segmentation stops at glass.** Any mount rendering through polycarbonate loses its labels.
   This is no longer handled by keeping the camera inside: every marked mount sits outside, and
   `apply_one_way_glass` hides the pane a camera looks through from outside, per frame. That is
@@ -952,8 +988,9 @@ As of 2026-09-13. Done: the manifest view, the cutter interior material, the img
 are gone from disk; the smoke renders replaced them for grading the cutter. The ground texture
 count reads 8, not 13, and every frame still renders. What is left:
 
-1. The NHRL 20k render, queue job 3, into `synth_cage_nhrl_2026-09-13_v2` with the lowered air
-   settings. Pinhole ran at about 2.45 s per frame per GPU on the first attempt. Gate it with `validate_yolo_integrity.py --strict` and `domain_render_report.py`, move it
+1. The MassD 20k render, queued with `--views rectified distorted pinhole --seed-base 200`, then
+   the `base` arm behind it. Gate MassD the way NHRL was gated, allowing the `house_bot`
+   zero-instance warning. At NHRL's per-view costs it runs about 11 to 12 hours. Gate it with `validate_yolo_integrity.py --strict` and `domain_render_report.py`, move it
    to `/media/storage` if `/` runs short, then submit MassD with
    `--views rectified distorted pinhole --seed-base 200`.
 2. Build the arm lists over both renders into `training/data/domain_mix_arms_<date>`.
@@ -961,7 +998,8 @@ count reads 8, not 13, and every frame still renders. What is left:
    last, once `d20000` and `swap_all` are scored.
 4. Score each arm's `last` engine three ways (pooled with bootstrap against `base`, per venue, per
    recording), then the matched-step reads from the epoch checkpoints.
-5. Confirm the three or four arms that matter on `yolo26x-pose`.
+5. Train the final `yolo26x-pose` arm on the winning dataset, by the rule in step 4, and score it
+   against the `yolo26s-pose` winner.
 6. Step 6. MassD frames are sampled into `training/data/nhrl_keypoints_eval_grow_massd_2026-09-13`,
    not into the eval set, so the set this experiment scores on does not change under it. The
    MassD MCAPs live on pathfinder; the 11 clipped `__` segments (3.8 GB) were copied to megamind.
