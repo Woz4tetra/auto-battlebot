@@ -54,7 +54,11 @@ class DomainFrame:
 
 @dataclass(frozen=True)
 class Arm:
-    """One arm: how many randomized frames (None for all) and domain frames, and its filters."""
+    """One arm: how many randomized frames (None for all) and domain frames, and its filters.
+
+    ``real_repeat`` writes the 452 real frames that many times over. Every other count is a draw
+    from a pool, so this is the one place an arm carries a frame twice on purpose.
+    """
 
     name: str
     randomized: int | None
@@ -62,10 +66,12 @@ class Arm:
     venues: tuple[str, ...] = ()
     views: tuple[str, ...] = ()
     clean_only: bool = False
+    real_repeat: int = 1
 
 
 # The step 4 grid. `nodamage` is "best mix" in the plan, which is not known until the Q1 to Q3 arms
-# are scored, so both candidates are built and the one matching the better mix gets trained.
+# are scored, so a candidate is built for each plausible mix and the one matching the winner gets
+# trained. `swap_half` led the 2026-09-16 scoring, which is why its damage-free twin is here.
 ARMS = (
     Arm("base", None, 0),
     Arm("d2500", None, 2500),
@@ -79,6 +85,11 @@ ARMS = (
     Arm("massd_only", 0, 20000, venues=(MASSD,)),
     Arm("nodamage_d20000", None, 20000, clean_only=True),
     Arm("nodamage_swap_all", 0, 20000, clean_only=True),
+    Arm("nodamage_swap_half", 10000, 10000, clean_only=True),
+    # `d40000`'s frames with the real ones written three times, so the real share holds at 2.28
+    # percent instead of falling to 0.77. Tests whether diluting the 452 real frames is what costs
+    # `d40000` its small-robot recall, against the training schedule as the other candidate.
+    Arm("d40000_real3x", None, 40000, real_repeat=3),
     Arm("view_pinhole", 0, 13333, views=("pinhole",)),
     Arm("view_rectified", 0, 13333, views=("rectified",)),
     Arm("view_distorted", 0, 13333, views=("distorted",)),
@@ -208,10 +219,12 @@ def build_arm(
         raise SystemExit(f"{arm.name}: wants {arm.domain} domain frames, filter keeps {len(order)}")
     drawn = set(order[: arm.domain])
     picked = [frame for frame in domain if frame.image in drawn]
-    frames = real + randomized[:count] + [frame.image for frame in picked]
+    frames = real * arm.real_repeat + randomized[:count] + [frame.image for frame in picked]
     row = {
         "frames": len(frames),
-        "real": len(real),
+        "real": len(real) * arm.real_repeat,
+        "real_repeat": arm.real_repeat,
+        "real_share": round(len(real) * arm.real_repeat / len(frames), 4),
         "randomized": count,
         "domain": arm.domain,
         "domain_by_venue": dict(sorted(Counter(frame.venue for frame in picked).items())),
@@ -273,7 +286,9 @@ def main() -> None:
     built: list[tuple[str, list[Path]]] = []
     for arm in selected_arms(args.only, args.scale):
         frames, row = build_arm(arm, real, randomized, domain, args.seed)
-        if len(set(frames)) != len(frames):
+        # Oversampled real frames are the only intended repeats, so the unique count has to drop by
+        # exactly the copies asked for. Anything else is a source drawn twice.
+        if len(set(frames)) != len(frames) - len(real) * (arm.real_repeat - 1):
             raise SystemExit(f"{arm.name}: a frame appears twice")
         lists[arm.name] = set(frames)
         rows[arm.name] = row
