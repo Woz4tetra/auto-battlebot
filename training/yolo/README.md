@@ -18,7 +18,8 @@ python training/yolo/pool_datasets.py --real <real> --synth <synthetic> \
 python training/yolo/validate_yolo_integrity.py <dataset>
 
 # 2. train (submit through the queue, never directly; see CLAUDE.md)
-venv/bin/python training/gpu_queue.py submit --name <arm> --by <agent> -- \
+venv/bin/python training/gpu_queue.py submit --name <arm> --by <agent> \
+  --work <frames x epochs> --profile yolo26s@640 -- \
   venv/bin/python training/yolo/train.py <dataset> yolo26s -d 0 1 2 -b 96 -e 100
 
 # 3. export

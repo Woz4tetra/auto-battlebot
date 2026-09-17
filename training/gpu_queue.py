@@ -5,11 +5,18 @@ Every training arm in the experiment plans runs DDP across all three GPUs, so th
 scheduling unit is the whole box: one job at a time, in submission order. Agents
 submit and poll rather than launching training directly.
 
-    training/gpu_queue.py submit --name B_s384x640 -- \\
+    training/gpu_queue.py submit --name B_s384x640 --work 2591400 --profile yolo26s@640 -- \\
         venv/bin/python training/yolo/train.py training/data/... yolo26s -d 0 1 2 -b 96
     training/gpu_queue.py status
     training/gpu_queue.py logs 3 --tail 40
     training/gpu_queue.py logs -f            # follow whatever is training, across jobs
+
+Finish times are learned from what past jobs took, so tell the queue how big a job is:
+`--work` (frames times epochs, for a training arm) and `--profile` (the cost class the
+seconds-per-unit rate is learned within). Neither is guessable from the command line, where
+epochs often arrive positionally and the frame count lives inside a dataset. A rate is never
+borrowed across models, since an `x` costs several times an `s` per unit, so the first run of
+a model family has nothing to learn from and should carry `--eta` instead.
 
 A worker process pops jobs; `submit` starts one if none is alive. The worker waits
 for the GPUs to go idle before each job, so a run launched outside the queue (by
@@ -198,6 +205,17 @@ def cmd_submit(args: argparse.Namespace) -> int:
             "pid": None,
             "log": None,
             "cancel_requested": False,
+            # What the submitter knows about this job's cost. Absent keys are dropped so a
+            # job that declared nothing looks exactly like one queued before these existed.
+            "hint": {
+                key: value
+                for key, value in (
+                    ("work", args.work),
+                    ("profile", args.profile),
+                    ("eta_seconds", args.eta),
+                )
+                if value
+            },
         }
         state["next_id"] += 1
         state["jobs"].append(job)
@@ -488,10 +506,27 @@ def job_epochs(job: dict[str, Any]) -> int | None:
         return None
 
 
+ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
 def script_name(job: dict[str, Any]) -> str:
-    """The script a job runs, so a 3-minute export is never averaged with a train."""
-    scripts = [part for part in job["command"] if part.endswith(".py")]
-    return Path(scripts[-1] if scripts else job["command"][0]).name
+    """The script a job runs, so a 3-minute export is never averaged with a train.
+
+    `env ARM_DATE=... bash run_domain_mix_arm.sh ...` used to read as "env", because the
+    command carries no `.py`: every arm then shared one meaningless shape and the coarsest
+    match tier pooled them all. The `env` prefix and its assignments are skipped, and a
+    shell script counts as the script when there is no Python one.
+    """
+    command = list(job["command"])
+    if command and Path(command[0]).name == "env":
+        command = command[1:]
+    while command and ENV_ASSIGN_RE.match(command[0]):
+        command = command[1:]
+    scripts = [part for part in command if part.endswith(".py")] or [
+        part for part in command if part.endswith(".sh")
+    ]
+    fallback = command[0] if command else job["command"][0]
+    return Path(scripts[-1] if scripts else fallback).name
 
 
 def log_progress(job: dict[str, Any]) -> tuple[float, str] | None:
@@ -625,13 +660,102 @@ def matching_history(
     return [], "no comparable runs yet"
 
 
+DURATION_RE = re.compile(r"^(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?$")
+
+
+def parse_duration(text: str) -> float:
+    """Seconds from "6h30m", "90m", "3600s", or a bare count of seconds."""
+    cleaned = text.strip().lower()
+    try:
+        return float(cleaned)
+    except ValueError:
+        pass
+    match = DURATION_RE.match(cleaned)
+    if not match or not any(match.groups()):
+        raise argparse.ArgumentTypeError(f"bad duration {text!r}; use 6h30m, 90m or 3600s")
+    hours, minutes, seconds = (float(part) if part else 0.0 for part in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def job_hint(job: dict[str, Any]) -> dict[str, Any]:
+    """The submitter's cost parameters. Empty for jobs queued before these existed."""
+    return job.get("hint") or {}
+
+
+def job_work(job: dict[str, Any]) -> float | None:
+    """How much work the submitter declared, in its own unit, or None."""
+    work = job_hint(job).get("work")
+    return float(work) if work else None
+
+
+def job_profile(job: dict[str, Any]) -> str:
+    """The cost class a job's seconds-per-unit rate is learned within.
+
+    Two jobs share a profile when one unit of work costs them the same, which is what
+    `--profile` names. Falling back to model and input size keeps jobs that never declared
+    one from all landing in the same bucket.
+    """
+    declared = job_hint(job).get("profile")
+    if declared:
+        return str(declared)
+    shape = job_shape(job)
+    return f"{shape['model']}@{shape['imgsz']}" if shape["model"] else shape["script"]
+
+
+def format_units(work: float) -> str:
+    for scale, suffix in ((1e9, "G"), (1e6, "M"), (1e3, "k")):
+        if work >= scale:
+            return f"{work / scale:.1f}{suffix}"
+    return f"{work:.0f}"
+
+
+def work_estimate(state: dict[str, Any], job: dict[str, Any]) -> tuple[float | None, str]:
+    """Seconds from the declared work size and the measured rate of jobs like it.
+
+    A rate is only borrowed from the same profile, or failing that the same model. Pooling
+    across model sizes is what made a `yolo26x-pose` arm inherit 2h18m from sixteen
+    `yolo26s-pose` runs when it needed most of a day: an `x` costs several times an `s` per
+    unit, so a rate learned on one says nothing about the other. Without a usable rate this
+    returns None and the caller says so, rather than quoting a number it cannot support.
+    """
+    work = job_work(job)
+    if work is None:
+        return None, ""
+    profile, model = job_profile(job), job_shape(job)["model"]
+    history = [pair for pair in usable_history(state, job) if job_work(pair[0])]
+    tiers = (
+        (profile, [pair for pair in history if job_profile(pair[0]) == profile]),
+        (model, [pair for pair in history if model and job_shape(pair[0])["model"] == model]),
+    )
+    for label, matches in tiers:
+        if not matches:
+            continue
+        rates = [seconds / work_done for past, seconds in matches if (work_done := job_work(past))]
+        if rates:
+            plural = "s" if len(matches) > 1 else ""
+            basis = f"{len(matches)} past {label} run{plural} at {format_units(work)} units"
+            return statistics.median(rates) * work, basis
+    return None, ""
+
+
 def typical_seconds(state: dict[str, Any], job: dict[str, Any]) -> tuple[float | None, str]:
     """What a job that has not started should take, learned from the jobs like it.
 
-    Scales the median seconds-per-epoch of the closest matches by this job's epoch
-    count, which is what separates a 30-epoch probe from a 100-epoch arm. Falls back
-    to their median wall time when either side has no epoch flag.
+    Three sources, most specific first. An `--eta` the submitter gave outright, since an
+    agent queuing the first run of a model family knows more than the history does. Then
+    `--work` scaled by the measured rate of the same profile, which is what makes a 58,447
+    frame arm predict differently from an 18,447 frame one. Then the original fallback:
+    median seconds-per-epoch of the closest shape, scaled by this job's epoch count, and its
+    median wall time when either side has no epoch flag.
     """
+    eta = job_hint(job).get("eta_seconds")
+    if eta:
+        return float(eta), "as submitted"
+    seconds, basis = work_estimate(state, job)
+    if seconds is not None:
+        return seconds, basis
+    if job_work(job):
+        return None, "no comparable runs yet"
     history, basis = matching_history(state, job)
     if not history:
         return None, basis
@@ -993,6 +1117,30 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--cwd", default=str(REPO_ROOT), help="working directory for the job")
     submit.add_argument(
         "-d", "--devices", nargs="+", type=int, default=[0, 1, 2], help="GPUs the job will use"
+    )
+    submit.add_argument(
+        "--work",
+        type=float,
+        default=None,
+        help="How much work this job is, in any unit you use consistently. For a training "
+        "arm, frames x epochs. The queue divides what past jobs of the same profile took "
+        "by their own work to get a rate, so a 58,447-frame arm no longer inherits the "
+        "estimate of an 18,447-frame one. Only compared within a profile.",
+    )
+    submit.add_argument(
+        "--profile",
+        default=None,
+        help="Cost class this job's rate is learned within, e.g. yolo26x-pose@640. Two jobs "
+        "share a profile when one unit of work costs them the same. Defaults to the model "
+        "and input size read off the command.",
+    )
+    submit.add_argument(
+        "--eta",
+        type=parse_duration,
+        default=None,
+        help="What you expect this to take (6h30m, 90m, 3600s), used until the job's own "
+        "progress takes over. Give this for the first run of a model family, where no "
+        "measured rate exists and the queue would otherwise say it does not know.",
     )
     submit.add_argument("command", nargs=argparse.REMAINDER, help="command after --")
     submit.set_defaults(func=cmd_submit)

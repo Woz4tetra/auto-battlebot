@@ -4,8 +4,14 @@
 # Step 4 of docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md. One
 # queue job per arm, so the queue's ordering and time estimates see each arm separately:
 #
-#   venv/bin/python training/gpu_queue.py submit --name dm_s_base --by <agent> -d 0 1 2 -- \
+#   venv/bin/python training/gpu_queue.py submit --name dm_s_base --by <agent> -d 0 1 2 \
+#     --work 1844700 --profile yolo26s-pose@640 -- \
 #     bash training/yolo/run_domain_mix_arm.sh training/data/domain_mix_arms_2026-09-13 base yolo26s-pose
+#
+# --work is the arm's frames times its epochs, read off manifest.json in the arms directory
+# (`base` is 18,447 x 100). The queue cannot see either number here: epochs arrive positionally
+# rather than as -e, and the frame count lives in the arm list. Without --work every arm of every
+# size predicts the same wall time.
 #
 # train.py names every run by date and model key alone, so the run directory is found as the one
 # this job created, and the weights are copied to data/models/<model>_<arm>_<date>_<ckpt>.pt with
