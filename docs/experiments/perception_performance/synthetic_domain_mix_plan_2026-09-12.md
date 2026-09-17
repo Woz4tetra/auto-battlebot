@@ -293,6 +293,113 @@ comparison. Conf 0.5, bootstrap against `base`.
 The answer to question 5 still needs labelled e-CAM25 footage, raw and rectified. Nothing here
 changes that, and none of these numbers should be read as a view ranking.
 
+#### The final arms, scored 2026-09-17
+
+Three arms finished after the grid: `d40000` at 50 epochs (queue job 22, 3 h 16 min),
+`d40000_real3x` (job 23, 6 h 36 min) and `yolo26x-pose` on `d40000` at 50 epochs (job 25,
+12 h 18 min). Conf 0.5, `taxonomy_opponent.yaml`, bootstrapped against `base`.
+
+| Arm | Precision | Recall | vs `base` | NHRL | MassD | Heading err | Kp err |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `base` | 0.415 | 0.339 | | 0.376 | 0.066 | 8.27 deg | 8.90 px |
+| `swap_half` | 0.740 | 0.562 | +0.223 better | 0.561 | 0.571 | 6.30 | 7.74 |
+| `d40000_s50` | 0.869 | 0.485 | +0.145 better | 0.504 | 0.341 | 6.38 | 7.65 |
+| `d40000_x50` | 0.967 | 0.419 | +0.080 better | 0.408 | 0.505 | 5.28 | 5.81 |
+| `real3x_s100` | 0.914 | 0.333 | -0.007 ns | 0.350 | 0.209 | 5.87 | 8.05 |
+| `d40000_s100` | 0.966 | 0.295 | -0.045 worse | 0.312 | 0.165 | 5.56 | 8.27 |
+
+- **Question 1 is settled, and dilution loses.** `real3x_s100` holds `d40000`'s 40,000 domain
+  frames and its 100 epochs, with the real share oversampled from 0.77 to 2.28 percent. It
+  recalls 0.333, statistically indistinguishable from `base` and only 0.038 above the collapsed
+  `d40000_s100`. Oversampling the real frames did not restore recall. Halving the epochs on the
+  same data did: `d40000_s50` reaches 0.485. The collapse past about 3 M frame-presentations is
+  the training schedule, not the 452 real frames being diluted, which is the opposite of what
+  "Why recall falls as the mix grows" first concluded.
+- **The `x` arm does not take rule 1.** Step 4 picks the final arm by highest pooled opponent
+  recall, and `swap_half` keeps it at 0.562 against `d40000_x50`'s 0.419. Model size did not buy
+  opponent recall.
+- **Heading is where size paid.** `d40000_x50` cuts keypoint error to 5.81 px, 1.84 px better
+  than the best `s` arm and 3.09 better than `base`, and heading error to 5.28 degrees. Both CIs
+  exclude zero. That is the metric the aim-assist consumes.
+- **It transfers to MassD far better than its own twin**, 0.505 against `d40000_s50`'s 0.341 on
+  identical data and epochs, at precision 0.979.
+- **The rule and the deployment question have come apart.** `swap_half` finds more opponents;
+  `d40000_x50` is the most precise arm at 0.967, the best on keypoints, and the cleanest on the
+  cage-high footage below. Which matters more depends on whether a missed opponent or a false
+  lock costs more in a match, and the pre-registered criterion picked recall before any arm
+  separated the two this far.
+
+#### The same six at conf 0.25, unregistered
+
+Run to separate a lost detection from a conservative threshold, as the eight-arm pass was. The
+headline stays at 0.5.
+
+| Arm | Recall | vs `base` | Precision | F1 |
+| --- | --- | --- | --- | --- |
+| `base` | 0.519 | | 0.294 | 0.375 |
+| `swap_half` | 0.746 | +0.227 better | 0.533 | 0.622 |
+| `d40000_s50` | 0.716 | +0.197 better | 0.621 | 0.665 |
+| `real3x_s100` | 0.620 | +0.101 better | 0.666 | 0.642 |
+| `d40000_x50` | 0.608 | +0.089 better | 0.901 | **0.726** |
+| `d40000_s100` | 0.579 | +0.060 better | 0.752 | 0.654 |
+
+- **The `x` arm's recall deficit is not a threshold artifact.** It trails `swap_half` by 0.138
+  here against 0.143 at conf 0.5. Lowering the bar lifts every arm together and leaves the order
+  intact, so `d40000_x50` genuinely finds fewer opponents at any threshold.
+- **On F1 it is the best arm in the experiment.** 0.726 against `swap_half`'s 0.622, because its
+  precision holds at 0.901 where `swap_half` falls to 0.533. Its +0.351 F1 over `base` is the
+  largest gain any arm has posted.
+- **`real3x` stays mid-table**, agreeing with the conf 0.5 read: oversampling the real frames did
+  not recover what the schedule cost.
+- **The deficit is an NHRL phenomenon.** On the 98 MassD frames `d40000_x50` recalls 0.703 against
+  `swap_half`'s 0.714, at precision 0.985 against 0.812, for an F1 of 0.821. On the 590 NHRL frames
+  it recalls 0.595 against 0.750. Whatever it misses, it misses at NHRL, where the house bot and a
+  busier cage are what distinguish the venues.
+
+#### Box counts on the cage-high footage, 2026-09-17
+
+`nhrl_cage_high_eval`, 650 frames over nine NHRL recordings, copied from pathfinder to
+`training/data/`. This is Brettzone broadcast footage from a cage mount, so it is neither the
+ZED the eval set uses nor the e-CAM25 the render used. It has no ground truth worth scoring
+against yet, so the read is how many boxes each arm produces against how many the footage
+should hold. `predict_all_arms.sh` labels it with every arm into its own directory, hardlinking
+the images; `conf_sweep.py` keeps each detection's confidence and sweeps thresholds offline.
+
+What the footage should hold, counted per recording rather than assumed. Four recordings, 325
+frames, carry the house bot at 0.82 to 0.98 per frame. The three `r*` recordings, 125 frames,
+carry none at all: every arm reports 0.00 in every frame, and their names lack the
+`Cage-N-Overhead-High` suffix the others have. `clyde` and `sphinx`, 200 frames, hold one that
+every arm misses, which `clyde`'s eight hand-labelled frames confirm. That gives
+325x3 + 125x2 + 200x3 = **1,825 boxes, 2.81 per frame**, within one box of the rate the ZED eval
+set carries for a different reason.
+
+Each arm read at the threshold matching the expected count per class, one Mrs Buff, one opponent
+and one house bot per frame:
+
+| Arm | Conf | Class error | buff | opp | house | mr_stabs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `d40000_x50` | 0.61 | **417** | 622 | 647 | 264 | **0** |
+| `d40000_s50` | 0.70 | 485 | 564 | 645 | 257 | 1 |
+| `d40000_s100` | 0.49 | 544 | 579 | 719 | 253 | 7 |
+| `real3x_s100` | 0.38 | 791 | 609 | 820 | 197 | 127 |
+| `base` | 0.75 | 797 | 512 | 655 | 0 | 4 |
+| `view_pinhole` | 0.72 | 989 | 442 | 644 | 0 | 125 |
+| *expected* | | *0* | *650* | *650* | *650* | *0* |
+
+- **Mr Stabs never fought in these matches, so every such box is a false positive** and needs no
+  ground truth to count. `d40000_x50` emits none at its own threshold and 30 at the count-matched
+  0.44, against 120 to 137 for nearly every `s` arm. That is the clearest thing model size bought.
+- **Matching the total hides a wrong split.** `base` reaches 1,839 boxes at conf 0.57 by emitting
+  1,147 opponents and zero house bots. Every arm can hit the total within 1.4 percent, so the
+  count alone does not rank them.
+- **Nobody finds the house bot**, 264 of 650 at best. Part is real, since `clyde` and `sphinx` are
+  missed by everyone, and part is this expectation still crediting those 200 frames a house bot on
+  the strength of eight labelled frames. It does not improve at `x`, so it is not model capacity.
+- **The existing labels are our-robot-only**: 565 boxes over 549 labelled frames, 541 of them a
+  single Mrs Buff box and 8 carrying all three classes. Seeding an eval set from them without
+  adding opponents would score opponent recall against almost no ground truth. The set also has no
+  `validation_state.json`, only `.edit_state.json`, so nothing records which frames were reviewed.
+
 The tree is not committed. Each render attempt writes `source_<time>.patch` (HEAD plus the
 `training/synthetic` diff) into its parts directory. Do not edit `training/synthetic` while a render
 job runs: every container mounts the repo live, so a run that starts hours in reads the edit.
@@ -1274,22 +1381,25 @@ not actually save time, say so and drop it.
 
 ## Next steps
 
-As of 2026-09-16. The renders, their gates, the fifteen-arm `yolo26s-pose` grid (queue jobs 6 to 21,
-every one exit 0) and its scoring are done. Questions 2, 3, 4 and 5 are answered above. Question 1 is
-contested between the training schedule and real-frame dilution, and the two arms that separate them
-are in the queue. What is left:
+As of 2026-09-17. Everything the plan set out to run has run: both renders and their gates, the
+fifteen-arm `yolo26s-pose` grid, the three follow-up arms, and the final `yolo26x-pose` arm, all
+scored. Questions 1 to 5 are answered above. What is left is a decision and two datasets:
 
-1. Score queue jobs 22 (`d40000` at 50 epochs) and 23 (`d40000_real3x`) when they land, against
-   `base` and against `d40000` at 100 epochs. Job 22 carries `ARM_DATE=2026-09-16` so it lands beside
-   the 100-epoch weights instead of over them, which means scoring it next to the 09-13 arms needs
-   its engine aliased to the 09-13 name or a second score call: `score_domain_mix.sh` takes one date
-   for every candidate.
-2. Train the final `yolo26x-pose` arm, once those two are read. Step 4's rule 1 picks the arm with
-   the highest pooled opponent recall, which is now `nodamage_swap_half` at 0.600 against
-   `swap_half`'s 0.562, while `swap_half` leads F1 at 0.639 against 0.614. The trajectory adds that
-   the epoch-100 ranking is not the ranking at each arm's own peak. Settle which dataset the `x` arm
-   trains on before submitting it; that choice is now three-way rather than the walkover the rule
-   assumed.
+1. **Decide what ships, because the registered rule no longer picks one model.** Rule 1 takes the
+   highest pooled opponent recall, which is `nodamage_swap_half` at 0.600, with `swap_half` at
+   0.562. `d40000_x50` recalls 0.419 and wins everything else: precision 0.967, the best F1 in the
+   experiment at conf 0.25 (0.726), keypoint error 5.81 px against the best `s` arm's 7.65, and the
+   cleanest class composition on cage-high footage. Its recall deficit is not a threshold artifact,
+   so this is a real trade of missed opponents against false locks, and the criterion was
+   pre-registered before any arm separated the two this far. Pick the deployment confidence on this
+   eval at the same time: the gap between conf 0.5 and 0.25 is worth more than the gap between most
+   arms, and 0.5 was inherited rather than measured.
+2. **The cage-high set is a second eval only after its opponents are labelled.** Its 549 labelled
+   frames carry Mrs Buff alone, 541 of them a single box, so opponent recall would be scored against
+   almost nothing. `training/data/cage_high_x50_conf044/` holds `d40000_x50`'s labels at its
+   count-matched threshold as a correction seed, and `training/data/cage_high_arm_labels_2026-09-16/`
+   holds all fifteen `s` arms at conf 0.15. Nothing records review state in that set, so it starts
+   fresh whichever seed is chosen.
 3. Step 6. MassD frames are sampled into `training/data/nhrl_keypoints_eval_grow_massd_2026-09-13`,
    not into the eval set, so the set this experiment scores on does not change under it. The
    MassD MCAPs live on pathfinder; the 11 clipped `__` segments (3.8 GB) were copied to megamind.
