@@ -23,11 +23,275 @@ the NHRL 20k render is queue job 1.
 | `CUDA_VISIBLE_DEVICES` passthrough | Already in `run_synthetic.sh`, translated to `--gpus device=N` |
 | Sharded render | `training/synthetic/render_shards.py`, with the allocation and merge in `synthgen/shards.py` and `tests/test_shards.py` |
 | Gate report | `training/synthetic/domain_render_report.py` |
-| Arm lists | `training/yolo/make_domain_mix_arms.py` |
+| Arm lists | `training/yolo/make_domain_mix_arms.py`, built over both renders in `training/data/domain_mix_arms_2026-09-13` |
 | NHRL 20k render | Done 22:48, gates passed: `training/data/synth_cage_nhrl_2026-09-13_v2` |
-| MassD 20k render | Queued, into `synth_cage_massd_2026-09-13` |
-| `base` arm, `yolo26s-pose` | Queued behind the MassD render |
-| MassD 20k render | Waits for the NHRL gates |
+| MassD 20k render | Done 2026-09-14 12:20, gates passed: `training/data/synth_cage_massd_2026-09-13` |
+| `base` arm, `yolo26s-pose` | Done 2026-09-14 14:25 after 2 h 05 min; weights, ONNX and sm86 engine in `data/models` |
+| `base` scoring test | Queue job 7. The engine parses as `num_keypoints=2, num_classes=4` over 688 GT frames. All classes, agnostic: precision 0.698, recall 0.486, mAP50 0.444. Our robots only: recall 0.843, keypoint error 8.9 px, heading error 8.3 degrees. All 12 runs finished (pooled, heading, both venues, eight recordings). After it, `score_domain_mix.sh` gained a pooled `opponent/` run on `taxonomy_opponent.yaml`, and its venue and recording runs moved to that taxonomy; `base` is rescored with the grid |
+| The other 13 grid arms | Queue jobs 8 to 20. Seven done by 2026-09-15 18:40, all exit 0 with weights, ONNX and engine: `d2500` 2:21, `d5000` 2:38, `d10000` 3:11, `d20000` 4:16, `d40000` 6:27, `swap_half` 2:18, `swap_all` 2:18. Training time tracks frame count, 2.3 h at 20k frames to 6.4 h at 58k. By 2026-09-16 00:41 `nhrl_only`, `massd_only` and `view_pinhole` had joined them, all exit 0; `view_rectified` is running, `view_distorted` and `view_mixed` are queued, and `nodamage_swap_half` was added as job 21, so the grid ends about 09:17 |
+| Memory under `--cache ram` | `d40000` holds about 49 GB of cached images per DDP rank: 144 GB used and 81 GB available of 251 GB once caching finished, no OOM kill in the kernel log. Claude Code's background watchers were stopped for low memory at that point and restarted |
+
+### The first eight arms, scored 2026-09-15
+
+`score_domain_mix.sh` at the pre-registered `--conf 0.5`, 1000-sample paired bootstrap against
+`base`. Opponent recall reads through `taxonomy_opponent.yaml`, heading through
+`taxonomy_keypoint_ours.yaml`.
+
+| Arm | Opponent recall | vs `base` | NHRL | MassD | Heading err | vs `base` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `base` | 0.339 | | 0.376 | 0.066 | 8.27 deg | |
+| `d2500` | 0.498 | +0.159 better | +0.126 | +0.396 | 6.87 | -1.41 better |
+| `d5000` | 0.450 | +0.110 better | +0.086 | +0.286 | 6.53 | -1.74 better |
+| `d10000` | 0.423 | +0.084 better | +0.048 | +0.352 | 6.71 | -1.57 better |
+| `d20000` | 0.358 | +0.018 ns | +0.000 ns | +0.154 | 5.81 | -2.46 better |
+| `d40000` | 0.295 | -0.045 worse | -0.064 worse | +0.099 | 5.56 | -2.71 better |
+| `swap_half` | 0.562 | +0.223 better | +0.185 | +0.505 | 6.30 | -1.98 better |
+| `swap_all` | 0.524 | +0.185 better | +0.149 | +0.451 | 7.11 | -1.17 ns |
+
+- **The adoption criterion is met**, by `swap_half` most clearly: opponent recall +0.223 with a CI
+  excluding zero, and heading error 1.98 degrees better rather than a degree worse.
+- **The amount curve turns over at 100 epochs.** Past `d2500` every extra domain frame costs
+  opponent recall, and `d40000` scores below `base`. Precision runs the other way, 0.415 at `base`
+  to 0.966 at `d40000`, so the domain-heavy arms are conservative at this threshold rather than
+  blind. A `--conf 0.25` pass is running to separate the two; it is unregistered and cannot carry
+  the headline. The epoch trajectory below shows this turnover is a property of the fixed 100
+  epochs and not of the amount of domain data: at each arm's own best checkpoint the order reverses.
+- **Randomized frames are not carrying the result.** `swap_all` beats `d20000` by +0.149 on NHRL
+  and +0.296 on MassD with half the frames and no randomized pool at all, so the pre-registered
+  "within 0.01 recall" test for dropping randomized passes in the stronger direction.
+- **MassD is where domain data pays.** `base` recalls 0.066 of MassD opponents; `swap_half`
+  recalls 0.571.
+- **Keypoints improve everywhere**, and in the opposite order to opponent recall: `d40000` has the
+  best heading error (5.56 deg) and the worst opponent recall, while `d2500` is the reverse.
+
+#### The same eight arms at `--conf 0.25`
+
+Unregistered, run to separate lost detections from a conservative threshold. The headline stays at
+0.5. Opponent recall against `base`, whose own recall rises from 0.339 to 0.519 as its precision
+falls from 0.415 to 0.294:
+
+| Arm | Recall @0.25 | vs `base` | NHRL | MassD |
+| --- | --- | --- | --- | --- |
+| `d2500` | 0.712 | +0.193 better | +0.155 | +0.473 |
+| `d5000` | 0.642 | +0.123 better | +0.091 | +0.363 |
+| `d10000` | 0.651 | +0.132 better | +0.092 | +0.429 |
+| `d20000` | 0.623 | +0.104 better | +0.074 | +0.319 |
+| `d40000` | 0.579 | +0.060 better | +0.039 | +0.220 |
+| `swap_half` | 0.746 | +0.227 better | +0.185 | +0.538 |
+| `swap_all` | 0.700 | +0.181 better | +0.131 | +0.549 |
+
+- **The turnover was mostly calibration.** Every arm beats `base` here, `d40000` included, where at
+  0.5 it scored 0.045 below. Domain data makes the detector more conservative rather than blind,
+  and the fixed 0.5 threshold charged it for that.
+- **The ranking does not change.** `swap_half` leads at both thresholds and `d2500` is second, so
+  the answer to question 1 holds: opponent recall stops paying after a few thousand domain frames,
+  while heading error keeps improving to 40,000.
+- **Deployment threshold is now a live question.** The gap between the two thresholds is worth
+  more than the gap between most arms, so whatever mix ships should have its confidence picked on
+  this eval rather than inherited.
+
+#### Why recall falls as the mix grows
+
+Diagnosed 2026-09-16 from the score files already written plus one size split. Unregistered.
+
+- **Not class confusion.** `wrong_class_rate` falls as domain data grows, 0.077 to 0.021 at conf
+  0.5 and 0.133 to 0.083 at 0.25. Opponents are not being relabelled as our robots.
+- **Partly the threshold.** At 0.25 every domain arm matches or beats `base` on class-blind recall;
+  at 0.5 the domain-heavy arms fall below it, with precision from 0.513 (`base`) to 0.898
+  (`d40000`). They are conservative, not blind.
+- **The residual is the real-frame share.** Every arm carries the same 452 real frames, whose share
+  falls from 2.45 percent (`base`) to 0.77 percent (`d40000`). At matched domain count, adding the
+  17,995 randomized frames costs recall: `swap_all` 0.700 against `d20000` 0.623 at 20,000 domain
+  frames, `swap_half` 0.746 against `d10000` 0.651 at 10,000.
+- **Randomized frames are not the problem; total synthetic is.** At the same 20,452 frames and the
+  same 2.21 percent real, half randomized and half domain beats all domain: `swap_half` 0.746
+  against `swap_all` 0.700.
+- **The loss lands on small robots.** Opponent recall by GT box size at conf 0.25, bins on
+  sqrt(area) in source pixels:
+
+  | Bin | GT boxes | `base` | `d2500` | `d20000` | `d40000` | `swap_half` |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 24-32 px | 18 | 0.278 | 0.556 | 0.389 | 0.222 | 0.611 |
+  | 32-48 px | 245 | 0.473 | 0.706 | 0.588 | 0.486 | 0.739 |
+  | 48-64 px | 127 | 0.402 | 0.677 | 0.583 | 0.606 | 0.717 |
+  | >64 px | 373 | 0.601 | 0.735 | 0.670 | 0.649 | 0.767 |
+
+  `d40000` hands back nearly all of `d2500`'s gain in the 32-48 px bin, a third of the eval's
+  boxes, while holding its gain above 48 px. The cage render puts our robots at 34 to 70 px, so the
+  sizes the mix adds most of are the sizes it ends up worst at: synthetic small robots crowd out the
+  few real ones rather than teaching the same appearance.
+- **Broad, not one opponent.** Seven of eight recordings decline from `d2500` to `d40000`. The
+  exception, `16-18-05` at 70 boxes, is the hardest recording for every arm and rises instead.
+- **The step count, after all.** This section first read the fixed 100 epochs as innocent, on the
+  grounds that `d40000` gets 3.2x `base`'s gradient steps and still loses, so more training could
+  not be what produces the drop. The trajectory below refutes that: `d40000` scores 0.606 at epoch
+  50 and 0.295 at epoch 100, so more training is exactly what produces the drop. The premise was
+  that extra steps can only help.
+
+So question 1's answer is not "20,000 per venue is too much domain data". The dilution reading above
+is one candidate and the training schedule is the other, and the trajectory backs the schedule: at
+its own peak every arm ranks by domain count. The size-bin and real-share numbers in this section
+still stand as measurements, but they were all taken at epoch 100, which is past the peak for the
+two arms they indict. Retake them at each arm's peak checkpoint before treating dilution as the
+cause, and the oversampled-real arm is the test only if that retake still shows the small-robot gap.
+
+#### Damage, question 4, scored 2026-09-16
+
+`swap_half` against `nodamage_swap_half`, the same 10,000 randomized, 10,000 domain and 452 real
+frames, with the damage-free arm drawing its domain frames from the clean pool alone. Conf 0.5,
+bootstrap against `swap_half`.
+
+| Arm | Precision | Recall | F1 | Heading err |
+| --- | --- | --- | --- | --- |
+| `swap_half`, damage on | 0.740 | 0.562 | 0.639 | 6.30 deg |
+| `nodamage_swap_half` | 0.627 | 0.600 | 0.614 | 6.89 deg |
+| Delta | -0.112 worse | +0.038 better | -0.025 worse | +0.59 ns |
+
+**The registered criterion is not met.** It reads "damage helps if damage-on beats `nodamage` on
+opponent recall with a CI excluding zero", and recall runs the other way: the damage-free arm recalls
+0.038 more opponents, with the CI excluding zero. Damage buys precision instead, 0.112 of it, which
+is the same conservatism axis every domain arm moves along. F1 favours damage on by 0.025.
+
+Keypoints do not move. Heading error is 0.59 degrees worse damage-free and pixel error 0.11 px worse,
+both ns, so the protected-part rule did its job: damaged frames neither taught nor corrupted the
+heading head.
+
+Two things this does not settle. The eval frames carry no damage label, so this is damage
+augmentation's effect on recall over all 688 frames, not its effect on damaged robots, which is what
+question 4 actually asks. And the damage-free arm holds a different draw of domain frames rather than
+the same scenes with damage switched off, since the clean pool is about 60 percent of the render.
+
+#### Venue transfer, scored 2026-09-16
+
+At the pre-registered conf 0.5, bootstrap against `base`. `swap_all`, `nhrl_only` and `massd_only`
+all carry 20,000 domain frames, the same 452 real frames and the same 2.21 percent real share, so
+the only difference between them is which venue the domain frames came from.
+
+| Arm | Opponent recall | NHRL frames | MassD frames | Heading err | vs `base` |
+| --- | --- | --- | --- | --- | --- |
+| `base` | 0.339 | 0.376 | 0.066 | 8.27 deg | |
+| `swap_half` | 0.562 | 0.561 | 0.571 | 6.30 | -1.98 better |
+| `swap_all` | 0.524 | 0.525 | 0.516 | 7.11 | -1.17 ns |
+| `nhrl_only` | 0.412 | 0.446 | 0.154 | 6.71 | -1.56 better |
+| `massd_only` | 0.159 | 0.170 | 0.077 | 6.69 | -1.59 better |
+
+- **Question 2's premise fails.** Neither single-venue arm beats the two-venue arm on its own
+  venue: `nhrl_only` sits 0.079 below `swap_all` on the NHRL frames, `massd_only` 0.439 below on
+  the MassD frames. Venue diversity is what makes domain data work, not venue match.
+- **`massd_only` barely detects.** 20,000 MassD frames give 0.077 recall on MassD footage against
+  the no-domain `base`'s 0.066, at precision 1.000: it fires rarely and is right when it does.
+  `d2500`, holding 1,250 MassD frames, reaches 0.462 there. A single venue is a narrower appearance
+  distribution than the randomized pool it replaced, and the detector overfits to it.
+- **Heading runs the other way.** Every venue arm improves heading error over `base`, `massd_only`
+  included. Our robot's keypoints tolerate a narrow venue; opponent detection does not.
+
+#### Matched presentations, set up 2026-09-16
+
+Step 4's step-count confound, read the way `synthetic_arms_2026-07-31` read it: anchor on `base` at
+100 epochs, 1.845 M frame-presentations, and score every richer arm at the checkpoints bracketing
+that number instead of at its own epoch 100.
+
+| Arm | Frames | Checkpoints bracketing 1.845 M | Presentations |
+| --- | --- | --- | --- |
+| `base` | 18,447 | `last`, the anchor | 1.845 M |
+| `d2500` | 20,947 | `epoch75`, `last` | 1.571, 2.095 M |
+| `d5000` | 23,447 | `epoch75`, `last` | 1.759, 2.345 M |
+| `d10000` | 28,447 | `epoch50`, `epoch75` | 1.422, 2.133 M |
+| `d20000` | 38,447 | `epoch25`, `epoch50` | 0.961, 1.922 M |
+| `d40000` | 58,447 | `epoch25`, `epoch50` | 1.461, 2.922 M |
+| `swap_half`, `swap_all` | 20,452 | `epoch75`, `last` | 1.534, 2.045 M |
+| view arms | 13,785 | none | `last` reaches 1.379 M |
+
+The four view arms cannot reach the anchor in 100 epochs, so they carry the confound the other way
+and their read is a ceiling rather than a match.
+
+`score_domain_mix.sh` now takes an arm as `arm:ckpt`, which overrides `CKPT` for that arm alone and
+names it `arm_ckpt` in the output, plus a `RUNS` subset. The matched table needs a different epoch
+per arm and only the `opponent` run: twelve runs over ten candidates is an hour of GPU for one
+column. The ten bracketing engines build from the `--save-period 25` checkpoints in `data/models`.
+
+`make_domain_mix_arms.py` gained `nodamage_swap_half`, since `swap_half` won the grid. Rebuilding
+every arm into a scratch directory reproduced all eighteen `.txt` files byte for byte, so adding
+that arm did not move a list any earlier arm trained on. It is queue job 21, behind the two
+remaining view arms.
+
+#### What the trajectory says, scored 2026-09-16
+
+Every `--save-period 25` checkpoint of five arms, conf 0.5 through `taxonomy_opponent.yaml`,
+bootstrapped against `base` at epoch 100. Opponent recall, precision in brackets:
+
+| Arm | Frames/epoch | ep25 | ep50 | ep75 | ep100 |
+| --- | --- | --- | --- | --- | --- |
+| `base` | 18,447 | 0.367 (0.297) | 0.284 (0.417) | 0.362 (0.423) | 0.339 (0.415) |
+| `d2500` | 20,947 | 0.388 (0.863) | 0.495 (0.792) | 0.533 (0.755) | 0.498 (0.832) |
+| `d20000` | 38,447 | 0.588 (0.628) | 0.592 (0.653) | 0.527 (0.776) | 0.358 (0.922) |
+| `d40000` | 58,447 | 0.599 (0.617) | 0.606 (0.728) | 0.505 (0.826) | 0.295 (0.966) |
+| `swap_half` | 20,452 | 0.385 (0.661) | 0.532 (0.687) | 0.557 (0.678) | 0.562 (0.740) |
+
+- **The amount curve's turnover is a schedule artifact.** Read at its own best checkpoint the grid
+  ranks by domain count, the reverse of the epoch-100 table: `d40000` 0.606, `d20000` 0.592,
+  `swap_half` 0.562, `d2500` 0.533, `base` 0.367. At matched or lower presentations the domain-heavy
+  arms lead everything, and `d40000` at ep25 sees 1.46 M presentations against `base`'s 1.85 M and
+  still scores 0.599 to its 0.339.
+- **Recall peaks near 2 M frame-presentations whatever the mix**, and falls past about 3 M: `d2500`
+  peaks at 1.57 M, `swap_half` at 2.05 M, `d20000` at 1.92 M, `d40000` at 2.92 M. A fixed 100 epochs
+  puts `d20000` at 3.84 M and `d40000` at 5.84 M, well past the peak, and puts every other arm at or
+  under 2.1 M. The headline table charges the two biggest arms for a schedule the others never hit.
+- **`base` has no trend**, 0.284 to 0.367 over its four checkpoints with flat precision. Whatever
+  the domain-heavy arms are doing late in training, it is not what 100 epochs does to any detector.
+  That spread is also the eval's noise floor, so read differences under 0.05 as nothing.
+- **Precision rises monotonically on every domain arm** as recall falls, `d40000` from 0.617 to
+  0.966. The arms are drifting into conservatism on real footage, gradually rather than off a cliff,
+  and the drift is steeper the more domain data they carry.
+- **Unregistered, and best-checkpoint selection reads the eval set.** Picking each arm's peak from
+  the same 688 frames it is scored on inflates all five numbers. The pre-registered headline stays
+  at epoch 100. To promote this, train `d40000` at the budget its own curve peaks at, near 50
+  epochs, and score that as a fresh arm.
+
+Both confirmatory arms are queued. Queue job 22 trains `d40000` for 50 epochs under
+`ARM_DATE=2026-09-16`, so it lands beside the 100-epoch weights rather than over them, and tests the
+schedule reading on a checkpoint nothing selected on the eval. Queue job 23 trains `d40000_real3x`,
+the same 40,000 domain and 17,995 randomized frames with the 452 real ones written three times, which
+holds the real share at 2.28 percent against `d40000`'s 0.77 and tests the dilution reading. It
+trains for the registered 100 epochs so it is comparable to `d40000`, and `--save-period 25` gives it
+the same trajectory the arms above have. If dilution is the cause, `real3x` recovers the small-robot
+recall at epoch 100; if the schedule is the cause, it collapses like `d40000` and peaks near 2 M
+presentations instead.
+
+#### The view arms, question 5, scored 2026-09-16
+
+All four hold 13,785 frames, no randomized pool, 100 epochs, so each sees 1.379 M presentations and
+none reaches the peak the trajectory above puts near 2 M. The schedule effect does not touch this
+comparison. Conf 0.5, bootstrap against `base`.
+
+| Arm | Pooled recall | vs `base` | Precision | NHRL 590 | MassD 98 | Heading err |
+| --- | --- | --- | --- | --- | --- | --- |
+| `base` | 0.339 | | 0.415 | 0.376 | 0.066 | 8.27 deg |
+| `view_pinhole` | 0.545 | +0.206 better | 0.461 | 0.542 | 0.571 | 6.88, better |
+| `view_rectified` | 0.471 | +0.131 better | 0.512 | 0.479 | 0.407 | 6.82, better |
+| `view_distorted` | 0.477 | +0.138 better | 0.704 | 0.464 | 0.571 | 7.89, ns |
+| `view_mixed` | 0.486 | +0.147 better | 0.696 | 0.488 | 0.473 | 7.95, ns |
+
+- **No view broke the detector**, which is all this eval was registered to show. Every arm beats
+  `base` on pooled opponent recall with a CI excluding zero, and on MassD every one of them turns
+  `base`'s 0.066 into 0.407 or better at precision 0.88 to 0.93.
+- **`view_pinhole` leads, as predicted, and that is the confound.** The eval is ZED footage the
+  camera rectified itself, zero distortion, no border, which is the `pinhole` view. The plan called
+  this home-field advantage in advance, so the ranking here cannot answer question 5.
+- **Training on distorted frames costs nothing on undistorted input.** `view_distorted` ties
+  `view_pinhole` on MassD at 0.571, beats `view_rectified` everywhere, and carries much the highest
+  precision of the three single-view arms at 0.704. Whatever the distortion model does to the
+  training frames, it does not stop the detector reading frames that have none.
+- **`view_rectified` is the weakest on recall**, 0.471 pooled and 0.407 on MassD, on footage that is
+  nominally its own view. The render's `rectified` frames carry the alpha 1.0 black border, 36
+  percent of the frame for the e-CAM25, and the ZED eval frames carry none. It trained on bordered
+  frames and is scored on unbordered ones.
+- **Heading splits with the lens.** `view_pinhole` and `view_rectified` improve heading error over
+  `base` by about 1.4 degrees; `view_distorted` and `view_mixed` do not move it. Pixel error improves
+  for all four.
+
+The answer to question 5 still needs labelled e-CAM25 footage, raw and rectified. Nothing here
+changes that, and none of these numbers should be read as a view ranking.
 
 The tree is not committed. Each render attempt writes `source_<time>.patch` (HEAD plus the
 `training/synthetic` diff) into its parts directory. Do not edit `training/synthetic` while a render
@@ -76,6 +340,24 @@ The warped views hide keypoints at 7.4 percent against 5.1 in the randomized poo
 pinhole, since they cut robots at the frame edge and at the rectified border. Eighteen sampled
 rectified and distorted frames showed boxes and keypoints following the warp and no robot above the
 cage walls.
+
+The MassD render (queue job 5) ran 2026-09-13 23:18 to 2026-09-14 12:20, 13.0 h, and merged 20,000
+frames: rectified 6,667, distorted 6,667, pinhole 6,666. Per GPU, rectified took 8.9 to 9.1 s a
+frame, distorted 8.8 to 9.1 and pinhole 2.9 to 3.0. `validate_yolo_integrity.py --strict`: 0
+errors and the expected `house_bot` zero-instance warning, 86,801 annotations (mr_stabs_mk2 11,625,
+mrs_buff_mk3 17,650, nhrl_robot 57,526). Gate report:
+
+| View | Frames | Clean | Hidden keypoints | Dropped |
+| --- | --- | --- | --- | --- |
+| pinhole | 6,666 | 59.2% | 1.0% | 0.8% |
+| rectified | 6,667 | 58.7% | 3.9% | 0.9% |
+| distorted | 6,667 | 58.5% | 4.0% | 1.1% |
+
+MassD hides fewer keypoints than NHRL in every view (4.0 against 7.4 percent warped): with no house
+bot and a cleaner wall line, less of each robot sits at the frame edge. Twenty-seven sampled frames
+across the three views showed labels fitting the floor, pit and kick rails. Some show unlabelled,
+robot-shaped images beyond the walls, which read as reflections in the 1.41 m glass; real footage
+through that glass carries them too, so they stay.
 
 Smoke renders, jobs 51 and 52: 18 frames per venue over three GPUs, every instance damaged
 (`-- --images-per-scene 2 --damage all`).
@@ -803,6 +1085,10 @@ on the winning dataset:
    frames, the `yolo26x-pose` arm trains on that single venue's data instead.
 3. If both single-venue arms win on their own venues, ask which venue before submitting.
 
+**Resolved 2026-09-16:** neither single-venue arm wins on its own venue (`nhrl_only` -0.079,
+`massd_only` -0.439 against `swap_all`), so rule 2 does not fire and the `yolo26x-pose` arm trains
+on the winning mixed dataset. `swap_half` leads every arm scored so far.
+
 Submit it the same way as the grid, with `yolo26x-pose` as the model key.
 
 ### The step-count confound
@@ -812,6 +1098,9 @@ gradient steps and part of any win is just more training. Handle it the way
 `synthetic_arms_2026-07-31` did: keep epochs fixed at 100 for the headline table, and use the
 `--save-period 25` checkpoints to read every arm again at matched frame-presentations. Report
 both. If the win survives at matched steps it is the data.
+
+At 100 epochs Ultralytics writes `epoch25.pt`, `epoch50.pt` and `epoch75.pt` but no `epoch100.pt`;
+`last.pt` is the epoch-100 checkpoint. `run_domain_mix_arm.sh` copies all four.
 
 ### The val set is not a decision surface
 
@@ -870,7 +1159,10 @@ Write these down before the first score run and do not move them afterwards.
 
 - **Adopt** a domain mix if agnostic opponent recall on the pooled eval rises by at least 0.03
   with a 95 percent CI excluding zero, and our-robot heading error does not get worse by more
-  than 1 degree.
+  than 1 degree. Opponent recall is read with `training/model_eval/taxonomy_opponent.yaml`,
+  which excludes our robots, the house bot and `object` from GT and predictions; `taxonomy.yaml`
+  scores all four classes together and is not this metric. Heading error is read with
+  `taxonomy_keypoint_ours.yaml`.
 - **Drop randomized** if `swap_all` is within 0.01 recall of `d20000` on both venues.
 - **Damage helps** if `damage-on` beats `nodamage` on opponent recall with a CI excluding zero.
 - Anything else that moves is an unregistered finding and needs a confirmatory run before it
@@ -982,25 +1274,23 @@ not actually save time, say so and drop it.
 
 ## Next steps
 
-As of 2026-09-13. Done: the manifest view, the cutter interior material, the imgsz decision,
-`render_shards.py`, `domain_render_report.py`, `make_domain_mix_arms.py`, `run_domain_mix_arm.sh`,
-`prelabel_dataset.py`, and a smoke render of each venue. The 100-frame probes from jobs 42 and 43
-are gone from disk; the smoke renders replaced them for grading the cutter. The ground texture
-count reads 8, not 13, and every frame still renders. What is left:
+As of 2026-09-16. The renders, their gates, the fifteen-arm `yolo26s-pose` grid (queue jobs 6 to 21,
+every one exit 0) and its scoring are done. Questions 2, 3, 4 and 5 are answered above. Question 1 is
+contested between the training schedule and real-frame dilution, and the two arms that separate them
+are in the queue. What is left:
 
-1. The MassD 20k render, queued with `--views rectified distorted pinhole --seed-base 200`, then
-   the `base` arm behind it. Gate MassD the way NHRL was gated, allowing the `house_bot`
-   zero-instance warning. At NHRL's per-view costs it runs about 11 to 12 hours. Gate it with `validate_yolo_integrity.py --strict` and `domain_render_report.py`, move it
-   to `/media/storage` if `/` runs short, then submit MassD with
-   `--views rectified distorted pinhole --seed-base 200`.
-2. Build the arm lists over both renders into `training/data/domain_mix_arms_<date>`.
-3. The `yolo26s-pose` shaping grid, one `run_domain_mix_arm.sh` queue job per arm. `nodamage` goes
-   last, once `d20000` and `swap_all` are scored.
-4. Score each arm's `last` engine three ways (pooled with bootstrap against `base`, per venue, per
-   recording), then the matched-step reads from the epoch checkpoints.
-5. Train the final `yolo26x-pose` arm on the winning dataset, by the rule in step 4, and score it
-   against the `yolo26s-pose` winner.
-6. Step 6. MassD frames are sampled into `training/data/nhrl_keypoints_eval_grow_massd_2026-09-13`,
+1. Score queue jobs 22 (`d40000` at 50 epochs) and 23 (`d40000_real3x`) when they land, against
+   `base` and against `d40000` at 100 epochs. Job 22 carries `ARM_DATE=2026-09-16` so it lands beside
+   the 100-epoch weights instead of over them, which means scoring it next to the 09-13 arms needs
+   its engine aliased to the 09-13 name or a second score call: `score_domain_mix.sh` takes one date
+   for every candidate.
+2. Train the final `yolo26x-pose` arm, once those two are read. Step 4's rule 1 picks the arm with
+   the highest pooled opponent recall, which is now `nodamage_swap_half` at 0.600 against
+   `swap_half`'s 0.562, while `swap_half` leads F1 at 0.639 against 0.614. The trajectory adds that
+   the epoch-100 ranking is not the ranking at each arm's own peak. Settle which dataset the `x` arm
+   trains on before submitting it; that choice is now three-way rather than the walkover the rule
+   assumed.
+3. Step 6. MassD frames are sampled into `training/data/nhrl_keypoints_eval_grow_massd_2026-09-13`,
    not into the eval set, so the set this experiment scores on does not change under it. The
    MassD MCAPs live on pathfinder; the 11 clipped `__` segments (3.8 GB) were copied to megamind.
    The staging set holds 2,400 frames: 250 per recording from the 10 clips not already in the eval
@@ -1013,4 +1303,4 @@ count reads 8, not 13, and every frame still renders. What is left:
    work. The pre-label pass wrote 2,160 frames with 1,731 boxes and held out 240. Boxes per
    recording run from 1 (`08-48-31`) and 4 (`09-50-45__09-52-23`) to 376 (`09-20-17__09-27-24`),
    so a few clips are mostly empty arena or pre-match footage and review fast.
-7. Record and label e-CAM25 footage for question 5, raw and rectified. Needs the robot.
+4. Record and label e-CAM25 footage for question 5, raw and rectified. Needs the robot.
