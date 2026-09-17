@@ -1,0 +1,16 @@
+# Taxonomy for scoring opponent detection alone.
+#
+# The domain-mix plan (docs/experiments/perception_performance/synthetic_domain_mix_plan_2026-09-12.md)
+# adopts a mix on agnostic opponent recall. taxonomy.yaml scores our robots and the house bot
+# alongside opponents, so its recall mixes three tasks; taxonomy_merged.yaml folds our robots into
+# `opponent`, which counts a Mrs Buff box as an opponent hit. Excluding everything but `opponent`
+# from both GT and predictions leaves the agnostic level as opponent recall: every GT opponent box,
+# matched by any remaining prediction.
+archetypes:
+  opponent: opponent
+
+exclude:
+  - mr_stabs_mk2
+  - mrs_buff_mk3
+  - house_bot
+  - object
