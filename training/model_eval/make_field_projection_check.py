@@ -28,7 +28,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from auto_battlebot.eval import BACK_IDX, FRONT_IDX, load_gt
+from auto_battlebot.eval import BACK_IDX, FRONT_IDX, FrameKey, load_gt
 from auto_battlebot.perception.camera_geometry import (
     NOMINAL_FIELD_SIZE_M,
     field_to_pixels,
@@ -164,7 +164,7 @@ def legend(width):
     return strip
 
 
-def pick_frames(gt_frames, images, count: int, method: str) -> list[int]:
+def pick_frames(gt_frames, images, count: int, method: str) -> list[FrameKey]:
     """Frames with a usable pose, dealt round-robin across recordings.
 
     Round-robin rather than first-N so one fight cannot vouch for the whole export, and

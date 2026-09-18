@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from auto_battlebot.eval.dataset import LEVELS, Taxonomy
+from auto_battlebot.eval.dataset import LEVELS, FrameKey, GtFrame, Taxonomy
 from auto_battlebot.eval.detectors import build_detector, infer_frames
 from auto_battlebot.eval.metrics import (
     compute_map,
@@ -27,8 +27,8 @@ from auto_battlebot.eval.plots import plot_confusion
 def score_candidate(
     name: str,
     engine_path: Path,
-    gt_frames: dict,
-    images: dict[int, Path],
+    gt_frames: dict[FrameKey, GtFrame],
+    images: dict[FrameKey, Path],
     class_labels: list[str],
     taxonomy: Taxonomy,
     args: argparse.Namespace,

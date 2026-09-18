@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from auto_battlebot.eval.dataset import Frame, GtFrame, Taxonomy
+from auto_battlebot.eval.dataset import Frame, FrameKey, GtFrame, Taxonomy
 from auto_battlebot.perception.trt_yolo import TrtYoloModel
 
 
@@ -26,7 +26,7 @@ class EngineDetector:
     def describe(self) -> str:
         return str(self._model.describe())
 
-    def detect(self, image: np.ndarray, _stamp_ns: int) -> list:
+    def detect(self, image: np.ndarray, _key: FrameKey) -> list:
         return self._model.infer(image)
 
 
@@ -47,26 +47,26 @@ class FieldCropDetector:
         self,
         inner: EngineDetector,
         boxes_path: Path,
-        images: dict[int, Path],
+        images: dict[FrameKey, Path],
         margin: float,
     ) -> None:
         self._inner = inner
         self._margin = margin
         payload = json.loads(boxes_path.read_text())
-        self._by_stamp: dict[int, tuple[float, float, float, float]] = {}
-        for stamp, path in images.items():
+        self._by_frame: dict[FrameKey, tuple[float, float, float, float]] = {}
+        for key, path in images.items():
             box = payload.get(path.stem)
             if box:
-                self._by_stamp[stamp] = tuple(box)
-        missing = len(images) - len(self._by_stamp)
+                self._by_frame[key] = tuple(box)
+        missing = len(images) - len(self._by_frame)
         if missing:
             print(f"  {missing} of {len(images)} frames have no field box; passed through whole")
 
     def describe(self) -> str:
         return f"{self._inner.describe()}, field crop (margin {self._margin:.2f})"
 
-    def _crop(self, image: np.ndarray, stamp_ns: int) -> tuple[int, int, int, int] | None:
-        box = self._by_stamp.get(stamp_ns)
+    def _crop(self, image: np.ndarray, key: FrameKey) -> tuple[int, int, int, int] | None:
+        box = self._by_frame.get(key)
         if box is None:
             return None
         height, width = image.shape[:2]
@@ -78,12 +78,12 @@ class FieldCropDetector:
         py1 = max(int(round(min(y1 + my, 1.0) * height)), py0 + 1)
         return px0, py0, px1, py1
 
-    def detect(self, image: np.ndarray, stamp_ns: int) -> list:
-        crop = self._crop(image, stamp_ns)
+    def detect(self, image: np.ndarray, key: FrameKey) -> list:
+        crop = self._crop(image, key)
         if crop is None:
-            return self._inner.detect(image, stamp_ns)
+            return self._inner.detect(image, key)
         px0, py0, px1, py1 = crop
-        detections = self._inner.detect(image[py0:py1, px0:px1], stamp_ns)
+        detections = self._inner.detect(image[py0:py1, px0:px1], key)
         shifted = []
         for xyxy, conf, cls_id, kps in detections:
             xyxy = np.asarray(xyxy, dtype=np.float64).copy()
@@ -136,8 +136,10 @@ class PrecomputedDetector:
             f"{total} detections at conf >= {self._conf}"
         )
 
-    def detect(self, _image: np.ndarray, stamp_ns: int) -> list:
-        return self._by_stamp.get(stamp_ns, [])
+    def detect(self, _image: np.ndarray, key: FrameKey) -> list:
+        # The replay file is keyed by stamp alone, so a set whose recordings share stamps
+        # cannot be replayed against; only single-recording runs write these.
+        return self._by_stamp.get(key.stamp_ns, [])
 
 
 # Every detector is duck-typed on detect() and describe(); this keeps the two signatures
@@ -146,19 +148,19 @@ Detector = EngineDetector | PrecomputedDetector | FieldCropDetector
 
 
 def infer_frames(
-    gt_frames: dict[int, GtFrame],
-    images: dict[int, Path],
+    gt_frames: dict[FrameKey, GtFrame],
+    images: dict[FrameKey, Path],
     detector: Detector,
     class_labels: list[str],
     taxonomy: Taxonomy,
 ) -> list[Frame]:
     """Run the candidate on every GT frame's image and pair the results."""
     frames = []
-    for gt_stamp, (gt_boxes, gt_labels, gt_keypoints) in gt_frames.items():
-        image = cv2.imread(str(images[gt_stamp]))
+    for key, (gt_boxes, gt_labels, gt_keypoints) in gt_frames.items():
+        image = cv2.imread(str(images[key]))
         if image is None:
-            raise SystemExit(f"Failed to read image {images[gt_stamp]}")
-        detections = detector.detect(image, gt_stamp)
+            raise SystemExit(f"Failed to read image {images[key]}")
+        detections = detector.detect(image, key)
         labeled = [
             (xyxy, conf, class_labels[cls_id], kps)
             for xyxy, conf, cls_id, kps in detections
@@ -195,7 +197,7 @@ def build_detector(
     name: str,
     engine_path: Path,
     class_labels: list[str],
-    images: dict[int, Path],
+    images: dict[FrameKey, Path],
     args: argparse.Namespace,
 ) -> Detector:
     """The detector for one candidate, with any preprocessing that candidate was trained on.

@@ -15,10 +15,11 @@ from auto_battlebot.eval.dataset import (
     AGNOSTIC_LABEL,
     LEVELS,
     Frame,
+    FrameKey,
     GtFrame,
     Taxonomy,
     load_gt,
-    reviewed_stems,
+    reviewed_frames,
 )
 from auto_battlebot.eval.detectors import (
     Detector,
@@ -58,6 +59,7 @@ __all__ = [
     "EngineDetector",
     "FieldCropDetector",
     "Frame",
+    "FrameKey",
     "GtFrame",
     "PrecomputedDetector",
     "Taxonomy",
@@ -75,7 +77,7 @@ __all__ = [
     "plot_headline",
     "pr_from_counts",
     "pr_per_frame",
-    "reviewed_stems",
+    "reviewed_frames",
     "run_significance",
     "score_candidate",
 ]

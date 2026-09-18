@@ -30,6 +30,7 @@ import pandas as pd
 
 from auto_battlebot.eval import (
     LEVELS,
+    EngineDetector,
     Frame,
     Taxonomy,
     compute_map,
@@ -75,8 +76,8 @@ def cpp_frames(
 ) -> list[Frame]:
     """Build score.py Frames from the recorded C++ detections."""
     frames = []
-    for gt_stamp, (gt_boxes, gt_labels, gt_keypoints) in gt_frames.items():
-        dets = cpp_by_stamp[matches[gt_stamp]]
+    for key, (gt_boxes, gt_labels, gt_keypoints) in gt_frames.items():
+        dets = cpp_by_stamp[matches[key.stamp_ns]]
         keep = [d for d in dets.detections if d.label not in taxonomy.exclude]
         gt_keep = [i for i, lbl in enumerate(gt_labels) if lbl not in taxonomy.exclude]
         frames.append(
@@ -211,8 +212,12 @@ def main() -> None:
     print(f"GT: {len(gt_frames)} frames, classes: {names}")
 
     cpp_by_stamp = read_cpp_detections(args.cpp_mcap, TOPICS[args.topic])
-    matches = match_stamps(sorted(gt_frames), sorted(cpp_by_stamp), STAMP_TOLERANCE_NS)
-    common = {stamp: gt_frames[stamp] for stamp in gt_frames if stamp in matches}
+    # GT frames carry a subdataset alongside the stamp; the C++ recordings are keyed by
+    # stamp alone, so the match runs over stamps and the result is read back per frame.
+    matches = match_stamps(
+        sorted(key.stamp_ns for key in gt_frames), sorted(cpp_by_stamp), STAMP_TOLERANCE_NS
+    )
+    common = {key: gt_frames[key] for key in gt_frames if key.stamp_ns in matches}
     print(f"Common frames (GT covered by C++ recordings): {len(common)}/{len(gt_frames)}")
     if not common:
         raise SystemExit("No GT frames covered by the C++ recordings")
@@ -227,7 +232,7 @@ def main() -> None:
     print(f"Python path: {model.describe()}")
 
     frames_cpp = cpp_frames(common, cpp_by_stamp, matches, taxonomy)
-    frames_py = infer_frames(common, images, model, class_labels, taxonomy)
+    frames_py = infer_frames(common, images, EngineDetector(model), class_labels, taxonomy)
 
     cpp_metrics = score_path(frames_cpp, taxonomy, args.iou)
     py_metrics = score_path(frames_py, taxonomy, args.iou)

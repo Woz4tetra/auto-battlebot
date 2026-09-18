@@ -4,6 +4,10 @@ The GT argument to the scorer is either a single dataset dir (data.yaml + images
 labels/) or a root containing such subdatasets. If a validation_state.json is present,
 only frames it marks `pass` are loaded; failing that, an edit_labels.py .edit_state.json
 is used the same way.
+
+Frames are identified by FrameKey, which pairs the subdataset with the frame stamp. The
+stamp alone is not unique across subdatasets: a set sampled from video restarts at 0 in
+every recording, so keying by stamp silently collapsed same-numbered frames.
 """
 
 from __future__ import annotations
@@ -11,12 +15,34 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import yaml
 
 LEVELS = ("agnostic", "archetype", "instance")
 AGNOSTIC_LABEL = "robot"
+
+
+class FrameKey(NamedTuple):
+    """Which frame this is: the subdataset it came from, and its stamp.
+
+    Keying by stamp alone loses frames whenever two subdatasets number a frame the same.
+    That is the normal case for a set built from video, where every recording starts at
+    stamp 0: cage_high_x50_conf044 loaded 571 of its 636 frames, the nine recordings'
+    frame 0 collapsing into one. Sets sampled from SVO recordings carry stamps unique
+    across recordings and were never affected.
+
+    dataset is the subdataset's path relative to the GT root, "." for a single dataset.
+    stamp_ns stays available for the consumers that have to align GT against something
+    else timestamped, such as compare_cpp_python.py against a C++ MCAP.
+    """
+
+    dataset: str
+    stamp_ns: int
+
+    def __str__(self) -> str:
+        return f"{self.dataset}/{self.stamp_ns}" if self.dataset != "." else str(self.stamp_ns)
 
 
 @dataclass
@@ -70,8 +96,9 @@ EDIT_STATE = ".edit_state.json"
 VALIDATION_PASS = "pass"
 
 
-def reviewed_stems(root: Path) -> set[str] | None:
-    """Frame stems that count as ground truth, or None when the dataset tracks no review state.
+def reviewed_frames(root: Path) -> set[tuple[str, str]] | None:
+    """Frames that count as ground truth as (subdataset, stem) pairs, or None when the
+    dataset tracks no review state.
 
     `validation_state.json` is the authority: it maps each image path, relative to the root, to a
     validation verdict, and only `pass` frames are scored. `.edit_state.json` is the older
@@ -79,30 +106,40 @@ def reviewed_stems(root: Path) -> set[str] | None:
     older file silently drops whole recordings: on `nhrl_keypoints_eval_test` the edit state lists
     429 frames and names none of the 98 MassD ones, all of which validate as `pass`.
 
+    The subdataset is carried alongside the stem for the same reason FrameKey carries it: two
+    recordings can name a frame the same, and a verdict on one must not select or reject the
+    other.
+
     Both files live at the dir that was pointed at, so a symlink root with neither scores every
     label file present."""
+
+    def identity(rel: str) -> tuple[str, str]:
+        # <subdataset>/images/<stem>.png, or images/<stem>.png for a single dataset.
+        path = Path(rel)
+        return str(path.parent.parent), path.stem
+
     validation_path = root / VALIDATION_STATE
     if validation_path.exists():
         state = json.loads(validation_path.read_text())
-        return {Path(rel).stem for rel, verdict in state.items() if verdict == VALIDATION_PASS}
+        return {identity(rel) for rel, verdict in state.items() if verdict == VALIDATION_PASS}
 
     edit_path = root / EDIT_STATE
     if not edit_path.exists():
         return None
     reviewed = json.loads(edit_path.read_text()).get("reviewed", [])
-    return {Path(rel).stem for rel in reviewed}
+    return {identity(rel) for rel in reviewed}
 
 
-def load_gt(root: Path) -> tuple[dict[int, GtFrame], list[str], dict[int, Path]]:
+def load_gt(root: Path) -> tuple[dict[FrameKey, GtFrame], list[str], dict[FrameKey, Path]]:
     """Read YOLO labels from a dataset dir or a root of subdatasets.
 
     When a review-state file exists, only the frames it accepts count as ground truth; see
-    reviewed_stems for which file wins.
-    Returns ({stamp_ns: (boxes, labels, keypoints)}, names, {stamp_ns: image path})."""
-    reviewed = reviewed_stems(root)
+    reviewed_frames for which file wins.
+    Returns ({FrameKey: (boxes, labels, keypoints)}, names, {FrameKey: image path})."""
+    reviewed = reviewed_frames(root)
     names: list[str] = []
-    frames: dict[int, GtFrame] = {}
-    images: dict[int, Path] = {}
+    frames: dict[FrameKey, GtFrame] = {}
+    images: dict[FrameKey, Path] = {}
     for dataset in _dataset_dirs(root):
         data = yaml.safe_load((dataset / "data.yaml").read_text())
         dataset_names = list(data["names"])
@@ -112,16 +149,17 @@ def load_gt(root: Path) -> tuple[dict[int, GtFrame], list[str], dict[int, Path]]
             raise SystemExit(f"Class names in {dataset} conflict with sibling datasets")
         if len(dataset_names) > len(names):
             names = dataset_names
+        relative = str(dataset.relative_to(root))
         for label_path in sorted((dataset / "labels").glob("*.txt")):
-            if reviewed is not None and label_path.stem not in reviewed:
+            if reviewed is not None and (relative, label_path.stem) not in reviewed:
                 continue
             image_path = _find_image(dataset / "images", label_path.stem)
             if image_path is None:
                 continue
             width, height = _image_size(image_path)
-            stamp = int(label_path.stem)
-            frames[stamp] = _parse_rows(label_path, dataset_names, width, height)
-            images[stamp] = image_path
+            key = FrameKey(relative, int(label_path.stem))
+            frames[key] = _parse_rows(label_path, dataset_names, width, height)
+            images[key] = image_path
     if not frames:
         raise SystemExit(f"No scoreable labels found under {root}")
     return frames, names, images

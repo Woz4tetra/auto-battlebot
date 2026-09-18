@@ -337,10 +337,10 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     offset_rows = []
     matched_rows = []
-    for stamp, (gt_boxes_all, gt_labels_all, gt_kps_all) in gt_frames.items():
-        image = cv2.imread(str(images[stamp]))
+    for key, (gt_boxes_all, gt_labels_all, gt_kps_all) in gt_frames.items():
+        image = cv2.imread(str(images[key]))
         if image is None:
-            raise SystemExit(f"Failed to read image {images[stamp]}")
+            raise SystemExit(f"Failed to read image {images[key]}")
         gt_idx = gt_keep_indices(gt_labels_all, taxonomy)
         gt_boxes = gt_boxes_all[gt_idx]
         gt_labels = [gt_labels_all[i] for i in gt_idx]
@@ -352,7 +352,7 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
             seg_model, image, seg_labels, taxonomy, args, want_masks=True
         )
         centers = box_centers(boxes)
-        rows, centroids = centroid_rows(stamp, boxes, scores, labels, masks)
+        rows, centroids = centroid_rows(key.stamp_ns, boxes, scores, labels, masks)
         offset_rows.extend(rows)
 
         # Position error against the GT box center, over class-blind IoU matches.
@@ -372,7 +372,7 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
         identity = dict(enumerate(range(len(gt_boxes))))
         matched_rows.extend(
             error_rows(
-                stamp,
+                key.stamp_ns,
                 gt_labels,
                 gt_sides,
                 {"gtbox": gt_centers, "kpmid": gt_mids},
@@ -388,7 +388,7 @@ def collect(args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
                     "bbox_model": bbox_pairs,
                     "gt_boxcenter": identity,
                 },
-                load_frame_geometry(images[stamp]),
+                load_frame_geometry(images[key]),
             )
         )
 

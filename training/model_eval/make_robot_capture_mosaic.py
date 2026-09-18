@@ -98,11 +98,11 @@ def collect(
     seen: dict[str, int] = {name: 0 for name in picks}
     cache: dict[Path, np.ndarray] = {}
     starts: dict[str, int] = {}
-    for stamp, image_path in images.items():
+    for key, image_path in images.items():
         recording = recording_of(image_path)
-        starts[recording] = min(starts.get(recording, stamp), stamp)
-    for stamp, (boxes, labels, _) in frames.items():
-        image_path = images[stamp]
+        starts[recording] = min(starts.get(recording, key.stamp_ns), key.stamp_ns)
+    for key, (boxes, labels, _) in frames.items():
+        image_path = images[key]
         recording = recording_of(image_path)
         opponent_here = next(
             (name for name, prefix in opponents.items() if recording.startswith(prefix)), None
@@ -134,12 +134,12 @@ def collect(
             picks[robot].append(
                 Capture(
                     robot,
-                    stamp,
+                    key.stamp_ns,
                     recording,
                     image_path,
                     np.asarray(box),
                     sharpness_of(crop),
-                    (stamp - starts[recording]) / 1e9,
+                    (key.stamp_ns - starts[recording]) / 1e9,
                 )
             )
     for name in picks:
