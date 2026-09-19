@@ -1,0 +1,42 @@
+--- yolo26x-pose_d40000_2026-09-16_last_rect384x640
+[09/19/2026-13:57:30] [I] Throughput: 49.3472 qps
+[09/19/2026-13:57:30] [I] Latency: min = 19.8721 ms, max = 21.363 ms, mean = 20.2628 ms, median = 19.9436 ms, percentile(90%) = 20.6436 ms, percentile(95%) = 20.6538 ms, percentile(99%) = 20.6831 ms
+[09/19/2026-13:57:30] [I] H2D Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+[09/19/2026-13:57:30] [I] GPU Compute Time: min = 19.8721 ms, max = 21.363 ms, mean = 20.2628 ms, median = 19.9436 ms, percentile(90%) = 20.6436 ms, percentile(95%) = 20.6538 ms, percentile(99%) = 20.6831 ms
+[09/19/2026-13:57:30] [I] D2H Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+--- yolo26x-pose_d40000_2026-09-16_last_rect416x640
+[09/19/2026-13:57:39] [I] Throughput: 42.8396 qps
+[09/19/2026-13:57:39] [I] Latency: min = 22.8511 ms, max = 23.6504 ms, mean = 23.3413 ms, median = 23.5931 ms, percentile(90%) = 23.6221 ms, percentile(95%) = 23.6294 ms, percentile(99%) = 23.6387 ms
+[09/19/2026-13:57:39] [I] H2D Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+[09/19/2026-13:57:39] [I] GPU Compute Time: min = 22.8511 ms, max = 23.6504 ms, mean = 23.3413 ms, median = 23.5931 ms, percentile(90%) = 23.6221 ms, percentile(95%) = 23.6294 ms, percentile(99%) = 23.6387 ms
+[09/19/2026-13:57:39] [I] D2H Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+--- yolo26x-pose_d40000_2026-09-16_last_rect640x640
+[09/19/2026-13:57:50] [I] Throughput: 30.2175 qps
+[09/19/2026-13:57:50] [I] Latency: min = 32.8457 ms, max = 33.6699 ms, mean = 33.0917 ms, median = 32.916 ms, percentile(90%) = 33.6245 ms, percentile(95%) = 33.6357 ms, percentile(99%) = 33.6558 ms
+[09/19/2026-13:57:50] [I] H2D Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+[09/19/2026-13:57:50] [I] GPU Compute Time: min = 32.8457 ms, max = 33.6699 ms, mean = 33.0917 ms, median = 32.916 ms, percentile(90%) = 33.6245 ms, percentile(95%) = 33.6357 ms, percentile(99%) = 33.6558 ms
+[09/19/2026-13:57:50] [I] D2H Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+--- yolo26x-pose_d40000_2026-09-16_last_rect768x1280
+[09/19/2026-13:58:14] [I] Throughput: 13.4744 qps
+[09/19/2026-13:58:14] [I] Latency: min = 72.8008 ms, max = 79.084 ms, mean = 74.213 ms, median = 74.238 ms, percentile(90%) = 75.0586 ms, percentile(95%) = 75.748 ms, percentile(99%) = 77.9629 ms
+[09/19/2026-13:58:14] [I] H2D Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+[09/19/2026-13:58:14] [I] GPU Compute Time: min = 72.8008 ms, max = 79.084 ms, mean = 74.213 ms, median = 74.238 ms, percentile(90%) = 75.0586 ms, percentile(95%) = 75.748 ms, percentile(99%) = 77.9629 ms
+[09/19/2026-13:58:14] [I] D2H Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+--- yolo26s-pose_our_robot_keypoints_rect768x1280_2026-09-07
+[09/19/2026-13:58:19] [I] Throughput: 69.2754 qps
+[09/19/2026-13:58:19] [I] Latency: min = 14.3982 ms, max = 14.4718 ms, mean = 14.4334 ms, median = 14.4331 ms, percentile(90%) = 14.4497 ms, percentile(95%) = 14.4521 ms, percentile(99%) = 14.4619 ms
+[09/19/2026-13:58:19] [I] H2D Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+[09/19/2026-13:58:19] [I] GPU Compute Time: min = 14.3982 ms, max = 14.4718 ms, mean = 14.4334 ms, median = 14.4331 ms, percentile(90%) = 14.4497 ms, percentile(95%) = 14.4521 ms, percentile(99%) = 14.4619 ms
+[09/19/2026-13:58:19] [I] D2H Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+--- yolo26s-pose_our_robot_keypoints_rect384x640_2026-09-07
+[09/19/2026-13:58:24] [I] Throughput: 208.961 qps
+[09/19/2026-13:58:24] [I] Latency: min = 4.76807 ms, max = 4.88696 ms, mean = 4.78391 ms, median = 4.78235 ms, percentile(90%) = 4.79102 ms, percentile(95%) = 4.79504 ms, percentile(99%) = 4.81836 ms
+[09/19/2026-13:58:24] [I] H2D Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+[09/19/2026-13:58:24] [I] GPU Compute Time: min = 4.76807 ms, max = 4.88696 ms, mean = 4.78391 ms, median = 4.78235 ms, percentile(90%) = 4.79102 ms, percentile(95%) = 4.79504 ms, percentile(99%) = 4.81836 ms
+[09/19/2026-13:58:24] [I] D2H Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+--- yolo26s_nhrl_robots_bbox_2class_rect384x640_2026-09-05
+[09/19/2026-13:58:28] [I] Throughput: 217.088 qps
+[09/19/2026-13:58:28] [I] Latency: min = 4.59131 ms, max = 4.61804 ms, mean = 4.6047 ms, median = 4.60461 ms, percentile(90%) = 4.61035 ms, percentile(95%) = 4.61157 ms, percentile(99%) = 4.61523 ms
+[09/19/2026-13:58:28] [I] H2D Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+[09/19/2026-13:58:28] [I] GPU Compute Time: min = 4.59131 ms, max = 4.61804 ms, mean = 4.6047 ms, median = 4.60461 ms, percentile(90%) = 4.61035 ms, percentile(95%) = 4.61157 ms, percentile(99%) = 4.61523 ms
+[09/19/2026-13:58:28] [I] D2H Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms

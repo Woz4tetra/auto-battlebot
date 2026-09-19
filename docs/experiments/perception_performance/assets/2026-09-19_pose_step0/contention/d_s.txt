@@ -1,0 +1,114 @@
+&&&& RUNNING TensorRT.trtexec [TensorRT v101602] [b10] # /usr/src/tensorrt/bin/trtexec --noDataTransfers --duration=20 --warmUp=2000 --avgRuns=100 --loadEngine=data/models/yolo26s-pose_our_robot_keypoints_rect384x640_2026-09-07_aarch64_sm87.engine
+[09/19/2026-14:11:33] [I] TF32 is enabled by default. Add --noTF32 flag to further improve accuracy with some performance cost.
+[09/19/2026-14:11:33] [I] === Model Options ===
+[09/19/2026-14:11:33] [I] Format: *
+[09/19/2026-14:11:33] [I] Model: 
+[09/19/2026-14:11:33] [I] Output:
+[09/19/2026-14:11:33] [I] 
+[09/19/2026-14:11:33] [I] === System Options ===
+[09/19/2026-14:11:33] [I] Device: 0
+[09/19/2026-14:11:33] [I] DLACore: 
+[09/19/2026-14:11:33] [I] Loaded static plugins:
+[09/19/2026-14:11:33] [I] setPluginsToSerialize:
+[09/19/2026-14:11:33] [I] dynamicPlugins:
+[09/19/2026-14:11:33] [I] ignoreParsedPluginLibs: 0
+[09/19/2026-14:11:33] [I] 
+[09/19/2026-14:11:33] [I] === Inference Options ===
+[09/19/2026-14:11:33] [I] Batch: Explicit
+[09/19/2026-14:11:33] [I] Input inference shapes: model
+[09/19/2026-14:11:33] [I] Iterations: 10
+[09/19/2026-14:11:33] [I] Duration: 20s (+ 2000ms warm up)
+[09/19/2026-14:11:33] [I] Sleep time: 0ms
+[09/19/2026-14:11:33] [I] Idle time: 0ms
+[09/19/2026-14:11:33] [I] Inference Streams: 1
+[09/19/2026-14:11:33] [I] ExposeDMA: Disabled
+[09/19/2026-14:11:33] [I] Data transfers: Disabled
+[09/19/2026-14:11:33] [I] Spin-wait: Disabled
+[09/19/2026-14:11:33] [I] Multithreading: Disabled
+[09/19/2026-14:11:33] [I] CUDA Graph: Disabled
+[09/19/2026-14:11:33] [I] Separate profiling: Disabled
+[09/19/2026-14:11:33] [I] Time Deserialize: Disabled
+[09/19/2026-14:11:33] [I] Time Refit: Disabled
+[09/19/2026-14:11:33] [I] NVTX verbosity: 0
+[09/19/2026-14:11:33] [I] Persistent Cache Ratio: 0
+[09/19/2026-14:11:33] [I] Optimization Profile Index: 0
+[09/19/2026-14:11:33] [I] Weight Streaming Budget: 100.000000%
+[09/19/2026-14:11:33] [I] Inputs:
+[09/19/2026-14:11:33] [I] Debug Tensor Save Destinations:
+[09/19/2026-14:11:33] [I] Dump All Debug Tensor in Formats: 
+[09/19/2026-14:11:33] [I] === Reporting Options ===
+[09/19/2026-14:11:33] [I] Verbose: Disabled
+[09/19/2026-14:11:33] [I] Averages: 100 inferences
+[09/19/2026-14:11:33] [I] Percentiles: 90,95,99
+[09/19/2026-14:11:33] [I] Dump refittable layers:Disabled
+[09/19/2026-14:11:33] [I] Dump output: Disabled
+[09/19/2026-14:11:33] [I] Profile: Disabled
+[09/19/2026-14:11:33] [I] Export timing to JSON file: 
+[09/19/2026-14:11:33] [I] Export output to JSON file: 
+[09/19/2026-14:11:33] [I] Export profile to JSON file: 
+[09/19/2026-14:11:33] [I] 
+[09/19/2026-14:11:33] [I] === Device Information ===
+[09/19/2026-14:11:33] [I] Available Devices: 
+[09/19/2026-14:11:33] [I]   Device 0: "Orin" UUID: GPU-86169785-1f0c-5456-9b76-1597de56ff8f
+[09/19/2026-14:11:33] [I] Selected Device: Orin
+[09/19/2026-14:11:33] [I] Selected Device ID: 0
+[09/19/2026-14:11:33] [I] Selected Device UUID: GPU-86169785-1f0c-5456-9b76-1597de56ff8f
+[09/19/2026-14:11:33] [I] Compute Capability: 8.7
+[09/19/2026-14:11:33] [I] SMs: 8
+[09/19/2026-14:11:33] [I] Device Global Memory: 15597 MiB
+[09/19/2026-14:11:33] [I] Shared Memory per SM: 164 KiB
+[09/19/2026-14:11:33] [I] Memory Bus Width: 256 bits (ECC disabled)
+[09/19/2026-14:11:33] [I] Application Compute Clock Rate: 0.918 GHz
+[09/19/2026-14:11:33] [I] Application Memory Clock Rate: 0.918 GHz
+[09/19/2026-14:11:33] [I] 
+[09/19/2026-14:11:33] [I] Note: The application clock rates do not reflect the actual clock rates that the GPU is currently running at.
+[09/19/2026-14:11:33] [I] 
+[09/19/2026-14:11:33] [I] TensorRT version: 10.16.2
+[09/19/2026-14:11:33] [I] Loading standard plugins
+[09/19/2026-14:11:33] [I] [TRT] Loaded engine size: 22 MiB
+[09/19/2026-14:11:33] [I] Engine deserialized in 0.0820584 sec.
+[09/19/2026-14:11:33] [I] [TRT] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +11, now: CPU 0, GPU 29 (MiB)
+[09/19/2026-14:11:33] [I] Setting persistentCacheLimit to 0 bytes.
+[09/19/2026-14:11:33] [I] Created execution context with device memory size: 10.4883 MiB
+[09/19/2026-14:11:33] [I] Using random values for input images
+[09/19/2026-14:11:33] [I] Input binding for images with dimensions 1x3x384x640 and type fp32 is created.
+[09/19/2026-14:11:33] [I] Output binding for output0 with dimensions 1x12x5040 and type fp32 is created.
+[09/19/2026-14:11:33] [I] Starting inference
+[09/19/2026-14:11:55] [I] Warmup completed 186 queries over 2000 ms
+[09/19/2026-14:11:55] [I] Timing trace has 1872 queries over 20.0243 s
+[09/19/2026-14:11:55] [I] 
+[09/19/2026-14:11:55] [I] === Trace details ===
+[09/19/2026-14:11:55] [I] Trace averages of 100 runs:
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6935 ms - Host latency: 10.6935 ms (enqueue 2.20329 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.7267 ms - Host latency: 10.7267 ms (enqueue 2.19228 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6996 ms - Host latency: 10.6996 ms (enqueue 2.22568 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6975 ms - Host latency: 10.6975 ms (enqueue 2.20424 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.681 ms - Host latency: 10.681 ms (enqueue 2.25008 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6909 ms - Host latency: 10.6909 ms (enqueue 2.21324 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6908 ms - Host latency: 10.6908 ms (enqueue 2.20526 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6879 ms - Host latency: 10.6879 ms (enqueue 2.2035 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.7347 ms - Host latency: 10.7347 ms (enqueue 2.20084 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.7043 ms - Host latency: 10.7043 ms (enqueue 2.19736 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6846 ms - Host latency: 10.6846 ms (enqueue 2.19969 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6771 ms - Host latency: 10.6771 ms (enqueue 2.20171 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6906 ms - Host latency: 10.6906 ms (enqueue 2.18927 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6841 ms - Host latency: 10.6841 ms (enqueue 2.1991 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6938 ms - Host latency: 10.6938 ms (enqueue 2.2042 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6987 ms - Host latency: 10.6987 ms (enqueue 2.18678 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6788 ms - Host latency: 10.6788 ms (enqueue 2.19801 ms)
+[09/19/2026-14:11:55] [I] Average on 100 runs - GPU latency: 10.6896 ms - Host latency: 10.6896 ms (enqueue 2.18355 ms)
+[09/19/2026-14:11:55] [I] 
+[09/19/2026-14:11:55] [I] === Performance summary ===
+[09/19/2026-14:11:55] [I] Throughput: 93.4862 qps
+[09/19/2026-14:11:55] [I] Latency: min = 9.65723 ms, max = 13.1143 ms, mean = 10.6951 ms, median = 9.89783 ms, percentile(90%) = 12.4316 ms, percentile(95%) = 12.501 ms, percentile(99%) = 12.7295 ms
+[09/19/2026-14:11:55] [I] Enqueue Time: min = 2.07617 ms, max = 3.09229 ms, mean = 2.20239 ms, median = 2.18921 ms, percentile(90%) = 2.23242 ms, percentile(95%) = 2.25488 ms, percentile(99%) = 2.85645 ms
+[09/19/2026-14:11:55] [I] H2D Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+[09/19/2026-14:11:55] [I] GPU Compute Time: min = 9.65723 ms, max = 13.1143 ms, mean = 10.6951 ms, median = 9.89783 ms, percentile(90%) = 12.4316 ms, percentile(95%) = 12.501 ms, percentile(99%) = 12.7295 ms
+[09/19/2026-14:11:55] [I] D2H Latency: min = 0 ms, max = 0 ms, mean = 0 ms, median = 0 ms, percentile(90%) = 0 ms, percentile(95%) = 0 ms, percentile(99%) = 0 ms
+[09/19/2026-14:11:55] [I] Total Host Walltime: 20.0243 s
+[09/19/2026-14:11:55] [I] Total GPU Compute Time: 20.0213 s
+[09/19/2026-14:11:55] [W] * GPU compute time is unstable, with coefficient of variance = 11.2845%.
+[09/19/2026-14:11:55] [W]   If not already in use, locking GPU clock frequency or adding --useSpinWait may improve the stability.
+[09/19/2026-14:11:55] [I] Explanations of the performance metrics are printed in the verbose logs.
+[09/19/2026-14:11:55] [I] 
+&&&& PASSED TensorRT.trtexec [TensorRT v101602] [b10] # /usr/src/tensorrt/bin/trtexec --noDataTransfers --duration=20 --warmUp=2000 --avgRuns=100 --loadEngine=data/models/yolo26s-pose_our_robot_keypoints_rect384x640_2026-09-07_aarch64_sm87.engine

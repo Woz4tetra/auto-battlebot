@@ -1,0 +1,9 @@
+candidate,level,median_ms,mean_ms,p90_ms,dets
+s-pose1280,pre,3.8578,3.8602,3.88,
+s-pose1280,gpu,17.7251,17.7254,17.766,
+s-pose1280,total,25.6501,25.6506,25.7285,1
+s-pose1280,post,,4.065,,
+s-pose384,pre,1.2237,1.225,1.2449,
+s-pose384,gpu,5.6104,5.6937,6.0805,
+s-pose384,total,8.2053,8.2118,8.2501,1
+s-pose384,post,,1.2931,,

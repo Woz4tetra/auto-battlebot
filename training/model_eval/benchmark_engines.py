@@ -87,6 +87,21 @@ def main() -> None:
     parser.add_argument("--conf", type=float, default=0.5, help="Confidence threshold")
     parser.add_argument("--nms-iou", type=float, default=0.45, help="NMS IoU threshold")
     parser.add_argument("--csv", default=None, help="Also write the table to this CSV path")
+    parser.add_argument(
+        "--num-classes",
+        type=int,
+        default=0,
+        help="Class count of the head. 0 auto-infers, which only works for single-class "
+        "engines: a 4-class 2-keypoint pose head has the same 14 feature columns as a "
+        "1-class 3-keypoint one, and the guess picks the latter. Pass it for multi-class "
+        "pose engines and check the printed layout line.",
+    )
+    parser.add_argument(
+        "--num-keypoints",
+        type=int,
+        default=-1,
+        help="Keypoint count of the head. -1 infers it from --num-classes.",
+    )
     args = parser.parse_args()
 
     if not args.candidate:
@@ -105,6 +120,7 @@ def main() -> None:
     print("-" * len(header))
 
     rows: list[dict[str, object]] = []
+    layouts: list[str] = []
 
     for spec in args.candidate:
         if "=" not in spec:
@@ -113,7 +129,14 @@ def main() -> None:
         if not Path(engine_path).exists():
             raise SystemExit(f"engine not found: {engine_path}")
 
-        model = TrtYoloModel(engine_path, conf_threshold=args.conf, nms_iou_threshold=args.nms_iou)
+        model = TrtYoloModel(
+            engine_path,
+            conf_threshold=args.conf,
+            nms_iou_threshold=args.nms_iou,
+            num_classes=args.num_classes,
+            num_keypoints=args.num_keypoints,
+        )
+        layouts.append(f"{name:<12} {model.describe()}")
         blob_shape = (1, 3, model.input_h, model.input_w)
         blob = np.ascontiguousarray(np.zeros(blob_shape, dtype=np.float32))
         detections = model.infer(frame)
@@ -159,6 +182,10 @@ def main() -> None:
         )
         print(f"{name:<12} {'post':<6} {'':>10} {post_mean:>10.3f} {'':>10} {'':>6}")
         del model
+
+    print("\nlayouts:")
+    for line in layouts:
+        print(f"  {line}")
 
     if args.csv:
         out = Path(args.csv)

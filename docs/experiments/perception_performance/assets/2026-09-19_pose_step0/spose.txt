@@ -1,0 +1,20 @@
+[09/19/2026-14:00:55] [TRT] [W] WARNING The logger passed into createInferRuntime differs from one already registered for an existing builder, runtime, or refitter. So the current new logger is ignored, and TensorRT will use the existing one which is returned by nvinfer1::getLogger() instead.
+frame: data/bench_frame.png  1280x720
+iterations: 300 (warmup 50)
+
+candidate    level   median ms    mean ms     p90 ms   dets
+-----------------------------------------------------------
+s-pose1280   pre         3.858      3.860      3.880       
+s-pose1280   gpu        17.725     17.725     17.766       
+s-pose1280   total      25.650     25.651     25.729      1
+s-pose1280   post                   4.065                  
+s-pose384    pre         1.224      1.225      1.245       
+s-pose384    gpu         5.610      5.694      6.080       
+s-pose384    total       8.205      8.212      8.250      1
+s-pose384    post                   1.293                  
+
+layouts:
+  s-pose1280   input [1, 3, 768, 1280] (letterbox), output [1, 12, 20160] (raw pre-NMS), num_keypoints=2, num_classes=2
+  s-pose384    input [1, 3, 384, 640] (letterbox), output [1, 12, 5040] (raw pre-NMS), num_keypoints=2, num_classes=2
+
+wrote /tmp/step0/spose.csv
