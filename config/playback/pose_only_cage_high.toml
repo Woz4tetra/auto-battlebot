@@ -1,0 +1,41 @@
+# Pose-only perception on the fixed cage-high footage: one 4-class yolo26x-pose model finds our
+# robot, the opponent and the house bot, and the robot blob model is a noop. Plan and open work:
+# docs/experiments/perception_performance/pose_only_perception_plan_2026-09-19.md
+#
+# Every track now comes from the keypoint model. Opponents and the house bot arrive as
+# OPPONENT_FRONT/BACK and HOUSE_BOT_FRONT/BACK pairs, which [robot_filter.label_mapping] in
+# _common.toml already routes to THEIR_ROBOT_* and NEUTRAL_ROBOT_1.
+#
+# Two gates do nothing in this profile until the plan's C++ steps land. The static gate is wired to
+# blob detections only (runner.cpp), so with no blobs it never sees a detection. The height gate
+# needs depth, which this footage does not have. Arena-logo false positives therefore reach the
+# filter unchecked.
+extends = "playback/brettzone_cage_high"
+
+# Type change, so the merge drops the YoloBboxRobotBlobModel fields (engine, label_indices,
+# their_robot_labels, confidence_threshold) rather than leaving them on a model that ignores them.
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[keypoint_model]
+type = "YoloKeypointModel"
+# Class order of the domain-mix arms: mr_stabs_mk2, mrs_buff_mk3, nhrl_robot, house_bot. A wrong
+# length or order misparses the output tensor rather than failing.
+label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3", "OPPONENT", "HOUSE_BOT"]
+# The threshold the domain-mix grid was scored at, and the F1 peak for sixteen of eighteen arms on
+# cage-high footage.
+threshold = 0.5
+
+[keypoint_model.engine]
+# yolo26x-pose on d40000, 50 epochs. The rect384x640 builds do not exist yet (plan step 2); until
+# they do the selector falls through to the square 640x640 engine, which megamind has as sm86 only.
+candidates = [
+  "data/models/yolo26x-pose_d40000_2026-09-16_last_rect384x640_x86_64_sm89.engine",
+  "data/models/yolo26x-pose_d40000_2026-09-16_last_rect384x640_x86_64_sm86.engine",
+  "data/models/yolo26x-pose_d40000_2026-09-16_last_x86_64_sm89.engine",
+  "data/models/yolo26x-pose_d40000_2026-09-16_last_x86_64_sm86.engine",
+]
+
+[runner]
+# One model, so the second worker thread and its per-frame handshake buy nothing.
+parallel_models = false
