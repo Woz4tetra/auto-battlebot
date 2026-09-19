@@ -1,0 +1,15 @@
+--- yolo26n ---
+GPU Compute Time: min = 4.21362 ms, max = 4.24805 ms, mean = 4.22705 ms, median = 4.22705 ms, percentile(90%) = 4.23242 ms, percentile(95%) = 4.23413 ms, percentile(99%) = 4.23901 ms
+Total GPU Compute Time: 3.00543 s
+--- yolo26s ---
+GPU Compute Time: min = 6.96277 ms, max = 7.0127 ms, mean = 6.987 ms, median = 6.98657 ms, percentile(90%) = 6.99561 ms, percentile(95%) = 6.99805 ms, percentile(99%) = 7.00171 ms
+Total GPU Compute Time: 3.0114 s
+--- yolo26m ---
+GPU Compute Time: min = 13.1893 ms, max = 13.251 ms, mean = 13.2155 ms, median = 13.2159 ms, percentile(90%) = 13.2314 ms, percentile(95%) = 13.2349 ms, percentile(99%) = 13.2451 ms
+Total GPU Compute Time: 3.96464 s
+--- yolo26l ---
+GPU Compute Time: min = 17.0594 ms, max = 17.8193 ms, mean = 17.2195 ms, median = 17.1061 ms, percentile(90%) = 17.7871 ms, percentile(95%) = 17.7986 ms, percentile(99%) = 17.8135 ms
+Total GPU Compute Time: 5.16586 s
+--- yolo26x ---
+GPU Compute Time: min = 31.1348 ms, max = 34.144 ms, mean = 31.9498 ms, median = 31.8372 ms, percentile(90%) = 32.5361 ms, percentile(95%) = 32.5657 ms, percentile(99%) = 33.3491 ms
+Total GPU Compute Time: 9.58494 s

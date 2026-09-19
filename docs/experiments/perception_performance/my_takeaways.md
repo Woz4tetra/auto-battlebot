@@ -1,13 +1,20 @@
-# Don't use Meshy AI models for synthetic data if there's no real data to back it up
+# Can Meshy AI models for synthetic data?
 
-Meshy models work only if the output render is actually a close visual match to the real robot or there's real data
-to reinforce it.
-If there's no real data, it fails if the render is poor or if the builder modified the robot.
-If I can collect massive amounts of keypoint data without labeling manually, this method will work for keypoints.
-Since I have this for bounding box data, it did slightly improve results for bounding box detection.
+These experiments demonstrated that, on a randomized background with yolo26n, Meshy models work only if the output 
+render is actually a close visual match to the real robot or there's real data to reinforce it.
+If there's no real data, it fails if the render is poor or if the builder modified the robot. On these experiments,
+I used an evaluation set built from real images from the handheld ZED camera.
 
 docs/experiments/perception_performance/meshy_grade_2026-07-16.md
 docs/experiments/perception_performance/synthetic_arms_2026-07-31.md
+
+This conclusion is nullified if the synthetic data mimics the scene it will run inference on. A 50:50 split on randomized
+vs. scene specific backgrounds produced the highest recall. The baseline recall on 20,000 randomized backgrounds is 0.856.
+The 50:50 split scores 0.929. For this experiment, I made an evaluation set built from NHRL high cam videos since the new
+rig will have a similar camera mounting angle. These results demonstrate that the closer the synthetic data looks to reality,
+the better the model performance.
+
+docs/experiments/perception_performance/synthetic_domain_mix_2026-09-18.md
 
 # Keep using CAD models for synthetic data
 
@@ -15,6 +22,12 @@ CAD based synthetic renders work because they don't have any visual hallucinatio
 Or when there are external design changes, I can retrain from the changed CAD.
 
 docs/experiments/perception_performance/meshy_grade_2026-07-16.md
+
+I added a "damage randomization" parameter for this experiment. It didn't help. Probably because the damage modifier isn't realistic.
+I had it do boolean subtracts on the Meshy models and delete random components from the CAD Mrs Buff MK3 model. I will try the 
+damage modifier for Mrs Buff MK3 next.
+
+docs/experiments/perception_performance/synthetic_domain_mix_2026-09-18.md
 
 # Don't combine bounding box and keypoints in one model
 
@@ -75,9 +88,14 @@ docs/experiments/perception_performance/category_addition_2026-07-25.md
 
 In my case, 0.5 is good. The objects I'm working with are small wrt the image size. So this score will never get super high.
 
-# How many synthetic images do I need to generate for our keypoints model?
+# How many synthetic images do I need to generate for the keypoints model?
 
-# For our keypoints model, how much real data do I need?
+10000 randomized, 5000 NHRL, and 5000 MassD background frames works the best.
+After that it's diminishing returns.
+
+docs/experiments/perception_performance/synthetic_domain_mix_2026-09-18.md
+
+# For the keypoints model, how much real data do I need?
 
 # How many images do I need to label for an individual robot?
 
@@ -183,3 +201,11 @@ There's no recall compromise and the latency is good. yolo26x INT8 quantized los
 model provides and doesn't save enough latency to be worth it on the Orin Nano.
 
 docs/experiments/perception_performance/int8_quantization_2026-09-06.md
+
+# Train on distorted, rectified, or pinhole images?
+
+Distorted synthetic images performed the best. The evaluation set for this score did not present distorted fisheye images. This report needs some modification because the distorted view makes robots
+in the majority of viewing angles appear bigger. This requires more experimentation with real camera
+images to observe the true effect.
+
+docs/experiments/perception_performance/synthetic_domain_mix_2026-09-18.md
