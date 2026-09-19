@@ -1,0 +1,297 @@
+
+/dts-v1/;
+/plugin/;
+
+
+#define CAM0_PWDN	TEGRA234_MAIN_GPIO(H, 6)
+#define CAM1_PWDN	TEGRA234_MAIN_GPIO(AC, 0)
+#define CAM_I2C_MUX 	TEGRA234_AON_GPIO(CC, 3)
+
+#include <dt-bindings/clock/tegra234-clock.h>
+#include <dt-bindings/gpio/tegra234-gpio.h>
+
+
+/ {
+	overlay-name = "AR0234 Sensor 4lane";
+	jetson-header-name = "Jetson 22pin CSI Connector";
+	/* Expansion of JETSON_COMPATIBLE_P3768 from the L4T 39.2.1 device tree
+	 * sources, copied from the shipped tegra234-p3767-camera-p3768-imx219-C
+	 * overlay so this file builds against the kernel headers package alone.
+	 * config-by-hardware.py needs one of these to match /proc/device-tree/compatible.
+	 */
+	compatible = "nvidia,p3768-0000+p3767-0000", "nvidia,p3768-0000+p3767-0001",
+		"nvidia,p3768-0000+p3767-0003", "nvidia,p3768-0000+p3767-0004",
+		"nvidia,p3768-0000+p3767-0005", "nvidia,p3768-0000+p3767-0000-super",
+		"nvidia,p3768-0000+p3767-0001-super", "nvidia,p3768-0000+p3767-0003-super",
+		"nvidia,p3768-0000+p3767-0004-super", "nvidia,p3768-0000+p3767-0005-super";
+	fragment@0 {
+		target-path = "/";
+		__overlay__ {
+			bus@0 {
+				cam_i2cmux{
+					compatible = "i2c-mux-gpio";
+					status = "okay";
+					#address-cells = <1>;
+					#size-cells = <0>;
+					i2c-parent = <&cam_i2c>;
+					mux-gpios = <&gpio_aon CAM_I2C_MUX GPIO_ACTIVE_HIGH>;
+					i2c@1 {
+						reg = <1>;
+						#address-cells = <1>;
+						#size-cells = <0>;
+						pca6408_20_b: pca6408@20 {
+							compatible = "ti,tca6408";
+							gpio-controller;
+							#gpio-cells = <2>;
+							reg = <0x20>;
+							//vcc-supply = <&p3768_vdd_3v3_sys>;
+							status = "okay";
+							pca6408_20_outlow {
+								/* LED --> GPIO 7 */
+								gpio-hog;
+								gpios = < 7 1 >;
+								output-low;
+								label = "pca6408_20_outlow_7";
+							};
+						};
+						
+					};
+				};
+				gpio@2200000 {
+					camera-control-output-low {
+						gpio-hog;
+						output-low;
+						gpios = <CAM0_PWDN 0 CAM1_PWDN 0>;
+						label = "cam0-pwdn","cam1-pwdn";
+					};
+				};
+			};
+		};
+	};
+	
+	
+	fragment@1 {
+		target-path = "/";
+		__overlay__ {
+			tegra-capture-vi {
+				num-channels = <1>;
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+					port@0 {
+						reg = <0>;
+						ecam_ar0234_vi_in0: endpoint {
+							port-index = <2>;
+							bus-width = <4>;
+							remote-endpoint = <&ecam_ar0234_csi_out0>;
+						};
+					};
+				};
+			};
+			tegra-camera-platform {
+				compatible = "nvidia, tegra-camera-platform";
+				num_csi_lanes = <4>;
+				max_lane_speed = <1500000>;
+				min_bits_per_pixel = <16>;
+				vi_peak_byte_per_pixel = <2>;
+				vi_bw_margin_pct = <25>;
+				max_pixel_rate = <240000>;
+				isp_peak_byte_per_pixel = <5>;
+				isp_bw_margin_pct = <25>;
+				modules {
+					module0 {
+						status = "okay";
+						badge = "jakku_front_ar0234";
+						position = "front";
+						orientation = "1";
+						drivernode0 {
+							pcl_id = "v4l2_sensor";
+							devname = "ecam25_ar0234 9-0042";
+							sysfs-device-tree = "/sys/firmware/devicetree/base/bus@0/cam_i2cmux/i2c@1/ecam_ar0234_c@42";
+						};
+					};
+				};
+			};
+			
+			bus@0 {
+				
+				host1x@13e00000{
+					nvcsi@15a00000 {
+						num-channels = <1>;
+						#address-cells = <1>;
+						#size-cells = <0>;
+						channel@0 {
+							reg = <0>;
+							ports {
+								#address-cells = <1>;
+								#size-cells = <0>;
+								port@0 {
+									reg = <0>;
+									ecam_ar0234_csi_in0: endpoint@0 {
+										port-index = <2>;
+										bus-width = <4>;
+										remote-endpoint = <&ecam_ar0234_out0>;
+									};
+								};
+								port@1 {
+									reg = <1>;
+									ecam_ar0234_csi_out0: endpoint@1 {
+										remote-endpoint = <&ecam_ar0234_vi_in0>;
+									};
+								};
+							};
+						};
+					};
+				};
+				cam_i2cmux {
+					i2c@1 {
+						ar0234_cam1: ecam_ar0234_c@42 {
+							compatible = "nvidia,ar0234";
+							reg = <0x42>;
+							devnode = "video0";
+							status = "okay";
+							physical_w = "3.680";
+							physical_h = "2.760";
+							
+							sensor_model = "ar0234";
+							camera_mipi_lanes = <4>;
+							camera-mipi-clk = <1200>;
+							disable-framesync;
+							reset-gpios = <&pca6408_20_b 1 GPIO_ACTIVE_HIGH>;
+							pwdn-gpios  = <&pca6408_20_b 0 GPIO_ACTIVE_HIGH>;// Default use_sensor_mode_id is false
+							mode0 {
+								mclk_khz = "24000";
+								num_lanes = "4";
+								tegra_sinterface = "serial_c";
+								phy_mode = "DPHY";
+								discontinuous_clk = "yes";
+								dpcm_enable = "false";
+								cil_settletime = "0";
+								dynamic_pixel_bit_depth = "16";
+								csi_pixel_bit_depth = "16";
+								mode_type = "yuv";
+								
+								active_w = "1280";
+								active_h = "720";
+								pixel_phase = "uyvy";
+								readout_orientation = "90";
+								line_length = "1280";
+								inherent_gain = "1";
+								mclk_multiplier = "12.5";
+								pix_clk_hz = "300000000";
+								
+								min_gain_val = "16";
+								max_gain_val = "170"; /* 10.66x */
+								step_gain_val = "1";
+								default_gain = "16"; /* 1.00x */
+								min_hdr_ratio = "1";
+								max_hdr_ratio = "1";
+								min_framerate = "2000000"; /* 2.0 fps */
+								max_framerate = "120000000";
+								step_framerate = "1";
+								default_framerate = "120000000";
+								min_exp_time = "13"; /* us */
+								max_exp_time = "683709"; /* us */
+								
+								embedded_metadata_height = "0";
+							};
+							mode1 { /* AR0234_MODE_1920x1080_65FPS */
+								mclk_khz = "24000";
+								num_lanes = "4";
+								tegra_sinterface = "serial_c";
+								phy_mode = "DPHY";
+								discontinuous_clk = "yes";
+								dpcm_enable = "false";
+								cil_settletime = "0";
+								dynamic_pixel_bit_depth = "16";
+								csi_pixel_bit_depth = "16";
+								active_w = "1920";
+								active_h = "1080";
+								pixel_phase = "uyvy";
+								mode_type = "yuv";
+								/*pixel_t = "bayer_rggb";*/
+								readout_orientation = "90";
+								line_length = "1920";
+								inherent_gain = "1";
+								mclk_multiplier = "12.5";
+								pix_clk_hz = "300000000";
+								
+								min_gain_val = "16";
+								max_gain_val = "170";
+								step_gain_val = "1";
+								default_gain = "16";
+								min_hdr_ratio = "1";
+								max_hdr_ratio = "1";
+								min_framerate = "2000000"; /* 2.0 fps */
+								max_framerate = "120000000"; /* 28.0 fps */
+								default_framerate = "70000000"; /* 60.0 fps */
+								step_framerate = "1";
+								min_exp_time = "13";
+								max_exp_time = "683709";
+								step_exp_time = "1";
+								default_exp_time = "2495";
+								embedded_metadata_height = "0";
+							};
+							mode2 { /* AR0234_MODE_1920x1200_60FPS */
+								mclk_khz = "24000";
+								num_lanes = "4";
+								tegra_sinterface = "serial_c";
+								phy_mode = "DPHY";
+								discontinuous_clk = "yes";
+								dpcm_enable = "false";
+								cil_settletime = "0";
+								csi_pixel_bit_depth = "16";
+								active_w = "1920";
+								active_h = "1200";
+								/*pixel_t = "uyvy";*/
+								pixel_phase = "uyvy";
+								mode_type = "yuv";
+								readout_orientation = "90";
+								line_length = "1920";
+								inherent_gain = "1";
+								mclk_multiplier = "12.5";
+								pix_clk_hz = "300000000";
+								
+								gain_factor = "16";
+								default_gain = "16";
+								step_gain_val = "1";
+								framerate_factor = "1000000";
+								exposure_factor = "1000000";
+								min_gain_val = "16";
+								max_gain_val = "170"; /* 10.66x */
+								min_hdr_ratio = "1";
+								max_hdr_ratio = "1";
+								min_framerate = "2000000"; /* 2.0 fps */
+								max_framerate = "120000000"; /* 60.0 fps */
+								default_framerate = "60000000"; /* 60.0 fps */
+								step_framerate = "1";
+								min_exp_time = "13"; /* us */
+								max_exp_time = "683709"; /* us */
+								step_exp_time = "1";
+								default_exp_time = "2495";
+								embedded_metadata_height = "0";
+							};
+							
+							ports {
+								#address-cells = <1>;
+								#size-cells = <0>;
+								port@0 {
+									reg = <0>;
+									ecam_ar0234_out0: endpoint {
+										status = "okay";
+										port-index = <2>;
+										bus-width = <4>;
+										remote-endpoint = <&ecam_ar0234_csi_in0>;
+									};
+								};
+							};
+						};
+					};
+				};
+				
+			};
+		};
+	};
+};
+
+

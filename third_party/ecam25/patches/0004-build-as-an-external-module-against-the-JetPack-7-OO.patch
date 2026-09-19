@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: port <noreply@anthropic.com>
+Date: Fri, 18 Sep 2026 22:28:45 -0400
+Subject: [PATCH] build as an external module against the JetPack 7 OOT headers
+
+The vendor Makefile's include paths are from the JetPack 5 era kernel layout and
+do not exist on JetPack 7.
+---
+ Makefile | 25 +++++++++++++++++--------
+ 1 file changed, 17 insertions(+), 8 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index 1fcfdb0..f1304d4 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,10 +1,19 @@
+-#ifneq (,$(filter $(CONFIG_VIDEO_ECAM),y m))
+-	ccflags-y += -Wno-unused-variable -I$(srctree)/drivers/media/platform/tegra/ -I$(srctree)/../nvidia/include/
+-	obj-m	+= ar0234.o
+-#endif
++# Out-of-tree build of the e-CAM25_CUONX sensor driver for JetPack 7 (L4T 39.2.x,
++# kernel 6.8). The vendor Makefile targeted the JetPack 6 source layout
++# (-I$(srctree)/../nvidia/include), which JetPack 7 does not have: the tegracam
++# and camera_common headers ship in the nvidia-l4t-kernel-oot-headers package
++# under /usr/src/nvidia/nvidia-public.
++#
++# NVIDIA_CONFTEST must point at the directory holding nvidia/conftest.h.
++# camera_common.h includes it and gates a member of struct camera_common_data on
++# NV_TEGRA_PMC_IO_PAD_POWER_ENABLE_PRESENT, so building without the matching
++# conftest.h silently shifts every field after it. scripts/build_ecam25_driver.sh
++# generates it and refuses to continue if that macro is missing.
+ 
+-ar0234:
+-	make -C $(KERNEL_PATH) M=$(PWD) modules
++NV_OOT_INC ?= /usr/src/nvidia/nvidia-public/include
++NVIDIA_CONFTEST ?= $(M)/conftest
+ 
+-clean:
+-	make -C $(KERNEL_PATH) M=$(PWD) clean
++ccflags-y += -I$(NV_OOT_INC) -I$(NVIDIA_CONFTEST) -Wno-unused-variable
++
++obj-m += ecam25_ar0234.o
++ecam25_ar0234-y := ar0234.o

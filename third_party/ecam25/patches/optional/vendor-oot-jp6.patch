@@ -1,0 +1,342 @@
+diff --git a/Makefile b/Makefile
+index ad7dc07..0f3651b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -30,10 +30,10 @@ help:
+ 	@echo   "   make clean            # to make clean driver sources"
+ 	@echo   "================================================================================"
+ 
+-modules: hwpm nvidia-oot nvgpu nvidia-display
++modules: hwpm nvidia-oot nvgpu nvidia-display sensor-driver
+ dtbs: nvidia-dtbs
+-modules_install: hwpm nvidia-oot nvgpu nvidia-display-install
+-clean: hwpm nvidia-oot nvgpu nvidia-display-clean nvidia-dtbs-clean
++modules_install: hwpm nvidia-oot nvgpu nvidia-display-install sensor-driver
++clean: hwpm nvidia-oot nvgpu sensor-driver nvidia-display-clean nvidia-dtbs-clean
+ 
+ 
+ conftest:
+@@ -79,6 +79,7 @@ nvidia-oot: conftest hwpm
+ 		-C $(KERNEL_OUTPUT) \
+ 		M=$(MAKEFILE_DIR)/nvidia-oot \
+ 		CONFIG_TEGRA_OOT_MODULE=m \
++		CONFIG_VIDEO_ECAM=y \
+ 		srctree.nvidia-oot=$(MAKEFILE_DIR)/nvidia-oot \
+ 		srctree.hwpm=$(MAKEFILE_DIR)/hwpm \
+ 		srctree.nvconftest=$(NVIDIA_CONFTEST) \
+@@ -191,3 +192,34 @@ nvidia-dtbs-clean:
+ 	@echo   "================================================================================"
+ 	rm -fr $(MAKEFILE_DIR)/kernel-devicetree/generic-dts/dtbs
+ 
++sensor-driver:
++	@if [ ! -d "$(MAKEFILE_DIR)/sensor_driver/$(SENSOR_DRIVER)" ]; then \
++		echo "Directory sensor_driver is not found, exiting.."; \
++		false; \
++	fi
++	@echo "================================================================================"
++	@echo "make $(MAKECMDGOALS) - sensor driver ..."
++	@echo "================================================================================"
++	@if [ -d "$(MAKEFILE_DIR)/sensor_driver/PWM_MCU" ] && \
++         [ -d "$(MAKEFILE_DIR)/sensor_driver/$(SENSOR_DRIVER)" ]; then \
++		$(MAKE) -j $(NPROC) ARCH=arm64 \
++			CROSS_COMPILE=$(CROSS_COMPILE) \
++			-C $(NVIDIA_HEADERS) \
++			M=$(MAKEFILE_DIR)/sensor_driver/PWM_MCU \
++			srctree.nvconftest=$(NVIDIA_CONFTEST) \
++			$(MAKECMDGOALS); \
++		$(MAKE) -j $(NPROC) ARCH=arm64 \
++			CROSS_COMPILE=$(CROSS_COMPILE) \
++			-C $(NVIDIA_HEADERS) \
++			M=$(MAKEFILE_DIR)/sensor_driver/$(SENSOR_DRIVER) \
++			KBUILD_EXTRA_SYMBOLS=$(MAKEFILE_DIR)/sensor_driver/PWM_MCU/Module.symvers \
++			srctree.nvconftest=$(NVIDIA_CONFTEST) \
++			$(MAKECMDGOALS); \
++	else \
++	$(MAKE) -j $(NPROC) ARCH=arm64 \
++			CROSS_COMPILE=$(CROSS_COMPILE) \
++			-C $(NVIDIA_HEADERS) \
++			M=$(MAKEFILE_DIR)/sensor_driver/$(SENSOR_DRIVER) \
++			srctree.nvconftest=$(NVIDIA_CONFTEST) \
++			$(MAKECMDGOALS); \
++	fi
+diff --git a/nvidia-oot/Makefile b/nvidia-oot/Makefile
+index de4f6b1..e74e439 100644
+--- a/nvidia-oot/Makefile
++++ b/nvidia-oot/Makefile
+@@ -11,6 +11,10 @@ ifeq ($(CONFIG_TEGRA_VIRTUALIZATION),y)
+ subdir-ccflags-y += -DCONFIG_TEGRA_VIRTUALIZATION
+ endif
+ 
++ifeq ($(CONFIG_VIDEO_ECAM),y)
++subdir-ccflags-y += -DCONFIG_VIDEO_ECAM
++endif
++
+ ifeq ($(CONFIG_TEGRA_SYSTEM_TYPE_ACK),y)
+ subdir-ccflags-y += -DCONFIG_TEGRA_SYSTEM_TYPE_ACK
+ subdir-ccflags-y += -Wno-sometimes-uninitialized
+diff --git a/nvidia-oot/drivers/media/platform/tegra/camera/tegracam_ctrls.c b/nvidia-oot/drivers/media/platform/tegra/camera/tegracam_ctrls.c
+index 240daa9..45901e4 100644
+--- a/nvidia-oot/drivers/media/platform/tegra/camera/tegracam_ctrls.c
++++ b/nvidia-oot/drivers/media/platform/tegra/camera/tegracam_ctrls.c
+@@ -315,11 +315,11 @@ static int tegracam_set_ctrls(struct tegracam_ctrl_handler *handler,
+ 		dev_err(s_data->dev, "power status query unsupported\n");
+ 		return -ENOTTY;
+ 	}
+-
++#ifndef CONFIG_VIDEO_ECAM
+ 	/* power state is turned off, do not program sensor now */
+ 	if (!status)
+ 		return 0;
+-
++#endif
+ 	ctrlprops =
+ 		&s_data->sensor_props.sensor_modes[0].control_properties;
+ 
+diff --git a/nvidia-oot/drivers/media/platform/tegra/camera/vi/channel.c b/nvidia-oot/drivers/media/platform/tegra/camera/vi/channel.c
+index 6f98c64..5174693 100644
+--- a/nvidia-oot/drivers/media/platform/tegra/camera/vi/channel.c
++++ b/nvidia-oot/drivers/media/platform/tegra/camera/vi/channel.c
+@@ -198,8 +198,12 @@ static void tegra_channel_fmt_align(struct tegra_channel *chan,
+ 	if (chan->vi->fops->vi_stride_align)
+ 		chan->vi->fops->vi_stride_align(&bpl);
+ 
++#ifdef CONFIG_VIDEO_ECAM
++	*bytesperline = bpl;
++#else
+ 	if (!*bytesperline)
+ 		*bytesperline = bpl;
++#endif
+ 
+ 	/* Don't clamp the width based on bpl as stride and width can be
+ 	 * different. Aligned width also may force a sensor mode change other
+@@ -2281,6 +2285,28 @@ static long tegra_channel_default_ioctl(struct file *file, void *fh,
+ 	return ret;
+ }
+ 
++/* Implemented vidioc_s_parm and vidioc_g_parm ioctl to support multiple frame
++ * rates */
++static int tegra_channel_s_parm(struct file *file, void *fh,
++               struct v4l2_streamparm *a)
++{
++	struct tegra_channel *chan = video_drvdata(file);
++	struct v4l2_subdev *sd = chan->subdev_on_csi;
++
++	return v4l2_s_parm_cap(chan->video, sd, a);
++}
++
++static int tegra_channel_g_parm(struct file *file, void *fh,
++               struct v4l2_streamparm *a)
++{
++	struct tegra_channel *chan = video_drvdata(file);
++	struct v4l2_subdev *sd = chan->subdev_on_csi;
++
++	return v4l2_g_parm_cap(chan->video, sd, a);
++}
++
++
++
+ static const struct v4l2_ioctl_ops tegra_channel_ioctl_ops = {
+ 	.vidioc_querycap		= tegra_channel_querycap,
+ 	.vidioc_enum_framesizes		= tegra_channel_enum_framesizes,
+@@ -2312,6 +2338,10 @@ static const struct v4l2_ioctl_ops tegra_channel_ioctl_ops = {
+ 	.vidioc_s_input			= tegra_channel_s_input,
+ 	.vidioc_log_status		= tegra_channel_log_status,
+ 	.vidioc_default			= tegra_channel_default_ioctl,
++/* Implemented vidioc_s_parm and vidioc_g_parm ioctl to support multiple frame
++ * rates*/
++	.vidioc_s_parm                  = tegra_channel_s_parm,
++	.vidioc_g_parm                  = tegra_channel_g_parm,
+ };
+ 
+ static int tegra_channel_close(struct file *fp);
+diff --git a/nvidia-oot/drivers/media/platform/tegra/camera/vi/vi5_fops.c b/nvidia-oot/drivers/media/platform/tegra/camera/vi/vi5_fops.c
+index c6093a7..0c67148 100644
+--- a/nvidia-oot/drivers/media/platform/tegra/camera/vi/vi5_fops.c
++++ b/nvidia-oot/drivers/media/platform/tegra/camera/vi/vi5_fops.c
+@@ -41,6 +41,23 @@
+ 
+ #define CAPTURE_TIMEOUT_MS	2500
+ 
++
++#ifdef CONFIG_VIDEO_ECAM
++/* For Econ stream monitor wait Queue */
++
++#define ECON_NUM_OF_ERR_CNT	5
++#define DEV_NAME_CHAR_SKIP 	11
++#define DEV_NAME_CHAR 		17
++
++wait_queue_head_t econ_err_hand_q;
++int econ_frame_err_track = 0;
++int econ_num_uncorr_err = 0;
++char econ_dev_name[32];
++char econ_err_dev_name[32];
++static uint8_t check_queue_init = 0;
++#endif
++
++
+ static const struct vi_capture_setup default_setup = {
+ 	.channel_flags = 0
+ 	| CAPTURE_CHANNEL_FLAG_VIDEO
+@@ -157,6 +174,7 @@ static const struct v4l2_ctrl_ops vi5_ctrl_ops = {
+ };
+ 
+ static const struct v4l2_ctrl_config vi5_custom_ctrls[] = {
++#ifndef CONFIG_VIDEO_ECAM
+ 	{
+ 		.ops = &vi5_ctrl_ops,
+ 		.id = TEGRA_CAMERA_CID_WRITE_ISPFORMAT,
+@@ -209,6 +227,7 @@ static const struct v4l2_ctrl_config vi5_custom_ctrls[] = {
+ 		.step = 1,
+ 		.dims = { SENSOR_CTRL_BLOB_SIZE },
+ 	},
++#endif
+ 	{
+ 		.ops = &vi5_ctrl_ops,
+ 		.id = TEGRA_CAMERA_CID_VI_CAPTURE_TIMEOUT,
+@@ -289,6 +308,15 @@ static int vi5_channel_setup_queue(struct tegra_channel *chan,
+ {
+ 	int ret = 0;
+ 
++#ifdef CONFIG_VIDEO_ECAM
++    /* Initialize Econ wait queue */
++	if(check_queue_init == 0){
++		init_waitqueue_head(&econ_err_hand_q);
++		printk("Initialized E-con wait queue\n");
++		check_queue_init = 1;
++	}
++#endif
++
+ 	*nbuffers = clamp(*nbuffers, CAPTURE_MIN_BUFFERS, CAPTURE_MAX_BUFFERS);
+ 
+ 	ret = tegra_channel_alloc_buffer_queue(chan, *nbuffers);
+@@ -586,6 +614,17 @@ static void vi5_capture_dequeue(struct tegra_channel *chan,
+ 		buf->vb2_state = VB2_BUF_STATE_ERROR;
+ 	else
+ 		buf->vb2_state = VB2_BUF_STATE_DONE;
++#ifdef CONFIG_VIDEO_ECAM
++	if(econ_num_uncorr_err)
++	{
++		memcpy(econ_err_dev_name,
++			chan->video->name + DEV_NAME_CHAR_SKIP, DEV_NAME_CHAR);
++		if(!strcmp(econ_err_dev_name,econ_dev_name))
++		{
++			econ_num_uncorr_err = 0;
++		}
++	}
++#endif
+ 	/* Read EOF from capture descriptor */
+ 	ts = ns_to_timespec64((s64)descr->status.eof_timestamp);
+ 	trace_tegra_channel_capture_frame("eof", &ts);
+@@ -593,6 +632,20 @@ static void vi5_capture_dequeue(struct tegra_channel *chan,
+ 	goto rel_buf;
+ 
+ uncorr_err:
++#ifdef CONFIG_VIDEO_ECAM
++    /* Monitor and Set Streaming monitor flags for ECON cam */
++	printk("video device name=%s \n", chan->video->name);
++	memcpy(econ_dev_name,
++			chan->video->name + DEV_NAME_CHAR_SKIP, DEV_NAME_CHAR);
++
++	econ_num_uncorr_err++;
++	printk("Uncorr_ERR_Occured %d Times\n", econ_num_uncorr_err);
++	if(econ_num_uncorr_err > ECON_NUM_OF_ERR_CNT && econ_frame_err_track == 0){
++		econ_frame_err_track = 1;
++		printk("setting econ_frame_err_track\n");
++		wake_up_interruptible(&econ_err_hand_q);
++	}
++#endif
+ 	spin_lock_irqsave(&chan->capture_state_lock, flags);
+ 	chan->capture_state = CAPTURE_ERROR;
+ 	spin_unlock_irqrestore(&chan->capture_state_lock, flags);
+@@ -603,6 +656,13 @@ rel_buf:
+ 	vi5_release_buffer(chan, buf);
+ }
+ 
++#ifdef CONFIG_VIDEO_ECAM
++/* Export the symbols to use in Sensor driver */
++EXPORT_SYMBOL(econ_dev_name);
++EXPORT_SYMBOL(econ_err_hand_q);
++EXPORT_SYMBOL(econ_num_uncorr_err);
++EXPORT_SYMBOL(econ_frame_err_track);
++#endif
+ static int vi5_channel_error_recover(struct tegra_channel *chan,
+ 	bool queue_error)
+ {
+diff --git a/nvidia-oot/drivers/media/platform/tegra/camera/vi/vi5_formats.h b/nvidia-oot/drivers/media/platform/tegra/camera/vi/vi5_formats.h
+index 1d0c113..f27d556 100644
+--- a/nvidia-oot/drivers/media/platform/tegra/camera/vi/vi5_formats.h
++++ b/nvidia-oot/drivers/media/platform/tegra/camera/vi/vi5_formats.h
+@@ -128,8 +128,10 @@ static const struct tegra_video_format vi5_video_formats[] = {
+ 				YUV422_8, YVYU, "YUV 4:2:2"),
+ 	TEGRA_VIDEO_FORMAT(YUV422, 16, UYVY8_1X16, 1, 1, T_Y8__V8U8_N422,
+ 				YUV422_8, NV16, "NV16"),
++#ifndef CONFIG_VIDEO_ECAM
+ 	TEGRA_VIDEO_FORMAT(YUV422, 16, UYVY8_2X8, 2, 1, T_U8_Y8__V8_Y8,
+ 				YUV422_8, UYVY, "YUV 4:2:2 UYVY"),
++#endif
+ 	TEGRA_VIDEO_FORMAT(YUV422, 16, VYUY8_2X8, 2, 1, T_V8_Y8__U8_Y8,
+ 				YUV422_8, VYUY, "YUV 4:2:2 VYUY"),
+ 	TEGRA_VIDEO_FORMAT(YUV422, 16, YUYV8_2X8, 2, 1, T_Y8_U8__Y8_V8,
+diff --git a/nvidia-oot/drivers/platform/tegra/rtcpu/capture-ivc-priv.h b/nvidia-oot/drivers/platform/tegra/rtcpu/capture-ivc-priv.h
+index e503f0a..2c9b830 100644
+--- a/nvidia-oot/drivers/platform/tegra/rtcpu/capture-ivc-priv.h
++++ b/nvidia-oot/drivers/platform/tegra/rtcpu/capture-ivc-priv.h
+@@ -26,6 +26,7 @@ struct tegra_capture_ivc_cb_ctx {
+ 	tegra_capture_ivc_cb_func cb_func;
+ 	/** Private context of a VI/ISP capture context */
+ 	const void *priv_context;
++	struct semaphore sem_ch;
+ };
+ 
+ /**
+diff --git a/nvidia-oot/drivers/platform/tegra/rtcpu/capture-ivc.c b/nvidia-oot/drivers/platform/tegra/rtcpu/capture-ivc.c
+index 14e1ba3..9772cb1 100644
+--- a/nvidia-oot/drivers/platform/tegra/rtcpu/capture-ivc.c
++++ b/nvidia-oot/drivers/platform/tegra/rtcpu/capture-ivc.c
+@@ -17,12 +17,16 @@
+ #include <linux/kthread.h>
+ #include <linux/sched.h>
+ #include <linux/version.h>
++#include <linux/semaphore.h>
+ #include <asm/barrier.h>
+ 
+ #include <trace/events/tegra_capture.h>
+ 
+ #include "capture-ivc-priv.h"
+ 
++/* Timeout for acquiring channel-id */
++#define TIMEOUT_ACQUIRE_CHANNEL_ID 120
++
+ static int tegra_capture_ivc_tx_(struct tegra_capture_ivc *civc,
+ 				const void *req, size_t len)
+ {
+@@ -184,6 +188,11 @@ int tegra_capture_ivc_notify_chan_id(uint32_t chan_id, uint32_t trans_id)
+ 
+ 	civc = __scivc_control;
+ 
++	if (down_timeout(&civc->cb_ctx[chan_id].sem_ch,
++		TIMEOUT_ACQUIRE_CHANNEL_ID)) {
++		return -EBUSY;
++	}
++
+ 	mutex_lock(&civc->cb_ctx_lock);
+ 
+ 	if (WARN(civc->cb_ctx[trans_id].cb_func == NULL,
+@@ -278,6 +287,8 @@ int tegra_capture_ivc_unregister_control_cb(uint32_t id)
+ 
+ 	mutex_lock(&civc->cb_ctx_lock);
+ 
++	up(&civc->cb_ctx[id].sem_ch);
++
+ 	if (WARN(civc->cb_ctx[id].cb_func == NULL,
+ 			"control channel %u is idle", id)) {
+ 		mutex_unlock(&civc->cb_ctx_lock);
+@@ -454,6 +465,8 @@ static int tegra_capture_ivc_probe(struct tegra_ivc_channel *chan)
+ 	mutex_init(&civc->cb_ctx_lock);
+ 	mutex_init(&civc->ivc_wr_lock);
+ 
++	for(i = 0; i < TOTAL_CHANNELS; i++)
++		sema_init(&civc->cb_ctx[i].sem_ch, 1);
+ 	/* Initialize kworker */
+ 	kthread_init_work(&civc->work, tegra_capture_ivc_worker);
+ 

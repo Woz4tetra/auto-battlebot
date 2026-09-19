@@ -22,6 +22,13 @@
 /build/
 /build-test/
 /build-docker/
+# The e-CAM25 camera driver is vendored source that the Jetson builds itself, so
+# it has to ship. rsync reads .gitignore but not its "!" negation, so the
+# re-include lives here, and it has to come before the exclusion below because
+# the first matching rule wins.
+!/third_party/
+!/third_party/ecam25/
+!/third_party/ecam25/**
 # Foxglove SDK is architecture-specific; the Jetson installs its own via
 # scripts/install_jetson.sh.
 /third_party/

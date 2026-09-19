@@ -1,6 +1,50 @@
 # Jetson hardware profile (aarch64 TensorRT engines). Inherits the shared perception/filter stack
 # from common.toml and overrides the hardware-specific bits.
+#
+# The Jetson is the RGB-camera box: e-CAM25_CUONX over V4L2, no ZED, no depth. It builds with
+# BUILD_WITH_ZED=OFF, so ZedRgbdCamera and PointCloudFieldFilter are not registered and naming
+# either one fails at parse.
+#
+# Everything that read depth changes with it:
+#   - the field filter fits the mat outline in RGB, or reads a per-cage calibration, or solves off
+#     a fiducial board. PointCloudFieldFilter is gone.
+#   - the height gate abstains on an empty depth image, so its rejection stops. The static gate
+#     takes over: it is the only candidate left, and 91% of MassD false positives sit in fixed
+#     field-frame clusters, which is what it is built for.
+#   - /field_points stops publishing. to_field_point_cloud already returns nullopt on an empty
+#     cloud and the publisher handles that.
 extends = "_common"
+
+[rgbd_camera]
+type = "V4l2RgbCamera"
+device = "/dev/video0"
+# 1080p70 over 1200p60: the extra 10 fps is worth more than 120 rows against the latency
+# budget, and it is the mode ecam25_h01r1_estimated.toml publishes numbers for (1920x1080,
+# cy 540). ecam25_example.toml is a placeholder whose focal length is backed out of a spec
+# sheet that implies three different values; it is not a calibration.
+camera_resolution = "RES_1920x1080"
+camera_fps = 70
+calibration_file = "config/cameras/ecam25_h01r1_estimated.toml"
+
+[field_filter]
+# The mode for a venue nobody has surveyed: it depends on nothing we have to segment and on no
+# assumed mat size. Swap to CalibratedFieldFilter once a cage has been measured and the
+# quick-connect fixture is repeatable, and to HomographyFieldFilter to fit the outline live.
+type = "FiducialFieldFilter"
+corner = "NEG_X_NEG_Y"
+board_offset_x = 0.2
+board_offset_y = 0.2
+field_size_x = 2.35
+field_size_y = 2.35
+
+[keypoint_filter.height]
+# No depth to measure relief against. It abstains on its own; this says so out loud.
+reject_enable = false
+
+[keypoint_filter.static]
+# On, because it is what is left. The end-to-end cost against the height gate is measured on the
+# ZED recordings, not assumed: see docs/plans/rgb_camera_migration_2026-09-09.md section 3.
+enable = true
 
 # Each model lists engine candidates instead of a single path. EngineSelector loads the
 # first one that deserializes on this machine's GPU. Candidates only ever list builds of
@@ -37,7 +81,7 @@ candidates = [
 ]
 
 [ui]
-enable = true
+enable = false
 fullscreen = true
 battery_source = "Waveshare UPS"
 

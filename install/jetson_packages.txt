@@ -7,3 +7,7 @@ libnvinfer-dev
 python3.10-venv
 python3.10-dev
 i2c-tools
+
+# v4l2-ctl, used to bring up and verify the e-CAM25 camera
+# (install_ecam25_camera, docs/ecam25_camera_setup.md)
+v4l-utils

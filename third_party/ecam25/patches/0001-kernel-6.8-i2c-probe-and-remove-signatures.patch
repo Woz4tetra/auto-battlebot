@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: port <noreply@anthropic.com>
+Date: Fri, 18 Sep 2026 22:27:50 -0400
+Subject: [PATCH] kernel 6.8: i2c probe and remove signatures
+
+Kernel 6.6 dropped the i2c_device_id argument from i2c_driver.probe and 6.1
+changed .remove to return void. The id argument was unused.
+---
+ ar0234.c | 8 +++-----
+ 1 file changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/ar0234.c b/ar0234.c
+index 3d6da91..9fd9784 100644
+--- a/ar0234.c
++++ b/ar0234.c
+@@ -2716,8 +2716,7 @@ static int mcu_fw_update(struct i2c_client *client, unsigned char *mcu_fw_versio
+ 	return ret;
+ }
+ 
+-static int cam_probe(struct i2c_client *client,
+-			const struct i2c_device_id *id)
++static int cam_probe(struct i2c_client *client)
+ {
+ 	struct camera_common_data *common_data;
+ 	struct device_node *node = client->dev.of_node;
+@@ -3129,14 +3128,14 @@ static int cam_probe(struct i2c_client *client,
+ 		devm_kfree(dev, ptr); \
+ 	}
+ 
+-static int cam_remove(struct i2c_client *client)
++static void cam_remove(struct i2c_client *client)
+ {
+ 	struct camera_common_data *s_data = to_camera_common_data(&client->dev);
+ 	struct cam *priv = (struct cam *)s_data->priv;
+ 	int loop = 0;
+ 
+ 	if (!priv || !priv->pdata)
+-		return -1;
++		return;
+ 
+ 	v4l2_async_unregister_subdev(priv->subdev);
+ #if defined(CONFIG_MEDIA_CONTROLLER)
+@@ -3171,7 +3170,6 @@ static int cam_remove(struct i2c_client *client)
+ 	FREE_SAFE(&client->dev, priv->pdata);
+ 	FREE_SAFE(&client->dev, priv->s_data);
+ 	FREE_SAFE(&client->dev, priv);
+-	return 0;
+ }
+ 
+ static const struct i2c_device_id cam_id[] = {

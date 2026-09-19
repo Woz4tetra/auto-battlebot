@@ -176,7 +176,7 @@ def convert_video(
     calibration_id: str,
     focal_px: float,
     start_stamp_ns: int,
-    active_profile: str = "_orin_rgb",
+    active_profile: str = "_jetson",
     crf: int = DEFAULT_CRF,
     preset: str = DEFAULT_PRESET,
     progress: bool = True,

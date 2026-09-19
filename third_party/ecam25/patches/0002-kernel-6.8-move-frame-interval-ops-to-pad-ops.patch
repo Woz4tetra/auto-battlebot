@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: port <noreply@anthropic.com>
+Date: Fri, 18 Sep 2026 22:28:07 -0400
+Subject: [PATCH] kernel 6.8: move frame interval ops to pad ops
+
+Kernel 6.8 removed g_frame_interval and s_frame_interval from
+v4l2_subdev_video_ops and added get_frame_interval and set_frame_interval to
+v4l2_subdev_pad_ops, each taking a v4l2_subdev_state. VIDIOC_G/S_PARM reaches
+the pad op through v4l2_g_parm_cap and v4l2_s_parm_cap, so frame rate
+selection keeps working.
+---
+ ar0234.c | 12 ++++++++----
+ ar0234.h |  4 +++-
+ 2 files changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/ar0234.c b/ar0234.c
+index 9fd9784..d7e1661 100644
+--- a/ar0234.c
++++ b/ar0234.c
+@@ -208,7 +208,9 @@ static int cam_g_input_status(struct v4l2_subdev *sd, u32 * status)
+ 	return 0;
+ }
+ 
+-static int cam_g_frame_interval(struct v4l2_subdev *sd, struct v4l2_subdev_frame_interval *ival)
++static int cam_get_frame_interval(struct v4l2_subdev *sd,
++			struct v4l2_subdev_state *sd_state,
++			struct v4l2_subdev_frame_interval *ival)
+ {
+ 	struct i2c_client *client = v4l2_get_subdevdata(sd);
+ 	struct camera_common_data *s_data = to_camera_common_data(&client->dev);
+@@ -224,7 +226,9 @@ static int cam_g_frame_interval(struct v4l2_subdev *sd, struct v4l2_subdev_frame
+ 	return 0;
+ }
+ 
+-static int cam_s_frame_interval(struct v4l2_subdev *sd, struct v4l2_subdev_frame_interval *ival)
++static int cam_set_frame_interval(struct v4l2_subdev *sd,
++			struct v4l2_subdev_state *sd_state,
++			struct v4l2_subdev_frame_interval *ival)
+ {
+ 	struct i2c_client *client = v4l2_get_subdevdata(sd);
+ 	struct camera_common_data *s_data = to_camera_common_data(&client->dev);
+@@ -275,8 +279,6 @@ static int cam_s_frame_interval(struct v4l2_subdev *sd, struct v4l2_subdev_frame
+ static struct v4l2_subdev_video_ops cam_subdev_video_ops = {
+ 	.s_stream	= cam_s_stream,
+ 	.g_input_status = cam_g_input_status,
+-	.g_frame_interval = cam_g_frame_interval,
+-	.s_frame_interval = cam_s_frame_interval,
+ };
+ 
+ static struct v4l2_subdev_core_ops cam_subdev_core_ops = {
+@@ -368,6 +370,8 @@ static struct v4l2_subdev_pad_ops cam_subdev_pad_ops = {
+ 	.get_fmt = cam_get_fmt,
+ 	.enum_frame_size = camera_common_enum_framesizes,
+ 	.enum_frame_interval = camera_common_enum_frameintervals,
++	.get_frame_interval = cam_get_frame_interval,
++	.set_frame_interval = cam_set_frame_interval,
+ };
+ 
+ static struct v4l2_subdev_ops cam_subdev_ops = {
+diff --git a/ar0234.h b/ar0234.h
+index d218749..b2a5797 100644
+--- a/ar0234.h
++++ b/ar0234.h
+@@ -272,7 +272,9 @@ static int cam_g_volatile_ctrl(struct v4l2_ctrl *ctrl);
+ static int cam_s_ctrl(struct v4l2_ctrl *ctrl);
+ static int cam_read(struct i2c_client *client, u8 * val, u32 count);
+ static int cam_write(struct i2c_client *client, u8 * val, u32 count);
+-static int cam_s_frame_interval(struct v4l2_subdev *sd, struct v4l2_subdev_frame_interval *ival);
++static int cam_set_frame_interval(struct v4l2_subdev *sd,
++			struct v4l2_subdev_state *sd_state,
++			struct v4l2_subdev_frame_interval *ival);
+ int cam_s_power(struct v4l2_subdev *sd, int on);
+ static void toggle_gpio(unsigned int gpio, int value);
+ 

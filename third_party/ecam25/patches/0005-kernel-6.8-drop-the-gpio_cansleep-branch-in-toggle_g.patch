@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: port <noreply@anthropic.com>
+Date: Fri, 18 Sep 2026 22:31:15 -0400
+Subject: [PATCH] kernel 6.8: drop the gpio_cansleep branch in toggle_gpio
+
+Kernel 6.8 removed gpio_cansleep from the legacy linux/gpio.h API, which is a
+hard error (-Werror=implicit-function-declaration). Both branches did the same
+thing apart from the cansleep variant of the set. The reset and boot lines are
+on the PCA6408 expander on the camera i2c bus, so driving them sleeps, and
+every caller runs in process context.
+---
+ ar0234.c | 12 +++++-------
+ 1 file changed, 5 insertions(+), 7 deletions(-)
+
+diff --git a/ar0234.c b/ar0234.c
+index 31c244a..fe4bc58 100644
+--- a/ar0234.c
++++ b/ar0234.c
+@@ -711,13 +711,11 @@ int mcu_bload_ascii2hex(unsigned char ascii)
+ 
+ static void toggle_gpio(unsigned int gpio, int val)
+ {
+-	if (gpio_cansleep(gpio)){
+-		gpio_direction_output(gpio,val);
+-		gpio_set_value_cansleep(gpio, val);
+-	} else{
+-		gpio_direction_output(gpio,val);
+-		gpio_set_value(gpio, val);
+-	}
++	/* The reset and boot lines hang off the PCA6408 expander on the camera's
++	 * i2c bus, so driving them sleeps. Every caller runs in process context.
++	 */
++	gpio_direction_output(gpio, val);
++	gpio_set_value_cansleep(gpio, val);
+ }
+ 
+ unsigned char errorcheck(char *data, unsigned int len)

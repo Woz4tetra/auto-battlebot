@@ -20,6 +20,7 @@ source "$PROJECT_ROOT/install/install_taplo.sh"
 source "$PROJECT_ROOT/install/install_clang_tidy_cache.sh"
 source "$PROJECT_ROOT/install/install_udev_rules.sh"
 source "$PROJECT_ROOT/install/install_ds3231_rtc.sh"
+source "$PROJECT_ROOT/install/install_ecam25_camera.sh"
 source "$PROJECT_ROOT/install/install_pstore_ramoops.sh"
 source "$PROJECT_ROOT/install/install_jetson_stability.sh"
 source "$PROJECT_ROOT/install/install_jetson_clocks.sh"
@@ -42,6 +43,7 @@ install_clang_tidy_cache
 build_cpp_project "$@"
 install_udev_rules
 install_ds3231_rtc
+install_ecam25_camera
 install_pstore_ramoops
 install_jetson_stability
 install_jetson_clocks

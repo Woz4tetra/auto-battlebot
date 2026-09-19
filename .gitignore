@@ -18,16 +18,20 @@ htmlcov/
 *.cover
 .hypothesis/
 
-# Prebuilt SDKs unpacked by install/ (Foxglove SDK)
-third_party/
+# Prebuilt SDKs unpacked by install/ (Foxglove SDK). Vendored source we maintain,
+# like the e-CAM25 camera driver, is tracked.
+third_party/*
+!third_party/ecam25/
 
 # CMake and C++ build artifacts
 build/
 build-test/
 build-docker/
+build-ecam25/
 CMakeCache.txt
 CMakeFiles/
 Makefile
+!third_party/ecam25/src/Makefile
 cmake_install.cmake
 CTestTestfile.cmake
 *.a
