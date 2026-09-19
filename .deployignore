@@ -15,7 +15,10 @@
 
 # Examples:
 /docs/
-/logo/
+# /logo/ stays: CMakeLists.txt embeds bwbots_splash_1024x600.gif and
+# bwbots_logo_dark_h24.png into the binary via cmake/bin2c.cmake, and the Jetson builds
+# from source. The whole directory is 568K, so it ships rather than a two-file re-include
+# that would break silently the next time an asset is embedded.
 /stickers/
 /.claude/
 /.serena/

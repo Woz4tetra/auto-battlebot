@@ -29,10 +29,10 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import tomllib
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import tomllib
 import yaml
 from seg_to_bbox import top_contours_bbox
 

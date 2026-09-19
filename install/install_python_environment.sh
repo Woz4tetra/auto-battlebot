@@ -52,12 +52,12 @@ install_python_environment() {
     # Virtual environment directory
     local VENV_DIR="$PROJECT_ROOT/venv"
 
-    # Python version: 3.10 on Jetson (matches system + TensorRT), 3.11 elsewhere
+    # Python version: 3.12 on Jetson (matches JetPack 7 system python + TensorRT), 3.11 elsewhere
     local REQUIRED_MAJOR=3
     local REQUIRED_MINOR
     if [ -f /etc/nv_tegra_release ]; then
-        REQUIRED_MINOR=10
-        echo "Jetson detected: using Python 3.10"
+        REQUIRED_MINOR=12
+        echo "Jetson detected: using Python 3.12"
     else
         REQUIRED_MINOR=11
     fi
@@ -83,7 +83,19 @@ install_python_environment() {
     # Create virtual environment if it doesn't exist
     if [ -d "$VENV_DIR" ]; then
         echo "Virtual environment already exists at $VENV_DIR"
-        if [ "$RECREATE_VENV" = "yes" ]; then
+        # A venv built against a different Python minor cannot be reused: its
+        # lib/pythonX.Y/ tree, the TensorRT .pth written below, and the CUDA block
+        # appended to bin/activate all encode the old version, and the append is
+        # guarded by a grep that will not rewrite it. This is what a JetPack 6 ->
+        # 7 upgrade in place hits, where install_jetson.sh passes --no-recreate.
+        local EXISTING_MINOR=""
+        if [ -x "$VENV_DIR/bin/python" ]; then
+            EXISTING_MINOR=$("$VENV_DIR/bin/python" -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || true)
+        fi
+        if [ -n "$EXISTING_MINOR" ] && [ "$EXISTING_MINOR" != "$REQUIRED_MINOR" ]; then
+            echo "Existing venv is Python 3.$EXISTING_MINOR, need 3.$REQUIRED_MINOR. Recreating."
+            rm -rf "$VENV_DIR"
+        elif [ "$RECREATE_VENV" = "yes" ]; then
             echo "Removing existing virtual environment (--recreate)."
             rm -rf "$VENV_DIR"
         elif [ "$RECREATE_VENV" = "no" ]; then
@@ -108,13 +120,27 @@ install_python_environment() {
     # On Jetson: make system-installed TensorRT (apt) visible and set LD_LIBRARY_PATH for PyTorch CUDA
     if [ -f /etc/nv_tegra_release ]; then
         local SITE_PACKAGES="$VENV_DIR/lib/python$REQUIRED_MAJOR.$REQUIRED_MINOR/site-packages"
-        local SYS_PYTHON_PATH="/usr/lib/python$REQUIRED_MAJOR.$REQUIRED_MINOR/dist-packages"
-        if [ -d "$SYS_PYTHON_PATH" ]; then
-            echo "Jetson: adding system Python path for TensorRT to venv..."
-            echo "$SYS_PYTHON_PATH" > "$SITE_PACKAGES/jetson_system_packages.pth"
-        else
-            echo "Jetson: warning - $SYS_PYTHON_PATH not found; TensorRT may not be importable in venv."
+        # apt installs python3-libnvinfer into the unversioned /usr/lib/python3/dist-packages
+        # on noble (JetPack 7); jammy (JetPack 6) used a versioned directory. Try both, newest
+        # layout first, rather than interpolating a path that exists on only one of them.
+        local SYS_PYTHON_PATH=""
+        local CANDIDATE
+        for CANDIDATE in "/usr/lib/python$REQUIRED_MAJOR/dist-packages" \
+            "/usr/lib/python$REQUIRED_MAJOR.$REQUIRED_MINOR/dist-packages"; do
+            if [ -d "$CANDIDATE" ] && compgen -G "$CANDIDATE/tensorrt*" >/dev/null; then
+                SYS_PYTHON_PATH="$CANDIDATE"
+                break
+            fi
+        done
+        if [ -z "$SYS_PYTHON_PATH" ]; then
+            # Continuing here leaves every `import tensorrt` in the venv broken, which
+            # surfaces much later as a model-load failure. Fail where the cause is visible.
+            echo "Error: no dist-packages directory contains the TensorRT bindings."
+            echo "Install python3-libnvinfer (it is in install/jetson_packages.txt) and re-run."
+            return 1
         fi
+        echo "Jetson: adding $SYS_PYTHON_PATH to venv for TensorRT..."
+        echo "$SYS_PYTHON_PATH" > "$SITE_PACKAGES/jetson_system_packages.pth"
         # So venv PyTorch finds CUDA/cuDNN (host has these in LD_LIBRARY_PATH; venv does not)
         local ACTIVATE_SH="$VENV_DIR/bin/activate"
         if ! grep -q 'jetson.*LD_LIBRARY_PATH' "$ACTIVATE_SH" 2>/dev/null; then
@@ -125,7 +151,7 @@ install_python_environment() {
 if [ -f /etc/nv_tegra_release ]; then
     _jetson_ld_path=""
     _cuda_ver=$(nvcc --version 2>/dev/null | grep -oP "release \\K[0-9]+\\.[0-9]+" | head -1)
-    for _p in $( [ -n "$_cuda_ver" ] && echo "/usr/local/cuda-$_cuda_ver/lib64" ) /usr/local/cuda/lib64 /usr/lib/aarch64-linux-gnu /usr/lib/llvm-8/lib; do
+    for _p in $( [ -n "$_cuda_ver" ] && echo "/usr/local/cuda-$_cuda_ver/lib64" ) /usr/local/cuda/lib64 /usr/lib/aarch64-linux-gnu; do
         [ -d "$_p" ] && _jetson_ld_path="${_jetson_ld_path:+$_jetson_ld_path:}$_p"
     done
     [ -n "$_jetson_ld_path" ] && export LD_LIBRARY_PATH="${_jetson_ld_path}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

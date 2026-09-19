@@ -18,9 +18,9 @@ File format, all in field-frame metres:
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
-import tomllib
 from config.kinematic import ObstacleConfig
 
 VALID_KINDS = ("hole", "wall_block")

@@ -146,12 +146,17 @@ find_package(PCL REQUIRED COMPONENTS common sample_consensus)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
 
-# ZED SDK. Off on the RGB-camera box, which has no SDK to install; on everywhere else, because
-# every SVO in data/svo/, the keypoint corpora, and the eval ground truth are tied to this path.
-option(BUILD_WITH_ZED "Build the ZED camera and SVO playback backends" ON)
-if(BUILD_WITH_ZED)
+# ZED SDK. The default follows whether the SDK is actually installed: on everywhere it is,
+# because every SVO in data/svo/, the keypoint corpora, and the eval ground truth are tied to
+# this path; off on the Jetson, which runs the RGB camera and has no SDK. Defaulting to ON
+# unconditionally aborted configure on the Jetson before the option could ever be read.
+find_package(ZED 5 QUIET)
+option(BUILD_WITH_ZED "Build the ZED camera and SVO playback backends" ${ZED_FOUND})
+if(BUILD_WITH_ZED AND NOT ZED_FOUND)
+    # Asked for explicitly but missing: re-run so the error names the missing SDK.
     find_package(ZED 5 REQUIRED)
 endif()
+message(STATUS "BUILD_WITH_ZED: ${BUILD_WITH_ZED}")
 find_package(CUDA REQUIRED)
 find_package(TensorRT REQUIRED)
 

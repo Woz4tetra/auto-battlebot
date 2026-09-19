@@ -4,13 +4,13 @@ import argparse
 import math
 import os
 import sys
+import tomllib
 from pathlib import Path
 
 import bpy
 import cv2
 import mathutils
 import numpy as np
-import tomllib
 
 # BlenderProc changes CWD to a temp directory, so capture it now.
 _LAUNCH_CWD = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))

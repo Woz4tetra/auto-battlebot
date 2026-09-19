@@ -16,12 +16,11 @@ import json
 import random
 import shutil
 import tempfile
+import tomllib
 import urllib.request
 import zipfile
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
-
-import tomllib
 
 AMBIENTCG_URL_TEMPLATE = "https://ambientcg.com/get?file={asset}_2K-JPG.zip"
 AMBIENTCG_ASSETS_API = "https://ambientcg.com/api/v3/assets"

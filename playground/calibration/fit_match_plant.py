@@ -26,15 +26,10 @@ import csv
 import dataclasses
 import json
 import re
-import sys
+import tomllib
 from pathlib import Path
 
 import numpy as np
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 from auto_battlebot.calibration.jig.jig_fit import (
     FitWeights,

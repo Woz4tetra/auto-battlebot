@@ -18,7 +18,24 @@ get_cuda_version() {
     if [ -z "$ver" ] && [ -d /usr/local/cuda ]; then
         ver=$(ls -d /usr/local/cuda-[0-9]*.[0-9]* 2>/dev/null | sort -V | tail -1 | grep -oP 'cuda-\K[0-9]+\.[0-9]+')
     fi
-    echo "${ver:-12.1}"
+    if [ -z "$ver" ]; then
+        # Guessing here is worse than stopping: the CUDA version picks the wheel index,
+        # and a wrong guess installs a torch that fails at the first kernel launch.
+        echo "Error: could not detect the CUDA version (no nvcc, no /usr/local/cuda-*)." >&2
+        return 1
+    fi
+    echo "$ver"
+}
+
+# L4T major version from /etc/nv_tegra_release, e.g. 36 for JetPack 6, 39 for JetPack 7.2.
+get_l4t_major() {
+    local first_line
+    first_line=$(head -n 1 /etc/nv_tegra_release 2>/dev/null || true)
+    if [[ "$first_line" =~ R([0-9]+) ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo ""
+    fi
 }
 
 # Compute TORCH_INSTALL URL for current JetPack (no side effects). Sets TORCH_INSTALL if empty.
@@ -61,6 +78,28 @@ ensure_jetson_torch_in_venv() {
         echo "Jetson: PyTorch already in venv; using it (will not install from PyPI)."
         return 0
     fi
+    local l4t_major
+    l4t_major=$(get_l4t_major)
+
+    # JetPack 7 (L4T 39) and newer: NVIDIA publishes no Jetson wheel. There is no
+    # compute/redist/jp/v7x path and no jp7 index on pypi.jetson-ai-lab.io, and NVIDIA's
+    # own guidance for Orin on JetPack 7 is the upstream CUDA index. Those wheels are
+    # built for sm_80, and a cubin built for sm_8x runs on any sm_8y with y >= x, so
+    # Orin's sm_87 executes them without JIT. PyTorch still prints a compute-capability
+    # warning naming sm_90/sm_100/sm_120; it is cosmetic, not a failure.
+    if [ -n "$l4t_major" ] && [ "$l4t_major" -ge 39 ]; then
+        local cuda_ver index_url
+        cuda_ver=$(get_cuda_version) || return 1
+        # 13.2 -> cu132. Derived, not tabled, so a 13.0 or 13.3 box picks its own index.
+        index_url="https://download.pytorch.org/whl/cu${cuda_ver//./}"
+        echo "Jetson: installing torch and torchvision from ${index_url} (CUDA ${cuda_ver})..."
+        # --index-url, not --extra-index-url: PyPI's aarch64 torch is a CPU-only build and
+        # wins resolution otherwise, leaving torch.cuda.is_available() false.
+        pip install --no-cache-dir --index-url "$index_url" torch torchvision
+        return 0
+    fi
+
+    # JetPack 6 (L4T 36) and older: the NVIDIA wheel, with the numpy 1.x pin its ABI needs.
     get_jetson_torch_install_url
     echo "Jetson: installing PyTorch wheel so dependencies use it instead of PyPI..."
     pip install "numpy==1.26.1"
@@ -91,26 +130,32 @@ install_pytorch_jetson() {
         return 0
     fi
 
-    local PY_VER="3.10"
+    local PY_VER="3.12"
+    local L4T_MAJOR
+    L4T_MAJOR=$(get_l4t_major)
 
     # 1. System packages required by PyTorch (per NVIDIA doc)
     echo "Installing PyTorch prerequisites (python3-pip, libopenblas-dev)..."
     sudo apt-get -y update
     sudo apt-get install -y python3-pip libopenblas-dev
 
-    # 2. cusparselt for PyTorch 24.06+ (per NVIDIA doc; run in /tmp so it creates dirs there)
-    local CUSPARSELT_SH="/tmp/install_cusparselt.sh"
+    # 2. cusparselt for PyTorch 24.06+ (per NVIDIA doc; run in /tmp so it creates dirs there).
+    # Only for the NVIDIA JetPack 6 wheels: the upstream CUDA-index wheels used on JetPack 7
+    # vendor their own CUDA dependencies.
     local CUDA_VER
-    CUDA_VER=$(get_cuda_version)
+    CUDA_VER=$(get_cuda_version) || return 1
     echo "Detected CUDA version: $CUDA_VER"
-    wget -q -O "$CUSPARSELT_SH" "https://raw.githubusercontent.com/pytorch/pytorch/5c6af2b583709f6176898c017424dc9981023c28/.ci/docker/common/install_cusparselt.sh"
-    (cd /tmp && sudo CUDA_VERSION=12.1 bash install_cusparselt.sh)
+    if [ -z "$L4T_MAJOR" ] || [ "$L4T_MAJOR" -lt 39 ]; then
+        local CUSPARSELT_SH="/tmp/install_cusparselt.sh"
+        wget -q -O "$CUSPARSELT_SH" "https://raw.githubusercontent.com/pytorch/pytorch/5c6af2b583709f6176898c017424dc9981023c28/.ci/docker/common/install_cusparselt.sh"
+        (cd /tmp && sudo CUDA_VERSION="$CUDA_VER" bash install_cusparselt.sh)
+    fi
 
     # 3. Use project venv (create if missing)
     if [ ! -d "$VENV_DIR" ]; then
         echo "Creating project venv at $VENV_DIR (python${PY_VER})..."
         if ! command -v "python${PY_VER}" &>/dev/null; then
-            echo "Error: python${PY_VER} not found. Install it (e.g. python3.10-venv) and re-run."
+            echo "Error: python${PY_VER} not found. Install it (e.g. python${PY_VER}-venv) and re-run."
             exit 1
         fi
         "python${PY_VER}" -m venv "$VENV_DIR"
@@ -132,7 +177,7 @@ install_pytorch_jetson() {
 if [ -f /etc/nv_tegra_release ]; then
     _jetson_ld_path=""
     _cuda_ver=$(nvcc --version 2>/dev/null | grep -oP "release \\K[0-9]+\\.[0-9]+" | head -1)
-    for _p in $( [ -n "$_cuda_ver" ] && echo "/usr/local/cuda-$_cuda_ver/lib64" ) /usr/local/cuda/lib64 /usr/lib/aarch64-linux-gnu /usr/lib/llvm-8/lib; do
+    for _p in $( [ -n "$_cuda_ver" ] && echo "/usr/local/cuda-$_cuda_ver/lib64" ) /usr/local/cuda/lib64 /usr/lib/aarch64-linux-gnu; do
         [ -d "$_p" ] && _jetson_ld_path="${_jetson_ld_path:+$_jetson_ld_path:}$_p"
     done
     [ -n "$_jetson_ld_path" ] && export LD_LIBRARY_PATH="${_jetson_ld_path}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

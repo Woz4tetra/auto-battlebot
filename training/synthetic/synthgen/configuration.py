@@ -9,13 +9,13 @@ them.
 """
 
 import os
+import tomllib
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import tomllib
 
 from synthgen.annotations import normalize_annotation_mode
 from synthgen.cage_mount import WALLS, CageMountRanges

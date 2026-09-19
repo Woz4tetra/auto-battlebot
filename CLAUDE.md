@@ -1,6 +1,6 @@
 # auto-battlebot
 
-Autonomous aim-assist and control system for NHRL combat robot competitions. Runs on a Jetson Orin Nano with a ZED 2i stereo camera. End-to-end latency target: under 60ms.
+Autonomous aim-assist and control system for NHRL combat robot competitions. Runs on a Jetson Orin NX (JetPack 7.2) with an e-CAM25 RGB camera. End-to-end latency target: under 60ms. Dev machines keep the ZED 2i for SVO replay, which is what the recordings, keypoint corpora, and eval ground truth are tied to.
 
 ## Build
 
@@ -32,8 +32,8 @@ Run before committing:
 
 - C++: Google style, 4-space indent, 100-char line limit (`.clang-format`)
 - The clang toolchain is pinned to the major version in `.llvm-version` — the
-  unversioned distro packages differ per release (14 on 22.04/JetPack, 18 on
-  24.04) and reformat the tree inconsistently. Every platform install sets it
+  unversioned distro packages differ per release (14 on 22.04, 18 on 24.04,
+  which is what JetPack 7 ships) and reformat the tree inconsistently. Every platform install sets it
   up; to repair it alone run `./install/install_llvm_toolchain.sh`, and
   `scripts/lint` uses the versioned
   binaries and skips the step if they are absent.
@@ -291,7 +291,9 @@ drafts if they clearly beat commas, periods, or parentheses.
 
 ## Platforms
 
-- Deployment: Jetson Orin Nano (aarch64, TensorRT 10, CUDA)
+- Deployment: Jetson Orin NX on JetPack 7.2 / L4T R39.2 (aarch64, Ubuntu 24.04, Python 3.12, CUDA 13.2, TensorRT 10.16). The install scripts still support JetPack 6 (L4T R36); they branch on the L4T major
+- The Jetson builds with `BUILD_WITH_ZED=OFF`. The CMake default follows whether the ZED SDK is installed, so dev machines stay ON and keep SVO playback
+- TensorRT engines are not portable across TensorRT versions. The `aarch64_sm87` engines must be rebuilt on the JetPack 7 box; the filename is unchanged by a rebuild, so old and new look identical on disk
 - Dev: Ubuntu 22/24 x86_64 with NVIDIA GPU
 - `pyproject.toml` has platform-conditional deps. Do not flatten them.
 

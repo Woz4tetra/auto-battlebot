@@ -19,15 +19,10 @@ docs/experiments/perception_performance/deeplab_field_data_plan.md.
 from __future__ import annotations
 
 import re
-import sys
+import tomllib
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 OVERRIDES_PATH = Path(__file__).with_name("field_overrides.toml")
 

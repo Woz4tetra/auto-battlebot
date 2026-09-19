@@ -8,15 +8,10 @@ surface is z = 0.
 
 from __future__ import annotations
 
-import sys
+import tomllib
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any, get_args, get_origin, get_type_hints
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - Blender ships 3.11, the dev venv 3.12
-    import tomli as tomllib
 
 Vec3 = tuple[float, float, float]
 

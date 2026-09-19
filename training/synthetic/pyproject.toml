@@ -2,7 +2,7 @@
 name = "battlebot-synthetic"
 version = "0.1.0"
 description = "Synthetic data generation pipeline for YOLO keypoint training"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "blenderproc",
   "numpy>=1.26,<2",
@@ -10,7 +10,6 @@ dependencies = [
   "objaverse",
   "trimesh",
   "requests",
-  "tomli; python_version < '3.11'",
 ]
 
 [build-system]

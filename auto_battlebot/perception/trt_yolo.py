@@ -177,7 +177,7 @@ def _orient_predictions(
     """Return predictions as (num_predictions, num_features), transposing if needed."""
     if prediction.shape[0] == num_predictions and prediction.shape[1] == num_features:
         return prediction
-    return cast(np.ndarray, prediction.T)
+    return prediction.T
 
 
 def _activate_class_scores(raw_class: np.ndarray) -> np.ndarray:

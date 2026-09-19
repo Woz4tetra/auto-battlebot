@@ -181,6 +181,7 @@ def test_ranges_need_at_least_one_mount() -> None:
 
 def test_the_ranges_block_parses_back_as_the_same_ranges() -> None:
     import tomllib
+
     from synthgen.configuration import _parse_mount
 
     ranges = ranges_covering([FITTED], pad_m=0.02, pad_deg=1.0)

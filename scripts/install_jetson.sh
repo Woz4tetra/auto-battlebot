@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Source helper functions
-source "$PROJECT_ROOT/install/check_jetson_orin_nano.sh"
+source "$PROJECT_ROOT/install/check_jetson_orin.sh"
 source "$PROJECT_ROOT/install/install_packages.sh"
 source "$PROJECT_ROOT/install/install_llvm_toolchain.sh"
 source "$PROJECT_ROOT/install/install_opencv.sh"
@@ -25,12 +25,12 @@ source "$PROJECT_ROOT/install/install_jetson_stability.sh"
 source "$PROJECT_ROOT/install/install_jetson_clocks.sh"
 
 # Run checks and installation
-check_jetson_orin_nano
+check_jetson_orin
 # Step 0: Install TensorRT runtime (before CMake)
 install_packages "$PROJECT_ROOT/install/jetson_packages.txt"
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
 install_llvm_toolchain
-install_opencv --cuda --cuda-arch 8.7 --gstreamer --python-bindings --python-version 3.10
+install_opencv --cuda --cuda-arch 8.7 --gstreamer --python-bindings --python-version 3.12
 # Python venv (creates venv/, installs deps; also pulls Jetson PyTorch wheel)
 install_python_environment -n
 # PyTorch for Jetson (NVIDIA wheel into project venv)

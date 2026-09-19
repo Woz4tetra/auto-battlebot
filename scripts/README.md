@@ -29,7 +29,7 @@ here so they read as tools rather than as dead files.
 | Script | When to run it |
 | --- | --- |
 | `install_ubuntu_22.sh`, `install_ubuntu_24.sh` | Dev machine setup, per Ubuntu release. |
-| `install_jetson.sh` | Jetson Orin Nano setup. |
+| `install_jetson.sh` | Jetson Orin (Nano or NX) setup. |
 | `setup_python.sh` | Create `venv/`. |
 | `activate_python.sh` | `source` it to activate `venv/`. |
 | `setup_simulation.sh` | Install the simulation dependencies. |

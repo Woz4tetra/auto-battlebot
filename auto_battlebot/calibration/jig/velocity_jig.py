@@ -31,17 +31,12 @@ See `docs/experiments/kalman_filter/kalman_filter_plan.md` part 1.2 and the comp
 from __future__ import annotations
 
 import re
-import sys
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 import numpy as np
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 G_MPS2 = 9.80665
 DEG_TO_RAD = np.pi / 180.0

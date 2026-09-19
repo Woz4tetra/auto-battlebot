@@ -29,17 +29,12 @@ The chain from a fitted pose to a BlenderProc camera:
 from __future__ import annotations
 
 import math
-import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - Python 3.10 fallback
-    import tomli as tomllib
 
 _ROTATE_Z_MINUS_90 = np.array(
     [[0.0, 1.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]

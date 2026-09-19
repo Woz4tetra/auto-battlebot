@@ -1,12 +1,14 @@
 #!/bin/bash
 
-# Stability workarounds for the L4T 36.4 / 5.15.148-tegra kernel.
+# Stability workarounds for the Jetson.
 #
 # Two independent steps, both idempotent:
-#   1. Add "cgroup_disable=memory" to the extlinux APPEND line. Works around
-#      a NULL-deref panic in kswapd0 -> workingset_update_node -> list_lru_add
-#      that is reachable through memory-cgroup-aware list_lru entries on this
-#      kernel. With memcg disabled at boot, the buggy code path is unreachable.
+#   1. Add "cgroup_disable=memory" to the extlinux APPEND line, on the L4T 36.4 /
+#      5.15.148-tegra kernel only. Works around a NULL-deref panic in kswapd0 ->
+#      workingset_update_node -> list_lru_add that is reachable through
+#      memory-cgroup-aware list_lru entries on that kernel. With memcg disabled at
+#      boot, the buggy code path is unreachable. Skipped on kernel 6.x (JetPack 7),
+#      where the bug is fixed and disabling memcg would cost real accounting.
 #   2. Mask non-essential desktop services that create background cgroup churn
 #      on a kiosk (Bluetooth, GNOME Tracker, Evolution data daemons, several
 #      gvfs volume monitors, and unused gnome-settings-daemon services).
@@ -26,6 +28,17 @@ install_cgroup_disable_memory() {
     local extlinux_conf="/boot/extlinux/extlinux.conf"
     local arg="cgroup_disable=memory"
     local backup
+
+    # The panic this works around is specific to the 5.15 Tegra kernel that JetPack 6
+    # shipped. JetPack 7 runs 6.8, where it is fixed, and disabling memcg there is not
+    # free: it also takes out cgroup v2 memory accounting, systemd MemoryMax=, and
+    # systemd-oomd. Only apply it on the kernel that needs it.
+    local kernel_major
+    kernel_major=$(uname -r | cut -d. -f1)
+    if [ "${kernel_major:-0}" -ge 6 ]; then
+        echo "Kernel $(uname -r) does not need ${arg}; skipping (JetPack 6 / 5.15 only)."
+        return
+    fi
 
     if [ ! -f "$extlinux_conf" ]; then
         echo "${extlinux_conf} not found; skipping cgroup_disable=memory step (not a Jetson?)."

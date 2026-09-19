@@ -26,10 +26,10 @@ import ast
 import multiprocessing as mp
 import shutil
 import sys
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import tomllib
 from tqdm import tqdm
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")

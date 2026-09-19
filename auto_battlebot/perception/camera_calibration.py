@@ -9,17 +9,12 @@ or a rendered image, must use the rectified matrix this returns, not the calibra
 
 from __future__ import annotations
 
-import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
 import numpy as np
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - Python 3.10 fallback
-    import tomli as tomllib
 
 
 @dataclass(frozen=True)

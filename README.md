@@ -23,7 +23,8 @@ The application is written in **C++** and uses **TensorRT** for inference.
 On the Jetson Orin Nano, camera capture to motor motion is **< 60 ms**.*
 
 Supported platforms:
-- Jetson Orin Nano
+- Jetson Orin NX or Orin Nano
+  - JetPack 7.2 (Ubuntu 24.04, CUDA 13.2) or JetPack 6 (Ubuntu 22.04, CUDA 12.6)
 - Intel x86 + NVIDIA GPU
   - Ubuntu 22
   - Ubuntu 24
@@ -33,8 +34,8 @@ Supported platforms:
 At NHRL, there is no time to set up tripod hardware across 8+ cages and calibrate fixed camera systems.
 
 This system is fully handheld. The handheld device features:
-- Jetson Orin Nano
-- ZED 2i stereo camera
+- Jetson Orin NX
+- e-CAM25 RGB camera
 - USB connection to any OpenTX transmitter
 - 2+ hours of battery
 - 8-inch LCD display
@@ -103,7 +104,7 @@ The project focuses on end-to-end autonomy under real-time and real-world constr
 # Setup and Install
 
 These scripts assume you are on one of the supported hardware configurations:
-- Jetson Orin Nano
+- Jetson Orin NX or Orin Nano (JetPack 7.2 or JetPack 6)
 - Ubuntu 22 or 24 (x86 + NVIDIA GPU with compute capability 8.7 or higher)
 
 These are the platforms I've tested on. This repository may work on other system configurations.

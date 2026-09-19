@@ -28,10 +28,9 @@ now say: the tool cannot see the wall the robot hit.
 from __future__ import annotations
 
 import argparse
+import tomllib
 from pathlib import Path
 from typing import Any
-
-import tomllib
 
 from auto_battlebot.calibration.jig import drive_protocol as dp
 from auto_battlebot.calibration.jig import jig_link as jl

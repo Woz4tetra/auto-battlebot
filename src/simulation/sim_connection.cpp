@@ -205,7 +205,7 @@ bool SimConnection::step_and_receive(CameraData& data) {
     data.camera_info.width = w;
     data.camera_info.height = h;
     data.camera_info.intrinsics =
-        (cv::Mat_<double>(3, 3) << hdr.fx, 0, hdr.cx, 0, hdr.fy, hdr.cy, 0, 0, 1);
+        cv::Mat(cv::Matx33d(hdr.fx, 0, hdr.cx, 0, hdr.fy, hdr.cy, 0, 0, 1));
     data.camera_info.distortion = cv::Mat::zeros(1, 5, CV_64F);
 
     Eigen::Matrix4d tf;

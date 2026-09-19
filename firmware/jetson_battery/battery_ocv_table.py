@@ -14,18 +14,13 @@ import os
 import signal
 import sys
 import time
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import tomli_w
 from smbus2 import SMBus
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python < 3.11
-    import tomli as tomllib
-
 
 INA219_REG_CONFIG = 0x00
 INA219_REG_BUSVOLTAGE = 0x02
