@@ -1,0 +1,10 @@
+# The meatball basement drive-test box render: every scene in the basement, nothing in the
+# HDRI arena or the other venues. The scene and how it was fitted are in
+# playground/basement_scene/README.md; the mount block is in config.toml.
+extends = "config.toml"
+
+only_cage = "meatball_basement"
+
+[output]
+# 5,000 basement frames for the 2026-09-19 domain mix. --num-images overrides this.
+num_images = 5000

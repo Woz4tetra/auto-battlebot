@@ -24,7 +24,9 @@ from synthgen.cage_spec import (
     Box,
     CageSceneSpec,
     Cylinder,
+    Quad,
     all_tubes,
+    block_boxes,
     bolt_positions,
     frame_rails,
     house_bot_box,
@@ -36,11 +38,14 @@ from synthgen.cage_spec import (
     posts,
     stage_riser_boxes,
     venue_floor,
+    wall_quads,
 )
 from synthgen.constants import HOUSE_BOT_CATEGORY_ID
 from synthgen.logsetup import get_logger
 
 logger = get_logger(__name__)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Segmentation id for the mat, away from the robot/distractor ids in synthgen.constants.
 MAT_CATEGORY_ID = 7
@@ -169,6 +174,35 @@ def add_cylinder(cyl: Cylinder, material: bproc.types.Material) -> bproc.types.M
     obj.set_cp("category_id", 0)
     obj.replace_materials(material)
     return obj
+
+
+def add_quad(quad: Quad, material: bproc.types.Material) -> bproc.types.MeshObject:
+    """A single-face mesh with the quad's UVs, for photo-textured walls."""
+    mesh = bpy.data.meshes.new(quad.name)
+    mesh.from_pydata([list(c) for c in quad.corners], [], [[0, 1, 2, 3]])
+    uv_layer = mesh.uv_layers.new(name="UVMap").data
+    for loop_index, uv in zip(mesh.polygons[0].loop_indices, quad.uvs):
+        uv_layer[loop_index].uv = uv
+    mesh.update()
+    blender_obj = bpy.data.objects.new(quad.name, mesh)
+    bpy.context.scene.collection.objects.link(blender_obj)
+    obj = bproc.types.MeshObject(blender_obj)
+    obj.set_cp("category_id", 0)
+    obj.replace_materials(material)
+    return obj
+
+
+def make_wall_materials(spec: CageSceneSpec, repo_root: Path) -> dict[str, bproc.types.Material]:
+    """One material per `[[walls]]` entry, keyed by the quad material name."""
+    materials: dict[str, bproc.types.Material] = {}
+    for i, wall in enumerate(spec.walls):
+        if wall.albedo:
+            materials[f"wall{i}"] = make_mat_material(
+                f"wall{i}", repo_root / wall.albedo, wall.roughness, wall.specular, wall.albedo_gain
+            )
+        else:
+            materials[f"wall{i}"] = make_flat_material(f"wall{i}", wall.color, wall.roughness)
+    return materials
 
 
 def load_cc_material(cc_textures_dir: Path | None, name: str) -> bproc.types.Material | None:
@@ -301,6 +335,12 @@ def build_cage(
     for box in panels(spec):
         objects[box.name] = add_box(box, panel_material)
     objects["venue_floor"] = add_box(venue_floor(spec), floor_material)
+    for i, (block, box) in enumerate(zip(spec.blocks, block_boxes(spec))):
+        material = make_flat_material(f"block{i}", block.color, block.roughness)
+        objects[box.name] = add_box(box, material)
+    wall_materials = make_wall_materials(spec, repo_root)
+    for quad in wall_quads(spec):
+        objects[quad.name] = add_quad(quad, wall_materials[quad.material])
     hb = house_bot_box(spec)
     if hb is not None:
         model = add_house_bot_model(spec, repo_root, house_bot_category_id)
@@ -308,6 +348,19 @@ def build_cage(
             model if model is not None else add_box(hb, box_material, house_bot_category_id)
         )
 
+    if spec.backdrop.enabled:
+        _add_backdrop(spec, backdrop_material, objects)
+
+    logger.info("cage built: %d objects", len(objects))
+    return objects
+
+
+def _add_backdrop(
+    spec: CageSceneSpec,
+    backdrop_material: bproc.types.Material,
+    objects: dict[str, bproc.types.MeshObject],
+) -> None:
+    """The open cylinder around the venue and the emissive strip along it."""
     backdrop = bproc.object.create_primitive("CYLINDER", vertices=64)
     backdrop.set_name("backdrop")
     backdrop.set_location([0.0, 0.0, spec.backdrop.height / 2 - spec.venue.floor_drop])
@@ -344,9 +397,6 @@ def build_cage(
             math.degrees(angle),
         )
         objects[strip.name] = add_box(strip, strip_material)
-
-    logger.info("cage built: %d objects", len(objects))
-    return objects
 
 
 def _find_texture(texture_dir: Path, suffix: str) -> Path | None:
@@ -565,10 +615,42 @@ def add_lights(
 
 
 def set_world(
-    spec: CageSceneSpec, color_gain: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    spec: CageSceneSpec,
+    color_gain: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    repo_root: Path = REPO_ROOT,
 ) -> None:
-    color = [float(c) * g for c, g in zip(spec.world.background_color, color_gain)]
-    bproc.renderer.set_world_background(color, spec.world.ambient_strength)
+    """Flat background colour, or the spec's panorama when `world.hdri` names one.
+
+    Both go through the one Background node: `set_world_background` unlinks any texture
+    feeding it, so switching from a panorama venue back to a flat one needs nothing extra.
+    """
+    if not spec.world.hdri:
+        color = [float(c) * g for c, g in zip(spec.world.background_color, color_gain)]
+        bproc.renderer.set_world_background(color, spec.world.ambient_strength)
+        return
+    path = repo_root / spec.world.hdri
+    if not path.exists():
+        raise FileNotFoundError(f"world.hdri {path} is missing")
+    # The loader adds a texture, mapping and coordinate node on every call, and a scene mix
+    # activates this venue once per scene: drop the previous call's nodes first.
+    tree = bpy.context.scene.world.node_tree
+    for node in list(tree.nodes):
+        if node.type not in ("BACKGROUND", "OUTPUT_WORLD"):
+            tree.nodes.remove(node)
+    bproc.world.set_world_background_hdr_img(
+        str(path),
+        strength=float(spec.world.ambient_strength),
+        rotation_euler=[0.0, 0.0, math.radians(spec.world.hdri_rotation_deg)],
+    )
+    # Colour gain between the panorama and the Background node, so auto exposure can tint it
+    # the way it tints a flat background.
+    background = tree.nodes["Background"]
+    source = background.inputs["Color"].links[0].from_socket
+    tint = tree.nodes.new("ShaderNodeVectorMath")
+    tint.operation = "MULTIPLY"
+    tint.inputs[1].default_value = [float(g) for g in color_gain]
+    tree.links.new(source, tint.inputs[0])
+    tree.links.new(tint.outputs["Vector"], background.inputs["Color"])
 
 
 def set_led_emission(spec: CageSceneSpec, exposure_gain: float) -> None:

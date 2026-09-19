@@ -27,6 +27,7 @@ from typing import Any
 
 import blenderproc as bproc
 import bpy
+import mathutils
 import numpy as np
 
 from auto_battlebot.perception.camera_calibration import load_camera_calibration
@@ -49,6 +50,7 @@ from synthgen.constants import (
     SEG_FLOOR_CLASS_ID,
     SEG_OBJECT_CLASS_ID,
 )
+from synthgen.house_bot_pose import HouseBotPose, footprint_radius, sample_house_bot_pose
 from synthgen.lens import LensView, build_lens_view
 from synthgen.logsetup import get_logger
 from synthgen.render_settings import set_denoiser
@@ -213,6 +215,18 @@ class CageStage:
         self.house_bot = house_bot
         self._generic_state = generic_state
         self._tube_strengths = [_tube_strength(tube) for tube in tubes]
+        self._footprint: tuple[float, float] | None = None
+        # The house bot's fill light and where it stands relative to the bot, kept so a
+        # randomized house bot can take its light with it.
+        self._fill = next(
+            (obj for obj in collection.objects if obj.name.startswith("house_bot_fill")), None
+        )
+        self._fill_offset = np.zeros(3)
+        if self._fill is not None:
+            hb = spec.house_bot_box
+            self._fill_offset = np.array(self._fill.location) - np.array(
+                [hb.position[0], hb.position[1], 0.12]
+            )
         # This cage's own lights, not every cage's: a run with more than one cage would
         # otherwise have each stage switch all of them on.
         self._lights = [
@@ -272,6 +286,66 @@ class CageStage:
         for obj, _ in self._lights:
             obj.data.energy = 0.0
         restore_render_state(self._generic_state)
+
+    def place_house_bot(self, robot_positions: Sequence[Sequence[float]]) -> HouseBotPose | None:
+        """Move the house bot to a fresh pose clear of the robots, if this cage randomizes it.
+
+        Only x, y and the heading change: the model was stood up and grounded at build time,
+        and a turn about z keeps it grounded. The keypoints ride along, since the annotation
+        reads them through the parent's live world matrix. The camera-side fill light moves
+        with it, keeping its offset, and is re-aimed.
+        """
+        if self.house_bot is None or not self._cfg.randomize_house_bot:
+            return None
+        spec = self._spec.house_bot_box
+        parent = self.house_bot.parent
+        pose = sample_house_bot_pose(
+            self._spec.mat.size / 2,
+            footprint_radius(self._footprint_xy()),
+            robot_positions,
+            self._cfg.house_bot_robot_radius_m,
+            self._cfg.house_bot_clearance_m,
+            random.Random(random.random()),
+        )
+        roll = math.radians(spec.roll_deg)
+        parent.rotation_euler = mathutils.Euler((roll, 0.0, math.radians(pose.yaw_deg)), "XYZ")
+        bpy.context.view_layer.update()
+        centre = self._footprint_centre()
+        parent.location.x += pose.x_m - centre[0]
+        parent.location.y += pose.y_m - centre[1]
+        bpy.context.view_layer.update()
+        if self._fill is not None:
+            target = np.array([pose.x_m, pose.y_m, 0.12])
+            source = target + self._fill_offset
+            self._fill.location = mathutils.Vector(source.tolist())
+            rotation = bproc.camera.rotation_from_forward_vec(target - source)
+            self._fill.rotation_euler = mathutils.Matrix(rotation.tolist()).to_euler()
+        return pose
+
+    def _house_bot_meshes(self) -> list[bpy.types.Object]:
+        assert self.house_bot is not None
+        return [c for c in self.house_bot.parent.children_recursive if c.type == "MESH"]
+
+    def _footprint_corners(self) -> np.ndarray:
+        return np.array(
+            [
+                (mesh.matrix_world @ mathutils.Vector(corner)).to_tuple()
+                for mesh in self._house_bot_meshes()
+                for corner in mesh.bound_box
+            ]
+        )
+
+    def _footprint_centre(self) -> np.ndarray:
+        corners = self._footprint_corners()
+        return np.asarray((corners.max(axis=0)[:2] + corners.min(axis=0)[:2]) / 2)
+
+    def _footprint_xy(self) -> tuple[float, float]:
+        """The placed model's footprint extent, measured once at its build heading."""
+        if self._footprint is None:
+            corners = self._footprint_corners()
+            extent = corners.max(axis=0) - corners.min(axis=0)
+            self._footprint = (float(extent[0]), float(extent[1]))
+        return self._footprint
 
     def jitter_lights(self) -> None:
         """Re-roll the LED tube strengths so the set is not one lighting state."""

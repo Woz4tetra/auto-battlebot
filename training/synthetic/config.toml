@@ -38,6 +38,13 @@ render_samples = 64
 tube_jitter = 0.25
 # Metres of mat kept clear of its edge when placing robots.
 mat_margin_m = 0.20
+# The house bot drives around during a fight, so every scene draws it a new position anywhere
+# on the mat and a new heading, clear of the robots (synthgen/house_bot_pose.py). Before
+# 2026-09-19 it stood at the spec's fitted corner pose, (0.92, 1.02) facing the camera, in
+# every frame.
+randomize_house_bot = true
+# Gap between its footprint circle and each robot's, whose radius is taken as 0.20 m.
+house_bot_clearance_m = 0.05
 
 # Where a camera can be clamped on the cage, and where it then looks. Read off 12 poses flown
 # by hand in pose_camera_server.py on 2026-09-12 through the e-CAM25 lens. Eight of them sit
@@ -148,6 +155,42 @@ aim = "centre"
 tilt_offset_deg = [-18.0, -8.0]
 yaw_deg = [-9.0, 9.0]
 roll_deg = [-3.0, 3.0]
+
+# The meatball basement drive-test box: a 1.52 m plywood floor in 2x4 rails, in a corner of
+# stone walls, fitted from our own ZED on 2026-09-19 (playground/basement_scene/README.md).
+# Off in the default mix so existing runs keep their ratios; config_cage_meatball.toml pins a
+# run to it with only_cage.
+[[cages]]
+name = "meatball_basement"
+enabled = false
+probability = 0.0
+spec = "cage/meatball_basement.toml"
+# The same lens as the other two venues, so the three stand in for one camera. The scene was
+# fitted through the ZED (config/cameras/zed2i_720p.toml), which is the lens to swap in for a
+# ZED-matched set.
+camera_calibration = "../../config/cameras/ecam25_h01r1_estimated.toml"
+view = "pinhole"
+rectify_alpha = 1.0
+render_samples = 64
+tube_jitter = 0.25
+# 0.15 leaves a 1.22 m square of the 1.52 m floor to place robots on.
+mat_margin_m = 0.15
+
+# Brackets the stand the ZED stood on in the fitted frame: 0.56 m outside the near rail,
+# 0.56 m above the plywood, 64 degrees off straight down, square to the box, 3.6 degrees
+# steeper than a straight aim at the floor centre. Only the two open sides: the far and right
+# rails have stone 2.5 and 7 cm behind them, so a mount there would sit inside the wall.
+[cages.mount]
+walls = ["near", "left"]
+along_m = [-0.40, 0.40]
+height_m = [0.40, 0.95]
+# Outside the rail, metres; the fitted stand is at -0.56. The wall plane here is the rail's
+# outer face, 0.80 m from the floor centre.
+inset_m = [-0.80, -0.30]
+aim = "centre"
+tilt_offset_deg = [-10.0, 2.0]
+yaw_deg = [-12.0, 12.0]
+roll_deg = [-4.0, 4.0]
 
 [output]
 image_dir = "../data/synthetic/images"

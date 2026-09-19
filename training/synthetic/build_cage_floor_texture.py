@@ -30,6 +30,7 @@ import cv2
 import numpy as np
 
 from auto_battlebot.perception.cage_calibration import load_cage_calibration
+from auto_battlebot.perception.texture_fill import mirror_fill
 
 DEFAULT_OUT = Path(__file__).resolve().parents[1] / "data/environments/nhrl_3lb_cage/mat_albedo"
 
@@ -144,8 +145,8 @@ def warp_targets(
     return per_event, half_xy, cage_name
 
 
-def combine_clips(clips: list[WarpedClip]) -> tuple[np.ndarray, float]:
-    """Median the clips of one event into an albedo; returns it and the mat fraction seen."""
+def combine_clips(clips: list[WarpedClip]) -> tuple[np.ndarray, np.ndarray]:
+    """Median the clips of one event into an albedo; returns it and the mask no clip saw."""
     stack = []
     for clip in clips:
         valid = clip.mask > 127
@@ -167,7 +168,7 @@ def combine_clips(clips: list[WarpedClip]) -> tuple[np.ndarray, float]:
     )
     median[unseen] = 128.0
     albedo = np.clip(median * (target_mean / 128.0), 0, 255).astype(np.uint8)
-    return albedo, 1.0 - float(unseen.mean())
+    return albedo, unseen
 
 
 def inpaint_hfield_box(
@@ -199,6 +200,12 @@ def parse_args() -> argparse.Namespace:
         nargs=4,
         metavar=("X", "Y", "W", "H"),
         help="hfield metres to inpaint",
+    )
+    parser.add_argument(
+        "--fill",
+        choices=("mean", "mirror"),
+        default="mean",
+        help="what goes where no clip saw the mat: the mean colour, or the seen texture mirrored",
     )
     parser.add_argument(
         "--name", default=None, help="texture name prefix; default cage<n> from meta"
@@ -233,7 +240,10 @@ def main() -> None:
         )
 
     for event, clips in per_event.items():
-        albedo, seen_fraction = combine_clips(clips)
+        albedo, unseen = combine_clips(clips)
+        seen_fraction = 1.0 - float(unseen.mean())
+        if args.fill == "mirror":
+            albedo = mirror_fill(albedo, unseen)
         if args.flatten_sigma > 0:
             albedo = flatten_shading(albedo, args.flatten_sigma)
         if args.inpaint_box is not None:
@@ -252,6 +262,7 @@ def main() -> None:
                     "half_extent_m": list(half_xy),
                     "frame": "hfield: pixel x along +x, pixel y along +y, origin at (-half, -half)",
                     "flatten_sigma_px": args.flatten_sigma,
+                    "fill": args.fill,
                     "seen_fraction": seen_fraction,
                     "width": int(albedo.shape[1]),
                     "height": int(albedo.shape[0]),

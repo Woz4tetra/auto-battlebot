@@ -293,6 +293,13 @@ reports the realized split per arena. See
 `docs/experiments/perception_performance/cage_scene_render_match_2026-09-11.md` and
 `massd_arena_scene_2026-09-11.md` for how each was fitted to footage, and `training/data/environments/nhrl_3lb_cage/` for its assets.
 
+A third entry, `meatball_basement`, is the drive-test box in the basement: an open plywood box
+in a corner of stone walls, fitted from our own ZED (`playground/basement_scene/README.md`). It
+is off in the default mix; `config_cage_meatball.toml` renders a run entirely in it. Its spec
+uses the three scene features the basement added: `[[walls]]` (photo-textured vertical
+planes), `[[blocks]]` (plain boxes such as legs) and `world.hdri` (an equirectangular panorama
+as the world, in place of the flat background and backdrop cylinder).
+
 Every dropped frame is logged with a machine-readable reason
 (`DROPPED KP_PROMINENT_ROBOT_UNLABELED — robot 2 ...`), and the run ends with a
 summary of images written vs requested plus drop counts by reason. If a run

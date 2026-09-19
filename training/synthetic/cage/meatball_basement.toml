@@ -1,0 +1,153 @@
+# The meatball basement drive-test box, seen from our own ZED on a stand beside it. Metres,
+# W frame: plywood floor centre at the origin, z up, +y away from the camera, the stone-wall
+# corner at +x +y. How each number was measured is in playground/basement_scene/README.md.
+#
+# Measured from ZED depth of 2026-04-19T17-01-18 frame 4560: the 1.52 m plywood floor (a 5 ft
+# square), the 2x4 rails and their height, the two stone walls and the concrete floor below.
+# The lights and the albedo gains started as guesses and are for the grade sweeps to move.
+
+[mat]
+size = 1.524
+# The rail's outer face runs from 0.088 m down to -0.035 m in the depth, not to the 3/4 in
+# plywood's underside: the floor sits on a frame. The mat slab stands in for that frame, and
+# `frame_rails` hangs the rails down to its underside.
+thickness = 0.035
+# Built by training/synthetic/build_cage_floor_texture.py --fill mirror from the robot-patched
+# plate of 2026-04-19T17-01-18 frame 4560: 91.5% observed, the strip behind the near rail
+# mirrored in.
+albedo = "training/data/environments/meatball_basement/mat_albedo/meatball_basement_albedo.png"
+# Photo of the lit plywood, so brighter than its reflectance. 0.9 is from the 2026-09-19 light
+# sweep (runs/basement_scene/sweep_light*.json), jointly with the wall gains, ambient and tube
+# height below: full-frame L1 26.4 against 30.3 at MassD's 0.50, floor L1 4.1, SSIM 0.973.
+albedo_gain = 0.9
+roughness = 0.8
+specular = 0.2
+
+[cage]
+# 5 ft floor plus a 1.5 in rail each side. No walls: the box is open above the rails.
+interior = 1.6002
+wall_height = 0.0875
+post_size = 0.02
+corner_posts = false
+side_posts = []
+
+# Pine 2x4s on edge, 0.0875 m above the plywood (the depth's rail-top band, 3.5 in less the
+# few millimetres the floor sits proud). Screwed from outside, so no bolt heads show.
+[frame]
+height_above_mat = 0.0875
+bolt_pitch = 0.0
+cc_texture = "Wood027"
+# Painted over the set's colour map (Wood027 untinted is a dark stain): the grain comes from
+# its normal map, the colour from here.
+color = [0.93, 0.87, 0.74]
+roughness = 0.75
+
+[panel]
+walls = []
+
+# The box stands on a stand over bare concrete 0.78 m below the plywood. The space under it
+# is open, so no riser.
+[venue]
+floor_drop = 0.78
+floor_extent = 8.0
+floor_cc_texture = "Concrete035"
+floor_color = [0.45, 0.43, 0.40]
+floor_roughness = 0.85
+riser = false
+
+# The two stone walls of the corner, from ZED depth: the far wall 2.5 cm behind the far rail,
+# the right one 7 cm off the right rail, both square to the box within 1 degree. Textures by
+# playground/basement_scene/build_wall_textures.py. Everything else around the box is the
+# panorama.
+[[walls]]
+name = "far"
+start = [0.871, 0.825]
+end = [-1.729, 0.825]
+z_bottom = -0.78
+z_top = 1.35
+albedo = "training/data/environments/meatball_basement/walls/meatball_basement_far_wall_albedo.png"
+albedo_gain = 0.9
+roughness = 0.9
+
+[[walls]]
+name = "right"
+start = [0.871, -1.775]
+end = [0.871, 0.825]
+z_bottom = -0.78
+z_top = 1.35
+albedo = "training/data/environments/meatball_basement/walls/meatball_basement_right_wall_albedo.png"
+albedo_gain = 0.9
+roughness = 0.9
+
+# Four 2x4 legs from the concrete to the box's underside, 0.1 m in from each corner. A stand-in:
+# the target shows the box's own support only as dark shapes behind a bucket and a bag, so the
+# legs are there to stop the box floating, not measured.
+[[blocks]]
+name = "leg"
+center = [-0.66, -0.66, -0.4075]
+size = [0.089, 0.038, 0.745]
+color = [0.80, 0.72, 0.56]
+
+[[blocks]]
+name = "leg"
+center = [0.66, -0.66, -0.4075]
+size = [0.089, 0.038, 0.745]
+color = [0.80, 0.72, 0.56]
+
+[[blocks]]
+name = "leg"
+center = [-0.66, 0.66, -0.4075]
+size = [0.089, 0.038, 0.745]
+color = [0.80, 0.72, 0.56]
+
+[[blocks]]
+name = "leg"
+center = [0.66, 0.66, -0.4075]
+size = [0.089, 0.038, 0.745]
+color = [0.80, 0.72, 0.56]
+
+[house_bot_box]
+enabled = false
+
+# The rest of the basement: a RICOH THETA V panorama shot from inside it on 2024-09-01
+# (simulation/assets/panoramas/drive_test_box_1.JPG), before the box went into the corner.
+# An 8-bit JPEG, so the tubes in it clip: it is backdrop and fill, and the key light is the
+# tubes below. Turned so the shelving and boiler side of it lands left of the box, where the
+# real frame shows the hoist and shelves; its sink and stone wall end up behind the camera.
+[world]
+hdri = "simulation/assets/panoramas/drive_test_box_1.JPG"
+hdri_rotation_deg = 105.0
+# 0.4 from the sweep: at 0.6 the stone reads 13 L brighter than the target, at 0.3 the floor
+# loses its fill.
+ambient_strength = 0.4
+
+# Fluorescent ceiling fixtures between the joists. 1.6 m above the plywood (2.4 m above the
+# concrete) from the sweep: 1.3 m left a hot spot on the floor the target does not have, and
+# 1.9 m fits the floor slightly better but is above this basement's ceiling.
+[lights.grid]
+enabled = true
+rows = 1
+cols = 2
+spacing_x = 1.2
+spacing_y = 1.0
+height = 1.6
+length = 1.2
+radius = 0.03
+color = [1.0, 0.98, 0.94]
+strength = 60.0
+axis = "y"
+
+[backdrop]
+enabled = false
+
+# Solved by render_cage_view.py --auto-exposure against the target (floor-region means).
+# This is the whole exposure, not a base.
+[exposure]
+gain = 1.239
+color_gain = [0.9764, 1.0000, 1.0513]
+
+[render]
+samples = 256
+denoiser = "OPTIX"
+transmission_bounces = 4
+glossy_bounces = 4

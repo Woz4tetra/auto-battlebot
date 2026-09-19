@@ -93,8 +93,19 @@ class TestRealConfig:
         assert cfg.randomization.air_probability == pytest.approx(0.3)
         assert cfg.randomization.motion_blur_strength_range == (5, 15)
 
-        assert [cage.name for cage in cfg.cages] == ["nhrl_cage", "massd_arena"]
-        nhrl, massd = cfg.cages
+        assert [cage.name for cage in cfg.cages] == [
+            "nhrl_cage",
+            "massd_arena",
+            "meatball_basement",
+        ]
+        nhrl, massd, basement = cfg.cages
+        # The NHRL house bot moves every scene; the other venues have none to move.
+        assert nhrl.randomize_house_bot is True
+        assert massd.randomize_house_bot is False
+        # The basement is off in the default mix; config_cage_meatball.toml pins a run to it.
+        assert basement.enabled is False
+        # Its stone walls stand behind the far and right rails, so only two sides take mounts.
+        assert basement.mount.walls == ("near", "left")
         assert nhrl.enabled is True
         assert nhrl.probability == pytest.approx(0.5)
         # 64 with the spec's OptiX denoiser matched 128 with the compositor denoiser on

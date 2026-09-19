@@ -9,7 +9,9 @@ from synthgen.cage_spec import (
     CageSceneSpec,
     MatSpec,
     PitSpec,
+    WallSpec,
     all_tubes,
+    block_boxes,
     bolt_positions,
     frame_rails,
     house_bot_box,
@@ -22,10 +24,12 @@ from synthgen.cage_spec import (
     spec_to_dict,
     stage_riser_boxes,
     subtract_rects,
+    wall_quads,
 )
 
 SPEC = Path(__file__).resolve().parents[1] / "cage" / "cage2_overhead_high.toml"
 MASSD_SPEC = Path(__file__).resolve().parents[1] / "cage" / "massd_resurgence6.toml"
+BASEMENT_SPEC = Path(__file__).resolve().parents[1] / "cage" / "meatball_basement.toml"
 
 
 def test_spec_loads_and_overrides_apply() -> None:
@@ -196,3 +200,37 @@ def test_one_way_glass_covers_the_broadcast_camera_and_the_picked_mounts() -> No
     # The mount distances picked off the sweep are all outside the near wall.
     for distance in (1.49, 1.71, 1.93):
         assert panels_outside_camera(spec, (0.0, -distance)) == ("near",)
+
+
+def test_basement_box_is_an_open_frame_on_legs_in_a_walled_corner() -> None:
+    spec = load_cage_spec(BASEMENT_SPEC)
+    # No corner posts, no glass, no riser: an open box standing on its own legs.
+    assert posts(spec) == [] and panels(spec) == [] and stage_riser_boxes(spec) == []
+    assert bolt_positions(spec) == []
+    rails = {box.name: box for box in frame_rails(spec)}
+    far = rails["rail_far"]
+    rail_back = far.center[1] + far.size[1] / 2
+    # Both stone walls stand behind the rails, never through them.
+    quads = {quad.name: quad for quad in wall_quads(spec)}
+    assert quads["wall_far"].corners[0][1] > rail_back
+    assert quads["wall_right"].corners[0][0] > rail_back
+    # The legs reach from the venue floor to the mat's underside.
+    for leg in block_boxes(spec):
+        assert leg.center[2] - leg.size[2] / 2 == pytest.approx(-spec.venue.floor_drop)
+        assert leg.center[2] + leg.size[2] / 2 == pytest.approx(-spec.mat.thickness)
+
+
+def test_wall_quad_uvs_run_from_start_to_end_and_bottom_to_top() -> None:
+    spec = CageSceneSpec(
+        walls=(WallSpec(start=(1.0, 2.0), end=(-1.0, 2.0), z_bottom=-0.5, z_top=1.5),)
+    )
+    (quad,) = wall_quads(spec)
+    assert quad.corners[0] == (1.0, 2.0, -0.5) and quad.uvs[0] == (0.0, 0.0)
+    assert quad.corners[2] == (-1.0, 2.0, 1.5) and quad.uvs[2] == (1.0, 1.0)
+
+
+def test_degenerate_walls_are_rejected() -> None:
+    with pytest.raises(ValueError):
+        wall_quads(CageSceneSpec(walls=(WallSpec(start=(0.0, 0.0), end=(0.0, 0.0)),)))
+    with pytest.raises(ValueError):
+        wall_quads(CageSceneSpec(walls=(WallSpec(z_bottom=1.0, z_top=0.5),)))

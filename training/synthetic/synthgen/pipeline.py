@@ -707,6 +707,10 @@ def render_scene(
     scene_robots = select_and_show_robots(assets.robots, cfg.scene.max_robots_per_scene)
     robot_positions = pose_scene_robots(scene_robots, cfg.randomization, arena_radius)
     bpy.context.view_layer.update()
+    if cage is not None:
+        house_bot_pose = cage.place_house_bot(robot_positions)
+        if house_bot_pose is not None:
+            logger.debug("%s: house bot at %s", fmt_ctx(scene_idx), house_bot_pose)
 
     if pool_mgr.refresh_due():
         _refresh_pool(pool_mgr, scheme, layout)

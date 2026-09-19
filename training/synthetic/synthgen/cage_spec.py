@@ -56,6 +56,9 @@ class CageSpec:
     # Extra vertical posts along each side, as fractions of the side length from its centre
     # (0.0 is a mid-side post). Corner posts are always present.
     side_posts: tuple[float, ...] = ()
+    # The four corner posts. Off for an open box with no walls, where nothing stands at the
+    # corners above the rail.
+    corner_posts: bool = True
 
 
 @dataclass(frozen=True)
@@ -107,12 +110,59 @@ class PitSpec:
 
 
 @dataclass(frozen=True)
+class WallSpec:
+    """A photo-textured vertical wall of the venue, standing on the venue floor.
+
+    Runs from `start` to `end` in W at every height from `z_bottom` to `z_top`. The albedo
+    image is laid out the way `wall_quads` maps it: image columns from `start` to `end`,
+    image rows from `z_top` down to `z_bottom`. Built for the basement, whose stone walls
+    stand a few centimetres behind the box, too close for a panorama at infinity to stand in.
+    """
+
+    name: str = "wall"
+    start: tuple[float, float] = (0.0, 0.0)
+    end: tuple[float, float] = (1.0, 0.0)
+    z_bottom: float = -0.45
+    z_top: float = 2.0
+    albedo: str = ""
+    albedo_gain: float = 1.0
+    # Used when `albedo` is empty.
+    color: Vec3 = (0.5, 0.5, 0.5)
+    roughness: float = 0.9
+    specular: float = 0.2
+
+
+@dataclass(frozen=True)
+class BlockSpec:
+    """A plain flat-coloured box in the venue: a table leg, a stand, a crate. Background."""
+
+    name: str = "block"
+    center: Vec3 = (0.0, 0.0, 0.0)
+    size: Vec3 = (0.1, 0.1, 0.1)
+    color: Vec3 = (0.5, 0.5, 0.5)
+    roughness: float = 0.8
+
+
+@dataclass(frozen=True)
+class Quad:
+    """Four corners in W, counter-clockwise from the bottom of `start`, with their UVs."""
+
+    name: str
+    corners: tuple[Vec3, Vec3, Vec3, Vec3]
+    uvs: tuple[tuple[float, float], ...]
+    material: str
+
+
+@dataclass(frozen=True)
 class VenueSpec:
     floor_drop: float = 0.45
     floor_extent: float = 12.0
     floor_cc_texture: str = "Concrete035"
     floor_color: Vec3 = (0.25, 0.24, 0.26)
     floor_roughness: float = 0.8
+    # The solid block from the mat down to the venue floor. Off for a box standing on
+    # sawhorses, where the space under it is open.
+    riser: bool = True
 
 
 @dataclass(frozen=True)
@@ -144,6 +194,10 @@ class HouseBotBoxSpec:
 class WorldSpec:
     background_color: Vec3 = (0.01, 0.008, 0.015)
     ambient_strength: float = 1.0
+    # Repo-relative equirectangular panorama. When set it replaces `background_color` as the
+    # world, at `ambient_strength`, turned `hdri_rotation_deg` about z.
+    hdri: str = ""
+    hdri_rotation_deg: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -188,6 +242,8 @@ class WashLight:
 
 @dataclass(frozen=True)
 class BackdropSpec:
+    # The cylinder and its light strip. Off when the world panorama is the backdrop.
+    enabled: bool = True
     radius: float = 6.0
     height: float = 4.0
     color: Vec3 = (0.03, 0.02, 0.04)
@@ -226,6 +282,8 @@ class CageSceneSpec:
     panel: PanelSpec = field(default_factory=PanelSpec)
     venue: VenueSpec = field(default_factory=VenueSpec)
     pits: tuple[PitSpec, ...] = ()
+    walls: tuple[WallSpec, ...] = ()
+    blocks: tuple[BlockSpec, ...] = ()
     house_bot_box: HouseBotBoxSpec = field(default_factory=HouseBotBoxSpec)
     world: WorldSpec = field(default_factory=WorldSpec)
     lights: LightsSpec = field(default_factory=LightsSpec)
@@ -498,12 +556,14 @@ def posts(spec: CageSceneSpec) -> list[Box]:
     half = c.interior / 2 + c.post_size / 2
     z = c.wall_height / 2 - spec.mat.thickness
     size = (c.post_size, c.post_size, c.wall_height)
-    out = [
-        Box("post_corner_0", (-half, -half, z), size, "frame"),
-        Box("post_corner_1", (half, -half, z), size, "frame"),
-        Box("post_corner_2", (half, half, z), size, "frame"),
-        Box("post_corner_3", (-half, half, z), size, "frame"),
-    ]
+    out = []
+    if c.corner_posts:
+        out = [
+            Box("post_corner_0", (-half, -half, z), size, "frame"),
+            Box("post_corner_1", (half, -half, z), size, "frame"),
+            Box("post_corner_2", (half, half, z), size, "frame"),
+            Box("post_corner_3", (-half, half, z), size, "frame"),
+        ]
     for i, fraction in enumerate(c.side_posts):
         along = fraction * c.interior
         out += [
@@ -576,6 +636,8 @@ def venue_floor(spec: CageSceneSpec) -> Box:
 
 def stage_riser_boxes(spec: CageSceneSpec) -> list[Box]:
     """The riser, cut around the pits so a hole in the mat is not filled in from below."""
+    if not spec.venue.riser:
+        return []
     height = spec.venue.floor_drop - spec.mat.thickness
     outer = spec.cage.interior + 2 * spec.panel.thickness + 2 * spec.cage.post_size
     half = outer / 2
@@ -591,6 +653,39 @@ def stage_riser_boxes(spec: CageSceneSpec) -> list[Box]:
     return [
         _slab(f"riser_{i}", rect, -spec.mat.thickness, height, "frame")
         for i, rect in enumerate(rects)
+    ]
+
+
+def wall_quads(spec: CageSceneSpec) -> list[Quad]:
+    """One textured quad per `[[walls]]` entry; material name `wall<i>`."""
+    quads = []
+    for i, wall in enumerate(spec.walls):
+        (x0, y0), (x1, y1) = wall.start, wall.end
+        if abs(x1 - x0) < 1e-9 and abs(y1 - y0) < 1e-9:
+            raise ValueError(f"walls[{i}] {wall.name}: start and end are the same point")
+        if wall.z_top <= wall.z_bottom:
+            raise ValueError(f"walls[{i}] {wall.name}: z_top must be above z_bottom")
+        quads.append(
+            Quad(
+                f"wall_{wall.name}",
+                (
+                    (x0, y0, wall.z_bottom),
+                    (x1, y1, wall.z_bottom),
+                    (x1, y1, wall.z_top),
+                    (x0, y0, wall.z_top),
+                ),
+                ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)),
+                f"wall{i}",
+            )
+        )
+    return quads
+
+
+def block_boxes(spec: CageSceneSpec) -> list[Box]:
+    """One box per `[[blocks]]` entry; material name `block<i>`."""
+    return [
+        Box(f"block_{block.name}_{i}", block.center, block.size, f"block{i}")
+        for i, block in enumerate(spec.blocks)
     ]
 
 

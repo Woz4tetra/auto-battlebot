@@ -234,6 +234,13 @@ class CageConfig:
     view: str = "pinhole"
     # getOptimalNewCameraMatrix alpha behind the rectified matrix; 1.0 keeps every sensor pixel.
     rectify_alpha: float = 1.0
+    # Draw a new house bot position and heading every scene (synthgen.house_bot_pose). False
+    # leaves it where the spec's [house_bot_box] put it. No effect on a cage without one.
+    randomize_house_bot: bool = False
+    # Gap kept between the house bot's footprint circle and each robot's, metres.
+    house_bot_clearance_m: float = 0.05
+    # Footprint radius assumed for a robot when keeping the house bot clear of it, metres.
+    house_bot_robot_radius_m: float = 0.20
 
     @property
     def active(self) -> bool:
@@ -731,6 +738,15 @@ def _parse_cage(section: dict[str, Any]) -> CageConfig:
         mount=_parse_mount(section.get("mount", {}), context),
         view=view,
         rectify_alpha=rectify_alpha,
+        randomize_house_bot=bool(section.get("randomize_house_bot", defaults.randomize_house_bot)),
+        house_bot_clearance_m=_as_float(
+            section.get("house_bot_clearance_m", defaults.house_bot_clearance_m),
+            f"{context}.house_bot_clearance_m",
+        ),
+        house_bot_robot_radius_m=_as_float(
+            section.get("house_bot_robot_radius_m", defaults.house_bot_robot_radius_m),
+            f"{context}.house_bot_robot_radius_m",
+        ),
     )
 
 
