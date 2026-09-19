@@ -7,6 +7,9 @@ not reach, and gets its own plan once this one has a measured YOLO rate to desig
 
 Nothing here has run. The numbers quoted are from earlier reports, cited inline.
 
+Updated 2026-09-19: the `meatball_basement` scene is built, so the dataset gains a 10,000-frame
+basement render (step 1a) and the arms gain a control for it.
+
 ## What changed since the last recommendation
 
 Three decisions, all made 2026-09-19:
@@ -109,17 +112,71 @@ crop around each track (step 5f), and step 0's table is what chooses between the
 The solo benchmark is the honest number here in a way it was not for the two-model rig, because the
 1.5x in-batch factor came from two engines sharing the GPU and this plan has one.
 
-## Step 1: dataset
+## Step 1a: render 10,000 basement frames
 
-Full `d40000` composition plus the cage-high frames:
+The `meatball_basement` scene landed on 2026-09-19 (`playground/basement_scene/README.md`): the
+1.52 m plywood drive-test box in its corner of stone walls, fitted from one frame of our own ZED on
+a stand, with the floor grading at 0.973 SSIM against the target. `config_cage_meatball.toml` pins
+a render to it. It is the third domain venue, and it is a different kind of venue from the other
+two for three reasons:
+
+- **It is the scene the real training frames came from.** `pose_model_size_corpus_2026-09-07.md`
+  describes the corpus's real frames as `mrs_buff_mk3` sessions in a plywood test box. Until now
+  the render and the real frames shared no scene, so nothing tied a rendered Mrs Buff to a
+  photographed one against the same floor. This render does.
+- **The mount bracket is low and close.** 0.40 to 0.95 m above the floor and 0.30 to 0.80 m outside
+  the rail, against cage mounts for the other two. That is nearer the 1.2 m ZED One S mount than
+  either a robot-height view or an overhead broadcast camera.
+- **It has no house bot** (`[house_bot_box] enabled = false`), so it adds nothing to the class the
+  domain arms are weakest on.
+
+Render it the way the two 20,000-frame venues were rendered, a third per view, so the basement
+frames differ from the rest of the domain pool by venue and not by lens:
+
+```bash
+venv/bin/python training/gpu_queue.py status   # the GPUs were held by a vLLM job on 2026-09-19
+venv/bin/python training/gpu_queue.py submit --name render_cage_basement_10k --by <agent> -d 0 1 2 -- \
+  venv/bin/python training/synthetic/render_shards.py config_cage_meatball.toml \
+    --out ../data/synth_cage_basement_<date> --total 10000 --gpus 0 1 2 \
+    --views distorted pinhole rectified --seed-base 400
+```
+
+`--seed-base 400` keeps its seeds clear of NHRL's (0) and MassD's (200), and the view order puts
+the run that lands one frame short on a third view. The earlier renders ran 8.9 to 9.3 s per
+warped frame per GPU and took 11.3 h and 13.0 h for 20,000 frames, so budget about 6 h of queue.
+Nothing under `training/synthetic` changes while it runs, since the container mounts the repo
+live.
+
+Before the full job, a 200-frame smoke render through the same command with `--total 200`, read by
+eye and by the gate report. This scene has features no other venue exercises (`[[walls]]`,
+`[[blocks]]`, a panorama world), and the NHRL render's floating-robot bug was only caught by
+looking at frames:
+
+```bash
+venv/bin/python training/synthetic/domain_render_report.py training/data/synth_cage_basement_<date>
+```
+
+Same gates as the first two renders: zero integrity errors, the clean share and hidden-keypoint
+share inside the bands those renders passed at (59.1 to 62.6 percent clean, 2.4 to 2.9 percent
+hidden), and robot box sizes reported beside the other venues'. The box is 1.52 m against 2.35 m
+cage floors and the camera is closer, so expect larger robots than the 34 to 70 px the cage render
+gave. Write the measured range into this plan, because it decides whether these frames help the
+small-robot case or only the near one.
+
+Move the finished dataset to `/media/storage` if `/` is tight; it had 261 GB free on 2026-09-19.
+
+## Step 1b: dataset
+
+Full `d40000` composition plus the basement render and the cage-high frames:
 
 | Source | Frames |
 | --- | --- |
 | Randomized synthetic (`training/data/synthetic` via `all_robot_keypoints`) | 17,995 |
 | Domain render, `nhrl_cage` and `massd_arena`, a third per view, damage on | 40,000 |
+| Domain render, `meatball_basement`, a third per view (step 1a) | 10,000 |
 | Real, from `all_robot_keypoints` | 452 |
 | Cage-high, `training/data/cage_high_x50_conf044`, `pass` frames only | 636 |
-| Total | 59,083 |
+| Total | 69,083 |
 
 Reasons, all from `synthetic_domain_mix_2026-09-18.md`:
 
@@ -135,12 +192,27 @@ Reasons, all from `synthetic_domain_mix_2026-09-18.md`:
 - Keep both venues: `nhrl_only` and `massd_only` lose keypoint precision (7.37 and 11.66 px
   against `base` 4.78 px).
 - Write the real frames once. `real3x` recovered nothing on ZED footage.
+- A third venue is the direction the venue arms point. `nhrl_only` and `massd_only` both lost to
+  the two-venue arms on ZED footage, and the reading was that one venue is a narrower appearance
+  distribution than the randomized pool it replaced. The basement is 10,000 frames against 20,000
+  for each cage because it is not a venue we fight in. Its job is to tie the render to the real
+  frames and to add a low mount, and the `s` control in step 2 measures whether it does either.
 
-`make_domain_mix_arms.py` draws real frames from the corpus alone. It needs a second real source
-with a `validation_state.json` filter, selecting `pass` and never `.edit_state.json`. The 14 frames
-in `validation_backup/` stay out. Rebuild every existing arm into a scratch directory afterwards
-and confirm the eighteen `.txt` lists still reproduce byte for byte, as the `nodamage_swap_half`
-addition did.
+`make_domain_mix_arms.py` needs two changes:
+
+1. **A second real source.** It draws real frames from the corpus alone. Add one with a
+   `validation_state.json` filter, selecting `pass` and never `.edit_state.json`. The 14 frames in
+   `validation_backup/` stay out.
+2. **Venue pinning on the existing arms.** `domain_order` interleaves every venue it is handed so
+   any prefix splits evenly between them. Passing the basement render as a third `--domain` would
+   therefore put basement frames into `d2500` through `d40000` and move every list the grid
+   trained on. Pin the existing arms to `venues=(NHRL, MASSD)`, which is what they drew from, and
+   give the new arms all three. With unequal venue sizes an even interleave runs out of basement
+   frames at 30,000, so the new arms take every frame of every venue and are not prefixes of
+   anything.
+
+Rebuild every existing arm into a scratch directory afterwards and confirm the eighteen `.txt`
+lists still reproduce byte for byte, as the `nodamage_swap_half` addition did.
 
 Build `swap_half_cagehigh` from the same change. It is the control for what the 636 frames buy and
 it trains on `s` in 2 h 20 min.
@@ -154,25 +226,38 @@ as a new arm.
 
 | Arm | Model | Frames | Epochs | Presentations | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `x_d40000_cagehigh` | `yolo26x-pose` | 59,083 | 35 | 2.07 M | The candidate |
-| `s_d40000_cagehigh` | `yolo26s-pose` | 59,083 | 35 | 2.07 M | Size control, and the fallback if gate B fails |
+| `x_d50000_cagehigh` | `yolo26x-pose` | 69,083 | 30 | 2.07 M | The candidate |
+| `s_d50000_cagehigh` | `yolo26s-pose` | 69,083 | 30 | 2.07 M | Size control, and the fallback if gate B fails |
+| `s_d40000_cagehigh` | `yolo26s-pose` | 59,083 | 35 | 2.07 M | Basement control: the same mix without step 1a's frames |
 | `s_swap_half_cagehigh` | `yolo26s-pose` | 21,088 | 100 | 2.11 M | Mix control |
 | `s_swap_half` | `yolo26s-pose` | 20,452 | 100 | 2.05 M | Already trained, the cage-high control |
+
+`d50000` is the 40,000 cage frames plus the 10,000 basement frames. Every arm lands within 3
+percent of the same presentation count, so the three controls each change one thing against the
+`s` candidate: model size, the basement frames, and the domain share.
 
 Epochs come from the presentation rule: opponent recall peaked near 2 M frame-presentations on
 every mix and fell past 3 M (`d40000` 0.606 at epoch 50, 0.295 at epoch 100). Everything else is
 the grid's constants: `imgsz 640`, `-b 96`, 3-GPU DDP through the queue, `--seed 0`, `--cache ram`,
-`--save-period` set so a checkpoint lands near 1.5 M and 2 M presentations, pretrained start.
-Ship `last.pt`. Val is 2,004 synthetic frames and 45 real ones and selects for the renderer.
+pretrained start. `run_domain_mix_arm.sh` hardcodes `SAVE_PERIOD=25`, which gives a 30-epoch arm
+one intermediate checkpoint; make it an argument and use 10, so checkpoints land at 0.69, 1.38 and
+2.07 M. Ship `last.pt`. Val is 2,004 synthetic frames and 45 real ones and selects for the
+renderer.
+
+`--cache ram` held about 49 GB per DDP rank on `d40000`'s 58,447 frames, with 144 GB of megamind's
+251 GB in use. At 69,083 frames that scales to about 58 GB per rank and 170 GB in total, which
+fits with less room than before. Check `free -g` once caching finishes on the first `d50000` arm
+and stop background watchers first, as the `d40000` run had to.
 
 ```bash
-venv/bin/python training/gpu_queue.py submit --name po_x_d40000_cagehigh --by <agent> -d 0 1 2 \
-  --work 2067905 --profile yolo26x-pose@640 -- \
-  bash training/yolo/run_domain_mix_arm.sh training/data/domain_mix_arms_<date> d40000_cagehigh yolo26x-pose 35
+venv/bin/python training/gpu_queue.py submit --name po_x_d50000_cagehigh --by <agent> -d 0 1 2 \
+  --work 2072490 --profile yolo26x-pose@640 -- \
+  bash training/yolo/run_domain_mix_arm.sh training/data/domain_mix_arms_<date> d50000_cagehigh yolo26x-pose 30
 ```
 
 `dm_x_d40000_ep50` took 12 h 18 min for 2.92 M presentations, so expect about 8 h 45 min for the
-`x` arm. The queue has that history under the `yolo26x-pose@640` profile.
+`x` arm, and `dm_s_d40000_ep50` took 3 h 16 min, so about 2 h 20 min for each `s` arm. The queue
+has both histories under their `@640` profiles.
 
 `run_domain_mix_arm.sh` builds the square 640 engine. Add the rectangular export beside it, at
 whichever shape step 0 picked. FP16 only: `int8_quantization_2026-09-06.md` measured INT8 at
@@ -202,6 +287,12 @@ Until the ZED One S records a fight:
 - Most of those fights have no Mrs Buff in them. They score opponent and house bot detection
   (gate A) and not our keypoints (gate C). Gate C needs Mrs Buff footage from a fixed mount, which
   today means the MassD broadcast clips not already used, or the first ZED One S recordings.
+- The basement SVOs are a third source for gate C: Mrs Buff, a fixed ZED on a stand, 1280x720. Two
+  checks before using one. The corpus's real frames are plywood-box sessions, so list which
+  recordings they came from and take eval frames only from recordings that gave none. And the
+  basement render is fitted to frame 4560 of `2026-04-19T17-01-18`, so an eval drawn from that
+  session flatters the `d50000` arms against the basement control. Use a different session, and
+  prefer the August rebuilt box, which the render does not model.
 
 Replace this set with ZED One S footage at the real mount as soon as the camera records, labelled
 in the image form the pipeline feeds the model.
@@ -222,6 +313,11 @@ num_classes=4` line on every run.
    is worse than any miss.
 5. House bot recall on its own line. The best arm found 300 of 512, and the house bot keep-out is
    built from that track.
+6. `s_d50000_cagehigh` against `s_d40000_cagehigh`, bootstrapped, on every eval. The basement
+   frames stay in the candidate's mix if they do not cost opponent recall or our-robot heading
+   error with a CI excluding zero. They are expected to pay on basement footage and on low
+   mounts; a gain confined to the basement eval is a reason to keep them for drive testing and
+   says nothing about a cage. If they cost recall anywhere, `x` retrains on `d40000_cagehigh`.
 
 ## Step 5: C++ rework
 
@@ -347,8 +443,14 @@ opponent recall is weakest.
 2. Step 3, the new eval set, in parallel. It is hand work and gates everything after it.
 3. Gate A on the arms that already exist (`x_d40000_ep50`, `swap_half`, deployed detector), as
    soon as the eval has opponent labels. No training needed to get a first answer.
-4. Step 1 and step 2, the arm builder change and the four arms, about 16 h of queue.
-5. Step 4, the full scoring pass.
-6. Step 5a to 5e, which are safe to land whatever the gates say, since every one of them is
+4. Step 1a, the basement render: a 200-frame smoke render and its gates, then the 10,000 frames,
+   about 6 h of queue. It goes on the queue first because every `d50000` arm waits on it, and the
+   arm builder changes in step 1b can be written while it runs, since they touch
+   `training/yolo` and not `training/synthetic`.
+5. Step 1b and step 2: the arm lists and the four new arms, about 16 h of queue. Submit
+   `s_d40000_cagehigh` and `s_swap_half_cagehigh` first if the render is still going, since
+   neither needs basement frames.
+6. Step 4, the full scoring pass.
+7. Step 5a to 5e, which are safe to land whatever the gates say, since every one of them is
    correct for a pose-only profile and inert for a two-model one.
-7. Step 5f only on step 0's say-so. Steps 5g to 5i move to the motion-stage plan.
+8. Step 5f only on step 0's say-so. Steps 5g to 5i move to the motion-stage plan.
