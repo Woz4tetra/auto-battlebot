@@ -124,12 +124,17 @@ def parse_poses(result: Any, target_name: str | None) -> list[dict[str, Any]]:
     return poses
 
 
-def draw_pose(canvas: np.ndarray, pose: dict[str, Any]) -> None:
-    """Box, keypoints and heading arrow for one posed robot."""
+def draw_pose(canvas: np.ndarray, pose: dict[str, Any], box: bool = True) -> None:
+    """Box, keypoints and heading arrow for one posed robot.
+
+    `box` is off when the poses come from the same model as the detections: that box is
+    already on screen in its hull-gate colour, and drawing it twice hides the gate.
+    """
     color = TARGET_COLOR if pose["is_target"] else POSE_COLOR
     x1, y1, x2, y2 = pose["box"]
     thickness = 3 if pose["is_target"] else 2
-    cv2.rectangle(canvas, (x1, y1), (x2, y2), color, thickness)
+    if box:
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, thickness)
 
     label = f"{pose['name']} {pose['conf']:.2f}"
     if pose["heading_deg"] is not None:
@@ -158,6 +163,7 @@ def draw_frame(
     names: dict[int, str],
     header: str,
     poses: list[dict[str, Any]] | None = None,
+    pose_boxes: bool = True,
 ) -> np.ndarray:
     canvas = frame.copy()
     if polygon is not None and len(polygon):
@@ -180,7 +186,7 @@ def draw_frame(
             )
 
     for pose in poses or []:
-        draw_pose(canvas, pose)
+        draw_pose(canvas, pose, box=pose_boxes)
 
     cv2.rectangle(canvas, (0, 0), (canvas.shape[1], 34), (0, 0, 0), -1)
     cv2.putText(canvas, header, (10, 23), FONT, 0.6, TEXT_COLOR, 1, cv2.LINE_AA)
@@ -286,6 +292,20 @@ class FrameSummary(NamedTuple):
     dropped_off_field: int
     confs: list[float]
     areas: list[float]
+
+
+def fighter_class_index(names: dict[int, str]) -> int:
+    """Index of the class a 1v1 fight always has two of.
+
+    The 2-class cage models call it `robot`. The 4-class ones split our own machines
+    into their own classes and leave the opponent as `nhrl_robot`, so the index moves
+    and a hard-coded 0 would count our robots, which never appear in NHRL footage.
+    """
+    by_name = {name: index for index, name in names.items()}
+    for candidate in ("nhrl_robot", "robot"):
+        if candidate in by_name:
+            return by_name[candidate]
+    return 0
 
 
 def summarize_frame(detections: list[dict[str, Any]], class_count: int) -> FrameSummary:
@@ -423,9 +443,14 @@ def annotate(
             class_totals.update(dict(enumerate(summary.per_class)))
             maybe_dump(box_dump, source_index, detections)
 
-            poses = (
-                parse_poses(pose_results[local], args.pose_target) if pose_model is not None else []
-            )
+            # A pose model passed as the detector supplies its own keypoints, so the
+            # arrows come free with the boxes instead of costing a second forward pass.
+            if pose_model is not None:
+                poses = parse_poses(pose_results[local], args.pose_target)
+            elif result.keypoints is not None:
+                poses = parse_poses(result, args.pose_target)
+            else:
+                poses = []
             targets = [p for p in poses if p["is_target"]]
             headed = [p for p in targets if p["heading_deg"] is not None]
             target_per_frame.append(len(targets))
@@ -437,10 +462,18 @@ def annotate(
                 f"kept {sum(summary.per_class)}  at-wall {summary.dropped_at_wall}  "
                 f"off-field {summary.dropped_off_field}"
             )
-            if pose_model is not None:
+            if poses:
                 header += f"  |  {args.pose_target}: {len(targets)}  heading: {len(headed)}"
             writer.stdin.write(
-                draw_frame(batch[local], detections, polygon, names, header, poses).tobytes()
+                draw_frame(
+                    batch[local],
+                    detections,
+                    polygon,
+                    names,
+                    header,
+                    poses,
+                    pose_boxes=pose_model is not None,
+                ).tobytes()
             )
         batch.clear()
         batch_indices.clear()
@@ -538,12 +571,13 @@ def build_stats(
     area_values: list[float],
     box_dump: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Per-clip record. `robot` is class 0, and a 1v1 fight always has two of them.
+    """Per-clip record, counting the class a 1v1 fight always has two of.
 
     That makes `both_robots_rate` a reliability measure with no hand labelling: any
-    frame holding fewer than two kept `robot` boxes is a miss.
+    frame holding fewer than two kept fighter boxes is a miss.
     """
-    robot_counts = [counts[0] if counts else 0 for counts in kept_per_class]
+    fighter = fighter_class_index(names)
+    robot_counts = [counts[fighter] if len(counts) > fighter else 0 for counts in kept_per_class]
     frames = len(robot_counts)
     both = sum(1 for value in robot_counts if value >= 2)
     at_least_one = sum(1 for value in robot_counts if value >= 1)
@@ -566,6 +600,7 @@ def build_stats(
         "kept_total_by_class": {str(k): v for k, v in sorted(class_totals.items())},
         "dropped_at_wall_total": int(sum(wall_counts)),
         "dropped_off_field_total": int(sum(off_field_counts)),
+        "fighter_class": names.get(fighter, str(fighter)),
         "frames_with_two_robots": both,
         "frames_with_one_robot": at_least_one,
         "both_robots_rate": round(both / frames, 4) if frames else 0.0,
@@ -701,7 +736,9 @@ def main() -> int:
             )
     stats: list[dict[str, Any]] = []
     for model_path in args.models:
-        tag = model_path.stem.split("_")[0]
+        # Full stem, not the leading token: four models of one family and date differ
+        # only in the middle of the name, and a shorter tag overwrites their outputs.
+        tag = model_path.stem
         print(f"\n=== {tag} ({model_path.name}) ===")
         model = YOLO(str(model_path))
         for video in videos:
