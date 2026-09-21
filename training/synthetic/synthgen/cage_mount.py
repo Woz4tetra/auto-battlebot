@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -134,6 +135,53 @@ def mount_position(mount: CageMount, wall_half_m: float) -> np.ndarray:
     normal, along = wall_axes(mount.wall)
     horizontal = -normal * (wall_half_m - mount.inset_m) + along * mount.along_m
     return np.asarray(horizontal + _UP * mount.height_m)
+
+
+def mount_corners(ranges: CageMountRanges, wall_half_m: float) -> list[tuple[str, np.ndarray]]:
+    """Horizontal extremes of every mount *ranges* can draw, as (wall, xy) pairs.
+
+    A mount's position is linear in `along_m` and `inset_m`, so the four corners of that
+    rectangle bound every draw on a wall.
+    """
+    corners = []
+    for wall in ranges.walls:
+        for along in ranges.along_m:
+            for inset in ranges.inset_m:
+                mount = CageMount(wall, along, 0.0, inset, 0.0, 0.0, 0.0)
+                corners.append((wall, mount_position(mount, wall_half_m)[:2]))
+    return corners
+
+
+def mounts_behind_walls(
+    ranges: CageMountRanges,
+    wall_half_m: float,
+    venue_walls: Sequence[tuple[str, tuple[float, float], tuple[float, float]]],
+    margin_m: float = 0.10,
+) -> list[str]:
+    """One message per mount corner that a venue wall hides the mat from, empty when none does.
+
+    *venue_walls* are (name, start, end) segments in W, as `[[walls]]` in a cage spec gives
+    them. A wall's box side is the side the mat centre is on. A corner is blocked when it is
+    within *margin_m* of the wall's plane or past it, and abreast of the segment: a camera
+    beyond a wall's end sees round it and is left alone.
+    """
+    blocked = []
+    for name, start, end in venue_walls:
+        a, b = np.asarray(start, dtype=float), np.asarray(end, dtype=float)
+        length = float(np.linalg.norm(b - a))
+        direction = (b - a) / length
+        normal = np.array([-direction[1], direction[0]])
+        if float(np.dot(-a, normal)) < 0.0:
+            normal = -normal
+        for wall, corner in mount_corners(ranges, wall_half_m):
+            clearance = float(np.dot(corner - a, normal))
+            abreast = -margin_m <= float(np.dot(corner - a, direction)) <= length + margin_m
+            if abreast and clearance < margin_m:
+                blocked.append(
+                    f"a {wall!r} mount at ({corner[0]:.2f}, {corner[1]:.2f}) m is {clearance:.2f} m"
+                    f" in front of venue wall {name!r} (need {margin_m:.2f} m)"
+                )
+    return blocked
 
 
 def mount_heading(mount: CageMount) -> np.ndarray:

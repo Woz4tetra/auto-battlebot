@@ -10,6 +10,134 @@ Nothing here has run. The numbers quoted are from earlier reports, cited inline.
 Updated 2026-09-19: the `meatball_basement` scene is built, so the dataset gains a 10,000-frame
 basement render (step 1a) and the arms gain a control for it.
 
+## Status, 2026-09-19
+
+| Step | State |
+| --- | --- |
+| 0, Jetson timing | Done, `pose_only_report_2026-09-19.md`. Gate B passes at the engine level: `yolo26x-pose` at 384x640 is 19.94 ms raw GPU on the Orin NX, 23.59 ms at 416x640. It fails at 640x640 (32.92 ms) and 768x1280 (74.24 ms). `yolo26s-pose` at 768x1280 is 14.43 ms, so that report adds an `s-pose` arm at `imgsz 1280` to step 2 and takes step 5f off the critical path |
+| 1a, smoke render | Done, queue job 26, 200 frames in 6 min. Every gate passed. Findings below |
+| 1a, 10,000 frames | Done, queue job 27, 5 h 25 min, `training/data/synth_cage_basement_2026-09-19`. Every gate passed and `validate_yolo_integrity.py --strict` found 0 errors. Findings below |
+| 1b, arm builder | Done. `make_domain_mix_arms.py` takes `--extra-real` and pins unfiltered arms to the two cage venues. All 18 existing arm lists and `val.txt` rebuild byte for byte |
+| 1b, arm lists | `d40000_cagehigh` (59,083 frames) and `swap_half_cagehigh` (21,088) are in `training/data/domain_mix_arms_2026-09-19`, each carrying 636 cage-high frames. `d50000_cagehigh` (69,083) joined them once job 27 finished: 20,000 NHRL, 20,000 MassD and 10,000 basement domain frames, 1,088 real, 1.57 percent real share. The 09-19 directory holds the whole grid, and its 18 older lists and `val.txt` match the 09-13 ones byte for byte |
+| 2, train and export | Done. Queue jobs 28 to 32, all exit 0, 20 h 20 min in all. Five arms in `data/models/*_2026-09-20_*`, each with `last.pt`, two intermediate checkpoints, and a square and a rectangular engine, every one verified at its stated input shape. `run_domain_mix_arm.sh` took the new options it needed. Findings below |
+
+Datasets were archived to `/media/storage/auto-battlebots-archive` on 2026-09-19. Five came back to
+`training/data` for this step, because the arm lists hold absolute paths under it:
+`all_robot_keypoints`, `synth_cage_nhrl_2026-09-13_v2`, `synth_cage_massd_2026-09-13`,
+`cage_high_x50_conf044` and `domain_mix_arms_2026-09-13`. Scoring in step 4 will also need
+`nhrl_keypoints_eval_test` back.
+
+### What the smoke render showed
+
+- **No camera is behind a wall.** All 200 recorded mounts are on the near or left side, and the
+  closest any comes is 0.48 m from the right wall's plane and 0.45 m from the far wall's. The
+  render now refuses to start otherwise: `mounts_behind_walls` in `synthgen/cage_mount.py` tests
+  the corners of each allowed wall's `along_m` by `inset_m` rectangle against every `[[walls]]`
+  segment with a 0.10 m margin, `build_cage_stage` raises on a hit, and
+  `tests/test_cage_mount.py` covers the committed ranges, a mount on each walled side, and a left
+  mount slid past the far wall.
+- **Gates:** 55.2 to 70.2 percent clean by view, 0.5 to 4.2 percent hidden keypoints against the
+  randomized pool's 5.1, at most 1.5 percent dropped.
+- **Robot sizes, sqrt of box area at 1280x720:** `mrs_buff_mk3` 40 to 129 px with a median of 59,
+  `mr_stabs_mk2` 21 to 72 px with a median of 40, opponents 24 to 217 px with a median of 76 (5th
+  to 95th percentile). That overlaps the cage render's 34 to 70 px and extends well above it, so
+  these frames cover the near case and most of the small one.
+- **The distorted view is much tighter than the other two.** Median robot size is 127 px in
+  `distorted` against 53 px in `pinhole` and 55 px in `rectified`. On 200 frames this may be the
+  draw, but a factor of 2.3 is large. Compare it against the same split in the cage renders'
+  manifests before reading anything into a per-view result on basement frames.
+- **Render cost:** 2.3 to 2.7 s per pinhole frame and 6.8 to 7.2 s per warped frame, so the 10,000
+  frames should take about 5 h on three GPUs.
+- The frames were read by eye as three labelled contact sheets, one per view: the box sits in its
+  stone corner, boxes and keypoints land on the robots, and airborne robots appear at the
+  configured `air_probability`.
+
+### What the 10,000-frame render showed
+
+- **Gates:** 57.7 to 59.3 percent clean by view, 0.2 to 1.9 percent hidden keypoints, 0.7 to 1.8
+  percent dropped, a third per view to within a frame. No `house_bot` instances, as the spec says.
+- **Mounts:** all 10,000 on the near or left side; the closest is 0.47 m from the right wall's
+  plane and 0.43 m from the far wall's.
+- **Robot sizes, 5th to 95th percentile:** `mrs_buff_mk3` 40 to 128 px with a median of 65 over
+  8,885 boxes, `mr_stabs_mk2` 23 to 83 px with a median of 39 over 5,819, opponents 27 to 193 px
+  with a median of 76 over 28,893.
+- **The tight distorted view is the lens and not this scene.** Median robot size is 99 px in
+  `distorted` against 57 and 56 px in the other two views, and the cage renders show the same
+  split: 98 against 68 and 64 px for NHRL, 97 against 59 and 58 px for MassD. The smoke render's
+  127 px was the small sample. It still means a third of every domain pool shows robots about 1.7
+  times larger than the rest, which is worth remembering when a per-view or per-size result comes
+  up.
+- **Render cost:** 7.5 s per rectified frame, 5 h 25 min in all.
+
+### What submitting step 2 settled
+
+- **The five arms are queued as jobs 28 to 32**, `s_d50000_cagehigh` first. It costs 2 h 20 min
+  and shares the candidate's arm list, so it measures the RAM cache and the 69,083-frame list
+  before the 8 h 45 min `x` arm inherits them. The `x` candidate is second.
+- **The RAM cache fits.** `s_d50000_cagehigh` cached 44.5 GB per DDP rank over the 69,082 train
+  frames, 133 GB across the three, and megamind sat at 165 GB of 251 GB in use with 62 GB
+  available and no swap touched. The plan's 58 GB per rank was scaled from `d40000`'s footprint
+  and ran high. The arm trains at 2.7 it/s over 720 steps an epoch, so about 4.5 min per epoch and
+  2 h 15 min for the 30.
+- **The `imgsz 1280` arm runs uncached at batch 24.** The RAM cache holds frames at training size,
+  so 1280 would need about 680 GB. `--cache disk` writes one full-res `.npy` per image, which
+  `train.py:22` documents growing to 196 GB on a 12 GB corpus, so the arm reads JPEGs each epoch.
+  Batch 24 is 8 per GPU, a quarter of the 640 arms' 32, for four times the pixels. It carries a
+  confound the other arms do not: Ultralytics scales weight decay by batch (`wd * batch / 64`), so
+  this arm trains at 0.0001875 against the grid's 0.00075. Read it against `s_d50000_cagehigh` as
+  a geometry-plus-regularization arm, not a geometry-only one.
+- **The queue has no `yolo26s-pose@640` history.** The 09-13 grid was submitted before `--work`
+  and `--profile` existed, so only the `x` arm (job 25) carries a hint and only job 29 gets an
+  estimate at submit. Job 28 teaches the profile, and jobs 30 and 31 inherit it. The `s` arms are
+  expected at about 2 h 20 min each, scaled from `dm_s_d40000_ep50`'s 3 h 16 min for 2.92 M
+  presentations. The 1280 arm carries `--eta 12h` since no `@1280` rate exists.
+- **Save periods differ per arm so the checkpoints land at matched presentation counts.** 10 for
+  the 30-epoch arms (0.69, 1.38, 2.07 M), 12 for the 35-epoch `s_d40000_cagehigh` (0.71, 1.42 M,
+  then 2.07 M at `last`), and 25 for the 100-epoch `s_swap_half_cagehigh`, which matches the
+  already-trained `s_swap_half` it is the control for.
+- **Two `s` arms share the `d50000_cagehigh` list**, so the 640 and 1280 runs would have written
+  the same `data/models/yolo26s-pose_d50000_cagehigh_<date>_last.pt`. `--label` names the kept
+  weights; the 1280 arm writes `..._d50000_cagehigh_1280_...`.
+- **Each arm ships two engines.** The square one at the training size, the geometry every earlier
+  pose arm was scored at, and a rectangular one: 384x640 for the 640 arms and 768x1280 for the
+  1280 arm, the shapes `pose_only_report_2026-09-19.md` measured on the Orin NX. Scoring in step 4
+  reads engines, not `.pt`, so the rectangular build is what gate A and gate C are run on.
+
+### What step 2 produced
+
+| Arm | Model | Wall | Estimate | Checkpoints kept |
+| --- | --- | --- | --- | --- |
+| `s_d50000_cagehigh` | `yolo26s-pose` | 2 h 18 min | 2 h 20 min | epoch10, epoch20, last |
+| `x_d50000_cagehigh` | `yolo26x-pose` | 5 h 59 min | 8 h 44 min | epoch10, epoch20, last |
+| `s_d40000_cagehigh` | `yolo26s-pose` | 2 h 18 min | 2 h 20 min | epoch12, epoch24, last |
+| `s_swap_half_cagehigh` | `yolo26s-pose` | 2 h 22 min | 2 h 20 min | epoch25, epoch50, epoch75, last |
+| `s1280_d50000_cagehigh` | `yolo26s-pose` at 1280 | 7 h 23 min | 12 h (`--eta`) | epoch10, epoch20, last |
+
+- **Every arm converged and none diverged.** Final val, which is 2,004 synthetic frames and 45
+  real ones and selects for the renderer, so this is a sanity read and not a gate: `x_d50000`
+  0.986 box mAP50 and 0.958 pose mAP50-95, the three 640 `s` arms 0.974 to 0.976 box and 0.926 to
+  0.927 pose, `s1280` 0.980 box and 0.946 pose. Gates A and C are step 4, on the step 3 eval.
+- **The `x` arm beat its estimate by 2 h 45 min, and the estimate was the thing that was wrong.**
+  Steady state the two `x` runs cost the same per frame-presentation: 607 s an epoch over 58,447
+  frames on job 25 against 713 s over 69,083 on job 29, which is 10.38 against 10.32 ms. Job 25
+  lost 3 h 50 min to two stalled epochs, 7,030 s and 8,023 s against its own 607 s median, and the
+  queue folded that into the `yolo26x-pose@640` rate. Job 29's hint corrects the profile. Read a
+  queue estimate built on one past run as an upper bound until a second run lands.
+- **The 1280 arm is cheaper than feared:** 7 h 23 min uncached at batch 24, against the 12 h
+  `--eta`. Reading JPEGs every epoch did not starve the GPUs.
+- **Ultralytics writes no `epoch30.pt` for a 30-epoch run.** The final epoch is `last.pt`, so the
+  2.07 M presentation point is `last` and the ladder is epoch10, epoch20, last. Same for the
+  100-epoch arm, where `last` is the epoch-100 point.
+- **The square `.onnx` was being deleted by the rectangular export.** `convert_to_onnx.py` always
+  writes the default `<stem>_last.onnx` and only then moves it to `-o`, so exporting square first
+  and rectangular second left the square engine built but no square ONNX on disk. That file is
+  what a Jetson needs to rebuild an engine for its own TensorRT version, since engines are not
+  portable across versions. `run_domain_mix_arm.sh` now exports rectangular first, and the five
+  arms' square ONNX files were regenerated from their `last.pt`.
+
+Step 4 also needs the `aarch64_sm87` builds, which have to happen on the JetPack 7 box from the
+rectangular ONNX. Everything on megamind is `x86_64_sm86`.
+
 ## What changed since the last recommendation
 
 Three decisions, all made 2026-09-19:
@@ -228,6 +356,7 @@ as a new arm.
 | --- | --- | --- | --- | --- | --- |
 | `x_d50000_cagehigh` | `yolo26x-pose` | 69,083 | 30 | 2.07 M | The candidate |
 | `s_d50000_cagehigh` | `yolo26s-pose` | 69,083 | 30 | 2.07 M | Size control, and the fallback if gate B fails |
+| `s1280_d50000_cagehigh` | `yolo26s-pose` at `imgsz 1280` | 69,083 | 30 | 2.07 M | Added by step 0: the one arm that meets both the `imgsz 1280` floor and the frame period (14.43 ms at 768x1280) |
 | `s_d40000_cagehigh` | `yolo26s-pose` | 59,083 | 35 | 2.07 M | Basement control: the same mix without step 1a's frames |
 | `s_swap_half_cagehigh` | `yolo26s-pose` | 21,088 | 100 | 2.11 M | Mix control |
 | `s_swap_half` | `yolo26s-pose` | 20,452 | 100 | 2.05 M | Already trained, the cage-high control |
@@ -239,29 +368,45 @@ percent of the same presentation count, so the three controls each change one th
 Epochs come from the presentation rule: opponent recall peaked near 2 M frame-presentations on
 every mix and fell past 3 M (`d40000` 0.606 at epoch 50, 0.295 at epoch 100). Everything else is
 the grid's constants: `imgsz 640`, `-b 96`, 3-GPU DDP through the queue, `--seed 0`, `--cache ram`,
-pretrained start. `run_domain_mix_arm.sh` hardcodes `SAVE_PERIOD=25`, which gives a 30-epoch arm
-one intermediate checkpoint; make it an argument and use 10, so checkpoints land at 0.69, 1.38 and
-2.07 M. Ship `last.pt`. Val is 2,004 synthetic frames and 45 real ones and selects for the
-renderer.
+pretrained start. `run_domain_mix_arm.sh` hardcoded `SAVE_PERIOD=25`, which gives a 30-epoch arm
+one intermediate checkpoint; it is now `--save-period`, set to 10 on the 30-epoch arms so
+checkpoints land at 0.69, 1.38 and 2.07 M. Ship `last.pt`. Val is 2,004 synthetic frames and 45
+real ones and selects for the renderer.
 
 `--cache ram` held about 49 GB per DDP rank on `d40000`'s 58,447 frames, with 144 GB of megamind's
 251 GB in use. At 69,083 frames that scales to about 58 GB per rank and 170 GB in total, which
 fits with less room than before. Check `free -g` once caching finishes on the first `d50000` arm
 and stop background watchers first, as the `d40000` run had to.
 
+The `imgsz 1280` arm cannot use `--cache ram`. The cache holds frames at training size, so four
+times the pixels puts it near 680 GB. It runs uncached at `--batch 24`, with `--eta 12h` on submit
+since no `yolo26s-pose@1280` history exists, and exports at 768x1280. The synthetic frames are
+1280x720, so at `imgsz 1280` they train at native scale and only the 1920-wide cage-high frames
+are downscaled.
+
+The two arms that differ from the grid's constants, as submitted:
+
 ```bash
-venv/bin/python training/gpu_queue.py submit --name po_x_d50000_cagehigh --by <agent> -d 0 1 2 \
+venv/bin/python training/gpu_queue.py submit --name po_x_d50000_cagehigh --by claude-pose-only -d 0 1 2 \
   --work 2072490 --profile yolo26x-pose@640 -- \
-  bash training/yolo/run_domain_mix_arm.sh training/data/domain_mix_arms_<date> d50000_cagehigh yolo26x-pose 30
+  bash training/yolo/run_domain_mix_arm.sh training/data/domain_mix_arms_2026-09-19 \
+    d50000_cagehigh yolo26x-pose 30 --save-period 10
+
+venv/bin/python training/gpu_queue.py submit --name po_s1280_d50000_cagehigh --by claude-pose-only -d 0 1 2 \
+  --work 2072490 --profile yolo26s-pose@1280 --eta 12h -- \
+  bash training/yolo/run_domain_mix_arm.sh training/data/domain_mix_arms_2026-09-19 \
+    d50000_cagehigh yolo26s-pose 30 --save-period 10 --label d50000_cagehigh_1280 \
+    --imgsz 1280 --batch 24 --cache false --export-shape 768x1280
 ```
 
 `dm_x_d40000_ep50` took 12 h 18 min for 2.92 M presentations, so expect about 8 h 45 min for the
-`x` arm, and `dm_s_d40000_ep50` took 3 h 16 min, so about 2 h 20 min for each `s` arm. The queue
-has both histories under their `@640` profiles.
+`x` arm, and `dm_s_d40000_ep50` took 3 h 16 min, so about 2 h 20 min for each `s` arm. Only the
+`x` run carries a queue hint; the 09-13 `s` grid predates `--work` and `--profile`.
 
-`run_domain_mix_arm.sh` builds the square 640 engine. Add the rectangular export beside it, at
-whichever shape step 0 picked. FP16 only: `int8_quantization_2026-09-06.md` measured INT8 at
-0.032 recall below FP16 on `s` and found `x` lost its whole recall gain.
+`run_domain_mix_arm.sh` builds the square engine at the training size and a rectangular one at
+`--export-shape`, which defaults to step 0's 384x640. FP16 only:
+`int8_quantization_2026-09-06.md` measured INT8 at 0.032 recall below FP16 on `s` and found `x`
+lost its whole recall gain.
 
 If step 0 points at native-resolution crops, this step gains a crop-trained arm: cut training
 frames with `crop_yolo_dataset.py` so robots reach the tensor at 52 to 110 px, which is the scale

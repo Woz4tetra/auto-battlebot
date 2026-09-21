@@ -16,11 +16,25 @@ Two properties, both asserted before anything is written:
   venue, which is how the render lands. Filters (one venue, one view, damage-free frames only)
   re-derive the order over what they keep.
 
+An arm with no venue filter draws from the two cage renders alone, whatever else ``--domain`` holds.
+The grid was trained that way, and a third venue in the interleave would otherwise move every list
+it trained on. The pose-only arms (pose_only_perception_plan_2026-09-19.md) name all three venues
+and take every frame, and carry the hand-corrected cage-high frames as a second real source through
+``--extra-real``.
+
 Usage:
   venv/bin/python training/yolo/make_domain_mix_arms.py \\
       --corpus training/data/all_robot_keypoints \\
       --domain training/data/synth_cage_nhrl_2026-09-13 training/data/synth_cage_massd_2026-09-13 \\
       --out training/data/domain_mix_arms_2026-09-13
+
+  # The pose-only arms: a third render and the cage-high frames marked `pass`.
+  venv/bin/python training/yolo/make_domain_mix_arms.py \\
+      --corpus training/data/all_robot_keypoints \\
+      --domain training/data/synth_cage_nhrl_2026-09-13_v2 \\
+          training/data/synth_cage_massd_2026-09-13 training/data/synth_cage_basement_2026-09-19 \\
+      --extra-real training/data/cage_high_x50_conf044 \\
+      --out training/data/domain_mix_arms_2026-09-19
 """
 
 from __future__ import annotations
@@ -40,6 +54,12 @@ RANDOMIZED_PREFIX = "synthetic__"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
 NHRL = "nhrl_cage"
 MASSD = "massd_arena"
+BASEMENT = "meatball_basement"
+# What an arm with no venue filter draws from: the two renders the 2026-09-13 grid was built over.
+CAGE_VENUES = (NHRL, MASSD)
+ALL_VENUES = (NHRL, MASSD, BASEMENT)
+REVIEW_STATE = "validation_state.json"
+REVIEW_PASS = "pass"
 
 
 @dataclass(frozen=True)
@@ -57,7 +77,9 @@ class Arm:
     """One arm: how many randomized frames (None for all) and domain frames, and its filters.
 
     ``real_repeat`` writes the 452 real frames that many times over. Every other count is a draw
-    from a pool, so this is the one place an arm carries a frame twice on purpose.
+    from a pool, so this is the one place an arm carries a frame twice on purpose. ``venues`` left
+    empty means `CAGE_VENUES`, not every venue loaded. ``extra_real`` adds the ``--extra-real``
+    frames, written once whatever ``real_repeat`` says.
     """
 
     name: str
@@ -67,6 +89,7 @@ class Arm:
     views: tuple[str, ...] = ()
     clean_only: bool = False
     real_repeat: int = 1
+    extra_real: bool = False
 
 
 # The step 4 grid. `nodamage` is "best mix" in the plan, which is not known until the Q1 to Q3 arms
@@ -94,6 +117,12 @@ ARMS = (
     Arm("view_rectified", 0, 13333, views=("rectified",)),
     Arm("view_distorted", 0, 13333, views=("distorted",)),
     Arm("view_mixed", 0, 13333),
+    # Pose-only arms, pose_only_perception_plan_2026-09-19.md step 1b. `d50000` is both cage
+    # renders and the 10,000 basement frames; with unequal venues an even interleave runs out of
+    # basement frames at 30,000, so it takes every frame and is not a prefix of anything.
+    Arm("d50000_cagehigh", None, 50000, venues=ALL_VENUES, extra_real=True),
+    Arm("d40000_cagehigh", None, 40000, extra_real=True),
+    Arm("swap_half_cagehigh", 10000, 10000, extra_real=True),
 )
 # (smaller, larger) pairs whose training lists must nest.
 NESTED = (
@@ -104,6 +133,9 @@ NESTED = (
     ("d20000", "d40000"),
     ("view_mixed", "swap_all"),
     ("swap_all", "d20000"),
+    ("d40000", "d40000_cagehigh"),
+    ("swap_half", "swap_half_cagehigh"),
+    ("d40000_cagehigh", "d50000_cagehigh"),
 )
 
 
@@ -144,6 +176,35 @@ def load_domain(dataset: Path) -> list[DomainFrame]:
         clean = all(float(i.get("damage", 0.0)) == 0.0 for i in row.get("instances", []))
         image = (dataset / "images" / row["image"]).resolve()
         frames.append(DomainFrame(image, str(row["venue"]), str(row["view"]), clean))
+    return frames
+
+
+def load_extra_real(root: Path) -> list[Path]:
+    """The frames of a hand-labelled dataset that its review state marks `pass`.
+
+    `validation_state.json` is the authority on what was reviewed; `.edit_state.json` drops whole
+    recordings and is never read. Keys are image paths relative to *root*.
+
+    Raises:
+        SystemExit: When the review state is missing, or a passed frame lacks its image or label,
+            or a label names a class outside `NAMES`.
+    """
+    state_path = root / REVIEW_STATE
+    if not state_path.is_file():
+        raise SystemExit(f"{root}: no {REVIEW_STATE}, so nothing says which frames were reviewed")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    frames = []
+    for key, verdict in sorted(state.items()):
+        if verdict != REVIEW_PASS:
+            continue
+        image = (root / key).resolve()
+        label = image.parent.parent / "labels" / f"{image.stem}.txt"
+        if not image.is_file() or not label.is_file():
+            raise SystemExit(f"{root}: passed frame {key} is missing its image or label")
+        for line in label.read_text(encoding="utf-8").splitlines():
+            if line.strip() and int(line.split()[0]) >= len(NAMES):
+                raise SystemExit(f"{label}: class {line.split()[0]} is outside {NAMES}")
+        frames.append(image)
     return frames
 
 
@@ -205,6 +266,7 @@ def build_arm(
     randomized: list[Path],
     domain: list[DomainFrame],
     seed: int,
+    extra_real: Sequence[Path] = (),
 ) -> tuple[list[Path], dict]:
     """One arm's training frames and its row for manifest.json.
 
@@ -214,17 +276,21 @@ def build_arm(
     count = len(randomized) if arm.randomized is None else arm.randomized
     if count > len(randomized):
         raise SystemExit(f"{arm.name}: wants {count} randomized frames, pool has {len(randomized)}")
-    order = domain_order(domain, seed, arm.venues, arm.views, arm.clean_only)
+    order = domain_order(domain, seed, arm.venues or CAGE_VENUES, arm.views, arm.clean_only)
     if arm.domain > len(order):
         raise SystemExit(f"{arm.name}: wants {arm.domain} domain frames, filter keeps {len(order)}")
     drawn = set(order[: arm.domain])
     picked = [frame for frame in domain if frame.image in drawn]
-    frames = real * arm.real_repeat + randomized[:count] + [frame.image for frame in picked]
+    extra = list(extra_real) if arm.extra_real else []
+    if arm.extra_real and not extra:
+        raise SystemExit(f"{arm.name}: needs --extra-real frames and none were given")
+    frames = real * arm.real_repeat + extra + randomized[:count] + [frame.image for frame in picked]
     row = {
         "frames": len(frames),
-        "real": len(real) * arm.real_repeat,
+        "real": len(real) * arm.real_repeat + len(extra),
         "real_repeat": arm.real_repeat,
-        "real_share": round(len(real) * arm.real_repeat / len(frames), 4),
+        "extra_real": len(extra),
+        "real_share": round((len(real) * arm.real_repeat + len(extra)) / len(frames), 4),
         "randomized": count,
         "domain": arm.domain,
         "domain_by_venue": dict(sorted(Counter(frame.venue for frame in picked).items())),
@@ -265,6 +331,14 @@ def main() -> None:
         default=[],
         help="Merged renders; none builds only arms with no domain frames, such as base",
     )
+    parser.add_argument(
+        "--extra-real",
+        type=Path,
+        nargs="*",
+        default=[],
+        help=f"Hand-labelled datasets; frames marked `{REVIEW_PASS}` in {REVIEW_STATE} join the "
+        "arms that ask for them",
+    )
     parser.add_argument("--out", type=Path, required=True, help="Directory for lists and yamls")
     parser.add_argument("--seed", type=int, default=0, help="Seed for every draw order")
     parser.add_argument("--only", nargs="+", default=None, help="Build just these arms")
@@ -278,14 +352,16 @@ def main() -> None:
 
     real, randomized, val = split_corpus(args.corpus, args.seed)
     domain = [frame for dataset in args.domain for frame in load_domain(dataset)]
+    extra_real = [frame for root in args.extra_real for frame in load_extra_real(root)]
     print(f"corpus: {len(real)} real, {len(randomized)} randomized, {len(val)} val")
+    print(f"extra real: {len(extra_real)} frames from {len(args.extra_real)} dataset(s)")
     print(f"domain: {len(domain)} frames, {dict(Counter((f.venue, f.view) for f in domain))}")
 
     lists: dict[str, set[Path]] = {}
     rows: dict[str, dict] = {}
     built: list[tuple[str, list[Path]]] = []
     for arm in selected_arms(args.only, args.scale):
-        frames, row = build_arm(arm, real, randomized, domain, args.seed)
+        frames, row = build_arm(arm, real, randomized, domain, args.seed, extra_real)
         # Oversampled real frames are the only intended repeats, so the unique count has to drop by
         # exactly the copies asked for. Anything else is a source drawn twice.
         if len(set(frames)) != len(frames) - len(real) * (arm.real_repeat - 1):
@@ -315,6 +391,7 @@ def main() -> None:
     manifest = {
         "corpus": str(args.corpus.resolve()),
         "domain": [str(path.resolve()) for path in args.domain],
+        "extra_real": [str(path.resolve()) for path in args.extra_real],
         "seed": args.seed,
         "val_frames": len(val),
         "arms": rows,
