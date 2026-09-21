@@ -40,7 +40,12 @@ from synthgen.cage import (
     set_one_way_glass,
     set_world,
 )
-from synthgen.cage_mount import CageMount, mount_cam2world, sample_cage_mount
+from synthgen.cage_mount import (
+    CageMount,
+    mount_cam2world,
+    mounts_behind_walls,
+    sample_cage_mount,
+)
 from synthgen.cage_spec import PANEL_WALLS, CageSceneSpec, all_tubes, load_cage_spec
 from synthgen.camera import target_in_frame
 from synthgen.configuration import CageConfig, EnvironmentConfig, OutputConfig
@@ -402,6 +407,16 @@ def build_cage_stage(
     that call.
     """
     spec = load_cage_spec(resolve(cage_cfg.spec))
+    blocked = mounts_behind_walls(
+        cage_cfg.mount,
+        spec.cage.interior / 2,
+        [(wall.name, wall.start, wall.end) for wall in spec.walls],
+    )
+    if blocked:
+        raise ValueError(
+            f"[[cages]] {cage_cfg.name!r} mount ranges put the camera behind a wall: "
+            + "; ".join(blocked)
+        )
     calibration = load_camera_calibration(resolve(cage_cfg.camera_calibration))
     width, height = output_cfg.image_width, output_cfg.image_height
     lens = build_lens_view(calibration, (width, height), cage_cfg.view, cage_cfg.rectify_alpha)
