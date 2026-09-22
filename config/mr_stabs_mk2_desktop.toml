@@ -4,9 +4,6 @@ extends = "_desktop"
 "MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
 "MR_STABS_MK2" = ["OUR_ROBOT_1"]
 
-[robot_mask_model]
-their_robot_labels = ["OPPONENT", "MRS_BUFF_MK3"]
-
 # Mr Stabs Mk2 has no jig plant fit, so it stays on the pre-Stage-4 pursuit controller. `type`
 # differs from _common, so the merge replaces that section wholesale: every field this controller
 # needs has to be listed here, not inherited.

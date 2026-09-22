@@ -30,7 +30,7 @@ threshold = 0.5
 # yolo26x-pose on d40000, 50 epochs. The rect384x640 builds do not exist yet (plan step 0); until
 # they do the selector falls through to the square 640x640 engine, which megamind has as sm86 only.
 candidates = [
-  "data/models/yolo26s-pose_swap_half_cagehigh_rect384x640_2026-09-20_x86_64_sm89.engine",
+  "data/models/yolo26x-pose_cagehigh_rect384x640_2026-09-20_x86_64_sm89.engine",
 ]
 
 [runner]

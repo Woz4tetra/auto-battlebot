@@ -18,6 +18,9 @@ fi
 
 # Resolve the real user even when the script is invoked with sudo.
 REAL_USER="${SUDO_USER:-$USER}"
+# The unit needs the numeric uid for XDG_RUNTIME_DIR. systemd's %U specifier resolves to 0 in a
+# system unit even with User= set, which sent dconf to /run/user/0 and broke the kiosk setup.
+REAL_UID="$(id -u "$REAL_USER")"
 
 # Install a unit from service/<name>.service if it isn't present or is out of date,
 # expanding the __USER__ placeholder into the invoking user's name.
@@ -27,7 +30,7 @@ install_unit() {
     local source_file="$SCRIPT_DIR/${name}.service"
     local staged_file
     staged_file="$(mktemp)"
-    sed "s/__USER__/${REAL_USER}/g" "$source_file" > "$staged_file"
+    sed -e "s/__USER__/${REAL_USER}/g" -e "s/__UID__/${REAL_UID}/g" "$source_file" > "$staged_file"
     if [ ! -f "$service_file" ] || ! diff -q "$staged_file" "$service_file" > /dev/null 2>&1; then
         echo "Installing $name service (User=${REAL_USER})..."
         sudo cp "$staged_file" "$service_file"

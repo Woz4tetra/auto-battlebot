@@ -4,6 +4,13 @@
 
 set -e
 
+# Nothing here means anything without a display, and both gsettings and xset fail noisily on a
+# headless deploy. with_display.sh leaves DISPLAY unset on those boxes.
+if [ -z "$DISPLAY" ]; then
+    echo "Kiosk mode: no DISPLAY, so nothing to configure. Skipping."
+    exit 0
+fi
+
 echo "Enabling kiosk mode (disabling screen blanking and on-screen keyboard)..."
 
 # Disable the GNOME on-screen keyboard so it doesn't cover the UI on the touchscreen.

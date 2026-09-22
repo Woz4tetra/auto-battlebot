@@ -13,27 +13,15 @@ type = "DeepLabMaskModel"
 [field_model.engine]
 candidates = ["data/models/field_deeplabv3p_r50_2026-07-29_aarch64_sm87.engine"]
 
-[robot_mask_model]
-type = "YoloBboxRobotBlobModel"
-label_indices = ["OPPONENT", "HOUSE_BOT"]
-neutral_robot_labels = ["HOUSE_BOT"]
-field_labels = ["FIELD"]
-confidence_threshold = 0.6
-debug_visualization = false
-
-[robot_mask_model.engine]
-candidates = [
-  "data/models/yolo26s_nhrl_robots_bbox_2class_rect384x640_2026-09-05_aarch64_sm87.engine",
-]
-
 [keypoint_model]
 type = "YoloKeypointModel"
+label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3", "OPPONENT", "HOUSE_BOT"]
+threshold = 0.5
 
 [keypoint_model.engine]
 candidates = [
-  # "data/models/yolo26n-pose_our_robot_keypoints_rect384x640_2026-09-07_aarch64_sm87.engine",
-  "data/models/yolo26s-pose_our_robot_keypoints_rect384x640_2026-09-07_aarch64_sm87.engine",
-  # "data/models/yolo26x-pose_our_robot_keypoints_rect384x640_2026-09-07_aarch64_sm87.engine",
+  # "data/models/yolo26x-pose_cagehigh_rect384x640_2026-09-20_aarch64_sm87.engine",
+  "data/models/yolo26s-pose_d50000_cagehigh_rect384x640_2026-09-20_aarch64_sm87.engine",
 ]
 
 [ui]

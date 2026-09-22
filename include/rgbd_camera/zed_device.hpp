@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <future>
 #include <memory>
 #include <sl/Camera.hpp>
@@ -134,6 +135,26 @@ class ZedDevice {
     sl::InitParameters params_;
     sl::Mat zed_rgb_;
     sl::Mat zed_depth_;
+
+    /** Where an SDK buffer sat last time, so retrieve() can report when one moves.
+     *
+     *  Chasing frames that came out cyclically rotated left by 235 px, which is 940 bytes at
+     *  4 bytes per pixel. A constant per-row shift like that is a moved base pointer, not a
+     *  stride mismatch, and the SDK reuses these Mats, so the geometry should never change
+     *  after the first frame. Silent in steady state: one line at startup, one only if
+     *  something moves. */
+    struct BufferGeometry {
+        size_t width = 0;
+        size_t height = 0;
+        size_t step_bytes = 0;
+        uintptr_t data = 0;
+        bool seen = false;
+    };
+    BufferGeometry rgb_geometry_;
+    BufferGeometry depth_geometry_;
+
+    void log_buffer_geometry(sl::Mat &mat, const char *label, size_t bytes_per_pixel,
+                             BufferGeometry &previous);
     sl::Pose zed_pose_;
     std::future<sl::ERROR_CODE> pending_open_;
     bool tracking_enabled_ = true;

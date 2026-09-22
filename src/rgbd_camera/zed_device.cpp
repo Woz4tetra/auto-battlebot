@@ -148,6 +148,41 @@ ZedDevice::GrabStatus ZedDevice::grab() {
     return GrabStatus::Fatal;
 }
 
+void ZedDevice::log_buffer_geometry(sl::Mat &mat, const char *label, size_t bytes_per_pixel,
+                                    BufferGeometry &previous) {
+    BufferGeometry current;
+    current.width = mat.getWidth();
+    current.height = mat.getHeight();
+    current.step_bytes = mat.getStepBytes(sl::MEM::CPU);
+    current.data = reinterpret_cast<uintptr_t>(mat.getPtr<sl::uchar1>());
+    current.seen = true;
+
+    if (!previous.seen) {
+        const size_t tight = current.width * bytes_per_pixel;
+        spdlog::info(
+            "[ZedDevice] {} buffer {}x{} step={} B (tight {} B, padding {} B) data=0x{:x} "
+            "align={} B",
+            label, current.width, current.height, current.step_bytes, tight,
+            current.step_bytes - tight, current.data, current.data % 4096);
+        previous = current;
+        return;
+    }
+
+    if (current.width == previous.width && current.height == previous.height &&
+        current.step_bytes == previous.step_bytes && current.data == previous.data) {
+        return;
+    }
+
+    const auto delta = static_cast<int64_t>(current.data) - static_cast<int64_t>(previous.data);
+    spdlog::warn(
+        "[ZedDevice] {} buffer moved: {}x{} step={} B data=0x{:x} (was {}x{} step={} B "
+        "data=0x{:x}); data delta {:+d} B = {:+d} px",
+        label, current.width, current.height, current.step_bytes, current.data, previous.width,
+        previous.height, previous.step_bytes, previous.data, delta,
+        delta / static_cast<int64_t>(bytes_per_pixel));
+    previous = current;
+}
+
 bool ZedDevice::retrieve(CameraData &out) {
     sl::ERROR_CODE retrieve_status = zed_.retrieveImage(zed_rgb_, sl::VIEW::LEFT);
     if (retrieve_status != sl::ERROR_CODE::SUCCESS) {
@@ -198,14 +233,20 @@ bool ZedDevice::retrieve(CameraData &out) {
     // destination would overwrite pixels a consumer is still reading one frame behind. A per-frame
     // buffer lets that reference keep its allocation alive. One allocation per frame and no extra
     // copy: the conversion writes the full image either way.
+    //
+    // Both Mats take the SDK's own step. The default AUTO_STEP assumes width*elem_size, which
+    // the SDK does not promise; on a padded allocation that reads each row further into the
+    // previous one and shears the image down the frame.
+    log_buffer_geometry(zed_rgb_, "rgb", 4, rgb_geometry_);
     cv::Mat zed_rgb_mat(zed_rgb_.getHeight(), zed_rgb_.getWidth(), CV_8UC4,
-                        zed_rgb_.getPtr<sl::uchar1>());
+                        zed_rgb_.getPtr<sl::uchar1>(), zed_rgb_.getStepBytes(sl::MEM::CPU));
     cv::Mat rgb_frame;
     cv::cvtColor(zed_rgb_mat, rgb_frame, cv::COLOR_BGRA2BGR);
     out.rgb.image = rgb_frame;
 
+    log_buffer_geometry(zed_depth_, "depth", 4, depth_geometry_);
     cv::Mat zed_depth_mat(zed_depth_.getHeight(), zed_depth_.getWidth(), CV_32FC1,
-                          zed_depth_.getPtr<sl::uchar1>());
+                          zed_depth_.getPtr<sl::uchar1>(), zed_depth_.getStepBytes(sl::MEM::CPU));
     cv::Mat depth_frame;
     zed_depth_mat.copyTo(depth_frame);
     out.depth.image = depth_frame;

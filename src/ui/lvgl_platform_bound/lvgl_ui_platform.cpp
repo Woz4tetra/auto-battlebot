@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <memory>
 #include <stop_token>
 #include <string>
@@ -22,7 +23,22 @@ void run_ui_thread(std::stop_token stop, std::shared_ptr<UIState> ui_state) {
     std::stop_callback on_stop(stop, [&ui_state] { ui_state->quit_requested.store(true); });
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        spdlog::error("UI thread failed to initialize SDL.");
+        spdlog::error("UI thread failed to initialize SDL: {}", SDL_GetError());
+        return;
+    }
+
+    // SDL does not fail when it cannot reach a display server. It falls back to its "offscreen"
+    // driver, every call below succeeds, and the window simply never appears -- which looks
+    // identical to a UI that crashed. Catch it here, where the cause can still be named.
+    const char *video_driver = SDL_GetCurrentVideoDriver();
+    const std::string driver = video_driver ? video_driver : "";
+    if (driver == "offscreen" || driver == "dummy") {
+        const char *display = std::getenv("DISPLAY");
+        spdlog::error(
+            "UI: SDL fell back to the headless '{}' video driver, so no window can appear. "
+            "DISPLAY={}. Point DISPLAY at a running X server, or pass --no-ui to skip the UI.",
+            driver, (display && *display) ? display : "(unset)");
+        SDL_Quit();
         return;
     }
 

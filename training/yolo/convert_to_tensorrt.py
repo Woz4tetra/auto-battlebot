@@ -1,23 +1,20 @@
-"""Convert a YOLO pose model (.pt or .onnx) to TensorRT engine format.
+"""Convert a YOLO pose model in ONNX form to TensorRT engine format.
+
+The input is always .onnx; export a checkpoint first with convert_to_onnx.py. Building
+through TensorRT Builder + OnnxParser rather than Ultralytics model.export() keeps the
+plan format the one the C++ YoloKeypointModel can load, and needs no Ultralytics.
+
+  python training/yolo/convert_to_onnx.py model.pt
+  python training/yolo/convert_to_tensorrt.py model.onnx -o data/models/model.engine
 
 Engines are GPU- and TensorRT-version specific: an engine built on x86 cannot
-run on Jetson (or vice versa). For Jetson deployment, copy the .pt or .onnx
-to the Jetson and run this script there (e.g. --from-onnx if you have .onnx)
-to produce the .engine used by the C++ app.
+run on Jetson (or vice versa). For Jetson deployment, copy the .onnx to the
+Jetson and run this script there to produce the .engine used by the C++ app.
 
 The C++ YoloKeypointModel expects:
 - Input: single tensor, shape [1, 3, H, W] (NCHW, float32), e.g. [1, 3, 640, 640].
 - Output: single tensor, shape [1, num_features, num_predictions], e.g. [1, 56, 8400]
   (features = 4 bbox + num_classes + num_keypoints*3).
-
-Export from .pt uses Ultralytics model.export(format="engine"). Export from .onnx
-uses TensorRT Builder + OnnxParser (no Ultralytics required).
-
-For C++ YoloKeypointModel compatibility, prefer building from ONNX (--from-onnx):
-  python training/yolo/convert_to_onnx.py model.pt
-  python training/yolo/convert_to_tensorrt.py model.onnx --from-onnx -o data/models/model.engine
-Engines built from .pt via Ultralytics may use a different plan format and fail to load in the
-C++ runtime.
 
 Output filenames include a platform tag (e.g. _x86_64_sm89, _aarch64_sm72) that
 encodes both CPU architecture and GPU compute capability so incompatible engines
