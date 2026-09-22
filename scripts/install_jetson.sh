@@ -23,6 +23,7 @@ source "$PROJECT_ROOT/install/install_ds3231_rtc.sh"
 source "$PROJECT_ROOT/install/install_pstore_ramoops.sh"
 source "$PROJECT_ROOT/install/install_jetson_stability.sh"
 source "$PROJECT_ROOT/install/install_jetson_clocks.sh"
+source "$PROJECT_ROOT/install/install_uvcvideo_rt.sh"
 
 # Run checks and installation
 check_jetson_orin
@@ -45,3 +46,4 @@ install_ds3231_rtc
 install_pstore_ramoops
 install_jetson_stability
 install_jetson_clocks
+install_uvcvideo_rt
