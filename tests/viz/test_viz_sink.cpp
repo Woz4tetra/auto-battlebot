@@ -3,6 +3,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <thread>
@@ -56,7 +57,10 @@ class FakeRelay {
     }
 
     void send_subscriber_count(uint32_t channel, uint32_t count) {
-        auto frame = viz::encode_subscriber_count(channel, count);
+        send_frame(viz::encode_subscriber_count(channel, count));
+    }
+
+    void send_frame(const std::vector<std::byte>& frame) {
         ASSERT_EQ(::send(client_fd_, frame.data(), frame.size(), MSG_NOSIGNAL),
                   static_cast<ssize_t>(frame.size()));
     }
@@ -159,6 +163,33 @@ TEST(VizSinkTest, ReplaysAdvertisesThenStreamsAndReadsSubscriberCounts) {
     ASSERT_EQ(viz::frame_kind(body.data(), body.size()), viz::FrameKind::ADVERTISE);
     ASSERT_TRUE(viz::decode_advertise(body.data(), body.size(), adv));
     EXPECT_EQ(adv.topic, "/topic");
+}
+
+TEST(VizSinkTest, DeliversClientMessagesToHandler) {
+    const auto path = test_socket_path();
+    FakeRelay relay(path);
+    VizSink sink(path);
+    std::atomic<int> calls{0};
+    std::string topic;
+    sink.set_client_message_handler([&](const std::string& t, const std::byte*, size_t) {
+        topic = t;
+        calls.fetch_add(1);
+    });
+    ASSERT_TRUE(relay.accept_client(std::chrono::seconds(3)));
+    for (int i = 0; i < 100 && !sink.connected(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(sink.connected());
+
+    const std::string payload = "{}";
+    relay.send_frame(viz::encode_client_message(
+        "/reinit_field", reinterpret_cast<const std::byte*>(payload.data()), payload.size()));
+    for (int i = 0; i < 100 && calls.load() == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    sink.set_client_message_handler(nullptr);
+    EXPECT_EQ(calls.load(), 1);
+    EXPECT_EQ(topic, "/reinit_field");
 }
 
 }  // namespace auto_battlebot

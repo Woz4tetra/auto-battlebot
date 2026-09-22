@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <magic_enum.hpp>
 #include <opencv2/core.hpp>
 #include <stdexcept>
 
@@ -157,6 +158,29 @@ void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const
 
     // UIState clones internally to detach from the camera SDK's reusable buffer.
     ui_state_->set_debug_image(camera_data.rgb.image);
+}
+
+void Runner::post_remote_command(RemoteCommand command) {
+    std::lock_guard<std::mutex> lock(remote_commands_mutex_);
+    remote_commands_.push_back(command);
+}
+
+bool Runner::handle_remote_commands() {
+    std::vector<RemoteCommand> commands;
+    {
+        std::lock_guard<std::mutex> lock(remote_commands_mutex_);
+        commands.swap(remote_commands_);
+    }
+    bool should_reinit_field = false;
+    for (auto command : commands) {
+        spdlog::info("Remote command: {}", magic_enum::enum_name(command));
+        switch (command) {
+            case RemoteCommand::REINIT_FIELD:
+                should_reinit_field = true;
+                break;
+        }
+    }
+    return should_reinit_field;
 }
 
 bool Runner::handle_ui_requests(bool &should_reinit_field) {
@@ -351,6 +375,7 @@ bool Runner::tick() {
     // take_init_button_press() to hand back.
     control_loop_->pump_input();
     should_reinit_field = should_reinit_field || control_loop_->take_init_button_press();
+    should_reinit_field = handle_remote_commands() || should_reinit_field;
 
     CameraData camera_data;
     bool is_camera_ok;

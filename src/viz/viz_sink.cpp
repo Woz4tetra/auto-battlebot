@@ -77,6 +77,11 @@ uint32_t VizSink::num_subscribers(uint32_t channel_id) const {
     return it == subscribers_.end() ? 0 : it->second;
 }
 
+void VizSink::set_client_message_handler(ClientMessageHandler handler) {
+    std::lock_guard<std::mutex> lock(handler_mutex_);
+    client_message_handler_ = std::move(handler);
+}
+
 bool VizSink::try_connect() {
     int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd < 0) return false;
@@ -141,11 +146,20 @@ void VizSink::read_incoming() {
         }
         if (read_buffer_.size() - tmp < len) break;
         const std::byte* body = read_buffer_.data() + tmp;
-        if (viz::frame_kind(body, len) == viz::FrameKind::SUBSCRIBER_COUNT) {
+        const auto kind = viz::frame_kind(body, len);
+        if (kind == viz::FrameKind::SUBSCRIBER_COUNT) {
             viz::SubscriberCountFrame frame;
             if (viz::decode_subscriber_count(body, len, frame)) {
                 std::lock_guard<std::mutex> lock(mutex_);
                 subscribers_[frame.channel_id] = frame.count;
+            }
+        } else if (kind == viz::FrameKind::CLIENT_MESSAGE) {
+            viz::ClientMessageFrame frame;
+            if (viz::decode_client_message(body, len, frame)) {
+                std::lock_guard<std::mutex> lock(handler_mutex_);
+                if (client_message_handler_) {
+                    client_message_handler_(frame.topic, frame.payload, frame.payload_len);
+                }
             }
         }
         off = tmp + len;

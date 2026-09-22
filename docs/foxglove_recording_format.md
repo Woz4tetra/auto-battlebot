@@ -216,6 +216,12 @@ Every frame is `[u32 len][u8 kind][body]`, little-endian, `len` counting `kind` 
   (`u32 len` + bytes): topic, message encoding, schema name, schema encoding, schema data.
 - kind 1 `MESSAGE`: `u32 channel_id`, `u64 log_time_ns`, payload to end of frame.
 - kind 2 `SUBSCRIBER_COUNT` (relay to app): `u32 channel_id`, `u32 count`.
+- kind 3 `CLIENT_MESSAGE` (relay to app): length-prefixed topic, then the payload to the end of
+  the frame. A Foxglove client published it; the relay advertises `clientPublish` with the
+  `json` encoding and forwards every client message. The app treats `/command/<name>` as a
+  `RemoteCommand` (`include/enums/remote_command.hpp`, name is the lowercase enum value) and
+  ignores the payload, so `{}` is enough. `/command/reinit_field` reinitializes the field, same
+  as the UI tile or the init button.
 
 `channel_id` is assigned by the app and is only meaningful for one socket connection. The app
 re-sends every `ADVERTISE` after a reconnect. The relay keys its Foxglove channels by topic and

@@ -18,6 +18,7 @@ enum class FrameKind : uint8_t {
     ADVERTISE = 0,
     MESSAGE = 1,
     SUBSCRIBER_COUNT = 2,
+    CLIENT_MESSAGE = 3,
 };
 
 constexpr size_t kFrameHeaderBytes = 4;
@@ -45,6 +46,15 @@ struct MessageFrame {
 struct SubscriberCountFrame {
     uint32_t channel_id = 0;
     uint32_t count = 0;
+};
+
+// A message a Foxglove client published to the relay, forwarded to the app. Client channels are
+// per-connection on the relay side, so the frame carries the topic rather than an id.
+struct ClientMessageFrame {
+    std::string topic;
+    // Points into the buffer the frame was decoded from.
+    const std::byte* payload = nullptr;
+    size_t payload_len = 0;
 };
 
 namespace detail {
@@ -128,11 +138,22 @@ inline std::vector<std::byte> encode_subscriber_count(uint32_t channel_id, uint3
     return out;
 }
 
+inline std::vector<std::byte> encode_client_message(const std::string& topic,
+                                                    const std::byte* payload, size_t payload_len) {
+    std::vector<std::byte> out;
+    out.reserve(kFrameHeaderBytes + 1 + 4 + topic.size() + payload_len);
+    detail::begin_frame(out, FrameKind::CLIENT_MESSAGE);
+    detail::put_bytes(out, topic.data(), topic.size());
+    out.insert(out.end(), payload, payload + payload_len);
+    detail::finish_frame(out);
+    return out;
+}
+
 // `body` is the frame after the [u32 len] prefix: kind byte followed by the body.
 inline std::optional<FrameKind> frame_kind(const std::byte* body, size_t len) {
     if (len < 1) return std::nullopt;
     const auto kind = static_cast<uint8_t>(body[0]);
-    if (kind > static_cast<uint8_t>(FrameKind::SUBSCRIBER_COUNT)) return std::nullopt;
+    if (kind > static_cast<uint8_t>(FrameKind::CLIENT_MESSAGE)) return std::nullopt;
     return static_cast<FrameKind>(kind);
 }
 
@@ -161,6 +182,14 @@ inline bool decode_subscriber_count(const std::byte* body, size_t len, Subscribe
     size_t off = 1;
     return detail::get_u32(body, len, off, out.channel_id) &&
            detail::get_u32(body, len, off, out.count);
+}
+
+inline bool decode_client_message(const std::byte* body, size_t len, ClientMessageFrame& out) {
+    size_t off = 1;
+    if (!detail::get_string(body, len, off, out.topic)) return false;
+    out.payload = body + off;
+    out.payload_len = len - off;
+    return true;
 }
 
 // Default socket path. A fixed /tmp path rather than $XDG_RUNTIME_DIR so the systemd unit for

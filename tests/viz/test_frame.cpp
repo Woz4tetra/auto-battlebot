@@ -61,6 +61,19 @@ TEST(VizFrameTest, SubscriberCountRoundTrip) {
     EXPECT_EQ(out.count, 2u);
 }
 
+TEST(VizFrameTest, ClientMessageRoundTrip) {
+    const std::string payload = "{}";
+    auto bytes = viz::encode_client_message(
+        "/reinit_field", reinterpret_cast<const std::byte*>(payload.data()), payload.size());
+    const std::byte* body = bytes.data() + viz::kFrameHeaderBytes;
+    const size_t len = bytes.size() - viz::kFrameHeaderBytes;
+    EXPECT_EQ(viz::frame_kind(body, len), viz::FrameKind::CLIENT_MESSAGE);
+    viz::ClientMessageFrame out;
+    ASSERT_TRUE(viz::decode_client_message(body, len, out));
+    EXPECT_EQ(out.topic, "/reinit_field");
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(out.payload), out.payload_len), payload);
+}
+
 TEST(VizFrameTest, TruncatedFramesAreRejected) {
     viz::AdvertiseFrame in;
     in.topic = "/x";

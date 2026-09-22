@@ -4,6 +4,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -14,6 +15,7 @@
 #include "data_structures/target_selection.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
+#include "enums/remote_command.hpp"
 #include "field_filter/field_filter_interface.hpp"
 #include "health/config.hpp"
 #include "health/health_logger.hpp"
@@ -69,9 +71,18 @@ class Runner : public Quittable {
     // Called from the SIGINT/SIGTERM handler, so it only sets a flag the loop polls.
     void request_quit() override { quit_requested_.store(true); }
 
+    // Thread-safe. Queued commands run at the start of the next tick; the viz sink posts them
+    // when a Foxglove client publishes on /command/<name>.
+    void post_remote_command(RemoteCommand command);
+
    private:
     // Independent of ui_state_, which is null whenever the UI is disabled.
     std::atomic<bool> quit_requested_{false};
+
+    // Drains remote_commands_. Returns true when a command asked for a field reinit.
+    bool handle_remote_commands();
+    std::mutex remote_commands_mutex_;
+    std::vector<RemoteCommand> remote_commands_;
 
     RunnerConfiguration runner_config_;
     std::shared_ptr<RgbdCameraInterface> camera_;

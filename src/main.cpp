@@ -23,6 +23,7 @@
 #include "perception_batch/parallel_model_batch.hpp"
 #include "publisher/config.hpp"
 #include "quittable.hpp"
+#include "remote_command.hpp"
 #include "runner.hpp"
 #include "ui/system_actions.hpp"
 #include "ui/ui_manager.hpp"
@@ -126,8 +127,19 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     if (ui_manager) ui_manager->start();
 
+    if (viz_sink) {
+        viz_sink->set_client_message_handler(
+            [&runner](const std::string& topic, const std::byte*, size_t) {
+                if (auto command = parse_remote_command_topic(topic)) {
+                    runner.post_remote_command(*command);
+                }
+            });
+    }
+
     int result = runner.run();
     spdlog::warn("Runner returned with code {}", result);
+    // The sink outlives this scope (the log sink holds it); drop the handler before runner goes.
+    if (viz_sink) viz_sink->set_client_message_handler(nullptr);
 
     std::signal(SIGINT, SIG_DFL);
     std::signal(SIGTERM, SIG_DFL);

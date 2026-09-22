@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -24,9 +25,15 @@ namespace auto_battlebot {
  * one second timer), replays every advertise after a reconnect, drains the queue with blocking
  * writes, and reads subscriber counts flowing back from the relay. When the relay is down the
  * queue is dropped on the floor and `dropped_messages()` counts what was lost.
+ *
+ * Messages a Foxglove client publishes (e.g. `{}` on /command/reinit_field) come back through the
+ * relay and reach the client message handler on the sink thread.
  */
 class VizSink {
    public:
+    using ClientMessageHandler =
+        std::function<void(const std::string& topic, const std::byte* data, size_t len)>;
+
     explicit VizSink(std::string socket_path = viz::default_socket_path());
     ~VizSink();
 
@@ -40,6 +47,11 @@ class VizSink {
     void publish(uint32_t channel_id, const std::byte* data, size_t len, uint64_t log_time_ns);
 
     uint32_t num_subscribers(uint32_t channel_id) const;
+
+    /** Runs on the sink thread and must not block. Pass nullptr to clear; clearing waits for an
+     * in-flight call, so whatever the handler captured may be destroyed once this returns. */
+    void set_client_message_handler(ClientMessageHandler handler);
+
     bool connected() const { return connected_.load(); }
     uint64_t dropped_messages() const { return dropped_.load(); }
     const std::string& socket_path() const { return socket_path_; }
@@ -61,6 +73,8 @@ class VizSink {
     std::vector<viz::AdvertiseFrame> advertises_;
     std::unordered_map<std::string, uint32_t> channel_by_topic_;
     std::unordered_map<uint32_t, uint32_t> subscribers_;
+    std::mutex handler_mutex_;
+    ClientMessageHandler client_message_handler_;
 
     std::atomic<bool> connected_{false};
     std::atomic<bool> stop_{false};

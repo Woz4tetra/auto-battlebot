@@ -62,6 +62,16 @@ struct SubscriptionEvent {
     int delta;
 };
 
+struct ClientMessage {
+    std::string topic;
+    std::vector<std::byte> payload;
+};
+
+// Client channel ids are only unique within one client connection.
+uint64_t client_channel_key(uint32_t client_id, uint32_t channel_id) {
+    return (static_cast<uint64_t>(client_id) << 32) | channel_id;
+}
+
 class Relay {
    public:
     Relay(std::string socket_path, std::string host, uint16_t port)
@@ -85,6 +95,26 @@ class Relay {
             std::lock_guard<std::mutex> lock(events_mutex_);
             events_.push_back({channel_id, -1});
         };
+        // Clients publish commands back to the app (e.g. /reinit_field). The server callbacks run
+        // on SDK threads, so they only queue; the main loop forwards over the app socket.
+        options.capabilities = foxglove::WebSocketServerCapabilities::ClientPublish;
+        options.supported_encodings = {"json"};
+        options.callbacks.onClientAdvertise = [this](uint32_t client_id,
+                                                     const foxglove::ClientChannel& channel) {
+            std::lock_guard<std::mutex> lock(events_mutex_);
+            client_topics_[client_channel_key(client_id, channel.id)] = std::string(channel.topic);
+        };
+        options.callbacks.onClientUnadvertise = [this](uint32_t client_id, uint32_t channel_id) {
+            std::lock_guard<std::mutex> lock(events_mutex_);
+            client_topics_.erase(client_channel_key(client_id, channel_id));
+        };
+        options.callbacks.onMessageData = [this](uint32_t client_id, uint32_t channel_id,
+                                                 const std::byte* data, size_t len) {
+            std::lock_guard<std::mutex> lock(events_mutex_);
+            auto it = client_topics_.find(client_channel_key(client_id, channel_id));
+            if (it == client_topics_.end()) return;
+            client_messages_.push_back({it->second, std::vector<std::byte>(data, data + len)});
+        };
         auto server = foxglove::WebSocketServer::create(std::move(options));
         if (!server.has_value()) {
             spdlog::error("Failed to start WebSocket server on {}:{}: {}", host_, port_,
@@ -100,6 +130,7 @@ class Relay {
         while (!g_stop.load()) {
             poll_once();
             process_subscription_events();
+            forward_client_messages();
         }
 
         spdlog::info("Shutting down");
@@ -318,10 +349,31 @@ class Relay {
         }
     }
 
+    void forward_client_messages() {
+        std::deque<ClientMessage> messages;
+        {
+            std::lock_guard<std::mutex> lock(events_mutex_);
+            messages.swap(client_messages_);
+        }
+        for (const auto& msg : messages) {
+            if (app_fd_ < 0) {
+                spdlog::warn("Dropping client message on {}: no app connected", msg.topic);
+                continue;
+            }
+            spdlog::info("Forwarding client message on {} ({} bytes)", msg.topic,
+                         msg.payload.size());
+            send_to_app(auto_battlebot::viz::encode_client_message(msg.topic, msg.payload.data(),
+                                                                   msg.payload.size()));
+        }
+    }
+
     void send_subscriber_count(const RelayChannel& ch) {
         if (app_fd_ < 0 || ch.app_channel_id == 0) return;
-        auto frame =
-            auto_battlebot::viz::encode_subscriber_count(ch.app_channel_id, ch.subscribers);
+        send_to_app(
+            auto_battlebot::viz::encode_subscriber_count(ch.app_channel_id, ch.subscribers));
+    }
+
+    void send_to_app(const std::vector<std::byte>& frame) {
         size_t sent = 0;
         while (sent < frame.size()) {
             ssize_t n = ::send(app_fd_, frame.data() + sent, frame.size() - sent, MSG_NOSIGNAL);
@@ -352,6 +404,8 @@ class Relay {
 
     std::mutex events_mutex_;
     std::deque<SubscriptionEvent> events_;
+    std::unordered_map<uint64_t, std::string> client_topics_;
+    std::deque<ClientMessage> client_messages_;
 };
 
 }  // namespace
