@@ -298,7 +298,13 @@ bool OpenTxTransmitter::channels_fresh() const {
 
 TransmitterStatus OpenTxTransmitter::get_status() const {
     const bool connected = serial_.is_open();
-    return {.connected = connected, .receiving_channels = connected && channels_fresh()};
+    const bool receiving = connected && channels_fresh();
+    // Same reading as log_switch_states(): a non-negative trainer channel mixes our commands in.
+    return {.connected = connected,
+            .receiving_channels = receiving,
+            .has_autonomy_switch = true,
+            .autonomy_switch_on = receiving && latest_channels_.has_value() &&
+                                  get_channel_value(config_.trainer_enable_channel) >= 0};
 }
 
 bool OpenTxTransmitter::reconnect_if_needed() {

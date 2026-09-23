@@ -8,6 +8,7 @@
 #include <opencv2/core.hpp>
 #include <stdexcept>
 
+#include "remote/field_projection.hpp"
 #include "time_utils.hpp"
 
 namespace auto_battlebot {
@@ -51,7 +52,8 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       initial_field_description_(),
       diagnostics_logger_(DiagnosticsLogger::get_logger("runner")),
       health_logger_(std::move(health_logger)),
-      start_time_(std::chrono::steady_clock::now()) {}
+      last_tick_time_(std::chrono::steady_clock::now()),
+      app_start_time_(last_tick_time_) {}
 
 void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
     if (!ui_state_ && !remote_.status) return;
@@ -89,16 +91,45 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
         message.jetson_temperature_c = status.jetson_temperature_c;
     }
     message.compute_mode = status.jetson_compute_mode;
+    message.uptime_s = uptime_s();
+    if (status.transmitter.has_autonomy_switch) {
+        message.autonomy_switch_on = status.transmitter.autonomy_switch_on;
+    }
+    message.autonomy_on_s = autonomy_on_s();
     remote_.status->publish(message);
     remote_.status->publish(remote_.app_info);
 }
 
-void Runner::publish_tracks(const RobotDescriptionsStamped &robots,
-                            const FieldDescription &field) const {
+double Runner::uptime_s() const {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - app_start_time_)
+        .count();
+}
+
+std::optional<double> Runner::autonomy_on_s() const {
+    if (!autonomy_switch_since_) return std::nullopt;
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - *autonomy_switch_since_)
+        .count();
+}
+
+void Runner::update_timers() {
+    const TransmitterStatus transmitter = control_loop_->transmitter_status();
+    const bool on = transmitter.has_autonomy_switch && transmitter.autonomy_switch_on;
+    if (on && !autonomy_switch_since_) {
+        autonomy_switch_since_ = std::chrono::steady_clock::now();
+    } else if (!on) {
+        autonomy_switch_since_.reset();
+    }
+    diagnostics_logger_->debug(
+        {{"uptime_s", uptime_s()}, {"autonomy_on_s", autonomy_on_s().value_or(0.0)}});
+}
+
+void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldDescription &field,
+                            const CameraInfo &camera_info) const {
     if (!remote_.status) return;
     remote::TracksMessage message;
     message.field_x = field.size.size.x;
     message.field_y = field.size.size.y;
+    message.field_outline = remote::project_field_outline(field, camera_info);
     for (const auto &robot : robots.descriptions) {
         if (!robot.is_stale) {
             if (robot.group == Group::OURS) message.our_robot_seen = true;
@@ -107,6 +138,7 @@ void Runner::publish_tracks(const RobotDescriptionsStamped &robots,
         if (robot.group == Group::NEUTRAL) continue;
         const Rotation &q = robot.pose.rotation;
         remote::TrackedRobot tracked;
+        tracked.id = remote::detail::lowercase(magic_enum::enum_name(robot.frame_id));
         tracked.label = remote::detail::lowercase(magic_enum::enum_name(robot.label));
         tracked.ours = robot.group == Group::OURS;
         tracked.stale = robot.is_stale;
@@ -412,6 +444,7 @@ bool Runner::tick() {
     // drivers own it and make this a no-op, latching the init-button edge for
     // take_init_button_press() to hand back.
     control_loop_->pump_input();
+    update_timers();
     should_reinit_field = should_reinit_field || control_loop_->take_init_button_press();
 
     CameraData camera_data;
@@ -574,7 +607,7 @@ bool Runner::tick() {
         ui_state_->set_command_feedback(control_output.command_feedback);
         set_ui_debug_image_from_camera(camera_data);
     }
-    publish_tracks(robots, field_description);
+    publish_tracks(robots, field_description, camera_data.camera_info);
     if (remote_.status) {
         const auto &sticks = control_output.command_feedback.stick_commands;
         if (auto it = sticks.find(FrameId::OUR_ROBOT_1); it != sticks.end()) {
@@ -588,8 +621,8 @@ bool Runner::tick() {
 
 double Runner::elapsed_ms() {
     auto now = std::chrono::steady_clock::now();
-    double elapsed = to_ms(now - start_time_);
-    start_time_ = now;
+    double elapsed = to_ms(now - last_tick_time_);
+    last_tick_time_ = now;
     return elapsed;
 }
 

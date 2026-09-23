@@ -27,10 +27,16 @@ struct SystemStatusMessage {
     bool mcap_recording = false;
     std::optional<double> jetson_temperature_c;
     std::string compute_mode;
+    /** Seconds since the app started. */
+    double uptime_s = 0.0;
+    /** The transmitter's autonomy (trainer) switch; absent when the transmitter has none. */
+    std::optional<bool> autonomy_switch_on;
+    /** Seconds since that switch last went on; absent while it is off. */
+    std::optional<double> autonomy_on_s;
     AB_JSON_MESSAGE(SystemStatusMessage, "auto_battlebot.status.System", camera_ok,
                     transmitter_connected, transmitter_receiving, loop_rate_hz, initialized,
                     selected_opponent_count, autonomy_enabled, svo_recording, mcap_recording,
-                    jetson_temperature_c, compute_mode)
+                    jetson_temperature_c, compute_mode, uptime_s, autonomy_switch_on, autonomy_on_s)
 };
 
 struct AppInfoMessage {
@@ -52,14 +58,23 @@ struct SticksMessage {
 
 /** One tracked robot in the field frame (meters, radians). */
 struct TrackedRobot {
+    /** Track slot, e.g. `their_robot_2`. Unique per robot even when two share a label. */
+    std::string id;
     std::string label;
     bool ours = false;
     bool stale = false;
     double x = 0.0;
     double y = 0.0;
     double yaw = 0.0;
-    AB_JSON_MESSAGE(TrackedRobot, "auto_battlebot.status.TrackedRobot", label, ours, stale, x, y,
-                    yaw)
+    AB_JSON_MESSAGE(TrackedRobot, "auto_battlebot.status.TrackedRobot", id, label, ours, stale, x,
+                    y, yaw)
+};
+
+/** A point in the camera image, as a fraction of its width and height (0 to 1 on screen). */
+struct ImagePoint {
+    double u = 0.0;
+    double v = 0.0;
+    AB_JSON_MESSAGE(ImagePoint, "auto_battlebot.status.ImagePoint", u, v)
 };
 
 struct TracksMessage {
@@ -69,8 +84,11 @@ struct TracksMessage {
     double field_x = 0.0;
     double field_y = 0.0;
     std::vector<TrackedRobot> robots;
+    /** The field border projected into the camera image: polylines of ImagePoint, split where
+     *  the border passes behind the camera. Empty before init. */
+    std::vector<std::vector<ImagePoint>> field_outline;
     AB_JSON_MESSAGE(TracksMessage, "auto_battlebot.status.Tracks", our_robot_seen, opponents_seen,
-                    field_x, field_y, robots)
+                    field_x, field_y, robots, field_outline)
 };
 
 struct CommandAckMessage {

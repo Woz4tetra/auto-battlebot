@@ -1,6 +1,7 @@
 <script lang="ts">
   // /status/tracks on the field outline. Field frame: origin at the field center, meters.
   // Drawn with +x to the right and +y up (away from the camera marker at the bottom).
+  import { displayLabel, robotColor, trackKey } from "../lib/robots";
   import { status } from "../lib/status.svelte";
 
   let { showLabel = true }: { showLabel?: boolean } = $props();
@@ -22,6 +23,14 @@
   const deg = (rad: number) => (-rad * 180) / Math.PI;
 
   const quarters = [0.25, 0.5, 0.75];
+
+  // Same color per robot as the camera view.
+  const robots = $derived(
+    (tracks?.robots ?? []).map((r, _i, all) => ({
+      ...r,
+      color: robotColor(r.ours ? r.label : trackKey(r, all), r.ours),
+    })),
+  );
 </script>
 
 <div class="topdown">
@@ -32,25 +41,31 @@
       <line class="grid" x1={left} y1={top + fieldH * q} x2={left + fieldW} y2={top + fieldH * q} />
     {/each}
 
-    {#if tracks}
-      {#each tracks.robots as robot, i (i)}
-        {#if robot.ours}
-          <g
-            class="ours"
-            class:stale={robot.stale}
-            transform="translate({toX(robot.x)} {toY(robot.y)}) rotate({deg(robot.yaw)})"
-          >
-            <rect x="-12" y="-9" width="24" height="18" />
-            <line x1="10" y1="-9" x2="10" y2="9" />
-          </g>
-        {:else}
-          <g class="opp" class:stale={robot.stale}>
-            <circle cx={toX(robot.x)} cy={toY(robot.y)} r="11" />
-            <circle class="core" cx={toX(robot.x)} cy={toY(robot.y)} r="2.5" />
-          </g>
-        {/if}
-      {/each}
-    {/if}
+    {#each robots as robot (robot.id)}
+      {#if robot.ours}
+        <g
+          class="ours"
+          class:stale={robot.stale}
+          style="--c: {robot.color}"
+          transform="translate({toX(robot.x)} {toY(robot.y)}) rotate({deg(robot.yaw)})"
+        >
+          <rect x="-12" y="-9" width="24" height="18" />
+          <line x1="10" y1="-9" x2="10" y2="9" />
+        </g>
+      {:else}
+        <g class="opp" class:stale={robot.stale} style="--c: {robot.color}">
+          <circle cx={toX(robot.x)} cy={toY(robot.y)} r="11" />
+          <circle class="core" cx={toX(robot.x)} cy={toY(robot.y)} r="2.5" />
+        </g>
+      {/if}
+      <text
+        class="name mono"
+        class:stale={robot.stale}
+        x={toX(robot.x)}
+        y={toY(robot.y) - 15}
+        style="--c: {robot.color}">{displayLabel(robot.label)}</text
+      >
+    {/each}
 
     <path class="cam" d="M 120 236 L 112 228 L 128 228 Z" />
   </svg>
@@ -82,20 +97,32 @@
     stroke-width: 1;
   }
   .ours rect {
-    fill: var(--ink);
+    fill: var(--c);
+    stroke: var(--ink);
+    stroke-width: 1;
   }
   .ours line {
-    stroke: var(--bg);
+    stroke: var(--ink);
     stroke-width: 3;
   }
   .opp circle {
     fill: none;
-    stroke: var(--det-opponent);
-    stroke-width: 2.5;
+    stroke: var(--c);
+    stroke-width: 3;
   }
   .opp .core {
-    fill: var(--det-opponent);
+    fill: var(--c);
     stroke: none;
+  }
+  /* Colored text with a background-colored halo, so it reads on the grid and in both themes. */
+  .name {
+    font-size: 8px;
+    font-weight: 600;
+    text-anchor: middle;
+    fill: var(--c);
+    stroke: var(--bg);
+    stroke-width: 2.5px;
+    paint-order: stroke;
   }
   .stale {
     opacity: 0.35;

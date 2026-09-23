@@ -1,6 +1,7 @@
 <script lang="ts">
   // "Label .... value" status rows. Wide layout splits them into two columns.
   import { status } from "../lib/status.svelte";
+  import { formatDuration } from "../lib/time";
 
   let { columns = 1 }: { columns?: 1 | 2 } = $props();
 
@@ -33,7 +34,17 @@
       : [sys.svo_recording && "SVO", sys.mcap_recording && "MCAP"].filter(Boolean).join(" + ") ||
         "OFF";
 
+    // Time since the radio's autonomy switch went on; OFF while it is off, NONE without one.
+    const radioAutonomy = !sys
+      ? NONE
+      : sys.autonomy_switch_on === undefined
+        ? "NONE"
+        : sys.autonomy_switch_on
+          ? formatDuration(sys.autonomy_on_s)
+          : "OFF";
+
     const left = [
+      { label: "App uptime", value: sys ? formatDuration(sys.uptime_s) : NONE },
       { label: "Camera", value: sys ? (sys.camera_ok ? "OK" : "FAULT") : NONE },
       { label: "Transmitter", value: transmitter },
       { label: "Field", value: sys ? (sys.initialized ? "READY" : "NOT READY") : NONE },
@@ -47,6 +58,7 @@
       },
     ];
     const right = [
+      { label: "Radio switch", value: radioAutonomy },
       {
         label: "Loop rate",
         value: sys

@@ -3,6 +3,8 @@
 
 export interface SystemStatus {
   autonomy_enabled: boolean;
+  autonomy_on_s?: number;
+  autonomy_switch_on?: boolean;
   camera_ok: boolean;
   compute_mode: string;
   initialized: boolean;
@@ -13,6 +15,7 @@ export interface SystemStatus {
   svo_recording: boolean;
   transmitter_connected: boolean;
   transmitter_receiving: boolean;
+  uptime_s: number;
 }
 
 export interface AppStatus {
@@ -29,6 +32,7 @@ export interface SticksStatus {
 }
 
 export interface TracksStatus {
+  field_outline: ImagePoint[][];
   field_x: number;
   field_y: number;
   opponents_seen: number;
@@ -36,7 +40,13 @@ export interface TracksStatus {
   robots: TrackedRobot[];
 }
 
+export interface ImagePoint {
+  u: number;
+  v: number;
+}
+
 export interface TrackedRobot {
+  id: string;
   label: string;
   ours: boolean;
   stale: boolean;

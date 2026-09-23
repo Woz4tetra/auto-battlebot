@@ -858,6 +858,17 @@ Where the code differs from the plan above, and why:
   message.
 - **`TracksMessage`** also carries `field_x`/`field_y` for the top-down outline, and each robot's
   `ours` and `stale` flags.
+- **Camera overlays.** `/status/tracks` carries `field_outline`, the field border projected into
+  the camera image as fractions of its size (`src/remote/field_projection.cpp`, the same pinhole
+  projection as the LVGL overlay), so the page draws it over either preview. Detection labels sit
+  outside their box and move to whichever side covers the fewest other boxes and labels.
+- **Robot colors** come from a hash of the label (`web/src/lib/robots.ts`), so every device shows
+  the same color; our robot has its own. Tracks sharing a label differ by track id in the top-down
+  view only, since a detection carries no track id.
+- **Timers.** `/status/system` has `uptime_s`, `autonomy_switch_on` (the radio's trainer switch,
+  absent for transmitters without one), and `autonomy_on_s` (absent while the switch is off). Row
+  01 shows the switch and its timer; the status list and Diagnostics show both timers, and the
+  `runner` diagnostics module logs them for plotting.
 - **`UIState::profile_notice` stays** alongside the ack, because the LVGL dialog still reads it.
 - **Crow and Asio** are fetched as headers only (`SOURCE_SUBDIR` with no `CMakeLists.txt`), which
   sidesteps Crow's `find_package(asio)`. `ASIO_STANDALONE` is defined on `viz_relay`.

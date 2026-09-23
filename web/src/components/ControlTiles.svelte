@@ -2,6 +2,7 @@
   // Control rows 01 to 06: autonomy, opponent count, recording, field, radio mode, sticks.
   import { diagnostics } from "../lib/diagnostics.svelte";
   import { status } from "../lib/status.svelte";
+  import { formatDuration } from "../lib/time";
   import Toggle from "./Toggle.svelte";
 
   let { compact = false }: { compact?: boolean } = $props();
@@ -21,6 +22,16 @@
       busy = null;
     }
   }
+
+  // The radio's autonomy (trainer) switch: whether what we send reaches the wheels. The toggle
+  // above is the app's own enable; both have to be on for the robot to drive itself.
+  const radioSwitch = $derived.by(() => {
+    if (!live || !sys) return { text: "RADIO SWITCH --", on: false };
+    if (sys.autonomy_switch_on === undefined) return { text: "NO RADIO SWITCH", on: false };
+    return sys.autonomy_switch_on
+      ? { text: `RADIO SWITCH ON · ${formatDuration(sys.autonomy_on_s)}`, on: true }
+      : { text: "RADIO SWITCH OFF", on: false };
+  });
 
   const radioMode = $derived.by(() => {
     const v = diagnostics.findValue("behavior_mode");
@@ -42,6 +53,9 @@
     <span class="body">
       <span class="label">AUTONOMY</span>
       <span class="state">{sys ? (sys.autonomy_enabled ? "ON" : "OFF") : "--"}</span>
+      <span class="sub mono" class:on={radioSwitch.on}>
+        <span class="subdot"></span>{radioSwitch.text}
+      </span>
     </span>
     <Toggle
       label="Autonomy"
@@ -162,6 +176,30 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  .sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .subdot {
+    width: 8px;
+    height: 8px;
+    flex-shrink: 0;
+    border: 1.5px solid var(--muted);
+    border-radius: 50%;
+  }
+  .sub.on {
+    color: var(--green);
+  }
+  .sub.on .subdot {
+    background: var(--green);
+    border-color: var(--green);
   }
   .state {
     white-space: nowrap;

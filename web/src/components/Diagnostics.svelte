@@ -3,6 +3,7 @@
   import { LEVEL_NAMES, diagnostics, type DiagModule } from "../lib/diagnostics.svelte";
   import { status } from "../lib/status.svelte";
   import { ui } from "../lib/ui.svelte";
+  import { formatDuration } from "../lib/time";
   import DiagPlot from "./DiagPlot.svelte";
 
   let { wide }: { wide: boolean } = $props();
@@ -25,6 +26,25 @@
     return selected.values.find((v) => typeof v.value === "number")?.key ?? null;
   });
 
+  // The runner module logs uptime_s and autonomy_on_s too, so they can be plotted; these read
+  // /status/system so they tick at 10 Hz instead of the diagnostics rate.
+  const timers = $derived.by(() => {
+    const sys = status.appUp ? status.system : null;
+    return [
+      { label: "UPTIME", value: sys ? formatDuration(sys.uptime_s) : "--" },
+      {
+        label: "RADIO SWITCH",
+        value: !sys
+          ? "--"
+          : sys.autonomy_switch_on === undefined
+            ? "NONE"
+            : sys.autonomy_switch_on
+              ? formatDuration(sys.autonomy_on_s)
+              : "OFF",
+      },
+    ];
+  });
+
   const levelClass = (m: DiagModule) => LEVEL_NAMES[m.level].toLowerCase();
   const show = (v: number | string | null) =>
     v === null
@@ -40,6 +60,14 @@
 
 <div class="diag" class:wide>
   <aside>
+    <div class="timers">
+      {#each timers as t (t.label)}
+        <div class="timer">
+          <span class="label">{t.label}</span>
+          <span class="mono tval">{t.value}</span>
+        </div>
+      {/each}
+    </div>
     <div class="list-head">
       <span class="label">MODULES</span>
       <span class="mono muted small">{list.length} · {counts.warn} warn · {counts.error} error</span
@@ -118,6 +146,27 @@
     flex-shrink: 0;
     border-right: 2px solid var(--ink);
     overflow-y: auto;
+  }
+  .timers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border-bottom: 2px solid var(--ink);
+  }
+  .timer {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 16px;
+  }
+  .timer + .timer {
+    border-left: 1px solid var(--ink);
+  }
+  .wide .timer {
+    padding: 12px 28px;
+  }
+  .tval {
+    font-size: 20px;
+    font-weight: 600;
   }
   .list-head {
     display: flex;

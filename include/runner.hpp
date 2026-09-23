@@ -5,6 +5,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -135,11 +136,20 @@ class Runner : public Quittable {
     std::shared_ptr<FieldDescriptionWithInlierPoints> initial_field_description_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
     std::shared_ptr<HealthLogger> health_logger_;
-    std::chrono::steady_clock::time_point start_time_;
+    /** Start of the previous tick, for the loop rate. */
+    std::chrono::steady_clock::time_point last_tick_time_;
+    /** When the Runner was built, for /status/system uptime. */
+    std::chrono::steady_clock::time_point app_start_time_;
+    /** When the transmitter's autonomy switch last went on; empty while it is off. */
+    std::optional<std::chrono::steady_clock::time_point> autonomy_switch_since_;
 
     void publish_system_status(bool camera_ok, double loop_rate_hz) const;
-    void publish_tracks(const RobotDescriptionsStamped &robots,
-                        const FieldDescription &field) const;
+    void publish_tracks(const RobotDescriptionsStamped &robots, const FieldDescription &field,
+                        const CameraInfo &camera_info) const;
+    /** Starts or clears the autonomy-switch timer from the transmitter, and logs both timers. */
+    void update_timers();
+    double uptime_s() const;
+    std::optional<double> autonomy_on_s() const;
     void stop_recordings_for_shutdown() const;
     bool recover_camera_after_failure();
     void set_ui_debug_image_from_camera(const CameraData &camera_data) const;

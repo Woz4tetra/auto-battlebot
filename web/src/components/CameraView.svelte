@@ -1,5 +1,6 @@
 <script lang="ts">
-  // Camera preview with /keypoint_detections boxes drawn over it.
+  // Camera preview with the field outline (/status/tracks) and /keypoint_detections boxes drawn
+  // over it. Each robot keeps one color (lib/robots.ts), shared with the top-down view.
   //
   // Source choice: H.264 from /camera/preview_video when WebCodecs exists and the channel is
   // advertised, otherwise JPEG from /camera/preview. The video channel can be advertised and still
@@ -9,6 +10,8 @@
   import { connection } from "../lib/connection";
   import { decodeCompressed, decodeImage } from "../lib/image";
   import { H264Decoder, videoDecodeSupported } from "../lib/video";
+  import { displayLabel, robotColor } from "../lib/robots";
+  import { status } from "../lib/status.svelte";
 
   let { showLabel = true }: { showLabel?: boolean } = $props();
 
@@ -17,6 +20,17 @@
   const DET_TOPIC = "/keypoint_detections";
   const VIDEO_TIMEOUT_MS = 2000;
   const STALE_MS = 2000;
+  const OUTLINE_COLOR = "rgba(61, 214, 140, 0.9)";
+
+  interface Rect {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  }
+  const overlapArea = (a: Rect, b: Rect) =>
+    Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) *
+    Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
 
   interface Detection {
     x1: number;
@@ -149,46 +163,103 @@
     ctx.fillStyle = "#141518";
     ctx.fillRect(0, 0, w, h);
     if (frame) ctx.drawImage(frame, 0, 0, w, h);
+    const px = Math.max(1, w / 320);
+    drawOutline(ctx, w, h, px);
     if (!detections || detections.w <= 0 || detections.h <= 0) return;
 
     const sx = w / detections.w;
     const sy = h / detections.h;
-    const px = Math.max(1, w / 320);
-    ctx.lineWidth = 2 * px;
-    ctx.font = `${Math.round(12 * px)}px "IBM Plex Mono", monospace`;
-    ctx.textBaseline = "bottom";
-    for (const d of detections.dets) {
-      const color = d.label === "opponent" || d.label === "house_bot" ? "#FF6B4A" : "#F2F1EC";
-      const x = d.x1 * sx;
-      const y = d.y1 * sy;
-      const bw = (d.x2 - d.x1) * sx;
-      const bh = (d.y2 - d.y1) * sy;
+    const ours = new Set(status.tracks?.robots.filter((r) => r.ours).map((r) => r.label) ?? []);
+    const boxes = detections.dets.map((d) => ({
+      d,
+      color: robotColor(d.label, ours.has(d.label)),
+      rect: { x: d.x1 * sx, y: d.y1 * sy, w: (d.x2 - d.x1) * sx, h: (d.y2 - d.y1) * sy },
+    }));
+
+    // Boxes and keypoints first, then every label, so no box stroke runs over a label.
+    for (const { d, color, rect } of boxes) {
       ctx.strokeStyle = color;
-      ctx.strokeRect(x, y, bw, bh);
-
-      const text = `${d.label} ${d.conf.toFixed(2)}`;
-      const tw = ctx.measureText(text).width + 8 * px;
-      const th = 16 * px;
-      const ty = y - th < 0 ? y + bh : y - th;
-      ctx.fillStyle = color;
-      ctx.fillRect(x, ty, tw, th);
-      ctx.fillStyle = "#121212";
-      ctx.fillText(text, x + 4 * px, ty + th - 2 * px);
-
+      ctx.lineWidth = 2 * px;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
       d.kps?.forEach(([kx, ky, kc], i) => {
         if (kc < 0.3) return;
         ctx.beginPath();
-        ctx.arc(kx * sx, ky * sy, 4 * px, 0, Math.PI * 2);
+        ctx.arc(kx * sx, ky * sy, 3.5 * px, 0, Math.PI * 2);
         if (i === 0) {
           ctx.fillStyle = color;
           ctx.fill();
         } else {
-          ctx.strokeStyle = color;
           ctx.lineWidth = 1.5 * px;
           ctx.stroke();
-          ctx.lineWidth = 2 * px;
         }
       });
+    }
+    drawLabels(ctx, boxes, w, h, px);
+  }
+
+  function drawOutline(ctx: CanvasRenderingContext2D, w: number, h: number, px: number) {
+    const outline = status.appUp ? status.tracks?.field_outline : undefined;
+    if (!outline?.length) return;
+    ctx.save();
+    ctx.strokeStyle = OUTLINE_COLOR;
+    ctx.lineWidth = 2 * px;
+    ctx.setLineDash([6 * px, 4 * px]);
+    ctx.lineJoin = "round";
+    for (const line of outline) {
+      ctx.beginPath();
+      line.forEach((p, i) => (i ? ctx.lineTo(p.u * w, p.v * h) : ctx.moveTo(p.u * w, p.v * h)));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Labels sit outside their box: above, else below, else inside the top edge. Among those, the
+  // spot that covers the least of the other boxes and the labels already placed wins, so labels
+  // on overlapping boxes step aside instead of hiding the box behind them.
+  function drawLabels(
+    ctx: CanvasRenderingContext2D,
+    boxes: { d: Detection; color: string; rect: Rect }[],
+    w: number,
+    h: number,
+    px: number,
+  ) {
+    ctx.font = `600 ${Math.round(10 * px)}px "IBM Plex Mono", monospace`;
+    ctx.textBaseline = "middle";
+    const th = 14 * px;
+    const placed: Rect[] = [];
+    const order = [...boxes].sort((a, b) => b.d.conf - a.d.conf);
+    for (const { d, color, rect } of order) {
+      const text = `${displayLabel(d.label)} ${Math.round(d.conf * 100)}%`;
+      const tw = ctx.measureText(text).width + 10 * px;
+      const clampX = (x: number) => Math.min(Math.max(0, x), Math.max(0, w - tw));
+      const candidates: Rect[] = [
+        { x: clampX(rect.x), y: rect.y - th - 2 * px, w: tw, h: th },
+        { x: clampX(rect.x + rect.w - tw), y: rect.y - th - 2 * px, w: tw, h: th },
+        { x: clampX(rect.x), y: rect.y + rect.h + 2 * px, w: tw, h: th },
+        { x: clampX(rect.x + rect.w - tw), y: rect.y + rect.h + 2 * px, w: tw, h: th },
+        { x: clampX(rect.x), y: rect.y + 2 * px, w: tw, h: th },
+      ].filter((c) => c.y >= 0 && c.y + c.h <= h);
+      if (!candidates.length) candidates.push({ x: clampX(rect.x), y: 0, w: tw, h: th });
+      const cost = (c: Rect) =>
+        placed.reduce((sum, p) => sum + overlapArea(c, p) * 4, 0) +
+        boxes.reduce((sum, b) => (b.rect === rect ? sum : sum + overlapArea(c, b.rect)), 0);
+      // Ties keep the earlier candidate, so an unobstructed label always sits above-left.
+      let best = candidates[0];
+      let bestCost = cost(best);
+      for (const c of candidates.slice(1)) {
+        const cc = cost(c);
+        if (cc < bestCost) {
+          best = c;
+          bestCost = cc;
+        }
+      }
+      placed.push(best);
+      // Dark translucent plate with a color bar: the frame behind stays readable.
+      ctx.fillStyle = "rgba(10, 10, 10, 0.72)";
+      ctx.fillRect(best.x, best.y, best.w, best.h);
+      ctx.fillStyle = color;
+      ctx.fillRect(best.x, best.y, 3 * px, best.h);
+      ctx.fillText(text, best.x + 6 * px, best.y + best.h / 2 + 0.5 * px);
     }
   }
 
