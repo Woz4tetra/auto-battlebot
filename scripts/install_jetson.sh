@@ -15,6 +15,7 @@ source "$PROJECT_ROOT/install/install_pytorch_jetson.sh"
 source "$PROJECT_ROOT/install/install_python_environment.sh"
 source "$PROJECT_ROOT/install/install_foxglove_sdk.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
+source "$PROJECT_ROOT/install/install_node.sh"
 source "$PROJECT_ROOT/install/install_mcap_cli.sh"
 source "$PROJECT_ROOT/install/install_taplo.sh"
 source "$PROJECT_ROOT/install/install_clang_tidy_cache.sh"
@@ -24,6 +25,7 @@ source "$PROJECT_ROOT/install/install_pstore_ramoops.sh"
 source "$PROJECT_ROOT/install/install_jetson_stability.sh"
 source "$PROJECT_ROOT/install/install_jetson_clocks.sh"
 source "$PROJECT_ROOT/install/install_uvcvideo_rt.sh"
+source "$PROJECT_ROOT/install/install_dashboard_network.sh"
 
 # Run checks and installation
 check_jetson_orin
@@ -40,10 +42,15 @@ install_foxglove_sdk
 install_mcap_cli
 install_taplo
 install_clang_tidy_cache
+install_node
 build_cpp_project "$@"
+"$PROJECT_ROOT/scripts/build_web.sh"
 install_udev_rules
 install_ds3231_rtc
 install_pstore_ramoops
 install_jetson_stability
 install_jetson_clocks
 install_uvcvideo_rt
+# Refuses (and says why) when the only Ethernet port is the uplink; the rest of the install
+# still stands, so it is not fatal here.
+install_dashboard_network || echo "Dashboard network not set up; see the message above."

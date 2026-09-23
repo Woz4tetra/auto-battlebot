@@ -1,0 +1,7 @@
+# ZED Box platform (Jetson Orin NX, no screen). The operator uses the web dashboard that viz_relay
+# serves at http://auto-battlebot-dashboard.local (install/install_dashboard_network.sh), so the
+# LVGL window is off. Robot profiles for the box extend this instead of _jetson.
+extends = "_jetson"
+
+[ui]
+enable = false

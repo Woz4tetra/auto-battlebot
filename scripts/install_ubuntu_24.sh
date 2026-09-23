@@ -20,6 +20,7 @@ source "$PROJECT_ROOT/install/install_clang_tidy_cache.sh"
 source "$PROJECT_ROOT/install/install_python_environment.sh"
 source "$PROJECT_ROOT/install/install_platformio.sh"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
+source "$PROJECT_ROOT/install/install_node.sh"
 
 # Run checks and installation
 check_os_ubuntu_24
@@ -36,4 +37,6 @@ install_taplo
 install_clang_tidy_cache
 install_python_environment -n
 install_platformio
+install_node
 build_cpp_project "$@"
+"$PROJECT_ROOT/scripts/build_web.sh"
