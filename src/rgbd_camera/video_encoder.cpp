@@ -59,6 +59,9 @@ bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink) {
         av_opt_set(context_->priv_data, "preset", "veryfast", 0);
         av_opt_set(context_->priv_data, "tune", "zerolatency", 0);
     }
+    // A forced keyframe (request_keyframe) is an IDR, not just an I-frame, so a new viewer can
+    // decode from it. Encoders without the option ignore it.
+    av_opt_set(context_->priv_data, "forced-idr", "1", 0);
     // No AV_CODEC_FLAG_GLOBAL_HEADER: without it both x264 and nvenc repeat SPS/PPS in band ahead
     // of every IDR, which is what CompressedVideo requires and what makes a mid-file seek decode.
 
@@ -101,6 +104,11 @@ bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink) {
                  options_.width, options_.height, options_.fps, options_.bitrate / 1000,
                  options_.keyframe_interval);
     return true;
+}
+
+bool VideoEncoder::hardware_encoder_available() {
+    return avcodec_find_encoder_by_name("h264_nvenc") != nullptr ||
+           avcodec_find_encoder_by_name("h264_nvv4l2m2m") != nullptr;
 }
 
 void VideoEncoder::stop() {
@@ -147,7 +155,10 @@ void VideoEncoder::submit(const cv::Mat &frame, uint64_t log_time_ns) {
             dropped_frames_.fetch_add(1);
             return;
         }
-        queue_.push_back(QueuedFrame{frame.clone(), log_time_ns});
+        // The request rides with the frame: the encoder thread may still be working through
+        // older frames when it arrives.
+        queue_.push_back(
+            QueuedFrame{frame.clone(), log_time_ns, keyframe_requested_.exchange(false)});
     }
     queue_cv_.notify_one();
 }
@@ -187,6 +198,7 @@ bool VideoEncoder::encode_one(const QueuedFrame &frame) {
 
     const int64_t pts = next_pts_++;
     scaled_->pts = pts;
+    scaled_->pict_type = frame.force_keyframe ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
     log_time_by_pts_[pts] = frame.log_time_ns;
     if (avcodec_send_frame(context_, scaled_) < 0) {
         log_time_by_pts_.erase(pts);

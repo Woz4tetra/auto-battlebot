@@ -62,6 +62,14 @@ class VideoEncoder {
     /** Non-blocking. Copies the frame into the queue and returns; drops when the queue is full. */
     void submit(const cv::Mat &frame, uint64_t log_time_ns);
 
+    /** Makes the next submitted frame an IDR, so a viewer that just subscribed can start decoding
+     *  within one frame instead of waiting for the next scheduled keyframe. */
+    void request_keyframe() { keyframe_requested_.store(true); }
+
+    /** True when FFmpeg has h264_nvenc or h264_nvv4l2m2m, so start() would not fall through to
+     *  libx264. It does not prove the encoder opens. */
+    static bool hardware_encoder_available();
+
     uint64_t encoded_frames() const { return encoded_frames_.load(); }
     uint64_t dropped_frames() const { return dropped_frames_.load(); }
     const std::string &codec_name() const { return codec_name_; }
@@ -70,6 +78,7 @@ class VideoEncoder {
     struct QueuedFrame {
         cv::Mat image;
         uint64_t log_time_ns = 0;
+        bool force_keyframe = false;
     };
 
     void encode_loop();
@@ -96,6 +105,7 @@ class VideoEncoder {
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stopping_{false};
+    std::atomic<bool> keyframe_requested_{false};
     std::atomic<uint64_t> encoded_frames_{0};
     std::atomic<uint64_t> dropped_frames_{0};
 };

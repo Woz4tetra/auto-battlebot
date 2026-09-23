@@ -1,5 +1,9 @@
 #include "publisher/foxglove_publisher.hpp"
 
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
+#include <cmath>
 #include <opencv2/imgproc.hpp>
 
 #include "colorize_labels.hpp"
@@ -19,6 +23,7 @@ namespace auto_battlebot {
 namespace {
 using foxglove::schemas::CameraCalibration;
 using foxglove::schemas::CompressedImage;
+using foxglove::schemas::CompressedVideo;
 using foxglove::schemas::FrameTransforms;
 using foxglove::schemas::ImageAnnotations;
 using foxglove::schemas::SceneUpdate;
@@ -34,10 +39,31 @@ VizSchema json_schema(const char *name, const char *text) {
 
 constexpr bool kLatched = true;
 constexpr bool kUnlatched = false;
+/** OpenCV's default, which /camera/image used before it moved to the worker. */
+constexpr int kFullImageJpegQuality = 95;
+constexpr int kPreviewVideoFps = 30;
+
+/** A worker that JPEG-encodes on its own thread with its own encoder and logs the result. */
+std::unique_ptr<ImageEncoderWorker> make_jpeg_worker(std::string name, OutputChannel &channel,
+                                                     int quality) {
+    std::shared_ptr<JpegEncoderInterface> encoder;
+    return std::make_unique<ImageEncoderWorker>(
+        std::move(name), [&channel, encoder, quality](const ImageEncoderWorker::Job &job) mutable {
+            // Created on the worker thread, which is the only thread that uses it.
+            if (!encoder) encoder = make_jpeg_encoder();
+            CompressedImage image;
+            image.timestamp = foxglove_adapters::to_timestamp(job.header.stamp);
+            image.frame_id = foxglove_adapters::frame_id_string(job.header.frame_id);
+            image.format = "jpeg";
+            if (!encoder->encode(job.bgr, quality, image.data)) return;
+            channel.log_message(image, job.log_time_ns);
+        });
+}
 }  // namespace
 
 FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
-                                     std::shared_ptr<McapRecorder> mcap_recorder)
+                                     std::shared_ptr<McapRecorder> mcap_recorder,
+                                     const FoxglovePublisherConfiguration &config)
     : sink_(std::move(sink)),
       mcap_recorder_(std::move(mcap_recorder)),
       rgb_image_("/camera/image", "protobuf", sdk_schema<CompressedImage>(), kUnlatched, sink_,
@@ -77,18 +103,118 @@ FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
                            kUnlatched, sink_, mcap_recorder_),
       keypoint_annotations_("/keypoint_detections/annotations", "protobuf",
                             sdk_schema<ImageAnnotations>(), kUnlatched, sink_, nullptr),
-      diagnostics_logger_(DiagnosticsLogger::get_logger("foxglove_publisher")) {}
+      preview_image_("/camera/preview", "protobuf", sdk_schema<CompressedImage>(), kUnlatched,
+                     sink_, nullptr),
+      config_(config),
+      field_mask_encoder_(make_jpeg_encoder()),
+      diagnostics_logger_(DiagnosticsLogger::get_logger("foxglove_publisher")),
+      image_worker_(make_jpeg_worker("camera_image", rgb_image_, kFullImageJpegQuality)),
+      preview_worker_(
+          make_jpeg_worker("camera_preview", preview_image_, config_.preview_jpeg_quality)) {
+    if (sink_ && config_.preview_width > 0 && VideoEncoder::hardware_encoder_available()) {
+        preview_video_ = std::make_unique<OutputChannel>("/camera/preview_video", "protobuf",
+                                                         sdk_schema<CompressedVideo>(), kUnlatched,
+                                                         sink_, nullptr);
+    }
+}
+
+cv::Mat FoxglovePublisher::resize_for_preview(const cv::Mat &image) const {
+    // Even dimensions: the H.264 encoder needs them, and the JPEG preview shares the frame.
+    const int width = std::min(config_.preview_width, image.cols) & ~1;
+    const int height = static_cast<int>(std::lround(static_cast<double>(image.rows) * width /
+                                                    static_cast<double>(image.cols))) &
+                       ~1;
+    cv::Mat out;
+    if (width == image.cols && height == image.rows) return image.clone();
+    cv::resize(image, out, cv::Size(width, height), 0.0, 0.0, cv::INTER_AREA);
+    return out;
+}
+
+void FoxglovePublisher::submit_preview_video(const cv::Mat &frame, uint64_t log_time) {
+    if (!preview_video_encoder_.running()) {
+        VideoEncoderOptions options;
+        options.width = frame.cols;
+        options.height = frame.rows;
+        options.fps = kPreviewVideoFps;
+        options.bitrate = static_cast<int64_t>(config_.preview_video_bitrate_kbps) * 1000;
+        options.keyframe_interval = kPreviewVideoFps;
+        options.input_is_uyvy = false;
+        OutputChannel *channel = preview_video_.get();
+        const bool started = preview_video_encoder_.start(
+            options, [channel](const std::byte *data, size_t len, uint64_t log_time_ns, bool) {
+                CompressedVideo message;
+                message.timestamp =
+                    foxglove_adapters::to_timestamp(static_cast<double>(log_time_ns) * 1e-9);
+                message.frame_id = foxglove_adapters::frame_id_string(FrameId::CAMERA);
+                message.format = "h264";
+                message.data.assign(data, data + len);
+                channel->log_message(message, log_time_ns);
+            });
+        if (!started || preview_video_encoder_.codec_name() == "libx264") {
+            spdlog::warn("Preview video off: no hardware H.264 encoder opened ({})",
+                         preview_video_encoder_.codec_name());
+            preview_video_encoder_.stop();
+            preview_video_failed_ = true;
+            return;
+        }
+    }
+    preview_video_encoder_.submit(frame, log_time);
+}
+
+void FoxglovePublisher::submit_previews(const RgbImage &rgb, uint64_t log_time) {
+    if (rgb.image.empty() || config_.preview_width <= 0) return;
+    const auto now = std::chrono::steady_clock::now();
+    const bool want_jpeg =
+        preview_image_.has_consumers() &&
+        (config_.preview_rate_hz <= 0.0 ||
+         now - last_preview_ >= std::chrono::duration<double>(1.0 / config_.preview_rate_hz));
+
+    bool want_video = false;
+    if (preview_video_ && !preview_video_failed_) {
+        const uint32_t subscribers = preview_video_->num_subscribers();
+        // A viewer that just subscribed cannot decode until the next IDR; ask for one now.
+        if (subscribers > preview_video_subscribers_) preview_video_encoder_.request_keyframe();
+        preview_video_subscribers_ = subscribers;
+        want_video = subscribers > 0 && now - last_preview_video_ >=
+                                            std::chrono::duration<double>(1.0 / kPreviewVideoFps);
+    }
+    if (!want_jpeg && !want_video) return;
+
+    cv::Mat small = resize_for_preview(rgb.image);
+    if (want_video) {
+        last_preview_video_ = now;
+        submit_preview_video(small, log_time);
+    }
+    if (want_jpeg) {
+        last_preview_ = now;
+        preview_worker_->submit({std::move(small), rgb.header, log_time});
+    }
+}
+
+void FoxglovePublisher::log_encoder_stats() {
+    for (const auto *worker : {image_worker_.get(), preview_worker_.get()}) {
+        const auto stats = worker->stats();
+        if (stats.encoded_frames == 0) continue;
+        diagnostics_logger_->debug(worker->name(),
+                                   {{"encoded_frames", static_cast<int>(stats.encoded_frames)},
+                                    {"replaced_frames", static_cast<int>(stats.replaced_frames)},
+                                    {"encode_ms", stats.last_encode_ms},
+                                    {"mean_encode_ms", stats.mean_encode_ms}});
+    }
+}
 
 void FoxglovePublisher::publish_camera_data(const CameraData &data) {
     FunctionTimer timer(diagnostics_logger_, "publish_camera_data");
     const uint64_t log_time = wall_time_ns();
 
-    // JPEG compression is ~10 ms on the Jetson, so skip it entirely unless a Foxglove client
-    // subscribed or the recorder actually records the topic.
-    if (rgb_image_.has_consumers()) {
-        auto image = foxglove_adapters::to_compressed_image(data.rgb);
-        rgb_image_.log_message(image, log_time);
+    // JPEG compression is ~10 ms of CPU on the Jetson, so it runs on worker threads, and only
+    // when a client subscribed or the recorder records the topic. The loop pays one copy of the
+    // frame, or one resize for the preview.
+    if (rgb_image_.has_consumers() && !data.rgb.image.empty()) {
+        image_worker_->submit({data.rgb.image.clone(), data.rgb.header, log_time});
     }
+    submit_previews(data.rgb, log_time);
+    log_encoder_stats();
 
     auto calibration = foxglove_adapters::to_camera_calibration(data.camera_info);
     camera_info_.log_message(calibration, log_time);
@@ -126,7 +252,12 @@ void FoxglovePublisher::publish_field_mask(const MaskStamped &field_mask, const 
     mask_as_image.header = field_mask.header;
     mask_as_image.header.frame_id = FrameId::CAMERA_WORLD;
     mask_as_image.image = overlay;
-    auto mask_message = foxglove_adapters::to_compressed_image(mask_as_image);
+    // Once per field fit, so it encodes inline, but on the same encoder the workers use.
+    CompressedImage mask_message;
+    mask_message.timestamp = foxglove_adapters::to_timestamp(mask_as_image.header.stamp);
+    mask_message.frame_id = foxglove_adapters::frame_id_string(mask_as_image.header.frame_id);
+    mask_message.format = "jpeg";
+    field_mask_encoder_->encode(mask_as_image.image, kFullImageJpegQuality, mask_message.data);
     field_mask_.log_message(mask_message, log_time);
 
     CameraInfo field_mask_camera_info = camera_info;

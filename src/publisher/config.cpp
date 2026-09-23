@@ -40,7 +40,9 @@ std::shared_ptr<PublisherInterface> make_publisher(const PublisherConfiguration 
     if (config.type == "NoopPublisher") {
         return std::make_shared<NoopPublisher>();
     } else if (config.type == "FoxglovePublisher") {
-        return std::make_shared<FoxglovePublisher>(std::move(sink), std::move(mcap_recorder));
+        return std::make_shared<FoxglovePublisher>(
+            std::move(sink), std::move(mcap_recorder),
+            dynamic_cast<const FoxglovePublisherConfiguration &>(config));
     }
     throw std::invalid_argument("Failed to load Publisher of type " + config.type);
 }

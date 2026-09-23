@@ -36,8 +36,16 @@ struct FoxglovePublisherConfiguration : public PublisherConfiguration {
 
     /** Unix socket the viz_relay listens on. */
     std::string socket_path = viz::default_socket_path();
+    /** /camera/preview and /camera/preview_video width in pixels; height keeps the aspect. */
+    int preview_width = 640;
+    /** /camera/preview JPEG rate. */
+    double preview_rate_hz = 10.0;
+    int preview_jpeg_quality = 70;
+    int preview_video_bitrate_kbps = 1500;
 
-    PARSE_CONFIG_FIELDS(PARSE_FIELD_STRING(socket_path))
+    PARSE_CONFIG_FIELDS(PARSE_FIELD_STRING(socket_path) PARSE_FIELD(preview_width)
+                            PARSE_FIELD_DOUBLE(preview_rate_hz) PARSE_FIELD(preview_jpeg_quality)
+                                PARSE_FIELD(preview_video_bitrate_kbps))
 };
 
 std::shared_ptr<PublisherInterface> make_publisher(
