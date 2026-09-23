@@ -614,8 +614,9 @@ Other details:
 
 ### Dashboard URL
 
-Every client opens `http://auto-battlebot-dashboard.local`. The WebSocket URL comes from
-`location.hostname`, so it follows as `ws://auto-battlebot-dashboard.local:8765`.
+Every client opens `http://<hostname>.local`, where `<hostname>` is the name the box already
+has. Nothing renames the host. The WebSocket URL comes from `location.hostname`, so it follows as
+`ws://<hostname>.local:8765`. The System tab shows the URL from `/status/network`.
 
 Addressing on the cable uses IPv4 link-local, not DHCP:
 
@@ -628,14 +629,13 @@ Addressing on the cable uses IPv4 link-local, not DHCP:
 - If the iPad's self-assign wait is too slow, set its Ethernet adapter to manual
   `169.254.42.2/16` once, and it connects instantly after that.
 
-The name is the box's hostname, `auto-battlebot-dashboard`, published by Avahi over mDNS:
+The name is the box's existing hostname, published by Avahi over mDNS:
 
 - Avahi answers a hostname query on each interface with that interface's own address:
   `169.254.42.1` to the iPad on the cable, and the DHCP address to the phone on Wi-Fi. That is
   why this uses the hostname, not an alias. An `avahi-publish -a` alias has one fixed address on
   every interface, so a phone on Wi-Fi would resolve to the unreachable cable address.
-- SSH to the box also becomes `auto-battlebot-dashboard.local`. The ZED Box is new, so no
-  existing setup depends on its old name.
+- SSH keeps working under the same name, since the hostname does not change.
 - iPadOS resolves `.local` natively. Android resolves it from Android 12 on, through the DNS
   resolver Mainline module shipped in Google Play system updates since November 2021.
   Android's Private DNS set to a provider hostname can stop `.local` from resolving. Set it to
@@ -670,10 +670,7 @@ Steps:
    says to pick another port with `--interface` or move the uplink to Wi-Fi first.
 2. **Packages.** `apt-get install -y avahi-daemon avahi-utils nftables`. NetworkManager and
    polkit already ship with JetPack.
-3. **Hostname.** `hostnamectl set-hostname auto-battlebot-dashboard`, and the `127.0.1.1` line in
-   `/etc/hosts` updated to match so `sudo` doesn't warn that it can't resolve the host. The
-   script prints the old name when it changes one.
-4. **NetworkManager profile** `auto-battlebot-dashboard` on the interface:
+3. **NetworkManager profile** `auto-battlebot-dashboard` on the interface:
    - `ipv4.method manual`, `ipv4.addresses 169.254.42.1/16`, `ipv4.never-default yes`
    - `ipv6.method link-local`
    - `connection.mdns no`, so systemd-resolved stays off port 5353 and Avahi answers
@@ -683,9 +680,9 @@ Steps:
    The script deletes and re-adds the profile, so rerunning it is safe. `nmcli connection up`
    may fail with no cable plugged in, and that's fine: NetworkManager brings the profile up on
    carrier.
-5. **Avahi.** `systemctl enable --now avahi-daemon`. If `/etc/avahi/avahi-daemon.conf` sets
+4. **Avahi.** `systemctl enable --now avahi-daemon`. If `/etc/avahi/avahi-daemon.conf` sets
    `allow-interfaces` without both interfaces, the script warns and does not edit the file.
-6. **Firewall**, unless `--allow-all-interfaces`:
+5. **Firewall**, unless `--allow-all-interfaces`:
    - `/etc/auto-battlebot/dashboard.nft` defines its own table,
      `inet auto_battlebot_dashboard`, so no other ruleset is touched. The table has a set
      `allowed_ifaces` (type `ifname`) holding `lo` and the Ethernet port. Its input chain accepts
@@ -704,7 +701,7 @@ Steps:
      and nothing else. JetPack 7 is Ubuntu 24.04, whose polkit reads JavaScript rules files.
    - With `--allow-all-interfaces`, the script disables both services, removes the polkit rule,
      and deletes the table if an earlier run installed them.
-7. **Port 80 for viz_relay.** The drop-in
+6. **Port 80 for viz_relay.** The drop-in
    `/etc/systemd/system/viz_relay.service.d/dashboard.conf` sets
    `AmbientCapabilities=CAP_NET_BIND_SERVICE` and replaces `ExecStart` with
    `~/.local/bin/viz_relay --http-port 80`, using the invoking user's home from `SUDO_USER`.
@@ -714,10 +711,10 @@ Steps:
    - The drop-in is only written when `viz_relay --help` lists `--http-port`. Before Crow lands,
      an unknown flag would put the relay in a crash loop, so until then the script skips this
      step and says to rerun it.
-8. **Enable and restart.** `daemon-reload`, enable and restart the firewall service, restart
-   `avahi-daemon` so it picks up the new hostname, and restart `viz_relay` if it's running.
-9. **Print verification commands:**
-   - `avahi-resolve -4 -n auto-battlebot-dashboard.local` prints the box's addresses.
+7. **Enable and restart.** `daemon-reload`, enable and restart the firewall service, restart
+   `avahi-daemon`, and restart `viz_relay` if it's running.
+8. **Print verification commands:**
+   - `avahi-resolve -4 -n <hostname>.local` prints the box's addresses.
    - `sudo nft list set inet auto_battlebot_dashboard allowed_ifaces` shows `lo` and the
      Ethernet port.
    - `sudo -u <user> systemctl start auto-battlebot-dashboard-wifi.service` succeeds without a
@@ -774,10 +771,10 @@ End to end, on a playback run and then on the ZED Box with the iPad over the don
 3. Kill and restart the relay: the page reloads its socket and recovers.
 4. Lock and unlock the iPad: reconnects within 5 s.
 5. Wi-Fi off, airplane mode on: everything still works.
-6. Plug the cable in after the box has booted: `http://auto-battlebot-dashboard.local` loads
+6. Plug the cable in after the box has booted: `http://<hostname>.local` loads
    within 15 s. From a laptop on the box's Wi-Fi, ports 80 and 8765 are refused.
 7. Turn on Wi-Fi access from the iPad. An Android phone on the same Wi-Fi opens
-   `http://auto-battlebot-dashboard.local` in Chrome, and the header says `WI-FI`. The phone's
+   `http://<hostname>.local` in Chrome, and the header says `WI-FI`. The phone's
    commands show up in `/status/system` within 200 ms.
 8. Reboot the box. The phone reconnects without the iPad, and the amber `WI-FI` tag is still
    shown. Turn Wi-Fi access off: the phone is refused within 1 s.
@@ -839,9 +836,6 @@ added in `include/remote/protocol.hpp`.
 - Anyone on the Ethernet link can reboot the box, and so can anyone on the Wi-Fi while Wi-Fi
   access is on. That is acceptable on a direct cable and on the shop network. At an event, turn
   Wi-Fi access off, which is why the amber `WI-FI` tag stays in the header while it is on.
-- Two boxes with this install on the same Wi-Fi both claim `auto-battlebot-dashboard.local`, and
-  Avahi renames the second to `auto-battlebot-dashboard-2.local`. Is the ZED Box the only box
-  that gets it, or does the Orin NX bench box need a flag to keep its own name?
 - Which Android phone? Android 12 or newer is needed for `.local`. Whether it exposes Ethernet
   settings decides if the cable path works for it too.
 - Does the ZED Box have one Ethernet port or two? With one, the dashboard takes it, and the box's
@@ -866,6 +860,9 @@ Where the code differs from the plan above, and why:
 - **Crow and Asio** are fetched as headers only (`SOURCE_SUBDIR` with no `CMakeLists.txt`), which
   sidesteps Crow's `find_package(asio)`. `ASIO_STANDALONE` is defined on `viz_relay`.
 - **`/healthz`** returns `{"app_connected", "link"}` with `link` one of `cable`, `wifi`, `local`.
+- **The host is never renamed.** The URL is `http://<hostname>.local` with the name the box
+  already has, so SSH and other machines that know the box keep working. The page takes the
+  name from `/status/network`, and the install script prints the URL at the end.
 - **The firewall** also drops 8080, the relay's default HTTP port, in case the port 80 drop-in is
   missing. `install_jetson.sh` treats a refused network setup (the uplink is the only Ethernet
   port) as a warning, not a failed install.

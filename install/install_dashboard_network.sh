@@ -1,5 +1,6 @@
 #!/bin/bash
-# Serve the web dashboard at http://auto-battlebot-dashboard.local over the Ethernet cable.
+# Serve the web dashboard at http://<hostname>.local over the Ethernet cable. The box keeps the
+# hostname it already has; this script never renames it.
 #
 # The iPad plugs into the box with a USB-C Ethernet dongle. Nothing on that link hands out
 # addresses: the box takes the fixed IPv4 link-local address 169.254.42.1/16, and the iPad
@@ -29,7 +30,8 @@
 #                             earlier run installed.
 
 install_dashboard_network() {
-    local hostname="auto-battlebot-dashboard"
+    local hostname
+    hostname=$(hostname)
     local profile="auto-battlebot-dashboard"
     local address="169.254.42.1/16"
     local table="auto_battlebot_dashboard"
@@ -96,21 +98,7 @@ install_dashboard_network() {
     # ---- 2. Packages ----
     sudo apt-get install -y avahi-daemon avahi-utils nftables
 
-    # ---- 3. Hostname ----
-    local old_hostname
-    old_hostname=$(hostname)
-    if [ "$old_hostname" != "$hostname" ]; then
-        echo "Renaming host $old_hostname -> $hostname"
-        sudo hostnamectl set-hostname "$hostname"
-    fi
-    # sudo warns on every call when the hostname does not resolve.
-    if grep -q '^127\.0\.1\.1' /etc/hosts; then
-        sudo sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$hostname/" /etc/hosts
-    else
-        echo -e "127.0.1.1\t$hostname" | sudo tee -a /etc/hosts >/dev/null
-    fi
-
-    # ---- 4. NetworkManager profile ----
+    # ---- 3. NetworkManager profile ----
     # Deleted and re-added, so rerunning is safe. mdns off keeps systemd-resolved off port 5353
     # for Avahi. Priority 100 beats the distro's "Wired connection 1" at 0.
     sudo nmcli connection delete "$profile" >/dev/null 2>&1 || true
@@ -122,7 +110,7 @@ install_dashboard_network() {
     sudo nmcli connection up "$profile" >/dev/null 2>&1 ||
         echo "No carrier on $iface yet; the profile comes up when the cable goes in."
 
-    # ---- 5. Avahi ----
+    # ---- 4. Avahi ----
     sudo systemctl enable --now avahi-daemon
     local allow_line
     allow_line=$(grep -E '^\s*allow-interfaces\s*=' /etc/avahi/avahi-daemon.conf 2>/dev/null || true)
@@ -134,7 +122,7 @@ install_dashboard_network() {
         fi
     fi
 
-    # ---- 6. Firewall ----
+    # ---- 5. Firewall ----
     if [ "$allow_all" = true ]; then
         echo "--allow-all-interfaces: removing the dashboard firewall"
         sudo systemctl disable --now "$wifi_unit" >/dev/null 2>&1 || true
@@ -208,7 +196,7 @@ EOF
         fi
     fi
 
-    # ---- 7. Port 80 for viz_relay ----
+    # ---- 6. Port 80 for viz_relay ----
     # The capability lives in the unit, so rebuilding or reinstalling viz_relay keeps it; setcap
     # on the binary would not survive `cmake --install`. The relay never runs as root.
     local relay_bin="$app_home/.local/bin/viz_relay"
@@ -228,7 +216,7 @@ EOF
         echo "rerun this script after building."
     fi
 
-    # ---- 8. Enable and restart ----
+    # ---- 7. Enable and restart ----
     sudo systemctl daemon-reload
     if [ "$allow_all" != true ]; then
         sudo systemctl enable "$firewall_unit"
@@ -239,9 +227,9 @@ EOF
         sudo systemctl restart viz_relay.service
     fi
 
-    # ---- 9. Verification ----
+    # ---- 8. Verification ----
     echo ""
-    echo "Dashboard network setup complete."
+    echo "Dashboard network setup complete. Dashboard: http://$hostname.local"
     echo "Verification:"
     echo "  - avahi-resolve -4 -n $hostname.local          # prints the box's addresses"
     if [ "$allow_all" != true ]; then

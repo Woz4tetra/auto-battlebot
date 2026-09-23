@@ -56,9 +56,9 @@ on port 8765 and stays up across app restarts (`scripts/run_viz_relay.sh`, or th
 the layout is documented in `docs/foxglove_recording_format.md`.
 
 The same relay serves a web dashboard (`web/`, Svelte) for boxes with no screen. On the ZED Box
-it is `http://auto-battlebot-dashboard.local` over an Ethernet cable to an iPad, and
-`install/install_dashboard_network.sh` sets up the name, the link-local address, and the
-firewall. On a dev box it is `http://localhost:8080` after `scripts/build_web.sh`. Status topics
+it is `http://<hostname>.local` over an Ethernet cable to an iPad, using the box's existing
+hostname, and `install/install_dashboard_network.sh` sets up mDNS, the link-local address, and
+the firewall. On a dev box it is `http://localhost:8080` after `scripts/build_web.sh`. Status topics
 and commands are one table in `include/remote/protocol.hpp`; see `docs/plans/web_ui_plan.md`.
 
 [![Foxglove demo](docs/media/foxglove-demo.gif)](https://youtu.be/qqPpfk3PQDA)
