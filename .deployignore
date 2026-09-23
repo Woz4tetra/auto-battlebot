@@ -28,3 +28,8 @@
 # Foxglove SDK is architecture-specific; the Jetson installs its own via
 # scripts/install_jetson.sh.
 /third_party/
+
+# The root .gitignore excludes every lib/ directory, and git re-includes the dashboard's
+# web/src/lib/ with "!/web/src/lib/". rsync's .gitignore merge reads that line as a plain
+# exclude, so the re-include has to live here or the web build fails on the Jetson.
+!/web/src/lib/
