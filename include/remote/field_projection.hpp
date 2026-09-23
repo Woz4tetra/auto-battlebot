@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <vector>
 
 #include "data_structures/camera.hpp"
@@ -15,6 +16,11 @@ namespace auto_battlebot::remote {
  * where it does instead of dropped whole; every returned polyline has at least two points.
  * Empty when the field or the intrinsics are missing.
  */
+/** One field-frame point on the floor (z = 0) in the camera image, as fractions of its size;
+ *  nullopt when it is behind the camera or the field or intrinsics are missing. */
+std::optional<ImagePoint> project_field_point(const FieldDescription &field,
+                                              const CameraInfo &camera_info, double x, double y);
+
 std::vector<std::vector<ImagePoint>> project_field_outline(const FieldDescription &field,
                                                            const CameraInfo &camera_info,
                                                            int samples_per_side = 16);

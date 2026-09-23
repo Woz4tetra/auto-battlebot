@@ -25,17 +25,26 @@ std::optional<ImagePoint> project(const FieldDescription &field, const CameraInf
     return ImagePoint{.u = u / camera_info.width, .v = v / camera_info.height};
 }
 
+bool inputs_ok(const FieldDescription &field, const CameraInfo &camera_info) {
+    const auto &tf = field.tf_camera_from_fieldcenter.tf;
+    return tf.rows() >= 3 && tf.cols() >= 4 && camera_info.intrinsics.rows == 3 &&
+           camera_info.intrinsics.cols == 3 && camera_info.intrinsics.type() == CV_64F &&
+           camera_info.width > 0 && camera_info.height > 0;
+}
+
 }  // namespace
+
+std::optional<ImagePoint> project_field_point(const FieldDescription &field,
+                                              const CameraInfo &camera_info, double x, double y) {
+    if (!inputs_ok(field, camera_info)) return std::nullopt;
+    return project(field, camera_info, x, y);
+}
 
 std::vector<std::vector<ImagePoint>> project_field_outline(const FieldDescription &field,
                                                            const CameraInfo &camera_info,
                                                            int samples_per_side) {
     std::vector<std::vector<ImagePoint>> out;
-    const auto &tf = field.tf_camera_from_fieldcenter.tf;
-    if (tf.rows() < 3 || tf.cols() < 4) return out;
-    if (camera_info.intrinsics.rows != 3 || camera_info.intrinsics.cols != 3) return out;
-    if (camera_info.intrinsics.type() != CV_64F) return out;
-    if (camera_info.width <= 0 || camera_info.height <= 0) return out;
+    if (!inputs_ok(field, camera_info)) return out;
     const double hx = field.size.size.x / 2.0;
     const double hy = field.size.size.y / 2.0;
     if (hx <= 0.0 || hy <= 0.0) return out;

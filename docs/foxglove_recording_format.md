@@ -73,7 +73,7 @@ channel's jsonschema is generated from the struct, so this doc does not repeat t
 | `/status/system` | 10 Hz | Camera, transmitter, loop rate, init, opponent count, autonomy, SVO and MCAP recording, temperature, compute mode, app uptime, the radio's autonomy switch and how long it has been on |
 | `/status/app` | every 5 s, latched | Profiles, current profile, loop rate target and fail thresholds |
 | `/status/sticks` | 20 Hz | Our robot's sticks read back from the transmitter, normalized [-1, 1] |
-| `/status/tracks` | 20 Hz | Field size, the field border projected into the camera image (fractions of width and height), and each robot's track id, label, group, stale flag, and field-frame `x`, `y`, `yaw` |
+| `/status/tracks` | 20 Hz | Field size, the field border projected into the camera image (fractions of width and height), each robot's track id, label, group, stale flag, field-frame `x`, `y`, `yaw`, and image point, and navigation's target segment |
 | `/status/command_ack` | per command | `seq`, `topic`, `accepted`, `message` |
 | `/status/network` | every 5 s and on change, latched | Hostname, cable and Wi-Fi addresses, Wi-Fi access |
 

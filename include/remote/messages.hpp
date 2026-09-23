@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "enums/behavior_mode.hpp"
 #include "enums/system_action.hpp"
 #include "remote/json_message.hpp"
 
@@ -66,6 +67,13 @@ struct SticksMessage {
     AB_JSON_MESSAGE(SticksMessage, "auto_battlebot.status.Sticks", linear, angular)
 };
 
+/** A point in the camera image, as a fraction of its width and height (0 to 1 on screen). */
+struct ImagePoint {
+    double u = 0.0;
+    double v = 0.0;
+    AB_JSON_MESSAGE(ImagePoint, "auto_battlebot.status.ImagePoint", u, v)
+};
+
 /** One tracked robot in the field frame (meters, radians). */
 struct TrackedRobot {
     /** Track slot, e.g. `their_robot_2`. Unique per robot even when two share a label. */
@@ -76,15 +84,26 @@ struct TrackedRobot {
     double x = 0.0;
     double y = 0.0;
     double yaw = 0.0;
+    /** Where the robot sits in the camera image; absent when it projects behind the camera. */
+    std::optional<ImagePoint> image;
     AB_JSON_MESSAGE(TrackedRobot, "auto_battlebot.status.TrackedRobot", id, label, ours, stale, x,
-                    y, yaw)
+                    y, yaw, image)
 };
 
-/** A point in the camera image, as a fraction of its width and height (0 to 1 on screen). */
-struct ImagePoint {
-    double u = 0.0;
-    double v = 0.0;
-    AB_JSON_MESSAGE(ImagePoint, "auto_battlebot.status.ImagePoint", u, v)
+/** Where navigation is steering this cycle: an opponent in ATTACK, a safe point in RUN_AWAY. The
+ *  segment runs from where navigation placed our robot, which may be a held stale track. */
+struct TargetMessage {
+    double from_x = 0.0;
+    double from_y = 0.0;
+    std::optional<ImagePoint> from_image;
+    double x = 0.0;
+    double y = 0.0;
+    /** The targeted robot's label; empty for a point that is not a robot. */
+    std::string label;
+    BehaviorMode mode = BehaviorMode::ATTACK;
+    std::optional<ImagePoint> image;
+    AB_JSON_MESSAGE(TargetMessage, "auto_battlebot.status.Target", from_x, from_y, from_image, x, y,
+                    label, mode, image)
 };
 
 struct TracksMessage {
@@ -97,8 +116,10 @@ struct TracksMessage {
     /** The field border projected into the camera image: polylines of ImagePoint, split where
      *  the border passes behind the camera. Empty before init. */
     std::vector<std::vector<ImagePoint>> field_outline;
+    /** Absent before navigation has a target. */
+    std::optional<TargetMessage> target;
     AB_JSON_MESSAGE(TracksMessage, "auto_battlebot.status.Tracks", our_robot_seen, opponents_seen,
-                    field_x, field_y, robots, field_outline)
+                    field_x, field_y, robots, field_outline, target)
 };
 
 struct CommandAckMessage {

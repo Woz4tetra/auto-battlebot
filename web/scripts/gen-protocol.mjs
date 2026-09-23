@@ -40,8 +40,13 @@ function baseName(title) {
   return parts[parts.length - 1];
 }
 
-/** Returns a copy of the schema with every title rewritten to its TypeScript name. */
+/**
+ * Returns a copy of the schema with every title rewritten to its TypeScript name. Nested objects
+ * with a title move to `definitions` and are referenced by `$ref`, so a struct used in several
+ * places (ImagePoint) is declared once instead of as ImagePoint, ImagePoint1, ImagePoint2.
+ */
 function renameTitles(schema, suffix) {
+  const definitions = {};
   const walk = (node, top) => {
     if (Array.isArray(node)) return node.map((n) => walk(n, false));
     if (node === null || typeof node !== "object") return node;
@@ -54,9 +59,15 @@ function renameTitles(schema, suffix) {
         );
       } else out[key] = walk(value, false);
     }
+    if (!top && out.type === "object" && out.title) {
+      definitions[out.title] = out;
+      return { $ref: `#/definitions/${out.title}` };
+    }
     return out;
   };
-  return walk(schema, true);
+  const root = walk(schema, true);
+  if (Object.keys(definitions).length) root.definitions = definitions;
+  return root;
 }
 
 const compileOptions = {

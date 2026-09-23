@@ -145,7 +145,7 @@ class Runner : public Quittable {
 
     void publish_system_status(bool camera_ok, double loop_rate_hz) const;
     void publish_tracks(const RobotDescriptionsStamped &robots, const FieldDescription &field,
-                        const CameraInfo &camera_info) const;
+                        const CameraInfo &camera_info, const TargetSelection &target) const;
     /** Starts or clears the autonomy-switch timer from the transmitter, and logs both timers. */
     void update_timers();
     double uptime_s() const;

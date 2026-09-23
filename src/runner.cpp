@@ -124,7 +124,7 @@ void Runner::update_timers() {
 }
 
 void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldDescription &field,
-                            const CameraInfo &camera_info) const {
+                            const CameraInfo &camera_info, const TargetSelection &target) const {
     if (!remote_.status) return;
     remote::TracksMessage message;
     message.field_x = field.size.size.x;
@@ -135,7 +135,6 @@ void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldD
             if (robot.group == Group::OURS) message.our_robot_seen = true;
             if (robot.group == Group::THEIRS) ++message.opponents_seen;
         }
-        if (robot.group == Group::NEUTRAL) continue;
         const Rotation &q = robot.pose.rotation;
         remote::TrackedRobot tracked;
         tracked.id = remote::detail::lowercase(magic_enum::enum_name(robot.frame_id));
@@ -146,7 +145,24 @@ void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldD
         tracked.y = robot.pose.position.y;
         tracked.yaw =
             std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+        tracked.image = remote::project_field_point(field, camera_info, tracked.x, tracked.y);
         message.robots.push_back(std::move(tracked));
+    }
+    // The segment navigation steered along this cycle, the same one the LVGL overlay draws.
+    const NavigationVisualization visualization = control_loop_->last_visualization();
+    if (const auto &path = visualization.path) {
+        remote::TargetMessage out;
+        out.from_x = path->our_x;
+        out.from_y = path->our_y;
+        out.from_image = remote::project_field_point(field, camera_info, out.from_x, out.from_y);
+        out.x = path->target_x;
+        out.y = path->target_y;
+        if (target.label != Label::EMPTY) {
+            out.label = remote::detail::lowercase(magic_enum::enum_name(target.label));
+        }
+        out.mode = target.mode;
+        out.image = remote::project_field_point(field, camera_info, out.x, out.y);
+        message.target = std::move(out);
     }
     remote_.status->publish(message);
 }
@@ -607,7 +623,7 @@ bool Runner::tick() {
         ui_state_->set_command_feedback(control_output.command_feedback);
         set_ui_debug_image_from_camera(camera_data);
     }
-    publish_tracks(robots, field_description, camera_data.camera_info);
+    publish_tracks(robots, field_description, camera_data.camera_info, control_output.target);
     if (remote_.status) {
         const auto &sticks = control_output.command_feedback.stick_commands;
         if (auto it = sticks.find(FrameId::OUR_ROBOT_1); it != sticks.end()) {

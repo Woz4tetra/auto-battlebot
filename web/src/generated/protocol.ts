@@ -44,6 +44,7 @@ export interface TracksStatus {
   opponents_seen: number;
   our_robot_seen: boolean;
   robots: TrackedRobot[];
+  target?: Target;
 }
 
 export interface ImagePoint {
@@ -53,12 +54,24 @@ export interface ImagePoint {
 
 export interface TrackedRobot {
   id: string;
+  image?: ImagePoint;
   label: string;
   ours: boolean;
   stale: boolean;
   x: number;
   y: number;
   yaw: number;
+}
+
+export interface Target {
+  from_image?: ImagePoint;
+  from_x: number;
+  from_y: number;
+  image?: ImagePoint;
+  label: string;
+  mode: "attack" | "run_away";
+  x: number;
+  y: number;
 }
 
 export interface CommandAckStatus {

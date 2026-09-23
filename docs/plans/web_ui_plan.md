@@ -862,6 +862,12 @@ Where the code differs from the plan above, and why:
   the camera image as fractions of its size (`src/remote/field_projection.cpp`, the same pinhole
   projection as the LVGL overlay), so the page draws it over either preview. Detection labels sit
   outside their box and move to whichever side covers the fewest other boxes and labels.
+- **Both views show the same things.** The top-down view draws every tracked robot, the house
+  bot included, and navigation's target, with no text labels. The camera view adds the same
+  target. `/status/tracks` carries `target` (the segment navigation steered along this cycle, the
+  one the LVGL overlay draws, with its label and behavior mode) and each robot's `image` point, all
+  projected for the camera. The target is a white crosshair in both views, so it never reads as a
+  robot color.
 - **Robot colors** come from `[ui.label_colors]` in `config/_common.toml`, the class colors
   training uses, sent on `/status/app`. A label with no configured color gets one hashed from its
   name (`web/src/lib/robots.ts`), so every device agrees. Tracks sharing a label get lighter

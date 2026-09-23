@@ -48,6 +48,14 @@ TEST(FieldProjectionTest, BorderBehindTheCameraIsCutNotDropped) {
     EXPECT_GE(outline.front().size(), 2u);
 }
 
+TEST(FieldProjectionTest, ProjectsASinglePoint) {
+    const auto center = project_field_point(make_field(4.0), make_camera(), 0.0, 0.0);
+    ASSERT_TRUE(center.has_value());
+    EXPECT_NEAR(center->u, 0.5, 1e-9);
+    EXPECT_NEAR(center->v, 0.5, 1e-9);
+    EXPECT_FALSE(project_field_point(make_field(-1.0), make_camera(), 0.0, 0.0).has_value());
+}
+
 TEST(FieldProjectionTest, MissingInputsGiveNoOutline) {
     EXPECT_TRUE(project_field_outline(make_field(4.0), CameraInfo{}).empty());
     FieldDescription empty;

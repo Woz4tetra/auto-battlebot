@@ -167,7 +167,10 @@
     if (frame) ctx.drawImage(frame, 0, 0, w, h);
     const px = Math.max(1, w / 320);
     drawOutline(ctx, w, h, px);
-    if (!detections || detections.w <= 0 || detections.h <= 0) return;
+    if (!detections || detections.w <= 0 || detections.h <= 0) {
+      drawTarget(ctx, w, h, px);
+      return;
+    }
 
     const sx = w / detections.w;
     const sy = h / detections.h;
@@ -195,6 +198,7 @@
         }
       });
     }
+    drawTarget(ctx, w, h, px);
     drawLabels(ctx, boxes, w, h, px);
   }
 
@@ -214,6 +218,57 @@
     ctx.restore();
   }
 
+  // Navigation's target, as in the top-down view: a white crosshair and a dashed line from where
+  // navigation placed our robot. Both come projected into the image in /status/tracks. A dark
+  // outline under each stroke keeps it visible on the white mat.
+  function drawTarget(ctx: CanvasRenderingContext2D, w: number, h: number, px: number) {
+    const target = status.appUp ? status.tracks?.target : undefined;
+    if (!target?.image) return;
+    const tx = target.image.u * w;
+    const ty = target.image.v * h;
+    const r = 12 * px;
+    const crosshair = () => {
+      ctx.beginPath();
+      ctx.arc(tx, ty, r, 0, Math.PI * 2);
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
+        ctx.moveTo(tx + dx * r * 0.5, ty + dy * r * 0.5);
+        ctx.lineTo(tx + dx * r * 1.6, ty + dy * r * 1.6);
+      }
+    };
+    ctx.save();
+    ctx.lineCap = "round";
+    if (target.from_image) {
+      ctx.setLineDash([6 * px, 5 * px]);
+      for (const [color, width] of [
+        ["rgba(10, 10, 10, 0.7)", 4],
+        ["#f2f1ec", 2],
+      ] as const) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width * px;
+        ctx.beginPath();
+        ctx.moveTo(target.from_image.u * w, target.from_image.v * h);
+        ctx.lineTo(tx, ty);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+    for (const [color, width] of [
+      ["rgba(10, 10, 10, 0.7)", 5],
+      ["#f2f1ec", 2.5],
+    ] as const) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width * px;
+      crosshair();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // Labels sit outside their box: above, else below, else inside the top edge. Among those, the
   // spot that covers the least of the other boxes and the labels already placed wins, so labels
   // on overlapping boxes step aside instead of hiding the box behind them.
@@ -227,7 +282,13 @@
     ctx.font = `600 ${Math.round(10 * px)}px "IBM Plex Mono", monospace`;
     ctx.textBaseline = "middle";
     const th = 14 * px;
+    // The target crosshair counts as a label already placed, so no label covers it.
     const placed: Rect[] = [];
+    const target = status.appUp ? status.tracks?.target?.image : undefined;
+    if (target) {
+      const r = 12 * px * 1.6;
+      placed.push({ x: target.u * w - r, y: target.v * h - r, w: 2 * r, h: 2 * r });
+    }
     const order = [...boxes].sort((a, b) => b.d.conf - a.d.conf);
     for (const { d, color, rect } of order) {
       const text = `${displayLabel(d.label)} ${Math.round(d.conf * 100)}%`;

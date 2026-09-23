@@ -1,7 +1,9 @@
 <script lang="ts">
-  // /status/tracks on the field outline. Field frame: origin at the field center, meters.
+  // /status/tracks on the field outline: every tracked robot and navigation's target, the same
+  // things the camera view overlays, without the text labels. Field frame: origin at the field
+  // center, meters.
   // Drawn with +x to the right and +y up (away from the camera marker at the bottom).
-  import { displayLabel, trackColor } from "../lib/robots";
+  import { trackColor } from "../lib/robots";
   import { status } from "../lib/status.svelte";
 
   let { showLabel = true }: { showLabel?: boolean } = $props();
@@ -25,6 +27,8 @@
   const quarters = [0.25, 0.5, 0.75];
 
   // Same color per robot as the camera view.
+  const target = $derived(tracks?.target ?? null);
+
   const robots = $derived(
     (tracks?.robots ?? []).map((r, _i, all) => ({
       ...r,
@@ -58,14 +62,25 @@
           <circle class="core" cx={toX(robot.x)} cy={toY(robot.y)} r="2.5" />
         </g>
       {/if}
-      <text
-        class="name mono"
-        class:stale={robot.stale}
-        x={toX(robot.x)}
-        y={toY(robot.y) - 15}
-        style="--c: {robot.color}">{displayLabel(robot.label)}</text
-      >
     {/each}
+
+    {#if target}
+      <line
+        class="path"
+        x1={toX(target.from_x)}
+        y1={toY(target.from_y)}
+        x2={toX(target.x)}
+        y2={toY(target.y)}
+      />
+      <!-- White (ink) in both views, so it never reads as one of the robot colors. -->
+      <g class="target" transform="translate({toX(target.x)} {toY(target.y)})">
+        <circle r="16" />
+        <line x1="-22" y1="0" x2="-10" y2="0" />
+        <line x1="10" y1="0" x2="22" y2="0" />
+        <line x1="0" y1="-22" x2="0" y2="-10" />
+        <line x1="0" y1="10" x2="0" y2="22" />
+      </g>
+    {/if}
 
     <path class="cam" d="M 120 236 L 112 228 L 128 228 Z" />
   </svg>
@@ -114,15 +129,16 @@
     fill: var(--c);
     stroke: none;
   }
-  /* Colored text with a background-colored halo, so it reads on the grid and in both themes. */
-  .name {
-    font-size: 8px;
-    font-weight: 600;
-    text-anchor: middle;
-    fill: var(--c);
-    stroke: var(--bg);
-    stroke-width: 2.5px;
-    paint-order: stroke;
+  .path {
+    stroke: var(--ink);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+  }
+  .target circle,
+  .target line {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 2.5;
   }
   .stale {
     opacity: 0.35;
