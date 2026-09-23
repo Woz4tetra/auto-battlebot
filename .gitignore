@@ -81,3 +81,8 @@ runs/
 
 # Claude artifacts
 /.claude/worktrees/
+
+# Web dashboard (web/dist/ is covered by dist/ above). The global lib/ rule would hide the page's
+# source modules, so they are re-included.
+web/node_modules/
+!/web/src/lib/

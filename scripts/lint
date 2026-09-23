@@ -10,8 +10,12 @@
 #   2. taplo          TOML under config/                  (apply, or --dry-run check)
 #   3. ruff format    Python under scripts/ etc.          (apply, or --dry-run check)
 #   4. ruff check     Python lint                         (report)
-#   5. clang-tidy     C/C++ lint over src/  [cached]      (report; needs build/)
-#   6. mypy           Python type check (scope from mypy.ini)  [slow]
+#   5. protocol.ts    web/src/generated/protocol.ts from remote_protocol_dump (regenerate,
+#                     or --dry-run check; needs build/ and web/node_modules)
+#   6. prettier       web/src                             (apply, or --dry-run check)
+#   7. clang-tidy     C/C++ lint over src/  [cached]      (report; needs build/)
+#   8. mypy           Python type check (scope from mypy.ini)  [slow]
+#   9. svelte-check   web/ types  [slow]
 #
 # Options:
 #   --dry-run   Do not modify files: check formatting instead of applying it,
@@ -217,7 +221,51 @@ else
     missing "ruff check" "ruff"
 fi
 
-# ---- 5. clang-tidy (C/C++ lint) — slow when the ctcache entries are cold ----
+# ---- 5. protocol.ts (web types generated from include/remote/protocol.hpp) ----
+WEB_DIR="$PROJECT_ROOT/web"
+PROTOCOL_TS="$WEB_DIR/src/generated/protocol.ts"
+PROTOCOL_DUMP="$BUILD_DIR/remote_protocol_dump"
+have_web() { have node && [ -d "$WEB_DIR/node_modules" ]; }
+header "protocol.ts ($(mode_label))"
+if ! have_web; then
+    missing "protocol.ts" "web/node_modules (run scripts/build_web.sh)"
+elif [ ! -x "$PROTOCOL_DUMP" ]; then
+    echo -e "${RED}    ✗ protocol.ts (no build/remote_protocol_dump; run scripts/build.sh)${NC}"
+    FAILED+=("protocol.ts")
+else
+    DUMP_JSON=$(mktemp)
+    "$PROTOCOL_DUMP" >"$DUMP_JSON"
+    if [ "$DRY_RUN" = true ]; then
+        BEFORE=$(mktemp)
+        cp "$PROTOCOL_TS" "$BEFORE" 2>/dev/null || : >"$BEFORE"
+        (cd "$WEB_DIR" && node scripts/gen-protocol.mjs "$DUMP_JSON" >/dev/null)
+        cmp -s "$BEFORE" "$PROTOCOL_TS"
+        rc=$?
+        cp "$BEFORE" "$PROTOCOL_TS"
+        rm -f "$BEFORE"
+        [ $rc -ne 0 ] && echo "    protocol.ts is stale; run scripts/lint to regenerate it"
+        record "protocol.ts" $rc
+    else
+        (cd "$WEB_DIR" && node scripts/gen-protocol.mjs "$DUMP_JSON" >/dev/null)
+        record "protocol.ts" $?
+    fi
+    rm -f "$DUMP_JSON"
+fi
+
+# ---- 6. prettier (web/src) ----
+header "prettier ($(mode_label))"
+if have_web; then
+    if [ "$DRY_RUN" = true ]; then
+        (cd "$WEB_DIR" && npx --no-install prettier --check src)
+    else
+        (cd "$WEB_DIR" && npx --no-install prettier --write --log-level warn src)
+    fi
+    record "prettier" $?
+else
+    missing "prettier" "web/node_modules (run scripts/build_web.sh)"
+fi
+
+# ---- 7. clang-tidy (C/C++ lint) — slow when the ctcache entries are cold ----
 header "clang-tidy"
 if [ "$QUICK" = true ]; then
     skipped_quick "clang-tidy"
@@ -237,7 +285,7 @@ else
     record "clang-tidy" $?
 fi
 
-# ---- 6. mypy (Python types) — slow ----
+# ---- 8. mypy (Python types) — slow ----
 # Run bare from the project root so mypy.ini drives the scope (files= and
 # mypy_path). Passing directories here would override that config and break
 # local-module resolution.
@@ -249,6 +297,17 @@ elif have mypy; then
     record "mypy" $?
 else
     missing "mypy" "mypy"
+fi
+
+# ---- 9. svelte-check (web types), slow ----
+header "svelte-check"
+if [ "$QUICK" = true ]; then
+    skipped_quick "svelte-check"
+elif have_web; then
+    (cd "$WEB_DIR" && npx --no-install svelte-check --tsconfig ./tsconfig.json --fail-on-warnings)
+    record "svelte-check" $?
+else
+    missing "svelte-check" "web/node_modules (run scripts/build_web.sh)"
 fi
 
 echo "========================================"

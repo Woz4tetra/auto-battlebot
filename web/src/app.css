@@ -1,0 +1,218 @@
+/* Direction B, "Race program": paper, heavy black rules, Archivo and IBM Plex Mono. */
+
+:root {
+  --bg: #f2f1ec;
+  --ink: #121212;
+  --muted: #5c5c58;
+  --faint: #8a8a85;
+  --grid: #dcdad2;
+  --hazard: #e4e2da;
+  --red: #b32a18;
+  --amber: #c98a00;
+  --green: #1f8a4c;
+  --logo-left: #121212;
+  --logo-right: #ffffff;
+  --logo-pill: #cccccc;
+  --logo-text: #121212;
+
+  /* Colors that stay the same in both themes. */
+  --on-amber: #121212;
+  --video-bg: #141518;
+  --det-opponent: #ff6b4a;
+  --det-ours: #f2f1ec;
+
+  --sans: "Archivo Variable", "Archivo", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #131312;
+  --ink: #eceae3;
+  --muted: #a4a29b;
+  --faint: #6f6d67;
+  --grid: #2b2a27;
+  --hazard: #211f1c;
+  --red: #ff6b4a;
+  --amber: #f5b83d;
+  --green: #3dd68c;
+  --logo-left: #eceae3;
+  --logo-right: #000000;
+  --logo-pill: #666666;
+  --logo-text: #f2f2f2;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+button:focus-visible {
+  outline: 3px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+/* Row labels, section headings: 12 px wide caps. */
+.label {
+  font-weight: 600;
+  font-stretch: 110%;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
+/* State words in control rows: 24 px heavy wide. */
+.state {
+  font-weight: 800;
+  font-stretch: 112%;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.rownum {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* Section heading with a heavy rule under it. */
+.section-head {
+  display: block;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--ink);
+}
+
+/* "Label ........ value" rows. */
+.leader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  height: 34px;
+  font-size: 14px;
+  min-width: 0;
+}
+.leader > .k {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.leader > .dots {
+  flex-grow: 1;
+  min-width: 12px;
+  border-bottom: 1px dotted var(--faint);
+}
+.leader > .v {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 14px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Square outlined button, the design's default control. */
+.btn {
+  height: 44px;
+  padding: 0 14px;
+  border: 2px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+.btn:active:not(:disabled) {
+  background: var(--ink);
+  color: var(--bg);
+}
+.btn:disabled {
+  color: var(--faint);
+  border-color: var(--faint);
+}
+
+/* Segmented group: 2 px frame, inverted selection. */
+.seg {
+  display: flex;
+  border: 2px solid var(--ink);
+}
+.seg > button {
+  height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+}
+.seg > button + button {
+  border-left: 2px solid var(--ink);
+}
+.seg > button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--bg);
+}
+.seg > button:disabled {
+  color: var(--faint);
+}
+
+.level-badge {
+  display: inline-block;
+  padding: 3px 0;
+  text-align: center;
+  border: 1px solid var(--faint);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.level-badge.warn {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--on-amber);
+}
+.level-badge.stale {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.level-badge.error {
+  background: var(--red);
+  border-color: var(--red);
+  color: #ffffff;
+}

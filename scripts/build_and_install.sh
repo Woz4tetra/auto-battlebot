@@ -15,6 +15,13 @@ PREFIX="${PREFIX:-$HOME/.local}"
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
 build_cpp_project "$@"
 
+# Before the install step, which copies web/dist/ next to viz_relay.
+if command -v node >/dev/null 2>&1; then
+    "$SCRIPT_DIR/build_web.sh"
+else
+    echo "node not found; the dashboard will not be installed (install/install_node.sh)"
+fi
+
 echo "Installing to $PREFIX..."
 cd "$PROJECT_ROOT/build"
 cmake --install . --prefix "$PREFIX"
