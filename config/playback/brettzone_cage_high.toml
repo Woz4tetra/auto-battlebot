@@ -20,12 +20,6 @@ video_file_path = "data/saved_recordings/BrettZone_2026-05/BZ-nhrl_may26_3lb-sti
 # video_file_path = "data/saved_recordings/BrettZone_2026-05/BZ-nhrl_may26_3lb-wreckcreation-mrsbuff-EX-21ee8a65cb5a4f40-Cage-2-Overhead-High.mcap"
 start_frame = 0
 
-[robot_mask_model]
-# Without this every detection is classified OTHER and dropped before it becomes a keypoint,
-# however confident the model was. debug_visualization draws the raw detections, so the symptom is
-# a annotated frame full of boxes and an empty filter.
-their_robot_labels = ["OPPONENT"]
-
 [robot_filter.label_mapping]
 # Sub-tables merge by key, so OPPONENT and HOUSE_BOT from _common.toml survive this.
 "MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
