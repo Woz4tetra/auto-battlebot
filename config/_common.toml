@@ -142,7 +142,7 @@ keypoint_height_meters = 0.03
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
 our_robot_mode = "EKF"
-max_coast_s = 0.5
+max_coast_s = 0.2
 
 # Known footprint per label, in metres, as [x, y, z]. Measured off the CAD models with
 # training/synthetic/render_sprites.py's upright pose; the x/y values match the footprints in
