@@ -9,9 +9,15 @@
 // client subscribes, which is what lets Foxglove attach mid-run and still see the field border
 // and inlier cloud that were published once at startup.
 //
+// It also serves the web dashboard (web/dist) over HTTP with Crow. Both servers live here because
+// this process outlives app restarts: when the app crashes the page still loads and shows the app
+// as down.
+//
 // Framing is in include/viz/frame.hpp; the layout is documented in
 // docs/foxglove_recording_format.md.
 
+#include <arpa/inet.h>
+#include <crow.h>
 #include <poll.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
@@ -25,9 +31,12 @@
 #include <csignal>
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <foxglove/channel.hpp>
 #include <foxglove/context.hpp>
 #include <foxglove/server.hpp>
+#include <fstream>
+#include <future>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -36,6 +45,7 @@
 #include <vector>
 
 #include "viz/frame.hpp"
+#include "viz/static_files.hpp"
 
 namespace {
 
@@ -67,6 +77,130 @@ struct ClientMessage {
     std::vector<std::byte> payload;
 };
 
+/** Routes Crow's log lines to spdlog. */
+class CrowSpdlogHandler : public crow::ILogHandler {
+   public:
+    void log(std::string message, crow::LogLevel level) override {
+        switch (level) {
+            case crow::LogLevel::Debug:
+                spdlog::debug("[http] {}", message);
+                break;
+            case crow::LogLevel::Info:
+                spdlog::info("[http] {}", message);
+                break;
+            case crow::LogLevel::Warning:
+                spdlog::warn("[http] {}", message);
+                break;
+            case crow::LogLevel::Error:
+            case crow::LogLevel::Critical:
+                spdlog::error("[http] {}", message);
+                break;
+        }
+    }
+};
+
+/** "cable" for the IPv4 link-local range the dashboard port uses, "local" for loopback, and
+ *  "wifi" for anything else. */
+std::string link_for_address(const std::string& address) {
+    std::string v4 = address;
+    if (v4.starts_with("::ffff:")) v4 = v4.substr(7);
+    in_addr addr{};
+    if (::inet_pton(AF_INET, v4.c_str(), &addr) == 1) {
+        const uint32_t ip = ntohl(addr.s_addr);
+        if ((ip >> 16) == 0xA9FE) return "cable";
+        if ((ip >> 24) == 127) return "local";
+        return "wifi";
+    }
+    return address == "::1" ? "local" : "wifi";
+}
+
+/** The first of <exe_dir>/web (installed) and <exe_dir>/../web/dist (the build/ tree). */
+std::filesystem::path default_web_root() {
+    std::error_code ec;
+    const auto exe_dir = std::filesystem::read_symlink("/proc/self/exe", ec).parent_path();
+    for (const auto& candidate : {exe_dir / "web", exe_dir / ".." / "web" / "dist"}) {
+        if (std::filesystem::is_directory(candidate, ec)) return candidate.lexically_normal();
+    }
+    return (exe_dir / ".." / "web" / "dist").lexically_normal();
+}
+
+/**
+ * The dashboard's HTTP side: static files from `web_root` and /healthz. Crow runs its own
+ * threads; everything here is read-only apart from the atomic app flag.
+ */
+class DashboardHttp {
+   public:
+    DashboardHttp(std::filesystem::path web_root, const std::atomic<bool>& app_connected)
+        : web_root_(std::move(web_root)), app_connected_(app_connected) {}
+
+    bool start(const std::string& host, uint16_t port) {
+        crow::logger::setHandler(&log_handler_);
+        app_.loglevel(crow::LogLevel::Warning);
+        // The relay handles SIGINT and SIGTERM itself.
+        app_.signal_clear();
+
+        CROW_ROUTE(app_, "/healthz")
+        ([this](const crow::request& req) {
+            crow::response res(200);
+            res.set_header("Content-Type", "application/json");
+            res.set_header("Cache-Control", "no-cache");
+            res.body = std::string("{\"app_connected\":") +
+                       (app_connected_.load() ? "true" : "false") + ",\"link\":\"" +
+                       link_for_address(req.remote_ip_address) + "\"}";
+            return res;
+        });
+        CROW_ROUTE(app_, "/")([this](const crow::request& req) { return serve(req.url); });
+        CROW_ROUTE(app_, "/<path>")
+        ([this](const crow::request& req, const std::string&) { return serve(req.url); });
+
+        if (!std::filesystem::is_directory(web_root_)) {
+            spdlog::warn("Web root {} is missing; run scripts/build_web.sh", web_root_.string());
+        }
+        app_.bindaddr(host).port(port).concurrency(2);
+        running_ = app_.run_async();
+        if (app_.wait_for_server_start() != std::cv_status::no_timeout) {
+            spdlog::error("Dashboard HTTP server did not start on {}:{}", host, port);
+            return false;
+        }
+        spdlog::info("Dashboard on http://{}:{} from {}", host, port, web_root_.string());
+        return true;
+    }
+
+    void stop() {
+        app_.stop();
+        if (running_.valid()) running_.wait();
+    }
+
+   private:
+    crow::response serve(const std::string& url) const {
+        if (!std::filesystem::is_directory(web_root_)) {
+            crow::response res(503);
+            res.set_header("Content-Type", "text/plain; charset=utf-8");
+            res.body = "Dashboard not built. Run scripts/build_web.sh on the box.\n";
+            return res;
+        }
+        const auto path = auto_battlebot::viz::resolve_static_path(web_root_, url);
+        if (!path) return crow::response(404);
+        std::ifstream in(*path, std::ios::binary);
+        if (!in) return crow::response(404);
+        crow::response res(200);
+        res.body.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        res.set_header("Content-Type", std::string(auto_battlebot::viz::content_type_for(*path)));
+        // Vite hashes every asset name, so assets never change under the same URL. index.html
+        // and the manifest must be revalidated so a rebuilt page reaches the tablet.
+        res.set_header("Cache-Control", url.starts_with("/assets/")
+                                            ? "public, max-age=31536000, immutable"
+                                            : "no-cache");
+        return res;
+    }
+
+    std::filesystem::path web_root_;
+    const std::atomic<bool>& app_connected_;
+    CrowSpdlogHandler log_handler_;
+    crow::SimpleApp app_;
+    std::future<void> running_;
+};
+
 // Client channel ids are only unique within one client connection.
 uint64_t client_channel_key(uint32_t client_id, uint32_t channel_id) {
     return (static_cast<uint64_t>(client_id) << 32) | channel_id;
@@ -74,8 +208,13 @@ uint64_t client_channel_key(uint32_t client_id, uint32_t channel_id) {
 
 class Relay {
    public:
-    Relay(std::string socket_path, std::string host, uint16_t port)
-        : socket_path_(std::move(socket_path)), host_(std::move(host)), port_(port) {}
+    Relay(std::string socket_path, std::string host, uint16_t port, uint16_t http_port,
+          std::filesystem::path web_root)
+        : socket_path_(std::move(socket_path)),
+          host_(std::move(host)),
+          port_(port),
+          http_port_(http_port),
+          web_root_(std::move(web_root)) {}
 
     int run() {
         context_ = foxglove::Context::create();
@@ -124,6 +263,12 @@ class Relay {
         server_.emplace(std::move(server.value()));
         spdlog::info("Foxglove WebSocket server listening on ws://{}:{}", host_, server_->port());
 
+        if (http_port_ != 0) {
+            http_ = std::make_unique<DashboardHttp>(web_root_, app_connected_);
+            // A dashboard that fails to bind is logged, not fatal: Foxglove still works.
+            if (!http_->start(host_, http_port_)) http_.reset();
+        }
+
         if (!open_listener()) return 1;
         spdlog::info("Waiting for auto_battlebot on {}", socket_path_);
 
@@ -134,6 +279,7 @@ class Relay {
         }
 
         spdlog::info("Shutting down");
+        if (http_) http_->stop();
         close_app();
         if (listen_fd_ >= 0) ::close(listen_fd_);
         ::unlink(socket_path_.c_str());
@@ -200,6 +346,7 @@ class Relay {
         }
         warned_second_connection_ = false;
         app_fd_ = fd;
+        app_connected_.store(true);
         read_buffer_.clear();
         spdlog::info("auto_battlebot connected");
     }
@@ -208,6 +355,7 @@ class Relay {
         if (app_fd_ < 0) return;
         ::close(app_fd_);
         app_fd_ = -1;
+        app_connected_.store(false);
         read_buffer_.clear();
         app_channels_.clear();
         for (auto& [topic, ch] : channels_) ch.app_channel_id = 0;
@@ -389,6 +537,10 @@ class Relay {
     std::string socket_path_;
     std::string host_;
     uint16_t port_;
+    uint16_t http_port_;
+    std::filesystem::path web_root_;
+    std::atomic<bool> app_connected_{false};
+    std::unique_ptr<DashboardHttp> http_;
 
     foxglove::Context context_;
     std::optional<foxglove::WebSocketServer> server_;
@@ -415,9 +567,15 @@ int main(int argc, char** argv) {
     std::string socket_path = auto_battlebot::viz::default_socket_path();
     std::string host = "0.0.0.0";
     uint16_t port = 8765;
+    uint16_t http_port = 8080;
+    std::string web_root;
     app.add_option("--socket", socket_path, "Unix socket path the app connects to");
-    app.add_option("--host", host, "WebSocket bind address");
+    app.add_option("--host", host, "WebSocket and HTTP bind address");
     app.add_option("--port", port, "WebSocket port");
+    app.add_option("--http-port", http_port, "Dashboard HTTP port; 0 disables it");
+    app.add_option(
+        "--web-root", web_root,
+        "Built dashboard directory (default: <exe_dir>/web, then <exe_dir>/../web/dist)");
     try {
         app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {
@@ -428,6 +586,7 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
 
-    Relay relay(socket_path, host, port);
+    Relay relay(socket_path, host, port, http_port,
+                web_root.empty() ? default_web_root() : std::filesystem::path(web_root));
     return relay.run();
 }
