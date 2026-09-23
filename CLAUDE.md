@@ -139,6 +139,8 @@ All code is in namespace `auto_battlebot`. Interfaces live in `include/<module>/
   keys on it
 - No ROS. Live viz and recordings use Foxglove schemas over the Foxglove SDK (`docs/foxglove_recording_format.md`); the relay is `viz_relay`. Do not add ROS dependencies
 - Compiler flags are `-Wall -Wextra -Werror`. Fix warnings, do not suppress them
+- Remote UI status topics and commands are added in `include/remote/protocol.hpp` (one row each,
+  structs in `include/remote/messages.hpp`); `./scripts/lint` regenerates the web page's types
 
 ## Testing
 

@@ -6,10 +6,10 @@
 
 namespace auto_battlebot {
 
-void handle_system_action(UISystemAction action) {
+void handle_system_action(SystemAction action) {
     int rc = 0;
     switch (action) {
-        case UISystemAction::REBOOT_HOST:
+        case SystemAction::REBOOT_HOST:
             spdlog::warn("Rebooting the host now.");
             rc = std::system("systemctl reboot");
             if (rc != 0) {
@@ -20,7 +20,7 @@ void handle_system_action(UISystemAction action) {
                 spdlog::error("Failed to execute reboot command, rc={}", rc);
             }
             break;
-        case UISystemAction::POWEROFF_HOST:
+        case SystemAction::POWEROFF_HOST:
             spdlog::warn("Powering off the host now.");
             rc = std::system("systemctl poweroff");
             if (rc != 0) {
@@ -30,8 +30,6 @@ void handle_system_action(UISystemAction action) {
             if (rc != 0) {
                 spdlog::error("Failed to execute poweroff command, rc={}", rc);
             }
-            break;
-        default:
             break;
     }
 }

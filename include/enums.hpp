@@ -7,5 +7,5 @@
 #include "enums/group.hpp"
 #include "enums/keypoint_label.hpp"
 #include "enums/label.hpp"
-#include "enums/remote_command.hpp"
 #include "enums/resolution.hpp"
+#include "enums/system_action.hpp"

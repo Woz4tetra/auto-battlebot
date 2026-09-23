@@ -80,9 +80,9 @@ void system_action_cb(lv_event_t *e) {
     d->widgets->pending_confirm_action = d->action;
     if (d->widgets->confirm_message) {
         const char *msg = "Confirm action?";
-        if (d->action == UISystemAction::REBOOT_HOST) {
+        if (d->action == SystemAction::REBOOT_HOST) {
             msg = "Reboot host now?";
-        } else if (d->action == UISystemAction::POWEROFF_HOST) {
+        } else if (d->action == SystemAction::POWEROFF_HOST) {
             msg = "Power off host now?";
         }
         lv_label_set_text(d->widgets->confirm_message, msg);
@@ -94,24 +94,16 @@ void system_action_cb(lv_event_t *e) {
 void system_confirm_yes_cb(lv_event_t *e) {
     auto *w = static_cast<UIWidgets *>(lv_event_get_user_data(e));
     if (!w || !w->confirm_overlay) return;
-    UISystemAction action = w->pending_confirm_action;
-    w->pending_confirm_action = UISystemAction::NONE;
+    std::optional<SystemAction> action = w->pending_confirm_action;
+    w->pending_confirm_action.reset();
     lv_obj_add_flag(w->confirm_overlay, LV_OBJ_FLAG_HIDDEN);
-    if (action == UISystemAction::NONE) return;
-    switch (action) {
-        case UISystemAction::REBOOT_HOST:
-        case UISystemAction::POWEROFF_HOST:
-            if (w->controller) w->controller->request_system_action(action);
-            break;
-        default:
-            break;
-    }
+    if (action && w->controller) w->controller->request_system_action(*action);
 }
 
 void system_confirm_no_cb(lv_event_t *e) {
     auto *w = static_cast<UIWidgets *>(lv_event_get_user_data(e));
     if (!w || !w->confirm_overlay) return;
-    w->pending_confirm_action = UISystemAction::NONE;
+    w->pending_confirm_action.reset();
     lv_obj_add_flag(w->confirm_overlay, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -735,13 +727,13 @@ void build_system(lv_obj_t *tab, UIWidgets &w, std::shared_ptr<UIState> ui_state
         const char *title;
         const char *subtitle;
         lv_color_t color;
-        UISystemAction action;
+        SystemAction action;
         lv_obj_t **widget_slot;
     };
     std::array<ActionSpec, 2> specs{{
-        {"Reboot Host", "full system reboot", lv_color_hex(0x1E88E5), UISystemAction::REBOOT_HOST,
+        {"Reboot Host", "full system reboot", lv_color_hex(0x1E88E5), SystemAction::REBOOT_HOST,
          &w.reboot_tile},
-        {"Power Off", "safe shutdown", lv_color_hex(0xE53935), UISystemAction::POWEROFF_HOST,
+        {"Power Off", "safe shutdown", lv_color_hex(0xE53935), SystemAction::POWEROFF_HOST,
          &w.poweroff_tile},
     }};
 

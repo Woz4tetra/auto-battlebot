@@ -253,16 +253,22 @@ double UIState::get_rate_fail_duration_sec() const {
     return rate_fail_duration_sec_;
 }
 
-void UIState::set_requested_profile(const std::string &profile) {
+void UIState::set_command_queue(std::shared_ptr<remote::CommandQueue> queue) {
     std::lock_guard<std::mutex> lock(status_mutex_);
-    requested_profile_ = profile;
+    command_queue_ = std::move(queue);
 }
 
-std::optional<std::string> UIState::take_requested_profile() {
-    std::lock_guard<std::mutex> lock(status_mutex_);
-    std::optional<std::string> out = requested_profile_;
-    requested_profile_.reset();
-    return out;
+void UIState::post_command(remote::RemoteCommand command) {
+    std::shared_ptr<remote::CommandQueue> queue;
+    {
+        std::lock_guard<std::mutex> lock(status_mutex_);
+        queue = command_queue_;
+    }
+    if (!queue) {
+        spdlog::warn("UI command {} dropped: no command queue", remote::command_topic_of(command));
+        return;
+    }
+    queue->post(std::move(command));
 }
 
 void UIState::set_available_profiles(const std::vector<std::string> &profiles) {

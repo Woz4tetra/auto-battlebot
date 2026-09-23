@@ -43,6 +43,13 @@ all written against this document. Change it here first.
 | `/keypoint_detections/annotations` | `protobuf` | `foxglove.ImageAnnotations` | `protobuf` | no, live only |
 | `/diagnostics/<module>` | `json` | `auto_battlebot.Diagnostics` | `jsonschema` | yes |
 | `/log` | `protobuf` | `foxglove.Log` | `protobuf` | yes |
+| `/status/system` | `json` | `auto_battlebot.status.System` | `jsonschema` | yes |
+| `/status/app` | `json` | `auto_battlebot.status.App` | `jsonschema` | yes |
+| `/status/sticks` | `json` | `auto_battlebot.status.Sticks` | `jsonschema` | yes |
+| `/status/tracks` | `json` | `auto_battlebot.status.Tracks` | `jsonschema` | yes |
+| `/status/command_ack` | `json` | `auto_battlebot.status.CommandAck` | `jsonschema` | yes |
+| `/status/network` | `json` | `auto_battlebot.status.Network` | `jsonschema` | yes |
+| `/command/<name>` | `json` | `auto_battlebot.command.<Name>` | `jsonschema` | yes, recorder only |
 
 Protobuf schemas are the ones shipped with the Foxglove SDK (schema data is the serialized
 `FileDescriptorSet`, exactly what `foxglove::schemas::X::schema()` in C++ and
@@ -52,7 +59,27 @@ and must stay byte-identical.
 
 Latched topics (the relay re-sends the last message to a newly subscribed client):
 `/field_mask`, `/field_mask/camera_info`, `/field_markers`, `/field_points`, `/hazard_markers`,
-`/robot_markers`, `/nav_markers`.
+`/robot_markers`, `/nav_markers`, `/status/app`, `/status/network`.
+
+## `/status/*` and `/command/*` (JSON)
+
+The remote UI protocol. Every topic, its message struct, and its rate is one row in
+`include/remote/protocol.hpp`; the structs are in `include/remote/messages.hpp`, and each
+channel's jsonschema is generated from the struct, so this doc does not repeat the fields.
+`web/src/generated/protocol.ts` is generated from the same table by `remote_protocol_dump`.
+
+| Topic | Rate | Content |
+| --- | --- | --- |
+| `/status/system` | 10 Hz | Camera, transmitter, loop rate, init, opponent count, autonomy, SVO and MCAP recording, temperature, compute mode |
+| `/status/app` | every 5 s, latched | Profiles, current profile, loop rate target and fail thresholds |
+| `/status/sticks` | 20 Hz | Our robot's sticks read back from the transmitter, normalized [-1, 1] |
+| `/status/tracks` | 20 Hz | Field size, and each robot's label, group, stale flag, and field-frame `x`, `y`, `yaw` |
+| `/status/command_ack` | per command | `seq`, `topic`, `accepted`, `message` |
+| `/status/network` | every 5 s and on change, latched | Hostname, cable and Wi-Fi addresses, Wi-Fi access |
+
+Commands are recorded when the Runner drains them, one channel per command topic, recorder only:
+the relay already has these topics as client channels. Enums are lowercase strings
+(`{"action": "reboot_host"}`); optional fields are left out when empty.
 
 ## Frames
 
@@ -218,10 +245,10 @@ Every frame is `[u32 len][u8 kind][body]`, little-endian, `len` counting `kind` 
 - kind 2 `SUBSCRIBER_COUNT` (relay to app): `u32 channel_id`, `u32 count`.
 - kind 3 `CLIENT_MESSAGE` (relay to app): length-prefixed topic, then the payload to the end of
   the frame. A Foxglove client published it; the relay advertises `clientPublish` with the
-  `json` encoding and forwards every client message. The app treats `/command/<name>` as a
-  `RemoteCommand` (`include/enums/remote_command.hpp`, name is the lowercase enum value) and
-  ignores the payload, so `{}` is enough. `/command/reinit_field` reinitializes the field, same
-  as the UI tile or the init button.
+  `json` encoding and forwards every client message. The app decodes `/command/<name>` against
+  `RemoteTopics::commands` in `include/remote/protocol.hpp` and refuses a payload with a missing
+  field or a wrong type. `/command/reinit_field` takes `{}` (or an empty payload) and
+  reinitializes the field, same as the UI tile or the init button.
 
 `channel_id` is assigned by the app and is only meaningful for one socket connection. The app
 re-sends every `ADVERTISE` after a reconnect. The relay keys its Foxglove channels by topic and

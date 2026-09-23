@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -16,15 +17,10 @@
 #include "data_structures/transmitter_status.hpp"
 #include "diagnostics_logger/diagnostics_backend_interface.hpp"
 #include "navigation/navigation_interface.hpp"
+#include "remote/command_queue.hpp"
 #include "ui/battery_options.hpp"
 
 namespace auto_battlebot {
-enum class UISystemAction : int {
-    NONE = 0,
-    REBOOT_HOST = 2,
-    POWEROFF_HOST = 3,
-};
-
 /** System status written by Runner, read by UI. UI derives our_robot_seen/opponent_count_seen from
  * robots. loop_met is computed in UI from rolling average. */
 struct SystemStatus {
@@ -44,29 +40,21 @@ struct SystemStatus {
 /**
  * Shared state between Runner and UI thread.
  * Runner writes status and debug image; UI reads and draws.
- * UI writes reinit_requested and opponent_count_requested; Runner reads at tick start.
+ * UI posts commands to the shared command queue; Runner drains it at tick start.
  */
 class UIState {
    public:
     UIState() = default;
 
     // --- Commands from UI (written by UI, read by Runner) ---
-    std::atomic<bool> reinit_requested{false};
-    /** 1-3 for set count, -1 or 0 = no change */
-    std::atomic<int> opponent_count_requested{-1};
-    /** Set by UI when window is closed; Runner should exit. */
+    /** Set by UI when window is closed; Runner should exit. Local to this process, so it is not
+     *  a remote command. */
     std::atomic<bool> quit_requested{false};
-    /** 1 = enable, -1 = disable, 0 = no change */
-    std::atomic<int> autonomy_toggle_requested{0};
-    /** True = toggle both SVO and MCAP recording. */
-    std::atomic<bool> recording_toggle_requested{false};
-    /** static_cast<int>(UISystemAction) values; consumed by Runner. */
-    std::atomic<int> system_action_requested{static_cast<int>(UISystemAction::NONE)};
 
-    /** Profile the user picked in the switcher; consumed once by Runner to persist the selection.
-     */
-    void set_requested_profile(const std::string &profile);
-    std::optional<std::string> take_requested_profile();
+    /** The queue every command source shares; set before starting the UI thread. */
+    void set_command_queue(std::shared_ptr<remote::CommandQueue> queue);
+    /** Posts to the queue. Dropped with a warning when no queue is set. */
+    void post_command(remote::RemoteCommand command);
 
     // --- Status from Runner (written by Runner, read by UI) ---
     void set_system_status(const SystemStatus &s);
@@ -180,7 +168,7 @@ class UIState {
     double max_loop_rate_hz_ = 300.0;
     double rate_fail_threshold_ = 0.5;
     double rate_fail_duration_sec_ = 2.0;
-    std::optional<std::string> requested_profile_;
+    std::shared_ptr<remote::CommandQueue> command_queue_;
     std::vector<std::string> available_profiles_;
     std::string current_profile_;
     std::string profile_notice_;

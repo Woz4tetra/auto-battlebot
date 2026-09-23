@@ -199,28 +199,31 @@ TEST(UiOverlayRendererTest, RendersOverlayOnFixedFixture) {
     EXPECT_GT(cv::countNonZero(diff.reshape(1)), 0);
 }
 
-TEST(UiControllerTest, DispatchesCommandCallbacksToUiState) {
+TEST(UiControllerTest, PostsCommandsToTheSharedQueue) {
     auto ui_state = std::make_shared<UIState>();
+    auto queue = std::make_shared<remote::CommandQueue>();
+    ui_state->set_command_queue(queue);
     ui_internal::UiController controller(ui_state);
 
     controller.request_reinitialize();
-    EXPECT_TRUE(ui_state->reinit_requested.exchange(false));
-
-    controller.set_opponent_count(3);
-    EXPECT_EQ(ui_state->opponent_count_requested.exchange(-1), 3);
-
+    controller.set_opponent_count(5);
     SystemStatus st = make_status();
     st.autonomy_enabled = true;
+    st.recording_enabled = false;
     ui_state->set_system_status(st);
     controller.toggle_autonomy();
-    EXPECT_EQ(ui_state->autonomy_toggle_requested.exchange(0), -1);
-
     controller.toggle_recording();
-    EXPECT_TRUE(ui_state->recording_toggle_requested.exchange(false));
+    controller.request_system_action(SystemAction::REBOOT_HOST);
+    controller.select_profile("mrs_buff_mk3");
 
-    controller.request_system_action(UISystemAction::REBOOT_HOST);
-    EXPECT_EQ(ui_state->system_action_requested.exchange(static_cast<int>(UISystemAction::NONE)),
-              static_cast<int>(UISystemAction::REBOOT_HOST));
+    auto commands = queue->drain();
+    ASSERT_EQ(commands.size(), 6u);
+    EXPECT_TRUE(std::holds_alternative<remote::ReinitFieldCommand>(commands[0]));
+    EXPECT_EQ(std::get<remote::SetOpponentCountCommand>(commands[1]).count, 3);
+    EXPECT_FALSE(std::get<remote::SetAutonomyCommand>(commands[2]).enabled);
+    EXPECT_TRUE(std::get<remote::SetRecordingCommand>(commands[3]).enabled);
+    EXPECT_EQ(std::get<remote::SystemActionCommand>(commands[4]).action, SystemAction::REBOOT_HOST);
+    EXPECT_EQ(std::get<remote::SelectProfileCommand>(commands[5]).name, "mrs_buff_mk3");
 
     TargetSelection manual;
     manual.pose.x = 1.0;

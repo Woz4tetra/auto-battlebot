@@ -48,7 +48,7 @@ struct OpponentTileData {
 
 struct SystemActionTileData {
     UIWidgets *widgets = nullptr;
-    UISystemAction action = UISystemAction::NONE;
+    SystemAction action = SystemAction::REBOOT_HOST;
 };
 
 struct CameraTouchData {
@@ -110,7 +110,7 @@ struct UIWidgets {
     lv_obj_t *poweroff_tile = nullptr;
     lv_obj_t *confirm_overlay = nullptr;
     lv_obj_t *confirm_message = nullptr;
-    UISystemAction pending_confirm_action = UISystemAction::NONE;
+    std::optional<SystemAction> pending_confirm_action;
 
     lv_obj_t *profile_dropdown = nullptr;
     std::vector<std::string> profile_options; /* dropdown index -> profile id */

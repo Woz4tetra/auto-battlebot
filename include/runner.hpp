@@ -15,10 +15,11 @@
 #include "data_structures/target_selection.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/function_timer.hpp"
-#include "enums/remote_command.hpp"
+#include "enums/system_action.hpp"
 #include "field_filter/field_filter_interface.hpp"
 #include "health/config.hpp"
 #include "health/health_logger.hpp"
+#include "host/host_services.hpp"
 #include "keypoint_filter/height_gate.hpp"
 #include "keypoint_filter/static_gate.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
@@ -28,6 +29,8 @@
 #include "perception_batch/parallel_model_batch.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "quittable.hpp"
+#include "remote/command_queue.hpp"
+#include "remote/status_bus.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
 #include "robot_blob_model/robot_blob_model_interface.hpp"
 #include "robot_descriptions_cache.hpp"
@@ -38,12 +41,22 @@
 #include "ui/ui_state.hpp"
 
 namespace auto_battlebot {
+
+/** What the Runner shares with remote clients. Every member may be null except `commands`. */
+struct RunnerRemote {
+    std::shared_ptr<remote::CommandQueue> commands = std::make_shared<remote::CommandQueue>();
+    std::shared_ptr<remote::StatusBus> status;
+    std::shared_ptr<HostServices> host;
+    /** Republished on /status/app; the Runner fills in nothing, main.cpp builds it. */
+    remote::AppInfoMessage app_info;
+};
+
 // Quittable so SIGINT and SIGTERM can stop the run. The UI manager used to be the only
 // quittable, which meant that with ui.enable = false nothing was registered at all and
 // both signals became no-ops: the process could then only be killed with SIGKILL.
 class Runner : public Quittable {
    public:
-    using SystemActionCallback = std::function<void(UISystemAction)>;
+    using SystemActionCallback = std::function<void(SystemAction)>;
     using ProfileSelectCallback = std::function<void(const std::string &)>;
 
     Runner(const RunnerConfiguration &runner_config, std::shared_ptr<RgbdCameraInterface> camera,
@@ -61,7 +74,7 @@ class Runner : public Quittable {
            ProfileSelectCallback profile_select_callback = nullptr,
            std::shared_ptr<UIState> ui_state = nullptr,
            std::shared_ptr<McapRecorder> mcap_recorder = nullptr,
-           std::shared_ptr<ClockInterface> clock = nullptr);
+           std::shared_ptr<ClockInterface> clock = nullptr, RunnerRemote remote = {});
 
     void initialize();
     void initialize_field(const CameraData &camera_data);
@@ -71,18 +84,19 @@ class Runner : public Quittable {
     // Called from the SIGINT/SIGTERM handler, so it only sets a flag the loop polls.
     void request_quit() override { quit_requested_.store(true); }
 
-    // Thread-safe. Queued commands run at the start of the next tick; the viz sink posts them
-    // when a Foxglove client publishes on /command/<name>.
-    void post_remote_command(RemoteCommand command);
-
    private:
     // Independent of ui_state_, which is null whenever the UI is disabled.
     std::atomic<bool> quit_requested_{false};
 
-    // Drains remote_commands_. Returns true when a command asked for a field reinit.
-    bool handle_remote_commands();
-    std::mutex remote_commands_mutex_;
-    std::vector<RemoteCommand> remote_commands_;
+    /** Drains the command queue and runs each command. Sets `should_reinit_field` when one asked
+     *  for a field reinit. Returns false when one stopped the loop (reboot or power off). */
+    bool handle_commands(bool &should_reinit_field);
+    void set_opponent_count(int count);
+    void set_autonomy(bool enabled);
+    void set_recording(bool enabled) const;
+    std::string select_profile(const std::string &name);
+    void run_system_action(SystemAction action);
+    void ack(std::string_view topic, bool accepted, std::string message = {});
 
     RunnerConfiguration runner_config_;
     std::shared_ptr<RgbdCameraInterface> camera_;
@@ -105,6 +119,9 @@ class Runner : public Quittable {
     std::shared_ptr<ClockInterface> clock_;
     SystemActionCallback system_action_callback_;
     ProfileSelectCallback profile_select_callback_;
+    RunnerRemote remote_;
+    remote::CommandLog command_log_;
+    int64_t ack_seq_ = 0;
 
     int runtime_opponent_count_;
 
@@ -121,13 +138,9 @@ class Runner : public Quittable {
     std::chrono::steady_clock::time_point start_time_;
 
     void publish_system_status(bool camera_ok, double loop_rate_hz) const;
+    void publish_tracks(const RobotDescriptionsStamped &robots,
+                        const FieldDescription &field) const;
     void stop_recordings_for_shutdown() const;
-    void handle_opponent_count_request();
-    void handle_autonomy_toggle_request();
-    void handle_recording_toggle_request() const;
-    bool handle_system_action_request();
-    void handle_profile_switch_request();
-    bool handle_ui_requests(bool &should_reinit_field);
     bool recover_camera_after_failure();
     void set_ui_debug_image_from_camera(const CameraData &camera_data) const;
     bool handle_uninitialized_tick(const CameraData &camera_data, double loop_rate_hz);

@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -16,6 +17,7 @@
 #include "diagnostics_logger/foxglove_diagnostics_backend.hpp"
 #include "directories.hpp"
 #include "health/health_logger.hpp"
+#include "host/host_services.hpp"
 #include "keypoint_filter/height_gate.hpp"
 #include "keypoint_filter/static_gate.hpp"
 #include "logging/logging.hpp"
@@ -23,7 +25,8 @@
 #include "perception_batch/parallel_model_batch.hpp"
 #include "publisher/config.hpp"
 #include "quittable.hpp"
-#include "remote_command.hpp"
+#include "remote/command_decode.hpp"
+#include "remote/status_bus.hpp"
 #include "runner.hpp"
 #include "ui/system_actions.hpp"
 #include "ui/ui_manager.hpp"
@@ -46,8 +49,8 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
                     const auto_battlebot::ProfileSelectorConfig& profile_selector, bool no_ui) {
     using namespace auto_battlebot;
 
-    // Set by the Runner when the UI asks to reboot or power off the host.
-    UISystemAction pending_system_action = UISystemAction::NONE;
+    // Set by the Runner when a command asks to reboot or power off the host.
+    std::optional<SystemAction> pending_system_action;
 
     // Before the recorder picks a path: a replay must not be able to record over the file it
     // is reading.
@@ -104,14 +107,30 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
         ui_manager ? ui_manager->ui_state() : nullptr, hazard_assembler);
     auto control_loop = make_control_loop(*class_config.control_loop, control_loop_body);
 
+    // One queue for every command source: the viz sink (web page, Foxglove) and the LVGL tiles.
+    RunnerRemote remote;
+    if (ui_manager) ui_manager->ui_state()->set_command_queue(remote.commands);
+    if (viz_sink || mcap_recorder) {
+        remote.status = std::make_shared<remote::StatusBus>(viz_sink, mcap_recorder);
+    }
+    remote.host = std::make_shared<HostServices>(HostServices::Options{}, remote.status);
+    remote.app_info.available_profiles = available_profiles;
+    remote.app_info.current_profile = active_profile;
+    remote.app_info.max_loop_rate_hz = class_config.runner.max_loop_rate;
+    if (class_config.ui) {
+        remote.app_info.rate_fail_threshold = class_config.ui->rate_fail_threshold;
+        remote.app_info.rate_fail_duration_sec = class_config.ui->rate_fail_duration_sec;
+    }
+    auto command_queue = remote.commands;
+
     Runner runner(
         class_config.runner, camera, health_logger, field_model, robot_mask_model, field_filter,
         keypoint_model, height_gate, static_gate, perception_batch, control_loop, publisher,
-        [&pending_system_action](UISystemAction action) { pending_system_action = action; },
+        [&pending_system_action](SystemAction action) { pending_system_action = action; },
         [profile_selector](const std::string& name) {
             write_selection_file(profile_selector, name);
         },
-        ui_manager ? ui_manager->ui_state() : nullptr, mcap_recorder, clock);
+        ui_manager ? ui_manager->ui_state() : nullptr, mcap_recorder, clock, std::move(remote));
 
     runner.initialize();
 
@@ -129,9 +148,9 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     if (viz_sink) {
         viz_sink->set_client_message_handler(
-            [&runner](const std::string& topic, const std::byte*, size_t) {
-                if (auto command = parse_remote_command_topic(topic)) {
-                    runner.post_remote_command(*command);
+            [command_queue](const std::string& topic, const std::byte* data, size_t len) {
+                if (auto command = remote::decode_command(topic, data, len)) {
+                    command_queue->post(std::move(*command));
                 }
             });
     }
@@ -154,7 +173,7 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     // blocks or faults would swallow the reboot entirely. The loop is stopped and both
     // recordings are closed by now, so there is nothing left to lose if systemd tears the
     // process down in the middle of those destructors.
-    handle_system_action(pending_system_action);
+    if (pending_system_action) handle_system_action(*pending_system_action);
     return result;
 }
 }  // namespace

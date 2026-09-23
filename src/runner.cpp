@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cmath>
 #include <magic_enum.hpp>
 #include <opencv2/core.hpp>
 #include <stdexcept>
@@ -24,7 +25,8 @@ Runner::Runner(const RunnerConfiguration &runner_config,
                std::shared_ptr<PublisherInterface> publisher,
                SystemActionCallback system_action_callback,
                ProfileSelectCallback profile_select_callback, std::shared_ptr<UIState> ui_state,
-               std::shared_ptr<McapRecorder> mcap_recorder, std::shared_ptr<ClockInterface> clock)
+               std::shared_ptr<McapRecorder> mcap_recorder, std::shared_ptr<ClockInterface> clock,
+               RunnerRemote remote)
     : runner_config_(runner_config),
       camera_(camera),
       field_model_(field_model),
@@ -41,6 +43,8 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       clock_(std::move(clock)),
       system_action_callback_(std::move(system_action_callback)),
       profile_select_callback_(std::move(profile_select_callback)),
+      remote_(std::move(remote)),
+      command_log_(mcap_recorder_),
       runtime_opponent_count_(runner_config_.default_opponent_count),
       initialized_(false),
       autonomy_enabled_(runner_config_.autonomy_enabled_by_default),
@@ -50,7 +54,7 @@ Runner::Runner(const RunnerConfiguration &runner_config,
       start_time_(std::chrono::steady_clock::now()) {}
 
 void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
-    if (!ui_state_) return;
+    if (!ui_state_ && !remote_.status) return;
     const bool svo_recording_enabled = camera_->is_recording_enabled();
     const bool mcap_recording_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
     SystemStatus status;
@@ -67,7 +71,52 @@ void Runner::publish_system_status(bool camera_ok, double loop_rate_hz) const {
         status.jetson_temperature_c = health_logger_->get_last_temp_c();
         status.jetson_compute_mode = health_logger_->get_last_compute_mode();
     }
-    ui_state_->set_system_status(status);
+    if (ui_state_) ui_state_->set_system_status(status);
+    if (!remote_.status) return;
+
+    remote::SystemStatusMessage message;
+    message.camera_ok = status.camera_ok;
+    message.transmitter_connected = status.transmitter.connected;
+    message.transmitter_receiving = status.transmitter.receiving_channels;
+    message.loop_rate_hz = status.loop_rate_hz;
+    message.initialized = status.initialized;
+    message.selected_opponent_count = status.selected_opponent_count;
+    message.autonomy_enabled = status.autonomy_enabled;
+    message.svo_recording = status.svo_recording_enabled;
+    message.mcap_recording = status.mcap_recording_enabled;
+    // 0 means the health logger has no reading on this platform.
+    if (status.jetson_temperature_c != 0.0) {
+        message.jetson_temperature_c = status.jetson_temperature_c;
+    }
+    message.compute_mode = status.jetson_compute_mode;
+    remote_.status->publish(message);
+    remote_.status->publish(remote_.app_info);
+}
+
+void Runner::publish_tracks(const RobotDescriptionsStamped &robots,
+                            const FieldDescription &field) const {
+    if (!remote_.status) return;
+    remote::TracksMessage message;
+    message.field_x = field.size.size.x;
+    message.field_y = field.size.size.y;
+    for (const auto &robot : robots.descriptions) {
+        if (!robot.is_stale) {
+            if (robot.group == Group::OURS) message.our_robot_seen = true;
+            if (robot.group == Group::THEIRS) ++message.opponents_seen;
+        }
+        if (robot.group == Group::NEUTRAL) continue;
+        const Rotation &q = robot.pose.rotation;
+        remote::TrackedRobot tracked;
+        tracked.label = remote::detail::lowercase(magic_enum::enum_name(robot.label));
+        tracked.ours = robot.group == Group::OURS;
+        tracked.stale = robot.is_stale;
+        tracked.x = robot.pose.position.x;
+        tracked.y = robot.pose.position.y;
+        tracked.yaw =
+            std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+        message.robots.push_back(std::move(tracked));
+    }
+    remote_.status->publish(message);
 }
 
 void Runner::stop_recordings_for_shutdown() const {
@@ -80,76 +129,100 @@ void Runner::stop_recordings_for_shutdown() const {
     }
 }
 
-void Runner::handle_opponent_count_request() {
-    int req = ui_state_->opponent_count_requested.exchange(-1);
-    if (req == -1) return;
-    if (req < 1 || req > 3) {
-        spdlog::warn("Requested number of opponents is not between 1 and 3 ({}). Ignoring.", req);
-        return;
-    }
-
-    runtime_opponent_count_ = req;
+void Runner::set_opponent_count(int count) {
+    runtime_opponent_count_ = count;
     // Before the field is initialized there is no filter to reinitialize; initialize_field
     // applies the current count itself, so the change is picked up either way.
     if (initialized_) control_loop_->request_filter_reinit(runtime_opponent_count_);
 }
 
-void Runner::handle_autonomy_toggle_request() {
-    int autonomy_req = ui_state_->autonomy_toggle_requested.exchange(0);
-    if (autonomy_req == 1 && !autonomy_enabled_) {
-        autonomy_enabled_ = true;
-        control_loop_->set_autonomy_enabled(true);
-    } else if (autonomy_req == -1 && autonomy_enabled_) {
-        autonomy_enabled_ = false;
-        control_loop_->set_autonomy_enabled(false);
+void Runner::set_autonomy(bool enabled) {
+    if (autonomy_enabled_ == enabled) return;
+    autonomy_enabled_ = enabled;
+    control_loop_->set_autonomy_enabled(enabled);
+}
+
+void Runner::set_recording(bool enabled) const {
+    if (!camera_->set_recording_enabled(enabled)) {
+        spdlog::warn("Failed to set SVO recording to {}", enabled ? "enabled" : "disabled");
+    }
+    if (mcap_recorder_ && !mcap_recorder_->set_enabled(enabled)) {
+        spdlog::warn("Failed to set MCAP recording to {}", enabled ? "enabled" : "disabled");
     }
 }
 
-void Runner::handle_recording_toggle_request() const {
-    if (!ui_state_->recording_toggle_requested.exchange(false)) return;
-
-    const bool svo_enabled = camera_->is_recording_enabled();
-    const bool mcap_enabled = mcap_recorder_ ? mcap_recorder_->is_enabled() : true;
-    const bool target_enabled = !(svo_enabled && mcap_enabled);
-
-    if (!camera_->set_recording_enabled(target_enabled)) {
-        spdlog::warn("Failed to set SVO recording to {}", target_enabled ? "enabled" : "disabled");
-    }
-    if (mcap_recorder_ && !mcap_recorder_->set_enabled(target_enabled)) {
-        spdlog::warn("Failed to set MCAP recording to {}", target_enabled ? "enabled" : "disabled");
-    }
+std::string Runner::select_profile(const std::string &name) {
+    spdlog::info("Runner received profile switch request: {}", name);
+    if (profile_select_callback_) profile_select_callback_(name);
+    // The new profile only takes effect on the next launch; tell the user to reboot.
+    std::string notice = "Selected " + name + ". Reboot to apply.";
+    if (ui_state_) ui_state_->set_profile_notice(notice);
+    return notice;
 }
 
-bool Runner::handle_system_action_request() {
-    int raw_action =
-        ui_state_->system_action_requested.exchange(static_cast<int>(UISystemAction::NONE));
-    auto requested_action = static_cast<UISystemAction>(raw_action);
-    if (requested_action == UISystemAction::NONE) return true;
-
-    spdlog::warn("Runner received system action request: {}", raw_action);
+void Runner::run_system_action(SystemAction action) {
+    spdlog::warn("Runner received system action request: {}", magic_enum::enum_name(action));
     // Finalize recordings before the host reboots/powers off, otherwise the MCAP
     // writer is never closed and the file is left corrupted.
     stop_recordings_for_shutdown();
-    if (system_action_callback_) {
-        system_action_callback_(requested_action);
-    }
-    // Every action here reboots or powers off the host, so stop the loop instead of
-    // ticking on. The host teardown kills the X server and the Argus camera daemon, and
-    // a loop still driving the UI and the ZED through that dies on the dead connections.
     // The caller runs the actual host command once the process has torn down.
-    return false;
+    if (system_action_callback_) system_action_callback_(action);
 }
 
-void Runner::handle_profile_switch_request() {
-    auto requested_profile = ui_state_->take_requested_profile();
-    if (!requested_profile) return;
+void Runner::ack(std::string_view topic, bool accepted, std::string message) {
+    if (!remote_.status) return;
+    remote::CommandAckMessage out;
+    out.seq = ++ack_seq_;
+    out.topic = std::string(topic);
+    out.accepted = accepted;
+    out.message = std::move(message);
+    remote_.status->publish(out);
+}
 
-    spdlog::info("Runner received profile switch request: {}", *requested_profile);
-    if (profile_select_callback_) {
-        profile_select_callback_(*requested_profile);
+bool Runner::handle_commands(bool &should_reinit_field) {
+    bool keep_running = true;
+    for (auto &command : remote_.commands->drain()) {
+        const std::string_view topic = remote::command_topic_of(command);
+        spdlog::info("Command: {}", topic);
+        command_log_.record(command);
+        bool accepted = true;
+        std::string message;
+        std::visit(
+            remote::overloaded{
+                [&](const remote::ReinitFieldCommand &) { should_reinit_field = true; },
+                [&](const remote::SetOpponentCountCommand &c) {
+                    if (c.count < 1 || c.count > 3) {
+                        accepted = false;
+                        message = "Opponent count must be 1 to 3";
+                        return;
+                    }
+                    set_opponent_count(c.count);
+                },
+                [&](const remote::SetAutonomyCommand &c) { set_autonomy(c.enabled); },
+                [&](const remote::SetRecordingCommand &c) { set_recording(c.enabled); },
+                [&](const remote::SelectProfileCommand &c) { message = select_profile(c.name); },
+                [&](const remote::SystemActionCommand &c) {
+                    run_system_action(c.action);
+                    // Every action here reboots or powers off the host, so stop the loop instead
+                    // of ticking on. The host teardown kills the X server and the Argus camera
+                    // daemon, and a loop still driving the UI and the camera through that dies
+                    // on the dead connections.
+                    keep_running = false;
+                },
+                [&](const remote::SetWifiAccessCommand &c) {
+                    if (!remote_.host) {
+                        accepted = false;
+                        message = "No host services in this process";
+                        return;
+                    }
+                    remote_.host->set_wifi_access(c.enabled);
+                },
+            },
+            command);
+        ack(topic, accepted, std::move(message));
+        if (!keep_running) break;
     }
-    // The new profile only takes effect on the next launch; tell the user to reboot.
-    ui_state_->set_profile_notice("Selected " + *requested_profile + ". Reboot to apply.");
+    return keep_running;
 }
 
 void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const {
@@ -158,46 +231,6 @@ void Runner::set_ui_debug_image_from_camera(const CameraData &camera_data) const
 
     // UIState clones internally to detach from the camera SDK's reusable buffer.
     ui_state_->set_debug_image(camera_data.rgb.image);
-}
-
-void Runner::post_remote_command(RemoteCommand command) {
-    std::lock_guard<std::mutex> lock(remote_commands_mutex_);
-    remote_commands_.push_back(command);
-}
-
-bool Runner::handle_remote_commands() {
-    std::vector<RemoteCommand> commands;
-    {
-        std::lock_guard<std::mutex> lock(remote_commands_mutex_);
-        commands.swap(remote_commands_);
-    }
-    bool should_reinit_field = false;
-    for (auto command : commands) {
-        spdlog::info("Remote command: {}", magic_enum::enum_name(command));
-        switch (command) {
-            case RemoteCommand::REINIT_FIELD:
-                should_reinit_field = true;
-                break;
-        }
-    }
-    return should_reinit_field;
-}
-
-bool Runner::handle_ui_requests(bool &should_reinit_field) {
-    if (!ui_state_) return true;
-
-    if (ui_state_->quit_requested.load()) {
-        spdlog::warn("UI requested quit via UIState::quit_requested.");
-        stop_recordings_for_shutdown();
-        return false;
-    }
-
-    should_reinit_field = ui_state_->reinit_requested.exchange(false);
-    handle_opponent_count_request();
-    handle_autonomy_toggle_request();
-    handle_recording_toggle_request();
-    handle_profile_switch_request();
-    return handle_system_action_request();
 }
 
 bool Runner::recover_camera_after_failure() {
@@ -213,7 +246,8 @@ bool Runner::recover_camera_after_failure() {
         return true;
     };
     while (is_running()) {
-        if (ui_state_ && !handle_system_action_request()) {
+        bool unused_reinit = false;
+        if (!handle_commands(unused_reinit)) {
             camera_->cancel_initialize();
             return false;
         }
@@ -365,17 +399,20 @@ bool Runner::tick() {
         return false;
     }
 
-    bool should_reinit_field = false;
-    if (!handle_ui_requests(should_reinit_field)) {
+    if (ui_state_ && ui_state_->quit_requested.load()) {
+        spdlog::warn("UI requested quit via UIState::quit_requested.");
+        stop_recordings_for_shutdown();
         return false;
     }
+
+    bool should_reinit_field = false;
+    if (!handle_commands(should_reinit_field)) return false;
 
     // Stepped drivers read the transmitter here, on this thread, before the camera grab. Threaded
     // drivers own it and make this a no-op, latching the init-button edge for
     // take_init_button_press() to hand back.
     control_loop_->pump_input();
     should_reinit_field = should_reinit_field || control_loop_->take_init_button_press();
-    should_reinit_field = handle_remote_commands() || should_reinit_field;
 
     CameraData camera_data;
     bool is_camera_ok;
@@ -536,6 +573,14 @@ bool Runner::tick() {
         ui_state_->set_navigation_path(control_loop_->last_visualization().path);
         ui_state_->set_command_feedback(control_output.command_feedback);
         set_ui_debug_image_from_camera(camera_data);
+    }
+    publish_tracks(robots, field_description);
+    if (remote_.status) {
+        const auto &sticks = control_output.command_feedback.stick_commands;
+        if (auto it = sticks.find(FrameId::OUR_ROBOT_1); it != sticks.end()) {
+            remote_.status->publish(remote::SticksMessage{.linear = it->second.linear_x,
+                                                          .angular = it->second.angular_z});
+        }
     }
 
     return true;

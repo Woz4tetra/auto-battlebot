@@ -1,9 +1,9 @@
 #pragma once
 
-#include "ui/ui_state.hpp"
+#include "enums/system_action.hpp"
 
 namespace auto_battlebot {
 
-void handle_system_action(UISystemAction action);
+void handle_system_action(SystemAction action);
 
 }  // namespace auto_battlebot

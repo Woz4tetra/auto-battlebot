@@ -57,6 +57,26 @@ FetchContent_Declare(
     UPDATE_DISCONNECTED TRUE
 )
 
+# HTTP server for the web dashboard, linked to viz_relay only. Both are header-only; populating
+# them without their own CMake (SOURCE_SUBDIR has no CMakeLists.txt) avoids Crow's find_package
+# for Asio, and the viz_relay target below wires the include paths itself.
+FetchContent_Declare(
+    crow
+    GIT_REPOSITORY https://github.com/CrowCpp/Crow.git
+    GIT_TAG v1.2.1.2
+    GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE
+    SOURCE_SUBDIR include
+)
+FetchContent_Declare(
+    asio
+    GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
+    GIT_TAG asio-1-30-2
+    GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE
+    SOURCE_SUBDIR asio/include
+)
+
 # MCAP reader. The Foxglove SDK writes but does not read, and VideoPlaybackCamera has to read
 # /camera/video back out of a recording.
 FetchContent_Declare(
@@ -65,6 +85,14 @@ FetchContent_Declare(
     GIT_TAG releases/cpp/v1.4.0
     GIT_SHALLOW TRUE
     UPDATE_DISCONNECTED TRUE
+)
+
+# JSON for the remote protocol (include/remote/). The URL tarball is the release's single-header
+# CMake package, which is far smaller than the repository.
+FetchContent_Declare(
+    nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 
 FetchContent_Declare(
@@ -95,13 +123,14 @@ if(BUILD_TESTING)
     # For Windows: Prevent overriding the parent project's compiler/linker settings
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum lvgl spdlog googletest)
+    FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum lvgl spdlog nlohmann_json googletest)
 else()
-    FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum lvgl spdlog)
+    FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum lvgl spdlog nlohmann_json)
 endif()
 
 # mcap ships no CMake target, just headers plus a single-TU implementation define.
 FetchContent_MakeAvailable(mcap)
+FetchContent_MakeAvailable(crow asio)
 add_library(mcap_reader STATIC "${CMAKE_CURRENT_SOURCE_DIR}/src/rgbd_camera/mcap_impl.cpp")
 set_target_properties(mcap_reader PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(mcap_reader SYSTEM PUBLIC "${mcap_SOURCE_DIR}/cpp/mcap/include")
@@ -222,9 +251,50 @@ if(NOT BUILD_WITH_ZED)
     list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/field_filter/point_cloud_.*\\.cpp$")
 endif()
 
+# NVJPG, the Jetson's JPEG engine, through NvJPEGEncoder in the Jetson Multimedia API. Compiled
+# in when the API headers and L4T's libnvjpeg are both present, the way BUILD_WITH_ZED follows the
+# SDK. That libnvjpeg is NVIDIA's libjpeg with the NVJPG extensions, not the CUDA toolkit's nvJPEG,
+# so it is linked by full path and the toolkit one never reaches the link line.
+set(JETSON_MMAPI_DIR "/usr/src/jetson_multimedia_api" CACHE PATH "Jetson Multimedia API root")
+find_path(JETSON_MMAPI_INCLUDE_DIR NvJpegEncoder.h
+    PATHS "${JETSON_MMAPI_DIR}/include" NO_DEFAULT_PATH)
+find_library(L4T_NVJPEG_LIBRARY nvjpeg
+    PATHS /usr/lib/aarch64-linux-gnu/nvidia /usr/lib/aarch64-linux-gnu/tegra NO_DEFAULT_PATH)
+find_library(L4T_NVBUFSURFACE_LIBRARY nvbufsurface
+    PATHS /usr/lib/aarch64-linux-gnu/nvidia /usr/lib/aarch64-linux-gnu/tegra NO_DEFAULT_PATH)
+if(JETSON_MMAPI_INCLUDE_DIR AND L4T_NVJPEG_LIBRARY)
+    set(HAVE_NVJPG ON)
+else()
+    set(HAVE_NVJPG OFF)
+    list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*/viz/nvjpg_jpeg_encoder\\.cpp$")
+endif()
+message(STATUS "NVJPG JPEG encoder: ${HAVE_NVJPG}")
+
 add_library(auto_battlebot_lib SHARED
     ${AUTO_BATTLEBOT_SOURCES}
 )
+
+if(HAVE_NVJPG)
+    set(JETSON_MMAPI_CLASSES "${JETSON_MMAPI_DIR}/samples/common/classes")
+    add_library(jetson_mmapi_jpeg STATIC
+        "${JETSON_MMAPI_CLASSES}/NvJpegEncoder.cpp"
+        "${JETSON_MMAPI_CLASSES}/NvBuffer.cpp"
+        "${JETSON_MMAPI_CLASSES}/NvElement.cpp"
+        "${JETSON_MMAPI_CLASSES}/NvElementProfiler.cpp"
+        "${JETSON_MMAPI_CLASSES}/NvLogging.cpp"
+    )
+    set_target_properties(jetson_mmapi_jpeg PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    # NVIDIA's sample classes, not ours: system headers and no warnings.
+    target_include_directories(jetson_mmapi_jpeg SYSTEM PUBLIC
+        "${JETSON_MMAPI_INCLUDE_DIR}" "${JETSON_MMAPI_INCLUDE_DIR}/libjpeg-8b")
+    target_compile_options(jetson_mmapi_jpeg PRIVATE -w)
+    target_link_libraries(jetson_mmapi_jpeg PUBLIC "${L4T_NVJPEG_LIBRARY}" Threads::Threads)
+    if(L4T_NVBUFSURFACE_LIBRARY)
+        target_link_libraries(jetson_mmapi_jpeg PUBLIC "${L4T_NVBUFSURFACE_LIBRARY}")
+    endif()
+    target_link_libraries(auto_battlebot_lib PUBLIC jetson_mmapi_jpeg)
+    target_compile_definitions(auto_battlebot_lib PUBLIC AUTO_BATTLEBOT_HAVE_NVJPG)
+endif()
 
 # UI sources are built as a dedicated static library.
 # These sources are isolated under lvgl_platform_bound because they are tightly
@@ -282,6 +352,7 @@ target_link_libraries(auto_battlebot_ui PUBLIC
     spdlog::spdlog
     magic_enum::magic_enum
     tomlplusplus::tomlplusplus
+    nlohmann_json::nlohmann_json
 )
 
 # Set library properties
@@ -310,6 +381,7 @@ target_link_libraries(auto_battlebot_lib PUBLIC
     ${TensorRT_LIBRARIES}
     ${PCL_LIBRARIES}
     spdlog::spdlog
+    nlohmann_json::nlohmann_json
 )
 
 # Common compiler flags
@@ -379,12 +451,25 @@ add_executable(viz_relay
     src/viz_relay/main.cpp
 )
 target_include_directories(viz_relay PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(viz_relay SYSTEM PRIVATE
+    "${crow_SOURCE_DIR}/include"
+    "${asio_SOURCE_DIR}/asio/include"
+)
+target_compile_definitions(viz_relay PRIVATE ASIO_STANDALONE ASIO_NO_DEPRECATED)
 target_link_libraries(viz_relay
     foxglove_sdk
     CLI11::CLI11
     spdlog::spdlog
     Threads::Threads
 )
+
+# Prints every remote status topic and command with its JSON Schema. web/scripts/gen-protocol.mjs
+# turns the output into web/src/generated/protocol.ts.
+add_executable(remote_protocol_dump
+    tools/remote_protocol_dump.cpp
+)
+target_link_libraries(remote_protocol_dump auto_battlebot_lib)
+target_compile_options(remote_protocol_dump PRIVATE ${COMMON_COMPILE_FLAGS})
 
 # Compiler flags for executable
 if(BUILD_DEBUG)
@@ -457,6 +542,10 @@ install(DIRECTORY config/ DESTINATION share/auto_battlebot/config
     USE_SOURCE_PERMISSIONS
     FILES_MATCHING PATTERN "*.toml"
 )
+
+# The built web dashboard, next to viz_relay, which serves <exe_dir>/web. OPTIONAL: a machine
+# without Node still installs, and the relay answers 503 with a note.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/web/dist/ DESTINATION bin/web OPTIONAL)
 
 # Conditionally enable testing
 if(BUILD_TESTING)
