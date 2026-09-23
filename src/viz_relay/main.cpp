@@ -28,7 +28,9 @@
 #include <CLI/CLI.hpp>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -41,6 +43,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -50,6 +53,7 @@
 namespace {
 
 std::atomic<bool> g_stop{false};
+constexpr std::chrono::seconds kShutdownDeadline{2};
 void handle_signal(int) { g_stop.store(true); }
 
 struct RelayChannel {
@@ -279,6 +283,17 @@ class Relay {
         }
 
         spdlog::info("Shutting down");
+        // The SDK's stop() is graceful: it closes each client and waits for the close to finish.
+        // A client whose network vanished (the iPad's Ethernet link dropping, say) never answers,
+        // so stop() waited until TCP gave up on it, and systemd killed the relay after 90 s.
+        // Nothing here needs flushing to disk, so past the deadline the relay just exits.
+        std::thread([] {
+            std::this_thread::sleep_for(kShutdownDeadline);
+            spdlog::warn("Shutdown still waiting on a client after {} s; exiting anyway",
+                         kShutdownDeadline.count());
+            spdlog::default_logger()->flush();
+            std::_Exit(0);
+        }).detach();
         if (http_) http_->stop();
         close_app();
         if (listen_fd_ >= 0) ::close(listen_fd_);

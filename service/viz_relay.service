@@ -9,6 +9,9 @@ ExecStart=/home/__USER__/.local/bin/viz_relay
 WorkingDirectory=/home/__USER__/auto-battlebot
 Restart=always
 RestartSec=2
+# The relay bounds its own shutdown to about 2 s even with a client whose network vanished; this
+# only matters if that ever regresses. The default 90 s is how long a stuck stop used to take.
+TimeoutStopSec=10
 User=__USER__
 SyslogIdentifier=viz_relay
 StandardOutput=journal

@@ -35,6 +35,8 @@ const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 5000;
 // The Foxglove SDK server answers 400 unless "foxglove.sdk.v1" is offered. The client library
 // speaks the same wire protocol, so offer both.
+const SILENCE_MS = 3000;
+const PROBE_TIMEOUT_MS = 1500;
 const SUBPROTOCOLS = ["foxglove.sdk.v1", FoxgloveClient.SUPPORTED_SUBPROTOCOL];
 
 export function relayUrl(): string {
@@ -58,6 +60,7 @@ class Connection {
   #attempt = 0;
   #reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   #lastMessageAt = 0;
+  #probing = false;
   #canPublish = false;
 
   #channels = new Map<string, Channel>();
@@ -88,14 +91,45 @@ class Connection {
     this.#connect();
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState !== "visible") return;
-      // Safari can hand back a dead socket after the screen unlocks. With status at 10 Hz,
-      // three quiet seconds means the socket is gone even if it still says open.
-      if (this.#state === "open" && performance.now() - this.#lastMessageAt > 3000) {
-        this.#client?.close();
-      } else if (this.#state === "closed") {
-        this.#reconnectNow();
-      }
+      if (this.#state === "open") void this.#checkSilence();
+      else if (this.#state === "closed") this.#reconnectNow();
     });
+    setInterval(() => void this.#checkSilence(), 1000);
+  }
+
+  // A socket can say "open" long after its network is gone: the Ethernet link dropping, or
+  // Safari handing back a dead socket after the screen unlocks. No close event comes until TCP
+  // gives up, minutes later. Status arrives at 10 Hz, so after SILENCE_MS with nothing, ask the
+  // relay over plain HTTP whether it has the app. A failed probe, or an app that is connected
+  // while this socket hears nothing, means the socket is dead: drop it and reconnect now. With
+  // the app down the relay is quiet on purpose, and the socket stays.
+  async #checkSilence(): Promise<void> {
+    if (this.#probing || this.#state !== "open") return;
+    if (performance.now() - this.#lastMessageAt < SILENCE_MS) return;
+    this.#probing = true;
+    const client = this.#client;
+    let dead = true;
+    try {
+      const res = await fetch("/healthz", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      });
+      if (res.ok) {
+        const health = (await res.json()) as { app_connected?: boolean };
+        dead = health.app_connected !== false;
+      }
+    } catch {
+      dead = true;
+    } finally {
+      this.#probing = false;
+    }
+    // Still the same socket, and still silent after the probe.
+    if (!dead || this.#client !== client || !client) return;
+    if (performance.now() - this.#lastMessageAt < SILENCE_MS) return;
+    console.warn("relay socket silent; reconnecting");
+    this.#teardown();
+    client.close();
+    this.#reconnectNow();
   }
 
   onState(cb: (state: ConnectionState) => void): () => void {

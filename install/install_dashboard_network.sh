@@ -216,6 +216,7 @@ EOF
         sudo tee "$dropin" >/dev/null <<EOF
 [Service]
 AmbientCapabilities=CAP_NET_BIND_SERVICE
+TimeoutStopSec=10
 ExecStart=
 ExecStart=$relay_bin --http-port 80
 EOF
