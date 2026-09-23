@@ -20,11 +20,14 @@
 #
 # Usage (also sourced by scripts/install_jetson.sh):
 #   install/install_dashboard_network.sh [--interface <dev>] [--wifi-interface <dev>]
-#                                        [--allow-all-interfaces]
+#                                        [--tailscale-interface <dev>] [--allow-all-interfaces]
 #
 #   --interface <dev>         Ethernet port the iPad uses. Default: first ethernet device nmcli
 #                             lists.
 #   --wifi-interface <dev>    Interface the Wi-Fi access toggle opens. Default: first wifi device.
+#   --tailscale-interface <dev>
+#                             Tailscale interface, always allowed. Default: tailscale0. The rule
+#                             matches by name, so it works whether or not tailscaled is up yet.
 #   --allow-all-interfaces    No firewall table: the dashboard and Foxglove are open on every
 #                             interface all the time. Removes the table, units, and polkit rule an
 #                             earlier run installed.
@@ -49,6 +52,7 @@ install_dashboard_network() {
 
     local iface=""
     local wifi_iface=""
+    local tailscale_iface="tailscale0"
     local allow_all=false
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -58,6 +62,10 @@ install_dashboard_network() {
                 ;;
             --wifi-interface)
                 wifi_iface="$2"
+                shift 2
+                ;;
+            --tailscale-interface)
+                tailscale_iface="$2"
                 shift 2
                 ;;
             --allow-all-interfaces)
@@ -94,6 +102,7 @@ install_dashboard_network() {
     fi
     echo "Dashboard cable port: $iface"
     echo "Wi-Fi access interface: ${wifi_iface:-none}"
+    echo "Tailscale interface (always allowed): $tailscale_iface"
 
     # ---- 2. Packages ----
     sudo apt-get install -y avahi-daemon avahi-utils nftables
@@ -141,7 +150,7 @@ delete table inet $table
 table inet $table {
     set allowed_ifaces {
         type ifname
-        elements = { "lo", "$iface" }
+        elements = { "lo", "$iface", "$tailscale_iface" }
     }
     chain input {
         type filter hook input priority filter; policy accept;
@@ -233,7 +242,7 @@ EOF
     echo "Verification:"
     echo "  - avahi-resolve -4 -n $hostname.local          # prints the box's addresses"
     if [ "$allow_all" != true ]; then
-        echo "  - sudo nft list set inet $table allowed_ifaces   # lo and $iface"
+        echo "  - sudo nft list set inet $table allowed_ifaces   # lo, $iface, $tailscale_iface"
         [ -n "$wifi_iface" ] &&
             echo "  - sudo -u $app_user systemctl start $wifi_unit   # no password prompt"
     fi

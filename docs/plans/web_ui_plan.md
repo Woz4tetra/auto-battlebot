@@ -658,6 +658,8 @@ way `install/install_llvm_toolchain.sh` can.
 Arguments:
 - `--interface <dev>`: the Ethernet port the iPad uses. Defaults to the first `ethernet` device
   from `nmcli -t -f DEVICE,TYPE device status`.
+- `--tailscale-interface <dev>`: the Tailscale interface, always allowed. Defaults to
+  `tailscale0`.
 - `--wifi-interface <dev>`: the interface the Wi-Fi access toggle opens. Defaults to the first
   `wifi` device from `nmcli`.
 - `--allow-all-interfaces`: skip the firewall table, so the dashboard and Foxglove are open on
@@ -685,7 +687,7 @@ Steps:
 5. **Firewall**, unless `--allow-all-interfaces`:
    - `/etc/auto-battlebot/dashboard.nft` defines its own table,
      `inet auto_battlebot_dashboard`, so no other ruleset is touched. The table has a set
-     `allowed_ifaces` (type `ifname`) holding `lo` and the Ethernet port. Its input chain accepts
+     `allowed_ifaces` (type `ifname`) holding `lo`, the Ethernet port, and `tailscale0`. Its input chain accepts
      anything arriving on `@allowed_ifaces` and drops TCP 80 and 8765 from everything else.
    - The file starts with the declare-then-delete idiom, so reloading replaces the table
      instead of failing on one that already exists.
@@ -715,7 +717,7 @@ Steps:
    `avahi-daemon`, and restart `viz_relay` if it's running.
 8. **Print verification commands:**
    - `avahi-resolve -4 -n <hostname>.local` prints the box's addresses.
-   - `sudo nft list set inet auto_battlebot_dashboard allowed_ifaces` shows `lo` and the
+   - `sudo nft list set inet auto_battlebot_dashboard allowed_ifaces` shows `lo`, `tailscale0`, and the
      Ethernet port.
    - `sudo -u <user> systemctl start auto-battlebot-dashboard-wifi.service` succeeds without a
      password prompt, which proves the polkit rule.
@@ -863,6 +865,10 @@ Where the code differs from the plan above, and why:
 - **The host is never renamed.** The URL is `http://<hostname>.local` with the name the box
   already has, so SSH and other machines that know the box keep working. The page takes the
   name from `/status/network`, and the install script prints the URL at the end.
+- **Tailscale is always allowed.** `tailscale0` is in `allowed_ifaces` from the start, so the
+  dashboard is reachable at `http://<hostname>` (MagicDNS) or the `100.x` address from any
+  device on the tailnet. `.local` does not resolve over Tailscale. Every tailnet device can
+  reboot the box. The Wi-Fi toggle is unchanged.
 - **The firewall** also drops 8080, the relay's default HTTP port, in case the port 80 drop-in is
   missing. `install_jetson.sh` treats a refused network setup (the uplink is the only Ethernet
   port) as a warning, not a failed install.
