@@ -26,6 +26,7 @@
         "redhat.vscode-xml",
         "ms-vscode.cmake-tools",
         "ms-vscode.cpptools",
-        "anysphere.cpptools"
+        "anysphere.cpptools",
+        "svelte.svelte-vscode"
     ]
 }

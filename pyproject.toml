@@ -12,21 +12,20 @@ dependencies = [
   "smbus2; platform_machine == \"aarch64\"",
   "matplotlib",
   "scipy",
-  "minigencpp @ git+https://github.com/Woz4tetra/minigencpp.git",
   "tqdm>=4.60.0",
   "types-tqdm",
   "tomli_w",
   "dacite",
   "ruff",
   "mypy",
-  "pytest",                                                       # training/synthetic/tests (synthgen pure modules)
+  "pytest",                                  # training/synthetic/tests (synthgen pure modules)
   "livelossplot",
   "ipython",
   "torchmetrics",
-  "pycocotools",                                                  # torchmetrics MeanAveragePrecision backend (training/model_eval)
+  "pycocotools",                             # torchmetrics MeanAveragePrecision backend (training/model_eval)
   "segmentation-models-pytorch",
   "opencv-python>=4.5.0",
-  "av",                                                           # H.264 decode for /camera/video (auto_battlebot.recording.mcap_io)
+  "av",                                      # H.264 decode for /camera/video (auto_battlebot.recording.mcap_io)
   "pyyaml>=6.0",
   "pandas",
   "onnxscript",
@@ -37,8 +36,8 @@ dependencies = [
   "mcap-protobuf-support",
   "trimesh",
   "shapely",
-  "pyserial",                                                     # playground/calibration: drives the OpenTX trainer link for drivetrain characterization
-  "Pillow",                                                       # playground/calibration: print-accurate AprilTag PDF export (make_print_tags.py)
+  "pyserial",                                # playground/calibration: drives the OpenTX trainer link for drivetrain characterization
+  "Pillow",                                  # playground/calibration: print-accurate AprilTag PDF export (make_print_tags.py)
   # x86 only: often unavailable or different on Jetson (aarch64)
   "pycuda; platform_machine == \"x86_64\"",
   "torch>=2.0.0; platform_machine == \"x86_64\"",
