@@ -862,9 +862,10 @@ Where the code differs from the plan above, and why:
   the camera image as fractions of its size (`src/remote/field_projection.cpp`, the same pinhole
   projection as the LVGL overlay), so the page draws it over either preview. Detection labels sit
   outside their box and move to whichever side covers the fewest other boxes and labels.
-- **Robot colors** come from a hash of the label (`web/src/lib/robots.ts`), so every device shows
-  the same color; our robot has its own. Tracks sharing a label differ by track id in the top-down
-  view only, since a detection carries no track id.
+- **Robot colors** come from `[ui.label_colors]` in `config/_common.toml`, the class colors
+  training uses, sent on `/status/app`. A label with no configured color gets one hashed from its
+  name (`web/src/lib/robots.ts`), so every device agrees. Tracks sharing a label get lighter
+  shades in the top-down view, since a detection carries no track id to tell them apart.
 - **Timers.** `/status/system` has `uptime_s`, `autonomy_switch_on` (the radio's trainer switch,
   absent for transmitters without one), and `autonomy_on_s` (absent while the switch is off). Row
   01 shows the switch and its timer; the status list and Diagnostics show both timers, and the

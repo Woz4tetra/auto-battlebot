@@ -120,6 +120,9 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     if (class_config.ui) {
         remote.app_info.rate_fail_threshold = class_config.ui->rate_fail_threshold;
         remote.app_info.rate_fail_duration_sec = class_config.ui->rate_fail_duration_sec;
+        for (const auto& [label, color] : class_config.ui->label_colors) {
+            remote.app_info.label_colors.push_back({.label = label, .color = color});
+        }
     }
     auto command_queue = remote.commands;
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   // /status/tracks on the field outline. Field frame: origin at the field center, meters.
   // Drawn with +x to the right and +y up (away from the camera marker at the bottom).
-  import { displayLabel, robotColor, trackKey } from "../lib/robots";
+  import { displayLabel, trackColor } from "../lib/robots";
   import { status } from "../lib/status.svelte";
 
   let { showLabel = true }: { showLabel?: boolean } = $props();
@@ -28,7 +28,7 @@
   const robots = $derived(
     (tracks?.robots ?? []).map((r, _i, all) => ({
       ...r,
-      color: robotColor(r.ours ? r.label : trackKey(r, all), r.ours),
+      color: trackColor(r, all),
     })),
   );
 </script>

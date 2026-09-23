@@ -39,14 +39,24 @@ struct SystemStatusMessage {
                     jetson_temperature_c, compute_mode, uptime_s, autonomy_switch_on, autonomy_on_s)
 };
 
+/** A model label and the color it is drawn in, from [ui.label_colors]. */
+struct LabelColor {
+    std::string label;
+    /** "#rrggbb". */
+    std::string color;
+    AB_JSON_MESSAGE(LabelColor, "auto_battlebot.status.LabelColor", label, color)
+};
+
 struct AppInfoMessage {
     std::vector<std::string> available_profiles;
     std::string current_profile;
     double max_loop_rate_hz = 0.0;
     double rate_fail_threshold = 0.0;
     double rate_fail_duration_sec = 0.0;
+    std::vector<LabelColor> label_colors;
     AB_JSON_MESSAGE(AppInfoMessage, "auto_battlebot.status.App", available_profiles,
-                    current_profile, max_loop_rate_hz, rate_fail_threshold, rate_fail_duration_sec)
+                    current_profile, max_loop_rate_hz, rate_fail_threshold, rate_fail_duration_sec,
+                    label_colors)
 };
 
 /** Our robot's sticks as the transmitter read them back, normalized [-1, 1]. */

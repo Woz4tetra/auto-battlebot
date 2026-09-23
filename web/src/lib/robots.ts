@@ -1,16 +1,15 @@
 // One color per robot, shared by the camera view and the top-down view.
 //
-// Detections carry a label and no track id, so the key is the label. The color comes from a hash
-// of it, so the iPad and the phone agree without talking to each other; a label that hashes onto a
-// color another label already took this session moves to the next free one. Our robot always gets
-// its own color outside the palette. Two tracked robots that share a label (two generic
-// "opponent"s) are told apart in the top-down view by track id; in the camera view they share the
-// label's color, since a detection cannot say which track it is.
+// Colors come from [ui.label_colors] in config/_common.toml (the class colors training uses),
+// delivered on /status/app. A label with no configured color gets one from FALLBACK, picked by a
+// hash of the label so every device agrees, and skipping colors the config already uses.
+//
+// Detections carry a label and no track id, so the camera view colors by label. In the top-down
+// view, a second or third track with the same label (two generic "opponent"s) gets a lighter
+// shade of that color so the two can be told apart.
+import { status } from "./status.svelte";
 
-const OURS = "#2ec4e6";
-const PALETTE = ["#ff6b4a", "#b77cff", "#7bd84a", "#ff5fb0", "#f2c94c", "#4f8bff", "#3ddbb3"];
-
-const assigned = new Map<string, string>();
+const FALLBACK = ["#ec4899", "#14b8a6", "#eab308", "#6366f1", "#84cc16", "#f97316", "#8b5cf6"];
 
 function hash(text: string): number {
   // FNV-1a, 32 bit.
@@ -22,29 +21,36 @@ function hash(text: string): number {
   return h;
 }
 
-export function robotColor(key: string, ours = false): string {
-  if (ours) return OURS;
-  let color = assigned.get(key);
-  if (!color) {
-    const taken = new Set(assigned.values());
-    const start = hash(key) % PALETTE.length;
-    color = PALETTE[start];
-    for (let i = 0; i < PALETTE.length; i++) {
-      const candidate = PALETTE[(start + i) % PALETTE.length];
-      if (!taken.has(candidate)) {
-        color = candidate;
-        break;
-      }
-    }
-    assigned.set(key, color);
-  }
-  return color;
+function configured(label: string): string | undefined {
+  return status.app?.label_colors.find((c) => c.label === label)?.color;
 }
 
-/** Top-down key: the label, or label and track id when another tracked robot shares the label. */
-export function trackKey(robot: { id: string; label: string }, all: { label: string }[]): string {
-  const shared = all.filter((r) => r.label === robot.label).length > 1;
-  return shared ? `${robot.label}#${robot.id}` : robot.label;
+export function robotColor(label: string): string {
+  const color = configured(label);
+  if (color) return color;
+  const used = new Set(status.app?.label_colors.map((c) => c.color.toLowerCase()) ?? []);
+  const free = FALLBACK.filter((c) => !used.has(c));
+  const pool = free.length ? free : FALLBACK;
+  return pool[hash(label) % pool.length];
+}
+
+/** Mixes a "#rrggbb" color toward white by `amount` (0 to 1). */
+function lighten(color: string, amount: number): string {
+  const n = parseInt(color.slice(1), 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * amount);
+  const [r, g, b] = [mix((n >> 16) & 255), mix((n >> 8) & 255), mix(n & 255)];
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+
+/** Top-down color: the label's color, lightened for each earlier track that shares the label. */
+export function trackColor(
+  robot: { id: string; label: string },
+  all: { id: string; label: string }[],
+): string {
+  const same = all.filter((r) => r.label === robot.label).map((r) => r.id);
+  same.sort();
+  const index = Math.max(0, same.indexOf(robot.id));
+  return index === 0 ? robotColor(robot.label) : lighten(robotColor(robot.label), 0.35 * index);
 }
 
 /** On-screen name: underscores become spaces so a label can wrap and reads faster. */

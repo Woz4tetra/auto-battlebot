@@ -1,6 +1,7 @@
 <script lang="ts">
   // Camera preview with the field outline (/status/tracks) and /keypoint_detections boxes drawn
-  // over it. Each robot keeps one color (lib/robots.ts), shared with the top-down view.
+  // over it. Each label has one color (lib/robots.ts, from [ui.label_colors]), shared with the
+  // top-down view.
   //
   // Source choice: H.264 from /camera/preview_video when WebCodecs exists and the channel is
   // advertised, otherwise JPEG from /camera/preview. The video channel can be advertised and still
@@ -20,7 +21,8 @@
   const DET_TOPIC = "/keypoint_detections";
   const VIDEO_TIMEOUT_MS = 2000;
   const STALE_MS = 2000;
-  const OUTLINE_COLOR = "rgba(61, 214, 140, 0.9)";
+  // Off-white, so it never matches a robot color from [ui.label_colors].
+  const OUTLINE_COLOR = "rgba(242, 241, 236, 0.75)";
 
   interface Rect {
     x: number;
@@ -169,10 +171,9 @@
 
     const sx = w / detections.w;
     const sy = h / detections.h;
-    const ours = new Set(status.tracks?.robots.filter((r) => r.ours).map((r) => r.label) ?? []);
     const boxes = detections.dets.map((d) => ({
       d,
-      color: robotColor(d.label, ours.has(d.label)),
+      color: robotColor(d.label),
       rect: { x: d.x1 * sx, y: d.y1 * sy, w: (d.x2 - d.x1) * sx, h: (d.y2 - d.y1) * sy },
     }));
 

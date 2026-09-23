@@ -274,6 +274,15 @@ max_angular_command = 1.0              # 0 = no limit
 [publisher]
 type = "FoxglovePublisher"
 
+[ui.label_colors]
+# Web dashboard color per model label, matching the class colors in the training dataset YAMLs.
+# Labels not listed get a generated color.
+mr_stabs_mk2 = "#ea2e2e"
+mrs_buff_mk3 = "#0ea5e9"
+opponent = "#22c55e"
+house_bot = "#f59e0b"
+object = "#a855f7"
+
 [runner]
 max_loop_rate = 60.0               # set to double of camera FPS
 default_opponent_count = 1

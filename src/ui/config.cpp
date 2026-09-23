@@ -2,6 +2,9 @@
 
 #include <toml++/toml.h>
 
+#include <algorithm>
+#include <cctype>
+
 namespace auto_battlebot {
 void UiConfiguration::parse_fields(ConfigParser &parser) {
     enable = parser.get_optional_bool("enable", enable);
@@ -42,6 +45,23 @@ void UiConfiguration::parse_fields(ConfigParser &parser) {
         battery.state_file_path =
             battery_parser.get_optional_string("state_file_path", battery.state_file_path);
         battery_parser.validate_no_extra_fields();
+    }
+    if (const toml::table *colors = parser.get_table("label_colors")) {
+        label_colors.clear();
+        for (const auto &[key, value] : *colors) {
+            std::string label(key.str());
+            std::transform(label.begin(), label.end(), label.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            const auto color = value.value<std::string>();
+            const bool hex = color && color->size() == 7 && (*color)[0] == '#' &&
+                             std::all_of(color->begin() + 1, color->end(),
+                                         [](unsigned char c) { return std::isxdigit(c) != 0; });
+            if (!hex) {
+                throw ConfigValidationError("[ui.label_colors] " + label +
+                                            " must be a \"#rrggbb\" string");
+            }
+            label_colors.emplace_back(std::move(label), *color);
+        }
     }
 }
 

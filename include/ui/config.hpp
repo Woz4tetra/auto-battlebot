@@ -3,6 +3,8 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "config/config_cast.hpp"
 #include "config/config_factory.hpp"
@@ -33,6 +35,10 @@ struct UiConfiguration {
     std::string battery_source = "Waveshare UPS";
     /** Battery estimator settings under [ui.battery]. */
     BatteryOptions battery;
+    /** [ui.label_colors]: lowercase model label -> "#rrggbb", the colors training draws each
+     *  class in. The web dashboard uses them for boxes and tracks; labels not listed get a
+     *  generated color. */
+    std::vector<std::pair<std::string, std::string>> label_colors;
 
     void parse_fields(ConfigParser &parser);
 };

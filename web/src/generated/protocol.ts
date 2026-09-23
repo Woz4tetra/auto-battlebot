@@ -21,9 +21,15 @@ export interface SystemStatus {
 export interface AppStatus {
   available_profiles: string[];
   current_profile: string;
+  label_colors: LabelColor[];
   max_loop_rate_hz: number;
   rate_fail_duration_sec: number;
   rate_fail_threshold: number;
+}
+
+export interface LabelColor {
+  color: string;
+  label: string;
 }
 
 export interface SticksStatus {
