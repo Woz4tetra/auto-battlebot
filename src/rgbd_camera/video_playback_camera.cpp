@@ -134,16 +134,20 @@ VideoPlaybackCamera::~VideoPlaybackCamera() {
 }
 
 bool VideoPlaybackCamera::scan_file() {
-    // Metadata first: the recording says which calibration rectified it, so a revised calibration
-    // can be applied to footage already shot.
+    // Metadata first: the recording carries the calibration its video needs. Older recordings
+    // only name a calibration_id, resolved against config/cameras/.
     {
         std::ifstream stream(video_file_path_, std::ios::binary);
         mcap::FileStreamReader data_source(stream);
         mcap::TypedRecordReader record_reader(data_source, 8);
         record_reader.onMetadata = [this](const mcap::Metadata &metadata, mcap::ByteOffset) {
-            const auto it = metadata.metadata.find("calibration_id");
-            if (it != metadata.metadata.end()) {
-                recorded_calibration_id_ = it->second;
+            const auto embedded = metadata.metadata.find(kCameraCalibrationMetadataKey);
+            if (embedded != metadata.metadata.end()) {
+                recorded_calibration_toml_ = embedded->second;
+            }
+            const auto id = metadata.metadata.find("calibration_id");
+            if (id != metadata.metadata.end()) {
+                recorded_calibration_id_ = id->second;
             }
         };
         while (record_reader.next()) {
@@ -151,6 +155,11 @@ bool VideoPlaybackCamera::scan_file() {
                 break;
             }
         }
+    }
+    if (!recorded_calibration_toml_.empty()) {
+        recorded_calibration_id_ =
+            parse_camera_calibration(recorded_calibration_toml_, video_file_path_ + " metadata")
+                .calibration_id;
     }
 
     const mcap::Status status = state_->reader.open(video_file_path_);
@@ -246,12 +255,15 @@ bool VideoPlaybackCamera::initialize() {
             " video frames, cannot start at frame " + std::to_string(config_.start_frame));
     }
 
-    std::string calibration_file = config_.calibration_file;
-    if (calibration_file.empty() && !recorded_calibration_id_.empty()) {
-        calibration_file = "config/cameras/" + recorded_calibration_id_ + ".toml";
-    }
-    if (!calibration_file.empty()) {
-        calibration_ = load_camera_calibration(calibration_file);
+    // A configured file wins, so old footage can be re-rectified against a revised calibration.
+    if (!config_.calibration_file.empty()) {
+        calibration_ = load_camera_calibration(config_.calibration_file);
+    } else if (!recorded_calibration_toml_.empty()) {
+        calibration_ =
+            parse_camera_calibration(recorded_calibration_toml_, video_file_path_ + " metadata");
+    } else if (!recorded_calibration_id_.empty()) {
+        calibration_ =
+            load_camera_calibration("config/cameras/" + recorded_calibration_id_ + ".toml");
     } else {
         spdlog::warn(
             "[VideoPlaybackCamera] {} names no calibration_id and none is configured; frames are "

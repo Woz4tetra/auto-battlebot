@@ -13,7 +13,9 @@ all written against this document. Change it here first.
   captures) use zstd chunks; readers do not care.
 - One metadata record named `auto_battlebot` with key `active_profile` holding the config
   profile id (or empty when the app was run with an explicit `-c`), and, on RGB-camera
-  recordings, `calibration_id` naming the lens calibration the frames were rectified with.
+  recordings, `camera_calibration`: the calibration `/camera/video` needs, as the same TOML text
+  a `config/cameras/<id>.toml` file holds. Recordings from before 2026-09-24 carry only
+  `calibration_id`, which playback resolves against `config/cameras/`.
 - The RGB camera rolls the file over past `mcap.max_size_gb`. Each segment repeats the metadata
   and re-creates every channel, so it is independently readable; segments after the first are
   named `..._partNN.mcap`.
@@ -99,9 +101,11 @@ No B-frames means decode order equals capture order, so the nth message is the n
 frame; `start_frame` on playback and `export_camera_transforms.py` matching dataset images by
 position in the stream both depend on that.
 
-Frames are recorded **before** rectification, so a revised lens calibration can be applied to
-footage already shot. `calibration_id` in the file metadata names the calibration that was in
-use. `log_time` is the capture instant the encoder carried through from the V4L2 buffer, not the
+The e-CAM25 records frames **before** rectification, so a revised lens calibration can be
+applied to footage already shot; `camera_calibration` in the file metadata is the one in use, and
+a `calibration_file` in the playback config overrides it. The ZED X One records the SDK's
+rectified frames, and its `camera_calibration` holds the rectified intrinsics with zero
+distortion. `log_time` is the capture instant the encoder carried through from the V4L2 buffer, not the
 moment the packet was written.
 
 Seek to the last IDR at or before the target and decode forward, discarding until you reach it.

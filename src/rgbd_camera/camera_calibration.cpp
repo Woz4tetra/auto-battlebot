@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iomanip>
 #include <opencv2/calib3d.hpp>
+#include <sstream>
 
 #include "config/config_parser.hpp"
 #include "directories.hpp"
@@ -47,13 +48,9 @@ cv::Mat CameraCalibration::distortion_coefficients() const {
     return coefficients;
 }
 
-CameraCalibration load_camera_calibration(const std::string &path) {
-    const std::filesystem::path resolved = resolve(path);
-    if (!std::filesystem::exists(resolved)) {
-        throw ConfigValidationError("calibration_file not found: " + resolved.string());
-    }
-    const toml::table data = toml::parse_file(resolved.string());
-    const std::string source = resolved.string();
+CameraCalibration parse_camera_calibration(const std::string &toml_text,
+                                           const std::string &source) {
+    const toml::table data = toml::parse(toml_text, source);
 
     CameraCalibration calibration;
     calibration.calibration_id = data["calibration_id"].value_or(std::string());
@@ -76,17 +73,20 @@ CameraCalibration load_camera_calibration(const std::string &path) {
     return calibration;
 }
 
-void save_camera_calibration(const std::string &path, const CameraCalibration &calibration) {
+CameraCalibration load_camera_calibration(const std::string &path) {
     const std::filesystem::path resolved = resolve(path);
-    std::filesystem::create_directories(resolved.parent_path());
-    std::ofstream out(resolved);
-    if (!out) {
-        throw ConfigValidationError("cannot write calibration file: " + resolved.string());
+    if (!std::filesystem::exists(resolved)) {
+        throw ConfigValidationError("calibration_file not found: " + resolved.string());
     }
+    std::ifstream in(resolved);
+    std::stringstream text;
+    text << in.rdbuf();
+    return parse_camera_calibration(text.str(), resolved.string());
+}
+
+std::string camera_calibration_to_toml(const CameraCalibration &calibration) {
+    std::ostringstream out;
     out << std::setprecision(12);
-    out << "# One physical camera and lens, shot through an offcut of the cage panel at the\n";
-    out << "# mounted standoff. Free-air numbers fold the panel's refraction into the field "
-           "pose.\n";
     out << "calibration_id = \"" << calibration.calibration_id << "\"\n";
     out << "width = " << calibration.width << "\n";
     out << "height = " << calibration.height << "\n";
@@ -98,6 +98,20 @@ void save_camera_calibration(const std::string &path, const CameraCalibration &c
     for (size_t i = 0; i < calibration.distortion.size(); ++i) {
         out << kNames[i] << " = " << calibration.distortion[i] << "\n";
     }
+    return out.str();
+}
+
+void save_camera_calibration(const std::string &path, const CameraCalibration &calibration) {
+    const std::filesystem::path resolved = resolve(path);
+    std::filesystem::create_directories(resolved.parent_path());
+    std::ofstream out(resolved);
+    if (!out) {
+        throw ConfigValidationError("cannot write calibration file: " + resolved.string());
+    }
+    out << "# One physical camera and lens, shot through an offcut of the cage panel at the\n";
+    out << "# mounted standoff. Free-air numbers fold the panel's refraction into the field "
+           "pose.\n";
+    out << camera_calibration_to_toml(calibration);
 }
 
 void Rectifier::build(const CameraCalibration &calibration, cv::Size size, double alpha) {

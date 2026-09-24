@@ -13,6 +13,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "publisher/output_channel.hpp"
+#include "rgbd_camera/camera_calibration.hpp"
 #include "rgbd_camera/config.hpp"
 #include "rgbd_camera/grab_health_monitor.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
@@ -28,9 +29,8 @@ namespace auto_battlebot {
  *
  * Frames come back rectified by the SDK against the factory calibration. That lens model is
  * rational with thin-prism terms, which `CameraCalibration` cannot represent, so the rectified
- * stream is what gets published and recorded. The recording names a calibration_id whose file
- * holds the rectified intrinsics with zero distortion, which VideoPlaybackCamera loads to replay
- * it. The camera writes that file on first open if it is missing.
+ * stream is what gets published and recorded. The recording embeds the rectified intrinsics with
+ * zero distortion in its MCAP metadata, which is all VideoPlaybackCamera needs to replay it.
  */
 class ZedOneRgbCamera : public RgbdCameraInterface {
    public:
@@ -47,9 +47,8 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
 
    private:
     bool open_camera();
-    /** Reads the rectified intrinsics into camera_info and makes sure a calibration file under
-     *  config/cameras/ names them, so VideoPlaybackCamera can replay what this camera records. */
-    void publish_calibration();
+    /** Reads the rectified intrinsics into camera_info and calibration_. */
+    void read_calibration();
     bool start_encoder();
     void capture_thread_loop();
     bool capture_frame();
@@ -61,7 +60,7 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
     std::atomic<bool> cancel_open_{false};
     int width_ = 0;
     int height_ = 0;
-    std::string calibration_id_;
+    CameraCalibration calibration_;
 
     CameraData latest_data_;
     mutable std::mutex data_mutex_;

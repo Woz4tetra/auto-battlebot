@@ -98,8 +98,8 @@ sudo nvpmodel -m 0                     # MAXN
    - The X One S launched in December 2025, and neither the driver changelog nor the SDK release
      notes name it. It uses the X One GS sensor (AR0234), so SDK 5.2.3 and driver 1.4.1 probably
      open it as `ZED_XONE_GS`. The startup log prints the model the SDK reports.
-   - First open writes `config/cameras/zed_x_one_<serial>_<W>x<H>.toml` from the factory
-     calibration. Commit it: `VideoPlaybackCamera` needs it to replay recordings from the box.
+   - Recordings embed the SDK's rectified intrinsics in their MCAP metadata, so they replay
+     through `VideoPlaybackCamera` with no `config/cameras/` file.
    - The SDK rectifies each frame, then the camera converts BGRA to BGR on the CPU and records
      H.264 through the same encoder as the e-CAM25. Measure the capture-to-`get()` latency at 1920x1200 60 fps.
    - For depth, a ZED X or ZED X Mini on the same port works with `ZedRgbdCamera` instead.

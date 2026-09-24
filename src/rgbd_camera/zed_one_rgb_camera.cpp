@@ -3,11 +3,9 @@
 #include <spdlog/spdlog.h>
 
 #include <chrono>
-#include <filesystem>
 #include <foxglove/schemas.hpp>
 #include <utility>
 
-#include "directories.hpp"
 #include "rgbd_camera/camera_calibration.hpp"
 #include "rgbd_camera/zed_device.hpp"
 
@@ -67,7 +65,7 @@ bool ZedOneRgbCamera::open_camera() {
     return true;
 }
 
-void ZedOneRgbCamera::publish_calibration() {
+void ZedOneRgbCamera::read_calibration() {
     const sl::CameraOneInformation information = zed_.getCameraInformation();
     const sl::CameraParameters &rectified = information.camera_configuration.calibration_parameters;
     width_ = static_cast<int>(information.camera_configuration.resolution.width);
@@ -85,26 +83,16 @@ void ZedOneRgbCamera::publish_calibration() {
     info.distortion = cv::Mat::zeros(1, 5, CV_64F);
     latest_data_.camera_info = info;
 
-    // Resolution is in the id because the cropped 1920x1080 mode shifts cy, which scaling the
-    // 1920x1200 intrinsics would not reproduce.
-    calibration_id_ = "zed_x_one_" + std::to_string(information.serial_number) + "_" +
-                      std::to_string(width_) + "x" + std::to_string(height_);
-    const std::string calibration_file = "config/cameras/" + calibration_id_ + ".toml";
-    if (!std::filesystem::exists(get_project_root() / calibration_file)) {
-        CameraCalibration calibration;
-        calibration.calibration_id = calibration_id_;
-        calibration.width = width_;
-        calibration.height = height_;
-        calibration.fx = rectified.fx;
-        calibration.fy = rectified.fy;
-        calibration.cx = rectified.cx;
-        calibration.cy = rectified.cy;
-        save_camera_calibration(calibration_file, calibration);
-        spdlog::info(
-            "[ZedOneRgbCamera] Wrote {} from the factory calibration; commit it so "
-            "recordings from this camera replay elsewhere",
-            calibration_file);
-    }
+    // Rectified intrinsics with zero distortion describe the recorded video exactly. Resolution
+    // is in the id because the cropped 1920x1080 mode shifts cy.
+    calibration_.calibration_id = "zed_x_one_" + std::to_string(information.serial_number) + "_" +
+                                  std::to_string(width_) + "x" + std::to_string(height_);
+    calibration_.width = width_;
+    calibration_.height = height_;
+    calibration_.fx = rectified.fx;
+    calibration_.fy = rectified.fy;
+    calibration_.cx = rectified.cx;
+    calibration_.cy = rectified.cy;
 
     spdlog::info("[ZedOneRgbCamera] {} serial {} at {}x{} {} fps, fx {:.1f} fy {:.1f}",
                  sl::toString(information.camera_model).c_str(), information.serial_number, width_,
@@ -143,12 +131,13 @@ bool ZedOneRgbCamera::initialize() {
     if (!open_camera()) {
         return false;
     }
-    publish_calibration();
+    read_calibration();
     latest_data_.tracking_ok = true;
 
     if (mcap_recorder_) {
-        // VideoPlaybackCamera loads config/cameras/<calibration_id>.toml to replay this file.
-        mcap_recorder_->write_metadata("calibration_id", calibration_id_);
+        // VideoPlaybackCamera reads this to replay the file; no config/cameras/ file needed.
+        mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,
+                                       camera_calibration_to_toml(calibration_));
     }
     if (mcap_recorder_ && recording_desired_.load()) {
         start_encoder();
