@@ -1,8 +1,7 @@
 # ZED Box Mini
 
-State of the ZED Box Mini as inspected on 2026-09-24, what blocks the current code from running
-on it, and the upgrade path to JetPack 7.2. Inspection was read-only; nothing on the box was
-changed.
+State of the ZED Box Mini as inspected on 2026-09-24 and how the repo runs on it. The box stays
+on its factory JetPack 6.2.1. The inspection was read-only; nothing on the box was changed.
 
 Access: `ssh -o IdentitiesOnly=yes user@<box-ip>` (default password `admin`). `sudo` needs the
 password.
@@ -26,110 +25,89 @@ password.
 
 ## Software as shipped
 
-| Component | On the box | What the repo targets |
+The box stays on the factory JetPack 6.2.1. The repo supports it alongside JetPack 7.2, so the
+e-CAM25 Jetson and the Box Mini run the same tree.
+
+| Component | On the box (JetPack 6.2.1) | e-CAM25 Jetson (JetPack 7.2) |
 |---|---|---|
 | OS | Ubuntu 22.04.5, kernel 5.15.148-tegra | Ubuntu 24.04 |
-| L4T / JetPack | R36.4.4 / 6.2.1 | R39.2 / 7.2 |
+| L4T | R36.4.4 | R39.2 |
 | CUDA | 12.6 | 13.2 |
 | TensorRT | 10.3.0 | 10.16 |
 | cuDNN / VPI | 9.3.0 / 3.2.4 | |
 | Python | 3.10.12 (numpy 2.2.6, pyzed 5.2) | 3.12 |
 | OpenCV | NVIDIA 4.8.0 | built from source by `install/install_opencv.sh` |
 | GCC | 11.4 | |
-| ZED SDK | 5.2.3 | 5.5 has a JetPack 7.2 Orin build |
-| Stereolabs camera driver | `stereolabs-zedbox-mini` 1.4.1 (L4T 36.4) | 1.4.3 exists for L4T 39.2.1 |
+| ZED SDK | 5.2.3 | |
+| Stereolabs camera driver | `stereolabs-zedbox-mini` 1.4.1 (L4T 36.4) | |
 | Docker | 29.3.1 | |
 
 The Stereolabs driver modules (`sl_zedx`, `sl_max9296`, ...) load and `zed_x_daemon` runs. The
 default boot entry is `Stereolabs`, which applies
 `/boot/tegra234-p3768-camera-zedbox-mini-sl-overlay.dtbo`.
 
-## What blocks the current code on JetPack 6.2
+## How the repo handles JetPack 6.2.1
 
-1. **Fixed 2026-09-24: install scripts hardcoded Python 3.12.** They now follow the system
-   python and pick packages per L4T major. See "Staying on JetPack 6.2".
-2. **Fixed 2026-09-24: TensorRT Python bindings.** JetPack 6 builds `python3-libnvinfer` for 3.10,
-   and the venv is now 3.10 there.
-3. **TensorRT 10.3 predates 10.7.** `src/tensorrt_inference/trt_engine.cpp` falls back to the old
-   `IStreamReader` API, so the C++ side should compile. Not verified on the box. Engines must be
-   built on the box either way.
-4. **The e-CAM25 has nowhere to plug in.** Camera options:
-   - **ZED X / ZED X Mini over GMSL2:** works with the existing `ZedRgbdCamera` backend and gives
-     depth, which the height gate needs. `BUILD_WITH_ZED` defaults ON when the SDK is installed.
-   - **USB3 camera:** runs through `V4l2RgbCamera`, but takes the only USB-A port. Anything else on
-     USB (radio link, keyboard) then needs a hub.
-5. **DS3231 RTC may have no bus.** The GPIO port lists no I2C, so `install/install_ds3231_rtc.sh`
-   may have nothing to attach to. Check the hardware manual.
+The install scripts branch on the L4T major (`/etc/nv_tegra_release`):
 
-## Upgrade to JetPack 7.2
+- The venv uses the system python, 3.10 here, because JetPack builds `python3-libnvinfer` for
+  the system python only. `install/install_python_environment.sh` reads it from `/usr/bin/python3`.
+- `install/jetson_r36_packages.txt` adds the jammy-only packages (`libstdc++-12-dev` for
+  clang-tidy); `install/jetson_r39_packages.txt` holds the noble-only ones.
+- PyTorch comes from an NVIDIA JetPack 6 wheel (cp310) with `numpy==1.26.1` pinned for its ABI.
+  JetPack 7 installs cuSPARSELt and a newer torch instead.
+- The C++ build takes the TensorRT <10.7 `IStreamReader` path in
+  `src/tensorrt_inference/trt_engine.cpp`.
+- Python code keeps a 3.10 floor: `from auto_battlebot.compat import tomllib`, no 3.11+ stdlib
+  API. ruff and mypy target 3.10.
 
-### 1. Reflash
+## Setup on the box
 
-SDK Manager does not support the ZED Box. Use Stereolabs' script
-`zedbox_mini_usb_flash_7.2_gpio.sh` from the
-[flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update).
-
-- **Enter recovery:** `sudo reboot --force forced-recovery` on the box, or hold RCV and press RST.
-  The power LED stays off in recovery.
-- **Connect:** micro-USB cable from the host to the OTG port. `lsusb -d 0955:` on the host should
-  show `0955:7323` (Orin NX 16GB). `0955:7020` means it booted normally instead.
-- **Host PC:** Stereolabs lists Ubuntu 20.04/22.04 with 80 GB free. The dev box is 24.04 with
-  82 GB free. Unverified whether the 7.2 flash tools accept a 24.04 host.
-
-### 2. Box setup after the flash
-
-Use wired Ethernet; WiFi may not come up before JetPack is installed. Do not run `apt upgrade`
-before the kernel hold.
-
-```bash
-sudo apt update && sudo apt install nvidia-jetpack
-sudo dpkg -i stereolabs-zedbox-mini_1.4.3-SL-MAX9296-ZEDBOX-MINI-L4T39.2.1_arm64.deb
-sudo ./hold-zedbox-kernel.sh          # script from the flash docs page
-chmod +x ZED_SDK_Tegra_L4T39.2_v5.5.*.zstd.run && ./ZED_SDK_Tegra_L4T39.2_v5.5.*.zstd.run
-sudo reboot
-```
-
-- Driver download: [ZED X drivers page](https://www.stereolabs.com/developers/drivers).
-- ZED SDK download: [release page](https://www.stereolabs.com/developers/release).
-- `hold-zedbox-kernel.sh` only names L4T 36.4 kernel versions. Check that every `nvidia-l4t-*`
-  package shows `[HELD]` afterwards.
-- There is no RT-kernel build of the 7.2 driver yet.
-
-### 3. Repo install
+Use wired Ethernet for the install.
 
 ```bash
 ./scripts/install_jetson.sh
+./scripts/build.sh
+sudo nvpmodel -m 0                     # MAXN
+./install/install_jetson_clocks.sh
 ```
 
-- Build pycuda from source; there is no JetPack 7 wheel.
-- Rebuild every `aarch64_sm87` engine on the box. Filenames don't change on rebuild.
+- The 15W default has half the CPU cores and a third less GPU clock, which the 60ms latency
+  budget can't afford.
+- Build every `aarch64_sm87` engine on the box against its TensorRT 10.3. Engines from the
+  JetPack 7 Jetson (10.16) or a dev machine will not load, and a rebuilt engine keeps the same
+  filename.
+- Do not run `apt upgrade` without holding the kernel. A newer `nvidia-l4t-*` kernel drops the
+  Stereolabs camera driver. `hold-zedbox-kernel.sh` from the
+  [flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update)
+  names the L4T 36.4 kernel packages; check that every `nvidia-l4t-*` package shows `[HELD]`.
+- Pick a camera (below), then add its section to `config/_zed_box.toml`.
 
-### 4. Full power
+## Open issues
 
-```bash
-sudo nvpmodel -m 0    # MAXN
-```
+1. **Not verified on the box yet:** the install, the C++ build under GCC 11, whether TensorRT
+   10.3 builds the yolo26 engines, and a playback replay. Run all four before trusting it.
+2. **PyTorch wheel selection misses 6.2.1.** `get_jetson_torch_install_url` in
+   `install/install_pytorch_jetson.sh` turns `R36 (release), REVISION: 4.4` into JP version 64,
+   which matches no case and falls through to the JetPack 6.1 wheel (torch 2.5). The JetPack 6.2
+   wheel (torch 2.6) is the `62` case. Set `TORCH_INSTALL` to override, or map R36.4 to `62`.
+3. **The e-CAM25 has nowhere to plug in.** The box has GMSL2, no MIPI CSI. Camera options:
+   - **ZED X / ZED X Mini over GMSL2:** works with the existing `ZedRgbdCamera` backend and gives
+     depth, which the height gate needs. `BUILD_WITH_ZED` defaults ON because the SDK is
+     installed.
+   - **USB3 camera:** runs through `V4l2RgbCamera`, but takes the only USB-A port. Anything else
+     on USB (radio link, keyboard) then needs a hub.
+4. **DS3231 RTC may have no bus.** The GPIO port lists no I2C, so `install/install_ds3231_rtc.sh`
+   may have nothing to attach to. Check the hardware manual.
 
-Then run `install/install_jetson_clocks.sh`. The 15W default costs half the CPU cores and a third
-of GPU clock against the 60ms latency budget.
+## Why not JetPack 7.2
 
-### 5. Camera config
-
-Pick a ZED X / X Mini (GMSL2) or a USB3 camera, then add the camera section to
-`config/_zed_box.toml`.
-
-## Staying on JetPack 6.2
-
-The repo supports both JetPack 6.2 and 7.2, so `./scripts/install_jetson.sh` runs on the box as
-shipped:
-
-- The venv uses the system python (3.10 here), since `python3-libnvinfer` is built for it only.
-- `install/jetson_r36_packages.txt` replaces the noble-only packages.
-- PyTorch comes from NVIDIA's JetPack 6.2 wheel (torch 2.6, cp310) with NumPy 1.26.
-- The C++ build takes the TensorRT <10.7 `IStreamReader` path in `trt_engine.cpp`.
-
-Not yet verified on the box: the C++ build under GCC 11, and whether TensorRT 10.3 builds the
-yolo26 engines. Run the install, build, and a playback replay before trusting it.
+Stereolabs does ship a 7.2 path (`zedbox_mini_usb_flash_7.2_gpio.sh`, driver 1.4.3 for
+L4T 39.2.1, ZED SDK 5.5), but it needs a reflash over micro-USB from an Ubuntu 20.04/22.04 host,
+has no RT-kernel driver build, and gains nothing the repo needs now that 6.2.1 is supported. The
+flash steps are on the
+[flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update) page
+if that changes.
 
 ## Sources
 
