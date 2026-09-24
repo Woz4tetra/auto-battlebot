@@ -12,6 +12,7 @@
 #include "rgbd_camera/v4l2_rgb_camera.hpp"
 #include "rgbd_camera/video_playback_camera.hpp"
 #ifdef BUILD_WITH_ZED
+#include "rgbd_camera/zed_one_rgb_camera.hpp"
 #include "rgbd_camera/zed_rgbd_camera.hpp"
 #include "rgbd_camera/zed_svo_playback_camera.hpp"
 #endif
@@ -25,6 +26,7 @@ REGISTER_CONFIG(RgbdCameraConfiguration, VideoPlaybackCameraConfiguration, "Vide
 #ifdef BUILD_WITH_ZED
 REGISTER_CONFIG(RgbdCameraConfiguration, ZedRgbdCameraConfiguration, "ZedRgbdCamera")
 REGISTER_CONFIG(RgbdCameraConfiguration, ZedSvoPlaybackCameraConfiguration, "ZedSvoPlaybackCamera")
+REGISTER_CONFIG(RgbdCameraConfiguration, ZedOneRgbCameraConfiguration, "ZedOneRgbCamera")
 #endif
 
 std::unique_ptr<RgbdCameraConfiguration> parse_rgbd_camera_config(ConfigParser &parser) {
@@ -69,6 +71,9 @@ std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfigurat
     } else if (config.type == "ZedSvoPlaybackCamera") {
         return std::make_shared<ZedSvoPlaybackCamera>(
             config_cast<ZedSvoPlaybackCameraConfiguration>(config));
+    } else if (config.type == "ZedOneRgbCamera") {
+        return std::make_shared<ZedOneRgbCamera>(config_cast<ZedOneRgbCameraConfiguration>(config),
+                                                 std::move(mcap_recorder));
 #endif
     } else if (config.type == "V4l2RgbCamera") {
         return std::make_shared<V4l2RgbCamera>(config_cast<V4l2RgbCameraConfiguration>(config),

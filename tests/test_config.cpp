@@ -272,6 +272,52 @@ type = "NoopPublisher"
     EXPECT_EQ(zed_config->depth_mode, DepthMode::ZED_NEURAL_LIGHT);      // default
 }
 
+// The ZED X One S on the ZED Box Mini: monocular, so no depth_mode to parse
+TEST_F(ConfigTest, ZedOneRgbCameraConfiguration) {
+    write_config_file(R"(
+[rgbd_camera]
+type = "ZedOneRgbCamera"
+camera_resolution = "RES_960x600"
+camera_fps = 120
+video_recording = false
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+
+[keypoint_model]
+type = "NoopKeypointModel"
+
+[robot_filter]
+type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+)");
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *zed_one_config = dynamic_cast<ZedOneRgbCameraConfiguration *>(config.camera.get());
+    ASSERT_NE(zed_one_config, nullptr);
+    EXPECT_EQ(zed_one_config->camera_resolution, Resolution::RES_960x600);
+    EXPECT_EQ(zed_one_config->camera_fps, 120);
+    EXPECT_FALSE(zed_one_config->video_recording);
+    EXPECT_EQ(zed_one_config->video_bitrate_kbps, 15000);  // default
+}
+
 // Test unknown camera type
 TEST_F(ConfigTest, UnknownCameraType) {
     write_config_file(R"(

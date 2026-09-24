@@ -81,7 +81,7 @@ sudo nvpmodel -m 0                     # MAXN
   Stereolabs camera driver. `hold-zedbox-kernel.sh` from the
   [flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update)
   names the L4T 36.4 kernel packages; check that every `nvidia-l4t-*` package shows `[HELD]`.
-- Pick a camera (below), then add its section to `config/_zed_box.toml`.
+- `config/_zed_box.toml` runs a ZED X One S on a GMSL2 port (see open issue 3).
 
 ## Open issues
 
@@ -91,12 +91,18 @@ sudo nvpmodel -m 0                     # MAXN
    `install/install_pytorch_jetson.sh` turns `R36 (release), REVISION: 4.4` into JP version 64,
    which matches no case and falls through to the JetPack 6.1 wheel (torch 2.5). The JetPack 6.2
    wheel (torch 2.6) is the `62` case. Set `TORCH_INSTALL` to override, or map R36.4 to `62`.
-3. **The e-CAM25 has nowhere to plug in.** The box has GMSL2, no MIPI CSI. Camera options:
-   - **ZED X / ZED X Mini over GMSL2:** works with the existing `ZedRgbdCamera` backend and gives
-     depth, which the height gate needs. `BUILD_WITH_ZED` defaults ON because the SDK is
-     installed.
-   - **USB3 camera:** runs through `V4l2RgbCamera`, but takes the only USB-A port. Anything else
-     on USB (radio link, keyboard) then needs a hub.
+3. **ZED X One S is untested on hardware.** The e-CAM25 has nowhere to plug in (GMSL2 only, no
+   MIPI CSI), so `config/_zed_box.toml` uses a ZED X One S through `ZedOneRgbCamera`
+   (`sl::CameraOne`). It is monocular, so the config runs the RGB path the e-CAM25 used:
+   `FiducialFieldFilter`, height gate off, static gate on. Things to check on the box:
+   - The X One S launched in December 2025, and neither the driver changelog nor the SDK release
+     notes name it. It uses the X One GS sensor (AR0234), so SDK 5.2.3 and driver 1.4.1 probably
+     open it as `ZED_XONE_GS`. The startup log prints the model the SDK reports.
+   - Recordings embed the SDK's rectified intrinsics in their MCAP metadata, so they replay
+     through `VideoPlaybackCamera` with no `config/cameras/` file.
+   - The SDK rectifies each frame, then the camera converts BGRA to BGR on the CPU and records
+     H.264 through the same encoder as the e-CAM25. Measure the capture-to-`get()` latency at 1920x1200 60 fps.
+   - For depth, a ZED X or ZED X Mini on the same port works with `ZedRgbdCamera` instead.
 4. **DS3231 RTC may have no bus.** The GPIO port lists no I2C, so `install/install_ds3231_rtc.sh`
    may have nothing to attach to. Check the hardware manual.
 

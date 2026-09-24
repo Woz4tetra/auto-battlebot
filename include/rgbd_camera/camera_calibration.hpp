@@ -35,9 +35,19 @@ struct CameraCalibration {
     cv::Mat distortion_coefficients() const;
 };
 
+/** MCAP metadata key (under the `auto_battlebot` record) holding the calibration a recording's
+ *  /camera/video needs, as the same TOML text a `config/cameras/` file holds. With it the
+ *  recording replays without a sidecar file. */
+inline constexpr const char *kCameraCalibrationMetadataKey = "camera_calibration";
+
 /** Load from `config/cameras/<serial>.toml`, resolved absolute or relative to the project root. */
 CameraCalibration load_camera_calibration(const std::string &path);
 void save_camera_calibration(const std::string &path, const CameraCalibration &calibration);
+
+/** The TOML text save_camera_calibration writes. */
+std::string camera_calibration_to_toml(const CameraCalibration &calibration);
+/** Parse that text back. `source` names where it came from in error messages. */
+CameraCalibration parse_camera_calibration(const std::string &toml_text, const std::string &source);
 
 /**
  * @brief Undistortion maps built once at open, applied per frame with cv::remap.

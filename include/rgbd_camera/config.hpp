@@ -127,6 +127,34 @@ struct V4l2RgbCameraConfiguration : public RgbdCameraConfiguration {
     // clang-format on
 };
 
+/**
+ * ZED X One S (or any ZED X One) over GMSL2 through `sl::CameraOne`, as on the ZED Box Mini.
+ *
+ * No `calibration_file`: the lens model is the factory's 12-coefficient rational one, which our
+ * plumb-bob `CameraCalibration` cannot hold, so the SDK rectifies and we publish its rectified
+ * intrinsics. Recording and replay then follow the V4L2 camera: H.264 on /camera/video.
+ */
+struct ZedOneRgbCameraConfiguration : public RgbdCameraConfiguration {
+    /** RES_1920x1200 is the full sensor, RES_1920x1080 crops it, RES_960x600 bins it (up to 120
+     *  fps). Anything else fails at open. */
+    Resolution camera_resolution = Resolution::RES_1920x1200;
+    int camera_fps = 60;
+    bool video_recording = true;
+    /** 15 Mbps is about 6.8 GB per hour and 340 MB for a three-minute match. */
+    int video_bitrate_kbps = 15000;
+
+    ZedOneRgbCameraConfiguration() { type = "ZedOneRgbCamera"; }
+
+    // clang-format off
+    PARSE_CONFIG_FIELDS(
+        PARSE_ENUM(camera_resolution, Resolution)
+        PARSE_FIELD(camera_fps)
+        PARSE_FIELD_BOOL(video_recording)
+        PARSE_FIELD(video_bitrate_kbps)
+    )
+    // clang-format on
+};
+
 /** Replay of an MCAP recording carrying /camera/video. Separate from the live camera for the same
  *  reason SVO playback is: no recorder, no reconnection, no capture thread, so every frame reaches
  *  the pipeline in order and replay stays reproducible. */

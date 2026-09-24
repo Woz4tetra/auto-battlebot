@@ -38,7 +38,8 @@ class VideoPlaybackCamera : public RgbdCameraInterface {
     bool get(CameraData &data) override;
     bool should_close() override { return should_close_; }
 
-    /** The calibration_id the recording names, read from its MCAP metadata. Empty when absent. */
+    /** The calibration_id the recording names, from its embedded calibration or, in recordings
+     *  older than that, its bare `calibration_id` metadata. Empty when absent. */
     const std::string &recorded_calibration_id() const { return recorded_calibration_id_; }
 
    private:
@@ -56,6 +57,9 @@ class VideoPlaybackCamera : public RgbdCameraInterface {
     VideoPlaybackCameraConfiguration config_;
     std::string video_file_path_;
     std::string recorded_calibration_id_;
+    /** The recording's embedded calibration as TOML text. Empty in recordings that only name a
+     *  calibration_id. */
+    std::string recorded_calibration_toml_;
 
     /** Reader, message view and its iterator. Held behind a pointer so the mcap headers stay out
      *  of everything that includes this one. */

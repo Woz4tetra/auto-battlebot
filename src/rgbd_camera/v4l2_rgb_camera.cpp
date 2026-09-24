@@ -269,8 +269,10 @@ bool V4l2RgbCamera::initialize() {
     latest_data_.tracking_ok = true;
 
     if (mcap_recorder_) {
-        // So a recording can be re-rectified later against a revised calibration.
-        mcap_recorder_->write_metadata("calibration_id", calibration_.calibration_id);
+        // The video is pre-rectification, so replay needs this calibration. Embedded, a recording
+        // replays without the file, and a revised one can still override it through config.
+        mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,
+                                       camera_calibration_to_toml(calibration_));
     }
     if (mcap_recorder_ && recording_desired_.load()) {
         video_channel_ = std::make_unique<OutputChannel>(

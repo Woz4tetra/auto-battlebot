@@ -23,6 +23,8 @@ constexpr int kWidth = 320;
 constexpr int kHeight = 240;
 constexpr int kFrames = 45;
 constexpr const char *kCalibrationId = "video_playback_test";
+constexpr double kEmbeddedFocal = 200.0;
+constexpr double kFileFocal = 250.0;
 
 /** A recognisable UYVY frame whose content changes with the index, so a decoded frame can be
  *  matched back to the one that produced it. */
@@ -37,8 +39,9 @@ cv::Mat make_uyvy_frame(int index) {
     return frame;
 }
 
-/** Writes a short recording the way the RGB camera does: H.264 on /camera/video, FrameMeta
- *  alongside it, and a calibration_id in the file metadata. */
+/** Writes a short recording the way the RGB cameras do: H.264 on /camera/video, FrameMeta
+ *  alongside it, and the calibration embedded in the file metadata. A second calibration with a
+ *  different focal length goes to a file, so a test can tell which one playback used. */
 class RecordingFixture {
    public:
     RecordingFixture() {
@@ -49,14 +52,19 @@ class RecordingFixture {
         calibration.calibration_id = kCalibrationId;
         calibration.width = kWidth;
         calibration.height = kHeight;
-        calibration.fx = 200.0;
-        calibration.fy = 200.0;
+        calibration.fx = kEmbeddedFocal;
+        calibration.fy = kEmbeddedFocal;
         calibration.cx = kWidth / 2.0;
         calibration.cy = kHeight / 2.0;
-        save_camera_calibration(calibration_path_, calibration);
 
         recorder_ = std::make_shared<McapRecorder>("video_playback_test");
-        recorder_->write_metadata("calibration_id", kCalibrationId);
+        recorder_->write_metadata(kCameraCalibrationMetadataKey,
+                                  camera_calibration_to_toml(calibration));
+
+        CameraCalibration revised = calibration;
+        revised.fx = kFileFocal;
+        revised.fy = kFileFocal;
+        save_camera_calibration(calibration_path_, revised);
         path_ = recorder_->file_path();
 
         OutputChannel video("/camera/video", "protobuf",
@@ -237,6 +245,67 @@ TEST_F(VideoPlaybackCameraTest, ReachesTheEndOfTheRecording) {
     EXPECT_EQ(camera.recorded_calibration_id(), kCalibrationId);
 }
 
+TEST_F(VideoPlaybackCameraTest, RectifiesWithTheEmbeddedCalibration) {
+    VideoPlaybackCameraConfiguration config = make_config(*fixture_);
+    config.calibration_file = "";
+    VideoPlaybackCamera camera(config);
+    ASSERT_TRUE(camera.initialize());
+
+    CameraData data;
+    ASSERT_TRUE(camera.get(data));
+    EXPECT_EQ(camera.recorded_calibration_id(), kCalibrationId);
+    // Zero distortion, so the rectified matrix keeps the recorded focal length.
+    EXPECT_NEAR(data.camera_info.intrinsics.at<double>(0, 0), kEmbeddedFocal, 1.0);
+}
+
+TEST_F(VideoPlaybackCameraTest, ConfiguredCalibrationFileOverridesTheEmbeddedOne) {
+    VideoPlaybackCamera camera(make_config(*fixture_));
+    ASSERT_TRUE(camera.initialize());
+
+    CameraData data;
+    ASSERT_TRUE(camera.get(data));
+    EXPECT_NEAR(data.camera_info.intrinsics.at<double>(0, 0), kFileFocal, 1.0);
+}
+
+TEST(CameraCalibrationTest, TomlTextRoundTrips) {
+    CameraCalibration written;
+    written.calibration_id = "round_trip";
+    written.width = 1920;
+    written.height = 1200;
+    written.fx = 1006.123456789;
+    written.fy = 1005.5;
+    written.cx = 961.25;
+    written.cy = 599.75;
+    written.distortion = {-0.31, 0.12, 0.0004, -0.0002, -0.021};
+
+    const CameraCalibration read =
+        parse_camera_calibration(camera_calibration_to_toml(written), "round trip");
+    EXPECT_EQ(read.calibration_id, written.calibration_id);
+    EXPECT_EQ(read.width, written.width);
+    EXPECT_EQ(read.height, written.height);
+    EXPECT_NEAR(read.fx, written.fx, 1e-8);
+    EXPECT_NEAR(read.fy, written.fy, 1e-8);
+    EXPECT_NEAR(read.cx, written.cx, 1e-8);
+    EXPECT_NEAR(read.cy, written.cy, 1e-8);
+    for (size_t i = 0; i < written.distortion.size(); ++i) {
+        EXPECT_NEAR(read.distortion[i], written.distortion[i], 1e-8);
+    }
+}
+
+TEST(CameraCalibrationTest, ParseNamesTheSourceOfAMissingField) {
+    EXPECT_THROW(
+        {
+            try {
+                parse_camera_calibration("calibration_id = \"x\"\nwidth = 10\nheight = 10\n",
+                                         "some.mcap metadata");
+            } catch (const ConfigValidationError &error) {
+                EXPECT_NE(std::string(error.what()).find("some.mcap metadata"), std::string::npos);
+                throw;
+            }
+        },
+        ConfigValidationError);
+}
+
 TEST_F(VideoPlaybackCameraTest, StartsAtTheRequestedFrame) {
     VideoPlaybackCameraConfiguration config = make_config(*fixture_);
     config.start_frame = 20;
@@ -295,15 +364,5 @@ TEST_F(VideoPlaybackCameraTest, NamesTheMissingVideoChannel) {
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
-}
-
-TEST_F(VideoPlaybackCameraTest, ReadsTheCalibrationIdOutOfTheRecording) {
-    VideoPlaybackCameraConfiguration config = make_config(*fixture_);
-    config.calibration_file = "";
-    VideoPlaybackCamera camera(config);
-    // No config/cameras/<id>.toml exists for the test id, so initialize fails on the lookup. What
-    // matters is that the recording named the calibration it was rectified with.
-    EXPECT_ANY_THROW(camera.initialize());
-    EXPECT_EQ(camera.recorded_calibration_id(), kCalibrationId);
 }
 }  // namespace auto_battlebot
