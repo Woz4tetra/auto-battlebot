@@ -1,7 +1,62 @@
-# ZED Box platform (Jetson Orin NX, no screen). The operator uses the web dashboard that viz_relay
-# serves at http://<hostname>.local (install/install_dashboard_network.sh), so the
-# LVGL window is off. Robot profiles for the box extend this instead of _jetson.
-extends = "_jetson"
+# Jetson hardware profile (aarch64 TensorRT engines). Inherits the shared perception/filter stack
+# from common.toml and overrides the hardware-specific bits.
+extends = "_common"
+
+# Each model lists engine candidates instead of a single path. EngineSelector loads the
+# first one that deserializes on this machine's GPU. Candidates only ever list builds of
+# the same trained model: falling back to a different model would silently change
+# detection behavior between machines.
+
+# ZED Box Mini with a ZED X One S on a GMSL2 port (docs/zed_box_mini.md). The X One S is
+# monocular: no depth, no visual odometry. Everything that read depth changes with it:
+# - the field filter solves off the fiducial board instead of fitting the point cloud.
+# - the height gate abstains on the empty depth image; the static gate takes over.
+# - /field_points stops publishing.
+[rgbd_camera]
+type = "ZedOneRgbCamera"
+# Full sensor. RES_960x600 bins it for up to 120 fps if the loop can use the rate.
+camera_resolution = "RES_1920x1200"
+camera_fps = 60
+
+[field_filter]
+# Depends on no segmentation and no assumed mat size. Swap to CalibratedFieldFilter once the cage
+# is measured.
+type = "FiducialFieldFilter"
+corner = "NEG_X_NEG_Y"
+board_offset_x = 0.2
+board_offset_y = 0.2
+field_size_x = 2.35
+field_size_y = 2.35
+
+[keypoint_filter.height]
+# No depth to measure relief against. It abstains on its own; this says so out loud.
+reject_enable = false
+
+[keypoint_filter.static]
+# On because it is the only gate left. The height gate beat it on the ZED 2i recordings.
+enable = true
+
+[field_model]
+type = "DeepLabMaskModel"
+
+[field_model.engine]
+candidates = ["data/models/field_deeplabv3p_r50_2026-07-29_aarch64_sm87.engine"]
+
+[keypoint_model]
+type = "YoloKeypointModel"
+label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3", "OPPONENT", "HOUSE_BOT"]
+threshold = 0.5
+
+[keypoint_model.engine]
+candidates = [
+  "data/models/yolo26x-pose_cagehigh_rect384x640_2026-09-20_aarch64_sm87.engine",
+]
 
 [ui]
 enable = false
+
+[mcap]
+enable = true
+
+[health]
+tegrastats_enable = true

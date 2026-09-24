@@ -426,6 +426,7 @@ if(BUILD_DEBUG AND BUILD_WITH_ZED)
         src/rgbd_camera/zed_rgbd_camera.cpp
         src/rgbd_camera/zed_device.cpp
         src/rgbd_camera/zed_svo_playback_camera.cpp
+        src/rgbd_camera/zed_one_rgb_camera.cpp
         src/rgbd_camera/svo_recorder.cpp
         src/rgbd_camera/config.cpp
         PROPERTIES COMPILE_FLAGS "-Wall -Wno-extra -Wno-error -O2 -DNDEBUG"
