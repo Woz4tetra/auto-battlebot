@@ -1263,7 +1263,7 @@ def main() -> None:
         "started_utc": f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}",
     }
     if args.session is not None:
-        import tomllib
+        from auto_battlebot.compat import tomllib
 
         with open(args.session, "rb") as handle:
             session_meta.update(tomllib.load(handle).get("session", {}))

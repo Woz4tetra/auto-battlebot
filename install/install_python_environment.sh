@@ -52,12 +52,17 @@ install_python_environment() {
     # Virtual environment directory
     local VENV_DIR="$PROJECT_ROOT/venv"
 
-    # Python version: 3.12 on Jetson (matches JetPack 7 system python + TensorRT), 3.11 elsewhere
+    # Python version: the system python on Jetson, 3.11 elsewhere. JetPack builds TensorRT's
+    # bindings (python3-libnvinfer) for its own system python only: 3.10 on JetPack 6, 3.12
+    # on JetPack 7.
     local REQUIRED_MAJOR=3
     local REQUIRED_MINOR
     if [ -f /etc/nv_tegra_release ]; then
-        REQUIRED_MINOR=12
-        echo "Jetson detected: using Python 3.12"
+        source "$SCRIPT_DIR/install_pytorch_jetson.sh"
+        local JETSON_PY_VER
+        JETSON_PY_VER=$(get_jetson_python_version) || return 1
+        REQUIRED_MINOR="${JETSON_PY_VER#*.}"
+        echo "Jetson detected: using Python ${JETSON_PY_VER}"
     else
         REQUIRED_MINOR=11
     fi

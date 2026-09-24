@@ -68,7 +68,7 @@ def mirror_fill(image: np.ndarray, unseen: np.ndarray, max_passes: int = 8) -> n
     Returns:
         The filled copy of `image`.
     """
-    out = image.copy()
+    out: np.ndarray = image.copy()
     remaining = unseen.copy()
     for _ in range(max_passes):
         if not remaining.any():

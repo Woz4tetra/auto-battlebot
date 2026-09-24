@@ -18,10 +18,11 @@ File format, all in field-frame metres:
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 from config.kinematic import ObstacleConfig
+
+from auto_battlebot.compat import tomllib
 
 VALID_KINDS = ("hole", "wall_block")
 REPO_ROOT = Path(__file__).resolve().parents[1]

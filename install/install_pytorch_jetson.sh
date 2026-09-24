@@ -38,6 +38,13 @@ get_l4t_major() {
     fi
 }
 
+# The system python's major.minor: 3.10 on JetPack 6, 3.12 on JetPack 7. The venv, the OpenCV
+# bindings, and the NVIDIA torch wheel all have to match it, because apt builds
+# python3-libnvinfer for this interpreter and no other.
+get_jetson_python_version() {
+    /usr/bin/python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+}
+
 # Compute TORCH_INSTALL URL for current JetPack (no side effects). Sets TORCH_INSTALL if empty.
 get_jetson_torch_install_url() {
     if [ -n "${TORCH_INSTALL:-}" ]; then
@@ -130,7 +137,8 @@ install_pytorch_jetson() {
         return 0
     fi
 
-    local PY_VER="3.12"
+    local PY_VER
+    PY_VER=$(get_jetson_python_version) || return 1
     local L4T_MAJOR
     L4T_MAJOR=$(get_l4t_major)
 

@@ -29,9 +29,10 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+from auto_battlebot.compat import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIT = REPO_ROOT / "playground" / "calibration" / "out" / "plant_stageA.toml"

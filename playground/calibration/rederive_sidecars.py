@@ -28,7 +28,6 @@ now say: the tool cannot see the wall the robot hit.
 from __future__ import annotations
 
 import argparse
-import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +41,7 @@ from auto_battlebot.calibration.jig.velocity_jig import (
     pause_windows_from_commands,
     read_command_log,
 )
+from auto_battlebot.compat import tomllib
 from playground.calibration.velocity_jig_drive import (
     COMMAND_PREAMBLE,
     command_row,

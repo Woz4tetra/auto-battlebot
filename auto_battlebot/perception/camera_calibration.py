@@ -9,12 +9,13 @@ or a rendered image, must use the rectified matrix this returns, not the calibra
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+from auto_battlebot.compat import tomllib
 
 
 @dataclass(frozen=True)

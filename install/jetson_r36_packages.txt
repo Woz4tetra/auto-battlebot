@@ -1,0 +1,7 @@
+# JetPack 6 (L4T R36, jammy) additions to jetson_packages.txt
+# One package per line, lines starting with # are ignored
+
+# clang-tidy picks the newest GCC toolchain under /usr/lib/gcc and needs its
+# matching headers, or scripts/lint fails with "'array' file not found". Same
+# reason ubuntu_22_packages.txt lists it: gcc-12 arrives as a transitive dep.
+libstdc++-12-dev

@@ -26,11 +26,12 @@ import ast
 import multiprocessing as mp
 import shutil
 import sys
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from tqdm import tqdm
+
+from auto_battlebot.compat import tomllib
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
 SPLIT_NAMES = ("train", "val", "test")

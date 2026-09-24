@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 from typing import TypeVar
 
 import dacite
+
+from auto_battlebot.compat import tomllib
 
 T = TypeVar("T")
 

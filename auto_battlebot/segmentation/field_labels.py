@@ -19,10 +19,11 @@ docs/experiments/perception_performance/deeplab_field_data_plan.md.
 from __future__ import annotations
 
 import re
-import tomllib
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+
+from auto_battlebot.compat import tomllib
 
 OVERRIDES_PATH = Path(__file__).with_name("field_overrides.toml")
 

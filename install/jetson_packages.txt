@@ -1,6 +1,8 @@
 # Platform-specific packages for Jetson (TensorRT runtime + dev for building)
 # L4T/JetPack repo is configured by check_jetson_orin / JetPack install
 # One package per line, lines starting with # are ignored
+# Python venv/dev headers come from base_packages.txt's unversioned python3-venv and
+# python3-dev, which follow the system python: 3.10 on JetPack 6, 3.12 on JetPack 7.
 
 libnvinfer-dev
 
@@ -8,11 +10,4 @@ libnvinfer-dev
 # `import tensorrt` fails in the venv even though the C++ side links fine.
 python3-libnvinfer
 
-# clang-tidy picks the newest GCC toolchain under /usr/lib/gcc and needs its
-# matching headers, or scripts/lint fails with "'array' file not found". Same
-# reason ubuntu_24_packages.txt lists it; JetPack 7 is noble too.
-libstdc++-14-dev
-
-python3.12-venv
-python3.12-dev
 i2c-tools

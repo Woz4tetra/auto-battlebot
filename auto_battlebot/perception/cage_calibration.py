@@ -29,12 +29,13 @@ The chain from a fitted pose to a BlenderProc camera:
 from __future__ import annotations
 
 import math
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from auto_battlebot.compat import tomllib
 
 _ROTATE_Z_MINUS_90 = np.array(
     [[0.0, 1.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]

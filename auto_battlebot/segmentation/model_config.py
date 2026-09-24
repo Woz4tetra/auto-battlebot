@@ -17,10 +17,11 @@ so the values stay in sync.
 from __future__ import annotations
 
 import dataclasses
-import tomllib
 from pathlib import Path
 
 import tomli_w
+
+from auto_battlebot.compat import tomllib
 
 
 @dataclasses.dataclass

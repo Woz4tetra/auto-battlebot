@@ -293,9 +293,10 @@ drafts if they clearly beat commas, periods, or parentheses.
 
 ## Platforms
 
-- Deployment: Jetson Orin NX on JetPack 7.2 / L4T R39.2 (aarch64, Ubuntu 24.04, Python 3.12, CUDA 13.2, TensorRT 10.16). The install scripts still support JetPack 6 (L4T R36); they branch on the L4T major
-- The Jetson builds with `BUILD_WITH_ZED=OFF`. The CMake default follows whether the ZED SDK is installed, so dev machines stay ON and keep SVO playback
-- TensorRT engines are not portable across TensorRT versions. The `aarch64_sm87` engines must be rebuilt on the JetPack 7 box; the filename is unchanged by a rebuild, so old and new look identical on disk
+- Deployment: Jetson Orin NX on JetPack 7.2 / L4T R39.2 (aarch64, Ubuntu 24.04, Python 3.12, CUDA 13.2, TensorRT 10.16) or JetPack 6.2 / L4T R36.4 (Ubuntu 22.04, Python 3.10, CUDA 12.6, TensorRT 10.3). The ZED Box Mini ships on 6.2.1 (`docs/zed_box_mini.md`). The install scripts branch on the L4T major and take the venv's Python version from `/usr/bin/python3`, because apt builds `python3-libnvinfer` for the system python only
+- Python floor is 3.10 for JetPack 6. Import it as `from auto_battlebot.compat import tomllib`, and use no 3.11+ stdlib API outside `training/synthetic/` (Blender's 3.11). ruff and mypy target 3.10 and catch most of it
+- `BUILD_WITH_ZED` defaults to whether the ZED SDK is installed: OFF on the e-CAM25 Jetson, ON on the ZED Box Mini and dev machines (SVO playback)
+- TensorRT engines are not portable across TensorRT versions. The `aarch64_sm87` engines must be built on each box's own TensorRT (10.16 on JetPack 7, 10.3 on JetPack 6); the filename is unchanged by a rebuild, so old and new look identical on disk
 - Dev: Ubuntu 22/24 x86_64 with NVIDIA GPU
 - `pyproject.toml` has platform-conditional deps. Do not flatten them.
 

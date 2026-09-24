@@ -22,7 +22,6 @@ anywhere: the physical deadzone is one of the things being measured.
 from __future__ import annotations
 
 import math
-import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -34,6 +33,7 @@ from auto_battlebot.calibration.jig.velocity_jig import (
     PauseWindow,
     ProtocolSegment,
 )
+from auto_battlebot.compat import tomllib
 
 # A held command shorter than this cannot show a plateau to read a steady state off. Stage 2
 # held roughly a fifth of a second, which sat under the rise, and no maximum speed could be

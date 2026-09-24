@@ -32,8 +32,11 @@ check_jetson_orin
 # Step 0: Install TensorRT runtime (before CMake)
 install_packages "$PROJECT_ROOT/install/jetson_packages.txt"
 install_packages "$PROJECT_ROOT/install/base_packages.txt"
+# jetson_r36_packages.txt (JetPack 6, jammy) or jetson_r39_packages.txt (JetPack 7, noble)
+install_packages "$PROJECT_ROOT/install/jetson_r$(get_l4t_major)_packages.txt"
 install_llvm_toolchain
-install_opencv --cuda --cuda-arch 8.7 --gstreamer --python-bindings --python-version 3.12
+install_opencv --cuda --cuda-arch 8.7 --gstreamer --python-bindings \
+    --python-version "$(get_jetson_python_version)"
 # Python venv (creates venv/, installs deps; also pulls Jetson PyTorch wheel)
 install_python_environment -n
 # PyTorch for Jetson (NVIDIA wheel into project venv)

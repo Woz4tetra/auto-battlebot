@@ -23,12 +23,13 @@ See `docs/experiments/kalman_filter/kalman_filter_plan.md` part 1.
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 import numpy as np
+
+from auto_battlebot.compat import tomllib
 
 # Substep for the internal integration. At the calibrated 61.5 rad/s top yaw rate this is
 # 0.12 rad of rotation per substep, where holding v and w constant costs well under a millimeter.

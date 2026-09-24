@@ -24,7 +24,7 @@ On the Jetson Orin Nano, camera capture to motor motion is **< 60 ms**.*
 
 Supported platforms:
 - Jetson Orin NX or Orin Nano
-  - JetPack 7.2 (Ubuntu 24.04, CUDA 13.2) or JetPack 6 (Ubuntu 22.04, CUDA 12.6)
+  - JetPack 7.2 (Ubuntu 24.04, CUDA 13.2, Python 3.12) or JetPack 6.2 (Ubuntu 22.04, CUDA 12.6, Python 3.10)
 - Intel x86 + NVIDIA GPU
   - Ubuntu 22
   - Ubuntu 24

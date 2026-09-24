@@ -2,18 +2,21 @@
 name = "auto-battlebot"
 version = "0.1.0"
 description = "Auto Battlebot Project"
-requires-python = ">=3.11"
+# 3.10 is JetPack 6's system python, the only one its TensorRT bindings are built for.
+requires-python = ">=3.10"
 dependencies = [
   "ultralytics",
-  # One pin for both arches. The aarch64 cap at <2.0.0 existed to match the JetPack 6
-  # PyTorch wheel, which was built against the NumPy 1 ABI; the JetPack 7 wheels come from
-  # the upstream CUDA index and are NumPy 2.
-  "numpy>=2.0.0,<3.0.0",
+  # JetPack 6's NVIDIA PyTorch wheel is built against the NumPy 1 ABI. aarch64 on Python 3.10
+  # is exactly that box: JetPack 7 runs 3.12 and takes NumPy 2 wheels from the upstream CUDA
+  # index, and x86 dev machines run 3.11+.
+  "numpy>=1.26.0,<2.0.0; platform_machine == \"aarch64\" and python_version < \"3.11\"",
+  "numpy>=2.0.0,<3.0.0; platform_machine != \"aarch64\" or python_version >= \"3.11\"",
   "smbus2; platform_machine == \"aarch64\"",
   "matplotlib",
   "scipy",
   "tqdm>=4.60.0",
   "types-tqdm",
+  "tomli; python_version < '3.11'",
   "tomli_w",
   "dacite",
   "ruff",
@@ -66,7 +69,9 @@ exclude = ["playground.calibration.venv*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py310"
+# Blender-side synthetic scripts run on Blender's bundled 3.11, never in the project venv.
+per-file-target-version = { "training/synthetic/**" = "py311" }
 fix = true
 exclude = [
   ".git",

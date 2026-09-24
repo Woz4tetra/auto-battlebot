@@ -26,7 +26,6 @@ import csv
 import dataclasses
 import json
 import re
-import tomllib
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +47,7 @@ from auto_battlebot.calibration.match.match_windows import (
     load_replay_track,
     split_run,
 )
+from auto_battlebot.compat import tomllib
 from auto_battlebot.control.plant import (
     MODEL_LADDER,
     PARAM_BOUNDS,
