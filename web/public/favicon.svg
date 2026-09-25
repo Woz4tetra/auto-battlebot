@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="58 3 363 363">
   <!-- Transparent browser-tab icon. icon.svg keeps the opaque background for the PWA
-       manifest. The dark palette mirrors the --logo-* tokens in src/app.css so the dark
+       manifest. The dark palette mirrors the logo color tokens in src/app.css so the dark
        half stays visible on a dark tab strip. -->
   <style>
     .left, .right { stroke: #121212; stroke-width: 7; stroke-linejoin: round; }
