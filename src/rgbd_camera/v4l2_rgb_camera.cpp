@@ -13,6 +13,8 @@
 #include <foxglove/schemas.hpp>
 #include <utility>
 
+#include "tensorrt_inference/pinned_mat_allocator.hpp"
+
 namespace auto_battlebot {
 namespace {
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
@@ -372,9 +374,13 @@ bool V4l2RgbCamera::capture_frame() {
         encoder_.submit(uyvy, wall_time_ns());
     }
 
+    // Pinned, so the keypoint model's GPU preprocess reads the frame in place. Both Mats take the
+    // allocator because an uncalibrated rectifier hands `bgr` through unchanged.
     cv::Mat bgr;
+    bgr.allocator = PinnedMatAllocator::instance();
     cv::cvtColor(uyvy, bgr, cv::COLOR_YUV2BGR_UYVY);
     cv::Mat rectified;
+    rectified.allocator = PinnedMatAllocator::instance();
     rectifier_.apply(bgr, rectified);
 
     {

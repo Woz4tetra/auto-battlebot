@@ -4,8 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstring>
-#include <opencv2/dnn.hpp>
 
 namespace auto_battlebot {
 YoloKeypointModel::YoloKeypointModel(YoloKeypointModelConfiguration &config,
@@ -64,86 +62,32 @@ ModelResultStamped YoloKeypointModel::update(RgbImage image) {
     const cv::Size input_image_size(static_cast<int>(in_shape[3]), static_cast<int>(in_shape[2]));
     const cv::Size original_image_size(image.image.cols, image.image.rows);
 
-    std::vector<float> input_buffer;
+    // Preprocess and inference share the engine's stream and synchronize once, at the end of
+    // inference. "preprocess" therefore times the frame upload (none for a pinned frame) and the
+    // kernel launch; the kernel's own GPU time lands in "inference".
     {
         FunctionTimer stage_timer(diagnostics_logger_, "preprocess");
-        preprocess_image(image.image, input_image_size, input_buffer);
-    }
-    if (static_cast<int64_t>(input_buffer.size()) != engine_.getInputNumElements()) {
-        diagnostics_logger_->error({}, "YOLO input buffer size mismatch");
-        return ModelResultStamped{};
+        if (!letterbox_.enqueue(image.image, input_image_size.width, input_image_size.height,
+                                letterbox_padding_, engine_.device_input(), engine_.stream())) {
+            diagnostics_logger_->error({}, "YOLO preprocess failed");
+            return ModelResultStamped{};
+        }
     }
 
-    std::vector<float> output_buffer(static_cast<size_t>(engine_.getOutputNumElements()));
+    // Points into the engine's pinned output buffer, valid until the next inference.
+    const float *output = nullptr;
     {
         FunctionTimer stage_timer(diagnostics_logger_, "inference");
-        if (!engine_.execute(input_buffer.data(), output_buffer.data())) {
+        output = engine_.execute_device_input();
+        if (!output) {
             diagnostics_logger_->error({}, "YOLO inference failed");
             return ModelResultStamped{};
         }
     }
 
     FunctionTimer stage_timer(diagnostics_logger_, "postprocess");
-    return postprocess_output(output_buffer.data(), image.header, original_image_size,
-                              input_image_size, image.image);
-}
-
-void YoloKeypointModel::preprocess_image(const cv::Mat &image, cv::Size input_image_size,
-                                         std::vector<float> &buffer) {
-    cv::Mat bgr_image;
-    if (image.channels() == 4) {
-        cv::cvtColor(image, bgr_image, cv::COLOR_BGRA2BGR);
-    } else {
-        bgr_image = image;
-    }
-
-    cv::Mat resized;
-    letterbox(bgr_image, resized, {input_image_size.height, input_image_size.width});
-
-    // blobFromImage does the 1/255 normalize, BGR->RGB swap, and CHW pack in vectorized
-    // code; the scalar per-pixel pack this replaces dominated preprocess time.
-    cv::Mat blob = cv::dnn::blobFromImage(resized, 1.0 / 255.0, cv::Size(), cv::Scalar(),
-                                          /*swapRB=*/true, /*crop=*/false, CV_32F);
-    buffer.resize(blob.total());
-    std::memcpy(buffer.data(), blob.ptr<float>(), blob.total() * sizeof(float));
-}
-
-float YoloKeypointModel::generate_scale(cv::Mat &image, const std::vector<int> &target_size) {
-    const int origin_w = image.cols;
-    const int origin_h = image.rows;
-    const int target_h = target_size[0];
-    const int target_w = target_size[1];
-    const float ratio_h = static_cast<float>(target_h) / static_cast<float>(origin_h);
-    const float ratio_w = static_cast<float>(target_w) / static_cast<float>(origin_w);
-    return std::min(ratio_h, ratio_w);
-}
-
-float YoloKeypointModel::letterbox(cv::Mat &input_image, cv::Mat &output_image,
-                                   const std::vector<int> &target_size) {
-    if (input_image.cols == target_size[1] && input_image.rows == target_size[0]) {
-        if (input_image.data == output_image.data) {
-            return 1.f;
-        }
-        output_image = input_image.clone();
-        return 1.f;
-    }
-
-    const float resize_scale = generate_scale(input_image, target_size);
-    const int new_shape_w = static_cast<int>(std::round(input_image.cols * resize_scale));
-    const int new_shape_h = static_cast<int>(std::round(input_image.rows * resize_scale));
-    const float padw = (target_size[1] - new_shape_w) / 2.0f;
-    const float padh = (target_size[0] - new_shape_h) / 2.0f;
-
-    const int top = static_cast<int>(std::round(padh - letterbox_padding_));
-    const int bottom = static_cast<int>(std::round(padh + letterbox_padding_));
-    const int left = static_cast<int>(std::round(padw - letterbox_padding_));
-    const int right = static_cast<int>(std::round(padw + letterbox_padding_));
-
-    cv::resize(input_image, output_image, cv::Size(new_shape_w, new_shape_h), 0, 0,
-               cv::INTER_LINEAR);
-    cv::copyMakeBorder(output_image, output_image, top, bottom, left, right, cv::BORDER_CONSTANT,
-                       cv::Scalar(114.0, 114.0, 114.0));
-    return resize_scale;
+    return postprocess_output(output, image.header, original_image_size, input_image_size,
+                              image.image);
 }
 
 // NMS: bboxes is ndets x 4 (x1,y1,x2,y2), scores is ndets. Returns indices to keep.

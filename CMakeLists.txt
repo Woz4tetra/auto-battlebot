@@ -195,6 +195,27 @@ message(STATUS "BUILD_WITH_ZED: ${BUILD_WITH_ZED}")
 find_package(CUDA REQUIRED)
 find_package(TensorRT REQUIRED)
 
+# CUDA sources (the GPU preprocess kernels). nvcc is taken from the toolkit FindCUDA picked, since
+# /usr/local/cuda/bin is not on PATH on the Jetsons, and the kernels have to be built by the same
+# toolkit whose static runtime FindCUDA links (CUDA_USE_STATIC_CUDA_RUNTIME): one runtime per
+# process, shared by TensorRT's stream and the kernels.
+if(NOT CMAKE_CUDA_COMPILER)
+    set(CMAKE_CUDA_COMPILER "${CUDA_TOOLKIT_ROOT_DIR}/bin/nvcc")
+endif()
+set(CMAKE_CUDA_RUNTIME_LIBRARY Static)
+# Set before enable_language, which otherwise probes a default that CUDA 13 no longer supports.
+# Orin is sm87; the dev laptop is sm89 and megamind's A6000s are sm86.
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+        set(CMAKE_CUDA_ARCHITECTURES 87)
+    else()
+        set(CMAKE_CUDA_ARCHITECTURES 86-real 89)
+    endif()
+endif()
+enable_language(CUDA)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
 # Mark SDK headers as system headers to suppress their warnings
 if(BUILD_WITH_ZED)
     include_directories(SYSTEM ${ZED_INCLUDE_DIRS})
@@ -243,6 +264,8 @@ link_directories(${CUDA_LIBRARY_DIRS})
 file(GLOB_RECURSE AUTO_BATTLEBOT_SOURCES CONFIGURE_DEPENDS
     "src/*.cpp"
     "src/**/*.cpp"
+    "src/*.cu"
+    "src/**/*.cu"
 )
 list(FILTER AUTO_BATTLEBOT_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
 # Keep LVGL/SDL UI units out of the shared library.
@@ -412,16 +435,24 @@ if(BUILD_WITH_ZED)
     target_compile_definitions(auto_battlebot_lib PUBLIC BUILD_WITH_ZED)
 endif()
 
+# nvcc rejects the GCC warning flags, so .cu files pass them through to the host compiler and
+# promote nvcc's own warnings separately.
+set(CUDA_COMPILE_FLAGS
+    -Xcompiler=-Wall,-Wextra,-Werror
+    --Werror=all-warnings
+    -O2
+)
+
 # Compiler flags for the library
 if(BUILD_DEBUG)
     target_compile_options(auto_battlebot_lib PRIVATE
-        ${COMMON_COMPILE_FLAGS}
-        ${DEBUG_COMPILE_FLAGS}
+        "$<$<COMPILE_LANGUAGE:CXX>:${COMMON_COMPILE_FLAGS};${DEBUG_COMPILE_FLAGS}>"
+        "$<$<COMPILE_LANGUAGE:CUDA>:${CUDA_COMPILE_FLAGS};${DEBUG_COMPILE_FLAGS}>"
     )
 else()
     target_compile_options(auto_battlebot_lib PRIVATE
-        ${COMMON_COMPILE_FLAGS}
-        ${RELEASE_COMPILE_FLAGS}
+        "$<$<COMPILE_LANGUAGE:CXX>:${COMMON_COMPILE_FLAGS};${RELEASE_COMPILE_FLAGS}>"
+        "$<$<COMPILE_LANGUAGE:CUDA>:${CUDA_COMPILE_FLAGS};${RELEASE_COMPILE_FLAGS}>"
     )
 endif()
 

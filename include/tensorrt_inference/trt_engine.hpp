@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -87,7 +88,33 @@ class TrtEngine {
     // enough for the corresponding OutputTensorInfo::num_elements float values.
     bool execute_multi(const float* host_input, const std::vector<float*>& host_outputs);
 
+    // Run inference on input the caller already wrote into device_input() on stream(),
+    // skipping the host input copy. Returns the first output in this engine's pinned host
+    // buffer, valid until the next call, or nullptr on failure.
+    const float* execute_device_input();
+
+    // Device buffer TensorRT reads its input from. Write it on stream().
+    float* device_input() const { return static_cast<float*>(d_input_); }
+    // This engine's CUDA stream, as a cudaStream_t.
+    void* stream() const { return stream_; }
+
+    // True once inference replays from a CUDA graph. The graph is captured after the first
+    // successful run and replaces TensorRT's per-layer kernel launches with one launch.
+    bool uses_cuda_graph() const { return graph_exec_ != nullptr; }
+
    private:
+    bool upload_input(const float* host_input);
+    // enqueueV3 plus every output's copy back to pinned memory, on stream_.
+    bool enqueue_direct();
+    // enqueue_direct, replayed from the CUDA graph once one is captured.
+    bool enqueue_network();
+    bool run_and_wait(std::chrono::steady_clock::time_point exec_start, const char* caller);
+    void capture_graph();
+
+    // cudaGraphExec_t, kept as void* like the other CUDA handles so this header needs no
+    // CUDA include.
+    void* graph_exec_{nullptr};
+    bool graph_capture_attempted_{false};
     // Per-engine CUDA stream (created non-blocking) so two engines running on different
     // threads overlap on the GPU instead of serializing on the default stream. Host IO
     // goes through pinned staging buffers so the copies are truly async on that stream.

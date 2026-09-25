@@ -8,6 +8,7 @@
 
 #include "rgbd_camera/camera_calibration.hpp"
 #include "rgbd_camera/zed_device.hpp"
+#include "tensorrt_inference/pinned_mat_allocator.hpp"
 
 namespace auto_battlebot {
 namespace {
@@ -177,8 +178,10 @@ bool ZedOneRgbCamera::capture_frame() {
     const cv::Mat bgra(static_cast<int>(zed_bgra_.getHeight()),
                        static_cast<int>(zed_bgra_.getWidth()), CV_8UC4,
                        zed_bgra_.getPtr<sl::uchar1>(sl::MEM::CPU), zed_bgra_.getStepBytes());
-    // A fresh Mat every frame: the pipeline holds the previous one by reference.
+    // A fresh Mat every frame: the pipeline holds the previous one by reference. Pinned, so the
+    // keypoint model's GPU preprocess reads it in place instead of uploading it.
     cv::Mat bgr;
+    bgr.allocator = PinnedMatAllocator::instance();
     cv::cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
 
     if (encoder_.running()) {

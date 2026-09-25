@@ -172,6 +172,8 @@ void Runner::stop_recordings_for_shutdown() const {
         spdlog::warn("Failed to disable SVO recording during shutdown.");
     }
     if (mcap_recorder_) {
+        // Publishing runs on its own thread; let it catch up so the last frames are recorded.
+        publisher_->flush();
         mcap_recorder_->set_enabled(false);
         mcap_recorder_->close();
     }
@@ -601,7 +603,8 @@ bool Runner::tick() {
     }
 
     // All publishing runs after the command send so none of it (notably the ~10 ms image
-    // compression on Jetson) sits on the control critical path.
+    // compression on Jetson) sits on the control critical path. The live publisher is an
+    // AsyncPublisher, so this block only queues copies of the tick's outputs.
     {
         FunctionTimer timer(diagnostics_logger_, "publishers");
         publisher_->publish_camera_data(camera_data);

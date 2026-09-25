@@ -157,7 +157,7 @@ skipped_quick() { echo -e "${DIM}    - $1 (skipped: --quick)${NC}"; }
 # Null-delimited list of C/C++ sources.
 cpp_files() {
     find "$PROJECT_ROOT/src" "$PROJECT_ROOT/include" "$PROJECT_ROOT/tests" \
-        \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.c' \) -print0
+        \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.c' -o -name '*.cu' \) -print0
 }
 
 # Python dirs for ruff format / ruff check (mypy uses mypy.ini scope instead).
@@ -301,7 +301,7 @@ else
     # any reported problem. The flag is part of the ctcache digest, so changing
     # it costs one cold pass and then caches as before.
     "$RUN_CLANG_TIDY" -p "$BUILD_DIR" -clang-tidy-binary "$TIDY_BINARY" \
-        -warnings-as-errors='*' "^${PROJECT_ROOT}/src/"
+        -warnings-as-errors='*' "^${PROJECT_ROOT}/src/.*\.cpp$"
     record "clang-tidy" $?
 fi
 

@@ -19,6 +19,7 @@
 #include "keypoint_model/config.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
 #include "label_utils.hpp"
+#include "tensorrt_inference/gpu_letterbox.hpp"
 #include "tensorrt_inference/trt_engine.hpp"
 #include "time_utils.hpp"
 
@@ -46,6 +47,7 @@ class YoloKeypointModel : public KeypointModelInterface {
     std::vector<Label> label_indices_;
 
     TrtEngine engine_;
+    GpuLetterbox letterbox_;
     std::shared_ptr<EngineSelector> engine_selector_;
     bool initialized_;
     DetectionsStamped last_detections_;
@@ -55,13 +57,6 @@ class YoloKeypointModel : public KeypointModelInterface {
     // model keypoints) and store them in last_detections_ for offline evaluation.
     void record_raw_detections(const std::vector<DetectionRow> &keep, cv::Size original_image_size,
                                cv::Size input_image_size);
-
-    // Helper methods
-    float generate_scale(cv::Mat &image, const std::vector<int> &target_size);
-    float letterbox(cv::Mat &input_image, cv::Mat &output_image,
-                    const std::vector<int> &target_size);
-    void preprocess_image(const cv::Mat &image, cv::Size input_image_size,
-                          std::vector<float> &buffer);
 
     std::vector<int64_t> nms(const float *bboxes, const float *scores, int64_t ndets,
                              float iou_threshold);

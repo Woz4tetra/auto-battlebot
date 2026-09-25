@@ -4,6 +4,7 @@
 #include <toml++/toml.h>
 
 #include "config/config_parser.hpp"
+#include "publisher/async_publisher.hpp"
 #include "publisher/foxglove_publisher.hpp"
 
 namespace auto_battlebot {
@@ -40,9 +41,10 @@ std::shared_ptr<PublisherInterface> make_publisher(const PublisherConfiguration 
     if (config.type == "NoopPublisher") {
         return std::make_shared<NoopPublisher>();
     } else if (config.type == "FoxglovePublisher") {
-        return std::make_shared<FoxglovePublisher>(
+        // Encoding and fan-out run on AsyncPublisher's thread, off the control tick.
+        return std::make_shared<AsyncPublisher>(std::make_shared<FoxglovePublisher>(
             std::move(sink), std::move(mcap_recorder),
-            dynamic_cast<const FoxglovePublisherConfiguration &>(config));
+            dynamic_cast<const FoxglovePublisherConfiguration &>(config)));
     }
     throw std::invalid_argument("Failed to load Publisher of type " + config.type);
 }

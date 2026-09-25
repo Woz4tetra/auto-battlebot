@@ -23,6 +23,9 @@ class PublisherInterface {
     virtual void publish_blob_detections(const DetectionsStamped &detections) = 0;
     virtual void publish_keypoint_detections(const DetectionsStamped &detections) = 0;
     virtual void publish_navigation(const NavigationVisualization &nav) = 0;
+    /** Returns once every earlier publish call has reached the sinks. Shutdown calls it before
+     * closing the recording, so a publisher that defers its work does not lose the last frames. */
+    virtual void flush() {}
 };
 
 }  // namespace auto_battlebot
