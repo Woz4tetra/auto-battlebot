@@ -1,0 +1,33 @@
+extends = "_zed_box"
+
+[robot_filter.label_mapping]
+"MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
+"MR_STABS_MK2" = ["OUR_ROBOT_1"]
+
+[transmitter]
+# The radio model mixes linear/angular into the motor outputs, so send body axes.
+drive_processor = "DifferentialDriveProcessor"
+max_motor_rpm = 1500                           # RPM
+max_motor_rpm_per_sec = 2000                   # RPM/s; caps linear accel at 8.5 m/s^2, 3247 RPM/s (slip/flip limit). 0 = off
+lifted_deadzone_percent = 0
+zero_deadzone_percent = 2
+reverse_angular_channel = true
+velocity_saturation_limit = 1.0                # 0 = disabled; e.g. 1.0 = |linear| + |angular| <= 1
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 3.92699
+k_rev = 3.92699
+k_ang = 59.9541
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0

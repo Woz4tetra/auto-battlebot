@@ -46,6 +46,12 @@ install_unit() {
 install_unit viz_relay
 install_unit "$SERVICE_NAME"
 
+# Persisted UI state (selected_profile, wifi_access). Created as the service user so it can
+# write there; the directory must exist before first boot to hand-write selected_profile when
+# the default profile's camera is absent and the UI never comes up.
+STATE_DIR="$(getent passwd "$REAL_USER" | cut -d: -f6)/.local/state/auto_battlebot"
+sudo -u "$REAL_USER" mkdir -p "$STATE_DIR"
+
 # Ensure journald keeps logs on disk so service logs survive reboot.
 if [ ! -f "$JOURNALD_FILE" ] || ! rg -q '^Storage=persistent$' "$JOURNALD_FILE"; then
     echo "Configuring persistent journald storage..."

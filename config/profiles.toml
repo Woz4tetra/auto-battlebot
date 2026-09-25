@@ -5,8 +5,8 @@
 # (e.g. "mrs_buff_mk3_jetson", "playback/mrs_buff_mk3_playback"). Only matching profiles appear
 # in the switcher, so keep this specific enough to exclude bases (_common, _jetson, ...) and this
 # file itself. The leading [^_] excludes the underscore-prefixed base files, which would otherwise
-# match (e.g. "_jetson" matches ".*_jetson$").
-pattern = "[^_].*_jetson$"
+# match (e.g. "_jetson" matches ".*_jetson$" and "_zed_box" matches ".*_zed_box$").
+pattern = "[^_].*_(jetson|zed_box)$"
 
 # Where the current selection persists. Deliberately outside the repo so a source upload or
 # `cmake --install` never clobbers it. A leading $HOME (or ~) is expanded.
