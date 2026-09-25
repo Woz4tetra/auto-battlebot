@@ -123,6 +123,10 @@ ARMS = (
     Arm("d50000_cagehigh", None, 50000, venues=ALL_VENUES, extra_real=True),
     Arm("d40000_cagehigh", None, 40000, extra_real=True),
     Arm("swap_half_cagehigh", 10000, 10000, extra_real=True),
+    # `d50000_cagehigh` without the cage-high frames, pose_model_size_ladder_plan_2026-09-24.md.
+    # Those frames are broadcast views of the same May 2026 fights nhrl_keypoints_eval_test scores,
+    # so no `_cagehigh` arm can be measured on it.
+    Arm("d50000", None, 50000, venues=ALL_VENUES),
 )
 # (smaller, larger) pairs whose training lists must nest.
 NESTED = (
@@ -136,6 +140,8 @@ NESTED = (
     ("d40000", "d40000_cagehigh"),
     ("swap_half", "swap_half_cagehigh"),
     ("d40000_cagehigh", "d50000_cagehigh"),
+    ("d40000", "d50000"),
+    ("d50000", "d50000_cagehigh"),
 )
 
 

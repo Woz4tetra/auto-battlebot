@@ -99,6 +99,18 @@ def main() -> None:
             "epochs": 500,
             "imgsz": 640,
         },
+        # The middle of the pose size ladder (pose_model_size_ladder_plan_2026-09-24.md). Copied
+        # from yolo26s-pose; run_domain_mix_arm.sh passes batch, epochs, size and cache itself.
+        "yolo26m-pose": {
+            "batch": 64,
+            "epochs": 500,
+            "imgsz": 640,
+        },
+        "yolo26l-pose": {
+            "batch": 64,
+            "epochs": 500,
+            "imgsz": 640,
+        },
         "yolo26n-seg": {
             "batch": 32,
             "epochs": 500,
