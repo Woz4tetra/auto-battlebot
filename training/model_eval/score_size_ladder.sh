@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Score the yolo26 pose size ladder on nhrl_keypoints_eval_test in one paired bootstrap per run.
+# Score the yolo26 pose size ladder on the cage-high eval set in one paired bootstrap per run.
 #
 # docs/experiments/perception_performance/pose_model_size_ladder_plan_2026-09-24.md. Every size
 # goes into one score.py call, so the bootstrap pairs them all against the baseline. That is what
@@ -14,19 +14,25 @@
 # `name=engine` pairs, which is how the grid's square anchors join the square run:
 #
 #   SHAPE=square RUNS=opponent,heading OUT=.../anchors \
-#   EXTRA="swap_half=data/models/yolo26s-pose_swap_half_2026-09-13_last_x86_64_sm89.engine" \
+#   EXTRA="swap_half=data/models/yolo26s-pose_swap_half_2026-09-13_last_x86_64_sm86.engine" \
 #       bash training/model_eval/score_size_ladder.sh 2026-09-24 s x
 #
-# Output, under OUT (default $EVAL/scores_size_ladder, with a conf suffix off 0.5):
-#   opponent/      all frames, taxonomy_opponent.yaml: recall for Q1 to Q3
-#   heading/       all frames, taxonomy_keypoint_ours.yaml: heading error for Q2 to Q4
-#   venue_nhrl/    the 590 NHRL May frames, opponents only
-#   venue_massd/   the 98 MassD August frames, opponents only
+# The eval set is training/data/cage_high_x50_conf044: 636 hand-corrected broadcast frames over
+# six NHRL Brettzone and three MassD recordings (cage_high_eval_scoring_2026-09-18.md). The domain
+# renders were built to look like this footage, so it is the ladder's target domain. The
+# `_cagehigh` arms trained on these exact frames and cannot be scored here; `d50000` shares none.
+# The recordings sit two levels down, so EVAL points at its `d40000/` subdirectory.
+#
+# Output, under OUT (default cage_high_x50_conf044/scores_size_ladder, conf suffix off 0.5):
+#   opponent/      all 636 frames, taxonomy_opponent.yaml: recall for Q1 to Q3
+#   heading/       all 636 frames, taxonomy_keypoint_ours.yaml: heading error for Q2 to Q4
+#   venue_nhrl/    the 516 NHRL Brettzone frames, opponents only
+#   venue_massd/   the 120 MassD frames, opponents only
 #   rec_<name>/    one recording, which is one opponent, opponents only
 #
-# Environment: ARM (default d50000), BASELINE (default s), SHAPE, SM (default sm89, pathfinder),
-# CONF (default 0.5), EVAL (default the full eval set; a split root for the threshold read), OUT,
-# RUNS (default all: opponent, heading, venues, recordings), EXTRA.
+# Environment: ARM (default d50000), BASELINE (default s), SHAPE, SM (default sm86, megamind,
+# where the set lives), CONF (default 0.5), EVAL (a split root for the threshold read), VENUES,
+# OUT, RUNS (default all: opponent, heading, venues, recordings), EXTRA.
 set -euo pipefail
 
 if [ $# -lt 2 ]; then
@@ -39,19 +45,20 @@ SIZES=("$@")
 ARM=${ARM:-d50000}
 BASELINE=${BASELINE:-s}
 SHAPE=${SHAPE:-rect384x640}
-SM=${SM:-sm89}
+SM=${SM:-sm86}
 CONF=${CONF:-0.5}
 RUNS=${RUNS:-all}
 
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$REPO"
-EVAL=${EVAL:-training/data/nhrl_keypoints_eval_test}
-# Symlink roots over the eval set's recordings, each with its own slice of validation_state.json,
+SET=training/data/cage_high_x50_conf044
+EVAL=${EVAL:-$SET/d40000}
+# Symlink roots over the set's recordings, each with its own slice of validation_state.json,
 # because the loader only reads review state in the directory it is pointed at.
-VENUES=training/data/nhrl_keypoints_eval_test_by_venue
+VENUES=${VENUES:-${SET}_by_venue}
 suffix=""
 [ "$CONF" = 0.5 ] || suffix="_conf${CONF}"
-OUT=${OUT:-training/data/nhrl_keypoints_eval_test/scores_size_ladder${suffix}}
+OUT=${OUT:-$SET/scores_size_ladder${suffix}}
 LABELS="mr_stabs_mk2,mrs_buff_mk3,opponent,house_bot"
 
 shape_part=""
@@ -83,8 +90,8 @@ OPPONENT=training/model_eval/taxonomy_opponent.yaml
 if want opponent; then score "$EVAL" "$OPPONENT" "$OUT/opponent"; fi
 if want heading; then score "$EVAL" training/model_eval/taxonomy_keypoint_ours.yaml "$OUT/heading"; fi
 if want venues; then
-    score "$VENUES/nhrl_may" "$OPPONENT" "$OUT/venue_nhrl"
-    score "$VENUES/massd_aug" "$OPPONENT" "$OUT/venue_massd"
+    score "$VENUES/nhrl" "$OPPONENT" "$OUT/venue_nhrl"
+    score "$VENUES/massd" "$OPPONENT" "$OUT/venue_massd"
 fi
 if want recordings; then
     # Every label file in a recording is a `pass` frame, so a bare recording scores the same
