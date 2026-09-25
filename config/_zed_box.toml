@@ -49,8 +49,8 @@ threshold = 0.5
 
 [keypoint_model.engine]
 candidates = [
-  "data/models/yolo26x-pose_cagehigh_rect384x640_2026-09-20_aarch64_sm87.engine",
-  # "data/models/yolo26s-pose_d50000_cagehigh_rect384x640_2026-09-20_aarch64_sm87.engine",
+  # "data/models/yolo26x-pose_cagehigh_rect384x640_2026-09-20_aarch64_sm87.engine",
+  "data/models/yolo26s-pose_d50000_cagehigh_rect384x640_2026-09-20_aarch64_sm87.engine",
 ]
 
 [ui]
