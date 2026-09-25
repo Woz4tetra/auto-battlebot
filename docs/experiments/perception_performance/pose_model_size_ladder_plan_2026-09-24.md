@@ -9,8 +9,9 @@ trained `s` and `x`. Its results feed
 `m`-against-`s` read to decide whether the ZED Box can run something bigger than `s` at 60 Hz, and
 every arm it would compare against saw the eval fights in training.
 
-**Status, 2026-09-25.** Prep is done and all five arms are queued (jobs 33 to 37); `s` and `m`
-have finished. The eval set changed on 2026-09-25, before any cage-high number was read: see
+**Status, 2026-09-25: done.** All five arms trained (jobs 33 to 37) and were scored; results are
+in [pose_model_size_ladder_2026-09-25.md](pose_model_size_ladder_2026-09-25.md). `m` fails Q2, so
+the ZED Box stays on `s`. The eval set changed on 2026-09-25, before any cage-high number was read: see
 [Eval set: cage-high, not the ZED 2i](#eval-set-cage-high-not-the-zed-2i).
 
 ## Eval set: cage-high, not the ZED 2i
@@ -37,8 +38,8 @@ Two properties of this set bear on every number read from it:
   its bias toward an `x`-shaped output is in the labels, most of all the keypoints. Read Q4 with
   that in mind, and treat the `x_d40000_ep50` anchor as scored partly against itself.
 
-The ZED read of `m` against `s` taken on 2026-09-25, before this change, stays out of the
-questions. It is reported in the results write-up as an unregistered cross-camera row.
+A ZED read of `m` against `s` was taken on 2026-09-25 before this change. It is discarded and
+not reported.
 
 ## Why `d50000_cagehigh` is out
 
@@ -274,7 +275,7 @@ Secondary, unregistered, same script with small changes:
 1. Done 2026-09-24: prep items 1 to 3 (`097847a`). GPU 2 needed nothing: the queue's
    `yield.d/megamind` hook pauses the vLLM stack before each job and resumes it after.
 2. Done 2026-09-24: jobs 33 to 37 submitted in the order above, `ARM_DATE=2026-09-24`.
-3. When `m` lands, score `s` against `m` on the cage-high set, build `m`'s `aarch64_sm87` engine,
-   and run the 60 Hz plan's live latency check on the box. That unblocks the 60 Hz decision.
-4. When all five land, run the full scoring pass and write
-   `pose_model_size_ladder_<date>.md` with the Q1 to Q4 answers and the leak delta.
+3. Done 2026-09-25: `m` scored against `s` on the cage-high set and failed Q2. The box engine and
+   live latency check are not needed for that outcome; the ZED Box was offline throughout.
+4. Done 2026-09-25: full scoring pass and
+   [pose_model_size_ladder_2026-09-25.md](pose_model_size_ladder_2026-09-25.md).
