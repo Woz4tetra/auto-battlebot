@@ -190,6 +190,8 @@ bool ZedOneRgbCamera::capture_frame() {
         latest_data_.rgb.image = bgr;
         latest_data_.rgb.header.stamp = static_cast<double>(capture_time_ns) * 1e-9;
         latest_data_.rgb.header.frame_id = FrameId::CAMERA;
+        // Foxglove image panels reject a calibration whose frame differs from the image's.
+        latest_data_.camera_info.header = latest_data_.rgb.header;
         latest_data_.depth.image = cv::Mat();
         latest_data_.tracking_ok = true;
         // A clamped camera does not move: no visual odometry, no camera-world rebase.

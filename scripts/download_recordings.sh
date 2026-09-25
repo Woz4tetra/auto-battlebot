@@ -4,13 +4,17 @@
 # A recording counts as "already have it" if a file with the same basename exists
 # anywhere under data/svo, data/temp_svo, data/recordings, or data/saved_recordings.
 # Everything else is pulled down: .svo2 into data/svo, .mcap into data/recordings.
+#
+# SSH key and user are resolved the same way as scripts/deploy_to_jetson.sh: the key
+# defaults to ~/.ssh/<host> (domain stripped) if it exists, and without a user the
+# script probes the ~/.ssh/config user (else the local username), then `ben`, then
+# `user` (the ZED Box Mini factory login), keeping the first that logs in with the key.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 JETSON_HOST="${JETSON_HOST:-jetson}"
-JETSON_USER="${JETSON_USER:-ben}"
 JETSON_PATH="${JETSON_PATH:-auto-battlebot}"
 
 # Directories searched on both ends, relative to the project root.
@@ -19,8 +23,6 @@ SEARCH_DIRS=(data/svo data/temp_svo data/recordings data/saved_recordings)
 SVO_DEST="$PROJECT_ROOT/data/svo"
 MCAP_DEST="$PROJECT_ROOT/data/recordings"
 
-# Skip remote files touched in the last N minutes so an in-progress recording is
-# not pulled half-written and then treated as already downloaded next run.
 # Only consider remote recordings modified within this many hours. 0 means no limit.
 HOURS="${HOURS:-24}"
 
@@ -29,7 +31,7 @@ LIST_ONLY=0
 
 usage() {
     cat <<'EOF'
-Usage: scripts/download_recordings.sh [HOST] [options]
+Usage: scripts/download_recordings.sh [[USER@]HOST] [options]
 
 Options:
   -H, --hours N   Only consider recordings modified in the last N hours
@@ -40,7 +42,8 @@ Options:
 
 Environment:
   JETSON_HOST     Remote host (default: jetson)
-  JETSON_USER     Remote user (default: ben)
+  JETSON_USER     Remote user (default: detected: ssh config user, ben, user)
+  JETSON_KEY      SSH private key (default: ~/.ssh/<host> if it exists, domain stripped)
   JETSON_PATH     Remote project root (default: auto-battlebot)
   HOURS           Same as --hours (default: 24)
 EOF
@@ -56,6 +59,7 @@ while [ "$#" -gt 0 ]; do
         -l|--list) LIST_ONLY=1 ;;
         -h|--help) usage; exit 0 ;;
         --*|-*) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+        *@*) JETSON_USER="${1%%@*}"; JETSON_HOST="${1#*@}" ;;
         *) JETSON_HOST="$1" ;;
     esac
     shift
@@ -66,7 +70,34 @@ case "$HOURS" in
 esac
 MAX_AGE_MIN=$((HOURS * 60))
 
+if [ -z "${JETSON_KEY:-}" ] && [ -f "$HOME/.ssh/${JETSON_HOST%%.*}" ]; then
+    JETSON_KEY="$HOME/.ssh/${JETSON_HOST%%.*}"
+fi
+# With a key, ssh offers only that key. Without it, the agent offers every key it holds
+# and sshd disconnects after MaxAuthTries (6) before reaching a password prompt.
+SSH_OPTS=()
+if [ -n "${JETSON_KEY:-}" ]; then
+    SSH_OPTS=(-i "$JETSON_KEY" -o IdentitiesOnly=yes)
+    echo "Using key ${JETSON_KEY}"
+fi
+
+if [ -z "${JETSON_USER:-}" ]; then
+    CANDIDATE_USERS=("$(ssh -G "$JETSON_HOST" 2>/dev/null | awk '$1 == "user" { print $2; exit }')" ben user)
+    JETSON_USER="${CANDIDATE_USERS[0]}"
+    if [ -n "${JETSON_KEY:-}" ]; then
+        for candidate in "${CANDIDATE_USERS[@]}"; do
+            if ssh "${SSH_OPTS[@]}" -o BatchMode=yes -o ConnectTimeout=5 \
+                "${candidate}@${JETSON_HOST}" true 2>/dev/null; then
+                JETSON_USER="$candidate"
+                break
+            fi
+        done
+    fi
+fi
 REMOTE="${JETSON_USER}@${JETSON_HOST}"
+# rsync takes the remote shell as one string.
+RSYNC_SSH="ssh${JETSON_KEY:+ -i '${JETSON_KEY}' -o IdentitiesOnly=yes}"
+echo "Downloading as ${REMOTE}"
 
 echo "Indexing local recordings under ${PROJECT_ROOT}/data ..."
 LOCAL_INDEX="$(mktemp)"
@@ -95,7 +126,7 @@ else
 fi
 # Runs remotely: skip search directories that do not exist there, so a missing
 # one does not make find exit non-zero and abort this script under pipefail.
-ssh "$REMOTE" "sh -s '${JETSON_PATH}' '${MAX_AGE_MIN}' ${SEARCH_DIRS[*]}" <<'REMOTE_EOF' | sort > "$RAW_LIST"
+ssh "${SSH_OPTS[@]}" "$REMOTE" "sh -s '${JETSON_PATH}' '${MAX_AGE_MIN}' ${SEARCH_DIRS[*]}" <<'REMOTE_EOF' | sort > "$RAW_LIST"
 root=$1; shift
 max_age=$1; shift
 cd "$root" || { echo "ERROR: remote path '$root' not found" >&2; exit 3; }
@@ -182,7 +213,7 @@ pull() {
     [ -s "$list" ] || return 0
     mkdir -p "$dest"
     echo "Downloading $(wc -l < "$list") file(s) to ${dest} ..."
-    rsync "${RSYNC_OPTS[@]}" "$list" "${REMOTE}:${JETSON_PATH}/" "$dest/"
+    rsync -e "$RSYNC_SSH" "${RSYNC_OPTS[@]}" "$list" "${REMOTE}:${JETSON_PATH}/" "$dest/"
 }
 
 pull "$SVO_LIST" "$SVO_DEST"
