@@ -155,7 +155,9 @@ install_python_environment() {
 # Jetson: prepend CUDA/cuDNN paths so PyTorch in venv sees CUDA (detect installed version)
 if [ -f /etc/nv_tegra_release ]; then
     _jetson_ld_path=""
-    _cuda_ver=$(nvcc --version 2>/dev/null | grep -oP "release \\K[0-9]+\\.[0-9]+" | head -1)
+    # nvcc is off PATH on a stock JetPack 6 shell; `|| true` keeps a pipefail caller alive.
+    _cuda_ver=$( (nvcc --version || /usr/local/cuda/bin/nvcc --version) 2>/dev/null \
+        | grep -oP "release \\K[0-9]+\\.[0-9]+" | head -1 || true)
     for _p in $( [ -n "$_cuda_ver" ] && echo "/usr/local/cuda-$_cuda_ver/lib64" ) /usr/local/cuda/lib64 /usr/lib/aarch64-linux-gnu; do
         [ -d "$_p" ] && _jetson_ld_path="${_jetson_ld_path:+$_jetson_ld_path:}$_p"
     done

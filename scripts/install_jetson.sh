@@ -1,10 +1,9 @@
 #!/bin/bash
 
-set -e
-
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+source "$PROJECT_ROOT/install/fail_loudly.sh"
 
 # Source helper functions
 source "$PROJECT_ROOT/install/check_jetson_orin.sh"

@@ -153,10 +153,22 @@ install_pytorch_jetson() {
     local CUDA_VER
     CUDA_VER=$(get_cuda_version) || return 1
     echo "Detected CUDA version: $CUDA_VER"
-    if [ -z "$L4T_MAJOR" ] || [ "$L4T_MAJOR" -lt 39 ]; then
-        local CUSPARSELT_SH="/tmp/install_cusparselt.sh"
-        wget -q -O "$CUSPARSELT_SH" "https://raw.githubusercontent.com/pytorch/pytorch/5c6af2b583709f6176898c017424dc9981023c28/.ci/docker/common/install_cusparselt.sh"
-        (cd /tmp && sudo CUDA_VERSION="$CUDA_VER" bash install_cusparselt.sh)
+    # PyTorch's install_cusparselt.sh knows only CUDA 11.8 and 12.1-12.4 (JetPack 6.2 is 12.6)
+    # and fetches the sbsa build, so pull NVIDIA's Jetson (linux-aarch64) archive directly.
+    # 0.6.3.2 is the newest release with a CUDA 12.6 build; 0.7+ needs CUDA 12.8.
+    if { [ -z "$L4T_MAJOR" ] || [ "$L4T_MAJOR" -lt 39 ]; } \
+        && ! ldconfig -p | grep -q 'libcusparseLt\.so\.0'; then
+        local CUSPARSELT_NAME="libcusparse_lt-linux-aarch64-0.6.3.2-archive"
+        local CUSPARSELT_TMP
+        CUSPARSELT_TMP=$(mktemp -d)
+        echo "Installing cuSPARSELt ($CUSPARSELT_NAME)..."
+        curl --retry 3 -fLs -o "$CUSPARSELT_TMP/$CUSPARSELT_NAME.tar.xz" \
+            "https://developer.download.nvidia.com/compute/cusparselt/redist/libcusparse_lt/linux-aarch64/$CUSPARSELT_NAME.tar.xz"
+        tar -xf "$CUSPARSELT_TMP/$CUSPARSELT_NAME.tar.xz" -C "$CUSPARSELT_TMP"
+        sudo cp -a "$CUSPARSELT_TMP/$CUSPARSELT_NAME/include/"* /usr/local/cuda/include/
+        sudo cp -a "$CUSPARSELT_TMP/$CUSPARSELT_NAME/lib/"* /usr/local/cuda/lib64/
+        sudo ldconfig
+        rm -rf "$CUSPARSELT_TMP"
     fi
 
     # 3. Use project venv (create if missing)

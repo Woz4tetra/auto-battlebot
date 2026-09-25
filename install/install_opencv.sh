@@ -45,7 +45,8 @@ opencv_version_at_least() {
     [[ "$(printf '%s\n%s\n' "${want}" "${have}" | sort -V | head -1)" == "${want}" ]]
 }
 
-install_opencv() {
+# The body runs in a subshell so its `set -uo pipefail` and `cd` stay inside it.
+install_opencv() (
     # 4.14.0, not 4.10.0: OpenCV gained CUDA 13 support in opencv#27636, merged 2025-08-11,
     # after the 4.12.0 release, so 4.13.0 is the floor for a JetPack 7 (CUDA 13.2) CUDA build.
     local version="4.14.0"
@@ -70,11 +71,9 @@ install_opencv() {
         esac
     done
 
-    set -euo pipefail
+    set -uo pipefail  # subshell-scoped
 
     echo "OpenCV setup: version=${version}, build_folder=${build_folder}, CUDA=${with_cuda}, gstreamer=${with_gstreamer}, python=${build_python}"
-
-    trap 'echo "\nInstallation interrupted. You can re-run this script; it will resume from the last successful step."' ERR
 
     # Step 0: skip only when the installed version is new enough. Testing `pkg-config --exists
     # opencv4` alone is true on any machine that ever had apt OpenCV, which is every desktop, so
@@ -231,4 +230,4 @@ install_opencv() {
     echo "** Install OpenCV ${version} completed"
     echo "Run ./scripts/clean_build.sh: build/CMakeCache.txt pins the old OpenCV_DIR and keeps"
     echo "resolving the previous version until the cache is dropped."
-}
+)

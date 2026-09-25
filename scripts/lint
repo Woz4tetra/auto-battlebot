@@ -221,7 +221,27 @@ else
     missing "ruff check" "ruff"
 fi
 
-# ---- 5. protocol.ts (web types generated from include/remote/protocol.hpp) ----
+# ---- 5. install scripts (shell option leaks) ----
+# Install helpers are sourced into one shell, so a `set -o pipefail` or `trap` inside a helper
+# silently changes every step after it. That is how a pipefail leaked from install_opencv
+# killed the Jetson venv step with no message. install/fail_loudly.sh owns the traps and
+# options; helpers may repeat `set -e`, and a subshell-bodied function may mark its own
+# `set` line `# subshell-scoped`.
+header "install scripts"
+install_leaks=$(grep -nE '^[[:space:]]*(set[[:space:]]+[-+]|trap[[:space:]])' \
+    "$PROJECT_ROOT"/install/*.sh "$PROJECT_ROOT"/scripts/install_*.sh |
+    grep -v '/install/fail_loudly.sh:' |
+    grep -vE ':[0-9]+:[[:space:]]*set -e[[:space:]]*(#.*)?$' |
+    grep -v '# subshell-scoped')
+if [ -n "$install_leaks" ]; then
+    echo "$install_leaks"
+    echo "Move the option or trap into install/fail_loudly.sh, or scope it in a subshell."
+    record "install scripts" 1
+else
+    record "install scripts" 0
+fi
+
+# ---- 6. protocol.ts (web types generated from include/remote/protocol.hpp) ----
 WEB_DIR="$PROJECT_ROOT/web"
 PROTOCOL_TS="$WEB_DIR/src/generated/protocol.ts"
 PROTOCOL_DUMP="$BUILD_DIR/remote_protocol_dump"
@@ -252,7 +272,7 @@ else
     rm -f "$DUMP_JSON"
 fi
 
-# ---- 6. prettier (web/src) ----
+# ---- 7. prettier (web/src) ----
 header "prettier ($(mode_label))"
 if have_web; then
     if [ "$DRY_RUN" = true ]; then
@@ -265,7 +285,7 @@ else
     missing "prettier" "web/node_modules (run scripts/build_web.sh)"
 fi
 
-# ---- 7. clang-tidy (C/C++ lint) — slow when the ctcache entries are cold ----
+# ---- 8. clang-tidy (C/C++ lint) — slow when the ctcache entries are cold ----
 header "clang-tidy"
 if [ "$QUICK" = true ]; then
     skipped_quick "clang-tidy"
@@ -285,7 +305,7 @@ else
     record "clang-tidy" $?
 fi
 
-# ---- 8. mypy (Python types) — slow ----
+# ---- 9. mypy (Python types) — slow ----
 # Run bare from the project root so mypy.ini drives the scope (files= and
 # mypy_path). Passing directories here would override that config and break
 # local-module resolution.
@@ -299,7 +319,7 @@ else
     missing "mypy" "mypy"
 fi
 
-# ---- 9. svelte-check (web types), slow ----
+# ---- 10. svelte-check (web types), slow ----
 header "svelte-check"
 if [ "$QUICK" = true ]; then
     skipped_quick "svelte-check"
