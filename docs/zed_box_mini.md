@@ -69,7 +69,6 @@ Use wired Ethernet for the install.
 ./scripts/install_jetson.sh
 ./scripts/build.sh
 sudo nvpmodel -m 0                     # MAXN
-./install/install_jetson_clocks.sh
 ```
 
 - The 15W default has half the CPU cores and a third less GPU clock, which the 60ms latency

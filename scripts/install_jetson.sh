@@ -45,8 +45,6 @@ install_mcap_cli
 install_taplo
 install_clang_tidy_cache
 install_node
-build_cpp_project "$@"
-"$PROJECT_ROOT/scripts/build_web.sh"
 install_udev_rules
 install_ds3231_rtc
 install_pstore_ramoops
@@ -56,3 +54,6 @@ install_uvcvideo_rt
 # Refuses (and says why) when the only Ethernet port is the uplink; the rest of the install
 # still stands, so it is not fatal here.
 install_dashboard_network || echo "Dashboard network not set up; see the message above."
+
+build_cpp_project "$@"
+"$PROJECT_ROOT/scripts/build_web.sh"

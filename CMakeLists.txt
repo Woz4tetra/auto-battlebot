@@ -89,10 +89,16 @@ FetchContent_Declare(
 
 # JSON for the remote protocol (include/remote/). The URL tarball is the release's single-header
 # CMake package, which is far smaller than the repository.
+# DOWNLOAD_EXTRACT_TIMESTAMP is CMake 3.24+. JetPack 6 ships 3.22, which reads the unknown keyword
+# as more URL entries and fails with "At least one entry of URL is a path".
+set(NLOHMANN_JSON_URL_OPTS)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.24)
+    set(NLOHMANN_JSON_URL_OPTS DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+endif()
 FetchContent_Declare(
     nlohmann_json
     URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    ${NLOHMANN_JSON_URL_OPTS}
 )
 
 FetchContent_Declare(
