@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="58 3 363 363">
+  <!-- Transparent browser-tab icon. icon.svg keeps the opaque background for the PWA
+       manifest. The dark palette mirrors the --logo-* tokens in src/app.css so the dark
+       half stays visible on a dark tab strip. -->
+  <style>
+    .left, .right { stroke: #121212; stroke-width: 7; stroke-linejoin: round; }
+    .left { fill: #121212; }
+    .right { fill: #ffffff; }
+    .pill { fill: #cccccc; }
+    .text { fill: #121212; }
+    @media (prefers-color-scheme: dark) {
+      .left, .right { stroke: #eceae3; }
+      .left { fill: #eceae3; }
+      .right { fill: #000000; }
+      .pill { fill: #666666; }
+      .text { fill: #f2f2f2; }
+    }
+  </style>
+  <path class="left" d="M202 47 A137 137 0 0 0 202 321 L202 240 A56 56 0 0 1 202 128 Z" />
+  <path class="right" d="M277 47 A137 137 0 0 1 277 321 L277 240 A56 56 0 0 0 277 128 Z" />
+  <rect class="pill" x="130" y="118" width="217" height="132" rx="66" />
+  <g class="text">
+    <path d="m 184.26562,175.53516 q 4.6211,0 7.00782,-2.03125 2.38672,-2.03125 2.38672,-5.99219 0,-3.91016 -2.38672,-5.94141 -2.38672,-2.08203 -7.00782,-2.08203 h -10.8164 v 16.04688 z m 0.66016,33.16015 q 5.89063,0 8.83594,-2.48828 2.99609,-2.48828 2.99609,-7.51562 0,-4.92579 -2.94531,-7.36329 -2.94531,-2.48828 -8.88672,-2.48828 h -11.47656 v 19.85547 z m 18.17969,-27.26953 q 6.29687,1.82813 9.75,6.75391 3.45312,4.92578 3.45312,12.08593 0,10.96875 -7.41406,16.35157 Q 201.48047,222 186.34766,222 H 153.89844 V 146.18359 H 183.25 q 15.79297,0 22.85156,4.77344 7.10938,4.77344 7.10938,15.28516 0,5.53515 -2.58985,9.44531 -2.58984,3.85937 -7.51562,5.73828 z" />
+    <path d="m 221.03125,146.18359 h 18.73828 l 13.10156,55.09766 13,-55.09766 h 18.83985 l 13,55.09766 13.10156,-55.09766 h 18.58594 L 311.52344,222 H 288.97656 L 275.21484,164.36328 261.60547,222 h -22.54688 z" />
+  </g>
+</svg>
