@@ -8,6 +8,7 @@ config/simulation/kinematic_sim.toml on the C++ side. Obstacle geometry is not d
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 
 
 @dataclass
@@ -59,8 +60,33 @@ class CameraConfig:
     lookat: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
 
 
+class PlantType(str, Enum):
+    """Which model drives our robot. See simulation/plants/."""
+
+    KINEMATIC = "kinematic"  # 2D first-order lag, the model the C++ filter and nav assume
+    MUJOCO = "mujoco"  # Mr Stabs Mk2 rigid body with the firmware mixer; Mr Stabs Mk2 only
+
+    @classmethod
+    def _missing_(cls, value: object) -> PlantType:
+        raise ValueError(f"unknown plant {value!r}; valid: {', '.join(m.value for m in cls)}")
+
+
+@dataclass
+class MujocoPlantConfig:
+    # fit.json from playground/calibration/fit_mujoco_plant.py, repo-relative; the lowest-loss
+    # run is used. Empty runs the unfit PlantParams defaults.
+    fit_file: str = ""
+    timestep: float = 1e-3  # s; the fit and its checks run at 1 ms
+    pack_voltage: float = 15.2  # V, nominal 4S; the fit's logged vbat is not replayed here
+    auto_steer: bool = True  # firmware heading hold, on at power-up and in competition
+
+
 @dataclass
 class PlantConfig:
+    plant: PlantType = PlantType.KINEMATIC
+    # Read only when plant = "mujoco". The kinematic fields below are read only when plant =
+    # "kinematic"; start_pos, start_yaw_deg, sprite and radius apply to both.
+    mujoco: MujocoPlantConfig = field(default_factory=MujocoPlantConfig)
     start_pos: list[float] = field(default_factory=lambda: [-0.6, -0.6])
     start_yaw_deg: float = 45.0
     # Which entry in the sprite manifest the viewer draws for this robot. The sprites are named

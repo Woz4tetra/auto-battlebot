@@ -1,6 +1,6 @@
-# Fast headless kinematic sim config for MR STABS MK2 (simulation/kinematic_sim_server.py).
-# Plant calibrated by playground/calibration/fit_plant_calib.py, run 175805
-# (docs/experiments/control_improvement/mr_stabs_mk2_calibration.md).
+# Headless sim config for MR STABS MK2 (simulation/kinematic_sim_server.py), on the MuJoCo
+# rigid-body plant (auto_battlebot/mujoco_sim, docs/plans/mujoco_warp_mr_stabs_plan.md).
+# Set [our_robot] plant = "kinematic" for the run-175805 kinematic fit further down.
 # Keep [arena] in sync with config/simulation/headless_sim.toml [field_filter].
 
 [server]
@@ -15,9 +15,11 @@ seed = 0
 width = 2.4
 height = 2.4
 
-# Calibrated actuation latency (Crossfire + ESC + mechanical), in ms of sim time.
+# Actuation latency, in ms of sim time. The measured total is 60 ms (Crossfire + ESC +
+# mechanical). The MuJoCo plant holds the firmware-to-motion part itself (PlantParams.delay_s,
+# 30 ms unfit), so this is the radio part only. Set it back to 60 for plant = "kinematic".
 [latency]
-command_ms = 60.0
+command_ms = 30.0
 observation_ms = 0.0
 
 [camera]
@@ -31,10 +33,12 @@ pos = [0.0, -0.5, 2.6]
 lookat = [0.0, 0.0, 0.0]
 
 [our_robot]
+plant = "mujoco"
 start_pos = [-0.9, -0.9]
 start_yaw_deg = 45.0
 sprite = "mr_stabs_mk2"
 radius = 0.11
+# Kinematic plant, read only when plant = "kinematic".
 # Calibrated MR STABS MK2 plant (run 175805). Time constants are low confidence (one clean segment
 # each) but physically sensible. max_linear_speed is the full-throttle value the robot achieves.
 # NOTE: max_angular_speed may be inflated by yaw-keypoint flips in the calibration; revisit if turns
@@ -48,6 +52,15 @@ max_linear_speed_rev = 4.84
 tau_linear_accel = 0.058
 tau_linear_decel = 0.078    # coast: the term that drives stopping overrun
 tau_angular_accel = 0.066
+
+[our_robot.mujoco]
+# No sysid recordings yet, so no fit.json: the plant runs PlantParams defaults (4.0 m/s top
+# speed on 15.2 V against the kinematic fit's 5.6). Point this at
+# playground/calibration/out/mujoco_sysid/fit_<ts>/fit.json once fit_mujoco_plant.py has run.
+fit_file = ""
+timestep = 0.001
+pack_voltage = 15.2
+auto_steer = true
 
 [perception]
 pos_noise_std = 0.0

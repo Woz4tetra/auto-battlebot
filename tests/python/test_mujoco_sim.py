@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -25,8 +26,9 @@ from auto_battlebot.mujoco_sim.checks import (
     simulated_lift_accel,
     simulated_top_speed,
 )
+from auto_battlebot.mujoco_sim.closed_loop import ClosedLoopSim, Disc, load_fit_params
 from auto_battlebot.mujoco_sim.firmware import FirmwareMixer, Pid
-from auto_battlebot.mujoco_sim.fit import score_candidates
+from auto_battlebot.mujoco_sim.fit import params_dict, score_candidates
 from auto_battlebot.mujoco_sim.mjcf import CollisionSet
 from auto_battlebot.mujoco_sim.onshape_export import (
     WHEEL_JOINTS,
@@ -326,3 +328,72 @@ def test_warp_rollout_matches_cpu_on_a_straight_drive(
             cpu_rollout(mp, collision, params[w], one, volts[w], zero[w], DT, 5, rollout.height)
         )
         assert gpu["x"][w, -1] == pytest.approx(cpu["x"][-1], abs=0.01)
+
+
+def _drive(sim: ClosedLoopSim, linear: float, angular: float, seconds: float) -> None:
+    for _ in range(round(seconds * 30)):
+        sim.step(linear, angular, 1.0 / 30.0)
+
+
+def test_closed_loop_signs_match_the_app(mp: mass_properties.MassProperties) -> None:
+    """Positive linear drives along the heading, positive angular turns counterclockwise."""
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, math.pi / 2))
+    _drive(sim, 0.2, 0.0, 0.5)
+    x, y, yaw = sim.pose()
+    assert y > 0.2 and abs(x) < 0.02
+    assert abs(yaw - math.pi / 2) < 0.02
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0))
+    _drive(sim, 0.0, 0.2, 0.1)
+    assert sim.yaw_rate > 0.5 and sim.pose()[2] > 0.0
+
+
+def test_closed_loop_delay_holds_the_command(mp: mass_properties.MassProperties) -> None:
+    sim = ClosedLoopSim(mp, None, PlantParams(delay_s=0.1), start=(0.0, 0.0, 0.0))
+    _drive(sim, 0.0, 0.0, 0.5)  # the hull-less test model starts level and rocks onto its skid
+    sim.step(1.0, 0.0, 0.09)
+    assert abs(sim.forward_speed) < 1e-3
+    sim.step(1.0, 0.0, 0.05)
+    assert sim.forward_speed > 0.05
+
+
+def test_closed_loop_walls_and_blocks_stop_the_robot(mp: mass_properties.MassProperties) -> None:
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0), arena=(1.0, 1.0))
+    _drive(sim, 0.5, 0.0, 1.5)
+    assert sim.pose()[0] < 0.5
+    assert sim.wall_contact and not sim.block_contact
+
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0), moving_block_radii=[0.1])
+    sim.set_moving_blocks([(0.4, 0.0)])
+    _drive(sim, 0.5, 0.0, 1.0)
+    assert sim.pose()[0] < 0.3
+    assert sim.block_contact and not sim.wall_contact
+
+    sim = ClosedLoopSim(
+        mp, None, PlantParams(), start=(0.0, 0.0, 0.0), blocks=[Disc(0.4, 0.0, 0.1)]
+    )
+    _drive(sim, 0.5, 0.0, 1.0)
+    assert sim.pose()[0] < 0.3 and sim.block_contact
+
+
+def test_closed_loop_heading_hold_fights_a_gain_mismatch(
+    mp: mass_properties.MassProperties,
+) -> None:
+    drift = {}
+    for auto_steer in (False, True):
+        sim = ClosedLoopSim(
+            mp, None, PlantParams(lr_gain_ratio=1.15), start=(0.0, 0.0, 0.0), auto_steer=auto_steer
+        )
+        _drive(sim, 0.15, 0.0, 1.0)
+        drift[auto_steer] = abs(sim.pose()[2])
+    assert drift[True] < 0.5 * drift[False]
+
+
+def test_load_fit_params_takes_the_lowest_finite_loss(tmp_path: Path) -> None:
+    runs = [
+        {"loss": float("nan"), "best": params_dict(PlantParams(delay_s=0.01))},
+        {"loss": 2.0, "best": params_dict(PlantParams(delay_s=0.02))},
+        {"loss": 1.0, "best": params_dict(PlantParams(delay_s=0.04))},
+    ]
+    path = tmp_path / "fit.json"
+    path.write_text(json.dumps({"runs": runs}))
+    assert load_fit_params(path).delay_s == 0.04

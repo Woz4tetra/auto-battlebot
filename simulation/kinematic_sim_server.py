@@ -10,8 +10,9 @@ The sim owns logical time: it sends its accumulated sim_time in each response, a
 adopts it (ManualClock), so the controller's dt is correct no matter how fast the loop free-runs.
 Runs are deterministic (seeded) and can go far faster than real time.
 
-Models the effects that actually drive overshoot (none of which a physics engine gives you):
-  - first-order drivetrain lag / coast, capped at fitted max speeds
+Models the effects that actually drive overshoot:
+  - our robot's drivetrain, from the plant [our_robot] plant selects (simulation/plants/): the
+    first-order kinematic lag model, or the Mr Stabs Mk2 MuJoCo rigid body
   - actuation latency (command ring buffer, in sim ticks)
   - perception latency, position noise, dropout, and the flat-plane projection bias
   - square arena with walls
@@ -45,9 +46,9 @@ from config.kinematic import (
     ObstacleConfig,
     OpponentConfig,
     PerceptionConfig,
-    PlantConfig,
 )
 from config.loader import load_config
+from plants import PlantInterface, Pose, make_plant
 from protocol import (
     GT_COUNT_FMT,
     GT_POSE_FMT,
@@ -62,202 +63,9 @@ from viewer import Viewer
 
 from hazards import load_hazards
 
-Pose = tuple[float, float, float]  # x, y, yaw in the field frame
-
-
 # ---------------------------------------------------------------------------
-# Plant and opponents
+# Opponents
 # ---------------------------------------------------------------------------
-
-
-# Internal integration substep. Mirrors auto_battlebot/control/plant.py. At the calibrated
-# 31.7 rad/s top yaw rate this is 0.06 rad of rotation per substep; a whole 33 ms tick is
-# 1.05 rad, where straight-line integration of an arc is wrong by tens of degrees of heading.
-SUBSTEP_S = 0.002
-# Below this yaw rate the arc radius v/w blows up, so fall back to the straight-line form.
-STRAIGHT_W = 1e-6
-
-
-class Plant:
-    """Unicycle with first-order velocity lag (coast) and wall clamping.
-
-    Term for term the same drivetrain model as auto_battlebot/control/plant.py, which is
-    what the
-    velocity jig fits: per-sign deadzone and gain, steer-brake and angular-droop coupling on the
-    steady-state target, asymmetric first-order lag, exact arc integration on 2 ms substeps. The
-    transport delay lives outside this class, in the server's command ring buffer.
-    """
-
-    def __init__(
-        self,
-        cfg: PlantConfig,
-        arena_w: float,
-        arena_h: float,
-        obstacles: list[ObstacleConfig] | None = None,
-    ) -> None:
-        self._cfg = cfg
-        self.x, self.y = cfg.start_pos
-        self.yaw = math.radians(cfg.start_yaw_deg)
-        self.v = 0.0
-        self.w = 0.0
-        self._half_x = arena_w / 2.0 - cfg.radius
-        self._half_y = arena_h / 2.0 - cfg.radius
-        obstacles = obstacles or []
-        # Blocks stop the chassis, so they are grown by the robot radius the same way the walls
-        # are. A hole swallows the robot when its centre crosses the lip, so it is not grown.
-        self._blocks = [
-            (o.center[0], o.center[1], o.radius + cfg.radius)
-            for o in obstacles
-            if o.kind == "wall_block"
-        ]
-        self._holes = [(o.center[0], o.center[1], o.radius) for o in obstacles if o.kind == "hole"]
-        self.fell_in = False
-        self.wall_hits = 0
-        self.block_hits = 0
-        self.min_hazard_clearance = float("inf")
-        # Refreshed each tick from the opponents that carry a hazard_radius. Same treatment as a
-        # static block: the chassis is pushed out and the clearance is scored.
-        self._moving_blocks: list[tuple[float, float, float]] = []
-
-    def set_moving_blocks(self, blocks: list[tuple[float, float, float]]) -> None:
-        self._moving_blocks = [(x, y, r + self._cfg.radius) for x, y, r in blocks]
-
-    @staticmethod
-    def _effective_command(cmd: float, dz_pos: float, dz_neg: float) -> float:
-        """Deadzone removal, rescaled so full command still maps to full effect."""
-        dz = min(max(dz_pos if cmd >= 0.0 else dz_neg, 0.0), 0.95)
-        magnitude = max(abs(cmd) - dz, 0.0) / (1.0 - dz)
-        return math.copysign(magnitude, cmd) if magnitude > 0.0 else 0.0
-
-    def step(self, linear_cmd: float, angular_cmd: float, dt: float) -> None:
-        cfg = self._cfg
-        dz_lin_rev = (
-            cfg.deadzone_linear if cfg.deadzone_linear_rev is None else cfg.deadzone_linear_rev
-        )
-        dz_ang_r = (
-            cfg.deadzone_angular
-            if cfg.deadzone_angular_right is None
-            else cfg.deadzone_angular_right
-        )
-        lc = self._effective_command(
-            float(np.clip(linear_cmd, -1.0, 1.0)), cfg.deadzone_linear, dz_lin_rev
-        )
-        ac = self._effective_command(
-            float(np.clip(angular_cmd, -1.0, 1.0)), cfg.deadzone_angular, dz_ang_r
-        )
-
-        # Direction-dependent gain (forward/reverse asymmetry), with fall-backs to the
-        # symmetric value.
-        fwd = cfg.max_linear_speed_fwd or cfg.max_linear_speed
-        rev = cfg.max_linear_speed_rev or fwd
-        v_target = lc * (fwd if lc >= 0.0 else rev)
-        # Coupling multiplies the steady-state target, not the achieved speed: turning costs a
-        # fraction of the forward command's authority and driving costs a fraction of the turn's,
-        # but neither brakes a robot that is already coasting.
-        v_target *= max(0.0, 1.0 - cfg.steer_brake_coeff * abs(ac))
-        w_target = ac * cfg.max_angular_speed
-        w_target *= max(0.0, 1.0 - cfg.angular_droop_coeff * abs(lc))
-
-        # Separate spin-up vs coast/brake time constants, again falling back to the single tau.
-        tau_l_acc = cfg.tau_linear_accel or cfg.tau_linear
-        tau_a_acc = cfg.tau_angular_accel or cfg.tau_angular
-        tau_l_dec = cfg.tau_linear_decel or tau_l_acc
-        tau_a_dec = cfg.tau_angular_decel or tau_a_acc
-
-        substeps = max(1, round(dt / SUBSTEP_S))
-        sub_dt = dt / substeps
-        for _ in range(substeps):
-            if self._substep(
-                v_target, w_target, sub_dt, tau_l_acc, tau_l_dec, tau_a_acc, tau_a_dec
-            ):
-                break
-            if self.fell_in:
-                self.v = 0.0
-                self.w = 0.0
-                break
-
-    def _resolve_obstacles(self, nx: float, ny: float) -> tuple[float, float, bool]:
-        """Push the chassis out of any block, record the closest a hazard came, and latch a
-        fall-in. Returns the corrected position and whether a block was hit."""
-        blocked = False
-        # A block is a wall with a curved face: push the chassis back out along the radius, which
-        # is what the rectangle clamp does for the arena walls.
-        for bx, by, br in self._blocks + self._moving_blocks:
-            ddx, ddy = nx - bx, ny - by
-            dist = math.hypot(ddx, ddy)
-            if dist >= br:
-                continue
-            if dist < 1e-9:
-                ddx, ddy, dist = 1.0, 0.0, 1.0
-            nx, ny = bx + ddx / dist * br, by + ddy / dist * br
-            blocked = True
-            self.block_hits += 1
-
-        for hx, hy, hr in self._holes:
-            gap = math.hypot(nx - hx, ny - hy) - hr
-            self.min_hazard_clearance = min(self.min_hazard_clearance, gap)
-            if gap < 0.0:
-                self.fell_in = True
-        for bx, by, br in self._blocks + self._moving_blocks:
-            gap = math.hypot(nx - bx, ny - by) - br
-            self.min_hazard_clearance = min(self.min_hazard_clearance, gap)
-        return nx, ny, blocked
-
-    def _substep(
-        self,
-        v_target: float,
-        w_target: float,
-        dt: float,
-        tau_l_acc: float,
-        tau_l_dec: float,
-        tau_a_acc: float,
-        tau_a_dec: float,
-    ) -> bool:
-        """Advance one substep: pose along the arc, then the velocity update. Returns True on a
-        wall hit, which ends the tick."""
-        # Pose uses the velocity at the start of the substep, so the arc is exact for the v and w
-        # actually held over it.
-        next_yaw = self.yaw + self.w * dt
-        if abs(self.w) > STRAIGHT_W:
-            radius = self.v / self.w
-            dx = radius * (math.sin(next_yaw) - math.sin(self.yaw))
-            dy = -radius * (math.cos(next_yaw) - math.cos(self.yaw))
-        else:
-            dx = self.v * dt * math.cos(self.yaw)
-            dy = self.v * dt * math.sin(self.yaw)
-
-        # Accel or decel is decided per channel by whether the target is further from zero than
-        # the current speed. Braking into a reversal uses the decel constant until the sign flips,
-        # as the drivetrain does: friction first, then torque.
-        tau_lin = tau_l_acc if abs(v_target) > abs(self.v) else tau_l_dec
-        tau_ang = tau_a_acc if abs(w_target) > abs(self.w) else tau_a_dec
-        a_lin = 1.0 - math.exp(-dt / max(tau_lin, 1e-4))
-        a_ang = 1.0 - math.exp(-dt / max(tau_ang, 1e-4))
-
-        nx, ny = self.x + dx, self.y + dy
-        hit = False
-        if abs(nx) > self._half_x:
-            nx = math.copysign(self._half_x, nx)
-            hit = True
-        if abs(ny) > self._half_y:
-            ny = math.copysign(self._half_y, ny)
-            hit = True
-        if hit:
-            self.wall_hits += 1
-
-        nx, ny, blocked = self._resolve_obstacles(nx, ny)
-        hit = hit or blocked
-
-        self.x, self.y = nx, ny
-        self.yaw = math.atan2(math.sin(next_yaw), math.cos(next_yaw))
-        self.v += a_lin * (v_target - self.v)
-        self.w += a_ang * (w_target - self.w)
-        if hit:
-            self.v = 0.0  # wall stops forward motion
-        return hit
-
-    def pose(self) -> Pose:
-        return self.x, self.y, self.yaw
 
 
 class Opponent:
@@ -480,7 +288,7 @@ class KinematicServer:
     def _reset(self) -> None:
         cfg = self._cfg
         rng = np.random.default_rng(cfg.sim.seed)
-        self._plant = Plant(cfg.our_robot, cfg.arena.width, cfg.arena.height, self._obstacles)
+        self._plant = self._make_plant()
         self._opponents = [
             Opponent(o, cfg.arena.width, cfg.arena.height, rng, self._obstacles)
             for o in cfg.opponents
@@ -491,6 +299,17 @@ class KinematicServer:
         self._cmd_buf: deque[tuple[float, float]] = self._empty_command_buffer()
         self._tick = 0
         self._sim_time = 0.0
+
+    def _make_plant(self) -> PlantInterface:
+        cfg = self._cfg
+        return make_plant(
+            cfg.our_robot,
+            cfg.arena.width,
+            cfg.arena.height,
+            self._obstacles,
+            # Same filter and order as the set_moving_blocks call in handle_client.
+            [o.hazard_radius for o in cfg.opponents if o.hazard_radius > 0.0],
+        )
 
     def _render_camera(self) -> None:
         """Warp the top-down arena into the camera's view.
@@ -526,8 +345,7 @@ class KinematicServer:
         ways that read as control bugs. Opponents keep where they are, including where they were
         dragged to, because the point of continuing is to retry against the same situation.
         """
-        cfg = self._cfg
-        self._plant = Plant(cfg.our_robot, cfg.arena.width, cfg.arena.height, self._obstacles)
+        self._plant = self._make_plant()
         self._cmd_buf = self._empty_command_buffer()
 
     def _finish_episode(self, outcome: str) -> bool:

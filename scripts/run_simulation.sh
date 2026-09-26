@@ -14,11 +14,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 SIM_DIR="$PROJECT_ROOT/simulation"
-VENV_DIR="$SIM_DIR/venv"
+VENV_DIR="$PROJECT_ROOT/venv"
 
 if [ ! -d "$VENV_DIR" ]; then
-    echo "Error: Simulation venv not found at $VENV_DIR"
-    echo "Run ./scripts/setup_simulation.sh first."
+    echo "Error: project venv not found at $VENV_DIR"
+    echo "Run ./scripts/setup_python.sh first."
     exit 1
 fi
 
