@@ -73,11 +73,25 @@ a linear extrapolation from commands 0.2 to 0.5, so the command-to-voltage map i
 linear (AM32 throttle curve, radio scaling), or the measured speeds are off. The MuJoCo actuator
 has a hard voltage ceiling, so the fit will expose which.
 
-Firmware effects that sit inside the plant (`firmware/mr_stabs_mk2/src/main.cpp`):
+Firmware between the radio and the ESCs (`firmware/mr_stabs_mk2/src/main.cpp`):
 
-- A BNO055 heading-hold PID runs when auto-steer is on. It closes a loop around yaw rate, so any
-  fit with it on identifies the PID and not the drivetrain.
+- **Auto-steer** (flip switch DOWN, the power-on default) runs a heading-hold PID on BNO055 yaw:
+  kp 0.08, ki 0.01, kd 0.01 (percent per degree), 2 degree deadband, output added to the left/right
+  mix. It only acts while the turn stick is within 1% of center, and waits 0.25 s after a turn
+  before engaging. Any commanded turn passes straight through. The same switch position also turns
+  on upside-down detection.
+- **Mixing**: left = -a + turn, right = -a - turn, both scaled down together if either exceeds
+  100%. The ESC stop threshold is 1% per motor and is tunable over the diagnostics server.
+- **Diagnostics stream**: an event stream on the robot's WiFi access point carrying `left_cmd`,
+  `right_cmd`, `a_percent`, `b_percent`, `pid_setpoint`, `pid_output`, BNO055 orientation and
+  acceleration, stamped in robot milliseconds. It sends at 10 Hz, or every control loop in its
+  recording mode.
 - A failsafe stops the robot after 5 s of identical radio frames. Hand driving never produces that.
+
+Fitting runs with auto-steer on, the way the robot competes. The PID does not have to be fit or
+even modeled for this: the diagnostics stream logs the per-motor commands after the PID and the
+mixer, and those are the drivetrain's input. The drivetrain is fit open loop on them. The PID is
+reproduced in the sim separately, from the gains above, for closed-loop use.
 
 ## Recording
 
@@ -91,22 +105,27 @@ apriltag_mcap.py` still defines. `analyze_apriltag_mcap.py` still reads that lay
 
 Restore it with these changes:
 
-1. **Confirm what `/transmitter/channels` holds.** The MCAP docstring says "stick axes the driver
-   was commanding". The fit needs what the robot received, which is the radio mixer output. If the
-   recorder reads sticks, either read the mixer output instead or set the radio model to a pure
-   pass-through (100% rates, no expo, no trims, no slow-up) for these sessions and record that in
-   the session metadata. A mixer the log can't see is a silent model error.
-2. **Record raw frames**, not JPEG, at 60 fps. JPEG moves the corner estimates the subpixel
+1. **Log the firmware diagnostics stream.** Join the robot's access point, put the stream in
+   recording mode, and write every event to a new `/robot/diagnostics` topic stamped with the host
+   receive time as well as the robot's `timestamp_ms`. `left_cmd` and `right_cmd` become the fit's
+   command tape. BNO055 orientation gives yaw and pitch on board, which keeps measuring while the
+   tag is out of frame.
+2. **Keep `/transmitter/channels`** for clock alignment and as a fallback. The MCAP docstring says
+   it holds "stick axes the driver was commanding", which may be pre-mixer. With the firmware log
+   that no longer matters for the fit, but if the diagnostics stream drops events, the fallback
+   needs the radio model in pass-through (100% rates, no expo, no trims, no slow-up) to be usable.
+3. **Record raw frames**, not JPEG, at 60 fps. JPEG moves the corner estimates the subpixel
    refinement keys on (see the `apriltag_mcap.py` docstring).
-3. **Keep the full 3D tag pose.** `analyze_apriltag_mcap.py` solves the tag pose with PnP and then
+4. **Keep the full 3D tag pose.** `analyze_apriltag_mcap.py` solves the tag pose with PnP and then
    projects to (x, y, yaw). Also write pitch and roll to the truth CSV. Nose lifts during hard
    throttle are the data that pins the COM, the reflected inertia and traction together, and the
    rigid-body model is the first consumer that can use them.
-4. **Live coverage display.** Replaces the scripted protocol as the thing that guarantees coverage.
+5. **Live coverage display.** Replaces the scripted protocol as the thing that guarantees coverage.
    While recording, bin the (linear, angular) command and the solved body speed and show which
    cells have less than N seconds of steady, in-frame data. The driver drives toward the empty
    cells.
-5. **Session metadata.** Pack voltage at start and end, auto-steer state, radio mixer settings,
+6. **Session metadata.** Pack voltage at start and end, auto-steer state, ESC stop thresholds,
+   AM32 settings, radio mixer settings,
    surface (which floor, cleaned or not), tire condition, robot mass, and free-text notes. Stored in
    `/calibration/metadata`.
 
@@ -119,9 +138,12 @@ Restore it with these changes:
 - If the mount allows, raise the camera or widen the view. Stage 2 found field of view, not
   detection, was the bottleneck on every linear phase.
 - Walls: keep the robot off them for the fitting sessions. Wall contact is a later stage.
-- **Auto-steer off** for all fitting sessions, so the fit sees the open-loop drivetrain. Record a
-  separate small set with it on, to validate a PID model later.
-- Radio in pass-through mode per recorder change 1.
+- **Auto-steer on** (flip switch DOWN), the competition setting. Heading hold is also what makes
+  straight runs possible: stage 2 could not measure forward or reverse speed because the robot
+  spun off line. A few minutes with auto-steer off are useful as a cross-check of the drivetrain
+  fit, but not required.
+- Diagnostics stream in recording mode, logged per recorder change 1.
+- Radio in pass-through mode, so the fallback path in recorder change 2 stays usable.
 
 ### What to drive (maneuver menu)
 
@@ -159,17 +181,24 @@ validation, not windows from sessions used in training.
 
 1. `analyze_apriltag_mcap.py` produces the truth CSV per session: t, x, y, z, roll, pitch, yaw, plus
    the channel log carried through.
-2. Command tape: the logged channels converted to [-1, 1] with the same scaling the transmitter
-   uses. The delay is not applied here; the fit shifts the tape per candidate.
-3. Windows: reuse `plant.make_windows` with window lengths of 1 to 2 s. Gate out:
+2. Clock alignment: map robot `timestamp_ms` onto CLOCK_MONOTONIC by cross-correlating the
+   firmware's `a_percent`/`b_percent` against `/transmitter/channels`, then refine by matching
+   BNO055 yaw rate against tag yaw rate. The first offset is the radio link delay; the refinement
+   checks it. Report both, since the closed-loop sim needs the radio delay and the drivetrain fit
+   needs only what follows the firmware.
+3. Command tape: `left_cmd` and `right_cmd` from the firmware log, divided by 100. These are the
+   per-motor commands after the PID and the mixer, so the drivetrain fit is open loop even with
+   auto-steer on. The remaining delay (ESC and mechanics) is not applied here; the fit shifts the
+   tape per candidate.
+4. Windows: reuse `plant.make_windows` with window lengths of 1 to 2 s. Gate out:
    - windows where tag visibility is below a threshold (start at 70%, tune on the noise floor)
    - windows within a robot length of a wall or the taped edge
    - windows where pitch exceeds a few degrees, except in the separate nose-lift set
-   - windows where auto-steer is on (a separate validation set)
-4. Initial state per window: pose from the truth CSV, body velocity from a smoothing spline over
+   - windows with gaps in the firmware log
+5. Initial state per window: pose from the truth CSV, body velocity from a smoothing spline over
    the in-frame detections, wheel speeds from the no-slip relation (v +/- omega * 0.06526) / 0.025.
    The rotor state follows the wheels through the armature.
-5. Noise floor: pose residual against the smoothed track on held-still segments and on steady
+6. Noise floor: pose residual against the smoothed track on held-still segments and on steady
    holds, per session. Every error metric is reported as a multiple of it, as in the match fit
    report.
 
@@ -191,8 +220,13 @@ wheels, no rotor inertia). Replace it with an MJCF built from the table above.
   ```
 
   with `gainprm[0]` the first coefficient and `biasprm[2]` the second. `forcerange` carries the
-  current limit. Deadzone and the throttle curve are applied to the command tape before it becomes
-  `ctrl`. Joint `frictionloss` and `damping` carry gearbox friction.
+  current limit. `u` is the per-motor command (`left_cmd` or `right_cmd` / 100). Deadzone and the
+  throttle curve are applied to the command tape before it becomes `ctrl`. Joint `frictionloss`
+  and `damping` carry gearbox friction.
+- **Firmware layer**, for closed-loop use only: a per-step function that takes the stick commands
+  and the sim's yaw and reproduces `mix_motor_outputs` (the 1% turn threshold, 0.25 s cooldown,
+  PID with its 2 degree deadband, and the 100% normalization) to produce `ctrl`. The fit does not
+  use it, since the fit replays logged per-motor commands.
 - **Zero-command behavior**: with AM32 complementary PWM and brake-on-stop settings, a zero
   command either shorts the motor (the back-EMF term stays active, which is braking) or lets it
   freewheel (the term drops out). Model both, pick by the recorded AM32 settings, and let the coast
@@ -216,8 +250,8 @@ Fitted, with priors:
 
 | Parameter | Prior or bounds | Notes |
 | --- | --- | --- |
-| Transport delay | 30 to 90 ms, centered on 60 | profiled on a grid, as `jig_fit` does |
-| Deadzone per channel | 0 to 0.06 | stage 2 says at or below 0.04 |
+| Drivetrain delay (firmware to motion) | 0 to 60 ms | profiled on a grid, as `jig_fit` does; the radio part of the 60 ms comes from clock alignment |
+| Deadzone per motor | 0 to 0.06 | ESC stop threshold is set to 0.01; stage 2 says at or below 0.04 end to end |
 | Command-to-voltage curve | linear plus one curvature term | settles the 5.6 m/s question |
 | Pack voltage | measured per session, with a linear sag term | not fitted blind |
 | Motor resistance R | 0.05 to 1 ohm | wide; no published value |
@@ -267,10 +301,13 @@ The model is accepted when all of these hold on held-out sessions:
    actuator model is wrong, since the rigid body adds physics and should not lose accuracy.
 2. **Errors sit near the noise floor.** Report every error as a multiple of it.
 3. **The physical numbers are plausible.** R, efficiency and friction inside physical ranges;
-   armature scale near 1; delay near 60 ms; coast tau near 0.078 s.
+   armature scale near 1; radio plus drivetrain delay near 60 ms; coast tau near 0.078 s.
 4. **Nose lift matches.** The fitted model lifts the nose on the same held-out punches that lifted
    the real robot, and not on the ones that didn't.
-5. **The parameters are identified.** CMA-ES restarts agree. Report the parameter pairs that trade
+5. **The firmware layer matches.** Driven by the logged sticks and the fitted drivetrain in closed
+   loop, the sim's `pid_output` and per-motor commands track the logged ones on straight holds.
+   This is the check that the sim will behave like the robot once a controller drives it.
+6. **The parameters are identified.** CMA-ES restarts agree. Report the parameter pairs that trade
    off (friction against armature against gain is the likely one) and fix one of each pair from an
    outside measurement if they do.
 
@@ -297,8 +334,9 @@ The spread of parameter sets that pass becomes the randomization range for the s
    produced it from the URDF export and the Onshape totals. Half a day.
 2. **Model and MuJoCo Warp spike.** Build the MJCF, pass the three sanity checks, measure batched
    throughput, confirm which fields vary per world. One to two days. This decides the batch layout.
-3. **Restore the recorder** with the five changes above. One to two days, mostly the coverage
-   display.
+3. **Restore the recorder** with the six changes above. Two to three days: the coverage display
+   and the diagnostics logging. Before relying on the diagnostics stream, check that recording mode
+   keeps up with the control loop over WiFi without dropping events.
 4. **Record.** Two or three evenings of driving to get 10 to 15 sessions.
 5. **Truth, windows and noise floor.** Extend the analysis to 3D pose; build and gate windows. One
    day.
@@ -311,15 +349,19 @@ The spread of parameter sets that pass becomes the randomization range for the s
 
 - **Field of view.** Stage 2 lost the tag on every fast linear phase. If the camera can't be raised,
   sustained high speed never gets measured and the top of the voltage curve is extrapolated again.
-  A second camera or the onboard IMU (once the ESP-NOW link streams it) are the fixes.
+  A second camera helps. The BNO055 orientation in the diagnostics stream covers yaw and pitch out
+  of frame, but not position.
 - **Closed-loop data.** A human driver reacts to the robot, so commands correlate with past
   disturbances. Open-loop multi-step scoring on the recorded tape limits the bias, but it is why the
   punches and reversals matter: they are the least reactive inputs in the menu.
-- **Radio mixer.** If the log turns out to hold pre-mixer sticks and the mixer wasn't in
-  pass-through, the recorded sessions can't be used for the actuator fit.
+- **Diagnostics stream reliability.** The stream runs over the robot's own WiFi access point from
+  the same ESP32 that runs the control loop. If recording mode drops events or slows the loop,
+  fall back to the transmitter channels with the radio in pass-through and reproduce the firmware
+  layer in the fit, which makes the PID part of what has to be right.
 - **Friction identifiability.** Without the sled test, wheel friction and armature can trade off on
   the punch data. The sled test fixes friction from outside.
-- **Heading hold.** Fits with auto-steer off describe a robot that never fights with auto-steer
-  off. Modeling the PID is a follow-up, validated on the auto-steer-on set.
+- **BNO055 yaw.** The PID acts on the BNO055's fused heading, which has its own lag and drift. The
+  firmware layer in the sim uses the sim's true yaw until the logged orientation shows how much
+  those matter.
 - **MuJoCo Warp maturity.** If per-world model fields don't cover what's needed, the fallback is an
   outer loop over candidates, which costs throughput but not correctness.
