@@ -105,8 +105,8 @@ diagnostics component, an AprilTag keypoint model, and a profile that selects bo
 1. Put Mr Stabs Mk2 in the 1.52 m plywood drive-test box. Mount the ZED X One S on a tripod about
    0.75 m above the box floor, looking down into the box, and connect it to the ZED Box Mini
    over GMSL2.
-2. Connect the ZED Box to ethernet for remote control. Its AX210 WiFi joins the robot's `MR-STABS`
-   access point (see "Networking" below). Plug the radio into the box's USB3 port.
+2. Connect the ZED Box to ethernet for remote control. A second WiFi dongle on the box joins the
+   robot's `MR-STABS` access point (see "Networking" below). The radio also plugs in over USB.
 3. Start the application on the ZED Box with the `mr_stabs_mk2_sysid_zed_box` profile and start
    an MCAP recording (`/command/set_recording`).
 4. Put the floor marker array (the 3x5 AprilTag GridBoard, ids 160 to 174) in the box and press
@@ -136,11 +136,17 @@ still gives the tag at least about 40 px, and set a short manual exposure to lim
 ### Networking
 
 - Ethernet carries remote control, ssh, and copying recordings off the box.
-- The AX210 joins `MR-STABS`. The ESP32's access point offers itself as a gateway, so set that
-  connection to never take the default route (`nmcli connection modify MR-STABS
-  ipv4.never-default yes`). Otherwise the box can route remote-control traffic into the robot.
-- `HostServices` changes the box's WiFi through `/command/set_wifi_access`. Check it leaves the
-  `MR-STABS` connection alone while recording.
+- A second USB WiFi dongle joins `MR-STABS`, so the built-in AX210 stays with whatever it does
+  now. Bind the connection to the dongle's interface (`nmcli connection modify MR-STABS
+  connection.interface-name <dongle>`) so NetworkManager never brings it up on the AX210.
+- The ESP32's access point offers itself as a gateway, so set the connection to never take the
+  default route (`nmcli connection modify MR-STABS ipv4.never-default yes`). Otherwise the box
+  can route remote-control traffic into the robot.
+- The box has one USB3 Type-A port and the radio needs it too, so the dongle and the radio share
+  it through a hub. Pick a dongle with a Linux driver in the box's 5.15 kernel, or one Stereolabs'
+  L4T build already carries; an out-of-tree driver would have to survive the held kernel.
+- `HostServices` changes the box's WiFi through `/command/set_wifi_access`. Check it only touches
+  the AX210 and leaves the dongle alone while recording.
 
 ### Addition 1: ESP32 WiFi diagnostics in an OpenTxTransmitter subclass
 
@@ -213,9 +219,19 @@ their exact positions and orientations relative to the axle center from the Onsh
 (the `apriltag_36h11_41` and `apriltag_36h11_76` links), not from the older Unity prefab. Seeing
 tag 76 means the robot is upside down, which the firmware also handles.
 
-Intrinsics: `update()` receives only an `RgbImage`, with no `CameraInfo`. Add a defaulted
-`virtual void set_camera_info(const CameraInfo &)` to `KeypointModelInterface`, which the runner
-calls after the camera initializes. Every other model ignores it.
+Intrinsics: `update(RgbImage image)` receives no `CameraInfo`. Add it as a second parameter,
+`update(RgbImage image, const CameraInfo &camera_info)`, on `KeypointModelInterface` and every
+implementation, rather than a separate setter. The change reaches:
+
+- `NoopKeypointModel` and `YoloKeypointModel`, which ignore the new parameter
+- the runner's call (`keypoint_model_->update(camera_data.rgb)` becomes
+  `update(camera_data.rgb, camera_data.camera_info)`)
+- `ParallelModelBatch`, whose `update(const RgbImage &)` and `shared_image_` also carry the
+  `CameraInfo` for the keypoint worker. The robot blob worker shares `worker_loop` but keeps its
+  image-only call, so the keypoint lambda reads the stored camera info itself.
+- the two fake keypoint models in `tests/perception_batch/test_parallel_model_batch.cpp`
+
+Passing it per frame also keeps the model right if the camera ever changes resolution.
 
 Cost: aruco detection over a full 1920x1200 frame could take tens of milliseconds on the Orin NX,
 which would drop frames at 60 fps. Search a region around the last detection and fall back to the
@@ -512,7 +528,8 @@ The spread of parameter sets that pass becomes the randomization range for the s
 2. **Model and MuJoCo Warp spike.** Build the MJCF, pass the three sanity checks, measure batched
    throughput, confirm which fields vary per world. One to two days. This decides the batch layout.
 3. **App additions**, each with its tests: the ESP32 diagnostics component and transmitter
-   subclass, the AprilTag keypoint model with `set_camera_info`, the sysid profile, and the video
+   subclass, the AprilTag keypoint model with the `CameraInfo` parameter on `update()`, the sysid
+   profile, and the video
    encoder fix. Three to five days.
 4. **Dry run on the box.** One short session through the full procedure, then check:
    - the ESP32 stream keeps up with the firmware loop over WiFi, with no gaps and no slowdown of
