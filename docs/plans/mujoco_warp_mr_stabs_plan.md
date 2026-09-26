@@ -86,6 +86,9 @@ Firmware between the radio and the ESCs (`firmware/mr_stabs_mk2/src/main.cpp`):
   `right_cmd`, `a_percent`, `b_percent`, `pid_setpoint`, `pid_output`, BNO055 orientation and
   acceleration, stamped in robot milliseconds. It sends at 10 Hz, or every control loop in its
   recording mode.
+- **Pack voltage**: not measured today. The ESC reports none (`Eep_Hw_Voltage_Sense_Capable=0`),
+  the DShot driver has no telemetry receive, and no ADC is read. This plan adds an INA219 on the
+  BNO055's I2C bus (see Steps).
 - A failsafe stops the robot after 5 s of identical radio frames. Hand driving never produces that.
 
 Fitting runs with auto-steer on, the way the robot competes. The PID does not have to be fit or
@@ -171,6 +174,7 @@ none of the base class's private members.
   - received commands: `a_percent`, `b_percent`, `flip_switch`, `armed`, `radio_connected`
   - output and PID values: `left_cmd`, `right_cmd`, `pid_setpoint`, `pid_output`
   - `timestamp_ms` (robot clock), `loop_us`, `is_upside_down`
+  - pack voltage `vbat` from the INA219
 - **Queues parsed events** for the subclass. In `update()` the subclass drains the queue and
   writes each event as its own message on a new `/robot/esp32_diagnostics` JSON topic, with the
   host receive time as `log_time` and the robot's `timestamp_ms` inside. One message per event,
@@ -431,7 +435,7 @@ Fitted, with priors:
 | Drivetrain delay (firmware to motion) | 0 to 60 ms | profiled on a grid, as `jig_fit` does; the radio part of the 60 ms comes from clock alignment |
 | Deadzone per motor | 0 to 0.06 | ESC stop threshold is set to 0.01; stage 2 says at or below 0.04 end to end |
 | Command-to-voltage curve | linear plus one curvature term | settles the 5.6 m/s question |
-| Pack voltage | measured per session, with a linear sag term | not fitted blind |
+| Pack voltage | logged per control loop as `vbat` | fed to the actuator as input, not fitted; sag under punches is measured, so it does not trade off against R |
 | Motor resistance R | 0.05 to 1 ohm | wide; no published value |
 | Gearbox efficiency | 0.6 to 0.95 | |
 | Wheel joint friction and damping | wide | |
@@ -527,24 +531,44 @@ The spread of parameter sets that pass becomes the randomization range for the s
    tag-to-body transforms for tags 41 and 76, and the lumping script that produced it. Half a day.
 2. **Model and MuJoCo Warp spike.** Build the MJCF, pass the three sanity checks, measure batched
    throughput, confirm which fields vary per world. One to two days. This decides the batch layout.
-3. **App additions**, each with its tests: the ESP32 diagnostics component and transmitter
-   subclass, the AprilTag keypoint model with the `CameraInfo` parameter on `update()`, the sysid
-   profile, and the video
-   encoder fix. Three to five days.
-4. **Dry run on the box.** One short session through the full procedure, then check:
+3. **Pack voltage in the diagnostics.** Wire an INA219 breakout (on hand) to measure the pack and
+   add its reading to the firmware stream. Half a day.
+   - Wiring: one sense wire from pack + through a 1 kohm series resistor to VIN+ only. VIN- stays
+     unconnected and reads the bus through the onboard 0.1 ohm shunt, which carries only the
+     chip's microamps. Wiring pack + straight to both pins would put the shunt in parallel with
+     the resistor and bypass it. VCC from the QT Py's 3.3 V, so the I2C pull-ups stay at 3.3 V.
+     Ground at battery negative.
+   - Protection: the INA219's bus input is 26 V absolute max against 17.4 V for a full 4S LiHV
+     pack. The likely overvoltage is power-on: closing the switch rings the lead inductance
+     against the ESC input caps up to nearly twice pack voltage. The resistor limits fault current
+     so a failed chip cannot put pack voltage onto the shared I2C bus. After it, either a 0.1 µF cap
+     to ground (100 µs RC, which filters the ringing) or an SMAJ18A TVS to ground.
+   - Firmware (`firmware/mr_stabs_mk2/`): read the INA219 at 0x40 on the BNO055's bus, 32 V range
+     (BRNG=1). Add `vbat` to `diag_data_t` and to the CSV line in `DiagnosticsServer::update`. The
+     read must not stretch `loop_us`; if a blocking I2C read does, read every Nth loop and repeat
+     the last value.
+   - Calibrate once against a multimeter at rest and during a punch; the series resistor shifts the
+     reading about 0.3%.
+   - Current is out of scope. If the fit later needs it, an external 1 mΩ shunt across VIN+/VIN- in
+     the main lead gives a ±320 A range at 10 mA resolution.
+4. **App additions**, each with its tests: the ESP32 diagnostics component and transmitter
+   subclass (parsing `vbat` too), the AprilTag keypoint model with the `CameraInfo` parameter on
+   `update()`, the sysid profile, and the video encoder fix. Three to five days.
+5. **Dry run on the box.** One short session through the full procedure, then check:
    - the ESP32 stream keeps up with the firmware loop over WiFi, with no gaps and no slowdown of
      the robot's own loop (`loop_us`)
+   - `vbat` matches a multimeter at rest and dips on punches, with no stuck or zero readings
    - AprilTag detection keeps the app at 60 fps with the robot at full speed, and covers the whole
      box floor from the tripod
    - field init locks with the array in the tilted view
    - remote control over ethernet still works with the box joined to `MR-STABS`
-5. **Record.** Two or three evenings of driving to get 10 to 15 sessions.
-6. **Pose smoothing, windows and noise floor.** The smoother, its cross-validated process noise,
+6. **Record.** Two or three evenings of driving to get 10 to 15 sessions.
+7. **Pose smoothing, windows and noise floor.** The smoother, its cross-validated process noise,
    the checks above, and the gated windows. Two days.
-7. **Grey-box baseline** on the same windows. Half a day; the code exists.
-8. **MuJoCo fit**, staged. Two to three days including iteration.
-9. **Validation and report.** One day.
-10. **Hand-off**: the passing parameter spread goes into the learned-sim randomization ranges.
+8. **Grey-box baseline** on the same windows. Half a day; the code exists.
+9. **MuJoCo fit**, staged. Two to three days including iteration.
+10. **Validation and report.** One day.
+11. **Hand-off**: the passing parameter spread goes into the learned-sim randomization ranges.
 
 ## Risks and open questions
 

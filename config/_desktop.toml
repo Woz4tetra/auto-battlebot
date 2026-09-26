@@ -21,6 +21,8 @@ candidates = [
 
 [keypoint_model]
 type = "YoloKeypointModel"
+label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3", "OPPONENT", "HOUSE_BOT"]
+threshold = 0.5
 
 [keypoint_model.engine]
 candidates = [
