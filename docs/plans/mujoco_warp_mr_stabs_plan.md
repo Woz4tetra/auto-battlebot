@@ -9,9 +9,9 @@ This sits under `learned_sim_environment_plan.md`. That plan fits a kinematic pl
 model; this one adds the 3D rigid-body layer the kinematic sim cannot represent: pitch (the
 backflip), traction limits, the drivetrain's reflected inertia, and later contact with walls.
 
-The input is manual driving only. No chirps, steps or scripted waveforms. The driver follows a
-maneuver menu (below) and a live coverage display shows which parts of command space still lack
-data.
+The input is manual driving only. No chirps, steps or scripted waveforms. The robot drives in
+the 1.52 m test box under a tripod-mounted ZED X One S, the main application on the ZED Box Mini
+records the session, and the driver follows a maneuver menu (below).
 
 ## What is already known
 
@@ -95,97 +95,177 @@ reproduced in the sim separately, from the gains above, for closed-loop use.
 
 ## Recording
 
-### Recording host and camera
+The main application on the ZED Box Mini is the recorder. It already runs the ZED X One S, locks
+the field from the floor marker array, records MCAP, and takes remote commands. Three additions
+make it a data-collection tool for this fit: a transmitter subclass with an ESP32 WiFi
+diagnostics component, an AprilTag keypoint model, and a profile that selects both.
 
-Record on the ZED Box Mini with the ZED X One S (`docs/zed_box_mini.md`), not the OAK-1 W the
-stage-2 runs used. What changes:
+### Session procedure
 
-- **The whole cage fits in view.** The SDK reports rectified intrinsics fx 665, fy 716 at
-  1920x1200, a 111 x 80 degree view. Mounted 1.5 m above the floor it covers about 4.3 x 2.5 m, so
-  the 2.35 m cage fits with margin. Stage 2's main limitation, the robot leaving the frame on
-  every fast linear phase, goes away.
-- **Global shutter.** SDK 5.2.3 opens the camera as a "ZED XOne GS", so a fast-moving tag is not
-  skewed by a rolling shutter. Set a short manual exposure to also limit motion blur.
-- **Smaller tag in pixels.** The cost of the wide view. An 80 mm tag spans about 44 px at 1.2 m,
-  35 px at 1.5 m and 27 px at 2.0 m; stage 2 worked at about 40 px with 2x upsampling. Mount as
-  low as still covers the cage, and fit a larger tag if the top plate has room (100 mm gives 44 px
-  at 1.5 m).
-- **Frames are already rectified.** The SDK delivers rectified images with zero-distortion
-  intrinsics, which PnP uses directly. Check whether `sl::CameraOne` can also deliver unrectified
-  frames; if it can, record those and the factory calibration instead, so the lens model can be
-  revised later, as the e-CAM25 path does.
-- **Everything plugs into one box.** The camera is on GMSL2, the radio takes the single USB3
-  port, the AX210 WiFi joins `MR-STABS` for the firmware stream, and ethernet stays up for ssh
-  and for moving recordings off the box.
+1. Put Mr Stabs Mk2 in the 1.52 m plywood drive-test box. Mount the ZED X One S on a tripod about
+   0.75 m above the box floor, looking down into the box, and connect it to the ZED Box Mini
+   over GMSL2.
+2. Connect the ZED Box to ethernet for remote control. Its AX210 WiFi joins the robot's `MR-STABS`
+   access point (see "Networking" below). Plug the radio into the box's USB3 port.
+3. Start the application on the ZED Box with the `mr_stabs_mk2_sysid_zed_box` profile and start
+   an MCAP recording (`/command/set_recording`).
+4. Put the floor marker array (the 3x5 AprilTag GridBoard, ids 160 to 174) in the box and press
+   "field init" (`/command/reinit_field`). `FiducialFieldFilter` accumulates 10 frames and locks
+   the field frame.
+5. Remove the floor marker array.
+6. Drive Mr Stabs Mk2 around for a few minutes, following the maneuver menu below.
+7. Stop and save the recording.
 
-### Recorder
+The robot's flip switch stays DOWN (auto-steer on), the competition setting. Heading hold only
+acts while the turn stick is within 1% of center, and the ESP32 stream logs the per-motor
+commands after it, so the drivetrain fit stays open loop (see "Firmware" above).
 
-`playground/calibration/apriltag_track.py` was deleted in e56a4464 (2026-08-18) when the velocity
-jig tool replaced it. Its non-`--drive` mode is what hand driving needs: it records raw frames on
-`/camera/image`, the floor board lock on `/floor/image`, and the transmitter channels read-only on
-`/transmitter/channels`, all on CLOCK_MONOTONIC, in the layout `auto_battlebot/calibration/apriltag/
-apriltag_mcap.py` still defines. `analyze_apriltag_mcap.py` still reads that layout.
+### Camera geometry at 0.75 m
 
-Restore it with these changes:
+With the SDK's rectified intrinsics (fx 665, fy 716 at 1920x1200, a 111 x 80 degree view), a
+camera pointing straight down from 0.75 m sees about 2.0 x 1.2 m at the tag's height, 5 cm above
+the floor. An 80 mm tag spans about 76 px, nearly twice the 40 px stage 2 worked with, and the
+global shutter (the SDK opens the camera as a "ZED XOne GS") removes rolling-shutter skew on a
+moving tag.
 
-1. **A ZED X One source.** The recorder had OAK and generic OpenCV sources. Add one on
-   `sl.CameraOne` (pyzed 5.2 is installed for the box's system Python 3.10; confirm the venv can
-   import it). The main app cannot record these frames yet: on the box it logs `Video recording
-   requested but no encoder started`. Stamp each frame with the SDK image timestamp and also log
-   the CLOCK_MONOTONIC time it was retrieved, since the SDK stamps in its own clock and the other
-   streams use CLOCK_MONOTONIC. Put the camera serial and the SDK's intrinsics in
-   `/calibration/metadata`.
-2. **Log the firmware diagnostics stream.** This path is independent of the Crossfire control link:
-   the ESP32 hosts its own 2.4 GHz access point (`MR-STABS`), and the box joins it on its AX210.
-   The recorder sends `GET /record/start` so the stream sends every control loop instead of at
-   10 Hz, holds the server-sent-events stream at `/events` open, and writes every event to a new
-   `/robot/diagnostics` topic stamped with the host CLOCK_MONOTONIC receive time as well as the
-   robot's `timestamp_ms`. It sends `GET /record/stop` on exit. `left_cmd` and `right_cmd` become
-   the fit's command tape. BNO055 orientation gives yaw and pitch on board, a second measurement
-   of both.
-3. **Keep `/transmitter/channels`** for clock alignment and as a fallback, with the radio on the
-   box's USB port. The MCAP docstring says it holds "stick axes the driver was commanding", which
-   may be pre-mixer. With the firmware log that no longer matters for the fit, but if the
-   diagnostics stream drops events, the fallback needs the radio model in pass-through (100%
-   rates, no expo, no trims, no slow-up) to be usable.
-4. **Record uncompressed grayscale frames** at 60 fps. JPEG moves the corner estimates the
-   subpixel refinement keys on (see the `apriltag_mcap.py` docstring), and AprilTag detection only
-   needs one channel. Full-resolution gray is 2.3 MB per frame, 138 MB/s, about 33 GB for a
-   4-minute session. The box has about 225 GB free, so move each session to the dev machine over
-   ethernet between sessions (about 5 minutes at gigabit). If the write rate doesn't keep up, store
-   a lossless crop around the live-tracked tag plus a full frame every half second, with the crop
-   offset in each message. `analyze_apriltag_mcap.py` needs `mono8` support either way.
-5. **Keep the full 3D tag pose.** `analyze_apriltag_mcap.py` solves the tag pose with PnP and then
-   projects to (x, y, yaw). Also write pitch and roll to the truth CSV. Nose lifts during hard
-   throttle are the data that pins the COM, the reflected inertia and traction together, and the
-   rigid-body model is the first consumer that can use them.
-6. **Live coverage display.** Replaces the scripted protocol as the thing that guarantees coverage.
-   While recording, bin the (linear, angular) command and the solved body speed and show which
-   cells have less than N seconds of steady, in-frame data. The driver drives toward the empty
-   cells. The box is headless, so serve it as a small web page or through Foxglove.
-7. **Session metadata.** Pack voltage at start and end, auto-steer state, ESC stop thresholds,
-   AM32 settings, radio mixer settings, camera height and exposure, surface (which floor, cleaned
-   or not), tire condition, robot mass, and free-text notes. Stored in `/calibration/metadata`.
+The box floor is 1.52 m, so pointing straight down covers the long axis but leaves about 0.35 m
+of the short axis out of view. Tilt the tripod head until the whole floor is in frame. PnP solves
+the tag in 3D, so a tilted view costs pixels on the far side, not accuracy. Check the far corner
+still gives the tag at least about 40 px, and set a short manual exposure to limit motion blur.
 
-### Setup
+### Networking
 
-- ZED X One S overhead, pointing straight down, high enough to see the whole cage and no higher.
-  The 3x5 floor GridBoard (ids 160 to 174) is locked once then removed, as in the stage-2 runs.
-  Robot tag id outside that range.
-- Mark the edge of the tracked area on the floor if the view does not cover the whole cage.
-- Walls: keep the robot off them for the fitting sessions. Wall contact is a later stage.
-- **Auto-steer on** (flip switch DOWN), the competition setting. Heading hold is also what makes
-  straight runs possible: stage 2 could not measure forward or reverse speed because the robot
-  spun off line. A few minutes with auto-steer off are useful as a cross-check of the drivetrain
-  fit, but not required.
-- Diagnostics stream in recording mode, logged per recorder change 2.
-- Radio in pass-through mode, so the fallback path in recorder change 3 stays usable.
+- Ethernet carries remote control, ssh, and copying recordings off the box.
+- The AX210 joins `MR-STABS`. The ESP32's access point offers itself as a gateway, so set that
+  connection to never take the default route (`nmcli connection modify MR-STABS
+  ipv4.never-default yes`). Otherwise the box can route remote-control traffic into the robot.
+- `HostServices` changes the box's WiFi through `/command/set_wifi_access`. Check it leaves the
+  `MR-STABS` connection alone while recording.
+
+### Addition 1: ESP32 WiFi diagnostics in an OpenTxTransmitter subclass
+
+`Esp32DiagnosticsOpenTxTransmitter` extends `OpenTxTransmitter`
+(`include/transmitter/opentx_transmitter.hpp`) and owns a new component, `Esp32WifiDiagnostics`.
+The base class keeps doing everything it does now: stick channels, CRSF telemetry, trainer
+output, and its `/diagnostics/opentx_transmitter` logging. The subclass overrides `initialize()`
+and `update()`, calls the base versions, and adds the diagnostics stream around them. It needs
+none of the base class's private members.
+
+`Esp32WifiDiagnostics`:
+
+- **Connects to a configured IP**, the ESP32 on Mr Stabs Mk2 (`192.168.4.1`, the ESP32 access
+  point default), on its own worker thread. The main loop never waits on the network, per the
+  no-blocking rule for the perception loop.
+- **Starts recording mode** with `GET /record/start`, so the firmware sends every control loop
+  instead of at 10 Hz, then holds the server-sent-events stream at `/events` open. It sends
+  `GET /record/stop` on shutdown and reconnects with backoff if the robot reboots or drops off.
+- **Parses each event** (a CSV line from `DiagnosticsServer::update` in
+  `firmware/mr_stabs_mk2/src/diagnostics_server.cpp`) into:
+  - IMU: BNO055 orientation (x, y, z) and acceleration (x, y, z)
+  - received commands: `a_percent`, `b_percent`, `flip_switch`, `armed`, `radio_connected`
+  - output and PID values: `left_cmd`, `right_cmd`, `pid_setpoint`, `pid_output`
+  - `timestamp_ms` (robot clock), `loop_us`, `is_upside_down`
+- **Queues parsed events** for the subclass. In `update()` the subclass drains the queue and
+  writes each event as its own message on a new `/robot/esp32_diagnostics` JSON topic, with the
+  host receive time as `log_time` and the robot's `timestamp_ms` inside. One message per event,
+  not a per-cycle `/diagnostics` summary, because the fit needs every firmware loop.
+- **Reports health** through `DiagnosticsLogger` as `esp32_diagnostics`: connected, events per
+  second, parse errors, reconnects, and the gap between robot and host clocks.
+
+The app links no HTTP library (Crow and asio are only in `viz_relay`). The HTTP GET and the SSE
+line reader are small enough for raw POSIX sockets, following `src/simulation/sim_connection.cpp`.
+
+Config: `Esp32DiagnosticsOpenTxTransmitterConfiguration` extends
+`OpenTxTransmitterConfiguration`, calling its hand-written `parse_fields` and adding
+`esp32_host` (a free-form IP string, like other ids), `esp32_port` (80), `record_mode` (true),
+and `reconnect_period_s`. Register it in `src/transmitter/config.cpp` beside `OpenTxTransmitter`,
+with the factory branch next to the existing one. Add the topic's schema to
+`include/foxglove_adapters/json_schemas.hpp` and the topic to `docs/foxglove_recording_format.md`.
+
+Tests: an event-parsing test on recorded CSV lines, and a socket test against a local fake server
+that serves `/events`, drops the connection mid-stream, and checks the reconnect.
+
+### Addition 2: AprilTag robot keypoints
+
+`AprilTagKeypointModel` implements `KeypointModelInterface`
+(`include/keypoint_model/keypoint_model_interface.hpp`) and registers in
+`src/keypoint_model/config.cpp` beside `YoloKeypointModel`. It does two things with each frame:
+
+1. **Records the raw tag pose.** It detects the robot tags with OpenCV's aruco module and
+   `DICT_APRILTAG_36h11`, the same detector setup `FiducialFieldFilter` uses for the floor array,
+   with AprilTag corner refinement. For each detection it writes to a new `/apriltag/robot_tags`
+   topic:
+   - tag id, the four subpixel corners, the decision margin
+   - both `SOLVEPNP_IPPE_SQUARE` solutions (rvec, tvec in the camera frame) and their reprojection
+     errors
+   - the frame's image timestamp
+
+   The corners are the real measurement. The box records the video only as lossy H.264, so the
+   corners are what lets PnP be re-solved offline with a revised tag size or intrinsics.
+2. **Emits keypoints** so the rest of the pipeline runs unchanged. It projects the robot's front
+   and back keypoint positions, placed from the tag pose and the tag-to-body transform, into the
+   image and returns them labeled `MR_STABS_MK2` with `height_above_plane` set. The robot filter
+   and `/robot_markers` then work as they do with the YOLO model, which gives a live view of the
+   tracked pose and a comparison against the offline smoother.
+
+Mr Stabs Mk2 carries two tags: 41 on top and 76 underneath, both tilted about 9.6 degrees. Take
+their exact positions and orientations relative to the axle center from the Onshape URDF export
+(the `apriltag_36h11_41` and `apriltag_36h11_76` links), not from the older Unity prefab. Seeing
+tag 76 means the robot is upside down, which the firmware also handles.
+
+Intrinsics: `update()` receives only an `RgbImage`, with no `CameraInfo`. Add a defaulted
+`virtual void set_camera_info(const CameraInfo &)` to `KeypointModelInterface`, which the runner
+calls after the camera initializes. Every other model ignores it.
+
+Cost: aruco detection over a full 1920x1200 frame could take tens of milliseconds on the Orin NX,
+which would drop frames at 60 fps. Search a region around the last detection and fall back to the
+full frame when the tag is lost. The spike step measures it.
+
+Config: `tag_size_m`, `robot_tag_ids` (top and bottom), `roi_margin_px`,
+`max_reprojection_error_px`, and the tag-to-body transforms. Tests: detection and PnP on a
+rendered frame with a known tag pose, and IPPE solution selection on a tilted tag.
+
+### Addition 3: the sysid profile
+
+`config/mr_stabs_mk2_sysid_zed_box.toml`. The name has to match `[^_].*_(jetson|zed_box)$` in
+`config/profiles.toml` to be selectable. It extends `mr_stabs_mk2_zed_box`, which keeps the ZED X
+One S at 1920x1200 and 60 fps, the label mapping, and `[mcap] enable = true`, and overrides:
+
+```toml
+extends = "mr_stabs_mk2_zed_box"
+
+[transmitter]
+type = "Esp32DiagnosticsOpenTxTransmitter"
+esp32_host = "192.168.4.1"
+esp32_port = 80
+record_mode = true
+
+[keypoint_model]
+type = "AprilTagKeypointModel"
+tag_size_m = 0.08            # measure the printed tag
+robot_tag_ids = [41, 76]
+
+[field_filter]
+# The test box, not the 2.35 m cage. Board offsets are where the array sits for field init.
+field_size_x = 1.52
+field_size_y = 1.52
+
+[navigation]
+type = "NoopNavigation"      # the driver drives; autonomy has nothing to do
+```
+
+### Fix: video on a mid-session recording start
+
+`ZedOneRgbCamera::set_recording_enabled(true)` after initialization returns `encoder_.running()`
+without starting the encoder (`src/rgbd_camera/zed_one_rgb_camera.cpp`). Starting a recording from
+the remote UI after launch, which is step 3 of the procedure, therefore records no `/camera/video`.
+Start the encoder there. The video is lossy and not used for the fit, but it is the only way to
+review a session afterwards.
 
 ### What to drive (maneuver menu)
 
-Each session is 3 to 4 minutes. Steady holds are worth the most, so hold a stick position for at
-least a second whenever the space allows. Mix these freely; the coverage display says what is
-missing.
+Each session is a few minutes. Steady holds are worth the most, so hold a stick position for at
+least a second whenever the box allows.
 
 | Maneuver | Identifies |
 | --- | --- |
@@ -199,45 +279,90 @@ missing.
 
 Avoid:
 
-- Leaving the camera's view, if it does not cover the whole cage. Frames without the tag are
-  interpolation, not measurement.
-- Wall contact.
+- Wall contact. The 1.52 m box makes this the main constraint; keep runs short rather than
+  touching the rails.
 - Stick jitter near center. It makes the deadzone ambiguous.
 - Full throttle plus full turn early in a session, before the punches have shown where the nose
   lifts.
 
-The punches replace `find_flip_accel.py`'s ramp for this purpose: the driver works up to the nose
-lift instead of a script. The predicted threshold is 0.29 g. Stop at the first wheelie rather than
-the first flip; a lifted nose already carries the information and a flip ends the session.
+The punches replace `find_flip_accel.py`'s ramp: the driver works up to the nose lift instead of
+a script. The predicted threshold is 0.29 g. Stop at the first wheelie rather than the first
+flip; a lifted nose already carries the information and a flip ends the session.
 
-Volume: aim for 10 to 15 sessions over at least two battery charge levels and, if possible, two
-floor surfaces (the test box and a sample of competition floor). Hold out whole sessions for
-validation, not windows from sessions used in training.
+Volume: aim for 10 to 15 sessions over at least two battery charge levels. Record the pack voltage
+before and after each session in a notes file next to the MCAP, with the floor condition and
+anything unusual. Hold out whole sessions for validation, not windows from sessions used in
+training.
+
+## Robot pose from the recording
+
+Offline, in Python, per session. The goal is a smooth but accurate 2D pose (x, y, yaw) of the
+axle center in the field frame, plus pitch and roll for the nose-lift windows.
+
+1. **Field frame.** Read the camera-to-field transform that field init produced from `/tf`
+   (`diag_io.load_camera_in_field`). The floor marker array defines it, and it is fixed for the
+   session because the tripod does not move. Check that it is constant across the recording.
+2. **Tag pose in the field frame.** For each `/apriltag/robot_tags` message, map the IPPE
+   solutions through the field transform.
+3. **Resolve the IPPE ambiguity.** A small planar tag has two PnP solutions that can both fit the
+   corners. Keep the one whose tag normal matches the expected tilt: about 9.6 degrees from field
+   up for tag 41 on an upright robot. Break close calls by consistency with the neighboring frames.
+   Log how often the choice was close.
+4. **Body pose.** Apply the inverse tag-to-body transform from the URDF export to get the axle
+   center's full 3D pose. The 2D pose is its (x, y, yaw); pitch and roll are kept alongside.
+5. **Measurement noise.** Estimate the per-detection noise from segments where the robot is still.
+   Scale it per detection by the reprojection error and the tag's size in pixels, so far-side and
+   blurred detections count for less.
+6. **Outlier gating.** Reject detections whose innovation against the forward filter exceeds a
+   chi-square gate, and log each rejection.
+7. **Smoothing.** A fixed-interval Rauch-Tung-Striebel smoother: a forward Kalman filter on
+   (x, y, yaw, their rates and accelerations), then the backward pass. It is non-causal, so it
+   smooths without the lag a causal filter adds, which matters because the fit reads the delay out
+   of these poses. Yaw is unwrapped before filtering. Pitch and roll get their own smoother.
+8. **Tuning the process noise.** Choose it by cross-validation: hold out every fifth detection,
+   smooth the rest, and minimize the error on the held-out ones. Too little process noise rounds
+   off the reversals and punches; too much passes the noise through. This picks the balance from
+   the data instead of by eye.
+9. **Optional IMU fusion.** After clock alignment (below), add the BNO055 yaw rate from
+   `/robot/esp32_diagnostics` as a measurement of the yaw rate state. It sharpens yaw during fast
+   spins and bridges tag dropouts. Keep it switchable, so its effect on the fit can be checked.
+10. **Output.** A truth CSV per session: time, the smoothed state and its covariance, pitch and
+    roll, and the raw measurement it came from, if any.
+
+Checks on the result:
+
+- On still segments, the scatter of raw poses around the smoothed pose sets the noise floor. The
+  fit reports every error as a multiple of it.
+- Residuals between raw and smoothed poses should look like white noise. Structure in them means
+  the process noise is too low or the IPPE choice flipped.
+- The smoothed yaw rate should match the BNO055 yaw rate on spins, which is an independent check
+  when the IMU is not fused.
+- Compare with the live `/robot_markers` track. Large differences point at the keypoint path or
+  the robot filter, not the smoother.
+
+The fit's loss is computed against the raw measurements, not the smoothed poses, so smoothing
+cannot bias the fitted parameters. The smoothed state supplies each window's initial conditions.
 
 ## Data pipeline
 
-1. `analyze_apriltag_mcap.py` produces the truth CSV per session: t, x, y, z, roll, pitch, yaw, plus
-   the channel log carried through.
-2. Clock alignment: map robot `timestamp_ms` onto CLOCK_MONOTONIC by cross-correlating the
-   firmware's `a_percent`/`b_percent` against `/transmitter/channels`, then refine by matching
-   BNO055 yaw rate against tag yaw rate. The first offset is the radio link delay; the refinement
-   checks it. Report both, since the closed-loop sim needs the radio delay and the drivetrain fit
-   needs only what follows the firmware.
-3. Command tape: `left_cmd` and `right_cmd` from the firmware log, divided by 100. These are the
-   per-motor commands after the PID and the mixer, so the drivetrain fit is open loop even with
-   auto-steer on. The remaining delay (ESC and mechanics) is not applied here; the fit shifts the
-   tape per candidate.
-4. Windows: reuse `plant.make_windows` with window lengths of 1 to 2 s. Gate out:
-   - windows where tag visibility is below a threshold (start at 70%, tune on the noise floor)
-   - windows within a robot length of a wall or the taped edge
+1. Clock alignment: the app stamps everything on its own clock, including the host receive time of
+   each ESP32 event. Map the robot's `timestamp_ms` onto it with a linear fit (offset and drift),
+   then check it by cross-correlating the ESP32 `a_percent`/`b_percent` against the stick channels
+   the transmitter logs, and the BNO055 yaw rate against the smoothed tag yaw rate. The
+   stick-to-ESP32 offset is the radio link delay; report it, since the closed-loop sim needs it.
+2. Command tape: `left_cmd` and `right_cmd` from `/robot/esp32_diagnostics`, divided by 100.
+   These are the per-motor commands after the PID and the mixer, so the drivetrain fit is open
+   loop even with auto-steer on. The remaining delay (ESC and mechanics) is not applied here; the
+   fit shifts the tape per candidate.
+3. Windows: reuse `plant.make_windows` with window lengths of 1 to 2 s. Gate out:
+   - windows where tag detections cover less than a threshold of frames (start at 70%, tune on the
+     noise floor)
+   - windows within a robot length of the box rails
    - windows where pitch exceeds a few degrees, except in the separate nose-lift set
-   - windows with gaps in the firmware log
-5. Initial state per window: pose from the truth CSV, body velocity from a smoothing spline over
-   the in-frame detections, wheel speeds from the no-slip relation (v +/- omega * 0.06526) / 0.025.
-   The rotor state follows the wheels through the armature.
-6. Noise floor: pose residual against the smoothed track on held-still segments and on steady
-   holds, per session. Every error metric is reported as a multiple of it, as in the match fit
-   report.
+   - windows with gaps in the ESP32 stream
+4. Initial state per window: the smoothed pose and velocity at the window start, wheel speeds from
+   the no-slip relation (v +/- omega * 0.06526) / 0.025. The rotor state follows the wheels
+   through the armature.
 
 ## MuJoCo model
 
@@ -353,54 +478,79 @@ The spread of parameter sets that pass becomes the randomization range for the s
 
 ## Code layout
 
-- `auto_battlebot/mujoco_sim/`: MJCF builder from the mass-property table, actuator and
-  command-tape mapping, batched rollout, loss. The library code, type-checked. It is covered by the
-  `auto_battlebot*` include in `pyproject.toml`.
+- C++, in the app:
+  - `include/transmitter/esp32_diagnostics_opentx_transmitter.hpp` and `src/transmitter/`: the
+    subclass and its config.
+  - `include/esp32_diagnostics/` and `src/esp32_diagnostics/`: `Esp32WifiDiagnostics`, the socket
+    client and the event parser.
+  - `include/keypoint_model/apriltag_keypoint_model.hpp` and `src/keypoint_model/`: the AprilTag
+    model and its config.
+  - `config/mr_stabs_mk2_sysid_zed_box.toml`: the profile.
+  - Tests beside the existing transmitter and keypoint model tests.
+- Python:
+  - `auto_battlebot/recording/`: readers for `/apriltag/robot_tags` and
+    `/robot/esp32_diagnostics`, next to `mcap_io.py` and `diag_io.py`.
+  - `auto_battlebot/perception/tag_pose_smoother.py`: IPPE selection, gating and the RTS
+    smoother. Library code, type-checked.
+  - `auto_battlebot/mujoco_sim/`: MJCF builder from the mass-property table, actuator and
+    command-tape mapping, batched rollout, loss. Covered by the `auto_battlebot*` include in
+    `pyproject.toml`.
+  - `playground/calibration/smooth_tag_poses.py` and `playground/calibration/fit_mujoco_plant.py`:
+    the CLIs.
 - `simulation/assets/robots/mr_stabs_mk2/`: the MJCF, the convex collision pieces, and a
-  `mass_properties.toml` recording the table above with its provenance (Onshape screenshot date,
-  URDF export, the rotor integration and its densities).
-- `playground/calibration/apriltag_track.py`: the restored recorder.
-- `playground/calibration/fit_mujoco_plant.py`: the fit CLI.
-- Recordings and fit output under `playground/calibration/out/`, like the existing plant fits. Not
+  `mass_properties.toml` recording the mass table with its provenance (Onshape screenshot date,
+  URDF export, the rotor integration and its densities), plus the tag-to-body transforms.
+- Recordings stay where the app writes them on the box and are copied to the dev machine. Truth
+  CSVs and fit output go under `playground/calibration/out/`, like the existing plant fits. Not
   `runs/` (training output only) and not `data/`.
 - The write-up in `docs/experiments/control_improvement/`.
 
 ## Steps
 
-1. **Freeze the mass properties.** Commit `mass_properties.toml` and the lumping script that
-   produced it from the URDF export and the Onshape totals. Half a day.
+1. **Freeze the mass properties and tag transforms.** Commit `mass_properties.toml` with the
+   tag-to-body transforms for tags 41 and 76, and the lumping script that produced it. Half a day.
 2. **Model and MuJoCo Warp spike.** Build the MJCF, pass the three sanity checks, measure batched
    throughput, confirm which fields vary per world. One to two days. This decides the batch layout.
-3. **Restore the recorder** on the ZED Box Mini with the seven changes above. Three to four days:
-   the ZED X One source, the coverage display and the diagnostics logging. Before the first
-   session, check three rates on the box: 60 fps gray frames written to NVMe without drops, the
-   diagnostics stream keeping up with the control loop over WiFi, and tag detection at the chosen
-   camera height with the robot at full speed.
-4. **Record.** Two or three evenings of driving to get 10 to 15 sessions.
-5. **Truth, windows and noise floor.** Extend the analysis to 3D pose; build and gate windows. One
-   day.
-6. **Grey-box baseline** on the same windows. Half a day; the code exists.
-7. **MuJoCo fit**, staged. Two to three days including iteration.
-8. **Validation and report.** One day.
-9. **Hand-off**: the passing parameter spread goes into the learned-sim randomization ranges.
+3. **App additions**, each with its tests: the ESP32 diagnostics component and transmitter
+   subclass, the AprilTag keypoint model with `set_camera_info`, the sysid profile, and the video
+   encoder fix. Three to five days.
+4. **Dry run on the box.** One short session through the full procedure, then check:
+   - the ESP32 stream keeps up with the firmware loop over WiFi, with no gaps and no slowdown of
+     the robot's own loop (`loop_us`)
+   - AprilTag detection keeps the app at 60 fps with the robot at full speed, and covers the whole
+     box floor from the tripod
+   - field init locks with the array in the tilted view
+   - remote control over ethernet still works with the box joined to `MR-STABS`
+5. **Record.** Two or three evenings of driving to get 10 to 15 sessions.
+6. **Pose smoothing, windows and noise floor.** The smoother, its cross-validated process noise,
+   the checks above, and the gated windows. Two days.
+7. **Grey-box baseline** on the same windows. Half a day; the code exists.
+8. **MuJoCo fit**, staged. Two to three days including iteration.
+9. **Validation and report.** One day.
+10. **Hand-off**: the passing parameter spread goes into the learned-sim randomization ranges.
 
 ## Risks and open questions
 
-- **Tag size in pixels.** The ZED X One S sees the whole cage, which fixes stage 2's field-of-view
-  problem, but the tag shrinks to 27 to 44 px depending on height. If detection drops at speed,
-  lower the camera until the view just covers the cage, fit a larger tag, or bin to 960x600 at
-  120 fps only if the higher rate buys more than the resolution costs. The BNO055 orientation in
-  the diagnostics stream still measures yaw and pitch through any dropout, but not position.
-- **SDK clock.** Frames carry SDK timestamps; everything else is CLOCK_MONOTONIC. The recorder
-  logs both for each frame, but check the offset stays constant across a session before trusting
-  the delay fit.
+- **Box size.** At 1.52 m, a robot that reaches 3 m/s crosses the box in half a second. Straight
+  holds will be short, so the top of the command-to-voltage curve may still rest on few samples.
+  The staged fit uses what the box allows, and a later session in the full cage can extend it.
+- **Detection cost.** If aruco detection can't hold 60 fps even with a region of interest, the
+  model can run on a worker thread and drop frames only for keypoint output, while the raw tag
+  topic still gets every frame it processes. Frame drops show up as gaps, not bias.
+- **IPPE flips.** A wrong solution choice on a small tilted tag shows up as a yaw or pitch jump.
+  The expected-tilt test plus temporal consistency should catch it; the smoother residual check
+  is the backstop.
+- **Clock alignment.** ESP32 events are stamped on arrival, which includes WiFi jitter. The
+  linear fit to `timestamp_ms` removes the jitter; the cross-correlation checks confirm the
+  offset.
 - **Closed-loop data.** A human driver reacts to the robot, so commands correlate with past
   disturbances. Open-loop multi-step scoring on the recorded tape limits the bias, but it is why the
   punches and reversals matter: they are the least reactive inputs in the menu.
-- **Diagnostics stream reliability.** The stream runs over the robot's own WiFi access point from
-  the same ESP32 that runs the control loop. If recording mode drops events or slows the loop,
-  fall back to the transmitter channels with the radio in pass-through and reproduce the firmware
-  layer in the fit, which makes the PID part of what has to be right.
+- **ESP32 stream reliability.** The stream runs over the robot's own WiFi access point from the
+  same ESP32 that runs the control loop. If recording mode drops events or slows the loop, fall
+  back to the stick channels the transmitter logs with the radio in pass-through (100% rates, no
+  expo, no trims, no slow-up) and reproduce the firmware layer in the fit, which makes the PID
+  part of what has to be right.
 - **Friction identifiability.** Without the sled test, wheel friction and armature can trade off on
   the punch data. The sled test fixes friction from outside.
 - **BNO055 yaw.** The PID acts on the BNO055's fused heading, which has its own lag and drift. The
