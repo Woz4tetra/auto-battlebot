@@ -95,6 +95,29 @@ reproduced in the sim separately, from the gains above, for closed-loop use.
 
 ## Recording
 
+### Recording host and camera
+
+Record on the ZED Box Mini with the ZED X One S (`docs/zed_box_mini.md`), not the OAK-1 W the
+stage-2 runs used. What changes:
+
+- **The whole cage fits in view.** The SDK reports rectified intrinsics fx 665, fy 716 at
+  1920x1200, a 111 x 80 degree view. Mounted 1.5 m above the floor it covers about 4.3 x 2.5 m, so
+  the 2.35 m cage fits with margin. Stage 2's main limitation, the robot leaving the frame on
+  every fast linear phase, goes away.
+- **Global shutter.** SDK 5.2.3 opens the camera as a "ZED XOne GS", so a fast-moving tag is not
+  skewed by a rolling shutter. Set a short manual exposure to also limit motion blur.
+- **Smaller tag in pixels.** The cost of the wide view. An 80 mm tag spans about 44 px at 1.2 m,
+  35 px at 1.5 m and 27 px at 2.0 m; stage 2 worked at about 40 px with 2x upsampling. Mount as
+  low as still covers the cage, and fit a larger tag if the top plate has room (100 mm gives 44 px
+  at 1.5 m).
+- **Frames are already rectified.** The SDK delivers rectified images with zero-distortion
+  intrinsics, which PnP uses directly. Check whether `sl::CameraOne` can also deliver unrectified
+  frames; if it can, record those and the factory calibration instead, so the lens model can be
+  revised later, as the e-CAM25 path does.
+- **Everything plugs into one box.** The camera is on GMSL2, the radio takes the single USB3
+  port, the AX210 WiFi joins `MR-STABS` for the firmware stream, and ethernet stays up for ssh
+  and for moving recordings off the box.
+
 ### Recorder
 
 `playground/calibration/apriltag_track.py` was deleted in e56a4464 (2026-08-18) when the velocity
@@ -105,49 +128,58 @@ apriltag_mcap.py` still defines. `analyze_apriltag_mcap.py` still reads that lay
 
 Restore it with these changes:
 
-1. **Log the firmware diagnostics stream.** This path is independent of the Crossfire control link:
-   the ESP32 hosts its own 2.4 GHz access point (`MR-STABS`), and the recording PC joins it
-   (through a second WiFi adapter, or with ethernet for anything that needs internet). The recorder
-   sends `GET /record/start` so the stream sends every control loop instead of at 10 Hz, holds the
-   server-sent-events stream at `/events` open, and writes every event to a new `/robot/diagnostics`
-   topic stamped with the host CLOCK_MONOTONIC receive time as well as the robot's `timestamp_ms`.
-   It sends `GET /record/stop` on exit. `left_cmd` and `right_cmd` become the fit's
-   command tape. BNO055 orientation gives yaw and pitch on board, which keeps measuring while the
-   tag is out of frame.
-2. **Keep `/transmitter/channels`** for clock alignment and as a fallback. The MCAP docstring says
-   it holds "stick axes the driver was commanding", which may be pre-mixer. With the firmware log
-   that no longer matters for the fit, but if the diagnostics stream drops events, the fallback
-   needs the radio model in pass-through (100% rates, no expo, no trims, no slow-up) to be usable.
-3. **Record raw frames**, not JPEG, at 60 fps. JPEG moves the corner estimates the subpixel
-   refinement keys on (see the `apriltag_mcap.py` docstring).
-4. **Keep the full 3D tag pose.** `analyze_apriltag_mcap.py` solves the tag pose with PnP and then
+1. **A ZED X One source.** The recorder had OAK and generic OpenCV sources. Add one on
+   `sl.CameraOne` (pyzed 5.2 is installed for the box's system Python 3.10; confirm the venv can
+   import it). The main app cannot record these frames yet: on the box it logs `Video recording
+   requested but no encoder started`. Stamp each frame with the SDK image timestamp and also log
+   the CLOCK_MONOTONIC time it was retrieved, since the SDK stamps in its own clock and the other
+   streams use CLOCK_MONOTONIC. Put the camera serial and the SDK's intrinsics in
+   `/calibration/metadata`.
+2. **Log the firmware diagnostics stream.** This path is independent of the Crossfire control link:
+   the ESP32 hosts its own 2.4 GHz access point (`MR-STABS`), and the box joins it on its AX210.
+   The recorder sends `GET /record/start` so the stream sends every control loop instead of at
+   10 Hz, holds the server-sent-events stream at `/events` open, and writes every event to a new
+   `/robot/diagnostics` topic stamped with the host CLOCK_MONOTONIC receive time as well as the
+   robot's `timestamp_ms`. It sends `GET /record/stop` on exit. `left_cmd` and `right_cmd` become
+   the fit's command tape. BNO055 orientation gives yaw and pitch on board, a second measurement
+   of both.
+3. **Keep `/transmitter/channels`** for clock alignment and as a fallback, with the radio on the
+   box's USB port. The MCAP docstring says it holds "stick axes the driver was commanding", which
+   may be pre-mixer. With the firmware log that no longer matters for the fit, but if the
+   diagnostics stream drops events, the fallback needs the radio model in pass-through (100%
+   rates, no expo, no trims, no slow-up) to be usable.
+4. **Record uncompressed grayscale frames** at 60 fps. JPEG moves the corner estimates the
+   subpixel refinement keys on (see the `apriltag_mcap.py` docstring), and AprilTag detection only
+   needs one channel. Full-resolution gray is 2.3 MB per frame, 138 MB/s, about 33 GB for a
+   4-minute session. The box has about 225 GB free, so move each session to the dev machine over
+   ethernet between sessions (about 5 minutes at gigabit). If the write rate doesn't keep up, store
+   a lossless crop around the live-tracked tag plus a full frame every half second, with the crop
+   offset in each message. `analyze_apriltag_mcap.py` needs `mono8` support either way.
+5. **Keep the full 3D tag pose.** `analyze_apriltag_mcap.py` solves the tag pose with PnP and then
    projects to (x, y, yaw). Also write pitch and roll to the truth CSV. Nose lifts during hard
    throttle are the data that pins the COM, the reflected inertia and traction together, and the
    rigid-body model is the first consumer that can use them.
-5. **Live coverage display.** Replaces the scripted protocol as the thing that guarantees coverage.
+6. **Live coverage display.** Replaces the scripted protocol as the thing that guarantees coverage.
    While recording, bin the (linear, angular) command and the solved body speed and show which
    cells have less than N seconds of steady, in-frame data. The driver drives toward the empty
-   cells.
-6. **Session metadata.** Pack voltage at start and end, auto-steer state, ESC stop thresholds,
-   AM32 settings, radio mixer settings,
-   surface (which floor, cleaned or not), tire condition, robot mass, and free-text notes. Stored in
-   `/calibration/metadata`.
+   cells. The box is headless, so serve it as a small web page or through Foxglove.
+7. **Session metadata.** Pack voltage at start and end, auto-steer state, ESC stop thresholds,
+   AM32 settings, radio mixer settings, camera height and exposure, surface (which floor, cleaned
+   or not), tire condition, robot mass, and free-text notes. Stored in `/calibration/metadata`.
 
 ### Setup
 
-- Overhead OAK-1 W and the 3x5 floor GridBoard (ids 160 to 174), locked once then removed, as in
-  the stage-2 runs. Robot tag id outside that range.
-- Tape the tracked area on the floor, inset from the camera's view edge by a robot length, so the
-  driver knows where the tag stays visible.
-- If the mount allows, raise the camera or widen the view. Stage 2 found field of view, not
-  detection, was the bottleneck on every linear phase.
+- ZED X One S overhead, pointing straight down, high enough to see the whole cage and no higher.
+  The 3x5 floor GridBoard (ids 160 to 174) is locked once then removed, as in the stage-2 runs.
+  Robot tag id outside that range.
+- Mark the edge of the tracked area on the floor if the view does not cover the whole cage.
 - Walls: keep the robot off them for the fitting sessions. Wall contact is a later stage.
 - **Auto-steer on** (flip switch DOWN), the competition setting. Heading hold is also what makes
   straight runs possible: stage 2 could not measure forward or reverse speed because the robot
   spun off line. A few minutes with auto-steer off are useful as a cross-check of the drivetrain
   fit, but not required.
-- Diagnostics stream in recording mode, logged per recorder change 1.
-- Radio in pass-through mode, so the fallback path in recorder change 2 stays usable.
+- Diagnostics stream in recording mode, logged per recorder change 2.
+- Radio in pass-through mode, so the fallback path in recorder change 3 stays usable.
 
 ### What to drive (maneuver menu)
 
@@ -167,7 +199,8 @@ missing.
 
 Avoid:
 
-- Leaving the taped area. Frames without the tag are interpolation, not measurement.
+- Leaving the camera's view, if it does not cover the whole cage. Frames without the tag are
+  interpolation, not measurement.
 - Wall contact.
 - Stick jitter near center. It makes the deadzone ambiguous.
 - Full throttle plus full turn early in a session, before the punches have shown where the nose
@@ -338,9 +371,11 @@ The spread of parameter sets that pass becomes the randomization range for the s
    produced it from the URDF export and the Onshape totals. Half a day.
 2. **Model and MuJoCo Warp spike.** Build the MJCF, pass the three sanity checks, measure batched
    throughput, confirm which fields vary per world. One to two days. This decides the batch layout.
-3. **Restore the recorder** with the six changes above. Two to three days: the coverage display
-   and the diagnostics logging. Before relying on the diagnostics stream, check that recording mode
-   keeps up with the control loop over WiFi without dropping events.
+3. **Restore the recorder** on the ZED Box Mini with the seven changes above. Three to four days:
+   the ZED X One source, the coverage display and the diagnostics logging. Before the first
+   session, check three rates on the box: 60 fps gray frames written to NVMe without drops, the
+   diagnostics stream keeping up with the control loop over WiFi, and tag detection at the chosen
+   camera height with the robot at full speed.
 4. **Record.** Two or three evenings of driving to get 10 to 15 sessions.
 5. **Truth, windows and noise floor.** Extend the analysis to 3D pose; build and gate windows. One
    day.
@@ -351,10 +386,14 @@ The spread of parameter sets that pass becomes the randomization range for the s
 
 ## Risks and open questions
 
-- **Field of view.** Stage 2 lost the tag on every fast linear phase. If the camera can't be raised,
-  sustained high speed never gets measured and the top of the voltage curve is extrapolated again.
-  A second camera helps. The BNO055 orientation in the diagnostics stream covers yaw and pitch out
-  of frame, but not position.
+- **Tag size in pixels.** The ZED X One S sees the whole cage, which fixes stage 2's field-of-view
+  problem, but the tag shrinks to 27 to 44 px depending on height. If detection drops at speed,
+  lower the camera until the view just covers the cage, fit a larger tag, or bin to 960x600 at
+  120 fps only if the higher rate buys more than the resolution costs. The BNO055 orientation in
+  the diagnostics stream still measures yaw and pitch through any dropout, but not position.
+- **SDK clock.** Frames carry SDK timestamps; everything else is CLOCK_MONOTONIC. The recorder
+  logs both for each frame, but check the offset stays constant across a session before trusting
+  the delay fit.
 - **Closed-loop data.** A human driver reacts to the robot, so commands correlate with past
   disturbances. Open-loop multi-step scoring on the recorded tape limits the bias, but it is why the
   punches and reversals matter: they are the least reactive inputs in the menu.
