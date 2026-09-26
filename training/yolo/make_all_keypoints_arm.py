@@ -2,9 +2,14 @@
 
 Trains a deployment model on every reviewed keypoint frame there is, so neither eval set can score
 it afterwards. Each eval set contributes only the frames its ``validation_state.json`` marks
-``pass``. Eval labels in a class the model does not have (``object``, index 4) are dropped: the
-frame's labels are rewritten under ``<out>/eval_labels/`` beside symlinked images, because
-ultralytics finds a label by swapping ``images`` for ``labels`` in the image path.
+``pass``. Two things in the eval labels would cost frames, and both are fixed in a rewritten copy
+under ``<out>/eval_labels/`` beside symlinked images, because ultralytics finds a label by
+swapping ``images`` for ``labels`` in the image path:
+
+* Rows in a class the model does not have (``object``, index 4) are dropped.
+* Keypoints outside [0, 1] become ``0 0 0``, unlabelled. They mark a robot partly out of frame
+  (up to 1.17 on the ZED set), and ultralytics drops the whole frame for one of them. Clamping to
+  the edge would move the point; the box stays as labelled.
 
 Usage:
   venv/bin/python training/yolo/make_all_keypoints_arm.py \\
@@ -28,7 +33,19 @@ NAMES = ["mr_stabs_mk2", "mrs_buff_mk3", "nhrl_robot", "house_bot"]
 REVIEW_STATE = "validation_state.json"
 
 
-def eval_frames(root: Path, out: Path, dropped: Counter) -> list[Path]:
+def fix_row(line: str) -> tuple[str, int]:
+    """*line* with every keypoint outside [0, 1] set to unlabelled, and how many were."""
+    parts = line.split()
+    fixed = 0
+    for i in range(5, len(parts), 3):
+        x, y = float(parts[i]), float(parts[i + 1])
+        if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+            parts[i : i + 3] = ["0.000000", "0.000000", "0"]
+            fixed += 1
+    return " ".join(parts), fixed
+
+
+def eval_frames(root: Path, out: Path, dropped: Counter, unlabelled: Counter) -> list[Path]:
     """The `pass` frames of one eval set, as image paths whose sibling labels fit `NAMES`.
 
     Raises:
@@ -44,11 +61,19 @@ def eval_frames(root: Path, out: Path, dropped: Counter) -> list[Path]:
         if not image.is_file() or not label.is_file():
             raise SystemExit(f"{root}: passed frame {key} is missing its image or label")
         rows = [line for line in label.read_text(encoding="utf-8").splitlines() if line.strip()]
-        kept = [line for line in rows if int(line.split()[0]) < len(NAMES)]
-        if len(kept) == len(rows):
+        kept = []
+        fixed = 0
+        for line in rows:
+            if int(line.split()[0]) >= len(NAMES):
+                continue
+            row, count = fix_row(line)
+            kept.append(row)
+            fixed += count
+        if len(kept) == len(rows) and not fixed:
             frames.append(image.resolve())
             continue
         dropped[root.name] += len(rows) - len(kept)
+        unlabelled[root.name] += fixed
         # <out>/eval_labels/<set>/<key's dirs>/images/<file> links the image, labels/ holds the
         # rewritten rows.
         link = out / "eval_labels" / root.name / key
@@ -76,7 +101,8 @@ def main() -> None:
     arm = [Path(line.strip()) for line in args.arm.read_text(encoding="utf-8").splitlines()]
     val = [Path(line.strip()) for line in args.val.read_text(encoding="utf-8").splitlines()]
     dropped: Counter = Counter()
-    extra = {root.name: eval_frames(root, args.out, dropped) for root in args.eval}
+    unlabelled: Counter = Counter()
+    extra = {root.name: eval_frames(root, args.out, dropped, unlabelled) for root in args.eval}
 
     frames = arm + [frame for group in extra.values() for frame in group]
     real = [os.path.realpath(frame) for frame in frames]
@@ -103,6 +129,7 @@ def main() -> None:
         "arm_frames": len(arm),
         "eval": {name: len(group) for name, group in extra.items()},
         "dropped_rows": dict(dropped),
+        "unlabelled_keypoints": dict(unlabelled),
         "frames": len(frames),
         "val_frames": len(val),
     }
