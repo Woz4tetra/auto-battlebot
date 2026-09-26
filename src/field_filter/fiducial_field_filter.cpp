@@ -11,13 +11,12 @@
 #include "field_filter/field_pose.hpp"
 
 namespace auto_battlebot {
-namespace {
 /** Detector tuned for small, distant 36h11 tags. The hard limit is pixels on target: face on,
  *  36h11 decodes reliably only above about 18 px of edge and no parameter recovers a marker below
  *  about 15 px. Within that budget these settings buy margin. The adaptive-threshold window range
  *  is deliberately tight: windows above 21 px cost 33 ms per 1080p frame against 11 ms and added
  *  no detections once auto_gamma normalized brightness. */
-cv::aruco::DetectorParameters tuned_parameters() {
+cv::aruco::DetectorParameters small_apriltag_detector_parameters() {
     cv::aruco::DetectorParameters parameters;
     parameters.adaptiveThreshWinSizeMin = 5;
     parameters.adaptiveThreshWinSizeMax = 21;
@@ -31,6 +30,7 @@ cv::aruco::DetectorParameters tuned_parameters() {
     return parameters;
 }
 
+namespace {
 Eigen::Matrix3d rotation_z(double radians) {
     Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity();
     rotation(0, 0) = std::cos(radians);
@@ -92,7 +92,7 @@ FiducialFieldFilter::FiducialFieldFilter(const FiducialFieldFilterConfiguration 
              static_cast<float>(config.marker_separation), dictionary_,
              cv::Mat(floor_board_ids(config.board_cols, config.board_rows, config.first_marker_id),
                      true)),
-      detector_(dictionary_, tuned_parameters()),
+      detector_(dictionary_, small_apriltag_detector_parameters()),
       board_ids_(floor_board_ids(config.board_cols, config.board_rows, config.first_marker_id)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("fiducial_field_filter")) {
     spdlog::info("FiducialFieldFilter: {}x{} board, ids {}..{}, {:.0f} mm markers",

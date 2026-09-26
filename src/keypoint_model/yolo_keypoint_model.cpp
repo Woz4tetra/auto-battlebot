@@ -42,7 +42,8 @@ bool YoloKeypointModel::initialize() {
     return true;
 }
 
-ModelResultStamped YoloKeypointModel::update(RgbImage image) {
+ModelResultStamped YoloKeypointModel::update(RgbImage image,
+                                             [[maybe_unused]] const CameraInfo &camera_info) {
     FunctionTimer timer(diagnostics_logger_, "update", 1000.0);
 
     last_detections_ = DetectionsStamped{};

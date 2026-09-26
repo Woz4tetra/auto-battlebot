@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
 #include "config/config.hpp"
 #include "config/config_parser.hpp"
 #include "config/profile_selection.hpp"
+#include "directories.hpp"
 #include "field_filter/config.hpp"
 #include "keypoint_model/config.hpp"
 #include "mask_model/config.hpp"
@@ -1643,5 +1645,170 @@ behavior_mode = "FLEE"
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), std::invalid_argument);
 }
+
+TEST_F(ConfigTest, Esp32DiagnosticsTransmitterParsesItsFieldsAndTheRadioOnes) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "Esp32DiagnosticsOpenTxTransmitter"
+drive_processor = "DifferentialDriveProcessor"
+reverse_angular_channel = true
+esp32_host = "192.168.4.2"
+esp32_port = 8080
+record_mode = false
+reconnect_period_s = 0.5
+)"));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *transmitter_config =
+        dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(config.transmitter.get());
+    ASSERT_NE(transmitter_config, nullptr);
+    EXPECT_EQ(transmitter_config->esp32_host, "192.168.4.2");
+    EXPECT_EQ(transmitter_config->esp32_port, 8080);
+    EXPECT_FALSE(transmitter_config->record_mode);
+    EXPECT_DOUBLE_EQ(transmitter_config->reconnect_period_s, 0.5);
+    EXPECT_EQ(transmitter_config->drive_processor, "DifferentialDriveProcessor");
+    EXPECT_TRUE(transmitter_config->reverse_angular_channel);
+}
+
+TEST_F(ConfigTest, Esp32DiagnosticsTransmitterDefaults) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "Esp32DiagnosticsOpenTxTransmitter"
+)"));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *transmitter_config =
+        dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(config.transmitter.get());
+    ASSERT_NE(transmitter_config, nullptr);
+    EXPECT_EQ(transmitter_config->esp32_host, "192.168.4.1");
+    EXPECT_EQ(transmitter_config->esp32_port, 80);
+    EXPECT_TRUE(transmitter_config->record_mode);
+}
+
+TEST_F(ConfigTest, Esp32DiagnosticsTransmitterRejectsUnknownField) {
+    write_config_file(config_with_transmitter(R"(
+[transmitter]
+type = "Esp32DiagnosticsOpenTxTransmitter"
+esp32_hostname = "robot"
+)"));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+}
+
+namespace {
+/** Minimal full config with a parameterizable [keypoint_model] block. */
+std::string config_with_keypoint_model(const std::string &keypoint_model_toml) {
+    return R"(
+[rgbd_camera]
+type = "NoopRgbdCamera"
+
+[field_model]
+type = "NoopMaskModel"
+
+[robot_mask_model]
+type = "NoopRobotBlobModel"
+
+[field_filter]
+type = "NoopFieldFilter"
+)" + keypoint_model_toml +
+           R"(
+[robot_filter]
+type = "NoopRobotFilter"
+
+[target_selector]
+type = "NoopTarget"
+
+[navigation]
+type = "NoopNavigation"
+
+[transmitter]
+type = "NoopTransmitter"
+
+[publisher]
+type = "NoopPublisher"
+)";
+}
+
+constexpr const char *kAprilTagModelToml = R"(
+[keypoint_model]
+type = "AprilTagKeypointModel"
+tag_size_m = 0.064
+robot_tag_ids = [41, 76]
+roi_margin_px = 60
+max_reprojection_error_px = 1.5
+front_keypoint_m = [0.05, 0.0, 0.0]
+back_keypoint_m = [-0.05, 0.0, 0.0]
+rest_pitch_rad = 0.198
+
+[[keypoint_model.tags]]
+id = 41
+translation_m = [0.035391, 1.9e-05, -0.012076]
+rotation = [0.0, -0.983904, 0.178696, -1.0, -3e-06, -1.6e-05, 1.6e-05, -0.178696, -0.983904]
+
+[[keypoint_model.tags]]
+id = 76
+translation_m = [0.035553, -1.1e-05, 0.014164]
+rotation = [0.0, -0.986029, 0.166572, 1.0, -2e-06, -1.1e-05, 1.1e-05, 0.166572, 0.986029]
+)";
+}  // namespace
+
+TEST_F(ConfigTest, AprilTagKeypointModelParses) {
+    write_config_file(config_with_keypoint_model(kAprilTagModelToml));
+
+    auto config = load_classes_from_config(temp_config_file.string());
+    auto *model = dynamic_cast<AprilTagKeypointModelConfiguration *>(config.keypoint_model.get());
+    ASSERT_NE(model, nullptr);
+    EXPECT_DOUBLE_EQ(model->tag_size_m, 0.064);
+    EXPECT_EQ(model->robot_tag_ids, (std::vector<int>{41, 76}));
+    EXPECT_EQ(model->roi_margin_px, 60);
+    EXPECT_DOUBLE_EQ(model->max_reprojection_error_px, 1.5);
+    EXPECT_DOUBLE_EQ(model->front_keypoint_m[0], 0.05);
+    EXPECT_DOUBLE_EQ(model->back_keypoint_m[0], -0.05);
+    EXPECT_DOUBLE_EQ(model->rest_pitch_rad, 0.198);
+    ASSERT_EQ(model->tags.size(), 2u);
+    EXPECT_EQ(model->tags[1].id, 76);
+    EXPECT_DOUBLE_EQ(model->tags[1].translation_m[2], 0.014164);
+    EXPECT_DOUBLE_EQ(model->tags[1].rotation[8], 0.986029);
+}
+
+TEST_F(ConfigTest, AprilTagKeypointModelRejectsATagWithoutAMount) {
+    std::string toml(kAprilTagModelToml);
+    toml.replace(toml.find("robot_tag_ids = [41, 76]"), 24, "robot_tag_ids = [41, 77]");
+    write_config_file(config_with_keypoint_model(toml));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+}
+
+TEST_F(ConfigTest, AprilTagKeypointModelRejectsANonRotation) {
+    std::string toml(kAprilTagModelToml);
+    // Swap two rows of tag 76's rotation: orthonormal still, but a reflection.
+    toml.replace(toml.find("[0.0, -0.986029, 0.166572, 1.0, -2e-06, -1.1e-05"),
+                 std::string("[0.0, -0.986029, 0.166572, 1.0, -2e-06, -1.1e-05").size(),
+                 "[1.0, -2e-06, -1.1e-05, 0.0, -0.986029, 0.166572");
+    write_config_file(config_with_keypoint_model(toml));
+
+    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
+}
+
+#ifdef BUILD_WITH_ZED
+// The profile's camera is ZedOneRgbCamera, which only registers when the ZED SDK is built in.
+TEST(SysidProfileTest, MrStabsMk2SysidProfileParsesAndIsSelectable) {
+    const auto config_dir = get_config_dir();
+    auto config =
+        load_classes_from_config((config_dir / "mr_stabs_mk2_sysid_zed_box.toml").string());
+    ASSERT_NE(
+        dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(config.transmitter.get()),
+        nullptr);
+    auto *model = dynamic_cast<AprilTagKeypointModelConfiguration *>(config.keypoint_model.get());
+    ASSERT_NE(model, nullptr);
+    EXPECT_EQ(model->tags.size(), 2u);
+    EXPECT_EQ(config.navigation->type, "NoopNavigation");
+
+    const ProfileSelectorConfig selector = load_profile_selector(config_dir);
+    const auto profiles = list_available_profiles(config_dir, selector.pattern);
+    EXPECT_NE(std::find(profiles.begin(), profiles.end(), "mr_stabs_mk2_sysid_zed_box"),
+              profiles.end());
+}
+#endif
 
 }  // namespace auto_battlebot

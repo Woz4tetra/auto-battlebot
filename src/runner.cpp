@@ -193,12 +193,18 @@ void Runner::set_autonomy(bool enabled) {
 }
 
 void Runner::set_recording(bool enabled) const {
+    // Open the MCAP gate before the camera starts its video encoder and close it after the encoder
+    // has flushed, so the first IDR and the last packets both land in the file.
+    const auto set_mcap = [this, enabled] {
+        if (mcap_recorder_ && !mcap_recorder_->set_enabled(enabled)) {
+            spdlog::warn("Failed to set MCAP recording to {}", enabled ? "enabled" : "disabled");
+        }
+    };
+    if (enabled) set_mcap();
     if (!camera_->set_recording_enabled(enabled)) {
         spdlog::warn("Failed to set SVO recording to {}", enabled ? "enabled" : "disabled");
     }
-    if (mcap_recorder_ && !mcap_recorder_->set_enabled(enabled)) {
-        spdlog::warn("Failed to set MCAP recording to {}", enabled ? "enabled" : "disabled");
-    }
+    if (!enabled) set_mcap();
 }
 
 std::string Runner::select_profile(const std::string &name) {
@@ -519,7 +525,7 @@ bool Runner::tick() {
     ModelResultStamped robot_blob_keypoints;
     if (runner_config_.parallel_models) {
         FunctionTimer timer(diagnostics_logger_, "perception_batch.update");
-        BatchResult batch = perception_batch_->update(camera_data.rgb);
+        BatchResult batch = perception_batch_->update(camera_data.rgb, camera_data.camera_info);
         keypoints = std::move(batch.keypoints);
         robot_blob_keypoints = std::move(batch.robot_blob_keypoints);
         // Per-model wall times are measured inside the workers and re-emitted here under
@@ -533,7 +539,7 @@ bool Runner::tick() {
     } else {
         {
             FunctionTimer timer(diagnostics_logger_, "keypoint_model.update");
-            keypoints = keypoint_model_->update(camera_data.rgb);
+            keypoints = keypoint_model_->update(camera_data.rgb, camera_data.camera_info);
         }
         {
             FunctionTimer timer(diagnostics_logger_, "robot_mask_model.update");

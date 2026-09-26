@@ -3,8 +3,10 @@
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
 #include "enums/behavior_mode.hpp"
+#include "mcap_recorder/mcap_recorder.hpp"
 #include "time/clock_interface.hpp"
 #include "transmitter/transmitter_interface.hpp"
+#include "viz/viz_sink.hpp"
 
 namespace auto_battlebot {
 struct TransmitterConfiguration {
@@ -124,6 +126,34 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     }
 };
 
+/** OpenTxTransmitter plus the Mr Stabs Mk2 firmware's diagnostics stream over the robot's WiFi,
+ *  recorded on /robot/esp32_diagnostics. The radio half is unchanged. */
+struct Esp32DiagnosticsOpenTxTransmitterConfiguration : public OpenTxTransmitterConfiguration {
+    /** The robot's access point address, an IP literal. 192.168.4.1 is the ESP32 AP default. */
+    std::string esp32_host = "192.168.4.1";
+    int esp32_port = 80;
+    /** Ask the firmware to send every control loop instead of at 10 Hz. */
+    bool record_mode = true;
+    /** First reconnect delay after the stream drops; doubles per failure up to 10 s. */
+    double reconnect_period_s = 1.0;
+
+    Esp32DiagnosticsOpenTxTransmitterConfiguration() { type = "Esp32DiagnosticsOpenTxTransmitter"; }
+
+    void parse_fields(ConfigParser &parser) override {
+        OpenTxTransmitterConfiguration::parse_fields(parser);
+        esp32_host = parser.get_optional_string("esp32_host", esp32_host);
+        esp32_port = static_cast<int>(parser.get_optional_int("esp32_port", esp32_port));
+        record_mode = parser.get_optional_bool("record_mode", record_mode);
+        reconnect_period_s = parser.get_optional_double("reconnect_period_s", reconnect_period_s);
+        if (esp32_port <= 0 || esp32_port > 65535) {
+            throw ConfigValidationError("esp32_port must be in 1..65535 in section [transmitter]");
+        }
+        if (reconnect_period_s <= 0.0) {
+            throw ConfigValidationError("reconnect_period_s must be > 0 in section [transmitter]");
+        }
+    }
+};
+
 struct SimTransmitterConfiguration : public TransmitterConfiguration {
     double init_delay_seconds = 0.5;
     /** Artificial command delay in milliseconds (0 = no delay). Used for lag experiments. */
@@ -149,8 +179,12 @@ struct SimTransmitterConfiguration : public TransmitterConfiguration {
     // clang-format on
 };
 
+/** `sink` and `mcap_recorder` may be null; only transmitters that publish their own topics use
+ *  them. */
 std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config,
-                                                       std::shared_ptr<ClockInterface> clock);
+                                                       std::shared_ptr<ClockInterface> clock,
+                                                       std::shared_ptr<VizSink> sink,
+                                                       std::shared_ptr<McapRecorder> mcap_recorder);
 std::unique_ptr<TransmitterConfiguration> parse_transmitter_config(ConfigParser &parser);
 std::unique_ptr<TransmitterConfiguration> load_transmitter_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections);

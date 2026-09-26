@@ -1,0 +1,74 @@
+<mujoco model="mr_stabs_mk2">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.001" integrator="implicitfast" cone="elliptic"/>
+  <default>
+    <geom solref="0.02 1" solimp="0.9 0.95 0.001 0.5 2"/>
+  </default>
+  <asset>
+    <mesh name="hull_0" file="collision/hull_0.obj"/>
+    <mesh name="hull_1" file="collision/hull_1.obj"/>
+    <mesh name="hull_2" file="collision/hull_2.obj"/>
+    <mesh name="hull_3" file="collision/hull_3.obj"/>
+    <mesh name="hull_4" file="collision/hull_4.obj"/>
+    <mesh name="hull_5" file="collision/hull_5.obj"/>
+    <mesh name="hull_6" file="collision/hull_6.obj"/>
+    <mesh name="hull_7" file="collision/hull_7.obj"/>
+    <mesh name="hull_8" file="collision/hull_8.obj"/>
+    <mesh name="hull_9" file="collision/hull_9.obj"/>
+    <mesh name="hull_10" file="collision/hull_10.obj"/>
+    <mesh name="hull_11" file="collision/hull_11.obj"/>
+    <mesh name="hull_12" file="collision/hull_12.obj"/>
+    <mesh name="hull_13" file="collision/hull_13.obj"/>
+    <mesh name="hull_14" file="collision/hull_14.obj"/>
+    <mesh name="hull_15" file="collision/hull_15.obj"/>
+  </asset>
+  <worldbody>
+    <geom name="floor" type="plane" size="3 3 0.1" contype="1"
+          conaffinity="2" friction="0 0 0" condim="1"/>
+    <body name="chassis" pos="0 0 0.025">
+      <freejoint name="root"/>
+      <inertial pos="0.0319413 4.3e-06 0.0008608" mass="0.4590101" fullinertia="0.000779756 0.000548137 0.00125669 4.14461e-08 -2.38195e-06 -9.33042e-08"/>
+      <geom name="chassis_hull_0" type="mesh" mesh="hull_0" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_1" type="mesh" mesh="hull_1" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_2" type="mesh" mesh="hull_2" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_3" type="mesh" mesh="hull_3" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_4" type="mesh" mesh="hull_4" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_5" type="mesh" mesh="hull_5" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_6" type="mesh" mesh="hull_6" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_7" type="mesh" mesh="hull_7" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_8" type="mesh" mesh="hull_8" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_9" type="mesh" mesh="hull_9" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_10" type="mesh" mesh="hull_10" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_11" type="mesh" mesh="hull_11" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_12" type="mesh" mesh="hull_12" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_13" type="mesh" mesh="hull_13" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_14" type="mesh" mesh="hull_14" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="chassis_hull_15" type="mesh" mesh="hull_15" contype="2" conaffinity="1" condim="3" friction="0.3 0.001 0.0001" group="3"/>
+      <geom name="nose_skid" type="sphere" size="0.0015" pos="0.111471 0 -0.001631"
+            contype="2" conaffinity="1" condim="4"
+            friction="0.3 0.001 0.0001"/>
+      <body name="wheel_left" pos="0 0.06526 0">
+        <inertial pos="0 0 0" mass="0.0184449" diaginertia="2.33662e-06 4.25282e-06 2.33662e-06"/>
+        <joint name="wheel_left" type="hinge" axis="0 1 0" armature="0.0004750068"
+               damping="0.0001" frictionloss="0.002"/>
+        <geom name="wheel_left_tread" type="cylinder" size="0.025 0.006"
+              zaxis="0 1 0" contype="2" conaffinity="1" condim="6"
+              friction="1 0.005 0.0001" rgba="0.1 0.1 0.1 1"/>
+      </body>
+      <body name="wheel_right" pos="0 -0.06526 0">
+        <inertial pos="0 0 0" mass="0.0184449" diaginertia="2.336615e-06 4.25282e-06 2.336615e-06"/>
+        <joint name="wheel_right" type="hinge" axis="0 1 0" armature="0.0004750068"
+               damping="0.0001" frictionloss="0.002"/>
+        <geom name="wheel_right_tread" type="cylinder" size="0.025 0.006"
+              zaxis="0 1 0" contype="2" conaffinity="1" condim="6"
+              friction="1 0.005 0.0001" rgba="0.1 0.1 0.1 1"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <general name="motor_left" joint="wheel_left" gainprm="0.37533176"
+             biasprm="0 0 -0.0352184825" ctrlrange="-30 30" forcerange="-2.62732232 2.62732232"/>
+    <general name="motor_right" joint="wheel_right" gainprm="0.37533176"
+             biasprm="0 0 -0.0352184825" ctrlrange="-30 30" forcerange="-2.62732232 2.62732232"/>
+  </actuator>
+</mujoco>

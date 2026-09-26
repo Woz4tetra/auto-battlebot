@@ -38,14 +38,20 @@ ParallelModelBatch::ParallelModelBatch(std::shared_ptr<KeypointModelInterface> k
                                        std::shared_ptr<RobotBlobModelInterface> robot_blob_model)
     : keypoint_model_(std::move(keypoint_model)), robot_blob_model_(std::move(robot_blob_model)) {
     keypoint_thread_ = std::thread([this] {
-        worker_loop([this](const RgbImage &image) { return keypoint_model_->update(image); },
-                    keypoint_done_id_, result_.keypoints, result_.keypoint_model_elapsed_ms,
-                    keypoint_thread_exited_);
+        worker_loop(
+            [this](const RgbImage &image, const CameraInfo &camera_info) {
+                return keypoint_model_->update(image, camera_info);
+            },
+            keypoint_done_id_, result_.keypoints, result_.keypoint_model_elapsed_ms,
+            keypoint_thread_exited_);
     });
     robot_blob_thread_ = std::thread([this] {
-        worker_loop([this](const RgbImage &image) { return robot_blob_model_->update(image); },
-                    robot_blob_done_id_, result_.robot_blob_keypoints,
-                    result_.robot_blob_model_elapsed_ms, robot_blob_thread_exited_);
+        worker_loop(
+            [this](const RgbImage &image, const CameraInfo & /*camera_info*/) {
+                return robot_blob_model_->update(image);
+            },
+            robot_blob_done_id_, result_.robot_blob_keypoints, result_.robot_blob_model_elapsed_ms,
+            robot_blob_thread_exited_);
     });
 }
 
@@ -61,12 +67,13 @@ ParallelModelBatch::~ParallelModelBatch() {
                       "ParallelModelBatch robot blob worker");
 }
 
-void ParallelModelBatch::worker_loop(
-    const std::function<ModelResultStamped(const RgbImage &)> &run_model, uint64_t &done_id,
-    ModelResultStamped &result_slot, double &elapsed_slot, std::atomic<bool> &exited_flag) {
+void ParallelModelBatch::worker_loop(const RunModel &run_model, uint64_t &done_id,
+                                     ModelResultStamped &result_slot, double &elapsed_slot,
+                                     std::atomic<bool> &exited_flag) {
     uint64_t last_seen_id = 0;
     while (true) {
         RgbImage image;
+        CameraInfo camera_info;
         uint64_t id = 0;
         {
             std::unique_lock<std::mutex> lock(mutex_);
@@ -75,9 +82,10 @@ void ParallelModelBatch::worker_loop(
             id = request_id_;
             last_seen_id = id;
             image = shared_image_;
+            camera_info = shared_camera_info_;
         }
         const auto start = std::chrono::steady_clock::now();
-        ModelResultStamped output = run_model(image);
+        ModelResultStamped output = run_model(image, camera_info);
         const double elapsed_ms =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
                 .count();
@@ -95,11 +103,12 @@ void ParallelModelBatch::worker_loop(
     exited_flag.store(true, std::memory_order_release);
 }
 
-BatchResult ParallelModelBatch::update(const RgbImage &image) {
+BatchResult ParallelModelBatch::update(const RgbImage &image, const CameraInfo &camera_info) {
     uint64_t id = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         shared_image_ = image;
+        shared_camera_info_ = camera_info;
         result_ = BatchResult{};
         id = ++request_id_;
     }

@@ -33,7 +33,7 @@ class YoloKeypointModel : public KeypointModelInterface {
                       std::shared_ptr<EngineSelector> engine_selector);
 
     bool initialize() override;
-    ModelResultStamped update(RgbImage image) override;
+    ModelResultStamped update(RgbImage image, const CameraInfo &camera_info) override;
     DetectionsStamped last_detections() const override { return last_detections_; }
 
    protected:

@@ -1,0 +1,86 @@
+# System identification sessions for Mr Stabs Mk2 (docs/plans/mujoco_warp_mr_stabs_plan.md). The
+# driver drives by hand in the 1.52 m test box under a tripod-mounted ZED X One S; the app records
+# the robot's AprilTag poses and the firmware's diagnostics stream into the MCAP.
+extends = "mr_stabs_mk2_zed_box"
+
+# The type differs from the base, so the merge replaces this section outright: every radio field
+# from _common and mr_stabs_mk2_zed_box is restated here.
+[transmitter]
+type = "Esp32DiagnosticsOpenTxTransmitter"
+drive_processor = "DifferentialDriveProcessor"
+linear_channel = 0                             # radio CH1
+angular_channel = 1                            # radio CH2
+trainer_enable_channel = 5                     # radio CH6
+behavior_mode_channel = 30                     # disabled
+init_button_channel = 31                       # disabled
+max_motor_rpm = 1500                           # RPM
+max_motor_rpm_per_sec = 2000                   # RPM/s
+lifted_deadzone_percent = 0
+zero_deadzone_percent = 2
+reverse_angular_channel = true
+velocity_saturation_limit = 1.0
+# The robot's access point. The box joins MR-STABS on its second WiFi dongle.
+esp32_host = "192.168.4.1"
+esp32_port = 80
+record_mode = true         # firmware sends every control loop, not 10 Hz
+reconnect_period_s = 1.0
+
+[keypoint_model]
+type = "AprilTagKeypointModel"
+# Edge of the black square in CAD. Measure the print and correct this before the first session.
+tag_size_m = 0.064
+robot_tag_ids = [41, 76]
+roi_margin_px = 80
+max_reprojection_error_px = 2.0
+# Front and back keypoints straddle the axle midpoint, so the tracked pose is the axle center.
+front_keypoint_m = [0.05, 0.0, 0.0]
+back_keypoint_m = [-0.05, 0.0, 0.0]
+axle_height_m = 0.025               # wheel radius, simulation/assets/robots/mr_stabs_mk2/mass_properties.toml
+# Resting nose down on the wedge tip, simulation/assets/robots/mr_stabs_mk2/collision/collision.toml.
+rest_pitch_rad = 0.198025
+
+# Tag mountings from simulation/assets/robots/mr_stabs_mk2/mass_properties.toml ([tags.N]). The
+# rotation is R_body_tag flattened row-major; it and translation_m map the OpenCV marker frame
+# (x right, y up in the printed image, z out of the face) into the body frame (FLU at the axle
+# midpoint). 76 is on top and 41 underneath: which way a tag faces comes from its rotation.
+[[keypoint_model.tags]]
+id = 41
+translation_m = [0.035391, 1.9e-05, -0.012076]
+rotation = [
+  0.0,
+  -0.983904,
+  0.178696,
+  -1.0,
+  -3e-06,
+  -1.6e-05,
+  1.6e-05,
+  -0.178696,
+  -0.983904,
+]
+
+[[keypoint_model.tags]]
+id = 76
+translation_m = [0.035553, -1.1e-05, 0.014164]
+rotation = [
+  0.0,
+  -0.986029,
+  0.166572,
+  1.0,
+  -2e-06,
+  -1.1e-05,
+  1.1e-05,
+  0.166572,
+  0.986029,
+]
+
+[field_filter]
+# The test box, not the 2.35 m cage. The board offsets are where the array sits for field init.
+field_size_x = 1.52
+field_size_y = 1.52
+
+[navigation]
+type = "NoopNavigation" # the driver drives; autonomy has nothing to do
+
+[runner]
+# Autonomy has nothing to send. Off, so an engaged trainer switch cannot put zeros on the sticks.
+autonomy_enabled_by_default = false

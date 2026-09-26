@@ -44,6 +44,8 @@ all written against this document. Change it here first.
 | `/blob_detections/annotations` | `protobuf` | `foxglove.ImageAnnotations` | `protobuf` | no, live only |
 | `/keypoint_detections/annotations` | `protobuf` | `foxglove.ImageAnnotations` | `protobuf` | no, live only |
 | `/diagnostics/<module>` | `json` | `auto_battlebot.Diagnostics` | `jsonschema` | yes |
+| `/robot/esp32_diagnostics` | `json` | `auto_battlebot.Esp32Diagnostics` | `jsonschema` | yes |
+| `/apriltag/robot_tags` | `json` | `auto_battlebot.AprilTagRobotTags` | `jsonschema` | yes |
 | `/log` | `protobuf` | `foxglove.Log` | `protobuf` | yes |
 | `/status/system` | `json` | `auto_battlebot.status.System` | `jsonschema` | yes |
 | `/status/app` | `json` | `auto_battlebot.status.App` | `jsonschema` | yes |
@@ -165,6 +167,67 @@ values are typed: JSON integers for `int`, JSON numbers for `double` (NaN and in
 `null`), JSON strings for `std::string`. Nothing is stringified.
 
 Foxglove plot path example: `/diagnostics/pursuit_nav.pursuit_nav.values.heading_error`.
+
+## `/robot/esp32_diagnostics` (JSON)
+
+Written by `Esp32DiagnosticsOpenTxTransmitter` (the `mr_stabs_mk2_sysid_zed_box` profile). One
+message per line of the Mr Stabs Mk2 firmware's diagnostics event stream
+(`DiagnosticsServer::update` in `firmware/mr_stabs_mk2/src/diagnostics_server.cpp`), not a
+per-cycle summary: in record mode that is every firmware control loop. `log_time` is
+`host_receive_ns`.
+
+```json
+{"host_receive_ns": 1788011445339499712, "timestamp_ms": 123457,
+ "radio_connected": true, "armed": true, "a_percent": 50.0, "b_percent": 0.0,
+ "button_state": false, "flip_switch": 0, "left_cmd": 48.0, "right_cmd": 52.0,
+ "accel_x": 1.1, "accel_y": 0.0, "accel_z": 9.7, "is_upside_down": false,
+ "loop_us": 905, "wifi_clients": 1, "orientation_x": 10.0, "orientation_y": 0.5,
+ "orientation_z": -0.5, "pid_setpoint": 0.0, "pid_output": 0.0, "vbat": 15.842}
+```
+
+- `host_receive_ns`: app wall clock when the line arrived, integer nanoseconds. A JSON integer
+  above 2^53, so a JavaScript consumer rounds it; Python reads it exactly.
+- `timestamp_ms`: the robot's `millis()`. The difference to `host_receive_ns` drifts with the two
+  clocks and jumps with WiFi latency; `esp32_diagnostics` diagnostics log it as `clock_offset_ms`.
+- `left_cmd`, `right_cmd`: per-motor commands after the heading PID and the mixer, percent. These
+  are the drivetrain's input.
+- `orientation_*`: BNO055 Euler angles in degrees. `accel_*`: BNO055 acceleration.
+- `vbat`: pack voltage from the INA219 in volts, `null` when the firmware predates the field or
+  prints `nan` (no INA219, or a failed read).
+
+Stream health (connected, events per second, parse errors, reconnects, largest robot-clock gap,
+clock offset) goes to `/diagnostics/esp32_diagnostics` once a second.
+
+## `/apriltag/robot_tags` (JSON)
+
+Written by `AprilTagKeypointModel`, one message per camera frame, including frames with no
+detection so gaps are explicit. The corners are the measurement: the video is lossy H.264, so they
+let PnP be re-solved offline with a revised tag size or intrinsics. `log_time` is
+`image_stamp_ns`.
+
+```json
+{"image_stamp_ns": 1788011445339499776, "frame_id": "camera",
+ "camera": {"fx": 665.0, "fy": 716.0, "cx": 960.0, "cy": 600.0, "width": 1920, "height": 1200},
+ "tag_size_m": 0.064, "roi": [820, 410, 240, 236],
+ "detections": [{"id": 76,
+                 "corners": [[900.1, 480.2], [960.3, 481.0], [959.8, 540.9], [899.7, 540.1]],
+                 "decision_margin": null,
+                 "solutions": [{"rvec": [3.1, 0.02, 0.1], "tvec": [-0.05, 0.02, 0.71],
+                                "reprojection_error_px": 0.12},
+                               {"rvec": [2.9, -0.3, 0.1], "tvec": [-0.05, 0.02, 0.71],
+                                "reprojection_error_px": 0.35}]}]}
+```
+
+- `image_stamp_ns`: the frame's `Header.stamp` times 1e9, rounded. The stamp is a double, so this
+  is within about 250 ns of `/camera/frame_meta`'s exact string, not equal to it; join on the
+  nearest frame.
+- `roi`: `[x, y, w, h]` of the window that was searched, `null` when the full frame was. A window
+  that finds nothing falls back to the full frame in the same tick.
+- `corners`: pixels, OpenCV aruco order, clockwise from the marker's top-left.
+- `decision_margin`: always `null`. OpenCV's aruco detector does not expose one.
+- `solutions`: both `SOLVEPNP_IPPE_SQUARE` solutions as `solvePnPGeneric` returns them, sorted
+  by reprojection error ascending. `rvec`/`tvec` map the marker frame (origin at the tag centre, x
+  right and y up in the printed image, z out of the face) into the camera frame, metres.
 
 ## `/log` (`foxglove.Log`)
 

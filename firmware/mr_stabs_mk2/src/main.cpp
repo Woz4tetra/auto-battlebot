@@ -8,6 +8,7 @@
 #include <esc.h>
 #include <pid.h>
 #include <updown_sensor.h>
+#include <vbat_sensor.h>
 
 const char *WIFI_SSID = "MR-STABS";
 const char *WIFI_PASSWORD = "havocbots";
@@ -22,6 +23,7 @@ esc::Esc *left_esc;
 esc::Esc *right_esc;
 
 updown_sensor::UpdownSensor *accel;
+vbat_sensor::VbatSensor vbat_sensor_ina219;
 DiagnosticsServer diag_server;
 
 const int NUM_PIXELS = 1;
@@ -203,6 +205,9 @@ void setup() {
     if (!accel->begin()) {
         for (int count = 0; count < 10; count++) pulse_led();
     }
+    // INA219 pack voltage on the same bus. If it is missing, vbat reports NaN and the robot
+    // runs normally.
+    vbat_sensor_ina219.begin(&Wire1);
     set_builtin_led(255);
 
     radio_data = (crsf_bridge::radio_data_t *)malloc(sizeof(crsf_bridge::radio_data_t));
@@ -243,6 +248,7 @@ void loop() {
     }
 
     bool radio_ok = crsf->update(radio_data);
+    float vbat = vbat_sensor_ina219.update();
 
     // Combat mode
     uint32_t now_ms = millis();
@@ -279,6 +285,7 @@ void loop() {
             .orientation_z = ori ? ori->z : 0,
             .pid_setpoint = angle_setpoint,
             .pid_output = angle_pid_output,
+            .vbat = vbat,
         };
         diag_server.update(&diag);
         return;
@@ -315,6 +322,7 @@ void loop() {
             .orientation_z = ori ? ori->z : 0,
             .pid_setpoint = angle_setpoint,
             .pid_output = angle_pid_output,
+            .vbat = vbat,
         };
         diag_server.update(&diag);
         return;
@@ -347,6 +355,7 @@ void loop() {
             .orientation_z = ori ? ori->z : 0,
             .pid_setpoint = angle_setpoint,
             .pid_output = angle_pid_output,
+            .vbat = vbat,
         };
         diag_server.update(&diag);
         return;
@@ -412,6 +421,7 @@ void loop() {
         .orientation_z = orientation ? orientation->z : 0,
         .pid_setpoint = angle_setpoint,
         .pid_output = angle_pid_output,
+        .vbat = vbat,
     };
     diag_server.update(&diag);
 }

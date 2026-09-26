@@ -22,6 +22,7 @@ typedef struct {
     float orientation_z;
     float pid_setpoint;
     float pid_output;
+    float vbat;  // pack volts from the INA219, NaN when absent
 } diag_data_t;
 
 struct tunable_ptrs_t {

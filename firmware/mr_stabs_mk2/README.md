@@ -19,6 +19,18 @@ The firmware has two modes, toggled by the `button_state` switch on the transmit
 | Right ESC | Pin A3, DShot300 via RMT channel 1 |
 | Radio RX | Crossfire Nano, UART on pins 17 (TX) / 18 (RX) |
 | Accelerometer | ADXL375, I2C |
+| Pack voltage | INA219 breakout at 0x40, on the BNO055's I2C bus (`Wire1`) |
+
+### INA219 pack voltage wiring
+
+The INA219 reads only bus voltage, in its 32 V range. Current is not measured.
+
+- One sense wire from pack + through a 1 kohm series resistor to VIN+ only. VIN- stays unconnected: the chip reads the bus through the onboard 0.1 ohm shunt, which carries only its microamps. Wiring pack + to both pins would put the shunt in parallel with the resistor and bypass it.
+- After the resistor, a 0.1 uF cap to ground (100 us RC, filters the power-on ringing) or an SMAJ18A TVS to ground. The bus input is 26 V absolute max, a full 4S LiHV pack is 17.4 V, and closing the switch rings the leads against the ESC input caps up to nearly twice pack voltage. The resistor also limits fault current, so a failed chip cannot put pack voltage onto the shared I2C bus.
+- VCC from the QT Py's 3.3 V, so the I2C pull-ups stay at 3.3 V.
+- GND at battery negative.
+
+Calibrate once against a multimeter, at rest and during a punch, and set `VBAT_CAL_SCALE` in `include/vbat_sensor.h`. The series resistor shifts the reading about 0.3%. If the INA219 does not answer at boot, `vbat` reads `nan` and the robot runs normally.
 
 ## Building and Flashing
 
@@ -104,6 +116,7 @@ The dashboard streams all diagnostic data at 10 Hz:
 - Accelerometer (x, y, z)
 - Orientation (upside down detection)
 - Loop timing and WiFi client count
+- Pack voltage (`vbat`, last CSV column, sampled every 10 ms and repeated in between)
 - Current mode (combat / tuning)
 
 ### Recording Data

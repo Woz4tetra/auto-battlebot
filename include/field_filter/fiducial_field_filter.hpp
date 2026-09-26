@@ -19,6 +19,10 @@ namespace auto_battlebot {
  * version of it, because everything upstream looks like it is working. */
 std::vector<int> floor_board_ids(int cols, int rows, int first_id);
 
+/** Detector parameters tuned for small, distant 36h11 tags with subpixel corner refinement. The
+ *  floor board and the robot tag model share them. */
+cv::aruco::DetectorParameters small_apriltag_detector_parameters();
+
 /** Brighten an underexposed frame with a gamma curve. Arena lighting is often dim enough that a
  *  raw frame decodes zero tags because the marker contrast is crushed into shadow; the stretch is
  *  monotonic and per channel, so corner geometry and the recovered pose are unchanged. */

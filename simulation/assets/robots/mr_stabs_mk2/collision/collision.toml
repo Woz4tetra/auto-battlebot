@@ -1,0 +1,26 @@
+pieces = [
+    "hull_0.obj",
+    "hull_1.obj",
+    "hull_2.obj",
+    "hull_3.obj",
+    "hull_4.obj",
+    "hull_5.obj",
+    "hull_6.obj",
+    "hull_7.obj",
+    "hull_8.obj",
+    "hull_9.obj",
+    "hull_10.obj",
+    "hull_11.obj",
+    "hull_12.obj",
+    "hull_13.obj",
+    "hull_14.obj",
+    "hull_15.obj",
+]
+skid_point_m = [
+    0.111471,
+    0.0,
+    -0.003131,
+]
+rest_pitch_rad = 0.198025
+coacd_threshold = 0.05
+generator = "playground/calibration/build_mr_stabs_mjcf.py"

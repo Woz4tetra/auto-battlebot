@@ -5,6 +5,7 @@
 
 #include "config/config_cast.hpp"
 #include "config/config_parser.hpp"
+#include "transmitter/esp32_diagnostics_opentx_transmitter.hpp"
 #include "transmitter/noop_transmitter.hpp"
 #include "transmitter/opentx_transmitter.hpp"
 #include "transmitter/playback_transmitter.hpp"
@@ -15,6 +16,8 @@ namespace auto_battlebot {
 REGISTER_CONFIG(TransmitterConfiguration, NoopTransmitterConfiguration, "NoopTransmitter")
 REGISTER_CONFIG(TransmitterConfiguration, PlaybackTransmitterConfiguration, "PlaybackTransmitter")
 REGISTER_CONFIG(TransmitterConfiguration, OpenTxTransmitterConfiguration, "OpenTxTransmitter")
+REGISTER_CONFIG(TransmitterConfiguration, Esp32DiagnosticsOpenTxTransmitterConfiguration,
+                "Esp32DiagnosticsOpenTxTransmitter")
 REGISTER_CONFIG(TransmitterConfiguration, SimTransmitterConfiguration, "SimTransmitter")
 
 std::unique_ptr<TransmitterConfiguration> parse_transmitter_config(ConfigParser &parser) {
@@ -33,8 +36,9 @@ std::unique_ptr<TransmitterConfiguration> load_transmitter_from_toml(
     return config;
 }
 
-std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfiguration &config,
-                                                       std::shared_ptr<ClockInterface> clock) {
+std::shared_ptr<TransmitterInterface> make_transmitter(
+    const TransmitterConfiguration &config, std::shared_ptr<ClockInterface> clock,
+    std::shared_ptr<VizSink> sink, std::shared_ptr<McapRecorder> mcap_recorder) {
     spdlog::info("Selected {} for Transmitter", config.type);
     if (config.type == "NoopTransmitter") {
         return std::make_shared<NoopTransmitter>();
@@ -44,6 +48,10 @@ std::shared_ptr<TransmitterInterface> make_transmitter(const TransmitterConfigur
     } else if (config.type == "OpenTxTransmitter") {
         return std::make_shared<OpenTxTransmitter>(
             config_cast<OpenTxTransmitterConfiguration>(config), std::move(clock));
+    } else if (config.type == "Esp32DiagnosticsOpenTxTransmitter") {
+        return std::make_shared<Esp32DiagnosticsOpenTxTransmitter>(
+            config_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration>(config), std::move(clock),
+            std::move(sink), std::move(mcap_recorder));
     } else if (config.type == "SimTransmitter") {
         return std::make_shared<SimTransmitter>(config_cast<SimTransmitterConfiguration>(config),
                                                 std::move(clock));

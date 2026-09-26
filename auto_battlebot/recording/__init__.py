@@ -8,4 +8,6 @@ mcap_io     reader: iter_messages and the decode_* dispatch
 mcap_write  writer: the McapWriter wrapper over the Foxglove SDK
 svo2        ZED .svo2 containers, read without the ZED SDK
 diag_io     control-metric loaders layered over the diagnostics decoder
+sysid_io    Mr Stabs Mk2 sysid topics: /apriltag/robot_tags, /robot/esp32_diagnostics, sticks
+esp32_clock robot-clock to app-clock fit and the cross-correlation delay checks
 """

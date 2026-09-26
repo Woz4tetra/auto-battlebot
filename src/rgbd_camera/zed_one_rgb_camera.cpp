@@ -184,7 +184,10 @@ bool ZedOneRgbCamera::capture_frame() {
     bgr.allocator = PinnedMatAllocator::instance();
     cv::cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
 
-    if (encoder_.running()) {
+    // Read once: set_recording_enabled() can start or stop the encoder from another thread, and
+    // the frame index has to count exactly the frames that were submitted.
+    const bool encoding = encoder_.running();
+    if (encoding) {
         encoder_.submit(bgr, wall_time_ns());
     }
 
@@ -203,8 +206,7 @@ bool ZedOneRgbCamera::capture_frame() {
         latest_data_.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
         latest_data_.tf_visodom_from_camera.transform.tf = Eigen::Matrix4d::Identity();
         latest_data_.frame_identity.image_stamp_ns = capture_time_ns;
-        latest_data_.frame_identity.video_frame_index =
-            encoder_.running() ? ++video_frame_index_ : -1;
+        latest_data_.frame_identity.video_frame_index = encoding ? ++video_frame_index_ : -1;
         frame_counter_++;
     }
     return true;
@@ -259,7 +261,11 @@ bool ZedOneRgbCamera::set_recording_enabled(bool enabled) {
         encoder_.stop();
         return true;
     }
-    return encoder_.running();
+    if (encoder_.running()) {
+        return true;
+    }
+    // A recording started from the remote UI after launch lands here, not in initialize().
+    return mcap_recorder_ && start_encoder();
 }
 
 bool ZedOneRgbCamera::is_recording_enabled() const { return encoder_.running(); }

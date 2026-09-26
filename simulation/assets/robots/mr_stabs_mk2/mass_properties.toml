@@ -1,0 +1,157 @@
+# Mr Stabs Mk2 mass properties and tag frames. Generated; do not edit by hand.
+# Regenerate: python playground/calibration/lump_mr_stabs_mass_properties.py
+# Tag frames: T_body_tag maps OpenCV marker-frame points (origin at the tag center,
+# x right and y up in the printed image, z out of the face) into the body frame.
+# rotation is R_body_tag, row-major. upside_down = true for the tag that faces the
+# floor when the robot is upright. Found by rendering each CAD face and decoding it.
+
+structural_links = [
+    "mr_stabs_mk2_chassis",
+    "mr_stabs_mk2_top_plate",
+    "mr_stabs_mk2_bottom_plate",
+]
+
+[provenance]
+onshape_assembly = "Onshape Mass and section properties, whole assembly, screenshot 2026-09-25 23:10 (onshape_export/onshape_mass_properties_2026-09-25.png)"
+urdf_export = "onshape_export/mr_stabs_mk2.urdf (Onshape URDF exporter 1.221); used for the wheels and tag frames only, it carries no mass overrides"
+chassis = "whole assembly minus both wheels, topped up to the scale mass at its COM with inertia scaled by the mass ratio"
+scale_mass_kg = 0.4959
+cad_mass_kg = 0.49422000000000005
+chassis_cad_mass_kg = 0.4573301
+rotor = "CAD integration of the 1806 rotor: steel flux ring, 14 magnets, aluminum end cap (a steel cap would overshoot the listed 22.4 g motor mass), steel shaft. Gearbox internals are missing from the CAD; bounding them adds at most 4%"
+generator = "playground/calibration/lump_mr_stabs_mass_properties.py"
+
+[frame]
+description = "FLU at the axle midpoint: x forward, y left, z up. x = -Y_asm, y = +X_asm, z = +Z_asm"
+
+[chassis]
+mass_kg = 0.4590101
+com_m = [
+    0.0319413,
+    4.3e-06,
+    0.0008608,
+]
+fullinertia_kg_m2 = [
+    0.000779756,
+    0.000548137,
+    0.00125669,
+    4.14461e-08,
+    -2.38195e-06,
+    -9.33042e-08,
+]
+
+[wheel_left]
+mass_kg = 0.0184449
+com_m = [
+    -0.0001443,
+    0.0652598,
+    -0.0001294,
+]
+fullinertia_kg_m2 = [
+    2.32715e-06,
+    4.25282e-06,
+    2.34609e-06,
+    -7.8558e-09,
+    2.35686e-08,
+    -6.79616e-09,
+]
+
+[wheel_right]
+mass_kg = 0.0184449
+com_m = [
+    -9.88e-05,
+    -0.0652598,
+    0.000167,
+]
+fullinertia_kg_m2 = [
+    2.3153e-06,
+    4.25282e-06,
+    2.35793e-06,
+    5.44751e-09,
+    -1.38088e-08,
+    -8.86888e-09,
+]
+
+[whole]
+mass_kg = 0.4959
+com_m = [
+    0.0295561,
+    4e-06,
+    0.0007982,
+]
+fullinertia_kg_m2 = [
+    0.000941532,
+    0.00059177,
+    0.00145361,
+    8.90454e-08,
+    -3.29412e-06,
+    2.47724e-07,
+]
+
+[geometry]
+track_half_width_m = 0.06526
+wheel_radius_m = 0.025
+tread_radius_cad_m = 0.025
+tread_width_m = 0.012
+
+[drivetrain]
+gear_ratio = 22.6
+motor_kv_rpm_per_v = 2300.0
+motor_kt_nm_per_a = 0.0041519
+rotor_inertia_kg_m2 = 9.3e-07
+reflected_inertia_kg_m2 = 0.00047501
+gearmotor_mass_kg = 0.0445
+
+[tags.41]
+upside_down = true
+translation_m = [
+    0.035391,
+    1.9e-05,
+    -0.012076,
+]
+rotation = [
+    [
+        0.0,
+        -0.983904,
+        0.178696,
+    ],
+    [
+        -1.0,
+        -3e-06,
+        -1.6e-05,
+    ],
+    [
+        1.6e-05,
+        -0.178696,
+        -0.983904,
+    ],
+]
+size_m = 0.064
+tilt_deg = 10.29
+
+[tags.76]
+upside_down = false
+translation_m = [
+    0.035553,
+    -1.1e-05,
+    0.014164,
+]
+rotation = [
+    [
+        0.0,
+        -0.986029,
+        0.166572,
+    ],
+    [
+        1.0,
+        -2e-06,
+        -1.1e-05,
+    ],
+    [
+        1.1e-05,
+        0.166572,
+        0.986029,
+    ],
+]
+size_m = 0.064
+tilt_deg = 9.59

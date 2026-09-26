@@ -45,6 +45,13 @@ dependencies = [
   "pycuda; platform_machine == \"x86_64\"",
   "torch>=2.0.0; platform_machine == \"x86_64\"",
   "tensorrt==10.14.1.48.post1; platform_machine == \"x86_64\"",
+  # auto_battlebot/mujoco_sim: the Mr Stabs Mk2 rigid-body fit runs on the dev GPUs only.
+  # Pinned because the MuJoCo Warp API is still moving between releases.
+  "mujoco==3.14.0; platform_machine == \"x86_64\"",
+  "mujoco-warp==3.14.0; platform_machine == \"x86_64\"",
+  "warp-lang==1.17.0; platform_machine == \"x86_64\"",
+  "cma==4.5.0; platform_machine == \"x86_64\"",
+  "coacd==1.0.14; platform_machine == \"x86_64\"",
 ]
 
 [build-system]

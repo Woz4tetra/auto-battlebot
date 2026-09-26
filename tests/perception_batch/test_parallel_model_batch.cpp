@@ -22,14 +22,16 @@ ModelResultStamped make_tagged_result(double tag) {
 class FakeKeypointModel : public KeypointModelInterface {
    public:
     bool initialize() override { return true; }
-    ModelResultStamped update(RgbImage /*image*/) override {
+    ModelResultStamped update(RgbImage /*image*/, const CameraInfo &camera_info) override {
         ++call_count;
+        last_camera_width = camera_info.width;
         if (on_update) on_update();
         return make_tagged_result(kKeypointTag);
     }
 
     static constexpr double kKeypointTag = 1.0;
     std::atomic<int> call_count{0};
+    std::atomic<int> last_camera_width{0};
     std::function<void()> on_update;
 };
 
@@ -59,11 +61,12 @@ class ParallelModelBatchTest : public ::testing::Test {
     std::shared_ptr<FakeKeypointModel> keypoint_model_;
     std::shared_ptr<FakeRobotBlobModel> blob_model_;
     RgbImage image_;
+    CameraInfo camera_info_;
 };
 
 TEST_F(ParallelModelBatchTest, RoutesEachModelResultToItsField) {
     ParallelModelBatch batch = make_batch();
-    BatchResult result = batch.update(image_);
+    BatchResult result = batch.update(image_, camera_info_);
 
     ASSERT_EQ(result.keypoints.keypoints.size(), 1u);
     EXPECT_EQ(result.keypoints.keypoints[0].x, FakeKeypointModel::kKeypointTag);
@@ -73,10 +76,17 @@ TEST_F(ParallelModelBatchTest, RoutesEachModelResultToItsField) {
     EXPECT_EQ(blob_model_->call_count, 1);
 }
 
+TEST_F(ParallelModelBatchTest, PassesCameraInfoToKeypointModel) {
+    camera_info_.width = 1920;
+    ParallelModelBatch batch = make_batch();
+    batch.update(image_, camera_info_);
+    EXPECT_EQ(keypoint_model_->last_camera_width, 1920);
+}
+
 TEST_F(ParallelModelBatchTest, ReusesWorkersAcrossTicks) {
     ParallelModelBatch batch = make_batch();
     for (int i = 0; i < 5; ++i) {
-        BatchResult result = batch.update(image_);
+        BatchResult result = batch.update(image_, camera_info_);
         ASSERT_EQ(result.keypoints.keypoints.size(), 1u);
         ASSERT_EQ(result.robot_blob_keypoints.keypoints.size(), 1u);
     }
@@ -102,7 +112,7 @@ TEST_F(ParallelModelBatchTest, RunsModelsConcurrently) {
     blob_model_->on_update = [&] { rendezvous(blob_saw_both); };
 
     ParallelModelBatch batch = make_batch();
-    batch.update(image_);
+    batch.update(image_, camera_info_);
 
     EXPECT_TRUE(keypoint_saw_both);
     EXPECT_TRUE(blob_saw_both);
@@ -111,7 +121,7 @@ TEST_F(ParallelModelBatchTest, RunsModelsConcurrently) {
 TEST_F(ParallelModelBatchTest, ReportsPerModelElapsedTime) {
     keypoint_model_->on_update = [] { std::this_thread::sleep_for(std::chrono::milliseconds(20)); };
     ParallelModelBatch batch = make_batch();
-    BatchResult result = batch.update(image_);
+    BatchResult result = batch.update(image_, camera_info_);
 
     EXPECT_GE(result.keypoint_model_elapsed_ms, 20.0);
     EXPECT_GE(result.robot_blob_model_elapsed_ms, 0.0);
@@ -128,13 +138,13 @@ TEST_F(ParallelModelBatchTest, TimedOutModelYieldsEmptyResultThenRecovers) {
     };
     ParallelModelBatch batch = make_batch();
 
-    BatchResult timed_out = batch.update(image_);
+    BatchResult timed_out = batch.update(image_, camera_info_);
     EXPECT_EQ(timed_out.keypoints.keypoints.size(), 1u);
     EXPECT_TRUE(timed_out.robot_blob_keypoints.keypoints.empty());
 
     // Let the straggler finish its stale request before issuing the next one.
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    BatchResult recovered = batch.update(image_);
+    BatchResult recovered = batch.update(image_, camera_info_);
     EXPECT_EQ(recovered.keypoints.keypoints.size(), 1u);
     EXPECT_EQ(recovered.robot_blob_keypoints.keypoints.size(), 1u);
 }

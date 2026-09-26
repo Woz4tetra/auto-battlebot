@@ -5,6 +5,7 @@
 
 #include "config/config_cast.hpp"
 #include "config/config_parser.hpp"
+#include "keypoint_model/apriltag_keypoint_model.hpp"
 #include "keypoint_model/noop_keypoint_model.hpp"
 #include "keypoint_model/yolo_keypoint_model.hpp"
 
@@ -12,6 +13,8 @@ namespace auto_battlebot {
 // Automatic registration of config types
 REGISTER_CONFIG(KeypointModelConfiguration, NoopKeypointModelConfiguration, "NoopKeypointModel")
 REGISTER_CONFIG(KeypointModelConfiguration, YoloKeypointModelConfiguration, "YoloKeypointModel")
+REGISTER_CONFIG(KeypointModelConfiguration, AprilTagKeypointModelConfiguration,
+                "AprilTagKeypointModel")
 
 std::unique_ptr<KeypointModelConfiguration> parse_keypoint_model_config(ConfigParser &parser) {
     return ConfigFactory<KeypointModelConfiguration>::instance().create_and_parse(parser);
@@ -30,7 +33,8 @@ std::unique_ptr<KeypointModelConfiguration> load_keypoint_model_from_toml(
 }
 
 std::shared_ptr<KeypointModelInterface> make_keypoint_model(
-    const KeypointModelConfiguration &config) {
+    const KeypointModelConfiguration &config, std::shared_ptr<VizSink> sink,
+    std::shared_ptr<McapRecorder> mcap_recorder) {
     spdlog::info("Selected {} for KeypointModel", config.type);
     if (config.type == "NoopKeypointModel") {
         return std::make_shared<NoopKeypointModel>();
@@ -39,6 +43,10 @@ std::shared_ptr<KeypointModelInterface> make_keypoint_model(
         return std::make_shared<YoloKeypointModel>(
             model_config,
             std::make_shared<EngineSelector>(model_config.engine, "YoloKeypointModel"));
+    } else if (config.type == "AprilTagKeypointModel") {
+        return std::make_shared<AprilTagKeypointModel>(
+            config_cast<AprilTagKeypointModelConfiguration>(config), std::move(sink),
+            std::move(mcap_recorder));
     }
     throw std::invalid_argument("Failed to load KeypointModel of type " + config.type);
 }
