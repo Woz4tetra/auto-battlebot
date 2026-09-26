@@ -105,9 +105,13 @@ apriltag_mcap.py` still defines. `analyze_apriltag_mcap.py` still reads that lay
 
 Restore it with these changes:
 
-1. **Log the firmware diagnostics stream.** Join the robot's access point, put the stream in
-   recording mode, and write every event to a new `/robot/diagnostics` topic stamped with the host
-   receive time as well as the robot's `timestamp_ms`. `left_cmd` and `right_cmd` become the fit's
+1. **Log the firmware diagnostics stream.** This path is independent of the Crossfire control link:
+   the ESP32 hosts its own 2.4 GHz access point (`MR-STABS`), and the recording PC joins it
+   (through a second WiFi adapter, or with ethernet for anything that needs internet). The recorder
+   sends `GET /record/start` so the stream sends every control loop instead of at 10 Hz, holds the
+   server-sent-events stream at `/events` open, and writes every event to a new `/robot/diagnostics`
+   topic stamped with the host CLOCK_MONOTONIC receive time as well as the robot's `timestamp_ms`.
+   It sends `GET /record/stop` on exit. `left_cmd` and `right_cmd` become the fit's
    command tape. BNO055 orientation gives yaw and pitch on board, which keeps measuring while the
    tag is out of frame.
 2. **Keep `/transmitter/channels`** for clock alignment and as a fallback. The MCAP docstring says
