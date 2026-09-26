@@ -24,8 +24,8 @@ type = "YoloKeypointModel"
 
 [keypoint_model.engine]
 candidates = [
-  "data/models/yolo26x-pose_cagehigh_rect384x640_2026-09-20_x86_64_sm89.engine",
-  # "data/models/yolo26s-pose_d50000_cagehigh_rect384x640_2026-09-20_x86_64_sm89.engine",
+  "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm89.engine",
+  "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm86.engine",
 ]
 
 [ui]
