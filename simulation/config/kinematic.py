@@ -33,6 +33,9 @@ class SimParamsConfig:
     #
     # max_ticks is separate and always ends the run: it is an explicit cap, not an outcome.
     stop_on_outcome: bool = False
+    # Per-tick CSV of the applied command and true poses, rewritten on each client connect. Empty
+    # means none. sim_stop_test.py scores stops from it.
+    trace_csv: str = ""
 
 
 @dataclass

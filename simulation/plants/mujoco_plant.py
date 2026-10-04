@@ -68,6 +68,11 @@ class MujocoPlant:
         return 0.0 if self.fell_in else self._sim.yaw_rate
 
     @property
+    def pitch(self) -> float:
+        """Chassis pitch, rad. At rest it sits on the skid, about 11 deg nose-down."""
+        return self._sim.pitch
+
+    @property
     def fell_in(self) -> bool:
         return self._hazards.fell_in
 

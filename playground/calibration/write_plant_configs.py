@@ -22,6 +22,13 @@ Usage:
     source scripts/activate_python.sh
     python playground/calibration/write_plant_configs.py           # rewrite
     python playground/calibration/write_plant_configs.py --check   # report drift, change nothing
+
+Mr Stabs Mk2 has no jig fit. Its table comes from the MuJoCo fit through distill_mujoco_plant.py and
+goes into its own profiles' [plant] tables only; its sim config keeps the MuJoCo plant, so no sim
+fields are written:
+
+    python playground/calibration/write_plant_configs.py --robot mr_stabs_mk2 \
+        --fit playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
 """
 
 from __future__ import annotations
@@ -38,6 +45,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FIT = REPO_ROOT / "playground" / "calibration" / "out" / "plant_stageA.toml"
 SIM_CONFIG = REPO_ROOT / "simulation" / "sim_mrs_buff_mk3.toml"
 PLANT_CONFIG = REPO_ROOT / "config" / "_common.toml"
+# Every Mr Stabs Mk2 profile restates [plant] in full rather than inheriting Mrs Buff's.
+MR_STABS_PLANT_CONFIGS = tuple(
+    REPO_ROOT / "config" / rel
+    for rel in (
+        "mr_stabs_mk2_desktop.toml",
+        "mr_stabs_mk2_jetson.toml",
+        "mr_stabs_mk2_zed_box.toml",
+        "playback/mr_stabs_mk2_playback.toml",
+        "simulation/mr_stabs_mk2_kinematic_sim.toml",
+    )
+)
 
 # Consumer field name -> fit parameter name. The sim models the plant, so it takes every term
 # including the ones the controller deliberately ignores. `delay_ms` is derived below; the sim
@@ -141,22 +159,34 @@ TOML_FIELD = r"^\s*{field}\s*=\s*" + NUMBER
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fit", type=Path, default=DEFAULT_FIT, help="fitted plant TOML")
+    parser.add_argument("--fit", type=Path, default=None, help="fitted plant TOML")
+    parser.add_argument(
+        "--robot",
+        choices=("mrs_buff_mk3", "mr_stabs_mk2"),
+        default="mrs_buff_mk3",
+        help="which robot's configs to write (mr_stabs_mk2 needs --fit)",
+    )
     parser.add_argument(
         "--check", action="store_true", help="report drift and exit 1; write nothing"
     )
     args = parser.parse_args()
 
+    if args.fit is None:
+        if args.robot == "mr_stabs_mk2":
+            raise SystemExit("--robot mr_stabs_mk2 needs --fit (distill_mujoco_plant.py output)")
+        args.fit = DEFAULT_FIT
+    args.fit = args.fit.resolve()
     if not args.fit.is_file():
         raise SystemExit(f"no fit at {args.fit}; run playground/calibration/fit_jig_plant.py first")
     plant = tomllib.loads(args.fit.read_text())["plant"]
     plant["delay_ms"] = plant["delay_s"] * 1000.0
 
     all_changes: list[Change] = []
-    for path, pattern, fields in (
-        (SIM_CONFIG, TOML_FIELD, SIM_FIELDS),
-        (PLANT_CONFIG, TOML_FIELD, PLANT_FIELDS),
-    ):
+    if args.robot == "mr_stabs_mk2":
+        targets = [(path, TOML_FIELD, PLANT_FIELDS) for path in MR_STABS_PLANT_CONFIGS]
+    else:
+        targets = [(SIM_CONFIG, TOML_FIELD, SIM_FIELDS), (PLANT_CONFIG, TOML_FIELD, PLANT_FIELDS)]
+    for path, pattern, fields in targets:
         text = path.read_text()
         updated, changes = _rewrite(text, pattern, fields, plant, path)
         all_changes.extend(changes)
