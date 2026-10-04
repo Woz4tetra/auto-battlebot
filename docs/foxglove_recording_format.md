@@ -182,7 +182,8 @@ per-cycle summary: in record mode that is every firmware control loop. `log_time
  "button_state": false, "flip_switch": 0, "left_cmd": 48.0, "right_cmd": 52.0,
  "accel_x": 1.1, "accel_y": 0.0, "accel_z": 9.7, "is_upside_down": false,
  "loop_us": 905, "wifi_clients": 1, "orientation_x": 10.0, "orientation_y": 0.5,
- "orientation_z": -0.5, "pid_setpoint": 0.0, "pid_output": 0.0, "vbat": 15.842}
+ "orientation_z": -0.5, "pid_setpoint": 0.0, "pid_output": 0.0, "vbat": 15.842,
+ "ibat": 3.12}
 ```
 
 - `host_receive_ns`: app wall clock when the line arrived, integer nanoseconds. A JSON integer
@@ -192,8 +193,10 @@ per-cycle summary: in record mode that is every firmware control loop. `log_time
 - `left_cmd`, `right_cmd`: per-motor commands after the heading PID and the mixer, percent. These
   are the drivetrain's input.
 - `orientation_*`: BNO055 Euler angles in degrees. `accel_*`: BNO055 acceleration.
-- `vbat`: pack voltage from the INA219 in volts, `null` when the firmware predates the field or
-  prints `nan` (no INA219, or a failed read).
+- `vbat`: pack voltage from the INA228 in volts, `null` when the firmware predates the field or
+  prints `nan` (no INA228, or a failed read).
+- `ibat`: pack current from the INA228 in amps, positive while discharging, `null` under the same
+  conditions as `vbat`.
 
 Stream health (connected, events per second, parse errors, reconnects, largest robot-clock gap,
 clock offset) goes to `/diagnostics/esp32_diagnostics` once a second.

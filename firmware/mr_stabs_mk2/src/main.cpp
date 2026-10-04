@@ -23,7 +23,7 @@ esc::Esc *left_esc;
 esc::Esc *right_esc;
 
 updown_sensor::UpdownSensor *accel;
-vbat_sensor::VbatSensor vbat_sensor_ina219;
+vbat_sensor::VbatSensor vbat_sensor_ina228;
 DiagnosticsServer diag_server;
 
 const int NUM_PIXELS = 1;
@@ -205,9 +205,9 @@ void setup() {
     if (!accel->begin()) {
         for (int count = 0; count < 10; count++) pulse_led();
     }
-    // INA219 pack voltage on the same bus. If it is missing, vbat reports NaN and the robot
-    // runs normally.
-    vbat_sensor_ina219.begin(&Wire1);
+    // INA228 pack voltage and current on the same bus. If it is missing, vbat and ibat report
+    // NaN and the robot runs normally.
+    vbat_sensor_ina228.begin(&Wire1);
     set_builtin_led(255);
 
     radio_data = (crsf_bridge::radio_data_t *)malloc(sizeof(crsf_bridge::radio_data_t));
@@ -248,7 +248,24 @@ void loop() {
     }
 
     bool radio_ok = crsf->update(radio_data);
-    float vbat = vbat_sensor_ina219.update();
+    vbat_sensor_ina228.update();
+    float vbat = vbat_sensor_ina228.get_volts();
+    float ibat = vbat_sensor_ina228.get_amps();
+
+    // Read the IMU every loop with the link up, armed or not, so heading stays fresh for the PID
+    // and the radio's attitude telemetry tracks the robot while it is disarmed. Rate-limited
+    // inside the sensor. Skipped with the link down: get_is_upside_down(false) runs the BNO055
+    // reconnect, which blocks for over a second.
+    bool sensed_upside_down = radio_ok && accel->get_is_upside_down(radio_data->connected);
+    updown_sensor::vector3_t *orientation = accel->get_orientation();
+    crsf_bridge::telemetry_data_t telemetry = {
+        .pack_volts = vbat,
+        .pack_amps = ibat,
+        .heading_deg = orientation->x,
+        .roll_deg = orientation->y,
+        .pitch_deg = orientation->z,
+    };
+    crsf->send_telemetry(&telemetry);
 
     // Combat mode
     uint32_t now_ms = millis();
@@ -286,6 +303,7 @@ void loop() {
             .pid_setpoint = angle_setpoint,
             .pid_output = angle_pid_output,
             .vbat = vbat,
+            .ibat = ibat,
         };
         diag_server.update(&diag);
         return;
@@ -323,6 +341,7 @@ void loop() {
             .pid_setpoint = angle_setpoint,
             .pid_output = angle_pid_output,
             .vbat = vbat,
+            .ibat = ibat,
         };
         diag_server.update(&diag);
         return;
@@ -356,6 +375,7 @@ void loop() {
             .pid_setpoint = angle_setpoint,
             .pid_output = angle_pid_output,
             .vbat = vbat,
+            .ibat = ibat,
         };
         diag_server.update(&diag);
         return;
@@ -363,8 +383,6 @@ void loop() {
 
     set_led_intensity((abs(radio_data->a_percent) + abs(radio_data->b_percent)) / 2.0);
 
-    // Read the IMU every armed loop so heading stays fresh for the PID, regardless of flip mode
-    bool sensed_upside_down = accel->get_is_upside_down(radio_data->connected);
     bool is_upside_down;
     bool auto_steer_enabled = false;
     switch (radio_data->flip_switch_state) {
@@ -385,7 +403,6 @@ void loop() {
 
     if (is_upside_down) radio_data->a_percent *= -1;
 
-    updown_sensor::vector3_t *orientation = accel->get_orientation();
     float sensed_angle_z = orientation->x;
     if (auto_steer_enabled != was_auto_steer_enabled && auto_steer_enabled) {
         reset_angle_pid(sensed_angle_z);
@@ -422,6 +439,7 @@ void loop() {
         .pid_setpoint = angle_setpoint,
         .pid_output = angle_pid_output,
         .vbat = vbat,
+        .ibat = ibat,
     };
     diag_server.update(&diag);
 }

@@ -2,53 +2,56 @@
 #include <Arduino.h>
 #include <Wire.h>
 
-// Pack voltage from an INA219 breakout on the BNO055's I2C bus (Wire1). Only the bus voltage
-// register is read; current is not measured.
+// Pack voltage and current from a Matek I2C-INA-BM (TI INA228) on the BNO055's I2C bus (Wire1).
 //
-// Wiring (INA219 breakout):
-// - Pack + -> 1 kohm series resistor -> VIN+ only. VIN- stays unconnected, so the chip reads the
-//   bus through the onboard 0.1 ohm shunt, which carries only the chip's microamps. Wiring pack +
-//   to both VIN+ and VIN- would put the shunt in parallel with the resistor and bypass it.
-// - After the resistor, a 0.1 uF cap to ground (100 us RC, filters the power-on ringing) or an
-//   SMAJ18A TVS to ground. The bus input is 26 V absolute max against 17.4 V for a full 4S LiHV
-//   pack, and closing the switch rings the leads against the ESC input caps up to nearly twice
-//   pack voltage. The resistor also limits fault current, so a failed chip cannot put pack
-//   voltage onto the shared I2C bus.
-// - VCC from the QT Py's 3.3 V, so the I2C pull-ups stay at 3.3 V.
-// - GND at battery negative.
+// Wiring (Matek I2C-INA-BM):
+// - Battery + and the ESC + lead solder to the two sides of the onboard 200 uohm shunt, as close
+//   to it as possible. The VBUS sense input is on board and rated 0-85 V, so no series resistor
+//   or clamp is needed for a 4S pack.
+// - JST-GH-4P to the QT Py: 5 V, GND, SCL, SDA. The board takes 4-9 V and runs the INA228 from
+//   its own 3.3 V regulator.
+// - Default address 0x45 (decimal 69). 0x44 and 0x41 are the alternatives.
 namespace vbat_sensor
 {
-    const uint8_t INA219_ADDRESS = 0x40;
+    const uint8_t INA228_ADDRESS = 0x45;
 
-    // Multiplies the raw reading. Set once against a multimeter at rest and during a punch: the
-    // 1 kohm series resistor shifts the reading about 0.3%.
-    const float VBAT_CAL_SCALE = 1.0f;
+    // Matek's nominal shunt. Its tolerance is the current reading's: about +-2%.
+    const float SHUNT_OHMS = 0.0002f;
 
-    // A read is one register-pointer write plus a 2-byte read, about 47 SCL clocks. Wire1 runs
-    // at the default 100 kHz, so that is ~0.5 ms on the wire plus driver overhead, blocking. The
-    // control loop has no fixed period (it varies with radio state, BNO055 reads, and recording
-    // mode), so the read runs on a time interval instead of every Nth loop. 10 ms costs one
-    // ~0.5 ms stretch per 10 ms and still resolves a punch's sag, which lasts 100s of ms.
-    // Loops in between repeat the last value.
+    // A sample is two reads (bus voltage, then shunt voltage), each one register-pointer write
+    // plus a 3-byte read, about 56 SCL clocks. Wire1 runs at the default 100 kHz, so that is
+    // ~1.2 ms on the wire plus driver overhead, blocking. The control loop has no fixed period
+    // (it varies with radio state, BNO055 reads, and recording mode), so sampling runs on a time
+    // interval instead of every Nth loop. 10 ms still resolves a punch's sag and current spike,
+    // which last 100s of ms. Loops in between repeat the last values.
     const uint32_t SAMPLE_INTERVAL_US = 10000;
 
     class VbatSensor
     {
     public:
-        // Writes the config register. Returns false and reports NaN from then on if the chip
-        // does not ACK. Never blocks beyond one I2C transaction.
+        // Checks the device ID and writes the ADC config. Returns false and reports NaN from
+        // then on if the chip does not ACK or is not an INA228. Never blocks beyond two I2C
+        // transactions.
         bool begin(TwoWire *wire = &Wire1);
 
-        // Reads the bus voltage when SAMPLE_INTERVAL_US has passed, else returns the last value.
-        // NaN when the chip was absent at boot or the last read failed.
-        float update();
+        // Samples voltage and current when SAMPLE_INTERVAL_US has passed, else does nothing.
+        void update();
+
+        // Pack volts. NaN when the chip was absent at boot or the last read failed.
+        float get_volts() const { return last_volts; }
+
+        // Pack amps, positive while discharging. NaN when the chip was absent at boot or the
+        // last read failed.
+        float get_amps() const { return last_amps; }
 
     private:
         TwoWire *wire = nullptr;
         bool present = false;
         float last_volts = NAN;
+        float last_amps = NAN;
         uint32_t sample_timer_us = 0;
 
-        bool read_bus_voltage(float *volts);
+        bool read_register(uint8_t reg, uint8_t num_bytes, uint32_t *value);
+        bool read_20_bit(uint8_t reg, int32_t *reading);
     };
 }

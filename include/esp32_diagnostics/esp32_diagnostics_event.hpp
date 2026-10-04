@@ -37,19 +37,24 @@ struct Esp32DiagnosticsEvent {
     double orientation_z = 0.0;
     double pid_setpoint = 0.0;
     double pid_output = 0.0;
-    /** Pack voltage from the INA219, volts. Empty on firmware that predates the field and when
-     *  the firmware prints `nan` because the INA219 is missing or a read failed. */
+    /** Pack voltage from the INA228, volts. Empty on firmware that predates the field and when
+     *  the firmware prints `nan` because the INA228 is missing or a read failed. */
     std::optional<double> vbat;
+    /** Pack current from the INA228, amps, positive while discharging. Empty under the same
+     *  conditions as `vbat`. */
+    std::optional<double> ibat;
 };
 
 /** Field count before the firmware added `vbat`. */
 constexpr int kEsp32DiagnosticsFieldsWithoutVbat = 20;
 /** Field count with `vbat` appended. */
 constexpr int kEsp32DiagnosticsFieldsWithVbat = 21;
+/** Field count with `ibat` appended after `vbat`. */
+constexpr int kEsp32DiagnosticsFieldsWithIbat = 22;
 
 /**
- * Parse one CSV event line. Accepts 20 fields (no `vbat`) or 21. Returns empty for any other
- * field count or for a field that does not parse as its type.
+ * Parse one CSV event line. Accepts 20 fields (no `vbat`), 21 (no `ibat`), or 22. Returns empty for
+ * any other field count or for a field that does not parse as its type.
  */
 std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_view line,
                                                                  uint64_t host_receive_ns);

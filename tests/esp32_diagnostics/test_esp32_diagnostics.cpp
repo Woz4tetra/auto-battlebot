@@ -24,6 +24,9 @@ constexpr const char *kLine20 =
     "123456,1,1,-12.5,3.0,0,1,-15.5,-9.5,0.1,-0.2,9.8,0,812,1,359.9,-1.5,2.3,4.0,-0.25";
 constexpr const char *kLine21 =
     "123457,1,0,50.0,0.0,1,0,48.0,52.0,1.1,0.0,9.7,1,905,2,10.0,0.5,-0.5,0.0,0.00,15.842";
+constexpr const char *kLine22 =
+    "123459,1,1,80.0,0.0,0,0,78.0,82.0,0.5,0.0,9.8,0,910,1,12.0,0.5,-0.5,0.0,0.00,15.201,"
+    "-42.37";
 constexpr const char *kLine21Nan =
     "123458,0,0,0.0,0.0,0,0,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00,nan";
 
@@ -63,6 +66,31 @@ TEST(Esp32DiagnosticsParseTest, ParsesTwentyOneFieldsWithVbat) {
     EXPECT_DOUBLE_EQ(*event->vbat, 15.842);
 }
 
+TEST(Esp32DiagnosticsParseTest, ParsesTwentyTwoFieldsWithIbat) {
+    auto event = parse_esp32_diagnostics_csv(kLine22, 0);
+    ASSERT_TRUE(event.has_value());
+    ASSERT_TRUE(event->vbat.has_value());
+    EXPECT_DOUBLE_EQ(*event->vbat, 15.201);
+    ASSERT_TRUE(event->ibat.has_value());
+    EXPECT_DOUBLE_EQ(*event->ibat, -42.37);
+    EXPECT_NE(to_esp32_diagnostics_json(*event).find("\"ibat\":-42.37"), std::string::npos);
+}
+
+TEST(Esp32DiagnosticsParseTest, OlderLinesHaveNoIbat) {
+    auto event = parse_esp32_diagnostics_csv(kLine21, 0);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_FALSE(event->ibat.has_value());
+    EXPECT_NE(to_esp32_diagnostics_json(*event).find("\"ibat\":null"), std::string::npos);
+}
+
+TEST(Esp32DiagnosticsParseTest, NanIbatIsAbsentNotAnError) {
+    auto event = parse_esp32_diagnostics_csv(
+        "1,0,0,0.0,0.0,0,0,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00,nan,nan", 0);
+    ASSERT_TRUE(event.has_value());
+    EXPECT_FALSE(event->vbat.has_value());
+    EXPECT_FALSE(event->ibat.has_value());
+}
+
 TEST(Esp32DiagnosticsParseTest, NanVbatIsAbsentNotAnError) {
     auto event = parse_esp32_diagnostics_csv(kLine21Nan, 0);
     ASSERT_TRUE(event.has_value());
@@ -81,8 +109,8 @@ TEST(Esp32DiagnosticsParseTest, RejectsMalformedLines) {
     EXPECT_FALSE(parse_esp32_diagnostics_csv(
                      "1,1,1,0.0,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0", 0)
                      .has_value());
-    // 22 fields
-    EXPECT_FALSE(parse_esp32_diagnostics_csv(std::string(kLine21) + ",1.0", 0).has_value());
+    // 23 fields
+    EXPECT_FALSE(parse_esp32_diagnostics_csv(std::string(kLine22) + ",1.0", 0).has_value());
     // A non-number in a numeric field
     EXPECT_FALSE(parse_esp32_diagnostics_csv(
                      "1,1,x,0.0,0.0,0,1,0.0,0.0,0.0,0.0,9.8,0,800,1,0.0,0.0,0.0,0.0,0.00", 0)
