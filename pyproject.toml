@@ -104,6 +104,8 @@ lint.unfixable = [
 "scripts/*" = ["INP"]
 "simulation/*.py" = ["INP"]
 "training/**/*.py" = ["INP"]
+# CAD part files, loaded by the build123d-part check script rather than imported.
+"hardware/**/*.py" = ["INP"]
 # Analysis scripts: one long linear main() per file, reading a recording and writing
 # plots. Splitting them to satisfy the complexity limit costs more than it buys. The
 # library code they call does not get this exemption; it lives in auto_battlebot/.
