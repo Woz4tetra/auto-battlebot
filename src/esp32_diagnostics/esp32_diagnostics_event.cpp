@@ -81,7 +81,7 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
                                                                  uint64_t host_receive_ns) {
     line = trim(line);
     std::vector<std::string_view> fields;
-    fields.reserve(kEsp32DiagnosticsFieldsWithVbat);
+    fields.reserve(kEsp32DiagnosticsFieldsWithIbat);
     size_t start = 0;
     while (true) {
         const size_t comma = line.find(',', start);
@@ -93,7 +93,8 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
         start = comma + 1;
     }
     const int count = static_cast<int>(fields.size());
-    if (count != kEsp32DiagnosticsFieldsWithoutVbat && count != kEsp32DiagnosticsFieldsWithVbat) {
+    if (count != kEsp32DiagnosticsFieldsWithoutVbat && count != kEsp32DiagnosticsFieldsWithVbat &&
+        count != kEsp32DiagnosticsFieldsWithIbat) {
         return std::nullopt;
     }
 
@@ -114,11 +115,16 @@ std::optional<Esp32DiagnosticsEvent> parse_esp32_diagnostics_csv(std::string_vie
         parse_number(fields[18], event.pid_setpoint) && parse_number(fields[19], event.pid_output);
     if (!ok) return std::nullopt;
 
-    if (count == kEsp32DiagnosticsFieldsWithVbat) {
+    // The firmware prints `nan` when the INA228 is absent or a read failed.
+    if (count >= kEsp32DiagnosticsFieldsWithVbat) {
         double vbat = 0.0;
         if (!parse_number(fields[20], vbat)) return std::nullopt;
-        // The firmware prints `nan` when the INA219 is absent or a read failed.
         if (std::isfinite(vbat)) event.vbat = vbat;
+    }
+    if (count >= kEsp32DiagnosticsFieldsWithIbat) {
+        double ibat = 0.0;
+        if (!parse_number(fields[21], ibat)) return std::nullopt;
+        if (std::isfinite(ibat)) event.ibat = ibat;
     }
     return event;
 }
@@ -173,6 +179,12 @@ std::string to_esp32_diagnostics_json(const Esp32DiagnosticsEvent &event) {
         append_double(json, "vbat", *event.vbat);
     } else {
         json += "\"vbat\":null";
+    }
+    json += ',';
+    if (event.ibat) {
+        append_double(json, "ibat", *event.ibat);
+    } else {
+        json += "\"ibat\":null";
     }
     json += '}';
     return json;

@@ -1,0 +1,24 @@
+# Mr Stabs Mk2 on MotionProfileNavigation against the sim. Pairs with simulation/sim_mr_stabs_mk2.toml
+# on the MuJoCo plant. Used to check a [plant] table distilled from the MuJoCo fit
+# (playground/calibration/distill_mujoco_plant.py) before Mr Stabs leaves pursuit on the robot;
+# playground/calibration/sim_stop_test.py drives it headless, one run per goal.
+#
+#   ./scripts/run_simulation.sh simulation/sim_mr_stabs_mk2.toml \
+#       config/simulation/mr_stabs_mk2_motion_profile_sim.toml
+#
+# The [plant] table is inherited from mr_stabs_mk2_kinematic_sim.toml (geometry placeholders until
+# write_plant_configs.py --robot mr_stabs_mk2 writes a distilled one there).
+extends = "simulation/mr_stabs_mk2_kinematic_sim"
+
+# `type` differs from the base's PursuitNavigation, so this replaces the section wholesale and
+# every field is restated. Same values as _common.toml [navigation].
+[navigation]
+type = "MotionProfileNavigation"
+stop_distance = 0.15
+attack_terminal_speed_fraction = 1.0
+run_away_terminal_speed_fraction = 0.0
+wall_reverse_distance = 0.25
+wall_heading_threshold = 1.047
+wall_reverse_min_speed = 0.25
+max_linear_command = 0.8
+max_angular_command = 1.0

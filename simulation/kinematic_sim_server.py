@@ -31,6 +31,7 @@ import socket
 import struct
 from collections import deque
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -62,6 +63,23 @@ from protocol import (
 from viewer import Viewer
 
 from hazards import load_hazards
+
+# [sim] trace_csv columns. Poses are ground truth, not what perception reported; goal is the first
+# opponent, which a go-to-point mission drives to. Pitch is 0 on the kinematic plant.
+TRACE_HEADER = (
+    "tick",
+    "t",
+    "cmd_lin",
+    "cmd_ang",
+    "x",
+    "y",
+    "yaw",
+    "v",
+    "w",
+    "pitch",
+    "goal_x",
+    "goal_y",
+)
 
 # ---------------------------------------------------------------------------
 # Opponents
@@ -374,6 +392,15 @@ class KinematicServer:
         send_all(conn, gt)
 
     def handle_client(self, conn: socket.socket) -> None:
+        if not self._cfg.sim.trace_csv:
+            self._run_client(conn, None)
+            return
+        with open(self._cfg.sim.trace_csv, "w", newline="") as handle:
+            trace = csv.writer(handle)
+            trace.writerow(TRACE_HEADER)
+            self._run_client(conn, trace)
+
+    def _run_client(self, conn: socket.socket, trace: Any | None) -> None:
         self._reset()
         cfg = self._cfg
         while cfg.sim.max_ticks == 0 or self._tick < cfg.sim.max_ticks:
@@ -389,6 +416,25 @@ class KinematicServer:
             self._plant.step(applied[0], applied[1], cfg.sim.dt)
             for opponent in self._opponents:
                 opponent.step(cfg.sim.dt)
+            if trace is not None:
+                x, y, yaw = self._plant.pose()
+                goal = self._opponents[0].pose() if self._opponents else (math.nan, math.nan, 0.0)
+                trace.writerow(
+                    [
+                        self._tick,
+                        f"{self._sim_time + cfg.sim.dt:.4f}",
+                        f"{applied[0]:.5f}",
+                        f"{applied[1]:.5f}",
+                        f"{x:.5f}",
+                        f"{y:.5f}",
+                        f"{yaw:.5f}",
+                        f"{self._plant.v:.5f}",
+                        f"{self._plant.w:.5f}",
+                        f"{getattr(self._plant, 'pitch', 0.0):.5f}",
+                        f"{goal[0]:.5f}",
+                        f"{goal[1]:.5f}",
+                    ]
+                )
 
             obs_our, obs_opps = self._perception.observe(
                 self._plant.pose(), [o.pose() for o in self._opponents]

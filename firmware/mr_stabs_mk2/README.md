@@ -19,18 +19,28 @@ The firmware has two modes, toggled by the `button_state` switch on the transmit
 | Right ESC | Pin A3, DShot300 via RMT channel 1 |
 | Radio RX | Crossfire Nano, UART on pins 17 (TX) / 18 (RX) |
 | Accelerometer | ADXL375, I2C |
-| Pack voltage | INA219 breakout at 0x40, on the BNO055's I2C bus (`Wire1`) |
+| Pack voltage and current | Matek I2C-INA-BM (INA228) at 0x45, on the BNO055's I2C bus (`Wire1`) |
 
-### INA219 pack voltage wiring
+### INA228 pack voltage and current wiring
 
-The INA219 reads only bus voltage, in its 32 V range. Current is not measured.
+The Matek I2C-INA-BM board carries an INA228 and a 200 uohm shunt. The firmware reads bus voltage and shunt voltage; current is shunt voltage over the nominal 200 uohm.
 
-- One sense wire from pack + through a 1 kohm series resistor to VIN+ only. VIN- stays unconnected: the chip reads the bus through the onboard 0.1 ohm shunt, which carries only its microamps. Wiring pack + to both pins would put the shunt in parallel with the resistor and bypass it.
-- After the resistor, a 0.1 uF cap to ground (100 us RC, filters the power-on ringing) or an SMAJ18A TVS to ground. The bus input is 26 V absolute max, a full 4S LiHV pack is 17.4 V, and closing the switch rings the leads against the ESC input caps up to nearly twice pack voltage. The resistor also limits fault current, so a failed chip cannot put pack voltage onto the shared I2C bus.
-- VCC from the QT Py's 3.3 V, so the I2C pull-ups stay at 3.3 V.
-- GND at battery negative.
+- Battery + and the ESC + lead solder to the two sides of the shunt, as close to it as possible. The voltage sense input is on board and rated 0-85 V, so no series resistor or clamp is needed.
+- JST-GH-4P cable to the QT Py: 5 V, GND, SCL, SDA on `Wire1`. The board takes 4-9 V and makes its own 3.3 V for the INA228.
+- Default address 0x45 (decimal 69); 0x44 and 0x41 are the alternatives.
 
-Calibrate once against a multimeter, at rest and during a punch, and set `VBAT_CAL_SCALE` in `include/vbat_sensor.h`. The series resistor shifts the reading about 0.3%. If the INA219 does not answer at boot, `vbat` reads `nan` and the robot runs normally.
+The INA228 bus voltage is +-0.1% out of the box, so there is no calibration constant. Current accuracy is the shunt tolerance, about +-2%; check it once against a clamp meter. If the chip does not answer at boot, or reports a device ID other than INA228 (Matek also ships the board with an INA238), `vbat` and `ibat` read `nan` and the robot runs normally.
+
+### CRSF telemetry
+
+While the radio link is up, the firmware sends two CRSF sensor frames back to the transmitter, alternating every 50 ms so each arrives at 10 Hz:
+
+| Frame | EdgeTX sensors | Source |
+|---|---|---|
+| Battery (0x08) | `RxBt` volts, `Curr` amps | INA228. `Capa` and `Bat%` are sent as 0: capacity is not tracked yet |
+| Attitude (0x1E) | `Yaw`, `Roll`, `Ptch` | BNO055 Euler angles. Yaw is heading wrapped to +-180 degrees |
+
+After flashing, run Telemetry > Discover new sensors on the radio. A NaN reading (no INA228) goes out as 0.
 
 ## Building and Flashing
 
@@ -116,7 +126,7 @@ The dashboard streams all diagnostic data at 10 Hz:
 - Accelerometer (x, y, z)
 - Orientation (upside down detection)
 - Loop timing and WiFi client count
-- Pack voltage (`vbat`, last CSV column, sampled every 10 ms and repeated in between)
+- Pack voltage and current (`vbat` and `ibat`, the last two CSV columns, sampled every 10 ms and repeated in between; `ibat` is positive while discharging)
 - Current mode (combat / tuning)
 
 ### Recording Data

@@ -44,7 +44,8 @@ CAMERA_FRAME = "camera"
 NUM_TRANSMITTER_CHANNELS = 16
 
 # Field order of one /robot/esp32_diagnostics event, with the pandas dtype each column gets.
-# Booleans stay bool; vbat is float with NaN where the firmware had no INA219 reading (null).
+# Booleans stay bool; vbat and ibat are float with NaN where the firmware had no INA228 reading
+# (null, or a recording older than the field).
 ESP32_FIELDS: tuple[tuple[str, str], ...] = (
     ("host_receive_ns", "int64"),
     ("timestamp_ms", "int64"),
@@ -68,6 +69,7 @@ ESP32_FIELDS: tuple[tuple[str, str], ...] = (
     ("pid_setpoint", "float64"),
     ("pid_output", "float64"),
     ("vbat", "float64"),
+    ("ibat", "float64"),
 )
 
 
@@ -214,7 +216,7 @@ def _esp32_value(value: Any, dtype: str) -> Any:
 def esp32_events_frame(events: list[dict[str, Any]]) -> pd.DataFrame:
     """Typed DataFrame from decoded ESP32 event dicts, one row each, in ``ESP32_FIELDS`` order.
 
-    A missing or null float (``vbat`` without an INA219 reading) becomes NaN.
+    A missing or null float (``vbat`` or ``ibat`` without an INA228 reading) becomes NaN.
     """
     columns: dict[str, list[Any]] = {name: [] for name, _ in ESP32_FIELDS}
     for event in events:
