@@ -23,10 +23,14 @@ const uint32_t DETAILS_INTERVAL = 1000;
 const uint8_t I2C_SHORT_READ = 6;
 const uint8_t I2C_NOT_TRIED = 255;
 
-// Gyro z is counterclockwise-positive about the chip's z axis; the Euler heading grows
-// clockwise. With the chip mounted level and face up, the heading rate is minus gyro z.
-// check_gyro_sign() verifies this on the robot.
-const float GYRO_Z_TO_HEADING_SIGN = -1.0f;
+// The yaw rate is the gyro projected onto the measured up direction (the fused gravity vector,
+// which reads +z with the chip level and face up), so it stays the world yaw rate tilted or
+// upside down. The gyro is right-handed, counterclockwise-positive about up; the Euler heading
+// grows clockwise, hence -1. On the 2026-10-06 run, gyro z alone agreed with the heading change
+// on 100% of fast samples upright and on 0% inverted. check_gyro_sign() verifies it live.
+const float YAW_RATE_SIGN = -1.0f;
+// Below this gravity magnitude (m/s^2) the up direction is unreliable; assume the last one.
+const float MIN_GRAVITY_FOR_UP = 3.0f;
 // Both rates must exceed this for a sample to vote on whether their signs agree.
 const float SIGN_CHECK_MIN_RATE = 60.0f;
 // Votes against the sign before the yaw-rate loop is locked out.
@@ -74,6 +78,7 @@ class UpdownSensor {
     status_t status = {};
     float yaw_rate = 0.0f;      // deg/s clockwise, from the gyro
     float heading_rate = 0.0f;  // deg/s clockwise, from consecutive headings
+    float up_sign = 1.0f;       // +1 chip face up, -1 face down, for when gravity is unreliable
     float prev_heading = 0.0f;
     uint32_t prev_heading_us = 0;
     bool has_prev_heading = false;
@@ -105,7 +110,7 @@ class UpdownSensor {
     // coarser than the gyro; kept to check the gyro's sign.
     float get_heading_rate() { return heading_rate; }
     // True once the gyro and the heading change have disagreed in sign more often than they
-    // agreed, at least SIGN_CHECK_MIN_DISAGREE times: GYRO_Z_TO_HEADING_SIGN is wrong for this
+    // agreed, at least SIGN_CHECK_MIN_DISAGREE times: YAW_RATE_SIGN is wrong for this
     // mounting, and closing a loop on the gyro would spin the robot.
     bool gyro_sign_suspect() {
         return status.gyro_disagree >= SIGN_CHECK_MIN_DISAGREE &&

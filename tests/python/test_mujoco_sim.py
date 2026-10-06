@@ -449,8 +449,8 @@ def test_yaw_loop_scales_with_reverse_throttle() -> None:
     forward.reset(0.0)
     reverse.reset(0.0)
     command = 0.25 * config.max_rate
-    out_fwd = forward.update(25.0, 0.0, 100.0, 0.01, 0.0)
-    out_rev = reverse.update(25.0, 0.0, 100.0, 0.01, 1.0)
+    out_fwd = forward.update(25.0, -100.0, 0.0, 100.0, 0.01)
+    out_rev = reverse.update(25.0, 100.0, 0.0, 100.0, 0.01)
     assert out_fwd == pytest.approx(config.feedforward * command + config.kp * (command - 100.0))
     assert out_rev == pytest.approx(
         config.feedforward * config.reverse_ff_scale * command
@@ -458,10 +458,31 @@ def test_yaw_loop_scales_with_reverse_throttle() -> None:
     )
 
 
-def test_mixer_passes_the_stick_through_when_inverted() -> None:
+def test_yaw_loop_idles_standing_still() -> None:
+    """The 2026-10-06 run shook at 6 Hz holding heading at a standstill; now it idles."""
     mixer = FirmwareMixer()
-    mixer.step(60.0, 30.0, 0.0, 0.01, upside_down=True, yaw_rate_dps=500.0)
-    assert mixer.pid_output == 30.0 and not mixer.yaw_loop_active
+    for heading in (0.0, 20.0, 40.0):
+        mixer.step(0.5, -1.0, heading, 0.01, yaw_rate_dps=300.0)
+        assert mixer.pid_output == 0.0
+    assert mixer.yaw.setpoint == 40.0
+
+
+def test_mixer_runs_the_yaw_loop_inverted_with_tail_first_throttle() -> None:
+    """Inverted, a_percent arrives negated, but stick back still drives tail-first."""
+    config = YawConfig(ki=0.0)
+    upright = FirmwareMixer(yaw=YawController(config))
+    inverted = FirmwareMixer(yaw=YawController(config))
+    upright.step(60.0, 25.0, 0.0, 0.01, yaw_rate_dps=100.0)
+    inverted.step(-60.0, 25.0, 0.0, 0.01, upside_down=True, yaw_rate_dps=100.0)
+    assert inverted.yaw_loop_active
+    assert inverted.pid_output == pytest.approx(upright.pid_output)
+
+
+def test_passthrough_ignores_stick_trim() -> None:
+    mixer = FirmwareMixer(auto_steer=False)
+    assert mixer.step(0.5, -1.0, 0.0, 0.01) == (-0.5, -0.5)
+    mixer.step(0.0, 30.0, 0.0, 0.01)
+    assert mixer.pid_output == 30.0
 
 
 def test_load_fit_params_takes_the_lowest_finite_loss(tmp_path: Path) -> None:

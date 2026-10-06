@@ -47,6 +47,8 @@ uint32_t prev_loop_us = 0;
 yaw_control::YawController *yaw_controller;
 float steer_output = 0.0f;  // differential percent: added to the left wheel, taken off the right
 bool yaw_loop_active = false;
+bool was_upside_down = false;
+const float TURN_DEADBAND_PERCENT = 1.0f;  // passthrough steering, same as the yaw loop's
 const uint32_t HEADING_STALE_US = 100000;
 uint32_t last_heading_sample_us = 0;
 
@@ -160,8 +162,9 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
                        float &left_command, float &right_command) {
     float a_percent = radio_data->a_percent;
     float b_percent = radio_data->b_percent;
-    // a_percent is the negated throttle channel, so pulling the stick back reads positive.
-    float reverse = constrain(a_percent / 100.0f, 0.0f, 1.0f);
+    // a_percent is the negated throttle channel, so pulling the stick back reads positive, and
+    // loop() negates it again when inverted. Either way, stick back drives tail-first.
+    float tail_first_throttle = is_upside_down ? -a_percent : a_percent;
 
     uint32_t sample_us = accel->get_sample_us();
     bool fresh_heading = sample_us != 0 && sample_us != last_heading_sample_us;
@@ -170,24 +173,27 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
     if (fresh_heading) last_heading_sample_us = sample_us;
     bool heading_stale = sample_us == 0 || now_us - sample_us > HEADING_STALE_US;
 
-    // Inverted, the skid is off the floor and the chip's z axis points down, so neither the
-    // gains nor the gyro sign have been worked out for it yet.
-    bool yaw_usable =
-        auto_steer_enabled && !is_upside_down && !heading_stale && !accel->gyro_sign_suspect();
+    // The differential turns the robot the same way inverted (both the wheel sides and their
+    // ground direction swap), and the yaw rate is projected on the measured up direction, so
+    // the loop runs upside down too. A flip restarts it: the Euler heading swings while the
+    // robot goes over.
+    bool yaw_usable = auto_steer_enabled && !heading_stale && !accel->gyro_sign_suspect();
     if (!yaw_usable) {
-        steer_output = b_percent;
+        // The stick's resting trim (about 1% on this transmitter) would otherwise creep a wheel.
+        steer_output = fabs(b_percent) > TURN_DEADBAND_PERCENT ? b_percent : 0.0f;
         yaw_loop_active = false;
     } else {
-        if (!yaw_loop_active) {
-            // Engaging (switch moved to DOWN, IMU back, landed right side up): hold this heading.
+        if (!yaw_loop_active || is_upside_down != was_upside_down) {
+            // Engaging (switch moved to DOWN, IMU back) or just flipped: hold this heading.
             yaw_controller->reset(sensed_angle_z);
             yaw_loop_active = true;
         }
         if (fresh_heading) {
-            steer_output = yaw_controller->update(b_percent, sensed_angle_z, accel->get_yaw_rate(),
-                                                  heading_dt, reverse);
+            steer_output = yaw_controller->update(b_percent, tail_first_throttle, sensed_angle_z,
+                                                  accel->get_yaw_rate(), heading_dt);
         }
     }
+    was_upside_down = is_upside_down;
 
     left_command = -1 * a_percent + steer_output;
     right_command = -1 * a_percent - steer_output;

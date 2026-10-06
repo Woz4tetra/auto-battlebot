@@ -13,7 +13,9 @@ the yaw-rate loop:
   while turning and for a 0.25 s coast after.
 - `legacy=False` (default): the current firmware. In auto steer, `YawController` runs once
   per BNO055 sample (100 Hz): the stick commands a yaw rate, heading hold commands the rate
-  back to the held heading, and an inner loop on the gyro sets the differential.
+  back to the held heading, and an inner loop on the gyro sets the differential. Under 5%
+  throttle with the stick centered it idles. It runs upside down too; outside auto steer the
+  stick passes through with a 1% deadband.
 
 The BNO055 heading (`orientation_x`) is degrees in [0, 360) and grows clockwise seen from above;
 `heading_from_yaw` converts the sim's counterclockwise yaw into it, and rates here are
@@ -127,6 +129,7 @@ class YawConfig:
     turn_threshold: float = TURN_THRESHOLD_PERCENT
     capture_rate: float = 45.0
     capture_timeout: float = 0.3
+    idle_throttle: float = 5.0
 
 
 @dataclass
@@ -150,11 +153,20 @@ class YawController:
         self.rate_command = 0.0
 
     def update(
-        self, turn_percent: float, heading: float, rate: float, dt: float, reverse: float
+        self, turn_percent: float, throttle: float, heading: float, rate: float, dt: float
     ) -> float:
         c = self.config
-        if abs(turn_percent) > c.turn_threshold:
+        turning = abs(turn_percent) > c.turn_threshold
+        if not turning and abs(throttle) < c.idle_throttle:
+            self.capturing = False
+            self.setpoint = heading
+            self.rate_command = 0.0
+            self.output = 0.0
+            return self.output
+        feedforward_command = 0.0
+        if turning:
             self.rate_command = turn_percent / 100.0 * c.max_rate
+            feedforward_command = self.rate_command
             self.capturing = True
             self.capture_time = 0.0
         else:
@@ -168,13 +180,14 @@ class YawController:
             else:
                 command = c.k_heading * wrap_degrees(self.setpoint - heading)
                 self.rate_command = max(-c.hold_rate_max, min(c.hold_rate_max, command))
+        reverse = min(max(throttle / 100.0, 0.0), 1.0)
         kp = c.kp * (1.0 + (c.reverse_kp_scale - 1.0) * reverse)
         feedforward = c.feedforward * (1.0 + (c.reverse_ff_scale - 1.0) * reverse)
         error = self.rate_command - rate
-        unsaturated = feedforward * self.rate_command + kp * error + self.integral
+        unsaturated = feedforward * feedforward_command + kp * error + self.integral
         if abs(unsaturated) < 100.0 or (unsaturated > 0.0) != (error > 0.0):
             self.integral = max(-c.i_max, min(c.i_max, self.integral + c.ki * error * dt))
-        out = feedforward * self.rate_command + kp * error + self.integral
+        out = feedforward * feedforward_command + kp * error + self.integral
         self.output = max(-100.0, min(100.0, out))
         return self.output
 
@@ -201,6 +214,7 @@ class FirmwareMixer:
     _was_auto_steer: bool = False
     # current firmware state
     yaw_loop_active: bool = False
+    _was_upside_down: bool = field(default=False, repr=False)
     _held: tuple[float, float] | None = field(default=None, repr=False)
     _since_sample: float = field(default=0.0, repr=False)
 
@@ -257,16 +271,20 @@ class FirmwareMixer:
         upside_down: bool,
     ) -> None:
         heading, rate, fresh = self._sample(heading_deg, rate_dps, dt)
-        reverse = min(max(a_percent / 100.0, 0.0), 1.0)
-        if not self.auto_steer or upside_down:
-            self.pid_output = b_percent
+        # a_percent arrives already negated when inverted; stick back drives tail-first either way.
+        tail_first_throttle = -a_percent if upside_down else a_percent
+        if not self.auto_steer:
+            self.pid_output = b_percent if abs(b_percent) > TURN_THRESHOLD_PERCENT else 0.0
             self.yaw_loop_active = False
             return
-        if not self.yaw_loop_active:
+        if not self.yaw_loop_active or upside_down != self._was_upside_down:
             self.yaw.reset(heading)
             self.yaw_loop_active = True
         if fresh:
-            self.pid_output = self.yaw.update(b_percent, heading, rate, self.sample_period, reverse)
+            self.pid_output = self.yaw.update(
+                b_percent, tail_first_throttle, heading, rate, self.sample_period
+            )
+        self._was_upside_down = upside_down
 
     def step(
         self,

@@ -14,21 +14,24 @@ The firmware has two modes, toggled by the `button_state` switch on the transmit
 
 | Flip switch | Upside down | Turn stick |
 |---|---|---|
-| UP | forced on | passes straight to the wheels |
-| MIDDLE | off | passes straight to the wheels |
+| UP | forced on | passes straight to the wheels, 1% deadband |
+| MIDDLE | off | passes straight to the wheels, 1% deadband |
 | DOWN (power-on default) | from the BNO055 | commands a yaw rate, closed on the gyro |
 
 In DOWN, `lib/yaw_control` steers. The turn stick asks for a yaw rate (2000 deg/s at full
 stick); with it centered, heading hold asks for the rate that returns to the held heading. A
-loop on the BNO055 gyro sets the left/right differential to get that rate, and in reverse its
-feedback rises 4x. Mr Stabs' center of mass sits ahead of the axle, so driving tail-first is
-unstable and spins out without it, also in MIDDLE.
+loop on the BNO055 gyro sets the left/right differential to get that rate, and while driving
+tail-first its feedback rises up to 4x. Mr Stabs' center of mass sits ahead of the axle, so
+driving tail-first is unstable and spins out without it, also in MIDDLE. Stick back drives
+tail-first right side up and upside down alike, and the loop runs in both. Standing still
+(under 5% throttle) with the turn stick centered, it idles and outputs nothing.
 
-The turn stick falls back to passing straight through while the robot is upside down, while
-the IMU is not sampling, and when the gyro sign check fails. That check compares the gyro
-with the change in heading on every fast-turning sample. The sensor panel on the dashboard
-shows it: spin the robot by hand before driving and confirm the "agree" count rises.
-`GYRO_Z_TO_HEADING_SIGN` in `include/updown_sensor.h` flips it.
+The yaw rate is the gyro projected onto the fused gravity vector, so it stays the world yaw
+rate when the robot is tilted or inverted. The turn stick passes straight through (outside a
+1% deadband) while the IMU is not sampling and when the gyro sign check fails. That check
+compares the gyro with the change in heading on every fast-turning sample. The sensor panel on
+the dashboard shows it: spin the robot by hand before driving and confirm the "agree" count
+rises. `YAW_RATE_SIGN` in `include/updown_sensor.h` flips it.
 
 The gains come from the closed-loop sim in `auto_battlebot/mujoco_sim`, whose
 `firmware.py` mirrors this code. Its plant is not fit to recordings yet, so expect to tune.

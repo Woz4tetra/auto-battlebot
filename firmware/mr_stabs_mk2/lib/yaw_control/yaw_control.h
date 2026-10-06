@@ -5,8 +5,15 @@ namespace yaw_control {
 //
 // The turn stick commands a yaw rate. With the stick centered, heading hold commands the rate
 // that steers back to the held heading. An inner loop on the BNO055 gyro turns the rate command
-// into the left/right differential the mixer adds to the throttle: feedforward from the command
-// plus proportional and integral feedback on the rate error.
+// into the left/right differential the mixer adds to the throttle: feedforward from the stick's
+// command plus proportional and integral feedback on the rate error. Heading hold's commands get
+// no feedforward: on the 2026-10-06 run that acted as a second heading gain and, with the robot
+// standing still, shook it at 6 Hz.
+//
+// Standing still with the turn stick centered the loop idles: zero output, and the held heading
+// follows the robot. There the robot is an undamped integrator (1533 deg/s^2 of yaw per percent,
+// fit from that run) behind a 30 ms delay, so any useful hold gain hunts around the ESC
+// deadzone, and there is no drift to correct.
 //
 // The rate loop exists for reverse. Mr Stabs' center of mass sits 32 mm ahead of the axle, so
 // driving tail-first is directionally unstable and a turn there builds ~1000 deg/s within
@@ -33,6 +40,7 @@ struct Config {
     float turn_threshold = 1.0f;       // % of stick above which the driver is turning
     float capture_rate = 45.0f;        // deg/s below which a released turn has stopped
     float capture_timeout = 0.3f;      // s after release to take the heading regardless
+    float idle_throttle = 5.0f;        // % of throttle below which a centered stick idles
 };
 
 class YawController {
@@ -42,10 +50,10 @@ class YawController {
     // Hold `heading` from now on: clears the integral and any turn in progress.
     void reset(float heading);
 
-    // One BNO055 sample. turn_percent is the turn stick (-100..100), dt the seconds since the
-    // previous sample, reverse 0 (forward or stopped) to 1 (full reverse throttle). Returns
-    // the differential in percent, clamped to +-100.
-    float update(float turn_percent, float heading, float rate, float dt, float reverse);
+    // One BNO055 sample. turn_percent is the turn stick (-100..100), throttle the drive command
+    // in percent, positive driving tail-first (the unstable direction), dt the seconds since
+    // the previous sample. Returns the differential in percent, clamped to +-100.
+    float update(float turn_percent, float throttle, float heading, float rate, float dt);
 
     float output() const { return _output; }
     float rate_command() const { return _rate_command; }

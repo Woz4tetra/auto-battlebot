@@ -215,7 +215,21 @@ bool UpdownSensor::update_sensor(bool radio_connected)
     gyro_vec->y = gyro_data.gyro.y;
     gyro_vec->z = gyro_data.gyro.z;
     sample_us = micros();
-    yaw_rate = GYRO_Z_TO_HEADING_SIGN * gyro_vec->z * RAD_TO_DEG;
+    float gravity = sqrtf(grav_vec->x * grav_vec->x + grav_vec->y * grav_vec->y +
+                          grav_vec->z * grav_vec->z);
+    float up_rate;
+    if (gravity > MIN_GRAVITY_FOR_UP)
+    {
+        up_rate = (gyro_vec->x * grav_vec->x + gyro_vec->y * grav_vec->y +
+                   gyro_vec->z * grav_vec->z) /
+                  gravity;
+        up_sign = grav_vec->z >= 0.0f ? 1.0f : -1.0f;
+    }
+    else
+    {
+        up_rate = up_sign * gyro_vec->z;
+    }
+    yaw_rate = YAW_RATE_SIGN * up_rate * RAD_TO_DEG;
     check_gyro_sign(orientation->x, sample_us);
     status.samples++;
     status.last_sample_ms = millis();

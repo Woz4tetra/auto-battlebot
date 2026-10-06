@@ -184,7 +184,7 @@ function renderStatus(s){
  }
  imuRows.push(
   ['yaw rate: gyro / heading change',m.yaw_rate.toFixed(0)+' / '+m.heading_rate.toFixed(0)+' deg/s CW'],
-  ['gyro sign check (spin it)',m.gyro_sign_suspect?'FAILED: yaw loop off, flip GYRO_Z_TO_HEADING_SIGN':(m.gyro_agree+m.gyro_disagree===0?'no votes yet':'agree '+m.gyro_agree+', disagree '+m.gyro_disagree),m.gyro_sign_suspect]);
+  ['gyro sign check (spin it)',m.gyro_sign_suspect?'FAILED: yaw loop off, flip YAW_RATE_SIGN':(m.gyro_agree+m.gyro_disagree===0?'no votes yet':'agree '+m.gyro_agree+', disagree '+m.gyro_disagree),m.gyro_sign_suspect]);
  fill('imuT',imuRows);
  const n=s.ina;
  fill('inaT',[
