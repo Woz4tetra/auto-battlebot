@@ -34,20 +34,22 @@ float Pid::update(float setpoint, float measurement, float dt) {
         error = _wrap_error(error);
     }
 
-    if (fabs(error) < tolerance) {
-        return 0.0;
-    }
     if (dt <= 0.0) {
         // In embedded systems, we might prefer to return 0 or last output
         // instead of throwing an exception
         return 0.0;
     }
 
+    // Every term runs before the tolerance check, so prev_error and the integral stay current
+    // while the output is held at zero inside the band.
     float output = 0.0;
     output += _calculate_p(error);
     output += _calculate_i(error, dt);
     output += _calculate_d(error, dt);
     output += _calculate_f(setpoint);
+    if (fabs(error) < tolerance) {
+        return 0.0;
+    }
     return output;
 }
 float Pid::_calculate_p(float error) {
@@ -65,22 +67,18 @@ float Pid::_calculate_i(float error, float dt) {
     // Check integral zone
     if (i_zone < 0.0) {
         // No i_zone limit (equivalent to Python's None)
-        i_accum += error;
+        i_accum += error * dt;
     } else if (fabs(error) < i_zone) {
-        i_accum += error;
+        i_accum += error * dt;
     }
 
-    // Apply integral windup protection
+    // Apply integral windup protection: clamp so |ki * i_accum| <= i_max
     if (i_max != 0.0) {
-        float max_i_term = i_max / ki;
-        if (i_accum > 0.0) {
-            i_accum = fmin(i_accum, max_i_term);
-        } else {
-            i_accum = fmax(i_accum, -max_i_term);
-        }
+        float max_i_accum = fabs(i_max / ki);
+        i_accum = fmax(fmin(i_accum, max_i_accum), -max_i_accum);
     }
 
-    return ki * i_accum * dt;
+    return ki * i_accum;
 }
 
 float Pid::_calculate_d(float error, float dt) {

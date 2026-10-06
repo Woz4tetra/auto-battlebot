@@ -44,6 +44,10 @@ float cooldown_timer = 0.0f;
 bool was_auto_steer_enabled = false;
 const float TURNING_COOLDOWN_TIME = 0.25f;  // coast time after a turn before heading hold engages
 const float ANGULAR_SCALE = 1.0f;           // scales the manual turn command (b stick)
+// Heading hold runs once per BNO055 sample, not once per loop, so its D and I terms see the real
+// time between headings. With no new sample for this long, the IMU has stalled: output zero.
+const uint32_t HEADING_STALE_US = 100000;
+uint32_t last_heading_sample_us = 0;
 
 // Command-timeout failsafe
 crsf_bridge::radio_data_t *prev_radio_data;
@@ -124,7 +128,8 @@ void copy_radio_data(const crsf_bridge::radio_data_t *src, crsf_bridge::radio_da
     dest->flip_switch_state = src->flip_switch_state;
 }
 
-float get_filtered_angular_z(float percent_input, float sensed_angle_z, float dt) {
+float get_filtered_angular_z(float percent_input, float sensed_angle_z, float dt,
+                             bool fresh_heading, float heading_dt, bool heading_stale) {
     float angular_v = percent_input * ANGULAR_SCALE;
     float filtered_angular_v;
 
@@ -144,21 +149,36 @@ float get_filtered_angular_z(float percent_input, float sensed_angle_z, float dt
         if (was_turning) {
             // Still coasting during cooldown: no angular correction
             filtered_angular_v = 0.0f;
-        } else {
+        } else if (heading_stale) {
+            filtered_angular_v = 0.0f;
+        } else if (fresh_heading) {
             // Hold heading
-            filtered_angular_v = angle_pid->update(angle_setpoint, sensed_angle_z, dt);
+            filtered_angular_v = angle_pid->update(angle_setpoint, sensed_angle_z, heading_dt);
+        } else {
+            // Between samples: repeat the last correction
+            filtered_angular_v = angle_pid_output;
         }
     }
     return filtered_angular_v;
 }
 
 void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle_z,
-                       bool auto_steer_enabled, float dt, float &left_command,
+                       bool auto_steer_enabled, float dt, uint32_t now_us, float &left_command,
                        float &right_command) {
     float a_percent = radio_data->a_percent;
     float b_percent = radio_data->b_percent;
+
+    uint32_t sample_us = accel->get_sample_us();
+    bool fresh_heading = sample_us != 0 && sample_us != last_heading_sample_us;
+    // Capped so the first sample after arming, when last_heading_sample_us is old, does not
+    // integrate the whole disarmed stretch.
+    float heading_dt = min(sample_us - last_heading_sample_us, HEADING_STALE_US) / 1000000.0f;
+    if (fresh_heading) last_heading_sample_us = sample_us;
+    bool heading_stale = sample_us == 0 || now_us - sample_us > HEADING_STALE_US;
+
     if (auto_steer_enabled) {
-        float filtered_angular_v = get_filtered_angular_z(b_percent, sensed_angle_z, dt);
+        float filtered_angular_v = get_filtered_angular_z(b_percent, sensed_angle_z, dt,
+                                                          fresh_heading, heading_dt, heading_stale);
         angle_pid_output = filtered_angular_v;
     } else {
         angle_pid_output = b_percent;
@@ -201,6 +221,9 @@ void setup() {
     for (int count = 0; count < 2; count++) pulse_led();
 
     Wire1.begin();  // BNO055 IMU lives on the Wire1 I2C bus
+    // Fast mode cuts the three BNO055 reads per sample from ~2.7 ms to ~0.7 ms of blocking.
+    // Both the BNO055 and the INA228 support 400 kHz.
+    Wire1.setClock(400000);
     accel = new updown_sensor::UpdownSensor();
     if (!accel->begin()) {
         for (int count = 0; count < 10; count++) pulse_led();
@@ -221,8 +244,8 @@ void setup() {
     config.ki = 0.01f;
     config.kd = 0.01f;
     config.kf = 0.0f;
-    config.tolerance = 2.0f;  // hold heading within 2 degrees
-    config.i_max = 1000.0f;
+    config.tolerance = 2.0f;   // hold heading within 2 degrees
+    config.i_max = 20.0f;      // percent of drive command
     config.continuous = true;  // wrap yaw error across +/-180
     angle_pid = new pid::Pid(config);
 
@@ -410,7 +433,7 @@ void loop() {
     was_auto_steer_enabled = auto_steer_enabled;
 
     float left_command, right_command;
-    mix_motor_outputs(radio_data, sensed_angle_z, auto_steer_enabled, dt, left_command,
+    mix_motor_outputs(radio_data, sensed_angle_z, auto_steer_enabled, dt, micros(), left_command,
                       right_command);
 
     left_esc->write(left_command);

@@ -14,7 +14,8 @@ typedef struct {
 const float RIGHT_SIDE_UP_THRESHOLD = -1.0;
 const float UPSIDE_DOWN_THRESHOLD = 1.0;
 const uint32_t RECONNECT_INTERVAL = 1000;
-const uint32_t SAMPLE_INTERVAL = 100;
+// The BNO055 fusion output updates at 100 Hz, so reading faster returns repeated values.
+const uint32_t SAMPLE_INTERVAL = 10;
 
 class UpdownSensor {
    private:
@@ -28,6 +29,7 @@ class UpdownSensor {
     bool is_upside_down = false;
     uint32_t reconnect_timer = 0;
     uint32_t sample_timer = 0;
+    uint32_t sample_us = 0;
     vector3_t *make_unit_vector(float x, float y, float z);
     bool update_sensor(bool radio_connected);
     vector3_t *init_vector3(float x, float y, float z);
@@ -41,5 +43,7 @@ class UpdownSensor {
     vector3_t *get_min() { return min_grav_vec; }
     vector3_t *get_orientation() { return orientation; }
     vector3_t *get_gyro() { return gyro_vec; }
+    // micros() when the last sample was read, 0 before the first. A change means new data.
+    uint32_t get_sample_us() { return sample_us; }
 };
 }  // namespace updown_sensor
